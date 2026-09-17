@@ -37,9 +37,11 @@
 
 ## 并发度
 
-默认取 `min(8, cpu_count)`。CI runner 通常 2-4 核，故实际并发度会是 2-4；
-本机（32 核）用 8 已实测 173 文件 255s、失败 0。并发度过高反而会因
-CPU 争抢变慢，且会让 60s 超时更容易被误触发，故不盲目拉满。
+默认取 `min(4, cpu_count)`。CI runner 通常 2-4 核，故实际并发度 2-4。
+**不用 min(8, ...)**：每个 verify 进程都要完整导入 Flask app 并建内存库，
+是重内存 + 重 IO 的任务，不是纯 CPU 密集；在 4 核 runner 上开到 8 会因内存与
+磁盘争抢反而更慢，也让单文件 60s 超时更容易被误触发。
+需要更激进/更保守时用环境变量 `VERIFY_WORKERS` 覆盖（CI 里未设置即走默认）。
 """
 from __future__ import annotations
 
@@ -96,7 +98,7 @@ def _run_one(path: str) -> tuple[str, int, float, str]:
 
 
 def main() -> int:
-    workers = int(os.environ.get('VERIFY_WORKERS') or 0) or min(8, os.cpu_count() or 2)
+    workers = int(os.environ.get('VERIFY_WORKERS') or 0) or min(4, os.cpu_count() or 2)
     files = sorted(
         os.path.relpath(p, REPO_ROOT)
         for p in glob.glob(str(REPO_ROOT / 'tests' / 'verify_*.py'))
@@ -127,9 +129,47 @@ def main() -> int:
         for path, rc, elapsed, out in failures:
             print(f'\n--- {path} (rc={rc}, {elapsed:.1f}s) ---')
             print(out[-4000:])
+        _write_step_summary(failures, len(targets), total)
     print(f'\nverify_*.py 失败文件数: {len(failures)}（已知跳过: {len(skipped)}）'
           f'  总耗时 {total:.1f}s')
     return 1 if failures else 0
+
+
+def _write_step_summary(failures, total_files: int, total_secs: float) -> None:
+    """把失败详情写进 GITHUB_STEP_SUMMARY 与工作区文件。
+
+    为什么要这一步（AI-CI-GREEN-003）：GitHub 的 job 日志走
+    `productionresultssa*.blob.core.windows.net`，在某些网络环境下该域名不可达
+    （DNS 被解析到保留地址、TLS 直接 EOF），导致"CI 红了但看不到红在哪"。
+    step summary 是纯文本 API 资源，可用 `GET /actions/jobs/<id>/logs` 之外的方式读取，
+    且会直接渲染在 job 页面上，是**唯一稳定可达**的失败详情通道。
+    同时落一份到工作区文件，便于用 upload-artifact 取走。
+    """
+    lines = ['# verify_*.py 失败详情', '',
+             f'- 检查文件数：{total_files}',
+             f'- 失败文件数：{len(failures)}',
+             f'- 总耗时：{total_secs:.1f}s', '']
+    for path, rc, elapsed, out in failures:
+        lines += [f'## {path}', '',
+                  f'- 退出码：{rc}',
+                  f'- 耗时：{elapsed:.1f}s', '',
+                  '```', out[-3000:], '```', '']
+    body = '\n'.join(lines)
+
+    summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary_path:
+        try:
+            with open(summary_path, 'a', encoding='utf-8') as fh:
+                fh.write(body + '\n')
+        except OSError as exc:  # noqa: BLE001
+            print(f'[warn] 写 GITHUB_STEP_SUMMARY 失败: {exc}')
+
+    try:
+        out_file = REPO_ROOT / 'verify_failures_summary.md'
+        out_file.write_text(body, encoding='utf-8')
+        print(f'[info] 失败详情已写入 {out_file}（便于作为 artifact 取走）')
+    except OSError as exc:  # noqa: BLE001
+        print(f'[warn] 写工作区摘要文件失败: {exc}')
 
 
 if __name__ == '__main__':

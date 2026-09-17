@@ -174,9 +174,27 @@ jobs:
       # 历史同结论：当年多文件同进程混跑产生 169 例环境性假失败，故改为逐文件独立进程。
       # 脚本内保留原 step 的全部语义：pytest式/脚本式分流、known_failures 清单、
       # 单文件 60s 超时、失败文件数汇总 + 非零退出。
+      #
+      # AI-CI-GREEN-003：并发度显式钉为 4（而非脚本默认的 min(4,cpu)）。
+      # 理由：verify 进程是「重内存 + 重 IO」（每个都要导入 Flask app + 建内存库），
+      # 在 4 核 runner 上并发过高会引发内存/磁盘争抢，并让 60s 单文件超时更易误触。
       - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
         timeout-minutes: 20
+        env:
+          VERIFY_WORKERS: '4'
         run: python3 scripts/run_verify_parallel.py
+
+      # 失败详情兜底：GitHub job 日志走 productionresultssa*.blob.core.windows.net，
+      # 某些网络环境下不可达（DNS 落保留地址 / TLS EOF），导致"红了看不到红在哪"。
+      # step summary 与 artifact 两条通道都可稳定取到失败详情。
+      - name: "Upload verify failure summary"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failures
+          path: verify_failures_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
 
       # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
       - name: "Smoke test (启动服务跑 121 项)"
