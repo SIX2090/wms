@@ -29,7 +29,15 @@ def scene(monkeypatch):
             session["_user_id"] = str(user.id)
             session["_fresh"] = True
         yield client, source, other, material
+        # 污染治理（AI-CI-GREEN-001）：teardown 原先只 session.remove()，
+        # 测试数据（out_order/out_order_item/sales_order 等明细仍引用
+        # material/warehouse 行）会泄漏给同进程的后续测试文件——
+        # TestOpeningStock* 家族的 _wipe 按序 DELETE FROM material 时被
+        # 残留明细的外键引用卡死（FOREIGN KEY constraint failed）。
+        # teardown 与 setup 对称：重建空 schema，交还干净数据库。
         wms.db.session.remove()
+        wms.db.drop_all()
+        wms.db.create_all()
 
 
 def _stock(material, warehouse, quantity, legacy=False):

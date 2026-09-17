@@ -34,13 +34,20 @@ def test_missing_material_does_not_abort_remaining_batch(scene):
     broken_id, good_id, material_id = broken.id, good.id, material.id
     wms.db.session.remove()
     with wms.db.engine.connect() as connection:
+        # 污染治理（AI-CI-GREEN-001）：PRAGMA foreign_keys 是连接级状态，
+        # 内存库场景引擎为 StaticPool 单连接——测试期改动的值会泄漏给同进程
+        # 后续所有测试（本测试原先 finally 硬编码 =ON，把基线 OFF 翻成 ON，
+        # 导致 TestOpeningStock* 家族 _wipe 删 user 时被 login_log 外键卡死）。
+        # 正确做法：先记录原值，finally 恢复原值。
+        original_fk = connection.exec_driver_sql('PRAGMA foreign_keys').fetchone()[0]
         connection.exec_driver_sql('PRAGMA foreign_keys=OFF')
         try:
             connection.exec_driver_sql('UPDATE out_order_item SET material_id=? WHERE out_order_id=?',
                                        (999999, broken_id))
             connection.commit()
         finally:
-            connection.exec_driver_sql('PRAGMA foreign_keys=ON')
+            connection.exec_driver_sql(
+                'PRAGMA foreign_keys=' + ('ON' if original_fk else 'OFF'))
     result = client.post('/out_order/batch_complete', json={"ids": [broken_id, good_id]}).get_json()
     assert result["completed"] == 1, result
     assert "物料不存在" in result["msg"]

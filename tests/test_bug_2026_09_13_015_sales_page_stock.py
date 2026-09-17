@@ -49,7 +49,12 @@ def scene(monkeypatch):
 
         monkeypatch.setattr(sales, "render_template", capture)
         yield wms.app.test_client(), context, orders, material, source, other
+        # 污染治理（AI-CI-GREEN-001）：与 002 的 scene fixture 同根因——
+        # sales_order_item 残留行引用 material，泄漏给后续测试文件。
+        # teardown 与 setup 对称：重建空 schema，交还干净数据库。
         wms.db.session.remove()
+        wms.db.drop_all()
+        wms.db.create_all()
 
 
 @pytest.mark.parametrize("endpoint", ["dashboard", "exceptions"])
