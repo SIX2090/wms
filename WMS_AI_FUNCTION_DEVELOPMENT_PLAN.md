@@ -213,6 +213,7 @@
 | 109 | AI-MOB-OFFLINE-01 | 已完成 | 安卓 App 离线优先作业队列（需求 2026-09-12：手机 App 智能化——先解决「断网即瘫痪」地基）：此前 App 的"离线"只有提示没有降级（`AppDatabase` 仅 materials/operation_logs 两表 v1、全模块无 ConnectivityManager/NetworkCallback、`OperationLogEntity` 是成功后审计日志而非待提交队列），仓库货架深处/地下室弱网时提交失败 → 已扫明细全废、必须回有信号处重扫。本任务实现「人工已确认的提交动作」断网本地暂存 + 联网自动补传：①`PendingOperationEntity`（主键 = requestId = X-Idempotency-Key，复用后端 `mobile_api_idempotent` 回放 → 重复入队/并发补传不产生重复单据）；②`PendingOperationDao`（pending/syncing/failed 状态机 + `resetStuckSyncing` 复位进程被杀残留，否则永远补传不出去＝静默丢数据）；③`DatabaseMigrations.MIGRATION_1_2` 纯新增表、不触碰既有数据；④`NetworkMonitor`（INTERNET+VALIDATED 双条件判定，只连 AP 出口不通判离线；查询/注册异常一律按离线＝保守不丢数据）；⑤`OfflineQueueManager`（只入队网络类失败；业务类 `BusinessException` 立即返回用户，避免把「确定失败」伪装成「已暂存」；补传失败累计次数、达 5 次转 failed 显式告警，绝不静默丢弃）；⑥`WmsRepository` 三提交方法统一 `submitWithOfflineFallback` + 新增 `OfflineQueuedException` 与普通失败区分；⑦`PendingSyncBanner` 严格区分「待同步」与「失败」两态，断网暂存时清空已扫明细并按成功样式提示（数据已安全，用户不必重扫 → 否则重扫制造重复单据）。**边界（AGENTS.md §一/R5）**：队列只承载用户已点击提交的动作，AI 识别/语音草稿不得入队；仓库必填（§二）缺失拒绝入队、断网不回退默认仓；补传只调用原提交接口，单据状态流转仍由人工 | 无 | 见下方完成记录 |
 | 110 | AI-MOB-RPT-F02 | 已完成 | 手机端库存日报：按仓查询各物料当天结存明细（需求 2026-09-17：「开发一个仓库库存日报表，每一个仓库各物料当天的库存明细，按仓来查询」，口径确认「只需要结存」）：①后端新增 `GET /api/mobile/report/stock_daily`（仓库必填、结存=get_warehouse_stock_quantities 仓库级口径不回退全局账、summary 与分页解耦、完整分页元数据）；②安卓新增「库存日报」页（仓库必选只列真实仓、搜索、汇总卡、滚动分页、只读零写操作）+ 可单测分页状态机；③versionCode 18→19 / 3.8.4→3.8.5 | AI-MOB-RPT-F01 | 无 | 提交 `9a5c394`（后端+测试）、`18ecf23`（安卓+单测），API 通道重放远程 `d4fcf0f6`/`2f6495b2`；验证：新增 `tests/verify_mobile_stock_daily_report_api.py` 8/8 PASSED（端点注册/401/仓库必填400/两仓隔离/汇总与分页解耦/分页元数据/不回退全局账/sort校验+keyword+零库存列出），相邻移动回归 56/56 PASSED，lint 0 违规；CI：Android APK Build ✅（含新增 StockDailyPagerTest 7 用例）、WMS AI Verification ✅（WMS CI 红灯经核对为存量测试污染，与本次无关，另立 AI-CI-GREEN-001 排查）；遗留：`in_out_detail` 出入库明细端点未做（F01 原计划遗留，用户未要求）；生效条件：后端重启 WMS 服务 + CI 出包后重装 3.8.5 APK |
 | 111 | AI-CI-GREEN-001 | 进行中 | WMS CI 存量红灯排查修复：全量套件 51 failed + 124 errors（test_p1_*_location_required 7F / test_print_* ~40F / TestOpeningStock* 124E FK 错误），推送前后失败清单完全一致（8d578ba8 与 d4fcf0f6 均为 51F/124E/1818P），单跑/小组跑全绿 → 测试间状态污染。目标：定位污染源并修复，WMS CI 转绿 | 无 | 无 | 见下方排查记录 |
+| 112 | AI-MOB-RPT-F03 | 已完成 | 手机端库存日报口径扩展（需求 2026-09-17：「显示各仓各种物料每天的库存而不是查询」，两轮口径确认为：用户选仓→自动显示该仓**结存>0**全部物料、可翻日期看历史某天收市结存）：①`GET /api/mobile/report/stock_daily` 新增 date 参数（yyyy-MM-dd 默认今天，历史结存=当前结存−该日之后归属该仓的流水增量，新增 `get_warehouse_txn_delta_map()` 归属口径与 `get_warehouse_stock_quantities` 逐条一致）+ 明细只出结存>0（零/负库存计入 summary.zero_materials）+ 历史日期 generated_at=23:59；②安卓库存日报页加日期导航条（前一天/后一天/回到今天、到达今天禁用后翻、date 参数链路贯通、空态文案按>0口径改写、副标题对齐「按仓展示」） | AI-MOB-RPT-F02 | 无 | 提交 `17f9c38`（后端+测试）、`3d3334f`（安卓+验证脚本），API 通道重放远程 `ab0cdf8d`/`54dbd5e6`；验证：新增 `tests/test_mobile_stock_daily_history.py` 11 项 PASSED（date 校验/逐日回推/>0 过滤/历史多仓隔离/汇总分页解耦/delta_map 直接单测）+ F02 回归与相邻切片 82 passed + `tests/verify_stock_daily_date_nav.py` 13/13 PASSED，lint 0 违规；生效条件：后端重启 WMS 服务 + CI 出包后重装 APK |
 
 ## 5. 任务详细定义
 
@@ -812,6 +813,48 @@
 - CI（用户确认 APK 构建在 GitHub 完成）：`Android APK Build` ✅（compileReleaseKotlin + testReleaseUnitTest 通过，含新单测）、`WMS AI Verification` ✅；`WMS CI` 红灯经逐条比对为**推送前既有的 51 failed + 124 errors 存量测试污染**（推送前后失败清单完全一致），与本次改动无关，已另立 **AI-CI-GREEN-001** 排查修复。
 - 遗留子项：`GET /api/mobile/report/in_out_detail`（出入库明细独立端点）未做（F01 原计划遗留，用户未要求）；生效条件：后端需重启 WMS 服务生效（R3 同源：路由改动），安卓需 CI 出包后重装 3.8.5 APK。
 
+### AI-MOB-RPT-F03：手机端库存日报口径扩展（自动展示结存>0 + 可翻日期看历史）
+
+**目标**：库存日报进入即**自动展示**所选仓库**结存 > 0** 的全部物料（无需先搜索），并支持**翻日期**回看历史某天的收市结存（需求原话：「显示各仓各种物料每天的库存而不是查询」；口径经用户确认：用户选择仓库、手机端显示库存大于 0 物料、可翻日期看历史）。
+
+**范围与边界**：
+- 后端 `GET /api/mobile/report/stock_daily`（在 F02 端点上扩展，向后兼容）：
+  - 新增 `date` 参数（yyyy-MM-dd，默认今天；非法格式/未来日期 → 400）。
+  - 历史结存回推：`closing(D) = get_warehouse_stock_quantities(wh)[m] − delta[m]`，
+    delta = 该日之后归属该仓的流水净增量（流水为唯一事实来源，INVENTORY_TRUTH.md ③）。
+    新增 `get_warehouse_txn_delta_map(warehouse, since_dt)`（app.py），归属规则与
+    `get_warehouse_stock_quantities` **逐条一致**（单仓全局回退 / 开库位名编码子句 /
+    关库位 loc_names + 空 location 来源单据兜底），R6 防「今天对、昨天错」口径分叉。
+  - 明细只出结存 > 0 的物料（用户口径）；零/负库存种数计入 `summary.zero_materials`；
+    summary 仍基于过滤后全集、与分页解耦（R1）。
+  - `generated_at`：今天 = 当前 hh:mm；历史日期 = 23:59（收市语义）。
+- 安卓端（库存日报页）：顶部日期导航条（前一天/后一天箭头 + 回到今天；到达今天禁用
+  后翻，前置钳制服务端 400）；`date` 参数链路 ApiService → Repository → ViewModel 贯通；
+  ViewModel 新增 `shiftDay`/`resetToday` + `dateIsToday` 今天模式（跨天自动校正，
+  BUG-2026-09-10-003 同模式）；空态文案按 >0 口径改写（「该仓当天无结存物料」）；
+  页头/首页副标题对齐「按仓展示」。只读、零写操作边界不变。
+
+**验收与完成记录（2026-09-17）**：
+- 提交：本地 `17f9c38`（后端+测试）、`3d3334f`（安卓+验证脚本）；git 协议 TLS 被拦，
+  走 §8.1 API 通道重放（blob 上传遇中间设备偶发截断 → 脚本加幂等重试后通过），
+  远程 `ab0cdf8d` / `54dbd5e6`，均反查 `GET /repos/SIX2090/wms/commits/main` 确认文件清单一致。
+- 后端测试：新增 `tests/test_mobile_stock_daily_history.py` **11 项 PASSED**
+  （`test_*.py` 命名确保主 pytest 收集——吸取 F02 期 verify 脚本不入主套的教训；
+  覆盖：date 默认/显式一致、非法与 future date 400、逐日收市回推 100→60→70、
+  >0 过滤与 zero_materials、历史日期同口径过滤、历史多仓隔离 R2、汇总分页解耦 R1、
+  generated_at 23:59、`get_warehouse_txn_delta_map` 直接单测含边界时刻与他仓隔离）；
+  F02 verify 脚本零库存断言同步更新（8/8 PASSED）；相邻切片（stock/warehouse/daily）
+  **82 passed**；pre-commit lint 0 违规（A9 同名测试用例补齐后通过）。
+- 安卓验证：新增 `tests/verify_stock_daily_date_nav.py` **13/13 PASSED**（date 链路三处
+  贯通 / shiftDay 未来钳制 / resetToday / 今天模式 / 翻页箭头 / 禁用后翻 / 空态文案 /
+  副标题对齐）；本地无 SDK，编译与单测由 CI 校验。
+- **事故复盘（本会话）**：曾因 gitclone.com 代理缓存过期（停在 51ddf0c）误判「库存日报
+  从未实现」而重复开发并推送，整文件覆盖了远端 RPT-F02 接线；发现后立即将远程 main
+  强制复位回 `05e936be` 并核实无损，本地同步真实历史后在 F02 基础上实施 F03。
+  教训：**API 通道整文件覆盖前必须先核对远程 HEAD 是否前进**；拉取通道优先 ghproxy.net
+  （gitclone.com 缓存滞后不可信，2026-09-17 实证）。
+- 生效条件：后端需重启 WMS 服务生效（R3 同源：路由改动），安卓需 CI 出包后重装 APK。
+
 ### AI-MOB-EMPTY-F01：手机端统一空状态组件与新手引导
 
 **目标**：对齐橙子库存通"空页面有引导"的细节体验，WMS App 所有列表/查询/识别结果为空时展示统一空状态组件（图标 + 说明 + 引导动作），首次登录提供一次性功能引导，降低新用户上手成本。
@@ -996,7 +1039,7 @@
 
 ## 11. 当前下一项
 
-**当前下一项：AI-MOB-RPT-F01（手机端只读报表入口，仅剩库存汇总/出入库明细独立端点，日报只读视图已于 2026-09-11 完成）**，其后按第 6 节第 6 批顺序串行推进 AI-MOB-EMPTY-F01（手机端体验对齐批，2026-08-09 登记）。AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）均已完成。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增，不占用第 6 批串行顺序。
+**当前下一项：AI-CI-GREEN-001（WMS CI 存量红灯排查修复，进行中）**。第 6 节第 6 批手机端体验对齐批已全部收尾：AI-MOB-HOME-F01（今日概览条）、AI-MOB-NAV-F01（底部 Tab 导航）、AI-MOB-STOCK-F01（查库存列表模式，2026-09-11 完成）、AI-MOB-CHECK-F01（手机盘点与 Web 单据流对齐，2026-09-13 完成回查收尾）、AI-MOB-RPT-F01（日报只读视图 2026-09-11 完成；库存汇总由 F02 交付）、AI-MOB-RPT-F02（库存日报，2026-09-17 完成）、AI-MOB-RPT-F03（库存日报口径扩展：自动展示结存>0 + 可翻日期看历史，2026-09-17 完成）均已完成；AI-MOB-EMPTY-F01 空状态组件已接入 16 处（剩余引导动作参数/首次登录引导为低优先遗留）。另有 AI-VOICE-OUT-F01（手机端语音建领料单草稿，2026-09-11 完成）为移动端语音能力新增。F01 原计划遗留的 `in_out_detail` 出入库明细独立端点仍未做（用户未要求，有需求再立）。
 
 所有历史 AI 任务已完成；**AI-R07-F02（分类识别+按分类建议编号）已完成**。
 
