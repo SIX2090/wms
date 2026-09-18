@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -145,302 +146,340 @@ fun ScanScreenBase(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 可选的顶部区域（如仓库选择）
-            header?.invoke()
+            // BUG-2026-09-18-006：顶部固定区改为**可滚动**（原为裸 Column 不可滚）。
+            //
+            // 原实现：header（出库页含 仓库卡 + 领料部门 + 领料人 + 合同卡）/ 库位选择器 /
+            // 拍照取证 / 草稿错误 / 扫码反馈 / 离线横幅 / 打印横幅 / 汇总卡 全部平铺在
+            // 不可滚动的 Column 里，只有扫码清单占 weight(1f)。于是顶部内容一旦变高，
+            // 就会把底部的「提交出库」按钮顶出屏幕——而因为整体不可滚，**滚也找不回来**，
+            // 现场表现为"看不到提交按钮，这单提交不了"。
+            //
+            // 触发条件（用户 2026-09-18 现场截图：「手机端-出库-手工添加 看不到提交功能」）：
+            // ① 合同编号输入片段后 ContractInputCard 内联展开全部建议（本次一并限高修复）；
+            // ② 选择领料部门/领料人后卡片由占位文案变为两行实际值；
+            // ③ 小屏机 / 大字体 / 拍照取证与离线横幅同时出现。
+            //
+            // 修复：顶部区加 weight(1f) + verticalScroll，底部操作区留在 Column 内
+            // （非 weight 子项），权重先分配 → 无论顶部内容多高，提交按钮**必然可见**，
+            // 由"被顶出屏幕"变为"顶部区自己滚动"。扫码清单原本就靠 weight 吸收剩余空间：
+            // 清单为空时顶部区高、清单有内容时被压到最小高度，两种状态都不会挤压按钮，
+            // 因此保留 LazyColumn 自身滚动，不做内嵌滚动容器（嵌套滚动还会互相抢手势）。
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // 可选的顶部区域（如仓库选择）
+                header?.invoke()
 
-            // 可选的自定义横幅（如「语音草稿已生成」）
-            banner?.invoke()
-            if (submitLabel == "提交入库" || submitLabel == "提交出库") {
-                ScanLocationSelector(viewModel)
-                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
-                        Text("拍照取证（${scanState.evidence.size}/3）")
+                // 可选的自定义横幅（如「语音草稿已生成」）
+                banner?.invoke()
+                if (submitLabel == "提交入库" || submitLabel == "提交出库") {
+                    ScanLocationSelector(viewModel)
+                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
+                            Text("拍照取证（${scanState.evidence.size}/3）")
+                        }
                     }
                 }
-            }
-            scanState.draftSaveError?.let { message ->
-                Text(message, color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-            }
-            scanFeedback?.let { message ->
-                Text(
-                    text = message,
-                    color = gradient,
-                    style = MaterialTheme.typography.bodyMedium,
+                scanState.draftSaveError?.let { message ->
+                    Text(message, color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+                }
+                scanFeedback?.let { message ->
+                    Text(
+                        text = message,
+                        color = gradient,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+
+                // AI-MOB-OFFLINE-01：离线待同步横幅。
+                // 四个扫码页（入库/出库/盘点/查库存）共用本基类，在此渲染一次即全覆盖。
+                // 仅在有暂存/失败记录时显示，正常在线提交时完全不占空间。
+                PendingSyncBanner(
+                    pendingCount = offlinePendingCount,
+                    failedCount = offlineFailedCount,
+                    onRetry = onRetryOffline,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
-            }
 
-            // AI-MOB-OFFLINE-01：离线待同步横幅。
-            // 四个扫码页（入库/出库/盘点/查库存）共用本基类，在此渲染一次即全覆盖。
-            // 仅在有暂存/失败记录时显示，正常在线提交时完全不占空间。
-            PendingSyncBanner(
-                pendingCount = offlinePendingCount,
-                failedCount = offlineFailedCount,
-                onRetry = onRetryOffline,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            // 提交成功后的"打印单据"横幅
-            submittedPrint?.let { info ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = gradient.copy(alpha = 0.08f)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Outlined.Print,
-                                null,
-                                tint = gradient,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "提交成功",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = OnSurface
-                                )
-                                Text(
-                                    info.orderNo?.let { "单号: $it" } ?: "已生成单据",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OnSurfaceVariant
-                                )
-                            }
-                            if (onDismissPrint != null) {
-                                IconButton(onClick = onDismissPrint, modifier = Modifier.size(32.dp)) {
-                                    Icon(
-                                        Icons.Outlined.Close,
-                                        "关闭",
-                                        tint = OnSurfaceSecondary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Button(
-                            onClick = { onPrintOrder?.invoke() },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(44.dp),
-                            enabled = !printLoading && onPrintOrder != null,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = gradient)
-                        ) {
-                            if (printLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Outlined.Print,
-                                    null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "打印单据",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Summary bar
-            if (scanLines.isNotEmpty()) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = gradient.copy(alpha = 0.06f)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    Row(
+                // 提交成功后的"打印单据"横幅
+                submittedPrint?.let { info ->
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = gradient.copy(alpha = 0.08f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(gradient.copy(alpha = 0.12f)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    Icons.Outlined.Inventory2,
+                                    Icons.Outlined.Print,
                                     null,
                                     tint = gradient,
                                     modifier = Modifier.size(20.dp)
                                 )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    "${scanLines.size} 种物料",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    "总计: ${formatQuantity(totalQuantity)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                        FilledTonalButton(
-                            onClick = { viewModel.clearScanLines() },
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = ErrorContainer,
-                                contentColor = Error
-                            ),
-                            shape = RoundedCornerShape(10.dp)
-                        ) {
-                            Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("清空", fontSize = 13.sp)
-                        }
-                    }
-                }
-            }
-
-            // Scan list
-            if (scanLines.isNotEmpty()) {
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item { Spacer(modifier = Modifier.height(4.dp)) }
-                    itemsIndexed(scanLines) { index, line ->
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                            colors = CardDefaults.cardColors(containerColor = CardBackground)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Index badge（圆角方块，与模块色呼应）
-                                Box(
-                                    modifier = Modifier
-                                        .size(38.dp)
-                                        .clip(RoundedCornerShape(11.dp))
-                                        .background(gradient.copy(alpha = 0.12f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "${index + 1}",
-                                        color = gradient,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        line.material_code,
+                                        "提交成功",
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = OnSurface
                                     )
-                                    val materialDetails = listOfNotNull(
-                                        line.material_name?.takeIf { it.isNotBlank() },
-                                        line.material_brand?.takeIf { it.isNotBlank() },
-                                        line.material_spec?.takeIf { it.isNotBlank() }
-                                    ).joinToString()
-                                    if (materialDetails.isNotBlank()) {
-                                        Text(
-                                            materialDetails,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 2,
-                                            overflow = TextOverflow.Ellipsis
+                                    Text(
+                                        info.orderNo?.let { "单号: $it" } ?: "已生成单据",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariant
+                                    )
+                                }
+                                if (onDismissPrint != null) {
+                                    IconButton(onClick = onDismissPrint, modifier = Modifier.size(32.dp)) {
+                                        Icon(
+                                            Icons.Outlined.Close,
+                                            "关闭",
+                                            tint = OnSurfaceSecondary,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
-                                // 数量胶囊（右对齐高亮，一眼看清每行数量）
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = gradient.copy(alpha = 0.10f)
-                                ) {
-                                    Text(
-                                        "× ${formatQuantity(line.quantity)}",
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                        color = gradient,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = { onPrintOrder?.invoke() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp),
+                                enabled = !printLoading && onPrintOrder != null,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = gradient)
+                            ) {
+                                if (printLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
                                     )
-                                }
-                                IconButton(
-                                    onClick = { pendingRemoval = line },
-                                    enabled = !isLoading,
-                                    modifier = Modifier.size(36.dp)
-                                ) {
+                                } else {
                                     Icon(
-                                        Icons.Outlined.Close,
-                                        "移除",
-                                        tint = OnSurfaceSecondary,
+                                        Icons.Outlined.Print,
+                                        null,
                                         modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "打印单据",
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 14.sp
                                     )
                                 }
                             }
                         }
                     }
-                    item { Spacer(modifier = Modifier.height(8.dp)) }
                 }
-            } else {
-                // Empty state
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    WmsEmptyState(
-                        icon = Icons.Outlined.QrCodeScanner,
-                        title = "暂无扫描记录",
-                        subtitle = "点击下方按钮扫码或手动添加",
-                        accentColor = gradient
-                    )
+
+                // Summary bar
+                if (scanLines.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = gradient.copy(alpha = 0.06f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(gradient.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Inventory2,
+                                        null,
+                                        tint = gradient,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        "${scanLines.size} 种物料",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "总计: ${formatQuantity(totalQuantity)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            FilledTonalButton(
+                                onClick = { viewModel.clearScanLines() },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = ErrorContainer,
+                                    contentColor = Error
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("清空", fontSize = 13.sp)
+                            }
+                        }
+                    }
+
+                    // Scan list
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // 清单区限高：有扫码行时顶部区整体可滚，清单本身不占满高，
+                            // 保证同屏仍能看到提交按钮，清单长了滚顶部区即可。
+                            .heightIn(max = 320.dp)
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item { Spacer(modifier = Modifier.height(4.dp)) }
+                        itemsIndexed(scanLines) { index, line ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                colors = CardDefaults.cardColors(containerColor = CardBackground)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Index badge（圆角方块，与模块色呼应）
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .background(gradient.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "${index + 1}",
+                                            color = gradient,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            line.material_code,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        val materialDetails = listOfNotNull(
+                                            line.material_name?.takeIf { it.isNotBlank() },
+                                            line.material_brand?.takeIf { it.isNotBlank() },
+                                            line.material_spec?.takeIf { it.isNotBlank() }
+                                        ).joinToString()
+                                        if (materialDetails.isNotBlank()) {
+                                            Text(
+                                                materialDetails,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+                                    // 数量胶囊（右对齐高亮，一眼看清每行数量）
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = gradient.copy(alpha = 0.10f)
+                                    ) {
+                                        Text(
+                                            "× ${formatQuantity(line.quantity)}",
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                            color = gradient,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { pendingRemoval = line },
+                                        enabled = !isLoading,
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Outlined.Close,
+                                            "移除",
+                                            tint = OnSurfaceSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
+                    }
+                } else {
+                    // Empty state（清单为空时不再 weight(1f) 抢高：顶部区自己可滚）
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WmsEmptyState(
+                            icon = Icons.Outlined.QrCodeScanner,
+                            title = "暂无扫描记录",
+                            subtitle = "点击下方按钮扫码或手动添加",
+                            accentColor = gradient
+                        )
+                    }
                 }
             }
 
             // Bottom actions（顶部圆角浮层，与列表区自然过渡）
+            //
+            // BUG-2026-09-18-006：留在可滚区**之外**。Column 非权重子项按测量高度
+            // 先分配空间，再去分 weight 给上面的可滚区，因此本区高度（提交按钮 +
+            // 手工联想候选 + 扫码/手动按钮）始终被满足，不会被顶部内容挤走，
+            // 也不会被软键盘顶掉（Manifest 已是 adjustResize，本区随之上移）。
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth(),
                 shadowElevation = 12.dp,
                 color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier
+                        .padding(16.dp)
+                        // BUG-2026-09-18-006：本区不再可滚（它在可滚区之外，必须整体可见），
+                        // 故对"可能无限长"的内容加限高 + 内部滚动，防止把提交按钮推到屏幕外：
+                        // 手工添加候选与下方的扫码/手动按钮区共用最大高度约束，
+                        // 候选再多也只是本区内部滚动。
+                        .heightIn(max = 420.dp)
                 ) {
                     // Submit button
                     Button(
@@ -482,16 +521,27 @@ fun ScanScreenBase(
                         )
                     }
                     if (manualCode.isNotBlank()) {
-                        materialSuggestions.take(5).forEach { material ->
-                            TextButton(
-                                onClick = { onMaterialSuggestionSelected(material) },
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(material.code.orEmpty())
-                                    Text(material.name.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                                    Text(material.spec.orEmpty(), style = MaterialTheme.typography.bodySmall)
-                                    Text(material.brand.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                        // BUG-2026-09-18-006：原来是无约束的 take(5) 平铺。
+                        // 5 条候选各 4 行文本（编码/名称/规格/品牌）约 300dp，
+                        // 叠加提交按钮与扫码/手动按钮后必然超出屏幕，把提交按钮挤没。
+                        // 与弹窗内候选同口径：限高 + 内部滚动，候选多也不撑破本区。
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            materialSuggestions.take(5).forEach { material ->
+                                TextButton(
+                                    onClick = { onMaterialSuggestionSelected(material) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        Text(material.code.orEmpty())
+                                        Text(material.name.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                        Text(material.spec.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                        Text(material.brand.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
                         }

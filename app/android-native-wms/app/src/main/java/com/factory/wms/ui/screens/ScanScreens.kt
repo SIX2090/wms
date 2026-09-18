@@ -82,8 +82,13 @@ fun InboundScreen(
     }
 
     ScanScreenBase(
-        title = "扫码入库",
-        subtitle = "扫描物料条码，快速完成入库",
+        // BUG-2026-09-18-007：标题不再写死"扫码入库"。
+        // 本页支持 扫码添加 / 手动添加 / 语音建单 三种录入口，标题写"扫码"与
+        // 底部 Tab「入库」两套口径，用户从"手工添加"进来看到"扫码入库"会怀疑
+        // 进错了页面（现场反馈）。统一为业务动作名，与 Tab 一致；
+        // "扫码"只作为其中一种录入方式出现在按钮文案里。
+        title = "入库",
+        subtitle = "扫码或手动添加物料，完成入库",
         gradient = CardBlue,
         onBack = onBack,
         scanLines = uiState.scanLines,
@@ -297,8 +302,11 @@ fun OutboundScreen(
     }
 
     ScanScreenBase(
-        title = "扫码出库",
-        subtitle = "扫描物料条码，快速完成出库",
+        // BUG-2026-09-18-007：同入库页，标题与底部 Tab「出库」统一。
+        // 该页入口更多：扫码、手动添加、语音建单、首页/概览下钻，
+        // 写死"扫码"会与"手工添加"的实际路径矛盾。
+        title = "出库",
+        subtitle = "扫码或手动添加物料，完成出库",
         gradient = CardGreen,
         onBack = onBack,
         scanLines = uiState.scanLines,
@@ -1558,8 +1566,11 @@ fun StocktakeScreen(
     }
 
     ScanScreenBase(
-        title = "扫码盘点",
-        subtitle = "扫描物料条码，录入实际库存",
+        // BUG-2026-09-18-007：同入库/出库页，标题与业务动作一致。
+        // 该页同样支持扫码、手工输入与"识物盘点"，且入口来自盘点单/首页，
+        // 标题写"扫码"与 HomeScreen 的"盘点"入口语感不一致。
+        title = "盘点",
+        subtitle = "扫码或手动录入实际库存，生成盘点差异",
         gradient = CardPurple,
         onBack = onBack,
         scanLines = uiState.scanLines,
@@ -1971,27 +1982,39 @@ private fun ContractInputCard(
             )
             if (suggestions.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(4.dp))
-                suggestions.forEach { contract ->
-                    TextButton(
-                        onClick = { onSelect(contract) },
-                        modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                    ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text(
-                                contract.contractNo.orEmpty(),
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = OnSurface
-                            )
-                            if (!contract.projectName.isNullOrBlank()) {
+                // BUG-2026-09-18-006：合同建议原来是无约束的 forEach 平铺。
+                // 出库页本卡位于顶部固定区，输入 1 个字符（如 "2"）常能命中十几条合同，
+                // 全量展开可高达七八百 dp，把「提交出库」按钮整个顶出屏幕且滚不回来
+                // （现场现象：手机端-出库-手工添加 看不到提交按钮）。
+                // 与物料候选同口径：限高 + 内部滚动，候选再多也不撑破页面。
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 200.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    suggestions.forEach { contract ->
+                        TextButton(
+                            onClick = { onSelect(contract) },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    contract.projectName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = OnSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    contract.contractNo.orEmpty(),
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp,
+                                    color = OnSurface
                                 )
+                                if (!contract.projectName.isNullOrBlank()) {
+                                    Text(
+                                        contract.projectName,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
