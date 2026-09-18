@@ -713,7 +713,7 @@ def register_out_order_routes(app):
     def add_out_order_item(id):
         from app import (Material, OutOrder, OutOrderItem, api_error,
                          parse_float_value, recalculate_order_total,
-                         round_to_2_decimals)
+                         resolve_item_contract, round_to_2_decimals)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以添加明细')
@@ -732,6 +732,15 @@ def register_out_order_routes(app):
 
         price = round_to_2_decimals(parse_float_value(request.form.get('price'), material.price or 0))
 
+        # BUG-2026-09-18-013：出库明细也带合同归属。领料单没有「来源销售行」这一层，
+        # 因此按「用户本行输入 > 表头」解析；出库侧本就不合并同物料，本次只补字段。
+        item_contract_id, item_contract_no, item_project_name = resolve_item_contract(
+            order,
+            user_contract_no=request.form.get('contract_no'),
+            user_project_name=request.form.get('project_name'),
+            user_contract_id=request.form.get('contract_id'),
+        )
+
         try:
             item = OutOrderItem(
                 out_order_id=id,
@@ -739,6 +748,9 @@ def register_out_order_routes(app):
                 quantity=quantity,
                 price=price,
                 amount=round_to_2_decimals(quantity * price),
+                contract_id=item_contract_id,
+                contract_no=item_contract_no,
+                project_name=item_project_name,
                 remark=(request.form.get('remark') or '').strip() or None
             )
             db.session.add(item)

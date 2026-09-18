@@ -3310,18 +3310,6 @@ SYSTEM_SETTING_GROUPS = [
                 'remark': '设置为禁止时，入库数量不能超过采购订单未入库数量；提示时允许保存但保留来源记录。',
             },
             {
-                'key': 'in_order_duplicate_material_mode',
-                'label': '同单重复物料处理',
-                'type': 'select',
-                'default': 'merge',
-                'options': [
-                    {'value': 'prompt', 'label': '提示'},
-                    {'value': 'merge', 'label': '自动合并'},
-                    {'value': 'forbid', 'label': '禁止'},
-                ],
-                'remark': '同一张入库单录入相同物料时的处理方式；采购来源不同的明细不会合并。',
-            },
-            {
                 'key': 'purchase_order_to_in_order_enabled',
                 'label': '采购订单下推入库单启用',
                 'type': 'bool',
@@ -3862,9 +3850,6 @@ def purchase_receipt_strict_order():
 
 def purchase_over_receive_control_mode():
     return get_system_setting('purchase_over_receive_control_mode', 'forbid')
-
-def in_order_duplicate_material_mode():
-    return get_system_setting('in_order_duplicate_material_mode', 'merge')
 
 def purchase_order_to_in_order_enabled():
     return get_system_setting_bool('purchase_order_to_in_order_enabled', True)
@@ -5821,13 +5806,70 @@ def has_inbound_reference(purchase_order_id):
     ).first()
     return referenced is not None
 
-def find_duplicate_in_order_item(order, material_id, source_purchase_order_item_id=None):
-    for item in order.items or []:
-        if item.material_id != material_id:
-            continue
-        if (item.source_purchase_order_item_id or None) == (source_purchase_order_item_id or None):
-            return item
-    return None
+def resolve_item_contract(order, item_data=None, source_purchase_order_item=None,
+                          user_contract_no=None, user_project_name=None,
+                          user_contract_id=None):
+    """解析单据明细行应写入的合同字段，返回 ``(contract_id, contract_no, project_name)``。
+
+    BUG-2026-09-18-013 引入的统一收口。此前各写入点各自决定要不要带合同号，
+    导致「明细行合同号」在多数路径上丢失（新增明细、批量添加、采购单选单生成
+    入库单、Excel 导入、手机端扫码入库全都不写），明细行合同归属无法溯源。
+
+    **优先级（高 → 低）**：
+      1. 用户在本行显式输入（``user_contract_no`` / ``user_project_name`` /
+         ``user_contract_id``，来自前端输入框或 JSON ``item_data``）
+      2. 采购/销售来源行的合同号（``source_purchase_order_item``）
+      3. 单据表头（``order.contract_*``）
+
+    为什么来源行优先于表头：采购明细的合同归属是**业务真实来源**、粒度更细；
+    表头合同号可能是选单/下推时留空或粗略填写的值。追踪到采购明细更符合
+    「一张入库单可能对应多张采购单、多个合同」的实际业务。
+
+    每个字段**独立**按优先级取第一个非空值 —— 不要求三者必须来自同一层级，
+    避免「表头有合同号但来源行只有工程名称」时把工程名称一起丢掉。
+    """
+    def _pick(*candidates):
+        """取第一个「非 None 且非空白」的值。"""
+        for value in candidates:
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = value.strip()
+                if not value:
+                    continue
+            return value
+        return None
+
+    data = item_data or {}
+    source = source_purchase_order_item
+    header = order
+
+    contract_id = _pick(
+        user_contract_id,
+        data.get('contract_id'),
+        getattr(source, 'contract_id', None),
+        getattr(header, 'contract_id', None),
+    )
+    contract_no = _pick(
+        user_contract_no,
+        data.get('contract_no'),
+        getattr(source, 'contract_no', None),
+        getattr(header, 'contract_no', None),
+    )
+    project_name = _pick(
+        user_project_name,
+        data.get('project_name'),
+        getattr(source, 'project_name', None),
+        getattr(header, 'project_name', None),
+    )
+    # contract_id 来自表单/JSON 时是字符串，统一转 int
+    if contract_id is not None:
+        try:
+            contract_id = int(contract_id)
+        except (TypeError, ValueError):
+            contract_id = None
+    return contract_id, contract_no, project_name
+
 
 def is_future_date(order_date, today=None):
     """判断给定日期是否晚于今天（BUG-DATE-2026-07-27-001）。
@@ -9950,6 +9992,13 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
 
     for item, receive_qty in receivable_items:
         price = round_to_2_decimals(item.price or (item.material.price if item.material else 0) or 0)
+        # BUG-2026-09-18-013：入库明细的合同归属取采购明细（业务真实来源），采购明细
+        # 为空时再退回采购单表头 —— 与 resolve_item_contract 的优先级保持一致。
+        # 用户明确诉求：「采购入库单有合同编号」，下推时不能丢。
+        item_contract_id, item_contract_no, item_project_name = resolve_item_contract(
+            in_order,
+            source_purchase_order_item=item,
+        )
         db.session.add(InOrderItem(
             in_order_id=in_order.id,
             material_id=item.material_id,
@@ -9957,6 +10006,9 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
             quantity=receive_qty,
             price=price,
             amount=round_to_2_decimals(receive_qty * price),
+            contract_id=item_contract_id,
+            contract_no=item_contract_no,
+            project_name=item_project_name,
         ))
         item.received_quantity = round_to_2_decimals((item.received_quantity or 0) + receive_qty)
 

@@ -694,7 +694,8 @@ def register_native_api_routes(app):
         from app import (InOrder, InOrderItem, add_stock, api_json_error,
                          api_json_success, generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
-                         purchase_in_order_requires_order, resolve_request_warehouse,
+                         purchase_in_order_requires_order, resolve_item_contract,
+                         resolve_request_warehouse,
                          round_to_2_decimals, update_location_inventory)
         from routes.print_queue import enqueue_auto_print_job
         payload = request.get_json(silent=True) or {}
@@ -806,12 +807,18 @@ def register_native_api_routes(app):
                 price = parse_float_value(line.get('price'), material.price or 0)
                 amount = round_to_2_decimals(quantity * price)
                 total_amount += amount
+                # BUG-2026-09-18-013：Android 扫码无逐行合同输入，明细继承单据表头合同号，
+                # 否则同一合同下的扫码入库明细全部丢失合同归属。
+                _c_id, _c_no, _p_name = resolve_item_contract(order)
                 db.session.add(InOrderItem(
                     in_order_id=order.id,
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
                     amount=amount,
+                    contract_id=_c_id,
+                    contract_no=_c_no,
+                    project_name=_p_name,
                 ))
                 ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}', warehouse=order.warehouse)
                 if not ok:
@@ -2675,6 +2682,7 @@ def register_native_api_routes(app):
                          api_json_error, api_json_success, generate_order_no,
                          get_default_warehouse, location_management_enabled,
                          location_required_on_save, purchase_in_order_requires_order,
+                         resolve_item_contract,
                          round_to_2_decimals)
 
         class InboundDraftLine(BaseModel):
@@ -2808,6 +2816,8 @@ def register_native_api_routes(app):
                 price = row['price']
                 amount = round_to_2_decimals(quantity * price)
                 total_amount += amount
+                # BUG-2026-09-18-013：明细继承表头合同号（草稿入口无逐行合同输入）。
+                _c_id, _c_no, _p_name = resolve_item_contract(order)
                 db.session.add(InOrderItem(
                     in_order_id=order.id,
                     material_id=material.id,
@@ -2815,6 +2825,9 @@ def register_native_api_routes(app):
                     price=price,
                     amount=amount,
                     remark='移动端识别，经人工确认',
+                    contract_id=_c_id,
+                    contract_no=_c_no,
+                    project_name=_p_name,
                 ))
             order.total_amount = round_to_2_decimals(total_amount)
             db.session.commit()

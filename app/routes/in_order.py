@@ -15,8 +15,8 @@
 #   各辅助函数 api_error / generate_order_no / log_operation / parse_float_value /
 #   round_to_2_decimals / normalize_stock_quantity / get_active_warehouses /
 #   get_default_warehouse / validate_purchase_receive_quantity /
-#   purchase_in_order_requires_order / in_order_duplicate_material_mode /
-#   find_duplicate_in_order_item / is_purchase_in_order /
+#   purchase_in_order_requires_order /
+#   is_purchase_in_order /
 #   should_block_purchase_over_receive / update_purchase_order_status /
 #   assert_warehouse_active / is_future_date / parse_date_value / _clean_int /
 #   _acquire_order_write_lock / _source_has_active_push / _in_order_push_quantities /
@@ -751,7 +751,7 @@ def register_in_order_routes(app):
                          PurchaseOrderItem, SalesOrder, SalesOrderItem,
                          api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse,
-                         in_order_duplicate_material_mode, is_future_date,
+                         is_future_date,
                          location_management_enabled, log_operation,
                          purchase_in_order_requires_order, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
@@ -940,7 +940,6 @@ def register_in_order_routes(app):
             # P1-5：销售退货来源聚合（len==1 时回填单头 source_sales_order_id/no）
             source_sales_order_ids = set()
             existing_affected_purchase_order_ids = set()
-            pending_in_order_items = {}
             if request.is_json and items_data and order.id:
                 for old_item in list(order.items):
                     if old_item.source_purchase_order_item:
@@ -1018,19 +1017,10 @@ def register_in_order_routes(app):
                             return api_error(ret_msg)
                         source_sales_order_item_id = source_si.id
                         source_sales_order_ids.add(source_si.sales_order_id)
-                    # duplicate_key 含销售来源行：同一物料从不同销售行退货是合法的两行，
-                    # 不与 merge/forbid 的重复判定互相污染
-                    duplicate_key = (material.id, source_purchase_order_item_id,
-                                     source_sales_order_item_id, is_customer_supplied)
-                    duplicate_mode = in_order_duplicate_material_mode()
-                    existing_item = pending_in_order_items.get(duplicate_key)
-                    if existing_item:
-                        if duplicate_mode == 'forbid':
-                            return api_error(f'物料 {material.code} 在当前入库单中重复')
-                        if duplicate_mode == 'merge':
-                            existing_item.quantity = round_to_2_decimals((existing_item.quantity or 0) + quantity)
-                            existing_item.amount = round_to_2_decimals((existing_item.quantity or 0) * (existing_item.price or 0))
-                            continue
+                    # BUG-2026-09-18-013：不再按物料合并/去重，逐行无条件落库。
+                    # 同一物料按不同合同编号分批入库是常见业务，按 (物料, 来源行)
+                    # 判重会把「编号/名称/规格相同但合同号不同」的明细合并成一行，
+                    # 破坏合同归属与金额溯源。原按物料判重并合并的逻辑已删除。
                     item = InOrderItem(
                         in_order_id=order.id,
                         material_id=material.id,
@@ -1046,7 +1036,6 @@ def register_in_order_routes(app):
                         is_customer_supplied=is_customer_supplied,
                     )
                     db.session.add(item)
-                    pending_in_order_items[duplicate_key] = item
 
             recalculate_order_total(order)
             if source_purchase_order_ids and len(source_purchase_order_ids) == 1:
@@ -1089,9 +1078,9 @@ def register_in_order_routes(app):
     def add_in_order_item(id):
         """Add a detail row to a pending inbound order."""
         from app import (InOrder, InOrderItem, Material, PurchaseOrderItem, api_error,
-                         find_duplicate_in_order_item, in_order_duplicate_material_mode,
                          is_purchase_in_order, log_operation, purchase_in_order_requires_order,
-                         recalculate_order_total, round_to_2_decimals,
+                         recalculate_order_total, resolve_item_contract,
+                         round_to_2_decimals,
                          update_purchase_order_status, validate_purchase_receive_quantity)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -1131,25 +1120,22 @@ def register_in_order_routes(app):
         elif is_purchase_in_order(order) and purchase_in_order_requires_order():
             return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
 
-        duplicate_mode = in_order_duplicate_material_mode()
-        duplicate_item = find_duplicate_in_order_item(order, material.id, source_purchase_order_item_id)
-        if duplicate_item:
-            if duplicate_mode == 'forbid':
-                return api_error(f'物料 {material_code} 在当前入库单中重复')
-            if duplicate_mode == 'merge':
-                duplicate_item.quantity = round_to_2_decimals((duplicate_item.quantity or 0) + quantity)
-                # 合并时若用户填入了新单价，应以新单价作为合并后单价；
-                # 否则用户修改的 price 被静默丢弃，amount 仍按旧价计算，造成入库金额错误
-                if price and price != round_to_2_decimals(duplicate_item.price or 0):
-                    duplicate_item.price = price
-                duplicate_item.amount = round_to_2_decimals((duplicate_item.quantity or 0) * (duplicate_item.price or 0))
-                if source_item:
-                    source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + quantity)
-                    update_purchase_order_status(source_item.purchase_order)
-                recalculate_order_total(order)
-                db.session.commit()
-                log_operation('编辑入库单', f'入库单合并物料：{material_code}', 'in_order', id)
-                return jsonify({'status': 'success', 'msg': '相同物料已自动合并'})
+        # BUG-2026-09-18-013：不再按物料做任何合并/去重。
+        # 同一物料在本单内重复录入时**无条件新增一行** —— 因为不同行可能属于
+        # 不同合同编号（同一物料按不同合同分批入库是常见业务），合并会把
+        # 「物料编号/名称/规格相同但合同编号不同」的明细混成一行，
+        # 导致合同归属与金额溯源全部错误。
+        # 原实现按 (material_id, source_purchase_order_item_id) 判重后合并，
+        # 完全不看合同编号；配置项 in_order_duplicate_material_mode 已一并删除。
+        #
+        # 合同号来源优先级（resolve_item_contract）：用户本行输入 > 采购来源行 > 表头
+        contract_id, contract_no, project_name = resolve_item_contract(
+            order,
+            source_purchase_order_item=source_item,
+            user_contract_no=request.form.get('contract_no'),
+            user_project_name=request.form.get('project_name'),
+            user_contract_id=request.form.get('contract_id'),
+        )
 
         try:
             item = InOrderItem(
@@ -1159,7 +1145,10 @@ def register_in_order_routes(app):
                 quantity=quantity,
                 price=price,
                 amount=amount,
-                remark=(request.form.get('remark') or '').strip() or None
+                remark=(request.form.get('remark') or '').strip() or None,
+                contract_id=contract_id,
+                contract_no=contract_no,
+                project_name=project_name,
             )
             db.session.add(item)
             if source_item:
@@ -1220,12 +1209,21 @@ def register_in_order_routes(app):
 
                 default_price = material.price or 0
                 price = round_to_2_decimals(parse_float_value(parts[2] if len(parts) > 2 else None, default_price))
+                # BUG-2026-09-18-013：此入口无来源采购行，合同号用单据表头兜底。
+                # 走统一收口函数而非直接读 order.contract_*，避免日后收口规则变化
+                # （如新增"按物料族映射合同"）时此处被漏改。
+                # 批量粘贴格式仍为「编码,数量,单价」——不扩展第 4 列，因为合同号
+                # 本身可能含逗号，CSV 会歧义；需要逐行合同时用行内新增或添加弹窗。
+                _c_id, _c_no, _p_name = resolve_item_contract(order)
                 db.session.add(InOrderItem(
                     in_order_id=id,
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price)
+                    amount=round_to_2_decimals(quantity * price),
+                    contract_id=_c_id,
+                    contract_no=_c_no,
+                    project_name=_p_name,
                 ))
                 added += 1
 
@@ -1752,7 +1750,7 @@ def register_in_order_routes(app):
                          allow_negative_stock, api_error,
                          deduct_stock, get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled,
-                         recalculate_order_total,
+                         recalculate_order_total, resolve_item_contract,
                          round_to_2_decimals, update_location_inventory,
                          update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
@@ -1882,6 +1880,13 @@ def register_in_order_routes(app):
                         if source_item.purchase_order:
                             affected_purchase_order_ids.add(source_item.purchase_order.id)
 
+                    # BUG-2026-09-18-013：明细行合同号按「用户输入 > 采购来源行 > 表头」解析，
+                    # 与逐行新增（add_in_order_item）保持同一口径。
+                    contract_id, contract_no, project_name = resolve_item_contract(
+                        order,
+                        item_data=item_data,
+                        source_purchase_order_item=source_item if source_purchase_order_item_id else None,
+                    )
                     new_item = InOrderItem(
                         in_order_id=id,
                         material_id=material.id,
@@ -1889,6 +1894,9 @@ def register_in_order_routes(app):
                         price=price,
                         amount=amount,
                         source_purchase_order_item_id=source_purchase_order_item_id,
+                        contract_id=contract_id,
+                        contract_no=contract_no,
+                        project_name=project_name,
                         remark=(item_data.get('remark') or '').strip() or None
                     )
                     db.session.add(new_item)

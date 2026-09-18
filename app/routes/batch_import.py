@@ -306,6 +306,7 @@ def register_batch_import_routes(app):
             current_user,
             get_default_warehouse,
             location_management_enabled,
+            resolve_item_contract,
         )
         file = request.files.get('file')
         if not file:
@@ -543,13 +544,19 @@ def register_batch_import_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：客供料只能用于其他入库')
                         continue
+                    # BUG-2026-09-18-013：Excel 明细无逐行合同列，走表头兜底；
+                    # 与逐行新增（add_in_order_item）同一收口函数，避免口径分叉。
+                    _c_id, _c_no, _p_name = resolve_item_contract(current_order)
                     item = InOrderItem(
                         in_order_id=current_order.id,
                         material_id=material.id if material else None,
                         quantity=qty,
                         price=prc,
                         amount=amt,
-                        is_customer_supplied=customer_supplied
+                        is_customer_supplied=customer_supplied,
+                        contract_id=_c_id,
+                        contract_no=_c_no,
+                        project_name=_p_name,
                     )
                     current_items.append(item)
             if current_order and current_items:

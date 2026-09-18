@@ -708,6 +708,9 @@ def register_purchase_order_routes(app):
             affected_orders = set()
             for item, order, receive_qty in conversion_items:
                 price = round_to_2_decimals(item.price or (item.material.price if item.material else 0) or 0)
+                # BUG-2026-09-18-013：把采购明细的合同编号带到入库明细行。
+                # 采购入库单的合同归属来自采购明细，不传下来则入库明细行
+                # 无法按合同溯源（且会导致同物料跨合同的行无法区分）。
                 db.session.add(InOrderItem(
                     in_order_id=in_order.id,
                     material_id=item.material_id,
@@ -715,6 +718,9 @@ def register_purchase_order_routes(app):
                     quantity=receive_qty,
                     price=price,
                     amount=round_to_2_decimals(receive_qty * price),
+                    contract_id=item.contract_id,
+                    contract_no=item.contract_no,
+                    project_name=item.project_name,
                 ))
                 item.received_quantity = round_to_2_decimals((item.received_quantity or 0) + receive_qty)
                 affected_orders.add(order)
