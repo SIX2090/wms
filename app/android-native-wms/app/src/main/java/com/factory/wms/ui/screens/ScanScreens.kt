@@ -56,6 +56,8 @@ fun InboundScreen(
     var showSubmitDialog by remember { mutableStateOf(false) }
     var showScannerDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
+    // BUG-2026-09-18-008：供应商下拉（选填）弹窗开关
+    var showSupplierDialog by remember { mutableStateOf(false) }
     var manualCode by remember { mutableStateOf("") }
     var manualQty by remember { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
@@ -65,6 +67,10 @@ fun InboundScreen(
         viewModel.restoreEditDraft("inbound")
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
             viewModel.loadWarehouses()
+        }
+        // BUG-2026-09-18-008：供应商档案只需拉一次，用于「供应商」下拉
+        if (uiState.suppliers.isEmpty() && !uiState.suppliersLoading) {
+            viewModel.loadSuppliers()
         }
     }
 
@@ -153,12 +159,32 @@ fun InboundScreen(
         onPrintOrder = { viewModel.printSubmittedOrder() },
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
-            WarehouseSelectorCard(
-                warehouse = uiState.selectedWarehouse,
-                accentColor = CardBlue,
-                onClick = { showWarehouseDialog = true },
-                label = "收货仓库"
-            )
+            Column {
+                WarehouseSelectorCard(
+                    warehouse = uiState.selectedWarehouse,
+                    accentColor = CardBlue,
+                    onClick = { showWarehouseDialog = true },
+                    label = "收货仓库"
+                )
+                // BUG-2026-09-18-008：供应商/备注（均选填）。
+                // 此前入库请求体只有明细行，InOrder.supplier_id 恒为 NULL，
+                // 每日报表「采购入库」的供应商列永远空白、采购对账断链。
+                PartySelectorCard(
+                    label = "供应商（选填）",
+                    placeholder = "请选择供应商",
+                    valueText = uiState.selectedSupplier?.let {
+                        "${it.code.orEmpty()} ${it.name.orEmpty()}".trim()
+                    },
+                    icon = Icons.Outlined.Storefront,
+                    accentColor = CardBlue,
+                    onClick = { showSupplierDialog = true }
+                )
+                InboundRemarkCard(
+                    remark = uiState.inboundRemark,
+                    onRemarkChange = { viewModel.onInboundRemarkChange(it) },
+                    accentColor = CardBlue
+                )
+            }
         }
     )
 
@@ -188,6 +214,32 @@ fun InboundScreen(
             },
             onRetry = { viewModel.loadWarehouses() },
             accentColor = CardBlue
+        )
+    }
+
+    // BUG-2026-09-18-008：供应商选择对话框（选填，与出库页领料部门同款）
+    if (showSupplierDialog) {
+        PartyPickerDialog(
+            title = "选择供应商",
+            items = uiState.suppliers.map {
+                PartyPickerItem(
+                    id = it.id,
+                    title = "${it.code.orEmpty()} ${it.name.orEmpty()}".trim(),
+                    subtitle = ""
+                )
+            },
+            selectedId = uiState.selectedSupplier?.id,
+            loading = uiState.suppliersLoading,
+            icon = Icons.Outlined.Storefront,
+            accentColor = CardBlue,
+            onDismiss = { showSupplierDialog = false },
+            onSelect = { item ->
+                viewModel.selectSupplier(item?.let { sel ->
+                    uiState.suppliers.firstOrNull { it.id == sel.id }
+                })
+                showSupplierDialog = false
+            },
+            onRetry = { viewModel.loadSuppliers() }
         )
     }
 
@@ -2020,6 +2072,51 @@ private fun ContractInputCard(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * 入库备注输入卡片（选填，BUG-2026-09-18-008）。
+ *
+ * 现场常用来记送货单号 / 采购单号 / 随货同行单号——这些信息此前在手机端
+ * 完全没有落库入口，只能事后翻纸质单据。留空时后端写默认值
+ * 「Android原生端提交」，与旧行为一致。
+ *
+ * 单行输入、无联想，因此不需要限高（对照 -006：只有"无约束候选列表"才需要限高）。
+ */
+@Composable
+private fun InboundRemarkCard(
+    remark: String,
+    onRemarkChange: (String) -> Unit,
+    accentColor: Color
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = CardBackground),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            OutlinedTextField(
+                value = remark,
+                onValueChange = onRemarkChange,
+                label = { Text("备注（选填）") },
+                placeholder = { Text("如送货单号、采购单号") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                leadingIcon = {
+                    Icon(
+                        Icons.Outlined.EditNote,
+                        null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            )
         }
     }
 }

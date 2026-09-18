@@ -726,17 +726,77 @@ def register_native_api_routes(app):
                 if not location:
                     return api_json_error('启用库位管理后，入库必须填写库位')
 
+        # BUG-2026-09-18-008：单据头业务字段此前**一个都没读**，导致手机端
+        # 提交的入库单 supplier_id / contract_no / remark 恒为空、purpose 与
+        # remark 被硬编码常量占满。对照出库（native_api_outbound 读
+        # contract_no/department_id/picker 并回填 contract_id/project_name）：
+        # InOrder 同样有 supplier_id / customer_id / contract_id / contract_no /
+        # project_name / remark 字段，PC 入库单也能填（routes/in_order.py:603），
+        # 唯独移动端链路漏了整条。
+        #
+        # 后果不是"少个可选字段"：每日明细报表 purchase_in 的 party_key='supplier'
+        # （见本文件 mobile_api_report_daily_detail），供应商为空即渲染空串，
+        # 手机录的每一次采购入库在报表「供应商」列恒为空，采购对账/按供应商归集/
+        # 找供应商退货全部断链；且单据 status 落 completed 后无补录入口。
+        #
+        # 口径与 PC 入库单（routes/in_order.py:603-610）一致：
+        #   ① 传了 supplier_id 但查无此供应商 → 明确拒绝（PC 同样拒绝"请选择有效的供应商"，
+        #      不能静默吞掉导致字段空着而用户以为填上了）；
+        #   ② 只传了名称/编码文本 → 按 code/name 精确匹配兜底（与出库 department 文本
+        #      兜底同一手法），命中即写 supplier_id；
+        #   ③ 都没命中 → supplier_id 留空。
+        # 注意 InOrder **没有**供应商文本列（只有 supplier_id 外键，见
+        # models/documents.py），所以"未建档供应商"无法保留原文——不臆造 Supplier
+        # 主数据，也不假装存下了，现场请先在主数据建档。
+        from app import Contract, Supplier
+        supplier = None
+        supplier_id_input = payload.get('supplier_id')
+        try:
+            supplier_id_input = int(supplier_id_input) if supplier_id_input not in (None, '') else None
+        except (TypeError, ValueError):
+            supplier_id_input = None
+        if supplier_id_input:
+            supplier = db.session.get(Supplier, supplier_id_input)
+            if supplier is None:
+                return api_json_error('请选择有效的供应商')
+        if supplier is None:
+            supplier_text = (payload.get('supplier') or payload.get('supplier_name') or '').strip()
+            if supplier_text:
+                supplier = Supplier.query.filter(
+                    db.or_(Supplier.code == supplier_text,
+                           Supplier.name == supplier_text)).first()
+
+        # 合同编号：命中合同档案回填 contract_id/project_name，未命中保留用户输入文本
+        # （与 /api/outbound 同一段实现，出库已稳定运行，此处对齐而非另写一套）。
+        contract_no_input = (payload.get('contract_no') or '').strip()
+        contract = None
+        if contract_no_input:
+            contract = Contract.query.filter(
+                db.func.lower(Contract.contract_no) == contract_no_input.lower()
+            ).first()
+        order_contract_id = contract.id if contract else None
+        order_contract_no = (contract.contract_no if contract else contract_no_input) or None
+        order_project_name = (contract.project_name if contract else None) or None
+
+        # 备注（送货单号等现场信息落点）：purpose 与 remark 不再被常量占满。
+        # purpose 保留来源标记以便报表区分手机端单据，remark 交给用户。
+        remark_input = (payload.get('remark') or '').strip() or 'Android原生端提交'
+
         try:
             order = InOrder(
                 order_no=generate_order_no('IN'),
                 date=date.today(),
                 warehouse=order_warehouse,
+                supplier_id=supplier.id if supplier else None,
                 business_type=business_type,
                 purpose='Android扫码入库',
                 location=document_location,
-                remark='Android原生端提交',
+                remark=remark_input,
                 status='completed',
                 operator_id=user.id,
+                contract_id=order_contract_id,
+                contract_no=order_contract_no,
+                project_name=order_project_name,
                 total_amount=0,
             )
             db.session.add(order)
@@ -2265,6 +2325,32 @@ def register_native_api_routes(app):
             'items': [
                 {'id': d.id, 'code': d.code or '', 'name': d.name or ''}
                 for d in departments
+            ]
+        })
+
+    @app.route('/api/mobile/suppliers')
+    @web_or_api_required
+    def native_api_suppliers():
+        """移动端供应商列表（BUG-2026-09-18-008）：供入库页「供应商」下拉选择。
+
+        与 /api/departments 同形状（items: id/code/name），App 侧复用同一套
+        下拉组件，避免为供应商再造一套选择器。
+
+        为什么不复用 /api/suppliers：那个端点返回全量 Supplier 序列化对象
+        （含 contact/phone/address/created_at），字段冗余；移动端下拉只需
+        id/code/name。不过滤「停用」是因为 Supplier 主数据表没有 status 列
+        （见 models/master_data.py），不臆造不存在的字段——若将来补了 status，
+        此处应同步加 filter_by(status='active')，与 /api/departments 对齐。
+
+        排序按 code 升序、id 升序（与部门/员工接口一致），保证下拉顺序稳定。
+        """
+        from app import Supplier, api_json_success
+        suppliers = Supplier.query.order_by(
+            Supplier.code.asc(), Supplier.id.asc()).all()
+        return api_json_success({
+            'items': [
+                {'id': s.id, 'code': s.code or '', 'name': s.name or ''}
+                for s in suppliers
             ]
         })
 

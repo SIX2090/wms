@@ -63,6 +63,14 @@ data class ScanUiState(
     val employees: List<EmployeeDto> = emptyList(),
     val employeesLoading: Boolean = false,
     val selectedEmployee: EmployeeDto? = null,
+    // BUG-2026-09-18-008 入库「供应商」下拉（选填）：
+    // 手机端入库单此前 supplier_id 恒为空，导致每日报表「采购入库」的供应商列
+    // 永远为空、采购对账断链。此处提供下拉；同时允许手输备注记录送货单号。
+    val suppliers: List<SupplierDto> = emptyList(),
+    val suppliersLoading: Boolean = false,
+    val selectedSupplier: SupplierDto? = null,
+    /** 入库备注（选填，现场常用来记送货单号/采购单号） */
+    val inboundRemark: String = "",
     // 提交成功后待打印的单据信息（"打印单据"按钮）
     val submittedPrint: SubmittedPrintInfo? = null,
     val printLoading: Boolean = false,
@@ -144,6 +152,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             state.contractNo, state.pendingSubmissionId, state.inboundBusinessType,
             state.selectedLocation, state.locationEnabled
             ,state.evidence
+            // BUG-2026-09-18-008：供应商/备注一并快照，断点续传不丢单头信息
+            ,state.selectedSupplier
+            ,state.inboundRemark
         )
     }
 
@@ -167,6 +178,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                     pendingSubmissionId = draft.requestId, inboundBusinessType = draft.inboundBusinessType,
                     selectedLocation = draft.selectedLocation.orEmpty(), locationEnabled = draft.locationEnabled,
                     evidence = draft.evidence,
+                    // BUG-2026-09-18-008：恢复供应商/备注（旧草稿无此字段时 Gson 给 null/空串，等价于未选）
+                    selectedSupplier = draft.supplier,
+                    inboundRemark = draft.inboundRemark,
                     success = if (draft.requestId == null) "已恢复上次未提交清单，请核对仓库和数量"
                     else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
                 )
@@ -626,6 +640,52 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(selectedEmployee = employee)
     }
 
+    // ── BUG-2026-09-18-008：入库「供应商」下拉 + 备注（选填） ──
+
+    /**
+     * 拉取供应商列表（入库页进入时调用）。
+     *
+     * 与 [loadDepartments] 同一条保守策略：已选中的供应商若在新列表里仍存在则保留，
+     * 否则清空——避免主数据被改名/停用后，界面上还挂着一个后端已经不认的选项，
+     * 提交时才吃「请选择有效的供应商」。草稿待复核期间（pendingSubmissionId 非空）
+     * 一律**保留原选择**，因为此时禁止改单，清空会让用户无法按原内容重放。
+     */
+    fun loadSuppliers() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(suppliersLoading = true)
+            repository.getSuppliers().fold(
+                onSuccess = { suppliers ->
+                    val keep = _uiState.value.selectedSupplier
+                        ?.let { sel -> suppliers.firstOrNull { it.id == sel.id } }
+                    _uiState.value = _uiState.value.copy(
+                        suppliersLoading = false,
+                        suppliers = suppliers,
+                        selectedSupplier = if (_uiState.value.pendingSubmissionId != null)
+                            _uiState.value.selectedSupplier else keep
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        suppliersLoading = false,
+                        error = e.message
+                    )
+                }
+            )
+        }
+    }
+
+    /** 选择供应商（可传 null 清除）。 */
+    fun selectSupplier(supplier: SupplierDto?) {
+        if (draftEditingBlocked()) return
+        _uiState.value = _uiState.value.copy(selectedSupplier = supplier)
+    }
+
+    /** 入库备注（送货单号等），与草稿同步落盘。 */
+    fun onInboundRemarkChange(value: String) {
+        if (draftEditingBlocked()) return
+        _uiState.value = _uiState.value.copy(inboundRemark = value)
+    }
+
     // ── INV-BATCH-001-E：盘点单选单（电脑端创建进行中盘点单后手机选择） ──
 
     /** 拉取当前所选仓库的进行中盘点单列表。 */
@@ -1032,12 +1092,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = _uiState.value.copy(inboundBusinessType =
                 if (state.pendingSubmissionId == null) businessType else state.inboundBusinessType)
             val requestId = prepareDraftSubmission() ?: return@launch
+            // BUG-2026-09-18-008：单头字段随请求体下发。
+            // 离线补传走的也是同一份 payloadJson，因此断网时选的供应商/备注同样保留。
             val request = InboundRequest(
                 lines = lines,
                 businessType = _uiState.value.inboundBusinessType,
                 warehouse = warehouse.code,
-                warehouseCode = warehouse.code
-                ,evidence = _uiState.value.evidence
+                warehouseCode = warehouse.code,
+                supplierId = _uiState.value.selectedSupplier?.id,
+                supplier = _uiState.value.selectedSupplier?.name,
+                contractNo = _uiState.value.contractNo.ifBlank { null },
+                remark = _uiState.value.inboundRemark.ifBlank { null },
+                evidence = _uiState.value.evidence
             )
             val result = repository.submitInbound(request, requestId)
             result.fold(

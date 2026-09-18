@@ -18,6 +18,19 @@ data class InboundRequest(
     @SerializedName("business_type") val businessType: String = "采购入库",
     val warehouse: String? = null,
     @SerializedName("warehouse_code") val warehouseCode: String? = null,
+    /**
+     * BUG-2026-09-18-008 供应商（选填）：Supplier 主键，后端写入 InOrder.supplier_id。
+     *
+     * 此前手机入库单 supplier_id 恒为空，导致每日报表「采购入库」的供应商列
+     * 永远空白、采购对账断链。后端对无效 id 会硬拒（'请选择有效的供应商'）。
+     */
+    @SerializedName("supplier_id") val supplierId: Long? = null,
+    /** 供应商名称/编码文本（选填）：仅在 [supplierId] 为空时作为兜底模糊匹配 */
+    val supplier: String? = null,
+    /** 合同编号（选填）：命中合同档案由后端回填 contract_id/工程名称 */
+    @SerializedName("contract_no") val contractNo: String? = null,
+    /** 入库备注（选填）：现场常用来记送货单号/采购单号，留空则后端写默认值 */
+    val remark: String? = null,
     val evidence: List<String> = emptyList()
 )
 

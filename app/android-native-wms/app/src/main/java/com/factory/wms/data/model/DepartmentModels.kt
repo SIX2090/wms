@@ -34,3 +34,21 @@ data class EmployeeDto(
 data class EmployeesListData(
     val items: List<EmployeeDto> = emptyList()
 )
+
+/**
+ * 供应商（BUG-2026-09-18-008：扫码入库「供应商」下拉数据源）。
+ * GET /api/mobile/suppliers data.items 元素。
+ *
+ * 与 [DepartmentDto] 同形状，入库页复用出库页那套 PartySelectorCard，
+ * 不另造一套选择器。
+ */
+data class SupplierDto(
+    val id: Long,
+    val code: String? = null,
+    val name: String? = null
+)
+
+/** GET /api/mobile/suppliers 响应（data.items）。 */
+data class SuppliersListData(
+    val items: List<SupplierDto> = emptyList()
+)

@@ -732,6 +732,16 @@ class WmsRepository(private val context: Context) {
             )
     }
 
+    /** BUG-2026-09-18-008 入库供应商下拉（写入 InOrder.supplier_id，供日报供应商列归集） */
+    suspend fun getSuppliers(): Result<List<SupplierDto>> {
+        ensureSession()
+        return safeCall { api.getSuppliers() }
+            .fold(
+                onSuccess = { data -> Result.success(data.items) },
+                onFailure = { Result.failure(it) }
+            )
+    }
+
     /** INV-BATCH-001-E：拉取某仓库进行中盘点单（盘点提交前必须先选单）。 */
     suspend fun loadPendingCheckOrders(warehouseCode: String): Result<List<CheckOrderDto>> {
         ensureSession()

@@ -138,6 +138,10 @@ interface WmsApiService {
         @Query("keyword") keyword: String? = null
     ): Response<ApiEnvelope<ContractsListData>>
 
+    /** BUG-2026-09-18-008：入库页「供应商」下拉数据源（形状同 api/departments） */
+    @GET("api/mobile/suppliers")
+    suspend fun getSuppliers(): Response<ApiEnvelope<SuppliersListData>>
+
     /**
      * 每日明细报表：type=purchase_in（采购入库）/ requisition（领料单），date 缺省为今天。
      * warehouseId：仓 id 字符串或 "all"（全部仓库汇总）；null 表示跟随系统默认仓
