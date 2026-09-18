@@ -295,10 +295,14 @@ def register_out_order_routes(app):
         query = _apply_out_order_search(query, search)
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()
+        # BUG-2026-09-18-012：列表/导出均按明细行展开（一个单据有几条明细就渲染几行），
+        # 筛选必须落到**明细行**；否则任一明细命中就整单通过，同单据内合同号
+        # 不匹配的行也会显示（用户按 HD260909 筛选却看到 HD260708 的行）。
         query = _apply_header_or_item_contract_filters(
             query, OutOrder, OutOrderItem, 'out_order_id',
             contract_no_filter=contract_no_filter,
             project_name_filter=project_name_filter,
+            item_level=True,
         )
         # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
         # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
@@ -1434,7 +1438,7 @@ def register_out_order_routes(app):
                          _apply_out_order_search, _apply_status_date_filters,
                          _get_order_list_filters, resolve_request_warehouse)
         from openpyxl import Workbook
-        from sqlalchemy.orm import joinedload, selectinload
+        from sqlalchemy.orm import joinedload
         wb = Workbook()
         ws = wb.active
         ws.title = '领料单'
@@ -1443,19 +1447,28 @@ def register_out_order_routes(app):
         allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
-        query = db.session.query(OutOrder).outerjoin(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).options(
+        # BUG-2026-09-18-012：导出改为与列表**同构的明细级查询**
+        # （`query(OutOrder, OutOrderItem)` + `outerjoin`，一行 = 一条明细），
+        # 使导出的筛选口径与行数与列表页严格一致。
+        # 此前导出用 `query(OutOrder).outerjoin(OutOrderItem)` 后在 Python 侧
+        # 遍历 `order.items` 输出全部明细行，粒度与明细级筛选不匹配。
+        query = db.session.query(OutOrder, OutOrderItem).outerjoin(
+            OutOrderItem, OutOrderItem.out_order_id == OutOrder.id
+        ).options(
             joinedload(OutOrder.department),
-            selectinload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+            joinedload(OutOrderItem.material).joinedload(Material.unit),
         )
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
         query = _apply_out_order_search(query, search)
-        # AI-WMS-FILTER-002：导出必须与列表页筛选口径一致（表头或明细任一命中）
+        # AI-WMS-FILTER-002：导出必须与列表页筛选口径一致
+        # （口径已由 BUG-2026-09-18-012 统一为「明细级」）
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()
         query = _apply_header_or_item_contract_filters(
             query, OutOrder, OutOrderItem, 'out_order_id',
             contract_no_filter=contract_no_filter,
             project_name_filter=project_name_filter,
+            item_level=True,
         )
         # 列表页默认排除"销售出库"（销售出库归销售管理），导出需保持同一口径
         export_bt = (request.args.get('business_type') or '').strip()
@@ -1470,31 +1483,31 @@ def register_out_order_routes(app):
             return api_error(warehouse_error, 400)
         query = query.filter(OutOrder.warehouse == warehouse.name)
         sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
-        query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), OutOrder.id.desc()).distinct()
-        orders = query.all()
-        for order in orders:
-            if order.items:
-                for item in order.items:
-                    ws.append([
-                        order.order_no,
-                        order.date.strftime('%Y-%m-%d') if order.date else '',
-                        order.customer or (order.department.name if order.department else '') or '',
-                        order.picker or '',
-                        order.business_type or order.purpose or '',
-                        order.warehouse or '',
-                        item.material.code if item.material else '',
-                        item.material.name if item.material else '',
-                        item.material.spec if item.material else '',
-                        item.contract_no or '',
-                        item.project_name or '',
-                        item.material.unit.name if item.material and item.material.unit else '',
-                        item.quantity or 0,
-                        item.price or 0,
-                        item.amount or 0,
-                        '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
-                        order.remark or ''
-                    ])
+        query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), OutOrder.id.desc())
+        rows = query.all()
+        for order, item in rows:
+            if item is not None:
+                ws.append([
+                    order.order_no,
+                    order.date.strftime('%Y-%m-%d') if order.date else '',
+                    order.customer or (order.department.name if order.department else '') or '',
+                    order.picker or '',
+                    order.business_type or order.purpose or '',
+                    order.warehouse or '',
+                    item.material.code if item.material else '',
+                    item.material.name if item.material else '',
+                    item.material.spec if item.material else '',
+                    item.contract_no or '',
+                    item.project_name or '',
+                    item.material.unit.name if item.material and item.material.unit else '',
+                    item.quantity or 0,
+                    item.price or 0,
+                    item.amount or 0,
+                    '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
+                    order.remark or ''
+                ])
             else:
+                # 待完成但尚无明细的单据也导出（outerjoin 保留），数量/金额留空
                 ws.append([
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',

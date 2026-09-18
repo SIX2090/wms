@@ -228,6 +228,8 @@ def register_in_order_routes(app):
             query, InOrder, InOrderItem, 'in_order_id',
             contract_no_filter=contract_no_filter,
             project_name_filter=project_name_filter,
+            # BUG-2026-09-18-012：入库明细表按明细行展开，筛选须落到明细行
+            item_level=True,
         )
         if sort_order == 'asc':
             query = query.order_by(sort_col.asc())

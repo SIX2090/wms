@@ -23278,27 +23278,64 @@ def _source_has_active_push(order_id):
 
 
 def _apply_header_or_item_contract_filters(query, header_model, item_model, order_fk_name,
-                                           contract_no_filter='', project_name_filter=''):
-    """表头或任一明细匹配合同编号/工程名称（避免仅明细有值时列表漏查）。"""
+                                           contract_no_filter='', project_name_filter='',
+                                           item_level=False):
+    """表头或任一明细匹配合同编号/工程名称（避免仅明细有值时列表漏查）。
+
+    ## 两种粒度（BUG-2026-09-18-012）
+
+    外层查询的粒度决定了这里该用哪种模式，传错就会出现「筛选看似没生效」：
+
+    - ``item_level=False``（默认，**单据级**）：``表头命中 OR EXISTS(任一明细命中)``
+      → 整张单据通过筛选。适用于**每行 = 一张单据**的查询
+      （如 ``sales.py`` 里 ``SalesOrder.query...outerjoin(...).distinct()``）。
+
+    - ``item_level=True``（**明细级**）：筛选**落到明细行**
+      → ``本行命中 OR (本行无合同标记 AND 表头命中)``。
+      适用于**按明细行展开**的查询（``query(Header, Item).outerjoin(Item, ...)``，
+      一个单据有几条明细就渲染几行）。
+
+    为什么必须区分：出库/入库/采购明细表在 ``item_level=False`` 下，只要单据里有
+    **一条**明细的合同号匹配，该单据的**全部**明细行都会显示，用户按 HD260909
+    筛选却看到 HD260708 的行（截图现象）。粒度必须与展示粒度对齐。
+
+    第二项 ``本行无合同标记 AND 表头命中`` 用于兜底：明细行自身未填合同号时
+    （如纯采购单不逐行标合同）它归属表头合同，不能因为 ``item.contract_no IS NULL``
+    被整体过滤掉。
+
+    注：所有 ``EXISTS`` 子查询都显式 ``.correlate(header_model)``，只关联表头表、
+    明细表保留为子查询自身 FROM——否则外层已 ``outerjoin`` 明细表时，
+    SQLAlchemy 自动相关会抽掉子查询的 FROM 子句，编译抛
+    「no FROM clauses due to auto-correlation」→ 500（BUG-2026-08-21-003）。
+    """
     contract_no_filter = (contract_no_filter or '').strip()
     project_name_filter = (project_name_filter or '').strip()
     if not contract_no_filter and not project_name_filter:
         return query
     fk_col = getattr(item_model, order_fk_name)
+
+    def _condition(header_col, item_col, value):
+        """按粒度构造单个筛选条件（合同编号 / 工程名称 各调一次）。"""
+        like = f'%{value}%'
+        if item_level:
+            # 明细级：本行命中 OR（本行无标记 AND 表头命中）
+            return db.or_(item_col.like(like),
+                          db.and_(item_col.is_(None), header_col.like(like)))
+        # 单据级：表头命中 OR EXISTS(任一明细命中)
+        item_exists = db.session.query(item_model.id).filter(
+            fk_col == header_model.id,
+            item_col.like(like),
+        ).correlate(header_model).exists()
+        return db.or_(header_col.like(like), item_exists)
+
     if contract_no_filter:
-        like = f'%{contract_no_filter}%'
-        item_exists = db.session.query(item_model.id).filter(
-            fk_col == header_model.id,
-            item_model.contract_no.like(like),
-        ).correlate(header_model).exists()
-        query = query.filter(db.or_(header_model.contract_no.like(like), item_exists))
+        query = query.filter(_condition(header_model.contract_no,
+                                        item_model.contract_no,
+                                        contract_no_filter))
     if project_name_filter:
-        like = f'%{project_name_filter}%'
-        item_exists = db.session.query(item_model.id).filter(
-            fk_col == header_model.id,
-            item_model.project_name.like(like),
-        ).correlate(header_model).exists()
-        query = query.filter(db.or_(header_model.project_name.like(like), item_exists))
+        query = query.filter(_condition(header_model.project_name,
+                                        item_model.project_name,
+                                        project_name_filter))
     return query
 
 
