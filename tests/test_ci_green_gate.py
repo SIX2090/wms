@@ -183,3 +183,71 @@ def test_t9_gate_fails_loud_on_api_error():
     assert 'HTTPError' in src, '未处理 HTTPError（工作流被改名/删除时会静默放行）'
     assert re.search(r'blocked = \[r for r in results if r\[.state.\] != .green.\]', src), \
         '阻断判定必须基于 state != green（含 missing/pending/failed）'
+
+
+# ------------------------------- T10 只用文件名请求（防 404 回归，实测踩过）
+def test_t10_workflow_endpoint_uses_basename_only():
+    """workflow-runs 端点只接受文件名或数字 ID，**不接受相对路径**。
+
+    实证（2026-09-18，本仓库真实请求）：
+        /actions/workflows/.github/workflows/android-build.yml/runs  → HTTP 404
+        /actions/workflows/android-build.yml/runs                    → HTTP 200
+        /actions/workflows/323512737/runs                            → HTTP 200
+
+    而 ``/actions/workflows`` 列表接口返回的恰恰是带目录的 ``path`` 字段，
+    很容易照着抄进 URL 然后全部 404。此时若把 404 当作"非绿"就会**永久阻断**
+    （门禁永远红、没人能开工）；若当作"绿"则是**漏报放行**。两者都错，
+    唯一正解是请求时就只用文件名。
+    """
+    src = _read(CHECKER)
+    # 必须对文件名做 basename 处理
+    assert re.search(r'os\.path\.basename\(\s*workflow_file\s*\)', src), \
+        '未用 os.path.basename() 剥掉目录前缀，会把 .github/workflows/ 拼进 URL 造成 404'
+    # URL 模板里不能再直接内插原始路径变量
+    assert 'workflows/{basename(workflow_file)}/runs' not in src
+    assert re.search(r'actions/workflows/\{wf\}/runs', src), \
+        '端点应使用剥目录后的变量（wf）'
+
+    # 离线验证 basename 行为本身
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ccg2', CHECKER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert os.path.basename('.github/workflows/ci.yml') == 'ci.yml'
+    # 三个工作流都必须能被正确剥离成 GitHub 认识的文件名
+    for _name, path in WORKFLOWS.items():
+        assert os.path.basename(path) in ('android-build.yml', 'verify.yml', 'ci.yml'), path
+
+
+# -------------------------------- T11 workflow 清单用 path 但端点用 basename
+def test_t11_endpoint_reachable_shape():
+    """有 token 时端点必须可达（真实网络端到端）。无 token 则跳过。
+
+    本条是"门禁自身可用"的活体检测：验证脚本不是只有单测通过、
+    真跑起来却 404。
+    """
+    import subprocess as sp
+    token = (os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN') or '').strip()
+    if not token:
+        for p in ('/root/.wms_gh_token',):
+            try:
+                token = _read(p).strip()
+                break
+            except OSError:
+                continue
+    if not token:
+        import pytest
+        pytest.skip('无 token，跳过端到端可达性检查')
+
+    env = dict(os.environ)
+    env['GH_TOKEN'] = token
+    proc = sp.run([PY, CHECKER, '--json'], capture_output=True, text=True,
+                  env=env, timeout=180, cwd=REPO)
+    payload = json.loads(proc.stdout)
+    # 关键：不能出现"三个工作流全部 HTTP 404"这种端点写错的特征
+    all_404 = all(r['detail'] == 'HTTP 404' for r in payload['results'])
+    assert not all_404, \
+        f'三个工作流全部 404 —— workflow-runs 端点写法有误：{[r["file"] for r in payload["results"]]}'
+    # state 必须是四态之一，不允许出现解析异常
+    for r in payload['results']:
+        assert r['state'] in ('green', 'failed', 'pending', 'missing'), r

@@ -53,6 +53,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 REPO = "SIX2090/wms"
@@ -105,11 +106,22 @@ def gh_get(path: str, token: str | None) -> dict:
 
 
 def latest_run(workflow_file: str, token: str | None) -> dict | None:
-    """取某工作流在 main 上的最近一次运行；查不到返回 None。"""
+    """取某工作流在 main 上的最近一次运行；查不到返回 None。
+
+    ⚠️ **踩过的坑（2026-09-18 实测）**：GitHub 的 workflow-runs 端点
+    ``/actions/workflows/{id}/runs`` 里的 ``{id}`` 只接受
+    **workflow 文件名**（如 ``ci.yml``）或**数字 workflow ID**，
+    **不接受**相对路径（``.github/workflows/ci.yml``）——传路径会一律 404。
+    而 ``/actions/workflows`` 列表接口返回的恰恰是 ``path`` 字段（带目录），
+    很容易照着抄进 URL 然后 404。这里统一剥掉目录，只用文件名。
+    """
+    # 只取文件名，避免把 .github/workflows/ 前缀拼进 URL 造成 404。
+    # urlencode 兜底：文件名里若有空格等字符也能正确编码。
+    wf = urllib.parse.quote(os.path.basename(workflow_file))
     # 注意：必须带 branch 过滤。不带会把其他分支（如 PR 的临时分支）的运行算进来，
     # 得出"绿"的错误结论——本门禁只关心 main 的基线状态。
     path = (
-        f"/repos/{REPO}/actions/workflows/{workflow_file}/runs"
+        f"/repos/{REPO}/actions/workflows/{wf}/runs"
         f"?branch={BRANCH}&per_page=1"
     )
     data = gh_get(path, token)
