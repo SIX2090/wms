@@ -137,7 +137,14 @@
             <tbody>
                 {% for mat in materials %}
                 {% set alert_enabled = (mat.min_stock or 0) > 0 or (mat.reorder_point or 0) > 0 %}
-                <tr class="{{ 'table-warning' if inventory_alert_enabled and alert_enabled and (mat.stock or 0) <= (mat.min_stock or 0) else '' }}">
+                {# BUG-2026-09-18-001：物料列表高亮对齐两级判定（与 /alert、手机端同口径）。 #}
+                {# low(<=最低库存)=红、danger(<=安全库存=max(最低,安全))=黄；不再只比 min_stock 漏掉 danger 档。 #}
+                {% set mat_min = mat.min_stock or 0 %}
+                {% set mat_safety = [mat.reorder_point or 0, mat_min] | max %}
+                {% set mat_stock = mat.stock or 0 %}
+                {% set is_low = inventory_alert_enabled and alert_enabled and mat_stock <= mat_min %}
+                {% set is_danger = inventory_alert_enabled and alert_enabled and (not is_low) and mat_stock <= mat_safety %}
+                <tr class="{{ 'table-danger' if is_low else ('table-warning' if is_danger else '') }}">
                     <td data-column-key="select"><input type="checkbox" class="check-item" value="{{ mat.id }}"></td>
                     <td data-column-key="code">{{ mat.code }}</td>
                     <td data-column-key="name">{{ mat.name }}</td>
@@ -147,7 +154,7 @@
                     <td data-column-key="category">{{ mat.category.name if mat.category else '-' }}</td>
                     <td data-column-key="supplier">{{ mat.supplier.name if mat.supplier else '-' }}</td>
                     <td data-column-key="purpose">{{ mat.purpose or '-' }}</td>
-                    <td data-column-key="stock" class="{{ 'text-danger fw-bold' if inventory_alert_enabled and alert_enabled and (mat.stock or 0) <= (mat.min_stock or 0) else '' }}">{{ mat.stock }}</td>
+                    <td data-column-key="stock" class="{{ 'text-danger fw-bold' if is_low else ('text-warning fw-bold' if is_danger else '') }}">{{ mat.stock }}</td>
                     {% if inventory_alert_enabled %}
                     <td data-column-key="min_stock">{{ mat.min_stock }}</td>
                     {% endif %}
