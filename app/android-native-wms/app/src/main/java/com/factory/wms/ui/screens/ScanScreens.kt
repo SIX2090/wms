@@ -900,6 +900,21 @@ fun StockQueryScreen(
                             OfflineDataBanner(cachedAtMillis = material.cachedAtMillis)
                             Spacer(modifier = Modifier.height(12.dp))
                         }
+                        // BUG-2026-09-18-003：徽标改两级判定（与服务端 _material_alert_status_values 同口径），
+                        // 不再只比 minStock —— 低于安全库存(danger)但高于最低库存的物料此前误显示「库存充足」。
+                        // 安全库存 = max(reorderPoint, minStock)；未设阈值的物料退回 充足/不足 二态（保持原行为）。
+                        val scanStock = material.stock ?: 0.0
+                        val scanMinStock = material.minStock ?: 0.0
+                        val scanSafetyStock = maxOf(material.reorderPoint ?: 0.0, scanMinStock)
+                        val scanHasThreshold = scanMinStock > 0.0 || scanSafetyStock > 0.0
+                        val scanBadge = when {
+                            !scanHasThreshold -> if (scanStock > 0.0)
+                                Triple("库存充足", Success, SuccessContainer)
+                            else Triple("库存不足", Error, ErrorContainer)
+                            scanStock <= scanMinStock -> Triple("低于最低库存", Error, ErrorContainer)
+                            scanStock <= scanSafetyStock -> Triple("低于安全库存", Warning, WarningContainer)
+                            else -> Triple("库存充足", Success, SuccessContainer)
+                        }
                         // Header
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -914,13 +929,12 @@ fun StockQueryScreen(
                             )
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
-                                color = if ((material.stock ?: 0.0) > (material.minStock ?: 0.0))
-                                    SuccessContainer else ErrorContainer
+                                color = scanBadge.third
                             ) {
                                 Text(
-                                    if ((material.stock ?: 0.0) > (material.minStock ?: 0.0)) "库存充足" else "库存不足",
+                                    scanBadge.first,
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    color = if ((material.stock ?: 0.0) > (material.minStock ?: 0.0)) Success else Error,
+                                    color = scanBadge.second,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
@@ -1376,6 +1390,8 @@ private fun StockListSortFilterBar(
 private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     val stock = material.stock ?: 0.0
     val minStock = material.minStock ?: 0.0
+    // BUG-2026-09-18-003：安全库存 = max(reorderPoint, minStock)，与服务端 safety_stock 同口径。
+    val safetyStock = maxOf(material.reorderPoint ?: 0.0, minStock)
     // P2-4：零库存行原本与有货行视觉完全一致（同样的蓝编码、同样的红/绿数字），
     // 一屏十条扫下来分不出哪些是真能领的。这里做弱化：主色编码与数量都降到
     // 次要灰、卡片压平，并补一个"无库存"标记。不隐藏——有时就是要确认"确实为 0"。
@@ -1433,8 +1449,12 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
                     formatQuantity(stock),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
+                    // BUG-2026-09-18-003：两级判定——破最低库存红线=红、破安全库存预警线=黄、
+                    // 其余=绿；不再只比 minStock，否则 danger 档(低于安全库存)会误显绿色。
                     color = if (noStock) mutedColor
-                    else if (stock > minStock) Success else Error
+                    else if (stock <= minStock) Error
+                    else if (stock <= safetyStock) Warning
+                    else Success
                 )
                 if (!material.unit.isNullOrBlank()) {
                     Text(

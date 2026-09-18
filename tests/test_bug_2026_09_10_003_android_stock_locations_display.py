@@ -28,9 +28,14 @@ def test_material_dto_has_locations_field_with_compat_default():
     assert '@SerializedName("reorder_point") val reorderPoint: Double?' in dto_src
 
 
-def test_result_card_badge_compares_against_min_stock():
-    # 徽标必须按 stock 与 minStock 比较（不是恒与 0 比）
-    assert "(material.stock ?: 0.0) > (material.minStock ?: 0.0)" in screens_src
+def test_result_card_badge_two_band_uses_safety_stock():
+    # BUG-2026-09-18-003：徽标升级为两级判定（与服务端 _material_alert_status_values 同口径）。
+    # 安全库存 = max(reorderPoint, minStock)；低于安全库存(danger)但高于最低库存的物料
+    # 不再误显示「库存充足」。旧的单级徽标比较（只比 minStock）必须已被移除。
+    assert "val scanSafetyStock = maxOf(material.reorderPoint ?: 0.0, scanMinStock)" in screens_src
+    assert 'scanStock <= scanSafetyStock -> Triple("低于安全库存", Warning, WarningContainer)' in screens_src
+    assert 'scanStock <= scanMinStock -> Triple("低于最低库存", Error, ErrorContainer)' in screens_src
+    assert "(material.stock ?: 0.0) > (material.minStock ?: 0.0)" not in screens_src
     # 结果卡展示最低库存/安全库存（后端本次起下发真值）
     assert 'InfoChip("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))' in screens_src
     # AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外必须叫「安全库存」。
