@@ -1,12 +1,20 @@
 package com.factory.wms.ui.navigation
 
 sealed class Screen(val route: String, val title: String) {
+    /**
+     * 注意：**[title] 是业务动作名，不写"扫码"**（BUG-2026-09-18-007）。
+     *
+     * 扫码只是录入手式之一：入库/出库页还有「手动添加」与语音建单，盘点页还有
+     * 「识物盘点」。标题写"扫码出库"，用户从手工添加进去就会怀疑进错页面；
+     * 且底部 Tab 早已是「入库 / 出库」，两套口径并存。故统一为动作名，
+     * "扫码"只出现在按钮文案与副标题里。route 字符串与 title 解耦，不受影响。
+     */
     data object Login : Screen("login", "登录")
     data object Home : Screen("home", "首页")
-    data object Inbound : Screen("inbound", "扫码入库")
-    data object Outbound : Screen("outbound", "扫码出库")
+    data object Inbound : Screen("inbound", "入库")
+    data object Outbound : Screen("outbound", "出库")
     data object StockQuery : Screen("stock_query", "查库存")
-    data object Stocktake : Screen("stocktake", "扫码盘点")
+    data object Stocktake : Screen("stocktake", "盘点")
     data object OpeningStock : Screen("opening_stock", "期初库存")
     data object DocumentOcr : Screen("document_ocr", "识别单据")
     data object ObjectRecognize : Screen("object_recognize", "识物")

@@ -89,7 +89,10 @@ fun HomeScreen(
                 screen = Screen.StockQuery
             ),
             FunctionCard(
-                title = "扫码盘点",
+                // BUG-2026-09-18-007：与 Screen.Stocktake 标题、底部 Tab 统一为「盘点」。
+                // 入口页标题带"扫码"而目标页已改为"盘点"会出现两级标题跳变，
+                // 且本页副标题已说明"扫码/识物"，信息不丢失。
+                title = "盘点",
                 subtitle = "扫码/识物 · 快速盘点",
                 icon = Icons.Outlined.Inventory2,
                 gradient = listOf(CardPurple, CardPurpleDark),

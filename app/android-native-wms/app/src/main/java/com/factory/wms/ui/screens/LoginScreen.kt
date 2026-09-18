@@ -148,7 +148,9 @@ fun LoginScreen(
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Text(
-                    "扫码入库 · 出库 · 盘点 · 识物",
+                    // BUG-2026-09-18-007：功能范围陈述，"扫码"只修饰入库一项会让人以为
+                    // 其余能力也要扫码才能用（实际出库/盘点/期初均可手工录入）。
+                    "入库 · 出库 · 盘点 · 识物",
                     color = Color.White.copy(alpha = 0.75f),
                     fontSize = 14.sp,
                     letterSpacing = 1.sp
