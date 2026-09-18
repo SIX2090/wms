@@ -154,6 +154,9 @@ fun InboundScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
         submitColor = CardBlue,
+        // BUG-2026-09-18-009：入库产生单据，需要库位选择 + 拍照取证（原先靠文案隐式开启）
+        showLocationSelector = true,
+        showEvidenceCapture = true,
         submittedPrint = uiState.submittedPrint,
         printLoading = uiState.printLoading,
         onPrintOrder = { viewModel.printSubmittedOrder() },
@@ -249,7 +252,31 @@ fun InboundScreen(
             shape = RoundedCornerShape(20.dp),
             title = { Text("确认入库", fontWeight = FontWeight.SemiBold) },
             text = {
-                Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交入库？")
+                // BUG-2026-09-18-010：本弹窗原先是四个页里**信息最少**的一个
+                // （出库页显示领料部门/领料人，盘点页显示仓库+盘点单并在未选时警告）。
+                // 入库单的仓库是决定库存记到哪个仓的唯一依据，多仓场景下选错仓
+                // 提交是一次**真实账目错误**（库存进错仓），而提交后单据已 completed
+                // 无补录入口。此处补齐仓库与单头信息，并给出未选仓库的前置提示。
+                val wh = uiState.selectedWarehouse
+                val lines = buildList {
+                    if (wh == null) {
+                        add("尚未选择收货仓库，请先选择仓库")
+                    } else {
+                        add("收货仓库：${wh.code} ${wh.name.orEmpty()}")
+                    }
+                    uiState.selectedSupplier?.let {
+                        add("供应商：${it.name.orEmpty()}")
+                    }
+                    if (uiState.contractNo.isNotBlank()) {
+                        add("合同编号：${uiState.contractNo}")
+                    }
+                    if (uiState.inboundRemark.isNotBlank()) {
+                        add("备注：${uiState.inboundRemark}")
+                    }
+                    add("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}")
+                    if (wh != null) add("确认提交入库？")
+                }
+                Text(lines.joinToString("\n"))
             },
             confirmButton = {
                 Button(
@@ -257,8 +284,10 @@ fun InboundScreen(
                         showSubmitDialog = false
                         viewModel.submitInbound()
                     },
-                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险
-                    enabled = !uiState.isLoading,
+                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险。
+                    // BUG-2026-09-18-010：在"非提交中"之上追加"已选仓库"前置校验，
+                    // 不能用 isLoading 覆盖前置条件（对照盘点弹窗的同一写法）。
+                    enabled = uiState.selectedWarehouse != null && !uiState.isLoading,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardBlue)
                 ) {
@@ -417,6 +446,9 @@ fun OutboundScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交出库",
         submitColor = CardGreen,
+        // BUG-2026-09-18-009：出库产生单据，需要库位选择 + 拍照取证（原先靠文案隐式开启）
+        showLocationSelector = true,
+        showEvidenceCapture = true,
         submittedPrint = uiState.submittedPrint,
         printLoading = uiState.printLoading,
         onPrintOrder = { viewModel.printSubmittedOrder() },
@@ -1682,6 +1714,11 @@ fun StocktakeScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",
         submitColor = CardPurple,
+        // BUG-2026-09-18-009：盘点**不产生出入库单据**，故不需要库位选择器与拍照取证。
+        // 这里显式声明为 false —— 原先靠"文案不等于提交入库/出库"隐式决定，
+        // 等于把盘点页的行为挂在别人的按钮文案上。
+        showLocationSelector = false,
+        showEvidenceCapture = false,
         extraActionLabel = "识物盘点",
         onExtraAction = onRecognize,
         header = {

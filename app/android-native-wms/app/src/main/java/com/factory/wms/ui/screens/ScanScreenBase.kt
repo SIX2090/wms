@@ -69,6 +69,15 @@ fun ScanScreenBase(
     onSubmitClick: () -> Unit,
     submitLabel: String,
     submitColor: Color,
+    /**
+     * 是否显示「库位选择器」+「拍照取证」两块单据附属信息（BUG-2026-09-18-009）。
+     *
+     * 这两块只对**产生单据**的流程有意义（入库单/出库单），盘点页不产生单据、
+     * 查库存页根本不会提交，因此由调用方显式声明，不靠文案反推。
+     */
+    showLocationSelector: Boolean = false,
+    /** 是否显示「拍照取证」入口。与 [showLocationSelector] 独立，便于将来分别开关。 */
+    showEvidenceCapture: Boolean = false,
     // 额外的识别类操作入口（如扫码盘点页的"识物盘点"），仅在提供时显示
     extraActionLabel: String? = null,
     onExtraAction: (() -> Unit)? = null,
@@ -175,8 +184,17 @@ fun ScanScreenBase(
 
                 // 可选的自定义横幅（如「语音草稿已生成」）
                 banner?.invoke()
-                if (submitLabel == "提交入库" || submitLabel == "提交出库") {
+                // BUG-2026-09-18-009：原来这里判断的是
+                //     if (submitLabel == "提交入库" || submitLabel == "提交出库")
+                // 用**按钮文案**驱动"是否渲染库位选择器 + 拍照取证"两块功能。
+                // 全仓库 submitLabel 唯一的逻辑用途就是这一处，其余全是直接显示。
+                // 也就是说：谁把按钮文案从"提交入库"改成"确认入库"（纯 UI 润色），
+                // 就会**静默删掉**库位选择与拍照取证两个功能——无编译错误、无测试报警，
+                // 现场只在"启用库位管理后入库必须填库位"时才炸。文案与逻辑必须解耦。
+                if (showLocationSelector) {
                     ScanLocationSelector(viewModel)
+                }
+                if (showEvidenceCapture) {
                     Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
                             Text("拍照取证（${scanState.evidence.size}/3）")
