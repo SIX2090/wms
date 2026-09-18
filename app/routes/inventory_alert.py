@@ -64,7 +64,10 @@ def register_inventory_alert_routes(app):
             Material,
             MaterialCategory,
             Supplier,
+            Warehouse,
             _material_alert_status_values,
+            get_active_warehouses,
+            get_warehouse_stock_quantities,
             inventory_alert_enabled,
         )
         if not inventory_alert_enabled():
@@ -75,6 +78,10 @@ def register_inventory_alert_routes(app):
         status_filter = (request.args.get('status') or '').strip()
         category_id = request.args.get('category_id', type=int) or 0
         supplier_id = request.args.get('supplier_id', type=int) or 0
+        # BUG-2026-09-18-004：新增可选仓库维度，对齐手机端仓库级口径。
+        # 默认 0 = 全部仓库（全局 Material.stock，保持原有总览行为）；选定仓库后
+        # 按 get_warehouse_stock_quantities 仓库级库存判定，与手机端 /api/mobile/alert/list 一致。
+        warehouse_id = request.args.get('warehouse_id', type=int) or 0
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
         if status_filter not in ('low', 'danger', 'normal', 'disabled'):
@@ -96,6 +103,17 @@ def register_inventory_alert_routes(app):
         if supplier_id:
             material_query = material_query.filter(Material.supplier_id == supplier_id)
         materials = material_query.order_by(Material.code.asc(), Material.id.asc()).all()
+
+        # BUG-2026-09-18-004：选定仓库时按该仓仓库级库存判定；无效仓库 id 回退全局。
+        warehouse = None
+        warehouse_quantities = None
+        if warehouse_id:
+            warehouse = db.session.get(Warehouse, warehouse_id)
+            if warehouse:
+                warehouse_quantities = get_warehouse_stock_quantities(warehouse)
+            else:
+                warehouse_id = 0
+
         low_stock = []
         danger_stock = []
         normal_stock = []
@@ -125,7 +143,13 @@ def register_inventory_alert_routes(app):
                     break
 
         for material in materials:
-            stock, min_stock, safety_stock, alert_status = _material_alert_status_values(material)
+            if warehouse_quantities is not None:
+                # 仓库级判定：缺记录物料按 0 处理，不回退全局 Material.stock（A11/R2）。
+                stock, min_stock, safety_stock, alert_status = _material_alert_status_values(
+                    material, stock=warehouse_quantities.get(material.id, 0))
+            else:
+                # 全部仓库（全局）：保持原总览口径，由函数回退全局 Material.stock。
+                stock, min_stock, safety_stock, alert_status = _material_alert_status_values(material)
 
             display_item = {
                 'id': material.id,
@@ -173,7 +197,8 @@ def register_inventory_alert_routes(app):
             alert_materials.sort(key=lambda item: (item.get(sort_by) if item.get(sort_by) is not None else ''), reverse=reverse)
 
         disabled_stock_count = len(materials) - len(low_stock) - len(danger_stock) - len(normal_stock)
-        filters = {'search': search, 'status': status_filter, 'category_id': category_id, 'supplier_id': supplier_id}
+        filters = {'search': search, 'status': status_filter, 'category_id': category_id,
+                   'supplier_id': supplier_id, 'warehouse_id': warehouse_id}
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.id.asc()).all()
         suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
         return render_template('alert.html',
@@ -184,6 +209,8 @@ def register_inventory_alert_routes(app):
                              disabled_stock_count=disabled_stock_count,
                              categories=categories,
                              suppliers=suppliers,
+                             warehouses=get_active_warehouses(),
+                             current_warehouse=warehouse,
                              filters=filters,
                              sort_by=sort_by,
                              sort_order=sort_order)

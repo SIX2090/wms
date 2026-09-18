@@ -60,6 +60,17 @@
                 </select>
             </div>
             <div class="col-md-2">
+                <label class="form-label small text-muted mb-1">仓库</label>
+                {# BUG-2026-09-18-004：可选仓库维度。默认「全部仓库（全局）」保持原总览口径； #}
+                {# 选定仓库后按该仓仓库级库存判定，与手机端 /api/mobile/alert/list 同口径。 #}
+                <select name="warehouse_id" class="form-select form-select-sm">
+                    <option value="0" {% if not filters.warehouse_id %}selected{% endif %}>全部仓库（全局）</option>
+                    {% for w in warehouses %}
+                    <option value="{{ w.id }}" {% if filters.warehouse_id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">分类</label>
                 <select name="category_id" class="form-select form-select-sm">
                     <option value="0" {% if not filters.category_id %}selected{% endif %}>全部分类</option>
@@ -77,13 +88,13 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">关键词</label>
                 <input type="text" name="search" class="form-control form-control-sm" placeholder="编码、名称、规格、分类、供应商、库存不足" value="{{ filters.search }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
-                {% if filters.search or filters.status or filters.category_id or filters.supplier_id %}
+                {% if filters.search or filters.status or filters.category_id or filters.supplier_id or filters.warehouse_id %}
                 <a href="/alert{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
@@ -95,7 +106,11 @@
     <div class="card-header py-2">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h5 class="mb-0">预警物料列表</h5>
-            <span class="text-muted small">当前列表 {{ alert_materials|length }} 条</span>
+            <span class="text-muted small">
+                当前列表 {{ alert_materials|length }} 条
+                {# BUG-2026-09-18-004：明示判定口径，消除「电脑端全局 vs 手机端仓库级」困惑 #}
+                · {% if current_warehouse %}按仓库「{{ current_warehouse.name }}」仓库级库存判定（与手机端一致）{% else %}按全部仓库全局总量判定{% endif %}
+            </span>
         </div>
     </div>
     <div class="card-body border-bottom py-2">
