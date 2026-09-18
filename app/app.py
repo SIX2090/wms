@@ -6779,6 +6779,26 @@ def _material_normal_stock_filter():
         ),
     )
 
+def _alert_status_for(stock, min_stock, reorder_point):
+    """**纯数值版**两级判定，返回 low / danger / normal / disabled。
+
+    AI-CI-GREEN-005-F05：这是全系统两级口径的**唯一实现**。`_material_alert_status_values()`
+    与所有"只有三个数、没有 Material 实例"的批量场景（例如 SQL 只投影了
+    id/min_stock/reorder_point）都必须走这里，否则同一套数据又会长出第二套答案。
+    """
+    if not inventory_alert_enabled():
+        return 'disabled'
+    min_stock = min_stock or 0
+    safety_stock = max(reorder_point or 0, min_stock)
+    if min_stock <= 0 and safety_stock <= 0:
+        return 'disabled'
+    if stock <= min_stock:
+        return 'low'
+    if stock <= safety_stock:
+        return 'danger'
+    return 'normal'
+
+
 def _material_alert_status_values(material, stock=None):
     """返回 (stock, min_stock, safety_stock, alert_status)。
 
@@ -6796,14 +6816,7 @@ def _material_alert_status_values(material, stock=None):
         # 调用方没有仓库上下文（AI 报表/基础资料等全局视角）时才回退总账；凡有仓库
         # 上下文者一律显式传 stock=get_warehouse_stock_quantities(...).get(id, 0)。
         stock = material.stock or 0  # stock-truth:reason=全局视角回退总账，非业务校验
-    if min_stock <= 0 and safety_stock <= 0:
-        alert_status = 'disabled'
-    elif stock <= min_stock:
-        alert_status = 'low'
-    elif stock <= safety_stock:
-        alert_status = 'danger'
-    else:
-        alert_status = 'normal'
+    alert_status = _alert_status_for(stock, min_stock, material.reorder_point)
     return stock, min_stock, safety_stock, alert_status
 
 # ==================== Dashboard ====================

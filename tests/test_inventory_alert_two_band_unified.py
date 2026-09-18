@@ -301,3 +301,4 @@ def test_t6_judgment_uses_warehouse_level_stock():
     assert dash.get_json()["data"]["alert_count"] == 2, (
         "首页告警数应为 2（danger + low），与告警清单同口径"
     )
+

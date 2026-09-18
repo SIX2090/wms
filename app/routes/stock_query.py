@@ -44,6 +44,7 @@ def register_stock_query_routes(app):
             Unit,
             Warehouse,
             LocationInventory,
+            _alert_status_for,
             get_default_warehouse,
             get_active_warehouses,
             get_warehouse_stock_quantities,
@@ -118,15 +119,25 @@ def register_stock_query_routes(app):
             # 无法翻译成等价 SQL 谓词。因此先按同一口径算出命中 id 集合，再交给 SQL
             # 分页——保证总条数与页数准确，不会出现「过滤后仍按全量分页」的错。
             if stock_filter:
-                candidates = _base_query(False).with_entities(Material.id, Material.min_stock).all()
+                # AI-CI-GREEN-005-F05：判定改用两级口径（low = <= 最低库存，
+                # danger = <= 安全库存），与 /alert、物料列表、手机端完全一致；
+                # 此前这里只比 min_stock，同一批物料在本页会少一整档。
+                candidates = _base_query(False).with_entities(
+                    Material.id, Material.min_stock, Material.reorder_point).all()
                 if stock_filter == 'low':
-                    matched = [mid for mid, ms in candidates
-                               if (ms or 0) > 0 and (warehouse_stock_map.get(mid) or 0) <= (ms or 0)]
+                    matched = [mid for mid, ms, rp in candidates
+                               if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
+                               in ('low', 'danger')]
                 else:
-                    matched = [mid for mid, ms in candidates
-                               if (ms or 0) <= 0 or (warehouse_stock_map.get(mid) or 0) > (ms or 0)]
+                    # 「正常」= 不需要预警。注意不能写成 == 'normal'：两个阈值都没设的
+                    # 物料状态是 disabled，它既不告警也不该从「正常」里消失——否则
+                    # low + normal != 全量，用户会以为物料丢了（test_filter_advanced
+                    # 的互补性断言就是守这条的）。
+                    matched = [mid for mid, ms, rp in candidates
+                               if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
+                               not in ('low', 'danger')]
                 hit = set(matched)
-                miss = [mid for mid, _ in candidates if mid not in hit]
+                miss = [mid for mid, _ms, _rp in candidates if mid not in hit]
                 # 命中集与补集取较小的一侧，避免超长 IN 列表撞上 SQLite 变量上限
                 if len(matched) <= len(miss):
                     query = query.filter(Material.id.in_(matched))
