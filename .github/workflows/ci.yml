@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # CI-GREEN-GATE-2026-09-18：每日定时跑一次（AGENTS.md §三 CI 全绿门禁）。
+  # UTC 18:30 = 北京时间 02:30，与 Android APK Build / WMS AI Verification
+  # 同一时刻并行触发。cron 只对默认分支 main 生效，与本门禁的目标分支一致。
+  schedule:
+    - cron: '30 18 * * *'
 
 # CI-PERF-2026-09-17：原单一 job 串行 20 分钟，其中 93% 花在两处：
 #   - "Unit tests + coverage"       526s（含 3.6 分钟纯覆盖率测量开销）

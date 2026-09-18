@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # CI-GREEN-GATE-2026-09-18：每日定时跑一次（AGENTS.md §三 CI 全绿门禁）。
+  # UTC 18:30 = 北京时间 02:30，与另外两个工作流同一时刻——三条并行触发，
+  # 早上看板就是当天的新鲜结果。cron 只对默认分支 main 生效。
+  schedule:
+    - cron: '30 18 * * *'
 
 jobs:
   verify:
