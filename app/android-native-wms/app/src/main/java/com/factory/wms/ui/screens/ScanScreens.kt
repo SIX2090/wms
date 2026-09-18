@@ -444,7 +444,14 @@ fun OutboundScreen(
             manualQty = "1"
         },
         onSubmitClick = { showSubmitDialog = true },
-        submitLabel = "提交出库",
+        // BUG-2026-09-18-011：按钮文案由「提交出库」改为「确认出库」。
+        // 全流程文案统一到「确认」口径：底部按钮「确认出库」→ 确认弹窗标题
+        // 「确认出库」→ 弹窗主按钮「确认出库」，三处一致。
+        //
+        // 注意本改动**只动文案**：自 BUG-2026-09-18-009 起 submitLabel 已是
+        // 纯显示值（库位选择器/拍照取证改由 showLocationSelector /
+        // showEvidenceCapture 显式控制），故改文案不会影响任何功能开关。
+        submitLabel = "确认出库",
         submitColor = CardGreen,
         // BUG-2026-09-18-009：出库产生单据，需要库位选择 + 拍照取证（原先靠文案隐式开启）
         showLocationSelector = true,
@@ -584,7 +591,10 @@ fun OutboundScreen(
             title = { Text("确认出库", fontWeight = FontWeight.SemiBold) },
             text = {
                 Column {
-                    Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认提交出库？")
+                    // BUG-2026-09-18-011：随按钮文案一并统一为「确认出库」。
+                    // 原句「…确认提交出库？」与弹窗标题/主按钮的「确认出库」不同词，
+                    // 同一屏出现"提交出库/确认出库"两套说法。
+                    Text("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}，确认出库？")
                     // 2026-09-12：展示所选领料部门/领料人，提交前最后确认
                     uiState.selectedDepartment?.let {
                         Text("领料部门：${it.name.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)

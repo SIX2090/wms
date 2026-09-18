@@ -156,15 +156,36 @@ def test_t6_all_call_sites_pass_params_explicitly():
 
 # ------------------------------------------------- T7 文案仍作为显示值保留
 def test_t7_submit_label_still_used_for_display():
-    """submitLabel 不能一起删掉 —— 它仍要作为按钮文案显示。"""
+    """submitLabel 不能一起删掉 —— 它仍要作为按钮文案显示。
+
+    ⚠️ 断言刻意**不锁具体文案字符串**（BUG-2026-09-18-011 修订）。
+    首版这里硬编码了 ('提交入库','提交出库','提交盘点')，结果仅仅把出库按钮
+    从「提交出库」润色成「确认出库」就让本测试变红 —— 测试在**阻止一次合法
+    的文案改动**。而这恰恰是本 BUG（-009）想根治的同一个病：把**显示文案**
+    当成了逻辑约束。
+
+    正确的断言是**结构性**的：三个调用点各自传了一个非空的 submitLabel，
+    按钮把它显示出来。具体写什么词是产品决策，不该由测试锁死。
+    """
     src = _read(BASE)
     # 按钮上仍引用 submitLabel（显示用途）
     assert re.search(r'submitLabel\s*,', src), \
         'submitLabel 未再用于按钮文案显示（应降级为纯显示而非删除）'
     assert re.search(r'submitLabel:\s*String', src), 'submitLabel 参数声明丢失'
+
     screens = _read(SCREENS)
-    for label in ('"提交入库"', '"提交出库"', '"提交盘点"'):
-        assert f'submitLabel = {label}' in screens, f'缺少按钮文案 {label}'
+    # 结构性：每个 ScanScreenBase 调用点都要传一个**非空**的 submitLabel 字面量
+    calls = [m.start() for m in re.finditer(r'ScanScreenBase\(', screens)]
+    assert len(calls) == 3, f'预期 3 个 ScanScreenBase 调用点，实际 {len(calls)}'
+    bounds = calls + [len(screens)]
+    labels = []
+    for idx in range(len(calls)):
+        seg = screens[bounds[idx]:bounds[idx + 1]]
+        m = re.search(r'submitLabel\s*=\s*"([^"]*)"', seg)
+        assert m, f'第 {idx + 1} 个调用点未传 submitLabel'
+        assert m.group(1).strip(), f'第 {idx + 1} 个调用点的 submitLabel 为空串'
+        labels.append(m.group(1))
+    assert len(set(labels)) == 3, f'三个页面的按钮文案应互不相同（便于识别当前页），实际：{labels}'
 
 
 # ------------------------------------------------------------ T8 括号平衡兜底
