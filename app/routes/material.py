@@ -27,6 +27,22 @@ from db import db
 from utils import require_role
 
 
+# BUG-2026-09-18-002：统一「最低库存 / 安全库存」写入口径，与批量设置
+# routes/inventory_alert.py 及 Excel 导入对齐。
+#   - 显式把安全库存填得比最低库存还低（reorder_point>0 且 < min_stock）→ 报错；
+#   - 安全库存未填（=0）但设了最低库存 → 自动提到最低库存（与批量 update_min-only、
+#     导入 clamp 同口径）。
+# 目的：保证 safety_stock=max(reorder_point,min_stock) 不小于 min_stock，避免用户填的
+# 安全库存被 max() 静默吞掉、danger 档（低于安全库存）消失。
+# 返回 (resolved_reorder_point, error_msg)；error_msg 为 None 表示通过。
+def _resolve_alert_thresholds(min_stock, reorder_point):
+    if reorder_point < min_stock:
+        if reorder_point > 0:
+            return reorder_point, '安全库存不能低于最低库存'
+        reorder_point = min_stock
+    return reorder_point, None
+
+
 # no-test:reason=路由注册辅助函数，能力由 material_* 各路由测试覆盖
 def register_material_routes(app):
     @app.route('/material')
@@ -240,6 +256,14 @@ def register_material_routes(app):
         except ValueError:
             expiry_date_parsed = None
 
+        # BUG-2026-09-18-002：安全库存不得小于最低库存（与批量设置/导入同口径），
+        # 否则 safety_stock=max(reorder_point,min_stock) 会把用户填的安全库存静默吞掉。
+        min_stock_val = parse_float_value(request.form.get('min_stock'), 0)
+        reorder_point_val = parse_float_value(request.form.get('reorder_point') or request.form.get('safety_stock'), 0)
+        reorder_point_val, threshold_err = _resolve_alert_thresholds(min_stock_val, reorder_point_val)
+        if threshold_err:
+            return api_error(threshold_err)
+
         material = Material(
             code=code,
             name=name,
@@ -250,9 +274,9 @@ def register_material_routes(app):
             spec=spec,
             stock=initial_stock,
             purpose=request.form.get('purpose'),
-            min_stock=parse_float_value(request.form.get('min_stock'), 0),
+            min_stock=min_stock_val,
             max_stock=parse_float_value(request.form.get('max_stock'), 0),
-            reorder_point=parse_float_value(request.form.get('reorder_point') or request.form.get('safety_stock'), 0),
+            reorder_point=reorder_point_val,
             expiry_date=expiry_date_parsed,
             alert_days=parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650),
             price=initial_price,
@@ -550,8 +574,14 @@ def register_material_routes(app):
         material.purpose = request.form.get('purpose')
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
         if inventory_alert_enabled():
-            material.min_stock = parse_float_value(request.form.get('min_stock'), 0)
-            material.reorder_point = parse_float_value(request.form.get('reorder_point'), 0)
+            # BUG-2026-09-18-002：同新增——安全库存不得小于最低库存。
+            min_stock_val = parse_float_value(request.form.get('min_stock'), 0)
+            reorder_point_val = parse_float_value(request.form.get('reorder_point'), 0)
+            reorder_point_val, threshold_err = _resolve_alert_thresholds(min_stock_val, reorder_point_val)
+            if threshold_err:
+                return api_error(threshold_err)
+            material.min_stock = min_stock_val
+            material.reorder_point = reorder_point_val
             material.alert_days = parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650)
         material.expiry_date = parse_date_value(expiry_date)
         # BUG-2026-08-04-007: 编辑物料价格上限必须与新增一致（MAX_REASONABLE_PRICE），
