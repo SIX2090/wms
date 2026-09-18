@@ -6825,7 +6825,26 @@ def _material_alert_status_values(material, stock=None):
 @login_required
 def index():
     total_materials = Material.query.count()
-    low_stock = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+    # BUG-2026-09-18-005：首页「库存预警物料」计数新增可选仓库维度，对齐手机端首页
+    # 与电脑端 /alert。默认 0 = 全部仓库（全局 _material_low_stock_filter，保持原总览）；
+    # 选定仓库后按 get_warehouse_stock_quantities 仓库级判定（缺记录物料按 0，不回退全局）。
+    alert_warehouse_id = request.args.get('alert_warehouse_id', type=int) or 0
+    alert_warehouse = None
+    if inventory_alert_enabled():
+        if alert_warehouse_id:
+            alert_warehouse = db.session.get(Warehouse, alert_warehouse_id)
+            if not alert_warehouse:
+                alert_warehouse_id = 0
+        if alert_warehouse:
+            alert_quantities = get_warehouse_stock_quantities(alert_warehouse)
+            low_stock = sum(
+                1 for m in Material.query.filter(db.or_(Material.min_stock > 0, Material.reorder_point > 0)).all()
+                if _material_alert_status_values(m, stock=alert_quantities.get(m.id, 0))[3] in ('low', 'danger')
+            )
+        else:
+            low_stock = Material.query.filter(_material_low_stock_filter()).count()
+    else:
+        low_stock = 0
     pending_in = InOrder.query.filter_by(status='pending').count()
     pending_out = OutOrder.query.filter_by(status='pending').count()
     pending_purchase = PurchaseRequest.query.filter_by(status='pending').count()
@@ -6910,6 +6929,9 @@ def index():
     return render_template('index.html',
                          total_materials=total_materials,
                          low_stock=low_stock,
+                         alert_warehouses=get_active_warehouses(),
+                         alert_warehouse=alert_warehouse,
+                         alert_warehouse_id=alert_warehouse_id,
                          pending_in=pending_in,
                          pending_out=pending_out,
                          pending_purchase=pending_purchase,

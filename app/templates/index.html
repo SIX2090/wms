@@ -687,8 +687,8 @@
                 <strong>{{ pending_out }}</strong>
             </a>
             {% if inventory_alert_enabled %}
-            <a class="inventory-task" href="/material?stock_filter=low&sort=stock&order=asc">
-                <span><i class="bi bi-exclamation-triangle"></i> 库存预警物料</span>
+            <a class="inventory-task" href="/material?stock_filter=low&sort=stock&order=asc" title="{% if alert_warehouse %}按「{{ alert_warehouse.name }}」仓库级判定{% else %}按全部仓库全局判定{% endif %}">
+                <span><i class="bi bi-exclamation-triangle"></i> 库存预警物料{% if alert_warehouse %}（{{ alert_warehouse.name }}）{% endif %}</span>
                 <strong>{{ low_stock }}</strong>
             </a>
             {% endif %}
@@ -722,11 +722,23 @@
             <div class="hint">预计到货已过且未完成</div>
         </a>
         {% if inventory_alert_enabled %}
-        <a class="summary-card" href="/material?stock_filter=low&sort=stock&order=asc">
-            <div class="label">库存预警物料</div>
-            <div class="value">{{ low_stock }}</div>
-            <div class="hint">建议及时查看补货</div>
-        </a>
+        {# BUG-2026-09-18-005：预警数支持按仓查看。默认「全部仓库（全局）」保持原总览； #}
+        {# 选定仓库后按该仓仓库级判定（与手机端首页、电脑端 /alert 一致）。 #}
+        <div class="summary-card">
+            <a href="/material?stock_filter=low&sort=stock&order=asc" style="color:inherit;text-decoration:none;display:block;">
+                <div class="label">库存预警物料</div>
+                <div class="value">{{ low_stock }}</div>
+            </a>
+            <form method="get" action="/" class="mt-2">
+                <select name="alert_warehouse_id" class="form-select form-select-sm" onchange="this.form.submit()" title="按仓查看预警数">
+                    <option value="0" {% if not alert_warehouse_id %}selected{% endif %}>全部仓库（全局）</option>
+                    {% for w in alert_warehouses %}
+                    <option value="{{ w.id }}" {% if alert_warehouse_id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                    {% endfor %}
+                </select>
+            </form>
+            <div class="hint">{% if alert_warehouse %}按「{{ alert_warehouse.name }}」仓库级判定{% else %}按全部仓库全局判定{% endif %} · 建议及时补货</div>
+        </div>
         {% endif %}
         <a class="summary-card" href="/in_order?status=completed&date_start={{ today_date }}&date_end={{ today_date }}">
             <div class="label">今日入库</div>
@@ -906,7 +918,7 @@
                         </tr>
                         {% if inventory_alert_enabled %}
                         <tr>
-                            <th>库存预警</th>
+                            <th>库存预警{% if alert_warehouse %}（{{ alert_warehouse.name }}）{% endif %}</th>
                             <td class="text-end fw-semibold text-danger">{{ low_stock }}</td>
                         </tr>
                         {% endif %}
