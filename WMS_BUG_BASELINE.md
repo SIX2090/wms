@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-19（持续滚动更新；累计 404 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 80 条，最新 BUG-2026-09-19-002；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-19（持续滚动更新；累计 405 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 81 条，最新 BUG-2026-09-19-003；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -279,6 +279,14 @@
 - **修复**：报损校验改用单据仓库（`wh_obj` 已由 `validate_inventory_warehouse` 在上方解析并保证有效启用）走 `get_warehouse_stock_quantities`；`allow_negative_stock` 开启时行为不变；无归属历史库存同样回退全局口径。
 - **回归**：新增 `tests/test_bug_2026_09_19_002_adjustment_warehouse_stock.py` 2 项（双仓掩护必须拒绝 + 无归属放行）；整体连同 `test_p1_after_sale_out_location_required.py` 共 9 passed；`lint_wms_rules --staged` 0 违规。
 - **生效条件**：改动拉取后**重启 WMS 服务生效**。
+
+### BUG-2026-09-19-003（2026-09-19，生产会话 Cookie 安全仅靠启动告警：默认不拦截裸 HTTP 部署）
+
+- **发现方式**：09-13 审计 AUDIT-2026-09-13-003（P1）落地；`validate_production_security_config` 此前只挡 `WMS_DISABLE_CSRF`，`SESSION_COOKIE_SECURE=False` 仅打 warning，运维可无视告警长期裸跑 HTTP。
+- **根因（代码实证）**：`app/config.py` 生产配置 `SESSION_COOKIE_SECURE` 默认 false，`app/app.py` 启动期只 `logger.warning`，无任何阻断或显式确认机制——审计行动项要求的「阻止启动或显式放行」未实现。
+- **修复**：①`validate_production_security_config` 新增硬门禁——生产环境既未 `SESSION_COOKIE_SECURE=true` 也未显式 `WMS_ALLOW_INSECURE_COOKIE=1` 时 `raise RuntimeError` 阻止启动；②显式放行后启动期告警由 warning 升级为 `logger.critical`，点名放行依据与消除方式；③`PRODUCTION_DEPLOYMENT_CHECKLIST.md` 配置检查新增硬门禁条目（HTTPS 设 `SESSION_COOKIE_SECURE=true` / 内网 HTTP 显式 `WMS_ALLOW_INSECURE_COOKIE=1`）；④`tests/conftest.py` 显式 `WMS_ALLOW_INSECURE_COOKIE=1`（内存库 + HTTP 测试环境 opt-in，保证 app 可导入）。
+- **回归**：`tests/test_production_security_config.py` 扩充至 14 项全绿（无放行拒绝启动、显式放行通过、secure=true 无需放行、非生产跳过、原 CSRF 门禁回归）；`test_bug_2026_09_19_001/002` 4 项回归通过验证 app 导入链路；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动拉取后**重启 WMS 服务生效**。**注意（行为变更）**：生产重启前必须二选一配置——HTTPS 部署设 `SESSION_COOKIE_SECURE=true`，受信内网 HTTP 部署显式设 `WMS_ALLOW_INSECURE_COOKIE=1`，否则服务拒绝启动。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

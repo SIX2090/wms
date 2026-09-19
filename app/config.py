@@ -83,8 +83,22 @@ def _env_flag(name):
 
 
 def validate_production_security_config(environment=None):
-    if (environment or os.environ.get('FLASK_ENV', 'production')) == 'production' and _env_flag('WMS_DISABLE_CSRF'):
+    env_name = environment or os.environ.get('FLASK_ENV', 'production')
+    if env_name != 'production':
+        return
+    if _env_flag('WMS_DISABLE_CSRF'):
         raise RuntimeError('CSRF protection cannot be disabled in production')
+    # AUDIT-2026-09-13-003 / BUG-2026-09-19-003：生产默认拒绝明文会话 Cookie。
+    # 未开启 SESSION_COOKIE_SECURE 时必须显式设置 WMS_ALLOW_INSECURE_COOKIE=1
+    # （仅限受信内网 HTTP 部署），否则阻止启动；显式放行后启动期记录高危告警。
+    if not _env_flag('SESSION_COOKIE_SECURE') and not _env_flag('WMS_ALLOW_INSECURE_COOKIE'):
+        raise RuntimeError(
+            'SESSION_COOKIE_SECURE is disabled in production: session cookies would be '
+            'transmitted over HTTP in plaintext. Deploy behind HTTPS and set '
+            'SESSION_COOKIE_SECURE=true, or explicitly opt in to insecure cookies for a '
+            'trusted intranet by setting WMS_ALLOW_INSECURE_COOKIE=1 (high risk). '
+            'See AUDIT-2026-09-13-003 / BUG-2026-09-19-003.'
+        )
 
 
 # ==================== 生产环境配置 ====================

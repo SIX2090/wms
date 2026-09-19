@@ -19,6 +19,7 @@
 
 ### 3. 配置检查
 - [ ] 配置LLM API密钥（环境变量或配置文件）
+- [ ] **会话 Cookie 硬门禁（BUG-2026-09-19-003）**：HTTPS 部署设置 `SESSION_COOKIE_SECURE=true`；受信内网 HTTP 部署必须显式设置 `WMS_ALLOW_INSECURE_COOKIE=1`，否则生产环境**拒绝启动**（启动日志含 RuntimeError）；显式放行后启动期会记录 CRITICAL 高危告警，属预期
 - [ ] 设置Feature Flags初始状态（建议先admin_only模式）
 - [ ] 配置熔断器参数（失败阈值、恢复时间）
 - [ ] 设置日志级别和输出目标

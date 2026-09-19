@@ -2952,10 +2952,14 @@ ensure_builtin_print_workstation()
 
 if env == 'production':
     if not app.config.get('SESSION_COOKIE_SECURE'):
-        app.logger.warning(
-            '[SECURITY] SESSION_COOKIE_SECURE=False in production: '
-            'session cookies transmitted over HTTP in plaintext. '
-            'Set SESSION_COOKIE_SECURE=true env var and deploy behind HTTPS.'
+        # 能走到这里说明已通过 validate_production_security_config 的显式放行
+        # （WMS_ALLOW_INSECURE_COOKIE=1），升级为高危告警并点名放行依据。
+        app.logger.critical(
+            '[SECURITY] SESSION_COOKIE_SECURE=False in production with explicit '
+            'WMS_ALLOW_INSECURE_COOKIE=1 opt-in: session cookies transmitted over '
+            'HTTP in plaintext (high risk, trusted intranet only). '
+            'Set SESSION_COOKIE_SECURE=true and deploy behind HTTPS to remove this alert '
+            '(AUDIT-2026-09-13-003 / BUG-2026-09-19-003).'
         )
     if not app.config.get('WTF_CSRF_ENABLED', True):
         app.logger.error(

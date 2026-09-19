@@ -17,6 +17,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
 os.environ.setdefault("WMS_DEBUG", "0")
 os.environ.setdefault("WMS_SKIP_AUTO_UPDATE", "1")
+# BUG-2026-09-19-003：app 模块导入期按默认 FLASK_ENV=production 执行
+# validate_production_security_config，新增的生产门禁要求显式放行不安全
+# 会话 Cookie。测试走内存库 + HTTP，显式 opt-in 以便 app 可导入。
+os.environ.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
 
 # BUG-2026-08-07-002：pytest 全量跑时 3 个 golden 测试收集报
 # "'app' is not a package"。根因：其他测试模块先 sys.path.insert(APP_DIR)
