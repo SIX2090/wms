@@ -341,7 +341,23 @@
 - **回归**：新增 `tests/test_bug_2026_09_20_005_backfill_table_guard.py` **8 项**（三表齐备→True / 缺 warehouse→False / 缺 stock_transaction→False / 缺 location_inventory→False / 全空库→False / 探测抛异常→False 不外泄 / 真库上 backfill 仍正常回填且幂等（守卫未误伤治本路径）/ 接线校验守卫先于回填调用防回归）。连同 `test_bug_2026_08_27_005`（T1–T11 回填语义）+ `test_ensure_stock_transaction_warehouse_id_column`（补列）共 **28 项全绿**；`lint_wms_rules --staged` 0 违规。
 - **R6 同根因排查**：grep 全仓 `with app.app_context()` 的模块级调用点，确认导入期仅有回填这一处查表——`backup_sqlite_on_startup()`（app.py:3068）是文件级备份不查表；`run_due_wechat_share_jobs()`（app.py:22549）是运行时调度入口。**同类点已排查，无第二处**。
 - **生效条件**：改动拉取后**生产需重启 WMS 服务生效**（导入期逻辑，随服务启动执行；首次重启即见效）。
-- **生效确认**：**已确认（2026-09-20 02:08 本地 + 03:05 CI）**——①本地空库端到端实测：设 `DATABASE_URL` 指向全新空 sqlite 文件后导入 `app`，捕获 ERROR 级日志 **0 行**、`no such table: warehouse` **不再出现**，改为 INFO「启动回填跳过：前置表尚未建好（空库/首启导入期），下次启动重试」；真库路径 28 项回归全绿证明治本未打折。②CI 门禁：推送 `186b42b` 后 `python scripts/check_ci_green.py` 返回 **rc=0**，三工作流全绿且均指向本次提交——`Android APK Build` #618 success、`WMS AI Verification` #1402 success、`WMS CI` #1107 success。
+- **生效确认**：**已确认（2026-09-20 02:08 本地 + 03:05 CI + 04:37 台账推送后复验）**——①本地空库端到端实测：设 `DATABASE_URL` 指向全新空 sqlite 文件后导入 `app`，捕获 ERROR 级日志 **0 行**、`no such table: warehouse` **不再出现**，改为 INFO「启动回填跳过：前置表尚未建好（空库/首启导入期），下次启动重试」；真库路径 28 项回归全绿证明治本未打折。②CI 门禁（提交 `186b42b`）：`check_ci_green.py` 返回 **rc=0**，三工作流全绿——`Android APK Build` #618、`WMS AI Verification` #1402、`WMS CI` #1107，均 success。③台账补登后推送 `9f67cb1b`，CI 再次全绿——`Android APK Build` #619、`WMS AI Verification` #1403、`WMS CI` #1108，均 success。**§三 后置条件完全闭环。**
+
+### BUG-2026-09-20-007（2026-09-20，Windows 路径被拼进 `python -c` 源码触发 unicodeescape：期初库存迁移回归锁 10/11 项恒失败）
+
+- **发现方式**：收尾 BUG-2026-09-20-005 时做全量测试定性，一度把 `test_opening_stock_migration.py` 的失败误判为「跨用例顺序污染」（因单独跑部分用例曾通过）。**后经 `--tb=short` 复现取证，推翻该结论**——这是**确定性环境缺陷，与执行顺序无关**（教训：定性前必须看 traceback，不能只凭"单独跑是否通过"下结论）。
+- **根因（代码实证）**：`tests/test_opening_stock_migration.py:93` 的 `_run_migration()` 把路径**直接拼进**传给 `python -c` 的源码字符串：
+  `os.environ['DATABASE_URL'] = 'sqlite:///{db_file}'`
+  Windows 下 `db_file` 形如 `C:\Users\...\legacy.db`，其中的 `\U` 被 Python 源码解析器当作 **unicode 转义** → 子进程当场
+  `SyntaxError: (unicode error) 'unicodeescape' codec can't decode bytes in position 12-13: truncated \UXXXXXXXX escape`。
+  注意同函数内 `{str(APP_DIR)!r}` 因加了 `!r` 而安全，**唯独 `{db_file}` 漏了**——同一函数两种写法并存，是典型的一致性疏漏。
+- **危害（远超"一条测试失败"）**：这 11 项是 **BUG-2026-09-15-007（期初库存分单）的迁移回归锁**，覆盖迁移幂等性、数据无损、备份表一致性、单据号格式等核心契约。它们恒失败意味着**该 P1 改造的迁移防护网整体失效**，且失败信息「迁移进程未正常完成」与真实迁移缺陷无法区分——真出问题时会被当成噪音忽略。
+- **修复**：`_run_migration()` 改为**经环境变量传递**参数（`WMS_TEST_APP_DIR` / `WMS_TEST_MIGRATE_TIMES` / `DATABASE_URL`），子进程源码**只读不拼**；`subprocess.run` 显式传 `env=env`；路径统一 `replace('\\', '/')` 成正斜杠，根除转义歧义。修法刻意选「环境变量传参」而非简单加 `!r`——后者仍依赖"记得加"，前者从机制上不可能踩坑。
+- **回归**：新增 `tests/test_bug_2026_09_20_007_subprocess_path_escape.py` **5 项**回归锁——①源码内不得字面赋值 `DATABASE_URL`；②不得出现未加 `!r` 的 `sqlite:///{db_file}` 插值；③`subprocess.run` 必须传 `env=`；④**机制证明**（真实启动子进程用 `C:\Users\x` 拼源码，确证抛 `unicodeescape`，证明约束不是洁癖）；⑤被修文件语法正确、`_run_migration` 可调用。修复后 `test_opening_stock_migration.py` **由 10 failed → 11 passed**。
+- **R6 同根因排查**：grep 全仓 `DATABASE_URL.*=.*'sqlite:///` 的源码内插模式，**全仓仅此 1 处**，已修，**无第二处**。
+- **生效条件**：仅改测试代码（不含生产逻辑），**无需重启服务**；CI 环境同步生效。
+- **生效确认**：**已确认（2026-09-20 04:50）**——`test_opening_stock_migration.py` 单独跑 **11 passed**（修复前 10 failed）；新增回归锁 **5 passed**；`lint_wms_rules --staged` 0 违规。
+- **附：全量串跑仍存在的失败（已定性为存量顺序污染，非本次引入，登记备查）**：本机全量串跑（约 2300 例）有约 8 个 `test_ensure_*` 的 `*_even_when_no_db_touch` 用例及几个打印模板用例失败，但**单独跑全部通过**（8 个 ensure 文件合计 37 passed），属**跨用例状态污染**。且 CI 三工作流（含完整测试套件）在 `186b42b`/`9f67cb1b` 上均全绿，证明这些失败**是本机环境特有、不在 CI 复现**。已单独登记为待办，不阻塞当前工作。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
