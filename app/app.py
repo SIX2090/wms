@@ -21695,6 +21695,9 @@ def _apply_in_order_search(query, search):
         Material.code.like(search_like),
         Material.name.like(search_like),
         Material.spec.like(search_like),
+        # 关键词补「品牌」快速匹配（与物料联想搜索 app.py 物料下拉 code/name/spec/brand 口径一致），
+        # 物料名称/规格本就在上方条件内，此处仅补缺的品牌维度。
+        Material.brand.like(search_like),
         PurchaseOrder.order_no.like(search_like),
     ]
     if status_from_search:
