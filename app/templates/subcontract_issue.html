@@ -117,6 +117,8 @@
                                 <button class="btn btn-danger btn-sm" onclick="deleteIssue('{{ issue.id }}')">删除</button>
                             </td>
                         </tr>
+                        {% else %}
+                        <tr><td colspan="9" class="text-center text-muted py-4">暂无委外发料单，点击「新增发料单」开始创建</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
