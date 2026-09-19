@@ -121,6 +121,8 @@
                                 <button class="btn btn-danger btn-sm" onclick="deleteReceive('{{ receive.id }}')">删除</button>
                             </td>
                         </tr>
+                        {% else %}
+                        <tr><td colspan="11" class="text-center text-muted py-4">暂无委外收货单，点击「新增收货单」开始创建</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
