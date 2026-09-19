@@ -2803,3 +2803,47 @@ Actions 运行与 job 内 15 个步骤的 conclusion，得出精确落点：
    本批已用 T12 系列把这类问题挡在合入前。
 3. CI 红灯定位优先用 **job steps API**（`/actions/runs/<id>/jobs`）拿到失败步骤号，
    比拉完整日志更快且不受产物域名可达性影响。
+
+### UI-EMPTY-STATE-2026-09-20：委外三页主列表空态（完善计划 P1-3，2026-09-20 立项）
+
+**背景**：`WMS完善现有功能开发计划.md` §3 P1-3 记录「空数据页只剩表头，分不清加载失败还是真没数据」，
+列为影响日常实用第 1 位。扫描 `app/templates` 全部 `<tbody>{% for %}` 块，命中 15 处缺空态，
+其中属**服务端渲染主列表**且确实裸奔的先取委外三页（委外是本阶段正在动的模块，改动面最小、风险最低）。
+
+**改动**（仅模板，不动逻辑）：
+| 文件 | colspan | 空态文案 |
+| --- | --- | --- |
+| `app/templates/subcontract.html` | 12 | 暂无委外加工单，点击「新增委外加工单」开始创建 |
+| `app/templates/subcontract_issue.html` | 9 | 暂无委外发料单 |
+| `app/templates/subcontract_receive.html` | 11 | 暂无委外收货单 |
+
+colspan 由脚本**数 `thead` 里 `<th>` 实测得出**，不是照抄上一版——写错会在非空态列位产生断行。
+
+**回归锁**：新增 `tests/test_p1_3_subcontract_list_empty_state.py`（10 项，A9 要求）：
+T1 空态分支与文案存在；T2 colspan == 自动清点的 `<th>` 数；T3 Jinja 独立环境渲染：
+列表空 → 渲染空态、列表非空 → 不渲染；T4 反回归——文案必须出现在**模板源码**里（防止以后改成 JS 注入后
+静态锁失效）。Jinja 裸 `Environment` 需自行 stub `url_for` / `csrf_token` / `get_flashed_messages`
+三个全局量，否则渲染报 `UndefinedError`（首跑 3 红即此因）。
+
+**验证**：
+| 检查项 | 结果 |
+| --- | --- |
+| `pytest tests/test_p1_3_subcontract_list_empty_state.py` | 10 passed |
+| 委外相关既有测试（29 项） | 全过 |
+| `scripts/lint_wms_rules.py` | 0 违规 |
+| 禁止裸调非 GET fetch | 通过 |
+
+**生效条件（R3）**：改的是 Jinja 模板，Flask 非 debug 下模板缓存不会自动失效，
+**必须重启 WMS 服务才看得到空态**；无需重新出包 APK（手机端不涉及这三个页面）。
+
+**教训（可复用）**：
+1. **GitHub MCP `get_file_contents` 返回的 sha 是「行尾归一化后」算的**——CRLF 文件的远端 sha 与本地
+   `git rev-parse HEAD:<path>` 恒不等。推送校验不能只比 sha，否则 CRLF 模板会**永久误报 MISMATCH**。
+   必须回退到**逐字节内容比对**（拉 `raw.githubusercontent.com` 原始字节）；且该域名在受限网络下
+   SSL 常 `UNEXPECTED_EOF`，单次失败不等于不一致，**要重试**（本轮 4 次重试后 4/4 OK）。
+2. 空态 colspan 必须实测 `<th>` 数，目测会错。
+
+**遗留子项**（不在本 atomic action）：`document_ocr.html`、`batch_import.html`、`sales_report.html`、
+`ai_feedback_review.html`、`document_table_form.html`、`_list_macros.html`。
+`warehouse.html` / `in_order_push.html` 经复核属 JS 渲染结果表或已有空态，不在本批。
+
