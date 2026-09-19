@@ -32,12 +32,59 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 失败/无 curl 时退回 urllib 重试。
 CURL_IPS = ["140.82.112.6", "20.205.243.168", "140.82.112.5", "140.82.113.5"]
 
+# CI-ENV-2026-09-19：响应体 > 约 416KB 时会被沙箱网络层静默截断（实测 425984B
+# 处切在 JSON 字符串中间），导致 git/trees/{sha}?recursive=1 在大仓库上必然
+# JSONDecodeError——即"校验脚本永远失败"，与推送是否真的漏推无关（事故：
+# P0 推送后被误判为失败）。实测该上限对 Range 分段无效：206 可稳定取回任意
+# 偏移，故超长响应一律分段拼接。阈值取 380KB，留出安全余量。
+_RESPONSE_SIZE_LIMIT = 380_000
+_CHUNK_SIZE = 200_000
 
-def _curl_get(path: str, token: str) -> dict | None:
-    for ip in CURL_IPS:
+
+def _curl_get_chunked(path: str, token: str, ip: str) -> dict | None:
+    """Range 分段取回单次响应超过网络层上限的端点（HTTP 206 拼接）。"""
+    parts: list[bytes] = []
+    offset = 0
+    while True:
         proc = subprocess.run(
             ["curl", "-s", "--max-time", "120",
              "-H", "Authorization: Bearer " + token,
+             "-H", "Accept: application/vnd.github+json",
+             "-H", f"Range: bytes={offset}-{offset + _CHUNK_SIZE - 1}",
+             "--resolve", f"api.github.com:443:{ip}",
+             "-o", "-", "-w", "\n%{http_code}",
+             "https://api.github.com" + path],
+            capture_output=True)
+        raw = proc.stdout
+        if b"\n" not in raw:
+            return None
+        body, _, code = raw.rpartition(b"\n")
+        code = code.decode().strip()
+        if code == "0":
+            return None
+        if code not in ("200", "206"):
+            raise RuntimeError(
+                f"GitHub API {path} -> HTTP {code}: {body[:400].decode('utf-8', 'replace')}")
+        parts.append(body)
+        if code == "200" or len(body) < _CHUNK_SIZE:
+            break  # 200 = 服务端忽略 Range 返回全量；短包 = 末段
+        offset += len(body)
+    joined = b"".join(parts)
+    if not joined.strip():
+        return {}
+    try:
+        return json.loads(joined.decode("utf-8", "replace"))
+    except json.JSONDecodeError as e:
+        raise RuntimeError(
+            f"GitHub API {path} 响应无法解析（已分段取回 {len(joined)}B）：{e}") from e
+
+
+def _curl_get(path: str, token: str) -> dict | None:
+    for ip in CURL_IPS:
+        if path.startswith("/repos/") and "?recursive=1" in path:
+            return _curl_get_chunked(path, token, ip)
+        proc = subprocess.run(
+            ["curl", "-s", "--max-time", "120", "-H", "Authorization: Bearer " + token,
              "-H", "Accept: application/vnd.github+json",
              "--resolve", f"api.github.com:443:{ip}",
              "-w", "\n%{http_code}",
@@ -54,7 +101,15 @@ def _curl_get(path: str, token: str) -> dict | None:
             continue
         if not code.startswith("2"):
             raise RuntimeError(f"GitHub API {path} -> HTTP {code}: {body[:400]}")
-        return json.loads(body) if body.strip() else {}
+        if len(body) >= _RESPONSE_SIZE_LIMIT:
+            # 触到网络层截断上限：重走分段路径，绝不把半截 JSON 交给 loads
+            return _curl_get_chunked(path, token, ip)
+        try:
+            return json.loads(body) if body.strip() else {}
+        except json.JSONDecodeError as e:
+            print(f"  curl via {ip} 响应解析失败（{len(body)}B），改走分段：{e}",
+                  file=sys.stderr)
+            return _curl_get_chunked(path, token, ip)
     return None
 
 
