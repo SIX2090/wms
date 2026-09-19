@@ -123,7 +123,7 @@
 
 | 工具 | 检查内容 | 必跑 |
 |---|---|---|
-| `scripts/lint_wms_rules.py` | 11 条防 BUG 规则（A1–A11） | ✅ pre-commit |
+| `scripts/lint_wms_rules.py` | 12 条防 BUG 规则（A1–A12） | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 140 项静态回归 | ✅ pre-commit |
 | `pytest tests/` | 约 2000 项测试全绿（2026-09-19 复核 1998 passed/85 skipped；规模持续增长，以实跑为准；历史基线 945） | ✅ pre-commit |
@@ -149,7 +149,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ## 六、防 BUG 规则清单
 
-`scripts/lint_wms_rules.py` 共 11 条规则，每条独立可开关：
+`scripts/lint_wms_rules.py` 共 12 条规则，每条独立可开关：
 
 | 编号 | 规则 | 防的 BUG | 扫描范围 |
 |---|---|---|---|
@@ -164,6 +164,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A9** | **新增** 业务函数必须在 `tests/` 至少有 1 个对应 pytest 测试 | 未测试代码上线 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 / 可维护性下滑 | `app/app.py`（仅看 git staged 新增行） |
 | **A11** | **新增** 禁止裸用 `material.stock`（总账）做**库存校验**，必须用仓库级口径 | 多仓库口径串仓 / 同根因反复 BUG | `app/**/*.py`（除 `app/utils.py`，仅看 git staged 新增行） |
+| **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 | `tests/*.py`（跳过三引号字符串块；行尾 `# allow-ctx-push` 可豁免） |
 
 ### 6.1 白名单与例外
 
@@ -286,6 +287,8 @@ if not is_stock_sufficient(available, quantity):
 - 登记新 BUG 前必须 grep 台账查同模式历史 BUG；若判定为**同一根因的复发**，必须同时排查并修复**所有同类消费点**（不只修报告的那一处），并在台账注明"同类点已排查"。
 
 ### R7 测试模块顶层禁止常驻 push app context（实证：全量 pytest 81~221 项顺序依赖假失败，2026-09-03 治理归零）
+
+> **R7 的机械化防护是 A12**（`scripts/lint_wms_rules.py`，2026-09-19 新增）：扫描 `tests/*.py`，拦截列 0（无缩进）的 `ctx/context .push()/.pop()` 裸调用，跳过三引号字符串块（嵌入子进程脚本不算），把 R7 从"靠人记"变成"工具拦"。行尾 `# allow-ctx-push` 可豁免。
 
 - pytest **先收集（import）全部模块、再执行**。测试文件模块顶层写 `_ctx = app.app_context(); _ctx.push()` 会在收集期把所有模块的 ctx 全部压栈，执行时再各自 pop 会把栈弹乱，残留 ctx 导致**后续模块**的请求内事务/系统设置读取异常（`location_management_enabled` 等读成默认值、LocationInventory 写入丢失等），全量失败项随顺序漂移。
 - **必须**：顶层只保留 `_ctx = app.app_context()`，用模块级 autouse fixture 包住 push/pop，例如：

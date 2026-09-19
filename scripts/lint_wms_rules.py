@@ -1261,6 +1261,71 @@ class RuleA11NoRawGlobalStockCheck(Rule):
 
 
 # ---------------------------------------------------------------------------
+# A12：测试文件顶层禁止裸 app context .push()（R7 机械化，2026-09-19 新增）
+# ---------------------------------------------------------------------------
+
+class RuleA12NoTopLevelCtxPush(Rule):
+    """测试文件模块顶层禁止裸调用 app context ``.push()`` / ``.pop()``。
+
+    R7（DEVELOPMENT_RULES §七，实证：全量 pytest 81~221 项顺序依赖假失败）：
+    pytest 先收集（import）全部模块、再执行。测试文件模块顶层写
+    ``_ctx = app.app_context(); _ctx.push()`` 会在收集期把所有模块的 ctx 全部
+    压栈，执行时再各自 pop 会把栈弹乱，残留 ctx 导致后续模块的请求内事务/
+    系统设置读取异常，全量失败项随顺序漂移。
+
+    合规写法：顶层只保留 ``_ctx = app.app_context()``，push/pop 包在模块级
+    autouse fixture 内（函数体内必然有缩进）。因此本规则只抓「列 0（无缩进）
+    的 ctx/context 变量 .push()/.pop() 调用」；有缩进的同名调用必在函数/fixture
+    内，属合规，不误报。行尾加 ``# allow-ctx-push`` 注释可豁免（极少数确有必要）。
+    """
+
+    name = "a12"
+    description = "测试文件顶层禁止裸 app context .push()/.pop()（R7）"
+    enabled = True
+    scan_paths = ("tests",)
+    exclude_paths = ()
+    extensions = (".py",)
+
+    # ctx/context 变量（含 _ctx / app_ctx / _context 等）的 .push()/.pop() 调用
+    _PATTERN = re.compile(r"\b\w*(?:ctx|context)\w*\.(?:push|pop)\s*\(", re.IGNORECASE)
+    _ALLOW_HINT = re.compile(r"#\s*allow-ctx-push\b", re.IGNORECASE)
+
+    def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
+        violations: List[Violation] = []
+        for f in files:
+            rel = str(f.relative_to(repo_root)).replace("\\", "/")
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            in_dq = False  # 三双引号（\"\"\"）字符串块内
+            in_sq = False  # 三单引号（\'\'\'）字符串块内
+            for ln, raw_line in enumerate(text.split("\n"), start=1):
+                # 三引号字符串状态：同一行内成对出现=单行字符串，净效果为 0。
+                # 嵌入的子进程脚本（如 CHILD = r\"\"\"...\"\"\"）里的 push 不是 pytest
+                # 收集的测试模块顶层代码，必须跳过，避免误报。
+                inside = in_dq or in_sq
+                if raw_line.count('"""') % 2 == 1:
+                    in_dq = not in_dq
+                if raw_line.count("'''") % 2 == 1:
+                    in_sq = not in_sq
+                if inside:
+                    continue
+                # 空行 / 缩进行跳过：缩进的 .push()/.pop() 必在函数或 fixture 内（合规）
+                if not raw_line or raw_line[:1].isspace():
+                    continue
+                # 列 0 注释行跳过
+                if raw_line.startswith("#"):
+                    continue
+                if not self._PATTERN.search(raw_line):
+                    continue
+                if self._ALLOW_HINT.search(raw_line):
+                    continue
+                violations.append(Violation(rel, ln, raw_line.strip()[:120]))
+        return violations
+
+
+# ---------------------------------------------------------------------------
 # 规则注册表
 # ---------------------------------------------------------------------------
 
@@ -1276,10 +1341,11 @@ RULES: Dict[str, Rule] = {
     "a9": RuleA9NewFuncMustTest(),
     "a10": RuleA10NoNewRouteInApp(),
     "a11": RuleA11NoRawGlobalStockCheck(),
+    "a12": RuleA12NoTopLevelCtxPush(),
 }
 
 RULE_DISPLAY_ORDER: Tuple[str, ...] = (
-    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11",
+    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12",
 )
 
 
@@ -1374,7 +1440,7 @@ def format_report(
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = """\
-WMS 防 BUG 多规则静态检查器（10 条规则）
+WMS 防 BUG 多规则静态检查器（12 条规则）
 
 用法：
   python3 scripts/lint_wms_rules.py                  跑所有规则
