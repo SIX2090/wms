@@ -1616,54 +1616,164 @@ function setupScanAutoFill() {
 setupScanAutoFill();
 
 // ==================== 批量修改功能 ====================
+// 批量修改：弹窗选择字段、填写值、预览影响行数，确认后再应用。
+// R6 同类消费点：与 in_order_add 的同名函数同根因——原实现用串行 prompt，
+// 输入非数字时 parseFloat 得 NaN、toFixed(2) 把 "NaN" 静默写进所有已填行，
+// 并污染金额与合计；且无法预览改多少行。此处一并修复（出库明细无批次/
+// 有效期列，字段集仅 单价 / 数量 / 仓库）。
 function batchUpdateField() {
-    const field = prompt('请选择要修改的字段：\n1. 单价\n2. 数量\n3. 仓库');
-    if (!field) return;
+    const existing = document.getElementById('batchUpdateModal');
+    if (existing) existing.remove();
 
-    let selector, value;
-    if (field === '1') {
-        value = prompt('请输入新的单价：');
-        if (value === null) return;
-        selector = '.material-price';
-    } else if (field === '2') {
-        value = prompt('请输入新的数量：');
-        if (value === null) return;
-        selector = '.material-qty';
-    } else if (field === '3') {
-        const warehouseSelect = document.querySelector('[name="warehouse"]');
-        const options = Array.from(warehouseSelect.options).filter(option => option.value);
-        if (options.length === 0) {
-            alert('没有可用仓库，请先维护仓库档案');
-            return;
-        }
-        const optionText = options.map((option, index) => (index + 1) + '. ' + option.textContent).join('\n');
-        const choice = prompt('请选择新的仓库：\n' + optionText);
-        if (choice === null) return;
-        const index = parseInt(choice, 10) - 1;
-        if (!Number.isInteger(index) || index < 0 || index >= options.length) {
-            alert('无效选择');
-            return;
-        }
-        warehouseSelect.value = options[index].value;
-        alert('仓库已修改');
-        return;
-    } else {
-        alert('无效选择');
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'))
+        .filter(row => (row.querySelector('.material-code')?.value || '').trim());
+    if (rows.length === 0) {
+        alert('请先录入至少一条物料明细');
         return;
     }
 
-    const rows = document.querySelectorAll('#materialTableBody tr');
+    const warehouseSelect = document.querySelector('[name="warehouse"]');
+    const warehouseOptions = warehouseSelect
+        ? Array.from(warehouseSelect.options).filter(option => option.value)
+        : [];
+    if (warehouseOptions.length === 0) {
+        alert('没有可用仓库，请先维护仓库档案');
+        return;
+    }
+
+    const modal = document.createElement('div');
+    modal.id = 'batchUpdateModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:24px;width:440px;max-width:90%;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">批量修改</h5>
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">修改字段</label>
+                <select id="batchUpdateField" class="form-control">
+                    <option value="price">单价</option>
+                    <option value="quantity">数量</option>
+                    <option value="warehouse">仓库（整单）</option>
+                </select>
+            </div>
+            <div id="batchUpdateValueWrap" style="margin-bottom:14px;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">新值</label>
+                <input id="batchUpdateValue" type="number" step="0.01" min="0" class="form-control" autocomplete="off">
+                <div id="batchUpdateHint" style="font-size:12px;color:#999;margin-top:6px;"></div>
+            </div>
+            <div id="batchUpdateWarehouseWrap" style="margin-bottom:14px;display:none;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">新仓库</label>
+                <select id="batchUpdateWarehouse" class="form-control"></select>
+                <div style="font-size:12px;color:#999;margin-top:6px;">仓库为整单属性，将修改单据表头。</div>
+            </div>
+            <div id="batchUpdatePreview" style="font-size:13px;color:#666;background:#f7f7f7;border-radius:4px;padding:10px;margin-bottom:16px;"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('batchUpdateModal').remove()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="applyBatchUpdate()">应用</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const fieldSelect = document.getElementById('batchUpdateField');
+    const valueWrap = document.getElementById('batchUpdateValueWrap');
+    const warehouseWrap = document.getElementById('batchUpdateWarehouseWrap');
+    const valueInput = document.getElementById('batchUpdateValue');
+    const hint = document.getElementById('batchUpdateHint');
+    const preview = document.getElementById('batchUpdatePreview');
+    const warehouseTarget = document.getElementById('batchUpdateWarehouse');
+
+    warehouseOptions.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.textContent;
+        warehouseTarget.appendChild(opt);
+    });
+
+    const refreshPreview = () => {
+        const field = fieldSelect.value;
+        if (field === 'warehouse') {
+            const name = warehouseTarget.selectedOptions[0]?.textContent || '';
+            preview.textContent = `将把单据表头仓库修改为「${name}」。`;
+            return;
+        }
+        const label = field === 'price' ? '单价' : '数量';
+        preview.textContent = `将修改 ${rows.length} 行已录入明细的${label}${valueInput.value ? `为「${valueInput.value}」` : ''}。`;
+    };
+
+    fieldSelect.addEventListener('change', () => {
+        const isWarehouse = fieldSelect.value === 'warehouse';
+        valueWrap.style.display = isWarehouse ? 'none' : '';
+        warehouseWrap.style.display = isWarehouse ? '' : 'none';
+        hint.textContent = fieldSelect.value === 'price'
+            ? '请输入不小于 0 的数字，最多两位小数。'
+            : '请输入大于 0 的数字，最多两位小数。';
+        valueInput.value = '';
+        refreshPreview();
+    });
+    valueInput.addEventListener('input', refreshPreview);
+    warehouseTarget.addEventListener('change', refreshPreview);
+
+    fieldSelect.dispatchEvent(new Event('change'));
+    setTimeout(() => valueInput.focus(), 100);
+}
+
+function applyBatchUpdate() {
+    const field = document.getElementById('batchUpdateField').value;
+    const valueInput = document.getElementById('batchUpdateValue');
+    const raw = valueInput.value.trim();
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'))
+        .filter(row => (row.querySelector('.material-code')?.value || '').trim());
+
+    if (field === 'warehouse') {
+        const warehouseTarget = document.getElementById('batchUpdateWarehouse');
+        if (!warehouseTarget.value) {
+            alert('请选择仓库');
+            return;
+        }
+        const warehouseSelect = document.querySelector('[name="warehouse"]');
+        if (warehouseSelect) warehouseSelect.value = warehouseTarget.value;
+        document.getElementById('batchUpdateModal').remove();
+        showToast('仓库已修改', 'success');
+        return;
+    }
+
+    if (field !== 'price' && field !== 'quantity') {
+        alert('无效选择');
+        return;
+    }
+    // 关键修复：非数字输入必须被拒绝，不能把 NaN 写进明细。
+    if (raw === '') {
+        alert('请输入新值');
+        return;
+    }
+    const num = Number(raw);
+    if (!Number.isFinite(num)) {
+        alert('请输入有效的数字');
+        valueInput.focus();
+        return;
+    }
+    if (field === 'quantity' && num <= 0) {
+        alert('数量必须大于 0');
+        valueInput.focus();
+        return;
+    }
+    if (field === 'price' && num < 0) {
+        alert('单价不能小于 0');
+        valueInput.focus();
+        return;
+    }
+
+    const selector = field === 'price' ? '.material-price' : '.material-qty';
+    const fixed = num.toFixed(2);
     let count = 0;
     rows.forEach(row => {
-        const code = row.querySelector('.material-code').value.trim();
-        if (code) {
-            row.querySelector(selector).value = parseFloat(value).toFixed(2);
-            calcAmount(row);
-            count++;
-        }
+        row.querySelector(selector).value = fixed;
+        calcAmount(row);
+        count++;
     });
     calcTotal();
-    alert('已修改 ' + count + ' 行');
+    document.getElementById('batchUpdateModal').remove();
+    showToast('已修改 ' + count + ' 行', 'success');
 }
 
 </script>
