@@ -372,6 +372,44 @@ textarea.form-control {
     background-color: #BAE7FF !important;
     border-color: #69C0FF !important;
 }
+
+/* P1-2：新建表单「一次报全部」校验面板 + 缺失字段高亮 */
+.wms-validation-panel {
+    display: none;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
+    border-radius: 4px;
+    background: #fef2f2;
+    color: #7f1d1d;
+    font-size: 13px;
+}
+.wms-validation-panel.show {
+    display: block;
+}
+.wms-validation-panel-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.wms-validation-list {
+    margin: 0;
+    padding-left: 18px;
+}
+.wms-validation-list li {
+    cursor: pointer;
+}
+.wms-validation-list li:hover {
+    text-decoration: underline;
+}
+#materialTable tbody tr.wms-row-error td {
+    background: #fff1f2 !important;
+    border-color: #fca5a5 !important;
+}
+#materialTable .wms-cell-error {
+    border-color: #dc2626 !important;
+    background: #fff7f7 !important;
+}
 </style>
 {% endblock %}
 
@@ -406,14 +444,14 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">采购日期</label>
-                        <input type="date" class="form-control" name="date" value="{{ order_date }}">
+                        <input type="date" class="form-control" name="date" value="{{ order_date }}" required>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">供应商</label>
                         <div class="supplier-input-wrap">
-                            <input type="text" class="form-control" id="supplierName" name="supplier_name" value="{{ order.supplier.name if order and order.supplier else '' }}" placeholder="可选择或手工输入" autocomplete="off">
+                            <input type="text" class="form-control" id="supplierName" name="supplier_name" value="{{ order.supplier.name if order and order.supplier else '' }}" placeholder="可选择或手工输入" autocomplete="off" required>
                             <input type="hidden" id="supplierId" name="supplier_id" value="{{ order.supplier_id if order and order.supplier_id else '' }}">
                             <div class="supplier-dropdown" id="supplierDropdown" style="display:none;"></div>
                         </div>
@@ -431,6 +469,11 @@ textarea.form-control {
                         <input type="text" class="form-control" name="remark" value="{{ order.remark if order else '' }}">
                     </div>
                 </div>
+            </div>
+
+            <div id="purchaseOrderValidationPanel" class="wms-validation-panel" role="alert" aria-live="polite">
+                <div class="wms-validation-panel-title">请先处理以下问题</div>
+                <ol id="purchaseOrderValidationList" class="wms-validation-list"></ol>
             </div>
 
             <div class="tplus-toolbar mb-3">
@@ -666,7 +709,7 @@ function addNewRow(data = {}, insertBeforeRow = null) {
         <td data-column-key="material_name"><input class="form-control material-name" value="${escapeHtml(data.material_name || '')}" readonly></td>
         <td data-column-key="spec"><input class="form-control material-spec" value="${escapeHtml(data.spec || '')}" readonly></td>
         <td data-column-key="unit"><input class="form-control material-unit" value="${escapeHtml(data.unit_name || '')}" readonly></td>
-        <td class="num-col" data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
+        <td class="num-col" data-column-key="quantity"><input type="number" class="form-control material-qty" min="0.01" step="0.01" value="${escapeHtml(data.quantity || '')}"></td>
         <td class="num-col" data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01" value="${escapeHtml(data.price || '')}"></td>
         <td class="amount-col" data-column-key="amount"><input class="form-control material-amount" readonly></td>
         <td data-column-key="contract_no"><input class="form-control line-contract-no" maxlength="50" value="${escapeHtml(data.contract_no || '')}"></td>
@@ -910,6 +953,106 @@ function collectItems() {
     })).filter(item => item.material_id || item.material_code);
 }
 
+// ==================== P1-2：新建表单「一次报全部」校验 ====================
+// 契约（与 in_order_add.html / sales_order_add.html 的 wms-validation-panel 保持一致）：
+//   error = { message, rowIndex?, selector? }
+//   rowIndex 存在 → 明细行错误，给 tr 加 wms-row-error、给匹配输入框加 wms-cell-error
+//   rowIndex 不存在 → 表头错误，只给 selector 匹配的输入框加 wms-cell-error
+function clearPurchaseValidation() {
+    const panel = document.getElementById('purchaseOrderValidationPanel');
+    const list = document.getElementById('purchaseOrderValidationList');
+    if (panel) panel.classList.remove('show');
+    if (list) list.innerHTML = '';
+    document.querySelectorAll('#materialTableBody tr').forEach(row => row.classList.remove('wms-row-error'));
+    document.querySelectorAll('#materialTable .wms-cell-error').forEach(el => el.classList.remove('wms-cell-error'));
+}
+
+function collectPurchaseValidationErrors(payload) {
+    const errors = [];
+    // 表头：直接以模板上的 [required] 声明为准，避免「属性写了、JS 却不认」的假必填
+    document.querySelectorAll('#purchaseOrderForm [required]').forEach(input => {
+        if (input.type === 'hidden') return;
+        if ((input.value || '').trim()) return;
+        const wrap = input.closest('.mb-2') || input.parentElement;
+        const labelEl = wrap ? wrap.querySelector('.form-label') : null;
+        const label = (labelEl && labelEl.textContent.trim())
+            || input.getAttribute('placeholder')
+            || input.getAttribute('name')
+            || '必填项';
+        const verb = input.tagName === 'SELECT' ? '请选择' : '请填写';
+        errors.push({ message: verb + label, selector: '[name="' + input.getAttribute('name') + '"]' });
+    });
+    // 明细行：只校验填了物料编码的行，页面预置的 30 行空白行不参与
+    Array.from(document.querySelectorAll('#materialTableBody tr')).forEach((row, index) => {
+        const code = (row.querySelector('.material-code')?.value || '').trim();
+        if (!code) return;
+        const qtyRaw = (row.querySelector('.material-qty')?.value || '').trim();
+        const qty = Number(qtyRaw);
+        if (!qtyRaw || !isFinite(qty) || qty <= 0) {
+            errors.push({ message: '第 ' + (index + 1) + ' 行：采购数量必须大于 0', rowIndex: index, selector: '.material-qty' });
+        }
+        const priceRaw = (row.querySelector('.material-price')?.value || '').trim();
+        if (priceRaw !== '') {
+            const price = Number(priceRaw);
+            if (!isFinite(price) || price < 0) {
+                errors.push({ message: '第 ' + (index + 1) + ' 行：单价不能为负数', rowIndex: index, selector: '.material-price' });
+            }
+        }
+    });
+    if (!payload.items.length) errors.push({ message: '请至少添加一条采购明细' });
+    return errors;
+}
+
+function showPurchaseValidation(errors) {
+    clearPurchaseValidation();
+    const panel = document.getElementById('purchaseOrderValidationPanel');
+    const list = document.getElementById('purchaseOrderValidationList');
+    if (!panel || !list) {
+        // 面板缺失时退化为一次性汇总提示，绝不回到「逐条 return」
+        if (errors.length) showToast(errors.map(error => error.message).join('；'), 'warning', 5000);
+        return;
+    }
+    if (!errors.length) return;
+    list.innerHTML = errors.map(error => '<li>' + escapeHtml(error.message) + '</li>').join('');
+    panel.classList.add('show');
+    // 一次性高亮全部缺失/非法字段（P1-2 核心）
+    errors.forEach(error => {
+        if (error.rowIndex !== undefined) {
+            const row = document.querySelectorAll('#materialTableBody tr')[error.rowIndex];
+            if (!row) return;
+            row.classList.add('wms-row-error');
+            if (error.selector) {
+                const input = row.querySelector(error.selector);
+                if (input) input.classList.add('wms-cell-error');
+            }
+        } else if (error.selector) {
+            document.querySelectorAll(error.selector).forEach(el => el.classList.add('wms-cell-error'));
+        }
+    });
+    // 点击条目定位到出错字段
+    Array.from(list.children).forEach((li, index) => {
+        li.addEventListener('click', () => focusPurchaseError(errors[index]));
+    });
+    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function focusPurchaseError(error) {
+    if (!error) return;
+    let target = null;
+    if (error.rowIndex !== undefined) {
+        const row = document.querySelectorAll('#materialTableBody tr')[error.rowIndex];
+        if (!row) return;
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        target = error.selector ? row.querySelector(error.selector) : row.querySelector('input,select,textarea');
+    } else if (error.selector) {
+        target = document.querySelector(error.selector);
+    }
+    if (target) {
+        target.focus();
+        if (typeof target.select === 'function') target.select();
+    }
+}
+
 function submitForm(saveAndNew) {
     window.__saveAndNew = !!saveAndNew;
     const form = document.getElementById('purchaseOrderForm');
@@ -924,14 +1067,11 @@ function submitForm(saveAndNew) {
         remark: formData.get('remark'),
         items: collectItems()
     };
-    if (!payload.date) {
-        showToast('请选择采购日期', 'warning');
-        return;
-    }
-    if (!payload.items.length) {
-        showToast('请至少添加一条采购明细', 'warning');
-        return;
-    }
+    // P1-2：一次性收集全部缺失/非法项并高亮，而不是逐条 showToast 后立刻 return。
+    // 旧实现只报第一条，用户改完再点才知道还有下一条，来回多次才填完一张单。
+    const errors = collectPurchaseValidationErrors(payload);
+    showPurchaseValidation(errors);
+    if (errors.length) return;
     // 禁止业务代码使用 raw fetch，必须通过 WMS.api.post 统一发起请求（符合 WMS 前端规范）。
     // WMS.api 在业务失败时 reject，错误信息经 error.message 传入 catch。
     WMS.api.post('/purchase_order/save', payload)
