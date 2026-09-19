@@ -194,6 +194,10 @@ class InOrderItem(db.Model):
     quantity = db.Column(db.Float, nullable=False)  # Quantity
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
+    # P0 批次/有效期捕获（可追溯性）：入库明细行级批次号与有效期。
+    # 仅记录事实，不参与库存维度计算（库存批次维度化另行任务）。
+    batch_no = db.Column(db.String(50))  # 批次号（行级）
+    expiry_date = db.Column(db.Date)  # 有效期（行级，到日）
     remark = db.Column(db.String(500))  # Row-level remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))
     contract_no = db.Column(db.String(50))

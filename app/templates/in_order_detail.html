@@ -427,6 +427,8 @@
                         <th data-col="colProjectName" data-column-key="colProjectName">工程名称</th>
                         <th class="text-center resizable-th" data-col="colUnit" data-column-key="colUnit">单位<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colStock" data-column-key="colStock">当前库存<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colBatchNo" data-column-key="colBatchNo">批次号<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colExpiryDate" data-column-key="colExpiryDate">有效期<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colQty" data-column-key="colQty">数量<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSourcePo" data-column-key="colSourcePo">来源采购单<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colSourceQty" data-column-key="colSourceQty">采购数量<div class="resize-handle"></div></th>
@@ -463,6 +465,8 @@
                         <td data-column-key="colProjectName">{{ item.project_name or order.project_name or '-' }}</td>
                         <td class="text-center" data-column-key="colUnit">{{ item.material.unit.name if item.material.unit else '-' }}</td>
                         <td class="text-end" data-column-key="colStock">{{ "%.2f"|format(item.material.stock or 0) }}</td>
+                        <td data-column-key="colBatchNo">{{ item.batch_no or '-' }}</td>
+                        <td data-column-key="colExpiryDate">{{ item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '-' }}</td>
                         <td class="text-end fw-medium editable-cell" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
                         <td data-column-key="colSourcePo" data-source-purchase-order-id="{{ source_order.id if source_order else '' }}">
                             {% if source_order %}
@@ -511,7 +515,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ 20 if order.status == 'pending' else 18 }}" class="empty-state">
+                        <td colspan="{{ 22 if order.status == 'pending' else 20 }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
@@ -521,7 +525,7 @@
                 {% if order.items %}
                 <tfoot>
                     <tr class="total-row">
-                        <td colspan="{{ 6 if order.status == 'pending' else 5 }}"></td>
+                        <td colspan="{{ 8 if order.status == 'pending' else 7 }}"></td>
                         <td class="text-end">合计：</td>
                         <td class="text-end">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
                         <td colspan="6"></td>

@@ -170,6 +170,21 @@ def fix_columns(db_path=None):
             logger.info('已添加 in_order_item.source_sales_order_item_id')
         else:
             logger.info('in_order_item.source_sales_order_item_id 已存在')
+        # P0 批次/有效期捕获：入库明细行级批次号与有效期，缺列会让入库单
+        # 详情页渲染 item.batch_no 即 500。ALTER 语句与 app.py
+        # ensure_in_order_item_batch_columns() 逐字一致（tests 断言防漂移）。
+        if 'batch_no' not in in_item_cols:
+            conn.execute('ALTER TABLE in_order_item ADD COLUMN batch_no VARCHAR(50)')
+            conn.commit()
+            logger.info('已添加 in_order_item.batch_no')
+        else:
+            logger.info('in_order_item.batch_no 已存在')
+        if 'expiry_date' not in in_item_cols:
+            conn.execute('ALTER TABLE in_order_item ADD COLUMN expiry_date DATE')
+            conn.commit()
+            logger.info('已添加 in_order_item.expiry_date')
+        else:
+            logger.info('in_order_item.expiry_date 已存在')
 
     if _table_exists(conn, 'out_order'):
         out_cols = [r[1] for r in conn.execute('PRAGMA table_info(out_order)').fetchall()]

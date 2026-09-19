@@ -374,6 +374,13 @@ def register_batch_import_routes(app):
                     col_map['contract_no'] = idx
                 elif '工程名称' in h:
                     col_map['project_name'] = idx
+                # P0 批次/有效期捕获：入库 Excel 支持行级批次号与有效期列。
+                # 该分支必须位于「备注」之前：否则「批次备注」这类表头会被
+                # '备注' in h 先吃掉，批次数据静默丢失。
+                elif '批次' in h:
+                    col_map['batch_no'] = idx
+                elif '有效期' in h or '失效日期' in h or '到期' in h:
+                    col_map['expiry_date'] = idx
                 elif '备注' in h:
                     col_map['remark'] = idx
             if 'order_no' not in col_map:
@@ -547,6 +554,25 @@ def register_batch_import_routes(app):
                     # BUG-2026-09-18-013：Excel 明细无逐行合同列，走表头兜底；
                     # 与逐行新增（add_in_order_item）同一收口函数，避免口径分叉。
                     _c_id, _c_no, _p_name = resolve_item_contract(current_order)
+                    # P0 批次/有效期捕获：与 Web 录入共用同一解析器，保证
+                    # 「Excel 导入」与「页面粘贴」两种口径完全一致。
+                    # 延迟导入：routes.in_order 模块级只依赖 flask/db/utils，不触发循环导入。
+                    from routes.in_order import _parse_item_expiry_date
+                    # P0 批次/有效期捕获：Excel 单元格取原始值（openpyxl 可能给
+                    # datetime/date 对象），文本写法再走统一解析器。
+                    batch_no = get_val('batch_no') or None
+                    if batch_no and len(batch_no) > 50:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：批次号超过50个字符')
+                        continue
+                    expiry_raw = None
+                    if 'expiry_date' in col_map and col_map['expiry_date'] < len(row):
+                        expiry_raw = row[col_map['expiry_date']]
+                    expiry_date, expiry_err = _parse_item_expiry_date(expiry_raw)
+                    if expiry_err:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：{expiry_err}')
+                        continue
                     item = InOrderItem(
                         in_order_id=current_order.id,
                         material_id=material.id if material else None,
@@ -554,6 +580,8 @@ def register_batch_import_routes(app):
                         price=prc,
                         amount=amt,
                         is_customer_supplied=customer_supplied,
+                        batch_no=batch_no,
+                        expiry_date=expiry_date,
                         contract_id=_c_id,
                         contract_no=_c_no,
                         project_name=_p_name,

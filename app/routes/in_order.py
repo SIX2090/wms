@@ -46,6 +46,55 @@ from db import db
 from utils import print_token_or_login_required, require_role
 
 
+def _parse_item_batch_no(value):
+    """P0 批次/有效期捕获：解析行级批次号。
+
+    返回 (batch_no, err_msg)。空值归一化为 None；超长（>50）返回
+    错误提示（不静默截断，防止脏数据入库后对不上源头单据）。
+    """
+    batch_no = (value or '').strip()
+    if not batch_no:
+        return None, None
+    if len(batch_no) > 50:
+        return None, '批次号不能超过 50 个字符'
+    return batch_no, None
+
+
+def _parse_item_expiry_date(value):
+    """P0 批次/有效期捕获：解析行级有效期（到日）。
+
+    返回 (date_obj, err_msg)。空值归一化为 None。
+    兼容从 Excel/WPS 直接复制粘贴的常见写法：
+    ``2026-09-19`` / ``2026/9/19`` / ``2026.9.19`` / ``2026年9月19日``，
+    并自动剥离单元格附带的时间部分（``2026/9/19 0:00``、``2026-09-19 08:30:00``）。
+    非法格式返回错误提示，不静默丢弃。
+    """
+    if value is None:
+        return None, None
+    from datetime import date as _date, datetime as _datetime
+    # Excel 单元格（openpyxl）常给 datetime，必须先降成日期，否则会把时间部分
+    # 一起写进 db.Date 列（SQLite 宽容、MySQL/PG 会报错或截断）。datetime 是
+    # date 的子类，所以这一支必须放在 isinstance(..., date) 之前。
+    if isinstance(value, _datetime):
+        return value.date(), None
+    if isinstance(value, _date):
+        return value, None
+    raw = str(value).strip()
+    if not raw:
+        return None, None
+    # Excel/WPS 单元格常带时间后缀，只取日期部分
+    raw = raw.split()[0] if ' ' in raw else raw
+    raw = raw.replace('年', '-').replace('月', '-').replace('日', '')
+    normalized = raw.replace('/', '-').replace('.', '-')
+    parts = normalized.split('-')
+    if len(parts) != 3:
+        return None, '有效期格式不正确，应为 YYYY-MM-DD'
+    try:
+        return _date(int(parts[0]), int(parts[1]), int(parts[2])), None
+    except (TypeError, ValueError):
+        return None, '有效期格式不正确，应为 YYYY-MM-DD'
+
+
 def _build_in_order_excel(order):
     """按用户指定样式生成采购入库单 Excel（无合计行）。
 
@@ -669,8 +718,13 @@ def register_in_order_routes(app):
                          get_active_warehouses, get_default_warehouse, location_management_enabled,
                          serialize_customer, serialize_material, serialize_supplier, serialize_unit)
         from app import InOrder, InOrderItem
-        materials = Material.query.options(joinedload(Material.unit)).all()
-        units = Unit.query.all()
+        # P2 物料选择改服务端搜索：首屏不再把全部物料内联进页面（物料上万时
+        # 首屏 HTML 体积与解析耗时随物料数线性增长）。只内联「初始缓存」：
+        #   ① 编辑草稿单时，单据已有明细引用的物料必须在内（否则渲染不出名称）；
+        #   ② 按编码升序的前 MATERIAL_INITIAL_CACHE_LIMIT 条，保证空关键词时
+        #      下拉有内容可展示。
+        # 其余物料由前端联想走 /api/material/search 按需拉取。
+        MATERIAL_INITIAL_CACHE_LIMIT = 300
         order_id = request.args.get('order_id', type=int)
         order = None
         if order_id:
@@ -679,6 +733,26 @@ def register_in_order_routes(app):
             ).get_or_404(order_id)
             if order.status != 'pending':
                 abort(409, '只有反提交后的草稿入库单可以编辑')
+
+        # 初始缓存组装：单据已有物料（编辑场景）优先，再补足前 N 条
+        _preset_materials = []
+        _preset_ids = set()
+        if order is not None:
+            for _item in order.items:
+                if _item.material is not None and _item.material.id not in _preset_ids:
+                    _preset_ids.add(_item.material.id)
+                    _preset_materials.append(_item.material)
+        if len(_preset_materials) < MATERIAL_INITIAL_CACHE_LIMIT:
+            _extra = (
+                Material.query.options(joinedload(Material.unit))
+                .filter(~Material.id.in_(_preset_ids) if _preset_ids else db.true())
+                .order_by(Material.code.asc())
+                .limit(MATERIAL_INITIAL_CACHE_LIMIT - len(_preset_materials))
+                .all()
+            )
+            _preset_materials.extend(_extra)
+        materials = _preset_materials
+        units = Unit.query.all()
         order_type = 'other_in' if request.path == '/other_in_order/add' else (request.args.get('type') or '').strip().lower()
         source_purchase_order_id = request.args.get('source_purchase_order_id', type=int) or None
         source_sales_order_id = request.args.get('source_sales_order_id', type=int) or None
@@ -1021,6 +1095,13 @@ def register_in_order_routes(app):
                     # 同一物料按不同合同编号分批入库是常见业务，按 (物料, 来源行)
                     # 判重会把「编号/名称/规格相同但合同号不同」的明细合并成一行，
                     # 破坏合同归属与金额溯源。原按物料判重并合并的逻辑已删除。
+                    # P0 批次/有效期捕获：行级批次号与有效期（可选）。
+                    batch_no, batch_err = _parse_item_batch_no(item_data.get('batch_no'))
+                    if batch_err:
+                        return api_error(f'物料 {material.code} 的{batch_err}')
+                    expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
+                    if expiry_err:
+                        return api_error(f'物料 {material.code} 的{expiry_err}')
                     item = InOrderItem(
                         in_order_id=order.id,
                         material_id=material.id,
@@ -1029,6 +1110,8 @@ def register_in_order_routes(app):
                         quantity=quantity,
                         price=price,
                         amount=amount,
+                        batch_no=batch_no,
+                        expiry_date=expiry_date,
                         remark=(item_data.get('remark') or '').strip() or None,
                         contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
                         contract_no=(item_data.get('contract_no') or '').strip() or None,
@@ -1137,6 +1220,14 @@ def register_in_order_routes(app):
             user_contract_id=request.form.get('contract_id'),
         )
 
+        # P0 批次/有效期捕获：追加明细行同样接收行级批次号与有效期。
+        batch_no, batch_err = _parse_item_batch_no(request.form.get('batch_no'))
+        if batch_err:
+            return api_error(batch_err)
+        expiry_date, expiry_err = _parse_item_expiry_date(request.form.get('expiry_date'))
+        if expiry_err:
+            return api_error(expiry_err)
+
         try:
             item = InOrderItem(
                 in_order_id=id,
@@ -1145,6 +1236,8 @@ def register_in_order_routes(app):
                 quantity=quantity,
                 price=price,
                 amount=amount,
+                batch_no=batch_no,
+                expiry_date=expiry_date,
                 remark=(request.form.get('remark') or '').strip() or None,
                 contract_id=contract_id,
                 contract_no=contract_no,
@@ -1212,8 +1305,18 @@ def register_in_order_routes(app):
                 # BUG-2026-09-18-013：此入口无来源采购行，合同号用单据表头兜底。
                 # 走统一收口函数而非直接读 order.contract_*，避免日后收口规则变化
                 # （如新增"按物料族映射合同"）时此处被漏改。
-                # 批量粘贴格式仍为「编码,数量,单价」——不扩展第 4 列，因为合同号
-                # 本身可能含逗号，CSV 会歧义；需要逐行合同时用行内新增或添加弹窗。
+                # 合同号不进 CSV 第 4 列（合同号本身可能含逗号，CSV 会歧义）；
+                # 需要逐行合同时用行内新增或添加弹窗。
+                # P0 批次/有效期捕获：CSV 第 4/5 列支持批次号与有效期
+                # （批次号是简短标识不含逗号，无歧义；格式非法整行报错跳过）。
+                batch_no, batch_err = _parse_item_batch_no(parts[3] if len(parts) > 3 else None)
+                if batch_err:
+                    errors.append(f'第 {line_no} 行{batch_err}')
+                    continue
+                expiry_date, expiry_err = _parse_item_expiry_date(parts[4] if len(parts) > 4 else None)
+                if expiry_err:
+                    errors.append(f'第 {line_no} 行{expiry_err}')
+                    continue
                 _c_id, _c_no, _p_name = resolve_item_contract(order)
                 db.session.add(InOrderItem(
                     in_order_id=id,
@@ -1221,6 +1324,8 @@ def register_in_order_routes(app):
                     quantity=quantity,
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
+                    batch_no=batch_no,
+                    expiry_date=expiry_date,
                     contract_id=_c_id,
                     contract_no=_c_no,
                     project_name=_p_name,
@@ -1451,6 +1556,8 @@ def register_in_order_routes(app):
                     quantity=quantity,
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
+                    batch_no=getattr(item, 'batch_no', None),
+                    expiry_date=getattr(item, 'expiry_date', None),
                     remark=item.remark,
                     contract_id=item.contract_id,
                     contract_no=item.contract_no,
@@ -1887,6 +1994,13 @@ def register_in_order_routes(app):
                         item_data=item_data,
                         source_purchase_order_item=source_item if source_purchase_order_item_id else None,
                     )
+                    # P0 批次/有效期捕获：编辑保存新增行接收行级批次号与有效期。
+                    batch_no, batch_err = _parse_item_batch_no(item_data.get('batch_no'))
+                    if batch_err:
+                        return api_error(f'物料 {material_code} 的{batch_err}')
+                    expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
+                    if expiry_err:
+                        return api_error(f'物料 {material_code} 的{expiry_err}')
                     new_item = InOrderItem(
                         in_order_id=id,
                         material_id=material.id,
@@ -1897,6 +2011,8 @@ def register_in_order_routes(app):
                         contract_id=contract_id,
                         contract_no=contract_no,
                         project_name=project_name,
+                        batch_no=batch_no,
+                        expiry_date=expiry_date,
                         remark=(item_data.get('remark') or '').strip() or None
                     )
                     db.session.add(new_item)
@@ -1977,6 +2093,18 @@ def register_in_order_routes(app):
                         item.amount = round_to_2_decimals(new_qty * new_price)
                         if 'remark' in item_data:
                             item.remark = (item_data.get('remark') or '').strip() or None
+                        # P0 批次/有效期捕获：已有行支持按需更新批次/有效期
+                        # （字段在 item_data 里才更新，兼容逐字段编辑的调用方）。
+                        if 'batch_no' in item_data:
+                            _b_no, _b_err = _parse_item_batch_no(item_data.get('batch_no'))
+                            if _b_err:
+                                return api_error(_b_err)
+                            item.batch_no = _b_no
+                        if 'expiry_date' in item_data:
+                            _e_date, _e_err = _parse_item_expiry_date(item_data.get('expiry_date'))
+                            if _e_err:
+                                return api_error(_e_err)
+                            item.expiry_date = _e_date
 
             recalculate_order_total(order)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():

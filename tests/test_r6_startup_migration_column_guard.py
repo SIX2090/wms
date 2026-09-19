@@ -38,7 +38,16 @@ APP_PY = ROOT / "app" / "app.py"
 # auto_migrate_database 中「f-string 动态拼接」的 ALTER 数量（无法静态取列名）。
 # 若这个数字变化，说明有人引入了新的动态形式，必须人工核对是否已被兜底覆盖，
 # 否则动态列会绕过本闸门。改这里之前请先读懂上面第 2 条。
-KNOWN_DYNAMIC_ALTERS = 4
+#
+# 变更记录：
+#   4 → 5（2026-09-19，P0 批次/有效期捕获）：auto_migrate_database 里
+#   in_order_item 的 batch_no / expiry_date 改写为 for 循环 + f-string 拼接
+#   （与同函数内 source_sales_order_* 的写法保持一致，避免列定义重复）。
+#   已人工核对：两列均有无条件兜底——app.py
+#   ensure_in_order_item_batch_columns()（启动期自愈，独立于迁移开关）
+#   + fix_db_columns.py 兜底，且 tests/test_p0_in_order_item_batch_expiry.py
+#   的 T2 实测了「存量库缺列 → 自愈补列」路径。
+KNOWN_DYNAMIC_ALTERS = 5
 
 
 def _function_source(src: str, name: str) -> str:

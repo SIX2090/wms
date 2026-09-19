@@ -1197,6 +1197,19 @@ def auto_migrate_database():
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_in_order_item_source_sales_item ON in_order_item(source_sales_order_item_id)"
             )
+        # P0 批次/有效期捕获：入库明细行级批次号与有效期列。
+        # 只加可空列，不动存量数据；与 ensure_in_order_item_batch_columns()
+        # / fix_db_columns.py 的 ALTER 逐字一致（tests 断言防漂移）。
+        if _table_exists('in_order_item'):
+            cursor.execute("PRAGMA table_info(in_order_item)")
+            _in_order_item_cols_p0 = [row[1] for row in cursor.fetchall()]
+            for _column, _definition in (
+                ('batch_no', 'VARCHAR(50)'),
+                ('expiry_date', 'DATE'),
+            ):
+                if _column not in _in_order_item_cols_p0:
+                    cursor.execute(f"ALTER TABLE in_order_item ADD COLUMN {_column} {_definition}")
+                    modified = True
         # Existing documents had one header-level contract. Copy it to every line once.
         for _header, _item, _fk in (
             ('in_order', 'in_order_item', 'in_order_id'),
@@ -2362,6 +2375,87 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
                 pass
 
 
+def ensure_in_order_item_batch_columns(db_path: str | None = None):
+    """启动期无条件补齐 P0 入库明细批次/有效期列（仿 ensure_sales_return_source_columns）。
+
+    背景：P0 给 ``in_order_item`` 加了 batch_no / expiry_date，列在
+    ``auto_migrate_database()`` 与 alembic 迁移里都会 ADD，但
+    ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认
+    ``WMS_NO_DB_TOUCH=1`` 会整体跳过 ``auto_migrate_database()``，
+    且 start_wms_auto.bat 连 fix_db_columns.py 都不跑。存量生产库
+    重启后补不上，入库单详情页一渲染 item.batch_no 即 500
+    （no such column: in_order_item.batch_no）。
+
+    独立 sqlite 连接、独立于迁移开关无条件执行、幂等（PRAGMA table_info
+    判断列存在则不 ALTER）。列定义与 auto_migrate_database() /
+    fix_db_columns.py 逐字一致（tests 断言防漂移）。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        _batch_column_migrations = (
+            ('in_order_item', 'PRAGMA table_info(in_order_item)', (
+                ('batch_no',
+                 'ALTER TABLE in_order_item ADD COLUMN batch_no VARCHAR(50)'),
+                ('expiry_date',
+                 'ALTER TABLE in_order_item ADD COLUMN expiry_date DATE'),
+            )),
+        )
+        added_cols = []
+        for _tbl, _pragma, _col_stmts in _batch_column_migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                # 表不存在 → 全新库，交给 create_all 建表
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 入库明细批次/有效期已补缺列（P0）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_in_order_item_batch_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_opening_stock_doc_table(db_path: str | None = None):
     """启动期无条件创建 opening_stock_doc 单据头表并回填历史单据（BUG-2026-09-16-006）。
 
@@ -2803,6 +2897,12 @@ ensure_inventory_check_columns()
 # 与上面同理，独立于迁移开关无条件执行、幂等补列。这是存量库唯一自愈路径
 # （start_wms_auto.bat 根本不调用 fix_db_columns.py）。
 ensure_sales_return_source_columns()
+
+# P0 批次/有效期捕获：in_order_item.batch_no / expiry_date 同理，
+# WMS_NO_DB_TOUCH=1 的存量库重启补不上，入库单详情页渲染 item.batch_no
+# 即 500。独立于迁移开关无条件执行、幂等补列（存量库唯一自愈路径，
+# start_wms_auto.bat 不调用 fix_db_columns.py）。
+ensure_in_order_item_batch_columns()
 
 # ARCH-OS-DOC-01：期初库存多单据化给 opening_stock 加了 doc_id，只在
 # auto_migrate_database 里 ADD；WMS_NO_DB_TOUCH=1 时存量库重启补不上，
