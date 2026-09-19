@@ -349,7 +349,7 @@
 - **修复**：新增 **A14 规则**（`RuleA14ProductionGateConsumerOptIn`）——`scripts/*.py` 的 **staged 新增行**中若出现 app 引用（`from app import app` / `import app`）且脚本未显式设置 `WMS_ALLOW_INSECURE_COOKIE`（与 conftest 同口径的生产硬门禁 opt-in），则 pre-commit 拦截。放行条件：切 testing 环境 / 本次未新增 app 引用行 / 行尾 `# allow-no-optin`。**判定粒度刻意取"新增行是否引入 app 引用"而非"文件被改过"**——后者会把仅改空行的存量脚本判违规，误报不可接受（初版即踩此坑，已由 golden 测试第 5 例锁定）。同步更新 `DEVELOPMENT_RULES.md`（13→14 条 + A14 行 + 汇总行）、`AGENTS.md`（§六标题/目录/速查表 12→14 条、补登 A13+A14、§四 A1-A14、R6 补机械化说明——其中 A13 文案为本轮补漏）。
 - **回归**：新增 `tests/test_lint_wms_rules_a14_golden.py` 6 项（无 opt-in 拦截 / 有 opt-in 放行 / testing 放行 / 不导入 app 放行 / 改空行不误报 / 存量脚本新增 app 引用行拦截）；连同 A13 golden 3 项 + 门禁相关 23 项共 32 项全绿；`lint_wms_rules` 0 违规。
 - **生效条件**：改动拉取后本地 pre-commit 钩子即生效（无需重启服务）；CI lint 同步覆盖。
-- **生效确认**：待确认——下次在 `scripts/` 下新增一个 `from app import app` 且不设 opt-in 的脚本时，pre-commit 应拦截并提示 A14；golden 测试已在临时仓库验证六种场景。
+- **生效确认**：**已确认（2026-09-20 01:47）**——推送 `e9708d39` 后 `python scripts/check_ci_green.py` 返回 rc=0，三工作流全绿且均指向本次提交（`Android APK Build` #613、`WMS AI Verification` #1397、`WMS CI` #1102，均 success）。规则本身由 golden 测试六场景验证；A13 文案漏改一并补齐。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 
