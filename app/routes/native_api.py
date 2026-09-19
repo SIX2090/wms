@@ -36,6 +36,48 @@ from flask import jsonify, request
 from db import db
 
 
+def _append_crash_report(report, username):
+    """把一条移动端崩溃报告以 JSON 行追加到 logs/crash_reports.log。
+
+    AI-MOB-CRASH-01：崩溃是高信号事件，独立成文件而非混入 app.log——
+    普通日志里一条 stacktrace 会被业务日志淹没，独立文件便于管理员定向
+    查看与采集。用 RotatingFileHandler（5MB x 3）防止无限增长。
+
+    本函数绝不向外抛异常：崩溃上报是"尽力而为"通道，写不动盘（磁盘满 /
+    权限不足）只记一条警告，不能让上报请求因日志失败而返回 5xx——那会让
+    App 端误判"上报失败"反复重试。
+    """
+    import json as _json
+    import logging
+    import os as _os
+    from logging.handlers import RotatingFileHandler
+
+    from flask import current_app
+
+    logger = logging.getLogger('wms.crash')
+    if not logger.handlers:
+        log_file = current_app.config.get('LOG_FILE') or 'logs/app.log'
+        log_dir = _os.path.dirname(log_file) or 'logs'
+        try:
+            _os.makedirs(log_dir, exist_ok=True)
+            handler = RotatingFileHandler(
+                _os.path.join(log_dir, 'crash_reports.log'),
+                maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8')
+            handler.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+            logger.addHandler(handler)
+            logger.setLevel(logging.INFO)
+            logger.propagate = False
+        except Exception:
+            current_app.logger.warning('崩溃日志初始化失败', exc_info=True)
+            return
+    record = dict(report)
+    record['username'] = username
+    try:
+        logger.info(_json.dumps(record, ensure_ascii=False))
+    except Exception:
+        current_app.logger.warning('写入崩溃日志失败', exc_info=True)
+
+
 def _native_document_location(parsed):
     from app import location_management_enabled
     if not location_management_enabled():
@@ -2489,6 +2531,45 @@ def register_native_api_routes(app):
             'last_login_ip': user.last_login_ip or '',
             'must_change_password': user.must_change_password or False,
         })
+
+    @app.route('/api/mobile/crash_report', methods=['POST'])
+    @csrf.exempt
+    def mobile_api_crash_report():
+        """移动端崩溃上报（AI-MOB-CRASH-01）。
+
+        鉴权策略——**不强制登录**：崩溃可能发生在登录前或 token 失效后，若强制
+        鉴权，恰恰是"登录页就崩、用户完全进不去"这类最高价值崩溃会丢。有合法
+        Bearer 则记录用户名，没有则记为 anonymous。内部仓库局域网部署 + 下方
+        尺寸上限约束下，放开匿名写入的风险可控。
+
+        存储：追加写入 logs/crash_reports.log（见 _append_crash_report），
+        不入业务库、不做 schema 迁移，管理员经既有日志通道即可查看。
+
+        A8：新增 POST 路由用 pydantic 输入校验；任一字段超限一律 400，不写盘。
+        """
+        from pydantic import BaseModel, Field
+        from app import api_json_error, api_json_success, get_bearer_user
+
+        class CrashReportRequest(BaseModel):
+            app_version: str = Field(..., min_length=1, max_length=40)
+            version_code: int = Field(..., ge=0)
+            android_sdk: int = Field(..., ge=0, le=1000)
+            device: str = Field('', max_length=200)
+            thread: str = Field('', max_length=120)
+            exception: str = Field(..., min_length=1, max_length=300)
+            stacktrace: str = Field(..., min_length=1, max_length=20000)
+            occurred_at: int = Field(0, ge=0)
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = CrashReportRequest.model_validate(payload)
+        except Exception as exc:
+            return api_json_error(f'崩溃报告格式错误：{exc}', 400)
+
+        user = get_bearer_user()
+        username = user.username if user else 'anonymous'
+        _append_crash_report(req.model_dump(), username)
+        return api_json_success({}, message='崩溃报告已收到')
 
     @app.route('/api/warehouses')
     @web_or_api_required

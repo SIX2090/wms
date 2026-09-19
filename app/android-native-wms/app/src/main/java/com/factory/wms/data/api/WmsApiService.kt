@@ -301,6 +301,14 @@ interface WmsApiService {
     suspend fun createPrintJob(
         @Body request: PrintJobRequest
     ): Response<ApiEnvelope<PrintJobResult>>
+
+    /**
+     * AI-MOB-CRASH-01：崩溃上报。服务端不强制鉴权（崩溃可能发生在登录前 /
+     * token 失效后），仅在有合法 Bearer 时记录用户名。上报失败由
+     * [com.factory.wms.util.CrashReporter] 保留本地文件待下次启动重试。
+     */
+    @POST("api/mobile/crash_report")
+    suspend fun reportCrash(@Body request: CrashReportRequest): Response<ApiEnvelope<Unit>>
 }
 
 /**

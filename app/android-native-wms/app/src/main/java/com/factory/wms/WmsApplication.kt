@@ -8,6 +8,7 @@ import com.factory.wms.data.repository.WmsRepository
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.util.DebugLogger
+import com.factory.wms.util.CrashReporter
 import com.factory.wms.util.ScanFeedback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -55,6 +56,9 @@ class WmsApplication : Application(), ImageLoaderFactory {
         // 离线队列对用户承诺的"联网后自动提交"就是空的。
         // 进程启动即预热，使该承诺与用户后续操作路径无关。
         warmUpOfflineQueue()
+        // AI-MOB-CRASH-01：联网上报上次崩溃存的 pending_*.json（异步、尽力而为），
+        // 让崩溃堆栈自动汇聚到服务器，不再只靠用户手动截图回传。
+        CrashReporter.uploadPendingAsync(this, appScope)
     }
 
     /**
@@ -94,6 +98,10 @@ class WmsApplication : Application(), ImageLoaderFactory {
                 }
                 File(dir, "last_crash.txt").writeText(text)
                 Log.e(TAG, "捕获到未处理异常，堆栈已写入 filesDir/crash/last_crash.txt")
+                // AI-MOB-CRASH-01：同一份崩溃再另存一份结构化 JSON（crash/pending_*.json），
+                // 供下次启动联网时自动上报到服务器（见 CrashReporter），弥补"堆栈只躺在
+                // 设备上、要靠用户手动截图回传"的短板。只写本地、不发网络（进程将死）。
+                CrashReporter.writePendingReport(this, thread, throwable)
             }.onFailure {
                 Log.e(TAG, "写入崩溃日志失败: ${it.message}")
             }
