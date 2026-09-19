@@ -473,6 +473,12 @@ function renderOpeningStockPreview(res, resultDiv, preview) {
         + '<th>行</th><th>物料</th><th>仓库</th><th class="text-end">数量</th>'
         + '<th class="text-end">单价</th><th>日期</th><th>结果</th></tr></thead><tbody>';
 
+    // P1-3：rows 为空时不能只留表头，要明确区分「文件里没解析到数据行」与「渲染失败」
+    if (!rows.length) {
+        tbl += '<tr><td colspan="7" class="text-center text-muted py-4">'
+            + '预检结果为空：文件里没有解析到任何数据行</td></tr>';
+    }
+
     rows.forEach(function(r) {
         var isOk = r.action === 'import';
         var result = isOk
