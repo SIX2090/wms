@@ -362,11 +362,12 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_after_sale_out_order(id):
-        from app import (AfterSaleOutOrder, _acquire_order_write_lock, allow_negative_stock,
+        from app import (AfterSaleOutOrder, Warehouse, _acquire_order_write_lock, allow_negative_stock,
                          api_error, assert_warehouse_active, deduct_stock_atomic,
-                         get_default_warehouse,
+                         get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled, log_operation,
-                         normalize_stock_quantity, update_location_inventory)
+                         normalize_stock_quantity, update_location_inventory,
+                         _material_stock_unattributed)
         from app import Material
         from sqlalchemy.orm import selectinload
         try:
@@ -403,11 +404,29 @@ def register_after_sale_out_routes(app):
                 db.session.rollback()
                 return api_error('库位管理已启用，请选择库位')
 
+            # BUG-2026-09-19-001：完成校验改为按「单据仓库」口径（get_warehouse_stock_quantities），
+            # 不再用全局 Material.stock —— 否则 A 仓库存会掩护 B 仓超卖（A11 / R2，
+            # BUG-2026-08-16-009 同类）。兜底：库存全部来自无法归属仓库的历史遗留流水时
+            # （warehouse_id/location 全空），仓库级必然查不到，回退全局口径，避免
+            # "有库存却拒绝完成"（BUG-2026-08-18-002 同类，R2 历史脏数据兼容）。
+            wh_name = (order.warehouse or '').strip()
+            wh_obj = Warehouse.query.filter(
+                db.or_(Warehouse.name == wh_name, Warehouse.code == wh_name)
+            ).order_by(Warehouse.id.asc()).first() if wh_name else None
+            warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
             for item in order.items:
                 material = db.session.get(Material, item.material_id)
                 if material:
-                    current_stock = normalize_stock_quantity(material.stock or 0)
                     quantity = normalize_stock_quantity(item.quantity or 0)
+                    if warehouse_stock is not None:
+                        current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
+                        if (not is_stock_sufficient(current_stock, quantity)
+                                and _material_stock_unattributed(material.id)):
+                            # stock-truth: reason=无法归属仓库的历史遗留库存兜底，与 deduct_stock_atomic 口径一致
+                            current_stock = normalize_stock_quantity(material.stock or 0)
+                    else:
+                        # stock-truth: reason=仓库名无法解析为仓库档案（脏数据），回退全局口径保持原行为
+                        current_stock = normalize_stock_quantity(material.stock or 0)
                     if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                         return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 

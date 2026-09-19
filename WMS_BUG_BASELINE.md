@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-14（持续滚动更新；累计 402 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 78 条，最新 BUG-2026-09-14-035；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-19（持续滚动更新；累计 404 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 80 条，最新 BUG-2026-09-19-002；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -263,6 +263,22 @@
 - **修复**：①后端返回全部匹配物料（主数据量可控），附 `total`/`truncated` 元数据，安全上限 `_MATERIAL_ARCHIVE_BROWSE_MAX=5000`；`image_count` 改一次 GROUP BY 批量预取（`_safe_material_image_counts`），`unit`/`category` `joinedload` 预加载——取全收敛为常量次 SQL；②Android 进入即 `LaunchedEffect(Unit){ viewModel.search() }` 自动加载全部，空态文案改为「暂无物料档案」。
 - **回归**：新增 `tests/verify_bug_2026_09_14_035_material_archive_show_all.py` 6 项（空关键字返回全部 60 条+total、N+1 SQL≤12、超限 truncated+真实 total、关键字过滤、批量 image_count 正确、Android 自动加载静态断言+无硬编码 limit）；既有 `verify_mobile_material_archive_api.py` 12 项同步全绿；`lint_wms_rules` / `lint_no_raw_post_fetch` 0 违规。
 - **生效条件**：后端改动拉取后**重启 WMS 服务生效**（R3，接口可先 `?keyword=` 自查）；**Android 改动需 CI `assembleRelease` 产出新 APK 后重装**（本地沙箱无 Java/SDK，编译验收以 CI 为准，BUG-2026-09-12-006 规则）。
+
+### BUG-2026-09-19-001（2026-09-19，售后出库完成校验用全局库存：A 仓掩护 B 仓超卖）
+
+- **发现方式**：按计划文档 P0-1「存量 material.stock 总账校验清零」，扫描 `app/routes` 下所有裸用 `material.stock` 的校验点，对照 A11/R2 收口。
+- **根因（代码实证）**：`after_sale_out.py` 的 `complete_after_sale_out_order` 完成前预检用 `normalize_stock_quantity(material.stock or 0)`（全局总账）判断库存是否足够；两个仓库同物料时，只要 A 仓有货，B 仓售后出库单就能完成——**双仓隔离失效**。此前 `deduct_stock_atomic` 的最终扣减虽已做仓库级校验，但兜底只对 `transaction_type` 以 `revert` 开头的反提交生效；售后出库遇历史遗留库存（warehouse_id/location 全空）照样被拒，属同一根因的另一消费点（R6）。
+- **R6 同根因排查**：`after_sale_out.py`/`adjustment.py`（关联结算）两个裸校验点已一并修复；`in_order.py`/`check.py`/`purchase_request.py`/`stock_query.py`/`mobile.py`/`material.py`/`app.py` 其余 `material.stock` 读法（展示/对账/AI 工具）不在 A11 校验语境，属存量基线，按需逐项收口到计划 P0-1/P2-3。
+- **修复**：①校验改用单据仓库的 `get_warehouse_stock_quantities(wh_obj)`，仅当该物料全部库存无法归属仓库（`_material_stock_unattributed`）时回退全局口径兜底——与 `deduct_stock_atomic` 的合法语义完全一致；②`deduct_stock_atomic` 的兜底判据从「revert 开头 + 无归属」统一为「任何出库类型 + 无归属」，堵住「有库存却拒绝出库」的同根因复发。
+- **回归**：新增 `tests/test_bug_2026_09_19_001_after_sale_out_warehouse_stock.py` 2 项（双仓掩护必须拒绝；无归属历史库存回退放行），配合既有 `test_p1_after_sale_out_location_required.py` 共 7 passed；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动拉取后**重启 WMS 服务生效**。
+
+### BUG-2026-09-19-002（2026-09-19，库存调整单报损校验用全局库存：双仓口径不隔离）
+
+- **根因（代码实证）**：`adjustment.py` 的 `add_adjustment` 保存报损单时用 `normalize_stock_quantity(material.stock or 0)`（全局总账）校验，A 仓有库存即可掩护 B 仓报损——与 BUG-2026-09-19-001 同一根因的另一消费点。
+- **修复**：报损校验改用单据仓库（`wh_obj` 已由 `validate_inventory_warehouse` 在上方解析并保证有效启用）走 `get_warehouse_stock_quantities`；`allow_negative_stock` 开启时行为不变；无归属历史库存同样回退全局口径。
+- **回归**：新增 `tests/test_bug_2026_09_19_002_adjustment_warehouse_stock.py` 2 项（双仓掩护必须拒绝 + 无归属放行）；整体连同 `test_p1_after_sale_out_location_required.py` 共 9 passed；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动拉取后**重启 WMS 服务生效**。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

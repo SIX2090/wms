@@ -4402,11 +4402,16 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
         )
         db.session.expire(mat, ['stock'])
         available = get_warehouse_stock_quantities(warehouse_obj).get(material_id, 0)
-        legacy_reversal = (
-            str(transaction_type or '').startswith('revert')
-            and _material_stock_unattributed(material_id)
-        )
-        if not is_stock_sufficient(available, qty) and not legacy_reversal:
+        # BUG-2026-09-19-001（R6 同根因收口）：兜底判据与
+        # complete_after_sale_out_order / 反提交链路对齐——只要该物料库存全部
+        # 无法归属仓库（warehouse_id/location 全空的历史遗留流水），仓库级必然查
+        # 不到，回退全局口径，避免"有库存却拒绝出库/反提交"（BUG-2026-08-18-002
+        # 同类）。存在任何可归属流水时 _material_stock_unattributed 返回 False，
+        # 保持仓库级严格校验，A 仓无法掩护 B 仓（BUG-2026-08-16-009）。
+        # 原实现只对 transaction_type 以 'revert' 开头的反提交兜底，普通出库
+        # 遇历史遗留库存照样被拒，属同一根因的另一消费点。
+        legacy_unattributed = _material_stock_unattributed(material_id)
+        if not is_stock_sufficient(available, qty) and not legacy_unattributed:
             return False, f'物料 {mat.code} 在仓库 {warehouse_obj.name} 库存不足，当前库存：{available:.2f}', mat
 
     condition = Material.id == material_id

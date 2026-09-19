@@ -226,9 +226,10 @@ def register_adjustment_routes(app):
         from flask_login import current_user
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, allow_negative_stock,
                          api_error, generate_order_no, get_default_warehouse,
-                         is_stock_sufficient, location_management_enabled,
-                         log_operation, normalize_stock_quantity, round_to_2_decimals,
-                         validate_inventory_warehouse)
+                         get_warehouse_stock_quantities, is_stock_sufficient,
+                         location_management_enabled, log_operation,
+                         normalize_stock_quantity, round_to_2_decimals,
+                         validate_inventory_warehouse, _material_stock_unattributed)
         # Support both JSON and form data
         if request.is_json:
             data = request.get_json(silent=True) or {}
@@ -360,8 +361,17 @@ def register_adjustment_routes(app):
                     if quantity > 999999:
                         return api_error(f'物料 {material.code} 的数量超过合理范围（最大 999999）')
 
-                    # Check stock for loss type
-                    current_stock = normalize_stock_quantity(material.stock or 0)
+                    # BUG-2026-09-19-002：报损校验改为按单据仓库口径（wh_obj 已由
+                    # validate_inventory_warehouse 在上方解析并保证有效启用），不再用
+                    # 全局 Material.stock —— 否则 A 仓库存会掩护 B 仓报损（A11 / R2，
+                    # BUG-2026-08-16-009 同类）。兜底：库存全部无法归属仓库时回退全局
+                    # 口径，与 deduct_stock_atomic 一致，避免历史遗留库存被误报不足。
+                    current_stock = normalize_stock_quantity(
+                        get_warehouse_stock_quantities(wh_obj).get(material.id, 0))
+                    if (not is_stock_sufficient(current_stock, quantity)
+                            and _material_stock_unattributed(material.id)):
+                        # stock-truth: reason=无法归属仓库的历史遗留库存兜底，与 deduct_stock_atomic 口径一致
+                        current_stock = normalize_stock_quantity(material.stock or 0)
                     if adjustment_type == 'loss' and not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                         return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
