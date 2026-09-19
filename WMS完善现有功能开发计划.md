@@ -86,7 +86,19 @@
   - 回归锁 `tests/test_p1_3_subcontract_list_empty_state.py`（10 项：空态存在 / colspan 与 `<th>` 数一致 / 空列表渲染空态、有数据不渲染 / 文案必须在模板源码里）。
   - 本地 `9176eb6`，远端 `552eff88`；`pytest tests/test_p1_3_subcontract_list_empty_state.py` 10 passed、委外相关 29 项全过、`lint_wms_rules.py` 0 违规。
   - **R3 生效注意**：改的是 Jinja 模板，Flask 非 debug 下模板缓存不会自动失效，**必须重启服务才看得到空态**（测试里用独立 `Environment` 渲染，不受缓存影响）。
-  - **遗留子项**：`document_ocr.html`、`batch_import.html`、`sales_report.html`、`ai_feedback_review.html`、`document_table_form.html`、`_list_macros.html` 仍缺空态；`warehouse.html` / `in_order_push.html` 经复核属 JS 渲染或已有空态，不在本批。
+- **进度（2026-09-20 第 2 批）**：全仓用**正确判据**重扫后补齐 7 处真缺口（本地 `f5eb05f` / 远端 `d0889ee`）：
+  `print_in.html`(9) / `print_out.html`(9) / `print_in_with_excel.html`(9) / `print_out_with_excel.html`(9) /
+  `print_in_with_html.html`(8) / `sales_report.html`(11，钻取卡片) / `document_table_form.html`(5，批次扫码)。
+  - 两个 `_with_excel` 变体另需把「补 8 行空白」的填充循环用 `{% if order.items %}` 包住，否则空态行后会跟 8 行空格。
+  - `sales_report` / `document_table_form` 的整表被 `{% if 集合 %}` 包住，空数据**整块消失**（比"只剩表头"更隐蔽），
+    故守卫分别放宽为 `{% if drill_material_code %}`、`{% if batch_meta.scans is defined %}`，让 `{% else %}` 有机会渲染。
+  - 回归锁 `tests/test_p1_3_remaining_list_empty_state.py` 30 项。
+- **⚠️ 第 1 批的「遗留子项」清单是错的**：当时判据只认 `{% for %}` 块内的 `{% else %}`，
+  把 `ai_feedback_review.html` / `_list_macros.html` / `ai_ops_dashboard.html` / `opening_stock_list.html`
+  **误判为缺口**——它们其实都有空态，只是写在 `<table>` **外面**（`{% if 集合 %}`…`{% else %}`）或 `{% endfor %}` 之后
+  （`{% if not 集合 %}`）。空态至少有三种合法写法，扫描时必须都认。
+- **真正未做的只剩 2 处（JS 渲染，要改 JS 不是 Jinja）**：`batch_import.html`（rows 空 → 裸表头）、
+  `document_ocr.html`（items 空 → 无提示）。
 
 ### P1-4 业务页面 fetch 绕过统一层（孤立的 401/419 信号）
 
