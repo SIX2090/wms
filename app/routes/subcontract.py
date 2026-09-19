@@ -976,7 +976,8 @@ def register_subcontract_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (SubcontractIssue, SubcontractIssueItem, SubcontractOrder,
                          Supplier, Unit, _apply_status_date_filters,
-                         _apply_subcontract_issue_search, _get_order_list_filters)
+                         _apply_subcontract_issue_search, _get_order_list_filters,
+                         get_active_warehouses, get_default_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         page = max(1, request.args.get('page', default=1, type=int))
         per_page = request.args.get('per_page', default=20, type=int)
@@ -1016,7 +1017,9 @@ def register_subcontract_routes(app):
             sort_by=sort_by,
             sort_order=sort_order,
             per_page=per_page,
-            today=date.today()
+            today=date.today(),
+            warehouses=get_active_warehouses(),
+            default_warehouse=get_default_warehouse()
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -1637,7 +1640,8 @@ def register_subcontract_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (SubcontractOrder, SubcontractReceive, SubcontractReceiveItem,
                          Supplier, Unit, _apply_status_date_filters,
-                         _apply_subcontract_receive_search, _get_order_list_filters)
+                         _apply_subcontract_receive_search, _get_order_list_filters,
+                         get_active_warehouses, get_default_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         page = max(1, request.args.get('page', default=1, type=int))
         per_page = request.args.get('per_page', default=20, type=int)
@@ -1677,7 +1681,9 @@ def register_subcontract_routes(app):
             sort_by=sort_by,
             sort_order=sort_order,
             per_page=per_page,
-            today=date.today()
+            today=date.today(),
+            warehouses=get_active_warehouses(),
+            default_warehouse=get_default_warehouse()
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
