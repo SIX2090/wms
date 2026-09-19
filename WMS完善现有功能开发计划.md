@@ -82,6 +82,11 @@
 - **实测缺口**：委外进度、库存预警、物料、批量导入、打印路由等列表页在 `_无数据_时只剩一个 `thead`，分不清"加载失败"还是"真没数据"（子代理统计：`subcontract.html`、`warehouse.html`、`in_order_push.html`、`document_ocr.html`、`batch_import.html` 等）。
 - **行动**：给这些列表页加 Jinja `{% else %}` 空态（"暂无数据/点击新增"），不动逻辑。
 - **验收**：无数据页明确显示空态文案；有数据照旧。
+- **进度（2026-09-20）**：第 1 批已落地 —— 委外三页主列表（`subcontract.html` colspan=12、`subcontract_issue.html` colspan=9、`subcontract_receive.html` colspan=11）。
+  - 回归锁 `tests/test_p1_3_subcontract_list_empty_state.py`（10 项：空态存在 / colspan 与 `<th>` 数一致 / 空列表渲染空态、有数据不渲染 / 文案必须在模板源码里）。
+  - 本地 `9176eb6`，远端 `552eff88`；`pytest tests/test_p1_3_subcontract_list_empty_state.py` 10 passed、委外相关 29 项全过、`lint_wms_rules.py` 0 违规。
+  - **R3 生效注意**：改的是 Jinja 模板，Flask 非 debug 下模板缓存不会自动失效，**必须重启服务才看得到空态**（测试里用独立 `Environment` 渲染，不受缓存影响）。
+  - **遗留子项**：`document_ocr.html`、`batch_import.html`、`sales_report.html`、`ai_feedback_review.html`、`document_table_form.html`、`_list_macros.html` 仍缺空态；`warehouse.html` / `in_order_push.html` 经复核属 JS 渲染或已有空态，不在本批。
 
 ### P1-4 业务页面 fetch 绕过统一层（孤立的 401/419 信号）
 
