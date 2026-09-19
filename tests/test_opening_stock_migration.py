@@ -85,23 +85,34 @@ def _make_legacy_db(db_file, rows):
 
 
 def _run_migration(db_file, times=1):
-    """在独立进程中跑迁移（导入 app 前设好 DATABASE_URL，避免内存库串扰）。"""
-    script = textwrap.dedent(f"""
+    """在独立进程中跑迁移（导入 app 前设好 DATABASE_URL，避免内存库串扰）。
+
+    Windows 注意（BUG-2026-09-20-007）：**不能**把路径直接拼进 `-c` 源码。
+    `C:\\Users\\...` 里的 `\\U` 会被 Python 当成 unicode 转义，
+    子进程直接 `SyntaxError: (unicode error) 'unicodeescape'`。
+    故 DATABASE_URL 改为经**环境变量**传递给子进程，源码里只读不拼。
+    """
+    script = textwrap.dedent("""
         import os, sys
-        sys.path.insert(0, {str(APP_DIR)!r})
-        os.chdir({str(APP_DIR)!r})
-        os.environ['DATABASE_URL'] = 'sqlite:///{db_file}'
-        os.environ['WMS_BOOTSTRAP_PASSWORD'] = 'admin'
+        sys.path.insert(0, os.environ['WMS_TEST_APP_DIR'])
+        os.chdir(os.environ['WMS_TEST_APP_DIR'])
+        os.environ.setdefault('WMS_BOOTSTRAP_PASSWORD', 'admin')
         os.environ['WMS_DEBUG'] = '0'
         os.environ['WMS_SKIP_AUTO_UPDATE'] = '1'
         from app import auto_migrate_database
-        for _ in range({times}):
+        for _ in range(int(os.environ['WMS_TEST_MIGRATE_TIMES'])):
             auto_migrate_database()
         print('MIGRATION_OK')
     """)
+    env = dict(os.environ)
+    env['WMS_TEST_APP_DIR'] = str(APP_DIR)
+    env['WMS_TEST_MIGRATE_TIMES'] = str(times)
+    # sqlite:/// 后跟绝对路径；Windows 下用正斜杠，避免任何转义歧义
+    env['DATABASE_URL'] = 'sqlite:///' + str(db_file).replace('\\', '/')
+    env['WMS_BOOTSTRAP_PASSWORD'] = 'admin'
     result = subprocess.run(
         [sys.executable, "-c", script],
-        capture_output=True, text=True, cwd=str(APP_DIR), timeout=180,
+        capture_output=True, text=True, cwd=str(APP_DIR), timeout=180, env=env,
     )
     assert "MIGRATION_OK" in result.stdout, (
         f"迁移进程未正常完成\nstdout:\n{result.stdout[-3000:]}\nstderr:\n{result.stderr[-3000:]}")
