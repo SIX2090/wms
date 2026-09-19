@@ -341,7 +341,7 @@
 - **回归**：新增 `tests/test_bug_2026_09_20_005_backfill_table_guard.py` **8 项**（三表齐备→True / 缺 warehouse→False / 缺 stock_transaction→False / 缺 location_inventory→False / 全空库→False / 探测抛异常→False 不外泄 / 真库上 backfill 仍正常回填且幂等（守卫未误伤治本路径）/ 接线校验守卫先于回填调用防回归）。连同 `test_bug_2026_08_27_005`（T1–T11 回填语义）+ `test_ensure_stock_transaction_warehouse_id_column`（补列）共 **28 项全绿**；`lint_wms_rules --staged` 0 违规。
 - **R6 同根因排查**：grep 全仓 `with app.app_context()` 的模块级调用点，确认导入期仅有回填这一处查表——`backup_sqlite_on_startup()`（app.py:3068）是文件级备份不查表；`run_due_wechat_share_jobs()`（app.py:22549）是运行时调度入口。**同类点已排查，无第二处**。
 - **生效条件**：改动拉取后**生产需重启 WMS 服务生效**（导入期逻辑，随服务启动执行；首次重启即见效）。
-- **生效确认**：**已确认（2026-09-20 02:08）**——空库端到端实测：设 `DATABASE_URL` 指向全新空 sqlite 文件后导入 `app`，捕获 ERROR 级日志 **0 行**、`no such table: warehouse` **不再出现**，改为 INFO「启动回填跳过：前置表尚未建好（空库/首启导入期），下次启动重试」；真库路径 28 项回归全绿证明治本未打折。
+- **生效确认**：**已确认（2026-09-20 02:08 本地 + 03:05 CI）**——①本地空库端到端实测：设 `DATABASE_URL` 指向全新空 sqlite 文件后导入 `app`，捕获 ERROR 级日志 **0 行**、`no such table: warehouse` **不再出现**，改为 INFO「启动回填跳过：前置表尚未建好（空库/首启导入期），下次启动重试」；真库路径 28 项回归全绿证明治本未打折。②CI 门禁：推送 `186b42b` 后 `python scripts/check_ci_green.py` 返回 **rc=0**，三工作流全绿且均指向本次提交——`Android APK Build` #618 success、`WMS AI Verification` #1402 success、`WMS CI` #1107 success。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
