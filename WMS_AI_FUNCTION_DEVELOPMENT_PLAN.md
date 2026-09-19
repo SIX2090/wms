@@ -2918,5 +2918,64 @@ pytest 里没有 JS 引擎，**锁结构与口径而非运行时渲染**：
 **生效条件（R3）**：模板改动，**必须重启 WMS 服务**才生效；JS 在浏览器端执行，无需重新出包 APK。
 
 **P1-3 状态：全仓清零**（第 1 批 3 + 第 2 批 7 + 第 3 批 2 = 12 处）。
-下一批候选：P1-2 新建表单 required、P0-1/P0-2。
+
+---
+
+## UI-FORM-REQUIRED-2026-09-20-B1 —— P1-2 采购订单新建表单必填校验
+
+**症状**：`purchase_order_add.html` 保存时逐条 `showToast` + 立刻 `return`，只报第一条错误，
+用户改完再点才知道还有下一条。
+
+**⚠️ 计划文档原描述有误**：原文称 4 个页面「全页 required=0，提交后靠 JS alert() 一次性报错」。
+实测这四个页面**一个 `alert(` 都没有**，且 `sales_order_add` / `sales_order_edit` 早已具备
+`save()` 包装 + `showValidation(messages)` 的「一次收集全部」机制。真缺口只有采购订单与售后出库单两页。
+
+**关键认知（反直觉，务必记住）**：这些页面的保存按钮都是 `type="button"`，`<form>` **从不原生提交**，
+所以模板上的 `required` 属性自己不会拦人。只加 `required` 不配套 JS = 假必填。
+
+**改动**（`purchase_order_add.html`）：
+- 采购日期 / 供应商加 `required`；明细行数量 `min` 由 `0` 改 `0.01`（单价保持 `min="0"`，赠品可为 0）
+- `submitForm` 由逐条早退改为 `collectPurchaseValidationErrors()` → `showPurchaseValidation()` → `if (errors.length) return`
+- 新增 `#purchaseOrderValidationPanel` 面板 + 一次性高亮 `wms-row-error` / `wms-cell-error`
+- 表头校验直接扫 `#purchaseOrderForm [required]`，label 取自 `.form-label`，`SELECT` 用「请选择」、其余用「请填写」
+- 未填物料编码的空白行跳过校验（页面预置 30 行空白行）
+
+**回归锁**：`tests/test_p1_2_purchase_order_validation.py` 15 项。
+锁结构与口径：required 存在 / qty min=0.01 而 price min=0 / 面板默认 `display:none` 且 `.show` 才 `display:block` /
+旧早退分支已消失 / **收集 → 展示 → 再发请求** 的顺序 / 行级错误必须带 `rowIndex` + `selector` + 行号 /
+展示前必须清空上次高亮 / 空白行不校验 / Jinja 仍可编译。
+
+**验证**：新测试 15 passed；lint 4 项 + 采购关联 34 项全过；预提交钩子 0 违规。
+本地 `3948923`，远端 `1cbd7d5`，三工作流全绿。
+
+---
+
+## UI-FORM-REQUIRED-2026-09-20-B2 —— P1-2 售后出库单新建表单必填校验
+
+**症状（比采购单更严重）**：`after_sale_out_add.html` 把 `return` 写在明细行 `for` 循环**内部**——
+第 1 行数量为空就直接退出，后面 29 行根本不检查。同时仓库的 `required` 有 JS 校验、库位的 `required`
+却没有，红色星号形同虚设（后端 `BUG-2026-08-16-014` 会拒，但要等一次往返才知道）。
+
+**改动**（`after_sale_out_add.html`）：
+- 一次遍历 `collectAfterSaleOutRows()` 同时产出 `items` 与全部行级错误，不再循环内 return
+- 日期 / 客户名称加 `required`；数量 `min` 0 → 0.01
+- 表头校验扫 `#addForm [required]` → 仓库与库位都真的拦得住
+  （库位在 `{% if location_management_enabled %}` 内，未开启时不渲染，与后端口径一致）
+- label 提取时 `.replace('*', '')`，避免「请选择仓库 *」这种带星号的文案
+
+**回归锁**：`tests/test_p1_2_after_sale_out_validation.py` 17 项。
+除同批次的通用项外，额外钉死两块：
+- **`collectAfterSaleOutRows` 里不得出现 `showToast`，且遍历内只允许「跳过空白行」的 `return`**——
+  这条是本次最关键修复的回归锁，防止以后又有人在循环里 early return。
+- 库位必须仍受 `location_management_enabled` 开关控制（位置在其分支之后）。
+
+**验证**：新测试 17 passed（连同批 1 共 32 passed）；预提交钩子 0 违规。
+本地 `2dc5fc4`，远端 `f1f5ee9`。
+
+**生效条件（R3）**：改的是 Jinja 模板，**必须重启 WMS 服务**才生效。
+
+**P1-2 状态**：本批完成采购订单 + 售后出库单两页。
+`sales_order_add` / `sales_order_edit` 已有「一次收集」框架，仅校验项偏少（客户 + 至少一条明细），
+留待后续按需扩充。
+下一批候选：P1-4（fetch 统一层）、P0-1/P0-2。
 
