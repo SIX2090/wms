@@ -106,6 +106,10 @@
                     <td>¥{{ "%.2f"|format(item.price) }}</td>
                     <td>¥{{ "%.2f"|format(item.amount) }}</td>
                 </tr>
+                {% else %}
+                <tr>
+                    <td colspan="8" class="text-center">无明细行</td>
+                </tr>
                 {% endfor %}
             </tbody>
             <tfoot>
