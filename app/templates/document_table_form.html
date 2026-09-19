@@ -232,7 +232,7 @@
                     {% if batch_meta.diff_row_count %}<span class="badge bg-warning text-dark">有差异 {{ batch_meta.diff_row_count }} 行</span>{% endif %}
                     <span class="badge bg-light text-dark border">扫码提交 {{ batch_meta.scan_count }} 次</span>
                 </div>
-                {% if batch_meta.scans %}
+                {% if batch_meta.scans is defined %}
                 <div class="table-responsive mt-1" style="max-width:760px;">
                     <table class="table table-sm table-bordered mb-0 align-middle">
                         <thead><tr class="table-light">
@@ -246,6 +246,10 @@
                                 <td>{{ scan.operator or '—' }}</td>
                                 <td>{{ scan.created_at }}</td>
                                 <td class="text-center">{{ scan.item_count }}</td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-3">暂无扫码盘点记录</td>
                             </tr>
                         {% endfor %}
                         </tbody>
