@@ -19,8 +19,9 @@ WMS 防 BUG 多规则静态检查器
 * **A8** 新增 POST/PUT/DELETE 路由必须用 pydantic 输入模型（防数据校验 BUG）
 * **A9** 新增业务函数必须在 ``tests/`` 至少有 1 个失败测试（防未测试代码上线）
 * **A10** ``app/app.py`` 禁止新增 ``@app.route`` 路由（防 app.py 重新膨胀，强制走 ``app/routes/`` 模块）
+* **A13** 台账 ``WMS_BUG_BASELINE.md`` 新增 BUG 条目必须含「生效确认」字段（R3 机械化）
 
-A8/A9/A10 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
+A8/A9/A10/A13 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
 
 设计要点
 --------
@@ -1326,6 +1327,62 @@ class RuleA12NoTopLevelCtxPush(Rule):
 
 
 # ---------------------------------------------------------------------------
+# A13：台账新增 BUG 条目必须含「生效确认」字段（R3 机械化）
+# ---------------------------------------------------------------------------
+
+class RuleA13BaselineEffectConfirmation(Rule):
+    """``WMS_BUG_BASELINE.md`` 新增条目必须含「生效确认」字段。
+
+    R3（修复→生效无确认回路，台账 23+ 条「改了没重启/没装新包」）的机械化：
+    「生效条件」只写"重启生效"不够，登记时必须强制填「生效确认」（确认人/
+    时间/核对方式，允许先写「待确认」占位，但字段不得缺席）。
+
+    与 A8/A9/A10/A11 同为"新增代码生效"规则：仅检查 git staged 新增行里
+    出现的条目头（``### BUG-…`` 等），要求该条目块内（至下一个同级标题
+    或文件尾）含「生效确认」字样；编辑存量条目、计数行不触发。
+    """
+
+    name = "a13"
+    description = "台账新增 BUG 条目必须含「生效确认」字段（R3）"
+    enabled = True
+    scan_paths = ("WMS_BUG_BASELINE.md",)
+    exclude_paths = ()
+    extensions = (".md",)
+
+    _ENTRY_HEAD = re.compile(
+        r"^###\s+(?:BUG|WECOM|INV|PUR|SALES|SYS|AUDIT)-")
+
+    def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
+        violations: List[Violation] = []
+        for f in files:
+            rel = str(f.relative_to(repo_root)).replace("\\", "/")
+            if rel != "WMS_BUG_BASELINE.md":
+                continue
+            added_lines = get_staged_added_lines(repo_root, f)
+            if not added_lines:
+                continue
+            try:
+                lines = f.read_text(encoding="utf-8", errors="replace").split("\n")
+            except OSError:
+                continue
+            for ln in sorted(added_lines):
+                if ln > len(lines):
+                    continue
+                if not self._ENTRY_HEAD.match(lines[ln - 1]):
+                    continue
+                # 条目块：条目头至下一个同级标题（### ）或文件尾
+                block_end = len(lines)
+                for j in range(ln, len(lines)):
+                    if lines[j].startswith("### "):
+                        block_end = j
+                        break
+                block = "\n".join(lines[ln - 1:block_end])
+                if "生效确认" not in block:
+                    violations.append(Violation(rel, ln, lines[ln - 1].strip()[:120]))
+        return violations
+
+
+# ---------------------------------------------------------------------------
 # 规则注册表
 # ---------------------------------------------------------------------------
 
@@ -1342,10 +1399,11 @@ RULES: Dict[str, Rule] = {
     "a10": RuleA10NoNewRouteInApp(),
     "a11": RuleA11NoRawGlobalStockCheck(),
     "a12": RuleA12NoTopLevelCtxPush(),
+    "a13": RuleA13BaselineEffectConfirmation(),
 }
 
 RULE_DISPLAY_ORDER: Tuple[str, ...] = (
-    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12",
+    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12", "a13",
 )
 
 

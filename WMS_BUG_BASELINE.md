@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-20（持续滚动更新；累计 407 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 83 条，最新 BUG-2026-09-20-001；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-20（持续滚动更新；累计 408 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 84 条，最新 BUG-2026-09-20-002；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -303,6 +303,14 @@
 - **修复**：①新增 `app/version.py`（日期基 semver `2026.09.1`）与 `app/startup_check.py`——`build_config_check_line()` 输出 `wms vX.Y.Z (<git短SHA>) config-check: env=…; session_cookie=…; csrf=…; secret_key=…; db=…; migrate=pending-init`（git SHA 直接读 `.git/HEAD`+refs 解析，不调 git 命令适配 PATH 受限环境；**只报配置状态不报敏感值本体**）；②`build_db_check_line()` 在 `initialize_database` 后检查迁移哨兵（api_token 表、print_workstation.auth_token、opening_stock.location、location_inventory.warehouse_id——均选自 R3 反复迁移点），缺失报 `missing:` 不阻断启动；③`run_server.main()` 启动日志第一行落 config-check、初始化后落 db-check，控制台 banner 同步打印两行。
 - **回归**：新增 `tests/test_bug_2026_09_20_001_startup_self_check.py` 8 项（行格式/三种 cookie 状态/敏感值不落行/git SHA 解析/哨兵 ok 与 missing/接线顺序静态断言）；`test_r6_startup_migration_column_guard`+`test_auto_migrate_db_path` 8 项回归绿；`lint_wms_rules --staged` 0 违规。
 - **生效条件**：改动拉取后**重启 WMS 服务生效**；生效确认方式——启动日志/控制台第一行出现 `wms v2026.09.1 (…) config-check:` 即为本改动在跑。
+
+### BUG-2026-09-20-002（2026-09-20，R3 台账登记无「生效确认」强制字段：A13 规则机械化）
+
+- **发现方式**：计划 P0-3.2。R3 要求修复→生效有确认回路，但台账登记只写「生效条件」、无人核对"是否真的生效"，靠自觉。
+- **修复**：`scripts/lint_wms_rules.py` 新增 **A13 规则**（`RuleA13BaselineEffectConfirmation`）——`WMS_BUG_BASELINE.md` 在 git staged 新增行中出现条目头（`### BUG-/WECOM-/INV-/PUR-/SALES-/SYS-/AUDIT-`）时，要求该条目块内含「生效确认」字样，否则 pre-commit 拦截；编辑存量条目、计数行不触发（与 A8/A9/A10/A11 同为"新增代码生效"规则）。同步更新：`DEVELOPMENT_RULES.md` 规则清单 12→13 条 + A13 行；`AGENTS.md` R3 补机械化防护说明（启动自检 + A13）；lint 脚本 docstring 规则列表。
+- **回归**：新增 `tests/test_lint_wms_rules_a13_golden.py` 3 项（缺字段拦截/含字段通过/非条目编辑不触发，临时 git 仓库模拟 staged）；既有 A8/A9/A10 黄金测试 18 项回归绿；本条目自身含「生效确认」字段（规则自举验证）。
+- **生效条件**：改动拉取后本地 pre-commit 钩子即生效（无需重启服务）；CI lint 同步覆盖。
+- **生效确认**：待确认——下次登记新 BUG 条目时 pre-commit 应能拦截缺「生效确认」字段的写法（golden 测试已在临时仓库验证三种场景）。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

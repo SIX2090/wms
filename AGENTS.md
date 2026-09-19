@@ -175,6 +175,8 @@
 
 - 凡改动 `app/templates/*.html`（Jinja 模板），commit message 与 BUG 台账记录**必须注明「生产需重启 WMS 服务生效」**（生产模式模板有缓存）。
 
+> **R3 的机械化防护（2026-09-20 新增，双件）**：①启动自检——服务启动日志/控制台第一行输出 `wms vX.Y.Z (<git短SHA>) config-check: …`，初始化后输出 `db-check: migrate=…`（`app/startup_check.py`，核对"跑的是哪份代码、什么配置"）；②**A13 规则**（`scripts/lint_wms_rules.py`）——`WMS_BUG_BASELINE.md` 新增 BUG 条目（`### BUG-…` 等标题）必须含「生效确认」字段（确认人/时间/核对方式，允许「待确认」占位），否则 pre-commit 拦截。
+
 ### R4 打印/写库链路必须降级兜底（实证：锁相关 17 条）
 
 - 改动打印代理、写库心跳、Spooler/WMI 依赖路径时，必须处理 `database is locked`（busy_timeout + 低频重试 + 降级静默），禁止裸抛 traceback 刷屏；Windows 打印服务异常必须给中文操作指引，不得抛英文原生错误。
