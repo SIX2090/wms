@@ -1,8 +1,8 @@
 #!/bin/bash
 # WMS 仓库 pre-commit 钩子
-# 作用：提交时自动扫描 7 条防 BUG 规则，防止新 BUG 引入
+# 作用：提交时自动扫描 11 条防 BUG 规则（A1–A11），防止新 BUG 引入
 # 启用方法：git config core.hooksPath .githooks
-# 说明：保留历史"裸调 fetch"检查，并在此基础上扩展出 7 条规则扫描器
+# 说明：保留历史"裸调 fetch"检查，并在此基础上扩展出 11 条规则扫描器
 #      scripts/lint_wms_rules.py
 
 set -e
@@ -58,7 +58,7 @@ echo "[pre-commit] 待检查文件："
 echo "$RELEVANT" | sed 's/^/  /'
 echo ""
 
-# 第一步：跑 7 条规则（linter_wms_rules.py）
+# 第一步：跑 11 条规则（lint_wms_rules.py，A1–A11）
 if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
     echo ""
     echo "[pre-commit] ✗ 提交被拒绝：发现防 BUG 规则违规"
