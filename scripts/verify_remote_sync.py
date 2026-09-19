@@ -32,17 +32,27 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 失败/无 curl 时退回 urllib 重试。
 CURL_IPS = ["140.82.112.6", "20.205.243.168", "140.82.112.5", "140.82.113.5"]
 
-# CI-ENV-2026-09-19：响应体 > 约 416KB 时会被沙箱网络层静默截断（实测 425984B
-# 处切在 JSON 字符串中间），导致 git/trees/{sha}?recursive=1 在大仓库上必然
-# JSONDecodeError——即"校验脚本永远失败"，与推送是否真的漏推无关（事故：
-# P0 推送后被误判为失败）。实测该上限对 Range 分段无效：206 可稳定取回任意
-# 偏移，故超长响应一律分段拼接。阈值取 380KB，留出安全余量。
-_RESPONSE_SIZE_LIMIT = 380_000
+# CI-ENV-2026-09-19：git/trees/{sha}?recursive=1 在大仓库上（1465 文件、约
+# 467KB）取回会失败，且**失败形态取决于是否带 token**——两种路径的成因不同，
+# 必须分别处理：
+#
+#   ① 匿名（无 Authorization）：沙箱网络层把单次响应静默截断在约 416KB
+#      （实测 425984B，正好切在 JSON 字符串中间）→ json.loads 必然报
+#      "Expecting property name..."。此路径下 GitHub **认 Range**，返回
+#      HTTP 206，可分段拼回完整响应。
+#   ② 带 token：GitHub **忽略 Range，一律返回 HTTP 200 + 完整响应**
+#      （实测 466980B 完整可解析，未截断）。此路径拿到 200 就已是全量，
+#      直接解析即可。
+#
+# ⚠️ 曾经的错误修法（务必别改回去）：无脑按 _CHUNK_SIZE 循环发 Range 拼接。
+#    它在①下碰巧能work，但在②下每段都收到同一份完整响应，拼接结果是把
+#    全量 JSON 重复 N 遍 → 解析报 "Unterminated string"。即"修好一个路径、
+#    弄坏另一个路径"。正确做法是**按响应码分流**：200 即全量、206 才拼接。
 _CHUNK_SIZE = 200_000
 
 
 def _curl_get_chunked(path: str, token: str, ip: str) -> dict | None:
-    """Range 分段取回单次响应超过网络层上限的端点（HTTP 206 拼接）。"""
+    """取回可能超长的响应：按 HTTP 状态码分流处理 200（全量）/ 206（需拼接）。"""
     parts: list[bytes] = []
     offset = 0
     while True:
@@ -66,9 +76,13 @@ def _curl_get_chunked(path: str, token: str, ip: str) -> dict | None:
             raise RuntimeError(
                 f"GitHub API {path} -> HTTP {code}: {body[:400].decode('utf-8', 'replace')}")
         parts.append(body)
-        if code == "200" or len(body) < _CHUNK_SIZE:
-            break  # 200 = 服务端忽略 Range 返回全量；短包 = 末段
-        offset += len(body)
+        # 200：服务端忽略 Range，本次已是完整响应 → 立即停止（再循环会把全量重复拼接）
+        if code == "200":
+            break
+        # 206：只拿到一段，短包即末段，否则继续取下一段
+        if len(body) < _CHUNK_SIZE:
+            break
+        offset += _CHUNK_SIZE
     joined = b"".join(parts)
     if not joined.strip():
         return {}
@@ -76,12 +90,13 @@ def _curl_get_chunked(path: str, token: str, ip: str) -> dict | None:
         return json.loads(joined.decode("utf-8", "replace"))
     except json.JSONDecodeError as e:
         raise RuntimeError(
-            f"GitHub API {path} 响应无法解析（已分段取回 {len(joined)}B）：{e}") from e
+            f"GitHub API {path} 响应无法解析（共取回 {len(joined)}B、{len(parts)} 段）：{e}") from e
 
 
 def _curl_get(path: str, token: str) -> dict | None:
     for ip in CURL_IPS:
-        if path.startswith("/repos/") and "?recursive=1" in path:
+        # recursive tree 是大响应端点，统一走按状态码分流的取回逻辑
+        if "?recursive=1" in path:
             return _curl_get_chunked(path, token, ip)
         proc = subprocess.run(
             ["curl", "-s", "--max-time", "120", "-H", "Authorization: Bearer " + token,
@@ -101,13 +116,10 @@ def _curl_get(path: str, token: str) -> dict | None:
             continue
         if not code.startswith("2"):
             raise RuntimeError(f"GitHub API {path} -> HTTP {code}: {body[:400]}")
-        if len(body) >= _RESPONSE_SIZE_LIMIT:
-            # 触到网络层截断上限：重走分段路径，绝不把半截 JSON 交给 loads
-            return _curl_get_chunked(path, token, ip)
         try:
             return json.loads(body) if body.strip() else {}
         except json.JSONDecodeError as e:
-            print(f"  curl via {ip} 响应解析失败（{len(body)}B），改走分段：{e}",
+            print(f"  curl via {ip} 响应解析失败（{len(body)}B），改走分段取回：{e}",
                   file=sys.stderr)
             return _curl_get_chunked(path, token, ip)
     return None

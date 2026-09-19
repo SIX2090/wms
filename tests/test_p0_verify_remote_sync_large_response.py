@@ -54,26 +54,56 @@ def test_verify_remote_sync_has_chunked_fetch():
     )
 
 
-def test_verify_remote_sync_chunk_threshold_below_network_limit():
-    """分段阈值必须低于实测截断点 425984B，否则仍会把半截 JSON 交给 loads。"""
+def test_verify_remote_sync_chunk_threshold_is_sane():
+    """分段长度常量应存在且为合理值（分段逻辑依赖它判断"短包即末段"）。"""
     src = open(SCRIPT, encoding="utf-8").read()
     tree = ast.parse(src)
-    limits = [
+    vals = [
         n.value.value for n in ast.walk(tree)
         if isinstance(n, ast.Assign)
         for t in n.targets
-        if isinstance(t, ast.Name) and t.id == "_RESPONSE_SIZE_LIMIT"
+        if isinstance(t, ast.Name) and t.id == "_CHUNK_SIZE"
         and isinstance(n.value, ast.Constant)
     ]
-    assert limits, "未找到 _RESPONSE_SIZE_LIMIT 常量"
-    assert limits[0] < 425984, (
-        f"_RESPONSE_SIZE_LIMIT={limits[0]} 未低于实测截断点 425984B，"
-        "触顶响应仍会被当成完整 JSON 解析"
+    assert vals, "未找到 _CHUNK_SIZE 常量"
+    assert 10_000 <= vals[0] <= 400_000, f"_CHUNK_SIZE={vals[0]} 不在合理区间"
+
+
+def test_chunked_fetch_stops_at_200_instead_of_repeating_body(sync_mod, monkeypatch):
+    """**核心防倒退**：服务端返回 200（忽略 Range）时必须立即停止。
+
+    这是真实踩过的坑：无脑按 Range 循环拼接的版本，在"服务端忽略 Range、
+    每段都返回同一份完整响应（200）"的路径下会把全量 JSON 重复 N 遍，
+    解析报 "Unterminated string" —— 修好匿名路径却弄坏带 token 路径。
+    """
+    full = ('{"tree":[' + ",".join(
+        '{"path":"f%05d.py","mode":"100644","type":"blob","sha":"%040d"}' % (i, i)
+        for i in range(6000)) + '],"truncated":false}').encode()
+    assert len(full) > sync_mod._CHUNK_SIZE
+
+    calls = []
+
+    class FakeProc:
+        def __init__(self, out):
+            self.stdout = out
+
+    def fake_run(cmd, capture_output=True, **kw):
+        calls.append(cmd)
+        # 模拟服务端忽略 Range：恒定返回 200 + 全量
+        return FakeProc(full + b"\n200")
+
+    monkeypatch.setattr(sync_mod.subprocess, "run", fake_run)
+    got = sync_mod._curl_get_chunked("/repos/o/r/git/trees/abc?recursive=1", "t", "1.2.3.4")
+
+    assert len(calls) == 1, (
+        f"200 响应应只请求一次即停止，实际发了 {len(calls)} 次；"
+        "重复请求会把同一份全量响应拼接多次导致 JSON 解析失败"
     )
+    assert len(got["tree"]) == 6000, "条目数应与单份响应一致（未被重复叠加）"
 
 
 def test_verify_remote_sync_chunked_fetch_parses_large_body(sync_mod, tmp_path, monkeypatch):
-    """分段路径能把超长响应拼成合法 JSON（用假 curl 造 2 段 206 + 末段）。"""
+    """分段路径能把 206 分片拼成合法 JSON。"""
     payload = '{"tree":[' + ",".join(
         '{"path":"f%04d.py","mode":"100644","type":"blob","sha":"%040d"}' % (i, i)
         for i in range(6000)
@@ -89,14 +119,13 @@ def test_verify_remote_sync_chunked_fetch_parses_large_body(sync_mod, tmp_path, 
             self.stdout = out
 
     def fake_run(cmd, capture_output=True, **kw):
-        # 找出本次请求的 Range 起点
         rng = [c for c in cmd if c.startswith("Range: bytes=")]
         assert rng, "分段路径必须带 Range 头"
         start = int(rng[0].split("=")[1].split("-")[0])
         calls.append(rng[0])
         piece = body[start:start + chunk]
-        code = "206" if len(piece) == chunk else "206"
-        return FakeProc(piece + b"\n" + code.encode())
+        # 模拟服务端认 Range：恒定 206
+        return FakeProc(piece + b"\n206")
 
     monkeypatch.setattr(sync_mod.subprocess, "run", fake_run)
     got = sync_mod._curl_get_chunked("/repos/o/r/git/trees/abc?recursive=1", "t", "1.2.3.4")
