@@ -7,9 +7,44 @@
 
 set -e
 
-# AI-MOB-APK-001（2026-08-29）：本机 Git Bash 的 PATH 里没有 python3/python，
-# 只有 Windows 的 py.exe 与 Python311 安装目录。硬编码 python3 会让钩子每次
-# 都失败并被误判成"规则违规"，故统一探测一次真实可用的解释器。
+# 2026-09-19：受限环境（Agent 沙箱会把 PATH 裁剪到只剩 Windows 目录）下，
+# hook 里 git/grep/sed 全部找不到。钩子由 git 触发，GIT_EXEC_PATH 必被导出，
+# 可据此反推出该 git 安装目录，把 mingw64/bin 与 usr/bin 补回 PATH。
+# 实测：msys bash 的 PATH 只认 /c/... 形式，C:/... 形式不生效，故做盘符转换。
+case "${GIT_EXEC_PATH:-}" in
+    */libexec/git-core)
+        _git_root="${GIT_EXEC_PATH%/libexec/git-core}"   # <root>/mingw64
+        _git_root="${_git_root%/mingw64}"                # <root>
+        case "$_git_root" in
+            [A-Za-z]:/*)
+                _drv="${_git_root%%:*}"
+                _git_root="/${_drv,}/${_git_root#??}"    # C:/x/y → /c/x/y
+                ;;
+        esac
+        if [ -x "$_git_root/mingw64/bin/git.exe" ]; then
+            PATH="$_git_root/mingw64/bin:$_git_root/usr/bin:$_git_root/cmd:$PATH"
+            export PATH
+        fi
+        unset _git_root _drv
+        ;;
+esac
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# 获取本次提交涉及的文件
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+# 仅在涉及 app/、scripts/ 下时做多规则扫描
+RELEVANT=$(echo "$STAGED_FILES" | grep -E '^(app/|scripts/)' || true)
+
+if [ -z "$RELEVANT" ]; then
+    exit 0
+fi
+
+# —— 解释器探测（仅在上面「有涉及 app/ 或 scripts/」时才需要）——
+# 2026-09-19：把探测后移到相关性检查之后。纯文档提交（如 docs/、根目录 .md）
+# 不再因为环境里没 Python 而被拒绝，只有真正要跑规则扫描时才需要解释器。
+#
 # AI-MOB-APK-001（2026-08-29）：本机 Git Bash 的 PATH 里没有 python3/python，
 # 且 C:\Windows\py.exe 虽存在但注册表未挂 Python（执行报 No installed Python found!）。
 # 故按「绝对路径 + 实际执行验证」探测，通过才采纳，避免钩子被误判成规则违规。
@@ -35,22 +70,42 @@ for cand in "/usr/bin/python3" "/usr/local/bin/python3" "/usr/bin/python" \
         fi
     fi
 done
+
+# 2026-09-19 兜底一：托管/便携 Python 目录（版本号通配，避免每次升版本都要改钩子）。
+# 典型场景：Agent 沙箱把解释器放在 <用户目录>/.workbuddy/binaries/python/versions/<版本>/。
+if [ -z "$WMS_PY" ]; then
+    for p in "${USERPROFILE:-$HOME}/.workbuddy/binaries/python/versions"/*/python.exe; do
+        [ -x "$p" ] || continue
+        if "$p" -c "import sys" >/dev/null 2>&1; then
+            WMS_PY="$p"
+            break
+        fi
+    done
+fi
+
+# 2026-09-19 兜底二：用 where.exe 在 Windows PATH 里找，并跳过 0 字节的
+# Microsoft Store「应用执行别名」（python3.exe/python.exe 占位符，command -v 能
+# 命中但无法执行——这正是本机钩子此前误报"未找到 Python"的原因）。
+if [ -z "$WMS_PY" ] && command -v where.exe >/dev/null 2>&1; then
+    while IFS= read -r p; do
+        p="${p%$'\r'}"
+        [ -n "$p" ] || continue
+        [ -s "$p" ] || continue
+        if "$p" -c "import sys" >/dev/null 2>&1; then
+            WMS_PY="$p"
+            break
+        fi
+    done <<WMS_WHERE_EOF
+$(where.exe python3.exe python.exe 2>/dev/null)
+WMS_WHERE_EOF
+fi
+
 if [ -z "$WMS_PY" ]; then
     echo "[pre-commit] 未找到可用的 Python 解释器，无法执行防 BUG 规则扫描"
     echo "[pre-commit] 请安装 Python 3 并加入 PATH，或在 PATH 中提供 python3 后重试"
+    echo "[pre-commit] 提示：若 python3 指向 0 字节的 Microsoft Store 别名，请关闭"
+    echo "[pre-commit]       「设置 → 应用 → 高级应用设置 → 应用执行别名」中的对应开关"
     exit 1
-fi
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-
-# 获取本次提交涉及的文件
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
-
-# 仅在涉及 app/、scripts/ 下时做多规则扫描
-RELEVANT=$(echo "$STAGED_FILES" | grep -E '^(app/|scripts/)' || true)
-
-if [ -z "$RELEVANT" ]; then
-    exit 0
 fi
 
 echo "[pre-commit] WMS 多规则防 BUG 检查"
