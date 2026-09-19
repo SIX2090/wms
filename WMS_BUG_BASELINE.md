@@ -337,10 +337,11 @@
 
 - **发现方式**：排查 BUG-2026-09-20-004 时在 CI 日志（`WMS AI Verification` #1395）中发现，每跑一个 verify 脚本都刷一组完整 traceback，虽不阻断但与真实故障混在一起，削弱日志可读性。
 - **根因（代码实证）**：`app/app.py:27115` `backfill_stock_txn_warehouse_id()` 在 `initialize_database()` 建表**之前**的导入期执行 `Warehouse.query.all()`；CI/空库场景下表尚未创建，SQLAlchemy 抛 `sqlite3.OperationalError: no such table: warehouse`，被 `except` 捕获后记 ERROR「下次启动重试」。
-- **修复**：待定——本条目**仅登记不修复**（不是回归、不阻断 CI，当前不占用 atomic action 额度）。拟方案：在回填前做一次表存在性探测（`sqlalchemy.inspect(engine).has_table('warehouse')`），未建表时降级为 `logger.info` 静默跳过而非 ERROR 刷 traceback。
-- **回归**：暂无（登记态）。
-- **生效条件**：尚未修改代码，无生效条件。
-- **生效确认**：待确认——修复后 CI 日志中不应再出现 `no such table: warehouse` 的 ERROR traceback；届时需重跑 `verify_ai_all.py --level core` 核对。
+- **修复（2026-09-20，本次落地）**：新增 `_stock_txn_backfill_ready()` 前置表存在性探测——用 `sqlalchemy.inspect(...).has_table()`（与 `app/routes/native_api.py::_ensure_login_schema` 同款写法）检查 `stock_transaction` / `warehouse` / `location_inventory` 三张回填必需表；模块级调用点改为「先探测，缺表则降级 `logger.info` 静默跳过，齐备才回填」。探测本身失败（引擎未就绪）同样返回 False——宁可静默跳过（回填幂等，下次启动重试）也不在导入期抛异常。**注**：探测函数自带 app context 兜底（Flask-SQLAlchemy 3.x 下 `db.engine` 需活跃 context，否则 `RuntimeError: Working outside of application context`），调用方无需预 push。
+- **回归**：新增 `tests/test_bug_2026_09_20_005_backfill_table_guard.py` **8 项**（三表齐备→True / 缺 warehouse→False / 缺 stock_transaction→False / 缺 location_inventory→False / 全空库→False / 探测抛异常→False 不外泄 / 真库上 backfill 仍正常回填且幂等（守卫未误伤治本路径）/ 接线校验守卫先于回填调用防回归）。连同 `test_bug_2026_08_27_005`（T1–T11 回填语义）+ `test_ensure_stock_transaction_warehouse_id_column`（补列）共 **28 项全绿**；`lint_wms_rules --staged` 0 违规。
+- **R6 同根因排查**：grep 全仓 `with app.app_context()` 的模块级调用点，确认导入期仅有回填这一处查表——`backup_sqlite_on_startup()`（app.py:3068）是文件级备份不查表；`run_due_wechat_share_jobs()`（app.py:22549）是运行时调度入口。**同类点已排查，无第二处**。
+- **生效条件**：改动拉取后**生产需重启 WMS 服务生效**（导入期逻辑，随服务启动执行；首次重启即见效）。
+- **生效确认**：**已确认（2026-09-20 02:08）**——空库端到端实测：设 `DATABASE_URL` 指向全新空 sqlite 文件后导入 `app`，捕获 ERROR 级日志 **0 行**、`no such table: warehouse` **不再出现**，改为 INFO「启动回填跳过：前置表尚未建好（空库/首启导入期），下次启动重试」；真库路径 28 项回归全绿证明治本未打折。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
