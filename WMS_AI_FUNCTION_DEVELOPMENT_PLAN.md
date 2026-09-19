@@ -2847,3 +2847,41 @@ T1 空态分支与文案存在；T2 colspan == 自动清点的 `<th>` 数；T3 J
 `ai_feedback_review.html`、`document_table_form.html`、`_list_macros.html`。
 `warehouse.html` / `in_order_push.html` 经复核属 JS 渲染结果表或已有空态，不在本批。
 
+
+### UI-EMPTY-STATE-2026-09-20-B2：7 处列表空态补齐（完善计划 P1-3 第 2 批，2026-09-20 立项）
+
+**背景**：第 1 批（委外三页）落地后，我给出的「剩余 6 个页面」清单是**错的**——扫描判据只认
+`{% for %}` 块内的 `{% else %}`，把已有空态的页面误判成缺口。用修正判据全仓重扫后得到真缺口 7 处。
+
+**⚠️ 判据教训（本次核心）**：空态至少有三种合法写法，只认一种必然误报：
+1. `{% for %}…{% else %}`（第 1 批用的写法）
+2. `{% if 集合 %}` 包住**整张表** + `{% else %}` —— else 在 `<table>` **外面**，只看 `<table>…</tbody>` 会漏判
+3. `{% endfor %}` 之后补 `{% if not 集合 %}` 空行
+
+另有两类假阳性：`<tbody>` 里的 for 可能是 `<select><option>`（弹窗表单，不是列表）；
+`pagination.iter_pages` 分页控件不需要空态。
+**结构性扫描要"宁漏勿错"，且必须抽样打开源码复核后再下结论。**（同类错误已犯两次：
+BUG-2026-09-20-007 把确定性缺陷误判成顺序污染；本次把已有空态误判成缺口。）
+
+**改动**（7 处，仅模板，不动业务逻辑）：
+| 文件 | colspan | 处理 |
+| --- | --- | --- |
+| `print_in.html` / `print_out.html` | 9 | 明细 for 加 `{% else %}`「无明细行」 |
+| `print_in_with_excel.html` / `print_out_with_excel.html` | 9 | 同上；**并把补 8 行空白的填充循环用 `{% if order.items %}` 包住**（否则空态行后跟 8 行空格） |
+| `print_in_with_html.html` | 8 | 「无明细行」 |
+| `sales_report.html` | 11 | 原 `{% if drill_material_code and drill_items %}` 使空数据**整块消失**（点了钻取没反应）→ 放宽为 `{% if drill_material_code %}` + for-else |
+| `document_table_form.html` | 5 | `{% if batch_meta.scans %}` → `{% if batch_meta.scans is defined %}`（否则 `{% else %}` 永远渲染不到）+ for-else |
+
+**回归锁**：`tests/test_p1_3_remaining_list_empty_state.py` 30 项：
+7 处 × {for 块有 `{% else %}` / 文案在块内 / **colspan == 实测 thead `<th>` 数**}
++ 2 个 excel 变体的「空态时不得再补空白行」+ 7 处渲染验证（空集合出空态、非空不出）。
+- **T5 首跑 7 红**：整模板渲染要 `config` / `template` / `order.total_amount` 等一堆 Flask 上下文，
+  补桩越补越脆 → 改为**只截取 `<table>…</tbody>` 片段渲染**，30 全过且更精准。
+
+**验证**：新测试 30 passed；受影响既有测试（print/sales/check/opening_stock/document_table/subcontract）
+585 项无 F/E；`lint_wms_rules.py` 0 违规。
+
+**生效条件（R3）**：改 Jinja 模板，非 debug 下模板缓存不失效 → **必须重启 WMS 服务**；无需重新出包 APK。
+
+**真·遗留**：`batch_import.html`、`document_ocr.html` —— 列表由 JS 渲染，需改 JS 而非 Jinja，不在本批。
+
