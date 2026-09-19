@@ -97,8 +97,16 @@
   把 `ai_feedback_review.html` / `_list_macros.html` / `ai_ops_dashboard.html` / `opening_stock_list.html`
   **误判为缺口**——它们其实都有空态，只是写在 `<table>` **外面**（`{% if 集合 %}`…`{% else %}`）或 `{% endfor %}` 之后
   （`{% if not 集合 %}`）。空态至少有三种合法写法，扫描时必须都认。
-- **真正未做的只剩 2 处（JS 渲染，要改 JS 不是 Jinja）**：`batch_import.html`（rows 空 → 裸表头）、
-  `document_ocr.html`（items 空 → 无提示）。
+- **进度（2026-09-20 第 3 批，P1-3 收口）**：剩下 2 处是 **JS 拼 HTML** 的列表，加不了 Jinja `{% else %}`，
+  改在 JS 分支里补（本地 `c08b4b4` / 远端 `aa5168a`）：
+  - `batch_import.html`：`renderOpeningStockPreview()` 里 rows 为空时，tbody 补「预检结果为空：文件里没有解析到任何数据行」
+    （colspan=7，与 JS 里 thead 的 7 列实测一致）。
+  - `document_ocr.html`：`renderResult()` 里给 items 的非空判断补 `else if (res.items)` 分支，
+    显示「未识别到物料明细行」；**用 `else if (res.items)` 而不是独立的 `if (!res.items.length)`**，
+    否则 items 为 undefined（错误响应）时会误报。原有「整份结果为空」的兜底保留。
+  - 回归锁 `tests/test_p1_3_js_list_empty_state.py` 12 项。pytest 无 JS 引擎，故锁**结构与口径**
+    （守卫存在 / 空态行拼进 `tbl` / colspan == 实测 `<th>` 数 / 文案在分支内 / 文案必须在源码里），不断言实现细节。
+  - **至此 P1-3 全仓清零**（第 1 批 3 处 + 第 2 批 7 处 + 第 3 批 2 处 = 12 处）。
 
 ### P1-4 业务页面 fetch 绕过统一层（孤立的 401/419 信号）
 
