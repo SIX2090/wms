@@ -116,13 +116,19 @@
                     <td>{{ '%.2f'|format(item.amount or 0) }}</td>
                     <td>{{ item.contract_no or order.contract_no or '' }}</td>
                 </tr>
+                {% else %}
+                <tr>
+                    <td colspan="9" class="text-center">无明细行</td>
+                </tr>
                 {% endfor %}
+                {% if order.items %}
                 {% for _ in range([8 - (order.items|length), 0]|max) %}
                 <tr>
                     <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
                     <td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td><td>&nbsp;</td>
                 </tr>
                 {% endfor %}
+                {% endif %}
             </tbody>
             <tfoot>
                 <tr>
