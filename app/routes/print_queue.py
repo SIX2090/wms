@@ -506,14 +506,27 @@ def enqueue_auto_print_job(job_type, target_id, warehouse_name, target_ids=None,
 
 def _workstation_from_token():
     """从 Authorization: Bearer <token> 解析工作站；无效返回 None。"""
-    from app import PrintWorkstation
+    from app import PrintWorkstation, hash_access_token
     auth = request.headers.get('Authorization', '')
     if not auth.startswith('Bearer '):
         return None
     token_value = auth.split(' ', 1)[1].strip()
     if not token_value:
         return None
-    return PrintWorkstation.query.filter_by(auth_token=token_value, enabled=True).first()
+    # BUG-2026-09-19-004：先按哈希查（新格式），未命中按明文兜底——
+    # 命中存量明文行时原位升级为哈希（平滑迁移，代理配置无需变更）。
+    ws = PrintWorkstation.query.filter_by(
+        auth_token=hash_access_token(token_value), enabled=True).first()
+    if ws:
+        return ws
+    legacy = PrintWorkstation.query.filter_by(auth_token=token_value, enabled=True).first()
+    if legacy:
+        try:
+            legacy.auth_token = hash_access_token(token_value)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+    return legacy
 
 
 def _workstation_token_required(f):

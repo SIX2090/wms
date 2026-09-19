@@ -49,10 +49,14 @@
                     <div class="mb-2">
                         <label class="form-label small text-muted mb-1">工作站令牌（复制到打印代理配置）</label>
                         <div class="input-group input-group-sm">
+                            {% if ws.auth_token and ws.auth_token.startswith('sha256:') %}
+                            <input type="text" class="form-control font-monospace" id="token-{{ ws.id }}" value="（已安全存储，不可回显；需要新令牌请点「重置令牌」并立即复制）" readonly>
+                            {% else %}
                             <input type="text" class="form-control font-monospace" id="token-{{ ws.id }}" value="{{ ws.auth_token or '（未生成）' }}" readonly>
                             <button class="btn btn-outline-secondary" type="button" onclick="copyToken({{ ws.id }})">
                                 <i class="bi bi-clipboard"></i> 复制
                             </button>
+                            {% endif %}
                         </div>
                     </div>
                     <div class="d-flex justify-content-end mb-1">

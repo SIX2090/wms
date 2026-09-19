@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-19（持续滚动更新；累计 405 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 81 条，最新 BUG-2026-09-19-003；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-19（持续滚动更新；累计 406 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 82 条，最新 BUG-2026-09-19-004；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -287,6 +287,14 @@
 - **修复**：①`validate_production_security_config` 新增硬门禁——生产环境既未 `SESSION_COOKIE_SECURE=true` 也未显式 `WMS_ALLOW_INSECURE_COOKIE=1` 时 `raise RuntimeError` 阻止启动；②显式放行后启动期告警由 warning 升级为 `logger.critical`，点名放行依据与消除方式；③`PRODUCTION_DEPLOYMENT_CHECKLIST.md` 配置检查新增硬门禁条目（HTTPS 设 `SESSION_COOKIE_SECURE=true` / 内网 HTTP 显式 `WMS_ALLOW_INSECURE_COOKIE=1`）；④`tests/conftest.py` 显式 `WMS_ALLOW_INSECURE_COOKIE=1`（内存库 + HTTP 测试环境 opt-in，保证 app 可导入）。
 - **回归**：`tests/test_production_security_config.py` 扩充至 14 项全绿（无放行拒绝启动、显式放行通过、secure=true 无需放行、非生产跳过、原 CSRF 门禁回归）；`test_bug_2026_09_19_001/002` 4 项回归通过验证 app 导入链路；`lint_wms_rules --staged` 0 违规。
 - **生效条件**：改动拉取后**重启 WMS 服务生效**。**注意（行为变更）**：生产重启前必须二选一配置——HTTPS 部署设 `SESSION_COOKIE_SECURE=true`，受信内网 HTTP 部署显式设 `WMS_ALLOW_INSECURE_COOKIE=1`，否则服务拒绝启动。
+
+### BUG-2026-09-19-004（2026-09-19，访问令牌明文入库：库文件/备份外泄即全量接管——08-16-010 暂缓项按预案落地）
+
+- **背景**：BUG-2026-08-16-010（`ApiToken.token` 与 `PrintWorkstation.auth_token` 明文入库、明文等值匹配）2026-08-16 用户拍板暂缓，触发条件为「接入真实生产环境且外泄风险升高」。2026-09-19 用户决定按台账预案（sha256 哈希存储 + 一次性返显 + 存量平滑迁移）执行，本条目登记修复。
+- **根因（代码实证）**：`native_api.py` `/api/login` 与 `print_routing.py` 新增/重置工作站把 `secrets.token_urlsafe` 明文直接写库；`get_bearer_user`（`app.py`）与 `_workstation_from_token`（`print_queue.py`）按明文等值匹配；`/print_routing` 页面与 `download_agent` 部署包长期回显/预填明文令牌。
+- **修复**：①新增 `app.hash_access_token()`（`"sha256:<hex>"` 前缀）与 `is_hashed_access_token()`；②签发/重置一律存哈希，明文仅在响应中一次性返显（`/api/login`、工作站新增、重置令牌）；③两处校验先按哈希查、未命中按明文兜底——命中存量明文行**原位升级为哈希**（平滑迁移，移动端 App 与已部署打印代理零变更）；④回显收口——`/print_routing` 令牌框哈希行显示「已安全存储，不可回显」并隐藏复制按钮、`download_agent` 哈希行预填重置指引占位符、`/admin/mobile_tokens` 哈希行显示「哈希存储」；⑤内置 LOCAL-SERVER 工作站（`local_print_agent.py`，app 初始化早期执行、不能反向 import，就地计算同款哈希）同步改哈希存储。
+- **回归**：新增 `tests/test_bug_2026_09_19_004_token_hash_storage.py` 6 项（登录返显明文+库内哈希、哈希 Bearer 鉴权、明文 ApiToken/工作站令牌鉴权通过且原位升级、新增/重置一次性返显+旧令牌失效）；同步适配既有断言——`test_print_routing_admin.py`（新增工作站库内为哈希、download_agent 哈希行占位符+存量明文行仍可预填）、`verify_bug_2026_08_13_005`（`_make_token` 改哈希稳态，写放大断言不失真）；相关 10 个套件 172 项全绿；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动拉取后**重启 WMS 服务生效**。存量明文令牌行随首次使用自动升级为哈希，未使用的明文行最迟 7 天（令牌有效期）自然过期失效；工作站令牌需要明文时在 `/print_routing` 页面「重置令牌」一次性获取。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

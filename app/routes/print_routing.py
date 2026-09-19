@@ -232,7 +232,12 @@ def register_print_routing_routes(app):
             ws = PrintWorkstation.query.filter_by(code=ws_code).first()
         elif PrintWorkstation.query.count() == 1:
             ws = PrintWorkstation.query.first()
-        token = ws.auth_token if ws else '在此粘贴工作站令牌（从 /print_routing 页面复制）'
+        # BUG-2026-09-19-004：令牌已哈希存储无法回显，预填占位符提示先重置令牌
+        from app import is_hashed_access_token
+        if ws and ws.auth_token and not is_hashed_access_token(ws.auth_token):
+            token = ws.auth_token  # 存量明文行（未迁移）仍可预填，兼容旧部署
+        else:
+            token = '在此粘贴工作站令牌（令牌已哈希存储不可回显，请先在 /print_routing 页面「重置令牌」并立即复制）'
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
             zf.write(agent_src, 'wms_print_agent.py')
@@ -244,8 +249,10 @@ def register_print_routing_routes(app):
                 'print_timeout': 120,
             }
             zf.writestr('agent_config.json', json.dumps(cfg, ensure_ascii=False, indent=2))
-            token_note = (f"（工作站 {ws.code} 的令牌已预填）" if ws
-                          else "（需替换为 /print_routing 页面复制的令牌）")
+            if ws and not token.startswith('在此粘贴'):
+                token_note = f"（工作站 {ws.code} 的令牌已预填）"
+            else:
+                token_note = "（令牌已哈希存储不可回显，请先在 /print_routing 页面「重置令牌」并立即复制替换）"
             readme = (
                 "WMS 打印代理部署包\n"
                 "====================\n"
@@ -359,15 +366,19 @@ def register_print_routing_routes(app):
             return jsonify({'status': 'error', 'msg': f'参数错误：{e}'}), 400
         if PrintWorkstation.query.filter_by(code=req.code).first():
             return jsonify({'status': 'error', 'msg': '工作站编码已存在'}), 400
+        # BUG-2026-09-19-004：令牌哈希存储，明文仅在本响应一次性返显
+        from app import hash_access_token
+        plaintext_token = secrets.token_urlsafe(32)
         ws = PrintWorkstation(
             code=req.code, name=req.name, warehouse_id=req.warehouse_id,
             device_id=f'ws-{req.code}',
             status='offline', enabled=True,
-            auth_token=secrets.token_urlsafe(32),
+            auth_token=hash_access_token(plaintext_token),
         )
         db.session.add(ws)
         db.session.commit()
-        return jsonify({'status': 'success', 'msg': '新增成功', 'token': ws.auth_token})
+        return jsonify({'status': 'success', 'msg': '新增成功（令牌仅本次显示，请立即复制保存）',
+                        'token': plaintext_token})
 
     @app.route('/print_routing/workstations/<int:ws_id>/edit', methods=['POST'])
     # pydantic:reason=请求体经 WorkstationEditRequest（BaseModel）校验
@@ -397,10 +408,13 @@ def register_print_routing_routes(app):
         ws = db.session.get(PrintWorkstation, ws_id)
         if not ws:
             return jsonify({'status': 'error', 'msg': '工作站不存在'}), 404
-        ws.auth_token = secrets.token_urlsafe(32)
+        # BUG-2026-09-19-004：令牌哈希存储，明文仅在本响应一次性返显
+        from app import hash_access_token
+        plaintext_token = secrets.token_urlsafe(32)
+        ws.auth_token = hash_access_token(plaintext_token)
         db.session.commit()
-        return jsonify({'status': 'success', 'msg': '令牌已重置，请更新打印代理配置',
-                        'token': ws.auth_token})
+        return jsonify({'status': 'success', 'msg': '令牌已重置（仅本次显示，请立即复制并更新打印代理配置）',
+                        'token': plaintext_token})
 
     @app.route('/print_routing/workstations/<int:ws_id>/delete', methods=['POST'])
     # pydantic:reason=无请求体，仅路径参数 ws_id（int）执行删除

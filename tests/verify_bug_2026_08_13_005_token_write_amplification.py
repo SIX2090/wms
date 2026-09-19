@@ -38,8 +38,12 @@ def _seed_user(role="warehouse") -> User:
 
 
 def _make_token(user, expires_at, last_used_at=None) -> ApiToken:
+    # BUG-2026-09-19-004：令牌哈希存储。构造哈希行并附加一次性返显明文
+    # （t.plaintext），模拟登录签发后的稳态，避免存量明文行触发迁移 commit
+    # 干扰写放大断言；明文兜底迁移路径由 test_bug_2026_09_19_004 覆盖。
+    plaintext = f"tok_{os.urandom(6).hex()}"
     t = ApiToken(
-        token=f"tok_{os.urandom(6).hex()}",
+        token=app_module.hash_access_token(plaintext),
         user_id=user.id,
         expires_at=expires_at,
         last_used_at=last_used_at,
@@ -47,6 +51,7 @@ def _make_token(user, expires_at, last_used_at=None) -> ApiToken:
     )
     db.session.add(t)
     db.session.commit()
+    t.plaintext = plaintext
     return t
 
 
@@ -90,7 +95,7 @@ class TestBearerTokenRenewal(unittest.TestCase):
             exp = datetime.now() + timedelta(days=7)
             token = _make_token(user, exp, None)
             orig_exp = token.expires_at
-            tv = token.token
+            tv = token.plaintext
             with _CommitCounter() as cc:
                 self._call(tv)
             self.assertEqual(cc.count, 1)
@@ -105,7 +110,7 @@ class TestBearerTokenRenewal(unittest.TestCase):
             user = _seed_user()
             exp = datetime.now() + timedelta(days=7)
             token = _make_token(user, exp, datetime.now())
-            tv = token.token
+            tv = token.plaintext
             with _CommitCounter() as cc:
                 for _ in range(5):
                     self._call(tv)
@@ -117,7 +122,7 @@ class TestBearerTokenRenewal(unittest.TestCase):
             user = _seed_user()
             exp = datetime.now() + timedelta(days=3)
             token = _make_token(user, exp, datetime.now())
-            tv = token.token
+            tv = token.plaintext
             self._call(tv)
             r = db.session.get(ApiToken, token.id)
             self.assertEqual(r.expires_at.replace(microsecond=0),
@@ -129,7 +134,7 @@ class TestBearerTokenRenewal(unittest.TestCase):
             user = _seed_user()
             exp = datetime.now() + timedelta(hours=2)
             token = _make_token(user, exp, datetime.now())
-            tv = token.token
+            tv = token.plaintext
             before = datetime.now()
             self._call(tv)
             r = db.session.get(ApiToken, token.id)
@@ -146,7 +151,7 @@ class TestBearerTokenRenewal(unittest.TestCase):
             exp = datetime.now() + timedelta(days=7)
             old = datetime.now() - timedelta(minutes=10)
             token = _make_token(user, exp, old)
-            tv = token.token
+            tv = token.plaintext
             with _CommitCounter() as cc:
                 self._call(tv)
             self.assertEqual(cc.count, 1)
@@ -162,8 +167,8 @@ class TestBearerTokenRenewal(unittest.TestCase):
             r.revoked = True
             db.session.commit()
             with _CommitCounter() as cc:
-                self.assertIsNone(self._call(e.token))
-                self.assertIsNone(self._call(r.token))
+                self.assertIsNone(self._call(e.plaintext))
+                self.assertIsNone(self._call(r.plaintext))
             self.assertEqual(cc.count, 0)
 
     def test_source_policy_signals(self):

@@ -93,7 +93,8 @@ def test_workstation_crud_and_token(client):
     with app_module.app.app_context():
         ws = PrintWorkstation.query.filter_by(code="WS-1").one()
         ws_id = ws.id
-        assert ws.auth_token == token1
+        # BUG-2026-09-19-004：令牌哈希存储，响应明文与库内哈希一一对应
+        assert ws.auth_token == app_module.hash_access_token(token1)
         assert ws.device_id == "ws-WS-1"
     # 重复编码
     resp = _add_workstation(client, code="WS-1")
@@ -140,28 +141,40 @@ def test_workstation_delete_blocked_by_jobs_or_rules(client):
 
 
 def test_download_agent_prefills_single_workstation_token(client):
-    """下载代理部署包：仅一个工作站时 agent_config.json 自动预填其令牌，
-    ?ws= 指定编码时同样预填；多工作站且未指定时才用占位符。"""
+    """下载代理部署包：存量明文令牌（未迁移）工作站自动预填其令牌；
+    哈希存储（BUG-2026-09-19-004）的工作站不可回显，预填「重置令牌」指引占位符；
+    多工作站且未指定时同样用占位符。"""
     import io
     import json as jsonlib
     import zipfile
 
-    _add_workstation(client, code="1")
+    # 存量明文行（模拟未迁移部署）仍可预填
+    with app_module.app.app_context():
+        wh = Warehouse.query.filter_by(code="RWH0").one()
+        db.session.add(PrintWorkstation(
+            code="1", name="1", device_id="device-1",
+            warehouse_id=wh.id, status="offline", enabled=True,
+            auth_token="legacy-plain-prefill-token",
+        ))
+        db.session.commit()
     resp = client.get("/print_routing/download_agent")
     assert resp.status_code == 200
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
-    with app_module.app.app_context():
-        token = PrintWorkstation.query.filter_by(code="1").one().auth_token
-    assert cfg["token"] == token
+    assert cfg["token"] == "legacy-plain-prefill-token"
     # 指定 ws 编码同样预填
     resp = client.get("/print_routing/download_agent?ws=1")
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
-    assert cfg["token"] == token
+    assert cfg["token"] == "legacy-plain-prefill-token"
     assert cfg["server_url"].startswith("http")
-    # 多工作站且未指定 → 占位符
+    # 哈希存储工作站（经 API 新增即哈希）→ 不可回显，占位符指引重置
     _add_workstation(client, code="WS-2")
+    resp = client.get("/print_routing/download_agent?ws=WS-2")
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))
+    assert "重置令牌" in cfg["token"]
+    # 多工作站且未指定 → 占位符
     resp = client.get("/print_routing/download_agent")
     zf = zipfile.ZipFile(io.BytesIO(resp.data))
     cfg = jsonlib.loads(zf.read("agent_config.json").decode("utf-8"))

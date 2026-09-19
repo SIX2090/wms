@@ -16,7 +16,7 @@
             {% for token in tokens %}
             <tr>
                 <td>{{ token.user.username if token.user else '-' }}</td>
-                <td><code>{{ token.token[:12] }}...</code></td>
+                <td>{% if token.token and token.token.startswith('sha256:') %}<span class="text-muted">（哈希存储，不可回显）</span>{% else %}<code>{{ token.token[:12] }}...</code>{% endif %}</td>
                 <td>{{ token.created_at.strftime('%Y-%m-%d %H:%M') if token.created_at else '-' }}</td>
                 <td>{{ token.expires_at.strftime('%Y-%m-%d %H:%M') if token.expires_at else '-' }}</td>
                 <td>

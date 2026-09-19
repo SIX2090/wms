@@ -384,12 +384,19 @@ def ensure_builtin_print_workstation(db_path: str | None = None):
             (BUILTIN_WS_CODE,)).fetchone()
         if row is None:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # BUG-2026-09-19-004：令牌哈希存储（明文不落库）；
+            # 需要配置独立代理时在 /print_routing 页面「重置令牌」一次性获取明文。
+            # 注意：本函数在 app 初始化早期执行，不能 from app import hash_access_token
+            # （彼时 app 模块尚未定义到该函数），故就地计算同款 "sha256:<hex>"。
+            import hashlib
+            _hashed_token = 'sha256:' + hashlib.sha256(
+                secrets.token_urlsafe(32).encode('utf-8')).hexdigest()
             cur.execute(
                 'INSERT INTO print_workstation '
                 '(code, name, device_id, status, enabled, auth_token, created_at, updated_at) '
                 "VALUES (?, ?, ?, 'offline', 1, ?, ?, ?)",
                 (BUILTIN_WS_CODE, BUILTIN_WS_NAME, BUILTIN_WS_DEVICE_ID,
-                 secrets.token_urlsafe(32), now, now))
+                 _hashed_token, now, now))
             conn.commit()
             logging.getLogger(__name__).info(
                 '[打印] 内置本机打印工作站已创建（%s）', BUILTIN_WS_CODE)

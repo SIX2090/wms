@@ -698,8 +698,11 @@ def register_native_api_routes(app):
             if user.must_change_password:
                 return api_json_error('请先通过网页登录修改初始密码', 403)
 
+            # BUG-2026-09-19-004：令牌哈希存储，明文仅在本响应一次性返显
+            from app import hash_access_token
+            plaintext_token = secrets.token_urlsafe(48)
             token = ApiToken(
-                token=secrets.token_urlsafe(48),
+                token=hash_access_token(plaintext_token),
                 user_id=user.id,
                 expires_at=datetime.now() + timedelta(days=7),
             )
@@ -710,7 +713,7 @@ def register_native_api_routes(app):
             db.session.add(token)
             db.session.commit()
             return api_json_success({
-                'token': token.token,
+                'token': plaintext_token,
                 'expires_in': 7 * 24 * 60 * 60,
                 'user': {
                     'id': user.id,

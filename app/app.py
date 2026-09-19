@@ -6415,6 +6415,24 @@ LAST_USED_FLUSH_SECONDS = 300
 RENEW_THRESHOLD_SECONDS = 24 * 3600
 TOKEN_TTL_DAYS = 7
 
+# ==================== 访问令牌哈希存储（BUG-2026-09-19-004） ====================
+# ApiToken.token / PrintWorkstation.auth_token 统一改为 "sha256:<hex>" 前缀哈希存储，
+# 明文只在签发/重置的响应中一次性返显。校验先按哈希查，未命中再按明文兜底——
+# 命中存量明文行时原位升级为哈希（平滑迁移，客户端无感）。
+TOKEN_HASH_PREFIX = 'sha256:'
+
+
+def hash_access_token(plaintext):
+    """访问令牌 -> 数据库存储形式（sha256 哈希，带前缀标识）。"""
+    import hashlib
+    return TOKEN_HASH_PREFIX + hashlib.sha256(plaintext.encode('utf-8')).hexdigest()
+
+
+def is_hashed_access_token(stored):
+    """数据库存储值是否已是哈希格式（区分存量明文行）。"""
+    return isinstance(stored, str) and stored.startswith(TOKEN_HASH_PREFIX)
+
+
 # ==================== Permission ====================
 def get_bearer_user():
     auth = request.headers.get('Authorization', '')
@@ -6423,7 +6441,14 @@ def get_bearer_user():
     token_value = auth.split(' ', 1)[1].strip()
     if not token_value:
         return None
-    token = ApiToken.query.filter_by(token=token_value, revoked=False).first()
+    token = ApiToken.query.filter_by(token=hash_access_token(token_value), revoked=False).first()
+    token_migrated = False
+    if not token:
+        legacy = ApiToken.query.filter_by(token=token_value, revoked=False).first()
+        if legacy:
+            legacy.token = hash_access_token(token_value)  # 存量明文行原位升级
+            token = legacy
+            token_migrated = True
     if not token or token.expires_at < datetime.now():
         return None
     now = datetime.now()
@@ -6432,7 +6457,7 @@ def get_bearer_user():
         or (now - token.last_used_at).total_seconds() >= LAST_USED_FLUSH_SECONDS
     )
     need_renew = (token.expires_at - now).total_seconds() < RENEW_THRESHOLD_SECONDS
-    if need_flush_last_used or need_renew:
+    if token_migrated or need_flush_last_used or need_renew:
         try:
             if need_flush_last_used:
                 token.last_used_at = now
