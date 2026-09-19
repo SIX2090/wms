@@ -315,6 +315,12 @@ function renderResult(res) {
         });
 
         html += '</tbody></table></div>';
+    } else if (res.items) {
+        // P1-3：识别成功但一个物料行都没解析出来时，也要有明确提示，
+        // 否则用户只看到一段 AI 分析文字，分不清「图里没明细」还是「识别失败」。
+        html += '<div class="alert alert-warning mb-3">'
+            + '<i class="bi bi-exclamation-triangle-fill me-2"></i>'
+            + '未识别到物料明细行，请检查图片清晰度，或改用手工录入。</div>';
     }
 
     // 草稿信息
