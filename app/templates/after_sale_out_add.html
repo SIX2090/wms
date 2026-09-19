@@ -150,6 +150,44 @@
     gap: 8px;
     padding: 12px 0;
 }
+
+/* P1-2：新建表单「一次报全部」校验面板 + 缺失字段高亮 */
+.wms-validation-panel {
+    display: none;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border: 1px solid #fca5a5;
+    border-left: 4px solid #dc2626;
+    border-radius: 4px;
+    background: #fef2f2;
+    color: #7f1d1d;
+    font-size: 13px;
+}
+.wms-validation-panel.show {
+    display: block;
+}
+.wms-validation-panel-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.wms-validation-list {
+    margin: 0;
+    padding-left: 18px;
+}
+.wms-validation-list li {
+    cursor: pointer;
+}
+.wms-validation-list li:hover {
+    text-decoration: underline;
+}
+#materialTable tbody tr.wms-row-error td {
+    background: #fff1f2 !important;
+    border-color: #fca5a5 !important;
+}
+#materialTable .wms-cell-error {
+    border-color: #dc2626 !important;
+    background: #fff7f7 !important;
+}
 </style>
 {% endblock %}
 
@@ -183,14 +221,14 @@
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">日期</label>
-                        <input type="date" class="form-control" name="date" value="{{ order_date }}">
+                        <input type="date" class="form-control" name="date" value="{{ order_date }}" required>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">客户名称</label>
                         <div class="customer-input" style="position:relative;">
-                            <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入客户名称" autocomplete="off" value="{{ order.customer if order else '' }}">
+                            <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入客户名称" autocomplete="off" value="{{ order.customer if order else '' }}" required>
                             <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                         </div>
                     </div>
@@ -245,6 +283,11 @@
                         <textarea class="form-control" name="remark" rows="2">{{ order.remark if order else '' }}</textarea>
                     </div>
                 </div>
+            </div>
+
+            <div id="afterSaleOutValidationPanel" class="wms-validation-panel" role="alert" aria-live="polite">
+                <div class="wms-validation-panel-title">请先处理以下问题</div>
+                <ol id="afterSaleOutValidationList" class="wms-validation-list"></ol>
             </div>
 
             <div class="mb-3 d-flex gap-2 flex-wrap">
@@ -314,7 +357,7 @@ function addNewRow(insertBeforeRow = null, data = {}) {
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
         <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
         <td data-column-key="stock"><input type="text" class="form-control material-stock num-col" readonly></td>
-        <td data-column-key="quantity"><input type="number" class="form-control material-qty num-col" min="0" step="0.01"></td>
+        <td data-column-key="quantity"><input type="number" class="form-control material-qty num-col" min="0.01" step="0.01"></td>
         <td data-column-key="price"><input type="number" class="form-control material-price num-col" min="0" step="0.01"></td>
         <td class="amount-col" data-column-key="amount"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
@@ -480,30 +523,118 @@ function renumberRows() {
     });
 }
 
-function submitForm() {
+// ==================== P1-2：新建表单「一次报全部」校验 ====================
+// 契约（与 in_order_add.html / sales_order_add.html 的 wms-validation-panel 保持一致）：
+//   error = { message, rowIndex?, selector? }
+//   rowIndex 存在   → 明细行错误，给 tr 加 wms-row-error、给匹配输入框加 wms-cell-error
+//   rowIndex 不存在 → 表头错误，只给 selector 匹配的输入框加 wms-cell-error
+function clearAfterSaleOutValidation() {
+    const panel = document.getElementById('afterSaleOutValidationPanel');
+    const list = document.getElementById('afterSaleOutValidationList');
+    if (panel) panel.classList.remove('show');
+    if (list) list.innerHTML = '';
+    document.querySelectorAll('#materialTableBody tr').forEach(row => row.classList.remove('wms-row-error'));
+    document.querySelectorAll('#materialTable .wms-cell-error').forEach(el => el.classList.remove('wms-cell-error'));
+}
+
+// 一次遍历同时产出明细与行级错误。旧实现在循环里遇到第一行数量为空就 return，
+// 后面 29 行根本不检查，用户要来回点很多次。
+function collectAfterSaleOutRows() {
     const items = [];
-    for (const row of document.querySelectorAll('#materialTableBody tr')) {
+    const errors = [];
+    Array.from(document.querySelectorAll('#materialTableBody tr')).forEach((row, index) => {
         const code = row.querySelector('.material-code').value.trim();
+        if (!code) return;  // 空白行不参与校验
         const qty = parseFloat(row.querySelector('.material-qty').value);
-        const price = parseFloat(row.querySelector('.material-price').value);
-        if (!code) continue;
-        if (!qty || qty <= 0) {
-            showToast('请填写完整的物料信息', 'warning');
-            return;
+        const priceRaw = (row.querySelector('.material-price')?.value || '').trim();
+        const price = parseFloat(priceRaw);
+        if (!isFinite(qty) || qty <= 0) {
+            errors.push({ message: '第 ' + (index + 1) + ' 行：数量必须大于 0', rowIndex: index, selector: '.material-qty' });
         }
-        items.push({ code, quantity: qty, price: price || 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
-    }
+        if (priceRaw !== '' && (!isFinite(price) || price < 0)) {
+            errors.push({ message: '第 ' + (index + 1) + ' 行：单价不能为负数', rowIndex: index, selector: '.material-price' });
+        }
+        items.push({ code, quantity: qty, price: isFinite(price) ? price : 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
+    });
+    return { items: items, errors: errors };
+}
 
-    if (items.length === 0) {
-        showToast('请至少添加一条物料', 'warning');
+// 表头：直接以模板上的 [required] 声明为准，避免「属性写了、JS 却不认」的假必填
+function collectAfterSaleOutErrors(items) {
+    const errors = [];
+    document.querySelectorAll('#addForm [required]').forEach(input => {
+        if (input.type === 'hidden') return;
+        if ((input.value || '').trim()) return;
+        const wrap = input.closest('.mb-2') || input.parentElement;
+        const labelEl = wrap ? wrap.querySelector('.form-label') : null;
+        const label = (labelEl && labelEl.textContent.replace('*', '').trim())
+            || input.getAttribute('placeholder')
+            || input.getAttribute('name')
+            || '必填项';
+        const verb = input.tagName === 'SELECT' ? '请选择' : '请填写';
+        errors.push({ message: verb + label, selector: '[name="' + input.getAttribute('name') + '"]' });
+    });
+    if (!items.length) errors.push({ message: '请至少添加一条物料' });
+    return errors;
+}
+
+function showAfterSaleOutValidation(errors) {
+    clearAfterSaleOutValidation();
+    const panel = document.getElementById('afterSaleOutValidationPanel');
+    const list = document.getElementById('afterSaleOutValidationList');
+    if (!panel || !list) {
+        // 面板缺失时退化为一次性汇总提示，绝不回到「逐条 return」
+        if (errors.length) showToast(errors.map(error => error.message).join('；'), 'warning', 5000);
         return;
     }
+    if (!errors.length) return;
+    list.innerHTML = errors.map(error => '<li>' + escapeHtml(error.message) + '</li>').join('');
+    panel.classList.add('show');
+    // 一次性高亮全部缺失/非法字段（P1-2 核心）
+    errors.forEach(error => {
+        if (error.rowIndex !== undefined) {
+            const row = document.querySelectorAll('#materialTableBody tr')[error.rowIndex];
+            if (!row) return;
+            row.classList.add('wms-row-error');
+            if (error.selector) {
+                const input = row.querySelector(error.selector);
+                if (input) input.classList.add('wms-cell-error');
+            }
+        } else if (error.selector) {
+            document.querySelectorAll(error.selector).forEach(el => el.classList.add('wms-cell-error'));
+        }
+    });
+    // 点击条目定位到出错字段
+    Array.from(list.children).forEach((li, index) => {
+        li.addEventListener('click', () => focusAfterSaleOutError(errors[index]));
+    });
+    panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
 
-    const warehouse = document.querySelector('[name="warehouse"]').value.trim();
-    if (!warehouse) {
-        showToast('仓库不能为空，请选择仓库', 'warning');
-        return;
+function focusAfterSaleOutError(error) {
+    if (!error) return;
+    let target = null;
+    if (error.rowIndex !== undefined) {
+        const row = document.querySelectorAll('#materialTableBody tr')[error.rowIndex];
+        if (!row) return;
+        row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        target = error.selector ? row.querySelector(error.selector) : row.querySelector('input,select,textarea');
+    } else if (error.selector) {
+        target = document.querySelector(error.selector);
     }
+    if (target) {
+        target.focus();
+        if (typeof target.select === 'function') target.select();
+    }
+}
+
+function submitForm() {
+    // P1-2：一次性收集全部缺失/非法项并高亮，而不是逐条 showToast 后立刻 return
+    const rowResult = collectAfterSaleOutRows();
+    const errors = collectAfterSaleOutErrors(rowResult.items).concat(rowResult.errors);
+    showAfterSaleOutValidation(errors);
+    if (errors.length) return;
+    const items = rowResult.items;
 
     const data = {
         order_id: document.querySelector('[name="order_id"]').value,
