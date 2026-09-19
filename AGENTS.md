@@ -10,7 +10,7 @@
 3. [任务粒度与提交流程](#三任务粒度与提交流程) —— 含 [CI 全绿门禁（开工前置条件）](#三任务粒度与提交流程)
 4. [分支与前端约束](#四分支与前端约束)
 5. [AI 开发台账](#五ai-开发台账)
-6. [防 BUG 规则 A1–A12](#六防-bug-规则a1a122026-07-31-新增)
+6. [防 BUG 规则 A1–A14](#六防-bug-规则a1a142026-07-31-新增)
 7. [反复 BUG 模式清单与强制防护 R1–R7](#七反复-bug-模式清单与强制防护r1r72026-08-28-新增)
 8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订)
 
@@ -99,7 +99,7 @@
 ## 四、分支与前端约束
 
 - **分支策略（硬性规则，无例外）**：AI/TRAE 必须直接在 `main` 分支工作。严格禁止创建、切换到或推送任何新分支——包括 `feature/*`、`fix/*`、`chore/*` 或任何 `trae/*` worktree 分支。所有 commit 和 push 必须指向 `main`。本地 pre-push 钩子 `.githooks/pre-push` 在客户端强制执行（**允许删除非 `main` 远程分支**——如 `trae/*` 残留分支可按需清理；仅 `main` 禁止删除，防止误删丢失全部历史；除 `main` 外禁止创建、切换或推送任何新分支）。注意：在 GitHub 侧强制分支保护需要私有仓库的 GitHub Pro；免费私有仓库只有本地钩子 + CI 两层强制。
-- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A12），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
+- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A14），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
 
 ## 五、AI 开发台账
 
@@ -108,15 +108,17 @@
 - 标记 AI 任务完成的前提：代码、权限、人工确认边界、测试、文档、验证，**以及所有 atomic action 按上述推送规则完成提交推送**，全部齐备。立即在台账记录完成日期、提交哈希、变更模块、验证命令、结果和遗留子项。权限边界见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)。
 - 每个 AI 任务结束时，将台账与 AI 路由、工具、模型、模板、特性开关、迁移和验证脚本对账，确保已实现的能力不被遗漏、计划中的能力不被误报为已实现。
 
-## 六、防 BUG 规则（A1–A12，2026-07-31 新增）
+## 六、防 BUG 规则（A1–A14，2026-07-31 新增）
 
-**修改本仓库任何代码前，请先阅读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md)；且**必须** `bash .githooks/install-hooks.sh` 启用 pre-commit 钩子，否则 12 条防 BUG 规则不会自动跑。**
+**修改本仓库任何代码前，请先阅读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md)；且**必须** `bash .githooks/install-hooks.sh` 启用 pre-commit 钩子，否则 14 条防 BUG 规则不会自动跑。**
 
-> 2026-09-19 同步：本速查表补登 **A11**（禁止裸用总账做库存校验，R2 机械化防护），并将本节约的"10 条"统一校正为"11 条"，与 `scripts/lint_wms_rules.py`（实跑 A1–A11 共 11 条）及 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md) 对齐。
+> 2026-09-19 同步：本速查表补登 **A11**（禁止裸用总账做库存校验，R2 机械化防护），并将本节约的"10 条"统一校正为"11 条"，与 `scripts/lint_wms_rules.py` 及 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md) 对齐。
 >
 > 2026-09-19 同步：本速查表再补登 **A12**（测试文件顶层禁止裸 app context `.push()`/`.pop()`，R7 机械化防护），并将"11 条"统一校正为"12 条"。
+>
+> 2026-09-20 同步：本速查表补登 **A13**（台账新增 BUG 条目强制「生效确认」，R3 机械化防护）与 **A14**（`scripts/` 下新增 app 引用必须显式放行生产硬门禁，R6 机械化防护），并将"12 条"统一校正为"14 条"，与 `scripts/lint_wms_rules.py`（实跑 A1–A14 共 14 条）及 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md) 对齐。
 
-### 12 条核心规则速查
+### 14 条核心规则速查
 
 | 编号 | 规则 | 防的 BUG |
 |---|---|---|
@@ -132,8 +134,10 @@
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 |
 | **A11** | **新增** 禁止裸用 `material.stock`（总账）做库存校验，必须用仓库级 `get_warehouse_stock_quantities()` | 多仓库口径串仓 / 同根因反复 BUG |
 | **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 |
+| **A13** | `WMS_BUG_BASELINE.md` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 |
+| **A14** | `scripts/` 下**新增** app 引用的脚本必须显式放行生产硬门禁（R6 机械化） | 生产硬门禁漏排查消费点 → CI 变红 |
 
-> A8/A9/A10/A11 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
+> A8/A9/A10/A11/A13/A14 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
 
 ### 强制门禁
 
@@ -188,6 +192,8 @@
 ### R6 新 BUG 登记前必查同根因历史
 
 - 登记新 BUG 前必须 grep 台账查同模式历史 BUG；若判定为**同一根因的复发**，必须同时排查并修复**所有同类消费点**（不只修报告的那一处），并在台账注明"同类点已排查"。
+
+> **R6 的机械化防护是 A14**（`scripts/lint_wms_rules.py`，2026-09-20 新增）：`scripts/` 下新增 app 引用（`from app import app` / `import app`）的脚本必须显式放行生产硬门禁（如 `WMS_ALLOW_INSECURE_COOKIE=1`），否则 pre-commit 拦截。实证 BUG-2026-09-20-004——生产 Cookie 硬门禁（BUG-2026-09-19-003）引入后只给 `tests/conftest.py` 补 opt-in，漏排查 `scripts/` 消费点，使 `WMS CI` 与 `WMS AI Verification` 在 main 上变红，违反 §三 CI 全绿门禁。
 
 ### R7 测试模块顶层禁止常驻 push app context（实证：全量 pytest 81~221 项顺序依赖假失败，2026-09-03 治理归零）
 

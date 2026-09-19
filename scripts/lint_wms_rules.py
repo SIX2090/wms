@@ -1383,6 +1383,84 @@ class RuleA13BaselineEffectConfirmation(Rule):
 
 
 # ---------------------------------------------------------------------------
+# A14：生产硬门禁消费点必须显式 opt-in（R6 机械化）
+# ---------------------------------------------------------------------------
+
+class RuleA14ProductionGateConsumerOptIn(Rule):
+    """CI/验证脚本（以 production 导入 app 或启服务）必须显式放行生产硬门禁。
+
+    R6（同根因必须排查所有消费点）的机械化，实证 BUG-2026-09-20-004：
+    BUG-2026-09-19-003 引入 ``validate_production_security_config`` 生产硬门禁
+    （未显式放行时 ``raise RuntimeError`` 拒绝导入/启动）后，只给
+    ``tests/conftest.py`` 补了 ``WMS_ALLOW_INSECURE_COOKIE=1``，漏排查
+    ``scripts/`` 下同样以 production 导入 app 的消费点，直接导致
+    ``WMS CI`` 与 ``WMS AI Verification`` 在 main 上变红。
+
+    规则：``scripts/`` 下**本次改动引入** app 引用（``from app import app`` /
+    ``import app``）且未切到 testing 环境的脚本，必须显式设置
+    ``WMS_ALLOW_INSECURE_COOKIE``（与 conftest 同口径），否则 pre-commit 拦截。
+
+    判定粒度（与 A8-A11 同为"新增代码生效"）：只看 **staged 新增行里是否出现
+    app 引用**，而非"文件被改过就整份合规"——否则改一行空行也会把存量
+    （历史上已合规或已豁免的）脚本判违规，误报不可接受。
+    行尾 ``# allow-no-optin`` 可豁免（用于确实不触达该门禁的脚本）。
+    """
+
+    name = "a14"
+    description = "CI 脚本以 production 导入 app 必须显式放行生产硬门禁（R6）"
+    enabled = True
+    scan_paths = ("scripts/",)
+    exclude_paths = ()
+    extensions = (".py",)
+
+    # 该门禁的 opt-in 环境变量名（未来新增生产硬门禁时在此追加）
+    _GATE_OPTIN_VARS = ("WMS_ALLOW_INSECURE_COOKIE",)
+
+    # 单行内是否出现 app 引用（用于判定 staged 新增行）
+    _IMPORTS_APP_LINE = re.compile(
+        r"^\s*(?:from\s+app\s+import\s+app|import\s+app)\b")
+    _USES_TESTING = re.compile(
+        r"""['"]?FLASK_ENV['"]?\s*[\]:]*\s*[=:]\s*['"]testing"""
+        r"""|TestingConfig""", re.IGNORECASE)
+    _ALLOW_HINT = re.compile(r"#\s*allow-no-optin\b", re.IGNORECASE)
+
+    def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
+        violations: List[Violation] = []
+        for f in files:
+            rel = str(f.relative_to(repo_root)).replace("\\", "/")
+            if not rel.startswith("scripts/") or not rel.endswith(".py"):
+                continue
+            added_lines = get_staged_added_lines(repo_root, f)
+            if not added_lines:
+                continue
+            try:
+                lines = f.read_text(encoding="utf-8", errors="replace").split("\n")
+            except OSError:
+                continue
+            # 判定粒度：只看 staged 新增行里是否引入 app 引用。
+            # 这样"改空行/改注释"不会把存量脚本判违规（避免误报）。
+            hit_line = None
+            for ln in sorted(added_lines):
+                if ln <= len(lines) and self._IMPORTS_APP_LINE.match(lines[ln - 1]):
+                    hit_line = ln
+                    break
+            if hit_line is None:
+                continue
+            text = "\n".join(lines)
+            if self._ALLOW_HINT.search(text):
+                continue
+            if self._USES_TESTING.search(text):
+                continue  # 切到 testing 环境不走生产门禁
+            if any(v in text for v in self._GATE_OPTIN_VARS):
+                continue
+            violations.append(Violation(
+                rel, hit_line,
+                f"新增行引入 app 引用（{lines[hit_line - 1].strip()[:60]}）但脚本未显式设置 "
+                f"{self._GATE_OPTIN_VARS[0]}=1（生产硬门禁将拒绝导入，参见 BUG-2026-09-20-004）"))
+        return violations
+
+
+# ---------------------------------------------------------------------------
 # 规则注册表
 # ---------------------------------------------------------------------------
 
@@ -1400,10 +1478,11 @@ RULES: Dict[str, Rule] = {
     "a11": RuleA11NoRawGlobalStockCheck(),
     "a12": RuleA12NoTopLevelCtxPush(),
     "a13": RuleA13BaselineEffectConfirmation(),
+    "a14": RuleA14ProductionGateConsumerOptIn(),
 }
 
 RULE_DISPLAY_ORDER: Tuple[str, ...] = (
-    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12", "a13",
+    "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "a10", "a11", "a12", "a13", "a14",
 )
 
 

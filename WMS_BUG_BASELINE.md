@@ -331,7 +331,7 @@
 - **修复**：①`scripts/run_smoke_in_ci.py` 启动 env 增加 `WMS_ALLOW_INSECURE_COOKIE=1`（与 conftest 同口径，CI 走 HTTP + 测试库，属受信环境显式放行）；②`verify_ai_business_quality_dashboard.py` / `verify_ai_purchase_workbench_page.py` / `verify_ai_warehouse_workbench_page.py` 三处 env 预设段补 `WMS_ALLOW_INSECURE_COOKIE=1`；③`verify_ai_provider_evaluation.py` 测试 5 的 `os_env.setdefault` 段补同项（消除被吞异常掩盖的假绿）；④新增回归测试锁定「CI 脚本必须显式 opt-in」这一契约，防止再次漏排查。
 - **回归**：新增 `tests/test_bug_2026_09_20_004_ci_cookie_optin.py`（覆盖 smoke 脚本 env 注入、4 个 verify 脚本的 opt-in 预设、缺省则门禁复现）；本地以 `FLASK_ENV=production` 实跑 `run_smoke_in_ci.py` 前 2 阶段确认服务可启动；`lint_wms_rules --staged` 0 违规。
 - **生效条件**：改动 push 到 `main` 后由 GitHub Actions 自动生效（无需重启生产服务；CI 环境为独立容器）。**注意**：本修复不改变生产行为，生产部署仍须按 BUG-2026-09-19-003 二选一配置。
-- **生效确认**：待确认——push 后跑 `python scripts/check_ci_green.py`，`WMS CI` 与 `WMS AI Verification` 两个工作流在最新 `main` 运行上应为 `success`（退出码 0），即本改动在 CI 侧生效。
+- **生效确认**：**已确认（2026-09-20 01:35）**——推送 `99cbd960` 后 `python scripts/check_ci_green.py` 返回 rc=0，三工作流全绿且均指向本次提交：`Android APK Build` #612 success、`WMS AI Verification` #1396 success（原 #1395 failure）、`WMS CI` #1101 success（原 #1100 failure）。门禁放行恢复。
 
 ### BUG-2026-09-20-005（2026-09-20，启动回填在空库/未建表时报 `no such table: warehouse`：ERROR 噪音刷屏）
 
@@ -341,6 +341,15 @@
 - **回归**：暂无（登记态）。
 - **生效条件**：尚未修改代码，无生效条件。
 - **生效确认**：待确认——修复后 CI 日志中不应再出现 `no such table: warehouse` 的 ERROR traceback；届时需重跑 `verify_ai_all.py --level core` 核对。
+
+### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
+
+- **发现方式**：修复 BUG-2026-09-20-004 过程中复盘——R6 自 2026-08-28 列入 AGENTS.md 后一直是**纯人工自检**（无 lint 防护），本次正是它失效：生产 Cookie 硬门禁引入后只改了 `tests/conftest.py`，`scripts/` 下 5 个同类消费点全部漏掉。
+- **根因（代码实证）**：R1–R6 中 R2/R3/R7 已有 A11/A13/A12 三条机械化防护，唯独 R6（同根因多消费点）无对应规则；`scripts/lint_wms_rules.py` 对 `scripts/` 目录下的 app 导入链路完全无覆盖。
+- **修复**：新增 **A14 规则**（`RuleA14ProductionGateConsumerOptIn`）——`scripts/*.py` 的 **staged 新增行**中若出现 app 引用（`from app import app` / `import app`）且脚本未显式设置 `WMS_ALLOW_INSECURE_COOKIE`（与 conftest 同口径的生产硬门禁 opt-in），则 pre-commit 拦截。放行条件：切 testing 环境 / 本次未新增 app 引用行 / 行尾 `# allow-no-optin`。**判定粒度刻意取"新增行是否引入 app 引用"而非"文件被改过"**——后者会把仅改空行的存量脚本判违规，误报不可接受（初版即踩此坑，已由 golden 测试第 5 例锁定）。同步更新 `DEVELOPMENT_RULES.md`（13→14 条 + A14 行 + 汇总行）、`AGENTS.md`（§六标题/目录/速查表 12→14 条、补登 A13+A14、§四 A1-A14、R6 补机械化说明——其中 A13 文案为本轮补漏）。
+- **回归**：新增 `tests/test_lint_wms_rules_a14_golden.py` 6 项（无 opt-in 拦截 / 有 opt-in 放行 / testing 放行 / 不导入 app 放行 / 改空行不误报 / 存量脚本新增 app 引用行拦截）；连同 A13 golden 3 项 + 门禁相关 23 项共 32 项全绿；`lint_wms_rules` 0 违规。
+- **生效条件**：改动拉取后本地 pre-commit 钩子即生效（无需重启服务）；CI lint 同步覆盖。
+- **生效确认**：待确认——下次在 `scripts/` 下新增一个 `from app import app` 且不设 opt-in 的脚本时，pre-commit 应拦截并提示 A14；golden 测试已在临时仓库验证六种场景。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

@@ -123,7 +123,7 @@
 
 | 工具 | 检查内容 | 必跑 |
 |---|---|---|
-| `scripts/lint_wms_rules.py` | 13 条防 BUG 规则（A1–A13） | ✅ pre-commit |
+| `scripts/lint_wms_rules.py` | 14 条防 BUG 规则（A1–A14） | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 140 项静态回归 | ✅ pre-commit |
 | `pytest tests/` | 约 2000 项测试全绿（2026-09-19 复核 1998 passed/85 skipped；规模持续增长，以实跑为准；历史基线 945） | ✅ pre-commit |
@@ -149,7 +149,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 ## 六、防 BUG 规则清单
 
-`scripts/lint_wms_rules.py` 共 13 条规则，每条独立可开关：
+`scripts/lint_wms_rules.py` 共 14 条规则，每条独立可开关：
 
 | 编号 | 规则 | 防的 BUG | 扫描范围 |
 |---|---|---|---|
@@ -166,6 +166,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A11** | **新增** 禁止裸用 `material.stock`（总账）做**库存校验**，必须用仓库级口径 | 多仓库口径串仓 / 同根因反复 BUG | `app/**/*.py`（除 `app/utils.py`，仅看 git staged 新增行） |
 | **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 | `tests/*.py`（跳过三引号字符串块；行尾 `# allow-ctx-push` 可豁免） |
 | **A13** | `WMS_BUG_BASELINE.md` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 / "改了没重启"反复 | `WMS_BUG_BASELINE.md`（仅看 git staged 新增行中的条目头；编辑存量条目不触发） |
+| **A14** | `scripts/` 下**新增** app 引用的脚本必须显式放行生产硬门禁（`WMS_ALLOW_INSECURE_COOKIE=1` 等）（R6 机械化） | 生产硬门禁引入后漏排查消费点 → CI 变红（BUG-2026-09-20-004） | `scripts/*.py`（仅看 git staged 新增行中的 app 引用；切 testing / 不导入 app / 行尾 `# allow-no-optin` 放行） |
 
 ### 6.1 白名单与例外
 
