@@ -2287,6 +2287,188 @@ def register_native_api_routes(app):
             'total_pages': total_pages,
         })
 
+    @app.route('/api/mobile/report/in_out_detail')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_report_in_out_detail():
+        """移动端出入库明细（AI-MOB-RPT-F01 缺口项）：按仓库查看指定日期范围内的
+        出入库流水明细，只读、无任何写操作。
+
+        口径：
+        - 仓库必填（resolve_request_warehouse，缺省回退默认仓；AGENTS.md §二）；
+        - 仓库隔离严格走 _warehouse_scoped_txn_condition + _filter_txn_list_by_warehouse_scope
+          （与库存台账 _collect_ledger_rows 同源，R2 防串仓）；
+        - 汇总（summary）基于过滤后全集、与分页解耦（R1）；分页元数据完整返回
+          （total / page / page_size / total_pages）；
+        - 历史空 location 流水经来源单据仓库归属过滤，绝不误归/漏归（BUG-2026-08-27-003/004）；
+        - 默认日期范围为今天（start_date=end_date=today），支持 yyyy-MM-dd 自定义范围；
+        - direction=in（quantity>0）/ out（quantity<0）/ all（不限）方向过滤；
+        - keyword 按物料编码/名称/规格模糊匹配；sort 支持 time_desc/time_asc/code_asc/code_desc。
+        该端点为只读 GET，R5 边界天然满足（仅查询，不建单、不扣库存）。
+        """
+        from datetime import date as _date, datetime as _dt
+        from sqlalchemy.orm import joinedload
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
+                         StockTransaction, Material, api_json_error, api_json_success,
+                         round_to_2_decimals, resolve_request_warehouse,
+                         _warehouse_scoped_txn_condition, _filter_txn_list_by_warehouse_scope,
+                         _material_filter_clause, _report_check_row_limit,
+                         LEDGER_ROW_LIMIT, REFERENCE_TYPE_LABELS)
+
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+
+        # 日期范围（默认今天；非法格式 / 范围倒置 / 未来日期 → 400）
+        today = _date.today()
+        start_str = (request.args.get('start_date') or '').strip()
+        end_str = (request.args.get('end_date') or '').strip()
+        start_date = today
+        end_date = today
+        if start_str:
+            try:
+                start_date = _dt.strptime(start_str, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('start_date 格式须为 yyyy-MM-dd', 400)
+        if end_str:
+            try:
+                end_date = _dt.strptime(end_str, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('end_date 格式须为 yyyy-MM-dd', 400)
+        if start_date > end_date:
+            return api_json_error('start_date 不能晚于 end_date', 400)
+        if end_date > today:
+            return api_json_error('end_date 不能晚于今天', 400)
+
+        # direction 方向过滤：in=入库(quantity>0) / out=出库(quantity<0) / all=不限
+        direction = (request.args.get('direction') or 'all').strip().lower()
+        if direction not in ('in', 'out', 'all'):
+            return api_json_error('direction 只支持 in / out / all', 400)
+
+        keyword = (request.args.get('keyword') or request.args.get('kw') or '').strip()
+        sort = (request.args.get('sort') or 'time_desc').strip()
+        if sort not in ('time_desc', 'time_asc', 'code_asc', 'code_desc'):
+            return api_json_error(
+                'sort 只支持 time_desc / time_asc / code_asc / code_desc', 400)
+
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        # —— 仓库隔离（R2，与库存台账 _collect_ledger_rows 同源）——
+        filters = {'warehouse': warehouse.name or '',
+                   'warehouse_id': warehouse.id,
+                   'warehouse_code': warehouse.code or ''}
+        loc_names, wh_condition, wid = _warehouse_scoped_txn_condition(filters)
+
+        query = StockTransaction.query.options(
+            joinedload(StockTransaction.material),
+            joinedload(StockTransaction.operator),
+        )
+        if wh_condition is not None:
+            query = query.filter(wh_condition)
+
+        # 日期范围：[start_date 00:00, end_date 23:59:59]
+        start_dt = _dt.combine(start_date, _dt.min.time())
+        end_dt = _dt.combine(end_date, _dt.max.time())
+        query = query.filter(
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt,
+        )
+
+        # 方向过滤（基于带符号 quantity，与 transaction_type 无关，避免类型枚举漂移）
+        if direction == 'in':
+            query = query.filter(StockTransaction.quantity > 0)
+        elif direction == 'out':
+            query = query.filter(StockTransaction.quantity < 0)
+
+        # 物料模糊匹配与编码排序都需 join Material——仅在需要时 join 一次，避免重复 join
+        need_material_join = bool(keyword) or sort in ('code_asc', 'code_desc')
+        if need_material_join:
+            query = query.join(StockTransaction.material)
+        if keyword:
+            m_clause = _material_filter_clause(keyword)
+            if m_clause is not None:
+                query = query.filter(m_clause)
+
+        if sort == 'code_asc':
+            query = query.order_by(Material.code.asc(), StockTransaction.created_at.desc(),
+                                   StockTransaction.id.desc())
+        elif sort == 'code_desc':
+            query = query.order_by(Material.code.desc(), StockTransaction.created_at.desc(),
+                                   StockTransaction.id.desc())
+        elif sort == 'time_asc':
+            query = query.order_by(StockTransaction.created_at.asc(), StockTransaction.id.asc())
+        else:  # time_desc
+            query = query.order_by(StockTransaction.created_at.desc(), StockTransaction.id.desc())
+
+        # 取全集（受 LEDGER_ROW_LIMIT 保护，与台账一致），再做 Python 侧仓库归属过滤
+        transactions = _report_check_row_limit(query, LEDGER_ROW_LIMIT, '出入库明细').all()
+        transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names, wid)
+
+        # 汇总（基于全集，与分页解耦，R1）
+        total_in = 0.0
+        total_out = 0.0
+        for t in transactions:
+            q = float(t.quantity or 0)
+            if q > 0:
+                total_in += q
+            elif q < 0:
+                total_out += abs(q)
+        total = len(transactions)
+
+        # 分页（Python 切片，全集已加载；页码/页大小按 R1 规范钳制）
+        page = max(1, page or 1)
+        page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT),
+                        MOBILE_API_PAGE_SIZE_MAX)
+        page_rows = transactions[(page - 1) * page_size: page * page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
+
+        items = []
+        for t in page_rows:
+            m = t.material
+            q = float(t.quantity or 0)
+            items.append({
+                'id': t.id,
+                'created_at': (t.created_at.strftime('%Y-%m-%d %H:%M:%S')
+                               if t.created_at else ''),
+                'material_id': m.id if m else None,
+                'material_code': m.code if m else '',
+                'material_name': m.name if m else '',
+                'spec': m.spec or '' if m else '',
+                'unit': m.unit.name if (m and m.unit) else '',
+                'transaction_type': t.transaction_type or '',
+                'transaction_type_label': REFERENCE_TYPE_LABELS.get(
+                    t.transaction_type, t.transaction_type or '库存流水'),
+                'reference_type': t.reference_type or '',
+                'reference_id': t.reference_id,
+                'quantity': round_to_2_decimals(q),
+                'direction': 'in' if q > 0 else ('out' if q < 0 else 'zero'),
+                'operator': t.operator.username if t.operator else '',
+                'location': t.location or '',
+                'remark': t.remark or '',
+            })
+
+        return api_json_success({
+            'warehouse': {
+                'id': warehouse.id,
+                'name': warehouse.name or '',
+                'code': warehouse.code or '',
+            },
+            'start_date': start_date.isoformat(),
+            'end_date': end_date.isoformat(),
+            'direction': direction,
+            'summary': {
+                'total_count': total,
+                'total_in_quantity': round_to_2_decimals(total_in),
+                'total_out_quantity': round_to_2_decimals(total_out),
+            },
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+        })
+
     @app.route('/api/mobile/profile')
     @csrf.exempt
     @web_or_api_required
