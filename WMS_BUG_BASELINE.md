@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-19（持续滚动更新；累计 406 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 82 条，最新 BUG-2026-09-19-004；另含新增能力条目 WECOM-BOT-001 等）
+更新时间：2026-09-20（持续滚动更新；累计 407 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 83 条，最新 BUG-2026-09-20-001；另含新增能力条目 WECOM-BOT-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -295,6 +295,14 @@
 - **修复**：①新增 `app.hash_access_token()`（`"sha256:<hex>"` 前缀）与 `is_hashed_access_token()`；②签发/重置一律存哈希，明文仅在响应中一次性返显（`/api/login`、工作站新增、重置令牌）；③两处校验先按哈希查、未命中按明文兜底——命中存量明文行**原位升级为哈希**（平滑迁移，移动端 App 与已部署打印代理零变更）；④回显收口——`/print_routing` 令牌框哈希行显示「已安全存储，不可回显」并隐藏复制按钮、`download_agent` 哈希行预填重置指引占位符、`/admin/mobile_tokens` 哈希行显示「哈希存储」；⑤内置 LOCAL-SERVER 工作站（`local_print_agent.py`，app 初始化早期执行、不能反向 import，就地计算同款哈希）同步改哈希存储。
 - **回归**：新增 `tests/test_bug_2026_09_19_004_token_hash_storage.py` 6 项（登录返显明文+库内哈希、哈希 Bearer 鉴权、明文 ApiToken/工作站令牌鉴权通过且原位升级、新增/重置一次性返显+旧令牌失效）；同步适配既有断言——`test_print_routing_admin.py`（新增工作站库内为哈希、download_agent 哈希行占位符+存量明文行仍可预填）、`verify_bug_2026_08_13_005`（`_make_token` 改哈希稳态，写放大断言不失真）；相关 10 个套件 172 项全绿；`lint_wms_rules --staged` 0 违规。
 - **生效条件**：改动拉取后**重启 WMS 服务生效**。存量明文令牌行随首次使用自动升级为哈希，未使用的明文行最迟 7 天（令牌有效期）自然过期失效；工作站令牌需要明文时在 `/print_routing` 页面「重置令牌」一次性获取。
+
+### BUG-2026-09-20-001（2026-09-20，修复→生效无确认回路：启动日志看不到版本/配置/迁移状态——R3 反复模式机械化落地）
+
+- **发现方式**：计划 P0-3。AGENTS.md 与台账反复出现「改了没重启/没装新包」（R3、R4 共 23+ 条），修复与生效之间没有确认回路；启动日志无版本与配置自检，现场无法核对"跑的是哪份代码、什么配置"。
+- **根因（代码实证）**：`run_server.py` 启动只打印 URL/端口，无版本号（仓库连 `version.py` 都没有）、无配置项状态、无迁移结果；`SESSION_COOKIE_SECURE=False` 这类关键风险此前只在 warning 里一笔带过。
+- **修复**：①新增 `app/version.py`（日期基 semver `2026.09.1`）与 `app/startup_check.py`——`build_config_check_line()` 输出 `wms vX.Y.Z (<git短SHA>) config-check: env=…; session_cookie=…; csrf=…; secret_key=…; db=…; migrate=pending-init`（git SHA 直接读 `.git/HEAD`+refs 解析，不调 git 命令适配 PATH 受限环境；**只报配置状态不报敏感值本体**）；②`build_db_check_line()` 在 `initialize_database` 后检查迁移哨兵（api_token 表、print_workstation.auth_token、opening_stock.location、location_inventory.warehouse_id——均选自 R3 反复迁移点），缺失报 `missing:` 不阻断启动；③`run_server.main()` 启动日志第一行落 config-check、初始化后落 db-check，控制台 banner 同步打印两行。
+- **回归**：新增 `tests/test_bug_2026_09_20_001_startup_self_check.py` 8 项（行格式/三种 cookie 状态/敏感值不落行/git SHA 解析/哨兵 ok 与 missing/接线顺序静态断言）；`test_r6_startup_migration_column_guard`+`test_auto_migrate_db_path` 8 项回归绿；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动拉取后**重启 WMS 服务生效**；生效确认方式——启动日志/控制台第一行出现 `wms v2026.09.1 (…) config-check:` 即为本改动在跑。
 
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 

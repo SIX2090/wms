@@ -145,6 +145,11 @@ def _run_startup_auto_update():
 def main():
     _configure_console_logging()
 
+    # P0-3 / R3 生效闭环：启动日志第一行输出 版本+关键配置 自检结果，
+    # 让"改了什么、以什么配置跑"在日志里可核对（防"改了没重启"扯皮）。
+    from startup_check import log_startup_self_check
+    config_check_line = log_startup_self_check(app)
+
     # AI-DEPLOY-F01: 启动前自动从 GitHub 更新代码和依赖（失败不阻断启动）
     _run_startup_auto_update()
 
@@ -157,13 +162,6 @@ def main():
     # WMS_THREADS 可显式覆盖；SQLite 写仍由 BEGIN IMMEDIATE 串行化。
     threads = _resolve_waitress_threads(os.environ)
 
-    print("=" * 60, flush=True)
-    print("WMS server starting", flush=True)
-    print(f"URL: http://127.0.0.1:{port}", flush=True)
-    print(f"Bind: http://{host}:{port}", flush=True)
-    print("Press Ctrl+C to stop", flush=True)
-    print("=" * 60, flush=True)
-
     # Initialize schema and bootstrap admin during explicit server startup only.
     try:
         with app.app_context():
@@ -173,6 +171,18 @@ def main():
     except Exception:
         app.logger.exception("Database initialization failed")
         raise
+
+    # P0-3：迁移哨兵自检（initialize_database 之后），缺失列/表一眼可见。
+    db_check_line = log_startup_self_check(app, db=db, include_db=True)
+
+    print("=" * 60, flush=True)
+    print("WMS server starting", flush=True)
+    print(config_check_line, flush=True)
+    print(db_check_line, flush=True)
+    print(f"URL: http://127.0.0.1:{port}", flush=True)
+    print(f"Bind: http://{host}:{port}", flush=True)
+    print("Press Ctrl+C to stop", flush=True)
+    print("=" * 60, flush=True)
 
     # SERVER-AUTOPRINT-01：内置本机打印代理（无人值守自动打印）。
     # 随服务进程常驻：自动心跳/认领定向到本机的打印任务并 kiosk 静默出纸，
