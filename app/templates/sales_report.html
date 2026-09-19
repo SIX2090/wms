@@ -69,7 +69,7 @@
     </div>
   </form>
 
-  {% if drill_material_code and drill_items %}
+  {% if drill_material_code %}
   <div class="card mb-3">
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>物料钻取明细：{{ drill_material_name }}（{{ drill_material_code }}）</span>
@@ -97,6 +97,10 @@
             <td class="text-end">{{ '%.2f'|format(it.untaxed_amount) }}</td>
             <td class="text-end">{{ '%.2f'|format(it.tax_amount) }}</td>
             <td class="text-end">{{ '%.2f'|format(it.tax_included_amount) }}</td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="11" class="text-center text-muted py-4">该筛选条件下没有此物料的销售明细</td>
           </tr>
           {% endfor %}
         </tbody>
