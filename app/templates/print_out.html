@@ -82,6 +82,10 @@
                 <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
                 <td class="text-left">{{ item.remark or '' }}</td>
             </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" class="text-center">无明细行</td>
+            </tr>
             {% endfor %}
         </tbody>
         <tfoot>
