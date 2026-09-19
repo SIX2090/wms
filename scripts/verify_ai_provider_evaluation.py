@@ -308,6 +308,9 @@ def test_log_sanitization() -> None:
         os_env.setdefault('WMS_SKIP_STARTUP_DB_UPGRADE', '1')
         os_env.setdefault('WMS_DATABASE_URI', 'sqlite:///:memory:')
         os_env.setdefault('SECRET_KEY', 'verify-r05')
+        # BUG-2026-09-20-004：本段以默认 FLASK_ENV=production 导入 app，
+        # 须显式放行不安全会话 Cookie，否则生产硬门禁拒绝导入并被 except 静默吞掉（假绿）。
+        os_env.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')
         # 仅验证 import 链路，不重复创建 app（避免 DB 副作用）
         from app import app  # noqa: F401
         from ai.security import SafeLogFilter as _SLF

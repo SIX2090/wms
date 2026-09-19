@@ -43,6 +43,8 @@ def start_server():
       WMS_ALLOW_AUTO_SECRET_KEY=1   CI 无 SECRET_KEY 时允许自动生成
       WMS_SKIP_AUTO_UPDATE=1        跳过启动前 GitHub 更新
       WMS_BOOTSTRAP_PASSWORD=admin  admin 初始密码
+      WMS_ALLOW_INSECURE_COOKIE=1   CI 受信环境显式放行 HTTP 会话 Cookie
+                                    （否则 BUG-2026-09-19-003 硬门禁拒绝启动）
       WMS_PORT=18080                监听端口（run_server.py 已支持）
       WMS_HOST=127.0.0.1            监听 host
     """
@@ -51,6 +53,9 @@ def start_server():
     env["WMS_ALLOW_AUTO_SECRET_KEY"] = "1"
     env["WMS_SKIP_AUTO_UPDATE"] = "1"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
+    # BUG-2026-09-20-004：CI 走 HTTP + 临时测试库，属受信环境。
+    # 生产 Cookie 硬门禁（BUG-2026-09-19-003）要求显式 opt-in，否则服务拒启。
+    env["WMS_ALLOW_INSECURE_COOKIE"] = "1"
     env["WMS_PORT"] = str(PORT)
     env["WMS_HOST"] = HOST
     # 确保 PYTHONPATH 包含 app 目录（与 start_wms_offline.bat 一致）

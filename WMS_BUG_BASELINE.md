@@ -321,6 +321,27 @@
 - **生效条件**：模板改动拉取后**重启 WMS 服务生效**（R3）。
 - **生效确认**：待确认——重启后打开委外发料/收货新增弹窗，应见「仓库 *」下拉且默认仓已选中，切换委外加工单时仓库自动跟随父单。
 
+### BUG-2026-09-20-004（2026-09-20，BUG-2026-09-19-003 回归：Cookie 硬门禁漏排查 CI/验证脚本消费点，main 两工作流变红）
+
+- **发现方式**：用户核对 GitHub Actions 看板，指出 `WMS CI` #1096–#1100 连续 5 个提交全红，AGENTS.md §三「CI 全绿门禁」被持续违反（门禁要求任一非绿即不得提交新 atomic action）。
+- **根因（代码实证，R6 同根因未排查所有消费点）**：BUG-2026-09-19-003 引入 `validate_production_security_config` 生产硬门禁后，只给 `tests/conftest.py` 补了 `WMS_ALLOW_INSECURE_COOKIE=1`，**漏排查所有「以 production 启动服务 / 导入 app」的非 pytest 消费点**：
+  1. `scripts/run_smoke_in_ci.py:50` 显式 `FLASK_ENV=production` 且无 opt-in → `app/run_server.py` 导入期 `raise RuntimeError` 服务拒启 → CI 冒烟 30s 超时全废（`WMS CI` 红）。
+  2. `scripts/verify_ai_business_quality_dashboard.py` 测试 1/2 `from app import app` 无 opt-in → 8 项挂 2 项（`WMS AI Verification` 红）。
+  3. 同模板隐患（当前未爆）：`verify_ai_purchase_workbench_page.py`、`verify_ai_warehouse_workbench_page.py` 同缺 opt-in；`verify_ai_provider_evaluation.py` 该段被 `except Exception` 吞掉后静默打印「跳过」，属假绿。
+- **修复**：①`scripts/run_smoke_in_ci.py` 启动 env 增加 `WMS_ALLOW_INSECURE_COOKIE=1`（与 conftest 同口径，CI 走 HTTP + 测试库，属受信环境显式放行）；②`verify_ai_business_quality_dashboard.py` / `verify_ai_purchase_workbench_page.py` / `verify_ai_warehouse_workbench_page.py` 三处 env 预设段补 `WMS_ALLOW_INSECURE_COOKIE=1`；③`verify_ai_provider_evaluation.py` 测试 5 的 `os_env.setdefault` 段补同项（消除被吞异常掩盖的假绿）；④新增回归测试锁定「CI 脚本必须显式 opt-in」这一契约，防止再次漏排查。
+- **回归**：新增 `tests/test_bug_2026_09_20_004_ci_cookie_optin.py`（覆盖 smoke 脚本 env 注入、4 个 verify 脚本的 opt-in 预设、缺省则门禁复现）；本地以 `FLASK_ENV=production` 实跑 `run_smoke_in_ci.py` 前 2 阶段确认服务可启动；`lint_wms_rules --staged` 0 违规。
+- **生效条件**：改动 push 到 `main` 后由 GitHub Actions 自动生效（无需重启生产服务；CI 环境为独立容器）。**注意**：本修复不改变生产行为，生产部署仍须按 BUG-2026-09-19-003 二选一配置。
+- **生效确认**：待确认——push 后跑 `python scripts/check_ci_green.py`，`WMS CI` 与 `WMS AI Verification` 两个工作流在最新 `main` 运行上应为 `success`（退出码 0），即本改动在 CI 侧生效。
+
+### BUG-2026-09-20-005（2026-09-20，启动回填在空库/未建表时报 `no such table: warehouse`：ERROR 噪音刷屏）
+
+- **发现方式**：排查 BUG-2026-09-20-004 时在 CI 日志（`WMS AI Verification` #1395）中发现，每跑一个 verify 脚本都刷一组完整 traceback，虽不阻断但与真实故障混在一起，削弱日志可读性。
+- **根因（代码实证）**：`app/app.py:27115` `backfill_stock_txn_warehouse_id()` 在 `initialize_database()` 建表**之前**的导入期执行 `Warehouse.query.all()`；CI/空库场景下表尚未创建，SQLAlchemy 抛 `sqlite3.OperationalError: no such table: warehouse`，被 `except` 捕获后记 ERROR「下次启动重试」。
+- **修复**：待定——本条目**仅登记不修复**（不是回归、不阻断 CI，当前不占用 atomic action 额度）。拟方案：在回填前做一次表存在性探测（`sqlalchemy.inspect(engine).has_table('warehouse')`），未建表时降级为 `logger.info` 静默跳过而非 ERROR 刷 traceback。
+- **回归**：暂无（登记态）。
+- **生效条件**：尚未修改代码，无生效条件。
+- **生效确认**：待确认——修复后 CI 日志中不应再出现 `no such table: warehouse` 的 ERROR traceback；届时需重跑 `verify_ai_all.py --level core` 核对。
+
 ### WECOM-BOT-001（2026-09-14，新增能力：微信分享接入「企业微信群机器人」通道，非重复BUG）
 
 - **背景**：本机助手 UI 自动化存在「微信窗口必须常开 + 不能切窗口」的**结构性**限制（BUG-2026-09-14-034 已修系统代理劫持回环，但窗口/焦点前提无法靠加固消除）。方案评估：无企业微信时第三方推送服务（WxPusher/PushPlus）均**只能发链接且需上传第三方图床**（隐私 + 有效期问题），故采用**免费企业微信群机器人 webhook**——唯一能同时满足「原生图 + 不开窗口 + 图片不出内网」的通道。

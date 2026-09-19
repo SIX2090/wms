@@ -25,6 +25,9 @@ from pathlib import Path
 # 设置测试环境变量
 os.environ.setdefault('SECRET_KEY', 'test-secret-key-for-verification')
 os.environ.setdefault('WMS_ALLOW_AUTO_SECRET_KEY', '1')
+# BUG-2026-09-20-004：本脚本以默认 FLASK_ENV=production 导入 app，走 HTTP 测试客户端，
+# 须显式放行不安全会话 Cookie，否则生产硬门禁（BUG-2026-09-19-003）拒绝导入。
+os.environ.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')
 
 
 ROOT = Path(__file__).resolve().parents[1]
