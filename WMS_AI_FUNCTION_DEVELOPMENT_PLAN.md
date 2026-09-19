@@ -2885,3 +2885,38 @@ BUG-2026-09-20-007 把确定性缺陷误判成顺序污染；本次把已有空�
 
 **真·遗留**：`batch_import.html`、`document_ocr.html` —— 列表由 JS 渲染，需改 JS 而非 Jinja，不在本批。
 
+
+### UI-EMPTY-STATE-2026-09-20-B3：JS 渲染列表空态 2 处（完善计划 P1-3 收口，2026-09-20 立项）
+
+**背景**：P1-3 前两批都用 Jinja 空态解决，剩余 2 处列表是 **JS 拼 HTML** 渲染的
+（`batch_import.html` 的预检结果表、`document_ocr.html` 的识别结果表），加不了 `{% else %}`，
+只能在 JS 分支里补。这是 P1-3 的收口批次。
+
+**改动**（2 处，仅模板内 JS，不动接口与业务逻辑）：
+| 文件 | 处理 |
+| --- | --- |
+| `batch_import.html` | `renderOpeningStockPreview()` 里 `rows.forEach` 之前加 `if (!rows.length)`，向 `tbl` 拼一行 colspan=7 空态「预检结果为空：文件里没有解析到任何数据行」。刻意**不重排 forEach 缩进**，最小侵入。 |
+| `document_ocr.html` | `renderResult()` 给 `if (res.items && res.items.length > 0)` 补 `else if (res.items)` 分支，输出 alert「未识别到物料明细行，请检查图片清晰度，或改用手工录入。」 |
+
+**设计取舍（可复用）**：
+- `document_ocr` 用 `else if (res.items)` 而**不是**独立的 `if (!res.items.length)`：
+  `res.items` 为 undefined（错误/异常响应）时后者会误报「未识别到物料明细行」，掩盖真实错误。
+  已用回归锁 T2 钉死「必须是同一 if 的 else」。
+- `batch_import` 原本 rows 为空时除裸表头外还有一句 foot「没有可导入的行」，但表体仍是空白，
+  正是 P1-3 要治的症状；故补表体空态，foot 保留。
+
+**回归锁**：`tests/test_p1_3_js_list_empty_state.py` 12 项。
+pytest 里没有 JS 引擎，**锁结构与口径而非运行时渲染**：
+守卫存在 / 空态行确实拼进表格体变量 `tbl`（不是别处 alert）/ **colspan == 同一段 JS 里 thead 实测的 `<th>` 数** /
+文案在分支内 / 原有「整份结果为空」兜底未被顶掉 / 文案必须在模板源码里。
+刻意不断言实现细节（不关心用 if 还是三元），只锁「空集合必须有可见空态」这个契约。
+
+**验证**：新测试 12 passed；`test_lint_wms_rules_a14_golden.py` 带 PATH 单独跑 6 passed
+（不带 PATH 时 setup 抛 `FileNotFoundError`——本机 PATH 缺 git 的老问题，与本次改动无关，不要误判为回归）；
+受影响既有测试 277 项除上述 3 个环境 error 外无 F；lint 0 违规。
+
+**生效条件（R3）**：模板改动，**必须重启 WMS 服务**才生效；JS 在浏览器端执行，无需重新出包 APK。
+
+**P1-3 状态：全仓清零**（第 1 批 3 + 第 2 批 7 + 第 3 批 2 = 12 处）。
+下一批候选：P1-2 新建表单 required、P0-1/P0-2。
+
