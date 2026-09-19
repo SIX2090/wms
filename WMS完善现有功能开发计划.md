@@ -71,11 +71,35 @@
 
 - **验收**：每个表单本地保存时仓库非空即阻塞；双仓环境下委外发料/收料不再依赖默认仓兜底。
 
-### P1-2 新建类大表单本地必填（实测 `required=0` 页面）
+### P1-2 新建类大表单本地必填
 
-- **实测缺口**：`purchase_order_add.html`、`sales_order_add.html`、`sales_order_edit.html`、`after_sale_out_add.html` 全页 `required=0`，明细行 qty/price 裸 `<input>`，提交后靠 JS `alert()` 一次性报错。
-- **行动**：给物料、数量、单价行加 `required` + `min`，并在保存前一次性高亮所有缺失字段（不是一条一条 alert）。
-- **验收**：缺字段时表单一次指出全部遗漏项；不再靠 alert 单条弹窗。
+- **⚠️ 原描述有误（2026-09-20 源码核实）**：原文写「4 个页面全页 `required=0`，提交后靠 JS `alert()` 一次性报错」。
+  实测这四个页面**一个 `alert(` 都没有**；`sales_order_add.html` / `sales_order_edit.html` 早已具备
+  `save()` 包装 + `showValidation(messages)` 面板的「一次收集全部」机制，只是校验项只有 2 条。
+  真正缺的只有 `purchase_order_add.html` 与 `after_sale_out_add.html` 两个页面。
+- **另有一处反直觉**：这些页面的保存按钮都是 `type="button"`，表单**从不原生提交**，
+  所以模板上的 `required` 属性自己不会拦人——必须配套 JS 才会真的生效。
+  （`after_sale_out_add` 的仓库/库位早就是 `required`，旧 JS 却只校验仓库，库位的红色星号形同虚设。）
+- **行动**：表头补 `required`；明细行数量 `min` 由 `0` 改 `0.01`（单价仍允许 0，赠品场景）；
+  保存前一次收集全部问题 → 面板列出全部 → 一次性高亮（`wms-row-error` / `wms-cell-error`）；
+  表头校验直接读 `[required]`，杜绝「属性写了但 JS 不认」的假必填。
+- **验收**：缺字段时一次指出全部遗漏项，且点击条目可定位到出错字段；不再逐条提示。
+
+- **进度（2026-09-20 第 1 批）**：`purchase_order_add.html`（本地 `3948923` / 远端 `1cbd7d5`）
+  - 采购日期、供应商加 `required`；数量 `min` 0 → 0.01
+  - `submitForm` 由「逐条 showToast + return」改为一次收集全部错误
+  - 新增 `wms-validation-panel` 面板（沿用 `in_order_add.html` 的成熟契约）+ 一次性高亮
+  - 回归锁 `tests/test_p1_2_purchase_order_validation.py`（15 项）
+- **进度（2026-09-20 第 2 批）**：`after_sale_out_add.html`（本地 `2dc5fc4` / 远端 `f1f5ee9`）
+  - **关键修复**：旧实现把 `return` 写在明细行 `for` 循环**内部**，第 1 行数量为空就退出，
+    后面 29 行根本不检查；改为一次遍历同时产出明细与全部行级错误
+  - 日期、客户名称加 `required`；数量 `min` 0 → 0.01
+  - 表头校验直接读 `[required]` → 仓库/库位的红色星号从此真的拦得住
+    （库位仅在 `location_management_enabled` 开启时渲染，与后端 `BUG-2026-08-16-014` 口径一致）
+  - 回归锁 `tests/test_p1_2_after_sale_out_validation.py`（17 项）
+- **R3 生效注意**：改的是 Jinja 模板，Flask 非 debug 下模板缓存不会自动失效，**必须重启服务才看得到新校验**。
+- **未纳入**：`sales_order_add` / `sales_order_edit` 已具备「一次收集」框架，仅校验项偏少
+  （只校验客户 + 至少一条明细），留待后续按需扩充，不在本次 P1-2 范围。
 
 ### P1-3 空数据页面"只剩表头"（影响日常实用第 1 位）
 
