@@ -609,15 +609,6 @@ textarea.form-control {
                 <button type="button" class="btn btn-outline-success" onclick="showPasteModal()">
                     <i class="bi bi-clipboard"></i> 粘贴导入
                 </button>
-                <button type="button" class="btn btn-outline-info" onclick="showRecentMaterials()">
-                    <i class="bi bi-clock-history"></i> 最近使用
-                </button>
-                <button type="button" class="btn btn-outline-warning" onclick="saveAsTemplate()">
-                    <i class="bi bi-bookmark"></i> 存为模板
-                </button>
-                <select id="templateSelect" class="form-select" onchange="loadTemplate(this.value)">
-                    <option value="">选择模板...</option>
-                </select>
                 <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()" title="刷新物料列表">
                     <i class="bi bi-arrow-clockwise"></i> 刷新物料
                 </button>
@@ -949,7 +940,6 @@ function selectMaterial(row, code) {
     row.querySelector('.material-dropdown').style.display = 'none';
     activeDropdown = null;
     calcAmount(row);
-    recordRecentMaterial(code);
     row.querySelector('.material-qty').focus();
     row.querySelector('.material-qty').select();
 }
@@ -1715,9 +1705,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // ==================== 初始化模板下拉框 ====================
-    loadTemplateOptions();
-
     if (!{{ is_product_in|tojson }} && sourcePurchaseOrderId) {
         setTimeout(function() {
             showPurchaseOrderSelectModal();
@@ -1923,7 +1910,6 @@ function findEmptyRow() {
     return null;
 }
 
-// ==================== 最近使用物料 ====================
 // ==================== Purchase order selection ====================
 function formatPurchaseQty(value) {
     const qty = parseFloat(value);
@@ -2277,155 +2263,6 @@ function createInOrderFromPurchaseOrderSelection() {
     });
 }
 
-function showRecentMaterials() {
-    const recent = JSON.parse(localStorage.getItem('recentMaterials') || '[]');
-    if (recent.length === 0) {
-        alert('暂无最近使用记录');
-        return;
-    }
-
-    const modal = document.createElement('div');
-    modal.id = 'recentModal';
-    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
-
-    let html = `
-        <div style="background:white;border-radius:8px;padding:24px;width:700px;max-width:90%;max-height:80vh;display:flex;flex-direction:column;">
-            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">最近使用物料</h5>
-            <div style="flex:1;overflow-y:auto;">
-                <table class="table table-sm table-hover" style="font-size:13px;">
-                    <thead><tr><th>物料编码</th><th>物料名称</th><th>规格</th><th>单位</th><th>操作</th></tr></thead>
-                    <tbody>`;
-
-    recent.forEach(code => {
-        const m = materials.find(mat => mat.code === code);
-        if (m) {
-            html += `<tr>
-                <td>${escapeHtml(m.code)}</td>
-                <td>${escapeHtml(m.name)}</td>
-                <td>${escapeHtml(m.spec || '')}</td>
-                <td>${escapeHtml(getMaterialUnit(m))}</td>
-                <td><button type="button" class="btn btn-sm btn-primary recent-material-add" data-code="${escapeAttr(m.code)}">添加</button></td>
-            </tr>`;
-        }
-    });
-
-    html += `</tbody></table></div>
-            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
-                <button type="button" class="btn btn-secondary" onclick="document.getElementById('recentModal').remove()">关闭</button>
-            </div>
-        </div>`;
-
-    modal.innerHTML = html;
-    document.body.appendChild(modal);
-    modal.querySelectorAll('.recent-material-add').forEach(button => {
-        button.addEventListener('click', function() {
-            addMaterialByCode(this.dataset.code);
-            document.getElementById('recentModal').remove();
-        });
-    });
-}
-
-function addMaterialByCode(code) {
-    const material = materials.find(m => m.code === code);
-    if (!material) return;
-
-    let row = findEmptyRow();
-    if (!row) {
-        addNewRow();
-        row = document.querySelector('#materialTableBody tr:last-child');
-    }
-
-    fillMaterialFields(row, material, { forcePrice: true });
-    calcAmount(row);
-    calcTotal();
-}
-
-function recordRecentMaterial(code) {
-    let recent = JSON.parse(localStorage.getItem('recentMaterials') || '[]');
-    recent = recent.filter(c => c !== code);
-    recent.unshift(code);
-    if (recent.length > 10) recent = recent.slice(0, 10);
-    localStorage.setItem('recentMaterials', JSON.stringify(recent));
-}
-
-// ==================== 模板功能 ====================
-function saveAsTemplate() {
-    const name = prompt('请输入模板名称：');
-    if (!name || !name.trim()) return;
-
-    const rows = document.querySelectorAll('#materialTableBody tr');
-    const items = [];
-    rows.forEach(row => {
-        const code = row.querySelector('.material-code').value.trim();
-        if (code) {
-            items.push({
-                code: code,
-                qty: row.querySelector('.material-qty').value,
-                price: row.querySelector('.material-price').value,
-                is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked
-            });
-        }
-    });
-
-    if (items.length === 0) {
-        alert('单据为空，无法保存模板');
-        return;
-    }
-
-    let templates = JSON.parse(localStorage.getItem('inOrderTemplates') || '[]');
-    templates = templates.filter(t => t.name !== name);
-    templates.push({ name: name, items: items, createdAt: new Date().toISOString() });
-    localStorage.setItem('inOrderTemplates', JSON.stringify(templates));
-
-    loadTemplateOptions();
-    alert('模板保存成功');
-}
-
-function loadTemplateOptions() {
-    const select = document.getElementById('templateSelect');
-    if (!select) return;
-    const templates = JSON.parse(localStorage.getItem('inOrderTemplates') || '[]');
-    let html = '<option value="">选择模板...</option>';
-    templates.forEach(t => {
-        html += '<option value="' + escapeAttr(t.name) + '">' + escapeHtml(t.name) + ' (' + (t.items || []).length + '种物料)</option>';
-    });
-    select.innerHTML = html;
-}
-
-function loadTemplate(name) {
-    if (!name) return;
-    const templates = JSON.parse(localStorage.getItem('inOrderTemplates') || '[]');
-    const template = templates.find(t => t.name === name);
-    if (!template) return;
-
-    if (!confirm('加载模板将清空当前内容，是否继续？')) {
-        document.getElementById('templateSelect').value = '';
-        return;
-    }
-
-    // 清空现有行
-    const tbody = document.getElementById('materialTableBody');
-    tbody.innerHTML = '';
-
-    // 添加模板行
-    template.items.forEach(item => {
-        addNewRow();
-        const row = document.querySelector('#materialTableBody tr:last-child');
-        const material = materials.find(m => m.code === item.code);
-        if (material) {
-            fillMaterialFields(row, material, { forcePrice: true });
-            row.querySelector('.material-qty').value = item.qty ? parseFloat(item.qty).toFixed(2) : '0.00';
-            row.querySelector('.material-price').value = item.price ? parseFloat(item.price).toFixed(2) : (material.price || 0).toFixed(2);
-            const customerSupplied = row.querySelector('.line-customer-supplied');
-            if (customerSupplied) customerSupplied.checked = !!item.is_customer_supplied;
-            calcAmount(row);
-        }
-    });
-
-    calcTotal();
-    document.getElementById('templateSelect').value = '';
-}
-
 // ==================== 扫码自动填充 ====================
 function setupScanAutoFill() {
     document.addEventListener('keydown', function(e) {
@@ -2440,7 +2277,6 @@ function setupScanAutoFill() {
                     fillMaterialFields(row, material, { forcePrice: true });
                     calcAmount(row);
                     calcTotal();
-                    recordRecentMaterial(code);
 
                     // 自动跳到数量输入框
                     setTimeout(() => row.querySelector('.material-qty').focus(), 50);
