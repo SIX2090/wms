@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""P2-3 收敛：`app.services.warehouse_stock_service.apply_stock_delta` 单测。
+"""P2-3 收敛：`services.warehouse_stock_service.apply_stock_delta` 单测。
 
 服务层是库存三账（①总账+③流水+②库位账）写入唯一入口。本测试锁定：
 1. 入库（delta>0）：总账+流水+库位账三账同写；
@@ -32,7 +32,7 @@ from app import (  # noqa: E402
     LocationInventory, Material, MaterialCategory, StockTransaction,
     Supplier, Unit, Warehouse, db, set_system_setting,
 )
-from app.services.warehouse_stock_service import apply_stock_delta  # noqa: E402
+from services.warehouse_stock_service import apply_stock_delta  # noqa: E402
 
 WAREHOUSE_A = "A仓"
 WAREHOUSE_B = "B仓"

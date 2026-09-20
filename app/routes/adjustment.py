@@ -412,7 +412,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, _acquire_order_write_lock, api_error,
                          location_management_enabled, log_operation)
-        from app.services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'pending':
             return api_error('只有草稿状态的调整单可以完成')
@@ -493,7 +493,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, _acquire_order_write_lock, api_error,
                          log_operation)
-        from app.services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'completed':
             return api_error('只有已完成的调整单可以反提交')
