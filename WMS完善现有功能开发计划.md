@@ -88,6 +88,17 @@
   2. 给 `AGENTS.md` R3 补一条机械化防护：模板/路由改动后自动生成"重启 WMS 服务生效"的提示通过启动 banner 输出，并在 `WMS_BUG_BASELINE.md` 登记时强制填"生效确认人/时间"。
 - **验收**：启动日志第一行出现 `wms vX.Y.Z config-check: ...`；R3 类 BUG 登记必填生效确认字段。
 
+- **✅ 已完成（无需新开发，2026-09-20 源码核实）**：两项在计划编制次日已落地——
+  - **启动自检**（行动 1）= **BUG-2026-09-20-001**：新增 `app/version.py`（日期基 semver）与
+    `app/startup_check.py`——启动日志第一行落 `wms vX.Y.Z (<git短SHA>) config-check: env=…;
+    session_cookie=…; csrf=…; secret_key=…; db=…`（只报状态不报敏感值），`initialize_database`
+    后落 `db-check`（迁移哨兵缺失报 `missing:` 不阻断），控制台 banner 同步。
+  - **生效确认强制字段**（行动 2）= **BUG-2026-09-20-002**（A13 机械化）：`lint_wms_rules.py`
+    A13 规则——台账新增 BUG 条目必须含「生效确认」字段（允许「待确认」占位），pre-commit 拦截。
+  - **验证（2026-09-20）**：`test_bug_2026_09_20_001_startup_self_check.py` 8 项 +
+    `test_lint_wms_rules_a13_golden.py` 3 项全绿（后者需 PATH 含 git，fixture 起临时仓库）。
+  - **P0-3 状态：清零**（无新增代码，本登记为 docs 同步）。
+
 ---
 
 ## 3. P1 — 做好用：高频页面的交互完善
