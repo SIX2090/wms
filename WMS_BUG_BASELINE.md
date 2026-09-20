@@ -386,8 +386,12 @@
   `/subcontract/<id>/issue`（`routes/subcontract.py:292`）与本 API 是**两套实现**，
   网页版早已同步（BUG-2026-08-16-001），本次修的是漏掉的那套。
 - **生效条件**：路由逻辑改动，**需重启 WMS 服务生效**（R3）。
-- **生效确认**：**待确认**——修复已推送，待 CI 三工作流全绿后回填本字段
-  （判据工具 `scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②）。
+- **生效确认**：**已确认（2026-09-20 12:45）**——推送 `eafec63` 后
+  `python scripts/check_ci_green.py` rc=0：三工作流全绿且均指向本次提交
+  （`Android APK Build` #661、`WMS AI Verification` #1445、`WMS CI` #1150）。
+  其中 `WMS CI` 的 unit-tests job 跑全量 pytest，已含本次新增的 4 项回归锁。
+  判据：`scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②。
+  ⚠️ 生产侧仍需**重启 WMS 服务**后本修复才对用户可见（R3 同源）。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
