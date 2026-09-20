@@ -288,10 +288,21 @@
     推送后三工作流全绿（Android #661 / AI 验证 #1445 / WMS CI #1150）；回归锁
     `tests/test_bug_2026_09_20_008_subcontract_issue_location_sync.py` 4 项，
     回退验证已证锁有效（修复前第 1/4 项失败）。
-  - **剩余工作（待指派）**：收敛写入口为单一入口 `warehouse_stock_service.apply(deltas)`，
-    23 个调用点分批改道（每类单据 1 个 atomic action），每批改完用
-    `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；P0-1 遗留的
-    A11 全量硬门禁升级随本批一并评估落地。
+  - **进展（2026-09-20 批 1）**：单点入口已落地——`app/services/warehouse_stock_service.py::apply_stock_delta(material, delta, *, transaction_type, ...)`：
+    delta>0 → `add_stock`、delta<0 → `deduct_stock_atomic`、==0 不写账；开库位管理时
+    同步 `update_location_inventory(material, location or warehouse, delta)`。
+    **纯包装不重写**（BUG-2026-09-19-001 兜底、原子扣减、无记录报错全部保留）。
+    **adjustment 4 处首批改道**（complete adjustment_in/out + revert delta 取负对称），
+    本地 `787aea1`+导入布局修复 `187aff1` / 远端 `6528b3d8`+`6afb0093`
+    （修复：services 按顶级包导入，BUG-2026-09-06-003 生产布局 app 非包）；
+    服务层测试 `tests/test_warehouse_stock_service.py`
+    8 项 + adjustment 现有回归 12 项 + 库存口径相邻 23 项 + 导入布局 T1/T2/T3 全绿，
+    CI 实证 WMS CI #1159 / AI 验证 #1454 绿。
+  - **剩余工作（批 2–5）**：in_order（6）→ out_order + after_sale_out（5）→
+    subcontract（5）→ mobile + native_api + requisition + app.py（10），
+    每类单据 1 个 atomic action，每批改完用
+    `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；
+    收尾评估 lint 新规则禁止业务代码直调原语。
 
 ### P2-4 清理技术债信号（低风险）
 
