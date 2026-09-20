@@ -5010,6 +5010,7 @@ def get_warehouse_stock_quantities(warehouse):
         # 仓库，直接以全局 Material.stock 为准，避免历史 NULL-location 流水
         # 无法按 location 聚合导致"有库存查不出来"。
         if Warehouse.query.count() == 1:
+            # stock-truth:reason=单仓系统全局总账==唯一仓库库存（BUG-2026-08-17-00X 登记的兼容兜底，避免历史 NULL-location 流水漏算），非多仓掩护场景
             return {m.id: float(m.stock or 0) for m in Material.query.all()}
         # BUG-2026-08-18-003：历史数据 location 可能写的是仓库编号（如 WH001）
         # 而不是仓库名，需要同时匹配编号和名称。
@@ -9180,7 +9181,9 @@ def _ai_analysis_consumption_trend(keyword, days=30, warehouse=None):
     lines.append(f'- 总出库量：**{total:.1f}**')
     lines.append(f'- 日均消耗：**{avg:.1f}**')
     if avg > 0:
+        # stock-truth:reason=AI 消耗趋势分析文案（只读报表），总账口径估算可支撑天数，非扣减校验
         days_of_supply = material.stock / avg if avg > 0 else 999
+        # stock-truth:reason=AI 消耗趋势分析文案（只读报表），总账口径展示当前库存，非扣减校验
         lines.append(f'- 当前库存：**{material.stock:.1f}**，按当前消耗速率可支撑约 **{days_of_supply:.0f} 天**')
     # 简易趋势判断
     if len(rows) >= 7:
@@ -9705,6 +9708,7 @@ def _ai_stage4_days_of_supply_report(days=30, limit=12):
         if total_out <= 0:
             continue
         avg_daily = total_out / max(1, int(days or 30))
+        # stock-truth:reason=AI 预计可用天数报表（只读），总账口径计算，非扣减校验
         available_days = (material.stock or 0) / avg_daily if avg_daily > 0 else 999999
         rows.append((available_days, avg_daily, material))
     rows.sort(key=lambda row: row[0])
@@ -9715,6 +9719,7 @@ def _ai_stage4_days_of_supply_report(days=30, limit=12):
         unit_name = material.unit.name if material.unit else ''
         status = '紧急' if available_days <= 7 else ('关注' if available_days <= 30 else '正常')
         lines.append(
+            # stock-truth:reason=AI 预计可用天数报表（只读），总账口径展示当前库存，非扣减校验
             f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
             f'{normalize_stock_quantity(avg_daily)}{unit_name}/天 | {available_days:.1f} | {status} |'
         )
@@ -17539,6 +17544,7 @@ def _ai_material_master_issues(material):
         and (not material.max_stock or material.max_stock <= 0)
     ):
         issues.append(('缺库存预警规则', 2))
+    # stock-truth:reason=AI 主数据体检检测的正是总账本身的负库存数据质量问题，总账口径即正确口径
     if material.stock is not None and material.stock < 0:
         issues.append(('负库存', 5))
     return issues
@@ -29682,15 +29688,18 @@ def ai_inventory_health():
         daily_avg_90 = recent_out_90 / 90 if recent_out_90 > 0 else 0
         
         # 计算库存可用天数
+        # stock-truth:reason=库存健康度报表（只读），可支撑天数按总账口径计算，非扣减校验
         days_of_supply = material.stock / daily_avg_30 if daily_avg_30 > 0 else 999
         
         # 判断健康状态
         health_status = 'healthy'
         risk_level = 'low'
         
+        # stock-truth:reason=库存健康度报表（只读）：min_stock 是物料主数据上的全局预警阈值（无仓库维度），总账口径为正确口径
         if material.stock < material.min_stock:
             health_status = 'critical'
             risk_level = 'high'
+        # stock-truth:reason=库存健康度报表（只读）：reorder_point 是物料主数据上的全局预警阈值（无仓库维度），总账口径为正确口径
         elif material.stock < material.reorder_point:
             health_status = 'warning'
             risk_level = 'medium'
