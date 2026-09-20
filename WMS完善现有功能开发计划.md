@@ -257,6 +257,22 @@
 - **行动**：把根目录约 27 个一次性 `_audit_*.py / _verify_*.py / fix_*.bat` 归档到 `scripts/archive/` 或注明"`generated-留存`"，减少新进入的人的噪音；不删。
 - **验收**：根目录只剩 `AGENTS.md`、README、台账、规则、启动脚本等核心文件。
 
+- **✅ 已完成（2026-09-20，3 个 atomic action，本地提交待推送）**：
+  实测根目录一次性文件共 **31 个**（比计划估计的 27 多 4），按类别分 3 批 `git mv`
+  归档（100% rename 相似度，历史可溯，**只归档不删除**）：
+  - **A 批 `abe6c83`**：审计/E2E 9 个（`_audit_*`×3 + `_audit_state.pkl` + `_browser_test_wms`
+    + `_e2e_audit_*`×2 + `_wms_browser_e2e_*`×2）+ `scripts/archive/README.md`（归档说明）。
+  - **B 批 `abfcac4`**：验证/压测 11 个（`_verify_*`×7 + `_bench_*`×3 + `_check_import_validations`）。
+  - **C 批 `3b44684`**：演示/登录/报告/止血残留 10 个（`_demo_login` / `_full_demo`×2 /
+    `_trae_login` / `_challenge` / `_generate_report` / `_render_evidence` / `fix_*.bat`×2 /
+    `fix_picker_helper`）。
+  - **例外留根目录**：`fix_p15_columns.py`——`tests/test_fix_db_columns.py` 活引用其
+    `MIGRATIONS` 做"止血脚本与应用代码一致性"断言，属活依赖，已在 archive README 注明。
+  - **验证**：归档前全仓 grep 引用排查（`_generate_report` 的 tests 命中为同名函数误报、
+    `fix_inventory_check_columns` 的 tests 命中为 app/ 同名 .py，均非根目录文件）；
+    归档后 `tests/test_fix_db_columns.py` **17 passed**；pre-commit lint 0 违规。
+  - **P2-4 状态：清零**。
+
 ---
 
 ## 5. 执行节奏建议（不改台账架构，只提需求）
