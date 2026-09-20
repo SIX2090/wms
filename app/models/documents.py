@@ -231,6 +231,10 @@ class OutOrder(db.Model):
     purpose = db.Column(db.String(200))  # Outbound purpose
     picker = db.Column(db.String(50))  # Pick person (领料人)
     source_sales_order_id = db.Column(db.Integer, db.ForeignKey('sales_order.id'))  # 关联销售订单ID（外键，替代 purpose 字符串解析）
+    # P1-7 采购退货出库：来源采购入库单（business_type='采购退货出库' 时填写；
+    # 退给供应商的货归属原入库单，退货率可统计。存量单据历史归属留空不猜——INVENTORY_TRUTH §3）
+    source_in_order_id = db.Column(db.Integer, db.ForeignKey('in_order.id'))
+    source_in_order_no = db.Column(db.String(50))  # 冗余采购入库单号（原单变更后历史单据不变）
     remark = db.Column(db.String(200))  # Remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))  # 关联合同档案
     contract_no = db.Column(db.String(50))  # 冗余合同编号（改名/改号由 sync_contract_project_name 同步）
@@ -243,6 +247,7 @@ class OutOrder(db.Model):
     department = db.relationship('Department', backref='out_orders')  # Related department
     operator = db.relationship('User', backref='out_orders')  # Operator
     source_sales_order = db.relationship('SalesOrder', backref='outbound_orders', foreign_keys=[source_sales_order_id])  # 关联销售订单
+    source_in_order = db.relationship('InOrder', backref='purchase_return_out_orders', foreign_keys=[source_in_order_id])  # P1-7 来源采购入库单
     contract = db.relationship('Contract', backref='out_orders')  # 关联合同档案
 
 
@@ -252,6 +257,8 @@ class OutOrderItem(db.Model):
     out_order_id = db.Column(db.Integer, db.ForeignKey('out_order.id'), nullable=False)  # Outbound order ID
     material_id = db.Column(db.Integer, db.ForeignKey('material.id'), nullable=False)  # Material ID
     source_sales_order_item_id = db.Column(db.Integer, db.ForeignKey('sales_order_item.id'))  # 来源销售订单明细
+    # P1-7 采购退货出库：原采购入库行（退货限额 = 行 quantity − 已退量聚合）
+    source_in_order_item_id = db.Column(db.Integer, db.ForeignKey('in_order_item.id'))
     quantity = db.Column(db.Float, nullable=False)  # Quantity
     price = db.Column(db.Float, nullable=False)  # Unit price
     amount = db.Column(db.Float, nullable=False)  # Amount
@@ -263,6 +270,7 @@ class OutOrderItem(db.Model):
     out_order = db.relationship('OutOrder', backref='items')  # Related out order
     material = db.relationship('Material', backref='out_order_items')  # Related material
     source_sales_order_item = db.relationship('SalesOrderItem', backref='sales_out_order_items')
+    source_in_order_item = db.relationship('InOrderItem', backref='purchase_return_out_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
 
 

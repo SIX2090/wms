@@ -194,6 +194,31 @@ def fix_columns(db_path=None):
             logger.info('已添加 out_order.location')
         else:
             logger.info('out_order.location 已存在')
+        # P1-7 采购退货出库：来源采购入库单两列只加在 app.py auto_migrate_database() 里，
+        # start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 会整体跳过它，本兜底层同步补齐。
+        # ALTER 语句与 app/app.py auto_migrate_database() 逐字一致。
+        if 'source_in_order_id' not in out_cols:
+            conn.execute('ALTER TABLE out_order ADD COLUMN source_in_order_id INTEGER')
+            conn.commit()
+            logger.info('已添加 out_order.source_in_order_id')
+        else:
+            logger.info('out_order.source_in_order_id 已存在')
+        if 'source_in_order_no' not in out_cols:
+            conn.execute('ALTER TABLE out_order ADD COLUMN source_in_order_no VARCHAR(50)')
+            conn.commit()
+            logger.info('已添加 out_order.source_in_order_no')
+        else:
+            logger.info('out_order.source_in_order_no 已存在')
+
+    if _table_exists(conn, 'out_order_item'):
+        out_item_cols = [r[1] for r in conn.execute('PRAGMA table_info(out_order_item)').fetchall()]
+        # P1-7：退货行回指采购入库行，缺列会让采购退货出库明细无法落库
+        if 'source_in_order_item_id' not in out_item_cols:
+            conn.execute('ALTER TABLE out_order_item ADD COLUMN source_in_order_item_id INTEGER')
+            conn.commit()
+            logger.info('已添加 out_order_item.source_in_order_item_id')
+        else:
+            logger.info('out_order_item.source_in_order_item_id 已存在')
 
     # 修复 production_requisition 表
     pr_cols = [r[1] for r in conn.execute('PRAGMA table_info(production_requisition)').fetchall()]

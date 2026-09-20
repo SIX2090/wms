@@ -1197,6 +1197,32 @@ def auto_migrate_database():
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_in_order_item_source_sales_item ON in_order_item(source_sales_order_item_id)"
             )
+        # P1-7 采购退货出库：out_order 补来源采购入库单列（与 P1-5 销售退货入库同构）。
+        # SQLite ALTER 无法带外键约束（仅加列），新库由 db.Model 建表自带外键。
+        # 静态字面 ALTER：与 ensure_purchase_return_source_columns 的兜底逐字一致，
+        # 在 R6 守卫（tests/test_r6_startup_migration_column_guard.py）里互相抵消，
+        # 不进 KNOWN_GAP、不改 KNOWN_DYNAMIC_ALTERS。存量单据历史归属留空不猜——INVENTORY_TRUTH §3。
+        if _table_exists('out_order'):
+            cursor.execute("PRAGMA table_info(out_order)")
+            _out_order_cols_p17 = [row[1] for row in cursor.fetchall()]
+            if 'source_in_order_id' not in _out_order_cols_p17:
+                cursor.execute("ALTER TABLE out_order ADD COLUMN source_in_order_id INTEGER")
+                modified = True
+            if 'source_in_order_no' not in _out_order_cols_p17:
+                cursor.execute("ALTER TABLE out_order ADD COLUMN source_in_order_no VARCHAR(50)")
+                modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_out_order_source_in_order_id ON out_order(source_in_order_id)"
+            )
+        if _table_exists('out_order_item'):
+            cursor.execute("PRAGMA table_info(out_order_item)")
+            _out_order_item_cols_p17 = [row[1] for row in cursor.fetchall()]
+            if 'source_in_order_item_id' not in _out_order_item_cols_p17:
+                cursor.execute("ALTER TABLE out_order_item ADD COLUMN source_in_order_item_id INTEGER")
+                modified = True
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_out_order_item_source_in_item ON out_order_item(source_in_order_item_id)"
+            )
         # P0 批次/有效期捕获：入库明细行级批次号与有效期列。
         # 只加可空列，不动存量数据；与 ensure_in_order_item_batch_columns()
         # / fix_db_columns.py 的 ALTER 逐字一致（tests 断言防漂移）。
@@ -2375,6 +2401,95 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
                 pass
 
 
+def ensure_purchase_return_source_columns(db_path: str | None = None):
+    """启动期无条件补齐 P1-7 采购退货出库的来源采购入库单列（仿 ensure_sales_return_source_columns）。
+
+    背景：P1-7「采购退货出库」给 ``out_order`` 加了 source_in_order_id /
+    source_in_order_no、给 ``out_order_item`` 加了 source_in_order_item_id，
+    三列在 ``auto_migrate_database()`` 里 ADD。而
+    ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认设置
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 被
+    ``startup_db_upgrade_disabled()`` 整体跳过；兜底的
+    ``app/fix_db_columns.py`` 又只在 start_wms_offline.bat 里被调用
+    （start_wms_auto.bat 连它都不跑）。存量生产库重启后补不上，
+    出库单详情页/列表一访问这些列即 500
+    （sqlalchemy.exc.OperationalError: no such column: out_order.source_in_order_id）。
+
+    仿照 ``ensure_sales_return_source_columns``：独立 sqlite 连接、独立于
+    迁移开关**无条件执行**、幂等（PRAGMA table_info 判断列存在则不 ALTER），
+    列定义与 ``auto_migrate_database()`` 的 ALTER 逐字一致（SQLite ALTER 不
+    支持外键，仅加列；MySQL/PG 走 alembic 迁移）。本函数是存量库唯一自愈路径。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        _purchase_return_column_migrations = (
+            ('out_order', 'PRAGMA table_info(out_order)', (
+                ('source_in_order_id',
+                 'ALTER TABLE out_order ADD COLUMN source_in_order_id INTEGER'),
+                ('source_in_order_no',
+                 'ALTER TABLE out_order ADD COLUMN source_in_order_no VARCHAR(50)'),
+            )),
+            ('out_order_item', 'PRAGMA table_info(out_order_item)', (
+                ('source_in_order_item_id',
+                 'ALTER TABLE out_order_item ADD COLUMN source_in_order_item_id INTEGER'),
+            )),
+        )
+        added_cols = []
+        for _tbl, _pragma, _col_stmts in _purchase_return_column_migrations:
+            exists = cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                (_tbl,),
+            ).fetchone()
+            if not exists:
+                # 表不存在 → 全新库，交给 create_all 建表
+                continue
+            cur.execute(_pragma)
+            cols = {r['name'] for r in cur.fetchall()}
+            if not cols:
+                continue
+            for _col, _stmt in _col_stmts:
+                if _col in cols:
+                    continue
+                cur.execute(_stmt)
+                cols.add(_col)
+                added_cols.append(f'{_tbl}.{_col}')
+        if added_cols:
+            conn.commit()
+            logging.getLogger(__name__).info(
+                '[DB] 采购退货出库已补缺列（P1-7）: %s' % ', '.join(added_cols))
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_purchase_return_source_columns 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_in_order_item_batch_columns(db_path: str | None = None):
     """启动期无条件补齐 P0 入库明细批次/有效期列（仿 ensure_sales_return_source_columns）。
 
@@ -2897,6 +3012,12 @@ ensure_inventory_check_columns()
 # 与上面同理，独立于迁移开关无条件执行、幂等补列。这是存量库唯一自愈路径
 # （start_wms_auto.bat 根本不调用 fix_db_columns.py）。
 ensure_sales_return_source_columns()
+
+# P1-7 采购退货出库：out_order.source_in_order_id / source_in_order_no 与
+# out_order_item.source_in_order_item_id 同理——只在 auto_migrate_database 里 ADD，
+# WMS_NO_DB_TOUCH=1 的存量库重启补不上，访问出库单即 500。独立于迁移开关无条件
+# 执行、幂等补列（存量库唯一自愈路径，start_wms_auto.bat 不调用 fix_db_columns.py）。
+ensure_purchase_return_source_columns()
 
 # P0 批次/有效期捕获：in_order_item.batch_no / expiry_date 同理，
 # WMS_NO_DB_TOUCH=1 的存量库重启补不上，入库单详情页渲染 item.batch_no
