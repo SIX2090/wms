@@ -270,6 +270,23 @@
 - **行动**：把仓库级写入收口为**一个强制入口**（如 `warehouse_stock_service.apply(deltas)`），所有业务路径改道，A11 lint 全量生效。
 - **验收**：任何入库路径不再裸调 `add_stock`/`deduct_stock_atomic`；恒等式 ①=Σ②=Σ③ 现量、静态、增量三口径校验通过。
 
+- **进度（2026-09-20）：第 0 步「判据先行 + 全量侦察」已完成，账务改动待用户确认口径**
+  - **为什么先做判据**：恒等式 ①=Σ②=Σ③ 此前**没有任何工具能验证**，直接收敛 23 个写入点
+    无法判断改前/改后是否账实一致。故先交付校验器，再动手术。
+  - **判据（`1 个 atomic action`）**：`scripts/verify_inventory_identity.py`——纯函数可单测
+    + `--db` 扫真实库（只读零写）；两维度分开报（①vs② 硬失败 / ①vs③ 列待确认）；
+    `tests/test_inventory_identity_checker.py` **9 项全绿**；真实库冒烟：构造
+    stock=100 + 库位账 60 的分裂场景，校验器正确报 delta=40 ✅；A14 显式 opt-in。
+  - **全量侦察结论**：`add_stock`/`deduct_stock_atomic` 业务调用点 **29 → 排除函数定义与
+    旧包装 `deduct_stock()` 后 23 个**，分布 9 个文件（app.py 5 / in_order 6 / subcontract 5 /
+    out_order 3 / adjustment 4 / after_sale_out 2 / mobile 2 / requisition 1 / native_api 1）。
+    **22 处已按「两层同时写」正确双写，仅 1 处真缺口**——委外发料 `app/app.py:7218`
+    只扣总账不扣库位账，已登记 **BUG-2026-09-20-008**。
+  - **下一步（待用户拍板）**：① 修 BUG-2026-09-20-008（需确认库位键回退口径，
+    拟沿用 `adjustment.py` 定式回退 `issue.warehouse`）；② 再收敛写入口为单一入口
+    `warehouse_stock_service.apply(deltas)`，23 个调用点分批改道（每类单据 1 个
+    atomic action），每批改完用校验器复跑 + 双仓回归。
+
 ### P2-4 清理技术债信号（低风险）
 
 - **行动**：把根目录约 27 个一次性 `_audit_*.py / _verify_*.py / fix_*.bat` 归档到 `scripts/archive/` 或注明"`generated-留存`"，减少新进入的人的噪音；不删。

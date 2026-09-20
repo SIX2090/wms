@@ -359,6 +359,18 @@
 - **生效确认**：**已确认（2026-09-20 04:50）**——`test_opening_stock_migration.py` 单独跑 **11 passed**（修复前 10 failed）；新增回归锁 **5 passed**；`lint_wms_rules --staged` 0 违规。
 - **附：全量串跑仍存在的失败（已定性为存量顺序污染，非本次引入，登记备查）**：本机全量串跑（约 2300 例）有约 8 个 `test_ensure_*` 的 `*_even_when_no_db_touch` 用例及几个打印模板用例失败，但**单独跑全部通过**（8 个 ensure 文件合计 37 passed），属**跨用例状态污染**。且 CI 三工作流（含完整测试套件）在 `186b42b`/`9f67cb1b` 上均全绿，证明这些失败**是本机环境特有、不在 CI 复现**。已单独登记为待办，不阻塞当前工作。
 
+### BUG-2026-09-20-008（2026-09-20，委外发料只扣总账、不扣库位账：开启库位管理时 ①≠Σ② 账实分裂）
+
+- **发现方式**：P2-3 前置侦察——用本次新增的写入点扫描（`add_stock`/`deduct_stock_atomic` 调用点后 80 行内是否出现库位同步）对全仓 **23 个调用点**分类：**22 处已双写**，唯 `app/app.py:7218`（委外发料 `subcontract_issue`）无 `update_location_inventory` / `deduct_location_inventory_atomic` / `location_management_enabled`；并已确认该函数区间（7150–7330）内**没有任何库位写入**。
+- **根因（代码实证）**：委外发料明细循环内只调 `deduct_stock_atomic(material.id, quantity, ..., warehouse=issue.warehouse)` 扣 **①总账**并写 **③流水**，**未同步②库位账**。而 `INVENTORY_TRUTH.md §2.1` 明确"`add_stock`/`deduct_stock_atomic` 不会自动同步库位账，调用方必须自己再调一次 `update_location_inventory`；**新代码必须两层同时写**"——调整单（`adjustment.py:451` 扣减 + `:481` 同步）等 22 处都遵守了，委外发料这一处漏了。
+- **危害**：**开启库位管理时**，每发一笔料，①总账减少而②库位账不变 → 恒等式 `① = Σ②` 被打破；库存查询/报表（仓库级/库位级口径）与物料列表（全局总账）数字对不上，且**无任何报错**——与 `BUG-2026-08-16-002` 同型的**静默账实分裂**。关闭库位管理时不显现（无库位账可对照），属条件触发。
+- **状态**：**未修复（登记待修）**。账务逻辑改动需先与用户确认库位键取值口径（委外发料明细无 `location` 字段，拟按 `adjustment.py` 既有定式回退到 `issue.warehouse`），确认后单独 atomic action 修复。
+- **修复方案（待确认）**：`use_location = location_management_enabled()`；扣减成功后 `update_location_inventory(material, loc_key=(item.location or issue.warehouse), delta=-quantity, warehouse=issue.warehouse)`，失败即 rollback 并显式报错（与 adjustment 同型，**不静默成功**）。同步排查委外发料**反提交**链路是否有对称缺口（R6）。
+- **回归（修复时交付）**：用例锁——开启库位管理时委外发料后 ①=Σ②；失败路径显式报错不静默；关闭库位管理时行为不变。判据工具 `scripts/verify_inventory_identity.py` 可复跑验证。
+- **R6 同根因排查**：23 个 `add_stock`/`deduct_stock_atomic` 调用点已全量分类，除本处外 **22 处均已双写**（adjustment / in_order / out_order / subcontract_receive / requisition / mobile / native_api / after_sale_out），**无第二处缺口**。
+- **生效条件**：修复属路由逻辑改动，**需重启 WMS 服务生效**（R3）。
+- **生效确认**：**待确认**——登记时尚未修复；修复后由判据工具复跑 + CI 三工作流全绿回填本字段。
+
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
 - **发现方式**：修复 BUG-2026-09-20-004 过程中复盘——R6 自 2026-08-28 列入 AGENTS.md 后一直是**纯人工自检**（无 lint 防护），本次正是它失效：生产 Cookie 硬门禁引入后只改了 `tests/conftest.py`，`scripts/` 下 5 个同类消费点全部漏掉。
