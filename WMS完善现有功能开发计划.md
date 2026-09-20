@@ -319,8 +319,15 @@
     回归锁 `tests/test_p2_3_out_order_after_sale_apply_stock_delta.py` 6 项（结构锁 2 +
     行为锁 4：出库完成/反提交/批量完成双单、售后完成+反提交 三账一致）；
     相邻回归 54 项全绿；lint 0 违规；CI 实证 Android #675 / AI 验证 #1459 / WMS CI #1164 绿。
-  - **剩余工作（批 4–5）**：subcontract（6，含 revert_receive 旧包装）→
-    mobile + native_api + requisition + app.py（8），
+  - **进展（2026-09-20 批 4）**：subcontract 6 处（quick_issue / quick_receive /
+    complete_issue / revert_issue / complete_receive / revert_receive，含 1 处旧包装
+    `deduct_stock`）全量改经 `apply_stock_delta`，本地 `41737c3` → 远程 `d5fc6ed3`
+    （API 通道，tree 5409ffc8 与本地逐字节一致）。
+    库位键与 BUG-2026-08-16-001 / BUG-2026-09-20-008 锁定的口径逐字一致。
+    回归锁 `tests/test_p2_3_subcontract_apply_stock_delta.py` 6 项（结构锁 2 + 行为锁 4：
+    快速发料 / 发料单完成+反提交 / 收货完成+反提交 / 快速收货 三账一致）；
+    委外存量回归 18 项 + 交叉回归 26 项全绿；lint 0 违规；CI 实证见下批登记。
+  - **剩余工作（批 5）**：mobile + native_api + requisition + app.py（8），
     每类单据 1 个 atomic action，每批改完用
     `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；
     收尾评估 lint 新规则禁止业务代码直调原语。
