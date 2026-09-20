@@ -62,14 +62,22 @@
 
 ### P1-1 仓库/库位必填落地缺口（AGENTS.md §二）
 
-| 页面 | 现状（实测） | 行动 |
-|---|---|---|
-| `subcontract_issue.html` / `subcontract_receive.html` | **表单根本不带仓库字段**，只能依赖后端默认仓 | 添加 `name="warehouse"` `+ required` + 默认仓 selected；后端路由补必填校验 |
-| `opening_stock.html` | 表头仓库无 `required`、无默认 selected 图 | `headerWarehouse` 加 `required`，并在加载时 带 `selected` |
-| `transfer.html` | `to_warehouse` required 但**没选中默认仓** | 选中"默认仓"或提示必选 |
-| `in_order_push.html` | 无 warehouse/location 字段，靠后端补齐 | 与同时期表单对齐：加 required + 默认值 |
+- **⚠️ 原 4 条描述全部过时（2026-09-20 源码核实）**：
+  | 页面 | 原描述 | 实测结论 |
+  |---|---|---|
+  | `subcontract_issue.html` / `subcontract_receive.html` | 表单根本不带仓库字段 | **已完成**：`required` + 默认仓 selected + JS 校验；后端必填 + `assert_warehouse_active` + 仓库级库存口径 |
+  | `opening_stock.html` | 无 required、无默认 selected | **已完成**：默认仓 selected + AI-OS-MW-001 表头/明细仓库兜底 + 库位必填（BUG-2026-09-16-011） |
+  | `transfer.html` | `to_warehouse` 没选中默认仓 | **刻意设计**：原生 submit 校验生效（`type="submit"` + `required` 浏览器先拦）；后端拒同仓（L253）——调入仓必须主动选择，给默认仓反而会造同仓废单 |
+  | `in_order_push.html` | 无 warehouse 字段靠后端补齐 | **继承源单仓库是正确设计**（从哪个仓入就从哪个仓出）；真缺口只有下面这一条 ↓ |
 
-- **验收**：每个表单本地保存时仓库非空即阻塞；双仓环境下委外发料/收料不再依赖默认仓兜底。
+- **真缺口（已修，2026-09-20）**：`in_order_push` 下推目标草稿直接继承 `order.warehouse`，
+  来源单无仓库时会写出**空仓库死单草稿**（出库/售后出库完成时仓库必填，永远无法完成）。
+  - 后端 `create_in_order_push`：来源单无仓库 → 400 拒绝，不允许静默写空仓库
+  - 前端 `in_order_push.html`：无仓库时顶部警示 + 禁用「创建目标草稿」按钮
+  - 回归锁 `tests/test_p1_1_in_order_push_warehouse_required.py`（4 项：拒绝 / 有仓库控制组 / 页面两态）
+  - 本地 `589ea7d` / 远端 `1f198e0`
+
+- **P1-1 状态：清零**。
 
 ### P1-2 新建类大表单本地必填
 
