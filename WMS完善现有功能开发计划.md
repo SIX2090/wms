@@ -313,8 +313,14 @@
     - **验证**：本批 7 项 + 相邻回归 28 项 + 全量 2392 passed（2 failed + 27 errors
       经复核为本机 PATH/git 子进程环境噪音，补全 PATH 后 39 项全过，与本改动无关）；
       pre-commit lint 0 违规；CI 实证 WMS AI Verification #1456 / WMS CI #1161 绿。
-  - **剩余工作（批 3–5）**：out_order + after_sale_out（5）→
-    subcontract（6，含 revert_receive 旧包装）→ mobile + native_api + requisition + app.py（8），
+  - **进展（2026-09-20 批 3）**：out_order 3 处（complete / revert / batch_complete）
+    + after_sale_out 2 处（complete / revert）全量改经 `apply_stock_delta`，提交 `da29ddf`。
+    after_sale_out 的显式 `loc_dim` 口径与入口内部 loc_key 逐字一致，无行为差异。
+    回归锁 `tests/test_p2_3_out_order_after_sale_apply_stock_delta.py` 6 项（结构锁 2 +
+    行为锁 4：出库完成/反提交/批量完成双单、售后完成+反提交 三账一致）；
+    相邻回归 54 项全绿；lint 0 违规；CI 实证 Android #675 / AI 验证 #1459 / WMS CI #1164 绿。
+  - **剩余工作（批 4–5）**：subcontract（6，含 revert_receive 旧包装）→
+    mobile + native_api + requisition + app.py（8），
     每类单据 1 个 atomic action，每批改完用
     `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；
     收尾评估 lint 新规则禁止业务代码直调原语。
