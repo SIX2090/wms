@@ -306,7 +306,19 @@ def register_out_order_routes(app):
         )
         # 领料明细默认排除"销售出库"（销售出库归销售管理，见 /sales/outflow_report），
         # 避免销售单据混入仓库领料明细。显式传 business_type=销售出库 时仍可查看。
-        explicit_bt = '其他出库' if request.path == '/other_out_order' else (request.args.get('business_type') or '').strip()
+        # P1-7：新增 type=purchase_return 别名，与 in_order 的 type=sales_return 同构。
+        _type_alias = {
+            'requisition': '领料单',
+            'other_out': '其他出库',
+            'sale': '销售出库',
+            'sales': '销售出库',
+            'purchase_return': '采购退货出库',
+            'return_out': '采购退货出库',
+        }
+        raw_bt = '其他出库' if request.path == '/other_out_order' else (request.args.get('business_type') or '').strip()
+        explicit_bt = _type_alias.get((request.args.get('type') or '').strip().lower(), raw_bt)
+        if explicit_bt not in ('领料单', '其他出库', '销售出库', '采购退货出库'):
+            explicit_bt = ''
         if not explicit_bt:
             query = query.filter(db.or_(OutOrder.business_type == '领料单', OutOrder.business_type.is_(None)))
         else:
@@ -338,7 +350,12 @@ def register_out_order_routes(app):
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
         }
-        page_title = '其他出库明细表' if explicit_bt == '其他出库' else '领料明细表'
+        _page_titles = {
+            '其他出库': '其他出库明细表',
+            '销售出库': '销售出库明细表',
+            '采购退货出库': '采购退货出库明细表',
+        }
+        page_title = _page_titles.get(explicit_bt, '领料明细表')
         return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/out_order/<int:id>')
@@ -369,7 +386,7 @@ def register_out_order_routes(app):
     @login_required
     def update_out_order(id):
         """Update the header fields of a draft out/requisition order (items untouched)."""
-        from app import (Department, OutOrder, api_error, assert_warehouse_active,
+        from app import (Department, InOrder, OutOrder, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
                          parse_date_value)
@@ -423,6 +440,18 @@ def register_out_order_routes(app):
         order.contract_no = (data.get('contract_no') or '').strip() or None
         order.project_name = (data.get('project_name') or '').strip() or None
         order.remark = (data.get('remark') or '').strip()
+        # P1-7 采购退货出库：草稿阶段允许修正来源采购入库单头（行级来源已在明细接口维护）。
+        if order.business_type == '采购退货出库':
+            src_io_no = (data.get('source_in_order_no') or '').strip()
+            if src_io_no:
+                src_io = InOrder.query.filter_by(order_no=src_io_no).first()
+                if not src_io:
+                    return jsonify({'status': 'error', 'msg': f'来源采购入库单 {src_io_no} 不存在'}), 400
+                order.source_in_order_id = src_io.id
+                order.source_in_order_no = src_io.order_no
+            elif (data.get('source_in_order_id') or '').strip() in ('', 'None', 'null'):
+                order.source_in_order_id = None
+                order.source_in_order_no = None
 
         try:
             db.session.commit()
@@ -441,6 +470,7 @@ def register_out_order_routes(app):
         from app import (Customer, Department, Material, OutOrder, OutOrderItem, Unit,
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, location_management_enabled,
+                         purchase_return_requires_order,
                          serialize_customer, serialize_material, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
@@ -457,9 +487,14 @@ def register_out_order_routes(app):
         order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
         is_sale_order = order.business_type == '销售出库' if order else order_type in ('sale', 'sales')
         is_other_out = order.business_type == '其他出库' if order else order_type in ('other', 'other_out')
+        # P1-7 采购退货出库：type=purchase_return 进入；形态与销售出库一致（客户归属 + 客户搜索框），
+        # 但额外关联来源采购入库单（原单退货），并受开关 purchase_return_requires_order 约束。
+        # 镜像 P1-5（in_order.py 的 is_sales_return）。
+        is_purchase_return = order.business_type == '采购退货出库' if order else order_type in ('purchase_return', 'return_out')
         departments = Department.query.filter_by(status='active').all()
         warehouses = get_active_warehouses()
-        order_no = order.order_no if order else generate_order_no('OO' if is_other_out else ('SO' if is_sale_order else 'OUT'))
+        order_no = order.order_no if order else generate_order_no(
+            'OO' if is_other_out else ('SO' if is_sale_order else ('PR' if is_purchase_return else 'OUT')))
         order_date = order.date.strftime('%Y-%m-%d') if order and order.date else datetime.now().strftime('%Y-%m-%d')
         return render_template('out_order_add.html',
                              materials=[serialize_material(material) for material in materials],
@@ -467,18 +502,20 @@ def register_out_order_routes(app):
                              customers=[serialize_customer(customer) for customer in customers],
                              departments=departments,
                              warehouses=warehouses,
-                             default_warehouse=None if is_sale_order else get_default_warehouse(),
+                             default_warehouse=get_default_warehouse(),
                              location_management_enabled=location_management_enabled(),
                              is_sale_order=is_sale_order,
                              is_other_out=is_other_out,
-                             default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else '领料单'),
+                             is_purchase_return=is_purchase_return,
+                             purchase_return_requires_order=purchase_return_requires_order(),
+                             default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else ('采购退货出库' if is_purchase_return else '领料单')),
                              # BUG-MENU-2026-07-29-A1: ?type=sale 是"销售出库"业务（单号前缀 SO），
                              # 原本 page_title="新增销售单"会让用户误以为是新建销售订单，改为"新增销售出库单"
-                             page_title='新增其他出库单' if is_other_out else ('新增销售出库单' if is_sale_order else '新增领料单'),
-                             party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else '领料部门'),
+                             page_title='新增其他出库单' if is_other_out else ('新增销售出库单' if is_sale_order else ('新增采购退货出库单' if is_purchase_return else '新增领料单')),
+                             party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else ('退货供应商' if is_purchase_return else '领料部门')),
                              party_required=not is_other_out,
                              return_list_url='/other_out_order' if is_other_out else '/out_order',
-                             return_add_url='/other_out_order/add' if is_other_out else '/out_order/add',
+                             return_add_url='/other_out_order/add' if is_other_out else ('/out_order/add?type=purchase_return' if is_purchase_return else '/out_order/add'),
                              prefill={
                                  'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
                                  'location': order.location if order else (request.args.get('location') or '').strip(),
@@ -491,12 +528,18 @@ def register_out_order_routes(app):
                                  'department_id': str(order.department_id or '') if order else (request.args.get('department_id') or '').strip(),
                                  'picker': order.picker if order else (request.args.get('picker') or '').strip(),
                                  'business_type': order.business_type if order else (request.args.get('business_type') or '').strip(),
+                                 # P1-7：来源采购入库单号（由采购入库单页「采购退货」入口带入，可手工填写/修改）
+                                 'source_in_order_no': order.source_in_order_no if order else (request.args.get('source_in_order_no') or '').strip(),
+                                 'source_in_order_id': str(order.source_in_order_id or '') if order else (request.args.get('source_in_order_id') or '').strip(),
                              },
                              order_id=order.id if order else None,
                              order_no=order_no,
                              order_date=order_date,
                              edit_items=[{
                                  'material_code': item.material.code,
+                                 # P1-7：行级来源采购入库明细，编辑草稿时必须回填，
+                                 # 否则重建明细后丢失来源关联，防超退闸形同虚设。
+                                 'source_in_order_item_id': item.source_in_order_item_id,
                                  'quantity': item.quantity,
                                  'price': item.price,
                                  'contract_no': item.contract_no or '',
@@ -511,13 +554,15 @@ def register_out_order_routes(app):
     @login_required
     def add_out_order():
         from datetime import date
-        from app import (DocumentPushLine, Material, OutOrder, OutOrderItem,
-                         SalesOrder, api_error, generate_order_no,
-                         get_default_warehouse, is_future_date,
+        from app import (DocumentPushLine, InOrder, InOrderItem, Material,
+                         OutOrder, OutOrderItem, SalesOrder, api_error,
+                         generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
                          parse_date_value, parse_float_value,
+                         purchase_return_requires_order,
                          recalculate_order_total, round_to_2_decimals,
                          validate_inventory_warehouse,
+                         validate_purchase_return_quantity,
                          validate_sales_warehouse)
         from flask_login import current_user
         try:
@@ -541,7 +586,7 @@ def register_out_order_routes(app):
             business_type = (data.get('business_type') or '').strip()
             if business_type == '生产出库':
                 business_type = '领料单'
-            if business_type not in ('领料单', '销售出库', '其他出库'):
+            if business_type not in ('领料单', '销售出库', '其他出库', '采购退货出库'):
                 business_type = '领料单'
             department_id = data.get('department_id')
             if department_id is None or str(department_id).strip().lower() in ('', 'none', 'null'):
@@ -588,6 +633,26 @@ def register_out_order_routes(app):
                     department_id = int(department_id) if department_id else None
                 except (TypeError, ValueError):
                     department_id = None
+
+            # P1-7 采购退货出库：退货供应商必填；解析来源采购入库单（支持 id 或单号）。
+            is_purchase_return = business_type == '采购退货出库'
+            source_in_order = None
+            if is_purchase_return:
+                if not customer:
+                    return jsonify({'status': 'error', 'msg': '采购退货出库单必须选择退货供应商'}), 400
+                src_io_id = data.get('source_in_order_id')
+                src_io_no = (data.get('source_in_order_no') or '').strip()
+                if src_io_id not in (None, '', 'None', 'null'):
+                    try:
+                        source_in_order = db.session.get(InOrder, int(src_io_id))
+                    except (TypeError, ValueError):
+                        source_in_order = None
+                    if not source_in_order:
+                        return jsonify({'status': 'error', 'msg': '来源采购入库单不存在'}), 400
+                elif src_io_no:
+                    source_in_order = InOrder.query.filter_by(order_no=src_io_no).first()
+                    if not source_in_order:
+                        return jsonify({'status': 'error', 'msg': f'来源采购入库单 {src_io_no} 不存在'}), 400
 
             if order_id:
                 order = db.session.get(OutOrder, order_id)
@@ -657,6 +722,9 @@ def register_out_order_routes(app):
             else:
                 source_item_by_material = {}
 
+            # P1-7 采购退货出库：收集本单关联到的来源采购入库单（用于单头聚合与开关联动）
+            source_in_order_ids = set()
+
             for submitted_item in submitted_items:
                 material_code = (submitted_item.get('code') or submitted_item.get('material_code') or '').strip()
                 material = Material.query.filter_by(code=material_code).first()
@@ -676,6 +744,34 @@ def register_out_order_routes(app):
                     if submitted_item.get('source_sales_order_item_id')
                     else source_item_by_material.get(material.id)
                 )
+                # P1-7 采购退货出库：来源采购入库行（可选关联，有则防超退）。
+                # 优先行级 source_in_order_item_id；头级给了来源入库单但行级未指明时，
+                # 按物料在该单内唯一匹配自动链接。
+                source_in_order_item_id = None
+                src_ii_id = submitted_item.get('source_in_order_item_id')
+                source_ii = None
+                if src_ii_id not in (None, '', 'None', 'null'):
+                    if not is_purchase_return:
+                        db.session.rollback()
+                        return api_error(f'物料 {material.code} 仅采购退货出库单可关联采购入库来源')
+                    try:
+                        source_ii = db.session.get(InOrderItem, int(src_ii_id))
+                    except (TypeError, ValueError):
+                        source_ii = None
+                    if not source_ii or source_ii.material_id != material.id or not source_ii.in_order:
+                        db.session.rollback()
+                        return api_error(f'采购入库来源明细无效：{material.code}')
+                elif is_purchase_return and source_in_order is not None:
+                    candidates = [ii for ii in source_in_order.items if ii.material_id == material.id]
+                    if len(candidates) == 1:
+                        source_ii = candidates[0]
+                if source_ii is not None:
+                    valid_ret, ret_msg = validate_purchase_return_quantity(source_ii, quantity, material.code)
+                    if not valid_ret:
+                        db.session.rollback()
+                        return api_error(ret_msg)
+                    source_in_order_item_id = source_ii.id
+                    source_in_order_ids.add(source_ii.in_order_id)
                 db.session.add(OutOrderItem(
                     out_order_id=order.id,
                     material_id=material.id,
@@ -687,9 +783,25 @@ def register_out_order_routes(app):
                     contract_no=(submitted_item.get('contract_no') or '').strip() or None,
                     project_name=(submitted_item.get('project_name') or '').strip() or None,
                     source_sales_order_item_id=preserved_source_id,
+                    source_in_order_item_id=source_in_order_item_id,
                 ))
 
             recalculate_order_total(order)
+            # P1-7 采购退货出库：单头聚合来源采购入库单 + 冗余单号（原单变更后历史单据不变）。
+            if is_purchase_return:
+                if source_in_order_ids and len(source_in_order_ids) == 1:
+                    src_io = db.session.get(InOrder, next(iter(source_in_order_ids)))
+                    if src_io:
+                        order.source_in_order_id = src_io.id
+                        order.source_in_order_no = src_io.order_no
+                elif source_in_order is not None:
+                    order.source_in_order_id = source_in_order.id
+                    order.source_in_order_no = source_in_order.order_no
+                # 开关 purchase_return_requires_order（默认开）：必须关联来源采购入库单。
+                has_source = bool(source_in_order_ids) or (order.source_in_order_id is not None)
+                if purchase_return_requires_order() and not has_source:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': '采购退货必须关联来源采购入库单（如需免关联，请在系统设置关闭「采购退货必须关联订单」）'}), 400
             try:
                 db.session.commit()
             except Exception as e:
@@ -885,6 +997,7 @@ def register_out_order_routes(app):
                          log_operation, normalize_stock_quantity,
                          recalculate_order_total,
                          sales_outbound_remaining_check,
+                         purchase_return_remaining_check,
                          sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
         # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口。
@@ -962,6 +1075,13 @@ def register_out_order_routes(app):
                 if not remaining_ok:
                     db.session.rollback()
                     return api_error(remaining_err or '出库数量超过销售订单未发货数量')
+            # P1-7 采购退货出库：完成前整单防超退真闸（加锁后调用，与销售出库同构）。
+            # 有来源明细逐行校验 退货量 ≤ 原采购入库行 quantity − 已退量聚合；无来源跳过。
+            if order.business_type == '采购退货出库':
+                remaining_ok, remaining_err = purchase_return_remaining_check(order)
+                if not remaining_ok:
+                    db.session.rollback()
+                    return api_error(remaining_err or '退货数量超过采购入库单可退数量')
             stock_error = _out_order_stock_error(order)
             if stock_error:
                 db.session.rollback()
@@ -1477,8 +1597,18 @@ def register_out_order_routes(app):
             project_name_filter=project_name_filter,
             item_level=True,
         )
-        # 列表页默认排除"销售出库"（销售出库归销售管理），导出需保持同一口径
+        # 列表页默认排除"销售出库"（销售出库归销售管理），导出需保持同一口径。
+        # P1-7：导出同样支持 type 别名（与列表页 _type_alias 同构）。
         export_bt = (request.args.get('business_type') or '').strip()
+        _export_bt_alias = {
+            'requisition': '领料单', 'other_out': '其他出库',
+            'sale': '销售出库', 'sales': '销售出库',
+            'purchase_return': '采购退货出库', 'return_out': '采购退货出库',
+        }
+        export_bt = _export_bt_alias.get(
+            (request.args.get('type') or '').strip().lower(), export_bt)
+        if export_bt not in ('领料单', '其他出库', '销售出库', '采购退货出库'):
+            export_bt = ''
         if export_bt:
             query = query.filter(OutOrder.business_type == export_bt)
         else:

@@ -28,6 +28,8 @@
             </a>
             {% if filters.business_type == '其他出库' %}
             <a href="/other_out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他出库</a>
+            {% elif filters.business_type == '采购退货出库' %}
+            <a href="/out_order/add?type=purchase_return" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购退货出库</a>
             {% else %}
             <a href="/out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增领料单</a>
             {% endif %}
@@ -99,9 +101,9 @@
                 <tr>
                     <th data-column-key="chk" width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
                     <th data-column-key="row_no" width="70">序号</th>
-                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">领料单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">{{ '退货出库单号' if filters.business_type == '采购退货出库' else '领料单号' }} {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="date" data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-column-key="customer" data-sortable="customer" class="sortable-header">领料部门 {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="customer" data-sortable="customer" class="sortable-header">{{ '退货供应商' if filters.business_type == '采购退货出库' else '领料部门' }} {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="material_code">物料编号</th>
                     <th data-column-key="material_name">物料名称</th>
                     <th data-column-key="spec">规格</th>
@@ -159,7 +161,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="17" class="text-center text-muted">暂无{{ '其他出库' if filters.business_type == '其他出库' else '领料' }}明细</td></tr>
+                <tr><td colspan="17" class="text-center text-muted">暂无{{ '其他出库' if filters.business_type == '其他出库' else ('采购退货出库' if filters.business_type == '采购退货出库' else '领料') }}明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>

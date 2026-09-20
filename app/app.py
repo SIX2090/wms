@@ -4070,6 +4070,10 @@ def purchase_in_order_requires_order():
     # Permanent business rule: purchase orders are an optional receipt source.
     return False
 
+def purchase_return_requires_order():
+    # P1-7 采购退货出库：默认必须关联来源采购入库单（配置 purchase_return_requires_order，默认 1）。
+    return get_system_setting_bool('purchase_return_requires_order', True)
+
 def purchase_receipt_strict_order():
     return get_system_setting_bool('purchase_receipt_strict_order', True)
 
@@ -33384,6 +33388,93 @@ def sales_return_remaining_check(in_order):
         if return_qty - remaining > STOCK_COMPARE_EPSILON:
             so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
             return False, f'退货数量 {return_qty:.2f} 超过销售订单 {so_no} 的可退数量 {remaining:.2f}'
+    return True, ''
+
+
+def _purchase_returned_quantity_by_source_item(source_item_ids):
+    """P1-7：按来源采购入库行聚合已完成采购退货出库量。
+
+    返回 {source_in_order_item_id: 已退总量}（round_to_2_decimals）。
+    聚合口径：OutOrder.business_type='采购退货出库' 且 status='completed'。
+    已退量是**派生聚合不是状态字段**——不在 InOrderItem 上加 returned_quantity
+    （防第四套库存口径，与 P1-5 销售退货入库、STOCK-TRUTH-P16 占用账同一决策哲学，
+    见 INVENTORY_TRUTH.md §2.1.1）。pending 单不在聚合内，天然允许保存/完成
+    阶段重复校验而不自斥。
+    """
+    if not source_item_ids:
+        return {}
+    rows = db.session.query(
+        OutOrderItem.source_in_order_item_id,
+        func.coalesce(func.sum(OutOrderItem.quantity), 0),
+    ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).filter(
+        OutOrder.business_type == '采购退货出库',
+        OutOrder.status == 'completed',
+        OutOrderItem.source_in_order_item_id.in_(source_item_ids),
+    ).group_by(OutOrderItem.source_in_order_item_id).all()
+    return {
+        sid: round_to_2_decimals(qty)
+        for sid, qty in rows
+        if round_to_2_decimals(qty or 0) > STOCK_COMPARE_EPSILON
+    }
+
+
+def validate_purchase_return_quantity(in_item, return_qty, material_code=''):
+    """P1-7：保存退货出库行时校验退货量 ≤ 原采购入库行可退数量。
+
+    可退数量 = 原行 quantity − 已退量聚合（不含当前 pending 单）。
+    返回 (ok, error_msg)。
+    """
+    if not in_item:
+        return False, '来源采购入库明细不存在'
+    returned_map = _purchase_returned_quantity_by_source_item([in_item.id])
+    returned = round_to_2_decimals(returned_map.get(in_item.id, 0))
+    remaining = round_to_2_decimals((in_item.quantity or 0) - returned)
+    qty = round_to_2_decimals(return_qty or 0)
+    if qty - remaining > STOCK_COMPARE_EPSILON:
+        io_no = in_item.in_order.order_no if in_item.in_order else f"item#{in_item.id}"
+        suffix = f'（物料 {material_code}）' if material_code else ''
+        return False, f'退货数量 {qty:.2f} 超过采购入库单 {io_no} 的可退数量 {remaining:.2f}{suffix}'
+    return True, ''
+
+
+def purchase_return_remaining_check(out_order):
+    """P1-7：完成采购退货出库单前整单校验（防超退真闸，加锁后调用）。
+
+    与 sales_return_remaining_check 同构：有来源明细逐行校验，
+    无来源明细跳过（历史退货可不关联原单）。原行已不存在时跳过
+    （数据异常另行治理，保持与既有先例一致）。
+    返回 (ok, error_msg)。
+    """
+    from sqlalchemy.orm import selectinload
+    if not out_order or not out_order.items:
+        return True, ''
+    source_item_ids = [
+        item.source_in_order_item_id
+        for item in out_order.items
+        if getattr(item, 'source_in_order_item_id', None)
+    ]
+    if not source_item_ids:
+        return True, ''
+    in_items = {
+        ii.id: ii
+        for ii in InOrderItem.query.options(
+            selectinload(InOrderItem.in_order)
+        ).filter(InOrderItem.id.in_(source_item_ids)).all()
+    }
+    returned_map = _purchase_returned_quantity_by_source_item(source_item_ids)
+    for item in out_order.items:
+        sid = getattr(item, 'source_in_order_item_id', None)
+        if not sid:
+            continue
+        ii = in_items.get(sid)
+        if not ii:
+            continue
+        returned = round_to_2_decimals(returned_map.get(sid, 0))
+        remaining = round_to_2_decimals((ii.quantity or 0) - returned)
+        return_qty = round_to_2_decimals(item.quantity or 0)
+        if return_qty - remaining > STOCK_COMPARE_EPSILON:
+            io_no = ii.in_order.order_no if ii.in_order else f'item#{sid}'
+            return False, f'退货数量 {return_qty:.2f} 超过采购入库单 {io_no} 的可退数量 {remaining:.2f}'
     return True, ''
 
 

@@ -150,7 +150,7 @@
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
                 </button>
-                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('out_order_add_page') }}?{% if order.business_type == '其他出库' %}type=other_out&{% elif order.business_type == '销售出库' %}type=sale&{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&department_id={{ order.department_id or '' }}&customer={{ (order.customer or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&picker={{ (order.picker or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&business_type={{ (order.business_type or '')|urlencode }}">
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('out_order_add_page') }}?{% if order.business_type == '其他出库' %}type=other_out&{% elif order.business_type == '销售出库' %}type=sale&{% elif order.business_type == '采购退货出库' %}type=purchase_return&{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&department_id={{ order.department_id or '' }}&customer={{ (order.customer or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&picker={{ (order.picker or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&business_type={{ (order.business_type or '')|urlencode }}&source_in_order_id={{ order.source_in_order_id or '' }}&source_in_order_no={{ (order.source_in_order_no or '')|urlencode }}">
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
                 {% if order.status == 'pending' %}
@@ -204,9 +204,19 @@
                     <span class="info-value">{{ order.date }}</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">{{ '客户/领用单位' if order.business_type == '其他出库' else '领料部门' }}</span>
+                    <span class="info-label">{{ '客户/领用单位' if order.business_type == '其他出库' else ('客户名称' if order.business_type == '销售出库' else ('退货供应商' if order.business_type == '采购退货出库' else '领料部门')) }}</span>
                     <span class="info-value">{{ order.customer or (order.department.name if order.department else '-') }}</span>
                 </div>
+                {% if order.business_type == '采购退货出库' %}
+                <div class="info-item">
+                    <span class="info-label">来源采购入库单</span>
+                    <span class="info-value">
+                        {% if order.source_in_order %}
+                        <a href="{{ url_for('in_order_detail', id=order.source_in_order.id) }}">{{ order.source_in_order.order_no }}</a>
+                        {% else %}{{ order.source_in_order_no or '-' }}{% endif %}
+                    </span>
+                </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">业务类型</span>
                     <span class="info-value">{{ order.business_type or '-' }}</span>
@@ -552,9 +562,9 @@ MAT003,20,10.00"></textarea>
                             <input class="form-control" name="date" type="date" value="{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}" max="{{ today }}" required>
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-medium">{{ '客户/领用单位' if order.business_type == '其他出库' else ('客户名称' if order.business_type == '销售出库' else '领料部门') }}</label>
-                            {% if order.business_type in ('其他出库', '销售出库') %}
-                            <input type="text" class="form-control" name="customer" maxlength="100" value="{{ order.customer or '' }}" placeholder="请输入客户名称">
+                            <label class="form-label fw-medium">{{ '客户/领用单位' if order.business_type == '其他出库' else ('客户名称' if order.business_type == '销售出库' else ('退货供应商' if order.business_type == '采购退货出库' else '领料部门')) }}</label>
+                            {% if order.business_type in ('其他出库', '销售出库', '采购退货出库') %}
+                            <input type="text" class="form-control" name="customer" maxlength="100" value="{{ order.customer or '' }}" placeholder="请输入{{ '退货供应商' if order.business_type == '采购退货出库' else '客户名称' }}">
                             <input type="hidden" name="department_id" value="">
                             {% else %}
                             <select class="form-select" name="department_id">
@@ -566,8 +576,16 @@ MAT003,20,10.00"></textarea>
                             <input type="hidden" name="customer" value="">
                             {% endif %}
                         </div>
+                        {% if order.business_type == '采购退货出库' %}
                         <div class="col-md-6">
-                            <label class="form-label fw-medium">领料人</label>
+                            <label class="form-label fw-medium">来源采购入库单</label>
+                            <input type="text" class="form-control" name="source_in_order_no" maxlength="50"
+                                   value="{{ order.source_in_order_no or '' }}" placeholder="请输入采购入库单号">
+                            <input type="hidden" name="source_in_order_id" value="{{ order.source_in_order_id or '' }}">
+                        </div>
+                        {% endif %}
+                        <div class="col-md-6">
+                            <label class="form-label fw-medium">{{ '退货人' if order.business_type == '采购退货出库' else '领料人' }}</label>
                             <input type="text" class="form-control" name="picker" maxlength="50" value="{{ order.picker or '' }}">
                         </div>
                         {% if order.business_type != '销售出库' %}

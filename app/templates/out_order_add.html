@@ -491,22 +491,40 @@ textarea.form-control {
                         <select class="form-select" name="business_type">
                             {% if is_other_out %}
                             <option value="其他出库" selected>其他出库</option>
+                            {% elif is_purchase_return %}
+                            <option value="采购退货出库" selected>采购退货出库</option>
+                            <option value="其他出库">其他出库</option>
                             {% elif is_sale_order %}
                             <option value="销售出库" selected>销售出库</option>
                             <option value="其他出库">其他出库</option>
                             {% else %}
                             <option value="领料单" {% if default_business_type == '领料单' %}selected{% endif %}>领料单</option>
                             <option value="其他出库" {% if default_business_type == '其他出库' %}selected{% endif %}>其他出库</option>
+                            <option value="采购退货出库" {% if default_business_type == '采购退货出库' %}selected{% endif %}>采购退货出库</option>
                             {% endif %}
                         </select>
                     </div>
                 </div>
+                {% if is_purchase_return %}
+                <div class="col-md-3" id="sourceInOrderWrap">
+                    <div class="mb-2">
+                        <label class="form-label">来源采购入库单{% if purchase_return_requires_order %}<span class="text-danger">*</span>{% else %}<span class="text-muted">（可选）</span>{% endif %}</label>
+                        <input type="text" class="form-control" id="sourceInOrderNo" name="source_in_order_no"
+                               placeholder="输入采购入库单号，如 IN20260920001"
+                               value="{{ prefill.source_in_order_no if prefill and prefill.source_in_order_no else '' }}"
+                               autocomplete="off">
+                        <input type="hidden" id="sourceInOrderId" name="source_in_order_id"
+                               value="{{ prefill.source_in_order_id if prefill and prefill.source_in_order_id else '' }}">
+                        <div id="sourceInOrderDropdown" style="display:none;position:absolute;min-width:260px;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">{{ party_label or '领料部门' }}</label>
-                        {% if is_sale_order or is_other_out %}
+                        {% if is_sale_order or is_other_out or is_purchase_return %}
                         <div class="customer-input" style="position:relative;">
-                            <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入客户名称" autocomplete="off" value="{{ prefill.customer if prefill and prefill.customer else '' }}">
+                            <input type="text" class="form-control" id="customerSearch" name="customer" placeholder="请选择或输入{{ party_label or '客户名称' }}" autocomplete="off" value="{{ prefill.customer if prefill and prefill.customer else '' }}">
                             <div id="customerDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;min-width:100%;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                         </div>
                         <input type="hidden" name="department_id" value="">
@@ -521,6 +539,7 @@ textarea.form-control {
                         {% endif %}
                     </div>
                 </div>
+                {% if not is_purchase_return %}
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">领料人</label>
@@ -531,6 +550,7 @@ textarea.form-control {
                         </div>
                     </div>
                 </div>
+                {% endif %}
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
@@ -635,6 +655,9 @@ const units = {{ units|tojson }};
 const customers = {{ customers|tojson }};
 const isSaleOrder = {{ is_sale_order|tojson }};
 const isOtherOut = {{ is_other_out|default(false)|tojson }};
+// P1-7 采购退货出库：退回给供应商（客户归属字段复用 customer），并关联来源采购入库单。
+const isPurchaseReturn = {{ is_purchase_return|default(false)|tojson }};
+const purchaseReturnRequiresOrder = {{ purchase_return_requires_order|default(true)|tojson }};
 const returnAddUrl = {{ (return_add_url or '/out_order/add')|tojson }};
 const prefill = {{ (prefill or {})|tojson }};
 let activeDropdown = null;
@@ -726,6 +749,15 @@ function addNewRow() {
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
         </td>
     `;
+    // P1-7：行级来源采购入库明细（隐藏字段），供保存时回传与编辑草稿时回填。
+    if (isPurchaseReturn) {
+        const sourceCell = row.querySelector('[data-column-key="remark"]');
+        const sourceInput = document.createElement('input');
+        sourceInput.type = 'hidden';
+        sourceInput.className = 'line-source-in-item-id';
+        sourceInput.value = '';
+        if (sourceCell) sourceCell.appendChild(sourceInput);
+    }
 
     row.querySelector('.material-code').addEventListener('input', function() {
         handleMaterialCodeInput(row);
@@ -1168,16 +1200,27 @@ function submitForm(saveAndNew = false) {
     const departmentId = document.querySelector('[name="department_id"]').value;
     const customerInput = document.querySelector('[name="customer"]');
     const customer = customerInput ? customerInput.value.trim() : '';
-    if (isSaleOrder) {
+    if (isSaleOrder || isPurchaseReturn) {
         if (!customer) {
-            alert('请输入客户名称');
-            customerInput.focus();
+            alert(isPurchaseReturn ? '请选择退货供应商' : '请输入客户名称');
+            if (customerInput) customerInput.focus();
             return;
         }
     } else if (!isOtherOut && !departmentId) {
             alert('请选择部门');
             document.querySelector('[name="department_id"]').focus();
             return;
+    }
+
+    // P1-7 采购退货出库：开关开启时必须关联来源采购入库单。
+    const sourceInOrderNoInput = document.getElementById('sourceInOrderNo');
+    const sourceInOrderIdInput = document.getElementById('sourceInOrderId');
+    const sourceInOrderNo = sourceInOrderNoInput ? sourceInOrderNoInput.value.trim() : '';
+    const sourceInOrderId = sourceInOrderIdInput ? sourceInOrderIdInput.value.trim() : '';
+    if (isPurchaseReturn && purchaseReturnRequiresOrder && !sourceInOrderNo && !sourceInOrderId) {
+        alert('请填写来源采购入库单号（如需免关联，请在系统设置关闭「采购退货必须关联订单」）');
+        if (sourceInOrderNoInput) sourceInOrderNoInput.focus();
+        return;
     }
     
     const items = [];
@@ -1203,7 +1246,7 @@ function submitForm(saveAndNew = false) {
             largeQtyCount++;
         }
         
-        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() });
+        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim(), ...(isPurchaseReturn && row.querySelector('.line-source-in-item-id')?.value ? { source_in_order_item_id: row.querySelector('.line-source-in-item-id').value } : {}) });
     }
     
     if (emptyQtyCount > 0) {
@@ -1249,6 +1292,12 @@ function submitForm(saveAndNew = false) {
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };
+
+    // P1-7 采购退货出库：带上来源采购入库单（单号或 id），后端解析并做防超退校验。
+    if (isPurchaseReturn) {
+        data.source_in_order_no = sourceInOrderNo;
+        data.source_in_order_id = sourceInOrderId;
+    }
     
     fetch('/out_order/add', {
         method: 'POST',
@@ -1297,6 +1346,11 @@ document.addEventListener('DOMContentLoaded', function() {
         row.querySelector('.line-contract-no').value = item.contract_no;
         row.querySelector('.line-project-name').value = item.project_name;
         row.querySelector('.material-remark').value = item.remark;
+        // P1-7：回填行级来源采购入库明细，否则重建明细后丢失来源关联、防超退闸失效。
+        if (isPurchaseReturn && item.source_in_order_item_id) {
+            const sourceInput = row.querySelector('.line-source-in-item-id');
+            if (sourceInput) sourceInput.value = item.source_in_order_item_id;
+        }
         calcAmount(row);
     });
     if (!editItems.length) {
@@ -1338,6 +1392,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     setupCustomerSearch();
+    setupSourceInOrderSearch();
 
     // ==================== 监听基础资料更新广播 ====================
     try {
@@ -1490,6 +1545,96 @@ function refreshWarehouses(options) {
             }
         })
         .catch(function(err){ notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
+}
+
+// ==================== P1-7 采购退货出库：来源采购入库单联想 ====================
+let sourceInOrderTimer = null;
+
+function showSourceInOrderDropdown(list) {
+    const dropdown = document.getElementById('sourceInOrderDropdown');
+    const input = document.getElementById('sourceInOrderNo');
+    if (!dropdown || !input) return;
+    if (!list || !list.length) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    dropdown.innerHTML = list.map(function(o) {
+        const supplier = o.supplier_name ? '<span style="color:#999;margin-left:6px;">' + escapeHtml(o.supplier_name) + '</span>' : '';
+        const date = o.date ? '<span style="color:#999;margin-left:6px;">' + escapeHtml(o.date) + '</span>' : '';
+        return '<div class="source-in-order-item" data-id="' + escapeHtml(String(o.id)) + '" data-no="' + escapeHtml(o.order_no || '') + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;"><strong>' + escapeHtml(o.order_no || '') + '</strong>' + supplier + date + '</div>';
+    }).join('');
+    dropdown.querySelectorAll('.source-in-order-item').forEach(function(item) {
+        item.addEventListener('mousedown', function(event) {
+            event.preventDefault();
+            pickSourceInOrder(this.dataset.id, this.dataset.no);
+        });
+    });
+    // 记录定位基准：下拉挂在父容器（相对定位）下方
+    const rect = input.getBoundingClientRect();
+    dropdown.style.top = (input.offsetTop + input.offsetHeight + 2) + 'px';
+    dropdown.style.left = input.offsetLeft + 'px';
+    dropdown.style.width = rect.width + 'px';
+    dropdown.style.display = 'block';
+}
+
+function pickSourceInOrder(id, orderNo) {
+    const input = document.getElementById('sourceInOrderNo');
+    const hidden = document.getElementById('sourceInOrderId');
+    const dropdown = document.getElementById('sourceInOrderDropdown');
+    if (input) input.value = orderNo || '';
+    if (hidden) hidden.value = id || '';
+    if (dropdown) dropdown.style.display = 'none';
+}
+
+function searchSourceInOrders() {
+    const input = document.getElementById('sourceInOrderNo');
+    const dropdown = document.getElementById('sourceInOrderDropdown');
+    if (!input || !dropdown) return;
+    const keyword = (input.value || '').trim();
+    const params = new URLSearchParams();
+    if (keyword) params.set('search', keyword);
+    const supplierInput = document.querySelector('[name="customer"]');
+    const supplierName = supplierInput ? supplierInput.value.trim() : '';
+    params.set('limit', '30');
+    fetch('/api/purchase_in_order/selectable?' + params.toString())
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (!res || res.status !== 'success') {
+                dropdown.style.display = 'none';
+                return;
+            }
+            let orders = res.orders || [];
+            // 已选退货供应商时优先展示同一供应商的入库单（不强制，仅排序靠前）
+            if (supplierName) {
+                orders = orders.slice().sort(function(a, b) {
+                    const am = a.supplier_name === supplierName ? 0 : 1;
+                    const bm = b.supplier_name === supplierName ? 0 : 1;
+                    return am - bm;
+                });
+            }
+            showSourceInOrderDropdown(orders);
+        })
+        .catch(function(){ dropdown.style.display = 'none'; });
+}
+
+function setupSourceInOrderSearch() {
+    const input = document.getElementById('sourceInOrderNo');
+    const hidden = document.getElementById('sourceInOrderId');
+    const dropdown = document.getElementById('sourceInOrderDropdown');
+    if (!input || !dropdown) return;
+    input.addEventListener('focus', function() { searchSourceInOrders(); });
+    input.addEventListener('input', function() {
+        // 手工改动单号即视为解除既有 id 绑定（以文本为准，后端按单号解析）
+        if (hidden) hidden.value = '';
+        clearTimeout(sourceInOrderTimer);
+        sourceInOrderTimer = setTimeout(searchSourceInOrders, 250);
+    });
+    input.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') dropdown.style.display = 'none';
+    });
+    document.addEventListener('click', function(event) {
+        if (!event.target.closest('#sourceInOrderWrap')) dropdown.style.display = 'none';
+    });
 }
 
 function refreshDepartments(options) {

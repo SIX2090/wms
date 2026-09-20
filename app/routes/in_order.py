@@ -206,6 +206,90 @@ def _build_in_order_excel(order):
 
 # no-test:reason=路由注册辅助函数，能力由 in_order_* 各路由测试覆盖
 def register_in_order_routes(app):
+    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    @app.route('/api/purchase_in_order/selectable')
+    @require_role('warehouse', 'purchase')
+    @login_required
+    def api_purchase_in_order_selectable():
+        """P1-7 采购退货出库：按单号/供应商搜索**已完成**的采购入库单，供退货选源。
+
+        只返回 status='completed' 的采购入库单——采购退货只能退已实际入账的货
+        （未完成的入库单尚未形成库存，退回无从谈起）。
+        每行带上「可退数量 = 原行数量 − 已完成采购退货出库聚合量」，前端据此提示，
+        后端在保存/完成时还会再校验一次（真闸）。
+        """
+        from sqlalchemy.orm import joinedload
+        from app import (InOrder, InOrderItem, Material, Supplier,
+                         STOCK_COMPARE_EPSILON, _purchase_returned_quantity_by_source_item,
+                         round_to_2_decimals)
+        in_order_id = request.args.get('in_order_id', type=int) or 0
+        supplier_id = request.args.get('supplier_id', type=int) or 0
+        keyword = (request.args.get('search') or '').strip()
+        keyword_lower = keyword.lower()
+        limit = request.args.get('limit', 80, type=int)
+        limit = min(max(limit, 1), 200)
+
+        query = InOrder.query.options(
+            joinedload(InOrder.supplier),
+            joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+        ).filter(InOrder.business_type == '采购入库', InOrder.status == 'completed')
+        if in_order_id:
+            query = query.filter(InOrder.id == in_order_id)
+        if supplier_id:
+            query = query.filter(InOrder.supplier_id == supplier_id)
+        if keyword_lower:
+            query = query.outerjoin(Supplier, InOrder.supplier_id == Supplier.id).filter(db.or_(
+                db.func.lower(InOrder.order_no).like(f'%{keyword_lower}%'),
+                db.func.lower(Supplier.name).like(f'%{keyword_lower}%'),
+            ))
+        orders = query.order_by(InOrder.date.desc(), InOrder.id.desc()).limit(limit).all()
+
+        item_ids = [item.id for order in orders for item in order.items]
+        returned_map = _purchase_returned_quantity_by_source_item(item_ids)
+
+        result_orders = []
+        flat_items = []
+        for order in orders:
+            order_items = []
+            supplier_name = order.supplier.name if order.supplier else ''
+            for item in order.items:
+                material = item.material
+                returned = round_to_2_decimals(returned_map.get(item.id, 0))
+                remaining = round_to_2_decimals((item.quantity or 0) - returned)
+                if remaining <= STOCK_COMPARE_EPSILON:
+                    continue
+                row = {
+                    'in_order_id': order.id,
+                    'in_order_no': order.order_no,
+                    'in_order_item_id': item.id,
+                    'supplier_id': order.supplier_id,
+                    'supplier_name': supplier_name,
+                    'date': order.date.strftime('%Y-%m-%d') if order.date else '',
+                    'warehouse': order.warehouse or '',
+                    'material_id': item.material_id,
+                    'material_code': material.code if material else '',
+                    'material_name': material.name if material else '',
+                    'spec': material.spec if material else '',
+                    'unit': material.unit.name if material and material.unit else '',
+                    'quantity': round_to_2_decimals(item.quantity or 0),
+                    'returned_quantity': returned,
+                    'remaining_quantity': remaining,
+                    'price': round_to_2_decimals(item.price or 0),
+                }
+                order_items.append(row)
+                flat_items.append(row)
+            if order_items:
+                result_orders.append({
+                    'id': order.id,
+                    'order_no': order.order_no,
+                    'supplier_id': order.supplier_id,
+                    'supplier_name': supplier_name,
+                    'date': order.date.strftime('%Y-%m-%d') if order.date else '',
+                    'warehouse': order.warehouse or '',
+                    'items': order_items,
+                })
+        return jsonify({'status': 'success', 'orders': result_orders, 'items': flat_items})
+
     @app.route('/in_order')
     @app.route('/other_in_order')
     @login_required
