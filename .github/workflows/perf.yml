@@ -1,0 +1,64 @@
+name: WMS Perf Baseline
+
+# P2-1：业务接口压测基线（阈值告警而非硬门禁）。
+# 每次 push 对 10 个最高频业务 GET 接口做低压并发压测，与仓库内
+# scripts/perf_baseline.json 基线对比：p95 回归 >50% 且 >50ms 打 ::warning::
+# 注解，但**不改变工作流成败**（continue-on-error: true 兜底装置性失败，
+# 脚本自身在回归时也恒退出 0，只有 --strict 才会非零）。
+#
+# 为什么不进 WMS CI 主工作流：压测要给 waitress 起真实服务并跑 ~30s 测量，
+# 放主套件会拉长关键路径；且它的语义是"观测回归"而非"拦截合并"。
+# 每日定时跑一次（UTC 18:45，错开 18:30 的三个门禁工作流），保证
+# 即使当天没人推代码，也能发现依赖变更导致的性能漂移。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '45 18 * * *'
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    # 阈值告警而非硬门禁（P2-1 验收口径）：装置性失败/回归不使本工作流变红，
+    # 回归以 ::warning:: 注解形式出现在 summary 与文件 diff 上。
+    continue-on-error: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      # --seconds 2：CI 上缩短单接口测量窗口（10 接口约 20s+启动开销）；
+      # 基线 JSON 写 /tmp 不覆盖仓库基线（基线更新是显式的人为动作：
+      # 本地 python scripts/perf_baseline.py 全量跑后 commit）。
+      - name: "Perf baseline compare (alarm-only, P2-1)"
+        run: >
+          python scripts/perf_baseline.py
+          --seconds 2
+          --compare scripts/perf_baseline.json
+          --output /tmp/perf_current.json
+
+      - name: "Upload current perf result"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-current
+          path: /tmp/perf_current.json
+          if-no-files-found: ignore
+          retention-days: 30
