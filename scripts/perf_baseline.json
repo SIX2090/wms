@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "generated_at": "2026-09-20T11:14:28+0800",
+  "git_sha": "5dc67eed70be",
+  "platform": "Windows 11",
+  "python": "3.13.14",
+  "config": {
+    "seconds": 3.0,
+    "concurrency": 2,
+    "seed_materials": 300
+  },
+  "note": "绝对值与机器相关，跨机对比只看相对回归量级；告警阈值见 ALERT_* 常量。",
+  "endpoints": {
+    "dashboard": {
+      "count": 260,
+      "errors": 0,
+      "rps": 86.28,
+      "mean_ms": 23.15,
+      "p50_ms": 21.8,
+      "p95_ms": 29.23,
+      "max_ms": 48.65,
+      "label": "首页工作台",
+      "path": "/"
+    },
+    "stock_query": {
+      "count": 189,
+      "errors": 0,
+      "rps": 62.62,
+      "mean_ms": 31.84,
+      "p50_ms": 30.05,
+      "p95_ms": 48.86,
+      "max_ms": 69.6,
+      "label": "库存查询",
+      "path": "/stock_query"
+    },
+    "in_order_list": {
+      "count": 326,
+      "errors": 0,
+      "rps": 108.16,
+      "mean_ms": 18.46,
+      "p50_ms": 17.04,
+      "p95_ms": 27.45,
+      "max_ms": 54.98,
+      "label": "入库单列表",
+      "path": "/in_order"
+    },
+    "out_order_list": {
+      "count": 361,
+      "errors": 0,
+      "rps": 119.98,
+      "mean_ms": 16.65,
+      "p50_ms": 15.73,
+      "p95_ms": 22.27,
+      "max_ms": 37.74,
+      "label": "出库单列表",
+      "path": "/out_order"
+    },
+    "material_list": {
+      "count": 294,
+      "errors": 0,
+      "rps": 97.94,
+      "mean_ms": 20.41,
+      "p50_ms": 19.35,
+      "p95_ms": 27.41,
+      "max_ms": 35.22,
+      "label": "物料列表",
+      "path": "/material"
+    },
+    "material_search": {
+      "count": 618,
+      "errors": 0,
+      "rps": 205.5,
+      "mean_ms": 9.73,
+      "p50_ms": 8.8,
+      "p95_ms": 12.88,
+      "max_ms": 114.95,
+      "label": "物料搜索 API（keyword=轴承）",
+      "path": "/material/api/list?keyword=%E8%BD%B4%E6%89%BF"
+    },
+    "opening_stock": {
+      "count": 486,
+      "errors": 0,
+      "rps": 161.6,
+      "mean_ms": 12.36,
+      "p50_ms": 11.95,
+      "p95_ms": 16.23,
+      "max_ms": 23.91,
+      "label": "期初库存页",
+      "path": "/opening_stock"
+    },
+    "check_list": {
+      "count": 388,
+      "errors": 0,
+      "rps": 128.82,
+      "mean_ms": 15.52,
+      "p50_ms": 14.84,
+      "p95_ms": 20.51,
+      "max_ms": 31.7,
+      "label": "盘点单列表",
+      "path": "/check"
+    },
+    "report": {
+      "count": 477,
+      "errors": 0,
+      "rps": 158.46,
+      "mean_ms": 12.62,
+      "p50_ms": 12.24,
+      "p95_ms": 15.67,
+      "max_ms": 26.98,
+      "label": "出入库报表",
+      "path": "/report"
+    },
+    "inventory_alert": {
+      "count": 222,
+      "errors": 0,
+      "rps": 73.51,
+      "mean_ms": 27.19,
+      "p50_ms": 26.04,
+      "p95_ms": 34.0,
+      "max_ms": 54.52,
+      "label": "库存预警",
+      "path": "/alert"
+    }
+  }
+}
