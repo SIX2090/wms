@@ -848,6 +848,41 @@ class WmsRepository(private val context: Context) {
     }
 
     /**
+     * 出入库明细（AI-MOB-RPT-F01 收尾：Android 消费页）：按仓库分页拉取
+     * 指定日期范围内的出入库流水明细（只读，零写操作）。
+     *
+     * warehouseId 必传（仓库必填，AGENTS.md §二）；startDate/endDate 为
+     * yyyy-MM-dd，null 时服务端按今天；direction 方向过滤 in/out/all；
+     * summary 由服务端按过滤后全集计算、每页都带（R1 汇总与分页解耦）。
+     * 与 getStockDailyReport 同模式：只拉单页，分页状态由 ViewModel 持有；
+     * 走 safeCall，服务端业务提示（如"end_date 不能晚于今天"）原样透传。
+     */
+    suspend fun getInOutDetailReport(
+        warehouseId: String,
+        startDate: String? = null,
+        endDate: String? = null,
+        direction: String = "all",
+        keyword: String? = null,
+        sort: String = "time_desc",
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<InOutDetailReportData> {
+        ensureSession()
+        return safeCall {
+            api.inOutDetailReport(
+                warehouseId = warehouseId,
+                startDate = startDate?.takeIf { it.isNotBlank() },
+                endDate = endDate?.takeIf { it.isNotBlank() },
+                direction = direction,
+                keyword = keyword?.takeIf { it.isNotBlank() },
+                sort = sort,
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
+    /**
      * 已建账明细列表（P1-C），带标准分页。
      *
      * 返回 [OpeningStockListData] 而非裸 List——列表页需要 total/total_pages

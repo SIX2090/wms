@@ -141,6 +141,13 @@ fun HomeScreen(
                 screen = Screen.StockDailyReport
             ),
             FunctionCard(
+                title = "出入库明细",
+                subtitle = "日期范围 · 按仓查看流水",
+                icon = Icons.Outlined.SwapVert,
+                gradient = listOf(CardGreen, CardGreenDark),
+                screen = Screen.InOutDetailReport
+            ),
+            FunctionCard(
                 title = "盘点记录",
                 subtitle = "本人盘点 · 回查差异与采纳状态",
                 icon = Icons.Outlined.History,

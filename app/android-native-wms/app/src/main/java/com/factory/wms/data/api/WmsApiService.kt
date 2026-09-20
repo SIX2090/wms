@@ -173,6 +173,25 @@ interface WmsApiService {
     ): Response<ApiEnvelope<StockDailyReportData>>
 
     /**
+     * 出入库明细（AI-MOB-RPT-F01 收尾：Android 消费页）：按仓库查看指定
+     * 日期范围内的出入库流水明细（只读，零写操作）。
+     * warehouseId 必传（仓库必填，AGENTS.md §二）；startDate/endDate 默认今天，
+     * 结束日期不允许晚于今天（服务端 400，客户端前置钳制）；direction 方向过滤
+     * in=入库 / out=出库 / all=不限；summary 基于过滤后全集，与分页解耦（R1）。
+     */
+    @GET("api/mobile/report/in_out_detail")
+    suspend fun inOutDetailReport(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+        @Query("direction") direction: String = "all",
+        @Query("keyword") keyword: String? = null,
+        @Query("sort") sort: String = "time_desc",
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<InOutDetailReportData>>
+
+    /**
      * 已建账明细列表（P1-C）。
      *
      * R1：此前无分页参数，服务端写死 200 条上限，第 201 条之后手机端看不到。
