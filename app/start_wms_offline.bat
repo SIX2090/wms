@@ -11,6 +11,13 @@ set "FLASK_ENV=production"
 set "PYTHONUTF8=1"
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "WMS_NO_DB_TOUCH=1"
+REM BUG-2026-09-19-003：生产模式下若 SESSION_COOKIE_SECURE 未启用，
+REM config.py 的 validate_production_security_config 会**直接拒绝启动**
+REM （防 HTTP 明文会话 Cookie）。本脚本用于**本机/可信内网离线部署**
+REM （http://127.0.0.1:8080），故显式 opt-in 放行；启动日志会打一条
+REM CRITICAL 告警提示该风险，属预期输出。
+REM ⚠️ 若部署到 HTTPS 环境：删掉下面这行，并改设 SESSION_COOKIE_SECURE=true。
+set "WMS_ALLOW_INSECURE_COOKIE=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 
 echo Starting WMS...
