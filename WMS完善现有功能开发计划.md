@@ -232,6 +232,20 @@
 - **行动**：把现有 Robolectric 单测接入 `android-build.yml` 的 `testReleaseUnitTest` 必过门禁，不再"绿也能带病"。
 - **验收**：CI 里 `Android APK Build` 显示 `testReleaseUnitTest` 通过，失败即红。
 
+- **✅ 已完成（无需新开发，2026-09-20 源码核实）**：验收条件在计划编制前已逐条满足——
+  - **Robolectric 基础设施**：`app/build.gradle.kts` 钉版 `org.robolectric:robolectric:4.14.1`
+    + `includeAndroidResources = true`（JVM 上模拟 Android 运行时，可真实实例化 Room/ViewModel）。
+  - **真实运行时单测已在跑**：`OfflineQueueStateMachineTest`（Robolectric + 真实 Room 库
+    验证离线队列状态机）、`RetrofitClientSessionTest`（Robolectric）两个文件均
+    `@RunWith(RobolectricTestRunner::class)`；另有纯 JUnit 逻辑测试
+    `StockDailyPagerTest`（7 用例）与 2026-09-20 新增 `InOutDetailDateLogicTest`（7 用例）。
+  - **必过门禁**：`android-build.yml` 第 87–89 行 `Unit tests (BUG-2026-08-16-021)`
+    步骤跑 `./gradlew testReleaseUnitTest`，**无 continue-on-error**，失败即红；
+    同 workflow 还有 `lintRelease` 静态检查门禁。
+  - **CI 实证**：最近一次 main 运行 #655 @2ea773c2（2026-09-20T00:17Z）全绿
+    = assembleRelease + lintRelease + testReleaseUnitTest 全部通过。
+  - **P2-2 状态：清零**（无新增代码，本登记为 docs 同步）。
+
 ### P2-3 库存三账写入单点收敛（长债）
 
 - **问题**：`add_stock` / `deduct_stock_atomic` **不自动同步库位账**，三账恒等式靠每个消费点手工双写。
