@@ -488,6 +488,16 @@ def register_in_order_routes(app):
             if not ok:
                 return jsonify({'status': 'error', 'msg': '来源单状态已变化，仅已完成单据允许下推'}), 409
             order = locked
+            # P1-1：来源单未指定仓库时拒绝下推。下推目标草稿直接继承
+            # order.warehouse（见下方两处 warehouse=order.warehouse），空仓库的
+            # 出库/售后出库草稿后续无法完成（完成时仓库必填），只会成为死单。
+            # 提前拦截并说明原因，不允许静默写空仓库。
+            if not (order.warehouse or '').strip():
+                db.session.rollback()
+                return jsonify({
+                    'status': 'error',
+                    'msg': '来源入库单未指定仓库，无法下推；请先在来源单补充仓库归属',
+                }), 400
             source_type = _in_order_push_source_type(order)
             if not source_type:
                 db.session.rollback()
