@@ -37,7 +37,7 @@
   2. 迁移过程中同步消除白名单残留，使 A11 lint 对**全量代码**（不止新增行）生效。
 - **验收**：双仓并发场景下库存校验不出现跨仓误判；`scripts/lint_wms_rules.py` 全量扫描无存量违规。
 
-- **✅ 已完成（2026-09-20，3 个 atomic action，本地提交未推送）**：
+- **✅ 已完成（2026-09-20，3 个 atomic action，已推送 origin/main）**：
   用 A11 规则同口径对全仓做**全量扫描**（非仅新增行），实际校验语境违规共 **20 处**
   （计划原文"8 个文件各有 1–8 处"是 raw grep 口径，含大量展示用途；A11 校验语境口径下
   仅 `app/app.py` 12 处 + `app/routes/in_order.py` 8 处）。逐点甄别：**2 处真违规迁移 +
@@ -191,7 +191,7 @@
 - **行动**：把业务页面内**错误处理/401 跳转**的 GET 请求统一收口到 `WMS.api.get()`；纯静态资源 `fetch`（如 CSRF/登录）保留。
 - **验收**：session 过期后任何页面列报错会统一跳登录页，不再静默。
 
-- **✅ 已完成（2026-09-20，1 个 atomic action，本地提交未推送）**：
+- **✅ 已完成（2026-09-20，1 个 atomic action，已推送 origin/main）**：
   侦察发现原行动（前端 233 处逐一收口 WMS.api.get）**不可行也无必要**，改用单点治本方案——
   - **真缺口定位**：静默失败的根因不是"绕过 WMS.api"，而是**伪 API 路径**
     （`/warehouse/api/list`、`/material/api/all` 等，实测 **29 处 / 19 文件**）的 GET fetch
@@ -270,7 +270,7 @@
 - **行动**：把仓库级写入收口为**一个强制入口**（如 `warehouse_stock_service.apply(deltas)`），所有业务路径改道，A11 lint 全量生效。
 - **验收**：任何入库路径不再裸调 `add_stock`/`deduct_stock_atomic`；恒等式 ①=Σ②=Σ③ 现量、静态、增量三口径校验通过。
 
-- **进度（2026-09-20）：第 0 步「判据先行 + 全量侦察」已完成，账务改动待用户确认口径**
+- **进度（2026-09-20 更新）：判据、侦察、唯一缺口修复已完成；收敛主体（单一入口 + 分批改道）待实施**
   - **为什么先做判据**：恒等式 ①=Σ②=Σ③ 此前**没有任何工具能验证**，直接收敛 23 个写入点
     无法判断改前/改后是否账实一致。故先交付校验器，再动手术。
   - **判据（`1 个 atomic action`）**：`scripts/verify_inventory_identity.py`——纯函数可单测
@@ -282,17 +282,23 @@
     out_order 3 / adjustment 4 / after_sale_out 2 / mobile 2 / requisition 1 / native_api 1）。
     **22 处已按「两层同时写」正确双写，仅 1 处真缺口**——委外发料 `app/app.py:7218`
     只扣总账不扣库位账，已登记 **BUG-2026-09-20-008**。
-  - **下一步（待用户拍板）**：① 修 BUG-2026-09-20-008（需确认库位键回退口径，
-    拟沿用 `adjustment.py` 定式回退 `issue.warehouse`）；② 再收敛写入口为单一入口
-    `warehouse_stock_service.apply(deltas)`，23 个调用点分批改道（每类单据 1 个
-    atomic action），每批改完用校验器复跑 + 双仓回归。
+  - **进展（2026-09-20）**：BUG-2026-09-20-008 已修——库位键口径经用户拍板
+    （`issue.location or issue.warehouse`，与反提交端 `subcontract.py:1380`
+    BUG-2026-08-16-001 逐字一致），修复提交 `eafec63` + 生效确认回填 `ec56acc`，
+    推送后三工作流全绿（Android #661 / AI 验证 #1445 / WMS CI #1150）；回归锁
+    `tests/test_bug_2026_09_20_008_subcontract_issue_location_sync.py` 4 项，
+    回退验证已证锁有效（修复前第 1/4 项失败）。
+  - **剩余工作（待指派）**：收敛写入口为单一入口 `warehouse_stock_service.apply(deltas)`，
+    23 个调用点分批改道（每类单据 1 个 atomic action），每批改完用
+    `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；P0-1 遗留的
+    A11 全量硬门禁升级随本批一并评估落地。
 
 ### P2-4 清理技术债信号（低风险）
 
 - **行动**：把根目录约 27 个一次性 `_audit_*.py / _verify_*.py / fix_*.bat` 归档到 `scripts/archive/` 或注明"`generated-留存`"，减少新进入的人的噪音；不删。
 - **验收**：根目录只剩 `AGENTS.md`、README、台账、规则、启动脚本等核心文件。
 
-- **✅ 已完成（2026-09-20，3 个 atomic action，本地提交待推送）**：
+- **✅ 已完成（2026-09-20，3 个 atomic action，已推送 origin/main）**：
   实测根目录一次性文件共 **31 个**（比计划估计的 27 多 4），按类别分 3 批 `git mv`
   归档（100% rename 相似度，历史可溯，**只归档不删除**）：
   - **A 批 `abe6c83`**：审计/E2E 9 个（`_audit_*`×3 + `_audit_state.pkl` + `_browser_test_wms`
