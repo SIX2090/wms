@@ -7150,6 +7150,16 @@ def api_subcontract_quick_issue():
     if not warehouse:
         return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
 
+    # P0-1 / BUG-2026-08-16-009 同根因：发料预校验改仓库级口径，与扣减端
+    # deduct_stock_atomic（BUG-2026-09-19-001）严格对齐——否则多仓库下
+    # A 仓库存会掩护 B 仓发料：预校验按全局放行、扣减在 B 仓打负账面。
+    wh_obj = Warehouse.query.filter(
+        db.or_(Warehouse.name == warehouse.strip(), Warehouse.code == warehouse.strip())
+    ).order_by(Warehouse.id.asc()).first()
+    if not wh_obj:
+        return api_error('委外单仓库无效，请编辑委外单选择有效仓库')
+    warehouse_stock = get_warehouse_stock_quantities(wh_obj)
+
     validated_items = []
     for item in items:
         material_id = item.get('material_id')
@@ -7161,12 +7171,18 @@ def api_subcontract_quick_issue():
         if not material:
             return jsonify({'status': 'error', 'msg': f'物料 ID {material_id} 不存在，请刷新后重试'}), 404
 
-        current_stock = normalize_stock_quantity(material.stock or 0)
         quantity = normalize_stock_quantity(quantity)
+        current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
+        # 与 deduct_stock_atomic 兜底对齐（BUG-2026-09-19-001）：该物料库存
+        # 全部为历史未归属流水（warehouse_id/location 全空）时回退全局口径，
+        # 避免"有库存却拒绝发料"；存在任何可归属流水则保持仓库级严格校验。
+        if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(material.id):
+            # stock-truth:reason=与 deduct_stock_atomic BUG-2026-09-19-001 同一兜底：库存全部未归属仓库的历史遗留流水时回退全局总账
+            current_stock = normalize_stock_quantity(material.stock or 0)
         if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
             return jsonify({
                 'status': 'error',
-                'msg': f'库存不足，当前库存 {current_stock:.2f}，发料数量 {quantity:.2f}'
+                'msg': f'物料 {material.code} 在仓库 {wh_obj.name} 库存不足，当前库存 {current_stock:.2f}，发料数量 {quantity:.2f}'
             }), 400
 
         validated_items.append((material, quantity))
