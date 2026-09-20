@@ -33451,6 +33451,16 @@ def api_ai_sales_order_anomaly_analysis(id):
 
     # 5. 缺货风险（订单已确认但库存不足）
     if order.status == 'confirmed' and order.shipment_status != 'shipped':
+        # P0-1 / A11-R2：缺货判定按订单仓库口径——A 仓订单不能被 B 仓库存
+        # 掩护而漏报。只读提示场景：订单无仓库或仓库无法解析时回退全局口径，
+        # 保持旧行为、不阻断分析输出。
+        wh_obj = None
+        if (order.warehouse or '').strip():
+            wh_key = order.warehouse.strip()
+            wh_obj = Warehouse.query.filter(
+                db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+            ).order_by(Warehouse.id.asc()).first()
+        warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
         shortage_items = []
         for item in order.items:
             if not item.material:
@@ -33458,9 +33468,20 @@ def api_ai_sales_order_anomaly_analysis(id):
             remaining = float(item.quantity or 0) - float(item.shipped_quantity or 0)
             if remaining <= 0:
                 continue
-            current_stock = float(item.material.stock or 0)
+            if warehouse_stock is not None:
+                current_stock = float(warehouse_stock.get(item.material_id, 0) or 0)
+                # 与扣减链路兜底同判据（BUG-2026-09-19-001）：该物料库存全部
+                # 为历史未归属流水时回退全局口径，避免"有库存却误报缺货"。
+                if current_stock < remaining and _material_stock_unattributed(item.material_id):
+                    # stock-truth:reason=只读缺货提示的兼容兜底：库存全部为历史未归属流水时回退全局总账（与 deduct_stock_atomic BUG-2026-09-19-001 同判据）
+                    current_stock = float(item.material.stock or 0)
+                stock_scope = f'{wh_obj.name}库存'
+            else:
+                # stock-truth:reason=订单无仓库或仓库无法解析时回退全局总账（只读提示场景，保持旧行为兼容，与 BUG-2026-08-17-002 同一兜底思路）
+                current_stock = float(item.material.stock or 0)
+                stock_scope = '库存'
             if current_stock < remaining:
-                shortage_items.append(f'{item.material.code}: 待发 {remaining} vs 库存 {current_stock}')
+                shortage_items.append(f'{item.material.code}: 待发 {remaining} vs {stock_scope} {current_stock}')
         if shortage_items:
             anomalies.append({
                 'kind': '缺货风险',
