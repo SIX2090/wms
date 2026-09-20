@@ -29,9 +29,15 @@ object InOutDetailDateLogic {
 
     fun today(): String = ymd.format(Date())
 
-    /** 把 yyyy-MM-dd 平移 offsetDays 天（跨月/跨年由 Calendar 处理） */
+    /** 把 yyyy-MM-dd 平移 offsetDays 天（跨月/跨年由 Calendar 处理）
+     *
+     * ⚠️ 解析失败必须兜住：`SimpleDateFormat.parse` 对空串/非法串是**抛
+     * ParseException**，不是返回 null——只写 `ymd.parse(s) ?: Date()` 兜不住
+     * （CI #658 `InOutDetailDateLogicTest` 实测 ParseException）。日期串来自
+     * UI 状态，空/脏值不应让整页崩，故回退到今天。
+     */
     fun shift(dateStr: String, offsetDays: Int): String {
-        val base = ymd.parse(dateStr) ?: Date()
+        val base = runCatching { ymd.parse(dateStr) }.getOrNull() ?: Date()
         val cal = Calendar.getInstance().apply {
             time = base
             add(Calendar.DAY_OF_YEAR, offsetDays)
