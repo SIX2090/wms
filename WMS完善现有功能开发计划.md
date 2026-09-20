@@ -226,6 +226,24 @@
   2. 把该基线接入 CI 轻量任务（阈值告警而非硬门禁），回归时对比。
 - **验收**：每次 commit 能知道"物料列表又慢了 20ms"这类回归。
 
+- **✅ 已完成（2026-09-20，2 个 atomic action）**：
+  - **1/2 `258d351`**：`scripts/perf_baseline.py`——临时 SQLite 文件库 + 确定性种子
+    （1 默认仓 + 300 物料 + 300 期初流水，不碰生产数据），waitress 真实 HTTP 服务
+    （非 test_client，测量含完整 WSGI/模板/SQL 链路），并发 2 × 每接口 3s（30s 预算）。
+    10 个只读 GET 接口：首页/库存查询/入库列表/出库列表/物料列表/物料搜索 API/
+    期初页/盘点列表/出入库报表/库存预警。`--compare` 逐接口打 p95 增量表，
+    回归 >50% 且 >50ms 打 `::warning::`（退出码恒 0，`--strict` 才非零）。
+    纯逻辑（percentile/summarize/regression_alerts）与 app 导入分离，
+    `tests/test_perf_baseline.py` **11 项全绿**（A9）；A14 显式 opt-in 已含。
+    首份基线入档（本机 3s 窗口 10 接口 0 错误，p95 12.9–48.9ms，git_sha 入档）。
+  - **2/2 `ca3bd8c`**：`.github/workflows/perf.yml`——push/workflow_dispatch/每日
+    UTC 18:45（错开 18:30 三门禁）；`--seconds 2 --compare` 仓库基线，超阈值打
+    `::warning::` 注解；job 级 `continue-on-error` + 脚本回归恒 0 退出，**双重保证
+    只告警不拦合并**；测量结果传 artifact 留存 30 天；不入三工作流全绿门禁
+    （观测性任务）。基线更新为显式人为动作（本地全量跑后 commit，CI 不自动回写）。
+  - **验证**：compare 模式本机实测——逐接口增量表正常输出（如「物料列表
+    -16.02ms」）、回归判定无误报；pre-commit lint 0 违规。
+
 ### P2-2 Android 端运行时验证接入 CI
 
 - **问题**：55 个"Android 测试"全是源码正则，抓不到运行时崩溃（冷启动闪退修 5 轮才定位）；09-14 才刚补 Robolectric 基础设施但**未进 CI 必过门禁**。
