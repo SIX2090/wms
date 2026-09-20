@@ -880,14 +880,15 @@ def register_out_order_routes(app):
         from app import (OutOrder, Warehouse, _acquire_order_write_lock,
                          _check_out_order_anomalies, allow_negative_stock,
                          api_error, assert_warehouse_active,
-                         deduct_location_inventory_atomic, deduct_stock_atomic,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          is_future_date, location_management_enabled,
                          log_operation, normalize_stock_quantity,
-                         recalculate_order_total, resolve_inventory_warehouse_id,
+                         recalculate_order_total,
                          sales_outbound_remaining_check,
                          sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
+        # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -953,7 +954,7 @@ def register_out_order_routes(app):
             if location_management_enabled() and not (order.location or '').strip():
                 db.session.rollback()
                 return api_error('库位管理已启用，请选择库位')
-            use_location = bool(location_management_enabled() and (order.location or order.warehouse))
+            # P2-3 收敛：use_location 判定下沉到 apply_stock_delta 内部。
             # SALES-AUDIT-006：完成前校验每条有来源的明细数量不超过销售订单行
             # 未发货数量，防止"生成小数量草稿→编辑改大→完成"超量出库。
             if order.business_type == '销售出库':
@@ -969,27 +970,20 @@ def register_out_order_routes(app):
                 if not item.material_id:
                     continue
                 material_code = item.material.code if item.material else str(item.material_id)
-                # 原子扣总库存
-                ok, err, _ = deduct_stock_atomic(
-                    item.material_id, item.quantity or 0,
+                # P2-3 收敛：总账+流水+库位账经单点入口，delta 取负（出库）。
+                # 原 deduct_location_inventory_atomic 与入口内部 update_location_inventory
+                # 同参同仓（仓库 id 由入口统一解析，失败语义一致）。
+                ok, err = apply_stock_delta(
+                    item.material, -(item.quantity or 0),
                     transaction_type='out',
                     reference_type='out_order',
                     reference_id=order.id,
                     warehouse=order.warehouse,
+                    location=order.location,
                 )
                 if not ok:
                     db.session.rollback()
                     return api_error(err or f'物料 {material_code} 库存不足')
-                # 原子扣库位（优先 order.location，未启用库位管理时回退 order.warehouse）
-                if use_location:
-                    ok2, err2 = deduct_location_inventory_atomic(
-                        item.material_id, order.location or order.warehouse, item.quantity or 0,
-                        material_code_hint=material_code,
-                        warehouse_id=resolve_inventory_warehouse_id(order.warehouse),
-                    )
-                    if not ok2:
-                        db.session.rollback()
-                        return api_error(err2 or '库位库存扣减失败')
             order.status = 'completed'
             sync_sales_order_shipment(order, quantity_sign=1)
             recalculate_order_total(order)
@@ -1007,10 +1001,12 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_out_order(id):
-        from app import (OutOrder, _acquire_order_write_lock, add_stock,
-                         api_error, location_management_enabled,
+        from app import (OutOrder, _acquire_order_write_lock,
+                         api_error,
                          log_audit, log_operation, recalculate_order_total,
-                         sync_sales_order_shipment, update_location_inventory)
+                         sync_sales_order_shipment)
+        # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
+        from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'completed':
@@ -1025,20 +1021,18 @@ def register_out_order_routes(app):
             for item in order.items:
                 if not item.material or (item.quantity or 0) <= 0:
                     continue
-                ok, err = add_stock(item.material, item.quantity or 0,
-                                    transaction_type='revert_out',
-                                    reference_type='out_order',
-                                    reference_id=order.id,
-                                    warehouse=order.warehouse)
+                # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成）。
+                ok, err = apply_stock_delta(
+                    item.material, item.quantity or 0,
+                    transaction_type='revert_out',
+                    reference_type='out_order',
+                    reference_id=order.id,
+                    warehouse=order.warehouse,
+                    location=order.location,
+                )
                 if not ok:
                     db.session.rollback()
                     return api_error(err or '库存恢复失败')
-                # 同步还原库位库存（与 complete_out_order 对称），仅启用库位管理且有仓库时
-                if location_management_enabled() and (order.location or order.warehouse):
-                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0, warehouse=order.warehouse)
-                    if not loc_ok:
-                        db.session.rollback()
-                        return api_error(loc_err or '库位库存还原失败')
             order.status = 'pending'
             sync_sales_order_shipment(order, quantity_sign=-1)
             recalculate_order_total(order)
@@ -1179,14 +1173,16 @@ def register_out_order_routes(app):
     def batch_complete_out_order():
         from app import (OutOrder, Warehouse, _acquire_order_write_lock,
                          _check_out_order_anomalies, allow_negative_stock,
-                         api_error, deduct_stock_atomic, get_default_warehouse,
+                         api_error, get_default_warehouse,
                          get_warehouse_stock_quantities, is_future_date,
                          is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity,
                          recalculate_order_total,
                          sales_outbound_remaining_check,
-                         sync_sales_order_shipment, update_location_inventory,
+                         sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
+        # P2-3 收敛：批量完成与 complete_out_order 共用同一写入入口。
+        from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import joinedload, selectinload
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -1266,19 +1262,18 @@ def register_out_order_routes(app):
                 continue
             try:
                 for item in order.items:
-                    # 使用原子扣减避免并发超卖，并检查返回值
-                    ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
-                                 transaction_type='out',
-                                 reference_type='out_order',
-                                 reference_id=order.id,
-                                 warehouse=order.warehouse)
+                    # P2-3 收敛：与单据版 complete_out_order 同一入口（原子扣减
+                    # 与库位同步由入口内部完成，单张失败经 ValueError 只回滚本单）。
+                    ok, error_msg = apply_stock_delta(
+                        item.material, -(item.quantity or 0),
+                        transaction_type='out',
+                        reference_type='out_order',
+                        reference_id=order.id,
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
                     if not ok:
                         raise ValueError(error_msg or f'物料 {item.material.code if item.material else ""} 库存不足')
-                    # 同步库位库存（与单据版 complete_out_order 对称）
-                    if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
-                        if not loc_ok:
-                            raise ValueError(loc_err or '库位库存扣减失败')
                 order.status = 'completed'
                 sync_sales_order_shipment(order, quantity_sign=1)
                 recalculate_order_total(order)

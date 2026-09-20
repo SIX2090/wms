@@ -363,12 +363,14 @@ def register_after_sale_out_routes(app):
     @login_required
     def complete_after_sale_out_order(id):
         from app import (AfterSaleOutOrder, Warehouse, _acquire_order_write_lock, allow_negative_stock,
-                         api_error, assert_warehouse_active, deduct_stock_atomic,
+                         api_error, assert_warehouse_active,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient, location_management_enabled, log_operation,
-                         normalize_stock_quantity, update_location_inventory,
+                         normalize_stock_quantity,
                          _material_stock_unattributed)
         from app import Material
+        # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import selectinload
         try:
             order = AfterSaleOutOrder.query.get_or_404(id)
@@ -433,29 +435,20 @@ def register_after_sale_out_routes(app):
             for item in order.items:
                 material = db.session.get(Material, item.material_id)
                 if material:
-                    # 使用原子扣减避免并发超卖（FOR UPDATE 条件 UPDATE），并检查返回值
-                    ok, error_msg, _ = deduct_stock_atomic(material.id, item.quantity or 0,
+                    # P2-3 收敛：总账+流水+库位账经单点入口，delta 取负（出库）。
+                    # 库位键口径与存量逐字一致（(order.location or '').strip() or warehouse）。
+                    ok, error_msg = apply_stock_delta(
+                        material, -(item.quantity or 0),
                         transaction_type='after_sale_out',
                         reference_type='after_sale_out_order',
                         reference_id=order.id,
                         remark=f'After-sales outbound order {order.order_no}',
-                        warehouse=order.warehouse)
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
-                    # 同步库位库存（与 batch_complete_out_order 对称），
-                    # 库位管理与总库存独立维护，必须显式同步。
-                    # P1-BUGFIX: 开启库位管理时优先用 order.location，未开库位时退回 order.warehouse
-                    if location_management_enabled():
-                        loc_dim = (order.location or '').strip() or order.warehouse
-                        if loc_dim:
-                            loc_ok, loc_err = update_location_inventory(
-                                material, loc_dim, -(item.quantity or 0),
-                                warehouse=order.warehouse,
-                            )
-                            if not loc_ok:
-                                db.session.rollback()
-                                return api_error(loc_err or '库位库存扣减失败')
 
             order.status = 'completed'
             try:
@@ -475,9 +468,10 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_after_sale_out_order(id):
-        from app import (AfterSaleOutOrder, _acquire_order_write_lock, add_stock, api_error,
-                         location_management_enabled, log_operation,
-                         update_location_inventory)
+        from app import (AfterSaleOutOrder, _acquire_order_write_lock, api_error,
+                         log_operation)
+        # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
+        from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import selectinload
         try:
             order = AfterSaleOutOrder.query.get_or_404(id)
@@ -493,7 +487,9 @@ def register_after_sale_out_routes(app):
 
             for item in order.items:
                 if item.material and (item.quantity or 0) > 0:
-                    ok, err = add_stock(
+                    # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成，
+                    # 库位键口径与存量逐字一致）。
+                    ok, err = apply_stock_delta(
                         item.material,
                         item.quantity or 0,
                         transaction_type='revert_after_sale_out',
@@ -501,23 +497,11 @@ def register_after_sale_out_routes(app):
                         reference_id=order.id,
                         remark=f'反提交售后出库 {order.order_no}',
                         warehouse=order.warehouse,
+                        location=order.location,
                     )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
-                    # 同步还原库位库存（与 complete_after_sale_out_order 对称），
-                    # 库位管理与总库存独立维护，必须显式同步。
-                    # P1-BUGFIX: 开启库位管理时优先用 order.location，未开库位时退回 order.warehouse
-                    if location_management_enabled():
-                        loc_dim = (order.location or '').strip() or order.warehouse
-                        if loc_dim:
-                            loc_ok, loc_err = update_location_inventory(
-                                item.material, loc_dim, item.quantity or 0,
-                                warehouse=order.warehouse,
-                            )
-                            if not loc_ok:
-                                db.session.rollback()
-                                return api_error(loc_err or '库位库存还原失败')
 
             order.status = 'pending'
             db.session.commit()
