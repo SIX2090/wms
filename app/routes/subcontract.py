@@ -294,11 +294,13 @@ def register_subcontract_routes(app):
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
                          SubcontractOrder, _acquire_order_write_lock,
                          allow_negative_stock, api_error,
-                         assert_warehouse_active, deduct_stock_atomic, generate_order_no,
+                         assert_warehouse_active, generate_order_no,
                          get_warehouse_stock_quantities, is_stock_sufficient, location_management_enabled,
                          validate_inventory_warehouse,
                          log_operation, normalize_stock_quantity,
-                         parse_float_value, round_to_2_decimals, update_location_inventory)
+                         parse_float_value, round_to_2_decimals)
+        # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
@@ -356,22 +358,20 @@ def register_subcontract_routes(app):
                 quantity=quantity,
                 unit_id=material.unit_id
             ))
-            # 使用原子扣减并检查返回值，避免并发超卖
-            ok, error_msg, _ = deduct_stock_atomic(material.id, quantity,
-                         transaction_type='subcontract_issue',
-                         reference_type='subcontract_issue',
-                         reference_id=issue.id,
-                         warehouse=issue.warehouse)
+            # P2-3 收敛：总账+流水+库位账经单点入口，delta 取负（发料=出库）。
+            # BUG-2026-08-16-001 的库位同步由入口内部完成（库位键 location or warehouse
+            # 与存量逐字一致，并发原子扣减语义保留）。
+            ok, error_msg = apply_stock_delta(
+                material, -quantity,
+                transaction_type='subcontract_issue',
+                reference_type='subcontract_issue',
+                reference_id=issue.id,
+                warehouse=issue.warehouse,
+                location=location,
+            )
             if not ok:
                 db.session.rollback()
                 return api_error(error_msg or '库存扣减失败')
-            # BUG-2026-08-16-001：同步扣减库位账，防止总账与库位账分叉
-            if location_management_enabled():
-                loc_ok, loc_err = update_location_inventory(
-                    material, location or warehouse, -quantity, warehouse=warehouse)
-                if not loc_ok:
-                    db.session.rollback()
-                    return api_error(loc_err or '库位库存扣减失败')
             if order.status == 'pending':
                 order.status = 'processing'
             db.session.commit()
@@ -390,11 +390,12 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from app import (Material, SubcontractOrder, SubcontractReceive,
                          SubcontractReceiveItem, _acquire_order_write_lock,
-                         add_stock, api_error,
+                         api_error,
                          assert_warehouse_active, generate_order_no,
                          location_management_enabled, log_operation,
-                         parse_float_value, round_to_2_decimals,
-                         update_location_inventory)
+                         parse_float_value, round_to_2_decimals)
+        # P2-3 收敛：库存三账写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         order = SubcontractOrder.query.get_or_404(id)
         material_code = (request.form.get('material_code') or '').strip()
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
@@ -450,21 +451,19 @@ def register_subcontract_routes(app):
                 price=price,
                 amount=round_to_2_decimals(quantity * price)
             ))
-            ok, msg = add_stock(material, quantity,
-                                transaction_type='subcontract_receive',
-                                reference_type='subcontract_receive',
-                                reference_id=receive.id,
-                                warehouse=receive.warehouse)
+            # P2-3 收敛：收货入账经单点入口（BUG-2026-08-16-001 库位同步
+            # 由入口内部完成，库位键 location or warehouse 与存量逐字一致）。
+            ok, msg = apply_stock_delta(
+                material, quantity,
+                transaction_type='subcontract_receive',
+                reference_type='subcontract_receive',
+                reference_id=receive.id,
+                warehouse=receive.warehouse,
+                location=location,
+            )
             if not ok:
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
-            # BUG-2026-08-16-001：同步增加库位账，防止总账与库位账分叉
-            if location_management_enabled():
-                loc_ok, loc_err = update_location_inventory(
-                    material, location or warehouse, quantity, warehouse=warehouse)
-                if not loc_ok:
-                    db.session.rollback()
-                    return api_error(loc_err or '库位库存增加失败')
 
             total_required = sum((item.quantity or 0) for item in order.items)
             # BUG-2026-08-30-007：receive 已 flush()，order.receive_orders 此刻首次
@@ -1262,9 +1261,11 @@ def register_subcontract_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (SubcontractIssue, _acquire_order_write_lock,
                          allow_negative_stock, api_error, assert_warehouse_active,
-                         deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
-                         location_management_enabled, log_operation, normalize_stock_quantity,
-                         update_location_inventory, validate_inventory_warehouse)
+                         get_warehouse_stock_quantities, is_stock_sufficient,
+                         log_operation, normalize_stock_quantity,
+                         validate_inventory_warehouse)
+        # P2-3 收敛：库存三账写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'pending':
             return api_error('只有待发料状态可以完成发料')
@@ -1311,25 +1312,22 @@ def register_subcontract_routes(app):
                             'msg': f'?? {material.code} ????????????{current_stock:.2f}????{required_quantity:.2f}'
                         })
 
-            # 扣减库存（使用原子扣减并检查返回值，避免并发超卖与失败仍标记 completed）
+            # 扣减库存（P2-3 收敛：经单点入口，原子扣减与库位同步由入口内部完成，
+            # 并发超卖与失败仍标记 completed 的防护语义保留；
+            # 库位键 issue.location or issue.warehouse 与 BUG-2026-08-16-001 逐字一致）
             for item in issue.items:
                 if item.material:
-                    ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
-                                 transaction_type='subcontract_issue',
-                                 reference_type='subcontract_issue',
-                                 reference_id=issue.id,
-                                 warehouse=issue.warehouse)
+                    ok, error_msg = apply_stock_delta(
+                        item.material, -(item.quantity or 0),
+                        transaction_type='subcontract_issue',
+                        reference_type='subcontract_issue',
+                        reference_id=issue.id,
+                        warehouse=issue.warehouse,
+                        location=issue.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存扣减失败')
-                    # BUG-2026-08-16-001：同步扣减库位账，防止总账与库位账分叉
-                    if location_management_enabled() and (issue.location or issue.warehouse):
-                        loc_ok, loc_err = update_location_inventory(
-                            item.material, issue.location or issue.warehouse,
-                            -(item.quantity or 0), warehouse=issue.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存扣减失败')
 
             issue.status = 'completed'
             try:
@@ -1354,9 +1352,10 @@ def register_subcontract_routes(app):
     def revert_subcontract_issue(id):
         """反提交委外发料"""
         from sqlalchemy.orm import selectinload
-        from app import (SubcontractIssue, _acquire_order_write_lock, add_stock,
-                         api_error, location_management_enabled, log_operation,
-                         update_location_inventory)
+        from app import (SubcontractIssue, _acquire_order_write_lock,
+                         api_error, log_operation)
+        # P2-3 收敛：反提交经同一入口，delta 取正与发料严格对称。
+        from services.warehouse_stock_service import apply_stock_delta
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'completed':
             return api_error('只有已发料的委外发料单可以反提交')
@@ -1368,23 +1367,20 @@ def register_subcontract_routes(app):
             issue = locked
             for item in issue.items:
                 if item.material:
-                    ok, err = add_stock(item.material, item.quantity or 0,
-                                        transaction_type='revert_subcontract_issue',
-                                        reference_type='subcontract_issue',
-                                        reference_id=issue.id,
-                                        remark=f'反提交委外发料 {issue.issue_no}',
-                                        warehouse=issue.warehouse)
+                    # P2-3 收敛：库存恢复经单点入口（库位恢复由入口内部完成，
+                    # 库位键与完成端严格对称）。
+                    ok, err = apply_stock_delta(
+                        item.material, item.quantity or 0,
+                        transaction_type='revert_subcontract_issue',
+                        reference_type='subcontract_issue',
+                        reference_id=issue.id,
+                        remark=f'反提交委外发料 {issue.issue_no}',
+                        warehouse=issue.warehouse,
+                        location=issue.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
-                    # BUG-2026-08-16-001：同步恢复库位账，与总账回退保持一致
-                    if location_management_enabled() and (issue.location or issue.warehouse):
-                        loc_ok, loc_err = update_location_inventory(
-                            item.material, issue.location or issue.warehouse,
-                            item.quantity or 0, warehouse=issue.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存恢复失败')
             issue.status = 'pending'
             db.session.commit()
             log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
@@ -1937,9 +1933,11 @@ def register_subcontract_routes(app):
     def complete_subcontract_receive(id):
         """完成委外收货"""
         from sqlalchemy.orm import selectinload
-        from app import (SubcontractReceive, _acquire_order_write_lock, add_stock,
-                         api_error, assert_warehouse_active, location_management_enabled,
-                         log_operation, update_location_inventory)
+        from app import (SubcontractReceive, _acquire_order_write_lock,
+                         api_error, assert_warehouse_active,
+                         log_operation)
+        # P2-3 收敛：库存三账写入唯一入口。
+        from services.warehouse_stock_service import apply_stock_delta
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
             return api_error('只有待收货状态可以完成收货')
@@ -1968,24 +1966,20 @@ def register_subcontract_routes(app):
             total_scrap = 0
             for item in receive.items:
                 if item.material:
-                    # 走 add_stock 写流水+归一化，与 quick_receive_subcontract 对称
-                    ok, err = add_stock(item.material, item.quantity or 0,
-                                        transaction_type='subcontract_receive',
-                                        reference_type='subcontract_receive',
-                                        reference_id=receive.id,
-                                        remark=f'完成委外收货 {receive.receive_no}',
-                                        warehouse=receive.warehouse)
+                    # P2-3 收敛：与 quick_receive_subcontract 对称，经单点入口
+                    # （库位同步由入口内部完成，库位键与存量逐字一致）。
+                    ok, err = apply_stock_delta(
+                        item.material, item.quantity or 0,
+                        transaction_type='subcontract_receive',
+                        reference_type='subcontract_receive',
+                        reference_id=receive.id,
+                        remark=f'完成委外收货 {receive.receive_no}',
+                        warehouse=receive.warehouse,
+                        location=receive.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    # BUG-2026-08-16-001：同步增加库位账，防止总账与库位账分叉
-                    if location_management_enabled() and (receive.location or receive.warehouse):
-                        loc_ok, loc_err = update_location_inventory(
-                            item.material, receive.location or receive.warehouse,
-                            item.quantity or 0, warehouse=receive.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存增加失败')
                     total_quantity += item.quantity or 0
                     total_scrap += item.scrap_quantity or 0
 
@@ -2015,8 +2009,9 @@ def register_subcontract_routes(app):
         """反提交委外收货"""
         from sqlalchemy.orm import selectinload
         from app import (SubcontractReceive, _acquire_order_write_lock, api_error,
-                         deduct_stock, location_management_enabled, log_operation,
-                         update_location_inventory)
+                         log_operation)
+        # P2-3 收敛：反提交经同一入口，delta 取负与收货严格对称。
+        from services.warehouse_stock_service import apply_stock_delta
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'completed':
             return api_error('只有已入库的委外收货单可以反提交')
@@ -2028,26 +2023,21 @@ def register_subcontract_routes(app):
             receive = locked
             for item in receive.items:
                 if item.material:
-                    ok, error_msg = deduct_stock(
+                    # P2-3 收敛：库存回退经单点入口，delta 取负（与收货对称），
+                    # 库位回退由入口内部完成。
+                    ok, error_msg = apply_stock_delta(
                         item.material,
-                        item.quantity or 0,
+                        -(item.quantity or 0),
                         transaction_type='revert_subcontract_receive',
                         reference_type='subcontract_receive',
                         reference_id=receive.id,
                         remark=f'反提交委外收货 {receive.receive_no}',
-                        warehouse=receive.warehouse
+                        warehouse=receive.warehouse,
+                        location=receive.location,
                     )
                     if not ok:
                         db.session.rollback()
                         return api_error(error_msg or '库存回退失败')
-                    # BUG-2026-08-16-001：同步回退库位账，与总账回退保持一致
-                    if location_management_enabled() and (receive.location or receive.warehouse):
-                        loc_ok, loc_err = update_location_inventory(
-                            item.material, receive.location or receive.warehouse,
-                            -(item.quantity or 0), warehouse=receive.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存回退失败')
             receive.status = 'pending'
             db.session.commit()
             log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
