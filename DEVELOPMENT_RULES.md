@@ -163,7 +163,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 | **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A9** | **新增** 业务函数必须在 `tests/` 至少有 1 个对应 pytest 测试 | 未测试代码上线 | `app/**/*.py`（除 `app/ai/`，仅看 git staged 新增行） |
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 / 可维护性下滑 | `app/app.py`（仅看 git staged 新增行） |
-| **A11** | **新增** 禁止裸用 `material.stock`（总账）做**库存校验**，必须用仓库级口径 | 多仓库口径串仓 / 同根因反复 BUG | `app/**/*.py`（除 `app/utils.py`，仅看 git staged 新增行） |
+| **A11** | **新增** 禁止裸用 `material.stock`（总账）做**库存校验**，必须用仓库级口径 | 多仓库口径串仓 / 同根因反复 BUG | `app/**/*.py`（除 `app/utils.py`；pre-commit 看 staged 新增行，CI 另以 `--full-a11` 全量硬门禁） |
 | **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 | `tests/*.py`（跳过三引号字符串块；行尾 `# allow-ctx-push` 可豁免） |
 | **A13** | `WMS_BUG_BASELINE.md` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 / "改了没重启"反复 | `WMS_BUG_BASELINE.md`（仅看 git staged 新增行中的条目头；编辑存量条目不触发） |
 | **A14** | `scripts/` 下**新增** app 引用的脚本必须显式放行生产硬门禁（`WMS_ALLOW_INSECURE_COOKIE=1` 等）（R6 机械化） | 生产硬门禁引入后漏排查消费点 → CI 变红（BUG-2026-09-20-004） | `scripts/*.py`（仅看 git staged 新增行中的 app 引用；切 testing / 不导入 app / 行尾 `# allow-no-optin` 放行） |
@@ -180,7 +180,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - **A8**：路由装饰器行/上一行/紧邻 `def` 行加 `# pydantic:reason=<理由>` 注释可豁免；登录/csrf/webhook/wechat 端点与 A2 一致豁免。
 - **A9**：同行/上一行加 `# no-test:reason=<理由>` 注释可豁免；`_xxx` 内部 helper、`test_xxx` 测试函数、`__dunder__` 魔术方法、装饰器（`@property` / `@staticmethod` / `@classmethod`）以及路由函数（`@app.route` 装饰的 def）均不算"业务函数"。
 - **A10**：`@app.route` 装饰器行/上一行/下一行加 `# route-in-app:reason=<理由>` 注释可豁免（用于确有必要留在 app.py 的极少数特殊端点）；存量路由不强制，仅拦 git staged 新增行。
-- **A11**：行内或上一行加 `# stock-truth:reason=<理由>` 注释可豁免；`app/utils.py`（库存工具模块本身）整体豁免；仅拦 git staged 新增行。**只抓"校验语境"**（比较运算符 / `is_stock_sufficient` 传参 / 赋值后隔行比较），放过展示用途（序列化输出、f-string 报表、排序聚合）。
+- **A11**：行内或上一行加 `# stock-truth:reason=<理由>` 注释可豁免；`app/utils.py`（库存工具模块本身）整体豁免。**只抓"校验语境"**（比较运算符 / `is_stock_sufficient` 传参 / 赋值后隔行比较），放过展示用途（序列化输出、f-string 报表、排序聚合）。**双模式**（2026-09-20）：pre-commit 默认仅拦 git staged 新增行；CI 以 `lint_wms_rules.py --rule a11 --full-a11` 跑全量硬门禁（P0-1 存量清零后启用，豁免注释两种模式通用）。
 
 ### 6.2 排除路径
 
@@ -189,7 +189,7 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 - A11 排除 `app/utils.py`（库存工具模块本身）与 `app/tests` / `app/android-native-wms`。
 - A6 额外排除 `app/run_server.py`、`app/auto_update.py`、`app/restart.py`、`app/notifications.py`、`app/wechat_helper.py`（这些是 CLI / 启动 / 辅助脚本，`print` 是合法的运维输出）。
 - A3 / A4 / A5 自动跳过 `app/static/js/lib/` 和 `xlsx.full.min.js` 等第三方库。
-- **A8 / A9 / A10 / A11 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。
+- **A8 / A9 / A10 / A11 是"新增代码生效"规则**：仅扫描 `git diff --cached` 的新增行（含 `--diff-filter=A` 新增文件），存量代码不会一次性报几百条违规。其中 **A11 自 2026-09-20 起为双模式**：pre-commit 维持新增行生效，CI 追加 `--full-a11` 全量硬门禁（存量已清零，违规即红）。
 
 ---
 

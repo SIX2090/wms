@@ -1107,8 +1107,10 @@ class RuleA10NoNewRouteInApp(Rule):
 class RuleA11NoRawGlobalStockCheck(Rule):
     """禁止业务代码裸用 ``material.stock``（总账）做**库存校验**。
 
-    这是一条"新增代码生效"规则：仅检查 git staged 中**新增**的违规行，
+    这是一条"新增代码生效"规则：默认仅检查 git staged 中**新增**的违规行，
     不对存量代码一次性报错（存量用 ``_BASELINE_ALLOW`` 豁免）。
+    传 ``--full-a11`` 时切换为**全量模式**：不过滤 staged 新增行，对全部行生效
+    （P0-1 存量清零后的 CI 硬门禁用，2026-09-20 新增）。
 
     ## 为什么有这条规则
 
@@ -1155,6 +1157,10 @@ class RuleA11NoRawGlobalStockCheck(Rule):
     scan_paths = ("app",)
     exclude_paths = ("app/tests", "app/android-native-wms")
     extensions = (".py",)
+
+    # 全量模式开关：True 时不过滤 staged 新增行，对存量同样生效（CI 硬门禁用，
+    # 由 CLI ``--full-a11`` 置位；默认 False 保持 pre-commit"新增行生效"行为）。
+    full_scan: bool = False
 
     # 匹配 material.stock / mat.stock / item.material.stock / m.stock ...
     _STOCK_REF = re.compile(
@@ -1222,16 +1228,19 @@ class RuleA11NoRawGlobalStockCheck(Rule):
                 text = f.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
-            added_lines = get_staged_added_lines(repo_root, f)
-            if not added_lines:
-                continue
+            if self.full_scan:
+                added_lines = None  # None = 全量模式：不过滤 staged 新增行
+            else:
+                added_lines = get_staged_added_lines(repo_root, f)
+                if not added_lines:
+                    continue
             baseline = self._BASELINE_ALLOW.get(rel, set())
             stripped = strip_py_comments(text)
             lines_raw = text.split("\n")
             for m in self._STOCK_REF.finditer(stripped):
                 ln = line_number_at(text, m.start())
-                if ln not in added_lines:
-                    continue  # 存量行不强制
+                if added_lines is not None and ln not in added_lines:
+                    continue  # 存量行不强制（默认模式）
                 if ln in baseline:
                     continue  # 已登记白名单
                 line_idx = stripped[: m.start()].count("\n")
@@ -1585,6 +1594,7 @@ WMS 防 BUG 多规则静态检查器（12 条规则）
   python3 scripts/lint_wms_rules.py --rule a1,a2     跑 A1 和 A2
   python3 scripts/lint_wms_rules.py --list           列出所有规则
   python3 scripts/lint_wms_rules.py --staged         只扫描 git staged 文件（pre-commit 用）
+  python3 scripts/lint_wms_rules.py --rule a11 --full-a11   A11 全量扫描（CI 硬门禁用）
   python3 scripts/lint_wms_rules.py --verbose        详细输出（每条规则的扫描文件数）
 
 退出码：0 = 通过，1 = 有违规，2 = 参数错误。
@@ -1612,6 +1622,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--staged",
         action="store_true",
         help="只扫描 git staged 的文件（pre-commit 用）",
+    )
+    parser.add_argument(
+        "--full-a11",
+        action="store_true",
+        help="A11 全量扫描：不过滤 staged 新增行，存量代码同样强制（CI 硬门禁用）",
     )
     parser.add_argument(
         "--verbose",
@@ -1642,6 +1657,10 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if args.list:
         return list_rules()
+
+    # --full-a11：把 A11 从"staged 新增行"模式切换为全量扫描（CI 硬门禁）
+    if args.full_a11:
+        RULES["a11"].full_scan = True  # type: ignore[attr-defined]
 
     # 决定要跑的规则
     if args.rule:

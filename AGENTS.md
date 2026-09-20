@@ -132,12 +132,12 @@
 | **A8** | **新增** POST/PUT/DELETE 路由必须用 pydantic `BaseModel` 输入校验 | 数据类型 BUG / 字段漂移 |
 | **A9** | **新增** 业务函数必须在 `tests/` 至少 1 个对应 pytest 测试 | 未测试代码上线 |
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 |
-| **A11** | **新增** 禁止裸用 `material.stock`（总账）做库存校验，必须用仓库级 `get_warehouse_stock_quantities()` | 多仓库口径串仓 / 同根因反复 BUG |
+| **A11** | **新增** 禁止裸用 `material.stock`（总账）做库存校验，必须用仓库级 `get_warehouse_stock_quantities()`（双模式：pre-commit 查新增行 + CI `--full-a11` 全量硬门禁，2026-09-20 起） | 多仓库口径串仓 / 同根因反复 BUG |
 | **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 |
 | **A13** | `WMS_BUG_BASELINE.md` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 |
 | **A14** | `scripts/` 下**新增** app 引用的脚本必须显式放行生产硬门禁（R6 机械化） | 生产硬门禁漏排查消费点 → CI 变红 |
 
-> A8/A9/A10/A11/A13/A14 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
+> A8/A9/A10/A11/A13/A14 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。其中 **A11 自 2026-09-20 起为双模式**：pre-commit 维持新增行生效，`WMS CI` 追加 `python3 scripts/lint_wms_rules.py --rule a11 --full-a11` 全量硬门禁（P0-1 存量清零后启用，违规即红）。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
 
 ### 强制门禁
 

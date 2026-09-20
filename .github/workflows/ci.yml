@@ -52,6 +52,12 @@ jobs:
       - name: "Lint - 防 BUG 7 条规则"
         run: python3 scripts/lint_wms_rules.py
 
+      # A11 全量硬门禁（2026-09-20）：A11 默认只在 pre-commit 查 staged 新增行，
+      # CI checkout 无 staged 文件，不加本步则 A11 在 CI 形同虚设。
+      # P0-1 存量违规已清零（豁免注释见 stock-truth:reason=），全量扫描应保持 0 违规。
+      - name: "Lint - A11 库存校验口径全量扫描"
+        run: python3 scripts/lint_wms_rules.py --rule a11 --full-a11
+
       # Lint: 禁止裸调非 GET fetch (防 CSRF 漏写)
       - name: "Lint - 禁止裸调非 GET fetch"
         run: python3 scripts/lint_no_raw_post_fetch.py
