@@ -298,8 +298,23 @@
     服务层测试 `tests/test_warehouse_stock_service.py`
     8 项 + adjustment 现有回归 12 项 + 库存口径相邻 23 项 + 导入布局 T1/T2/T3 全绿，
     CI 实证 WMS CI #1159 / AI 验证 #1454 绿。
-  - **剩余工作（批 2–5）**：in_order（6）→ out_order + after_sale_out（5）→
-    subcontract（5）→ mobile + native_api + requisition + app.py（10），
+  - **进展（2026-09-20 批 2）**：in_order 全量改道——9 处写入点（complete 含自动下推
+    领料 / update_completed 删·增·改量 / revert / batch_complete / batch_revert，
+    含 3 处旧包装 `deduct_stock()`，比侦察口径的 6 处多 3 处）全部改经
+    `apply_stock_delta`，提交 `d933c9d`。
+    - **行为差异说明（纯重构的唯一口径变化）**：`delta==0` 统一为「不写任何账、
+      直接成功」（入口既定语义）；存量 `add_stock(0)`/`deduct_stock(0)` 会报错
+      「数量必须大于 0」。入库明细数量在创建/编辑校验时已强制 >0，实际路径
+      不触发；该变化只会让"0 数量明细"这类脏数据不再导致整单完成失败。
+    - **回归锁** `tests/test_p2_3_in_order_apply_stock_delta.py` 7 项：结构锁 2
+      （in_order.py 禁裸调 5 原语 + 5 个路由函数按顶级包 `services` 导入）+
+      行为锁 5（完成 / 反提交 / 批量完成反审 / 改量增减 / 删明细，开库位管理
+      下真实路由断言①总账=③流水净额、②库位账同步、方向对称）。
+    - **验证**：本批 7 项 + 相邻回归 28 项 + 全量 2392 passed（2 failed + 27 errors
+      经复核为本机 PATH/git 子进程环境噪音，补全 PATH 后 39 项全过，与本改动无关）；
+      pre-commit lint 0 违规；CI 实证 WMS AI Verification #1456 / WMS CI #1161 绿。
+  - **剩余工作（批 3–5）**：out_order + after_sale_out（5）→
+    subcontract（6，含 revert_receive 旧包装）→ mobile + native_api + requisition + app.py（8），
     每类单据 1 个 atomic action，每批改完用
     `scripts/verify_inventory_identity.py` 复跑 + 双仓回归；
     收尾评估 lint 新规则禁止业务代码直调原语。
