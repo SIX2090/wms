@@ -127,7 +127,7 @@
 | 37 | AI-MOB-NAV-F01 | 已完成 | 手机端底部 Tab 导航（首页/入库/出库/查库存/我的） | AI-MOB-HOME-F01 | AI-MOB-STOCK-F01 |
 | 38 | AI-MOB-STOCK-F01 | 已完成 | 手机端查库存增加列表模式（复用既有 /api/mobile/stock/query） | AI-MOB-NAV-F01 | AI-MOB-CHECK-F01 |
 | 39 | AI-MOB-CHECK-F01 | 已完成 | 手机盘点与 Web 盘点单据流对齐（仓库必填✓、提交前选单✓、盘点记录可回查✓） | AI-MOB-STOCK-F01 | AI-MOB-RPT-F01 |
-| 40 | AI-MOB-RPT-F01 | 部分完成 | 手机端只读报表入口（日报只读视图✓；库存汇总视图 2026-09-17 已由 AI-MOB-RPT-F02 以「结存」口径交付✓；出入库明细独立端点（后端 API 已交付✓，2026-09-19，本地 7bdefa3→API 重放远程 d49f53db4a；Android 消费页遗留✗）） | AI-MOB-CHECK-F01 | AI-MOB-RPT-F02 |
+| 40 | AI-MOB-RPT-F01 | 已完成 | 手机端只读报表入口（日报只读视图✓；库存汇总视图 2026-09-17 已由 AI-MOB-RPT-F02 以「结存」口径交付✓；出入库明细：后端 API 2026-09-19 交付✓ + Android 消费页 2026-09-20 收尾✓，本地 9d7f5ed 待推送） | AI-MOB-CHECK-F01 | AI-MOB-RPT-F02 |
 | 41 | AI-MOB-EMPTY-F01 | 部分完成 | 手机端统一空状态组件✓（16 处）；引导动作参数✗、首次登录引导✗ | AI-MOB-RPT-F01 | 无 |
 | 42 | AI-MOB-ARCH-F01 | 已完成 | 手机端物料档案：搜索物料 + 拍照/相册上传多图（每物料最多 5 张）+ 删除 | AI-MOB-NAV-F01 | 无 |
 | 43 | AI-LI-WH-001 | 已完成 | LocationInventory warehouse_id 阶段一兼容迁移 | 无 | 已由 INV-AUDIT-001~005 完成 |
@@ -806,6 +806,28 @@
 > 结论：**部分完成**。已交付的是"日报明细只读视图"，原计划中的"库存汇总"视图仍需补（可复用 `queryStockPage` 已有能力，或新增 `stock_summary` 端点）。
 >
 > **补充（2026-09-17）**：「库存汇总」视图已由 **AI-MOB-RPT-F02** 以用户确认的「结存」口径交付（见下方 F02 完成记录）；剩余未做项仅为 `in_out_detail` 出入库明细独立端点。
+>
+> **Android 消费页收尾（2026-09-20，1 个 atomic action，本地提交待推送）**：
+> `in_out_detail` 端点的 Android 消费页落地，F01 至此闭环。
+> - **提交**：本地 `9d7f5ed`（11 文件，+1045/-2）；工作树中半成品（Models/ViewModel/
+>   ApiService/Repository 四处，上一会话遗留）补齐 Screen/导航/首页入口/单测/版本号后
+>   合为同一 atomic action。推送走 §8.1 API 通道（git 协议 TLS 被拦），待 GitHub 授权后补。
+> - **页面**：`InOutDetailReportScreen`（出入库明细 · 日期范围流水按仓展示）——
+>   开始/结束日期各自前后翻（开始不越结束、结束不越今天，服务端 400 前置钳制）+
+>   仓库必选（只列真实仓，无「全部仓库」）+ 方向 chips（全部/入库/出库）+
+>   keyword 搜索（编码/名称/规格）+ 汇总卡三格（笔数/入/出合计，R1 与分页解耦）+
+>   滚动到底自动翻页 + 双空态文案（无流水/被滤掉）；数量带符号着色（+绿/-红）。
+> - **纯逻辑**：`InOutDetailDateLogic`（today/shift/shiftStart/shiftEnd 钳制）抽离，
+>   新增 `InOutDetailDateLogicTest` 7 用例（跨月跨年/钳制/空白兜底），与 StockDailyPager
+>   同一「抽逻辑出来测」模式；可空字段判空沿用 BUG-2026-08-24-007 纪律。
+> - **接线**：`Screen.InOutDetailReport` 路由 + NavGraph composable + 首页入口卡
+>   （SwapVert 图标，CardGreen 渐变，位于「库存日报」后）；versionCode 24→25、
+>   versionName 3.9.0→3.9.1（BUG-2026-09-14-027 发版纪律）。
+> - **验证**：`tests/verify_in_out_detail_android_page.py` **27/27 PASSED**（链路贯通/
+>   仓库必填/模型契约/状态机守卫/UI 钳制/接线/版本号）；端点回归
+>   `tests/test_mobile_in_out_detail_api.py` **9 passed**；pre-commit lint 0 违规；
+>   编译与单测由 CI `Android APK Build`（assembleRelease + testReleaseUnitTest）校验。
+> - **生效条件**：安卓需 CI 出包后重装 3.9.1 APK；后端无需重启（端点 09-19 已上线）。
 
 ### AI-MOB-RPT-F02：手机端库存日报（按仓查询各物料当天结存）
 
