@@ -191,6 +191,27 @@
 - **行动**：把业务页面内**错误处理/401 跳转**的 GET 请求统一收口到 `WMS.api.get()`；纯静态资源 `fetch`（如 CSRF/登录）保留。
 - **验收**：session 过期后任何页面列报错会统一跳登录页，不再静默。
 
+- **✅ 已完成（2026-09-20，1 个 atomic action，本地提交未推送）**：
+  侦察发现原行动（前端 233 处逐一收口 WMS.api.get）**不可行也无必要**，改用单点治本方案——
+  - **真缺口定位**：静默失败的根因不是"绕过 WMS.api"，而是**伪 API 路径**
+    （`/warehouse/api/list`、`/material/api/all` 等，实测 **29 处 / 19 文件**）的 GET fetch
+    不带 `X-Requested-With` 头 → `wants_json_error_response()` 不命中 → 未登录时后端按页面请求
+    **302 到登录页** → 前端 `r.json()` 解析 HTML 失败静默。`/api/`、`/mobile/api/`、
+    `/report/api/` 前缀的请求后端本就直接 401，由 base.html 既有全局 401/419 拦截器统一跳登录。
+  - **不能收口 WMS.api 的实证**：`/warehouse/api/list` 返回 `{warehouses: [...]}` 裸对象
+    （无 `status: 'success'` 包装），WMS.api.get 会误判为业务失败 throw；逐接口改后端契约
+    侵入面大且影响既有消费点。
+  - **解法（`bc1f7d7`）**：base.html 全局 fetch 拦截器对**所有同源请求**统一注入
+    `X-Requested-With: XMLHttpRequest`（Headers/普通对象双形态、已有头不覆盖、外部 URL 跳过
+    避免 CORS preflight 变更）→ 未登录 AJAX 统一拿到 401 JSON → 拦截器既有 401/419 处理
+    confirm 跳登录。**1 处改动覆盖全部 29 处缺口及未来新增调用**，前端 233 处与后端路由零改动。
+  - **回归锁** `tests/test_p1_4_fetch_interceptor_ajax_header.py`（8 项：行为契约——未登录
+    伪 API 带头→401 JSON、不带→302 证明缺口真实；结构断言——注入/同源/双形态/不覆盖/CSRF 与
+    401 保留）+ CSRF/会话/登录相关 35 项全绿；pre-commit 钩子 0 违规。
+  - **R3 生效注意**：改的是 Jinja 模板（base.html 拦截器），**必须重启服务才生效**。
+  - **P1-4 状态：清零**。前端 233 处 raw fetch 的"风格统一"无功能收益，不再推进；
+    新增代码仍受 `lint_no_raw_post_fetch.py` 约束（非 GET 必须走 WMS.api）。
+
 ---
 
 ## 4. P2 — 减债与运行验证
