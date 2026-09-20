@@ -7205,6 +7205,14 @@ def api_subcontract_quick_issue():
     db.session.add(issue)
     db.session.flush()
 
+    # BUG-2026-09-20-008：开启库位管理时，发料方向必须同步②库位账。
+    # `deduct_stock_atomic` 只扣①总账并写③流水，**不会自动同步库位账**
+    # （INVENTORY_TRUTH.md §2.1「新代码必须两层同时写」）；漏写时 ①已扣而②未扣 →
+    # 恒等式 ①=Σ② 被打破，且**无任何报错**（与 BUG-2026-08-16-002 同型的静默账实分裂）。
+    # 库位键必须与反提交端**逐字一致**（`subcontract.py:1380` BUG-2026-08-16-001 用
+    # `issue.location or issue.warehouse`）——两边落在两个不同库位会立刻产生漂移。
+    use_location = location_management_enabled()
+
     # Add issue details
     for material, quantity in validated_items:
         issue_item = SubcontractIssueItem(
@@ -7223,6 +7231,15 @@ def api_subcontract_quick_issue():
         if not ok:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': error_msg or '库存扣减失败'}), 400
+
+        # 库位账同步：delta 取负（发料=出库），失败显式报错不静默。
+        if use_location and (issue.location or issue.warehouse):
+            loc_ok, loc_err = update_location_inventory(
+                material, issue.location or issue.warehouse, -(quantity or 0),
+                warehouse=issue.warehouse)
+            if not loc_ok:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': loc_err or '库位库存更新失败'}), 400
 
     # Update order status
     if order.status == 'pending':

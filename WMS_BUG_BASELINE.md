@@ -364,12 +364,30 @@
 - **发现方式**：P2-3 前置侦察——用本次新增的写入点扫描（`add_stock`/`deduct_stock_atomic` 调用点后 80 行内是否出现库位同步）对全仓 **23 个调用点**分类：**22 处已双写**，唯 `app/app.py:7218`（委外发料 `subcontract_issue`）无 `update_location_inventory` / `deduct_location_inventory_atomic` / `location_management_enabled`；并已确认该函数区间（7150–7330）内**没有任何库位写入**。
 - **根因（代码实证）**：委外发料明细循环内只调 `deduct_stock_atomic(material.id, quantity, ..., warehouse=issue.warehouse)` 扣 **①总账**并写 **③流水**，**未同步②库位账**。而 `INVENTORY_TRUTH.md §2.1` 明确"`add_stock`/`deduct_stock_atomic` 不会自动同步库位账，调用方必须自己再调一次 `update_location_inventory`；**新代码必须两层同时写**"——调整单（`adjustment.py:451` 扣减 + `:481` 同步）等 22 处都遵守了，委外发料这一处漏了。
 - **危害**：**开启库位管理时**，每发一笔料，①总账减少而②库位账不变 → 恒等式 `① = Σ②` 被打破；库存查询/报表（仓库级/库位级口径）与物料列表（全局总账）数字对不上，且**无任何报错**——与 `BUG-2026-08-16-002` 同型的**静默账实分裂**。关闭库位管理时不显现（无库位账可对照），属条件触发。
-- **状态**：**未修复（登记待修）**。账务逻辑改动需先与用户确认库位键取值口径（委外发料明细无 `location` 字段，拟按 `adjustment.py` 既有定式回退到 `issue.warehouse`），确认后单独 atomic action 修复。
-- **修复方案（待确认）**：`use_location = location_management_enabled()`；扣减成功后 `update_location_inventory(material, loc_key=(item.location or issue.warehouse), delta=-quantity, warehouse=issue.warehouse)`，失败即 rollback 并显式报错（与 adjustment 同型，**不静默成功**）。同步排查委外发料**反提交**链路是否有对称缺口（R6）。
-- **回归（修复时交付）**：用例锁——开启库位管理时委外发料后 ①=Σ②；失败路径显式报错不静默；关闭库位管理时行为不变。判据工具 `scripts/verify_inventory_identity.py` 可复跑验证。
-- **R6 同根因排查**：23 个 `add_stock`/`deduct_stock_atomic` 调用点已全量分类，除本处外 **22 处均已双写**（adjustment / in_order / out_order / subcontract_receive / requisition / mobile / native_api / after_sale_out），**无第二处缺口**。
-- **生效条件**：修复属路由逻辑改动，**需重启 WMS 服务生效**（R3）。
-- **生效确认**：**待确认**——登记时尚未修复；修复后由判据工具复跑 + CI 三工作流全绿回填本字段。
+- **状态**：**已修复**（2026-09-20）。
+- **修复（1 个 atomic action）**：`api_subcontract_quick_issue`（`app/app.py`，`/api/subcontract/quick_issue`）
+  发料循环内新增库位账同步——`use_location = location_management_enabled()`；
+  扣减成功后 `update_location_inventory(material, issue.location or issue.warehouse,
+  -(quantity), warehouse=issue.warehouse)`，失败即 `rollback` 并显式报错。
+  **库位键取值口径经用户拍板**：委外发料明细无 `location` 字段，回退发料单仓库
+  （`issue.location or issue.warehouse`）——与反提交端 `subcontract.py:1380`
+  （BUG-2026-08-16-001）**逐字一致**，避免扣减与回退落在不同库位。
+- **回归**：新增 `tests/test_bug_2026_09_20_008_subcontract_issue_location_sync.py`
+  **4 项**——①开启库位管理时发料后 ①=②（恒等式成立）；②库位键与反提交端同键
+  （断言 `issue.location or issue.warehouse`）；③关闭库位管理时不改库位账（向后兼容）；
+  ④库位账缺失必须报错且①未被扣（**不静默成功**）。
+  **回退验证（证明锁有效，非自证）**：临时回退到修复前版本跑同一套用例，
+  第 1 项失败（`②库位账必须同步扣减到 5`，实际仍为 10）、第 4 项失败
+  （`库位账缺失必须报错，实际: success`——正是"静默账实分裂"的实证据）；
+  恢复修复后 4 项全过。
+- **R6 同根因排查**：23 个 `add_stock`/`deduct_stock_atomic` 调用点已全量分类，除本处外
+  **22 处均已双写**（adjustment / in_order / out_order / subcontract_receive / requisition /
+  mobile / native_api / after_sale_out），**无第二处缺口**。另核：网页版快速发料
+  `/subcontract/<id>/issue`（`routes/subcontract.py:292`）与本 API 是**两套实现**，
+  网页版早已同步（BUG-2026-08-16-001），本次修的是漏掉的那套。
+- **生效条件**：路由逻辑改动，**需重启 WMS 服务生效**（R3）。
+- **生效确认**：**待确认**——修复已推送，待 CI 三工作流全绿后回填本字段
+  （判据工具 `scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②）。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
