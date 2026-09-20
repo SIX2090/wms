@@ -3029,3 +3029,107 @@ T3 无仓库时页面渲染警示条 + 按钮 disabled；T4 有仓库时无警�
 **P1-1 状态：清零**（4 条描述 3 条早已完成、1 条刻意设计，真缺口 1 条已修）。
 下一批候选：P1-4（fetch 统一层）、P0-1/P0-2/P0-3。
 
+---
+
+## P1-7 采购退货出库 —— 全量实现（2026-09-20）
+
+**来源**：整改方案 `WMS_BUSINESS_AI_REMEDIATION_PLAN.md` §P1-7（`:492`）。方案原文结论是
+「**类不存在，但开关已存在**」——`purchase_return_requires_order`（默认 `1`）在配置页写着
+"为后续采购退货流程预留"，是**半成品而非零起点**。方案明确要求「**与 P1-5 保持同构，降低理解成本**」，
+并建议 P1-5 验收通过后再做、复用其测试骨架。本项即按此执行。
+
+**P1-5 前置确认**：销售退货入库（P1-5）已先行完成，P1-7 严格镜像其实现模式——
+3 个模型列 + 3 个业务函数 + 模板 `party_label`/`party_field` 机制 + `type` 别名映射 +
+单头聚合 + 冗余单号。
+
+### 拆分为 3 个 atomic action
+
+| # | 范围 | 提交 | 状态 |
+|---|---|---|---|
+| A1 | 模型列 `source_in_order_id`/`source_in_order_no`/`source_in_order_item_id` + 静态 ALTER 与启动期 `ensure_purchase_return_source_columns` 幂等兜底 | `876ff62` | 已提交 |
+| A2 | 业务逻辑 + 前端模板/页面 + 18 项回归测试 | `d6fcb20` | 已提交 |
+| A3 | 台账登记（本文件 + `WMS_BUG_BASELINE.md`） | 本次 | 进行中 |
+
+### 实现要点
+
+**1. 复用 `OutOrder`，不新建模型**
+`business_type='采购退货出库'`；货退给供应商，方向是出库，与 `complete_out_order` 天然同路。
+
+**2. 库存写入零新增（关键）**
+方案原文写「`deduct_stock_atomic` + `deduct_location_inventory_atomic` **成对**」。
+本实现直接调 **`apply_stock_delta`**（`app/services/warehouse_stock_service.py`），
+把「成对调用」从**调用方责任**升级为**入口不变量**——`delta<0` 时其内部自动走
+`deduct_stock_atomic`，库位管理开启时同步 `update_location_inventory`。
+这与 P2-3 subcontract 批 4 的 6 处改道是**同一条直线**（AGENTS.md A11 / `INVENTORY_TRUTH.md` §2.1）。
+
+**3. 防超退双闸（关闭并发竞态窗口）**
+- **保存期**：`validate_purchase_return_quantity(in_item, return_qty, material_code='')` 前置校验；
+- **完成期**：加锁后 `purchase_return_remaining_check(out_order)` **整单**再校验一遍。
+
+已退量由 `_purchase_returned_quantity_by_source_item(source_item_ids)` 按
+`business_type='采购退货出库'` 且 `status='completed'` **聚合派生**，
+**不在 `InOrderItem` 上加 `returned_quantity` 状态字段** —— 防第四套库存口径，
+与 P1-5、STOCK-TRUTH-P16 同一哲学（`INVENTORY_TRUTH.md` §2.1.1）。
+pending 单不在聚合内，故保存/完成两阶段重复校验**不自斥**；
+两张草稿在同一窗口内均可保存，先完成者占额度、**后完成者被完成闸拒绝**（T5 实证）。
+
+**4. 尊重既有开关**
+`purchase_return_requires_order`（默认 `'1'`）经 `get_system_setting_bool` 读取：
+为 `1` 时强制关联来源采购入库单，为空 **400**；为 `0` 时允许无来源手工退货单。
+
+**5. 权限与 AI**
+沿用 `out_order_draft`（`warehouse` 角色），**不新增 AI 能力** —— 退货是高敏动作，AI 不参与。
+
+**6. 前端对齐采购入库单样式（用户指示）**
+- `out_order_add.html`：业务类型分支、来源单号**搜索下拉**、party 字段走供应商搜索框
+  （`party_label='退货供应商'`）、隐藏「领料人」、行级回传 `source_in_order_item_id`；
+- `out_order_detail.html`：信息区/编辑弹窗补退货供应商与来源单，复制到新增带 `type=purchase_return`；
+- `out_order.html`：新增按钮、列头与空态文案按业务类型切换。
+
+**7. 路由落位（合规）**
+新增选源接口 `/api/purchase_in_order/selectable` 置于 `app/routes/in_order.py` 的
+`register_in_order_routes` 内，**满足 A10**（app.py 禁止新增 `@app.route`）。
+只返 `business_type='采购入库'` 且 `status='completed'` 的单据，逐行带 `remaining_quantity`。
+
+**8. 类型别名**
+列表/导出路由新增 `purchase_return` / `return_out` → `采购退货出库` 映射与白名单校验；
+单号前缀 `PR`。
+
+### 验证
+
+```bash
+WMS_ALLOW_INSECURE_COOKIE=1 python -m pytest tests/verify_purchase_return_outbound.py -q
+```
+
+**18 passed**，覆盖：
+
+| 用例 | 内容 |
+|---|---|
+| T1 | 三账一致：总账余额 12 / 本单流水增量 −8 / 库位账余额 12 |
+| T2 | `stock_transaction.warehouse_id` 正确归属（不得为 NULL） |
+| T3 | 保存期超退拒绝 |
+| T4 | 一张来源入库单多行退货，各行独立计限 |
+| T5 | 完成期真闸（两草稿并发窗口，后完成者被拒） |
+| T6 | 重复完成幂等 |
+| T7 / T8a / T8b | 开关关闭允许无来源 / 开启拒绝无来源 / 退货供应商必填 |
+| T9 | 非采购退货单不得挂来源 |
+| T10 | 列表别名与列头 |
+| T11 | 新增页按模式渲染 |
+| T12 | AI 不参与（无草稿） |
+| T13 | 选源接口口径 |
+| T14 | 编辑草稿保留行级来源 |
+
+**全量回归**：`tests/verify_*.py` **174 文件 0 失败**（197.5s）；
+主套件 **2403 passed / 86 skipped / 0 failed**；
+`lint_wms_rules.py` 全量与 `--staged` 均 **0 违规**；
+`lint_no_raw_post_fetch.py` 通过；`check_in_order_imports` 39 函数全覆盖；
+R6 守卫 `tests/test_r6_startup_migration_column_guard.py` 3 passed。
+
+**生效条件（R3）**：含 Jinja 模板与 `app.py` 改动，**生产需重启 WMS 服务生效**。
+数据库列由启动期 `ensure_purchase_return_source_columns` 自动补齐，**无需手工执行迁移**。
+
+**台账**：`WMS_BUG_BASELINE.md` 已登记 **BUG-2026-09-20-014**。
+
+**整改方案状态**：P1-5（销售退货入库）+ **P1-7（采购退货出库）已完成** ——
+整改方案 §P1 系列的**最后一项功能缺口清零**。
+
