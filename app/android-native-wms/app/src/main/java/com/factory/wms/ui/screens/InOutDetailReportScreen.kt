@@ -354,7 +354,9 @@ private fun InOutDateNavRow(
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         IconButton(onClick = onPrev) {
-            Icon(Icons.Filled.ChevronLeft, "$label前一天")
+            // 注意：必须用 ${label}——"$label前一天" 会被 Kotlin 解析成
+            // 标识符 `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference。
+            Icon(Icons.Filled.ChevronLeft, "${label}前一天")
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
@@ -364,7 +366,7 @@ private fun InOutDateNavRow(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "$label日期",
+                    "${label}日期",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -372,7 +374,7 @@ private fun InOutDateNavRow(
             }
         }
         IconButton(onClick = onNext, enabled = nextEnabled) {
-            Icon(Icons.Filled.ChevronRight, "$label后一天")
+            Icon(Icons.Filled.ChevronRight, "${label}后一天")
         }
     }
 }
