@@ -1648,15 +1648,16 @@ def register_in_order_routes(app):
         from app import (DocumentPushLine, InOrder, InOrderItem, OutOrder, OutOrderItem,
                          PurchaseOrder, PurchaseOrderItem, WechatShareConfig,
                          _acquire_order_write_lock, _check_in_order_anomalies,
-                         _wechat_share_order, add_stock, api_error,
+                         _wechat_share_order, api_error,
                          assert_warehouse_active,
-                         deduct_location_inventory_atomic, deduct_stock_atomic,
                          generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
-                         recalculate_order_total, resolve_inventory_warehouse_id,
+                         recalculate_order_total,
                          round_to_2_decimals, sales_return_remaining_check,
-                         update_location_inventory,
                          update_purchase_order_status, validate_purchase_in_order_source)
+        # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口，替代裸调
+        # add_stock / deduct_stock_atomic + update_location_inventory 双写。
+        from services.warehouse_stock_service import apply_stock_delta
         from flask_login import current_user
         # 预加载 items + material，消除 _check_in_order_anomalies 中的 N+1 查询
         order = InOrder.query.options(
@@ -1735,25 +1736,21 @@ def register_in_order_routes(app):
             # 采购单 received_quantity 由 /in_order/add 保存、update_completed、
             # delete_in_order 处维护，完成仅代表库存入账，不改变接收数量。
             affected_purchase_order_ids = set()
-            # BUG-2026-08-23-002：location 开关提升到循环外，避免每条明细
-            # 重复查询 system_setting（与 get_system_setting 请求级缓存叠加，
-            # 双保险消除循环内重复设置读取）
-            location_enabled_for_in = location_management_enabled()
+            # P2-3 收敛：库位开关判定下沉到 apply_stock_delta 内部（请求级缓存，
+            # 与 BUG-2026-08-23-002 提升开关到循环外的优化等效）。
             for item in order.items:
                 if item.material:
-                    ok, err = add_stock(item.material, item.quantity,
-                                        transaction_type='in',
-                                        reference_type='in_order',
-                                        reference_id=order.id,
-                                        warehouse=order.warehouse)
+                    ok, err = apply_stock_delta(
+                        item.material, item.quantity or 0,
+                        transaction_type='in',
+                        reference_type='in_order',
+                        reference_id=order.id,
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    if location_enabled_for_in and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity or 0, warehouse=order.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存更新失败')
                 if item.source_purchase_order_item:
                     if item.source_purchase_order_item.purchase_order:
                         affected_purchase_order_ids.add(item.source_purchase_order_item.purchase_order.id)
@@ -1783,7 +1780,7 @@ def register_in_order_routes(app):
                 )
                 db.session.add(auto_requisition)
                 db.session.flush()
-                use_location = bool(location_management_enabled() and (order.location or order.warehouse))
+                # P2-3 收敛：use_location 判定下沉到 apply_stock_delta 内部。
                 for source_item in order.items:
                     price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
                     target_item = OutOrderItem(
@@ -1795,25 +1792,19 @@ def register_in_order_routes(app):
                     )
                     db.session.add(target_item)
                     db.session.flush()
-                    stock_ok, stock_error, _ = deduct_stock_atomic(
-                        source_item.material_id, source_item.quantity or 0,
+                    # P2-3 收敛：自动下推领料单扣减同样经单点入口（delta 取负）。
+                    # 原直接调 deduct_location_inventory_atomic 与入口内部的
+                    # update_location_inventory 同参同仓（仓库 id 由入口统一解析）。
+                    stock_ok, stock_error = apply_stock_delta(
+                        source_item.material, -(source_item.quantity or 0),
                         transaction_type='out', reference_type='out_order',
                         reference_id=auto_requisition.id,
                         warehouse=order.warehouse,
+                        location=order.location,
                     )
                     if not stock_ok:
                         db.session.rollback()
                         return api_error(stock_error or '自动下推领料单扣减库存失败')
-                    if use_location:
-                        location_ok, location_error = deduct_location_inventory_atomic(
-                            source_item.material_id, order.location or order.warehouse,
-                            source_item.quantity or 0,
-                            material_code_hint=source_item.material.code if source_item.material else None,
-                            warehouse_id=resolve_inventory_warehouse_id(order.warehouse),
-                        )
-                        if not location_ok:
-                            db.session.rollback()
-                            return api_error(location_error or '自动下推领料单扣减库位库存失败')
                     db.session.add(DocumentPushLine(
                         source_document_type='purchase_in_order', source_document_id=order.id,
                         source_document_no=order.order_no, source_item_id=source_item.id,
@@ -1863,13 +1854,15 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
                          STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock,
-                         _material_stock_unattributed, add_stock,
+                         _material_stock_unattributed,
                          allow_negative_stock, api_error,
-                         deduct_stock, get_default_warehouse, get_warehouse_stock_quantities,
-                         is_stock_sufficient, location_management_enabled,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         is_stock_sufficient,
                          recalculate_order_total, resolve_item_contract,
-                         round_to_2_decimals, update_location_inventory,
+                         round_to_2_decimals,
                          update_purchase_order_status)
+        # P2-3 收敛：库存三账写入唯一入口（新增/减量/删除明细三路统一）。
+        from services.warehouse_stock_service import apply_stock_delta
         order = InOrder.query.get_or_404(id)
         if order.status != 'completed':
             return api_error('只有已完成的入库单可以修改已入库明细')
@@ -1937,21 +1930,19 @@ def register_in_order_routes(app):
                         if not is_stock_sufficient(current_stock, required):
                             db.session.rollback()
                             return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{required:.2f}')
-                    # 使用 deduct_stock 写流水+归一化+库位还原，避免直接改 stock
-                    ok, err = deduct_stock(item.material, item.quantity or 0,
-                                           transaction_type='delete_in_item',
-                                           reference_type='in_order',
-                                           reference_id=order.id,
-                                           remark=f'删除已完成入库单 {order.order_no} 明细回退库存',
-                                           warehouse=order.warehouse)
+                    # P2-3 收敛：删除明细回退经单点入口，delta 取负（与入库方向对称）。
+                    ok, err = apply_stock_delta(
+                        item.material, -(item.quantity or 0),
+                        transaction_type='delete_in_item',
+                        reference_type='in_order',
+                        reference_id=order.id,
+                        remark=f'删除已完成入库单 {order.order_no} 明细回退库存',
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存回退失败')
-                    if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存回退失败')
                     if item.source_purchase_order_item:
                         source_item = item.source_purchase_order_item
                         source_item.received_quantity = max(
@@ -2028,21 +2019,19 @@ def register_in_order_routes(app):
                         remark=(item_data.get('remark') or '').strip() or None
                     )
                     db.session.add(new_item)
-                    # 使用 add_stock 写流水+归一化+库位同步，避免直接改 stock
-                    ok, err = add_stock(material, quantity,
-                                        transaction_type='add_in_item',
-                                        reference_type='in_order',
-                                        reference_id=order.id,
-                                        remark=f'已完成入库单 {order.order_no} 新增明细',
-                                        warehouse=order.warehouse)
+                    # P2-3 收敛：新增明细入账经单点入口。
+                    ok, err = apply_stock_delta(
+                        material, quantity,
+                        transaction_type='add_in_item',
+                        reference_type='in_order',
+                        reference_id=order.id,
+                        remark=f'已完成入库单 {order.order_no} 新增明细',
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存增加失败')
-                    if location_management_enabled() and (order.location or order.warehouse):
-                        loc_ok, loc_err = update_location_inventory(material, order.location or order.warehouse, quantity, warehouse=order.warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '库位库存更新失败')
 
                 elif item_id:
                     item = db.session.get(InOrderItem, item_id)
@@ -2073,32 +2062,22 @@ def register_in_order_routes(app):
                             )
                             if source_item.purchase_order:
                                 affected_purchase_order_ids.add(source_item.purchase_order.id)
-                        # 使用 add_stock/deduct_stock 写流水+归一化+库位同步，避免直接改 stock
-                        if qty_diff > 0:
-                            ok, err = add_stock(item.material, qty_diff,
-                                                transaction_type='adjust_in_item',
-                                                reference_type='in_order',
-                                                reference_id=order.id,
-                                                remark=f'修改已完成入库单 {order.order_no} 明细数量增加',
-                                                warehouse=order.warehouse)
+                        # P2-3 收敛：数量增减统一走单点入口，delta 自带符号
+                        # （原 add_stock/deduct_stock 二分支合并为一次调用；
+                        # qty_diff == 0 时入口不写任何账，与原「跳过」语义等价）。
+                        if qty_diff != 0:
+                            ok, err = apply_stock_delta(
+                                item.material, qty_diff,
+                                transaction_type='adjust_in_item',
+                                reference_type='in_order',
+                                reference_id=order.id,
+                                remark=f'修改已完成入库单 {order.order_no} 明细数量{"增加" if qty_diff > 0 else "减少"}',
+                                warehouse=order.warehouse,
+                                location=order.location,
+                            )
                             if not ok:
                                 db.session.rollback()
-                                return api_error(err or '库存增加失败')
-                        elif qty_diff < 0:
-                            ok, err = deduct_stock(item.material, abs(qty_diff),
-                                                   transaction_type='adjust_in_item',
-                                                   reference_type='in_order',
-                                                   reference_id=order.id,
-                                                   remark=f'修改已完成入库单 {order.order_no} 明细数量减少',
-                                                   warehouse=order.warehouse)
-                            if not ok:
-                                db.session.rollback()
-                                return api_error(err or '库存回退失败')
-                        if location_management_enabled() and (order.location or order.warehouse) and qty_diff != 0:
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, qty_diff, warehouse=order.warehouse)
-                            if not loc_ok:
-                                db.session.rollback()
-                                return api_error(loc_err or '库位库存更新失败')
+                                return api_error(err or ('库存增加失败' if qty_diff > 0 else '库存回退失败'))
 
                         item.quantity = new_qty
                         item.price = new_price
@@ -2207,10 +2186,12 @@ def register_in_order_routes(app):
         from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, StockTransaction,
                          Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
                          _source_has_active_push, allow_negative_stock, api_error,
-                         deduct_stock, get_warehouse_stock_quantities,
-                         is_stock_sufficient, location_management_enabled,
+                         get_warehouse_stock_quantities,
+                         is_stock_sufficient,
                          log_audit, log_operation, normalize_stock_quantity, recalculate_order_total,
-                         update_location_inventory, update_purchase_order_status)
+                         update_purchase_order_status)
+        # P2-3 收敛：反提交经同一入口，delta 取负与 complete 严格对称。
+        from services.warehouse_stock_service import apply_stock_delta
         order = InOrder.query.get_or_404(id)
         if _source_has_active_push(id):
             return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能反提交；请先处理下游单据。'}), 409
@@ -2284,20 +2265,19 @@ def register_in_order_routes(app):
             order = locked
             affected_purchase_order_ids = set()
             for item in order.items:
-                ok, error_msg = deduct_stock(item.material, item.quantity or 0,
-                             transaction_type='revert_in',
-                             reference_type='in_order',
-                             reference_id=order.id,
-                             warehouse=order.warehouse)
+                # P2-3 收敛：反提交经单点入口，delta 取负（与 complete 对称），
+                # 库位还原由入口内部按开关自动完成。
+                ok, error_msg = apply_stock_delta(
+                    item.material, -(item.quantity or 0),
+                    transaction_type='revert_in',
+                    reference_type='in_order',
+                    reference_id=order.id,
+                    warehouse=order.warehouse,
+                    location=order.location,
+                )
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or '库存回退失败')
-                # 同步还原库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
-                if location_management_enabled() and (order.location or order.warehouse):
-                    loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
-                    if not loc_ok:
-                        db.session.rollback()
-                        return api_error(loc_err or '库位库存还原失败')
                 # BUG-2026-08-04-015 修复（received_quantity 双计数）：
                 # 反提交只回退库存，不释放采购单 received_quantity 预留。
                 # 该入库单仍为 pending，仍占用采购单“已下推”数量；
@@ -2497,12 +2477,13 @@ def register_in_order_routes(app):
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InOrder, InOrderItem, WechatShareConfig, _acquire_order_write_lock,
-                         _check_in_order_anomalies, _wechat_share_order, add_stock,
+                         _check_in_order_anomalies, _wechat_share_order,
                          api_error, assert_warehouse_active, get_default_warehouse,
                          is_future_date, location_management_enabled,
-                         update_location_inventory,
                          validate_purchase_in_order_source,
                          validate_purchase_receive_quantity)
+        # P2-3 收敛：批量完成与 complete_in_order 共用同一写入入口。
+        from services.warehouse_stock_service import apply_stock_delta
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         select_all = payload.get('select_all', False)
@@ -2608,18 +2589,18 @@ def register_in_order_routes(app):
             try:
                 for item in order.items:
                     if item.material:
-                        ok, err = add_stock(item.material, item.quantity,
-                                            transaction_type='in',
-                                            reference_type='in_order',
-                                            reference_id=order.id,
-                                            warehouse=order.warehouse)
+                        # P2-3 收敛：与 complete_in_order 同一入口，单张失败经
+                        # ValueError 只回滚本单（批量「单点失败不影响后续」语义不变）。
+                        ok, err = apply_stock_delta(
+                            item.material, item.quantity or 0,
+                            transaction_type='in',
+                            reference_type='in_order',
+                            reference_id=order.id,
+                            warehouse=order.warehouse,
+                            location=order.location,
+                        )
                         if not ok:
                             raise ValueError(err or '库存增加失败')
-                        # 同步库位库存（与 complete_in_order 对称），仅启用库位管理且有仓库时
-                        if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity, warehouse=order.warehouse)
-                            if not loc_ok:
-                                raise ValueError(loc_err or '库位库存更新失败')
                 order.status = 'completed'
                 order.total_amount = sum((item.amount or 0) for item in order.items)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
@@ -2650,9 +2631,11 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InOrder, StockTransaction, Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
                          allow_negative_stock,
-                         api_error, deduct_stock_atomic, get_warehouse_stock_quantities, is_stock_sufficient,
-                         location_management_enabled, normalize_stock_quantity,
-                         recalculate_order_total, update_location_inventory)
+                         api_error, get_warehouse_stock_quantities, is_stock_sufficient,
+                         normalize_stock_quantity,
+                         recalculate_order_total)
+        # P2-3 收敛：批量反审与 revert_in_order 共用同一写入入口。
+        from services.warehouse_stock_service import apply_stock_delta
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         select_all = payload.get('select_all', False)
@@ -2734,19 +2717,18 @@ def register_in_order_routes(app):
             try:
                 for item in order.items:
                     if item.material:
-                        # 使用原子扣减避免并发超扣，并检查返回值
-                        ok, error_msg, _ = deduct_stock_atomic(item.material_id, item.quantity or 0,
-                                     transaction_type='revert_in',
-                                     reference_type='in_order',
-                                     reference_id=order.id,
-                                     warehouse=order.warehouse)
+                        # P2-3 收敛：与 revert_in_order 同一入口，原子扣减与
+                        # 库位还原由入口内部完成（并发超扣防护保持不变）。
+                        ok, error_msg = apply_stock_delta(
+                            item.material, -(item.quantity or 0),
+                            transaction_type='revert_in',
+                            reference_type='in_order',
+                            reference_id=order.id,
+                            warehouse=order.warehouse,
+                            location=order.location,
+                        )
                         if not ok:
                             raise ValueError(error_msg or '库存回退失败')
-                        # 同步还原库位库存（与 complete_in_order 对称）
-                        if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -(item.quantity or 0), warehouse=order.warehouse)
-                            if not loc_ok:
-                                raise ValueError(loc_err or '库位库存还原失败')
                 order.status = 'pending'
                 recalculate_order_total(order)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
