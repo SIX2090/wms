@@ -36,6 +36,26 @@
         var originalFetch = window.fetch;
         window.fetch = function(input, init) {
             init = init || {};
+            // P1-4：同源请求统一注入 X-Requested-With: XMLHttpRequest。
+            // 业务页面 raw fetch（/warehouse/api/list、/material/api/all 等
+            // "伪 API"路径）浏览器默认不带此头，未登录时后端按页面请求处理
+            // 302 到登录页，前端 r.json() 解析 HTML 失败 → session 过期静默。
+            // 带上此头后 wants_json_error_response() 命中，统一拿到 401 JSON，
+            // 由下方 401/419 全局处理 confirm 跳登录——一处改动，全站生效。
+            var inputUrl = (typeof input === 'string') ? input : (input && input.url) || '';
+            var isExternal = /^[a-z][a-z0-9+.-]*:\/\//i.test(inputUrl) && inputUrl.indexOf(window.location.origin) !== 0;
+            if (!isExternal) {
+                init.headers = init.headers || {};
+                if (init.headers instanceof Headers) {
+                    if (!init.headers.has('X-Requested-With')) {
+                        init.headers.set('X-Requested-With', 'XMLHttpRequest');
+                    }
+                } else if (typeof init.headers === 'object') {
+                    if (!init.headers['X-Requested-With']) {
+                        init.headers['X-Requested-With'] = 'XMLHttpRequest';
+                    }
+                }
+            }
             if (init.method && !/^(GET|HEAD|OPTIONS|TRACE)$/i.test(init.method)) {
                 init.headers = init.headers || {};
                 if (init.headers instanceof Headers) {
