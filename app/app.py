@@ -27538,9 +27538,14 @@ def _collect_ledger_rows(filters):
         query = query.filter(warehouse_condition)
     if filters.get('end_date'):
         query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
-    material_clause = _material_filter_clause(filters.get('material_code'))
-    if material_clause is not None:
-        query = query.join(StockTransaction.material).filter(material_clause)
+    # AI-MOB-LDG-F01：material_id 精确过滤（移动端单一物料台账，相似编码不串）；
+    # 未传 material_id 时退回原 material_code 关键词多 token 匹配（Web 台账路径不变）。
+    if filters.get('material_id'):
+        query = query.filter(StockTransaction.material_id == filters['material_id'])
+    else:
+        material_clause = _material_filter_clause(filters.get('material_code'))
+        if material_clause is not None:
+            query = query.join(StockTransaction.material).filter(material_clause)
 
     # WMS-AUDIT-2026-08-29 (2): 超限不再静默截断，先计数并告警，便于事后排查。
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）

@@ -2514,6 +2514,157 @@ def register_native_api_routes(app):
             'total_pages': total_pages,
         })
 
+    @app.route('/api/mobile/report/stock_ledger')
+    @csrf.exempt
+    @web_or_api_required
+    def mobile_api_report_stock_ledger():
+        """移动端库存台账（AI-MOB-LDG-F01）：按单一物料查看库存流水账——
+        期初结存、逐笔入/出、行级结存、期末结存，只读、无任何写操作。
+
+        口径（与电脑端库存台账 _build_ledger_report 同源）：
+        - 仓库必填（resolve_request_warehouse，缺省回退默认仓；AGENTS.md §二）；
+        - 物料必填且按编码**精确匹配**（单一物料口径，AI-OS-LD-001；模糊找料由
+          /api/material/search 前置完成后传入确切编码，相似编码不串）；
+        - 流水收集复用 _collect_ledger_rows（仓库隔离 + 空 location 归属 +
+          running balance + 期初结存/本期合计 marker 行，R2 防串仓）；
+        - 默认全部流水（start_date 缺省 = 从建账起算，opening_balance=0），
+          支持 yyyy-MM-dd 自定义范围，非法/倒置/未来 → 400；
+        - summary（opening/total_in/total_out/ending/count）基于过滤后全集、
+          与分页解耦（R1）；分页元数据完整（total/page/page_size/total_pages）；
+        - 物料当前结存走 get_warehouse_stock_quantities 仓库级口径（A11/R2，
+          绝不回退全局 material.stock）。
+        R5 边界天然满足：只读 GET，不建单、不扣库存。
+        """
+        from datetime import date as _date, datetime as _dt
+        from flask import g
+        from sqlalchemy import func
+        from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
+                         Material, api_json_error, api_json_success,
+                         round_to_2_decimals, resolve_request_warehouse,
+                         get_warehouse_stock_quantities, _collect_ledger_rows)
+
+        warehouse, wh_err = resolve_request_warehouse(request.args)
+        if wh_err:
+            return api_json_error(wh_err, 400)
+
+        # 物料必填：编码精确匹配（单一物料台账口径；模糊找料走 /api/material/search）
+        material_code = (request.args.get('material_code') or '').strip()
+        if not material_code:
+            return api_json_error('库存台账需按单一物料查询，请传入 material_code', 400)
+        material = Material.query.filter(
+            func.lower(Material.code) == material_code.lower()).first()
+        if not material:
+            return api_json_error(f'物料 {material_code} 不存在', 400)
+
+        # 日期范围（默认全部流水：start_date 缺省；end_date 默认今天）
+        today = _date.today()
+        start_str = (request.args.get('start_date') or '').strip()
+        end_str = (request.args.get('end_date') or '').strip()
+        start_date = None
+        end_date = today
+        if start_str:
+            try:
+                start_date = _dt.strptime(start_str, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('start_date 格式须为 yyyy-MM-dd', 400)
+        if end_str:
+            try:
+                end_date = _dt.strptime(end_str, '%Y-%m-%d').date()
+            except ValueError:
+                return api_json_error('end_date 格式须为 yyyy-MM-dd', 400)
+        if start_date and start_date > end_date:
+            return api_json_error('start_date 不能晚于 end_date', 400)
+        if end_date > today:
+            return api_json_error('end_date 不能晚于今天', 400)
+
+        page = request.args.get('page', 1, type=int)
+        page_size = request.args.get('page_size', MOBILE_API_PAGE_SIZE_DEFAULT, type=int)
+
+        # —— 台账流水（与电脑端同一收集函数：仓库隔离/归属/running balance）——
+        filters = {'warehouse': warehouse.name or '',
+                   'warehouse_id': warehouse.id,
+                   'warehouse_code': warehouse.code or '',
+                   'material_id': material.id,
+                   'start_date': start_date,
+                   'end_date': end_date}
+        rows = _collect_ledger_rows(filters)
+
+        # marker 行（期初结存/本期合计）转 summary，不下发给手机端列表
+        opening_balance = 0.0
+        total_in = 0.0
+        total_out = 0.0
+        ending_balance = 0.0
+        txn_rows = []
+        for row in rows:
+            ref_label = row.get('reference_type')
+            if ref_label == '期初结存':
+                opening_balance = float(row.get('balance_quantity') or 0)
+                continue
+            if ref_label == '本期合计':
+                opening_balance = float(row.get('opening_quantity') or 0)
+                total_in = float(row.get('in_quantity') or 0)
+                total_out = float(row.get('out_quantity') or 0)
+                ending_balance = float(row.get('balance_quantity') or 0)
+                continue
+            txn_rows.append(row)
+
+        total = len(txn_rows)
+        page = max(1, page or 1)
+        page_size = min(max(1, page_size or MOBILE_API_PAGE_SIZE_DEFAULT),
+                        MOBILE_API_PAGE_SIZE_MAX)
+        page_rows = txn_rows[(page - 1) * page_size: page * page_size]
+        total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
+
+        items = []
+        for row in page_rows:
+            items.append({
+                'date': row.get('date') or '',
+                'reference_type': row.get('reference_type') or '',
+                'reference_no': row.get('reference_no') or '',
+                'in_quantity': round_to_2_decimals(row.get('in_quantity') or 0),
+                'out_quantity': round_to_2_decimals(row.get('out_quantity') or 0),
+                'balance_quantity': round_to_2_decimals(row.get('balance_quantity') or 0),
+                'operator': row.get('operator') or '',
+                'location': row.get('location') or '',
+                'remark': row.get('remark') or '',
+            })
+
+        # 物料当前结存（仓库级口径，A11/R2：不回退全局 material.stock）
+        warehouse_stock = get_warehouse_stock_quantities(warehouse).get(material.id, 0.0)
+
+        data = {
+            'warehouse': {'id': warehouse.id, 'name': warehouse.name or '',
+                          'code': warehouse.code or ''},
+            'material': {
+                'id': material.id,
+                'code': material.code or '',
+                'name': material.name or '',
+                'spec': material.spec or '',
+                'unit': material.unit.name if material.unit else '',
+                'warehouse_stock': round_to_2_decimals(warehouse_stock),
+            },
+            'start_date': start_date.isoformat() if start_date else '',
+            'end_date': end_date.isoformat(),
+            'summary': {
+                'count': total,
+                'opening_balance': round_to_2_decimals(opening_balance),
+                'total_in_quantity': round_to_2_decimals(total_in),
+                'total_out_quantity': round_to_2_decimals(total_out),
+                'ending_balance': round_to_2_decimals(ending_balance),
+            },
+            'items': items,
+            'total': total,
+            'page': page,
+            'page_size': page_size,
+            'total_pages': total_pages,
+        }
+        # 5 万行截断标记透传（与 Web 报表同一告警通道，BUG-2026-09-07-003）
+        truncated_total = getattr(g, '_report_truncated_total', 0) or 0
+        if truncated_total:
+            data['truncated'] = True
+            data['truncated_total'] = truncated_total
+        return api_json_success(data)
+
     @app.route('/api/mobile/profile')
     @csrf.exempt
     @web_or_api_required
