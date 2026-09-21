@@ -148,6 +148,13 @@ fun HomeScreen(
                 screen = Screen.InOutDetailReport
             ),
             FunctionCard(
+                title = "库存台账",
+                subtitle = "单物料 · 期初出入结存流水",
+                icon = Icons.Outlined.MenuBook,
+                gradient = listOf(CardTealLight, CardTealDark),
+                screen = Screen.StockLedgerReport
+            ),
+            FunctionCard(
                 title = "盘点记录",
                 subtitle = "本人盘点 · 回查差异与采纳状态",
                 icon = Icons.Outlined.History,

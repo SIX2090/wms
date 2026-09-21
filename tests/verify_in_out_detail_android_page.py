@@ -103,9 +103,15 @@ check("T5b NavGraph composable 接线 + ViewModel import",
 check("T5c 首页入口卡（出入库明细 · 日期范围按仓流水）",
       '"出入库明细"' in home and "Screen.InOutDetailReport" in home)
 
-# T6 版本号纪律
-check("T6 versionCode 25 / versionName 3.9.1",
-      "versionCode = 25" in gradle and 'versionName = "3.9.1"' in gradle)
+# T6 版本号纪律（BUG-2026-09-14-027）
+# 原断言把 versionCode/versionName 钉死在 25/3.9.1（F01 发版时的版本号），
+# 后续任何合法版本递增都会把它打破——本断言的意图是「发版必递增 + changelog
+# 可溯」，而不是「版本永远是 25」（同 BUG-2026-09-18-011 修 -009 硬编码文案
+# 的教训：测试不应阻止合法改动）。改为校验纪律本身。
+import re as _re
+_vc = _re.search(r'versionCode\s*=\s*(\d+)', gradle)
+check("T6 版本号纪律：versionCode>=25 且 changelog 记录 AI-MOB-RPT-F01",
+      _vc is not None and int(_vc.group(1)) >= 25 and 'AI-MOB-RPT-F01' in gradle)
 
 # T7 纯逻辑单测
 check("T7 InOutDetailDateLogicTest 覆盖钳制用例",

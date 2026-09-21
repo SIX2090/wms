@@ -192,6 +192,24 @@ interface WmsApiService {
     ): Response<ApiEnvelope<InOutDetailReportData>>
 
     /**
+     * 库存台账（AI-MOB-LDG-F01）：按单一物料查看库存流水账——期初结存/逐笔
+     * 入出/行级结存/期末结存（只读，零写操作），口径与电脑端库存台账同源。
+     * warehouseId 必传（仓库必填，AGENTS.md §二）；materialCode 必传且为精确
+     * 编码（单一物料口径，AI-OS-LD-001；模糊找料先走 api/material/search）；
+     * startDate/endDate 可空——空 = 全部流水/今天（用户决策默认口径）；
+     * summary 基于过滤后全集，与分页解耦（R1）。
+     */
+    @GET("api/mobile/report/stock_ledger")
+    suspend fun stockLedgerReport(
+        @Query("warehouse_id") warehouseId: String,
+        @Query("material_code") materialCode: String,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("page_size") pageSize: Int = 20
+    ): Response<ApiEnvelope<StockLedgerReportData>>
+
+    /**
      * 已建账明细列表（P1-C）。
      *
      * R1：此前无分页参数，服务端写死 200 条上限，第 201 条之后手机端看不到。

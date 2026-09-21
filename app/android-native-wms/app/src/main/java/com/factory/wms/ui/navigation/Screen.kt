@@ -24,6 +24,7 @@ sealed class Screen(val route: String, val title: String) {
     data object DailyReport : Screen("daily_report", "每日报表")
     data object StockDailyReport : Screen("stock_daily_report", "库存日报")
     data object InOutDetailReport : Screen("in_out_detail_report", "出入库明细")
+    data object StockLedgerReport : Screen("stock_ledger_report", "库存台账")
     data object StocktakeRecord : Screen("stocktake_record", "盘点记录")
     data object Profile : Screen("profile", "我的")
 

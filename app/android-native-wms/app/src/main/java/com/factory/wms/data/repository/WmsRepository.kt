@@ -883,6 +883,38 @@ class WmsRepository(private val context: Context) {
     }
 
     /**
+     * 库存台账（AI-MOB-LDG-F01）：按单一物料查看库存流水账（只读，零写操作）。
+     *
+     * - [warehouseId] 必传（仓库必填，AGENTS.md §二）；[materialCode] 必传且为
+     *   精确编码（单一物料口径，AI-OS-LD-001；调用方先经 searchMaterial 选定）。
+     * - [startDate]/[endDate]（yyyy-MM-dd）null 时服务端按 全部流水/今天
+     *   （用户决策默认口径）；空串一律转 null，不发给服务端。
+     * - summary（期初/入/出/期末）由服务端按过滤后全集计算、每页都带
+     *   （R1 汇总与分页解耦）；只拉单页，分页状态由 ViewModel 持有。
+     * - 走 safeCall，服务端业务提示（如"物料不存在"）原样透传。
+     */
+    suspend fun getStockLedgerReport(
+        warehouseId: String,
+        materialCode: String,
+        startDate: String? = null,
+        endDate: String? = null,
+        page: Int = 1,
+        pageSize: Int = 20
+    ): Result<StockLedgerReportData> {
+        ensureSession()
+        return safeCall {
+            api.stockLedgerReport(
+                warehouseId = warehouseId,
+                materialCode = materialCode,
+                startDate = startDate?.takeIf { it.isNotBlank() },
+                endDate = endDate?.takeIf { it.isNotBlank() },
+                page = page,
+                pageSize = pageSize
+            )
+        }
+    }
+
+    /**
      * 已建账明细列表（P1-C），带标准分页。
      *
      * 返回 [OpeningStockListData] 而非裸 List——列表页需要 total/total_pages
