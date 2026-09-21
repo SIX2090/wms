@@ -1,6 +1,6 @@
 # WMS 进销存 + AI 能力详细修复方案
 
-> 上游文档：`WMS_BUSINESS_AI_DIAGNOSIS.md`（诊断）→ 本文（修复方案）
+> 上游文档：`WMS_BUSINESS_AI_DIAGNOSIS.md`（诊断；一次性工作产物，2026-09-20 随 a913629c 清理删除，结论已沉淀进本文）→ 本文（修复方案）
 > 编制日期：2026-09-11
 > 适用仓库：`/workspace/wms`（Flask + SQLAlchemy 单体 + Android 原生 WMS）
 > **本方案所有条目均已定位到具体文件与行号；未标"待核实"的结论都已实测。**

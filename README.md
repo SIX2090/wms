@@ -335,7 +335,6 @@ http://127.0.0.1:8080
 | `WMS_BUSINESS_SCOPE.md` | 当前单人 WMS 业务口径和客供料处理边界 |
 | `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
 | `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
-| `wms_mobile_app_print_audit_20260823.md` | 手机 APP 扫码→入库/出库→无人值守打印全链路审计（2026-08-23，含 12 项分级问题与修复建议） |
 | `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因） |
 | `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则清单 |
 | `AGENTS.md` | AI 和开发代理必须遵守的项目规则 |
