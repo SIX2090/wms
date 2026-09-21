@@ -44,6 +44,8 @@ def test_backup_runs_before_delete_and_restore_runs_after_rebuild():
         "删库前必须先备份 pending_operations、重建后必须回补，"
         "否则离线待同步单据会被静默清空（BUG-2026-09-21-005）"
     )
+    # getDatabase 的 catch 分支必须委托到同一实现，不得另写一套漏掉备份
+    assert "rebuildPreservingQueue(appContext)" in source
 
 
 def test_backup_bypasses_room_with_raw_readonly_sqlite():

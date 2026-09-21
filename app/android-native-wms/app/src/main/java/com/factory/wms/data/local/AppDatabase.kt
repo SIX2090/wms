@@ -55,16 +55,26 @@ abstract class AppDatabase : RoomDatabase() {
                         "AppDatabase",
                         "建库失败，尝试删除本地库重建: ${e.javaClass.simpleName}: ${e.message}"
                     )
-                    // BUG-2026-09-21-005：先备份离线待同步队列，再删库，重建后回补。
-                    val backup = backupPendingOperations(appContext)
-                    appContext.deleteDatabase(DB_NAME)
-                    val rebuilt = buildDatabase(appContext)
-                    restorePendingOperations(rebuilt, backup)
-                    rebuilt
+                    rebuildPreservingQueue(appContext)
                 }
                 INSTANCE = instance
                 instance
             }
+        }
+
+        /**
+         * BUG-2026-09-21-005：删库重建恢复路径（从 getDatabase 的 catch 抽出以便直接测试）。
+         *
+         * 顺序铁律：**先备份离线待同步队列 → 再删库 → 重建 → 原样回补**。
+         * 端到端测试直接调用本函数验证保单链路，不依赖"Room 对特定坏文件何时抛异常"
+         * 的内部行为（不同 Android/Room 版本触发点不同，属环境依赖，不可测）。
+         */
+        internal fun rebuildPreservingQueue(appContext: Context): AppDatabase {
+            val backup = backupPendingOperations(appContext)
+            appContext.deleteDatabase(DB_NAME)
+            val rebuilt = buildDatabase(appContext)
+            restorePendingOperations(rebuilt, backup)
+            return rebuilt
         }
 
         /**
