@@ -212,7 +212,7 @@
                     <span class="info-label">来源采购入库单</span>
                     <span class="info-value">
                         {% if order.source_in_order %}
-                        <a href="{{ url_for('in_order_detail', id=order.source_in_order.id) }}">{{ order.source_in_order.order_no }}</a>
+                        <a href="{{ url_for('in_order_detail', id=order.source_in_order.id) }}" target="_blank" rel="noopener">{{ order.source_in_order.order_no }}</a>
                         {% else %}{{ order.source_in_order_no or '-' }}{% endif %}
                     </span>
                 </div>
