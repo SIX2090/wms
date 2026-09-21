@@ -32,7 +32,8 @@ class WmsRepository(private val context: Context) {
         get() = RetrofitClient.apiService
     // BUG-2026-09-13-023：本地数据层（Room）失败不应导致 App 无法启动。
     // 本类由 AppNavGraph 组合期的 11 个 ViewModel 同时构造，构造期抛异常 = 闪退。
-    // 本地库只存物料缓存、操作日志与离线待传队列（均可重建、非权威数据），
+    // 本地库存物料缓存、操作日志（可重建）与离线待传队列（不可重建——
+    // 删库重建路径会备份/回补，见 AppDatabase BUG-2026-09-21-005）。
     // 故降级为"无本地缓存"继续运行；离线队列在 db 为空时不可用（降级为直连模式）。
     private val db: AppDatabase? = try {
         AppDatabase.getDatabase(context)
