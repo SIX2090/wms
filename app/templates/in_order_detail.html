@@ -515,7 +515,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ 22 if order.status == 'pending' else 20 }}" class="empty-state">
+                        <td colspan="{{ (23 if order.status == 'pending' else 21) + (1 if order.business_type == '其他入库' else 0) }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
