@@ -81,16 +81,26 @@ abstract class AppDatabase : RoomDatabase() {
         internal fun backupPendingOperations(context: Context): List<PendingOperationEntity> {
             val dbFile = context.getDatabasePath(DB_NAME)
             if (!dbFile.isFile) return emptyList()
+            // Room 默认以 WAL 模式打开库，而 OPEN_READONLY 打开 WAL 库可能因无法恢复
+            // WAL 索引直接失败（SQLiteCantOpenDatabaseException）——先只读、失败回退
+            // 读写打开（读写打开会正常完成 WAL 恢复），两档都失败才认定文件不可读。
+            val raw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READONLY)
+                ?: openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
+            if (raw == null) {
+                Log.e(
+                    "AppDatabase",
+                    "离线待同步单据备份失败（原库文件不可读，未同步记录在删库前已无法取出）"
+                )
+                return emptyList()
+            }
             return runCatching {
-                SQLiteDatabase.openDatabase(
-                    dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY
-                ).use { raw ->
-                    val hasTable = raw.rawQuery(
+                raw.use { db ->
+                    val hasTable = db.rawQuery(
                         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_operations' LIMIT 1",
                         null
                     ).use { it.moveToFirst() }
                     if (!hasTable) return@use emptyList()
-                    raw.rawQuery(
+                    db.rawQuery(
                         "SELECT request_id, operation_type, payload_json, warehouse_code, " +
                             "summary, status, attempt_count, last_error, created_at, updated_at " +
                             "FROM pending_operations",
@@ -123,12 +133,18 @@ abstract class AppDatabase : RoomDatabase() {
             }.getOrElse { err ->
                 Log.e(
                     "AppDatabase",
-                    "离线待同步单据备份失败（原库文件不可读，未同步记录在删库前已无法取出）: " +
+                    "离线待同步单据备份失败（读取异常，未同步记录在删库前已无法取出）: " +
                         "${err.javaClass.simpleName}: ${err.message}"
                 )
                 emptyList()
             }
         }
+
+        /** 以指定标志打开原始库文件，失败返回 null（调用方负责降级与告警）。 */
+        private fun openRawDatabase(path: String, flags: Int): SQLiteDatabase? =
+            runCatching {
+                SQLiteDatabase.openDatabase(path, null, flags)
+            }.getOrNull()
 
         /**
          * BUG-2026-09-21-005：把备份的离线待同步单据回补进重建后的新库。

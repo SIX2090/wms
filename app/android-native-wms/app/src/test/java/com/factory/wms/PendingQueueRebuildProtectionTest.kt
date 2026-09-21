@@ -225,7 +225,7 @@ class PendingQueueRebuildProtectionTest {
 
         val rows = db.pendingOperationDao().listAll()
         assertEquals(
-            "删库重建后离线待同步单据必须仍在（本 BUG 的核心回归）",
+            "删库重建后离线待同步单据必须仍在（本 BUG 的核心回归），实际=$rows",
             1,
             rows.size
         )

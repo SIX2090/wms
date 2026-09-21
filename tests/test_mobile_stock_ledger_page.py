@@ -156,8 +156,10 @@ def test_T7_home_entry_card():
 
 def test_T8_version_bumped():
     src = _read(GRADLE)
-    assert 'versionCode = 26' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
-    assert 'versionName = "3.9.2"' in src
+    # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 27/3.9.3（BUG-2026-09-21-005），
+    # 该功能首次发布于 26/3.9.2；后续递增版本号时同步更新本基线。
+    assert 'versionCode = 27' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
+    assert 'versionName = "3.9.3"' in src
     assert 'AI-MOB-LDG-F01' in src, '版本 changelog 注释缺失'
 
 
