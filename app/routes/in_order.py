@@ -902,6 +902,10 @@ def register_in_order_routes(app):
                                  'source_purchase_order_item_id': item.source_purchase_order_item_id,
                                  'quantity': item.quantity,
                                  'price': item.price,
+                                 # BUG-2026-09-21-003：行级批次号/有效期必须随编辑回填，
+                                 # 否则编辑保存时旧明细被整批删除重建，两字段被静默清空。
+                                 'batch_no': item.batch_no or '',
+                                 'expiry_date': item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '',
                                  'contract_no': item.contract_no or '',
                                  'project_name': item.project_name or '',
                                  'remark': item.remark or '',

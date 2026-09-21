@@ -1674,6 +1674,9 @@ document.addEventListener('DOMContentLoaded', function() {
         handleMaterialCodeInput(row);
         row.querySelector('.material-qty').value = item.quantity;
         row.querySelector('.material-price').value = item.price;
+        // BUG-2026-09-21-003：编辑草稿必须回填批次号/有效期，否则再保存时静默清空
+        row.querySelector('.material-batch-no').value = item.batch_no || '';
+        row.querySelector('.material-expiry').value = item.expiry_date || '';
         row.querySelector('.line-contract-no').value = item.contract_no;
         row.querySelector('.line-project-name').value = item.project_name;
         row.querySelector('.material-remark').value = item.remark;
@@ -2788,6 +2791,8 @@ function applyBatchUpdate() {
                 unit: row.querySelector('.material-unit')?.value || '',
                 quantity: row.querySelector('.material-qty')?.value || '',
                 price: row.querySelector('.material-price')?.value || '',
+                batch_no: row.querySelector('.material-batch-no')?.value || '',
+                expiry_date: row.querySelector('.material-expiry')?.value || '',
                 remark: row.querySelector('.material-remark')?.value || ''
             };
             if (rowData.material_code || rowData.material_name) {
@@ -2864,6 +2869,14 @@ function applyBatchUpdate() {
                         if (rowData.price) {
                             const priceInput = lastRow.querySelector('.material-price');
                             if (priceInput) priceInput.value = rowData.price;
+                        }
+                        if (rowData.batch_no) {
+                            const batchInput = lastRow.querySelector('.material-batch-no');
+                            if (batchInput) batchInput.value = rowData.batch_no;
+                        }
+                        if (rowData.expiry_date) {
+                            const expiryInput = lastRow.querySelector('.material-expiry');
+                            if (expiryInput) expiryInput.value = rowData.expiry_date;
                         }
                         if (rowData.remark) {
                             const remarkInput = lastRow.querySelector('.material-remark');
