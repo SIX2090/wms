@@ -85,12 +85,12 @@
 .material-dropdown-item:hover {
     background-color: #E6F7FF;
 }
-.material-dropdown-item .code {
+.material-dropdown-item .dropdown-code {
     font-weight: 600;
     color: #1890FF;
 }
-.material-dropdown-item .spec,
-.material-dropdown-item .unit {
+.material-dropdown-item .dropdown-spec,
+.material-dropdown-item .dropdown-unit {
     color: #999;
     font-size: 11px;
 }
@@ -436,10 +436,10 @@ function showDropdown(row, showAll = false) {
 
     dropdown.innerHTML = filtered.map(m => `
         <div class="material-dropdown-item" data-code="${m.code}">
-            <span class="code">${m.code}</span> - <span class="name">${m.name}</span>
-            <span class="spec">${m.brand || ''}</span>
-            <span class="spec">${m.spec || ''}</span>
-            <span class="unit">${m.unit ? m.unit.name : ''}</span>
+            <span class="dropdown-code">${m.code}</span> - <span class="dropdown-name">${m.name}</span>
+            <span class="dropdown-spec">${m.brand || ''}</span>
+            <span class="dropdown-spec">${m.spec || ''}</span>
+            <span class="dropdown-unit">${m.unit ? m.unit.name : ''}</span>
         </div>
     `).join('');
 

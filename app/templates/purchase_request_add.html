@@ -116,17 +116,17 @@ textarea.form-control {
 .supplier-dropdown-item:last-child {
     border-bottom: none;
 }
-.material-dropdown-item .code,
-.supplier-dropdown-item .code {
+.material-dropdown-item .dropdown-code,
+.supplier-dropdown-item .dropdown-code {
     font-weight: 600;
     color: #1890FF;
 }
-.material-dropdown-item .name,
-.supplier-dropdown-item .name {
+.material-dropdown-item .dropdown-name,
+.supplier-dropdown-item .dropdown-name {
     color: #333;
 }
-.material-dropdown-item .spec,
-.material-dropdown-item .unit {
+.material-dropdown-item .dropdown-spec,
+.material-dropdown-item .dropdown-unit {
     color: #999;
     font-size: 11px;
 }
@@ -709,9 +709,9 @@ function renderMaterialDropdown(row, filtered, notice) {
         : '';
     dropdown.innerHTML = noticeHtml + filtered.map(m => `
         <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}" data-material-id="${escapeHtml(m.id || '')}">
-            <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
-            ${m.spec ? `<span class="spec"> | ${escapeHtml(m.spec)}</span>` : ''}
-            ${m.unit ? `<span class="unit"> | ${escapeHtml(typeof m.unit === 'object' ? m.unit.name : m.unit)}</span>` : ''}
+            <span class="dropdown-code">${escapeHtml(m.code)}</span> - <span class="dropdown-name">${escapeHtml(m.name)}</span>
+            ${m.spec ? `<span class="dropdown-spec"> | ${escapeHtml(m.spec)}</span>` : ''}
+            ${m.unit ? `<span class="dropdown-unit"> | ${escapeHtml(typeof m.unit === 'object' ? m.unit.name : m.unit)}</span>` : ''}
         </div>
     `).join('');
 
@@ -891,8 +891,8 @@ function showSupplierDropdown(row, showAll = false) {
     } else {
         dropdown.innerHTML = filtered.map(s => `
             <div class="supplier-dropdown-item" data-id="${escapeHtml(s.id)}">
-                ${s.code ? `<span class="code">${escapeHtml(s.code)}</span> - ` : ''}
-                <span class="name">${escapeHtml(s.name || '')}</span>
+                ${s.code ? `<span class="dropdown-code">${escapeHtml(s.code)}</span> - ` : ''}
+                <span class="dropdown-name">${escapeHtml(s.name || '')}</span>
                 ${s.contact || s.phone ? `<span class="meta"> | ${escapeHtml(s.contact || '')} ${escapeHtml(s.phone || '')}</span>` : ''}
             </div>
         `).join('');

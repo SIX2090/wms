@@ -88,9 +88,9 @@
 }
 .material-option:hover { background: #f0f4ff; }
 .material-option:last-child { border-bottom: none; }
-.material-option .code { font-weight: 600; color: #1e293b; }
-.material-option .name { color: #64748b; margin-left: 8px; }
-.material-option .spec { color: #94a3b8; margin-left: 8px; font-size: 12px; }
+.material-option .dropdown-code { font-weight: 600; color: #1e293b; }
+.material-option .dropdown-name { color: #64748b; margin-left: 8px; }
+.material-option .dropdown-spec { color: #94a3b8; margin-left: 8px; font-size: 12px; }
 .stat-card {
     background: #fff;
     border: 1px solid #e5e7eb;
@@ -262,9 +262,9 @@ $('#materialSearch').on('input', function() {
     } else {
         dropdown.html(filtered.map(m => 
             `<div class="material-option" onclick="selectMaterial(${m.id}, '${m.code}', '${m.name}')">
-                <span class="code">${m.code}</span>
-                <span class="name">${m.name}</span>
-                ${m.spec ? `<span class="spec">${m.spec}</span>` : ''}
+                <span class="dropdown-code">${m.code}</span>
+                <span class="dropdown-name">${m.name}</span>
+                ${m.spec ? `<span class="dropdown-spec">${m.spec}</span>` : ''}
             </div>`
         ).join(''));
     }

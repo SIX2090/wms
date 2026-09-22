@@ -111,16 +111,16 @@ textarea.form-control {
 .material-dropdown-item:last-child {
     border-bottom: none;
 }
-.material-dropdown-item .code {
+.material-dropdown-item .dropdown-code {
     font-weight: 600;
     color: #0052cc;
 }
-.material-dropdown-item .name {
+.material-dropdown-item .dropdown-name {
     color: #111827;
     font-weight: 500;
 }
-.material-dropdown-item .spec,
-.material-dropdown-item .unit,
+.material-dropdown-item .dropdown-spec,
+.material-dropdown-item .dropdown-unit,
 .material-dropdown-item .stock {
     color: #4b5563;
     font-size: 13px;
@@ -948,10 +948,10 @@ function renderMaterialDropdown(row, filtered, notice) {
         : '';
     dropdown.innerHTML = noticeHtml + filtered.map(m => `
         <div class="material-dropdown-item" data-code="${escapeAttr(m.code)}">
-            <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
-            <span class="spec">${escapeHtml(m.brand || '')}</span>
-            <span class="spec">${escapeHtml(m.spec || '')}</span>
-            <span class="unit">${escapeHtml(getMaterialUnit(m))}</span>
+            <span class="dropdown-code">${escapeHtml(m.code)}</span> - <span class="dropdown-name">${escapeHtml(m.name)}</span>
+            <span class="dropdown-spec">${escapeHtml(m.brand || '')}</span>
+            <span class="dropdown-spec">${escapeHtml(m.spec || '')}</span>
+            <span class="dropdown-unit">${escapeHtml(getMaterialUnit(m))}</span>
             <span class="stock">库存 ${formatStock(m.stock)}</span>
         </div>
     `).join('');
