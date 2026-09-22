@@ -507,22 +507,29 @@ function normalizeSearchValue(value) {
 }
 
 function materialSearchText(material) {
+    const unitName = material.unit && typeof material.unit === 'object'
+        ? material.unit.name
+        : material.unit;
     return [
         material.code,
         material.name,
+        material.brand,
         material.spec,
-        material.unit && material.unit.name,
+        unitName,
         material.supplier_name
     ].map(v => String(v || '').toLowerCase()).join(' ');
 }
 
+// BUG-2026-09-22-004：仅当用户输入与某物料的编码/名称「完全相等」时才自动回填。
+// 原实现额外用 materialSearchText(m).includes(normalized) 做模糊命中即自动选中，
+// 导致输入第一个字符（如 "0"）就命中任意一条物料的拼接串并被强行回填覆盖，
+// 用户无法继续输入关键词，联想下拉也随之失效（与采购入库单 findMaterialByCode
+// 只做编码精确相等的口径不一致）。
 function findMaterialQuickMatch(keyword) {
     const normalized = normalizeSearchValue(keyword);
     if (!normalized) return null;
     return materials.find(m => String(m.code || '').toLowerCase() === normalized)
         || materials.find(m => String(m.name || '').toLowerCase() === normalized)
-        || materials.find(m => String(m.spec || '').toLowerCase() === normalized)
-        || materials.find(m => materialSearchText(m).includes(normalized))
         || null;
 }
 
@@ -537,11 +544,13 @@ function getMaterialMatches(keyword, showAll = false) {
     materials.forEach(function(material) {
         const code = String(material.code || '').toLowerCase();
         const name = String(material.name || '').toLowerCase();
+        const brand = String(material.brand || '').toLowerCase();
         const spec = String(material.spec || '').toLowerCase();
         const searchText = materialSearchText(material);
-        if (code === normalized || name === normalized || spec === normalized) {
+        if (code === normalized || name === normalized || brand === normalized || spec === normalized) {
             exactCode.push(material);
-        } else if (code.startsWith(normalized) || name.startsWith(normalized) || spec.startsWith(normalized)) {
+        } else if (code.startsWith(normalized) || name.startsWith(normalized)
+            || brand.startsWith(normalized) || spec.startsWith(normalized)) {
             startsWith.push(material);
         } else if (searchText.includes(normalized)) {
             contains.push(material);
@@ -621,6 +630,7 @@ function bindMaterialInput(row) {
     const dropdown = row.querySelector('.material-dropdown');
     input.addEventListener('input', function() {
         const keyword = this.value.trim();
+        // 编码/名称完全相等才自动回填；否则只展示联想下拉，不打断用户继续输入。
         const material = findMaterialQuickMatch(keyword);
         if (material) {
             selectMaterial(row, material);
@@ -673,32 +683,92 @@ function bindMaterialInput(row) {
     row.querySelector('.estimated-price').addEventListener('input', () => updateRowAmount(row));
 }
 
-function showDropdown(row, showAll = false) {
+// BUG-2026-09-22-004：关键词联想改为「服务端搜索 + 本地缓存兜底」，与采购入库单
+// in_order_add.html 口径一致。原实现只用页面初始化时一次性灌入的 materials 做
+// 前端 filter，物料档案在上万条时会首屏卡顿，且新建物料后本页刷不出来。
+const MATERIAL_SEARCH_LIMIT_HINT = 100;
+const materialSearchState = { seq: 0, timer: null };
+
+function renderMaterialDropdown(row, filtered, notice) {
     const input = row.querySelector('.material-code');
     const dropdown = row.querySelector('.material-dropdown');
-    const keyword = input.value.trim();
 
-    const filtered = getMaterialMatches(keyword, showAll);
-
-    if (filtered.length === 0) {
-        dropdown.innerHTML = '<div class="material-dropdown-item" style="color:#999;cursor:default;">无匹配物料</div>';
-    } else {
-        dropdown.innerHTML = filtered.map(m => `
-            <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}" data-material-id="${escapeHtml(m.id || '')}">
-                <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
-                ${m.spec ? `<span class="spec"> | ${escapeHtml(m.spec)}</span>` : ''}
-                ${m.unit ? `<span class="unit"> | ${escapeHtml(m.unit.name)}</span>` : ''}
-            </div>
-        `).join('');
+    if (!filtered.length) {
+        dropdown.innerHTML = '<div class="material-dropdown-item" data-empty="1" style="color:#999;cursor:default;">无匹配物料</div>';
+        dropdown.style.display = 'block';
+        activeMaterialDropdown = dropdown;
+        activeMaterialIndex = -1;
+        const rectEmpty = input.getBoundingClientRect();
+        dropdown.style.top = (rectEmpty.bottom + window.scrollY) + 'px';
+        dropdown.style.left = rectEmpty.left + 'px';
+        return;
     }
+
+    const noticeHtml = notice
+        ? `<div class="material-dropdown-item" data-empty="1" style="color:#999;font-size:12px;cursor:default;">${escapeHtml(notice)}</div>`
+        : '';
+    dropdown.innerHTML = noticeHtml + filtered.map(m => `
+        <div class="material-dropdown-item" data-code="${escapeHtml(m.code)}" data-material-id="${escapeHtml(m.id || '')}">
+            <span class="code">${escapeHtml(m.code)}</span> - <span class="name">${escapeHtml(m.name)}</span>
+            ${m.spec ? `<span class="spec"> | ${escapeHtml(m.spec)}</span>` : ''}
+            ${m.unit ? `<span class="unit"> | ${escapeHtml(typeof m.unit === 'object' ? m.unit.name : m.unit)}</span>` : ''}
+        </div>
+    `).join('');
 
     const rect = input.getBoundingClientRect();
     dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
     dropdown.style.left = rect.left + 'px';
     dropdown.style.display = 'block';
     activeMaterialDropdown = dropdown;
-    activeMaterialIndex = filtered.length ? 0 : -1;
+    activeMaterialIndex = 0;
     highlightMaterialDropdownItem(Array.from(dropdown.querySelectorAll('.material-dropdown-item:not([data-empty="1"])')));
+}
+
+function showDropdown(row, showAll = false) {
+    const input = row.querySelector('.material-code');
+    const keyword = input.value.trim();
+
+    // 空关键词：直接展示本地缓存前若干条，避免无谓请求
+    if (!keyword) {
+        renderMaterialDropdown(row, getMaterialMatches('', false));
+        return;
+    }
+
+    // 服务端搜索（防抖 + 请求序号防竞态覆盖）
+    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    materialSearchState.timer = setTimeout(function() {
+        const seq = ++materialSearchState.seq;
+        const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT;
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+                if (seq !== materialSearchState.seq) return; // 已有更新的搜索，丢弃旧响应
+                if (res && res.status === 'success' && Array.isArray(res.data)) {
+                    // 服务端命中的物料合并进本地缓存，供后续按编码精确匹配/选择使用
+                    res.data.forEach(function(m) {
+                        if (!m || !m.code) return;
+                        const existing = materials.find(x => x.code === m.code);
+                        if (existing) {
+                            Object.assign(existing, m);
+                            if (m.unit && existing.unit == null) existing.unit = m.unit;
+                        } else {
+                            materials.push(m);
+                        }
+                    });
+                    const notice = (res.total > res.data.length)
+                        ? '共 ' + res.total + ' 条匹配，仅显示前 ' + res.data.length + ' 条，请细化关键词'
+                        : '';
+                    renderMaterialDropdown(row, res.data, notice);
+                } else {
+                    renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
+                }
+            })
+            .catch(function() {
+                if (seq !== materialSearchState.seq) return;
+                // 网络异常降级为本地缓存过滤，保证录入不中断
+                renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
+            });
+    }, 220);
 }
 
 function highlightMaterialDropdownItem(items) {
@@ -717,9 +787,40 @@ function selectMaterialByDropdownItem(row, item) {
     );
     if (material) {
         selectMaterial(row, material);
+    } else {
+        // 服务端搜索结果理论上已合并进缓存；若仍缺失（缓存被外部清空等），
+        // 回源一次再填充，避免点击下拉项无响应。
+        const code = item.dataset.code || '';
+        if (code) {
+            fetch('/api/material/search?kw=' + encodeURIComponent(code) + '&limit=1', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+                .then(function(r) { return r.json(); })
+                .then(function(res) {
+                    const hit = (res && Array.isArray(res.data))
+                        ? res.data.find(m => m && m.code === code) : null;
+                    if (hit) {
+                        materials.push(hit);
+                        selectMaterial(row, hit);
+                    }
+                })
+                .catch(function() {});
+        }
     }
     const dropdown = row.querySelector('.material-dropdown');
     dropdown.style.display = 'none';
+}
+
+// 物料对象归一化：本地初始化缓存里 unit 是对象 {id,name}，
+// 而 /api/material/search 返回的 unit 是字符串。统一取名称，避免选中后单位为空。
+function getMaterialUnitName(material) {
+    if (!material || material.unit == null) return '';
+    return typeof material.unit === 'object' ? (material.unit.name || '') : String(material.unit);
+}
+
+function getMaterialUnitId(material) {
+    if (!material || !material.unit || typeof material.unit !== 'object') return '';
+    return material.unit.id || '';
 }
 
 function selectMaterial(row, material) {
@@ -727,8 +828,8 @@ function selectMaterial(row, material) {
     row.querySelector('.material-code').dataset.materialId = material.id || '';
     row.querySelector('.material-name').value = material.name || '';
     row.querySelector('.spec').value = material.spec || '';
-    row.querySelector('.unit-name').value = material.unit ? material.unit.name : '';
-    row.querySelector('.unit-name').dataset.unitId = material.unit ? material.unit.id : '';
+    row.querySelector('.unit-name').value = getMaterialUnitName(material);
+    row.querySelector('.unit-name').dataset.unitId = getMaterialUnitId(material);
     row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '0.00';
     row.querySelector('.estimated-price').value = material.price ? material.price : '';
     updateRowAmount(row);
