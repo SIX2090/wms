@@ -26133,6 +26133,19 @@ def _parse_positive_int(value, default):
         return default
     return parsed if parsed > 0 else default
 
+# BUG-2026-09-22-013：报表业务类型白名单与出库「领料口径」常量。
+# 白名单 = 入库类型（BUG-2026-08-18-004 引入）+ 出库类型（本次补全）；
+# 不在白名单内的值一律重置为空（= 不限类型），防止前端传任意值造成空结果。
+REPORT_BUSINESS_TYPE_WHITELIST = (
+    '采购入库', '产品入库', '其他入库', '销售退货入库',
+    '领料单', '其他出库', '销售出库', '采购退货出库',
+)
+# 历史脏数据：手机原生端 /api/outbound 曾固定写 'Android扫码出库'。
+# BUG-2026-09-10-002 已改写入 '领料单'，但存量单据仍是旧值；移动端每日报表
+# （native_api.daily_report 的 TYPE_DEFS['requisition']）已将其计入领料口径，
+# 报表层必须同样认定，否则手机扫的出库在 PC 领料报表里会凭空消失。
+OUT_LEGACY_SCAN_BUSINESS_TYPE = 'Android扫码出库'
+
 def _build_report_filters():
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
     warehouse_id = _parse_positive_int(request.args.get('warehouse_id'), 0)
@@ -26153,7 +26166,11 @@ def _build_report_filters():
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
     # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，
     # 空值表示全部入库类型。
-    if raw_business_type not in ('采购入库', '产品入库', '其他入库'):
+    # BUG-2026-09-22-013：白名单同时放行出库类型——此前只列入库类型，
+    # `business_type=采购退货出库` 这类出库值会被静默重置为空（用户连想
+    # 单独看出库某类型都做不到）。入库报表只会用入库值、出库报表只会用
+    # 出库值，合并白名单不会让两者串味（各自 WHERE 仍按类型等值过滤）。
+    if raw_business_type not in REPORT_BUSINESS_TYPE_WHITELIST:
         raw_business_type = ''
     return {
         'start_date': _parse_date_arg('start_date'),
@@ -26453,6 +26470,8 @@ def _out_detail_columns():
     return [
         {'field': 'date', 'title': '日期'},
         {'field': 'order_no', 'title': '领料单号', 'link_field': 'order_url'},
+        # BUG-2026-09-22-013：补业务类型列，与入库明细报表（'业务类型'）对齐
+        {'field': 'business_type', 'title': '业务类型'},
         {'field': 'customer', 'title': '领料部门'},
         {'field': 'material_code', 'title': '物料编码'},
         {'field': 'material_name', 'title': '物料名称'},
@@ -27002,6 +27021,10 @@ def _out_detail_row(item):
         'date': order.date.isoformat() if order.date else '',
         'order_no': order.order_no or '',
         'order_url': _report_detail_url('out_order_detail', order.id),
+        # BUG-2026-09-22-013：补业务类型列。此前出库明细报表没有类型维度，
+        # 用户无法分辨某行是领料、其他出库还是采购退货，也无法核对筛选是否生效。
+        # 空类型按领料口径展示（与 out_order_list「空类型按领料计」一致）。
+        'business_type': order.business_type or '领料单',
         'customer': customer_text,
         'material_code': material.code or '',
         'material_name': material.name or '',
@@ -27024,11 +27047,33 @@ def _filtered_out_detail_query(filters):
     由 Python 循环下沉为 SQL 条件（部门名/客户文本/用途任一 ilike 命中，
     与原 Python 三字段 contains 语义等价），供内存全量路径与 SQL 分页路径
     共用同一 WHERE 口径。
+
+    BUG-2026-09-22-013：补业务类型隔离。此前本查询**完全没有 business_type
+    条件**，导致所有出库单混在同一份「领料/出库明细」里——采购退货出库
+    （退货给供应商，不是领用）混进领料报表，虚增领料数量与金额，成本归集、
+    领料对账、部门领用统计全部失真；且 `_build_report_filters` 的业务类型
+    白名单原先只放行入库类型，`business_type=采购退货出库` 会被静默重置为空，
+    用户**连筛都筛不掉**。
+    口径与出库单列表页（`out_order_list`）保持一致：默认只报领料类，显式传
+    business_type 时按该类型过滤。
+    领料类 = '领料单' + 历史脏数据 'Android扫码出库'（BUG-2026-09-10-002 已确认
+    手机原生端历史上写死该类型，每日报表口径已将其计入领料）+ 类型为空
+    （PC 领料单列表 `out_order_list` 亦按「空类型按领料计」处理，口径对齐）。
     """
     query = OutOrderItem.query.join(OutOrder).join(Material, OutOrderItem.material_id == Material.id)\
         .outerjoin(Department, OutOrder.department_id == Department.id)\
         .outerjoin(User, OutOrder.operator_id == User.id)\
         .outerjoin(Unit, Material.unit_id == Unit.id)
+    # BUG-2026-09-22-013：业务类型隔离（默认领料口径，显式传值时按值过滤）
+    out_business_type = (filters.get('business_type') or '').strip()
+    if out_business_type:
+        query = query.filter(OutOrder.business_type == out_business_type)
+    else:
+        query = query.filter(db.or_(
+            OutOrder.business_type == '领料单',
+            OutOrder.business_type == OUT_LEGACY_SCAN_BUSINESS_TYPE,
+            OutOrder.business_type.is_(None),
+        ))
     # BUG-2026-08-02-014：出库明细按仓库过滤；兼容历史数据仓库名/编号不统一
     # （与入库明细 BUG-2026-08-18-004 同一修复：手机端手工录入存仓库编号，
     # 网页端存仓库名，只匹配名称会导致出库单据在报表里查不出来）
@@ -28505,6 +28550,8 @@ _IN_DETAIL_SORT_MAP = {
 _OUT_DETAIL_SORT_MAP = {
     'date': OutOrder.date,
     'order_no': OutOrder.order_no,
+    # BUG-2026-09-22-013：业务类型列可排序，与 _IN_DETAIL_SORT_MAP 对齐
+    'business_type': OutOrder.business_type,
     'customer': Department.name,
     'material_code': Material.code,
     'material_name': Material.name,

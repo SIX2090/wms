@@ -81,12 +81,25 @@ class TestBug20260907007:
         html = r.get_data(as_text=True)
         assert 'name="business_type"' in html, "入库明细页必须渲染业务类型控件"
 
-    def test_T3_out_detail_page_has_no_control(self):
+    def test_T3_out_detail_page_control_is_out_scope(self):
+        """BUG-2026-09-22-013 更新：出库明细页**新增了**业务类型控件（该报表此前
+        根本没有类型隔离，采购退货出库会混进领料明细、且无法筛除）。
+
+        本用例原断言「出库明细页不得渲染业务类型控件」，其前提是"出库报表无类型
+        维度"。该 Bug 修复后前提不再成立，故按**原意图**改写：出库页的控件必须
+        是**出库口径**——提供出库类型选项，且**不得混入入库类型**（防止两个报表
+        的选项串味）。入库明细页的选项约束由 T1/T2 继续守护。
+        """
         client = self._login_client()
         r = client.get("/report/view/out_detail")
         assert r.status_code == 200
         html = r.get_data(as_text=True)
-        assert 'name="business_type"' not in html, "出库明细页不得渲染业务类型控件"
+        assert 'name="business_type"' in html, "出库明细页应渲染业务类型控件（BUG-2026-09-22-013）"
+        for option in ("领料单", "其他出库", "销售出库", "采购退货出库"):
+            assert f'value="{option}"' in html, f"出库明细页缺出库类型选项 {option}"
+        # 出库口径不得混入入库类型
+        for inbound in ("采购入库", "产品入库", "其他入库"):
+            assert f'value="{inbound}"' not in html, f"出库明细页误入入库类型 {inbound}"
 
     def test_T4_api_end_to_end_filter(self):
         client = self._login_client()

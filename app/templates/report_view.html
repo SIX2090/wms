@@ -79,6 +79,22 @@
             </div>
             {% endif %}
 
+            {% if report_type == 'out_detail' %}
+            {# BUG-2026-09-22-013：出库明细报表补业务类型筛选。后端默认只报领料口径，
+               不选时即「全部领料类型」；选具体类型可单独查看其他出库/采购退货出库等，
+               与出库单列表页的 tab 口径一致。 #}
+            <div class="col-md-3">
+                <label for="business_type" class="form-label">业务类型</label>
+                <select id="business_type" name="business_type" class="form-select">
+                    <option value="">全部领料类型</option>
+                    <option value="领料单">领料单</option>
+                    <option value="其他出库">其他出库</option>
+                    <option value="销售出库">销售出库</option>
+                    <option value="采购退货出库">采购退货出库</option>
+                </select>
+            </div>
+            {% endif %}
+
             {% if filters_config.material %}
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
