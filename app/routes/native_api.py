@@ -1425,7 +1425,8 @@ def register_native_api_routes(app):
         from datetime import date
         from sqlalchemy import func
         from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
-                         _material_alert_status_values, api_json_error, api_json_success,
+                         _material_alert_status_values, _warehouse_document_match_clause,
+                         api_json_error, api_json_success,
                          db, get_warehouse_stock_quantities,
                          inventory_alert_enabled, resolve_request_warehouse)
         # 全部仓库汇总模式：显式 all 才跨仓，否则仍按仓库必填规则解析
@@ -1442,11 +1443,12 @@ def register_native_api_routes(app):
         warehouse_name = (warehouse.name or '') if warehouse else ''
         # 单仓模式加仓库条件；全部仓库模式不加（含历史 warehouse 为空的脏数据，
         # 避免漏数，R2）
+        # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
         wh_filters = [] if all_warehouses else [
-            InOrder.warehouse == warehouse_name
+            _warehouse_document_match_clause(InOrder.warehouse, warehouse)
         ]
         out_wh_filters = [] if all_warehouses else [
-            OutOrder.warehouse == warehouse_name
+            _warehouse_document_match_clause(OutOrder.warehouse, warehouse)
         ]
         today = date.today()
 

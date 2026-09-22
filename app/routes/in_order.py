@@ -734,7 +734,8 @@ def register_in_order_routes(app):
         """Update the header fields of a draft inbound order."""
         from app import (Customer, InOrder, Supplier, _clean_int, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date, location_management_enabled,
-                         log_operation, parse_date_value, recalculate_order_total)
+                         log_operation, parse_date_value, recalculate_order_total,
+                         validate_inventory_warehouse)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有草稿状态的入库单可以编辑')
@@ -783,6 +784,15 @@ def register_in_order_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+        # BUG-2026-09-22-014：仓库原文落库是编码/名称混写的写入源头——
+        # 客户端传什么存什么（脚本/旧版 App 传编码 WH-TEST、Web 表单传名称），
+        # 下游按仓库过滤的列表/报表/导出被迫到处做双匹配兜底。此处与全仓
+        # 写侧约定（INV-AUDIT-005）对齐：校验存在且启用后统一写规范化仓库名，
+        # 名称/编码输入均可，未知仓库直接拒绝。
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        if wh_err:
+            return jsonify({'status': 'error', 'msg': wh_err}), 400
+        warehouse = wh_obj.name
         order.warehouse = warehouse
         # 库位管理启用时库位为必填（AGENTS.md 规则二）
         location = (data.get('location') or '').strip()
@@ -930,6 +940,7 @@ def register_in_order_routes(app):
                          location_management_enabled, log_operation,
                          purchase_in_order_requires_order, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
+                         validate_inventory_warehouse,
                          validate_purchase_receive_quantity,
                          validate_sales_return_quantity)
         # Support both form data and JSON
@@ -974,6 +985,15 @@ def register_in_order_routes(app):
                 warehouse = default_wh.name
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+        # BUG-2026-09-22-014：仓库原文落库是编码/名称混写的写入源头——
+        # 客户端传什么存什么（脚本/旧版 App 传编码 WH-TEST、Web 表单传名称），
+        # 下游按仓库过滤的列表/报表/导出被迫到处做双匹配兜底。此处与全仓
+        # 写侧约定（INV-AUDIT-005）对齐：校验存在且启用后统一写规范化仓库名，
+        # 名称/编码输入均可，未知仓库直接拒绝。
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        if wh_err:
+            return jsonify({'status': 'error', 'msg': wh_err}), 400
+        warehouse = wh_obj.name
 
         # AGENTS.md 规则二：开启库位管理时，库位为必填项
         if location_management_enabled() and not location:

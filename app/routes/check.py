@@ -177,7 +177,8 @@ def register_check_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InventoryCheck, InventoryCheckItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _status_from_search_keyword, get_active_warehouses,
+                         _status_from_search_keyword, _warehouse_document_match_clause,
+                         get_active_warehouses,
                          get_default_warehouse, resolve_request_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         page = max(1, request.args.get('page', default=1, type=int))
@@ -194,7 +195,9 @@ def register_check_routes(app):
         query = _apply_status_date_filters(query, InventoryCheck, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse:
-            query = query.filter(InventoryCheck.warehouse == warehouse.name)
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            query = query.filter(
+                _warehouse_document_match_clause(InventoryCheck.warehouse, warehouse))
         elif warehouse_error:
             query = query.filter(db.false())
         if search:
@@ -935,7 +938,8 @@ def register_check_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (InventoryCheck, InventoryCheckItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _status_from_search_keyword, _workbook_response,
+                         _status_from_search_keyword, _warehouse_document_match_clause,
+                         _workbook_response,
                          resolve_request_warehouse)
         rows = []
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
@@ -950,7 +954,8 @@ def register_check_routes(app):
         if warehouse_error:
             from app import api_error
             return api_error(warehouse_error, 400)
-        query = query.filter(InventoryCheck.warehouse == warehouse.name)
+        query = query.filter(
+            _warehouse_document_match_clause(InventoryCheck.warehouse, warehouse))
         if search:
             search_like = f'%{search}%'
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))

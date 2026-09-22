@@ -40,7 +40,8 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _status_from_search_keyword, get_active_warehouses,
+                         _status_from_search_keyword, _warehouse_document_match_clause,
+                         get_active_warehouses,
                          get_default_warehouse, resolve_request_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
         adjustment_type = (request.args.get('adjustment_type') or '').strip()
@@ -58,7 +59,9 @@ def register_adjustment_routes(app):
         query = _apply_status_date_filters(query, AdjustmentOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse:
-            query = query.filter(AdjustmentOrder.warehouse == warehouse.name)
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            query = query.filter(
+                _warehouse_document_match_clause(AdjustmentOrder.warehouse, warehouse))
         elif warehouse_error:
             query = query.filter(db.false())
         if adjustment_type in ('surplus', 'loss'):
@@ -638,7 +641,8 @@ def register_adjustment_routes(app):
     def export_adjustment():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, _apply_status_date_filters,
-                         _get_order_list_filters, _status_from_search_keyword, _workbook_response,
+                         _get_order_list_filters, _status_from_search_keyword,
+                         _warehouse_document_match_clause, _workbook_response,
                          resolve_request_warehouse)
         rows = []
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
@@ -655,7 +659,8 @@ def register_adjustment_routes(app):
         if warehouse_error:
             from app import api_error
             return api_error(warehouse_error, 400)
-        query = query.filter(AdjustmentOrder.warehouse == warehouse.name)
+        query = query.filter(
+            _warehouse_document_match_clause(AdjustmentOrder.warehouse, warehouse))
         if adjustment_type_filter in ('surplus', 'loss'):
             query = query.filter(AdjustmentOrder.adjustment_type == adjustment_type_filter)
         if search:
