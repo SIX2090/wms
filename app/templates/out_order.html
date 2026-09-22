@@ -42,6 +42,18 @@
     </div>
 </div>
 
+{# 出库业务类型切换标签（P1-7：补「采购退货」入口——此前列表页无任何可点切换，
+   只能手敲 URL）。复用 out_order_list 的 type→business_type 别名（ASCII，
+   避免中文 query 编码问题）；切到「采购退货」后 business_type=采购退货出库，
+   右上角才会出现既有的「新增采购退货出库」按钮。 #}
+{% set _emb = request.args.get('embedded') == '1' %}
+<ul class="nav nav-pills mb-3" id="outOrderTypeTabs">
+    <li class="nav-item"><a class="nav-link {% if not filters.business_type %}active{% endif %}" href="/out_order{{ '?embedded=1' if _emb }}">领料单</a></li>
+    <li class="nav-item"><a class="nav-link {% if filters.business_type == '销售出库' %}active{% endif %}" href="/out_order?type=sale{{ '&embedded=1' if _emb }}">销售出库</a></li>
+    <li class="nav-item"><a class="nav-link {% if filters.business_type == '其他出库' %}active{% endif %}" href="/out_order?type=other_out{{ '&embedded=1' if _emb }}">其他出库</a></li>
+    <li class="nav-item"><a class="nav-link {% if filters.business_type == '采购退货出库' %}active{% endif %}" href="/out_order?type=purchase_return{{ '&embedded=1' if _emb }}">采购退货</a></li>
+</ul>
+
 <div class="card mb-3">
     <div class="card-body py-2">
         <form method="get" class="row g-2 align-items-end">
