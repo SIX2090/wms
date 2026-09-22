@@ -444,8 +444,25 @@ def register_out_order_routes(app):
         if order.business_type == '采购退货出库':
             src_io_no = (data.get('source_in_order_no') or '').strip()
             if src_io_no:
-                src_io = InOrder.query.filter_by(order_no=src_io_no).first()
+                # BUG-2026-09-22-010：来源解析必须与选源接口（/api/purchase_in_order/selectable
+                # 的 business_type=='采购入库' AND status=='completed'）同口径。
+                # 此处原为裸 query.filter_by(order_no=...) —— 单号一填进来就当来源认下，
+                # 不校验业务类型与状态：① 传销售退货入库/其他入库等非采购入库单号，
+                # 「仅采购退货出库单可关联采购入库来源」的类型防线被绕过，污染防超退
+                # 聚合口径（该聚合按 source_in_order_item_id 只认口径正确的行）；
+                # ② 传未完成的采购入库草稿，退货可锚定在尚未真实入库的货上，
+                # 库存账实分叉。两种都属于「用手填单号击穿 selectable 接口的过滤」。
+                src_io = InOrder.query.filter_by(
+                    order_no=src_io_no,
+                    business_type='采购入库',
+                    status='completed',
+                ).first()
                 if not src_io:
+                    # 区分「不存在」与「存在但不合格」，给用户可执行的提示
+                    exists = InOrder.query.filter_by(order_no=src_io_no).first()
+                    if exists:
+                        return jsonify({'status': 'error', 'msg':
+                                        f'来源单据 {src_io_no} 不是已完成的采购入库单，不能作为退货来源'}), 400
                     return jsonify({'status': 'error', 'msg': f'来源采购入库单 {src_io_no} 不存在'}), 400
                 order.source_in_order_id = src_io.id
                 order.source_in_order_no = src_io.order_no
@@ -642,16 +659,36 @@ def register_out_order_routes(app):
                     return jsonify({'status': 'error', 'msg': '采购退货出库单必须选择退货供应商'}), 400
                 src_io_id = data.get('source_in_order_id')
                 src_io_no = (data.get('source_in_order_no') or '').strip()
+                # BUG-2026-09-22-010：两条解析路径（按 id / 按单号）都必须与选源接口
+                # /api/purchase_in_order/selectable 同口径——只认
+                # business_type=='采购入库' AND status=='completed' 的入库单。
+                # 原实现按 id 或单号裸查，非采购入库类型（销售退货入库/其他入库…）
+                # 与未完成草稿都能被认作退货来源，击穿类型防线并让退货锚定在
+                # 尚未真实入库的货上（库存账实分叉）。
                 if src_io_id not in (None, '', 'None', 'null'):
                     try:
-                        source_in_order = db.session.get(InOrder, int(src_io_id))
+                        candidate = db.session.get(InOrder, int(src_io_id))
                     except (TypeError, ValueError):
-                        source_in_order = None
-                    if not source_in_order:
+                        candidate = None
+                    if not candidate:
                         return jsonify({'status': 'error', 'msg': '来源采购入库单不存在'}), 400
+                    if not (candidate.business_type == '采购入库' and candidate.status == 'completed'):
+                        return jsonify({'status': 'error', 'msg':
+                                        f'来源单据 {candidate.order_no} 不是已完成的采购入库单，'
+                                        '不能作为退货来源'}), 400
+                    source_in_order = candidate
                 elif src_io_no:
-                    source_in_order = InOrder.query.filter_by(order_no=src_io_no).first()
+                    source_in_order = InOrder.query.filter_by(
+                        order_no=src_io_no,
+                        business_type='采购入库',
+                        status='completed',
+                    ).first()
                     if not source_in_order:
+                        exists = InOrder.query.filter_by(order_no=src_io_no).first()
+                        if exists:
+                            return jsonify({'status': 'error', 'msg':
+                                            f'来源单据 {src_io_no} 不是已完成的采购入库单，'
+                                            '不能作为退货来源'}), 400
                         return jsonify({'status': 'error', 'msg': f'来源采购入库单 {src_io_no} 不存在'}), 400
 
             if order_id:
