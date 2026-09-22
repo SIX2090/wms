@@ -1955,9 +1955,24 @@ def register_in_order_routes(app):
         if order.status != 'completed':
             return api_error('只有已完成的入库单可以修改已入库明细')
 
+        # BUG-2026-09-22-015：本函数在 try 块内是「边写边校验」——库存已通过
+        # apply_stock_delta 落账、item.quantity/price/amount 已改之后，仍会撞到
+        # 后续校验（典型：行级批次号 / 有效期格式非法）。这些分支此前写的是裸
+        # `return api_error(...)`，而 `api_error` **只返回 JSON、不做 rollback**，
+        # 于是报错的同一个请求里，库存变动与明细改动**留在未提交事务中**：
+        #   - 若后续还有请求内其它写操作后提交 → 脏数据入库；
+        #   - 若连接被复用/会话未清理 → 表现为「报错说没保存，库存却变了」。
+        # 实测确认 `api_error` 无 rollback 副作用（app.py:205 仅 jsonify）。
+        # 修法：定义本地 `fail()` 统一回滚后返回，本函数内所有错误出口一律经由它，
+        # 而非逐个补 `db.session.rollback()`——后者无法防止**将来新增**校验时再漏
+        # （本函数 20 个出口里此前只有 3 个带 rollback，正是逐个补的后果）。
+        def fail(message, code=400):  # no-test:reason=函数内闭包（统一错误出口），非业务函数；其行为由 tests/test_bug_2026_09_22_015_update_completed_fail_rollback.py 的 T1/T2/T3/T5 覆盖
+            db.session.rollback()
+            return api_error(message, code)
+
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
-            return api_error('请求数据格式不正确，请刷新后重试')
+            return fail('请求数据格式不正确，请刷新后重试')
         items_data = data.get('items', [])
         deleted_items = data.get('deleted_items', [])
 
@@ -1973,7 +1988,7 @@ def register_in_order_routes(app):
                 selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
             ])
             if not ok:
-                return api_error('该入库单状态已变更，不能修改已入库明细')
+                return fail('该入库单状态已变更，不能修改已入库明细')
             order = locked
             # BUG-2026-08-02-001 修复：已完成的入库单也必须有仓库。
             # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
@@ -1982,8 +1997,7 @@ def register_in_order_routes(app):
                 if default_wh:
                     order.warehouse = default_wh.name
             if not order.warehouse:
-                db.session.rollback()
-                return api_error('入库单必须填写仓库')
+                return fail('入库单必须填写仓库')
 
             # BUG-2026-08-16-009：删除/减量已完成入库单明细的库存充足校验改仓库级口径，
             # 避免多仓库下 A 仓库存掩护 B 仓明细回退、打穿 B 仓账面。
@@ -2016,8 +2030,7 @@ def register_in_order_routes(app):
                             # stock-truth:reason=仓库解析失败时回退全局总账（BUG-2026-08-17-002 登记的兼容兜底，与 deduct_stock 实际回退口径一致）
                             current_stock = item.material.stock if item.material else 0
                         if not is_stock_sufficient(current_stock, required):
-                            db.session.rollback()
-                            return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{required:.2f}')
+                            return fail(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{required:.2f}')
                     # P2-3 收敛：删除明细回退经单点入口，delta 取负（与入库方向对称）。
                     ok, err = apply_stock_delta(
                         item.material, -(item.quantity or 0),
@@ -2029,8 +2042,7 @@ def register_in_order_routes(app):
                         location=order.location,
                     )
                     if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存回退失败')
+                        return fail(err or '库存回退失败')
                     if item.source_purchase_order_item:
                         source_item = item.source_purchase_order_item
                         source_item.received_quantity = max(
@@ -2050,14 +2062,14 @@ def register_in_order_routes(app):
                     # Add new detail row and apply stock change
                     material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
                     if not material_code:
-                        return api_error('请选择物料后再添加')
+                        return fail('请选择物料后再添加')
                     material = Material.query.filter_by(code=material_code).first()
                     if not material:
-                        return api_error(f'物料 {material_code} 不存在')
+                        return fail(f'物料 {material_code} 不存在')
 
                     quantity = float(item_data['quantity'])
                     if not math.isfinite(quantity) or quantity <= 0:
-                        return api_error(f'物料 {material_code} 的数量必须大于0')
+                        return fail(f'物料 {material_code} 的数量必须大于0')
                     price = float(item_data.get('price', 0))
                     amount = round_to_2_decimals(quantity * price)
                     source_purchase_order_item_id = None
@@ -2066,13 +2078,13 @@ def register_in_order_routes(app):
                         try:
                             source_item_id = int(source_item_id)
                         except (TypeError, ValueError):
-                            return api_error('来源采购单明细格式不正确')
+                            return fail('来源采购单明细格式不正确')
                         source_item = db.session.get(PurchaseOrderItem, source_item_id)
                         if not source_item or source_item.material_id != material.id:
-                            return api_error('来源采购单明细与物料不匹配')
+                            return fail('来源采购单明细与物料不匹配')
                         remain_qty = round_to_2_decimals((source_item.quantity or 0) - (source_item.received_quantity or 0))
                         if quantity - remain_qty > STOCK_COMPARE_EPSILON:
-                            return api_error('新增明细数量不能大于来源采购单未下推数量')
+                            return fail('新增明细数量不能大于来源采购单未下推数量')
                         source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) + quantity)
                         source_purchase_order_item_id = source_item.id
                         if source_item.purchase_order:
@@ -2088,10 +2100,10 @@ def register_in_order_routes(app):
                     # P0 批次/有效期捕获：编辑保存新增行接收行级批次号与有效期。
                     batch_no, batch_err = _parse_item_batch_no(item_data.get('batch_no'))
                     if batch_err:
-                        return api_error(f'物料 {material_code} 的{batch_err}')
+                        return fail(f'物料 {material_code} 的{batch_err}')
                     expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
                     if expiry_err:
-                        return api_error(f'物料 {material_code} 的{expiry_err}')
+                        return fail(f'物料 {material_code} 的{expiry_err}')
                     new_item = InOrderItem(
                         in_order_id=id,
                         material_id=material.id,
@@ -2118,8 +2130,7 @@ def register_in_order_routes(app):
                         location=order.location,
                     )
                     if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存增加失败')
+                        return fail(err or '库存增加失败')
 
                 elif item_id:
                     item = db.session.get(InOrderItem, item_id)
@@ -2128,7 +2139,7 @@ def register_in_order_routes(app):
                         new_qty = float(item_data['quantity'])
                         if not math.isfinite(new_qty) or new_qty <= 0:
                             material_code = item.material.code if item.material else ''
-                            return api_error(f'物料 {material_code} 的数量必须大于0')
+                            return fail(f'物料 {material_code} 的数量必须大于0')
                         new_price = float(item_data.get('price', 0))
 
                         qty_diff = new_qty - old_qty
@@ -2137,13 +2148,13 @@ def register_in_order_routes(app):
                             if not allow_negative_stock():
                                 current_stock = warehouse_stock.get(item.material_id, 0)
                                 if not is_stock_sufficient(current_stock, deduct_qty):
-                                    return api_error(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{deduct_qty:.2f}')
+                                    return fail(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{deduct_qty:.2f}')
                         if item.source_purchase_order_item and abs(qty_diff) > STOCK_COMPARE_EPSILON:
                             source_item = item.source_purchase_order_item
                             effective_received_before = round_to_2_decimals((source_item.received_quantity or 0) - (old_qty or 0))
                             allowed_qty = round_to_2_decimals(max((source_item.quantity or 0) - effective_received_before, 0))
                             if new_qty - allowed_qty > STOCK_COMPARE_EPSILON:
-                                return api_error('明细数量不能大于来源采购单未下推数量')
+                                return fail('明细数量不能大于来源采购单未下推数量')
                             source_item.received_quantity = max(
                                 0,
                                 round_to_2_decimals((source_item.received_quantity or 0) + qty_diff)
@@ -2164,8 +2175,7 @@ def register_in_order_routes(app):
                                 location=order.location,
                             )
                             if not ok:
-                                db.session.rollback()
-                                return api_error(err or ('库存增加失败' if qty_diff > 0 else '库存回退失败'))
+                                return fail(err or ('库存增加失败' if qty_diff > 0 else '库存回退失败'))
 
                         item.quantity = new_qty
                         item.price = new_price
@@ -2177,12 +2187,12 @@ def register_in_order_routes(app):
                         if 'batch_no' in item_data:
                             _b_no, _b_err = _parse_item_batch_no(item_data.get('batch_no'))
                             if _b_err:
-                                return api_error(_b_err)
+                                return fail(_b_err)
                             item.batch_no = _b_no
                         if 'expiry_date' in item_data:
                             _e_date, _e_err = _parse_item_expiry_date(item_data.get('expiry_date'))
                             if _e_err:
-                                return api_error(_e_err)
+                                return fail(_e_err)
                             item.expiry_date = _e_date
 
             recalculate_order_total(order)
@@ -2198,7 +2208,7 @@ def register_in_order_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.exception(f'更新入库单失败: {e}')
-            return api_error('保存失败，请稍后重试')
+            return fail('保存失败，请稍后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/in_order/<int:id>/delete', methods=['POST'])
