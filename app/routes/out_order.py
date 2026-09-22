@@ -829,6 +829,13 @@ def register_out_order_routes(app):
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以添加明细')
+        # BUG-2026-09-22-007：采购退货出库单的明细必须带「来源采购入库行」，
+        # 本接口是单行裸加（只收物料+数量，无 source_in_order_item_id），
+        # 加出来的行**无来源 → 防超退闸整行跳过 → 可无限退货**，直接击穿
+        # P1-7 的整单真闸。故采购退货模式一律拒绝，指引用整单编辑页维护行级来源。
+        if order.business_type == '采购退货出库':
+            return api_error('采购退货出库单的明细必须关联来源采购入库行，'
+                             '请使用编辑页维护退货明细')
 
         material_code = (request.form.get('material_code') or request.form.get('code') or '').strip()
         if not material_code:
@@ -908,8 +915,9 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def update_out_order_item():
-        from app import (Material, OutOrderItem, api_error, parse_float_value,
-                         recalculate_order_total, round_to_2_decimals)
+        from app import (InOrderItem, Material, OutOrderItem, api_error,
+                         parse_float_value, recalculate_order_total,
+                         round_to_2_decimals, validate_purchase_return_quantity)
         item_id = request.form.get('id', type=int)
         if not item_id:
             return api_error('缺少明细ID')
@@ -931,6 +939,25 @@ def register_out_order_routes(app):
             return api_error('数量必须大于0')
 
         price = round_to_2_decimals(parse_float_value(request.form.get('price'), item.price))
+
+        # BUG-2026-09-22-007：采购退货出库单有来源的明细改数量必须复校可退量。
+        # 本接口是明细表内联改量（ExcelTable autoSave / 行内编辑），此前只校验
+        # 「>0」就落库，等价于给「保存时限额校验」开了后门：草稿保存后把数量
+        # 改大即可超退（保存校验不会重跑），只能靠完成时的整单闸兜底——而
+        # 批量完成此前正是第二个后门（BUG-2026-09-22-005）。此处补上同口径
+        # 行级校验，让限额改不动，而不是等完成时才发现。
+        if order.business_type == '采购退货出库':
+            if not item.source_in_order_item_id:
+                return api_error('采购退货出库明细必须关联来源采购入库行，'
+                                 '当前行无来源，无法修改数量')
+            source_item = db.session.get(InOrderItem, item.source_in_order_item_id)
+            if not source_item:
+                return api_error('来源采购入库明细不存在，请重新关联来源')
+            qty_ok, qty_msg = validate_purchase_return_quantity(
+                source_item, quantity,
+                item.material.code if item.material else str(item.material_id))
+            if not qty_ok:
+                return api_error(qty_msg)
 
         try:
             item.quantity = quantity
