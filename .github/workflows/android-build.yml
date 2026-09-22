@@ -88,6 +88,22 @@ jobs:
         working-directory: app/android-native-wms
         run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
 
+      # BUG-2026-09-22-001 偶发诊断：testReleaseUnitTest 失败时上传 JUnit 报告。
+      # 控制台只打印一行 "AssertionError at XxxTest.kt:N"，拿不到 expected vs actual，
+      # 也看不到 backupPendingOperations/restorePendingOperations 被 runCatching 吞掉的
+      # 异常堆栈——偶发根因（跨用例污染 vs 单次环境失败）必须靠报告里的完整断言与
+      # system-out 才能定位。仅在失败时上传（if: failure()），成功不上传省存储。
+      - name: Upload unit test report on failure (BUG-2026-09-22-001 诊断)
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-release-unit-test-report
+          path: |
+            app/android-native-wms/app/build/reports/tests/testReleaseUnitTest/
+            app/android-native-wms/app/build/test-results/testReleaseUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
