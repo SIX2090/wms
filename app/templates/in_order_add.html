@@ -213,6 +213,16 @@ textarea.form-control {
     text-align: right;
     padding-right: 6px !important;
 }
+/* 数量输入框去掉浏览器自带的上下箭头（spinner 易误操作），保留数字键盘与手动输入 */
+#materialTable input.material-qty::-webkit-outer-spin-button,
+#materialTable input.material-qty::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+#materialTable input.material-qty[type="number"] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
 
 /* 单元格内输入框 - T+ 无边框风格 */
 #materialTable tbody td input.form-control,
@@ -693,6 +703,15 @@ function formatStock(value) {
     return Number.isFinite(stock) ? stock.toFixed(2) : '0.00';
 }
 
+// 数量显示/回填：整数不补小数位（1 显示 "1"，而非 "1.00"）；小数最多 2 位并去末尾 0
+// （0.5 → "0.5"，1.50 → "1.5"）。与单价/金额（恒保留 2 位）刻意区分——数量允许
+// 0.5 这类小数，但不强行补齐。先 toFixed(2) 收敛二进制浮点误差（如 0.1+0.2），再 parseFloat 去尾零。
+function formatQtyTrim(value) {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num)) return '';
+    return String(parseFloat(num.toFixed(2)));
+}
+
 function findMaterialByCode(code) {
     const normalized = String(code || '').trim().toLowerCase();
     if (!normalized) return null;
@@ -850,9 +869,9 @@ function addNewRow() {
         }
     });
     row.querySelector('.material-qty').addEventListener('blur', function() {
-        // 失去焦点时格式化
+        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
         if (this.value) {
-            this.value = parseFloat(this.value).toFixed(2);
+            this.value = formatQtyTrim(this.value);
             calcAmount(row);
         }
     });
@@ -1222,9 +1241,9 @@ function insertRowBefore(btn) {
         calcAmount(newRow);
     });
     newRow.querySelector('.material-qty').addEventListener('blur', function() {
-        // 失去焦点时格式化
+        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
         if (this.value) {
-            this.value = parseFloat(this.value).toFixed(2);
+            this.value = formatQtyTrim(this.value);
             calcAmount(newRow.closest('tr'));
         }
     });
@@ -1672,7 +1691,7 @@ document.addEventListener('DOMContentLoaded', function() {
             row.dataset.sourcePurchaseOrderItemId = item.source_purchase_order_item_id;
         }
         handleMaterialCodeInput(row);
-        row.querySelector('.material-qty').value = item.quantity;
+        row.querySelector('.material-qty').value = formatQtyTrim(item.quantity);
         row.querySelector('.material-price').value = item.price;
         // BUG-2026-09-21-003：编辑草稿必须回填批次号/有效期，否则再保存时静默清空
         row.querySelector('.material-batch-no').value = item.batch_no || '';
@@ -2044,7 +2063,7 @@ function parsePastedData() {
         }
 
         fillMaterialFields(row, material, { forcePrice: true });
-        row.querySelector('.material-qty').value = qty.toFixed(2);
+        row.querySelector('.material-qty').value = formatQtyTrim(qty);
         row.querySelector('.material-price').value = price ? price.toFixed(2) : (material.price || 0).toFixed(2);
         const batchInput = row.querySelector('.material-batch-no');
         if (batchInput) batchInput.value = batchNo;
@@ -2149,7 +2168,7 @@ function applyPurchaseOrderSelectionToForm() {
         }
         row.dataset.sourcePurchaseOrderItemId = source.purchase_order_item_id || '';
         row.dataset.sourcePurchaseOrderNo = source.purchase_order_no || '';
-        row.querySelector('.material-qty').value = formatPurchaseQty(entry.quantity);
+        row.querySelector('.material-qty').value = formatQtyTrim(entry.quantity);
         row.querySelector('.material-price').value = formatPurchaseQty(source.price);
         calcAmount(row);
     });
