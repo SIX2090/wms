@@ -44,20 +44,40 @@ class PendingQueueRebuildProtectionTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        resetSingleton()
-        context.deleteDatabase(dbName)
+        purgeDatabase()
     }
 
     @After
     fun tearDown() {
-        closeSingletonInstance()
-        resetSingleton()
-        context.deleteDatabase(dbName)
+        purgeDatabase()
     }
 
     // ---------------------------------------------------------------
     // 工具
     // ---------------------------------------------------------------
+
+    /**
+     * 彻底清理共享的 wms_database，修复本类在 CI 上的**顺序依赖偶发失败**（BUG-2026-09-22-001）。
+     *
+     * 本类 8 条用例共用同一磁盘库文件（同一 Robolectric 沙箱）。旧实现有两点缺陷：
+     * ① setUp 只 resetSingleton()（把 INSTANCE 置空）却**不关闭仍打开的 Room 连接**；
+     * ② 单靠 context.deleteDatabase()——Robolectric 的影子实现不像真机那样清干净
+     *    WAL 模式的 -wal/-shm 侧车文件（真机 deleteDatabase 会一并删除）。
+     * 任一点都会让后续用例的 backupPendingOperations 读到脏状态，断言随用例顺序漂移
+     * （实证：run #691/#692/#695 每次挂的方法都不同；且是 BUG-2026-09-21-005 该类的
+     * 第三次偶发复发，属 R6 同根因反复模式）。
+     *
+     * 修复：**先关连接再置空单例** + 显式删除主文件与 -wal/-shm/-journal 侧车，
+     * 保证每条用例从真正干净的磁盘状态开始，与用例执行顺序无关。
+     */
+    private fun purgeDatabase() {
+        closeSingletonInstance()
+        resetSingleton()
+        context.deleteDatabase(dbName)
+        listOf("", "-wal", "-shm", "-journal").forEach { suffix ->
+            context.getDatabasePath(dbName + suffix).delete()
+        }
+    }
 
     /** AppDatabase.INSTANCE 是 companion 的私有静态字段，测试间必须复位防串扰。 */
     private fun resetSingleton() {
