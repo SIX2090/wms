@@ -388,9 +388,11 @@ def register_purchase_order_routes(app):
     @login_required
     def save_purchase_order():
         from datetime import date
+        from sqlalchemy.orm import joinedload
         from flask_login import current_user
         from app import (Material, PurchaseOrder, PurchaseOrderItem, Supplier,
-                         _find_or_create_supplier, api_error, generate_order_no,
+                         _acquire_order_write_lock, _find_or_create_supplier,
+                         api_error, generate_order_no, has_inbound_reference,
                          log_operation, parse_date_value, parse_float_value,
                          round_to_2_decimals)
         try:
@@ -433,6 +435,19 @@ def register_purchase_order_routes(app):
                     return api_error('采购单不存在，请刷新后重试')
                 if order.status != 'pending':
                     return api_error('只有未入库的采购单可以编辑')
+                # BUG-2026-09-22-009：编辑保存会「整批删除旧明细再按页面重建」
+                # （下方 for existing_item in list(order.items): delete），
+                # 而 InOrderItem.source_purchase_order_item_id 是指向这些明细的
+                # 外键。若该采购单已被下游入库单引用（表头级或行级来源），
+                # 重建会把引用方指向**已删除的明细**：轻则入库单来源断链、
+                # 采购执行进度（received_quantity）丢失，重则级联删除/约束报错
+                # 使保存整体失败并留下半删状态。
+                # 删除路径（delete_purchase_order 918/926）早有此保护（PUR-AUDIT-002），
+                # 保存路径此前漏配 ——「改个备注就能拆掉已入库单的来源」。
+                # 与删除路径同口径：表头 + 行级两层引用任一命中即拒绝。
+                if has_inbound_reference(order.id):
+                    return api_error('该采购单已有下游入库单，不能编辑明细。'
+                                     '如需变更请先作废或删除下游入库单')
             else:
                 order = PurchaseOrder.query.filter_by(order_no=order_no).first()
                 if order:
@@ -458,6 +473,19 @@ def register_purchase_order_routes(app):
                     valid_items.append(item_data)
             if not valid_items:
                 return api_error('请至少添加一条采购明细')
+
+            # BUG-2026-09-22-009：加写锁后复核状态与下游引用，防止「检查通过 →
+            # 并发入库单落地 → 本请求仍在重建明细」的竞态（与删除路径
+            # delete_purchase_order 926 行同一手法，BUG-2026-08-16-020 同款）。
+            if order_id:
+                order, lock_ok = _acquire_order_write_lock(
+                    PurchaseOrder, order.id, 'pending', joinedload(PurchaseOrder.items))
+                if not lock_ok or order is None:
+                    return api_error('采购单状态已变化，请刷新后重试')
+                if has_inbound_reference(order.id):
+                    db.session.rollback()
+                    return api_error('该采购单已有下游入库单，不能编辑明细。'
+                                     '如需变更请先作废或删除下游入库单')
 
             for existing_item in list(order.items):
                 db.session.delete(existing_item)
