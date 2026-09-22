@@ -6120,7 +6120,7 @@ def is_future_date(order_date, today=None):
     except TypeError:
         return False
 
-def build_purchase_request_execution(valid_items):
+def build_purchase_request_execution(valid_items, request_order=None):
     item_ids = [item.id for item in valid_items if item.id]
     ordered_by_item = {item_id: 0 for item_id in item_ids}
     received_by_item = {item_id: 0 for item_id in item_ids}
@@ -6136,6 +6136,105 @@ def build_purchase_request_execution(valid_items):
         for item_id, ordered_qty, received_qty in rows:
             ordered_by_item[item_id] = round_to_2_decimals(ordered_qty or 0)
             received_by_item[item_id] = round_to_2_decimals(received_qty or 0)
+
+    # BUG-2026-09-22-016：手工建单（采购单新增/编辑保存、Excel 导入、复制采购单）
+    # 的三条落库路径**都不写** purchase_request_item_id（见 purchase_order.py 的
+    # 566/842/357 三处 PurchaseOrderItem(...) 构造），于是上面按
+    # purchase_request_item_id 聚合的 ordered_by_item 对它们恒为 0 ——
+    # 采购申请详情页的「已下推/未下推」永远显示满额未下推，同一申请可被**反复下推**
+    # （实测：申请 100 → 手工采购 100 → 再次下推又生成 100，实际采购 200）。
+    #
+    # 兜底口径：把这些「挂在同一采购申请下、但明细未标记来源行」的采购量，
+    # 按 **material_id** 回填到本申请的同物料申请行上。
+    #
+    # 两条关联线索都要用，缺一不可：
+    #   ① purchase_order.purchase_request_id == 本申请（显式来源，最可靠）；
+    #   ② 该采购单下推自本申请但表头字段缺失的历史数据 —— 用
+    #      remark 反查（下推生成的备注固定为 '由采购申请 {request_no} 下推生成'，
+    #      见 routes/purchase_request.py 下推路径），兼容早期版本未写表头字段的单据。
+    # 两者取并集，且只取 purchase_request_item_id IS NULL 的明细（已显式关联的不重复计）。
+    #
+    # 分摊口径（**按行序先到先得**，已与产品确认）：同一物料在本申请里出现多行时
+    # （如两行各 50），把手工采购量依次填满第 1 行、剩余才进第 2 行 —— 与下推接口
+    # 按行分配时的直觉一致，结果确定可复现；平均分摊会产生「每行都不是整数」且
+    # 与实际采购行为对不上的账面，更难解释。
+    #
+    # 刻意不做的事：不因为这条兜底去回写 purchase_request_item_id ——
+    # 手工单本来就与具体申请行无绑定关系，硬写会篡改用户没表达过的意图，
+    # 也会让「编辑采购单」在整批重建明细时丢掉该字段（重回本 BUG）。
+    if item_ids:
+        request_ids = set()
+        # 优先用调用方显式传入的申请单（最可靠）；否则从明细的 FK 上取。
+        if request_order is not None and getattr(request_order, 'id', None):
+            request_ids.add(request_order.id)
+        else:
+            for item in valid_items:
+                rid = getattr(item, 'purchase_request_id', None)
+                if rid:
+                    request_ids.add(rid)
+        request_nos = set()
+        if request_order is not None and getattr(request_order, 'request_no', None):
+            request_nos.add(request_order.request_no)
+        else:
+            for request_id in request_ids:
+                req = db.session.get(PurchaseRequest, request_id)
+                if req is not None and req.request_no:
+                    request_nos.add(req.request_no)
+
+        or_clauses = [PurchaseOrder.purchase_request_id.in_(request_ids)] if request_ids else []
+        if request_nos:
+            # 历史数据线索：备注里带本申请单号（用 like 而非等值，容忍备注前后缀）。
+            for request_no in request_nos:
+                or_clauses.append(PurchaseOrder.remark.like(f'%{request_no}%'))
+
+        if or_clauses:
+            unlinked_rows = db.session.query(
+                PurchaseOrderItem.material_id,
+                func.coalesce(func.sum(PurchaseOrderItem.quantity), 0),
+                func.coalesce(func.sum(PurchaseOrderItem.received_quantity), 0),
+            ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+                db.or_(*or_clauses),
+                PurchaseOrder.status != 'closed',
+                PurchaseOrderItem.purchase_request_item_id.is_(None),
+                PurchaseOrderItem.material_id.in_(
+                    [item.material_id for item in valid_items if item.material_id]
+                ),
+            ).group_by(PurchaseOrderItem.material_id).all()
+
+            unlinked_by_material = {}
+            for material_id, qty, received_qty in unlinked_rows:
+                unlinked_by_material[material_id] = {
+                    'ordered': round_to_2_decimals(qty or 0),
+                    'received': round_to_2_decimals(received_qty or 0),
+                }
+
+            # 按行序先到先得：同一物料的多行申请按 id 升序依次取用兜底额度。
+            for material_id in list(unlinked_by_material.keys()):
+                bucket = unlinked_by_material[material_id]
+                remaining_ordered = bucket['ordered']
+                remaining_received = bucket['received']
+                same_material_items = sorted(
+                    (it for it in valid_items if it.material_id == material_id and it.id),
+                    key=lambda it: it.id,
+                )
+                for item in same_material_items:
+                    if remaining_ordered <= STOCK_COMPARE_EPSILON:
+                        break
+                    if item.id not in ordered_by_item:
+                        continue
+                    take = min(remaining_ordered, max(
+                        round_to_2_decimals(item.quantity or 0) - ordered_by_item[item.id], 0))
+                    if take <= STOCK_COMPARE_EPSILON:
+                        continue
+                    ordered_by_item[item.id] = round_to_2_decimals(ordered_by_item[item.id] + take)
+                    remaining_ordered = round_to_2_decimals(remaining_ordered - take)
+                    # 已入库量按同比例（不超过已计下推量）回填，保证
+                    # remaining_to_receive = ordered - received 不出现负数。
+                    take_received = min(remaining_received, take)
+                    if take_received > STOCK_COMPARE_EPSILON:
+                        received_by_item[item.id] = round_to_2_decimals(
+                            received_by_item.get(item.id, 0) + take_received)
+                        remaining_received = round_to_2_decimals(remaining_received - take_received)
 
     execution = {}
     for item in valid_items:

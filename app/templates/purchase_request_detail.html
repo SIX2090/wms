@@ -245,6 +245,16 @@
                                 {% else %}
                                 -
                                 {% endfor %}
+                                {# BUG-2026-09-22-016：手工建单（采购单页新增/导入/复制）不会写
+                                   purchase_request_item_id，无法回溯到具体申请行，故不在此列列举；
+                                   但它们的采购量已按物料计入上方的「已下推」。这里给出提示，避免
+                                   用户看到「已下推」有数、下游单却是空而误判为数据错误。 #}
+                                {% if item.id not in item_purchase_orders or not item_purchase_orders.get(item.id) %}
+                                    {% if exec.get('ordered_quantity', 0) > 0 %}
+                                    <span class="badge bg-light text-dark border"
+                                          title="该物料的采购量来自手工建单或历史单据，未与具体申请行建立关联，故不在本列列举">手工/历史单</span>
+                                    {% endif %}
+                                {% endif %}
                             </td>
                             <td>¥{{ "%.2f"|format(item.estimated_price or 0) }}</td>
                             <td>¥{{ "%.2f"|format(item.estimated_amount or 0) }}</td>

@@ -64,7 +64,7 @@ def register_purchase_request_routes(app):
         execution_stats = {}
         for request_order in pagination.items:
             valid_items = [item for item in request_order.items if purchase_request_item_has_material(item)]
-            item_execution = build_purchase_request_execution(valid_items)
+            item_execution = build_purchase_request_execution(valid_items, request_order)
             request_qty = round_to_2_decimals(sum(item.get('request_quantity', 0) for item in item_execution.values()))
             ordered_qty = round_to_2_decimals(sum(item.get('ordered_quantity', 0) for item in item_execution.values()))
             received_qty = round_to_2_decimals(sum(item.get('received_quantity', 0) for item in item_execution.values()))
@@ -110,7 +110,7 @@ def register_purchase_request_routes(app):
         request_order = PurchaseRequest.query.get_or_404(id)
         valid_items = [item for item in request_order.items if purchase_request_item_has_material(item)]
         related_purchase_orders = PurchaseOrder.query.filter_by(purchase_request_id=request_order.id).order_by(PurchaseOrder.id.asc()).all()
-        item_execution = build_purchase_request_execution(valid_items)
+        item_execution = build_purchase_request_execution(valid_items, request_order)
         item_purchase_orders = {item.id: [] for item in valid_items}
         for po in related_purchase_orders:
             for po_item in po.items:
@@ -207,7 +207,7 @@ def register_purchase_request_routes(app):
             return api_error('采购申请没有可下推的物料明细')
 
         try:
-            item_execution = build_purchase_request_execution(valid_items)
+            item_execution = build_purchase_request_execution(valid_items, request_order)
             selected_quantities = {}
             selected_items = payload.get('items') if isinstance(payload, dict) else None
             if selected_items is not None:
