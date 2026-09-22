@@ -2568,6 +2568,7 @@ def register_in_order_routes(app):
                          _check_in_order_anomalies, _wechat_share_order,
                          api_error, assert_warehouse_active, get_default_warehouse,
                          is_future_date, location_management_enabled,
+                         sales_return_remaining_check,
                          validate_purchase_in_order_source,
                          validate_purchase_receive_quantity)
         # P2-3 收敛：批量完成与 complete_in_order 共用同一写入入口。
@@ -2668,6 +2669,17 @@ def register_in_order_routes(app):
             if over_qty:
                 db.session.rollback()
                 continue
+            # ③-b 销售退货入库防超退真闸（BUG-2026-09-22-006）：单据版
+            # complete_in_order 已有 P1-5 真闸，批量入口此前漏配，草稿改大后
+            # 批量放行会超量退货入库（凭空增库存 + 销售单可退量被穿透）。
+            # 有来源明细逐行校验 退货量 ≤ 原销售订单行 shipped_quantity −
+            # 已退量聚合；无来源跳过，与单据版语义一致。
+            if order.business_type == '销售退货入库':
+                ret_ok, ret_msg = sales_return_remaining_check(order)
+                if not ret_ok:
+                    skipped.append(f'{order.order_no}({ret_msg})')
+                    db.session.rollback()
+                    continue
             # ④ 异常检测：批量无 force 交互通道，异常单一律跳过转人工单独审核
             anomalies = _check_in_order_anomalies(order)
             if anomalies:
