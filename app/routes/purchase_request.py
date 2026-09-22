@@ -519,7 +519,7 @@ def register_purchase_request_routes(app):
             db.session.flush()
 
             total_amount = 0
-            for item_data in valid_items_data:
+            for row_no, item_data in enumerate(valid_items_data, start=1):
                 material_id = item_data.get('material_id')
                 material_code = (item_data.get('material_code') or item_data.get('code') or '').strip()
                 material = None
@@ -527,6 +527,32 @@ def register_purchase_request_routes(app):
                     material = db.session.get(Material, material_id)
                 if not material and material_code:
                     material = Material.query.filter_by(code=material_code).first()
+
+                # BUG-2026-09-22-012：物料解析失败必须显式报错，禁止静默降级。
+                # 修复前此处不报错，直接把 material_id 落成 None，而
+                # purchase_request_item_data_has_material 只看「有编码或名称」即算
+                # 有效行，于是产生一张「有明细但无物料」的申请单：
+                #   - 下推时 create_purchase_order 按 `item.material_id and ...`
+                #     过滤，这些行走不到——整单全是这种行时永远返回
+                #     「采购申请没有可下推的物料明细」；
+                #   - 表头 total_amount 却已经把这些行的金额累加进去（金额虚高）；
+                #   - 单据状态是 approved，而 delete_purchase_request 只允许
+                #     pending/rejected 删除 → 不能下推、不能删除，**永久卡死**，
+                #     只能重建单据。
+                # 编码是自由文本输入框（物料名/规格只读，靠选择回填），用户手打
+                # 编码边输边提交即可稳定复现，故必须在保存这一道闸口拦住。
+                # 判定口径：只要用户表达了"这条行对应某个物料"（给了 material_id
+                # 或 material_code）就要求解析成功；两者都没给（仅填名称）保持
+                # 原有兼容行为，不在此处新增限制。
+                if (material_id or material_code) and material is None:
+                    row_label = material_code or item_data.get('material_name') or item_data.get('code') or '(未填写)'
+                    if material_id:
+                        return api_error(
+                            f'第 {row_no} 行物料不存在（material_id={material_id}），'
+                            f'请从物料列表重新选择后再保存')
+                    return api_error(
+                        f'第 {row_no} 行物料编码 {row_label} 在系统中不存在，'
+                        f'请从物料列表重新选择后再保存；若要新增物料请先到「物料管理」建档')
 
                 quantity = parse_float_value(item_data.get('quantity'), 0)
                 if quantity <= 0:
