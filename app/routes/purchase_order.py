@@ -38,6 +38,46 @@ from db import db
 from utils import require_role
 
 
+def _aggregate_submitted_qty_by_item_id(rows, id_keys=('item_id', 'id'), skip_non_positive=False):
+    """把「明细行列表」聚合为 {采购明细id: 累计数量}（同一 id 出现多次则累加）。
+
+    BUG-2026-09-22-011（R6 同模式收口）：采购单下推入库有两条入口——
+    `create_in_order_from_purchase_order`（按单全量/部分下推，此前用**赋值**）
+    与 `create_in_order_from_selection`（多单勾选下推，此前用**累加**）。
+    同一份请求体 `[{item_id:1, quantity:60}, {item_id:1, quantity:60}]`：
+    赋值口径只记 60（静默少入库，用户以为入了 120）、累加口径得 120 并被
+    `validate_purchase_receive_quantity` 超量校验正常拦下。两条路径行为必须
+    一致，统一收敛为**累加**——累加是唯一能反映「用户实际提交总量」的口径，
+    赋值会让超量校验失去输入依据。
+
+    `skip_non_positive=True` 保留选单路径既有语义（显式 0/负数行不参与，
+    全为 0 时由调用方报「请选择大于 0 的转换数量」）；按单路径 False，
+    交由 `_create_in_order_from_purchase_order_core` 按 `receive_qty <= 0`
+    跳过并给出各自提示，不改变原有错误文案。
+    仅做解析与求和，不校验明细存在性/数量上限（由调用方各自把关）。
+    """
+    from app import parse_float_value, round_to_2_decimals
+
+    result = {}
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        raw_id = None
+        for key in id_keys:
+            raw_id = row.get(key)
+            if raw_id not in (None, ''):
+                break
+        try:
+            row_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        quantity = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
+        if skip_non_positive and quantity <= 0:
+            continue
+        result[row_id] = round_to_2_decimals(result.get(row_id, 0) + quantity)
+    return result
+
+
 # no-test:reason=路由注册辅助函数，能力由 purchase_order_* 各路由测试覆盖
 def register_purchase_order_routes(app):
     @app.route('/purchase_order')
@@ -650,7 +690,7 @@ def register_purchase_order_routes(app):
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
                          assert_warehouse_active, generate_order_no, get_default_warehouse,
-                         log_operation, parse_float_value,
+                         log_operation,
                          purchase_order_to_in_order_enabled, recalculate_order_total,
                          round_to_2_decimals, update_purchase_order_status,
                          validate_purchase_receive_quantity)
@@ -673,21 +713,13 @@ def register_purchase_order_routes(app):
         if not wh_ok:
             return api_error(wh_msg)
         remark = (payload.get('remark') or '').strip()
-        selected_qty_by_item_id = {}
-        for row in selected_items:
-            if not isinstance(row, dict):
-                continue
-            item_id = row.get('purchase_order_item_id') or row.get('item_id') or row.get('id')
-            try:
-                item_id = int(item_id)
-            except (TypeError, ValueError):
-                continue
-            quantity = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
-            if quantity <= 0:
-                continue
-            selected_qty_by_item_id[item_id] = round_to_2_decimals(
-                selected_qty_by_item_id.get(item_id, 0) + quantity
-            )
+        # BUG-2026-09-22-011：与按单下推共用同一聚合口径（同一明细多次出现累加），
+        # 详见 _aggregate_submitted_qty_by_item_id 注释。
+        selected_qty_by_item_id = _aggregate_submitted_qty_by_item_id(
+            selected_items,
+            id_keys=('purchase_order_item_id', 'item_id', 'id'),
+            skip_non_positive=True,
+        )
         if not selected_qty_by_item_id:
             return api_error('请选择大于 0 的转换数量')
 
@@ -842,7 +874,7 @@ def register_purchase_order_routes(app):
     def create_in_order_from_purchase_order(id):
         from sqlalchemy.orm import joinedload
         from app import (PurchaseOrder, PurchaseOrderItem, _create_in_order_from_purchase_order_core,
-                         api_error, parse_float_value, round_to_2_decimals)
+                         api_error)
         order = PurchaseOrder.query.options(
             joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material),
             joinedload(PurchaseOrder.supplier),
@@ -856,16 +888,9 @@ def register_purchase_order_routes(app):
         try:
             submitted_qty_by_id = None
             if isinstance(submitted_items, list):
-                submitted_qty_by_id = {}
-                for row in submitted_items:
-                    if not isinstance(row, dict):
-                        continue
-                    item_id = row.get('item_id') or row.get('id')
-                    try:
-                        item_id = int(item_id)
-                    except (TypeError, ValueError):
-                        continue
-                    submitted_qty_by_id[item_id] = round_to_2_decimals(parse_float_value(row.get('quantity'), 0))
+                # BUG-2026-09-22-011：与选单下推（create_in_order_from_selection）共用
+                # 同一聚合口径，详见 _aggregate_submitted_qty_by_item_id 注释。
+                submitted_qty_by_id = _aggregate_submitted_qty_by_item_id(submitted_items)
                 if not submitted_qty_by_id:
                     return api_error('请选择要下推入库的采购明细')
             in_order, error = _create_in_order_from_purchase_order_core(
