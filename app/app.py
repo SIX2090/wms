@@ -26142,9 +26142,21 @@ REPORT_BUSINESS_TYPE_WHITELIST = (
 )
 # 历史脏数据：手机原生端 /api/outbound 曾固定写 'Android扫码出库'。
 # BUG-2026-09-10-002 已改写入 '领料单'，但存量单据仍是旧值；移动端每日报表
-# （native_api.daily_report 的 TYPE_DEFS['requisition']）已将其计入领料口径，
-# 报表层必须同样认定，否则手机扫的出库在 PC 领料报表里会凭空消失。
+# （native_api.daily_report 的 TYPE_DEFS['requisition']）已将其计入领料口径。
+# 该值属于**领料口径**，故不在下方排除名单内（黑名单式过滤下自动保留）。
 OUT_LEGACY_SCAN_BUSINESS_TYPE = 'Android扫码出库'
+# BUG-2026-09-22-013：出库报表默认口径要**排除**的业务类型。
+# 采用排除式（而非「只放行领料类型」的放行式）是刻意的安全性取舍：
+# 放行式在遇到 business_type 脏值（如实测存在的英文 'requisition'、
+# 或未来新增但未同步登记的类型）时会**静默漏数**——用户的领料数据凭空
+# 消失，比「采购退货混进来」更严重且更难发现。排除式只挡确定非领料的
+# 类型，未知值一律保留，宁可多算不漏数。
+OUT_NON_REQUISITION_BUSINESS_TYPES = (
+    '采购退货出库',  # 退货给供应商，不是领用
+    '其他出库',      # 非领料用途
+    '销售出库',      # 归销售侧 /sales/outflow_report
+)
+
 
 def _build_report_filters():
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
@@ -27069,10 +27081,18 @@ def _filtered_out_detail_query(filters):
     if out_business_type:
         query = query.filter(OutOrder.business_type == out_business_type)
     else:
+        # 默认按「排除已知非领料类型」而非「只放行领料类型」实现。
+        # 白名单式（只 OR 出 '领料单'/'Android扫码出库'/NULL）在其他域出现
+        # business_type 脏值时会**静默漏数**——实测 `verify_bug_2026_08_02_018`
+        # 里就存在 `business_type='requisition'`（英文值，非系统标准中文类型）的
+        # 出库单，白名单会把它挡掉；生产库若有同类历史脏值，用户的领料数据会
+        # 凭空消失，比「采购退货混进来」更严重。
+        # 黑名单式只排除**确定不属于领料口径**的类型：采购退货出库（退货给
+        # 供应商）、其他出库、销售出库（归销售侧报表）。未知/空/历史脏值一律
+        # 保留，宁可多算也不漏数；用户仍可用显式 business_type 精确筛选。
         query = query.filter(db.or_(
-            OutOrder.business_type == '领料单',
-            OutOrder.business_type == OUT_LEGACY_SCAN_BUSINESS_TYPE,
             OutOrder.business_type.is_(None),
+            OutOrder.business_type.notin_(OUT_NON_REQUISITION_BUSINESS_TYPES),
         ))
     # BUG-2026-08-02-014：出库明细按仓库过滤；兼容历史数据仓库名/编号不统一
     # （与入库明细 BUG-2026-08-18-004 同一修复：手机端手工录入存仓库编号，

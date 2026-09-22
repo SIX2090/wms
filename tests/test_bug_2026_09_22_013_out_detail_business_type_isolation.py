@@ -49,6 +49,7 @@ import app as app_module  # noqa: E402
 from app import (  # noqa: E402
     db, User, Material, MaterialCategory, Unit, Warehouse, Department,
     OutOrder, OutOrderItem, OUT_LEGACY_SCAN_BUSINESS_TYPE,
+    OUT_NON_REQUISITION_BUSINESS_TYPES,
     REPORT_BUSINESS_TYPE_WHITELIST,
 )
 
@@ -169,6 +170,25 @@ class TestOutDetailBusinessTypeIsolation:
         nos = [row["order_no"] for row in body["data"]]
         assert "OUT-ANDROID-1" in nos, nos
 
+    def test_unknown_business_type_not_dropped(self):
+        """T5-b：未知/非标准的 business_type 不得被静默漏数。
+
+        CI 实测 `verify_bug_2026_08_02_018` 中存在 `business_type='requisition'`
+        这类非系统标准中文类型的出库单。默认口径若用「只放行领料类型」的
+        放行式，这类单据会凭空消失——比「采购退货混进来」更严重。
+        故默认口径采用排除式：只挡确定非领料的类型，未知值一律保留。
+        """
+        with app_module.app.app_context():
+            client = self._setup()
+            _make_out_order("OUT-UNKNOWN-1", "requisition", 2.0)
+            _make_out_order("OUT-UNKNOWN-2", "某个未来新增的类型", 1.0)
+            body = _query(client)
+        nos = [row["order_no"] for row in body["data"]]
+        assert "OUT-UNKNOWN-1" in nos, f"未知类型被静默漏数: {nos}"
+        assert "OUT-UNKNOWN-2" in nos, f"未知类型被静默漏数: {nos}"
+        # 但已知非领料类型仍必须被排除
+        assert "PR-RET-1" not in nos, nos
+
     def test_row_and_columns_expose_business_type(self):
         """T6：行数据与列定义都要有业务类型。"""
         with app_module.app.app_context():
@@ -210,6 +230,15 @@ class TestWhitelistAndConstants:
 
     def test_legacy_scan_constant(self):
         assert OUT_LEGACY_SCAN_BUSINESS_TYPE == "Android扫码出库"
+        # 该历史值属领料口径，不得出现在排除名单里
+        assert OUT_LEGACY_SCAN_BUSINESS_TYPE not in OUT_NON_REQUISITION_BUSINESS_TYPES
+
+    def test_non_requisition_exclusion_list(self):
+        """T9：默认口径排除名单必须覆盖已知非领料类型（防漏配导致隔离失效）。"""
+        for bt in ("采购退货出库", "其他出库", "销售出库"):
+            assert bt in OUT_NON_REQUISITION_BUSINESS_TYPES, f"排除名单缺少 {bt}"
+        # 领料单本身绝不能被排除
+        assert "领料单" not in OUT_NON_REQUISITION_BUSINESS_TYPES
 
     def test_report_view_page_renders_out_detail_filter(self):
         with app_module.app.app_context():
