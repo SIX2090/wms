@@ -27321,6 +27321,37 @@ def _collect_check_rows(filters):
             rows.append(row)
     return rows
 
+def _warehouse_document_match_clause(column, warehouse=None,
+                                     warehouse_name=None, warehouse_code=None):
+    """单据类表 warehouse 字段的「仓库名 OR 仓库编码」匹配条件（单一事实源）。
+
+    BUG-2026-09-22-014：InOrder/OutOrder 等单据的 warehouse 字符串字段历史上有
+    两种写法——Web 端模板 `option value="{{ warehouse.name }}"` 写**仓库名**，
+    移动端 `native_api` 取 `payload.warehouse_code` 写**仓库编码**（如 WH-TEST）。
+    此前仓库内多处过滤只做仓库名单边等值匹配，导致移动端录入的单据在按仓库筛选
+    的列表/报表/导出里一律查不到（采购类四张报表表现为恒「没有数据」）。
+
+    本函数统一返回 `db.or_(column == 名称, column == 编码)`，供全部消费点复用，
+    避免同根因再次漂移（R6）。调用方可传 warehouse 对象，也可直接传名称/编码。
+
+    `column` 为待匹配的模型列（如 InOrder.warehouse）。
+    """
+    values = []
+    if warehouse is not None:
+        for v in (getattr(warehouse, 'name', None),
+                  getattr(warehouse, 'code', None)):
+            v = (v or '').strip()
+            if v and v not in values:
+                values.append(v)
+    for v in (warehouse_name, warehouse_code):
+        v = (v or '').strip()
+        if v and v not in values:
+            values.append(v)
+    if not values:
+        return db.false()
+    return db.or_(*[column == v for v in values])
+
+
 def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_code):
     """库存台账/月报按仓库过滤时，匹配 StockTransaction.location 的全部取值。
 
@@ -27870,7 +27901,20 @@ def _purchase_order_item_query(filters):
     # 采购订单本身不记录仓库；以来源采购入库明细或入库单主表关联的
     # 入库单仓库作为报表归属口径。未发生入库的采购订单尚无可确认的
     # 仓库归属，因此不纳入。
+    #
+    # BUG-2026-09-22-014：入库单 warehouse 字段存在「仓库名 / 仓库编码」
+    # 两种历史写法——Web 端 in_order_add.html 下拉 value 取 warehouse.name，
+    # 移动端 native_api 取 payload.warehouse_code（如 WH-TEST）。此前这里
+    # 只用仓库名单边等值匹配，导致移动端录入的采购入库单全部落在过滤条件
+    # 之外，采购执行/供应商汇总/物料汇总/价格分析四张报表恒为「当前条件下
+    # 没有数据」。与仓库内其余报表一致改为 名称 OR 编码 双匹配（R6 同根因
+    # 收敛；同型修复见 BUG-2026-08-17-002 / BUG-2026-08-18-004）。
     if filters.get('warehouse'):
+        match_clause = _warehouse_document_match_clause(
+            InOrder.warehouse,
+            warehouse_name=filters.get('warehouse'),
+            warehouse_code=filters.get('warehouse_code'),
+        )
         query = query.outerjoin(
             InOrderItem,
             InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
@@ -27880,9 +27924,7 @@ def _purchase_order_item_query(filters):
                 InOrderItem.in_order_id == InOrder.id,
                 InOrder.source_purchase_order_id == PurchaseOrder.id,
             ),
-        ).filter(
-            InOrder.warehouse == filters['warehouse']
-        ).distinct()
+        ).filter(match_clause).distinct()
     return query
 
 def _purchase_execution_row(item, today_value):

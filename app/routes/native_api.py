@@ -1835,7 +1835,8 @@ def register_native_api_routes(app):
         """移动端入库单列表：分页 + 状态筛选（按仓库隔离）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, InOrder, InOrderItem, Material,
-                         _in_order_payload, _mobile_paginate, api_json_error,
+                         _in_order_payload, _mobile_paginate,
+                         _warehouse_document_match_clause, api_json_error,
                          api_json_success, resolve_request_warehouse)
         # BUG-2026-08-12-004：仓库必填
         warehouse, wh_err = resolve_request_warehouse(request.args)
@@ -1849,7 +1850,9 @@ def register_native_api_routes(app):
         query = InOrder.query.options(
             joinedload(InOrder.operator),
             joinedload(InOrder.items).joinedload(InOrderItem.material),
-        ).filter(InOrder.warehouse == (warehouse.name or ''))
+        ).filter(
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            _warehouse_document_match_clause(InOrder.warehouse, warehouse))
 
         if status and status in ('pending', 'completed'):
             query = query.filter(InOrder.status == status)
@@ -1900,7 +1903,8 @@ def register_native_api_routes(app):
         """移动端出库单列表：分页 + 状态筛选（按仓库隔离）"""
         from sqlalchemy.orm import joinedload
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, OutOrder, OutOrderItem, Material,
-                         _mobile_paginate, _out_order_payload, api_json_error,
+                         _mobile_paginate, _out_order_payload,
+                         _warehouse_document_match_clause, api_json_error,
                          api_json_success, resolve_request_warehouse)
         # BUG-2026-08-12-004：仓库必填
         warehouse, wh_err = resolve_request_warehouse(request.args)
@@ -1915,7 +1919,9 @@ def register_native_api_routes(app):
             joinedload(OutOrder.operator),
             joinedload(OutOrder.department),
             joinedload(OutOrder.items).joinedload(OutOrderItem.material),
-        ).filter(OutOrder.warehouse == (warehouse.name or ''))
+        ).filter(
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            _warehouse_document_match_clause(OutOrder.warehouse, warehouse))
 
         if status and status in ('pending', 'completed'):
             query = query.filter(OutOrder.status == status)

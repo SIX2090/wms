@@ -267,7 +267,8 @@ def register_out_order_routes(app):
         from app import (Material, OutOrder, OutOrderItem,
                          _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
-                         _get_order_list_filters, get_active_warehouses,
+                         _get_order_list_filters, _warehouse_document_match_clause,
+                         get_active_warehouses,
                          get_default_warehouse, resolve_request_warehouse)
         from sqlalchemy.orm import joinedload
         page = request.args.get('page', 1, type=int)
@@ -289,7 +290,9 @@ def register_out_order_routes(app):
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse:
-            query = query.filter(OutOrder.warehouse == warehouse.name)
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            query = query.filter(
+                _warehouse_document_match_clause(OutOrder.warehouse, warehouse))
         elif warehouse_error:
             query = query.filter(db.false())
         query = _apply_out_order_search(query, search)
@@ -1638,7 +1641,8 @@ def register_out_order_routes(app):
         from app import (Material, OutOrder, OutOrderItem,
                          _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
-                         _get_order_list_filters, resolve_request_warehouse)
+                         _get_order_list_filters, _warehouse_document_match_clause,
+                         resolve_request_warehouse)
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
         wb = Workbook()
@@ -1693,7 +1697,8 @@ def register_out_order_routes(app):
         if warehouse_error:
             from app import api_error
             return api_error(warehouse_error, 400)
-        query = query.filter(OutOrder.warehouse == warehouse.name)
+        query = query.filter(
+            _warehouse_document_match_clause(OutOrder.warehouse, warehouse))
         sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
         query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), OutOrder.id.desc())
         rows = query.all()

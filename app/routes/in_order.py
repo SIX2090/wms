@@ -299,6 +299,7 @@ def register_in_order_routes(app):
                          _apply_header_or_item_contract_filters, _apply_in_order_search,
                          _apply_order_partner_text_filter,
                          _apply_status_date_filters, _get_order_list_filters,
+                         _warehouse_document_match_clause,
                          get_active_warehouses, get_default_warehouse,
                          purchase_order_status_label, resolve_request_warehouse)
         page = request.args.get('page', 1, type=int)
@@ -340,7 +341,9 @@ def register_in_order_routes(app):
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse:
-            query = query.filter(InOrder.warehouse == warehouse.name)
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            query = query.filter(
+                _warehouse_document_match_clause(InOrder.warehouse, warehouse))
         elif warehouse_error:
             query = query.filter(db.false())
         supplier_id = request.args.get('supplier_id', type=int) or 0

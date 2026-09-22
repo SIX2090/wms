@@ -143,6 +143,7 @@ def register_export_routes(app):
             _apply_in_order_search,
             _apply_status_date_filters,
             _get_order_list_filters,
+            _warehouse_document_match_clause,
             resolve_request_warehouse,
         )
         from db import db
@@ -186,7 +187,9 @@ def register_export_routes(app):
             from app import api_error
             return api_error(warehouse_error, 400)
         if warehouse:
-            query = query.filter(InOrder.warehouse == warehouse.name)
+            # BUG-2026-09-22-014：兼容仓库名/编码两种历史写法（R6 同根因收敛）
+            query = query.filter(
+                _warehouse_document_match_clause(InOrder.warehouse, warehouse))
         else:
             query = query.filter(db.false())
         sort_col = getattr(InOrder, sort_by, InOrder.created_at)
