@@ -662,15 +662,6 @@ function bindMaterialInput(row) {
         }
     });
 
-    selectBtn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        if (dropdown.style.display === 'block') {
-            dropdown.style.display = 'none';
-        } else {
-            showDropdown(row, true);
-        }
-    });
-
     dropdown.addEventListener('click', function(e) {
         const item = e.target.closest('.material-dropdown-item');
         if (item && item.dataset.empty !== '1') {
