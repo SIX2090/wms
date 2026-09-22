@@ -1297,6 +1297,7 @@ def register_out_order_routes(app):
                          get_warehouse_stock_quantities, is_future_date,
                          is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity,
+                         purchase_return_remaining_check,
                          recalculate_order_total,
                          sales_outbound_remaining_check,
                          sync_sales_order_shipment,
@@ -1367,6 +1368,16 @@ def register_out_order_routes(app):
                 remaining_ok, remaining_err = sales_outbound_remaining_check(order)
                 if not remaining_ok:
                     skipped.append(f'{order.order_no}({remaining_err or "出库数量超过销售订单未发货数量"})')
+                    db.session.rollback()
+                    continue
+            # ③-b 采购退货出库整单防超退（BUG-2026-09-22-005）：单据版
+            # complete_out_order 已有 P1-7 真闸，批量入口此前漏配，草稿改大后
+            # 批量放行会超量退货。有来源明细逐行校验 退货量 ≤ 原采购入库行
+            # quantity − 已退量聚合；无来源跳过，与单据版语义一致。
+            if order.business_type == '采购退货出库':
+                remaining_ok, remaining_err = purchase_return_remaining_check(order)
+                if not remaining_ok:
+                    skipped.append(f'{order.order_no}({remaining_err or "退货数量超过采购入库单可退数量"})')
                     db.session.rollback()
                     continue
             # ④ 异常检测：批量无 force 交互通道，异常单一律跳过转人工单独审核
