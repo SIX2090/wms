@@ -281,7 +281,13 @@ def register_out_order_routes(app):
         allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
-        sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
+        # BUG-2026-09-23-004（A-2，R6 同根因收敛）：与 in_order_list 一致——本页按明细行
+        # outerjoin(OutOrderItem) 展开，模板「金额」列渲染 item.amount，但排序键此前打到
+        # 单据头 OutOrder.total_amount，导致点「金额 ⇅」时可见列无序。改为与展示同口径。
+        if sort_by == 'total_amount':
+            sort_col = db.func.coalesce(OutOrderItem.amount, OutOrder.total_amount)
+        else:
+            sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
         # 按单据左连接明细展示，待完成但没有明细的单据也能查到。
         query = db.session.query(OutOrder, OutOrderItem).outerjoin(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).options(
             joinedload(OutOrder.department),

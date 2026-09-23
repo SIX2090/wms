@@ -329,7 +329,19 @@ def register_in_order_routes(app):
         allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
-        sort_col = getattr(InOrder, sort_by, InOrder.created_at)
+        # BUG-2026-09-23-004（A-2）：本页是「明细表」——query 已 outerjoin(InOrderItem)
+        # 按明细行展开，模板「金额」列渲染的是明细行金额 item.amount；但排序键此前写成
+        # getattr(InOrder, 'total_amount')，打到的是**单据头**的冗余汇总列（页面根本不展示）。
+        # 一个单据的多行共享同一个 total_amount，该键无法在行间区分先后，ORDER BY 实际退化成
+        # 按主键序 —— 用户点「金额 ⇅」后可见的金额列完全无序（实测 asc 得到 5,20,10,40,…），
+        # 且与 sort=order_no 的结果序列**完全相同**，证明行金额没参与比较。
+        # 修复：金额排序落回与展示同口径的 InOrderItem.amount。
+        # 无明细的单据该列为 NULL，按其原本的单据头 total_amount 兜底，避免排序结果中出现
+        # 「无明细行莫名排最前/最后」的观感异常。
+        if sort_by == 'total_amount':
+            sort_col = db.func.coalesce(InOrderItem.amount, InOrder.total_amount)
+        else:
+            sort_col = getattr(InOrder, sort_by, InOrder.created_at)
         # 按单据左连接明细展示，待完成但没有明细的单据也能查到。
         query = db.session.query(InOrder, InOrderItem).outerjoin(InOrderItem, InOrderItem.in_order_id == InOrder.id).options(
             joinedload(InOrder.supplier),
@@ -2761,6 +2773,35 @@ def register_in_order_routes(app):
         msg = f'批量审核完成，共审核 {completed} 张入库单'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        # BUG-2026-09-23-004（A-5）：此前只要请求走到这里就回 status=success，
+        # 于是传入一批**根本不存在**的 id（orders 为空、completed=0）也会得到
+        # 「批量审核完成，共审核 0 张入库单」+ 前端绿色成功弹窗 + location.reload()，
+        # 用户完全察觉不到自己选的东西一张都没生效。
+        # 「一张都没成功」不是成功：0 张时返回 **error 契约**，并区分「未匹配到单据」
+        # 与「匹配到但全部被跳过」，让用户知道到底是选错了还是业务上不允许。
+        # 与 batch_print / batch_export 同族口径保持一致（未找到时同为 400 + status=error）。
+        #
+        # 契约细节（R6 口径一致性的正确做法）：错误分支必须继续携带 completed，
+        # 因为本仓库既有回归锁（tests/test_bug_2026_08_16_005_batch_complete_in_guards.py
+        # 的 T1/T2/T4）正是通过「completed == 0」判断「单据被业务校验跳过、库存未入账」。
+        # 只把 status 改成 error、同时保留 completed 与逐单跳过原因（msg），既让前端按
+        # 失败处理（不再弹绿色成功并 reload），又不破坏既有消费点——两边都满足，无人需要让步。
+        if completed == 0:
+            if not orders:
+                return jsonify({
+                    'status': 'error',
+                    'msg': '未找到符合条件的入库单',
+                    'completed': 0,
+                }), 400
+            # msg 必须把每一张被跳过的**具体原因**带出去（如「入库日期晚于今天」
+            # 「未入库数量…」）：既有回归锁 T1/T2 直接断言原因子串，前端也要靠它
+            # 告诉用户到底为什么没生效。故此处复用与成功分支同源的 msg 构造。
+            return jsonify({
+                'status': 'error',
+                'msg': msg,
+                'skipped': skipped,
+                'completed': 0,
+            }), 400
         return jsonify({'status': 'success', 'msg': msg, 'completed': completed})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -2886,17 +2927,23 @@ def register_in_order_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_print_in_order():
+        from app import api_error
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
+        # BUG-2026-09-23-004（A-4/A-5）：本接口此前对「空选」「未找到」返回裸 jsonify
+        # （HTTP 200），而同族的 batch_complete / batch_delete 走 api_error（HTTP 400）。
+        # 同一类前置校验出现两种契约：前端 batchInOrderAction 恰好只看 body 不看状态码，
+        # 所以暂时没暴露；但任何统一拦截器 / 网关 / 「非 2xx 即报错」的封装都会让打印与
+        # 导出静默失败。此处统一为 api_error（400），与同族接口对齐。
         if not ids:
-            return jsonify({'status': 'error', 'msg': '请选择要打印的入库单'})
+            return api_error('请选择要打印的入库单')
         if len(ids) > 100:
-            return jsonify({'status': 'error', 'msg': '单次批量打印不能超过 100 条'}), 400
+            return api_error('单次批量打印不能超过 100 条')
         from app import InOrder
         orders = InOrder.query.filter(InOrder.id.in_(ids)).all()
         if not orders:
-            return jsonify({'status': 'error', 'msg': '未找到符合条件的入库单'})
+            return api_error('未找到符合条件的入库单')
         order_nos = ', '.join([o.order_no for o in orders[:5]])
         if len(orders) > 5:
             order_nos += f' 等 {len(orders)} 张'
@@ -2914,18 +2961,20 @@ def register_in_order_routes(app):
         import io
         from openpyxl import Workbook
         from flask import send_file
+        from app import api_error
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
+        # BUG-2026-09-23-004（A-4/A-5）：同 batch_print，统一走 api_error（400）契约。
         if not ids:
-            return jsonify({'status': 'error', 'msg': '请选择要导出的入库单'})
+            return api_error('请选择要导出的入库单')
         if len(ids) > 1000:
-            return jsonify({'status': 'error', 'msg': '单次批量导出不能超过 1000 条'}), 400
+            return api_error('单次批量导出不能超过 1000 条')
         from sqlalchemy.orm import joinedload
         from app import InOrder
         orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
         if not orders:
-            return jsonify({'status': 'error', 'msg': '未找到符合条件的入库单'})
+            return api_error('未找到符合条件的入库单')
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单批量导出'

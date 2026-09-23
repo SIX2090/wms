@@ -179,7 +179,12 @@
         </table>
         </div>
         
-        {% if pagination.pages > 1 %}
+        {#
+          BUG-2026-09-23-004（A-1，R6 同根因收敛）：与 in_order.html 一致，此前
+          `{% if pagination.pages > 1 %}` 把「每页显示 + 共 N 条记录」与分页导航
+          一起包住，结果只有 1 页时整块消失，用户筛完条件看不到总数。
+          现改为摘要条始终渲染，只有 <nav> 分页导航受 pages > 1 约束。
+        #}
         <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
             <div class="d-flex align-items-center gap-2">
                 <span class="text-muted">每页显示</span>
@@ -191,6 +196,7 @@
                 </select>
                 <span class="text-muted">条，共 {{ pagination.total }} 条记录</span>
             </div>
+        {% if pagination.pages > 1 %}
         {#
           BUG-2026-09-23-003：分页链接必须落在「当前正在看的这张表」上。
           本页同时挂在 /out_order 与 /other_out_order 两个 URL 规则上，
@@ -250,8 +256,8 @@
                 {% endif %}
             </ul>
         </nav>
-        </div>
         {% endif %}
+        </div>
     </div>
 </div>
 
