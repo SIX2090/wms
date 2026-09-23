@@ -191,11 +191,29 @@
                 </select>
                 <span class="text-muted">条，共 {{ pagination.total }} 条记录</span>
             </div>
+        {#
+          BUG-2026-09-23-003：分页链接必须落在「当前正在看的这张表」上。
+          本页同时挂在 /out_order 与 /other_out_order 两个 URL 规则上，
+          url_for('out_order_list') 只会稳定解析到后注册的 /other_out_order，
+          会让领料/销售/采购退货出库明细表翻页跳到其他出库明细表
+          （后端对 /other_out_order 会强制 business_type=其他出库）。
+          故改用后端传入的 list_base_path（= 本次请求的真实 path）拼查询串。
+        #}
+        {% set _page_query = {
+            'page': 1, 'sort': sort_by, 'order': sort_order, 'per_page': per_page,
+            'status': filters.status, 'search': filters.search,
+            'date_start': filters.date_start, 'date_end': filters.date_end,
+            'contract_no': filters.contract_no, 'project_name': filters.project_name,
+            'warehouse_id': filters.warehouse_id, 'business_type': filters.business_type,
+            'embedded': request.args.get('embedded')
+        } %}
+        {# Jinja 的 urlencode 会把 None 原样渲染成字符串 "None"，须显式剔除 #}
+        {% set _page_query_url = dict(_page_query.items()|rejectattr('1', 'none')|list) %}
         <nav aria-label="分页导航">
             <ul class="pagination justify-content-center mb-0">
                 {% if pagination.has_prev %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.prev_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">上一页</a>
+                    <a class="page-link" href="{{ list_base_path }}?{{ dict(_page_query_url, page=pagination.prev_num)|urlencode }}">上一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">
@@ -211,7 +229,7 @@
                         </li>
                         {% else %}
                         <li class="page-item">
-                            <a class="page-link" href="{{ url_for('out_order_list', page=page_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                            <a class="page-link" href="{{ list_base_path }}?{{ dict(_page_query_url, page=page_num)|urlencode }}">{{ page_num }}</a>
                         </li>
                         {% endif %}
                     {% else %}
@@ -223,7 +241,7 @@
 
                 {% if pagination.has_next %}
                 <li class="page-item">
-                    <a class="page-link" href="{{ url_for('out_order_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, contract_no=filters.contract_no, project_name=filters.project_name, warehouse_id=filters.warehouse_id, business_type=filters.business_type, embedded=request.args.get('embedded')) }}">下一页</a>
+                    <a class="page-link" href="{{ list_base_path }}?{{ dict(_page_query_url, page=pagination.next_num)|urlencode }}">下一页</a>
                 </li>
                 {% else %}
                 <li class="page-item disabled">

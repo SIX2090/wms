@@ -55,6 +55,11 @@ PARAM_RE = re.compile(r"(\w+)\s*=")
 PAGER_KWARGS_RE = re.compile(r"base_kwargs\s*=\s*\{(.*?)\}", re.S)
 DICT_KEY_RE = re.compile(r"['\"]?(\w+)['\"]?\s*:")
 
+# BUG-2026-09-23-003：`{% set _page_query = {…} %}` + `| urlencode` 的分页写法。
+# 模板不再用 url_for（同一 endpoint 挂多条 URL 规则时 url_for 会解析到错误路径），
+# 改为把条件收进字典后拼 <当前 path>?<query>。参数仍在，只是换了载体。
+PAGE_QUERY_SET_RE = re.compile(r"\{%-?\s*set\s+_page_query\w*\s*=\s*\{(.*?)\}\s*-?%\}", re.S)
+
 # 导出参数在 JS 里运行时从筛选表单收集，静态分析看不到，单独豁免。
 # 这类写法反而最健壮（加字段自动跟随），不是缺陷。
 JS_DYNAMIC_EXPORT = {
@@ -93,6 +98,14 @@ def _pager_params(src: str):
         params |= set(PARAM_RE.findall(m.group(0)))
     # pager 宏：参数在 base_kwargs 字典里，由宏内部展开成 url_for
     for m in PAGER_KWARGS_RE.finditer(src):
+        found = True
+        params |= set(DICT_KEY_RE.findall(m.group(1)))
+    # BUG-2026-09-23-003 写法：参数收在 {% set _page_query = {...} %} 字典里，
+    # 再由 {{ dict(_page_query_url, page=…) | urlencode }} 展开成
+    # <path>?…&page=N。此时 href 里只有 `page=` 字面量，
+    # 其余筛选字段全在上面的字典中——不比 url_for 写法少传任何字段，
+    # 故必须同样解析，否则会把「已回填全部条件」误判为「翻页丢条件」。
+    for m in PAGE_QUERY_SET_RE.finditer(src):
         found = True
         params |= set(DICT_KEY_RE.findall(m.group(1)))
     return params if found else None

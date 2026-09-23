@@ -149,6 +149,11 @@ def test_t6_route_export_template_contract():
 
     # 模板：输入框提交文本 + 各链接回填
     assert 'name="supplier_name"' in TPL, "供应商输入框必须提交 supplier_name"
-    assert "supplier_name=filters.supplier_name" in TPL, "分页链接必须回填 supplier_name"
+    # BUG-2026-09-23-003：分页链接不再走 url_for（同一 endpoint 挂 /in_order 与
+    # /other_in_order 两条规则时，url_for 会解析到 /other_in_order，翻页会跳表），
+    # 改为把筛选条件收进 _page_query 字典后拼当前 path。断言口径随之调整为
+    # 「分页字典必须回填 supplier_name 与 supplier_id」——原意（翻页不丢供应商条件）不变。
+    assert "'supplier_name': filters.supplier_name" in TPL, "分页链接必须回填 supplier_name"
+    assert "'supplier_id': filters.supplier_id" in TPL, "分页链接必须回填 supplier_id"
     assert "supplier_name={{ filters.supplier_name|urlencode }}" in TPL, "导出链接必须回填 supplier_name"
     assert "or filters.supplier_name %}" in TPL, "清除按钮条件必须包含 supplier_name"

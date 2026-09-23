@@ -359,7 +359,12 @@ def register_out_order_routes(app):
             '采购退货出库': '采购退货出库明细表',
         }
         page_title = _page_titles.get(explicit_bt, '领料明细表')
-        return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
+        # BUG-2026-09-23-003：同 in_order_list——本视图同时挂在 /out_order 与
+        # /other_out_order 两个规则上，url_for('out_order_list') 只稳定解析到后注册的
+        # /other_out_order，会让领料出库明细表/销售出库明细表的翻页链接全部指到
+        # 其他出库明细表（后端对 /other_out_order 会强制 raw_bt='其他出库'）。
+        # 故把本次请求的真实 path 显式传给模板，分页按它拼绝对路径。
+        return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, list_base_path=request.path, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/out_order/<int:id>')
     @login_required

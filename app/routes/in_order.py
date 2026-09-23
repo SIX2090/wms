@@ -410,6 +410,12 @@ def register_in_order_routes(app):
             'supplier_name': supplier_name_filter,
         }
         page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
+        # BUG-2026-09-23-003：本视图同时挂在 /in_order 与 /other_in_order 两个规则上，
+        # Flask 的 url_for('in_order_list') 只会稳定解析到「后注册」的那个（/other_in_order），
+        # 模板分页若走 url_for 会把采购入库明细表的翻页链接全部指到其他入库明细表；
+        # 而 in_order_list 对 request.path == '/other_in_order' 会强制 type=other_in，
+        # 连 type=purchase_in 也被丢弃。故把当前生效路径显式传给模板，分页按它拼绝对路径。
+        list_base_path = request.path
         return render_template(
             'in_order.html',
             items=items,
@@ -420,6 +426,7 @@ def register_in_order_routes(app):
             per_page=per_page,
             filters=filters,
             page_title=page_title,
+            list_base_path=list_base_path,
             purchase_order_status_label=purchase_order_status_label,
             warehouses=get_active_warehouses(),
             default_warehouse=get_default_warehouse(),

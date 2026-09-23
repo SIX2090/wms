@@ -113,7 +113,10 @@
                 </div>
                 <div class="info-item">
                     <span class="info-label">最近出库草稿</span>
-                    <span class="info-value">{% if order.shipment_order_no %}<a href="{{ url_for('out_order_list', search=order.shipment_order_no) }}">{{ order.shipment_order_no }}</a>{% else %}未生成{% endif %}</span>
+                    {# BUG-2026-09-23-003：url_for('out_order_list') 在多 URL 规则下解析到
+                       /other_out_order（= 其他出库明细表），会把销售出库草稿链到错误的表，
+                       且该页强制 business_type=其他出库 → 用户按单号也搜不到这张销售出库单。 #}
+                    <span class="info-value">{% if order.shipment_order_no %}<a href="/out_order?search={{ order.shipment_order_no|urlencode }}">{{ order.shipment_order_no }}</a>{% else %}未生成{% endif %}</span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">未税金额</span>
