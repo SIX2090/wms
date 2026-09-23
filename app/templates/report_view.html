@@ -126,6 +126,13 @@
                     <option value="">全部</option>
                     <option value="pending">待处理</option>
                     <option value="completed">已完成</option>
+                    {# BUG-2026-09-23-002：采购订单执行统计表的单据状态还有 partial/closed，
+                       后端筛选本就支持（PurchaseOrder.status == filters['status']），
+                       补齐选项才能按「部分入库/已关闭」过滤；仅该报表追加，避免污染入出库/盘点报表 #}
+                    {% if report_type == 'purchase_order_execution' %}
+                    <option value="partial">部分入库</option>
+                    <option value="closed">已关闭</option>
+                    {% endif %}
                 </select>
             </div>
             {% endif %}
@@ -402,7 +409,7 @@ function renderPrintArea(columns, rows, truncated) {
     const bodyHtml = rows.map(row => {
         const cells = columns.map((column) => {
             let value = row[column.field];
-            if (column.type === 'status') value = value === 'completed' ? '已完成' : (value === 'pending' ? '待处理' : value);
+            if (column.type === 'status') value = statusLabel(value);
             return `<td>${escapeHtml(formatValue(value, column.type))}</td>`;
         }).join('');
         return `<tr>${cells}</tr>`;
@@ -442,6 +449,25 @@ function buildParams(isExport = false) {
 
 function setLoading(loading) {
     loadingMask.hidden = !loading;
+}
+
+// BUG-2026-09-23-002：状态列翻译收口。此前屏幕/打印两条渲染路径都只覆盖
+// completed/pending，采购单 partial/closed 原样显示英文（执行统计表实测复现）。
+// 口径与后端 purchase_order_status_label 对齐。
+const STATUS_LABELS = {
+    pending: '待处理',
+    partial: '部分入库',
+    completed: '已完成',
+    closed: '已关闭',
+};
+const STATUS_BADGES = {
+    pending: 'bg-warning text-dark',
+    partial: 'bg-info text-dark',
+    completed: 'bg-success',
+    closed: 'bg-secondary',
+};
+function statusLabel(value) {
+    return STATUS_LABELS[value] || value;
 }
 
 function formatValue(value, type) {
@@ -506,13 +532,8 @@ function renderTable(columns, rows) {
         const cells = columns.map((column) => {
             const key = column.field;
             const value = row[column.field];
-            if (column.type === 'status') {
-                if (value === 'completed') {
-                    return `<td data-column-key="${escapeHtml(key)}"><span class="badge bg-success">已完成</span></td>`;
-                }
-                if (value === 'pending') {
-                    return `<td data-column-key="${escapeHtml(key)}"><span class="badge bg-warning text-dark">待处理</span></td>`;
-                }
+            if (column.type === 'status' && STATUS_LABELS[value]) {
+                return `<td data-column-key="${escapeHtml(key)}"><span class="badge ${STATUS_BADGES[value]}">${STATUS_LABELS[value]}</span></td>`;
             }
             const displayValue = formatValue(value, column.type);
             const link = column.link_field ? row[column.link_field] : '';
