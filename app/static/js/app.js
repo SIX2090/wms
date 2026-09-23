@@ -1813,6 +1813,31 @@ function isFormPage() {
         !!document.querySelector('[name="order_id"]');
 }
 
+// BUG-2026-09-23-005：路径归一化——去掉尾部斜杠，并剥离 ?query / #hash，
+// 供 isWmsListPage() 做「列表页 ↔ 详情页/新增页」的精确区分。
+function normalizeWmsPath(pathname) {
+    if (!pathname) return '';
+    var path = String(pathname).split('#')[0].split('?')[0];
+    if (path.length > 1 && path.charAt(path.length - 1) === '/') {
+        path = path.replace(/\/+$/, '');
+    }
+    return path || '/';
+}
+
+// BUG-2026-09-23-005：判断当前是否处于「模块列表页」。
+// 刻意不用 module.match 反向解析：match 正则天然同时覆盖列表 / 详情 / 新增，
+// 无法区分三者。这里改为与 module.listUrl 做严格等值比对——
+//   /in_order      → true（列表）
+//   /in_order/1    → false（详情）
+//   /in_order/add  → false（新增）
+//   /opening_stock/12 → false（详情）
+// query string 不影响 pathname，故筛选条件不会干扰判定。
+// 模块未声明 listUrl 时返回 false（保守：不隐藏任何按钮，避免误伤）。
+function isWmsListPage(module) {
+    if (!module || !module.listUrl) return false;
+    return normalizeWmsPath(window.location.pathname) === normalizeWmsPath(module.listUrl);
+}
+
 function openUrl(url, target) {
     if (!url) return false;
     if (target === '_blank') window.open(url, '_blank');
@@ -1840,6 +1865,33 @@ function preserveEmbeddedUrl(url) {
     var isEmbedded = document.body.classList.contains('embedded-page') ||
         new URLSearchParams(window.location.search).get('embedded') === '1';
     return isEmbedded ? withEmbeddedParam(url) : url;
+}
+
+// BUG-2026-09-23-005：报表打印 URL 构造——只映射报表端点**真正支持**的参数。
+// 背景：/report/inout/print 只认 warehouse_id / start_date / end_date，
+// 而列表页表单里的日期参数名是 date_start / date_end（不同名），
+// 且列表页还有 status / search / supplier_id / contract_no / project_name 等
+// 报表完全不认的参数。直接套用 buildCurrentFilteredUrl() 会把一堆被忽略的
+// 参数塞进 URL——地址栏脏、且会让用户误以为筛选生效了。
+// 故此处做白名单映射：只带报表支持的 3 个参数，其余一律丢弃。
+var WMS_REPORT_PRINT_PARAM_MAP = [
+    { from: 'warehouse_id', to: 'warehouse_id' },
+    { from: 'date_start', to: 'start_date' },
+    { from: 'date_end', to: 'end_date' }
+];
+
+function buildReportPrintUrl(baseUrl) {
+    if (!baseUrl) return '';
+    var url = new URL(baseUrl, window.location.origin);
+    var currentParams = new URLSearchParams(window.location.search);
+    WMS_REPORT_PRINT_PARAM_MAP.forEach(function(pair) {
+        var value = currentParams.get(pair.from);
+        if (value === null || value === '') return;
+        url.searchParams.set(pair.to, value);
+    });
+    // 保留 baseUrl 自带的查询参数，但不把当前页面的无关参数带出去
+    url.searchParams.delete('embedded');
+    return url.pathname + url.search;
 }
 
 function escapeHtml(value) {
@@ -1979,7 +2031,10 @@ function printCurrent(module) {
         return;
     }
     if (module.printListUrl) {
-        window.open(module.printListUrl, '_blank');
+        // BUG-2026-09-23-005：列表页打印原先直接打开 printListUrl，当前筛选条件
+        // 全部丢失（用户以为打的是"筛选后的结果"，实际是全量报表）。
+        // 改走 buildReportPrintUrl() 白名单映射，只带报表真正支持的参数。
+        window.open(buildReportPrintUrl(module.printListUrl), '_blank');
         return;
     }
     window.print();
@@ -2458,8 +2513,15 @@ function showDocumentSearchModal(module) {
     load('');
 }
 
-function createDocumentNavigationGroup(module) {
+function createDocumentNavigationGroup(module, isListPage) {
     if (!module.navigator) return null;
+    // BUG-2026-09-23-005：列表页不渲染单据导航组。
+    // 根因：WMS_ACTION_MODULES 里 15 个模块**全部** navigator:true，导航组因此在
+    // 每个列表页也照常渲染；而列表页没有"当前单据"这个概念，navigateDocument()
+    // 会回退到 data.first_id / data.last_id，点击「首张/上一张/下一张/末张」
+    // 既不报错也不提示，直接把用户传送走并丢掉列表筛选条件——典型的静默陷阱。
+    // 详情页/新增页行为保持不变。
+    if (isListPage) return null;
     var group = document.createElement('div');
     group.className = 'cb-doc-nav';
     group.setAttribute('aria-label', '单据导航');
@@ -3033,6 +3095,17 @@ function initTrueMobileMode() {
     initMobileDocumentCards();
 }
 
+// BUG-2026-09-23-005：按钮被运行时过滤后，清理产生的连续分隔线 / 首尾分隔线。
+// 注意：抽成函数是为了给列表页过滤复用，不替换 insertGlobalActionBar 里
+// BUG-2026-08-27-001 那段内联匿名 filter——既有回归测试逐字断言它。
+function trimWmsActionbarDividers(buttons) {
+    return buttons.filter(function(item, index, arr) {
+        if (!item.divider) return true;
+        if (index === 0 || index === arr.length - 1) return false;
+        return !arr[index - 1].divider;
+    });
+}
+
 function insertGlobalActionBar() {
     if (document.getElementById('cbGlobalActionBar')) return;
     // BUG-2026-07-28-007 修复：只在「嵌入 / Tab iframe」场景注入全局工具栏。
@@ -3044,6 +3117,8 @@ function insertGlobalActionBar() {
     if (!module) return;
     var content = document.querySelector('.embedded-content');
     if (!content) return;
+    // BUG-2026-09-23-005：先判定是否列表页，供下方「设置/保存」隐藏与导航组跳过使用。
+    var isListPage = isWmsListPage(module);
     var bar = document.createElement('div');
     bar.className = 'cb-actionbar no-print';
     bar.id = 'cbGlobalActionBar';
@@ -3087,6 +3162,26 @@ function insertGlobalActionBar() {
             });
         }
     }
+    // BUG-2026-09-23-005：列表页隐藏名不副实 / 会误操作的按钮。
+    // 刻意放在 buttons 字面量**之后**做运行时过滤，而不是直接改上面的数组字面量——
+    // 该字面量（含 action: function(e) { openSettings(module, e); } 这句）被既有回归
+    // 测试逐字断言，改动字面量会打破锁。
+    if (isListPage) {
+        buttons = buttons.filter(function(item) {
+            // 「保存」：列表页只做过 CSS 置灰（.disabled），监听器依然会触发，
+            // saveCurrentPage() 最终落到 document.querySelector('form')——
+            // 命中的是**筛选表单**，属于会误提交的假按钮，直接移除。
+            if (item.key === 'save') return false;
+            // 「设置」：openSettings() 发现 module.printTemplateUrl 就跳打印模板，
+            // 在列表页表现为「点设置打开了打印模板」的名不副实。
+            // 仅当 printTemplateUrl 存在时才隐藏；对 material 这类无打印模板的模块，
+            // 列表页点「设置」实际是有效的字段列设置入口，隐藏等于砍掉可用功能
+            // （违反 AGENTS.md §七 R8「修复必须有净正向价值」）。
+            if (item.key === 'settings' && module.printTemplateUrl) return false;
+            return true;
+        });
+        buttons = trimWmsActionbarDividers(buttons);
+    }
     buttons.forEach(function(item) {
         if (item.divider) {
             var divider = document.createElement('span');
@@ -3104,7 +3199,7 @@ function insertGlobalActionBar() {
         if (item.key === 'delete' && !module.deleteUrl && !module.detailDeleteUrl) btn.classList.add('disabled');
         bar.appendChild(btn);
     });
-    var navGroup = createDocumentNavigationGroup(module);
+    var navGroup = createDocumentNavigationGroup(module, isListPage);
     if (navGroup) {
         var spacer = document.createElement('span');
         spacer.className = 'cb-actionbar-spacer';
