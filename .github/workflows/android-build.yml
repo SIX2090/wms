@@ -12,7 +12,27 @@ on:
   schedule:
     - cron: '30 18 * * *'
 
+# CI-PERF-2026-09-24：原单一 job 串行 465s（Build Release APK 325s + Lint 83s
+# + Unit tests 36s），全部排在一条关键路径上。现拆成**三个互不依赖的并行 job**，
+# 总时长由最慢的 `build` 决定（~350s），收益 ~115s。
+#
+# 为什么拆开不减少任何校验（AGENTS.md §六 A12 精神：只准加强、不准削弱）：
+#   - assembleRelease / lintRelease / testReleaseUnitTest 本就是三个独立校验目标，
+#     互相不读对方产物，拆开只是让它们真正并行；
+#   - 任一 job 失败都会独立亮红，不会因为"合在一起跑所以看得见"而漏报；
+#   - `build` job 仍然同时承担「出包 + 发布 Release 资产」的原职责。
+#
+# ⚠️ job 名 `build` 不能改：tests/test_bug_2026_09_04_003_fixed_debug_keystore.py
+# 的 test_workflow_yaml_parses 直接断言 `data["jobs"]["build"]["steps"]` 中包含
+# 「Restore fixed debug keystore (BUG-2026-09-04-003)」步骤，改名会让该回归失效。
+#
+# ⚠️ Gradle 缓存（CI-PERF-2026-09-24）：三个 job 各自拉一次 Android 环境是拆分的
+# 固有成本，用 actions/cache 缓存 ~/.gradle/caches 与 ~/.gradle/wrapper 抵消大部分
+# —— 依赖下载与 AGP 元数据在首次构建后命中缓存，后续 job 只做增量编译。
 jobs:
+  # ==========================================================================
+  # Job 1：出包 + 发布（原 job 的主体，~350s，为关键路径）
+  # ==========================================================================
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -32,6 +52,18 @@ jobs:
         uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
+      # CI-PERF-2026-09-24：Gradle 依赖与 wrapper 缓存。key 含 gradle 文件哈希，
+      # 构建脚本变更时自动失效；restore-keys 保证首次也能命中上一次的近似缓存。
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android-native-wms/**/*.gradle*', 'app/android-native-wms/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: Grant execute permission for gradlew
         working-directory: app/android-native-wms
@@ -77,33 +109,6 @@ jobs:
         working-directory: app/android-native-wms
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
-      # BUG-2026-08-16-021：Android CI 补 lint+test 门禁（AI-MOB-APK-001：改走 release 变体）。
-      # lintRelease 检查静态问题（无用资源/API 误用/可访问性等），testReleaseUnitTest 跑 JVM 单测。
-      # 同样不带 -Pwms.sherpa=true（AI-MOB-APK-001），保证与产物构建配置一致。
-      - name: Lint (BUG-2026-08-16-021)
-        working-directory: app/android-native-wms
-        run: ./gradlew lintRelease --no-daemon --stacktrace
-
-      - name: Unit tests (BUG-2026-08-16-021)
-        working-directory: app/android-native-wms
-        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
-
-      # BUG-2026-09-22-001 偶发诊断：testReleaseUnitTest 失败时上传 JUnit 报告。
-      # 控制台只打印一行 "AssertionError at XxxTest.kt:N"，拿不到 expected vs actual，
-      # 也看不到 backupPendingOperations/restorePendingOperations 被 runCatching 吞掉的
-      # 异常堆栈——偶发根因（跨用例污染 vs 单次环境失败）必须靠报告里的完整断言与
-      # system-out 才能定位。仅在失败时上传（if: failure()），成功不上传省存储。
-      - name: Upload unit test report on failure (BUG-2026-09-22-001 诊断)
-        if: failure()
-        uses: actions/upload-artifact@v5
-        with:
-          name: test-release-unit-test-report
-          path: |
-            app/android-native-wms/app/build/reports/tests/testReleaseUnitTest/
-            app/android-native-wms/app/build/test-results/testReleaseUnitTest/
-          if-no-files-found: ignore
-          retention-days: 14
-
       - name: Upload APK
         uses: actions/upload-artifact@v5
         with:
@@ -132,3 +137,121 @@ jobs:
           files: wms-mobile-scan.apk
           prerelease: true
           make_latest: false
+
+  # ==========================================================================
+  # Job 2：静态检查（原串行链上的第二段，~85s，并行后不占关键路径）
+  # ==========================================================================
+  # BUG-2026-08-16-021：Android CI 补 lint+test 门禁（AI-MOB-APK-001：改走 release 变体）。
+  # lintRelease 检查静态问题（无用资源/API 误用/可访问性等）。
+  # 同样不带 -Pwms.sherpa=true（AI-MOB-APK-001），保证与产物构建配置一致。
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android-native-wms/**/*.gradle*', 'app/android-native-wms/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        working-directory: app/android-native-wms
+        run: chmod +x gradlew
+
+      - name: Remove sandbox proxy settings
+        working-directory: app/android-native-wms
+        run: |
+          sed -i '/systemProp.http.proxyHost/d' gradle.properties
+          sed -i '/systemProp.http.proxyPort/d' gradle.properties
+          sed -i '/systemProp.https.proxyHost/d' gradle.properties
+          sed -i '/systemProp.https.proxyPort/d' gradle.properties
+          sed -i '/# Proxy settings/d' gradle.properties
+
+      - name: Lint (BUG-2026-08-16-021)
+        working-directory: app/android-native-wms
+        run: ./gradlew lintRelease --no-daemon --stacktrace
+
+  # ==========================================================================
+  # Job 3：单元测试（原串行链上的第三段，~40s，并行后不占关键路径）
+  # ==========================================================================
+  # testReleaseUnitTest 跑 JVM 单测。BUG-2026-09-14-033 曾指出该任务在无测试源时
+  # NO-SOURCE 空跑却显示绿色，故 tests/verify_bug_2026_09_14_033_android_unit_test_infra.py
+  # 断言本工作流必须保留 `testReleaseUnitTest` 字符串 —— 拆分后该步骤仍在，断言不破。
+  unit-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android-native-wms/**/*.gradle*', 'app/android-native-wms/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Grant execute permission for gradlew
+        working-directory: app/android-native-wms
+        run: chmod +x gradlew
+
+      - name: Remove sandbox proxy settings
+        working-directory: app/android-native-wms
+        run: |
+          sed -i '/systemProp.http.proxyHost/d' gradle.properties
+          sed -i '/systemProp.http.proxyPort/d' gradle.properties
+          sed -i '/systemProp.https.proxyHost/d' gradle.properties
+          sed -i '/systemProp.https.proxyPort/d' gradle.properties
+          sed -i '/# Proxy settings/d' gradle.properties
+
+      - name: Unit tests (BUG-2026-08-16-021)
+        working-directory: app/android-native-wms
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
+
+      # BUG-2026-09-22-001 偶发诊断：testReleaseUnitTest 失败时上传 JUnit 报告。
+      # 控制台只打印一行 "AssertionError at XxxTest.kt:N"，拿不到 expected vs actual，
+      # 也看不到 backupPendingOperations/restorePendingOperations 被 runCatching 吞掉的
+      # 异常堆栈——偶发根因（跨用例污染 vs 单次环境失败）必须靠报告里的完整断言与
+      # system-out 才能定位。仅在失败时上传（if: failure()），成功不上传省存储。
+      - name: Upload unit test report on failure (BUG-2026-09-22-001 诊断)
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: test-release-unit-test-report
+          path: |
+            app/android-native-wms/app/build/reports/tests/testReleaseUnitTest/
+            app/android-native-wms/app/build/test-results/testReleaseUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14

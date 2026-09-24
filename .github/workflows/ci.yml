@@ -148,9 +148,175 @@ jobs:
           -n 4 --dist loadfile
 
   # ==========================================================================
-  # Job 3：verify 契约回归 + 冒烟测试（约 260s，为关键路径）
+  # Job 3a-3d：verify 契约回归（178 个文件，CI-PERF-2026-09-24 起按片并行）
   # ==========================================================================
-  verify-and-smoke:
+  # 原为单个 verify-and-smoke job 串行跑全部 178 个文件（~190s，为关键路径）。
+  # 现按**文件序号取模**切成 4 片，4 个 job 并行 —— 每片仍是"逐文件独立进程 +
+  # 片内 4 并发"的隔离模型（见 scripts/run_verify_parallel.py 的说明），
+  # **不重不漏**（每文件恰好落进一片，已离线验算 178 = 45+45+44+44）。
+  #
+  # 为什么用取模而不是连续区间：每片都均匀混入耗时长短不一的文件，避免某片
+  # 恰好全是慢文件而成为新的关键路径。
+  #
+  # 任一 shard 失败独立亮红，门禁语义不变（AGENTS.md §六 A12：只加强不削弱）。
+  # 冒烟测试拆到独立 job（smoke），与 verify 并行，不再串在 verify 后面。
+  verify-shard-0:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      - name: "Verify regression - shard 0/4 (BUG-2026-08-16-017)"
+        timeout-minutes: 20
+        env:
+          VERIFY_WORKERS: '4'
+          VERIFY_SHARDS: '4'
+          VERIFY_SHARD: '0'
+        run: python3 scripts/run_verify_parallel.py
+
+      - name: "Upload verify failure summary"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failures-shard-0
+          path: verify_failures_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+  verify-shard-1:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      - name: "Verify regression - shard 1/4 (BUG-2026-08-16-017)"
+        timeout-minutes: 20
+        env:
+          VERIFY_WORKERS: '4'
+          VERIFY_SHARDS: '4'
+          VERIFY_SHARD: '1'
+        run: python3 scripts/run_verify_parallel.py
+
+      - name: "Upload verify failure summary"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failures-shard-1
+          path: verify_failures_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+  verify-shard-2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      - name: "Verify regression - shard 2/4 (BUG-2026-08-16-017)"
+        timeout-minutes: 20
+        env:
+          VERIFY_WORKERS: '4'
+          VERIFY_SHARDS: '4'
+          VERIFY_SHARD: '2'
+        run: python3 scripts/run_verify_parallel.py
+
+      - name: "Upload verify failure summary"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failures-shard-2
+          path: verify_failures_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+  verify-shard-3:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      - name: "Verify regression - shard 3/4 (BUG-2026-08-16-017)"
+        timeout-minutes: 20
+        env:
+          VERIFY_WORKERS: '4'
+          VERIFY_SHARDS: '4'
+          VERIFY_SHARD: '3'
+        run: python3 scripts/run_verify_parallel.py
+
+      - name: "Upload verify failure summary"
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-failures-shard-3
+          path: verify_failures_summary.md
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ==========================================================================
+  # Job 4：冒烟测试（与 verify 各片并行，CI-PERF-2026-09-24 起独立）
+  # ==========================================================================
+  # 原串在 verify 之后（verify 跑完才启服务），现已无数据依赖，拆开并行。
+  smoke:
     runs-on: ubuntu-latest
 
     steps:
@@ -172,41 +338,6 @@ jobs:
         run: |
           mkdir -p app/logs app/instance app/uploads logs
 
-      # BUG-2026-08-16-017：tests/verify_*.py 回归脚本纳入 CI。
-      # CI-PERF-2026-09-17：改为 scripts/run_verify_parallel.py 并发调度。
-      #
-      # **隔离模型完全没变**：仍是每个 verify 文件一个独立 python 进程、不共享内存，
-      # 只是把"一个跑完再跑下一个"的串行等待换成进程池并发等待。
-      # 为什么不能合并进单进程 / 交给 xdist 共享 worker（实测复现，非推测）：
-      #   - 合并单进程：`no such table: warehouse`（前文件 db.drop_all 拆了内存库，
-      #     后文件 import 期即查表），随后 172 个路径拼成超长命令行直接 file not found；
-      #   - 交给 xdist：同一异常在**收集阶段**就把整批带崩，`no tests ran`；
-      #   - `--forked`：隔离正确，但子进程仍需重新 import app，实测无净收益。
-      # 历史同结论：当年多文件同进程混跑产生 169 例环境性假失败，故改为逐文件独立进程。
-      # 脚本内保留原 step 的全部语义：pytest式/脚本式分流、known_failures 清单、
-      # 单文件 60s 超时、失败文件数汇总 + 非零退出。
-      #
-      # AI-CI-GREEN-003：并发度显式钉为 4（而非脚本默认的 min(4,cpu)）。
-      # 理由：verify 进程是「重内存 + 重 IO」（每个都要导入 Flask app + 建内存库），
-      # 在 4 核 runner 上并发过高会引发内存/磁盘争抢，并让 60s 单文件超时更易误触。
-      - name: "Verify regression - verify_*.py (BUG-2026-08-16-017)"
-        timeout-minutes: 20
-        env:
-          VERIFY_WORKERS: '4'
-        run: python3 scripts/run_verify_parallel.py
-
-      # 失败详情兜底：GitHub job 日志走 productionresultssa*.blob.core.windows.net，
-      # 某些网络环境下不可达（DNS 落保留地址 / TLS EOF），导致"红了看不到红在哪"。
-      # step summary 与 artifact 两条通道都可稳定取到失败详情。
-      - name: "Upload verify failure summary"
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-failures
-          path: verify_failures_summary.md
-          if-no-files-found: ignore
-          retention-days: 7
-
       # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
       - name: "Smoke test (启动服务跑 121 项)"
         run: python3 scripts/run_smoke_in_ci.py
@@ -215,5 +346,5 @@ jobs:
       - name: "CI summary"
         if: always()
         run: |
-          echo "::notice::WMS CI (verify-and-smoke) 完成"
+          echo "::notice::WMS CI (smoke) 完成"
           echo "详细日志请查看上方各 step 输出"

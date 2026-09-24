@@ -42,6 +42,13 @@
 是重内存 + 重 IO 的任务，不是纯 CPU 密集；在 4 核 runner 上开到 8 会因内存与
 磁盘争抢反而更慢，也让单文件 60s 超时更容易被误触发。
 需要更激进/更保守时用环境变量 `VERIFY_WORKERS` 覆盖（CI 里未设置即走默认）。
+
+## 分片（CI-PERF-2026-09-24）
+
+`VERIFY_SHARDS=N` + `VERIFY_SHARD=i`（0-based）把文件按 `序号 % N == i` 切成 N 片，
+每片可独立跑在一个 CI job 里，实现**跨 job 并行**。切片用取模而非连续区间，
+好处是每片都均匀混入耗时长短不一的各种文件，避免某片全是慢文件而拖长关键路径。
+默认 `VERIFY_SHARDS=1`（= 不分片，行为与历史完全一致）。
 """
 from __future__ import annotations
 
@@ -98,10 +105,25 @@ def _run_one(path: str) -> tuple[str, int, float, str]:
 
 
 def main() -> int:
+    # CI-PERF-2026-09-24：新增分片支持。CI 把 178 个 verify 文件按文件序号切成
+    # N 片，每片一个并行 job —— 这样**跨 job 并行**与 job 内的进程池并发叠加，
+    # 关键路径从「全部文件 / 4 并发」降到「(全部文件/N) / 4 并发」。
+    # 切片规则：按 sorted() 后的文件序号做 `index % shards == shard`，保证
+    # **不重不漏**（每个文件恰好落进一片），且与文件总数无关、可任意扩展片数。
+    shard = int(os.environ.get('VERIFY_SHARD') or 0)
+    shards = int(os.environ.get('VERIFY_SHARDS') or 1)
+    if shards > 1 and not (0 <= shard < shards):
+        print(f'[error] VERIFY_SHARD={shard} 越界（VERIFY_SHARDS={shards}）')
+        return 1
+
     workers = int(os.environ.get('VERIFY_WORKERS') or 0) or min(4, os.cpu_count() or 2)
-    files = sorted(
+    all_files = sorted(
         os.path.relpath(p, REPO_ROOT)
         for p in glob.glob(str(REPO_ROOT / 'tests' / 'verify_*.py'))
+    )
+    files = (
+        [f for i, f in enumerate(all_files) if i % shards == shard]
+        if shards > 1 else all_files
     )
 
     skipped = [f for f in files if f in KNOWN_FAILURES]
@@ -109,7 +131,9 @@ def main() -> int:
     for f in skipped:
         print(f'SKIP (known failure, BUG-2026-08-16-017): {f}')
 
-    print(f'verify 并行调度：{len(targets)} 个文件，并发度 {workers}，'
+    shard_note = f'分片 {shard + 1}/{shards}（全量 {len(all_files)}，本片 {len(files)}）' \
+        if shards > 1 else f'全量 {len(all_files)}'
+    print(f'verify 并行调度：{shard_note} 个文件，并发度 {workers}，'
           f'单文件超时 {TIMEOUT_SEC}s（已知跳过 {len(skipped)}）', flush=True)
 
     started = time.time()

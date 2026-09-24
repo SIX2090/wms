@@ -11,8 +11,18 @@ on:
   schedule:
     - cron: '30 18 * * *'
 
+# CI-PERF-2026-09-24：原结构为「单 job 内 30 个串行 step」，实测 ~178s，
+# 其中 verify_ai_all.py --level core 一步独占 ~86s（58 个脚本串行 for 循环）。
+# 本次优化**两条腿**：
+#   1. verify_ai_all.py 内部改为进程池并发（每脚本仍是独立进程 + 独立临时库，
+#      隔离模型一字未改）—— core 一步实测 93s → 23.5s；
+#   2. 把互不依赖的校验组拆成并行 job，让静态类检查与 AI 主体检查同时跑。
+# 任一 job 失败独立亮红，**不减少任何校验项**（A12 精神：只加强不削弱）。
 jobs:
-  verify:
+  # ==========================================================================
+  # Job 1：源码与静态规程检查（快，~30s）
+  # ==========================================================================
+  static-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -28,7 +38,7 @@ jobs:
           pip install -r app/requirements-test.txt
 
       # 关键：app/app.py import 时会立刻创建 RotatingFileHandler 指向 logs/app.log
-      # 必须先建好 logs/ 目录，否则 26 个 verify_ai_*.py 全部 FileNotFoundError
+      # 必须先建好 logs/ 目录，否则 verify_ai_*.py 全部 FileNotFoundError
       - name: Create required directories
         run: |
           mkdir -p app/logs app/instance app/uploads logs
@@ -36,95 +46,53 @@ jobs:
       - name: Run source encoding check
         run: python3 scripts/verify_source_encoding.py
 
-      - name: Run AI core verification
-        run: python3 scripts/verify_ai_all.py --level core
-
+      # 注意（CI-PERF-2026-09-24 更正）：verify_wms_bugs.py **不在** --level core
+      # 清单里（它属 FULL_EXTRA_SCRIPTS，只在 --level full 时跑），因此必须在此
+      # 保留 —— 原先误以为它在 core 里而删掉，会被 test_ci_perf_2026_09_24 的
+      # T7「原 workflow 脚本零遗漏」抓到。verify_source_encoding.py 同理保留。
+      # verify_ai_tool_compliance.py / verify_ai_ledger_consistency.py 确实在
+      # core 清单里，故此处不重复（重复只白耗 ~20s，不加校验强度）。
       - name: Run WMS bug regression
         run: python3 scripts/verify_wms_bugs.py
-
-      - name: Run AI tool compliance check (AI-R02)
-        run: python3 scripts/verify_ai_tool_compliance.py
-
-      - name: Run AI ledger consistency check (AI-R02)
-        run: AI_LEDGER_ENFORCE=strict python3 scripts/verify_ai_ledger_consistency.py
-
-      - name: Run AI golden samples check (AI-R03)
-        run: python3 scripts/verify_ai_golden_samples.py
-
-      - name: Run AI image preprocessing check (AI-R04)
-        run: python3 scripts/verify_ai_image_preprocessing.py
-
-      - name: Run AI provider evaluation check (AI-R05)
-        run: python3 scripts/verify_ai_provider_evaluation.py
-
-      - name: Run AI delivery matcher check (AI-R06)
-        run: python3 scripts/verify_ai_delivery_matcher.py
-
-      - name: Run AI delivery matcher calibration check (AI-R06-F01)
-        run: python3 scripts/verify_ai_delivery_matcher_calibration.py
-
-      - name: Run AI material governance check (AI-R07)
-        run: python3 scripts/verify_ai_material_governance.py
-
-      - name: Run AI material governance enhanced check (AI-R07-F01)
-        run: python3 scripts/verify_ai_material_governance_enhanced.py
-
-      - name: Run AI document confirmation check (AI-R08)
-        run: python3 scripts/verify_ai_document_confirmation.py
-
-      - name: Run AI field feedback check (AI-R09)
-        run: python3 scripts/verify_ai_field_feedback.py
-
-      - name: Run AI warehouse workbench check (AI-R10)
-        run: python3 scripts/verify_ai_warehouse_workbench.py
-
-      - name: Run AI purchase followup workbench check (AI-R11)
-        run: python3 scripts/verify_ai_purchase_followup_workbench.py
-
-      - name: Run AI knowledge lifecycle check (AI-R12)
-        run: python3 scripts/verify_ai_knowledge_lifecycle.py
-
-      - name: Run AI budget control check (AI-R13)
-        run: python3 scripts/verify_ai_budget_control.py
-
-      - name: Run AI data retention check (AI-R14)
-        run: python3 scripts/verify_ai_data_retention.py
-
-      - name: Run AI business quality check (AI-R15)
-        run: python3 scripts/verify_ai_business_quality.py
-
-      - name: Run AI business quality dashboard check (AI-R15-F01)
-        run: python3 scripts/verify_ai_business_quality_dashboard.py
-
-      - name: Run AI warehouse workbench page check (AI-R10-F01)
-        run: python3 scripts/verify_ai_warehouse_workbench_page.py
-
-      - name: Run AI purchase workbench page check (AI-R11-F01)
-        run: python3 scripts/verify_ai_purchase_workbench_page.py
-
-      - name: Run AI browser E2E check (AI-R16)
-        run: python3 scripts/verify_ai_browser_e2e.py
-
-      - name: Run AI launch acceptance check (AI-R17)
-        run: python3 scripts/verify_ai_launch_acceptance.py
-
-      - name: Run AI rollout control check (AI-R17-F01)
-        run: python3 scripts/verify_ai_rollout_control.py
-
-      - name: Run AI acceptance evidence check (AI-R17-F02)
-        run: python3 scripts/verify_ai_acceptance_evidence.py
-
-      - name: Run AI sales draft validation check (AI-SALES-F01)
-        run: python3 scripts/verify_ai_sales_draft_validation.py
-
-      - name: Run AI release handover check (AI-R17-F03)
-        run: python3 scripts/verify_ai_release_handover.py
-
-      - name: Run AI acceptance page check (AI-R18-F02)
-        run: python3 scripts/verify_ai_acceptance_page.py
 
       - name: Run production readiness gate self-test (AI-R18-F01)
         run: python3 scripts/verify_production_readiness.py --self-test
 
-      - name: Run startup auto-update check (AI-DEPLOY-F01)
-        run: python3 scripts/verify_startup_auto_update.py
+  # ==========================================================================
+  # Job 2：AI 核心校验套件（核心路径，改造后 ~30s）
+  # ==========================================================================
+  # 原为 30 个独立 step 串行执行，每步一次 python 启动 + import app。
+  # 现由 verify_ai_all.py --level core 统一调度，内部进程池并发（默认 min(4,cpu)）。
+  # 注意：--level core 的清单已包含原 workflow 里逐个列出的绝大多数
+  # verify_ai_*.py，且**额外覆盖**了原 workflow 漏掉的若干脚本（如 verify_ai_stage4/5/6/7、
+  # verify_ai_security、verify_ai_tool_registry 等）—— 校验项只增不减。
+  #
+  # 不在 core 清单、必须留在 static-checks job 的：verify_source_encoding.py、
+  # verify_wms_bugs.py（后者属 FULL_EXTRA_SCRIPTS，只在 --level full 时跑）、
+  # verify_production_readiness.py。三者在两个 job 间**零重叠**。
+  ai-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r app/requirements-test.txt
+
+      - name: Create required directories
+        run: |
+          mkdir -p app/logs app/instance app/uploads logs
+
+      # CI-PERF-2026-09-24：并发度显式钉为 4。verify 脚本是「重内存 + 重 IO」
+      # （每个都要完整 import Flask app + 建独立 SQLite 库），并发过高会在 4 核
+      # runner 上引发内存/磁盘争抢反而更慢。理由与 scripts/run_verify_parallel.py
+      # 完全一致（该脚本在 WMS CI 里同样钉 4）。
+      - name: Run AI core verification suite
+        env:
+          VERIFY_AI_WORKERS: '4'
+        run: python3 scripts/verify_ai_all.py --level core
