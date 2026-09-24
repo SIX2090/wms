@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title or '采购入库单' }}{% endblock %}
+{# 本页自带完整工具栏（新增/完成已选/更多/删除已选），opt-out 全局工具栏注入，
+   避免 Tab 嵌入模式下「全局栏 + 页面栏」两套并存。见 app.js insertGlobalActionBar。 #}
+{% block body_class %}wms-no-global-actionbar{% endblock %}
 
 {% block content %}
 <div class="page-header">

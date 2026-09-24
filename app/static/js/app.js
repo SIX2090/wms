@@ -3187,6 +3187,11 @@ function insertGlobalActionBar() {
     // 避免两套工具栏在直接访问模式下并行显示造成认知负担。
     // isWmsEmbeddedPage() 判定三条件任一满足即可：body.embedded-page 类 / window.self!==window.top / URL 携带 ?embedded=1
     if (!isWmsEmbeddedPage()) return;
+    // opt-out：页面自带完整工具栏时不再叠加全局栏。body 带 wms-no-global-actionbar
+    // 类的页面（经 base.html 的 body_class 块开启，如采购入库明细表）自身工具栏已
+    // 齐备，全局栏注入会造成「全局栏 + 页面栏」两套并存。additive 开关，仅影响显式
+    // 开启的页面，不改动下方既有去重逻辑与其它页面行为。
+    if (document.body.classList.contains('wms-no-global-actionbar')) return;
     var module = getWmsActionModule();
     if (!module) return;
     var content = document.querySelector('.embedded-content');
