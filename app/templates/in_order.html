@@ -103,7 +103,7 @@
                 {# 统一走全局 quick-select（data-ks）：输入即展开全部匹配供应商，
                    支持键盘 ↑↓/Enter 与拼音/首字母匹配；点选回填 id 并自动筛选，
                    手工输入部分名称时由后端 supplier_name 模糊匹配 #}
-                <input type="text" id="supplierFilterInput" name="supplier_name" class="form-control form-select-sm" placeholder="输入名称/编码/拼音匹配" autocomplete="off" data-ks="supplier" data-ks-put="name" data-ks-id="#supplierFilterId" data-ks-submit="1" value="{% if filters.supplier_id %}{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first }}{% else %}{{ filters.supplier_name or '' }}{% endif %}">
+                <input type="text" id="supplierFilterInput" name="supplier_name" class="form-control form-control-sm" placeholder="输入名称/编码/拼音匹配" autocomplete="off" data-ks="supplier" data-ks-put="name" data-ks-id="#supplierFilterId" data-ks-submit="1" value="{% if filters.supplier_id %}{{ suppliers|selectattr('id', 'equalto', filters.supplier_id)|map(attribute='name')|first }}{% else %}{{ filters.supplier_name or '' }}{% endif %}">
                 <input type="hidden" name="supplier_id" id="supplierFilterId" value="{{ filters.supplier_id or '' }}">
             </div>
             <div class="col-md-2">
@@ -114,29 +114,6 @@
                 <label class="form-label small text-muted mb-1">结束日期</label>
                 <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
             </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                {# 物料搜索（AI-WMS-FILTER-006）：本框是**混合关键词**框，后端
-                   _apply_in_order_search 按 单号/来源/目的/供应商/物料编码·名称·
-                   规格·品牌/采购单号 做 or 模糊匹配；此处挂 data-ks="material"
-                   只是补输入侧的物料候选提示，不改变后端口径。
-                   刻意不挂 data-ks-submit="1"：选中即提交会剥夺用户继续手打
-                   单号或供应商的用法，与旁边的供应商/工程框（单选语义）不同。
-                   Enter 行为遵循 quick-select 既定语义：↑↓ 高亮后 Enter 选中
-                   物料并回填**物料名称**；无高亮时 Enter = 提交表单做模糊搜索。 #}
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">合同编号</label>
-                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="合同编号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
-            </div>
-            <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">工程名称</label>
-                <div style="position:relative;">
-                    <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
-                    <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
-                </div>
-                            </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
                 {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.business_type or filters.contract_no or filters.project_name or filters.supplier_id or filters.supplier_name %}
@@ -151,6 +128,29 @@
                 {# rejectattr 作用在 (k, v) 对上：保留 value 不为 None 的项 #}
                 <a href="{{ list_base_path }}?{{ dict(_clear_query|rejectattr('1', 'none')|list)|urlencode }}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">关键词</label>
+                {# 物料搜索（AI-WMS-FILTER-006）：本框是**混合关键词**框，后端
+                   _apply_in_order_search 按 单号/来源/目的/供应商/物料编码·名称·
+                   规格·品牌/采购单号 做 or 模糊匹配；此处挂 data-ks="material"
+                   只是补输入侧的物料候选提示，不改变后端口径。
+                   刻意不挂 data-ks-submit="1"：选中即提交会剥夺用户继续手打
+                   单号或供应商的用法，与旁边的供应商/工程框（单选语义）不同。
+                   Enter 行为遵循 quick-select 既定语义：↑↓ 高亮后 Enter 选中
+                   物料并回填**物料名称**；无高亮时 Enter = 提交表单做模糊搜索。 #}
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">合同编号</label>
+                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="模糊匹配合同号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label small text-muted mb-1">工程名称</label>
+                <div style="position:relative;">
+                    <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
+                    <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                </div>
             </div>
         </form>
     </div>
