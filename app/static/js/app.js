@@ -1777,7 +1777,13 @@ const WMS_ACTION_MODULES = {
     department: { match: /^\/department\/?$/, addTarget: '#addModal', listUrl: '/department', tableId: 'departmentTable', deleteUrl: '/department/delete', exportUrl: '/department/export', importUrl: '/department/import', templateUrl: '/department/download_template' },
     employee: { match: /^\/employee\/?$/, addTarget: '#addModal', listUrl: '/employee', tableId: 'employeeTable', deleteUrl: '/employee/delete', exportUrl: '/employee/export', importUrl: '/employee/import', templateUrl: '/employee/download_template' },
     sales: {
-        match: /^\/sales(\/?$|\/add|\/\d+(?:\/edit)?|\/outbound_selection|\/outbound)/,
+        // BUG-2026-09-23-006：原先含 |\/outbound 分支，会把独立的销售出库列表页
+        // /sales/outbound 误判为本模块的「单据详情页」，导致全局栏错误渲染
+        // 「保存 / 查找单据 / 首张 / 上一张 / 下一张 / 末张」——这些在列表页毫无意义。
+        // 移除该分支后 /sales/outbound 不再匹配任何模块，getWmsActionModule() 返回 null，
+        // 全局栏不注入，由 sales_outbound_list.html 自带工具栏负责（与 /other_in_order 一致）。
+        // 注意：/sales/outbound_selection 是选单页，必须保留匹配。
+        match: /^\/sales(\/?$|\/add|\/\d+(?:\/edit)?|\/outbound_selection)/,
         navigator: true,
         detailUrl: '/sales/{id}',
         addUrl: '/sales/add',
@@ -3098,6 +3104,47 @@ function initTrueMobileMode() {
 // BUG-2026-09-23-005：按钮被运行时过滤后，清理产生的连续分隔线 / 首尾分隔线。
 // 注意：抽成函数是为了给列表页过滤复用，不替换 insertGlobalActionBar 里
 // BUG-2026-08-27-001 那段内联匿名 filter——既有回归测试逐字断言它。
+// BUG-2026-09-23-006：检测「页面自身」是否已存在指定文本的可见按钮。
+//
+// 背景：列表页在嵌入模式下会同时出现两套工具栏——页面自带的（服务端渲染）
+// 与注入的 #cbGlobalActionBar。实测比对发现**页面自带那份更可靠**：
+//   - 导出：页面栏 URL 由服务端拼装，筛选参数完整；全局栏靠 JS 从 location.search
+//     反推，表单未同步到 URL 时参数会丢（BUG-2026-09-23-005 已暴露同类问题）。
+//   - 模板：subcontract 页面栏打 /subcontract/download_template，全局栏打
+//     /export/template/subcontract——是两个不同端点，并非等价。
+//   - 导入：页面栏触发页面专属的隐藏 file input，上下文更准。
+// 故重复时应保留页面栏、隐藏全局栏对应按钮。
+//
+// 但仅当页面**确实已有**等价入口时才隐藏：material 页面栏无「导出」、
+// /sales/outbound 页面栏无「导入/导出/模板」，隐藏等于让功能凭空消失
+// （违反 AGENTS.md §七 R8「修复必须有净正向价值」）。
+//
+// 四个坑：
+//   1. 页面栏容器有三种写法（.page-header / .d-flex.mb-3 / <h1> 内联），
+//      不能靠容器定位，只能全页面扫描；
+//   2. 必须排除全局栏自身，否则「全局栏有导出」会自证「页面有导出」；
+//   3. 必须用**严格相等**，否则「批量导出」会被「导出」误判、「批量导入」会被
+//      「导入」误判——那会连页面栏的批量功能一起误伤；
+//   4. 必须排除**表格内**的行级按钮。实测 warehouse.html 的「设为默认」「删除」
+//      是 <tbody> 里的行内按钮，只有表格有数据行时才可见。若不排除，同一页面
+//      会因数据量多寡而呈现不同的全局栏——有数据时隐藏全局栏「删除」、空表时
+//      又冒出来，行为随数据漂移，不可接受。全局栏按钮是「列表级」操作，
+//      对照物只能是页面工具栏区域的按钮，不能是行级按钮。
+function pageHasOwnButton(texts, selfBar) {
+    var nodes = document.querySelectorAll('button, a.btn, a');
+    for (var i = 0; i < nodes.length; i++) {
+        var el = nodes[i];
+        if (selfBar && selfBar.contains(el)) continue;
+        if (el.offsetParent === null) continue;
+        // 排除表格内的行级按钮（含 .table-responsive 包裹的）
+        if (el.closest('table, .table-responsive, .table-responsive-wrapper, tbody, tr')) continue;
+        var t = (el.innerText || el.textContent || el.getAttribute('title') || '')
+            .replace(/\s+/g, ' ').trim();
+        if (texts.indexOf(t) !== -1) return true;
+    }
+    return false;
+}
+
 function trimWmsActionbarDividers(buttons) {
     return buttons.filter(function(item, index, arr) {
         if (!item.divider) return true;
@@ -3178,6 +3225,33 @@ function insertGlobalActionBar() {
             // 列表页点「设置」实际是有效的字段列设置入口，隐藏等于砍掉可用功能
             // （违反 AGENTS.md §七 R8「修复必须有净正向价值」）。
             if (item.key === 'settings' && module.printTemplateUrl) return false;
+            return true;
+        });
+        buttons = trimWmsActionbarDividers(buttons);
+
+        // BUG-2026-09-23-006：隐藏与「页面自带工具栏」重复的按钮。
+        // 此处 bar 尚未插入 DOM（插入在下方 content.insertBefore），
+        // 故 pageHasOwnButton 的 document 扫描天然不会命中断全局栏按钮——
+        // 这比「先 append 再检测」更干净，无需依赖排除逻辑。
+        // 仍然显式传 bar 作为 selfBar，作为「将来若调整插入顺序」的防御。
+        // 模板按钮文本在各页有 4 种写法，全部要识别（否则会与全局栏「导入导出模板」
+        // 并存造成功能重复）：in_order 用「模板」；多数页用「下载模板」；
+        // employee 用「导入模板」；全局栏自身用「导入导出模板」。
+        var ownTemplateTexts = ['导入导出模板', '模板', '下载模板', '导入模板'];
+        var keepImport = !pageHasOwnButton(['导入'], bar);
+        var keepExport = !pageHasOwnButton(['导出'], bar);
+        var keepTemplate = !pageHasOwnButton(ownTemplateTexts, bar);
+        // 「删除/打印」：material 页面栏有同名按钮（行选中操作，能力更强）。
+        // 全局栏的是无行选中的通用操作，同名重复会误导用户，故一并按
+        // 「页面已有则隐藏全局栏」处理，保持全仓库统一规则。
+        var keepDelete = !pageHasOwnButton(['删除'], bar);
+        var keepPrint = !pageHasOwnButton(['打印'], bar);
+        buttons = buttons.filter(function(item) {
+            if (item.key === 'import' && !keepImport) return false;
+            if (item.key === 'export' && !keepExport) return false;
+            if (item.key === 'template' && !keepTemplate) return false;
+            if (item.key === 'delete' && !keepDelete) return false;
+            if (item.key === 'print' && !keepPrint) return false;
             return true;
         });
         buttons = trimWmsActionbarDividers(buttons);
