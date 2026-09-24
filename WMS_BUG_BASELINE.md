@@ -450,10 +450,15 @@
   属**期初建账专用路径**（`_apply_opening_stock_balance` / 回冲，总账不走
   `add_stock`，不在收敛范围）；`quick_issue`（L7450）已被 008 修好，不重复改。
 - **生效条件**：改动含 `app.py` 与路由逻辑，**生产需重启 WMS 服务生效**（R3）。
-- **生效确认**：**待 CI 确认**——推送后 `python scripts/check_ci_green.py` 需 rc=0
-  且三工作流均指向本次提交。本地：专项 11 passed；全量 2675 passed / 86 skipped /
-  0 failed；`verify_wms_bugs.py` rc=0；`lint_wms_rules --staged` 0 违规。
+- **生效确认**：**已确认（2026-09-25 07:38）**——推送 `ae926776fdc2` 后
+  `python scripts/check_ci_green.py` rc=0：三工作流全绿且均指向本次提交
+  （`Android APK Build` #744 @42f6d10（本次未动 Android 代码，沿用上一提交）、
+  `WMS AI Verification` #1537 @ae926776fdc2、`WMS CI` #1242 @ae926776fdc2，均 success）。
+  其中 `WMS CI` 的 unit-tests job 跑全量 pytest，已含本次新增的 11 项回归锁。
+  本地验证：专项 11 passed；全量 2675 passed / 86 skipped / 0 failed；
+  `verify_wms_bugs.py` rc=0；`lint_wms_rules` 0 违规；`lint_no_raw_post_fetch` 通过。
   判据：`scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②。
+  ⚠️ 生产侧仍需**重启 WMS 服务**后本修复才对用户可见（R3 同源）。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 
