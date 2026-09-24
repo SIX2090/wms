@@ -26634,6 +26634,11 @@ def _ledger_columns():
         {'field': 'spec', 'title': '规格型号'},
         {'field': 'reference_type', 'title': '单据类型'},
         {'field': 'reference_no', 'title': '单据编号', 'link_field': 'reference_url'},
+        # FEAT-2026-09-24-001：合同编号——紧随单据编号，符合「这张单属于哪张合同」
+        # 的阅读顺序。注意：本列随 columns 同时作用于页面表格 / 打印 / 导出 Excel
+        # （三条消费路径共用同一份 _ledger_columns，见 _build_report_excel_download
+        # 的 worksheet.append([column['title'] ...])），无需分别改动。
+        {'field': 'contract_no', 'title': '合同编号'},
         {'field': 'opening_quantity', 'title': '期初数量', 'type': 'number'},
         {'field': 'in_quantity', 'title': '入库', 'type': 'number'},
         {'field': 'out_quantity', 'title': '出库', 'type': 'number'},
@@ -27450,6 +27455,70 @@ def _ledger_source_warehouse_map(transactions):
     return result
 
 
+def _ledger_contract_no_getters():
+    """reference_type -> (单据头 model, 明细行 model, 明细行外键字段名)。
+
+    FEAT-2026-09-24-001：台账明细要显示每笔流水的合同编号（入库是哪张合同、
+    出库是哪张合同）。只有入库单与领料单带合同：两者**单据头与明细行都有**
+    contract_no（明细行在下推/复制时从采购单行 / 销售单行继承，
+    in_order.py:684/715、out_order.py:215/239）——一张单多物料时各行的合同
+    可能不同，故必须按行取、不能只取单据头。
+    其余单据（调拨/盘点/调整/委外/售后出库）模型本身没有合同字段，
+    刻意不列入——给不存在的字段硬取会退化成恒空列，反而误导。
+    """
+    return {
+        'in_order': (InOrder, InOrderItem, 'in_order_id'),
+        'out_order': (OutOrder, OutOrderItem, 'out_order_id'),
+    }
+
+
+def _ledger_contract_no_map(transactions):
+    """流水 -> 合同编号，返回 {txn_id: 合同编号}（FEAT-2026-09-24-001）。
+
+    取值口径**明细行优先、单据头兜底**——与入库/出库单自带的 Excel 导出完全一致
+    （in_order.py:177、out_order.py:137 均为 ``item.contract_no or order.contract_no``），
+    避免同一单据在页面与导出里出现两个不同答案。
+    匹配键为 (单据 id, material_id)：流水是按物料记账的，同单同物料若有多行明细
+    （如分批、不同单价），取**首个非空**行合同号，不拼接——拼接会产生页面无法
+    对齐的伪值（「A,B」不是任何一张真实合同）。
+    批量查询而非逐行回查：台账单次上限 LEDGER_ROW_LIMIT=50000 行，逐行查询会带来
+    数万次 SQL。按 reference_type 分组 + `id.in_(...)` 一次取回，与
+    _ledger_source_warehouse_map 同款范式。
+    """
+    result = {}
+    by_type = {}
+    for t in transactions:
+        if not t.reference_type or not t.reference_id:
+            continue
+        by_type.setdefault(t.reference_type, []).append(t)
+    if not by_type:
+        return result
+    getters = _ledger_contract_no_getters()
+    for ref_type, txns in by_type.items():
+        entry = getters.get(ref_type)
+        if not entry:
+            continue
+        doc_model, item_model, fk_field = entry
+        ids = list({t.reference_id for t in txns})
+        doc_map = {}
+        for d in doc_model.query.filter(doc_model.id.in_(ids)).all():
+            doc_map[d.id] = (d.contract_no or '').strip()
+        # 明细行：按 (单据, 物料) 建索引，首个非空行值胜出
+        item_map = {}
+        for it in item_model.query.filter(
+                getattr(item_model, fk_field).in_(ids)).all():
+            key = (getattr(it, fk_field), it.material_id)
+            val = (it.contract_no or '').strip()
+            if not val:
+                continue
+            if key not in item_map:
+                item_map[key] = val
+        for t in txns:
+            row_no = item_map.get((t.reference_id, t.material_id), '')
+            result[t.id] = row_no or doc_map.get(t.reference_id, '')
+    return result
+
+
 def _stock_txn_backfill_ready():
     """探测 stock_transaction.warehouse_id 启动回填的前置表是否已建好。
 
@@ -27752,6 +27821,10 @@ def _collect_ledger_rows(filters):
     # C-2026-08-27：warehouse_id 精确命中的行（含空 location 新数据）直接保留。
     transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names, wid)
 
+    # FEAT-2026-09-24-001：合同编号（明细行优先、单据头兜底），一次批量回查后
+    # 在下方循环里按 txn.id 直接取用——不在循环内逐行查库。
+    contract_no_map = _ledger_contract_no_map(transactions)
+
     rows = []
     balances = {}
     opening_balances = {}
@@ -27790,6 +27863,9 @@ def _collect_ledger_rows(filters):
             'reference_type': REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水'),
             'reference_no': reference_no,
             'reference_url': reference_url,
+            # FEAT-2026-09-24-001：来源单据的合同编号；无合同单据（调拨/盘点/调整/
+            # 委外/期初等）为空串，页面留空而非显示 "-"，避免与「未填」混淆。
+            'contract_no': contract_no_map.get(transaction.id, ''),
             'opening_quantity': quantity if is_opening else 0.0,
             'in_quantity': quantity if quantity > 0 and not is_opening else 0.0,
             'out_quantity': abs(quantity) if quantity < 0 and not is_opening else 0.0,
@@ -27824,6 +27900,8 @@ def _collect_ledger_rows(filters):
             'reference_type': ref_label,
             'reference_no': '',
             'reference_url': '',
+            # FEAT-2026-09-24-001：期初/合计行是汇总标记、不对应任何单据，合同编号留空
+            'contract_no': '',
             'opening_quantity': opening,
             'in_quantity': in_qty,
             'out_quantity': out_qty,

@@ -741,6 +741,10 @@ function _defaultLedgerColumns() {
         { field: 'spec', title: '规格型号' },
         { field: 'reference_type', title: '单据类型' },
         { field: 'reference_no', title: '单据编号' },
+        // FEAT-2026-09-24-001：与后端 _ledger_columns() 保持一致——物料为空时
+        // loadData 提前返回、用本默认表头渲染空表，若不与后端同构会出现
+        // 「有数据 12 列 / 无数据 11 列」的列数抖动。
+        { field: 'contract_no', title: '合同编号' },
         { field: 'opening_quantity', title: '期初数量', type: 'number' },
         { field: 'in_quantity', title: '入库', type: 'number' },
         { field: 'out_quantity', title: '出库', type: 'number' },
