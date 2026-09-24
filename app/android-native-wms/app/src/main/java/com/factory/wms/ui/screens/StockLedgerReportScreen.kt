@@ -51,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -68,6 +69,7 @@ import com.factory.wms.ui.theme.Warning
 import com.factory.wms.ui.viewmodel.report.InOutDetailDateLogic
 import com.factory.wms.ui.viewmodel.report.StockLedgerRangeLogic
 import com.factory.wms.ui.viewmodel.report.StockLedgerReportViewModel
+import java.util.Calendar
 
 /**
  * 库存台账页（AI-MOB-LDG-F01）。
@@ -230,6 +232,26 @@ fun StockLedgerReportScreen(
 
             // ── 日期范围（默认全部流水；开始空白=全部，结束空白=今天）──
             val todayStr = remember { InOutDetailDateLogic.today() }
+            val context = LocalContext.current
+            // AI-MOB-LDG-F02：除「±1 天翻」外，点日期文本弹系统日期选择器自由选某天。
+            // 用系统 android.app.DatePickerDialog（日历视图），不改动 OpeningStock 自绘选择器；
+            // 选定后经 ViewModel.setStartDate/setEndDate 钳制生效（防 start>end / end>今天 400）。
+            val openLedgerDatePicker: (Boolean) -> Unit = { isStart ->
+                val current = if (isStart) uiState.startDate.ifBlank { todayStr } else uiState.endDate.ifBlank { todayStr }
+                val cal = Calendar.getInstance()
+                try {
+                    val p = current.split("-")
+                    if (p.size == 3) cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt())
+                } catch (_: Exception) { }
+                android.app.DatePickerDialog(
+                    context,
+                    { _, y, m, d ->
+                        val picked = "%04d-%02d-%02d".format(y, m + 1, d)
+                        if (isStart) viewModel.setStartDate(picked) else viewModel.setEndDate(picked)
+                    },
+                    cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+                ).show()
+            }
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -248,6 +270,7 @@ fun StockLedgerReportScreen(
                         onNext = { viewModel.shiftStartDay(1) },
                         nextEnabled = uiState.startDate.isNotBlank() &&
                             uiState.startDate < StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
+                        onDateClick = { openLedgerDatePicker(true) },
                         trailing = {
                             TextButton(onClick = { viewModel.resetAllDates() }) {
                                 Text("全部流水", fontSize = 12.sp)
@@ -260,7 +283,8 @@ fun StockLedgerReportScreen(
                         onPrev = { viewModel.shiftEndDay(-1) },
                         onNext = { viewModel.shiftEndDay(1) },
                         // 结束日期后翻不能越过今天
-                        nextEnabled = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr) < todayStr
+                        nextEnabled = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr) < todayStr,
+                        onDateClick = { openLedgerDatePicker(false) }
                     )
                 }
             }
@@ -497,6 +521,7 @@ private fun LedgerDateNavRow(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     nextEnabled: Boolean,
+    onDateClick: () -> Unit,
     trailing: (@Composable () -> Unit)? = null
 ) {
     Row(
@@ -511,11 +536,16 @@ private fun LedgerDateNavRow(
             // 标识符 `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference。
             Icon(Icons.Filled.ChevronLeft, "${label}前一天")
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // 日期文本可点（onDateClick 弹日期选择器）；点击涟漪提示可选。
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clickable(onClick = onDateClick)
+        ) {
             Text(
                 date,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
+                fontSize = 16.sp,
+                color = Primary
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(

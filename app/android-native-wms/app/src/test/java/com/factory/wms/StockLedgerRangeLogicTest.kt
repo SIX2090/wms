@@ -61,6 +61,28 @@ class StockLedgerRangeLogicTest {
     }
 
     @Test
+    fun `clampPickedStart never crosses end date`() {
+        // 选了越过结束日期的开始 → 钳到结束（防 start>end 400）
+        assertEquals("2026-09-20", StockLedgerRangeLogic.clampPickedStart("2026-09-25", "2026-09-20", today))
+        // 正常不越界的原样生效
+        assertEquals("2026-09-10", StockLedgerRangeLogic.clampPickedStart("2026-09-10", "2026-09-20", today))
+        // 结束空白 = 今天：越过今天则钳到今天
+        assertEquals(today, StockLedgerRangeLogic.clampPickedStart("2026-12-31", "", today))
+    }
+
+    @Test
+    fun `clampPickedEnd never future and never before start`() {
+        // 选了未来日期 → 钳回今天（防 end>今天 400）
+        assertEquals(today, StockLedgerRangeLogic.clampPickedEnd("2026-12-31", "2026-09-01", today))
+        // 选了早于开始的结束 → 钳到开始（防范围倒置 400）
+        assertEquals("2026-09-10", StockLedgerRangeLogic.clampPickedEnd("2026-09-05", "2026-09-10", today))
+        // 开始空白（全部流水）不钳下限，正常生效
+        assertEquals("2026-09-05", StockLedgerRangeLogic.clampPickedEnd("2026-09-05", "", today))
+        // 正常不越界原样生效
+        assertEquals("2026-09-15", StockLedgerRangeLogic.clampPickedEnd("2026-09-15", "2026-09-10", today))
+    }
+
+    @Test
     fun `reconciliation holds for valid ledger`() {
         // 期初 0 + 入 15 − 出 3 = 期末 12
         assertTrue(StockLedgerRangeLogic.reconciles(0.0, 15.0, 3.0, 12.0))

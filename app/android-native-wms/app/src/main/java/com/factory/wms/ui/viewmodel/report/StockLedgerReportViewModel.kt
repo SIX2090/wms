@@ -49,6 +49,19 @@ object StockLedgerRangeLogic {
         return next
     }
 
+    /** 日期选择器选定开始日期后的钳制：不得越过结束日期（结束空白视为今天，防 start>end 400） */
+    fun clampPickedStart(picked: String, end: String, today: String): String {
+        val endBound = end.ifBlank { today }
+        return if (picked > endBound) endBound else picked
+    }
+
+    /** 日期选择器选定结束日期后的钳制：上限今天、下限不早于开始日期（开始空白不钳，防 400） */
+    fun clampPickedEnd(picked: String, start: String, today: String): String {
+        var d = if (picked > today) today else picked
+        if (start.isNotBlank() && d < start) d = start
+        return d
+    }
+
     /** 勾稽自检：期初 + 本期入库 − 本期出库 = 期末结存（容差 0.005，两位小数口径） */
     fun reconciles(opening: Double, totalIn: Double, totalOut: Double, ending: Double): Boolean {
         return kotlin.math.abs(opening + totalIn - totalOut - ending) < 0.005
@@ -207,6 +220,26 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
         val s = _uiState.value
         val today = InOutDetailDateLogic.today()
         val next = StockLedgerRangeLogic.shiftEnd(s.startDate, s.endDate, offset, today)
+        if (next == s.endDate) return
+        _uiState.value = s.copy(endDate = next)
+        refresh()
+    }
+
+    /** 日期选择器选定开始日期（钳制后生效；与翻日期同一 refresh 口径） */
+    fun setStartDate(date: String) {
+        val s = _uiState.value
+        val today = InOutDetailDateLogic.today()
+        val next = StockLedgerRangeLogic.clampPickedStart(date, s.endDate, today)
+        if (next == s.startDate) return
+        _uiState.value = s.copy(startDate = next)
+        refresh()
+    }
+
+    /** 日期选择器选定结束日期（钳制后生效） */
+    fun setEndDate(date: String) {
+        val s = _uiState.value
+        val today = InOutDetailDateLogic.today()
+        val next = StockLedgerRangeLogic.clampPickedEnd(date, s.startDate, today)
         if (next == s.endDate) return
         _uiState.value = s.copy(endDate = next)
         refresh()
