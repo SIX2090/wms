@@ -9,13 +9,6 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '采购入库单' }}</h2>
         <div class="d-flex gap-2 align-items-center">
-            <div class="input-group input-group-sm" style="width: 280px;">
-                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                <input type="text" class="form-control" id="quickSearchInput" placeholder="快速搜索单号..." autocomplete="off">
-                <button class="btn btn-outline-secondary" type="button" onclick="quickSearchInOrder()">
-                    <i class="bi bi-arrow-right"></i>
-                </button>
-            </div>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示/隐藏、调整顺序及修改显示名称">
                 <i class="bi bi-layout-three-columns"></i> 字段设置
             </button>
@@ -391,16 +384,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // 快速搜索功能
-    var quickSearchInput = document.getElementById('quickSearchInput');
-    if (quickSearchInput) {
-        quickSearchInput.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                quickSearchInOrder();
-            }
-        });
-    }
-
     // 供应商筛选：手工输入时清空已选 id，让后端走 supplier_name 模糊匹配；
     // quick-select 点选后只派发 change 事件回填 id（不触发 input），不会被误清。
     (function() {
@@ -515,20 +498,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // 快速搜索入库单
-function quickSearchInOrder() {
-    var input = document.getElementById('quickSearchInput');
-    if (!input) return;
-    var keyword = input.value.trim();
-    if (!keyword) {
-        showToast('请输入搜索关键词', 'warning');
-        return;
-    }
-    var url = new URL(window.location.href);
-    url.searchParams.set('search', keyword);
-    url.searchParams.set('page', '1');
-    window.location.href = url.toString();
-}
-
 function changePerPage(perPage) {
     var url = new URL(window.location.href);
     url.searchParams.set('per_page', perPage);
