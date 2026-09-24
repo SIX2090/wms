@@ -46,19 +46,19 @@
 
             <!-- 批量 / 导入导出：一排全铺开（用户偏好全摊开，不用下拉） -->
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
-                <i class="bi bi-printer"></i> 批量打印
+                批量打印
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)" title="批量导出选中的入库单">
-                <i class="bi bi-file-earmark-excel"></i> 批量导出
+                批量导出
             </button>
             <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-secondary btn-sm" title="导出当前筛选结果">
-                <i class="bi bi-file-earmark-excel"></i> 导出
+                导出
             </a>
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
-                <i class="bi bi-upload"></i> 导入
+                导入
             </button>
             <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm" title="下载导入模板">
-                <i class="bi bi-download"></i> 模板
+                模板
             </a>
 
             <!-- 危险操作（右置：本工具栏位于页头最右，此按钮为组内最后） -->
@@ -129,27 +129,36 @@
                 <a href="{{ list_base_path }}?{{ dict(_clear_query|rejectattr('1', 'none')|list)|urlencode }}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
-            <div class="col-md-4">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                {# 物料搜索（AI-WMS-FILTER-006）：本框是**混合关键词**框，后端
-                   _apply_in_order_search 按 单号/来源/目的/供应商/物料编码·名称·
-                   规格·品牌/采购单号 做 or 模糊匹配；此处挂 data-ks="material"
-                   只是补输入侧的物料候选提示，不改变后端口径。
-                   刻意不挂 data-ks-submit="1"：选中即提交会剥夺用户继续手打
-                   单号或供应商的用法，与旁边的供应商/工程框（单选语义）不同。
-                   Enter 行为遵循 quick-select 既定语义：↑↓ 高亮后 Enter 选中
-                   物料并回填**物料名称**；无高亮时 Enter = 提交表单做模糊搜索。 #}
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small text-muted mb-1">合同编号</label>
-                <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="模糊匹配合同号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label small text-muted mb-1">工程名称</label>
-                <div style="position:relative;">
-                    <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
-                    <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+            <div class="col-12 d-flex gap-2 align-items-end flex-wrap">
+                <div class="flex-fill" style="min-width:220px;">
+                    <label class="form-label small text-muted mb-1">关键词</label>
+                    {# 物料搜索（AI-WMS-FILTER-006）：本框是**混合关键词**框，后端
+                       _apply_in_order_search 按 单号/来源/目的/供应商/物料编码·名称·
+                       规格·品牌/采购单号 做 or 模糊匹配；此处挂 data-ks="material"
+                       只是补输入侧的物料候选提示，不改变后端口径。
+                       刻意不挂 data-ks-submit="1"：选中即提交会剥夺用户继续手打
+                       单号或供应商的用法，与旁边的供应商/工程框（单选语义）不同。
+                       Enter 行为遵循 quick-select 既定语义：↑↓ 高亮后 Enter 选中
+                       物料并回填**物料名称**；无高亮时 Enter = 提交表单做模糊搜索。 #}
+                    <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
+                </div>
+                {# 高级筛选（默认折叠，减重）：合同编号/工程名称 收进 collapse，点「高级筛选▾」展开 #}
+                <div class="flex-fill collapse wms-adv-filter" style="min-width:220px;">
+                    <label class="form-label small text-muted mb-1">合同编号</label>
+                    <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="模糊匹配合同号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
+                </div>
+                <div class="flex-fill collapse wms-adv-filter" style="min-width:220px;">
+                    <label class="form-label small text-muted mb-1">工程名称</label>
+                    <div style="position:relative;">
+                        <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
+                        <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
+                    </div>
+                </div>
+                <div>
+                    <label class="form-label small text-muted mb-1 d-block">&nbsp;</label>
+                    <a class="btn btn-outline-secondary btn-sm text-nowrap" data-bs-toggle="collapse" data-bs-target=".wms-adv-filter" role="button" aria-expanded="false">
+                        高级筛选 <i class="bi bi-chevron-down"></i>
+                    </a>
                 </div>
             </div>
         </form>
