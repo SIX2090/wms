@@ -136,6 +136,15 @@ def _seed(wms):
     omat = Material.query.filter_by(code="BUG923004-OM").first()
 
     # 采购入库：26 单 × 2 行；第 i 单两行金额为 i 与 4i（第 i 单金额区间互不重叠）
+    #
+    # 关于 price 一律取 2 的说明（存量缺陷修复，2026-09-23）：
+    #   `_check_in_order_anomalies` 的 price_deviation 分支会把「同类目近期已完成的
+    #   单价」当作统计基线（`app/app.py` recent_items 查询不排除**本批次内**刚完成的
+    #   单据）。t13 一次批审两张单，先完成的那张会立刻成为后一张的基线。
+    #   原先单价固定为 1 与 4（均值 2.5），两者偏离都恰好 60% > 动态阈值 41%，
+    #   于是同批第二张单被误判异常 → `completed` 恒为 1，t13 必红（且与 t11/t12 无关，
+    #   单跑同样失败）。改成统一单价 2 后偏离为 0，不再触发；而本文件的排序断言
+    #   （T5/T6/T7）读的是 **amount** 列（i / 4i），与 price 无关，锁力不受影响。
     for i in range(1, 27):
         o = InOrder(order_no=f"BUG923004-P{i:03d}", date=date(2026, 9, 23),
                     business_type="采购入库", status="pending", warehouse="主仓库",
@@ -146,9 +155,9 @@ def _seed(wms):
         wms.db.session.flush()
         wms.db.session.add_all([
             InOrderItem(in_order_id=o.id, material_id=mat.id,
-                        quantity=i, price=1, amount=float(i)),
+                        quantity=i, price=2, amount=float(i)),
             InOrderItem(in_order_id=o.id, material_id=mat.id,
-                        quantity=i, price=4, amount=float(4 * i)),
+                        quantity=i, price=2, amount=float(4 * i)),
         ])
 
     # 其他入库：8 单（1 页对照）
