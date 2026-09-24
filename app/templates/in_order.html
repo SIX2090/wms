@@ -20,9 +20,10 @@
                 <i class="bi bi-layout-three-columns"></i> 字段设置
             </button>
         </div>
-        {% if current_user.role in ['admin', 'warehouse'] %}
-        <!-- 工具栏（采购入库明细表）：一层一排全铺开，主操作突出 / 危险右置（用户偏好全摊开，不用下拉） -->
-        <div class="d-flex gap-2 flex-wrap align-items-center">
+    </div>
+    {% if current_user.role in ['admin', 'warehouse'] %}
+    <!-- 工具栏（采购入库明细表）：独立一行、一排全铺开；配色统一为 主蓝 / 中性灰 / 危险红，尺寸统一 btn-sm -->
+    <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
             <!-- 主操作（突出） -->
             {% if filters.business_type == '产品入库' %}
             <a href="/in_order/add?type=product" class="btn btn-primary btn-sm" title="新增产品入库单">
@@ -40,24 +41,24 @@
             <a href="/in_order/add" class="btn btn-primary btn-sm" title="新增采购入库单">
                 <i class="bi bi-plus-lg"></i> 采购入库
             </a>
-            <a href="/in_order/add?type=product" class="btn btn-outline-primary btn-sm" title="新增产品入库单">
+            <a href="/in_order/add?type=product" class="btn btn-outline-secondary btn-sm" title="新增产品入库单">
                 <i class="bi bi-plus-lg"></i> 产品入库
             </a>
             {% endif %}
 
             <!-- 高频批量操作 -->
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')" title="批量完成选中的入库单">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')" title="批量完成选中的入库单">
                 <i class="bi bi-check2-circle"></i> 完成已选
             </button>
 
             <!-- 批量 / 导入导出：一排全铺开（用户偏好全摊开，不用下拉） -->
-            <button type="button" class="btn btn-outline-info btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
                 <i class="bi bi-printer"></i> 批量打印
             </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)" title="批量导出选中的入库单">
                 <i class="bi bi-file-earmark-excel"></i> 批量导出
             </button>
-            <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
+            <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-secondary btn-sm" title="导出当前筛选结果">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
@@ -77,9 +78,8 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="inOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('inOrderImportForm', 'inOrderImportFile')">
             </form>
-        </div>
-        {% endif %}
     </div>
+    {% endif %}
 </div>
 
 <div class="card mb-3">
