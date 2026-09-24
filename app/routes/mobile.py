@@ -344,13 +344,11 @@ def register_mobile_routes(app):
             _acquire_order_write_lock,
             _apply_scan_to_batch,
             _find_active_check_batch,
-            add_stock,
             allow_negative_location_stock,
             allow_negative_stock,
             current_user,
             date,
             db,
-            deduct_stock,
             generate_order_no,
             get_bearer_user,
             get_warehouse_stock_quantities,
@@ -367,9 +365,9 @@ def register_mobile_routes(app):
             resolve_request_warehouse,
             round_to_2_decimals,
             selectinload,
-            update_location_inventory,
             _create_adjustment_drafts_from_check_scan,
         )
+        from services.warehouse_stock_service import apply_stock_delta
         from pydantic import BaseModel, Field, field_validator
         from routes.print_queue import enqueue_auto_print_job
 
@@ -478,15 +476,17 @@ def register_mobile_routes(app):
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
                 ))
-                ok, error_msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'手机扫码入库 {order.order_no}', warehouse=warehouse)
+                # P2-3：三账（①总账 + ③流水 + ②库位账）单点收敛，库位账由入口
+                # 按 location_management_enabled() 自行决定是否同步（旧实现
+                # 由调用方手工双写，是 BUG-2026-08-16-002 型静默账实分裂的温床）。
+                ok, error_msg = apply_stock_delta(
+                    material, quantity, transaction_type='in',
+                    reference_type='in_order', reference_id=order.id,
+                    remark=f'手机扫码入库 {order.order_no}',
+                    warehouse=warehouse, location=location)
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500
-                if location_management_enabled():
-                    ok, error_msg = update_location_inventory(material, location, quantity, warehouse=warehouse)
-                    if not ok:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存更新失败'}), 400
                 enqueue_auto_print_job(
                     'in_order', order.id, order.warehouse,
                     created_by=actor.id, source_event='scan_submit_in',
@@ -556,15 +556,15 @@ def register_mobile_routes(app):
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
                 ))
-                ok, error_msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'手机扫码出库 {order.order_no}', warehouse=warehouse)
+                # P2-3：三账单点收敛（同上，delta 取负走原子条件扣减）。
+                ok, error_msg = apply_stock_delta(
+                    material, -quantity, transaction_type='out',
+                    reference_type='out_order', reference_id=order.id,
+                    remark=f'手机扫码出库 {order.order_no}',
+                    warehouse=warehouse, location=location)
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存扣减失败'}), 400
-                if location_management_enabled():
-                    ok, error_msg = update_location_inventory(material, location, -quantity, warehouse=warehouse)
-                    if not ok:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库位库存扣减失败'}), 400
                 enqueue_auto_print_job(
                     'out_order', order.id, order.warehouse,
                     created_by=actor.id, source_event='scan_submit_out',
@@ -921,11 +921,11 @@ def register_mobile_routes(app):
         from sqlalchemy.orm import selectinload
         from flask import current_app
         from app import (InOrder, InOrderItem, OutOrder, OutOrderItem,
-                         add_stock,
-                         current_user, db, deduct_stock, get_bearer_user,
-                         jsonify, location_management_enabled, normalize_stock_quantity,
-                         request, update_location_inventory,
+                         current_user, db, get_bearer_user,
+                         jsonify, normalize_stock_quantity,
+                         request,
                          _acquire_order_write_lock)
+        from services.warehouse_stock_service import apply_stock_delta
 
         class ConfirmRequest(BaseModel):
             order_type: str = Field(pattern='^(in|out)$')
@@ -951,17 +951,19 @@ def register_mobile_routes(app):
                     return jsonify({'status': 'error', 'success': False, 'msg': '入库草稿没有明细，无法确认'}), 400
                 for item in order.items:
                     if item.material:
-                        ok, err = add_stock(item.material, item.quantity,
-                                            'in', 'in_order', order.id,
-                                            f'手机确认入库 {order.order_no}', warehouse=order.warehouse)
+                        # P2-3：三账单点收敛；库位键沿用单据的
+                        # `order.location or order.warehouse` 口径，与
+                        # apply_stock_delta 内部回退逻辑同构（逐字一致）。
+                        ok, err = apply_stock_delta(
+                            item.material, item.quantity,
+                            transaction_type='in', reference_type='in_order',
+                            reference_id=order.id,
+                            remark=f'手机确认入库 {order.order_no}',
+                            warehouse=order.warehouse,
+                            location=order.location or order.warehouse)
                         if not ok:
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存增加失败'}), 500
-                        if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, item.quantity, warehouse=order.warehouse)
-                            if not loc_ok:
-                                db.session.rollback()
-                                return jsonify({'status': 'error', 'success': False, 'msg': loc_err or '库位库存更新失败'}), 400
                 order.status = 'completed'
                 enqueue_auto_print_job('in_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_in')
                 db.session.commit()
@@ -977,17 +979,17 @@ def register_mobile_routes(app):
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
                 for item in order.items:
                     if item.material:
-                        ok, err = deduct_stock(item.material, item.quantity,
-                                               'out', 'out_order', order.id,
-                                               f'手机确认出库 {order.order_no}', warehouse=order.warehouse)
+                        # P2-3：三账单点收敛（delta 取负走原子条件扣减）。
+                        ok, err = apply_stock_delta(
+                            item.material, -item.quantity,
+                            transaction_type='out', reference_type='out_order',
+                            reference_id=order.id,
+                            remark=f'手机确认出库 {order.order_no}',
+                            warehouse=order.warehouse,
+                            location=order.location or order.warehouse)
                         if not ok:
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
-                        if location_management_enabled() and (order.location or order.warehouse):
-                            loc_ok, loc_err = update_location_inventory(item.material, order.location or order.warehouse, -item.quantity, warehouse=order.warehouse)
-                            if not loc_ok:
-                                db.session.rollback()
-                                return jsonify({'status': 'error', 'success': False, 'msg': loc_err or '库位库存扣减失败'}), 400
                 order.status = 'completed'
                 enqueue_auto_print_job('out_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_out')
                 db.session.commit()

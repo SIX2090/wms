@@ -93,6 +93,48 @@
 > 也是 `BUG-2026-08-16-002`（期初只改总账）与 `BUG-2026-08-04-002`（库位静默成功）
 > 的温床。**新代码必须两层同时写。**
 
+#### 2.1.1 业务路径的唯一入口：`apply_stock_delta`（P2-3 收敛）
+
+上述「两层同时写」由**调用方负责**的定式是缺陷温床（漏写即**静默**账实分裂，
+无任何报错）。P2-3 把三账收敛为**一次调用**，业务路径**只允许经此入口**：
+
+```python
+from services.warehouse_stock_service import apply_stock_delta
+
+ok, err = apply_stock_delta(
+    material, delta,                     # delta<0 出库 / >0 入库 / ==0 不写账
+    transaction_type='...',              # 必传，原样写入 StockTransaction
+    reference_type='...', reference_id=...,
+    warehouse=warehouse, location=location,   # location 缺省时回退 warehouse
+)
+# 失败必须 rollback 并显式报错 —— 不得静默成功
+```
+
+入口内部按 `delta` 正负分发 `add_stock` / `deduct_stock_atomic`，
+并在 `location_management_enabled()` 为真时同步 `update_location_inventory`
+（库位键 `location or _stock_location_from_warehouse(warehouse)`，与存量定式逐字一致）。
+
+**收敛进度（P2-3）**：
+
+| 批次 | 范围 | 状态 |
+|---|---|---|
+| 批 1–2 | in_order / out_order 主链路 | ✅ |
+| 批 3 | out_order + after_sale_out（5 路由） | ✅ |
+| 批 4 | subcontract 网页版（6 路由） | ✅ |
+| **批 5** | **mobile 4 处 + native_api 2 处 + 委外快速收货老 API 1 处** | **✅（2026-09-25）** |
+| 批 6（待评估） | `requisition.py` 扣减侧（语义不同，见下） | ⏳ |
+
+> **批 5 的额外收获**：收敛侦察发现 **BUG-2026-09-20-008 的 R6 结论不完备**——
+> 它漏掉了 `app/app.py` 的**老 API** `api_subcontract_quick_receive`
+> （收货方向漏写库位账，与 008 同型）。根因是**同一业务存在"网页版 + 老 API"
+> 双轨实现时，排查只覆盖了其中一套**。教训：R6 排查必须按**路由**而非按
+> **文件**清点，双轨实现要两套都查。
+
+> **`requisition.py` 为何单列**：其扣减侧直接调 `deduct_location_inventory_atomic`，
+> **绕过** `update_location_inventory` 的「无库位记录且不允许负库存即失败」检查
+> （BUG-2026-08-04-002 口径）。收敛到入口会**改变失败语义**（从"静默建负账"
+> 变为"显式报错"），属净行为变更，按 R8 单独评估，不夹带。
+
 ### 2.1.1 业务单据的库存流入/流出路径（新增单据类型必登记）
 
 | 单据类型 | `business_type` | 库存写库管道 | 数量限额 |

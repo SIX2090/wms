@@ -736,12 +736,13 @@ def register_native_api_routes(app):
     def native_api_inbound(user):
         from document_evidence import _decode_evidence, _save_evidence
         from datetime import date
-        from app import (InOrder, InOrderItem, add_stock, api_json_error,
+        from app import (InOrder, InOrderItem, api_json_error,
                          api_json_success, generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
                          purchase_in_order_requires_order, resolve_item_contract,
                          resolve_request_warehouse,
-                         round_to_2_decimals, update_location_inventory)
+                         round_to_2_decimals)
+        from services.warehouse_stock_service import apply_stock_delta
         from routes.print_queue import enqueue_auto_print_job
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
@@ -865,15 +866,17 @@ def register_native_api_routes(app):
                     contract_no=_c_no,
                     project_name=_p_name,
                 ))
-                ok, msg = add_stock(material, quantity, 'in', 'in_order', order.id, f'Android入库 {order.order_no}', warehouse=order.warehouse)
+                # P2-3：三账单点收敛。库位账同步条件与旧实现逐字等价——
+                # _native_document_location 未开库位管理时返回 ''，旧 `if document_location:`
+                # 与 apply_stock_delta 内部 `if location_management_enabled():` 同判。
+                ok, msg = apply_stock_delta(
+                    material, quantity, transaction_type='in',
+                    reference_type='in_order', reference_id=order.id,
+                    remark=f'Android入库 {order.order_no}',
+                    warehouse=order.warehouse, location=document_location)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
-                if document_location:
-                    loc_ok, loc_msg = update_location_inventory(material, document_location, quantity, warehouse=order.warehouse)
-                    if not loc_ok:
-                        db.session.rollback()
-                        return api_json_error(loc_msg or '库位库存更新失败', 500)
             order.total_amount = round_to_2_decimals(total_amount)
             _save_evidence(evidence, 'in_order', order.id, user.id)
             enqueue_auto_print_job('in_order', order.id, order.warehouse,
@@ -927,11 +930,11 @@ def register_native_api_routes(app):
         from document_evidence import _decode_evidence, _save_evidence
         from datetime import date
         from app import (OutOrder, OutOrderItem, allow_negative_stock, api_json_error,
-                         api_json_success, deduct_stock,
+                         api_json_success,
                          generate_order_no, location_management_enabled,
                          location_required_on_save, parse_api_lines, parse_float_value,
-                         resolve_request_warehouse, round_to_2_decimals,
-                         update_location_inventory)
+                         resolve_request_warehouse, round_to_2_decimals)
+        from services.warehouse_stock_service import apply_stock_delta
         from routes.print_queue import enqueue_auto_print_job
         payload = request.get_json(silent=True) or {}
         parsed, error = parse_api_lines(payload)
@@ -1035,19 +1038,17 @@ def register_native_api_routes(app):
                     contract_no=order_contract_no,
                     project_name=order_project_name,
                 ))
-                ok, msg = deduct_stock(material, quantity, 'out', 'out_order', order.id, f'Android出库 {order.order_no}', warehouse=order.warehouse)
+                # P2-3：三账单点收敛。BUG-2026-08-16-020 的「仅开库位管理时写库位账」
+                # 语义由入口内部同判（关库位管理不写隐形库位账），保持向后兼容。
+                location = (line.get('location_code') or line.get('location') or '').strip()
+                ok, msg = apply_stock_delta(
+                    material, -quantity, transaction_type='out',
+                    reference_type='out_order', reference_id=order.id,
+                    remark=f'Android出库 {order.order_no}',
+                    warehouse=order.warehouse, location=location)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)
-                # BUG-2026-08-16-020：仅开库位管理时写库位账。
-                # 关闭状态下客户端若传 location，无条件写 LocationInventory 会造隐形库位账，
-                # 使关库位管理的库存聚合把客户端随手填的文本当成真实库位。
-                if location_management_enabled():
-                    location = (line.get('location_code') or line.get('location') or '').strip()
-                    ok, msg = update_location_inventory(material, location, -quantity, warehouse=order.warehouse)
-                    if not ok:
-                        db.session.rollback()
-                        return api_json_error(msg)
             order.total_amount = round_to_2_decimals(total_amount)
             _save_evidence(evidence, 'out_order', order.id, user.id)
             enqueue_auto_print_job('out_order', order.id, order.warehouse,

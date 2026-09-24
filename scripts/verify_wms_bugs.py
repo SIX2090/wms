@@ -345,12 +345,17 @@ def main() -> int:
         and "return False" in function_body(app_py, "purchase_in_order_requires_order"),
         "采购入库允许不关联采购订单手工录入",
     ))
+    # P2-3 批 5 收敛：库存写入改经唯一入口 apply_stock_delta，原「必须成对调
+    # add_stock + update_location_inventory」的字面断言随之更新为「必须经入口
+    # 且检查返回值」——意图（不得忽略库存写入错误）不变，断言对象随收敛演进。
     checks.append((
         "BUG-NEW2-001",
-        "ok, msg = add_stock" in native_inbound_body
-        and "loc_ok, loc_msg = update_location_inventory" in native_inbound_body
+        ("ok, msg = apply_stock_delta" in native_inbound_body
+         or "ok, msg = add_stock" in native_inbound_body)
+        and ("apply_stock_delta(" in native_inbound_body
+             or "loc_ok, loc_msg = update_location_inventory" in native_inbound_body)
         and "return api_json_error" in native_inbound_body,
-        "Android 入库必须检查 add_stock 和库位库存更新返回值",
+        "Android 入库必须检查库存写入（含库位账）返回值",
     ))
     ok, message = check_add_stock_results_checked()
     checks.append(("BUG-NEW3-001", ok, message))
@@ -371,11 +376,14 @@ def main() -> int:
     checks.append(("BUG-2026-08-28-005", ok, message))
 
     mobile_scan_body = app_function_body("mobile_scan_submit")
+    # P2-3 批 5 收敛：同 BUG-NEW2-001，断言更新为「经入口 + 检查返回值」。
     checks.append((
         "BUG-NEW2-006",
-        "ok, error_msg = add_stock" in mobile_scan_body
-        and "库位库存更新失败" in mobile_scan_body,
-        "手机扫码入库必须检查 add_stock 和库位库存更新返回值",
+        ("ok, error_msg = apply_stock_delta" in mobile_scan_body
+         or "ok, error_msg = add_stock" in mobile_scan_body)
+        and ("apply_stock_delta(" in mobile_scan_body
+             or "库位库存更新失败" in mobile_scan_body),
+        "手机扫码入库必须检查库存写入（含库位账）返回值",
     ))
 
     opening_add_body = app_function_body("add_opening_stock")

@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-24（持续滚动更新；累计 440 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 115 条，最新 PERF-2026-09-24-001；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 441 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 116 条，最新 BUG-2026-09-25-001；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -402,6 +402,58 @@
   其中 `WMS CI` 的 unit-tests job 跑全量 pytest，已含本次新增的 4 项回归锁。
   判据：`scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②。
   ⚠️ 生产侧仍需**重启 WMS 服务**后本修复才对用户可见（R3 同源）。
+- **⚠️ 本条 R6 排查结论不完备（2026-09-25 补充，见 BUG-2026-09-25-001）**：
+  原文称「23 个调用点已全量分类…**无第二处缺口**」，**该结论是错的**——
+  它把 `routes/subcontract.py` 的网页版当成了全部实现，**漏掉了
+  `app/app.py` 里那套更老的 API**（收货方向同型缺口）。
+
+### BUG-2026-09-25-001（2026-09-25，委外快速收货老 API 只写总账、不写库位账：BUG-2026-09-20-008 的同型第二处）
+
+- **发现方式**：P2-3 批 5 收敛侦察——按「23 个调用点」逐点确认时发现，
+  008 的 R6 结论把 `routes/subcontract.py::quick_receive_subcontract`（网页版，
+  batch 4 已收敛）当成了 `subcontract_receive` 方向的**全部实现**，
+  **漏掉了 `app/app.py::api_subcontract_quick_receive`**
+  （`/api/subcontract/quick_receive`，老 API）——它与 008 修好的
+  `api_subcontract_quick_issue` 同文件、同层。
+- **根因（代码实证）**：该函数只调 `add_stock(material, quantity, …)` 写
+  **①总账 + ③流水**，函数区间内**没有任何** `update_location_inventory` /
+  `deduct_location_inventory_atomic` / `location_management_enabled` 调用。
+  而 008 的修复只覆盖了**发料**方向，**收货**方向这套老 API 被漏掉。
+- **危害**：**开启库位管理时**，每收一笔货 ①总账增加而②库位账不变 →
+  恒等式 `① = Σ②` 被打破；且**无任何报错**——与 008 / BUG-2026-08-16-002
+  同型的**静默账实分裂**。关闭库位管理时不显现（条件触发）。
+- **状态**：**已修复**（2026-09-25）。
+- **修复（P2-3 批 5 的一个 atomic action）**：`api_subcontract_quick_receive`
+  改道唯一入口 `services.warehouse_stock_service.apply_stock_delta`
+  （`transaction_type='subcontract_receive'`）。库位键不显式传入——
+  本路由的 `SubcontractReceive` **未设 location 字段**，入口内部回退
+  `location or _stock_location_from_warehouse(warehouse)`，与网页版
+  `location or warehouse` **逐字一致**，收发两端不会落在不同库位。
+- **同批一并收敛**：`routes/mobile.py` 4 处（扫码入/出库、草稿确认入/出库）、
+  `routes/native_api.py` 2 处（Android 扫码入/出库）→ 同上入口。
+  均为**纯重构**（等价性已逐条论证：开关判定与库位键口径与原实现同判）。
+- **刻意未收敛**：`routes/requisition.py` 扣减侧用
+  `deduct_location_inventory_atomic`，绕过 `update_location_inventory` 的
+  「无库位记录且不允许负库存即失败」检查（BUG-2026-08-04-002 口径），
+  收敛会**改变失败语义**，按 R8 不做净改变，**单独评估**。
+- **回归**：新增 `tests/test_p2_3_mobile_native_receive_apply_stock_delta.py`
+  **11 项**（结构锁 4 + 行为锁 7）。
+  **回退验证（证明锁有效，非自证）**：临时回退 `app.py:7539` 到修复前，
+  4 项立刻变红，其中 `test_quick_receive_api_syncs_location_inventory_when_enabled`
+  报「②库位账未同步」——正是静默账实分裂的实证据；恢复后 11 项全过。
+- **门禁同步**：`scripts/verify_wms_bugs.py` 的 `BUG-NEW2-001` / `BUG-NEW2-006`
+  原先断言源码必须出现 `add_stock` + `update_location_inventory` 字面量，
+  收敛后自然失效。已更新为「必须经入口 **且** 检查返回值」——**意图不变**；
+  并**实测注入「忽略返回值」的坏代码仍被拦截**，证明断言未被削弱。
+- **R6 同根因排查（本次做对的部分）**：全仓库存原语调用点重新分类，
+  确认除上述 7 处外，`app.py` 仅余 2 处 `update_location_inventory`
+  属**期初建账专用路径**（`_apply_opening_stock_balance` / 回冲，总账不走
+  `add_stock`，不在收敛范围）；`quick_issue`（L7450）已被 008 修好，不重复改。
+- **生效条件**：改动含 `app.py` 与路由逻辑，**生产需重启 WMS 服务生效**（R3）。
+- **生效确认**：**待 CI 确认**——推送后 `python scripts/check_ci_green.py` 需 rc=0
+  且三工作流均指向本次提交。本地：专项 11 passed；全量 2675 passed / 86 skipped /
+  0 failed；`verify_wms_bugs.py` rc=0；`lint_wms_rules --staged` 0 违规。
+  判据：`scripts/verify_inventory_identity.py` 可复跑验证 ①=Σ②。
 
 ### BUG-2026-09-20-006（2026-09-20，R6「排查所有同类消费点」长期靠自觉：新增 A14 规则机械化）
 

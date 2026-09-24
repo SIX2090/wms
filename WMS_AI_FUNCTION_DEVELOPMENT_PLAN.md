@@ -3135,3 +3135,86 @@ R6 守卫 `tests/test_r6_startup_migration_column_guard.py` 3 passed。
 **整改方案状态**：P1-5（销售退货入库）+ **P1-7（采购退货出库）已完成** ——
 整改方案 §P1 系列的**最后一项功能缺口清零**。
 
+---
+
+## P2-3 批 5 —— mobile / native_api 收敛 + 委外快速收货补漏（2026-09-25）
+
+**来源**：P2-3「库存三账写入单点收敛」剩余写入点。前置批 1–4 已收敛
+（in_order / out_order / after_sale_out / subcontract 等），本批处理侦察列出的
+最后一批：`mobile.py` 4 处、`native_api.py` 2 处、`app.py` 1 处，共 **7 个写入点**。
+
+### 核心发现：R6 排查自身有盲区（024-09-20-008 的结论不完备）
+
+BUG-2026-09-20-008 的 R6 排查结论原文写「23 个调用点已全量分类，除本处外
+**22 处均已双写**（… subcontract_receive …），**无第二处缺口**」。
+**该结论是错的**：它把 `routes/subcontract.py` 的网页版当成了全部实现，
+**漏掉了 `app/app.py` 里那套更老的 API**。
+
+| 实现 | 路由 | 状态 |
+|---|---|---|
+| 网页版 | `routes/subcontract.py::quick_receive_subcontract` | batch 4 已收敛 ✅ |
+| **老 API** | **`app/app.py::api_subcontract_quick_receive`** | **仅 `add_stock` 写①总账+③流水，从不写②库位账** ❌ |
+
+这与 008 是**同型、同根因**（静默账实分裂：①减②不变、无任何报错），
+只是发生在**收货方向**、且藏在**双轨实现的另一套**里。
+本批按 008 的修法补上。
+
+### 收敛清单
+
+| # | 文件 | 位置 | 处理 |
+|---|---|---|---|
+| 1 | `routes/mobile.py` | 扫码入库 / 扫码出库 | → `apply_stock_delta`（库位键 `location`） |
+| 2 | `routes/mobile.py` | 草稿确认入库 / 出库 | → `apply_stock_delta`（库位键 `order.location or order.warehouse`） |
+| 3 | `routes/native_api.py` | Android 扫码入库 / 出库 | → `apply_stock_delta`（入库 `document_location`、出库 `line.location*`） |
+| 4 | `app.py` | `api_subcontract_quick_receive` | **补漏**：改道 `apply_stock_delta`，补上②库位账 |
+
+**未收敛（本批刻意跳过）**：`routes/requisition.py` 扣减侧用
+`deduct_location_inventory_atomic`，**绕过** `update_location_inventory` 的
+「无库位记录且不允许负库存即失败」检查（BUG-2026-08-04-002 口径）。
+收敛会**改变失败语义**，按 R8「不做净改变」原则单独评估，不在本批夹带。
+
+### 等价性论证（为什么是纯重构）
+
+- **mobile 扫码**：原 `if location_management_enabled(): update_location_inventory(...)`
+  与入口内部 `if location_management_enabled():` **同判**；库位键逐字沿用。
+- **mobile 草稿确认**：原 `if location_management_enabled() and (order.location or order.warehouse):`
+  与入口「先判开关、再 `location or 回退仓库`」**同构**。
+- **native 入库**：`_native_document_location()` 未开库位管理时返回 `''`，
+  原 `if document_location:` 与入口开关判定**等价**。
+- **native 出库**：BUG-2026-08-16-020「仅开库位管理时写库位账」语义由入口同判。
+- **委外收货**：`SubcontractReceive` 未设 `location`，入口内部回退仓库名，
+  与网页版 `location or warehouse` 口径**逐字一致**（收发不会落在不同库位）。
+
+### 回归锁
+
+新增 `tests/test_p2_3_mobile_native_receive_apply_stock_delta.py` **11 项**：
+
+- **结构锁 4 项**：mobile/native 不得再裸调任一库存原语；收敛路由必须导入入口；
+  委外快速收货两套实现都必须经入口（防回退）。
+- **行为锁 7 项**：委外老 API 收货三账一致 / 库位键回退仓库 / 关库位不动库位账 /
+  恒等式 ①=②=③；mobile 扫码入出库三账同增同减 / 关库位不写库位账。
+
+**回退验证（证明锁有效，非自证）**：临时回退 `app.py:7539` 到修复前，
+4 项立刻变红——其中 `test_quick_receive_api_syncs_location_inventory_when_enabled`
+报「②库位账未同步」，**正是静默账实分裂的实证据**；恢复后 11 项全过。
+
+**门禁同步**：`scripts/verify_wms_bugs.py` 的 `BUG-NEW2-001` / `BUG-NEW2-006`
+原断言语料里必须出现 `add_stock` + `update_location_inventory` 字面量，
+收敛后自然失效。已更新为「必须经入口 **且** 检查返回值」——**意图不变**
+（不得忽略库存写入错误），并**实测注入「忽略返回值」的坏代码仍被拦截**，
+证明断言未被削弱。
+
+### 验证
+
+```bash
+WMS_ALLOW_INSECURE_COOKIE=1 python -m pytest tests/test_p2_3_mobile_native_receive_apply_stock_delta.py -q  # 11 passed
+WMS_ALLOW_INSECURE_COOKIE=1 python -m pytest tests/ -q                                                      # 2675 passed / 86 skipped / 0 failed
+python scripts/verify_wms_bugs.py                                                                            # rc=0
+python scripts/lint_wms_rules.py --staged                                                                    # 0 违规
+```
+
+**生效条件（R3）**：改动含 `app.py` 与路由逻辑，**生产需重启 WMS 服务生效**。
+
+**台账**：`WMS_BUG_BASELINE.md` 已登记 **BUG-2026-09-25-001**（委外快速收货漏写库位账）。
+
+**P2-3 状态**：写入点收敛 **7/8 完成**；`requisition.py` 1 处待单独评估。

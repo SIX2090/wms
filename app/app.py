@@ -7535,12 +7535,20 @@ def api_subcontract_quick_receive():
     )
     db.session.add(receive_item)
 
-    # Add received material stock
-    ok, msg = add_stock(material, quantity,
-                        transaction_type='subcontract_receive',
-                        reference_type='subcontract_receive',
-                        reference_id=receive.id,
-                        warehouse=receive.warehouse)
+    # P2-3 收敛：三账（①总账 + ③流水 + ②库位账）经唯一入口写入。
+    # BUG-2026-09-20-008 同型第二处：本路由（老 API `/api/subcontract/quick_receive`）
+    # 原仅 `add_stock` 只写①总账+③流水，开启库位管理时**从不写②库位账**——
+    # 与已修的 `api_subcontract_quick_issue`（同文件 L7460）以及网页版
+    # `routes/subcontract.py::quick_receive_subcontract`（batch 4）同根因。
+    # 库位键不显式传入：本路由的 SubcontractReceive 未设 location 字段，
+    # 入口内部回退 `location or _stock_location_from_warehouse(warehouse)`，
+    # 与网页版 `location or warehouse` 口径逐字一致，收发两端不会落在不同库位。
+    from services.warehouse_stock_service import apply_stock_delta
+    ok, msg = apply_stock_delta(material, quantity,
+                                transaction_type='subcontract_receive',
+                                reference_type='subcontract_receive',
+                                reference_id=receive.id,
+                                warehouse=receive.warehouse)
     if not ok:
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
