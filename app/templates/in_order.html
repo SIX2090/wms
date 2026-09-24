@@ -21,7 +21,7 @@
             </button>
         </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
-        <!-- 工具栏收敛（采购入库明细表）：一层结构，主操作突出 / 高频保留 / 低频收进「更多」/ 危险右置 -->
+        <!-- 工具栏（采购入库明细表）：一层一排全铺开，主操作突出 / 危险右置（用户偏好全摊开，不用下拉） -->
         <div class="d-flex gap-2 flex-wrap align-items-center">
             <!-- 主操作（突出） -->
             {% if filters.business_type == '产品入库' %}
@@ -50,30 +50,22 @@
                 <i class="bi bi-check2-circle"></i> 完成已选
             </button>
 
-            <!-- 低频批量 + 导入导出收进「更多」 -->
-            <div class="btn-group">
-                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="更多操作">
-                    <i class="bi bi-three-dots"></i> 更多
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                    <li><button type="button" class="dropdown-item" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)">
-                        <i class="bi bi-printer"></i> 批量打印
-                    </button></li>
-                    <li><button type="button" class="dropdown-item" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)">
-                        <i class="bi bi-file-earmark-excel"></i> 批量导出
-                    </button></li>
-                    <li><hr class="dropdown-divider"></li>
-                    <li><a class="dropdown-item" href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}">
-                        <i class="bi bi-file-earmark-excel"></i> 导出当前筛选
-                    </a></li>
-                    <li><button type="button" class="dropdown-item" onclick="document.getElementById('inOrderImportFile').click()">
-                        <i class="bi bi-upload"></i> 导入
-                    </button></li>
-                    <li><a class="dropdown-item" href="/export/template/in_order">
-                        <i class="bi bi-download"></i> 下载导入模板
-                    </a></li>
-                </ul>
-            </div>
+            <!-- 批量 / 导入导出：一排全铺开（用户偏好全摊开，不用下拉） -->
+            <button type="button" class="btn btn-outline-info btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
+                <i class="bi bi-printer"></i> 批量打印
+            </button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)" title="批量导出选中的入库单">
+                <i class="bi bi-file-earmark-excel"></i> 批量导出
+            </button>
+            <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-primary btn-sm" title="导出当前筛选结果">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
+                <i class="bi bi-upload"></i> 导入
+            </button>
+            <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm" title="下载导入模板">
+                <i class="bi bi-download"></i> 模板
+            </a>
 
             <!-- 危险操作（右置：本工具栏位于页头最右，此按钮为组内最后） -->
             <span class="vr mx-1"></span>
