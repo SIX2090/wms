@@ -239,17 +239,57 @@ def test_t6b_ci_keeps_lint_and_unit_tests():
     data = _load(CI)
     jobs = data["jobs"]
     assert "lint-and-static" in jobs, "丢了 lint-and-static job"
-    assert "unit-tests" in jobs, "丢了 unit-tests job"
+    # CI-PERF-2026-09-24：unit-tests 拆成 3 片（unit-tests-shard-0/1/2），
+    # 校验"主套件仍被完整跑"改为对分片求并集。
+    shard_jobs = [j for j in jobs if re.match(r"unit-tests-shard-\d+$", j)]
+    assert len(shard_jobs) == 3, \
+        f"unit-tests 分片数应为 3，实际 {len(shard_jobs)}：{shard_jobs}"
     unit_cmds = " ".join(
-        s.get("run", "") for s in jobs["unit-tests"]["steps"]
+        s.get("run", "") for j in shard_jobs for s in jobs[j]["steps"]
     )
-    assert "pytest tests/" in unit_cmds, "unit-tests 里没有跑主套件"
-    assert "-n 4" in unit_cmds, "主套件的 pytest-xdist 并发参数丢了"
+    assert "run_tests_sharded.py" in unit_cmds, "分片未走 run_tests_sharded.py"
+    # -n 4 --dist loadfile 的并发参数必须在分片脚本里保住
+    script = _read(REPO / "scripts" / "run_tests_sharded.py")
+    assert "-n" in script and "--dist" in script and "loadfile" in script, (
+        "run_tests_sharded.py 丢了 -n / --dist loadfile 参数"
+    )
+    assert "-q" in script and "no:pylama" in script, \
+        "run_tests_sharded.py 丢了原 unit-tests 的 -q -p no:pylama 参数"
     lint_cmds = " ".join(
         s.get("run", "") for s in jobs["lint-and-static"]["steps"] if s.get("run")
     )
     assert "lint_wms_rules.py" in lint_cmds, "丢了 lint_wms_rules 门禁"
     assert "verify_wms_bugs.py" in lint_cmds, "丢了 verify_wms_bugs 门禁"
+
+
+def test_t6c_unit_test_shards_are_complete_and_disjoint():
+    """unit-tests 分片必须不重不漏（每个 test_*.py 恰好落进一片）。"""
+    all_files = sorted(
+        os.path.relpath(p, REPO)
+        for p in glob.glob(str(REPO / "tests" / "test_*.py"))
+    )
+    assert all_files, "没找到 tests/test_*.py，本用例前提失效"
+    shards = 3
+    buckets = [
+        [f for i, f in enumerate(all_files) if i % shards == s]
+        for s in range(shards)
+    ]
+    flat = [f for b in buckets for f in b]
+    assert sorted(flat) == all_files, "分片出现重复或遗漏"
+    sizes = [len(b) for b in buckets]
+    assert max(sizes) - min(sizes) <= 1, f"分片规模不均衡：{sizes}"
+    # 每个 shard job 的序号必须自洽
+    data = _load(CI)
+    seen = set()
+    for j, cfg in data["jobs"].items():
+        if not re.match(r"unit-tests-shard-\d+$", j):
+            continue
+        for s in cfg["steps"]:
+            env = s.get("env", {})
+            if "VERIFY_TEST_SHARD" in env:
+                assert env["VERIFY_TEST_SHARDS"] == "3", f"{j} 的 SHARDS 不是 3"
+                seen.add(int(env["VERIFY_TEST_SHARD"]))
+    assert seen == {0, 1, 2}, f"分片序号未覆盖 0..2：{seen}"
 
 
 # ------------------------------------------- T7 AI Verify 覆盖不缩水

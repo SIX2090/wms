@@ -1,14 +1,33 @@
 name: Android APK Build
 
 on:
+  # CI-PERF-2026-09-24：加 paths 过滤 —— 只有 Android 工程相关文件变动时才构建。
+  #
+  # 为什么：本工作流实测 ~340s（Gradle assembleRelease 本身就要 300s+，无法压缩），
+  # 而它只在**改了 Android 代码**时才有诊断价值。后端/文档/CI 配置的推送也触发它，
+  # 纯属让用户白等 5 分半。
+  #
+  # Android 工程完全自包含（不引用仓库其他目录：settings.gradle.kts 无跨目录 include，
+  # app/build.gradle.kts 无 ../../ 依赖），故 paths 只列工程自身 + 本 workflow 文件。
+  #
+  # ⚠️ 门禁强度权衡（如实记录，不假装等价）：paths 不匹配时 GitHub **不创建 run**，
+  # 于是 check_ci_green.py 的「最近一次 main 运行」会读到**更早的那次运行** ——
+  # 门禁对该次推送**没有** Android 编译证据。缓解措施：
+  #   1. 每天 02:30 定时跑（cron 见下，不参与 paths 过滤）→ 绿证据最多陈旧 24 小时；
+  #   2. 改了 Android 必触发 → 有 Android 改动必有新鲜证据；
+  #   3. ci-trigger.txt 保留为手动触发点，需要时可强制跑一次。
   push:
     branches: [main]
+    paths:
+      - 'app/android-native-wms/**'
+      - '.github/workflows/android-build.yml'
   workflow_dispatch:
   # CI-GREEN-GATE-2026-09-18：每日定时跑一次，落实 AGENTS.md §三「CI 全绿门禁」
   # 的"每天检查一次"。没定时触发时，只要当天没人推代码就不会有新的运行记录，
   # 门禁退化成"看某天偶然跑过的旧结果"，上游镜像失效/依赖撤回这类**时间性故障**
   # 会被漏掉。UTC 18:30 = 北京时间 02:30，避开团队白天用机高峰。
   # 注意：cron 只对默认分支（main）生效，与本规则的目标分支一致。
+  # **schedule 不受 paths 过滤影响** —— 这是上面权衡里的第 1 条缓解措施。
   schedule:
     - cron: '30 18 * * *'
 
