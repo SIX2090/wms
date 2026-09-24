@@ -1750,6 +1750,13 @@ const WMS_ACTION_MODULES = {
         detailUrl: '/subcontract_issue/{id}',
         addTarget: '#addModal',
         listUrl: '/subcontract_issue',
+        // BUG-2026-09-23-008：/subcontract/issue 与 /subcontract_issue 由同一路由
+        // 装饰器对提供（subcontract.py:969-970，同一函数、同一模板），服务的是
+        // **同一个列表页**。若不在 isWmsListPage 里同等对待，则 005 的导航组整组
+        // 隐藏与 006 的导入/导出/模板去重会在这个真实入口（委外进度页「去发料」
+        // 直链）上全部失效。刻意用声明式数组而非新增正则——正则会把 match
+        // 式的「列表/详情/新增」歧义重新引入。
+        listAliases: ['/subcontract/issue'],
         deleteUrl: '/subcontract_issue/batch_delete',
         detailDeleteUrl: '/subcontract/issue/delete/{id}',
         exportUrl: '/subcontract_issue/export',
@@ -1762,6 +1769,9 @@ const WMS_ACTION_MODULES = {
         detailUrl: '/subcontract_receive/{id}',
         addTarget: '#addModal',
         listUrl: '/subcontract_receive',
+        // BUG-2026-09-23-008：同 subcontract_issue 的说明——/subcontract/receive
+        // 是同一路由装饰器对的别名（subcontract.py:1630-1631），同一列表页。
+        listAliases: ['/subcontract/receive'],
         deleteUrl: '/subcontract_receive/batch_delete',
         detailDeleteUrl: '/subcontract/receive/delete/{id}',
         exportUrl: '/subcontract_receive/export',
@@ -1839,9 +1849,26 @@ function normalizeWmsPath(pathname) {
 //   /opening_stock/12 → false（详情）
 // query string 不影响 pathname，故筛选条件不会干扰判定。
 // 模块未声明 listUrl 时返回 false（保守：不隐藏任何按钮，避免误伤）。
+//
+// BUG-2026-09-23-008：部分模块存在「同一路由的别名 URL」——例如
+// /subcontract/issue 与 /subcontract_issue 由同一函数上的双装饰器提供
+// （subcontract.py:969-970），渲染同一模板、服务同一列表页。这类别名若不同等
+// 对待，上方注释描述的两种修复（导航组整组隐藏、重复按钮去重）会在该 URL 上
+// 静默失效。故在 listUrl 之外支持声明式 module.listAliases 数组。
+// 关键：别名比对**仍用严格等值**（normalizeWmsPath 后 ===），绝不用前缀匹配或
+// 正则——否则 /subcontract/issue/12（详情页）会被误判成列表页，反而制造新 BUG。
+// 保守语义保持不变：module 或 module.listUrl 缺失时一律 false，
+// 只声明 listAliases 而不声明 listUrl 的模块也返回 false。
 function isWmsListPage(module) {
     if (!module || !module.listUrl) return false;
-    return normalizeWmsPath(window.location.pathname) === normalizeWmsPath(module.listUrl);
+    var here = normalizeWmsPath(window.location.pathname);
+    if (here === normalizeWmsPath(module.listUrl)) return true;
+    var aliases = module.listAliases;
+    if (!aliases || !aliases.length) return false;
+    for (var i = 0; i < aliases.length; i++) {
+        if (here === normalizeWmsPath(aliases[i])) return true;
+    }
+    return false;
 }
 
 function openUrl(url, target) {
