@@ -27519,6 +27519,55 @@ def _ledger_contract_no_map(transactions):
     return result
 
 
+def _ledger_document_date_getters():
+    """reference_type -> 来源单据 model（这些模型都带 `date` 单据日期字段）。
+
+    BUG-2026-09-24-001：台账明细的「日期」列必须显示**单据日期**而非流水创建时间
+    （created_at）。补录/批量导入/迁移时单据日期与流水时间常不一致——例如 8 月的单
+    9 月才录入，台账若显示 created_at 会把历史单据错排到录入当天，对账对不上。
+    映射直接复用 REPORT_REFERENCE_LINKS 的 model（避免另起一套映射又漏改一处），
+    并补两个 REPORT_REFERENCE_LINKS 未含但流水会出现的类型：期初单、销售单。
+    """
+    getters = {k: v['model'] for k, v in REPORT_REFERENCE_LINKS.items()}
+    getters['opening_stock'] = OpeningStock
+    getters['sales'] = SalesOrder
+    return getters
+
+
+def _ledger_document_date_map(transactions):
+    """流水 -> 单据日期（date 对象），返回 {txn_id: date}（BUG-2026-09-24-001）。
+
+    无来源单据（reference_type/reference_id 缺失或查不到）的流水不入 map，
+    调用方退回 transaction.created_at.date() 兜底——与日期显示口径一致：
+    有单据用单据日期、无单据用流水时间。
+    批量查询：按 reference_type 分组 + ``id.in_(...)`` 一次取回，与
+    _ledger_source_warehouse_map / _ledger_contract_no_map 同款范式，
+    台账上限 5 万行时避免逐行回查。
+    """
+    result = {}
+    by_type = {}
+    for t in transactions:
+        if not t.reference_type or not t.reference_id:
+            continue
+        by_type.setdefault(t.reference_type, []).append(t)
+    if not by_type:
+        return result
+    getters = _ledger_document_date_getters()
+    for ref_type, txns in by_type.items():
+        model = getters.get(ref_type)
+        if not model:
+            continue
+        ids = list({t.reference_id for t in txns})
+        doc_map = {}
+        for d in model.query.filter(model.id.in_(ids)).all():
+            doc_map[d.id] = d
+        for t in txns:
+            doc = doc_map.get(t.reference_id)
+            if doc is not None and getattr(doc, 'date', None) is not None:
+                result[t.id] = doc.date
+    return result
+
+
 def _stock_txn_backfill_ready():
     """探测 stock_transaction.warehouse_id 启动回填的前置表是否已建好。
 
@@ -27800,8 +27849,10 @@ def _collect_ledger_rows(filters):
     loc_names, warehouse_condition, wid = _warehouse_scoped_txn_condition(filters)
     if warehouse_condition is not None:
         query = query.filter(warehouse_condition)
-    if filters.get('end_date'):
-        query = query.filter(StockTransaction.created_at <= datetime.combine(filters['end_date'], time.max))
+    # BUG-2026-09-24-001：end_date 不再在 SQL 层按 created_at 过滤——业务日期是
+    # **单据日期**（来源单据是多态的，SQL 无法跨 11 张表 join），必须取回后在
+    # Python 侧按业务日期过滤。否则「单据日期 ≤ end_date 但流水时间 > end_date」
+    # 的单据会在 SQL 层被误剔除（补录/迁移常见）。见下方循环内 `txn_date > end_date`。
     # AI-MOB-LDG-F01：material_id 精确过滤（移动端单一物料台账，相似编码不串）；
     # 未传 material_id 时退回原 material_code 关键词多 token 匹配（Web 台账路径不变）。
     if filters.get('material_id'):
@@ -27825,6 +27876,23 @@ def _collect_ledger_rows(filters):
     # 在下方循环里按 txn.id 直接取用——不在循环内逐行查库。
     contract_no_map = _ledger_contract_no_map(transactions)
 
+    # BUG-2026-09-24-001：单据日期 map——业务日期 = 单据日期优先、流水时间兜底。
+    # 一次批量回查，下方循环按 txn.id 直接取用。
+    doc_date_map = _ledger_document_date_map(transactions)
+
+    def _txn_biz_date(t):
+        """流水业务日期：单据日期优先，无单据退回 created_at 日期。"""
+        d = doc_date_map.get(t.id)
+        return d if d is not None else (t.created_at or datetime.min).date()
+
+    # BUG-2026-09-24-001：结存是**按业务时间顺序逐笔累加**的运行期值——若累加顺序
+    # 仍是 SQL 的 created_at 顺序，而展示排序改成单据日期，则「单据日期早但流水时间
+    # 晚」的补录单会累加错位、结存列与日期列自相矛盾。故在累加前先按业务日期升序
+    # 重排（同日期内按流水时间/流水 id 稳定次级排序）。
+    transactions = sorted(
+        transactions,
+        key=lambda t: (_txn_biz_date(t), t.created_at or datetime.min, t.id))
+
     rows = []
     balances = {}
     opening_balances = {}
@@ -27839,14 +27907,22 @@ def _collect_ledger_rows(filters):
             continue
 
         material_id = transaction.material_id
+        txn_datetime = transaction.created_at or datetime.min
+        # BUG-2026-09-24-001：业务日期 = 单据日期优先、流水时间兜底。
+        txn_date = _txn_biz_date(transaction)
+        if end_date and txn_date > end_date:
+            # 单据日期晚于结束日期：不属于查询窗口，不累加、不显示、不进合计，
+            # 结存口径与日期列口径一致（原 SQL 按 created_at 过滤会把「单据日期
+            # 早、流水时间晚」的补录单误剔除，也把「单据日期晚、流水时间早」的
+            # 单误纳入）。
+            continue
+
         material_map[material_id] = material
         quantity = _safe_float(transaction.quantity)
         before_balance = balances.get(material_id, 0.0)
         after_balance = before_balance + quantity
         balances[material_id] = after_balance
 
-        txn_datetime = transaction.created_at or datetime.min
-        txn_date = txn_datetime.date()
         if start_date and txn_date < start_date:
             # BUG-2026-09-07-006：start_date 前累计即该物料期初结存
             opening_balances[material_id] = after_balance
