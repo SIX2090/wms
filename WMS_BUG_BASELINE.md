@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 451 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 126 条，最新 BUG-2026-09-25-010；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 452 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 127 条，最新 BUG-2026-09-25-011；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1547,4 +1547,49 @@
   仍是仓库名称），属 P1-7 调拨单收敛范围，不在 P1-6 内。
 - **生效条件**：代码改动，重启 WMS 服务后生效。
 - **生效确认**：本地全量 2756 passed / 0 failed；lint 0 违规；棘轮门禁通过。
+  推送后 CI 验证。
+
+
+---
+
+### BUG-2026-09-25-011：P1-7 前置判据 —— transfer / requisition / material 三账行为基线
+
+- **性质**：**判据先行，不改业务代码**。审计 1.2 指出这三条路径完全绕过
+  `apply_stock_delta`，但收敛是有风险的重构（会改账的走向），
+  在动手术前必须先把当前行为钉死，否则改错了没人能发现。
+- **新增**：`tests/test_p1_7_three_ledgers_business_paths.py` **7 项**，
+  逐条固化三条路径在 ①总账 / ②库位账 / ③流水账 上的真实语义：
+  | 路径 | ① 总账 | ③ 流水 | ② 库位账 |
+  |---|---|---|---|
+  | 调拨完成 | **不动**（物料没离开公司） | transfer_out(-q) + transfer_in(+q)，净 0 | 开库位时 from 减 to 加，净 0 |
+  | 调拨反提交 | 不动 | 回到调拨前 | 回到调拨前 |
+  | 领料完成 | -q | -q | 开库位时 -q |
+  | 领料撤销 | 回到 +q | 回到领料前 | 回到领料前 |
+  | 物料初始库存 | = initial | 一条 'opening' +q | 开库位时 +q |
+  每步都断言恒等式 ① == Σ③（开库位时再断言 ① == Σ②），
+  与 `scripts/verify_inventory_identity.py` 的 `no_location_rows` 口径一致
+  （关库位时 ② 为空属预期，不参与校验）。
+- **踩坑记录（供后续收敛复用）**：
+  - 种子数据里调 `add_stock` / `update_location_inventory` 必须在
+    **请求上下文**（`test_request_context`）里跑：底层写 StockTransaction 时读
+    `current_user.id`，纯 `app_context` 下 `current_user` 是 None → AttributeError。
+  - `/requisition/<id>/update` **只改表头**，明细必须单独调
+    `/requisition/<id>/item/add`（按 material_code / quantity / unit_id 单行提交，
+    不是 items JSON）。
+  - 物料初始库存的表单字段名是 **`stock`**（`material.py:239`），不是 `initial_stock`。
+- **为什么 transfer 不能简单套 apply_stock_delta**（本判据直接证明）：
+  调拨 ① 必须保持不动，而 `apply_stock_delta` 走 `add_stock` / `deduct_stock_atomic`
+  **必然改 ①**，且会给调拨凭空引入一次「全局/仓库级库存不足」校验
+  （`deduct_stock_atomic` 内的 `get_warehouse_stock_quantities` 分支）。
+  故调拨需要的是「只写双流水 + 库位账、不动总账」的专用入口，不能硬套入/出库入口。
+- **回归**：定向 7 passed；全量 **2763 passed / 87 skipped / 0 failed**（2756 + 本批 7）。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线。
+- **下一步（P1-7 正题）**：按判据逐条收敛
+  ① `apply_transfer_pair`（双流水 + 库位账、不动总账）→ 迁 transfer complete/revert；
+  ② requisition 的 `deduct_stock`（**非原子**）→ `deduct_stock_atomic`
+     + `apply_stock_delta` 的库位分支；
+  ③ material 初始库存 / `app.py:8060` 期初手写 SQL → 走入口。
+  每步单独一个 atomic action，改完复跑本判据。
+- **生效条件**：仅新增测试，不影响线上；无需重启。
+- **生效确认**：本地全量 2763 passed / 0 failed；lint 0 违规；棘轮门禁通过。
   推送后 CI 验证。
