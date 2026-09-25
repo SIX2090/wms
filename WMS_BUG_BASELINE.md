@@ -1391,5 +1391,6 @@
   全量 2715 passed / 87 skipped / 0 failed。
 - **生效条件**：代码改动，立即生效（无需 CI 配置变更）。
 - **生效确认**：本地全量回归 2715 passed / 0 failed；lint `--staged` 0 违规；
-  `--full --full-gate` 通过（417 = 基线，无新增）。推送后 CI 验证。
+  `--full --full-gate` 通过（417 = 基线，无新增）。CI 推送后三个工作流
+  （WMS CI / WMS AI Verification / WMS Perf Baseline）均 success。
 
