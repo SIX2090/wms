@@ -8687,20 +8687,34 @@ def generate_material_copy_name(source_name, source_spec):
     return base_name
 
 def _material_dedupe_key(value):
-    """物料判重「硬挡」键的归一化：只 strip 首尾空白。
+    """物料判重键的归一化：去首尾与内部空白 + 转小写。
 
-    刻意**不做**下面三件事，原因逐条对应实测：
-      - 不做 NFKC：存量 88 条规格含全角字符（如 'SC-120-12-镀锡（C）'、
-        'JKM1－1250M/3300 1250A'），而 SQLite 无法对**列值**做 NFKC。若只对
-        入参归一化，全角与半角两种写法在库里反而双双对不上，检出率不升反降。
-      - 不去内部空格：2026-09-25 与业务方确认，'LA38-11 绿色' 与
-        'LA38-11绿色' 视为两个规格，必须允许共存。
-      - 不转小写：电气规格大小写有物理含义（mA 毫安 / MA 兆安差 10^9 倍），
-        '25KA' 与 '25kA' 也不能替业务方断定是同一个东西。
-    这三类差异统一交给 find_similar_materials() 在 Python 侧（两端同时归一）
-    做「软提示」，提示存在但由人决定是否保存。
+    2026-09-25 业务口径：名称+规格+品牌在**去空格后**与**不分大小写后**都不得
+    与其他物料同时重复 —— 现场两种写法（'LA38-11 绿色' / 'LA38-11绿色'、
+    'JKDB-25I/4P 25KA' / '25kA'）几乎都是同一件东西的录入误差，生产库实测
+    6 条疑似一物多码里有 3 条正是这么进来的（created_at 相差 0~3 毫秒）。
+
+    仍**不做** NFKC：存量 88 条规格含全角字符（'SC-120-12-镀锡（C）'、
+    'JKM1－1250M/3300 1250A'），而 SQLite 无法对**列值**做 NFKC，只归一入参
+    反而让全角与半角两种写法在库里双双对不上，检出率不升反降。全角差异继续
+    由 find_similar_materials() 做软提示。
     """
-    return (value or '').strip()
+    text = str(value or '').strip()
+    for ch in (' ', '\t', '\u3000'):
+        text = text.replace(ch, '')
+    return text.lower()
+
+
+def _material_dedupe_expr(column):
+    """与 _material_dedupe_key 等价的 SQL 表达式（WHERE 侧比较存量行）。
+
+    用 SQL 表达而不是拉到 Python 里比，是为了让数据库承担过滤、不必全表加载。
+    SQLite 的 replace 只认 ASCII 空格，故全角空格 U+3000 单独再替一次。
+    """
+    expr = func.trim(func.coalesce(column, ''))
+    expr = func.replace(expr, ' ', '')
+    expr = func.replace(expr, '\u3000', '')
+    return func.lower(expr)
 
 
 def _material_similarity_key(value):
@@ -8718,15 +8732,17 @@ def _material_similarity_key(value):
 def material_name_spec_exists(name, spec, brand=None, exclude_id=None):
     """名称 + 规格 + 品牌 三者同时重复 → 判重（硬挡）。
 
+    比较时忽略空格差异与大小写差异（口径见 _material_dedupe_key）：
+    'LA38-11 绿色' 与 'LA38-11绿色'、'25KA' 与 '25kA' 都认定为重复。
+
     为什么把 brand 加进键（2026-09-25）：业务上「同型号不同品牌」是两个物料
     （欧姆龙 vs 西门子的模拟量输入模块），不含品牌会把正常业务挡在门外；
     生产库实测已有 10 组同名不同品牌，说明现场就是按品牌区分物料的。
-    为什么强度只到 strip：见 _material_dedupe_key 的三条实测理由。
     """
     query = Material.query.filter(
-        func.trim(func.coalesce(Material.name, '')) == _material_dedupe_key(name),
-        func.trim(func.coalesce(Material.spec, '')) == _material_dedupe_key(spec),
-        func.trim(func.coalesce(Material.brand, '')) == _material_dedupe_key(brand),
+        _material_dedupe_expr(Material.name) == _material_dedupe_key(name),
+        _material_dedupe_expr(Material.spec) == _material_dedupe_key(spec),
+        _material_dedupe_expr(Material.brand) == _material_dedupe_key(brand),
     )
     if exclude_id:
         query = query.filter(Material.id != exclude_id)

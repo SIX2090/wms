@@ -9,17 +9,18 @@
   另有 3 组是精确匹配被空格/大小写绕过的真一物多码（'25KA' vs '25kA'、
   'LA38-11 绿色' vs 'LA38-11绿色'、'10kV…XGN - 12/V' vs '10KV…XGN-12/V'）。
 
-口径（与业务方确认 2026-09-25）：
-  - 硬挡键 = 名称 + 规格 + **品牌**，只 strip。**不**做 NFKC、不去内部空格、
-    不转小写：
-      * NFKC 做不到 —— 存量 88 条规格含全角字符（'SC-120-12-镀锡（C）'），
-        而 SQLite 无法对列值做 NFKC，只归一入参反而让两种写法都对不上；
-      * 空格不同按业务方口径视为不同物料，必须能共存；
-      * 大小写有物理含义（mA 毫安 / MA 兆安差 10^9 倍），不能替业务方断定。
+口径（与业务方确认 2026-09-25，第二轮收紧）：
+  - 硬挡键 = 名称 + 规格 + **品牌**，归一化到「去空格 + 转小写」后比较：
+    现场两种写法（'LA38-11 绿色' / 'LA38-11绿色'、'JKDB-25I/4P 25KA' / '25kA'）
+    几乎都是同一件东西的录入误差，生产库 6 条疑似一物多码里 3 条正是这么
+    进来的，必须挡住。
+  - 仍**不**做 NFKC：存量 88 条规格含全角字符（'SC-120-12-镀锡（C）'），
+    而 SQLite 无法对列值做 NFKC，只归一入参反而让全角/半角两种写法在库里
+    双双对不上，检出率不升反降。
   - 品牌进键：同型号不同品牌是两个物料（欧姆龙 vs 西门子模块），生产库已有
     10 组同名不同品牌，不加品牌会把正常业务挡在门外。
-  - 上述三类差异统一由 find_similar_materials() 做**软提示**（两端同时归一，
-    故不受存量是否归一化影响），提示存在、不阻断保存。
+  - 剩下两类差异（全角/半角、仅品牌不同）由 find_similar_materials() 做
+    **软提示**：两端同时归一（NFKC + 去空白 + 转小写），提示存在、不阻断保存。
 
 本测试钉死这套分工：硬挡只挡真正撞车的，软提示覆盖录入误差，两者不越界。
 """
@@ -123,14 +124,34 @@ def _import(client, buf):
 # ---------------------------------------------------------------- 归一化函数
 
 def test__material_dedupe_key():
-    """硬挡键只 strip：首尾空白去掉，内部空格与大小写原样保留。"""
+    """硬挡键：去首尾与内部空白 + 转小写；不做 NFKC。"""
     from app import _material_dedupe_key
 
     assert _material_dedupe_key("  继电器  ") == "继电器"
     assert _material_dedupe_key(None) == ""
-    assert _material_dedupe_key("LA38-11 绿色") == "LA38-11 绿色", "内部空格必须保留"
-    assert _material_dedupe_key("25kA") == "25kA", "大小写必须保留"
-    assert _material_dedupe_key("镀锡（C）") == "镀锡（C）", "硬挡键不做 NFKC"
+    assert _material_dedupe_key("LA38-11 绿色") == "la38-11绿色", "内部空格必须去掉"
+    assert _material_dedupe_key("LA38-11绿色") == _material_dedupe_key("LA38-11 绿色"), \
+        "空格差异必须归一到同一个键"
+    assert _material_dedupe_key("25kA") == _material_dedupe_key("25KA"), "大小写必须归一"
+    assert _material_dedupe_key("镀锡（C）") == "镀锡（c）", "硬挡键不做 NFKC（全角括号保留）"
+
+
+def test__material_dedupe_expr_matches_python_key():
+    """SQL 侧表达式必须与 Python 侧键完全等价，否则判重会漏。
+
+    这是本次最容易出错的地方：SQL 走 replace/lower，Python 走 str.replace/lower，
+    两边一旦不一致（比如漏替全角空格），某些写法就会静默溜过判重。
+    """
+    from app import (_material_dedupe_expr, _material_dedupe_key, Material, db)
+
+    samples = ["LA38-11 绿色", "JKDB-25I/4P 25KA", "SC-120-12-镀锡（C）",
+               "  两端空白  ", "全角　空格", ""]
+    with app_module.app.app_context():
+        for text in samples:
+            row = db.session.query(
+                _material_dedupe_expr(db.literal(text)).label('k')
+            ).first()
+            assert row.k == _material_dedupe_key(text), f"SQL 与 Python 归一化不一致: {text!r}"
 
 
 def test__material_similarity_key():
@@ -156,12 +177,14 @@ def test_material_name_spec_exists():
     assert _exists("继电器底座", "PF113A-EX", "欧姆龙") is False, "规格不同 → 不判重"
     assert _exists("接触器底座", "PF113A-E", "欧姆龙") is False, "名称不同 → 不判重"
 
-    # 空格差异按业务方口径视为不同物料，硬挡不得拦截
+    # 空格与大小写差异同样判重（2026-09-25 第二轮口径）
     _seed("DUP-2", "按钮", "LA38-11 绿色", None)
-    assert _exists("按钮", "LA38-11绿色", None) is False, "空格不同 → 不判重（业务口径）"
-    # 大小写同理
+    assert _exists("按钮", "LA38-11绿色", None) is True, "去空格后相同 → 判重"
+
     _seed("DUP-3", "浪涌后备保护", "JKDB-25I/4P 25KA", None)
-    assert _exists("浪涌后备保护", "JKDB-25I/4P 25kA", None) is False, "大小写不同 → 不判重"
+    assert _exists("浪涌后备保护", "JKDB-25I/4P 25kA", None) is True, "不分大小写后相同 → 判重"
+    # 两者叠加也要挡住
+    assert _exists("浪涌后备保护", "jkdb-25i/4p 25ka", None) is True
 
 
 def test_material_name_spec_exists_excludes_self():
@@ -226,14 +249,22 @@ def test_add_allows_different_brand():
         assert Material.query.filter_by(code="ADD-4").first() is not None
 
 
-def test_add_allows_space_and_case_variants():
-    """T3：空格 / 大小写差异按业务口径放行 —— 这两个必须能保存。"""
+def test_add_rejects_space_and_case_variants():
+    """T3：空格 / 大小写差异同样被硬挡（口径收紧后这两个不再放行）。"""
     client = _client()
     _seed("ADD-5", "按钮", "LA38-11 绿色", None)
     resp = _add(client, "ADD-6", "按钮", "LA38-11绿色", None)
-    assert resp.status_code == 200, "空格不同视为不同物料，必须放行"
+    assert resp.status_code == 400, "去空格后撞车必须拒绝"
+    assert "忽略空格与大小写" in (resp.get_json().get("msg") or "")
     with app_module.app.app_context():
-        assert Material.query.filter_by(code="ADD-6").first() is not None
+        assert Material.query.filter_by(code="ADD-6").first() is None
+
+    # 大小写差异同样拒绝
+    _seed("ADD-7", "浪涌后备保护", "JKDB-25I/4P 25KA", None)
+    resp = _add(client, "ADD-8", "浪涌后备保护", "JKDB-25I/4P 25kA", None)
+    assert resp.status_code == 400, "不分大小写后撞车必须拒绝"
+    with app_module.app.app_context():
+        assert Material.query.filter_by(code="ADD-8").first() is None
 
 
 def test_edit_rejects_same_name_spec_brand():
@@ -304,13 +335,19 @@ def test_import_skips_intra_batch_duplicate():
         assert Material.query.filter_by(code="IMP-7").first() is None
 
 
-def test_import_warns_on_space_variant():
-    """T8：导入一个仅空格/大小写不同的变体 → 放行但给出「疑似重复」提示。"""
+def test_import_rejects_space_and_case_variants():
+    """T8：导入仅空格/大小写不同的变体 → 同样跳过（不再放行 + 软提示）。"""
     client = _client()
     _seed("IMP-8", "按钮", "LA38-11 绿色", None)
-    buf = _make_xlsx([["IMP-9", "按钮", "LA38-11绿色", "", 0]])
+    _seed("IMP-10", "浪涌后备保护", "JKDB-25I/4P 25KA", None)
+    buf = _make_xlsx([
+        ["IMP-9", "按钮", "LA38-11绿色", "", 0],                # 仅空格不同
+        ["IMP-11", "浪涌后备保护", "JKDB-25I/4P 25kA", "", 0],   # 仅大小写不同
+    ])
     data = _import(client, buf).get_json()
     assert data["status"] == "success", data
-    assert data["count"] == 1, "空格不同按业务口径放行"
-    assert "疑似重复" in (data.get("warnings") or ""), "但必须给出疑似提示"
-    assert "IMP-8" in (data.get("warnings") or ""), "提示里要带已有物料编码便于核对"
+    assert data["count"] == 0, "空格/大小写变体必须被挡住"
+    assert "重复" in (data.get("warnings") or ""), "必须告知跳过原因"
+    with app_module.app.app_context():
+        assert Material.query.filter_by(code="IMP-9").first() is None
+        assert Material.query.filter_by(code="IMP-11").first() is None

@@ -233,7 +233,7 @@ def register_material_routes(app):
         if len(remark) > 500:
             return api_error(f'备注不能超过 500 个字符（当前 {len(remark)}）')
         if material_name_spec_exists(name, spec, brand):
-            return api_error('物料名称、规格和品牌不能同时重复')
+            return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
         # BUG-2026-07-29-005: 库存/价格上限收紧至 99999999.99（拒绝 12 位以上大数）
         initial_stock = parse_bounded_number(request.form.get('stock'), 0, maximum=MAX_REASONABLE_STOCK)
@@ -533,7 +533,7 @@ def register_material_routes(app):
         if len(new_remark) > 500:
             return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
         if material_name_spec_exists(new_name, new_spec, new_brand, exclude_id=id):
-            return api_error('物料名称、规格和品牌不能同时重复')
+            return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
         image_file = request.files.get('image')
         image_path = material.image
@@ -1141,7 +1141,8 @@ def register_material_routes(app):
                     skip += 1
                     skip_details.append(
                         f'第{row_idx}行：名称「{name}」+规格「{spec or "（空）"}」'
-                        f'+品牌「{brand or "（空）"}」与已存在物料重复')
+                        f'+品牌「{brand or "（空）"}」与已存在物料重复'
+                        f'（比较时忽略空格与大小写）')
                     continue
                 # 软提示：忽略大小写/空格/全角/品牌后撞车的存量物料，不阻断导入。
                 _similar = find_similar_materials(name, spec)
