@@ -403,7 +403,7 @@ def register_out_order_routes(app):
         from app import (Department, InOrder, OutOrder, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
-                         parse_date_value)
+                         parse_date_value, validate_inventory_warehouse)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有草稿状态的出库/领料单可以编辑')
@@ -421,15 +421,21 @@ def register_out_order_routes(app):
         is_sale = order.business_type == '销售出库'
         if not is_sale:
             warehouse = (data.get('warehouse') or '').strip()
-            if not warehouse:
+            # P1-6：同时收 warehouse_id（前端已改为传 ID）与 warehouse 名称（旧客户端兜底）。
+            # data 在 JSON 模式是 dict（warehouse_id 为 int）、表单模式是 request.form（str），
+            # 均不可 .strip()，交给 validate_inventory_warehouse 的 int() 处理。
+            raw_warehouse_id = data.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
-            ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
-            if not ok:
-                return jsonify({'status': 'error', 'msg': wh_msg}), 400
+            # ID 优先解析为规范化仓库名（与 INV-AUDIT-005 写侧口径一致）
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return jsonify({'status': 'error', 'msg': wh_err}), 400
+            warehouse = wh_obj.name
             order.warehouse = warehouse
             location = (data.get('location') or '').strip()
             if location_management_enabled() and not location:
@@ -642,14 +648,16 @@ def register_out_order_routes(app):
             else:
                 # BUG-2026-08-02-002 修复：领料单/其他出库仓库是必填字段，与库位管理无关。
                 # 未填写时优先自动带入默认仓库，无默认仓库则拒绝保存。
-                if not warehouse:
+                # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）。
+                raw_warehouse_id = data.get('warehouse_id')
+                if not warehouse and not raw_warehouse_id:
                     default_wh = get_default_warehouse()
                     if default_wh:
                         warehouse = default_wh.name
-                if not warehouse:
+                if not warehouse and not raw_warehouse_id:
                     return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
                 # INV-AUDIT-005：领料单/其他出库仓库必须存在且 active
-                wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+                wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
                 if wh_err:
                     return jsonify({'status': 'error', 'msg': wh_err}), 400
                 warehouse = wh_obj.name

@@ -591,10 +591,10 @@ MAT003,20,10.00"></textarea>
                         {% if order.business_type != '销售出库' %}
                         <div class="col-md-6">
                             <label class="form-label fw-medium">仓库 <span class="text-danger">*</span></label>
-                            <select class="form-select" name="warehouse" required>
+                            <select class="form-select" name="warehouse_id" required>
                                 <option value="">请选择仓库</option>
                                 {% for warehouse in warehouses %}
-                                <option value="{{ warehouse.name }}" {% if order.warehouse == warehouse.name or (not order.warehouse and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                                <option value="{{ warehouse.id }}" {% if order.warehouse == warehouse.name or (not order.warehouse and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                                 {% endfor %}
                                 {% if order.warehouse and order.warehouse not in warehouses|map(attribute='name')|list %}
                                 <option value="{{ order.warehouse }}" selected>{{ order.warehouse }}</option>

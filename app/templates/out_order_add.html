@@ -554,10 +554,10 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="warehouse" required>
+                        <select class="form-select" name="warehouse_id" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if (prefill and prefill.warehouse == warehouse.name) or (not (prefill and prefill.warehouse) and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if (prefill and prefill.warehouse == warehouse.name) or (not (prefill and prefill.warehouse) and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -1259,7 +1259,7 @@ function submitForm(saveAndNew = false) {
         return;
     }
 
-    const warehouseValue = document.querySelector('[name="warehouse"]').value.trim();
+    const warehouseValue = document.querySelector('[name="warehouse_id"]').value.trim();
     if (!warehouseValue) {
         alert('仓库不能为空，请选择仓库');
         return;
@@ -1287,7 +1287,7 @@ function submitForm(saveAndNew = false) {
         department_id: departmentId,
         customer: customer,
         picker: document.querySelector('[name="picker"]').value,
-        warehouse: document.querySelector('[name="warehouse"]').value,
+        warehouse_id: document.querySelector('[name="warehouse_id"]').value,
         location: locationValue,
         remark: document.querySelector('[name="remark"]').value,
         items: items
@@ -1528,7 +1528,7 @@ function refreshCustomers(options) {
 
 function refreshWarehouses(options) {
     const silent = !!(options && options.silent);
-    const select = document.querySelector('[name="warehouse"]');
+    const select = document.querySelector('[name="warehouse_id"]');
     if (!select) return;
     const current = select.value;
     fetch('/warehouse/api/list')
@@ -1537,8 +1537,8 @@ function refreshWarehouses(options) {
             if (res && Array.isArray(res.warehouses)) {
                 let html = '<option value="">请选择仓库</option>';
                 res.warehouses.forEach(function(w) {
-                    const selected = String(current) === String(w.name) ? ' selected' : '';
-                    html += '<option value="' + escapeHtml(w.name || '') + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
+                    const selected = String(current) === String(w.id) ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(w.id) + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
                 });
                 select.innerHTML = html;
                 notifyMaterialRefresh('仓库列表已更新', 'success', silent);
@@ -1777,7 +1777,7 @@ function batchUpdateField() {
         return;
     }
 
-    const warehouseSelect = document.querySelector('[name="warehouse"]');
+    const warehouseSelect = document.querySelector('[name="warehouse_id"]');
     const warehouseOptions = warehouseSelect
         ? Array.from(warehouseSelect.options).filter(option => option.value)
         : [];
@@ -1875,7 +1875,7 @@ function applyBatchUpdate() {
             alert('请选择仓库');
             return;
         }
-        const warehouseSelect = document.querySelector('[name="warehouse"]');
+        const warehouseSelect = document.querySelector('[name="warehouse_id"]');
         if (warehouseSelect) warehouseSelect.value = warehouseTarget.value;
         document.getElementById('batchUpdateModal').remove();
         showToast('仓库已修改', 'success');

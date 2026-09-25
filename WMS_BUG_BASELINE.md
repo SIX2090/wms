@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 448 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 123 条，最新 BUG-2026-09-25-007；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 449 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 124 条，最新 BUG-2026-09-25-008；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1433,4 +1433,28 @@
 - **生效条件**：代码改动，立即生效。
 - **生效确认**：本地全量 2724 passed / 0 failed；lint `--staged` 0 违规；
   `--full --full-gate` 通过（417 = 基线）。推送后 CI 验证。
+
+---
+
+### BUG-2026-09-25-008：P1-6 第二批 —— out_order（出库/领料单）仓库参数统一
+
+- **关联**：同 BUG-2026-09-25-007（in_order 首批），同根因（审计 3.2 名称模式）。
+- **本次范围**：`out_order` 单据类型的两处写入路径。
+  - `/out_order/<id>/update`（草稿改表头，非销售单）：原只读名称 → 补 ID。
+  - `/out_order/add` 非销售分支（领料单/其他出库）：原只读名称 → 补 ID。
+  - **销售出库分支本来就支持**：`validate_sales_warehouse(warehouse, data.get('warehouse_id'))`
+    早已传 ID（`out_order.py:637`）——印证「能力已具备、只是接线不全」的判断。
+- **前端**：`out_order_add.html`（select + JS 5 处，含 `refreshWarehouses()`
+  动态重建 option 的 value/比较）+ `out_order_detail.html`（select）。
+- **回归**：新增 `tests/test_p1_6_out_order_warehouse_id_param.py` **6 项**
+  （add 非销售分支 4：ID/名称兜底/ID 优先/无效 ID 400；update 分支 1；前端 1）。
+  全量 2730 passed / 87 skipped / 0 failed。lint 0 违规，棘轮门禁 417 = 基线。
+- **剩余**：13 个页面中已迁移 in_order(2) + out_order(2) = **4 个**，
+  还剩 **9 个**：`requisition` / `check` / `adjustment_add` / `subcontract_issue` /
+  `subcontract_receive` / `after_sale_out_add` / `sales_order_add` /
+  `sales_order_edit` / `document_table_form`(×2 select)。
+  未迁移页面走名称兜底分支，功能完全不受影响。
+- **生效条件**：代码改动，立即生效。
+- **生效确认**：本地全量 2730 passed / 0 failed；lint 0 违规；棘轮门禁通过。
+  推送后 CI 验证。
 
