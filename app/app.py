@@ -5180,6 +5180,25 @@ def get_warehouse_stock_quantities(warehouse):
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
 
+def get_all_warehouses_stock_quantities():
+    # P1-5（2026-09-25）：库存查询页「全部仓库」选项专用聚合函数。
+    # 对每个 status=active 的仓库分别调用 get_warehouse_stock_quantities(w)
+    # 再按物料求和，保证口径与单仓查询完全一致（仓库级②/③），绝不回退
+    # 全局 Material.stock（AGENTS.md 仓库必填规则的口径要求）。
+    #
+    # 与 /alert 页全局 Material.stock 口径可能不同——该差异是设计如此，
+    # 非 bug：逐仓汇总排除了无来源单据的孤儿流水（按设计永不归属任何
+    # 仓库），全局 Material.stock 会多算这部分。页面上标注口径来源。
+    #
+    # 性能：N 个仓库 = N 次 get_warehouse_stock_quantities 调用。对单用户
+    # WMS（≤4 仓）可接受；如后续仓库增多可改为单 SQL 并集优化。
+    result = {}
+    for wh in get_active_warehouses():
+        for mid, qty in get_warehouse_stock_quantities(wh).items():
+            result[mid] = result.get(mid, 0.0) + qty
+    return result
+
+
 def get_warehouse_txn_delta_map(warehouse, since_dt):
     """某时刻之后、归属于该仓库的流水净增量 {material_id: quantity}。
 

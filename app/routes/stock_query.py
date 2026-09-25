@@ -48,6 +48,7 @@ def register_stock_query_routes(app):
             get_default_warehouse,
             get_active_warehouses,
             get_warehouse_stock_quantities,
+            get_all_warehouses_stock_quantities,
             inventory_alert_enabled,
             location_management_enabled,
         )
@@ -56,9 +57,13 @@ def register_stock_query_routes(app):
         stock_filter = (request.args.get('stock_filter') or '').strip()
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
-        # BUG-2026-08-02-018：库存查询仓库必填（AGENTS.md 规则），未指定时带入默认仓库
+        # BUG-2026-08-02-018：库存查询仓库必填（AGENTS.md 规则），未指定时带入默认仓库。
+        # P1-5（2026-09-25）：warehouse_id=0 为「全部仓库」哨兵值——逐仓汇总所有启用
+        # 仓库，不回退全局 Material.stock。与 /alert 全局口径可能不同（页面上标注口径）。
+        raw_wh_id = request.args.get('warehouse_id')
+        all_warehouses_mode = (raw_wh_id is not None and raw_wh_id.strip() == '0')
         warehouse_id = request.args.get('warehouse_id', type=int)
-        if not warehouse_id:
+        if not all_warehouses_mode and not warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse_id = default_wh.id
@@ -85,11 +90,14 @@ def register_stock_query_routes(app):
         pagination = None
         # BUG-2026-08-16-007：库存按仓库级口径展示，不再用全局 material.stock，
         # 与 api_query_search 的 get_warehouse_stock_quantities 口径保持一致。
-        warehouse = Warehouse.query.get(warehouse_id) if warehouse_id else None
-        if warehouse:
+        # P1-5：全部仓库模式逐仓汇总，口径同为仓库级②/③，不回退全局 Material.stock。
+        warehouse = Warehouse.query.get(warehouse_id) if (warehouse_id and warehouse_id > 0) else None
+        if all_warehouses_mode:
+            warehouse_stock_map = get_all_warehouses_stock_quantities()
+        elif warehouse:
             warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
-        # AGENTS.md：不指定仓库时不得返回数据
-        if warehouse_id:
+        # AGENTS.md：不指定仓库时不得返回数据（全部仓库=显式指定，允许返回）
+        if warehouse_id or all_warehouses_mode:
             def _base_query(with_options):
                 q = Material.query
                 if with_options:
@@ -172,8 +180,9 @@ def register_stock_query_routes(app):
                         continue
                     location_map.setdefault(row.material_id, []).append(row)
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc()).all()
-        filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': warehouse_id or '', 'per_page': per_page}
+        filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': 0 if all_warehouses_mode else (warehouse_id or ''), 'per_page': per_page}
         return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouse_stock_map=warehouse_stock_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(),
+                                   all_warehouses_mode=all_warehouses_mode,
                                    pagination=pagination, page=page, per_page=per_page)
 
     @app.route('/api/query/search', methods=['POST'])
