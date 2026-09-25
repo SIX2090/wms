@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 454 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 129 条，最新 BUG-2026-09-25-013；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 455 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 130 条，最新 BUG-2026-09-25-014；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1683,3 +1683,51 @@
   （`app/app.py:_apply_opening_stock_balance`，文档标 8406，用户点名 8060 一带）。
 - **生效条件**：代码改动，重启 WMS 服务后生效。
 - **生效确认**：本地全量 2785 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。
+
+---
+
+### BUG-2026-09-25-014：P1-7③ —— 建账语义收敛到专用入口 apply_opening_balance
+
+- **关联**：BUG-2026-09-25-011（判据，T7 已钉死物料初始库存三账行为）、
+  BUG-2026-09-25-012（调拨专用入口）、BUG-2026-09-25-013（领料收敛 + 防回退门禁）。
+- **做法**：新增 `services/warehouse_stock_service.py: apply_opening_balance()`，
+  `material.py` 新增物料的初始库存段（`add_stock_transaction` + `update_location_inventory`
+  手工双写）改为经此入口。
+- **为什么必须是「第三个」入口（不能用 apply_stock_delta 顶替）**：
+  建账的 **①总账是调用方自己定的**——新增物料时 `Material.stock` 在构造时就被赋成
+  `initial_stock`。若走 `apply_stock_delta`，它会 `add_stock` 再涨一次 ①，
+  **初始库存直接翻倍**（12 变 24）。期初单据同理（① 由 `sa_update` 自己加减差额）。
+  三个入口的语义边界至此成型：
+
+  | 语义 | 入口 | ①总账 | ③流水 | ②库位账 |
+  |---|---|---|---|---|
+  | 入/出库 | `apply_stock_delta` | 改 | 写 | 写（开库位） |
+  | 调拨 | `apply_transfer_pair` | **不动** | 写双向 | 调出减/调入加 |
+  | 建账 | `apply_opening_balance` | **不动（调用方负责）** | 写 `opening` | 写（开库位） |
+
+- **行为等价核对（逐条，不靠"应该没变"）**：
+  ① 不动（与构造赋值一致）；③ 一条 `opening` 流水，`reference_type='opening_stock'` /
+  `reference_id=material.id` / `remark='新增物料初始库存'` / `location` / `warehouse`
+  与原调用**逐字一致**；② 仅在开库位时写，库位键 `(location or '').strip() or 仓库名`
+  与原 `_loc` 回退口径一致（`_default_wh` 为空时新旧两边都不写库位账）。
+  负数量支持（期初改单调减差额可为负）：③ 写负、② 同步减，`quantity == 0` 不写任何账
+  （与 `material.py` 的 `initial_stock > 0` 口径一致）。
+- **回归**：新增 `tests/test_p1_7_material_opening_converged.py` **6 项**
+  （A9 精确命名 `test_apply_opening_balance` 1 项 + 关库位 1 + 零数量 1 + 负差额 1 +
+  路由端到端「① 没被翻倍」1 + 开库位三账恒等 1）。
+  防回退门禁 `test_p1_7_convergence_guards.py` 扩到 **22 项**（`material.py` 纳入
+  CONVERGED，同样禁止再手工调用 6 个底层原语）。
+  定向 `-k "material or opening"` 475 passed / 2 skipped / 0 failed；
+  P1-7 四个测试文件合计 42 passed；全量 **2798 passed / 87 skipped / 0 failed**。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线。
+- **刻意未动（下一个 atomic，不是遗漏）**：期初单据
+  `_apply_opening_stock_balance`（app/app.py:8030，用户点名的 8060 一带）与其对称的
+  `_reverse_opening_stock_line`（app/app.py:8128）**本次不动**，原因：
+  1. 它的流水 `location` 恒写 `warehouse.name`，而库位账用 `location or warehouse.name`
+     ——两处口径本就不一致，收敛前必须先补判据钉死当前行为；
+  2. `warehouse` 为 None 时流水 location 还要回退 `opening.warehouse.name`，
+     与入口的回退口径不同，直接替换会改变落库值；
+  3. 库位段带「历史库位账缺行时先按旧期初数量补基线」的 legacy 回填，属准备动作。
+  故本次只收敛 `material.py` 那一半，期初单据账务单独一个 atomic 处理。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2798 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。

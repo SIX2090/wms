@@ -174,10 +174,8 @@ def register_material_routes(app):
             MAX_REASONABLE_STOCK,
             Supplier,
             Unit,
-            add_stock_transaction,
             api_error,
             get_default_warehouse,
-            location_management_enabled,
             log_audit,
             material_name_spec_exists,
             parse_bounded_number,
@@ -187,9 +185,10 @@ def register_material_routes(app):
             save_upload_image,
             serialize_supplier,
             serialize_unit,
-            update_location_inventory,
         )
         from utils import sync_material_primary_image
+        # P1-7③（2026-09-25）：建账（③流水 + ②库位账、①不动）经专用入口
+        from services.warehouse_stock_service import apply_opening_balance
         if request.method == 'GET':
             # Add new
             categories = MaterialCategory.query.all()
@@ -298,28 +297,26 @@ def register_material_routes(app):
             # BUG-2026-08-04-009: 新增物料带初始库存时补一条审计流水，保证库存台账/月报
             # 可追溯（与期初库存调整 opening_stock 语义一致）。仅在有初始库存时记录。
             if initial_stock and initial_stock > 0:
-                _loc = None
                 _default_wh = get_default_warehouse()
-                if _default_wh:
-                    _loc = _default_wh.name
-                add_stock_transaction(
+                _loc = _default_wh.name if _default_wh else None
+                # P1-7③（2026-09-25）：建账收敛到专用入口 apply_opening_balance。
+                # 语义等价、不是换皮：
+                #   - ①总账不动（Material.stock 在构造时已赋 initial_stock，
+                #     绝不能再走 apply_stock_delta，否则初始库存翻倍）；
+                #   - ③写一条 'opening' 流水（原 add_stock_transaction，参数逐字一致）；
+                #   - ②仅在开库位时写，库位键 (location or '').strip() or 仓库名
+                #     与原 `_loc` 回退口径一致（_default_wh 为空时两者都不写）。
+                ok_open, msg_open = apply_opening_balance(
                     material,
                     initial_stock,
-                    'opening',
-                    reference_type='opening_stock',
-                    reference_id=material.id,
+                    warehouse=_default_wh,
                     location=_loc,
-                    warehouse=_default_wh,  # B-2026-08-27：写入端统一落 warehouse_id
+                    reference_id=material.id,
                     remark='新增物料初始库存',
                 )
-                # BUG-2026-08-16-003：开启库位管理时同步写库位账（初始库存归默认
-                # 仓库，以仓库名作占位行），防止总账与库位账分叉。
-                if _default_wh and location_management_enabled():
-                    ok_inv, msg_inv = update_location_inventory(
-                        material, _loc, initial_stock, warehouse=_default_wh)
-                    if not ok_inv:
-                        db.session.rollback()
-                        return api_error(f'初始库存写入库位账失败：{msg_inv}')
+                if not ok_open:
+                    db.session.rollback()
+                    return api_error(f'初始库存写入库位账失败：{msg_open}')
             db.session.commit()
         except Exception as e:
             db.session.rollback()

@@ -51,6 +51,7 @@ def _calls(src: str, name: str) -> list[str]:
 CONVERGED = [
     ("app/routes/transfer.py", "apply_transfer_pair"),
     ("app/routes/requisition.py", "apply_stock_delta"),
+    ("app/routes/material.py", "apply_opening_balance"),
 ]
 
 
@@ -73,11 +74,12 @@ def test_route_no_manual_primitive_calls(rel, entry, primitive):
     )
 
 
-def test_services_module_exposes_both_entries():
-    """入口函数必须存在于服务模块，且签名是关键字-only 的仓库/库位参数。"""
+def test_services_module_exposes_all_entries():
+    """三个入口都必须存在于服务模块，且签名是关键字-only 的仓库/库位参数。"""
     src = (APP_DIR / "services/warehouse_stock_service.py").read_text(encoding="utf-8")
-    for fn in ("apply_stock_delta", "apply_transfer_pair"):
+    for fn in ("apply_stock_delta", "apply_transfer_pair", "apply_opening_balance"):
         m = re.search(rf"^def {fn}\(", src, re.MULTILINE)
         assert m, f"{fn} 不存在"
-    # 两个入口都必须有 * 分隔的关键字参数，防止调用方按位置误传仓库
+    # 入口必须有 * 分隔的关键字参数，防止调用方按位置误传仓库/库位
     assert "*, transaction_type," in src.replace("'", "").replace('"', "")
+    assert "*, warehouse=None, location=None" in src

@@ -156,3 +156,56 @@ def apply_transfer_pair(material, quantity, *, from_warehouse=None, to_warehouse
         remark=in_remark or '',
     )
     return True, ''
+
+
+def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
+                          reference_type='opening_stock', reference_id=None,
+                          remark=''):
+    """建账专用库存入口：只写 ③流水 + ②库位账，**①总账不动**。
+
+    与另两个入口的语义边界（P1-7③，2026-09-25）：
+      - apply_stock_delta   入/出库：**改 ①** + ③ + ②
+      - apply_transfer_pair 调拨：① 不动 + 双向 ③ + ②
+      - apply_opening_balance 建账：① **由调用方自己定**（物料新增时构造赋值、
+        期初单据里 sa_update 改），入口只负责把 ① 的成因补记成 ③、并同步 ②。
+
+    **为什么建账不能复用 apply_stock_delta**：新增物料时 Material.stock 已经在
+    构造时赋成 initial_stock；若再走 apply_stock_delta 的 add_stock，① 会
+    **再涨一次 → 初始库存翻倍**。期初同理（① 由 sa_update 自己加减差额）。
+
+    参数：
+        quantity: 有符号数量；>0 建账、<0 调减（期初改单的差额可为负）；
+            ==0 不写任何账、直接成功（与 material.py `initial_stock > 0` 口径一致）。
+        location: 行级库位；缺省时库位键回退 warehouse（既有定式逐字沿用）。
+    返回：(是否成功, 错误信息)。失败时调用方负责 db.session.rollback()。
+    """
+    # 延迟导入 app 原语：服务层由路由函数在请求期导入，模块级 import app 会
+    # 在 app.py 加载期形成循环导入（与 routes/* 同一定式）。
+    from app import (_stock_location_from_warehouse, add_stock_transaction,
+                     location_management_enabled, update_location_inventory)
+
+    if not material:
+        return False, '物料不存在'
+    qty = quantity or 0
+    if qty == 0:
+        return True, ''
+
+    add_stock_transaction(
+        material, qty, 'opening',
+        reference_type=reference_type,
+        reference_id=reference_id,
+        location=location or None,
+        warehouse=warehouse,
+        remark=remark or '',
+    )
+
+    # ②库位账同步：仅在开启库位管理时写；qty 同号（正加负减），
+    # update_location_inventory 内部按正负自动分发 add/deduct 原语。
+    if location_management_enabled():
+        loc_key = (location or '').strip() or (_stock_location_from_warehouse(warehouse) or '')
+        if loc_key:
+            loc_ok, loc_err = update_location_inventory(
+                material, loc_key, qty, warehouse=warehouse)
+            if not loc_ok:
+                return False, loc_err or '库位库存更新失败'
+    return True, ''
