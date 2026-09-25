@@ -26,9 +26,16 @@ os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["WMS_DATABASE_URI"] = "sqlite:///:memory:"
 os.environ.setdefault("WMS_DEBUG", "0")
+# P2b（2026-09-25）：本文件度量的是 SQL 查询次数（N+1 斜率），而三账守卫在
+# 每次 apply_stock_delta 后会额外做「读 Material + 聚合 StockTransaction」的
+# 诊断查询（每条明细 +2~4 次），直接把斜率推过阈值 —— 度量被诊断行为污染。
+# 故本文件专项关闭守卫；三账恒等式本身由 tests/test_p2b_three_ledger_guard.py
+# 与 scripts/verify_inventory_identity.py 覆盖，不依赖这里。
+os.environ["WMS_THREE_LEDGER_ASSERT"] = "0"
 
 import app as app_module  # noqa: E402
-from app import db, InOrder, InOrderItem, Material, LocationInventory  # noqa: E402
+from app import (db, InOrder, InOrderItem, Material,  # noqa: E402
+                 LocationInventory, StockTransaction)
 
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
@@ -83,8 +90,15 @@ def _seed_base(num_materials=20):
 
 
 def _reset_stock_and_orders():
-    """每次测试前重置物料库存、库位库存和入库单，确保测试隔离。"""
+    """每次测试前重置物料库存、库位库存和入库单，确保测试隔离。
+
+    库存流水必须一并清：本文件会连续跑 5 条、20 条两轮 complete，只清
+    Material.stock 而留着 StockTransaction 会让流水跨轮累加（首轮 5×10=50
+    留在库里，次轮 stock 归零后 ①=10 而 ③Σ=50），三账恒等式校验据此报错，
+    且历史轮次的流水会污染后续轮次的度量基数。
+    """
     LocationInventory.query.delete()
+    StockTransaction.query.delete()
     InOrderItem.query.delete()
     InOrder.query.delete()
     Material.query.update({Material.stock: 0})
