@@ -1079,6 +1079,7 @@
 | BUG-2026-08-15-003 | 物料新增/编辑弹窗的规格输入框仅占四列布局的一列，长规格录入与核对困难 | 新增与编辑弹窗中的规格字段改为半行宽，保留 `maxlength=100` 与后端长度校验；回归测试 `tests/verify_app_py_split_material.py::TestMaterialRegister::test_specification_fields_use_wide_layout` |
 | BUG-2026-08-15-004 | 采购入库单、领料单反提交回草稿后，详情页缺少明细编辑入口，无法修正数量、单价、合同编号、工程名称等 | 草稿详情增加“编辑明细”；编辑页仅允许 `pending` 状态加载，预填表头与行级字段，采购来源行 ID 保持不丢失。已完成单直接访问编辑 URL 返回 409；完成与反提交库存动作未放开。回归 `tests/verify_app_py_split_in_order.py`、`tests/verify_app_py_split_out_order.py`、`tests/verify_bug_2026_08_04_015_received_quantity_double_count.py` |
 | BUG-2026-08-15-005 | 手机端发送采购入库单、领料单或物料标签打印任务时，`WMS.api.post` 缺少 `Content-Type: application/json`，后端 `request.get_json()` 读取空请求体并返回 400；桌面端任务完成/失败回写仅登录即可调用 | `app/static/js/api.js` 为非 FormData 请求自动设置 JSON Content-Type；`print_queue_complete`/`print_queue_fail` 限制为 admin/warehouse；`tests/test_print_queue.py` 覆盖三种任务、JSON 请求契约与非仓库回写拒绝。已推送 `main` |
+| P2c | 拆分 `app/app.py`（单文件 2.7 万行） | **用户明确决定暂缓（2026-09-25）**：原话「拆APP.PY不要做，有很大的风险，时间也比较长」。理由：①app.py 承载全部路由与库存核心逻辑，拆分必然大面积改导入路径，一次改动面过大；②生产站 `gd2026.top` 单人在用，停机窗口有限，拆分带来的是重构收益不是功能收益，风险收益比不划算。**替代策略**：继续走「路由外移到 `app/routes/*.py` + 单函数改动」的渐进路线（已落地 `in_order.py`/`out_order.py`/`material.py` 等），每个 atomic action 只碰一个自洽改动，不在一次提交里跨文件改结构。**重启条件**：用户主动提出，或出现明确的编译/导入冲突无法用渐进方式解决 |
 
 ## 未修复/待处理
 
