@@ -26325,6 +26325,20 @@ def _material_filter_clause(keyword):
         ))
     return db.and_(*clauses) if clauses else None
 
+def _document_warehouse_scope(model, filters):
+    """单据表仓库过滤的唯一入口（R6 收口，2026-09-25）。
+
+    此前报表链路有 7 处手写 `match_any = [X.warehouse == filters['warehouse']]`
+    重复片段，是「仓库」根因（台账 198 次，第一大来源）反复复发的温床：
+    修一处漏一处。现统一委托 services.warehouse_scope.document_warehouse_filter。
+
+    返回 SQLAlchemy 条件；无条件时返回 None，调用方须跳过过滤
+    （不得改成 filter(True) 之类的等价写法，以免语义漂移）。
+    """
+    from services.warehouse_scope import document_warehouse_filter
+    return document_warehouse_filter(
+        model, filters.get('warehouse'), filters.get('warehouse_code'))
+
 def _supplier_filter_clause(keyword):
     clauses = []
     for token in _keyword_tokens(keyword):
@@ -27081,14 +27095,11 @@ def _filtered_in_detail_query(filters):
     if business_type:
         query = query.filter(InOrder.business_type == business_type)
     # BUG-2026-08-02-014：入库明细按仓库过滤；兼容历史数据仓库名/编号不统一
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        # 用户手机端手工录入仓库编号（如 WH001）、网页端用仓库名，
-        # 单据 warehouse 字段可能存名称也可能存编号，任一匹配。
-        match_any = [InOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
-        if filters.get('warehouse_code'):
-            match_any.append(InOrder.warehouse == filters['warehouse_code'])
-        if match_any:
-            query = query.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(InOrder, filters)
+    if warehouse_clause is not None:
+        query = query.filter(warehouse_clause)
     if filters['start_date']:
         query = query.filter(InOrder.date >= filters['start_date'])
     if filters['end_date']:
@@ -27209,12 +27220,11 @@ def _filtered_out_detail_query(filters):
     # BUG-2026-08-02-014：出库明细按仓库过滤；兼容历史数据仓库名/编号不统一
     # （与入库明细 BUG-2026-08-18-004 同一修复：手机端手工录入存仓库编号，
     # 网页端存仓库名，只匹配名称会导致出库单据在报表里查不出来）
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = [OutOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
-        if filters.get('warehouse_code'):
-            match_any.append(OutOrder.warehouse == filters['warehouse_code'])
-        if match_any:
-            query = query.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(OutOrder, filters)
+    if warehouse_clause is not None:
+        query = query.filter(warehouse_clause)
     if filters['start_date']:
         query = query.filter(OutOrder.date >= filters['start_date'])
     if filters['end_date']:
@@ -27292,12 +27302,11 @@ def _filtered_check_query(filters):
         .outerjoin(User, InventoryCheck.operator_id == User.id)\
         .outerjoin(Unit, Material.unit_id == Unit.id)
     # BUG-2026-08-02-014：盘点报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = [InventoryCheck.warehouse == filters['warehouse']] if filters.get('warehouse') else []
-        if filters.get('warehouse_code'):
-            match_any.append(InventoryCheck.warehouse == filters['warehouse_code'])
-        if match_any:
-            query = query.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(InventoryCheck, filters)
+    if warehouse_clause is not None:
+        query = query.filter(warehouse_clause)
     if filters['start_date']:
         query = query.filter(InventoryCheck.date >= filters['start_date'])
     if filters['end_date']:
@@ -28696,12 +28705,11 @@ def _build_subcontract_report(filters):
     if filters.get('status'):
         query = query.filter(SubcontractOrder.status == filters['status'])
     # 委外报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = [SubcontractOrder.warehouse == filters['warehouse']] if filters.get('warehouse') else []
-        if filters.get('warehouse_code'):
-            match_any.append(SubcontractOrder.warehouse == filters['warehouse_code'])
-        if match_any:
-            query = query.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(SubcontractOrder, filters)
+    if warehouse_clause is not None:
+        query = query.filter(warehouse_clause)
     
     orders = query.order_by(SubcontractOrder.date.desc()).all()
     rows = []
@@ -28775,12 +28783,11 @@ def _build_requisition_report(filters):
         selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.material),
     )
     # BUG-2026-08-05-008：模型已补 warehouse 列，按仓库实际过滤；名称/编号任一匹配
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = [ProductionRequisition.warehouse == filters['warehouse']] if filters.get('warehouse') else []
-        if filters.get('warehouse_code'):
-            match_any.append(ProductionRequisition.warehouse == filters['warehouse_code'])
-        if match_any:
-            query = query.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(ProductionRequisition, filters)
+    if warehouse_clause is not None:
+        query = query.filter(warehouse_clause)
     if filters.get('start_date'):
         query = query.filter(ProductionRequisition.date >= filters['start_date'])
     if filters.get('end_date'):
@@ -29790,14 +29797,11 @@ def _sql_paged_requisition_report(filters):
      .outerjoin(BOM, BOM.id == ProductionRequisition.bom_id) \
      .outerjoin(User, User.id == ProductionRequisition.operator_id)
     # BUG-2026-08-05-008：按仓库实际过滤；名称/编号任一匹配
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = []
-        if filters.get('warehouse'):
-            match_any.append(ProductionRequisition.warehouse == filters['warehouse'])
-        if filters.get('warehouse_code'):
-            match_any.append(ProductionRequisition.warehouse == filters['warehouse_code'])
-        if match_any:
-            main = main.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(ProductionRequisition, filters)
+    if warehouse_clause is not None:
+        main = main.filter(warehouse_clause)
     if filters.get('start_date'):
         main = main.filter(ProductionRequisition.date >= filters['start_date'])
     if filters.get('end_date'):
@@ -29924,14 +29928,11 @@ def _sql_paged_subcontract_report(filters):
     ).outerjoin(issue_agg, issue_agg.c.order_id == SubcontractOrder.id)\
      .outerjoin(receive_agg, receive_agg.c.order_id == SubcontractOrder.id)\
      .outerjoin(Supplier, Supplier.id == SubcontractOrder.supplier_id)
-    if filters.get('warehouse') or filters.get('warehouse_code'):
-        match_any = []
-        if filters.get('warehouse'):
-            match_any.append(SubcontractOrder.warehouse == filters['warehouse'])
-        if filters.get('warehouse_code'):
-            match_any.append(SubcontractOrder.warehouse == filters['warehouse_code'])
-        if match_any:
-            main = main.filter(db.or_(*match_any))
+    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
+    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
+    warehouse_clause = _document_warehouse_scope(SubcontractOrder, filters)
+    if warehouse_clause is not None:
+        main = main.filter(warehouse_clause)
     if filters.get('start_date'):
         main = main.filter(SubcontractOrder.date >= filters['start_date'])
     if filters.get('end_date'):
