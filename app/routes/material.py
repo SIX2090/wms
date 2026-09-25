@@ -68,6 +68,11 @@ def register_material_routes(app):
         stock_filter = (request.args.get('stock_filter') or '').strip()
         if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
             stock_filter = ''
+        # 停用筛（2026-09-25）：默认只看启用，避免已被停用的重复物料继续占位干扰；
+        # 需要清理时切到「停用 / 全部」即可找回并重新启用。
+        status_filter = (request.args.get('status') or 'active').strip()
+        if status_filter not in ('active', 'inactive', 'all'):
+            status_filter = 'active'
         # BUG-F02-01 修复：默认按 code 升序，与其他基础资料一致
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
@@ -101,6 +106,8 @@ def register_material_routes(app):
             query = query.filter(Material.category_id.in_(category_descendants.get(category_id, [category_id])))
         if stock_filter == 'low':
             query = query.filter(_material_low_stock_filter())
+        if status_filter != 'all':
+            query = query.filter(Material.status == status_filter)
         sort_column = getattr(Material, sort_by, Material.created_at)
         if sort_order == 'asc':
             query = query.order_by(sort_column.asc())
@@ -113,7 +120,7 @@ def register_material_routes(app):
         return render_template('material.html', materials=materials,
                              categories=all_categories, category_rows=category_rows, units=units, suppliers=suppliers,
                              pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page,
-                             stock_filter=stock_filter, category_id=category_id)
+                             stock_filter=stock_filter, category_id=category_id, status_filter=status_filter)
 
     @app.route('/material/api/list')
     @login_required
@@ -125,7 +132,14 @@ def register_material_routes(app):
         # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
         per_page = max(1, min(per_page, 500))  # 限制最大每页数量
 
-        pagination = Material.query.paginate(page=page, per_page=per_page, error_out=False)
+        # 2026-09-25：下拉数据源默认排除停用物料（历史单据要显示时传 include_inactive=1）
+        from app import material_selectable_filter
+        _sf = material_selectable_filter(
+            (request.args.get('include_inactive') or '').strip() in ('1', 'true', 'yes'))
+        _q = Material.query
+        if _sf is not None:
+            _q = _q.filter(_sf)
+        pagination = _q.paginate(page=page, per_page=per_page, error_out=False)
         return jsonify({
             'materials': [{
                 'id': m.id,
@@ -144,11 +158,17 @@ def register_material_routes(app):
     @login_required
     def material_api_all():
         """分页返回物料完整数据，避免旧接口静默截断。"""
-        from app import Material, serialize_material
+        from app import Material, material_selectable_filter, serialize_material
         page = max(1, request.args.get('page', 1, type=int) or 1)
         per_page = request.args.get('per_page', 2000, type=int) or 2000
         per_page = min(max(1, per_page), 2000)
-        pagination = Material.query.options(joinedload(Material.unit)).order_by(
+        # 2026-09-25：默认排除停用物料（历史单据要连停用一起显示时传 include_inactive=1）
+        _sf = material_selectable_filter(
+            (request.args.get('include_inactive') or '').strip() in ('1', 'true', 'yes'))
+        _q = Material.query
+        if _sf is not None:
+            _q = _q.filter(_sf)
+        pagination = _q.options(joinedload(Material.unit)).order_by(
             Material.code.asc()
         ).paginate(page=page, per_page=per_page, error_out=False)
         return jsonify({
@@ -535,6 +555,12 @@ def register_material_routes(app):
         if material_name_spec_exists(new_name, new_spec, new_brand, exclude_id=id):
             return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
+        # 停用状态（2026-09-25）：与 Warehouse/Department/Contract 同口径，只允许
+        # active/inactive；缺省按启用处理，避免不带该字段的老表单把物料改坏。
+        new_status = (request.form.get('status') or '').strip() or 'active'
+        if new_status not in ('active', 'inactive'):
+            return jsonify({'status': 'error', 'msg': '物料状态只能是启用或停用'}), 400
+
         image_file = request.files.get('image')
         image_path = material.image
         new_image_path = None
@@ -570,6 +596,7 @@ def register_material_routes(app):
         material.supplier_id = request.form.get('supplier_id') or None
         material.brand = new_brand or None
         material.spec = new_spec
+        material.status = new_status
         material.purpose = request.form.get('purpose')
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
         if inventory_alert_enabled():
@@ -685,6 +712,54 @@ def register_material_routes(app):
     def delete_all_materials():
         """Disable destructive bulk material deletion in production."""
         return jsonify({'status': 'error', 'msg': '线上系统已禁用删除全部物料，请走停机维护流程'}), 403
+
+    @app.route('/material/<int:id>/set_status', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def set_material_status(id):
+        """停用 / 启用物料（2026-09-25）。
+
+        停用只挡「新建单据时还能不能选到它」，**不删数据、不动库存、不影响历史
+        单据与报表** —— 停用一个物料绝不能让它的历史数据凭空消失，否则账就对不上。
+        与 Warehouse/Department/Contract 同一套 active/inactive 口径。
+        """
+        from app import Material, log_audit
+        # A8：新增 POST 路由必须走 pydantic 输入模型（范式见 routes/category.py:143）
+        from pydantic import BaseModel, Field
+
+        class SetMaterialStatusRequest(BaseModel):
+            status: str = Field(..., description='目标状态：active / inactive')
+
+        material = Material.query.get(id)
+        if not material:
+            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+        # 同时接受 JSON body、表单与 query（列表页按钮走 form，脚本可能走 query）
+        payload = request.get_json(silent=True) or dict(request.form) or {}
+        if 'status' not in payload:
+            payload = {'status': request.args.get('status') or ''}
+        try:
+            req = SetMaterialStatusRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+        new_status = (req.status or '').strip()
+        if new_status not in ('active', 'inactive'):
+            return jsonify({'status': 'error', 'msg': '物料状态只能是启用或停用'}), 400
+        old_status = material.status or 'active'
+        _label = '启用' if new_status == 'active' else '停用'
+        if old_status == new_status:
+            return jsonify({'status': 'success',
+                            'msg': f'物料 {material.code} 已经是{_label}状态'})
+        material.status = new_status
+        try:
+            db.session.commit()
+        except Exception as e:  # noqa: BLE001
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': f'状态更新失败：{str(e)}'}), 500
+        log_audit('update', 'material', material.id,
+                  f'物料状态：{old_status} → {new_status}',
+                  old_data={'status': old_status}, new_data={'status': new_status})
+        return jsonify({'status': 'success', 'msg': f'已{_label}物料 {material.code}',
+                        'new_status': new_status})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/material/fix_empty_fields', methods=['POST'])

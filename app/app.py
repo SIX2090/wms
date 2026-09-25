@@ -543,6 +543,22 @@ def auto_migrate_database():
                         '未归单行（日期为空）保留 doc_id 为空', _backfilled_docs,
                     )
 
+        # material 停用列（2026-09-25）
+        # 必须放在下面 out_order 的「空库跳过」守卫之前：那段一 return 就整段
+        # 退出，放在它后面会在全新库上漏掉本列（全新库同样要走到这里建表）。
+        if _table_exists('material'):
+            cursor.execute("PRAGMA table_info(material)")
+            _mat_cols = [row[1] for row in cursor.fetchall()]
+            if 'status' not in _mat_cols:
+                cursor.execute(
+                    "ALTER TABLE material ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'")
+                modified = True
+            # 回填：历史行 status 为 NULL 或空串时按启用处理，避免下拉把老物料全过滤掉
+            cursor.execute(
+                "UPDATE material SET status='active' WHERE status IS NULL OR TRIM(status)=''")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_material_status ON material(status)")
+
         # out_order 字段迁移
         if not _table_exists('out_order'):
             conn.commit()
@@ -2401,6 +2417,77 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
                 pass
 
 
+def ensure_material_status_column(db_path: str | None = None):
+    """启动期无条件补齐 material.status（停用功能，2026-09-25）。
+
+    为什么必须单独有一个 ensure 函数、不能只写在 auto_migrate_database() 里：
+    ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认设置
+    ``WMS_NO_DB_TOUCH=1``，``auto_migrate_database()`` 会被
+    ``startup_db_upgrade_disabled()`` 整体跳过。只写在里面，存量生产库重启后
+    补不上这一列，物料列表一查 status 就 500（no such column: material.status）。
+    这个根因在仓里已经复发过 5 次（in_order.source_sales_order_id、
+    print_job、stock_transaction.warehouse_id、inventory_check_*…），
+    注释里都留了记录，别再踩第 6 次。
+
+    仿照 ensure_inventory_check_columns：独立 sqlite 连接、独立于迁移开关
+    无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），列定义与
+    auto_migrate_database() 里的 ALTER 逐字一致。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            # 全新部署：库文件还没建，交给 create_all 建全量表
+            return
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+
+        exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='material'"
+        ).fetchone()
+        if not exists:
+            return  # 全新库，交给 create_all 建表
+        cur.execute('PRAGMA table_info(material)')
+        cols = {r['name'] for r in cur.fetchall()}
+        if not cols:
+            return
+        added = False
+        if 'status' not in cols:
+            cur.execute(
+                "ALTER TABLE material ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'")
+            added = True
+        cur.execute(
+            "UPDATE material SET status='active' WHERE status IS NULL OR TRIM(status)=''")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_material_status ON material(status)")
+        conn.commit()
+        if added:
+            logging.getLogger(__name__).info('[DB] 已补 material.status 列（物料停用功能）')
+    except Exception as e:
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_material_status_column 补列失败: {e}', exc_info=True)
+        except Exception:
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def ensure_purchase_return_source_columns(db_path: str | None = None):
     """启动期无条件补齐 P1-7 采购退货出库的来源采购入库单列（仿 ensure_sales_return_source_columns）。
 
@@ -3052,6 +3139,11 @@ cleanup_dangling_opening_stock_transactions()
 # out_order.department_id）。同上，无条件执行、幂等。
 ensure_department_table()
 ensure_outbound_department_columns()
+
+# 物料停用功能（2026-09-25）：material.status 列同样只在 auto_migrate_database()
+# 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启补不上，物料列表一查状态即 500。
+# 独立于迁移开关无条件执行，幂等补列（R6 同根因，别再踩第 6 次）。
+ensure_material_status_column()
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。
@@ -8715,6 +8807,23 @@ def _material_dedupe_expr(column):
     expr = func.replace(expr, ' ', '')
     expr = func.replace(expr, '\u3000', '')
     return func.lower(expr)
+
+
+def material_selectable_filter(include_inactive=False):
+    """物料「可被选择」的过滤条件：**默认排除已停用物料**。
+
+    只用于「用户从物料库里挑一个物料」的入口（下拉、联想、候选池、自动建档
+    匹配）。历史单据、库存查询、台账、报表**一律不要加这个过滤** —— 停用一个
+    物料不等于让它的历史数据凭空消失，否则账实核对会对不上。
+
+    NULL / 空串按启用处理：存量库在补列回填完成前会有这两种值，不能因为补列
+    时序把老物料整体过滤掉。
+    """
+    if include_inactive:
+        return None
+    return db.or_(Material.status == 'active',
+                  Material.status.is_(None),
+                  Material.status == '')
 
 
 def _material_similarity_key(value):
@@ -24096,7 +24205,14 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
 @app.route('/api/material/all', methods=['GET', 'POST'])
 @web_or_api_required
 def material_all_api():
-    materials = Material.query.order_by(Material.code.asc()).limit(1000).all()
+    # 2026-09-25：默认不给停用物料（物料档案停用后不再出现在新建单据的下拉里）。
+    # 历史单据需要连停用物料一起显示时显式传 include_inactive=1。
+    _sf = material_selectable_filter(
+        (request.values.get('include_inactive') or '').strip() in ('1', 'true', 'yes'))
+    _q = Material.query
+    if _sf is not None:
+        _q = _q.filter(_sf)
+    materials = _q.order_by(Material.code.asc()).limit(1000).all()
     # BUG-2026-09-10-004：库位分布批量预取——原实现逐物料查 LocationInventory，
     # 1000 条物料即 1000 次库位查询（N+1）；现合并为一次 IN 分组查询。
     _locations_map = (
@@ -24127,6 +24243,11 @@ def material_search_api():
         or ''
     ).strip()
     query = Material.query
+    # 2026-09-25：联想接口默认排除停用物料（同上，include_inactive=1 可取全量）
+    _sf = material_selectable_filter(
+        (request.values.get('include_inactive') or '').strip() in ('1', 'true', 'yes'))
+    if _sf is not None:
+        query = query.filter(_sf)
     if keyword:
         query = query.filter(
             db.or_(

@@ -124,7 +124,14 @@ def _build_entity_pool(entity):
     M = _model(mname)
     if M is None:
         return []
-    rows = M.query.all()
+    # 2026-09-25：物料排除停用。本函数是 16 处模板 quick-select 的统一候选源，
+    # 不停在这里过滤，停用物料会继续出现在库存查询/列表的物料下拉里。
+    _q = M.query
+    if entity == 'material' and hasattr(M, 'status'):
+        from db import db as _db
+        _q = _q.filter(_db.or_(M.status == 'active',
+                               M.status.is_(None), M.status == ''))
+    rows = _q.all()
     pool = []
     for r in rows:
         extras_text = ' '.join(
@@ -186,7 +193,12 @@ def _sql_like_pool(entity, kw):
              if getattr(M, f, None) is not None]
     if not conds:
         return []
-    rows = M.query.filter(db.or_(*conds)).limit(_MAX_SQL_ROWS).all()
+    _q = M.query.filter(db.or_(*conds))
+    # 2026-09-25：同上，大数据量退化路径也要排除停用物料
+    if entity == 'material' and hasattr(M, 'status'):
+        _q = _q.filter(db.or_(M.status == 'active',
+                              M.status.is_(None), M.status == ''))
+    rows = _q.limit(_MAX_SQL_ROWS).all()
     # AI-WMS-FILTER-005：sub 必须带 extras 拼接文本——此前 sub='' 导致
     # 按规格/品牌关键词命中的行在 _score 阶段被误杀（_t 不含 extras），
     # 大数据量（>5000）时按规格/品牌搜索永远空结果；同时独立下发 extras 字段。

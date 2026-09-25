@@ -190,6 +190,11 @@ class Material(db.Model):
     price = db.Column(db.Float, default=0)  # Unit price
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
+    # 停用（2026-09-25）：与 Warehouse / Department / Contract 同一套 active/inactive
+    # 约定（见 master_data.py:95/107/129），不要另造 is_active / enabled 之类。
+    # 停用只影响「新建单据时能否选到它」；历史单据、库存查询、报表一律照常显示，
+    # 否则停用一个物料等于让它的历史数据凭空消失。
+    status = db.Column(db.String(20), default='active')  # active/inactive
 
     category = db.relationship('MaterialCategory', backref=db.backref('materials', cascade='save-update, merge'))  # Related category
     unit = db.relationship('Unit', backref=db.backref('materials', cascade='save-update, merge'))  # Related unit

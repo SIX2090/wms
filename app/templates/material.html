@@ -75,6 +75,13 @@
             </select>
             {% endif %}
             <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
+            {# 2026-09-25：默认只看启用，停用物料需显式切到「停用/全部」才能看到，
+               这样被停用的重复档案不会继续在日常列表里占位干扰。 #}
+            <select name="status" class="form-select" style="width: 130px;" onchange="this.form.submit()">
+                <option value="active" {% if status_filter == 'active' %}selected{% endif %}>启用</option>
+                <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
+                <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
+            </select>
             <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
             <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id %}
@@ -88,10 +95,10 @@
     <aside class="material-category-panel">
         <div class="material-category-header">
             <span><i class="bi bi-diagram-3"></i> 分类树</span>
-            <a href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
+            <a href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
         </div>
         <div class="material-category-tree">
-            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">
+            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">
                 <span class="material-category-code">全部</span>
                 <i class="bi bi-folder2-open"></i>
                 <span class="material-category-name">全部分类</span>
@@ -99,7 +106,7 @@
             {% for row in category_rows %}
             {% set cat = row.category %}
             <a class="material-category-node {{ 'active' if category_id == cat.id else '' }}"
-               href="{{ url_for('material_list', category_id=cat.id, search=request.args.get('search', ''), stock_filter=stock_filter, embedded=request.args.get('embedded')) }}"
+               href="{{ url_for('material_list', category_id=cat.id, search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}"
                style="padding-left: {{ 10 + row.level * 18 }}px;">
                 <span class="material-category-code">{{ cat.code }}</span>
                 <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }}"></i>
@@ -131,6 +138,7 @@
                     {% endif %}
                     <th data-column-key="price" data-sortable="price" class="sortable-header">单价 {% if sort_by=='price' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="remark">备注<span class="col-resize"></span></th>
+                    <th data-column-key="status">状态<span class="col-resize"></span></th>
                     <th data-column-key="image">图片<span class="col-resize"></span></th>
                 </tr>
             </thead>
@@ -160,6 +168,22 @@
                     {% endif %}
                     <td data-column-key="price">¥{{ mat.price }}</td>
                     <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>
+                    <td data-column-key="status">
+                        {% if (mat.status or 'active') == 'inactive' %}
+                        <span class="badge bg-secondary">停用</span>
+                        <button type="button" class="btn btn-sm btn-outline-success ms-1"
+                                onclick="toggleMaterialStatus({{ mat.id }}, 'active')" title="重新启用">
+                            <i class="bi bi-play-circle"></i> 启用
+                        </button>
+                        {% else %}
+                        <span class="badge bg-success">启用</span>
+                        <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
+                                onclick="toggleMaterialStatus({{ mat.id }}, 'inactive')"
+                                title="停用后新建单据不能再选到它；历史单据、库存与报表不受影响">
+                            <i class="bi bi-pause-circle"></i> 停用
+                        </button>
+                        {% endif %}
+                    </td>
                     <td data-column-key="image">
                         {% if mat.image %}
                         <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" class="img-thumbnail" title="点击放大" onclick="previewMaterialImage(this.src)">
@@ -205,7 +229,7 @@
                 <ul class="pagination justify-content-center mb-0">
                     {% if pagination.has_prev %}
                     <li class="page-item">
-                        <a class="page-link" href="{{ url_for('material_list', page=pagination.prev_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">上一页</a>
+                        <a class="page-link" href="{{ url_for('material_list', page=pagination.prev_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">上一页</a>
                     </li>
                     {% else %}
                     <li class="page-item disabled">
@@ -221,7 +245,7 @@
                             </li>
                             {% else %}
                             <li class="page-item">
-                                <a class="page-link" href="{{ url_for('material_list', page=page_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
+                                <a class="page-link" href="{{ url_for('material_list', page=page_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">{{ page_num }}</a>
                             </li>
                             {% endif %}
                         {% else %}
@@ -233,7 +257,7 @@
                     
                     {% if pagination.has_next %}
                     <li class="page-item">
-                        <a class="page-link" href="{{ url_for('material_list', page=pagination.next_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, embedded=request.args.get('embedded')) }}">下一页</a>
+                        <a class="page-link" href="{{ url_for('material_list', page=pagination.next_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">下一页</a>
                     </li>
                     {% else %}
                     <li class="page-item disabled">
@@ -1490,6 +1514,25 @@ function toolbarDelete() {
     if (id) deleteItem('{{ url_for("delete_material") }}', parseInt(id));
 }
 
+// 2026-09-25：物料停用 / 启用。停用只挡「新建单据时能否选到」，历史单据、
+// 库存与报表不受影响——确认文案必须讲清这一点，否则用户不敢点。
+function toggleMaterialStatus(id, status) {
+    var label = status === 'inactive' ? '停用' : '启用';
+    var tip = status === 'inactive'
+        ? '停用后：新建单据不能再选到这个物料；\n已录入的历史单据、库存数量、台账与报表都不受影响。'
+        : '启用后：新建单据可以重新选到这个物料。';
+    if (!confirm('确定' + label + '这个物料吗？\n\n' + tip)) return;
+    WMS.api.post('/material/' + id + '/set_status', {status: status}).then(function (r) {
+        if (r && r.status === 'success') {
+            window.location.reload();
+        } else {
+            alert((r && r.msg) || label + '失败');
+        }
+    }).catch(function (e) {
+        alert(label + '失败：' + (e && e.message ? e.message : e));
+    });
+}
+
 // ==================== 列设置（显示/隐藏字段） ====================
 var MATERIAL_COL_STORAGE_KEY = 'material_col_visibility_v1';
 var MATERIAL_COL_DEFAULTS = [
@@ -1505,6 +1548,7 @@ var MATERIAL_COL_DEFAULTS = [
     {key: 'min_stock',label: '最低库存'},
     {key: 'price',    label: '单价'},
     {key: 'remark',   label: '备注'},
+    {key: 'status',   label: '状态'},
     {key: 'image',    label: '图片'}
 ];
 
