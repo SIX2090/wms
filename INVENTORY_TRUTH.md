@@ -75,19 +75,37 @@
 
 | 函数 | 位置 | 作用 | 同步库位账？ |
 |---|---|---|---|
-| `deduct_stock_atomic` | `app/app.py:3464` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
-| `add_stock` | `app/app.py:3510` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8406` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
-| `add_stock_transaction` | `app/app.py:3784` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
+| `deduct_stock_atomic` | `app/app.py:4510` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
+| `add_stock` | `app/app.py:4578` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
+| `_apply_opening_stock_balance` | `app/app.py:8030` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `add_stock_transaction` | `app/app.py:4852` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
+
+**新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
+`app/services/warehouse_stock_service.py` 的三个入口，按语义选：
+
+| 语义 | 入口 | ①总账 | ③流水 | ②库位账 |
+|---|---|---|---|---|
+| 入/出库 | `apply_stock_delta` | 改 | 写 | 写（开库位） |
+| 调拨 | `apply_transfer_pair` | **不动** | 写双向 | 调出减/调入加 |
+| 建账（初始库存/期初） | `apply_opening_balance` | **不动（调用方负责）** | 写 `opening` | 写（开库位） |
+
+入口内部原样调用上面的原语，失败语义与底层一致（返回 `(False, msg)`，
+由调用方 `db.session.rollback()`）。直接手写原语 = 手工双写三账，是
+BUG-2026-09-20-008 型静默账实分裂的温床，`tests/test_p1_7_convergence_guards.py`
+会拦截已收敛路径上的手写回退。
 
 库位账只有 **两个** 原子写入函数：
 
 | 函数 | 位置 | 作用 |
 |---|---|---|
-| `add_location_inventory_atomic` | `app/app.py:3641` | 原子增加库位数量（自动建账） |
-| `deduct_location_inventory_atomic` | `app/app.py:3740` 附近 | 原子扣减库位数量 |
-| `update_location_inventory` | `app/app.py:3579` | 分发器：按 delta 正负调用上面两个 |
+| `add_location_inventory_atomic` | `app/app.py:4709` | 原子增加库位数量（自动建账） |
+| `deduct_location_inventory_atomic` | `app/app.py:4794` | 原子扣减库位数量 |
+| `update_location_inventory` | `app/app.py:4647` | 分发器：按 delta 正负调用上面两个 |
 
+> 📌 **行号会漂移**：本文件里的 `app/app.py:NNNN` 只是定位提示，
+> 以**函数名**为准。`tests/test_inventory_truth_line_refs.py` 会自动校验本文件的
+> 函数↔行号引用，行号漂了 CI 会红——改完 app.py 记得顺手跑它。
+>
 > ⚠️ **注意**：`add_stock` / `deduct_stock_atomic` **不会自动同步库位账**。
 > 调用方必须自己再调一次 `update_location_inventory`。这是历史设计，
 > 也是 `BUG-2026-08-16-002`（期初只改总账）与 `BUG-2026-08-04-002`（库位静默成功）
@@ -208,7 +226,7 @@ ok, err = apply_stock_delta(
 ## 3. 仓库归属：`warehouse_id` 是唯一判据
 
 ```python
-# app/app.py:6286-6290
+# app/models/inventory.py:73
 warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse ID (NULL = 历史未归属)
 ```
 
@@ -219,7 +237,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:27244`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:27658`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -234,7 +252,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 这两处是当前系统里**唯一**允许口径切换的地方，改动前必须理解其条件：
 
-**(a) 单仓库短路**（`app/app.py:4318`）
+**(a) 单仓库短路**（`app/app.py:5137`，`get_warehouse_stock_quantities` 内）
 
 ```python
 if Warehouse.query.count() == 1:
@@ -244,7 +262,7 @@ if Warehouse.query.count() == 1:
 > ⚠️ **这是定时炸弹**：一旦系统新增第二个仓库，所有历史 NULL-location 流水的归属语义**瞬间改变**。
 > 新增仓库前必须先在测试库验证该分支退出后的库存数值是否连续。
 
-**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:4362`）
+**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:5320`）
 
 仅当"该物料**全部**流水都无法归属"时，才允许回退全局 `material.stock` 口径；
 只要存在**任意一条**可归属流水，就必须保持仓库级严格校验。
