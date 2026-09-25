@@ -36,6 +36,12 @@ data class ListUiState(
     val isFirstLoad: Boolean = true,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    /**
+     * AI-APP-FIX-201：首屏（列表为空时）加载失败的持久错误——由页面渲染全屏
+     * 错误态 + 重试按钮；与瞬态 [error]（Snackbar）分离，避免"失败弹个
+     * Snackbar 然后显示暂无数据"的误导。
+     */
+    val loadError: String? = null,
     /** 库存告警列表为空时后端可能带业务提示（如"库存预警未启用"） */
     val notice: String? = null,
     /** 告警项（kind == ALERT 时有值） */
@@ -114,7 +120,8 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
                 isLoading = true,
                 isFirstLoad = reset && s.alerts.isEmpty() && s.orders.isEmpty(),
                 isLoadingMore = !reset,
-                error = if (reset) null else s.error
+                error = if (reset) null else s.error,
+                loadError = if (reset) null else s.loadError
             )
             when (s.kind) {
                 ListKind.ALERT -> loadAlerts(nextPage, reset)
@@ -177,12 +184,16 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun onLoadFailed(message: String?, reset: Boolean) {
-        _uiState.value = _uiState.value.copy(
+        val s = _uiState.value
+        val listEmpty = s.alerts.isEmpty() && s.orders.isEmpty()
+        _uiState.value = s.copy(
             isLoading = false,
             isFirstLoad = false,
             isLoadingMore = false,
-            // 翻页失败不清空已有数据，只提示；首屏失败才置 error
-            error = if (reset) (message ?: "加载失败") else _uiState.value.error
+            // AI-APP-FIX-201：首屏失败（列表还空着）落 loadError 渲染全屏错误态；
+            // 带着数据的刷新/翻页失败才弹 Snackbar，不清空已有数据。
+            loadError = if (reset && listEmpty) (message ?: "加载失败") else s.loadError,
+            error = if (reset && !listEmpty) (message ?: "加载失败") else s.error
         )
     }
 

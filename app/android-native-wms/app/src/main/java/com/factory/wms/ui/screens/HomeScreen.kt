@@ -23,19 +23,26 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DashboardDto
+import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.components.WarehouseSelector
+import com.factory.wms.ui.components.WmsShimmerBox
 import com.factory.wms.ui.navigation.Screen
+import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -59,6 +66,9 @@ fun HomeScreen(
     val homeUiState by homeViewModel.uiState.collectAsState()
     var showLogoutDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // 首页顶部是深蓝 Hero → 浅色状态栏图标（修复深色图标压在深蓝上不可读）
+    StatusBarIconEffect(darkIcons = false)
 
     // BUG-2026-09-10-010：首页概览的仓库切换需要仓库列表，进入首页时加载一次。
     LaunchedEffect(Unit) {
@@ -300,7 +310,8 @@ fun HomeScreen(
             // ── 今日概览条 ──
             // BUG-2026-09-10-010：多仓用户此前只能看到默认仓的今日数据，
             // 顶部提供仓库切换（默认仓 / 各仓 / 全部仓库汇总）。
-            homeUiState.dashboard?.let { dashboard ->
+            val dashboardData = homeUiState.dashboard
+            if (dashboardData != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -314,7 +325,7 @@ fun HomeScreen(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     WarehouseSelector(
-                        currentLabel = dashboard.warehouse,
+                        currentLabel = dashboardData.warehouse,
                         warehouses = homeUiState.warehouses,
                         selectedId = homeUiState.selectedWarehouseId,
                         onSelect = { homeViewModel.selectWarehouse(it) },
@@ -323,9 +334,15 @@ fun HomeScreen(
                     )
                 }
                 TodayOverviewBar(
-                    dashboard = dashboard,
+                    dashboard = dashboardData,
                     onNavigate = onNavigate
-                )            }
+                )
+            } else {
+                // AI-APP-UI-002：数据未返回时渲染同形骨架。
+                // 原先此处整块不渲染，数据到达瞬间功能卡网格整体下沉一截，
+                // 看起来像"页面闪了一下"；骨架占位让布局高度始终稳定。
+                DashboardOverviewSkeleton()
+            }
 
             // ── Card Grid ──
             Spacer(modifier = Modifier.height(20.dp))
@@ -347,6 +364,7 @@ fun HomeScreen(
                             val card = cards[index]
                             FunctionCardItem(
                                 card = card,
+                                index = index,
                                 modifier = Modifier.width(cardWidth),
                                 onClick = { onNavigate(card.screen) }
                             )
@@ -442,18 +460,33 @@ fun HomeScreen(
 fun FunctionCardItem(
     card: FunctionCard,
     modifier: Modifier = Modifier,
+    index: Int = 0,
     onClick: () -> Unit
 ) {
     var pressed by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
     val scale by animateFloatAsState(
         targetValue = if (pressed) 0.96f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
         label = "card_scale"
     )
 
+    // AI-APP-UI-002：入场交错动画——卡片按序号依次淡入上浮，
+    // 首页从"一屏元素同时砸下来"变为有节奏的进入，感知更精致。
+    // 延迟封顶 400ms：卡片再多也不会让最后一排等太久。
+    val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay((index * 35L).coerceAtMost(400L))
+        entrance.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+    }
+
     Card(
         modifier = modifier
             .height(168.dp)
+            .graphicsLayer {
+                alpha = entrance.value
+                translationY = (1f - entrance.value) * 36f
+            }
             .scale(scale)
             .shadow(
                 elevation = if (pressed) 4.dp else 8.dp,
@@ -465,7 +498,10 @@ fun FunctionCardItem(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                }
             ),
         shape = RoundedCornerShape(22.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -606,54 +642,72 @@ fun TodayOverviewBar(
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Column(
+        // AI-APP-UI-002：卡片内不再重复渲染「今日概览」标题——
+        // 外层已有同名标题 + 仓库切换器，卡片内再来一遍是纯视觉冗余。
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 14.dp)
+                .padding(horizontal = 10.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            items.forEach { item ->
+                OverviewItemCell(
+                    item = item,
+                    modifier = Modifier.weight(1f),
+                    onClicked = {
+                        item.screen?.let(onNavigate)
+                    }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 「今日概览」骨架占位（AI-APP-UI-002）：与真实卡片同形同高，
+ * dashboard 加载期间布局不跳动。
+ */
+@Composable
+private fun DashboardOverviewSkeleton() {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            WmsShimmerBox(modifier = Modifier.size(width = 76.dp, height = 20.dp), corner = 6.dp)
+            Spacer(modifier = Modifier.weight(1f))
+            WmsShimmerBox(modifier = Modifier.size(width = 96.dp, height = 32.dp), corner = 16.dp)
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = CardBackground),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Primary.copy(alpha = 0.12f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.Insights,
-                        contentDescription = null,
-                        tint = Primary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "今日概览",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            Spacer(modifier = Modifier.height(14.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = 10.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                items.forEach { item ->
-                    OverviewItemCell(
-                        item = item,
-                        modifier = Modifier.weight(1f),
-                        onClicked = {
-                            item.screen?.let(onNavigate)
-                        }
-                    )
+                repeat(4) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        WmsShimmerBox(modifier = Modifier.size(38.dp), corner = 11.dp)
+                        Spacer(modifier = Modifier.height(7.dp))
+                        WmsShimmerBox(modifier = Modifier.size(width = 40.dp, height = 20.dp), corner = 6.dp)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        WmsShimmerBox(modifier = Modifier.size(width = 48.dp, height = 12.dp), corner = 6.dp)
+                    }
                 }
             }
         }
@@ -675,11 +729,15 @@ private fun OverviewItemCell(
     modifier: Modifier = Modifier,
     onClicked: (() -> Unit)? = null
 ) {
+    val haptics = LocalHapticFeedback.current
     val clickModifier = if (onClicked != null) {
         Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
-            onClick = onClicked
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClicked()
+            }
         )
     } else {
         Modifier
@@ -725,10 +783,4 @@ private fun OverviewItemCell(
     }
 }
 
-private fun formatQty(value: Double): String {
-    return if (value == value.toLong().toDouble()) {
-        value.toLong().toString()
-    } else {
-        String.format("%.2f", value)
-    }
-}
+// AI-APP-FIX-403：私有 formatQty 已合并为 ui/util/Format.kt 的共享实现（千分位）

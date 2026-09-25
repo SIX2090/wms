@@ -43,6 +43,8 @@ data class OpeningStockUiState(
     val builtLoading: Boolean = false,
     /** 首屏加载（区别于翻页加载），用于骨架/菊花 */
     val builtFirstLoad: Boolean = true,
+    /** AI-APP-FIX-201：已建账列表首屏加载失败的持久错误（全屏错误态 + 重试） */
+    val builtError: String? = null,
     val builtLoadingMore: Boolean = false,
     val builtPage: Int = 1,
     val builtTotalPages: Int = 0,
@@ -261,6 +263,19 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
     }
 
     /**
+     * AI-APP-FIX-109 / BUG-2026-09-26-008：删行撤销——把刚删除的行插回原位置。
+     *
+     * 配合 UI 层 Snackbar「撤销」action（约 4 秒窗口）：删除行按钮紧邻数量胶囊，
+     * 戴手套误触即丢一条已录行，必须给反悔通道。期间若有新行加入/删除，
+     * index 可能漂移，故按 coerceIn 容错插入，不追求严格原位。
+     */
+    fun restoreLine(index: Int, line: OpeningStockLine) {
+        val current = _uiState.value.lines.toMutableList()
+        current.add(index.coerceIn(0, current.size), line)
+        _uiState.value = _uiState.value.copy(lines = current)
+    }
+
+    /**
      * BUG-2026-09-16-010：行点击弹窗改数量（设为确切值）。
      *
      * 与 [addLine] 的累加语义互补：扫码/手动添加负责"加"，本函数负责
@@ -315,7 +330,8 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                 builtLoading = true,
                 builtFirstLoad = reset && state.builtItems.isEmpty(),
                 builtLoadingMore = !reset,
-                error = null
+                error = null,
+                builtError = if (reset) null else state.builtError
             )
             repository.getOpeningStockPage(
                 warehouseId = warehouse.id,
@@ -336,12 +352,16 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                     )
                 },
                 onFailure = { e ->
+                    // AI-APP-FIX-201：首屏失败（列表还空着）落 builtError 渲染全屏
+                    // 错误态，不再伪装成"本仓还没有期初建账"；翻页/带数据刷新失败
+                    // 才弹 Snackbar，保留已有数据。
+                    val listEmpty = _uiState.value.builtItems.isEmpty()
                     _uiState.value = _uiState.value.copy(
                         builtLoading = false,
                         builtFirstLoad = false,
                         builtLoadingMore = false,
-                        // 翻页失败保留已有数据，只提示；首屏失败才置 error
-                        error = if (reset) (e.message ?: "加载失败") else _uiState.value.error
+                        builtError = if (reset && listEmpty) (e.message ?: "加载失败") else _uiState.value.builtError,
+                        error = if (reset && !listEmpty) (e.message ?: "加载失败") else _uiState.value.error
                     )
                 }
             )

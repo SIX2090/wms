@@ -774,6 +774,16 @@ class WmsRepository(private val context: Context) {
             )
     }
 
+    /** AI-APP-FIX-505：盘点记录差异明细下钻（仅本人记录，差异行已排前）。 */
+    suspend fun loadStocktakeRecordDetail(id: Long): Result<StocktakeRecordDetailData> {
+        ensureSession()
+        return safeCall { api.getStocktakeRecordDetail(id) }
+            .fold(
+                onSuccess = { data -> Result.success(data) },
+                onFailure = { Result.failure(it) }
+            )
+    }
+
     /** 合同编号模糊搜索（出库选填合同字段快速匹配）。 */
     suspend fun searchContracts(keyword: String): Result<List<ContractDto>> {
         ensureSession()

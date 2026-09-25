@@ -45,7 +45,6 @@ import androidx.navigation.NavHostController
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.theme.OnSurfaceVariant
 import com.factory.wms.ui.theme.Primary
-import com.factory.wms.ui.theme.PrimaryDark
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.voice.VoiceCommand
 import com.factory.wms.ui.viewmodel.voice.VoiceCommandViewModel
@@ -248,7 +247,8 @@ fun VoiceAssistantOverlay(
                                 voiceViewModel.clearResult()
                                 executeVoiceCommand(cmd, navController, authViewModel)
                             }) {
-                                Text("执行", color = PrimaryDark, fontWeight = FontWeight.SemiBold)
+                                // AI-APP-FIX-303：PrimaryDark 在暗色底上近不可读，改用随主题切换的 Primary
+                                Text("执行", color = Primary, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     },

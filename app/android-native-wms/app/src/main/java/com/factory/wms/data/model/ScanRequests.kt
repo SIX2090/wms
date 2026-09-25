@@ -127,6 +127,38 @@ data class StocktakeRecordListData(
 )
 
 /**
+ * AI-APP-FIX-505 盘点记录差异明细行（GET /api/mobile/stocktake/detail items 元素）。
+ * 服务端已把差异行排在前面；is_diff 口径与 PC 一致（|difference| > STOCK_COMPARE_EPSILON）。
+ * 后端可空列一律声明可空（BUG-2026-08-24-007：Gson 绕过 Kotlin 默认值）。
+ */
+data class StocktakeRecordDetailItemDto(
+    @SerializedName("material_code") val materialCode: String? = null,
+    @SerializedName("material_name") val materialName: String? = null,
+    val spec: String? = null,
+    val brand: String? = null,
+    val unit: String? = null,
+    /** 盘点区域（启用分区盘点时非空） */
+    val area: String? = null,
+    /** 账面库存 */
+    @SerializedName("system_stock") val systemStock: Double? = null,
+    /** 实盘数量 */
+    @SerializedName("actual_stock") val actualStock: Double? = null,
+    val difference: Double? = null,
+    @SerializedName("is_diff") val isDiff: Boolean? = null
+)
+
+/** AI-APP-FIX-505 盘点记录差异明细下钻响应。 */
+data class StocktakeRecordDetailData(
+    val id: Long = 0,
+    @SerializedName("check_no") val checkNo: String? = null,
+    val date: String? = null,
+    val warehouse: String? = null,
+    val status: String? = null,
+    val remark: String? = null,
+    val items: List<StocktakeRecordDetailItemDto> = emptyList()
+)
+
+/**
  * 盘点草稿持久化负载（断点续盘，BUG-2026-09-03-003）：
  * 盘点进行中 APP 被系统回收/误关后，重新进入盘点页可恢复上次未提交清单。
  */

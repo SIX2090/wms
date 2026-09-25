@@ -1,5 +1,11 @@
 package com.factory.wms.ui.components
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -7,20 +13,35 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.CloudSync
 import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -38,6 +59,11 @@ import com.factory.wms.ui.theme.PrimaryContainer
 import com.factory.wms.ui.theme.SurfaceVariant
 import com.factory.wms.ui.theme.Warning
 import com.factory.wms.ui.theme.WarningContainer
+import com.factory.wms.ui.theme.wmsColors
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WMS 移动端共享设计组件（AI-APP-UI-001）
@@ -69,6 +95,8 @@ fun WmsTopBar(
     onBack: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
+    // 白色顶栏 → 深色状态栏图标（显式声明，防止从渐变头部页面返回后图标颜色残留）
+    StatusBarIconEffect(darkIcons = true)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 2.dp
@@ -128,6 +156,8 @@ fun WmsGradientHeader(
     onBack: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
+    // 深色模块色渐变头部 → 浅色状态栏图标（修复深色图标压在深蓝/深紫渐变上不可读）
+    StatusBarIconEffect(darkIcons = false)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -249,32 +279,52 @@ fun WmsEmptyState(
     title: String,
     subtitle: String,
     modifier: Modifier = Modifier,
-    accentColor: Color = Primary
+    accentColor: Color = Primary,
+    /** AI-APP-FIX-405：AI 采集页空态的虚线圆角图标井样式（替代圆环井）。 */
+    dashedBorder: Boolean = false
 ) {
     Column(
         modifier = modifier.padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(
-            modifier = Modifier
-                .size(96.dp)
-                .clip(CircleShape)
-                .background(accentColor.copy(alpha = 0.05f)),
-            contentAlignment = Alignment.Center
-        ) {
+        if (dashedBorder) {
             Box(
                 modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.08f)),
+                    .size(100.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .dashedBorderStroke(2.dp, accentColor.copy(alpha = 0.3f), 24.dp)
+                    .background(accentColor.copy(alpha = 0.04f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    modifier = Modifier.size(34.dp),
-                    tint = accentColor.copy(alpha = 0.55f)
+                    modifier = Modifier.size(48.dp),
+                    tint = accentColor.copy(alpha = 0.6f)
                 )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(96.dp)
+                    .clip(CircleShape)
+                    .background(accentColor.copy(alpha = 0.05f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(34.dp),
+                        tint = accentColor.copy(alpha = 0.55f)
+                    )
+                }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -288,12 +338,28 @@ fun WmsEmptyState(
         Text(
             subtitle,
             style = MaterialTheme.typography.bodySmall,
-            color = OnSurfaceVariant
+            color = OnSurfaceVariant,
+            textAlign = if (dashedBorder) TextAlign.Center else null,
+            lineHeight = if (dashedBorder) 20.sp else androidx.compose.ui.unit.TextUnit.Unspecified
         )
     }
 }
 
-/** 统一主按钮：50dp 高、14dp 圆角、模块色、支持加载态。 */
+/** 虚线描边（AI-APP-FIX-405）：drawBehind + dashPathEffect，供空态图标井使用。 */
+private fun Modifier.dashedBorderStroke(width: Dp, color: Color, corner: Dp): Modifier =
+    this.drawBehind {
+        drawRoundRect(
+            color = color,
+            size = size,
+            cornerRadius = CornerRadius(corner.toPx()),
+            style = Stroke(
+                width = width.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 9f), 0f)
+            )
+        )
+    }
+
+/** 统一主按钮：50dp 高、14dp 圆角、模块色、支持加载态与触觉反馈。 */
 @Composable
 fun WmsPrimaryButton(
     text: String,
@@ -302,10 +368,16 @@ fun WmsPrimaryButton(
     icon: ImageVector? = null,
     color: Color = Primary,
     loading: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    /** 点击时给出触觉确认（现场戴手套作业时，"按没按上"主要靠体感）。 */
+    haptic: Boolean = true
 ) {
+    val haptics = LocalHapticFeedback.current
     Button(
-        onClick = onClick,
+        onClick = {
+            if (haptic) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onClick()
+        },
         modifier = modifier.height(50.dp),
         enabled = enabled && !loading,
         shape = RoundedCornerShape(14.dp),
@@ -476,13 +548,22 @@ fun WmsDivider(modifier: Modifier = Modifier) {
 }
 
 /** 统一页面背景 Scaffold 容器色，避免各处散落引用。 */
-val WmsPageBackground: Color get() = Background
+val WmsPageBackground: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = Background
 
 /** 统一浅色调色板（图标底色），Active 时 PrimaryContainer。 */
-val WmsIconWellColor: Color get() = PrimaryContainer
+val WmsIconWellColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = PrimaryContainer
 
 /** 辅助：弱化文本颜色（提示/次要说明）。 */
-val WmsHintColor: Color get() = OnSurfaceSecondary
+val WmsHintColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = OnSurfaceSecondary
 
 /**
  * 离线（缓存回退）数据提示横幅（AI-MOB-OFFLINE-HINT-01）。
@@ -552,6 +633,280 @@ internal fun formatCacheAge(cachedAtMillis: Long?): String? {
         minutes < 60L * 24L -> "${minutes / 60L} 小时前"
         else -> "${minutes / (60L * 24L)} 天前"
     }
+}
+
+/**
+ * 统一加载骨架（AI-APP-UI-002）：呼吸微光占位块。
+ *
+ * 用法：按真实内容的形状拼若干 WmsShimmerBox，替代"数据没到就整块消失"的
+ * 布局跳动（典型如首页「今日概览」：dashboard 为 null 时整块不渲染，
+ * 数据到达瞬间下方功能卡网格猛地下沉一截）。
+ */
+@Composable
+fun WmsShimmerBox(
+    modifier: Modifier = Modifier,
+    corner: Dp = 12.dp
+) {
+    val transition = rememberInfiniteTransition(label = "wms_shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "wms_shimmer_alpha"
+    )
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(corner))
+            // AI-APP-FIX-301：微光基础 alpha 亮 0.14 / 暗 0.30（暗底上 0.14 太淡）
+            .background(OnSurfaceVariant.copy(alpha = MaterialTheme.wmsColors.shimmerAlpha * alpha))
+    )
+}
+
+/**
+ * 列表页首屏骨架（AI-APP-FIX-202）：N 行圆角卡片微光，替代居中转圈。
+ * 转圈只表达"在加载"，骨架同时表达"加载出来长什么样"，且与加载完成后的
+ * 列表高度接近，数据到达时页面不跳变。
+ */
+@Composable
+fun WmsListSkeleton(
+    modifier: Modifier = Modifier,
+    rows: Int = 5,
+    rowHeight: Dp = 72.dp
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Spacer(modifier = Modifier.height(4.dp))
+        repeat(rows) {
+            WmsShimmerBox(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(rowHeight),
+                corner = 14.dp
+            )
+        }
+    }
+}
+
+/**
+ * 统一错误态（AI-APP-UI-002）：图标 + 标题 + 副标题 + 重试按钮。
+ * 与 [WmsEmptyState] 视觉同源，但语义是"加载失败"，必须给出重试入口——
+ * 只画一个红叉不给动作，用户只能杀进程重进。
+ */
+@Composable
+fun WmsErrorState(
+    title: String,
+    subtitle: String,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
+    retryLabel: String = "重试"
+) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(Error.copy(alpha = 0.05f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(CircleShape)
+                    .background(Error.copy(alpha = 0.08f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Outlined.ErrorOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(34.dp),
+                    tint = Error.copy(alpha = 0.65f)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = OnSurface
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = OnSurfaceVariant
+        )
+        if (onRetry != null) {
+            Spacer(modifier = Modifier.height(16.dp))
+            WmsOutlinedActionButton(
+                text = retryLabel,
+                onClick = onRetry,
+                icon = Icons.Outlined.Refresh,
+                color = Primary
+            )
+        }
+    }
+}
+
+/**
+ * 统一日期导航条（AI-APP-FIX-402）：前一天 / 日期（可点弹 DatePicker）/ 后一天。
+ * 替换每日报表、库存日报、出入库明细（开始/结束）共四份自绘实现。
+ *
+ * @param label "开始"/"结束" 等范围前缀；非空时副标题默认 "${label}日期"，无障碍描述带前缀
+ * @param subtitle 副标题（如 "数据截至 23:59"），优先级高于 label 默认副标题；都不给则无副标题行
+ * @param nextEnabled 「后一天」禁用态由调用方按业务钳制（不超过今天 / 不越过结束日期）
+ * @param wrapInCard 出入库明细等需要"一卡两行"的场景传 false，由调用方自行包 Card
+ * @param onResetToday 非空时显示「回到今天」
+ * @param onDateSelected 非空时中间日期可点击，弹 Material3 DatePicker 直接跳日
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WmsDateNavRow(
+    date: String,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+    nextEnabled: Boolean = true,
+    label: String? = null,
+    subtitle: String? = null,
+    wrapInCard: Boolean = true,
+    onResetToday: (() -> Unit)? = null,
+    onDateSelected: ((String) -> Unit)? = null
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    val rowContent: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = if (wrapInCard) 4.dp else 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            IconButton(onClick = onPrev) {
+                // 注意：必须写 ${label}——"$label前一天" 会被 Kotlin 解析成标识符
+                // `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference
+                Icon(Icons.Filled.ChevronLeft, if (label != null) "${label}前一天" else "前一天")
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    date,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    modifier = if (onDateSelected != null)
+                        Modifier.clickable { showPicker = true } else Modifier
+                )
+                val sub = subtitle ?: label?.let { "${it}日期" }
+                if (sub != null || onResetToday != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (sub != null) {
+                            Text(
+                                sub,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        if (onResetToday != null) {
+                            TextButton(onClick = onResetToday) {
+                                Text("回到今天", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            IconButton(onClick = onNext, enabled = nextEnabled) {
+                Icon(Icons.Filled.ChevronRight, if (label != null) "${label}后一天" else "后一天")
+            }
+        }
+    }
+
+    if (wrapInCard) {
+        Card(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surface
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        ) { rowContent() }
+    } else {
+        rowContent()
+    }
+
+    if (showPicker && onDateSelected != null) {
+        val pickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        // DatePicker 返回 UTC 零点毫秒，必须按 UTC 格式化，
+                        // 否则非零时区会差一天
+                        onDateSelected(
+                            SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                                timeZone = TimeZone.getTimeZone("UTC")
+                            }.format(Date(millis))
+                        )
+                    }
+                    showPicker = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+/**
+ * 统一提交确认弹窗（AI-APP-FIX-406）：标题 + 正文信息行 + 确认/取消按钮。
+ * 合并入库/出库/盘点三份自绘实现。正文（仓库/往来单位/数量/警示行）各页不同，
+ * 由调用方在 [text] 槽位组装；本组件固定弹窗骨架与按钮口径：
+ * 20dp 圆角、确认按钮 12dp 圆角模块色、取消为 TextButton。
+ *
+ * @param confirmEnabled 提交前置校验（已选仓库/盘点单、非提交中），由调用方给出
+ */
+@Composable
+fun WmsSubmitConfirmDialog(
+    title: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    accent: Color = Primary,
+    confirmEnabled: Boolean = true,
+    text: @Composable () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text(title, fontWeight = FontWeight.SemiBold) },
+        text = text,
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                enabled = confirmEnabled,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = accent)
+            ) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 /**
@@ -632,5 +987,31 @@ fun PendingSyncBanner(
             )
         }
     }
+}
+
+/**
+ * AI-APP-FIX-505：列表页下拉刷新统一容器。
+ *
+ * 此前各列表页刷新入口不一致（有的靠顶栏刷新图标、有的只能退出重进），
+ * 现场最直觉的"下拉一下"反而处处没有。统一用本容器包裹列表区：
+ * 下拉手势 → 触发 [onRefresh] → [isRefreshing] 归零后指示器自动收起。
+ *
+ * 约定：[isRefreshing] 只在"用户主动刷新"期间为 true（一般取
+ * `isLoading && 列表非空`），首屏加载仍走骨架屏，避免骨架与刷新指示器叠加。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WmsPullToRefreshBox(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit
+) {
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
+        content = content
+    )
 }
 

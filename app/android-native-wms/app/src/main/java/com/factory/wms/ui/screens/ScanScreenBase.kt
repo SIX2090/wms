@@ -28,6 +28,8 @@ import com.factory.wms.ui.components.PendingSyncBanner
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
+import com.factory.wms.ui.components.WmsOutlinedActionButton
+import com.factory.wms.ui.components.WmsPrimaryButton
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.components.ScanLocationSelector
@@ -36,7 +38,9 @@ import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import kotlinx.coroutines.launch
@@ -103,6 +107,7 @@ fun ScanScreenBase(
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
+    val haptics = LocalHapticFeedback.current
     val scanState by viewModel.uiState.collectAsState()
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
     val evidenceCamera = rememberCameraLauncherWithPermission(snackbarHostState) { bitmap: Bitmap ->
@@ -119,6 +124,7 @@ fun ScanScreenBase(
             },
             confirmButton = {
                 TextButton(enabled = !isLoading, onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.removeScanLine(line)
                     pendingRemoval = null
                 }) { Text("确认移除") }
@@ -377,9 +383,31 @@ fun ScanScreenBase(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         item { Spacer(modifier = Modifier.height(4.dp)) }
-                        itemsIndexed(scanLines) { index, line ->
+                        // AI-APP-UI-002：稳定 key + animateItem。
+                        // 无 key 时增删一行会整体重组并丢失条目内部状态；
+                        // 有 key 后 Compose 只增删对应条目，且附带平滑的移动/淡入动画。
+                        //
+                        // key 必须兼顾**极端重复**：addScanLine 按「编码+库位」合并，
+                        // 但 enrichScanLineMaterial 可能把两个不同原始条码（别名命中
+                        // 同一物料）补全成同一个正式编码 → 清单出现重复 (编码,库位)。
+                        // LazyColumn 遇重复 key 会直接崩溃，故 key 追加"第几次出现"
+                        // 序号做去重兜底（同 key 行相对顺序稳定即可保证 key 稳定）。
+                        itemsIndexed(
+                            scanLines,
+                            key = { index, line ->
+                                val base = "${line.material_code}|${line.location_code.orEmpty()}"
+                                val occurrence = scanLines.subList(0, index).count {
+                                    it.material_code == line.material_code &&
+                                        it.location_code.orEmpty() == line.location_code.orEmpty()
+                                }
+                                "$base#$occurrence"
+                            },
+                            contentType = { _, _ -> "scan_line" }
+                        ) { index, line ->
                             Card(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .animateItem(),
                                 shape = RoundedCornerShape(16.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                                 colors = CardDefaults.cardColors(containerColor = CardBackground)
@@ -445,7 +473,9 @@ fun ScanScreenBase(
                                     IconButton(
                                         onClick = { pendingRemoval = line },
                                         enabled = !isLoading,
-                                        modifier = Modifier.size(36.dp)
+                                        // AI-APP-UI-002：36dp 低于 48dp 最小触控目标，
+                                        // 戴手套点不中还会误触到旁边的数量胶囊。
+                                        modifier = Modifier.size(48.dp)
                                     ) {
                                         Icon(
                                             Icons.Outlined.Close,
@@ -461,10 +491,13 @@ fun ScanScreenBase(
                     }
                 } else {
                     // Empty state（清单为空时不再 weight(1f) 抢高：顶部区自己可滚）
+                    // AI-APP-UI-002：原先写死 height(180.dp)，而 WmsEmptyState 内容
+                    // （96dp 图标环 + 标题 + 副标题 + 32dp 上下内边距 ≈ 220dp）超出
+                    // 被裁剪——副标题常年显示不全。改为内容自适应 + 最小高度约束。
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(180.dp),
+                            .heightIn(min = 180.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         WmsEmptyState(
@@ -499,35 +532,17 @@ fun ScanScreenBase(
                         // 候选再多也只是本区内部滚动。
                         .heightIn(max = 420.dp)
                 ) {
-                    // Submit button
-                    Button(
+                    // Submit button（AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton，
+                    // 触觉确认由组件内置——提交是关键动作，避免嘈杂现场重复点）
+                    WmsPrimaryButton(
+                        text = submitLabel,
                         onClick = onSubmitClick,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp),
-                        enabled = scanLines.isNotEmpty() && !isLoading,
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = submitColor,
-                            disabledContainerColor = submitColor.copy(alpha = 0.3f)
-                        )
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(22.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                submitLabel,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 16.sp
-                            )
-                        }
-                    }
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Outlined.CheckCircle,
+                        color = submitColor,
+                        loading = isLoading,
+                        enabled = scanLines.isNotEmpty()
+                    )
 
                     if (materialSuggestionsLoading) {
                         LinearProgressIndicator(
@@ -567,35 +582,25 @@ fun ScanScreenBase(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Extra recognition-type action (e.g. 识物盘点), only when provided
+                    // AI-APP-FIX-404：自绘描边按钮 → WmsOutlinedActionButton
                     if (extraActionLabel != null && onExtraAction != null) {
-                        OutlinedButton(
+                        WmsOutlinedActionButton(
+                            text = extraActionLabel,
                             onClick = onExtraAction,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(submitColor.copy(alpha = 0.3f))
-                            )
-                        ) {
-                            Icon(
-                                Icons.Outlined.CameraAlt,
-                                null,
-                                modifier = Modifier.size(20.dp),
-                                tint = submitColor
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(extraActionLabel, color = submitColor, fontWeight = FontWeight.Medium)
-                        }
+                            modifier = Modifier.fillMaxWidth(),
+                            icon = Icons.Outlined.CameraAlt,
+                            color = submitColor
+                        )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    // Action buttons
+                    // Action buttons（AI-APP-FIX-404：扫码/手动 → WmsOutlinedActionButton）
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        OutlinedButton(
+                        WmsOutlinedActionButton(
+                            text = "扫码添加",
                             onClick = {
                                 // 每次打开相机都从 0 起算本轮的"已扫 N 件"，
                                 // 否则上一轮的计数会串到本轮，与清单对不上。
@@ -603,42 +608,17 @@ fun ScanScreenBase(
                                 lastScannedCode = null
                                 showCameraScanner = true
                             },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(submitColor.copy(alpha = 0.3f))
-                            )
-                        ) {
-                            Icon(
-                                Icons.Outlined.QrCodeScanner,
-                                null,
-                                modifier = Modifier.size(20.dp),
-                                tint = submitColor
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("扫码添加", color = submitColor, fontWeight = FontWeight.Medium)
-                        }
-                        OutlinedButton(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.QrCodeScanner,
+                            color = submitColor
+                        )
+                        WmsOutlinedActionButton(
+                            text = "手动添加",
                             onClick = onShowScanner,
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(submitColor.copy(alpha = 0.3f))
-                            )
-                        ) {
-                            Icon(
-                                Icons.Outlined.Edit,
-                                null,
-                                modifier = Modifier.size(20.dp),
-                                tint = submitColor
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text("手动添加", color = submitColor, fontWeight = FontWeight.Medium)
-                        }
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.Edit,
+                            color = submitColor
+                        )
                     }
                 }
             }

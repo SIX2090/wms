@@ -1,6 +1,7 @@
 package com.factory.wms.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -18,11 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,12 +35,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,8 +53,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.data.model.StocktakeRecordDetailData
+import com.factory.wms.data.model.StocktakeRecordDetailItemDto
 import com.factory.wms.data.model.StocktakeRecordDto
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsPillBadge
+import com.factory.wms.ui.components.WmsPullToRefreshBox
+import com.factory.wms.ui.components.WmsTopBar
+import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.CardAmber
 import com.factory.wms.ui.theme.CardCyan
@@ -87,7 +97,9 @@ fun StocktakeRecordScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"翻页失败"的瞬态错误（首屏失败走
+            // loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -96,38 +108,22 @@ fun StocktakeRecordScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("盘点记录", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            if (uiState.total > 0) "共 ${uiState.total} 条本人盘点记录" else "本人盘点记录回查",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
+            // AI-APP-FIX-401：自绘 TopAppBar → 统一 WmsTopBar
+            WmsTopBar(
+                title = "盘点记录",
+                subtitle = if (uiState.total > 0) "共 ${uiState.total} 条本人盘点记录" else "本人盘点记录回查",
+                onBack = onBack,
                 actions = {
-                    IconButton(onClick = { viewModel.load() }) {
+                    // AI-APP-FIX-406：Restore → Refresh（Restore 语义是"还原"，易误解）；
+                    // 加载中禁用，防连点触发并发请求
+                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading) {
                         Icon(
-                            Icons.Filled.Restore,
+                            Icons.Filled.Refresh,
                             "刷新",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                }
             )
         }
     ) { padding ->
@@ -146,20 +142,33 @@ fun StocktakeRecordScreen(
             ) {
                 FilterChip(
                     selected = !uiState.showVoided,
+                    modifier = Modifier.height(WmsDimens.TouchTargetMin),
                     onClick = { if (uiState.showVoided) viewModel.toggleVoided() },
                     label = { Text("正常记录") }
                 )
                 FilterChip(
                     selected = uiState.showVoided,
+                    modifier = Modifier.height(WmsDimens.TouchTargetMin),
                     onClick = { if (!uiState.showVoided) viewModel.toggleVoided() },
                     label = { Text("已作废") }
                 )
             }
 
             when {
+                // AI-APP-FIX-202：首屏转圈 → 骨架列表
                 uiState.isLoading && uiState.records.isEmpty() -> {
+                    WmsListSkeleton()
+                }
+
+                // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                // 不再落入下方"还没有盘点记录"的误导性空态
+                uiState.loadError != null && uiState.records.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Primary)
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            onRetry = { viewModel.load() }
+                        )
                     }
                 }
 
@@ -178,6 +187,13 @@ fun StocktakeRecordScreen(
                 }
 
                 else -> {
+                    // AI-APP-FIX-505：下拉刷新统一入口（顶栏刷新图标保留）。
+                    // 仅在"已有数据时的刷新"期间亮指示器，首屏交给骨架屏。
+                    WmsPullToRefreshBox(
+                        isRefreshing = uiState.isLoading && uiState.records.isNotEmpty(),
+                        onRefresh = { viewModel.load() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
@@ -189,7 +205,15 @@ fun StocktakeRecordScreen(
                         // 有默认值 0，Gson 反序列化遇缺失/异常响应会落 0——同页多条即 key 冲突崩溃。
                         // 统一为「id 有效则用 id，否则退 checkNo → hashCode」。
                         items(uiState.records, key = { if (it.id != 0L) it.id else it.checkNo ?: it.hashCode() }) { record ->
-                            StocktakeRecordCard(record)
+                            // AI-APP-FIX-505：点卡片下钻差异明细（id=0 的脏数据不可下钻）
+                            StocktakeRecordCard(
+                                record = record,
+                                onClick = if (record.id != 0L) {
+                                    { viewModel.loadDetail(record.id) }
+                                } else {
+                                    null
+                                }
+                            )
                         }
                         if (uiState.hasMore) {
                             item {
@@ -213,19 +237,35 @@ fun StocktakeRecordScreen(
                             }
                         }
                     }
+                    }
                 }
             }
         }
     }
+
+    // AI-APP-FIX-505：差异明细下钻对话框（加载中/失败/成功三态都在框内闭环）
+    if (uiState.detailTargetId != null) {
+        StocktakeRecordDetailDialog(
+            detail = uiState.detail,
+            loading = uiState.detailLoading,
+            error = uiState.detailError,
+            onRetry = { uiState.detailTargetId?.let { viewModel.loadDetail(it) } },
+            onDismiss = { viewModel.clearDetail() }
+        )
+    }
 }
 
 @Composable
-private fun StocktakeRecordCard(record: StocktakeRecordDto) {
+private fun StocktakeRecordCard(record: StocktakeRecordDto, onClick: (() -> Unit)? = null) {
     val isVoid = record.status == "void"
     val accent = if (isVoid) CardAmber else CardTeal
     val diff = record.diffCount ?: 0
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+            ),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
@@ -249,9 +289,10 @@ private fun StocktakeRecordCard(record: StocktakeRecordDto) {
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(8.dp))
-                StatusTag(
+                // AI-APP-FIX-406：私有 StatusTag → 统一 WmsPillBadge
+                WmsPillBadge(
                     text = if (isVoid) "已作废" else "已完成",
-                    color = if (isVoid) CardAmber else CardTeal
+                    activeColor = if (isVoid) CardAmber else CardTeal
                 )
             }
 
@@ -312,6 +353,16 @@ private fun StocktakeRecordCard(record: StocktakeRecordDto) {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                // AI-APP-FIX-505：可下钻卡片给出箭头提示（点击卡片看差异明细）
+                if (onClick != null) {
+                    Spacer(Modifier.weight(1f))
+                    Icon(
+                        Icons.Filled.ChevronRight,
+                        contentDescription = "查看差异明细",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             // 采纳状态：批次是否完成 + 调整草稿审核结果
@@ -361,19 +412,170 @@ private fun adoptionText(record: StocktakeRecordDto): String = when {
     else -> "无差异，无需调整"
 }
 
+/**
+ * AI-APP-FIX-505：盘点记录差异明细下钻对话框。
+ *
+ * 明细行由服务端按「差异行优先」排序；账面/实盘/差异三列右对齐等宽数字。
+ * 加载中/加载失败都留在对话框内闭环（失败给重试），不吞成"点了没反应"。
+ */
 @Composable
-private fun StatusTag(text: String, color: Color) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.12f))
-            .padding(horizontal = 8.dp, vertical = 2.dp)
+private fun StocktakeRecordDetailDialog(
+    detail: StocktakeRecordDetailData?,
+    loading: Boolean,
+    error: String?,
+    onRetry: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        title = {
+            Text(
+                detail?.checkNo?.let { "盘点单 $it" } ?: "盘点明细",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        },
+        text = {
+            when {
+                loading -> Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Primary)
+                }
+
+                error != null -> Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    TextButton(onClick = onRetry) { Text("重试") }
+                }
+
+                detail != null -> Column(modifier = Modifier.fillMaxWidth()) {
+                    // 单头信息（备注限 2 行截断，防长备注撑破对话框）
+                    val headerLine = listOfNotNull(
+                        detail.date?.takeIf { it.isNotBlank() },
+                        detail.warehouse?.takeIf { it.isNotBlank() }
+                    ).joinToString(" · ")
+                    if (headerLine.isNotBlank()) {
+                        Text(
+                            headerLine,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (!detail.remark.isNullOrBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "备注：${detail.remark}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    if (detail.items.isEmpty()) {
+                        Text(
+                            "该单没有明细行",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        // 限高内滚：明细可能几十行，对话框不能撑出屏幕
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(360.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(
+                                detail.items,
+                                key = { "${it.materialCode}|${it.area}|${it.hashCode()}" }
+                            ) { item ->
+                                StocktakeRecordDetailRow(item)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+/** 明细行：编码+名称（+规格/区域）｜账面 → 实盘 → 差异（差异行琥珀色高亮）。 */
+@Composable
+private fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
+    val isDiff = item.isDiff == true
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = if (isDiff) CardAmber.copy(alpha = 0.08f)
+        else MaterialTheme.colorScheme.surface
     ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = color
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    item.materialCode.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isDiff) CardAmber else Primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val subLine = listOfNotNull(
+                    item.materialName?.takeIf { it.isNotBlank() },
+                    item.spec?.takeIf { it.isNotBlank() }?.let { "规格 $it" },
+                    item.area?.takeIf { it.isNotBlank() }?.let { "区域 $it" }
+                ).joinToString(" · ")
+                if (subLine.isNotBlank()) {
+                    Text(
+                        subLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            val unit = item.unit.orEmpty()
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    "账面 ${formatQty(item.systemStock ?: 0.0)}$unit → 实盘 ${formatQty(item.actualStock ?: 0.0)}$unit",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+                val diff = item.difference ?: 0.0
+                Text(
+                    (if (diff > 0) "+" else "") + formatQty(diff),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isDiff) CardAmber else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+        }
     }
 }
+

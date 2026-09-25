@@ -73,6 +73,8 @@ data class InOutDetailReportUiState(
     /** 滚动翻页加载中（列表底部 footer） */
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     /** 日期范围（yyyy-MM-dd），默认都是今天 */
     val startDate: String = "",
     val endDate: String = "",
@@ -179,6 +181,25 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
         refresh()
     }
 
+    /** AI-APP-FIX-402：DatePicker 直接选开始日（钳制同 shiftStartDay：不越过结束日期） */
+    fun setStartDate(date: String) {
+        val s = _uiState.value
+        if (date > s.endDate || date == s.startDate) return
+        _uiState.value = s.copy(startDate = date)
+        refresh()
+    }
+
+    /** AI-APP-FIX-402：DatePicker 直接选结束日（钳制同 shiftEndDay：上限今天、下限开始日期） */
+    fun setEndDate(date: String) {
+        val s = _uiState.value
+        var next = date
+        val todayStr = InOutDetailDateLogic.today()
+        if (next > todayStr) next = todayStr
+        if (next < s.startDate || next == s.endDate) return
+        _uiState.value = s.copy(endDate = next)
+        refresh()
+    }
+
     /** 点搜索 / 换仓 / 换方向 / 翻日期 / 下拉刷新：从第 1 页重新拉 */
     fun refresh() {
         // 仓库必填（AGENTS.md §二）：未选仓不发请求（不拉全量、不回退默认仓）
@@ -200,7 +221,7 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
             _uiState.value = if (append) {
                 _uiState.value.copy(isLoadingMore = true, error = null)
             } else {
-                _uiState.value.copy(isLoading = true, error = null)
+                _uiState.value.copy(isLoading = true, error = null, loadError = null)
             }
             val s = _uiState.value
             repository.getInOutDetailReport(
@@ -224,11 +245,21 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = e.message ?: "加载失败"
-                    )
+                    // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；
+                    // 带数据刷新/翻页失败 → Snackbar，保留已有数据。
+                    if (!append && _uiState.value.items.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            loadError = e.message ?: "加载失败"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }

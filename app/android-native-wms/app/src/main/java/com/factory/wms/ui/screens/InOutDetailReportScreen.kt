@@ -16,9 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
@@ -28,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -36,8 +34,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -53,7 +49,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.InOutDetailItem
 import com.factory.wms.ui.components.WarehouseSelector
+import com.factory.wms.ui.components.WmsDateNavRow
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsPullToRefreshBox
+import com.factory.wms.ui.components.WmsTopBar
+import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Error
 import com.factory.wms.ui.theme.Primary
@@ -91,7 +94,9 @@ fun InOutDetailReportScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带数据刷新/翻页失败"的瞬态错误（首屏失败
+            // 走 loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -112,29 +117,11 @@ fun InOutDetailReportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("出入库明细", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "日期范围流水 · 按仓展示",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            // AI-APP-FIX-401：自绘 TopAppBar → 统一 WmsTopBar
+            WmsTopBar(
+                title = "出入库明细",
+                subtitle = "日期范围流水 · 按仓展示",
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -161,26 +148,28 @@ fun InOutDetailReportScreen(
                         .fillMaxWidth()
                         .padding(vertical = 2.dp)
                 ) {
-                    InOutDateNavRow(
+                    // AI-APP-FIX-402：开始/结束两行共用 WmsDateNavRow（wrapInCard=false），
+                    // 日期可点弹 DatePicker 直接跳日；钳制逻辑在 ViewModel
+                    WmsDateNavRow(
                         label = "开始",
                         date = uiState.startDate,
                         onPrev = { viewModel.shiftStartDay(-1) },
                         onNext = { viewModel.shiftStartDay(1) },
                         // 开始日期后翻不能越过结束日期
-                        nextEnabled = uiState.startDate < uiState.endDate
+                        nextEnabled = uiState.startDate < uiState.endDate,
+                        wrapInCard = false,
+                        onDateSelected = { viewModel.setStartDate(it) }
                     )
-                    InOutDateNavRow(
+                    WmsDateNavRow(
                         label = "结束",
                         date = uiState.endDate,
                         onPrev = { viewModel.shiftEndDay(-1) },
                         onNext = { viewModel.shiftEndDay(1) },
                         // 结束日期后翻不能越过今天
                         nextEnabled = uiState.endDate < todayStr,
-                        trailing = {
-                            TextButton(onClick = { viewModel.resetToday() }) {
-                                Text("回到今天", fontSize = 12.sp)
-                            }
-                        }
+                        wrapInCard = false,
+                        onResetToday = { viewModel.resetToday() },
+                        onDateSelected = { viewModel.setEndDate(it) }
                     )
                 }
             }
@@ -210,7 +199,7 @@ fun InOutDetailReportScreen(
                         selected = uiState.direction == dir,
                         onClick = { viewModel.selectDirection(dir) },
                         label = { Text(dir.label) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
                     )
                 }
             }
@@ -259,16 +248,37 @@ fun InOutDetailReportScreen(
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
                         InOutSummaryCell("笔数", "${summary.totalCount}")
-                        InOutSummaryCell("入库合计", formatInOutQty(summary.totalInQuantity), Success)
-                        InOutSummaryCell("出库合计", formatInOutQty(summary.totalOutQuantity), Error)
+                        InOutSummaryCell("入库合计", formatQty(summary.totalInQuantity), Success)
+                        InOutSummaryCell("出库合计", formatQty(summary.totalOutQuantity), Error)
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // ── 明细列表 / 加载 / 空态 ──
-            Box(modifier = Modifier.fillMaxSize()) {
+            // ── 明细列表 / 加载 / 空态 / 错误态 ──
+            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
+            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
+            WmsPullToRefreshBox(
+                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
                 when {
+                    // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表；
+                    // 带数据刷新保留旧列表 + 居中转圈，不闪骨架。
+                    uiState.isLoading && uiState.items.isEmpty() -> {
+                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                    }
+                    // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                    // 不再落入下方"该范围内无出入库流水"的误导性空态
+                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            modifier = Modifier.align(Alignment.Center),
+                            onRetry = { viewModel.refresh() }
+                        )
+                    }
                     uiState.isLoading -> {
                         CircularProgressIndicator(
                             modifier = Modifier.align(Alignment.Center)
@@ -333,48 +343,6 @@ fun InOutDetailReportScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun InOutDateNavRow(
-    label: String,
-    date: String,
-    onPrev: () -> Unit,
-    onNext: () -> Unit,
-    nextEnabled: Boolean,
-    trailing: (@Composable () -> Unit)? = null
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        IconButton(onClick = onPrev) {
-            // 注意：必须用 ${label}——"$label前一天" 会被 Kotlin 解析成
-            // 标识符 `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference。
-            Icon(Icons.Filled.ChevronLeft, "${label}前一天")
-        }
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                date,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 16.sp
-            )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${label}日期",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                trailing?.invoke()
-            }
-        }
-        IconButton(onClick = onNext, enabled = nextEnabled) {
-            Icon(Icons.Filled.ChevronRight, "${label}后一天")
         }
     }
 }
@@ -456,23 +424,22 @@ private fun InOutDetailItemRow(item: InOutDetailItem) {
             // 带符号数量：入库 +绿 / 出库 -红（direction 与服务端口径一致）
             val isOut = item.direction == "out" || item.quantity < 0
             val qtyText = (if (isOut) "-" else "+") +
-                formatInOutQty(kotlin.math.abs(item.quantity)) +
+                formatQty(kotlin.math.abs(item.quantity)) +
                 (item.unit?.takeIf { it.isNotBlank() }?.let { " $it" } ?: "")
             Text(
                 qtyText,
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
+                // AI-APP-FIX-403：数字列单行省略 + 固定右栏宽 + tnum 等宽数字
+                style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(110.dp),
                 color = if (isOut) Error else Success
             )
         }
     }
 }
 
-/** 数量格式化：整数不带小数点，小数保留两位（与库存日报同规则） */
-private fun formatInOutQty(value: Double): String {
-    return if (value % 1.0 == 0.0) {
-        String.format(Locale.US, "%.0f", value)
-    } else {
-        String.format(Locale.US, "%.2f", value)
-    }
-}
+// AI-APP-FIX-403：数量格式化统一为 ui/util/Format.kt 的 formatQty（千分位）

@@ -17,12 +17,16 @@ import okhttp3.MultipartBody
 data class MaterialArchiveUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：搜索列表为空时加载失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     // 搜索列表
     val keyword: String = "",
     val materials: List<MaterialArchiveDto> = emptyList(),
     // 图片管理
     val imagesData: MaterialArchiveImagesData? = null,
     val images: List<MaterialArchiveImageDto> = emptyList(),
+    /** AI-APP-FIX-201：档案图片为空时加载失败的持久错误（全屏错误态 + 重试） */
+    val imagesError: String? = null,
     val uploading: Boolean = false,
     val deletingId: Int? = null,
     // 物料档案"打印"（远程打印队列）
@@ -51,7 +55,7 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
 
     fun search(keyword: String = _uiState.value.keyword) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, loadError = null)
             val result = repository.searchMaterialArchive(keyword)
             _uiState.value = _uiState.value.copy(isLoading = false)
             result.fold(
@@ -59,7 +63,13 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
                     _uiState.value = _uiState.value.copy(materials = materials)
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(error = e.message)
+                    // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；
+                    // 带结果搜索失败 → Snackbar，保留旧列表。
+                    if (_uiState.value.materials.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(loadError = e.message ?: "加载失败")
+                    } else {
+                        _uiState.value = _uiState.value.copy(error = e.message)
+                    }
                 }
             )
         }
@@ -67,7 +77,7 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
 
     fun loadImages(materialId: Int) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, imagesError = null)
             val result = repository.getMaterialArchiveImages(materialId)
             _uiState.value = _uiState.value.copy(isLoading = false)
             result.fold(
@@ -78,7 +88,12 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(error = e.message)
+                    // AI-APP-FIX-201：图片首载失败 → 全屏错误态，不再伪装成"暂无档案图片"
+                    if (_uiState.value.images.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(imagesError = e.message ?: "加载失败")
+                    } else {
+                        _uiState.value = _uiState.value.copy(error = e.message)
+                    }
                 }
             )
         }

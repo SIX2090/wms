@@ -3,14 +3,17 @@ package com.factory.wms.ui.theme
 import androidx.compose.ui.graphics.Color
 
 // ── Primary ── Rich Indigo
-val Primary = Color(0xFF4361EE)
+// AI-APP-FIX-301：会被亮/暗切换的令牌（Background/OnSurface/Success 族等）
+// 一律改为 internal Palette*，由 ThemeTokens.kt 的同名委托 getter 对外提供
+// （页面引用的令牌名不变，但取值跟随 colorScheme / 语义色扩展）。
+internal val PalettePrimary = Color(0xFF4361EE)
 val PrimaryLight = Color(0xFF7B8FF7)
 val PrimaryDark = Color(0xFF2D3FBF)
-val PrimaryContainer = Color(0xFFE8ECFD)
+internal val PalettePrimaryContainer = Color(0xFFE8ECFD)
 val OnPrimary = Color.White
 val OnPrimaryContainer = Color(0xFF0E1A6B)
 
-// ── Secondary ── Warm Amber
+// ── Secondary ── Warm Amber（模块/徽标点缀色，亮暗通用，不参与令牌映射）
 val Secondary = Color(0xFFF59E0B)
 val SecondaryLight = Color(0xFFFBBF24)
 val SecondaryDark = Color(0xFFB45309)
@@ -18,7 +21,7 @@ val SecondaryContainer = Color(0xFFFFF3DF)
 val OnSecondary = Color(0xFF1A1A1A)
 val OnSecondaryContainer = Color(0xFF5C2D00)
 
-// ── Tertiary ── Teal
+// ── Tertiary ── Teal（同上，点缀色保留）
 val Tertiary = Color(0xFF0D9488)
 val TertiaryLight = Color(0xFF5EEAD4)
 val TertiaryDark = Color(0xFF0F766E)
@@ -26,32 +29,31 @@ val TertiaryContainer = Color(0xFFD5F5F0)
 val OnTertiary = Color.White
 val OnTertiaryContainer = Color(0xFF00332F)
 
-// ── Surface ──
-val Surface = Color(0xFFF9FAFB)
-val SurfaceVariant = Color(0xFFF0F2F5)
-val Background = Color(0xFFF3F4F6)
-val CardBackground = Color.White
+// ── Surface ──（内部调色板，经 ThemeTokens.kt 映射到 colorScheme）
+internal val PaletteSurfaceVariant = Color(0xFFF0F2F5)
+internal val PaletteBackground = Color(0xFFF3F4F6)
+internal val PaletteCardBackground = Color.White
 
 // ── On Surface ──
-val OnSurface = Color(0xFF111827)
-val OnSurfaceVariant = Color(0xFF6B7280)
-val OnSurfaceSecondary = Color(0xFF9CA3AF)
+internal val PaletteOnSurface = Color(0xFF111827)
+internal val PaletteOnSurfaceVariant = Color(0xFF6B7280)
+internal val PaletteTextSecondary = Color(0xFF9CA3AF)
 
 // ── Divider / Border ── 柔和分隔线与描边（AI-APP-UI-001）
-val DividerSoft = Color(0xFFE9EBF0)
-val BorderSoft = Color(0xFFE2E5EA)
+internal val PaletteDividerSoft = Color(0xFFE9EBF0)
+internal val PaletteBorderSoft = Color(0xFFE2E5EA)
 
-// ── Status ──
-val Success = Color(0xFF10B981)
-val SuccessContainer = Color(0xFFD1FAE5)
-val Warning = Color(0xFFF59E0B)
-val WarningContainer = Color(0xFFFFF3CD)
-val Error = Color(0xFFEF4444)
-val ErrorContainer = Color(0xFFFEE2E2)
-val Info = Color(0xFF3B82F6)
-val InfoContainer = Color(0xFFDBEAFE)
+// ── Status ──（亮色版；暗色版见 SemanticColors.kt DarkSemanticColors）
+internal val PaletteSuccess = Color(0xFF10B981)
+internal val PaletteSuccessContainer = Color(0xFFD1FAE5)
+internal val PaletteWarning = Color(0xFFF59E0B)
+internal val PaletteWarningContainer = Color(0xFFFFF3CD)
+internal val PaletteError = Color(0xFFEF4444)
+internal val PaletteErrorContainer = Color(0xFFFEE2E2)
+internal val PaletteInfo = Color(0xFF3B82F6)
+internal val PaletteInfoContainer = Color(0xFFDBEAFE)
 
-// ── Card Gradients ──
+// ── Card Gradients ── 模块渐变 accent（FIX-301：亮暗均保留，不映射）
 // 扫码入库 - Blue
 val CardBlue = Color(0xFF4361EE)
 val CardBlueLight = Color(0xFF7B8FF7)
@@ -92,12 +94,12 @@ val CardAmber = Color(0xFFD97706)
 val CardAmberLight = Color(0xFFFBBF24)
 val CardAmberDark = Color(0xFF92400E)
 
-// ── Dark Theme ──
-val DarkSurface = Color(0xFF18181B)
-val DarkSurfaceVariant = Color(0xFF27272A)
-val DarkBackground = Color(0xFF0F0F11)
-val DarkCardBackground = Color(0xFF27272A)
-val DarkOnSurface = Color(0xFFF4F4F5)
-val DarkOnSurfaceVariant = Color(0xFFA1A1AA)
-val DarkOnSurfaceSecondary = Color(0xFF71717A)
-val DarkDividerSoft = Color(0xFF2E2E33)
+// ── Dark Theme ──（内部调色板，Theme.kt / SemanticColors.kt 使用）
+internal val DarkSurface = Color(0xFF18181B)
+internal val DarkSurfaceVariant = Color(0xFF27272A)
+internal val DarkBackground = Color(0xFF0F0F11)
+internal val DarkOnSurface = Color(0xFFF4F4F5)
+internal val DarkOnSurfaceVariant = Color(0xFFA1A1AA)
+internal val DarkOnSurfaceSecondary = Color(0xFF71717A)
+internal val DarkDividerSoft = Color(0xFF2E2E33)
+internal val DarkBorderSoft = Color(0xFF3A3A40)

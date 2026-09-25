@@ -3,6 +3,7 @@ package com.factory.wms.ui.viewmodel.stocktake
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.factory.wms.data.model.StocktakeRecordDetailData
 import com.factory.wms.data.model.StocktakeRecordDto
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,8 @@ import kotlinx.coroutines.launch
 data class StocktakeRecordUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：首屏（列表为空时）加载失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     /** 记录列表（服务端只返回本人记录） */
     val records: List<StocktakeRecordDto> = emptyList(),
     val total: Int = 0,
@@ -26,7 +29,13 @@ data class StocktakeRecordUiState(
     val pageSize: Int = 20,
     val totalPages: Int = 0,
     /** true 时展示已作废记录（默认只看正常记录） */
-    val showVoided: Boolean = false
+    val showVoided: Boolean = false,
+    /** AI-APP-FIX-505：差异明细下钻——非 null 时页面弹出明细对话框 */
+    val detail: StocktakeRecordDetailData? = null,
+    val detailLoading: Boolean = false,
+    val detailError: String? = null,
+    /** 下钻目标记录 id（加载中/失败时对话框标题仍可用） */
+    val detailTargetId: Long? = null
 ) {
     val isEmpty: Boolean get() = !isLoading && records.isEmpty()
     val hasMore: Boolean get() = page < totalPages
@@ -64,7 +73,11 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
     private fun fetch(page: Int, append: Boolean) {
         val state = _uiState.value
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(
+                isLoading = true,
+                error = null,
+                loadError = if (append) _uiState.value.loadError else null
+            )
             // 服务端 status 缺省为 completed；显式传 void 才看已作废记录
             val status = if (state.showVoided) "void" else "completed"
             repository.loadStocktakeRecords(
@@ -85,10 +98,19 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message ?: "加载失败"
-                    )
+                    // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；
+                    // 翻页失败 → Snackbar，保留已有数据。
+                    if (!append && _uiState.value.records.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            loadError = e.message ?: "加载失败"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }
@@ -96,5 +118,45 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    /**
+     * AI-APP-FIX-505：差异明细下钻。点记录卡即弹对话框并拉取明细；
+     * 失败留在对话框内展示错误 + 重试，不吞成"没反应"。
+     */
+    fun loadDetail(id: Long) {
+        if (id == 0L) return
+        _uiState.value = _uiState.value.copy(
+            detail = null,
+            detailLoading = true,
+            detailError = null,
+            detailTargetId = id
+        )
+        viewModelScope.launch {
+            repository.loadStocktakeRecordDetail(id).fold(
+                onSuccess = { data ->
+                    _uiState.value = _uiState.value.copy(
+                        detail = data,
+                        detailLoading = false
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(
+                        detailLoading = false,
+                        detailError = e.message ?: "明细加载失败"
+                    )
+                }
+            )
+        }
+    }
+
+    /** 关闭明细对话框。 */
+    fun clearDetail() {
+        _uiState.value = _uiState.value.copy(
+            detail = null,
+            detailLoading = false,
+            detailError = null,
+            detailTargetId = null
+        )
     }
 }

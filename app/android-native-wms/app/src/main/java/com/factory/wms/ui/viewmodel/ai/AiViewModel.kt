@@ -9,6 +9,7 @@ import com.factory.wms.data.model.InboundDraftRequest
 import com.factory.wms.data.model.InboundDraftResult
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -38,6 +39,11 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(AiUiState())
     val uiState: StateFlow<AiUiState> = _uiState.asStateFlow()
 
+    // AI-APP-FIX-507：识别任务句柄——OCR/识物都要可取消（识别动辄十几秒，
+    // 拍错照片时用户只能干等）。取消即中止协程并复位 isLoading。
+    private var ocrJob: Job? = null
+    private var recognizeJob: Job? = null
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
@@ -51,7 +57,8 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun documentOcr(imagePart: MultipartBody.Part) {
-        viewModelScope.launch {
+        ocrJob?.cancel()
+        ocrJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, ocrResult = null, ocrReply = null)
             val result = repository.documentOcr(imagePart)
             result.fold(
@@ -69,8 +76,18 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** AI-APP-FIX-507：取消进行中的 OCR 识别（复位按钮态，不写错误）。 */
+    fun cancelOcr() {
+        ocrJob?.cancel()
+        ocrJob = null
+        if (_uiState.value.isLoading) {
+            _uiState.value = _uiState.value.copy(isLoading = false)
+        }
+    }
+
     fun recognizeMaterial(imagePart: MultipartBody.Part) {
-        viewModelScope.launch {
+        recognizeJob?.cancel()
+        recognizeJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, recognizedMaterial = null, recognizedReply = null)
             val result = repository.recognizeMaterial(imagePart)
             result.fold(
@@ -85,6 +102,15 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(isLoading = false, error = e.message)
                 }
             )
+        }
+    }
+
+    /** AI-APP-FIX-507：取消进行中的识物识别（复位按钮态，不写错误）。 */
+    fun cancelRecognition() {
+        recognizeJob?.cancel()
+        recognizeJob = null
+        if (_uiState.value.isLoading) {
+            _uiState.value = _uiState.value.copy(isLoading = false)
         }
     }
 

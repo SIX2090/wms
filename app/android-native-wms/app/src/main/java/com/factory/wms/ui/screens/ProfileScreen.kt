@@ -19,10 +19,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
+import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.util.ScanFeedback
@@ -51,6 +53,11 @@ fun ProfileScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             // ── Header ──
+            // AI-APP-FIX-204：深蓝渐变头部画在状态栏之下（本页 Scaffold 无 topBar，
+            // 内容从屏幕顶开始），浅色主题默认的深色状态栏图标压在深蓝上不可读。
+            // 头像+角色徽标的自定义布局放不进 WmsGradientHeader 的 title/subtitle
+            // 结构，故保留自绘头部、只补状态栏图标适配（偏差说明见修复报告）。
+            StatusBarIconEffect(darkIcons = false)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -102,11 +109,14 @@ fun ProfileScreen(
                     }
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
+                        // AI-APP-FIX-204：超长用户名截断，防止顶破头部布局
                         Text(
                             uiState.username.ifBlank { "未登录" },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
+                            fontSize = 20.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Surface(
@@ -395,19 +405,18 @@ private fun ProfileRow(
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
+        // AI-APP-FIX-204：删除 ChevronRight 假箭头——本页所有 ProfileRow 均不可点，
+        // 箭头暗示"点进去有详情"，点了没反应属于误导。
+        // value 加 weight + 右对齐：长值（如服务器地址）在自有半区内省略号截断，
+        // 不再把 label 挤没或整行溢出。
         Text(
             value,
+            modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodySmall,
             color = if (isHint) Primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.End,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
-        )
-        Spacer(modifier = Modifier.width(4.dp))
-        Icon(
-            Icons.Filled.ChevronRight,
-            null,
-            tint = OnSurfaceSecondary,
-            modifier = Modifier.size(18.dp)
         )
     }
     if (showDivider) {

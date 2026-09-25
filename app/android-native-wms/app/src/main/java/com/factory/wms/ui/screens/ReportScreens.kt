@@ -3,6 +3,7 @@ package com.factory.wms.ui.screens
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,12 +12,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -31,8 +32,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -43,12 +42,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DailyReportData
 import com.factory.wms.data.model.DailyReportItem
 import com.factory.wms.ui.components.WarehouseSelector
+import com.factory.wms.ui.components.WmsDateNavRow
+import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsTopBar
+import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.report.ReportType
@@ -78,7 +85,9 @@ fun DailyReportScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带数据刷新失败"的瞬态错误（首屏失败走
+            // loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -87,29 +96,20 @@ fun DailyReportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("每日报表", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "采购入库 · 领料单明细",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
+            // AI-APP-FIX-206：统一共享顶栏（状态栏图标适配），补手动刷新入口
+            WmsTopBar(
+                title = "每日报表",
+                subtitle = "采购入库 · 领料单明细",
+                onBack = onBack,
+                actions = {
+                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading) {
                         Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
+                            Icons.Outlined.Refresh,
+                            "刷新",
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                }
             )
         }
     ) { padding ->
@@ -118,42 +118,17 @@ fun DailyReportScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // ── 日期导航条 ──
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = { viewModel.shiftDay(-1) }) {
-                        Icon(Icons.Filled.ChevronLeft, "前一天")
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            uiState.date,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
-                        )
-                        TextButton(onClick = { viewModel.resetToday() }) {
-                            Text("回到今天", fontSize = 12.sp)
-                        }
-                    }
-                    IconButton(onClick = { viewModel.shiftDay(1) }) {
-                        Icon(Icons.Filled.ChevronRight, "后一天")
-                    }
-                }
-            }
+            // ── 日期导航条（AI-APP-FIX-402：统一 WmsDateNavRow，日期可点弹 DatePicker 跳日）──
+            // 「后一天」到达今天后禁用（FIX-206：未来日期服务端 400，前置钳制，
+            // ViewModel.shiftDay/setDate 内有二次钳制兜底）
+            WmsDateNavRow(
+                date = uiState.date,
+                onPrev = { viewModel.shiftDay(-1) },
+                onNext = { viewModel.shiftDay(1) },
+                nextEnabled = uiState.date < viewModel.today(),
+                onResetToday = { viewModel.resetToday() },
+                onDateSelected = { viewModel.setDate(it) }
+            )
 
             // ── 类型切换 ──
             Row(
@@ -167,7 +142,7 @@ fun DailyReportScreen(
                         selected = uiState.reportType == type,
                         onClick = { viewModel.selectType(type) },
                         label = { Text(type.label) },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
                     )
                 }
             }
@@ -210,45 +185,64 @@ fun DailyReportScreen(
                     ) {
                         SummaryCell("单据", "${report.summary.orderCount}")
                         SummaryCell("明细", "${report.summary.itemCount}")
-                        SummaryCell("总数量", formatReportQty(report.summary.quantity))
+                        SummaryCell("总数量", formatQty(report.summary.quantity))
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // ── 明细列表 / 加载 / 空态 ──
+            // ── 明细列表 / 加载 / 空态 / 错误态 ──
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
+                    // AI-APP-FIX-202：首屏（尚无报表数据）转圈 → 骨架列表；
+                    // 带数据刷新保留旧列表 + 顶部按钮禁用，不闪骨架。
+                    uiState.isLoading && uiState.report == null -> {
+                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                    }
+                    // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                    // 不再落入下方"当日暂无明细"的误导性空态
+                    uiState.loadError != null && uiState.report == null -> {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            modifier = Modifier.align(Alignment.Center),
+                            onRetry = { viewModel.load() }
+                        )
+                    }
                     uiState.isLoading -> {
                         CircularProgressIndicator(
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
                     (uiState.report?.items?.isEmpty() != false) -> {
-                        Text(
-                            // BUG-2026-09-10-001：空结果必须给出"为什么"，否则现场只能
-                            // 反复问"今天的记录去哪了"。最常见原因是 PC 端保存后未点完成
-                            // （报表只统计已完成单据），其次是业务类型不在本报表口径内。
-                            emptyStateHint(uiState.report, uiState.reportType.label),
+                        // BUG-2026-09-10-001：空结果必须给出"为什么"，否则现场只能
+                        // 反复问"今天的记录去哪了"。最常见原因是 PC 端保存后未点完成
+                        // （报表只统计已完成单据），其次是业务类型不在本报表口径内。
+                        WmsEmptyState(
+                            icon = Icons.Outlined.ReceiptLong,
+                            title = "当日暂无${uiState.reportType.label}明细",
+                            subtitle = emptyStateHint(uiState.report)
+                                ?: "可翻日期回看，或确认单据已在电脑端点「完成」",
                             modifier = Modifier.align(Alignment.Center)
-                                .padding(horizontal = 32.dp),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     else -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            contentPadding = PaddingValues(
                                 horizontal = 16.dp, vertical = 4.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(uiState.report!!.items) { item ->
+                            // AI-APP-FIX-206：补稳定 key（去除 report!! 强制解包）。
+                            // 明细无服务端 id，同物料同合同同日可能重复 → key 追加行序号兜底。
+                            itemsIndexed(
+                                uiState.report?.items.orEmpty(),
+                                key = { index, item -> "${item.materialCode}|${item.contractNo ?: ""}|$index" }
+                            ) { _, item ->
                                 DailyReportItemRow(
                                     item = item,
-                                    isPurchase = uiState.reportType == ReportType.PURCHASE_IN,
-                                    showWarehouse = uiState.selectedWarehouseId == "all"
+                                    isPurchase = uiState.reportType == ReportType.PURCHASE_IN
                                 )
                             }
                         }
@@ -260,22 +254,22 @@ fun DailyReportScreen(
 }
 
 /**
- * 空态文案：在「当日暂无X明细」之外补充可行动线索。
- * 诊断字段来自服务端 diagnostics，旧版后端无该节点时为 null，必须判空。
+ * 空态副文案：在「当日暂无X明细」标题之外补充可行动线索；无线索时返回 null
+ * （调用方给默认副文案）。诊断字段来自服务端 diagnostics，旧版后端无该节点时
+ * 为 null，必须判空。
  */
-private fun emptyStateHint(report: DailyReportData?, label: String): String {
-    val base = "当日暂无${label}明细"
-    val diag = report?.diagnostics ?: return base
+private fun emptyStateHint(report: DailyReportData?): String? {
+    val diag = report?.diagnostics ?: return null
     val pending = diag.pendingOrders ?: 0
     if (pending > 0) {
-        return "$base\n今日该仓还有 $pending 张单据未完成\n（电脑端录入后需点「完成」才会计入报表）"
+        return "今日该仓还有 $pending 张单据未完成\n（电脑端录入后需点「完成」才会计入报表）"
     }
     val others = diag.otherTypeOrders?.filter { (it.orders ?: 0) > 0 }.orEmpty()
     if (others.isNotEmpty()) {
         val desc = others.joinToString("、") { "${it.businessType ?: "未填写"} ${it.orders} 单" }
-        return "$base\n今日该仓有其他类型单据：$desc\n（不在本报表统计口径内）"
+        return "今日该仓有其他类型单据：$desc\n（不在本报表统计口径内）"
     }
-    return base
+    return null
 }
 
 @Composable
@@ -298,8 +292,7 @@ private fun SummaryCell(label: String, value: String) {
 @Composable
 private fun DailyReportItemRow(
     item: DailyReportItem,
-    isPurchase: Boolean,
-    showWarehouse: Boolean = false
+    isPurchase: Boolean
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -338,21 +331,26 @@ private fun DailyReportItemRow(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 // 手机端报表不显示金额（用户需求：隐藏单价/金额、操作人、单据编号）
+                // AI-APP-FIX-403：数字列单行省略 + 固定右栏宽 + tnum 等宽数字
                 Text(
-                    "${formatReportQty(item.quantity)} ${item.unit}",
+                    "${formatQty(item.quantity)} ${item.unit}",
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
+                    style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.width(110.dp),
                     color = Primary
                 )
             }
             // 底部行：合同编号 + 往来单位（供应商/部门），不显示单据编号与操作人
             val partyLabel = if (isPurchase) "供应商" else "部门"
             val partyValue = (if (isPurchase) item.supplier else item.department) ?: ""
+            // AI-APP-FIX-206：删除 showWarehouse 死代码——日报下拉只列真实仓库
+            // （allowAll=false），"全部仓库汇总"口径已不可达。
             val bottomText = buildString {
-                // 全部仓库汇总：先标出来源仓，避免多仓数据混在一起分不清
-                if (showWarehouse && !item.warehouse.isNullOrBlank()) append("仓 ${item.warehouse}")
                 if (!item.contractNo.isNullOrBlank()) {
-                    if (isNotEmpty()) append(" · ")
                     append("合同 ${item.contractNo}")
                 }
                 if (partyValue.isNotBlank()) {
@@ -379,11 +377,4 @@ private fun DailyReportItemRow(
  * （BUG-2026-09-10-010：报表与首页需要一致的跨仓切换体验）。
  */
 
-/** 数量格式化：整数不带小数点，小数保留两位 */
-private fun formatReportQty(value: Double): String {
-    return if (value % 1.0 == 0.0) {
-        String.format(Locale.US, "%.0f", value)
-    } else {
-        String.format(Locale.US, "%.2f", value)
-    }
-}
+// AI-APP-FIX-403：数量格式化统一为 ui/util/Format.kt 的 formatQty（千分位）

@@ -16,9 +16,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
@@ -27,6 +24,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -35,8 +33,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -46,18 +42,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.StockDailyItem
 import com.factory.wms.ui.components.WarehouseSelector
+import com.factory.wms.ui.components.WmsDateNavRow
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsPullToRefreshBox
+import com.factory.wms.ui.components.WmsTopBar
+import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.theme.Success
 import com.factory.wms.ui.viewmodel.report.StockDailyReportViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 /**
@@ -88,7 +89,9 @@ fun StockDailyReportScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带数据刷新/翻页失败"的瞬态错误（首屏失败
+            // 走 loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -109,29 +112,11 @@ fun StockDailyReportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("库存日报", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "各物料每日结存 · 按仓展示",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            // AI-APP-FIX-401：自绘 TopAppBar → 统一 WmsTopBar
+            WmsTopBar(
+                title = "库存日报",
+                subtitle = "各物料每日结存 · 按仓展示",
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -140,55 +125,20 @@ fun StockDailyReportScreen(
                 .padding(padding)
                 .fillMaxSize()
         ) {
-            // ── 日期导航（AI-MOB-RPT-F03：可翻日期看历史收市结存）──
+            // ── 日期导航（AI-MOB-RPT-F03：可翻日期看历史收市结存；
+            //    AI-APP-FIX-402：统一 WmsDateNavRow，日期可点弹 DatePicker 跳日）──
             // 「后一天」在到达今天后禁用（服务端对未来日期 400，此处前置钳制）；
             // 历史日期「数据截至」显示 23:59（收市语义），今天显示当前时刻。
-            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    IconButton(onClick = { viewModel.shiftDay(-1) }) {
-                        Icon(Icons.Filled.ChevronLeft, "前一天")
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            uiState.date,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "数据截至 ${uiState.generatedAt ?: "--:--"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            TextButton(onClick = { viewModel.resetToday() }) {
-                                Text("回到今天", fontSize = 12.sp)
-                            }
-                        }
-                    }
-                    IconButton(
-                        onClick = { viewModel.shiftDay(1) },
-                        enabled = uiState.date < todayStr
-                    ) {
-                        Icon(Icons.Filled.ChevronRight, "后一天")
-                    }
-                }
-            }
+            // todayStr 由 ViewModel 提供（FIX-402：不再每次重组新建 SimpleDateFormat）。
+            WmsDateNavRow(
+                date = uiState.date,
+                onPrev = { viewModel.shiftDay(-1) },
+                onNext = { viewModel.shiftDay(1) },
+                nextEnabled = uiState.date < viewModel.today(),
+                subtitle = "数据截至 ${uiState.generatedAt ?: "--:--"}",
+                onResetToday = { viewModel.resetToday() },
+                onDateSelected = { viewModel.setDate(it) }
+            )
 
             // ── 仓库选择（必填，只列真实仓库；结存跨仓无意义，不提供"全部仓库"）──
             WarehouseSelector(
@@ -247,15 +197,36 @@ fun StockDailyReportScreen(
                         StockDailySummaryCell("物料", "${summary.totalMaterials}")
                         StockDailySummaryCell("有库存", "${summary.inStockMaterials}")
                         StockDailySummaryCell("零库存", "${summary.zeroMaterials}")
-                        StockDailySummaryCell("合计数量", formatStockQty(summary.totalQuantity))
+                        StockDailySummaryCell("合计数量", formatQty(summary.totalQuantity))
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // ── 明细列表 / 加载 / 空态 ──
-            Box(modifier = Modifier.fillMaxSize()) {
+            // ── 明细列表 / 加载 / 空态 / 错误态 ──
+            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
+            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
+            WmsPullToRefreshBox(
+                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
                 when {
+                    // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表；
+                    // 带数据刷新保留旧列表 + 底部转圈，不闪骨架。
+                    uiState.isLoading && uiState.items.isEmpty() -> {
+                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                    }
+                    // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                    // 不再落入下方"该仓当天无结存物料"的误导性空态
+                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            modifier = Modifier.align(Alignment.Center),
+                            onRetry = { viewModel.refresh() }
+                        )
+                    }
                     uiState.isLoading -> {
                         CircularProgressIndicator(
                             modifier = Modifier.align(Alignment.Center)
@@ -391,11 +362,18 @@ private fun StockDailyItemRow(item: StockDailyItem) {
             }
             Spacer(modifier = Modifier.width(8.dp))
             // 结存：零库存用弱化色，区别于有库存
+            // AI-APP-FIX-403：浮点不能直接 == 0.0（0.1+0.2 类误差会让零库存显绿）；
+            // 数字列：单行省略 + 右对齐 + tnum 等宽数字，行间读数不跳位
             Text(
-                "${formatStockQty(item.stock)} ${item.unit.orEmpty()}".trim(),
+                "${formatQty(item.stock)} ${item.unit.orEmpty()}".trim(),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
-                color = if (item.stock == 0.0) {
+                style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                textAlign = TextAlign.End,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.width(110.dp),
+                color = if (kotlin.math.abs(item.stock) < 0.0001) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {
                     Success
@@ -405,11 +383,4 @@ private fun StockDailyItemRow(item: StockDailyItem) {
     }
 }
 
-/** 数量格式化：整数不带小数点，小数保留两位（与每日报表同规则） */
-private fun formatStockQty(value: Double): String {
-    return if (value % 1.0 == 0.0) {
-        String.format(Locale.US, "%.0f", value)
-    } else {
-        String.format(Locale.US, "%.2f", value)
-    }
-}
+// AI-APP-FIX-403：数量格式化统一为 ui/util/Format.kt 的 formatQty（千分位）

@@ -54,6 +54,8 @@ data class StockDailyReportUiState(
     /** 滚动翻页加载中（列表底部 footer） */
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     /** 当前查询日期（yyyy-MM-dd）。AI-MOB-RPT-F03：可翻日期，历史日期为当天收市结存 */
     val date: String = "",
     /** 日期是否处于「今天模式」：true 时每次刷新自动跟随系统当天（跨天不重启也生效） */
@@ -164,6 +166,17 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
         refresh()
     }
 
+    /** AI-APP-FIX-402：DatePicker 直接跳日（与 shiftDay 同钳制：不允许未来日期） */
+    fun setDate(date: String) {
+        val today = apiDateFormat.format(Date())
+        if (date > today || date == _uiState.value.date) return
+        _uiState.value = _uiState.value.copy(date = date, dateIsToday = date == today)
+        refresh()
+    }
+
+    /** AI-APP-FIX-402：今天日期串由 ViewModel 提供（替代页面层每次重组新建 SimpleDateFormat） */
+    fun today(): String = apiDateFormat.format(Date())
+
     /** 滚动到底翻页：只在还有页、不在加载中、且已查出过数据时才拉下一页 */
     fun loadMore() {
         val s = _uiState.value
@@ -177,7 +190,7 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
             _uiState.value = if (append) {
                 _uiState.value.copy(isLoadingMore = true, error = null)
             } else {
-                _uiState.value.copy(isLoading = true, error = null)
+                _uiState.value.copy(isLoading = true, error = null, loadError = null)
             }
             repository.getStockDailyReport(
                 warehouseId = warehouseId,
@@ -199,11 +212,21 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = e.message ?: "加载失败"
-                    )
+                    // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；
+                    // 带数据刷新/翻页失败 → Snackbar，保留已有数据。
+                    if (!append && _uiState.value.items.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            loadError = e.message ?: "加载失败"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }

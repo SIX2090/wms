@@ -98,6 +98,14 @@ interface WmsApiService {
         @Query("page_size") pageSize: Int = 20
     ): Response<ApiEnvelope<StocktakeRecordListData>>
 
+    /**
+     * AI-APP-FIX-505：盘点记录差异明细下钻（仅本人记录，差异行服务端已排前）。
+     */
+    @GET("api/mobile/stocktake/detail")
+    suspend fun getStocktakeRecordDetail(
+        @Query("id") id: Long
+    ): Response<ApiEnvelope<StocktakeRecordDetailData>>
+
     @Multipart
     @POST("api/ai/document_ocr")
     suspend fun documentOcr(

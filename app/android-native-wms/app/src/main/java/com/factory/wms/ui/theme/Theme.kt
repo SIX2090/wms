@@ -5,11 +5,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.Color
 
 private val LightColorScheme = lightColorScheme(
-    primary = Primary,
+    primary = PalettePrimary,
     onPrimary = OnPrimary,
-    primaryContainer = PrimaryContainer,
+    primaryContainer = PalettePrimaryContainer,
     onPrimaryContainer = OnPrimaryContainer,
     secondary = Secondary,
     onSecondary = OnSecondary,
@@ -19,18 +21,20 @@ private val LightColorScheme = lightColorScheme(
     onTertiary = OnTertiary,
     tertiaryContainer = TertiaryContainer,
     onTertiaryContainer = OnTertiaryContainer,
-    background = Background,
-    onBackground = OnSurface,
-    surface = Surface,
-    onSurface = OnSurface,
-    surfaceVariant = SurfaceVariant,
-    onSurfaceVariant = OnSurfaceVariant,
-    error = Error,
+    background = PaletteBackground,
+    onBackground = PaletteOnSurface,
+    // AI-APP-FIX-301：卡片令牌 CardBackground 映射到 surface——
+    // 亮色下必须是白色（与原 CardBackground 一致，视觉零变化）
+    surface = PaletteCardBackground,
+    onSurface = PaletteOnSurface,
+    surfaceVariant = PaletteSurfaceVariant,
+    onSurfaceVariant = PaletteOnSurfaceVariant,
+    error = PaletteError,
     onError = OnPrimary,
-    errorContainer = ErrorContainer,
-    onErrorContainer = Error,
-    outline = OnSurfaceVariant,
-    outlineVariant = SurfaceVariant
+    errorContainer = PaletteErrorContainer,
+    onErrorContainer = LightSemanticColors.onErrorContainer,
+    outline = PaletteOnSurfaceVariant,
+    outlineVariant = PaletteSurfaceVariant
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -52,10 +56,11 @@ private val DarkColorScheme = darkColorScheme(
     onSurface = DarkOnSurface,
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
-    error = Error,
-    onError = OnPrimary,
-    errorContainer = ErrorContainer,
-    onErrorContainer = Error,
+    // AI-APP-FIX-301：暗色 error 族与语义色扩展对齐（亮红 + 深红底）
+    error = DarkSemanticColors.error,
+    onError = Color(0xFF450A0A),
+    errorContainer = DarkSemanticColors.errorContainer,
+    onErrorContainer = DarkSemanticColors.onErrorContainer,
     outline = DarkOnSurfaceVariant,
     outlineVariant = DarkSurfaceVariant
 )
@@ -65,9 +70,16 @@ fun WmsTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    MaterialTheme(
-        colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
-        typography = Typography,
-        content = content
-    )
+    // AI-APP-FIX-301：语义色扩展（Success/Warning/Info 族、分隔线、三级文本、
+    // Chip 选中底 alpha、骨架微光 alpha）随亮暗一并切换
+    CompositionLocalProvider(
+        LocalWmsSemanticColors provides if (darkTheme) DarkSemanticColors else LightSemanticColors
+    ) {
+        MaterialTheme(
+            colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
+            typography = Typography,
+            shapes = WmsShapes,
+            content = content
+        )
+    }
 }

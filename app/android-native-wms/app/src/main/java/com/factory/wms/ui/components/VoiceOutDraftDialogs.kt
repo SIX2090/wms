@@ -119,7 +119,8 @@ fun VoiceOutDraftDialog(
                     Text("生成草稿")
                 }
                 else -> TextButton(onClick = onRetry) {
-                    Text("重新说一次", color = PrimaryDark, fontWeight = FontWeight.SemiBold)
+                    // AI-APP-FIX-303：PrimaryDark 暗色不可读 → Primary（随主题）
+                    Text("重新说一次", color = Primary, fontWeight = FontWeight.SemiBold)
                 }
             }
         },
@@ -269,7 +270,7 @@ private fun ConfirmBody(
                     onClick = onBackToChoice,
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("不是这个，重新选", fontSize = 12.sp, color = PrimaryDark)
+                    Text("不是这个，重新选", fontSize = 12.sp, color = Primary)
                 }
             }
         }

@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.MenuBook
@@ -31,6 +30,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -39,8 +39,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -61,6 +59,11 @@ import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.StockLedgerItem
 import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsPullToRefreshBox
+import com.factory.wms.ui.components.WmsTopBar
+import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Error
 import com.factory.wms.ui.theme.Primary
@@ -99,7 +102,9 @@ fun StockLedgerReportScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带数据刷新/翻页失败"的瞬态错误（首屏失败
+            // 走 loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -120,29 +125,11 @@ fun StockLedgerReportScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
         topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("库存台账", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        Text(
-                            "单物料流水 · 按仓展示",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.Filled.ArrowBack,
-                            "返回",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+            // AI-APP-FIX-401：自绘 TopAppBar → 统一 WmsTopBar（含状态栏图标处理）
+            WmsTopBar(
+                title = "库存台账",
+                subtitle = "单物料流水 · 按仓展示",
+                onBack = onBack
             )
         }
     ) { padding ->
@@ -206,7 +193,7 @@ fun StockLedgerReportScreen(
                             val sub = listOfNotNull(
                                 m.spec?.takeIf { it.isNotBlank() },
                                 uiState.material?.warehouseStock?.let {
-                                    "本仓结存 " + StockLedgerRangeLogic.formatQty(it)
+                                    "本仓结存 " + formatQty(it)
                                 }
                             ).joinToString(" · ")
                             if (sub.isNotBlank()) {
@@ -309,10 +296,10 @@ fun StockLedgerReportScreen(
                             .padding(horizontal = 8.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        LedgerSummaryCell("期初", StockLedgerRangeLogic.formatQty(summary.openingBalance))
-                        LedgerSummaryCell("入库", StockLedgerRangeLogic.formatQty(summary.totalInQuantity), Success)
-                        LedgerSummaryCell("出库", StockLedgerRangeLogic.formatQty(summary.totalOutQuantity), Error)
-                        LedgerSummaryCell("期末结存", StockLedgerRangeLogic.formatQty(summary.endingBalance), Primary)
+                        LedgerSummaryCell("期初", formatQty(summary.openingBalance))
+                        LedgerSummaryCell("入库", formatQty(summary.totalInQuantity), Success)
+                        LedgerSummaryCell("出库", formatQty(summary.totalOutQuantity), Error)
+                        LedgerSummaryCell("期末结存", formatQty(summary.endingBalance), Primary)
                     }
                 }
                 if (uiState.truncated) {
@@ -328,8 +315,14 @@ fun StockLedgerReportScreen(
                 Spacer(modifier = Modifier.height(10.dp))
             }
 
-            // ── 明细列表 / 加载 / 空态 ──
-            Box(modifier = Modifier.fillMaxSize()) {
+            // ── 明细列表 / 加载 / 空态 / 错误态 ──
+            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
+            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
+            WmsPullToRefreshBox(
+                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+                onRefresh = { viewModel.refresh() },
+                modifier = Modifier.fillMaxSize()
+            ) {
                 when {
                     uiState.selectedMaterial == null && !uiState.isLoading -> {
                         // 引导空态：台账按单一物料查询，先选物料
@@ -338,6 +331,20 @@ fun StockLedgerReportScreen(
                             title = "请先选择物料",
                             subtitle = "点击上方卡片搜索并选择物料，查看它的库存流水账",
                             modifier = Modifier.align(Alignment.Center)
+                        )
+                    }
+                    // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表
+                    uiState.isLoading && uiState.items.isEmpty() -> {
+                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                    }
+                    // AI-APP-FIX-201：首屏查询失败 → 全屏错误态 + 重试，
+                    // 不再静默落入"尚未查询"的空白等待（注意必须排在 !queried 分支前）
+                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            modifier = Modifier.align(Alignment.Center),
+                            onRetry = { viewModel.refresh() }
                         )
                     }
                     uiState.isLoading -> {
@@ -631,22 +638,28 @@ private fun StockLedgerItemRow(item: StockLedgerItem) {
             }
             Spacer(modifier = Modifier.width(8.dp))
             // 入/出量 + 行后结存（台账核心：running balance）
+            // AI-APP-FIX-403：数字列单行省略 + tnum 等宽数字（本列已右对齐）
             Column(horizontalAlignment = Alignment.End) {
                 val hasIn = item.inQuantity > 0
                 val hasOut = item.outQuantity > 0
                 Text(
                     when {
-                        hasIn -> "+" + StockLedgerRangeLogic.formatQty(item.inQuantity)
-                        hasOut -> "-" + StockLedgerRangeLogic.formatQty(item.outQuantity)
+                        hasIn -> "+" + formatQty(item.inQuantity)
+                        hasOut -> "-" + formatQty(item.outQuantity)
                         else -> "—"
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
+                    style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (hasOut && !hasIn) Error else Success
                 )
                 Text(
-                    "结存 " + StockLedgerRangeLogic.formatQty(item.balanceQuantity),
-                    style = MaterialTheme.typography.bodySmall,
+                    "结存 " + formatQty(item.balanceQuantity),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSetting = "tnum"),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

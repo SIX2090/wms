@@ -67,14 +67,7 @@ object StockLedgerRangeLogic {
         return kotlin.math.abs(opening + totalIn - totalOut - ending) < 0.005
     }
 
-    /** 数量格式化：整数不带小数点，小数保留两位（与库存日报/出入库明细同规则） */
-    fun formatQty(value: Double): String {
-        return if (value % 1.0 == 0.0) {
-            String.format(Locale.US, "%.0f", value)
-        } else {
-            String.format(Locale.US, "%.2f", value)
-        }
-    }
+    // AI-APP-FIX-403：formatQty 已迁出为 ui/util/Format.kt 的顶层共享实现（千分位）
 }
 
 data class StockLedgerReportUiState(
@@ -83,6 +76,8 @@ data class StockLedgerReportUiState(
     /** 滚动翻页加载中（列表底部 footer） */
     val isLoadingMore: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     val warehouses: List<WarehouseDto> = emptyList(),
     /** 当前查询仓库：只提供真实仓库（仓库必填，AGENTS.md §二），默认选中第一个 */
     val selectedWarehouseId: String? = null,
@@ -278,7 +273,7 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
             _uiState.value = if (append) {
                 _uiState.value.copy(isLoadingMore = true, error = null)
             } else {
-                _uiState.value.copy(isLoading = true, error = null)
+                _uiState.value.copy(isLoading = true, error = null, loadError = null)
             }
             val s = _uiState.value
             repository.getStockLedgerReport(
@@ -303,11 +298,21 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
                     )
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        isLoadingMore = false,
-                        error = e.message ?: "加载失败"
-                    )
+                    // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；
+                    // 带数据刷新/翻页失败 → Snackbar，保留已有数据。
+                    if (!append && _uiState.value.items.isEmpty()) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            loadError = e.message ?: "加载失败"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            isLoadingMore = false,
+                            error = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }

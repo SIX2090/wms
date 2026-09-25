@@ -41,9 +41,12 @@ import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.data.model.MaterialArchiveImageDto
 import com.factory.wms.ui.components.WmsCard
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
+import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.components.WmsOutlinedActionButton
 import com.factory.wms.ui.components.WmsPillBadge
 import com.factory.wms.ui.components.WmsPrimaryButton
+import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
 import com.factory.wms.ui.components.WmsSectionHeader
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.theme.*
@@ -80,7 +83,9 @@ fun MaterialArchiveSearchScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带结果搜索失败"的瞬态错误（首屏失败走
+            // loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -205,33 +210,59 @@ fun MaterialArchiveSearchScreen(
                 }
             }
 
-            // ── 结果列表 ──
-            if (uiState.materials.isEmpty() && !uiState.isLoading) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    WmsEmptyState(
-                        icon = Icons.Outlined.Inventory2,
-                        // BUG-2026-09-14-035：进入即自动加载全部，空关键字仍为空 = 档案尚无物料
-                        title = if (uiState.keyword.isBlank()) "暂无物料档案" else "未找到匹配的物料",
-                        subtitle = if (uiState.keyword.isBlank()) "可先在电脑端新建物料，或按编码/名称/规格/品牌搜索" else "换个关键字试试",
-                        accentColor = Primary
-                    )
+            // ── 结果列表 / 骨架 / 空态 / 错误态 ──
+            when {
+                // AI-APP-FIX-202：首屏加载（此前是空白屏等结果）→ 骨架列表
+                uiState.isLoading && uiState.materials.isEmpty() -> {
+                    WmsListSkeleton(modifier = Modifier.weight(1f))
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(uiState.materials, key = { it.id ?: it.code ?: it.hashCode() }) { material ->
-                        MaterialArchiveRow(
-                            material = material,
-                            onClick = { onOpenDetail(material) }
+
+                // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                // 不再落入下方"暂无物料档案"的误导性空态
+                uiState.loadError != null && uiState.materials.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            onRetry = { viewModel.search() }
                         )
+                    }
+                }
+
+                uiState.materials.isEmpty() -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        WmsEmptyState(
+                            icon = Icons.Outlined.Inventory2,
+                            // BUG-2026-09-14-035：进入即自动加载全部，空关键字仍为空 = 档案尚无物料
+                            title = if (uiState.keyword.isBlank()) "暂无物料档案" else "未找到匹配的物料",
+                            subtitle = if (uiState.keyword.isBlank()) "可先在电脑端新建物料，或按编码/名称/规格/品牌搜索" else "换个关键字试试",
+                            accentColor = Primary
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(uiState.materials, key = { it.id ?: it.code ?: it.hashCode() }) { material ->
+                            MaterialArchiveRow(
+                                material = material,
+                                onClick = { onOpenDetail(material) }
+                            )
+                        }
                     }
                 }
             }
@@ -349,7 +380,8 @@ fun MaterialArchiveDetailScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：上传/删除/打印等瞬态错误，Snackbar 加长
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -372,15 +404,14 @@ fun MaterialArchiveDetailScreen(
         }
     }
 
+    // AI-APP-FIX-101：随共享拍照入口一并迁移——相机直接回传全尺寸照片 Uri，
+    // 档案图片同样受益（大图预览更清晰），不再经过 Bitmap 缩略图 + 二次落盘。
     val launchCamera = rememberCameraLauncherWithPermission(
         snackbarHostState = snackbarHostState,
-        onImageCaptured = { bitmap ->
-            val uri = saveBitmapToCacheAndGetUri(context, bitmap, "matarchive")
+        onImageCaptured = { uri ->
             val id = material.id ?: return@rememberCameraLauncherWithPermission
-            if (uri != null) {
-                coroutineScope.launch {
-                    viewModel.uploadImage(id, uriToMultipart(uri, context, "image"))
-                }
+            coroutineScope.launch {
+                viewModel.uploadImage(id, uriToMultipart(uri, context, "image"))
             }
         }
     )
@@ -523,7 +554,7 @@ fun MaterialArchiveDetailScreen(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // ── 图片网格 ──
+            // ── 图片网格 / 加载 / 空态 / 错误态 ──
             if (uiState.isLoading && images.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -532,6 +563,21 @@ fun MaterialArchiveDetailScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator(color = Primary)
+                }
+            } else if (uiState.imagesError != null && images.isEmpty()) {
+                // AI-APP-FIX-201：图片首载失败 → 错误态 + 重试，
+                // 不再伪装成"暂无档案图片"（用户会以为图丢了）
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    WmsErrorState(
+                        title = "图片加载失败",
+                        subtitle = uiState.imagesError ?: "请检查网络后重试",
+                        onRetry = { material.id?.let { viewModel.loadImages(it) } }
+                    )
                 }
             } else if (images.isEmpty()) {
                 Box(

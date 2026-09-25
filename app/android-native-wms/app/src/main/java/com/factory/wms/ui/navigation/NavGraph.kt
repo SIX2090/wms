@@ -133,6 +133,9 @@ fun AppNavGraph() {
     // （出库页消费后立即清空，避免重复累加）。
     var voicePrefillLines by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
     var voiceDraftOrderNo by remember { mutableStateOf<String?>(null) }
+    // AI-APP-FIX-507：识物结果"查该物料库存"CTA 预填查库存页
+    // （与 voicePrefillLines 同一套跨屏传值惯例，查库存页消费后即清空）
+    var stockQueryPrefillCode by remember { mutableStateOf<String?>(null) }
 
     val authState by authViewModel.uiState.collectAsState()
 
@@ -246,7 +249,9 @@ fun AppNavGraph() {
                     val stockQueryViewModel: ScanViewModel = viewModel(key = "stock_query")
                     StockQueryScreen(
                         viewModel = stockQueryViewModel,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        prefillCode = stockQueryPrefillCode,
+                        onPrefillConsumed = { stockQueryPrefillCode = null }
                     )
                 }
 
@@ -279,7 +284,12 @@ fun AppNavGraph() {
                     val aiViewModel: AiViewModel = viewModel()
                     ObjectRecognizeScreen(
                         viewModel = aiViewModel,
-                        onBack = { navController.popBackStack() }
+                        onBack = { navController.popBackStack() },
+                        // AI-APP-FIX-507：识别结果 CTA——预填编码跳查库存
+                        onQueryStock = { code ->
+                            stockQueryPrefillCode = code
+                            navController.navigate(Screen.StockQuery.route)
+                        }
                     )
                 }
 

@@ -31,8 +31,13 @@ import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
 import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
 import com.factory.wms.ui.components.WmsGradientHeader
+import com.factory.wms.ui.components.WmsOutlinedActionButton
+import com.factory.wms.ui.components.WmsPrimaryButton
+import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.theme.*
+import com.factory.wms.ui.util.toPositiveQtyOrNull
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
@@ -69,6 +74,9 @@ fun OpeningStockScreen(
     var builtKeyword by remember { mutableStateOf("") }
     var editBuiltQty by remember { mutableStateOf("") }
     var editBuiltPrice by remember { mutableStateOf("") }
+    // AI-APP-FIX-109：危险操作的确认弹窗开关（清空整批 / 提交建账）。
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var showSubmitConfirm by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     // AI-MOB-ADD-KEYWORD-01：弹窗关闭后清掉候选，避免下次打开时残留上一次的联想结果
@@ -86,7 +94,9 @@ fun OpeningStockScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：已建账首屏失败走 builtError 全屏错误态，此处的
+            // 瞬态错误（校验/翻页/带数据刷新失败）Snackbar 加长避免没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -148,6 +158,7 @@ fun OpeningStockScreen(
                         viewModel.searchBuiltItems(it)
                     },
                     onLoadMore = { viewModel.loadMoreBuiltItems() },
+                    onRetry = { viewModel.loadBuiltItems(reset = true) },
                     onItemClick = { viewModel.startEditing(it) }
                 )
             } else {
@@ -159,9 +170,26 @@ fun OpeningStockScreen(
                         editLineIndex = index
                         editQty = formatQuantity(line.quantity)
                     },
-                    onRemoveLine = { viewModel.removeLine(it) },
-                    onClearLines = { viewModel.clearLines() },
-                    onSubmit = { viewModel.submit() },
+                    onRemoveLine = { index ->
+                        // AI-APP-FIX-109 / BUG-2026-09-26-008：删行给撤销窗口——
+                        // X 按钮紧邻数量胶囊，戴手套误触即丢一条已录行。
+                        uiState.lines.getOrNull(index)?.let { removed ->
+                            viewModel.removeLine(index)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar(
+                                    message = "已移除 ${removed.materialCode}",
+                                    actionLabel = "撤销",
+                                    duration = SnackbarDuration.Short
+                                )
+                                if (result == SnackbarResult.ActionPerformed) {
+                                    viewModel.restoreLine(index, removed)
+                                }
+                            }
+                        }
+                    },
+                    // AI-APP-FIX-109：清空/提交均为高危动作，先弹确认（见文件底部弹窗）。
+                    onClearLines = { showClearConfirm = true },
+                    onSubmit = { showSubmitConfirm = true },
                     onScan = {
                         continuousScanCount = 0
                         lastScannedCode = null
@@ -285,13 +313,18 @@ fun OpeningStockScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val qty = editBuiltQty.toDoubleOrNull()
-                        val price = editBuiltPrice.toDoubleOrNull() ?: 0.0
-                        if (qty != null && qty >= 0) {
-                            viewModel.submitEdit(qty, price)
-                        }
+                        // AI-APP-FIX-107 / BUG-2026-09-26-006：价格与数量对称非空解析。
+                        // 原写法 `?: 0.0`——用户清空单价框点保存，单价被静默抹成 0
+                        // （期初金额直接错账）。现由 enabled 对称校验兜底，走到这里必然合法。
+                        val qty = editBuiltQty.toDoubleOrNull() ?: return@Button
+                        val price = editBuiltPrice.toDoubleOrNull() ?: return@Button
+                        viewModel.submitEdit(qty, price)
                     },
-                    enabled = (editBuiltQty.toDoubleOrNull() ?: -1.0) >= 0.0 && !uiState.updating,
+                    // 数量非法禁用、价格非法此前却静默清零——校验不对称是错账根源；
+                    // 现两侧一致（合法 0 价仍允许，如赠品/试制品）。
+                    enabled = (editBuiltQty.toDoubleOrNull() ?: -1.0) >= 0.0 &&
+                        (editBuiltPrice.toDoubleOrNull() ?: -1.0) >= 0.0 &&
+                        !uiState.updating,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
                 ) {
@@ -450,6 +483,8 @@ fun OpeningStockScreen(
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
+                            // AI-APP-FIX-105：非法/非正数量即时标红，配合"添加"按钮禁用。
+                            isError = manualQty.toPositiveQtyOrNull() == null,
                             // AI-MOB-SCAN-UX-01：数量框弹数字键盘。
                             // 这里不绑 onDone 加行：本对话框的"添加"按钮有 enabled = 编码非空
                             // 的前置条件（见下方 confirmButton），回车直接提交会绕过该校验。
@@ -480,12 +515,16 @@ fun OpeningStockScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.addLine(manualCode, manualQty.toDoubleOrNull() ?: 1.0)
+                        // AI-APP-FIX-105 / BUG-2026-09-26-001：手动添加同样禁止 `?: 1.0`
+                        // 静默兜底（enabled 已对称禁用，走到这里数量必然合法）。
+                        val qty = manualQty.toPositiveQtyOrNull() ?: return@Button
+                        viewModel.addLine(manualCode, qty)
                         manualCode = ""
                         manualQty = "1"
                         showManualDialog = false
                     },
-                    enabled = manualCode.isNotBlank(),
+                    // 数量非法即禁用（数量框同步 isError 标红，无需再弹提示）。
+                    enabled = manualCode.isNotBlank() && manualQty.toPositiveQtyOrNull() != null,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
                 ) {
@@ -635,9 +674,11 @@ fun OpeningStockScreen(
                 // AI-MOB-CONTINUOUS-SCAN-01：扫中不关弹窗，连续累计，点"完成"退出。
                 continuousScanCount += 1
                 lastScannedCode = barcode
-                viewModel.addLine(barcode, manualQty.toDoubleOrNull() ?: 1.0)
-                manualCode = ""
-                manualQty = "1"
+                // AI-APP-FIX-108 / BUG-2026-09-26-007：扫码加行数量固定为 1
+                // （连续扫码 = 逐件计数，与 addLine 的累加语义自洽）。
+                // 原写法复用手动弹窗的 manualQty——弹窗里输了 5 又取消时残留值会让
+                // 接下来每扫一件加 5，静默错账。扫码与手动两条通道的数量状态必须解耦。
+                viewModel.addLine(barcode, 1.0)
                 // AI-MOB-SCAN-UX-01：声音+震动反馈（成功/失败可凭体感分辨）
                 scope.launch {
                     if (viewModel.materialExists(barcode)) {
@@ -646,6 +687,68 @@ fun OpeningStockScreen(
                         ScanFeedback.failure(context)
                     }
                 }
+            }
+        )
+    }
+
+    // AI-APP-FIX-109 / BUG-2026-09-26-008：清空是整批录入成果的一键销毁——
+    // 连续扫码几十条后误触即全损且不可恢复，必须二次确认。
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("清空已录明细", fontWeight = FontWeight.SemiBold) },
+            text = { Text("将清空已录入的 ${uiState.lines.size} 条明细，不可恢复。确认清空？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    viewModel.clearLines()
+                }) { Text("确认清空", color = Error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+            }
+        )
+    }
+
+    // AI-APP-FIX-109：期初建账是账期起点级操作，日期/仓库选错即整批错账，
+    // 提交前把关键信息摆出来做最后确认（对齐入库/出库确认弹窗的防线口径）。
+    if (showSubmitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showSubmitConfirm = false },
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("确认期初建账", fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text("建账日期：${uiState.date}")
+                    Text(
+                        "仓库：${uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" } ?: "未选择"}"
+                    )
+                    Text(
+                        "共 ${uiState.lines.size} 种物料，总数量 " +
+                            formatQuantity(uiState.lines.sumOf { it.quantity })
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "提交后生成期初建账记录，建错可在「已建账」页按差额调整。确认提交？",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariant
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSubmitConfirm = false
+                        viewModel.submit()
+                    },
+                    enabled = uiState.selectedWarehouse != null && !uiState.isLoading,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
+                ) { Text("确认建账") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSubmitConfirm = false }) { Text("取消") }
             }
         )
     }
@@ -727,7 +830,9 @@ private fun OpeningStockLineCard(
             }
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(36.dp)
+                // AI-APP-FIX-109：36dp 低于 48dp 最小触控目标（WmsDimens.TouchTargetMin），
+                // 戴手套点不中、误触相邻数量胶囊，放大到 48dp。
+                modifier = Modifier.size(WmsDimens.TouchTargetMin)
             ) {
                 Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(18.dp))
             }
@@ -931,13 +1036,15 @@ private fun OpeningStockTabs(
             }
             FilterChip(
                 selected = current == item,
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { if (current != item) onSelect(item) },
                 label = {
                     Text(if (count > 0) "${item.label} ($count)" else item.label)
                 },
                 shape = RoundedCornerShape(10.dp),
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = CardCyan.copy(alpha = 0.14f),
+                    // AI-APP-FIX-301：Chip 选中底 alpha 亮 0.14 / 暗 0.24
+                    selectedContainerColor = CardCyan.copy(alpha = MaterialTheme.wmsColors.accentWashAlpha),
                     selectedLabelColor = CardCyan
                 )
             )
@@ -1134,30 +1241,16 @@ private fun EntrySection(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Button(
+                // AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton
+                WmsPrimaryButton(
+                    text = "提交期初建账",
                     onClick = onSubmit,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp),
-                    enabled = uiState.lines.isNotEmpty() && uiState.selectedWarehouse != null && !uiState.isLoading,
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = CardCyan,
-                        disabledContainerColor = CardCyan.copy(alpha = 0.3f)
-                    )
-                ) {
-                    if (uiState.isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = Color.White,
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Outlined.CheckCircle, null, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("提交期初建账", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    }
-                }
+                    modifier = Modifier.fillMaxWidth(),
+                    icon = Icons.Outlined.CheckCircle,
+                    color = CardCyan,
+                    loading = uiState.isLoading,
+                    enabled = uiState.lines.isNotEmpty() && uiState.selectedWarehouse != null
+                )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -1165,44 +1258,21 @@ private fun EntrySection(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedButton(
+                    // AI-APP-FIX-404：扫码/手动 → WmsOutlinedActionButton
+                    WmsOutlinedActionButton(
+                        text = "扫码添加",
                         onClick = onScan,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(CardCyan.copy(alpha = 0.3f))
-                        )
-                    ) {
-                        Icon(
-                            Icons.Outlined.QrCodeScanner,
-                            null,
-                            modifier = Modifier.size(20.dp),
-                            tint = CardCyan
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("扫码添加", color = CardCyan, fontWeight = FontWeight.Medium)
-                    }
-                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.QrCodeScanner,
+                        color = CardCyan
+                    )
+                    WmsOutlinedActionButton(
+                        text = "手动添加",
                         onClick = onManualAdd,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        border = ButtonDefaults.outlinedButtonBorder.copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(CardCyan.copy(alpha = 0.3f))
-                        )
-                    ) {
-                        Icon(
-                            Icons.Outlined.Edit,
-                            null,
-                            modifier = Modifier.size(20.dp),
-                            tint = CardCyan
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text("手动添加", color = CardCyan, fontWeight = FontWeight.Medium)
-                    }
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Outlined.Edit,
+                        color = CardCyan
+                    )
                 }
             }
         }
@@ -1221,6 +1291,7 @@ private fun BuiltItemsSection(
     keyword: String,
     onKeywordChange: (String) -> Unit,
     onLoadMore: () -> Unit,
+    onRetry: () -> Unit,
     onItemClick: (OpeningStockDto) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -1286,12 +1357,27 @@ private fun BuiltItemsSection(
         )
 
         when {
-            state.builtFirstLoad -> Box(
+            // AI-APP-FIX-202：首屏转圈 → 骨架列表
+            state.builtFirstLoad -> WmsListSkeleton(
                 modifier = Modifier
+                    .weight(1f)
                     .fillMaxWidth()
-                    .padding(48.dp),
+            )
+
+            // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+            // 不再伪装成"本仓还没有期初建账"（用户会以为账丢了）
+            state.builtError != null && state.builtItems.isEmpty() -> Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
                 contentAlignment = Alignment.Center
-            ) { CircularProgressIndicator(color = CardCyan) }
+            ) {
+                WmsErrorState(
+                    title = "加载失败",
+                    subtitle = state.builtError ?: "请检查网络后重试",
+                    onRetry = onRetry
+                )
+            }
 
             state.builtItems.isEmpty() -> Box(
                 modifier = Modifier
@@ -1435,9 +1521,13 @@ private fun BuiltListFooter(state: com.factory.wms.ui.viewmodel.opening.OpeningS
                 .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
-            TextButton(onClick = { /* 由 shouldLoadMore 自动触发 */ }) {
-                Text("上滑加载更多", fontSize = 12.sp)
-            }
+            // AI-APP-FIX-203：纯提示文案，不做成按钮——onClick 为空的"假按钮"
+            // 会让用户以为点了能加载（实际靠上滑自动触发），点了没反应像坏掉。
+            Text(
+                "上滑加载更多",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         state.builtTotal > 0 -> Box(

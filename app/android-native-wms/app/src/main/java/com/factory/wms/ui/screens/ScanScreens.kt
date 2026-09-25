@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -37,11 +38,15 @@ import com.factory.wms.ui.components.VoiceDraftCreatedBanner
 import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
+import com.factory.wms.ui.components.WmsInfoCell
+import com.factory.wms.ui.components.WmsSubmitConfirmDialog
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
+import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.toPositiveQtyOrNull
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -62,6 +67,7 @@ fun InboundScreen(
     var manualQty by remember { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.restoreEditDraft("inbound")
@@ -126,11 +132,14 @@ fun InboundScreen(
         offlineFailedCount = uiState.offlineFailedCount,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
-            if (manualCode.isNotBlank()) {
+            // AI-APP-FIX-105 / BUG-2026-09-26-001：非法/非正数量拦截提示，
+            // 禁止 `?: 1.0` 静默兜底（输入 "abc" 按 1 入库、"0"/负数直接放行，现场无感知即错账）。
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (manualCode.isNotBlank() && qty != null) {
                 viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        quantity = qty,
                         location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
@@ -138,18 +147,29 @@ fun InboundScreen(
                 manualQty = "1"
                 viewModel.clearMaterialSuggestions()
                 showScannerDialog = false
+            } else if (manualCode.isNotBlank()) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
             }
         },
         onScanBarcode = { barcode ->
-            viewModel.addScanLine(
-                ScanLine(
-                    material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                    location_code = uiState.selectedLocation.ifBlank { null }
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (qty != null) {
+                viewModel.addScanLine(
+                    ScanLine(
+                        material_code = barcode.trim(),
+                        quantity = qty,
+                        location_code = uiState.selectedLocation.ifBlank { null }
+                    )
                 )
-            )
-            manualCode = ""
-            manualQty = "1"
+                manualCode = ""
+                manualQty = "1"
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
+            }
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
@@ -163,11 +183,14 @@ fun InboundScreen(
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             Column {
-                WarehouseSelectorCard(
-                    warehouse = uiState.selectedWarehouse,
+                // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
+                PartySelectorCard(
+                    label = "收货仓库",
+                    placeholder = "请选择仓库",
+                    valueText = uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" },
+                    icon = Icons.Outlined.Warehouse,
                     accentColor = CardBlue,
-                    onClick = { showWarehouseDialog = true },
-                    label = "收货仓库"
+                    onClick = { showWarehouseDialog = true }
                 )
                 // BUG-2026-09-18-008：供应商/备注（均选填）。
                 // 此前入库请求体只有明细行，InOrder.supplier_id 恒为 NULL，
@@ -247,10 +270,20 @@ fun InboundScreen(
     }
 
     if (showSubmitDialog) {
-        AlertDialog(
-            onDismissRequest = { showSubmitDialog = false },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("确认入库", fontWeight = FontWeight.SemiBold) },
+        // AI-APP-FIX-406：自绘弹窗骨架 → WmsSubmitConfirmDialog（正文信息行保留本页口径）
+        WmsSubmitConfirmDialog(
+            title = "确认入库",
+            confirmLabel = "确认入库",
+            onConfirm = {
+                showSubmitDialog = false
+                viewModel.submitInbound()
+            },
+            onDismiss = { showSubmitDialog = false },
+            accent = CardBlue,
+            // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险。
+            // BUG-2026-09-18-010：在"非提交中"之上追加"已选仓库"前置校验，
+            // 不能用 isLoading 覆盖前置条件（对照盘点弹窗的同一写法）。
+            confirmEnabled = uiState.selectedWarehouse != null && !uiState.isLoading,
             text = {
                 // BUG-2026-09-18-010：本弹窗原先是四个页里**信息最少**的一个
                 // （出库页显示领料部门/领料人，盘点页显示仓库+盘点单并在未选时警告）。
@@ -258,45 +291,30 @@ fun InboundScreen(
                 // 提交是一次**真实账目错误**（库存进错仓），而提交后单据已 completed
                 // 无补录入口。此处补齐仓库与单头信息，并给出未选仓库的前置提示。
                 val wh = uiState.selectedWarehouse
-                val lines = buildList {
+                // AI-APP-FIX-508：逐行渲染——长备注限 2 行省略，其余行限 1 行，
+                // 避免一条长备注把确认弹窗撑到看不清「确认提交」按钮。
+                val lines = buildList<Pair<String, Int>> {
                     if (wh == null) {
-                        add("尚未选择收货仓库，请先选择仓库")
+                        add("尚未选择收货仓库，请先选择仓库" to 2)
                     } else {
-                        add("收货仓库：${wh.code} ${wh.name.orEmpty()}")
+                        add("收货仓库：${wh.code} ${wh.name.orEmpty()}" to 1)
                     }
                     uiState.selectedSupplier?.let {
-                        add("供应商：${it.name.orEmpty()}")
+                        add("供应商：${it.name.orEmpty()}" to 1)
                     }
                     if (uiState.contractNo.isNotBlank()) {
-                        add("合同编号：${uiState.contractNo}")
+                        add("合同编号：${uiState.contractNo}" to 1)
                     }
                     if (uiState.inboundRemark.isNotBlank()) {
-                        add("备注：${uiState.inboundRemark}")
+                        add("备注：${uiState.inboundRemark}" to 2)
                     }
-                    add("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}")
-                    if (wh != null) add("确认提交入库？")
+                    add("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}" to 1)
+                    if (wh != null) add("确认提交入库？" to 1)
                 }
-                Text(lines.joinToString("\n"))
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showSubmitDialog = false
-                        viewModel.submitInbound()
-                    },
-                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险。
-                    // BUG-2026-09-18-010：在"非提交中"之上追加"已选仓库"前置校验，
-                    // 不能用 isLoading 覆盖前置条件（对照盘点弹窗的同一写法）。
-                    enabled = uiState.selectedWarehouse != null && !uiState.isLoading,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CardBlue)
-                ) {
-                    Text("确认入库")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubmitDialog = false }) {
-                    Text("取消")
+                Column {
+                    lines.forEach { (line, maxLines) ->
+                        Text(line, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         )
@@ -334,12 +352,23 @@ fun OutboundScreen(
     var manualQty by remember { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     // 语音建单跳转过来的物料行：只消费一次，随后立刻通知外部清空
     LaunchedEffect(voicePrefillLines) {
         if (voicePrefillLines.isNotEmpty()) {
             viewModel.restoreEditDraft("outbound")
-            if (viewModel.uiState.value.pendingSubmissionId != null || viewModel.uiState.value.isLoading) return@LaunchedEffect
+            // AI-APP-FIX-504：预填被丢弃（有待提交单据/加载中）时必须告知用户——
+            // 此前静默 return，语音建的物料行"无声消失"，用户以为已加入清单。
+            // 同时消费掉预填，避免残留在导航状态里、下次进页又意外生效。
+            if (viewModel.uiState.value.pendingSubmissionId != null || viewModel.uiState.value.isLoading) {
+                snackbarHostState.showSnackbar(
+                    "语音预填的 ${voicePrefillLines.size} 行物料未生效：当前有单据待提交或正在加载，请稍后重试",
+                    duration = SnackbarDuration.Long
+                )
+                onVoicePrefillConsumed()
+                return@LaunchedEffect
+            }
             voicePrefillLines.forEach { (code, qty) ->
                 viewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
             }
@@ -419,29 +448,42 @@ fun OutboundScreen(
         offlineFailedCount = uiState.offlineFailedCount,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
-            if (manualCode.isNotBlank()) {
+            // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库页，非法数量拦截提示，禁止静默兜底。
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (manualCode.isNotBlank() && qty != null) {
                 viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        quantity = qty,
                         location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
                 manualCode = ""
                 manualQty = "1"
                 showScannerDialog = false
+            } else if (manualCode.isNotBlank()) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
             }
         },
         onScanBarcode = { barcode ->
-            viewModel.addScanLine(
-                ScanLine(
-                    material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                    location_code = uiState.selectedLocation.ifBlank { null }
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (qty != null) {
+                viewModel.addScanLine(
+                    ScanLine(
+                        material_code = barcode.trim(),
+                        quantity = qty,
+                        location_code = uiState.selectedLocation.ifBlank { null }
+                    )
                 )
-            )
-            manualCode = ""
-            manualQty = "1"
+                manualCode = ""
+                manualQty = "1"
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
+            }
         },
         onSubmitClick = { showSubmitDialog = true },
         // BUG-2026-09-18-011：按钮文案由「提交出库」改为「确认出库」。
@@ -462,11 +504,14 @@ fun OutboundScreen(
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             Column {
-                WarehouseSelectorCard(
-                    warehouse = uiState.selectedWarehouse,
+                // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
+                PartySelectorCard(
+                    label = "出库仓库",
+                    placeholder = "请选择仓库",
+                    valueText = uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" },
+                    icon = Icons.Outlined.Warehouse,
                     accentColor = CardGreen,
-                    onClick = { showWarehouseDialog = true },
-                    label = "出库仓库"
+                    onClick = { showWarehouseDialog = true }
                 )
                 // 2026-09-12：领料部门/领料人下拉（选填，部门→员工联动过滤）
                 PartySelectorCard(
@@ -585,12 +630,40 @@ fun OutboundScreen(
     }
 
     if (showSubmitDialog) {
-        AlertDialog(
-            onDismissRequest = { showSubmitDialog = false },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("确认出库", fontWeight = FontWeight.SemiBold) },
+        // AI-APP-FIX-406：自绘弹窗骨架 → WmsSubmitConfirmDialog
+        WmsSubmitConfirmDialog(
+            title = "确认出库",
+            confirmLabel = "确认出库",
+            onConfirm = {
+                showSubmitDialog = false
+                viewModel.submitOutbound()
+            },
+            onDismiss = { showSubmitDialog = false },
+            accent = CardGreen,
+            // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险
+            // AI-APP-FIX-106：追加"已选仓库"前置校验（对齐入库弹窗同一写法）。
+            confirmEnabled = uiState.selectedWarehouse != null && !uiState.isLoading,
             text = {
                 Column {
+                    // AI-APP-FIX-106 / BUG-2026-09-26-005：出库仓库是库存扣减的唯一来源，
+                    // 选错仓同样是真实账目错误。原弹窗只显示部门/领料人、不显示仓库，
+                    // 且确认按钮未做仓库前置校验（入库弹窗 BUG-2026-09-18-010 均已覆盖），
+                    // 此处补齐信息展示与校验，四个写路径防线对齐。
+                    val wh = uiState.selectedWarehouse
+                    if (wh == null) {
+                        Text(
+                            "尚未选择出库仓库，请先选择仓库",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    } else {
+                        Text(
+                            "出库仓库：${wh.code} ${wh.name.orEmpty()}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = OnSurfaceVariant
+                        )
+                    }
                     // BUG-2026-09-18-011：随按钮文案一并统一为「确认出库」。
                     // 原句「…确认提交出库？」与弹窗标题/主按钮的「确认出库」不同词，
                     // 同一屏出现"提交出库/确认出库"两套说法。
@@ -602,25 +675,6 @@ fun OutboundScreen(
                     uiState.selectedEmployee?.let {
                         Text("领料人：${it.name.orEmpty()}", style = MaterialTheme.typography.bodySmall, color = OnSurfaceVariant)
                     }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showSubmitDialog = false
-                        viewModel.submitOutbound()
-                    },
-                    // BUG-2026-09-12-010：提交中禁用，配合 ViewModel 层守卫双保险
-                    enabled = !uiState.isLoading,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CardGreen)
-                ) {
-                    Text("确认出库")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubmitDialog = false }) {
-                    Text("取消")
                 }
             }
         )
@@ -683,7 +737,13 @@ private fun PrintConfirmationDialog(
 @Composable
 fun StockQueryScreen(
     viewModel: ScanViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    /**
+     * AI-APP-FIX-507：外部跳转入站预填（识物结果"查该物料库存"CTA）。
+     * 消费一次即回调 [onPrefillConsumed] 清空（与出库页 voicePrefillLines 同口径）。
+     */
+    prefillCode: String? = null,
+    onPrefillConsumed: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var manualCode by remember { mutableStateOf("") }
@@ -694,7 +754,6 @@ fun StockQueryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     // AI-MOB-SCAN-UX-01：扫码反馈（声音+震动）
     val queryContext = LocalContext.current
-    val queryScope = rememberCoroutineScope()
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -714,6 +773,17 @@ fun StockQueryScreen(
     LaunchedEffect(uiState.scannedCode) {
         if (uiState.scannedCode.isNotEmpty()) {
             viewModel.searchMaterialByCode(uiState.scannedCode)
+        }
+    }
+
+    // AI-APP-FIX-507：识物结果 CTA 跳入——按预填编码直接查询并回显到搜索框
+    LaunchedEffect(prefillCode) {
+        if (!prefillCode.isNullOrBlank()) {
+            listMode = false
+            manualCode = prefillCode
+            viewModel.clearMaterialSuggestions()
+            viewModel.searchMaterialByCode(prefillCode)
+            onPrefillConsumed()
         }
     }
 
@@ -749,12 +819,15 @@ fun StockQueryScreen(
                 .padding(16.dp)
         ) {
             // 仓库选择：查库存按所选仓库口径返回该仓账面库存
-            WarehouseSelectorCard(
-                warehouse = uiState.selectedWarehouse,
-                accentColor = CardOrange,
-                onClick = { showWarehouseDialog = true },
-                label = "查询仓库"
-            )
+            // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
+                PartySelectorCard(
+                    label = "查询仓库",
+                    placeholder = "请选择仓库",
+                    valueText = uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" },
+                    icon = Icons.Outlined.Warehouse,
+                    accentColor = CardOrange,
+                    onClick = { showWarehouseDialog = true }
+                )
 
             Spacer(modifier = Modifier.height(4.dp))
 
@@ -767,7 +840,7 @@ fun StockQueryScreen(
                     selected = !listMode,
                     onClick = { listMode = false },
                     label = { Text("扫码查物料") },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
                 )
                 FilterChip(
                     selected = listMode,
@@ -779,7 +852,7 @@ fun StockQueryScreen(
                         }
                     },
                     label = { Text("库存列表") },
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
                 )
             }
 
@@ -884,15 +957,19 @@ fun StockQueryScreen(
                     colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     // BUG-2026-09-10-002：候选列出全部命中物料（不再 take(8) 截断），
-                    // 高度受限内部可滚动；名称/规格/品牌逐行完整显示，不做省略号截断
-                    Column(
+                    // 高度受限内部可滚动；名称/规格/品牌逐行完整显示，不做省略号截断。
+                    // AI-APP-FIX-502：Column+verticalScroll 改 LazyColumn——候选是
+                    // 不定长列表，LazyColumn 只组合可见项，几百条命中时不掉帧。
+                    LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 360.dp)
-                            .verticalScroll(rememberScrollState())
                     ) {
                         val visibleSuggestions = uiState.materialSuggestions
-                        visibleSuggestions.forEachIndexed { index, material ->
+                        itemsIndexed(
+                            visibleSuggestions,
+                            key = { _, material -> material.code ?: material.hashCode().toString() }
+                        ) { index, material ->
                             val specBrand = listOfNotNull(
                                 material.spec?.takeIf { it.isNotBlank() }?.let { "规格: $it" },
                                 material.brand?.takeIf { it.isNotBlank() }?.let { "品牌: $it" }
@@ -988,6 +1065,16 @@ fun StockQueryScreen(
 
             // Result
             uiState.scannedMaterial?.let { material ->
+                // AI-APP-FIX-501：结果卡整体限高可滚动——开启库位管理后"库位分布"
+                // 可能几十行，此前卡片无限撑高，库位列表被屏幕底裁掉且无处滚动。
+                // weight(1f, fill=false)：内容短时不强制占满，长时占满剩余空间并
+                // 内部滚动。嵌套安全：模糊候选列表与结果卡互斥（候选仅在
+                // scannedMaterial == null 时展示），不存在同屏双滚动容器。
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
@@ -1027,7 +1114,11 @@ fun StockQueryScreen(
                                 material.code ?: "",
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
-                                color = Primary
+                                color = Primary,
+                                // AI-APP-FIX-508：长编码单行省略，不再把右侧状态徽标挤出屏外
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
@@ -1083,9 +1174,9 @@ fun StockQueryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            InfoChip("库存数量", formatQuantity(material.stock ?: 0.0))
-                            InfoChip("单位", material.unit ?: "-")
-                            InfoChip("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))
+                            WmsInfoCell("库存数量", formatQuantity(material.stock ?: 0.0))
+                            WmsInfoCell("单位", material.unit ?: "-")
+                            WmsInfoCell("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -1094,12 +1185,12 @@ fun StockQueryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            InfoChip("单价", "¥${"%.2f".format(material.price ?: 0.0)}")
+                            WmsInfoCell("单价", "¥${"%.2f".format(material.price ?: 0.0)}")
                             // AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外叫「安全库存」，
                             // 与 PC 物料档案表单、Excel 表头保持一致（命名表见服务端
                             // models/master_data.py 的「库存阈值命名约定」）。
-                            InfoChip("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))
-                            InfoChip("分类", material.category ?: "-")
+                            WmsInfoCell("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))
+                            WmsInfoCell("分类", material.category ?: "-")
                         }
 
                         // BUG-2026-09-10-003：库位分布——现场找货第二高频问题「货在哪个
@@ -1168,6 +1259,7 @@ fun StockQueryScreen(
                         }
                     }
                 }
+                }
             }
             }  // end else (扫码模式)
         }
@@ -1182,11 +1274,12 @@ fun StockQueryScreen(
                 showScannerDialog = false
                 manualCode = barcode
                 viewModel.clearMaterialSuggestions()
-                viewModel.searchMaterialByCode(barcode)
                 // AI-MOB-SCAN-UX-01：查库存同样是"扫到就想知道结果"的场景，
                 // 声音+震动让工人不用盯着屏幕等查询返回。
-                queryScope.launch {
-                    if (viewModel.materialExists(barcode)) {
+                // AI-APP-FIX-503：反馈音由本次 searchMaterialByCode 的结果驱动，
+                // 不再另发一次 materialExists 重复请求（扫一个码打两次后端）。
+                viewModel.searchMaterialByCode(barcode) { found ->
+                    if (found) {
                         ScanFeedback.success(queryContext)
                     } else {
                         ScanFeedback.failure(queryContext)
@@ -1444,16 +1537,19 @@ private fun StockListSortFilterBar(
         ) {
             FilterChip(
                 selected = sort.isBlank(),
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onSortChange("") },
                 label = { Text("默认排序") }
             )
             FilterChip(
                 selected = sort == "stock_desc",
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onSortChange("stock_desc") },
                 label = { Text("库存多→少") }
             )
             FilterChip(
                 selected = sort == "stock_asc",
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onSortChange("stock_asc") },
                 label = { Text("库存少→多") }
             )
@@ -1465,21 +1561,25 @@ private fun StockListSortFilterBar(
         ) {
             FilterChip(
                 selected = filter.isBlank(),
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onFilterChange("") },
                 label = { Text("全部") }
             )
             FilterChip(
                 selected = filter == "nonzero",
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onFilterChange("nonzero") },
                 label = { Text("仅有货") }
             )
             FilterChip(
                 selected = filter == "zero",
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onFilterChange("zero") },
                 label = { Text("零库存") }
             )
             FilterChip(
                 selected = filter == "low",
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onFilterChange("low") },
                 label = { Text("低于安全线") }
             )
@@ -1518,7 +1618,10 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
                     material.code.orEmpty(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = if (noStock) mutedColor else Primary
+                    color = if (noStock) mutedColor else Primary,
+                    // AI-APP-FIX-508：长编码单行省略（同行右侧还有数量列）
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (!material.name.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
@@ -1577,24 +1680,6 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     }
 }
 
-@Composable
-private fun InfoChip(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StocktakeScreen(
@@ -1612,6 +1697,7 @@ fun StocktakeScreen(
     var manualQty by remember { mutableStateOf("1") }
     var stocktakeArea by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
     // BUG-2026-09-03-003：盘点重复扫码须确认，防止误把已盘物料再次累加使实盘数翻倍
     var confirmLine by remember { mutableStateOf<ScanLine?>(null) }
 
@@ -1624,13 +1710,20 @@ fun StocktakeScreen(
         }
     }
 
-    fun formatStockQty(value: Double): String {
-        return if (value == value.toLong().toDouble()) value.toLong().toString() else String.format("%.2f", value)
-    }
+    // AI-APP-FIX-403：局部 formatStockQty 已合并为 ui/util/Format.kt 的 formatQty
 
     LaunchedEffect(Unit) {
         if (uiState.warehouses.isEmpty() && !uiState.warehousesLoading) {
             viewModel.loadWarehouses()
+        }
+    }
+
+    // AI-APP-FIX-207：盘点页此前从不拉库位配置，locationEnabled 恒为 null，
+    // 「盘点库位/区域」的提示文案只能靠猜。选仓后拉取配置，提示与提交校验
+    // 才能对齐服务端"启用库位管理且有差异时必填"的口径。
+    LaunchedEffect(uiState.selectedWarehouse) {
+        if (uiState.selectedWarehouse != null) {
+            viewModel.loadLocationOptions()
         }
     }
 
@@ -1697,29 +1790,42 @@ fun StocktakeScreen(
         offlineFailedCount = uiState.offlineFailedCount,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
-            if (manualCode.isNotBlank()) {
+            // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库/出库页，非法数量拦截提示。
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (manualCode.isNotBlank() && qty != null) {
                 addOrConfirmStocktakeLine(
                     ScanLine(
                         material_code = manualCode.trim(),
-                        quantity = manualQty.toDoubleOrNull() ?: 1.0,
+                        quantity = qty,
                         location_code = stocktakeArea.trim().ifBlank { null }
                     )
                 )
                 manualCode = ""
                 manualQty = "1"
                 showScannerDialog = false
+            } else if (manualCode.isNotBlank()) {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
             }
         },
         onScanBarcode = { barcode ->
-            addOrConfirmStocktakeLine(
-                ScanLine(
-                    material_code = barcode.trim(),
-                    quantity = manualQty.toDoubleOrNull() ?: 1.0,
-                    location_code = stocktakeArea.trim().ifBlank { null }
+            val qty = manualQty.toPositiveQtyOrNull()
+            if (qty != null) {
+                addOrConfirmStocktakeLine(
+                    ScanLine(
+                        material_code = barcode.trim(),
+                        quantity = qty,
+                        location_code = stocktakeArea.trim().ifBlank { null }
+                    )
                 )
-            )
-            manualCode = ""
-            manualQty = "1"
+                manualCode = ""
+                manualQty = "1"
+            } else {
+                scope.launch {
+                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                }
+            }
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",
@@ -1733,19 +1839,39 @@ fun StocktakeScreen(
         onExtraAction = onRecognize,
         header = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                WarehouseSelectorCard(
-                    warehouse = uiState.selectedWarehouse,
+                // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
+                PartySelectorCard(
+                    label = "盘点仓库",
+                    placeholder = "请选择仓库",
+                    valueText = uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" },
+                    icon = Icons.Outlined.Warehouse,
                     accentColor = CardPurple,
-                    onClick = { showWarehouseDialog = true },
-                    label = "盘点仓库"
+                    onClick = { showWarehouseDialog = true }
                 )
                 OutlinedTextField(
                     value = stocktakeArea,
                     onValueChange = { stocktakeArea = it },
                     label = { Text("盘点库位/区域") },
                     singleLine = true,
+                    // AI-APP-FIX-406：补 ImeAction（现场戴手套，回车即收键盘）
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     modifier = Modifier.fillMaxWidth(),
-                    supportingText = { Text("启用库位管理且有差异时必填") }
+                    // AI-APP-FIX-207：提示对齐库位配置真实状态——启用且未填时
+                    // 标红警示（有差异的盘点缺库位会被服务端拒绝）；未启用明示"选填"。
+                    supportingText = {
+                        when (uiState.locationEnabled) {
+                            true -> if (stocktakeArea.isBlank()) {
+                                Text(
+                                    "已启用库位管理：若盘点有差异，库位必填（建议填写）",
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            } else {
+                                Text("已启用库位管理：有差异时按库位生成调整")
+                            }
+                            false -> Text("选填（本仓未启用库位管理）")
+                            null -> Text("启用库位管理且有差异时必填")
+                        }
+                    }
                 )
                 Spacer(modifier = Modifier.height(10.dp))
                 // INV-BATCH-001-E：盘点必须选电脑端建好的进行中盘点单
@@ -1784,6 +1910,7 @@ fun StocktakeScreen(
             orders = uiState.checkOrders,
             selected = uiState.selectedCheckOrder,
             loading = uiState.checkOrdersLoading,
+            error = uiState.checkOrdersError,
             onDismiss = { showCheckOrderDialog = false },
             onSelect = { order ->
                 viewModel.selectCheckOrder(order)
@@ -1803,8 +1930,8 @@ fun StocktakeScreen(
             title = { Text("物料已在盘点清单", fontWeight = FontWeight.SemiBold) },
             text = {
                 Text(
-                    "${line.material_code} 已在清单中（当前：${formatStockQty(existingQty ?: 0.0)}）。\n" +
-                        "本次扫码：${formatStockQty(line.quantity)}。\n\n" +
+                    "${line.material_code} 已在清单中（当前：${formatQty(existingQty ?: 0.0)}）。\n" +
+                        "本次扫码：${formatQty(line.quantity)}。\n\n" +
                         "选择「替换」以本次实盘数量为准；「累加」会把数量相加；" +
                         "点空白处或返回保持原值。"
                 )
@@ -1835,10 +1962,21 @@ fun StocktakeScreen(
     }
 
     if (showSubmitDialog) {
-        AlertDialog(
-            onDismissRequest = { showSubmitDialog = false },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("确认盘点", fontWeight = FontWeight.SemiBold) },
+        // AI-APP-FIX-406：自绘弹窗骨架 → WmsSubmitConfirmDialog
+        WmsSubmitConfirmDialog(
+            title = "确认盘点",
+            confirmLabel = "确认盘点",
+            onConfirm = {
+                showSubmitDialog = false
+                viewModel.submitStocktake()
+            },
+            onDismiss = { showSubmitDialog = false },
+            accent = CardPurple,
+            // BUG-2026-09-12-010：在原有"仓库+盘点单必选"之上追加"非提交中"，
+            // 不能用 isLoading 覆盖前置校验，否则未选盘点单时按钮会变可点。
+            confirmEnabled = uiState.selectedWarehouse != null &&
+                uiState.selectedCheckOrder != null &&
+                !uiState.isLoading,
             text = {
                 val wh = uiState.selectedWarehouse
                 val co = uiState.selectedCheckOrder
@@ -1849,28 +1987,21 @@ fun StocktakeScreen(
                         "盘点单：${co.checkNo}\n" +
                         "共 ${uiState.scanLines.size} 种物料，确认提交盘点？"
                 }
-                Text(base)
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showSubmitDialog = false
-                        viewModel.submitStocktake()
-                    },
-                    // BUG-2026-09-12-010：在原有"仓库+盘点单必选"之上追加"非提交中"，
-                    // 不能用 isLoading 覆盖前置校验，否则未选盘点单时按钮会变可点。
-                    enabled = uiState.selectedWarehouse != null &&
-                        uiState.selectedCheckOrder != null &&
-                        !uiState.isLoading,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
-                ) {
-                    Text("确认盘点")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSubmitDialog = false }) {
-                    Text("取消")
+                Column {
+                    Text(base)
+                    // AI-APP-FIX-207：启用库位管理但未填库位时提交前最后警示。
+                    // 注意不硬禁提交：是否有差异由服务端对比账面数后才知道，客户端
+                    // 无法预知——硬禁会误伤"无差异"的合法盘点。
+                    if (wh != null && co != null &&
+                        uiState.locationEnabled == true && stocktakeArea.isBlank()
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "⚠️ 未填写盘点库位：若盘点结果存在差异，服务端将要求补填库位",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         )
@@ -1952,6 +2083,7 @@ private fun CheckOrderPickerDialog(
     orders: List<CheckOrderDto>,
     selected: CheckOrderDto?,
     loading: Boolean,
+    error: String?,
     onDismiss: () -> Unit,
     onSelect: (CheckOrderDto) -> Unit,
     onRefresh: () -> Unit,
@@ -1973,6 +2105,16 @@ private fun CheckOrderPickerDialog(
         text = {
             when {
                 loading && orders.isEmpty() -> Text("正在加载...")
+                // AI-APP-FIX-201：加载失败必须在弹窗内可见（Snackbar 被弹窗遮挡），
+                // 否则用户会把"加载失败"误当成"该仓没有进行中盘点单"
+                error != null && orders.isEmpty() -> Column {
+                    Text(
+                        "盘点单加载失败：$error",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onRefresh) { Text("重试") }
+                }
                 orders.isEmpty() -> Column(
                     Modifier.verticalScroll(rememberScrollState())
                 ) {
@@ -1991,8 +2133,11 @@ private fun CheckOrderPickerDialog(
                                 .padding(vertical = 4.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) accentColor.copy(alpha = 0.15f)
-                                else Color(0xFFF5F5F5)
+                                // AI-APP-FIX-301：消灭裸写 Color(0xFFF5F5F5)（暗色下是一块刺眼的亮灰）；
+                                // 选中底 alpha 亮 0.14 / 暗 0.24，未选中走 outlineVariant 浅底
+                                containerColor = if (isSelected)
+                                    accentColor.copy(alpha = MaterialTheme.wmsColors.accentWashAlpha)
+                                else MaterialTheme.colorScheme.surfaceVariant
                             )
                         ) {
                             Row(
@@ -2059,6 +2204,8 @@ private fun ContractInputCard(
                 label = { Text("合同编号（选填）") },
                 placeholder = { Text("输入片段快速匹配，如 0709") },
                 singleLine = true,
+                // AI-APP-FIX-406：补 ImeAction
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 leadingIcon = {
@@ -2153,6 +2300,8 @@ private fun InboundRemarkCard(
                 label = { Text("备注（选填）") },
                 placeholder = { Text("如送货单号、采购单号") },
                 singleLine = true,
+                // AI-APP-FIX-406：补 ImeAction
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 leadingIcon = {
@@ -2170,59 +2319,3 @@ private fun InboundRemarkCard(
 
 /** 出入库页顶部的仓库选择卡片；未选择时提示"请选择"。 */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun WarehouseSelectorCard(
-    warehouse: WarehouseDto?,
-    accentColor: Color,
-    onClick: () -> Unit,
-    label: String = "仓库"
-) {
-    OutlinedCard(
-        onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(accentColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    Icons.Outlined.Warehouse,
-                    null,
-                    tint = accentColor,
-                    modifier = Modifier.size(19.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
-                Text(
-                    warehouse?.let { "${it.code} ${it.name.orEmpty()}" } ?: "请选择仓库",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (warehouse != null) OnSurface else OnSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Icon(
-                Icons.Filled.KeyboardArrowDown,
-                null,
-                tint = OnSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}

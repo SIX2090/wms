@@ -4,10 +4,12 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -20,7 +22,9 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -30,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
+import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 
@@ -46,6 +51,10 @@ fun LoginScreen(
     var showPassword by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val haptics = LocalHapticFeedback.current
+
+    // 深蓝渐变背景 → 浅色状态栏图标（修复深色图标在深色背景上不可读）
+    StatusBarIconEffect(darkIcons = false)
 
     // 当已保存的服务器地址变化时，同步到输入框
     LaunchedEffect(uiState.baseUrl) {
@@ -112,6 +121,11 @@ fun LoginScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    // AI-APP-UI-002：键盘弹起 / 小屏 / 大字体场景下登录卡片可能被顶出
+                    // 屏幕（原先整体不可滚，点不到登录按钮）。加垂直滚动 + imePadding，
+                    // 内容短时仍居中，内容超高时可滚动访问。
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
                     .padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
@@ -162,7 +176,9 @@ fun LoginScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    // AI-APP-FIX-303：登录卡底色随主题（亮白/暗深灰）——硬编码白卡
+                    // 会让暗色模式下 OnSurface 变浅文本压白底不可读
+                    colors = CardDefaults.cardColors(containerColor = CardBackground),
                     elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
                 ) {
                     Column(
@@ -208,7 +224,7 @@ fun LoginScreen(
                                 focusedLabelColor = Primary,
                                 unfocusedBorderColor = BorderSoft,
                                 unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = Color.White
+                                focusedContainerColor = CardBackground
                             )
                         )
 
@@ -241,7 +257,7 @@ fun LoginScreen(
                                 focusedLabelColor = Primary,
                                 unfocusedBorderColor = BorderSoft,
                                 unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = Color.White
+                                focusedContainerColor = CardBackground
                             )
                         )
 
@@ -292,7 +308,7 @@ fun LoginScreen(
                                 focusedLabelColor = Primary,
                                 unfocusedBorderColor = BorderSoft,
                                 unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = Color.White
+                                focusedContainerColor = CardBackground
                             )
                         )
 
@@ -312,6 +328,8 @@ fun LoginScreen(
                                     alpha = if (loginEnabled) 1f else 0.4f
                                 )
                                 .clickable(enabled = loginEnabled) {
+                                    // 触觉确认：仓库现场嘈杂/戴手套，按下有无生效靠体感
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                     viewModel.login(username, password, baseUrl)
                                 },
                             contentAlignment = Alignment.Center

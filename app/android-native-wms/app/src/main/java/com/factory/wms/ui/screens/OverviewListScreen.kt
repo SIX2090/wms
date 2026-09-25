@@ -23,7 +23,10 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.AlertItemDto
 import com.factory.wms.data.model.MobileOrderDto
 import com.factory.wms.ui.components.WmsEmptyState
+import com.factory.wms.ui.components.WmsErrorState
 import com.factory.wms.ui.components.WmsGradientHeader
+import com.factory.wms.ui.components.WmsListSkeleton
+import com.factory.wms.ui.components.WmsPullToRefreshBox
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.list.ListKind
 import com.factory.wms.ui.viewmodel.list.ListUiState
@@ -69,7 +72,9 @@ fun OverviewListScreen(
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            // AI-APP-FIX-201：此处只剩"带数据刷新/翻页失败"的瞬态错误（首屏失败
+            // 走 loadError 全屏错误态），Snackbar 加长避免现场没看清就消失。
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Long)
             viewModel.clearError()
         }
     }
@@ -116,25 +121,38 @@ fun OverviewListScreen(
             }
 
             when {
+                // AI-APP-FIX-202：首屏转圈 → 骨架列表（高度与真实列表接近，不跳变）
                 uiState.isFirstLoad -> {
+                    WmsListSkeleton()
+                }
+
+                // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
+                // 不再落入下方"暂无告警/没有单据"的误导性空态
+                uiState.loadError != null -> {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(48.dp),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
-                    ) { CircularProgressIndicator(color = accent) }
+                    ) {
+                        WmsErrorState(
+                            title = "加载失败",
+                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            onRetry = { viewModel.retry() }
+                        )
+                    }
                 }
 
                 target == OverviewTarget.ALERT -> AlertList(
                     state = uiState,
                     accent = accent,
-                    onLoadMore = { viewModel.loadMore() }
+                    onLoadMore = { viewModel.loadMore() },
+                    onRefresh = { viewModel.retry() }
                 )
 
                 else -> OrderList(
                     state = uiState,
                     accent = accent,
-                    onLoadMore = { viewModel.loadMore() }
+                    onLoadMore = { viewModel.loadMore() },
+                    onRefresh = { viewModel.retry() }
                 )
             }
         }
@@ -152,11 +170,13 @@ private fun OrderKindTabs(current: ListKind, accent: Color, onSelect: (ListKind)
         listOf(ListKind.IN_ORDER to "入库单", ListKind.OUT_ORDER to "出库单").forEach { (kind, label) ->
             FilterChip(
                 selected = current == kind,
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { if (current != kind) onSelect(kind) },
                 label = { Text(label) },
                 shape = RoundedCornerShape(10.dp),
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = accent.copy(alpha = 0.14f),
+                    // AI-APP-FIX-301：Chip 选中底 alpha 亮 0.14 / 暗 0.24
+                    selectedContainerColor = accent.copy(alpha = MaterialTheme.wmsColors.accentWashAlpha),
                     selectedLabelColor = accent
                 )
             )
@@ -175,11 +195,13 @@ private fun StatusFilterRow(current: String?, accent: Color, onSelect: (String?)
         listOf(null to "全部", "pending" to "待处理", "completed" to "已完成").forEach { (value, label) ->
             FilterChip(
                 selected = current == value,
+                modifier = Modifier.height(WmsDimens.TouchTargetMin),
                 onClick = { onSelect(value) },
                 label = { Text(label) },
                 shape = RoundedCornerShape(10.dp),
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = accent.copy(alpha = 0.14f),
+                    // AI-APP-FIX-301：Chip 选中底 alpha 亮 0.14 / 暗 0.24
+                    selectedContainerColor = accent.copy(alpha = MaterialTheme.wmsColors.accentWashAlpha),
                     selectedLabelColor = accent
                 )
             )
@@ -192,8 +214,28 @@ private fun StatusFilterRow(current: String?, accent: Color, onSelect: (String?)
 private fun AlertList(
     state: ListUiState,
     accent: Color,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    onRefresh: () -> Unit
 ) {
+    val listState = rememberLazyListState()
+    // 滑到末尾自动加载下一页（与查库存列表同策略）
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= state.alerts.size - 2
+        }
+    }
+    LaunchedEffect(shouldLoadMore, state.page, state.totalPages) {
+        if (shouldLoadMore && state.page < state.totalPages) onLoadMore()
+    }
+
+    // AI-APP-FIX-505：下拉刷新统一（空态也可下拉重试）；首屏加载走骨架屏，
+    // 只有"已有内容时的刷新"才亮刷新指示器。
+    WmsPullToRefreshBox(
+        isRefreshing = state.isLoading && !state.isFirstLoad,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
     if (state.alerts.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             WmsEmptyState(
@@ -205,19 +247,7 @@ private fun AlertList(
                 accentColor = accent
             )
         }
-        return
-    }
-
-    val listState = rememberLazyListState()
-    // 滑到末尾自动加载下一页（与查库存列表同策略）
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= state.alerts.size - 2
-        }
-    }
-    LaunchedEffect(shouldLoadMore, state.page, state.totalPages) {
-        if (shouldLoadMore && state.page < state.totalPages) onLoadMore()
+        return@WmsPullToRefreshBox
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -242,6 +272,7 @@ private fun AlertList(
                 ListFooter(state)
             }
         }
+    }
     }
 }
 
@@ -321,8 +352,31 @@ private fun AlertRow(item: AlertItemDto, accent: Color) {
 private fun OrderList(
     state: ListUiState,
     accent: Color,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    onRefresh: () -> Unit
 ) {
+    val listState = rememberLazyListState()
+    // AI-APP-FIX-506：切换入库/出库单（或状态筛选）后滚动位置重置——
+    // 此前列表停在原位，从出库第 5 屏切到入库会落在列表中段，用户以为数据丢了。
+    LaunchedEffect(state.kind, state.statusFilter) {
+        listState.scrollToItem(0)
+    }
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            last >= state.orders.size - 2
+        }
+    }
+    LaunchedEffect(shouldLoadMore, state.page, state.totalPages) {
+        if (shouldLoadMore && state.page < state.totalPages) onLoadMore()
+    }
+
+    // AI-APP-FIX-505：下拉刷新统一（空态也可下拉重试）
+    WmsPullToRefreshBox(
+        isRefreshing = state.isLoading && !state.isFirstLoad,
+        onRefresh = onRefresh,
+        modifier = Modifier.fillMaxSize()
+    ) {
     if (state.orders.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             WmsEmptyState(
@@ -332,18 +386,7 @@ private fun OrderList(
                 accentColor = accent
             )
         }
-        return
-    }
-
-    val listState = rememberLazyListState()
-    val shouldLoadMore by remember {
-        derivedStateOf {
-            val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= state.orders.size - 2
-        }
-    }
-    LaunchedEffect(shouldLoadMore, state.page, state.totalPages) {
-        if (shouldLoadMore && state.page < state.totalPages) onLoadMore()
+        return@WmsPullToRefreshBox
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -367,6 +410,7 @@ private fun OrderList(
                 ListFooter(state)
             }
         }
+    }
     }
 }
 
@@ -429,6 +473,9 @@ private fun OrderRow(order: MobileOrderDto, accent: Color, inbound: Boolean) {
                         " · ${order.department}",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        // AI-APP-FIX-506：部门名给 weight——此前无宽度约束，
+                        // 长部门名把整行静默裁切（日期/项数也被顶出屏幕）
+                        modifier = Modifier.weight(1f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -454,9 +501,13 @@ private fun ListFooter(state: ListUiState) {
                 .padding(12.dp),
             contentAlignment = Alignment.Center
         ) {
-            TextButton(onClick = { /* 由 shouldLoadMore 自动触发 */ }) {
-                Text("上滑加载更多", fontSize = 12.sp)
-            }
+            // AI-APP-FIX-203：纯提示文案，不做成按钮——onClick 为空的"假按钮"
+            // 会让用户以为点了能加载（实际靠上滑自动触发），点了没反应像坏掉。
+            Text(
+                "上滑加载更多",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         state.total > 0 -> Box(

@@ -50,6 +50,8 @@ data class ScanUiState(
     // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单（统一挂一张盘点单）
     val checkOrders: List<CheckOrderDto> = emptyList(),
     val checkOrdersLoading: Boolean = false,
+    /** AI-APP-FIX-201：盘点单加载失败的持久错误（选单弹窗内展示 + 重试） */
+    val checkOrdersError: String? = null,
     val selectedCheckOrder: CheckOrderDto? = null,
     // 合同编号（出库选填）：输入片段快速匹配完整合同编号（如 0709 → HD260709）
     val contractNo: String = "",
@@ -692,7 +694,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     fun loadPendingCheckOrders() {
         val code = _uiState.value.selectedWarehouse?.code ?: return
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(checkOrdersLoading = true)
+            _uiState.value = _uiState.value.copy(checkOrdersLoading = true, checkOrdersError = null)
             repository.loadPendingCheckOrders(code).fold(
                 onSuccess = { orders ->
                     val selected = _uiState.value.selectedCheckOrder
@@ -709,7 +711,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         checkOrdersLoading = false,
                         checkOrders = emptyList(),
                         selectedCheckOrder = null,
-                        error = e.message
+                        // AI-APP-FIX-201：失败必须留在弹窗里可见（Snackbar 被弹窗
+                        // 遮挡且一闪而过，用户会误以为"该仓没有进行中盘点单"）。
+                        checkOrdersError = e.message ?: "加载失败"
                     )
                 }
             )
@@ -981,7 +985,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    fun searchMaterialByCode(code: String) {
+    /**
+     * 按编码查物料（查库存扫码/候选点选/换仓刷新共用）。
+     *
+     * AI-APP-FIX-503：[onResult] 在请求结束后回报命中与否（命中=true），
+     * 供扫码反馈音等"结果驱动"的场景使用——调用方不必再发一次
+     * materialExists 重复请求来判定成败。
+     */
+    fun searchMaterialByCode(code: String, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val whCode = _uiState.value.selectedWarehouse?.code
@@ -993,6 +1004,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         scannedMaterial = material,
                         scannedCode = code
                     )
+                    onResult(true)
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -1001,6 +1013,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
                         scannedMaterial = null,
                         scannedCode = code
                     )
+                    onResult(false)
                 }
             )
         }

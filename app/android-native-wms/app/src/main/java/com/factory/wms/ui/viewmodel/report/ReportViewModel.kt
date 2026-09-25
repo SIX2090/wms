@@ -24,6 +24,8 @@ enum class ReportType(val apiType: String, val label: String) {
 data class ReportUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
+    /** AI-APP-FIX-201：尚无报表数据时加载失败的持久错误（全屏错误态 + 重试） */
+    val loadError: String? = null,
     /** 当前查询日期，格式 yyyy-MM-dd */
     val date: String = "",
     /** 日期是否处于「今天模式」：true 时每次加载自动跟随系统当天（跨天不重启也生效） */
@@ -67,7 +69,7 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         }
         val state = _uiState.value
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, loadError = null)
             repository.getDailyReport(
                 state.reportType.apiType, state.date, state.selectedWarehouseId
             ).fold(
@@ -75,10 +77,19 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
                     _uiState.value = _uiState.value.copy(isLoading = false, report = data)
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message ?: "加载失败"
-                    )
+                    // AI-APP-FIX-201：还没有任何报表数据时失败 → 全屏错误态；
+                    // 已有数据（翻日期/切类型失败）→ Snackbar，保留旧数据。
+                    if (_uiState.value.report == null) {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            loadError = e.message ?: "加载失败"
+                        )
+                    } else {
+                        _uiState.value = _uiState.value.copy(
+                            isLoading = false,
+                            error = e.message ?: "加载失败"
+                        )
+                    }
                 }
             )
         }
@@ -126,9 +137,14 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         val cal = Calendar.getInstance()
         cal.time = apiDateFormat.parse(_uiState.value.date) ?: Date()
         cal.add(Calendar.DAY_OF_YEAR, offset)
+        val next = apiDateFormat.format(cal.time)
+        // AI-APP-FIX-206：不允许翻到未来（服务端对未来日期 400，前置钳制，
+        // 与库存日报 shiftDay 同策略；UI 层「后一天」按钮另有禁用兜底）
+        val today = apiDateFormat.format(Date())
+        if (next > today) return
         // 手动翻天后脱离「今天模式」，避免用户翻到的日期被自动校正覆盖
         _uiState.value = _uiState.value.copy(
-            date = apiDateFormat.format(cal.time),
+            date = next,
             dateIsToday = false
         )
         load()
@@ -142,6 +158,17 @@ class ReportViewModel(application: Application) : AndroidViewModel(application) 
         )
         load()
     }
+
+    /** AI-APP-FIX-402：DatePicker 直接跳日（与 shiftDay 同钳制：不允许未来日期） */
+    fun setDate(date: String) {
+        val today = apiDateFormat.format(Date())
+        if (date > today || date == _uiState.value.date) return
+        _uiState.value = _uiState.value.copy(date = date, dateIsToday = date == today)
+        load()
+    }
+
+    /** AI-APP-FIX-402：今天日期串由 ViewModel 提供（页面层不再每次重组新建 SimpleDateFormat） */
+    fun today(): String = apiDateFormat.format(Date())
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)

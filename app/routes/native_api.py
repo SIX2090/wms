@@ -1412,6 +1412,68 @@ def register_native_api_routes(app):
             'total_pages': page_data['total_pages'],
         })
 
+    @app.route('/api/mobile/stocktake/detail')
+    @csrf.exempt
+    @api_role_required('warehouse')
+    def native_api_stocktake_detail(user):
+        """盘点记录差异明细下钻（Android，AI-APP-FIX-505）。
+
+        列表（/api/mobile/stocktake/list）只有 item_count/diff_count 汇总，
+        作业员对账时看不到"具体哪个物料、账面多少、实盘多少、差多少"。
+        本端点返回单条扫码盘点单的全部明细行。
+
+        查询参数：
+        - id：InventoryCheckScan.id（必填）。
+
+        可见范围与列表同口径：仅本人（operator_id == 当前登录用户）记录；
+        不存在与他人记录同样回 404，不暴露记录是否存在。
+
+        返回 items 每行：material_code / material_name / spec / brand / unit /
+        area / system_stock（账面）/ actual_stock（实盘）/ difference /
+        is_diff（|difference| > STOCK_COMPARE_EPSILON，与 PC 口径一致）。
+        差异行排在前面——下钻的第一诉求就是对差异。
+        """
+        from app import (STOCK_COMPARE_EPSILON, InventoryCheckScan,
+                         api_json_error, api_json_success)
+        scan_id = request.args.get('id', type=int)
+        if not scan_id:
+            return api_json_error('缺少参数 id', 400)
+        scan = InventoryCheckScan.query.filter(
+            InventoryCheckScan.id == scan_id,
+            InventoryCheckScan.operator_id == user.id).first()
+        if scan is None:
+            return api_json_error('盘点记录不存在', 404)
+
+        items = []
+        for it in (scan.items or []):
+            material = it.material
+            diff = it.difference or 0
+            items.append({
+                'material_code': material.code if material else '',
+                'material_name': material.name if material else '',
+                'spec': (material.spec or '') if material else '',
+                'brand': (material.brand or '') if material else '',
+                'unit': (material.unit.name
+                         if material and material.unit else ''),
+                'area': it.area or '',
+                'system_stock': it.system_stock or 0,
+                'actual_stock': it.actual_stock or 0,
+                'difference': diff,
+                'is_diff': abs(diff) > STOCK_COMPARE_EPSILON,
+            })
+        # 差异行优先（对账先看差异），其余按编码稳定排序
+        items.sort(key=lambda row: (not row['is_diff'], row['material_code']))
+
+        return api_json_success({
+            'id': scan.id,
+            'check_no': scan.check_no or '',
+            'date': scan.date.isoformat() if scan.date else '',
+            'warehouse': scan.warehouse or '',
+            'status': scan.status or '',
+            'remark': scan.remark or '',
+            'items': items,
+        })
+
     @app.route('/api/mobile/dashboard')
     @csrf.exempt
     @web_or_api_required
