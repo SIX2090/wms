@@ -429,7 +429,8 @@ def register_bom_routes(app):
     def import_bom():
         from app import (BOM, BOMItem, Material, Unit, api_error,
                          calculate_bom_cost_value, generate_order_no,
-                         round_to_2_decimals, validate_excel_extension, validate_excel_size)
+                         round_to_2_decimals, reuse_material_by_name_spec,
+                         validate_excel_extension, validate_excel_size)
         file = request.files.get('file')
         if not file:
             return api_error('请选择要导入的 BOM 文件')
@@ -548,6 +549,12 @@ def register_bom_routes(app):
                     continue
 
                 material = Material.query.filter_by(code=material_code).first()
+                if not material:
+                    # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有物料，
+                    # 详见 reuse_material_by_name_spec 注释。
+                    material = reuse_material_by_name_spec(
+                        material_code, get_val(row, 'material_name'),
+                        get_val(row, 'spec'), warnings=warnings)
                 if not material:
                     material = Material(
                         code=material_code,

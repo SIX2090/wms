@@ -8826,6 +8826,61 @@ def material_selectable_filter(include_inactive=False):
                   Material.status == '')
 
 
+def find_material_by_name_spec_brand(name, spec=None, brand=None, exclude_id=None,
+                                     active_only=False):
+    """物料判重的**唯一实现**：名称 + 规格 + 品牌，去空格 + 不分大小写三者同时相同。
+
+    R 系列防腐：这条判据只允许存在这一份。此前它被手写了 4 遍
+    （material_name_spec_exists、_ai_material_match_one、AI 单据确认建档、
+    native_api._find_material_by_name_spec），且四份口径各不相同 —— 有的带品牌、
+    有的不带；有的区分大小写、有的不区分；有的在规格为空时退化成「只比名称」。
+    生产库实测进来的 5 组一物多码，正是这些口径不一致的产物。
+
+    active_only=True：只认启用物料。用于「自动建档命中后复用」的场景 —— 复用到
+    一个已停用的物料，等于把弃用的编码重新塞回新单据，不如不复用。
+    """
+    query = Material.query.filter(
+        _material_dedupe_expr(Material.name) == _material_dedupe_key(name),
+        _material_dedupe_expr(Material.spec) == _material_dedupe_key(spec),
+        _material_dedupe_expr(Material.brand) == _material_dedupe_key(brand),
+    )
+    if exclude_id:
+        query = query.filter(Material.id != exclude_id)
+    if active_only:
+        _sf = material_selectable_filter(False)
+        if _sf is not None:
+            query = query.filter(_sf)
+    return query.order_by(Material.id.asc()).first()
+
+
+def reuse_material_by_name_spec(code, name, spec=None, brand=None, warnings=None):
+    """自动建档兜底：编码查不到时，按「名称 + 规格 + 品牌」复用已有物料。
+
+    命中返回 Material，未命中返回 None（调用方再走新建分支）。
+
+    为什么是「复用 + 提示」而不是「拒绝」或「静默新建」：
+      同一张 Excel 里同一个物料被写成两个编码是现场常态 —— 生产库实测 5 组一物
+      多码里 4 组的 created_at 相差 0~3 毫秒，就是同一次导入写进去的；最典型的
+      一条是入库单 IN26090112 里 115021 入 28、115022 入 2，同一个物料在同一张
+      单上被拆成两行、数量也被拆开，按物料统计用量永远加不到一起。
+      拒绝整批 → 现场每次导入都要回头改表，实际会逼人放弃导入；
+      静默新建 → 继续造一物多码，等于没修。
+      复用 + 显式提示是唯一两头都不丢的做法：数量并到同一条物料上，导入结果页
+      看得见发生了什么。
+
+    active_only=True：已停用的往往是弃用的重复件，不该被自动匹配带回新单据。
+    """
+    material = find_material_by_name_spec_brand(
+        name, spec, brand=brand, active_only=True)
+    if material is None:
+        return None
+    if warnings is not None:
+        warnings.append(
+            f'物料编码 {code} 不存在，已按名称+规格复用已有物料 '
+            f'{material.code}（{material.name}）')
+    return material
+
+
 def _material_similarity_key(value):
     """物料「软提示」键的强归一化：NFKC + 去全部空白 + 转小写。
 
@@ -8841,21 +8896,16 @@ def _material_similarity_key(value):
 def material_name_spec_exists(name, spec, brand=None, exclude_id=None):
     """名称 + 规格 + 品牌 三者同时重复 → 判重（硬挡）。
 
-    比较时忽略空格差异与大小写差异（口径见 _material_dedupe_key）：
-    'LA38-11 绿色' 与 'LA38-11绿色'、'25KA' 与 '25kA' 都认定为重复。
+    2026-09-25：判定实现已收敛到 find_material_by_name_spec_brand()，本函数只
+    保留布尔语义，供手工建档 / Excel 导入的拦截点调用。不要再在这里改判据。
 
-    为什么把 brand 加进键（2026-09-25）：业务上「同型号不同品牌」是两个物料
-    （欧姆龙 vs 西门子的模拟量输入模块），不含品牌会把正常业务挡在门外；
-    生产库实测已有 10 组同名不同品牌，说明现场就是按品牌区分物料的。
+    为什么把 brand 加进键：业务上「同型号不同品牌」是两个物料（欧姆龙 vs 西门子
+    的模拟量输入模块），不含品牌会把正常业务挡在门外；生产库实测已有 1 组同名同
+    规格不同品牌（继电器底座 PF113A-E BY OMZ/C：104013 无品牌 / 112008 欧姆龙），
+    说明现场就是按品牌区分物料的。
     """
-    query = Material.query.filter(
-        _material_dedupe_expr(Material.name) == _material_dedupe_key(name),
-        _material_dedupe_expr(Material.spec) == _material_dedupe_key(spec),
-        _material_dedupe_expr(Material.brand) == _material_dedupe_key(brand),
-    )
-    if exclude_id:
-        query = query.filter(Material.id != exclude_id)
-    return query.first() is not None
+    return find_material_by_name_spec_brand(
+        name, spec, brand=brand, exclude_id=exclude_id) is not None
 
 
 def find_similar_materials(name, spec, exclude_id=None, limit=5):
@@ -12504,11 +12554,11 @@ def _ai_material_match_one(code='', name='', spec='', barcode=''):
             return material, 'exact_code'
 
     # Priority 2: exact name + spec match
+    # 2026-09-25：改用唯一判重实现（去空格 + 不分大小写 + 带品牌），与手工建档
+    # 同一口径。原先这里自己手写了一份「区分大小写、且 spec 为空时退化成只比
+    # 名称」的判据，导致 AI 匹配到的物料与建档时判重认定的物料不是同一件。
     if name:
-        exact_query = Material.query.options(joinedload(Material.unit)).filter(Material.name == name)
-        if spec:
-            exact_query = exact_query.filter(db.func.coalesce(Material.spec, '') == spec)
-        material = exact_query.first()
+        material = find_material_by_name_spec_brand(name, spec, active_only=True)
         if material:
             return material, 'exact_name'
 
@@ -18055,15 +18105,21 @@ def _ai_master_data_fix_list_response(message, context=None, force=False):
         .all()
     )
 
+    # 2026-09-25（判重收敛）：这里原本按「name + spec 精确相等」分组（不含品牌、
+    # 区分大小写与空格），是第五份判重实现 —— 生产库实测它只报得出 2 组，而按
+    # 业务口径真实重复是 5 组。改用唯一判重键的 SQL 表达式分组，与建档判重同源。
+    _dup_name = _material_dedupe_expr(Material.name)
+    _dup_spec = _material_dedupe_expr(Material.spec)
+    _dup_brand = _material_dedupe_expr(Material.brand)
     duplicate_rows = (
         db.session.query(
-            Material.name,
-            Material.spec,
+            func.max(Material.name).label('name'),
+            func.max(Material.spec).label('spec'),
             func.count(Material.id).label('cnt'),
             func.group_concat(Material.code, ',').label('codes'),
         )
-        .filter(Material.name.isnot(None), Material.name != '')
-        .group_by(Material.name, Material.spec)
+        .filter(_dup_name != '')
+        .group_by(_dup_name, _dup_spec, _dup_brand)
         .having(func.count(Material.id) > 1)
         .order_by(func.count(Material.id).desc())
         .limit(5)
@@ -21063,10 +21119,9 @@ def ai_document_confirm(token):
                 if Material.query.filter_by(code=code).first():
                     flash(f'第 {idx + 1} 行物料编号 {code} 已存在，请直接选择已有物料。', 'danger')
                     return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
-                same_material = Material.query.filter(
-                    Material.name == name,
-                    db.func.coalesce(Material.spec, '') == spec,
-                ).first()
+                # 2026-09-25：改用唯一判重实现（去空格 + 不分大小写 + 带品牌）。
+                # 原判据区分大小写且不带品牌，'25KA' / '25kA' 这类变体挡不住。
+                same_material = find_material_by_name_spec_brand(name, spec)
                 if same_material:
                     flash(f'第 {idx + 1} 行已有同名同规格物料 {same_material.code}，请直接选择，避免重复建档。', 'danger')
                     return render_template('ai_document_confirm.html', token=token, payload=payload, materials=materials, material_count=material_count, units=units, categories=categories)
@@ -24603,12 +24658,16 @@ def _find_or_create_warehouse(name):
         db.session.flush()
     return warehouse
 
-def _find_or_create_material(code, name='', spec='', unit_name=''):
+def _find_or_create_material(code, name='', spec='', unit_name='', warnings=None):
     code = (code or '').strip()
     if not code:
         return None
     material = Material.query.filter_by(code=code).first()
     unit = _find_or_create_unit(unit_name)
+    if not material:
+        # 2026-09-25（判重收敛）：编码查不到时先按名称+规格复用已有物料，
+        # 避免「同一物料换个编码就再建一条」。口径见 reuse_material_by_name_spec。
+        material = reuse_material_by_name_spec(code, name, spec, warnings=warnings)
     if not material:
         material = Material(
             code=code,
@@ -24672,15 +24731,24 @@ def _read_import_sheet(file, aliases):
     header_row = [str(cell).strip() if cell else '' for cell in header]
     return ws, _build_col_map(header_row, aliases), header_row
 
-def _import_result(name, order_count, item_count=0, skip=0, skip_details=None, extra=None):
+def _import_result(name, order_count, item_count=0, skip=0, skip_details=None,
+                  extra=None, notes=None):
+    """导入结果统一返回。
+
+    notes（2026-09-25）：与 skip_details 分开的**非跳过类提示**（如「编码不存在，
+    已复用已有物料」）。混进 skip_details 会被UI 渲染成「跳过 N 行」的一部分，
+    语义不对；extra 是 dict 且会整体 update 进 payload，也不能承载列表。
+    """
     msg = f'{name}导入成功，共导入 {order_count} 张单据'
     if item_count:
         msg += f'，{item_count} 条明细'
     if skip:
         msg += f'，跳过 {skip} 行'
     payload = {'status': 'success', 'msg': msg, 'count': order_count, 'item_count': item_count}
-    if skip_details:
-        payload['warnings'] = '；'.join(skip_details[:20])
+    _warn_parts = list(skip_details[:20]) if skip_details else []
+    _warn_parts.extend(list(notes)[:20] if notes else [])
+    if _warn_parts:
+        payload['warnings'] = '；'.join(_warn_parts)
     if extra:
         payload.update(extra)
     return jsonify(payload)

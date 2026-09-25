@@ -877,6 +877,7 @@ def register_subcontract_routes(app):
             item_count = 0
             skip = 0
             skip_details = []
+            warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 supplier_name = _get_excel_cell(row, col_map, 'supplier')
                 material_code = _get_excel_cell(row, col_map, 'material_code')
@@ -914,6 +915,7 @@ def register_subcontract_routes(app):
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
                     _get_excel_cell(row, col_map, 'unit'),
+                    warnings=warnings,
                 )
                 order.total_amount = (order.total_amount or 0) + round_to_2_decimals(quantity * (material.price or 0))
                 db.session.add(SubcontractItem(
@@ -924,7 +926,7 @@ def register_subcontract_routes(app):
                 ))
                 item_count += 1
             db.session.commit()
-            return _import_result('委外加工单', order_count, item_count, skip, skip_details)
+            return _import_result('委外加工单', order_count, item_count, skip, skip_details, notes=warnings)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外加工导入失败: {e}')
@@ -1589,6 +1591,7 @@ def register_subcontract_routes(app):
             item_count = 0
             skip = 0
             skip_details = []
+            warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 material_code = _get_excel_cell(row, col_map, 'material_code')
                 quantity = _get_excel_number(row, col_map, 'quantity')
@@ -1624,6 +1627,7 @@ def register_subcontract_routes(app):
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
                     _get_excel_cell(row, col_map, 'unit'),
+                    warnings=warnings,
                 )
                 db.session.add(SubcontractIssueItem(
                     issue_id=issue.id,
@@ -1634,7 +1638,7 @@ def register_subcontract_routes(app):
                 ))
                 item_count += 1
             db.session.commit()
-            return _import_result('委外发料单', order_count, item_count, skip, skip_details)
+            return _import_result('委外发料单', order_count, item_count, skip, skip_details, notes=warnings)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外发料导入失败: {e}')
@@ -2261,6 +2265,7 @@ def register_subcontract_routes(app):
             item_count = 0
             skip = 0
             skip_details = []
+            warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 material_code = _get_excel_cell(row, col_map, 'material_code')
                 quantity = _get_excel_number(row, col_map, 'quantity')
@@ -2298,6 +2303,7 @@ def register_subcontract_routes(app):
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
                     _get_excel_cell(row, col_map, 'unit'),
+                    warnings=warnings,
                 )
                 scrap_quantity = _get_excel_number(row, col_map, 'scrap_quantity', 0)
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
@@ -2316,7 +2322,7 @@ def register_subcontract_routes(app):
                 ))
                 item_count += 1
             db.session.commit()
-            return _import_result('委外入库单', order_count, item_count, skip, skip_details)
+            return _import_result('委外入库单', order_count, item_count, skip, skip_details, notes=warnings)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外入库导入失败: {e}')

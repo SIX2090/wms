@@ -351,3 +351,136 @@ def test_import_rejects_space_and_case_variants():
     with app_module.app.app_context():
         assert Material.query.filter_by(code="IMP-9").first() is None
         assert Material.query.filter_by(code="IMP-11").first() is None
+
+
+# ------------------------------------------------- 判重收敛（2026-09-25 第二轮）
+
+def test_find_material_by_name_spec_brand():
+    """判重的唯一实现：返回命中的 Material；空格/大小写变体同样命中。"""
+    from app import find_material_by_name_spec_brand
+
+    with app_module.app.app_context():
+        _reset_db()
+        mid = _seed("FND-1", "浪涌后备保护", "JKDB-25I/4P 25KA", None)
+
+        assert find_material_by_name_spec_brand("浪涌后备保护", "JKDB-25I/4P 25KA").id == mid
+        assert find_material_by_name_spec_brand("浪涌后备保护", "JKDB-25I/4P 25kA").id == mid, \
+            "大小写变体必须命中"
+        assert find_material_by_name_spec_brand(" 浪涌后备保护 ", "JKDB-25I/4P 25KA ").id == mid, \
+            "首尾空格必须归一"
+        assert find_material_by_name_spec_brand("浪涌后备保护", "别的规格") is None
+        assert find_material_by_name_spec_brand("浪涌后备保护", "JKDB-25I/4P 25KA",
+                                                exclude_id=mid) is None, "exclude_id 必须排除自己"
+        assert find_material_by_name_spec_brand("", "JKDB-25I/4P 25KA") is None, "空名称不参与判重"
+
+
+def test_find_material_by_name_spec_brand_active_only():
+    """active_only=True：已停用物料不参与自动匹配（别把弃用编码带回新单据）。"""
+    from app import find_material_by_name_spec_brand
+
+    with app_module.app.app_context():
+        _reset_db()
+        mid = _seed("FND-2", "按钮", "LA38-11 绿色", None)
+        db.session.query(Material).filter_by(id=mid).update({'status': 'inactive'})
+        db.session.commit()
+
+        assert find_material_by_name_spec_brand("按钮", "LA38-11绿色") is not None, \
+            "硬挡不区分停用与否（停用件也要能挡住新建同名物料）"
+        assert find_material_by_name_spec_brand("按钮", "LA38-11绿色", active_only=True) is None
+
+
+def test_reuse_material_by_name_spec():
+    """自动建档兜底：编码查不到时按名称+规格复用，并把复用动作写进 warnings。"""
+    from app import reuse_material_by_name_spec
+
+    with app_module.app.app_context():
+        _reset_db()
+        mid = _seed("RUS-1", "模块前连接器40针", "6ES75921BM000XB0", "西门子")
+
+        notes = []
+        hit = reuse_material_by_name_spec("115022", "模块前连接器40针",
+                                          "6ES75921BM000XB0", "西门子", warnings=notes)
+        assert hit is not None and hit.id == mid, "编码不同但名称+规格+品牌相同 → 必须复用"
+        assert len(notes) == 1 and "115022" in notes[0] and "RUS-1" in notes[0], \
+            "复用必须在导入结果里显式提示，不能静默合并"
+
+        # 品牌不同 → 不复用（欧姆龙连接器不是西门子连接器）
+        assert reuse_material_by_name_spec("X-2", "模块前连接器40针",
+                                           "6ES75921BM000XB0", "欧姆龙") is None
+        # 名称+规格都没命中 → 返回 None，由调用方新建
+        assert reuse_material_by_name_spec("X-3", "全新物料", "NO-SUCH") is None
+        # warnings=None 时不能抛异常
+        assert reuse_material_by_name_spec("115022", "模块前连接器40针",
+                                           "6ES75921BM000XB0", "西门子").id == mid
+
+
+def test_find_or_create_material_reuses_same_name_spec():
+    """_find_or_create_material：编码换了但名称+规格没换 → 复用，不再新建一条。"""
+    from app import _find_or_create_material
+
+    with app_module.app.app_context():
+        _reset_db()
+        first = _find_or_create_material("115021", "模块前连接器40针",
+                                         "6ES75921BM000XB0", "个")
+        notes = []
+        second = _find_or_create_material("115022", "模块前连接器40针",
+                                          "6ES75921BM000XB0", "个", warnings=notes)
+        db.session.commit()
+        assert second.id == first.id, "同一物料换编码必须复用，否则一张单会被拆成两行"
+        assert Material.query.count() == 1
+        assert notes and "复用" in notes[0]
+
+
+def test_material_dedupe_implementation_is_single():
+    """防腐：物料判重口径只允许 find_material_by_name_spec_brand 一份。
+
+    此前同一判据被手写了 5 遍（material_name_spec_exists、_ai_material_match_one、
+    AI 单据确认建档、native_api._find_material_by_name_spec、AI 主数据重复清单），
+    五份口径各不相同 —— 有的带品牌、有的不带，有的区分大小写、有的不区分，有的
+    规格为空时退化成只比名称。生产库那 5 组一物多码就是这么进来的。
+    本测试用 AST 扫描，禁止出现第六份。
+    """
+    import ast
+
+    # 白名单：唯一实现 + 一处「按名称文本找物料」的单字段查找（不是名称+规格判重）
+    ALLOWED = {'find_material_by_name_spec_brand', '_ai_parse_material_lines'}
+    TARGET = {'name', 'spec', 'brand'}
+
+    def _is_material_field(node):
+        return (isinstance(node, ast.Attribute) and node.attr in TARGET
+                and isinstance(node.value, ast.Name) and node.value.id == 'Material')
+
+    class _V(ast.NodeVisitor):
+        def __init__(self):
+            self.stack = []
+            self.hits = []
+
+        def visit_FunctionDef(self, node):
+            self.stack.append(node.name)
+            self.generic_visit(node)
+            self.stack.pop()
+
+        def visit_Call(self, node):
+            if getattr(node.func, 'attr', None) in ('filter', 'filter_by'):
+                for arg in list(node.args) + [kw.value for kw in node.keywords]:
+                    for sub in ast.walk(arg):
+                        if isinstance(sub, ast.Compare) and _is_material_field(sub.left):
+                            self.hits.append(
+                                (self.stack[-1] if self.stack else '<module>', node.lineno))
+            self.generic_visit(node)
+
+    offenders = []
+    for path in sorted((ROOT / 'app').rglob('*.py')):
+        try:
+            tree = ast.parse(path.read_text(encoding='utf-8'))
+        except (SyntaxError, UnicodeDecodeError):
+            continue  # 存量文件有 BOM 等历史问题，不是本测试关注点
+        v = _V()
+        v.visit(tree)
+        for func_name, lineno in v.hits:
+            if func_name not in ALLOWED:
+                offenders.append(f'{path.relative_to(ROOT)}:{lineno} ({func_name})')
+
+    assert not offenders, (
+        '物料判重口径出现了新的手写实现，请改为调用 '
+        'find_material_by_name_spec_brand()：\n' + '\n'.join(offenders))

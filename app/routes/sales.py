@@ -172,6 +172,7 @@ def register_sales_routes(app):
             item_count = 0
             skip = 0
             skip_details = []
+            warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 order_no = _order_no_from_row(row, col_map, 'order_no', 'SO')
                 customer_name = _get_excel_cell(row, col_map, 'customer')
@@ -207,7 +208,7 @@ def register_sales_routes(app):
                     db.session.flush()
                     orders_by_no[order_no] = order
                     order_count += 1
-                material = Material.query.filter_by(code=material_code).first() or _find_or_create_material(material_code, _get_excel_cell(row, col_map, 'material_name'), _get_excel_cell(row, col_map, 'spec'), _get_excel_cell(row, col_map, 'unit'))
+                material = Material.query.filter_by(code=material_code).first() or _find_or_create_material(material_code, _get_excel_cell(row, col_map, 'material_name'), _get_excel_cell(row, col_map, 'spec'), _get_excel_cell(row, col_map, 'unit'), warnings=warnings)
                 if not material:
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
@@ -227,7 +228,7 @@ def register_sales_routes(app):
                 order.status = 'draft'
                 order.shipment_status = 'pending'
             db.session.commit()
-            return _import_result('销售订单', order_count, item_count, skip, skip_details, {'draft_only': True})
+            return _import_result('销售订单', order_count, item_count, skip, skip_details, {'draft_only': True}, notes=warnings)
         except Exception as exc:
             db.session.rollback()
             app.logger.exception('导入销售订单失败')

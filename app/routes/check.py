@@ -1055,6 +1055,7 @@ def register_check_routes(app):
             item_count = 0
             skip = 0
             skip_details = []
+            warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 material_code = _get_excel_cell(row, col_map, 'material_code')
                 if not material_code:
@@ -1108,6 +1109,7 @@ def register_check_routes(app):
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
                     _get_excel_cell(row, col_map, 'unit'),
+                    warnings=warnings,
                 )
                 # BUG-2026-09-03-001：账面缺省取该单据仓库的仓库级库存（此前用全局
                 # Material.stock，多仓库下会算错差异）；Excel 显式填写账面时以文件为准。
@@ -1136,7 +1138,7 @@ def register_check_routes(app):
                 ))
                 item_count += 1
             db.session.commit()
-            return _import_result('库存盘点单', order_count, item_count, skip, skip_details)
+            return _import_result('库存盘点单', order_count, item_count, skip, skip_details, notes=warnings)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'库存盘点导入失败: {e}')

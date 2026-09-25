@@ -211,16 +211,18 @@ def _resolve_material_unit(unit_name):
 
 
 def _find_material_by_name_spec(name, spec=None):
-    """按名称+规格查既有建档物料，避免自动建档产生重复。"""
-    from sqlalchemy import func
-    from app import Material
+    """按名称+规格查既有建档物料，避免自动建档产生重复。
+
+    2026-09-25：判据收敛到 app.find_material_by_name_spec_brand()（去空格 +
+    不分大小写 + 带品牌）。原先这里手写了一份「区分大小写、不带品牌」的判据，
+    与网页端建档的口径不一致 —— 手机端建出来的物料和网页端判重认定的物料对不上。
+    active_only=True：已停用物料不参与自动匹配，避免把弃用编码带回新单据。
+    """
+    from app import find_material_by_name_spec_brand
     name = (name or '').strip()
     if not name:
         return None
-    return Material.query.filter(
-        Material.name == name,
-        func.coalesce(Material.spec, '') == (spec or '').strip(),
-    ).first()
+    return find_material_by_name_spec_brand(name, spec, active_only=True)
 
 
 def _generate_auto_material_code(prefix='M'):

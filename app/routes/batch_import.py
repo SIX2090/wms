@@ -71,6 +71,7 @@ def register_batch_import_routes(app):
             Unit,
             api_error,
             current_user,
+            reuse_material_by_name_spec,
         )
         file = request.files.get('file')
         if not file:
@@ -216,6 +217,13 @@ def register_batch_import_routes(app):
                 if material_code:
                     material = Material.query.filter_by(code=material_code).first()
                     if not material:
+                        # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有
+                        # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
+                        # 详见 reuse_material_by_name_spec 注释。
+                        material = reuse_material_by_name_spec(
+                            material_code, get_val('material_name'), get_val('spec'),
+                            warnings=warnings)
+                    if not material:
                         material = Material(
                             code=material_code,
                             name=get_val('material_name'),
@@ -307,6 +315,7 @@ def register_batch_import_routes(app):
             get_default_warehouse,
             location_management_enabled,
             resolve_item_contract,
+            reuse_material_by_name_spec,
         )
         file = request.files.get('file')
         if not file:
@@ -514,6 +523,13 @@ def register_batch_import_routes(app):
                 material_code = get_val('material_code')
                 if material_code:
                     material = Material.query.filter_by(code=material_code).first()
+                    if not material:
+                        # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有
+                        # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
+                        # 详见 reuse_material_by_name_spec 注释。
+                        material = reuse_material_by_name_spec(
+                            material_code, get_val('material_name'), get_val('spec'),
+                            warnings=warnings)
                     if not material:
                         material = Material(
                             code=material_code,
