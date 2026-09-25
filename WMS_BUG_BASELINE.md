@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 447 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 122 条，最新 BUG-2026-09-25-006；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 448 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 123 条，最新 BUG-2026-09-25-007；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1393,4 +1393,44 @@
 - **生效确认**：本地全量回归 2715 passed / 0 failed；lint `--staged` 0 违规；
   `--full --full-gate` 通过（417 = 基线，无新增）。CI 推送后三个工作流
   （WMS CI / WMS AI Verification / WMS Perf Baseline）均 success。
+
+---
+
+### BUG-2026-09-25-007：单据仓库参数用名称字符串（改名即失配）——P1-6 首批改 in_order
+
+- **发现**：审计 3.2 —— 13 个页面的仓库选择器是「名称模式」：
+  `<select name="warehouse">` 的 option value 为 `{{ warehouse.name }}`。
+  后端按名称反查仓库，**仓库一旦改名，历史筛选与草稿回填全部失配**。
+- **根因（关键澄清）**：后端校验函数 `validate_inventory_warehouse(value, warehouse_id)`
+  **本身已支持 ID 优先解析**（内部 `resolve_active_inventory_warehouse` 先按
+  `warehouse_id` 整数主键查，再退回 name/code），但**路由层从未把表单里的
+  `warehouse_id` 传进去**——只传了 `value`（名称）。能力已具备，接线缺失。
+- **修复（零风险向后兼容，本次只做 in_order 单据类型）**：
+  1. `in_order.py` 两处保存路由（`/in_order/<id>/update`、`/in_order/add`）
+     同时收 `warehouse_id` 与 `warehouse`，**ID 优先**；
+     两者都不传才回退默认仓（AGENTS.md 规则一），无默认则 400。
+  2. `purchase_order.py` 的 `create_in_order_from_selection` 同样处理
+     （`in_order_add.html` 的「选单下推」会带着仓库值调它，不一起改会断）。
+  3. 前端 `in_order_add.html` / `in_order_detail.html` 改为
+     `name="warehouse_id"` + `value="{{ warehouse.id }}"`，JS 6 处选择器
+     同步更新（含 `refreshWarehouses()` 动态重建 option 的 value 与比较逻辑）。
+- **为什么后端先改、前端后改**：只改前端会让后端收到 ID 却按名称解析 → 全崩；
+  只改后端则旧前端（名称）仍走兜底分支 → 行为不变。**两端都兼容才安全**。
+- **踩坑**：JSON 模式下 `warehouse_id` 是 **int**，直接 `.strip()` 会
+  `AttributeError: 'int' object has no attribute 'strip'`（500）。
+  表单模式是 str。统一不 strip，交给 `int()` 处理（已固化到代码注释）。
+- **顺带修复**：`create_in_order_from_selection` 原写法
+  `(get_default_warehouse() or '').strip()` —— `get_default_warehouse()` 返回
+  **Warehouse 对象**，有默认仓时 `.strip()` 必崩（latent bug）。改为取 `.name`。
+- **回归**：新增 `tests/test_p1_6_in_order_warehouse_id_param.py` **9 项**
+  （后端 6：ID 解析/名称兜底/ID 优先/默认回退/无效 ID 400/停用仓 400；
+   前端 3：字段名/option value 为 ID/默认仓按 ID 预选）。
+  全量 2724 passed / 87 skipped / 0 failed。
+- **覆盖范围说明**：P1-6 共 13 个页面，本次只迁移 **in_order（采购入库）**
+  这一类（2 个模板）。其余 11 个页面仍走名称兜底分支，功能不受影响，
+  后续按同样模式逐类迁移（out_order / requisition / check / adjustment /
+  subcontract / sales / document_table_form）。
+- **生效条件**：代码改动，立即生效。
+- **生效确认**：本地全量 2724 passed / 0 failed；lint `--staged` 0 违规；
+  `--full --full-gate` 通过（417 = 基线）。推送后 CI 验证。
 

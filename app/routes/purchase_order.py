@@ -702,8 +702,19 @@ def register_purchase_order_routes(app):
             return api_error('请选择要转换的采购单明细')
 
         warehouse = (payload.get('warehouse') or '').strip()
+        # P1-6：前端仓库选择器已改为传 warehouse_id（ID），此处同时接受两种；
+        # 传 ID 时用 validate_inventory_warehouse 解析出规范化仓库名再落库。
+        raw_warehouse_id = payload.get('warehouse_id')
+        if raw_warehouse_id:
+            from app import validate_inventory_warehouse
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
         if not warehouse:
-            warehouse = (get_default_warehouse() or '').strip()
+            default_wh = get_default_warehouse()
+            if default_wh:
+                warehouse = default_wh.name
         if not warehouse:
             return api_error('请选择仓库')
         # PUR-AUDIT-001 修复：assert_warehouse_active 返回 (ok, msg) 二元组，

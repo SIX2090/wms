@@ -795,20 +795,27 @@ def register_in_order_routes(app):
         order.contract_no = (data.get('contract_no') or '').strip() or None
         order.project_name = (data.get('project_name') or '').strip() or None
         warehouse = (data.get('warehouse') or '').strip()
+        # P1-6：仓库参数统一为 warehouse_id（前端传 ID，仓库改名不失配）。
+        # 旧客户端/脚本仍传 warehouse 名称，故两者都收、ID 优先；校验函数
+        # validate_inventory_warehouse 本身即按 (value, warehouse_id) 顺序解析。
+        # 注意：data 在 JSON 模式是 dict（warehouse_id 为 int），表单模式是 request.form
+        # （为 str）——两种都不能 .strip()，交给 validate_inventory_warehouse 的 int() 处理。
+        raw_warehouse_id = data.get('warehouse_id')
         # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
         # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
-        if not warehouse:
+        if not warehouse and not raw_warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse = default_wh.name
-        if not warehouse:
+        if not warehouse and not raw_warehouse_id:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
         # BUG-2026-09-22-014：仓库原文落库是编码/名称混写的写入源头——
         # 客户端传什么存什么（脚本/旧版 App 传编码 WH-TEST、Web 表单传名称），
         # 下游按仓库过滤的列表/报表/导出被迫到处做双匹配兜底。此处与全仓
         # 写侧约定（INV-AUDIT-005）对齐：校验存在且启用后统一写规范化仓库名，
         # 名称/编码输入均可，未知仓库直接拒绝。
-        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        # P1-6：ID 优先解析（前端已改为传 warehouse_id），名称作为旧客户端兜底。
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
         if wh_err:
             return jsonify({'status': 'error', 'msg': wh_err}), 400
         warehouse = wh_obj.name
@@ -973,6 +980,9 @@ def register_in_order_routes(app):
             business_type = (data.get('business_type') or '').strip()
             purpose = (data.get('purpose') or data.get('business_type') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
+            # P1-6：JSON 模式同样收 warehouse_id（ID 优先，名称为旧客户端兜底）。
+            # 注意 JSON 里 warehouse_id 是 int，不能 .strip()（会 AttributeError）。
+            raw_warehouse_id = data.get('warehouse_id')
             location = (data.get('location') or '').strip()
             auto_push_requisition = data.get('auto_push_requisition') in (True, 1, '1', 'true', 'True', 'yes', 'on')
             remark = (data.get('remark') or '').strip()
@@ -986,6 +996,9 @@ def register_in_order_routes(app):
             business_type = (request.form.get('business_type') or '').strip()
             purpose = (request.form.get('purpose') or '').strip()
             warehouse = (request.form.get('warehouse') or '').strip()
+            # P1-6：表单模式同样收 warehouse_id（ID 优先，名称为旧客户端兜底）。
+            # 表单值是字符串，validate_inventory_warehouse 内部 int() 能处理。
+            raw_warehouse_id = request.form.get('warehouse_id')
             location = (request.form.get('location') or '').strip()
             auto_push_requisition = request.form.get('auto_push_requisition') in ('1', 'true', 'True', 'yes', 'on')
             remark = (request.form.get('remark') or '').strip()
@@ -998,18 +1011,20 @@ def register_in_order_routes(app):
 
         # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
         # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
-        if not warehouse:
+        # P1-6：ID 与名称任一有值即视为已指定，不再回退默认仓。
+        if not warehouse and not raw_warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse = default_wh.name
-        if not warehouse:
+        if not warehouse and not raw_warehouse_id:
             return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
         # BUG-2026-09-22-014：仓库原文落库是编码/名称混写的写入源头——
         # 客户端传什么存什么（脚本/旧版 App 传编码 WH-TEST、Web 表单传名称），
         # 下游按仓库过滤的列表/报表/导出被迫到处做双匹配兜底。此处与全仓
         # 写侧约定（INV-AUDIT-005）对齐：校验存在且启用后统一写规范化仓库名，
         # 名称/编码输入均可，未知仓库直接拒绝。
-        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        # P1-6：ID 优先解析（前端已改为传 warehouse_id），名称作为旧客户端兜底。
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
         if wh_err:
             return jsonify({'status': 'error', 'msg': wh_err}), 400
         warehouse = wh_obj.name
