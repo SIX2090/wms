@@ -8881,6 +8881,199 @@ def reuse_material_by_name_spec(code, name, spec=None, brand=None, warnings=None
     return material
 
 
+# ---------------------------------------------------------------- 物料合并
+# 一个物料只允许存在一个物料编号。重复的两个编码必须**合并成一个**，而不是
+# 「停用其中一个」—— 停用后档案与编号仍在库里，仍是一物两码（2026-09-25 业务口径）。
+#
+# 全库实测（1261 条物料）共 22 张表引用 material_id，漏掉任何一张都会留下指向
+# 已删除物料的孤儿行。新增引用表必须同步下面的常量，
+# test_material_merge_covers_all_ref_tables 会拦住漏改。
+MATERIAL_MERGE_REF_TABLES = (
+    'adjustment_order_item',
+    'after_sale_out_order_item',
+    'ai_document_item',
+    'bom_item',
+    'in_order_item',
+    'inventory_check_item',
+    'inventory_check_scan_item',
+    'material_image',
+    'opening_stock',
+    'out_order_item',
+    'production_requisition_item',
+    'purchase_order_item',
+    'purchase_request_item',
+    'sales_order_item',
+    'stock_transaction',
+    'subcontract_issue_item',
+    'subcontract_item',
+    'subcontract_receive_item',
+    'transfer_order_item',
+)
+
+# 需要「按维度合并数量」而不是简单改指的表：同一 (物料, 仓库, 库位) 只允许一条，
+# 直接改指会留下同键两行，Σ② 虽仍对得上但台账不干净。
+MATERIAL_MERGE_QUANTITY_TABLES = ('location_inventory',)
+
+
+def _material_merge_check_pair(target_id, source_id):
+    """合并前的共同校验：存在性 + 判重键必须一致。返回 (target, source)。"""
+    target = db.session.get(Material, target_id)
+    source = db.session.get(Material, source_id)
+    if not target or not source:
+        raise ValueError('物料不存在')
+    if target.id == source.id:
+        raise ValueError('不能把物料合并到它自己')
+    _k = _material_dedupe_key
+    if (_k(source.name), _k(source.spec), _k(source.brand)) != (
+            _k(target.name), _k(target.spec), _k(target.brand)):
+        raise ValueError(
+            '两个物料的名称/规格/品牌不一致（比较时忽略空格与大小写），不能合并。'
+            '如确为同一物料，请先把其中一个的名称、规格、品牌改成一致再合并。')
+    return target, source
+
+
+def material_merge_preview(target_id, source_id):
+    """合并前的影响面统计（**只读**）：把影响摆出来，UI 上做二次确认。
+
+    合并会改写历史单据的物料指向（单据上显示的编号会变成保留的那一个），
+    不可逆，所以必须先看得见影响、再让人点头。
+    """
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import select as sa_select
+
+    target, source = _material_merge_check_pair(target_id, source_id)
+    tables = {}
+    for name in tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES):
+        tbl = db.metadata.tables.get(name)
+        if tbl is None or 'material_id' not in tbl.c:
+            continue
+        n = db.session.execute(
+            sa_select(sa_func.count()).select_from(tbl).where(
+                tbl.c.material_id == source.id)
+        ).scalar() or 0
+        if n:
+            tables[name] = n
+    return {
+        'target': {'id': target.id, 'code': target.code, 'name': target.name,
+                   'spec': target.spec or '', 'brand': target.brand or '',
+                   'stock': float(target.stock or 0)},
+        'source': {'id': source.id, 'code': source.code, 'name': source.name,
+                   'spec': source.spec or '', 'brand': source.brand or '',
+                   'stock': float(source.stock or 0)},
+        'stock_after': float(target.stock or 0) + float(source.stock or 0),
+        'tables': tables,
+        'total_rows': sum(tables.values()),
+    }
+
+
+def merge_material_duplicates(target_id, source_id, keep_alias=True):
+    """把 source 物料合并进 target 物料 —— **一个物料只保留一个物料编号**。
+
+    为什么不是「停用」：停用后档案与编号仍在库里，仍是一物两码。业务口径要求
+    重复的两个编码必须合成一个（2026-09-25）。
+
+    步骤：
+      1. 校验判重键一致 —— 绝不允许多少有点像就把两个物料并成一个
+      2. MATERIAL_MERGE_REF_TABLES 全部改指（21 张明细/流水表）
+      3. location_inventory 按（仓库 + 库位）合并数量，不留同键两行
+      4. 库存累加：① 总账 = target.stock + source.stock
+      5. 被并掉的编码转存为物料别名 —— 现场常有人拿旧编码扫码/搜索
+      6. 删除被并掉的物料档案
+      7. 三账恒等式复检：① == Σ③（开库位管理时还要求 ① == Σ②）
+
+    返回统计 dict。不可合并时抛 ValueError（调用方回滚事务）。
+    """
+    from sqlalchemy import select as sa_select
+
+    # 注意：生产布局下 app 不是包，只能 `from services.xxx import`
+    # （BUG-2026-09-06-003；`from app.services.xxx import` 会 ModuleNotFoundError）
+    from services.warehouse_stock_service import verify_material_three_ledgers
+
+    target, source = _material_merge_check_pair(target_id, source_id)
+    stats = {'tables': {}, 'stock_before': float(target.stock or 0),
+             'stock_source': float(source.stock or 0), 'alias': None}
+
+    # 先记下合并前两边的三账状态：存量库可能有本来就对不上的历史行，那不是
+    # 本次合并造成的，不能拿它卡住合并（否则重复编号永远清不掉），只记录。
+    ok_before_target, _ = verify_material_three_ledgers(target.id)
+    ok_before_source, _ = verify_material_three_ledgers(source.id)
+
+    # 2) 明细 / 流水表：改指
+    for name in MATERIAL_MERGE_REF_TABLES:
+        tbl = db.metadata.tables.get(name)
+        if tbl is None or 'material_id' not in tbl.c:
+            continue
+        res = db.session.execute(
+            tbl.update().where(tbl.c.material_id == source.id).values(
+                material_id=target.id))
+        if res.rowcount:
+            stats['tables'][name] = res.rowcount
+
+    # 3) 库位账：同 (仓库 + 库位) 合并数量，否则改指
+    li = db.metadata.tables.get('location_inventory')
+    merged = 0
+    if li is not None:
+        for row in db.session.execute(
+                sa_select(li).where(li.c.material_id == source.id)).fetchall():
+            dup = db.session.execute(
+                sa_select(li).where(
+                    li.c.material_id == target.id,
+                    li.c.warehouse_id == row.warehouse_id,
+                    li.c.location == row.location,
+                )).fetchone()
+            if dup is not None:
+                db.session.execute(
+                    li.update().where(li.c.id == dup.id).values(
+                        quantity=(dup.quantity or 0) + (row.quantity or 0)))
+                db.session.execute(li.delete().where(li.c.id == row.id))
+            else:
+                db.session.execute(
+                    li.update().where(li.c.id == row.id).values(
+                        material_id=target.id))
+            merged += 1
+    if merged:
+        stats['tables']['location_inventory'] = merged
+
+    # 4) 总账累加
+    target.stock = float(target.stock or 0) + float(source.stock or 0)
+    stats['stock_after'] = float(target.stock or 0)
+
+    # 5) 旧编码转别名（扫码 / 搜索旧编号仍能命中保留物料）
+    if keep_alias and (source.code or '').strip():
+        try:
+            row = _ai_learn_material_alias(source.code, target.id,
+                                           source='material_merge')
+            stats['alias'] = source.code if row else None
+        except Exception as exc:  # 别名写不进去不能连累合并本身
+            app.logger.warning('合并物料后写入旧编码别名失败：%s', exc)
+    alias_tbl = db.metadata.tables.get('ai_material_alias')
+    if alias_tbl is not None:
+        res = db.session.execute(
+            alias_tbl.update().where(alias_tbl.c.material_id == source.id).values(
+                material_id=target.id))
+        if res.rowcount:
+            stats['tables']['ai_material_alias'] = res.rowcount
+
+    source_code = source.code
+    source_id_val = source.id
+    db.session.flush()
+
+    # 6) 删除被并掉的档案
+    db.session.delete(source)
+    db.session.flush()
+
+    # 7) 三账复检。只有「合并前两边都对、合并后不对」才算合并把账搞歪了 ——
+    #    那必须报错。若合并前就已经对不上，只是如实记录，不阻断。
+    ok, detail = verify_material_three_ledgers(target.id)
+    stats['ledger_ok'] = ok
+    stats['ledger_detail'] = detail
+    stats['ledger_before'] = {'target': ok_before_target, 'source': ok_before_source}
+    stats['ledger_regressed'] = (not ok) and ok_before_target and ok_before_source
+    stats['source_code'] = source_code
+    stats['source_id'] = source_id_val
+    return stats
+
+
 def _material_similarity_key(value):
     """物料「软提示」键的强归一化：NFKC + 去全部空白 + 转小写。
 
@@ -12514,6 +12707,13 @@ def _ai_learn_material_alias(alias, material_id, source='confirm'):
         normalized_material_terms.add(_ai_material_alias_key(material.spec))
     if alias_key in normalized_material_terms:
         return None
+    # 无请求上下文（后台任务 / CLI / 测试）时 current_user 会解析成 None，
+    # 直接 .is_authenticated 会 AttributeError —— 别名写不进去。合并物料就要
+    # 调本函数，故在这里兜住，别让登录态缺失连累业务写入。
+    try:
+        _created_by = current_user.id if current_user.is_authenticated else None
+    except Exception:  # noqa: BLE001
+        _created_by = None
     row = AIMaterialAlias.query.filter_by(alias_key=alias_key).first()
     if not row:
         row = AIMaterialAlias(
@@ -12522,7 +12722,7 @@ def _ai_learn_material_alias(alias, material_id, source='confirm'):
             material_id=material.id,
             source=source,
             use_count=1,
-            created_by=current_user.id if current_user.is_authenticated else None,
+            created_by=_created_by,
         )
         db.session.add(row)
     else:

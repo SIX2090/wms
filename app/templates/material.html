@@ -183,6 +183,12 @@
                             <i class="bi bi-pause-circle"></i> 停用
                         </button>
                         {% endif %}
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-1"
+                                data-code="{{ mat.code }}"
+                                onclick="mergeMaterialInto({{ mat.id }}, this.dataset.code)"
+                                title="把本物料合并到另一个物料：一个物料只保留一个物料编号">
+                            <i class="bi bi-arrow-bar-right"></i> 合并
+                        </button>
                     </td>
                     <td data-column-key="image">
                         {% if mat.image %}
@@ -1531,6 +1537,63 @@ function toggleMaterialStatus(id, status) {
     }).catch(function (e) {
         alert(label + '失败：' + (e && e.message ? e.message : e));
     });
+}
+
+// 2026-09-25：物料合并 —— **一个物料只保留一个物料编号**。
+// 与停用的区别：停用后档案和编号还在库里，仍是一物两码；合并会把单据/流水/
+// 库位账全部改指、库存累加，并删除被并掉的档案，不可逆。
+// 所以强制两步：先预览影响面，再带 confirm 执行，绝不许一键合并。
+function mergeMaterialInto(id, sourceCode) {
+    var head = '把物料 ' + sourceCode + ' 合并到哪个物料编码？\n\n'
+        + '合并后：' + sourceCode + ' 的入库单、出库单、流水、期初、库位账全部改指到目标物料，'
+        + '库存累加，' + sourceCode + ' 这个档案会被删除（旧编码转为别名，扫码仍能找到）。\n\n'
+        + '⚠ 历史单据上的物料编号会变成目标编号，不可撤销，请先备份数据库。\n\n'
+        + '请输入保留下来的物料编码：';
+    var targetCode = window.prompt(head);
+    if (!targetCode) return;
+    targetCode = String(targetCode).trim();
+    if (!targetCode) return;
+    if (targetCode === sourceCode) { window.alert('不能合并到自己'); return; }
+
+    WMS.api.post('/material/merge_preview',
+                 {source_code: sourceCode, target_code: targetCode})
+        .then(function (r) {
+            if (!r || r.status !== 'success') {
+                window.alert((r && r.msg) || '预览失败');
+                return null;
+            }
+            var d = r.data || {};
+            var lines = [
+                '保留：' + d.target.code + ' ' + d.target.name,
+                '合并：' + d.source.code + ' ' + d.source.name,
+                '',
+                '库存：' + d.target.stock + ' + ' + d.source.stock + ' = ' + d.stock_after,
+                '影响行数：' + d.total_rows
+            ];
+            var t = d.tables || {}, k;
+            for (k in t) {
+                if (Object.prototype.hasOwnProperty.call(t, k)) {
+                    lines.push('  · ' + k + '：' + t[k] + ' 行');
+                }
+            }
+            lines.push('');
+            lines.push('历史单据上的编号将变为 ' + d.target.code + '，不可撤销。确定执行吗？');
+            if (!window.confirm(lines.join('\n'))) return null;
+            return WMS.api.post('/material/' + id + '/merge',
+                                {target_code: targetCode, keep_alias: true, confirm: true});
+        })
+        .then(function (r) {
+            if (!r) return;
+            if (r.status === 'success') {
+                window.alert(r.msg);
+                window.location.reload();
+            } else {
+                window.alert((r && r.msg) || '合并失败');
+            }
+        })
+        .catch(function (e) {
+            window.alert('合并失败：' + (e && e.message ? e.message : e));
+        });
 }
 
 // ==================== 列设置（显示/隐藏字段） ====================

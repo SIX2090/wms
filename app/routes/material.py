@@ -761,6 +761,131 @@ def register_material_routes(app):
         return jsonify({'status': 'success', 'msg': f'已{_label}物料 {material.code}',
                         'new_status': new_status})
 
+    @app.route('/material/merge_preview', methods=['GET', 'POST'])
+    @require_role('warehouse')
+    @login_required
+    def material_merge_preview():
+        """合并前的影响面预览（只读）：把「会改多少张单据」摆出来再让人点头。
+
+        合并是不可逆的数据变更 —— 历史单据上显示的物料编号会变成保留的那一个，
+        所以必须先预览、后执行，绝不许一键合并。
+        """
+        from app import Material, material_merge_preview as _preview
+        # A8：新增 POST 路由必须走 pydantic 输入模型（范式见 routes/category.py:143）
+        from pydantic import BaseModel, Field
+
+        class MergePreviewRequest(BaseModel):
+            source_code: str = Field(..., description='被合并掉的物料编码')
+            target_code: str = Field(..., description='保留下来的物料编码')
+
+        if request.method == 'POST':
+            payload = request.get_json(silent=True) or dict(request.form)
+        else:
+            payload = request.args
+        try:
+            req = MergePreviewRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+        source_code = (req.source_code or '').strip()
+        target_code = (req.target_code or '').strip()
+        if not source_code or not target_code:
+            return jsonify({'status': 'error',
+                            'msg': '请同时提供被合并的物料编码与保留的物料编码'}), 400
+        source = Material.query.filter_by(code=source_code).first()
+        target = Material.query.filter_by(code=target_code).first()
+        if not source:
+            return jsonify({'status': 'error', 'msg': f'找不到物料编码 {source_code}'}), 404
+        if not target:
+            return jsonify({'status': 'error', 'msg': f'找不到物料编码 {target_code}'}), 404
+        try:
+            data = _preview(target.id, source.id)
+        except ValueError as exc:
+            return jsonify({'status': 'error', 'msg': str(exc)}), 400
+        return jsonify({'status': 'success', 'data': data})
+
+    @app.route('/material/<int:id>/merge', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def merge_material(id):
+        """把本物料合并进另一个物料 —— 一个物料只保留一个物料编号。
+
+        与「停用」的区别：停用后档案与编号仍在库里，仍是一物两码；合并会
+        把单据、流水、库位账全部改指并删除被并掉的档案，库里只剩一个编号。
+        被并掉的编码会转存为物料别名，扫码/搜索旧编码仍能命中。
+        """
+        from app import (Material, log_audit,
+                         material_merge_preview as _preview,
+                         merge_material_duplicates as _merge)
+        # A8：新增 POST 路由必须走 pydantic 输入模型（范式见 routes/category.py:143）
+        from pydantic import BaseModel, Field
+
+        class MergeMaterialRequest(BaseModel):
+            target_code: str = Field(..., description='保留下来的物料编码')
+            keep_alias: bool = Field(True, description='是否把被并掉的编码转为物料别名')
+            confirm: bool = Field(False, description='已看过预览并确认合并')
+
+        source = Material.query.get(id)
+        if not source:
+            return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
+        payload = request.get_json(silent=True) or dict(request.form) or {}
+        try:
+            req = MergeMaterialRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+        target = Material.query.filter_by(code=(req.target_code or '').strip()).first()
+        if not target:
+            return jsonify(
+                {'status': 'error',
+                 'msg': f'找不到要保留的物料编码 {req.target_code}'}), 404
+        # 强制两步：先预览拿到影响面，再带 confirm=1 执行。避免一键误并。
+        if not req.confirm:
+            try:
+                data = _preview(target.id, source.id)
+            except ValueError as exc:
+                return jsonify({'status': 'error', 'msg': str(exc)}), 400
+            return jsonify({'status': 'preview', 'msg': '请先确认合并影响', 'data': data})
+        try:
+            stats = _merge(target.id, source.id, keep_alias=req.keep_alias)
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(exc)}), 400
+        except Exception as exc:  # noqa: BLE001
+            db.session.rollback()
+            app.logger.exception('合并物料失败')
+            return jsonify({'status': 'error', 'msg': f'合并失败：{str(exc)}'}), 500
+        # 只有「合并前两边都对、合并后不对」才判定为合并把账搞歪 —— 那必须亮红。
+        # 合并前本来就对不上的（存量脏数据）如实提示，但不回滚：否则重复编号
+        # 永远清不掉。
+        if stats.get('ledger_regressed'):
+            _detail = stats.get('ledger_detail') or {}
+            return jsonify({
+                'status': 'error',
+                'msg': ('合并已写入，但三账恒等式校验不成立，请立即核对：'
+                        f"①总账={_detail.get('one')} ②库位账={_detail.get('two')} "
+                        f"③流水Σ={_detail.get('three')}"),
+                'data': stats,
+            }), 500
+        log_audit('merge', 'material', target.id,
+                  f'合并物料：{stats.get("source_code")} → {target.code}',
+                  old_data={'source_id': stats.get('source_id'),
+                            'source_code': stats.get('source_code')},
+                  new_data={'target_id': target.id, 'target_code': target.code,
+                            'stats': {k: v for k, v in stats.items()
+                                      if k not in ('ledger_detail',)}})
+        _rows = stats.get('total_rows') or sum(
+            (stats.get('tables') or {}).values())
+        _msg = (f'已把 {stats.get("source_code")} 合并进 {target.code}，'
+                f'改指 {_rows} 行，库存 {stats.get("stock_after")}')
+        if stats.get('alias'):
+            _msg += f'；旧编码 {stats["alias"]} 已转为别名'
+        if not stats.get('ledger_ok'):
+            # 合并前就对不上的存量账：说清楚，别假装一切正常
+            _d = stats.get('ledger_detail') or {}
+            _msg += (f'\n注意：该物料三账本来就不平（①={_d.get("one")} '
+                     f'③Σ={_d.get("three")}），与本次合并无关，请另行核对')
+        return jsonify({'status': 'success', 'msg': _msg, 'data': stats})
+
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/material/fix_empty_fields', methods=['POST'])
     @require_role('warehouse')

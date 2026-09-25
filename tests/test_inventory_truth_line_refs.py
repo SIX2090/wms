@@ -30,7 +30,7 @@ REFS = [
     ("def add_location_inventory_atomic(", "app/app.py", 4801),
     ("def deduct_location_inventory_atomic(", "app/app.py", 4886),
     ("def update_location_inventory(", "app/app.py", 4739),
-    ("def backfill_stock_txn_warehouse_id(", "app/app.py", 27934),
+    ("def backfill_stock_txn_warehouse_id(", "app/app.py", 28134),
     ("def _material_stock_unattributed(", "app/app.py", 5412),
     # 单仓库短路（文档 §3.3 (a)，在 get_warehouse_stock_quantities 内部）
     ("if Warehouse.query.count() == 1:", "app/app.py", 5229),
