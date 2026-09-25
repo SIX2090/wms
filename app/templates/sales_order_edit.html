@@ -1018,12 +1018,20 @@ textarea.form-control {
     });
 
     document.getElementById('refreshMaterialsBtn').addEventListener('click', function() {
-        fetch('/api/materials?limit=5000', { headers: { 'Accept': 'application/json' } })
-            .then(function(r) { return r.json(); })
+        // BUG-2026-09-25-003 修复：原 '/api/materials?limit=5000' 后端无此路由（404），
+        // 且 .then 里 data 为错误页 HTML 仍提示"刷新成功"。改走真实存在的
+        // /api/material/all（app.py:23984，返回 {status, success, data:[...]}，
+        // 上限 1000 条），并显式判断 HTTP 状态与 success 字段，失败不再谎报成功。
+        fetch('/api/material/all', { headers: { 'Accept': 'application/json' } })
+            .then(function(r) {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            })
             .then(function(data) {
                 if (Array.isArray(data)) materials = data;
                 else if (data && Array.isArray(data.items)) materials = data.items;
                 else if (data && Array.isArray(data.data)) materials = data.data;
+                else throw new Error('响应结构不可识别');
                 document.getElementById('entryStatus').textContent = '物料列表已刷新（' + materials.length + '）';
             })
             .catch(function() {

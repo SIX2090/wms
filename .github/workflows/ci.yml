@@ -58,6 +58,28 @@ jobs:
       - name: "Lint - A11 库存校验口径全量扫描"
         run: python3 scripts/lint_wms_rules.py --rule a11 --full-a11
 
+      # A8/A9/A10/A13/A14 全量棘轮门禁（BUG-2026-09-25-005）。
+      #
+      # 问题：这五条规则内部都以 `get_staged_added_lines()` 为判据 —— 拿不到
+      # staged 行就跳过整个文件。CI 是全新 checkout，git 索引里没有任何 staged
+      # 变更，因此这五条规则每次都在空集上扫描，**长期恒为 0 违规、从未真正
+      # 在 CI 执行过**。A11 已由上面的 --full-a11 单独修好，其余五条一直漏着。
+      #
+      # 修法：--full 用统一机制（把模块级 get_staged_added_lines 替换为"返回
+      # 全部行号"）把五条规则一起切到全量语义，避免"一条规则配一个 flag、新增
+      # 规则又漏配"的老问题复发。
+      #
+      # --full-gate：全量扫描会一次性报出全部存量违规（实测 417 处），若直接
+      # 当硬门禁则 CI 立刻全红、团队只会选择关掉它。所以采用**棘轮**语义：
+      # 存量快照在 scripts/lint_full_scan_baseline.json，数字只允许减少、
+      # 不允许增加。任何新增违规都会列出具体文件行号并让 CI 亮红；存量降到 0
+      # 后即可从快照删除该条目，规则升级为无条件硬门禁。
+      # ⚠️ 若某次提交需要放宽，必须人工复核后用 --update-full-baseline 显式更新
+      #    快照并 review diff，不得在 CI 里自动更新。
+      # A13 当前存量为 0，故已是无条件硬门禁。
+      - name: "Lint - A8/A9/A10/A13/A14 全量棘轮门禁"
+        run: python3 scripts/lint_wms_rules.py --full --full-gate
+
       # Lint: 禁止裸调非 GET fetch (防 CSRF 漏写)
       - name: "Lint - 禁止裸调非 GET fetch"
         run: python3 scripts/lint_no_raw_post_fetch.py
@@ -66,6 +88,24 @@ jobs:
       # 86/86 PASS,改成必过 (continue-on-error: false / 移除 continue-on-error 行)
       - name: "Static regression - verify_wms_bugs"
         run: python3 scripts/verify_wms_bugs.py
+
+      # 三账恒等式门禁（BUG-2026-09-25-006）。
+      #
+      # scripts/verify_inventory_identity.py 是全仓库**唯一**的三账恒等式判据
+      # （INVENTORY_TRUTH.md §1：① material.stock = Σ② location_inventory.quantity
+      # = Σ③ stock_transaction.quantity），但它此前从未被任何 CI / Makefile /
+      # githook 调用过（全仓 grep 命中 0）—— 写了、但从来没运行。
+      #
+      # 它需要 --db 指向一个有数据的库；直接拿空库跑，三账全是 0、恒等式天然
+      # 成立，门禁永远是绿的、毫无意义。因此改用 scripts/ci_check_inventory_identity.py：
+      #   1) 用 app 真实模型（db.create_all）建夹具库，保证 schema 不漂移；
+      #   2) 灌入三账一致的夹具数据，断言判据 rc=0；
+      #   3) **反向验证**：注入一条"只写总账不写库位账"的脏数据，断言判据 rc=1
+      #      且报出 ledger_vs_location。这防的是"判据被改坏成恒返回 0" ——
+      #      一道永远绿灯的门禁比没有门禁更危险；
+      #   4) 清除脏数据后断言恢复 rc=0。
+      - name: "Inventory - 三账恒等式门禁（含反向验证）"
+        run: python3 scripts/ci_check_inventory_identity.py
 
       # BUG-2026-08-16-018：密钥泄露扫描（gitleaks）。
       # continue-on-error 起步：先产出报告，后续收紧为门禁。

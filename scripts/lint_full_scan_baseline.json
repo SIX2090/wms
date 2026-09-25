@@ -1,0 +1,40 @@
+{
+  "_comment": [
+    "CI 全量扫描存量违规快照（BUG-2026-09-25-005）。",
+    "A8/A9/A10/A13/A14 五条规则原本只在 git staged 新增行上生效，而 CI 是全新",
+    "checkout、没有任何 staged 文件，这五条规则在 CI 里因此恒为 0 违规 —— 长期",
+    "处于『规则存在但从不执行』的状态（A11 已由 --full-a11 单独修好）。",
+    "本文件是打开 --full-gate 后的存量清单：数字**只允许减少，不允许增加**。",
+    "任何新增违规都会让 CI 亮红并列出具体文件行号；存量数字降到 0 后，",
+    "可把对应条目从本文件删除，这条规则即升级为无条件硬门禁。",
+    "A13 当前为 0（已清零），故意不在此列出 —— 它已是硬门禁。",
+    "重新生成：python3 scripts/lint_wms_rules.py --full --update-full-baseline",
+    "⚠️ 每次重新生成都必须人工复核 diff，确认新增项确属『确有必要』，",
+    "   否则本机制会退化成『用一条命令把违规洗白』。"
+  ],
+  "_generated_at": "2026-09-25",
+  "_generated_note": "由 lint_wms_rules.py --full --update-full-baseline 生成，仅统计 staged 类规则在全量模式下的违规数",
+  "rules": {
+    "a8": {
+      "count": 66,
+      "description": "新增 POST/PUT/DELETE 路由必须用 pydantic 输入模型"
+    },
+    "a9": {
+      "count": 217,
+      "description": "新增业务函数必须在 tests/ 至少有 1 个失败测试"
+    },
+    "a10": {
+      "count": 102,
+      "description": "app.py 禁止新增 @app.route 路由（强制走 app/routes/）"
+    },
+    "a13": {
+      "count": 0,
+      "description": "台账新增 BUG 条目必须含「生效确认」字段（R3）",
+      "hard_gate": true
+    },
+    "a14": {
+      "count": 32,
+      "description": "CI 脚本以 production 导入 app 必须显式放行生产硬门禁（R6）"
+    }
+  }
+}

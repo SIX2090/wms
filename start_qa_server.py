@@ -38,4 +38,7 @@ print('WMS QA server starting on http://127.0.0.1:8080', flush=True)
 print('Login: admin / admin', flush=True)
 print('=' * 60, flush=True)
 
-serve(app, host='0.0.0.0', port=8080, threads=4)
+# 安全修复 BUG-2026-09-25-004：原先绑定 0.0.0.0 且 WTF_CSRF_ENABLED=False、
+# bootstrap 密码固定为 admin，任何同网段设备都能直接以 admin/admin 登录并执行
+# 无 CSRF 校验的写操作。QA 服务只服务于本机预览，必须收敛到回环地址。
+serve(app, host='127.0.0.1', port=8080, threads=4)

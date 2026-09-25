@@ -3500,30 +3500,34 @@
         }
         
         // 处理文档任务操作
+        // BUG-2026-09-25-002 修复：三个按钮原先都指向不存在的路由，点击必然 404。
+        //   view        → /ai/document/<id>                （不存在）
+        //   create-draft→ /ai/document/<id>/create-draft   （不存在）
+        //   retry       → POST /api/ai/document/<id>/retry （不存在，且期望 JSON 响应）
+        // 后端真实路由为 /ai/document_jobs/<id>（详情页，app.py:20547）与
+        // POST /ai/document_jobs/<id>/retry（表单式，app.py:20593，返回 redirect+flash
+        // 而非 JSON，因此必须用表单提交而非 fetch，否则拿不到结果也跳不过去）。
         function handleDocumentTaskAction(taskId, action) {
             if (action === 'view') {
-                window.open('/ai/document/' + taskId, '_blank');
+                window.open('/ai/document_jobs/' + taskId, '_blank');
             } else if (action === 'create-draft') {
-                window.location.href = '/ai/document/' + taskId + '/create-draft';
+                window.location.href = '/ai/document_jobs/' + taskId;
             } else if (action === 'retry') {
-                fetch('/api/ai/document/' + taskId + '/retry', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').content
-                    }
-                }).then(function(response) {
-                    return response.json();
-                }).then(function(data) {
-                    if (data.success) {
-                        showToast('任务已重新提交', 'success');
-                        // 重新加载任务列表（如果当前页面有任务列表容器）
-                        if (typeof loadDocumentTasks === 'function') {
-                            loadDocumentTasks();
-                        } else if (document.querySelector('.ai-document-tasks')) {
-                            location.reload();
-                        }
-                    }
-                });
+                // 表单式 POST，随响应跟随 redirect 并由后端 flash 提示结果
+                var form = document.createElement('form');
+                form.method = 'POST';
+                form.action = '/ai/document_jobs/' + taskId + '/retry';
+                form.style.display = 'none';
+                var csrf = document.querySelector('meta[name="csrf-token"]');
+                if (csrf) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'csrf_token';
+                    input.value = csrf.content;
+                    form.appendChild(input);
+                }
+                document.body.appendChild(form);
+                form.submit();
             }
         }
 

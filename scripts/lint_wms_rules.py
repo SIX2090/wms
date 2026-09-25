@@ -60,6 +60,7 @@ A8/A9/A10/A13 是"新增代码生效"规则：仅对 git staged 的新增行强�
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
@@ -207,6 +208,47 @@ def get_staged_added_lines(repo_root: Path, file_path: Path) -> Set[int]:
             # 上下文行
             new_line += 1
     return added
+
+
+def _all_lines(repo_root: Path, file_path: Path) -> Set[int]:
+    """全量模式替身：返回文件**全部**行号（等价于"整个文件都是新增行"）。
+
+    用于 ``--full``：把 A8/A9/A10/A13/A14 这五条"仅 staged 新增行生效"的规则
+    在 CI 里切到全量语义。读取失败时返回空集，与 ``get_staged_added_lines``
+    的失败语义保持一致（沉默放行，不误报）。
+    """
+    try:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return set()
+    return set(range(1, text.count("\n") + 2))
+
+
+# 全量模式开关：monkey-patch 模块级函数。规则内部以 `get_staged_added_lines(...)`
+# 的**全局名**调用，因此替换本模块的全局绑定即可对所有规则同时生效。
+_FULL_SCAN_ACTIVE = False
+
+
+def set_full_scan_for_staged_rules(active: bool = True) -> None:
+    """切换「staged 新增行」类规则到全量扫描（CI 用）。
+
+    BUG-2026-09-25-005：A8/A9/A10/A13/A14 只扫 ``git diff --cached``，
+    CI 全新 checkout 没有 staged 文件，导致这五条规则在 CI 里恒为 0 违规。
+    A11 已通过 ``--full-a11`` 单独修好；本函数用统一机制覆盖其余五条，
+    避免"每条规则各配一个 flag、新增规则又漏配"的老问题复发。
+    """
+    global _FULL_SCAN_ACTIVE, get_staged_added_lines
+    if active:
+        if not _FULL_SCAN_ACTIVE:
+            get_staged_added_lines = _all_lines  # type: ignore[assignment]
+            _FULL_SCAN_ACTIVE = True
+    else:
+        if _FULL_SCAN_ACTIVE:
+            get_staged_added_lines = _ORIG_GET_STAGED_ADDED_LINES  # type: ignore[assignment]
+            _FULL_SCAN_ACTIVE = False
+
+
+_ORIG_GET_STAGED_ADDED_LINES = get_staged_added_lines
 
 
 # ---------------------------------------------------------------------------
@@ -1629,6 +1671,29 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="A11 全量扫描：不过滤 staged 新增行，存量代码同样强制（CI 硬门禁用）",
     )
     parser.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            "全量扫描：把所有『仅对 staged 新增行生效』的规则（A8/A9/A10/A13/A14）"
+            "切到全量模式。CI 是全新 checkout、没有任何 staged 文件，不加本开关这五条"
+            "规则在 CI 里形同虚设（BUG-2026-09-25-005）"
+        ),
+    )
+    parser.add_argument(
+        "--full-gate",
+        action="store_true",
+        help=(
+            "棘轮门禁（CI 用，需与 --full 同用）：把 A8/A9/A10/A13/A14 的全量违规数"
+            "与 scripts/lint_full_scan_baseline.json 比对，只允许减少、不允许增加。"
+            "任何新增违规使退出码为 1 并打印具体文件行号；存量下降也会提示可收紧基线。"
+        ),
+    )
+    parser.add_argument(
+        "--update-full-baseline",
+        action="store_true",
+        help="（人工复核后使用）把当前全量违规数写回 scripts/lint_full_scan_baseline.json",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="详细输出（每条规则的扫描文件数 + 通过规则也显示）",
@@ -1640,6 +1705,96 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="仓库根目录（默认取脚本所在目录的上一级）",
     )
     return parser.parse_args(argv)
+
+
+# 棘轮门禁覆盖的规则（即"原本只在 staged 上生效"的那五条）。
+# A11 有独立的 --full-a11 且存量已清零，不走本机制。
+_FULL_GATE_RULES: Tuple[str, ...] = ("a8", "a9", "a10", "a13", "a14")
+_FULL_BASELINE_REL = "scripts/lint_full_scan_baseline.json"
+
+
+def _load_full_scan_baseline(repo_root: Path) -> Dict[str, int]:
+    """读取全量扫描存量快照；文件缺失或损坏时返回空 dict（视作基线全 0）。"""
+    path = repo_root / _FULL_BASELINE_REL
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    rules = raw.get("rules")
+    if not isinstance(rules, dict):
+        return {}
+    out: Dict[str, int] = {}
+    for rid, entry in rules.items():
+        if isinstance(entry, dict) and isinstance(entry.get("count"), int):
+            out[rid] = entry["count"]
+    return out
+
+
+def write_full_scan_baseline(repo_root: Path, counts: Dict[str, int]) -> None:
+    """把当前全量违规数写回快照文件（保留既有说明性字段）。"""
+    path = repo_root / _FULL_BASELINE_REL
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raw = {}
+    except (OSError, ValueError):
+        raw = {}
+    rules = raw.get("rules")
+    if not isinstance(rules, dict):
+        rules = {}
+    for rid in _FULL_GATE_RULES:
+        if rid not in counts:
+            continue
+        entry = rules.get(rid)
+        if not isinstance(entry, dict):
+            entry = {"description": RULES[rid].description if rid in RULES else ""}
+        entry["count"] = counts[rid]
+        rules[rid] = entry
+    raw["rules"] = rules
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def check_full_scan_baseline(
+    repo_root: Path, results: Dict[str, List[Violation]]
+) -> int:
+    """棘轮比对：存量违规不得增加。返回 0（通过）或 1（有新增）。"""
+    baseline = _load_full_scan_baseline(repo_root)
+    regressions: List[str] = []
+    improvements: List[str] = []
+    for rid in _FULL_GATE_RULES:
+        current = len(results.get(rid, []))
+        allowed = baseline.get(rid, 0)
+        if current > allowed:
+            regressions.append(
+                f"  [{rid.upper()}] {current} 处 > 基线 {allowed} 处"
+                f"（新增 {current - allowed} 处）"
+            )
+        elif current < allowed:
+            improvements.append(
+                f"  [{rid.upper()}] {current} 处 < 基线 {allowed} 处"
+                f"（已消除 {allowed - current} 处，建议收紧基线）"
+            )
+    print("─" * 64)
+    print("全量棘轮门禁（--full-gate）：存量违规只减不增")
+    print("─" * 64)
+    if improvements:
+        print("存量下降（正向）：")
+        print("\n".join(improvements))
+    if regressions:
+        print("✗ 新增违规（阻塞）：")
+        print("\n".join(regressions))
+        print("")
+        print(f"新增了规则违规。请修掉上面的{sum(1 for _ in regressions)}条规则下的新增项。")
+        print("如确有必要放宽，必须人工复核后用下面命令显式更新基线：")
+        print("  python3 scripts/lint_wms_rules.py --full --update-full-baseline")
+        return 1
+    print("✓ 通过：无新增违规")
+    if improvements:
+        print(f"提示：{len(improvements)} 条规则存量已下降，可将基线收紧为当前值。")
+    return 0
 
 
 def list_rules() -> int:
@@ -1659,8 +1814,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         return list_rules()
 
     # --full-a11：把 A11 从"staged 新增行"模式切换为全量扫描（CI 硬门禁）
-    if args.full_a11:
+    if args.full_a11 or args.full:
         RULES["a11"].full_scan = True  # type: ignore[attr-defined]
+
+    # --full（BUG-2026-09-25-005）：A8/A9/A10/A13/A14 五条规则都是"仅对 staged
+    # 新增行生效"——它们内部一律先调 get_staged_added_lines()，拿不到 staged
+    # 行就 `continue` 跳过整个文件。CI 是全新 checkout，git 索引里没有任何
+    # staged 变更 → 这五条规则每次都在空集上扫描，永远 0 违规，等于从未在 CI
+    # 生效过。修复方式不是给每条规则各加一个开关（容易漏、且未来新增同类规则
+    # 会再犯），而是在 --full 时把模块级的 get_staged_added_lines 临时替换为
+    # "返回文件全部行号"，使所有以它为判据的规则自动切到全量语义。
+    #
+    # 语义边界：全量扫描会把存量违规一并报出。因此本开关**只在 CI 里使用**；
+    # 若某条规则存量未清零，CI 会立即亮红——这正是我们要的"让问题可见"，
+    # 而不是继续静默跳过。
+    if args.full:
+        set_full_scan_for_staged_rules()
 
     # 决定要跑的规则
     if args.rule:
@@ -1695,6 +1864,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     # 输出报告
     report = format_report(results, files_scanned, args.verbose)
     print(report)
+
+    # --update-full-baseline：把当前全量违规数写回快照文件，然后退出 0。
+    # 只允许在人工复核后使用；CI 里绝不调用这个开关。
+    if args.update_full_baseline:
+        counts = {rid: len(v) for rid, v in results.items() if rid in _FULL_GATE_RULES}
+        write_full_scan_baseline(repo_root, counts)
+        print(f"✓ 已更新 {_FULL_BASELINE_REL}：{counts}")
+        return 0
+
+    # --full-gate：棘轮门禁 —— 存量违规数不得增加，任何新增违规亮红。
+    if args.full_gate:
+        return check_full_scan_baseline(repo_root, results)
 
     # 退出码
     total = sum(len(v) for v in results.values())
