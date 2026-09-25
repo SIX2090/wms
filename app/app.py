@@ -8686,14 +8686,85 @@ def generate_material_copy_name(source_name, source_spec):
         return ''
     return base_name
 
-def material_name_spec_exists(name, spec, exclude_id=None):
+def _material_dedupe_key(value):
+    """物料判重「硬挡」键的归一化：只 strip 首尾空白。
+
+    刻意**不做**下面三件事，原因逐条对应实测：
+      - 不做 NFKC：存量 88 条规格含全角字符（如 'SC-120-12-镀锡（C）'、
+        'JKM1－1250M/3300 1250A'），而 SQLite 无法对**列值**做 NFKC。若只对
+        入参归一化，全角与半角两种写法在库里反而双双对不上，检出率不升反降。
+      - 不去内部空格：2026-09-25 与业务方确认，'LA38-11 绿色' 与
+        'LA38-11绿色' 视为两个规格，必须允许共存。
+      - 不转小写：电气规格大小写有物理含义（mA 毫安 / MA 兆安差 10^9 倍），
+        '25KA' 与 '25kA' 也不能替业务方断定是同一个东西。
+    这三类差异统一交给 find_similar_materials() 在 Python 侧（两端同时归一）
+    做「软提示」，提示存在但由人决定是否保存。
+    """
+    return (value or '').strip()
+
+
+def _material_similarity_key(value):
+    """物料「软提示」键的强归一化：NFKC + 去全部空白 + 转小写。
+
+    与硬挡键的关键差别：本函数对**存量行与待建输入两端**都执行，因此不受
+    存量数据是否已归一化的影响，可以安全地做 NFKC。
+    """
+    import unicodedata
+
+    text = unicodedata.normalize('NFKC', str(value or ''))
+    return ''.join(text.split()).lower()
+
+
+def material_name_spec_exists(name, spec, brand=None, exclude_id=None):
+    """名称 + 规格 + 品牌 三者同时重复 → 判重（硬挡）。
+
+    为什么把 brand 加进键（2026-09-25）：业务上「同型号不同品牌」是两个物料
+    （欧姆龙 vs 西门子的模拟量输入模块），不含品牌会把正常业务挡在门外；
+    生产库实测已有 10 组同名不同品牌，说明现场就是按品牌区分物料的。
+    为什么强度只到 strip：见 _material_dedupe_key 的三条实测理由。
+    """
     query = Material.query.filter(
-        Material.name == name,
-        func.coalesce(Material.spec, '') == (spec or '')
+        func.trim(func.coalesce(Material.name, '')) == _material_dedupe_key(name),
+        func.trim(func.coalesce(Material.spec, '')) == _material_dedupe_key(spec),
+        func.trim(func.coalesce(Material.brand, '')) == _material_dedupe_key(brand),
     )
     if exclude_id:
         query = query.filter(Material.id != exclude_id)
     return query.first() is not None
+
+
+def find_similar_materials(name, spec, exclude_id=None, limit=5):
+    """找出「忽略大小写 / 空格 / 全角 / 品牌后」与待建物料相同的已存在物料。
+
+    只用于**软提示，不阻断保存**。定位：硬挡键按业务方口径放行了空格与大小写
+    差异，但这类差异绝大多数是录入误差（生产库实测 6 组疑似一物多码里有 3 组
+    正是这么进来的，且 3 组的 created_at 相差 0~3 毫秒，是同一次批量导入写入），
+    静默放行等于放行一物多码。故提示「已存在近似物料」，保存与否交给录入人。
+
+    实现说明：SQL 侧做不了 NFKC，且大小写/空格差异会让 name 本身就不相等、
+    无从用索引粗筛；物料表量级（生产 1261 条）下取 5 列全量内存比较是毫秒级，
+    而物料建档是低频人工操作，故直接内存比较换取口径准确。若将来物料涨到
+    十万级，再考虑加持久化的归一化列 + 索引。
+    """
+    key_name = _material_similarity_key(name)
+    key_spec = _material_similarity_key(spec)
+    if not key_name:
+        return []
+    rows = Material.query.with_entities(
+        Material.id, Material.code, Material.name,
+        Material.spec, Material.brand,
+    ).all()
+    hits = []
+    for mid, code, row_name, row_spec, row_brand in rows:
+        if exclude_id and mid == exclude_id:
+            continue
+        if (_material_similarity_key(row_name) == key_name
+                and _material_similarity_key(row_spec) == key_spec):
+            hits.append({'id': mid, 'code': code, 'name': row_name,
+                         'spec': row_spec or '', 'brand': row_brand or ''})
+            if len(hits) >= limit:
+                break
+    return hits
 
 def _nonempty_reference_values(*values):
     result = []

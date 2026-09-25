@@ -175,6 +175,7 @@ def register_material_routes(app):
             Supplier,
             Unit,
             api_error,
+            find_similar_materials,
             get_default_warehouse,
             log_audit,
             material_name_spec_exists,
@@ -231,8 +232,8 @@ def register_material_routes(app):
         remark = sanitize_text_input(request.form.get('remark'), max_len=500)
         if len(remark) > 500:
             return api_error(f'备注不能超过 500 个字符（当前 {len(remark)}）')
-        if material_name_spec_exists(name, spec):
-            return api_error('物料名称和规格不能同时重复')
+        if material_name_spec_exists(name, spec, brand):
+            return api_error('物料名称、规格和品牌不能同时重复')
 
         # BUG-2026-07-29-005: 库存/价格上限收紧至 99999999.99（拒绝 12 位以上大数）
         initial_stock = parse_bounded_number(request.form.get('stock'), 0, maximum=MAX_REASONABLE_STOCK)
@@ -485,6 +486,7 @@ def register_material_routes(app):
             PurchaseRequestItem,
             SubcontractItem,
             api_error,
+            find_similar_materials,
             inventory_alert_enabled,
             log_audit,
             material_code_editable,
@@ -530,8 +532,8 @@ def register_material_routes(app):
         new_remark = (request.form.get('remark') or '').strip()
         if len(new_remark) > 500:
             return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
-        if material_name_spec_exists(new_name, new_spec, exclude_id=id):
-            return api_error('物料名称和规格不能同时重复')
+        if material_name_spec_exists(new_name, new_spec, new_brand, exclude_id=id):
+            return api_error('物料名称、规格和品牌不能同时重复')
 
         image_file = request.files.get('image')
         image_path = material.image
@@ -963,8 +965,10 @@ def register_material_routes(app):
             Supplier,
             Unit,
             api_error,
+            find_similar_materials,
             import_max_rows,
             inventory_alert_enabled,
+            material_name_spec_exists,
             sanitize_text_input,
             validate_excel_extension,
             validate_excel_size,
@@ -1033,6 +1037,7 @@ def register_material_routes(app):
             count = 0
             skip = 0
             skip_details = []
+            similar_notes = []
             warnings = []
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 # BUG-2026-08-04-008: 导入物料走 sanitize_text_input + 长度/价格校验，
@@ -1128,6 +1133,24 @@ def register_material_routes(app):
                     skip_details.append(f'第{row_idx}行：参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
                     continue
                 price_val = _price_check
+                # 物料判重（2026-09-25）：Excel 导入此前**只查 code 重复**，完全没做
+                # 「名称+规格+品牌」判重 —— 全库 8 个建物料入口里它是最常用的批量口子，
+                # 生产库 6 条疑似一物多码中 4 条由此进来（created_at 相差 0~3 毫秒）。
+                # 命中即跳过并告知行号，与既有 skip_details 机制一致（不中断整批导入）。
+                if material_name_spec_exists(name, spec, brand):
+                    skip += 1
+                    skip_details.append(
+                        f'第{row_idx}行：名称「{name}」+规格「{spec or "（空）"}」'
+                        f'+品牌「{brand or "（空）"}」与已存在物料重复')
+                    continue
+                # 软提示：忽略大小写/空格/全角/品牌后撞车的存量物料，不阻断导入。
+                _similar = find_similar_materials(name, spec)
+                if _similar and len(similar_notes) < 5:
+                    similar_notes.append(
+                        f'第{row_idx}行疑似与 '
+                        + '、'.join(f"{s['code']}（{s['name']} {s['spec'] or '（空规格）'}）"
+                                   for s in _similar[:3])
+                        + ' 重复，已导入，请人工核对')
                 min_stock_val = 0
                 safety_stock_val = 0
                 if inventory_alert_enabled():
@@ -1169,6 +1192,8 @@ def register_material_routes(app):
                 msg += f'，跳过 {skip} 条'
             if skip_details:
                 warnings.append(f'跳过详情：{"; ".join(skip_details[:20])}')
+            if similar_notes:
+                warnings.append('疑似重复：' + '；'.join(similar_notes))
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 resp = {'status': 'success', 'msg': msg, 'count': count}
                 if warnings:
