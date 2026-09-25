@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 452 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 127 条，最新 BUG-2026-09-25-011；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 453 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 128 条，最新 BUG-2026-09-25-012；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1592,4 +1592,45 @@
   每步单独一个 atomic action，改完复跑本判据。
 - **生效条件**：仅新增测试，不影响线上；无需重启。
 - **生效确认**：本地全量 2763 passed / 0 failed；lint 0 违规；棘轮门禁通过。
+  推送后 CI 验证。
+
+
+---
+
+### BUG-2026-09-25-012：P1-7① —— 调拨收敛到专用入口 apply_transfer_pair
+
+- **关联**：BUG-2026-09-25-011（同一条路径的判据，先建判据再动手术）。
+- **做法**：新增 `services/warehouse_stock_service.py: apply_transfer_pair()`，
+  `transfer.py` 的 `complete_transfer` / `revert_transfer` 两处手写逻辑全部改为
+  经此入口。
+- **为什么不复用 apply_stock_delta**（判据 T1~T3 直接证明）：
+  调拨是物料在公司内部搬家，**①总账必须不变**。而 `apply_stock_delta` 走
+  `add_stock` / `deduct_stock_atomic`，**必然改 ①**，还会给调拨凭空引入一次
+  「仓库级库存不足」校验（`deduct_stock_atomic` 内的
+  `get_warehouse_stock_quantities` 分支）——那正是审计 1.1 反复复发的
+  「读全局账」错误方向。调拨需要的是「只写双流水 + 库位账、不动总账」的语义，
+  不是入/出库语义。
+- **反提交无需额外开关**：**把 from / to 对调**再调一次同一个入口即可，
+  out 落在原调入仓、in 落在原调出仓，库位账同步反向。路由层因此少一个分支。
+- **库位两条腿刻意不对称**（沿用存量定式，不改行为）：
+  调出腿 `deduct_location_inventory_atomic`（原子扣，防超发/重复反提交）；
+  调入腿 `update_location_inventory`（自动建账，不会为负）。
+  反提交的调出腿因此从原来的非原子 `update_location_inventory` **升级为原子扣**
+  ——严格更安全的方向性变更，回归全绿。
+- **quantity<=0**：直接返回成功且不写任何账（避免 0 数量噪声流水）。
+- **回归**：新增 `tests/test_p1_7_transfer_converged.py` **6 项**
+  （A9 精确命名 `test_apply_transfer_pair` 1 项 + 库位/零数量 1 + 对调反提交 1 +
+  库位不足拒绝 1 + 路由端到端往返 1 + 库位漂移拒绝 1）。
+  定向 `-k transfer` 49 passed / 1 skipped / 0 failed；
+  全量 **2769 passed / 87 skipped / 0 failed**（2763 + 本批 6）。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线。
+- **踩坑**：
+  - `revert_transfer` 里 `resolve_inventory_warehouse_id` 还在「调入仓库存在性
+    校验」处使用，收敛时误删 → NameError 被 try/except 吞成「反提交失败，请稍后
+    重试」，表现像业务失败而非代码错误。**收敛时必须逐个核对符号残余**。
+  - 测试"调出腿库位不足"不能靠建一张超库存的单：`/transfer/save_table` 本身就
+    预检库存会先拒绝。改为建单成功后人为把库位账漂移成更小值——这恰好是现场最
+    真实的账实不符场景。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2769 passed / 0 failed；lint 0 违规；棘轮门禁通过。
   推送后 CI 验证。

@@ -449,7 +449,9 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_transfer(id):
-        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, assert_warehouse_active, deduct_location_inventory_atomic, get_warehouse_stock_quantities, location_management_enabled, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
+        # P1-7（2026-09-25）：库存写入改经 apply_transfer_pair 单点入口
+        from services.warehouse_stock_service import apply_transfer_pair
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, api_error, assert_warehouse_active, get_warehouse_stock_quantities, location_management_enabled, log_operation)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """完成调拨"""
@@ -520,38 +522,21 @@ def register_transfer_routes(app):
             for item in transfer.items:
                 if not item.material_id:
                     continue
-                material_code = item.material.code if item.material else str(item.material_id)
-                quantity = item.quantity or 0
-                if use_location:
-                    ok, err = deduct_location_inventory_atomic(
-                        item.material_id, transfer.from_location, quantity,
-                        material_code_hint=material_code,
-                        warehouse_id=resolve_inventory_warehouse_id(transfer.from_warehouse),
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err)
-                    # 调入方向用老的 update_location_inventory 自动建账即可（非破坏性）
-                    ok_in, err_in = update_location_inventory(item.material, transfer.to_location, quantity, warehouse=transfer.to_warehouse)
-                    if not ok_in:
-                        db.session.rollback()
-                        return api_error(err_in)
-                add_stock_transaction(
-                    item.material, -quantity, 'transfer_out',
-                    reference_type='transfer',
+                # P1-7（2026-09-25）：调拨收敛到专用入口 apply_transfer_pair
+                # — 写双向流水 + 库位账，①总账不动（物料没离开公司）。
+                ok, err = apply_transfer_pair(
+                    item.material, item.quantity or 0,
+                    from_warehouse=transfer.from_warehouse,
+                    to_warehouse=transfer.to_warehouse,
+                    from_location=transfer.from_location,
+                    to_location=transfer.to_location,
                     reference_id=transfer.id,
-                    location=transfer.from_location,
-                    warehouse=transfer.from_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
-                    remark=f'调拨到 {transfer.to_location}'
+                    out_remark=f'调拨到 {transfer.to_location}',
+                    in_remark=f'来自 {transfer.from_location}',
                 )
-                add_stock_transaction(
-                    item.material, quantity, 'transfer_in',
-                    reference_type='transfer',
-                    reference_id=transfer.id,
-                    location=transfer.to_location,
-                    warehouse=transfer.to_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
-                    remark=f'来自 {transfer.from_location}'
-                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(err)
 
             transfer.status = 'completed'
             db.session.commit()
@@ -567,7 +552,9 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_transfer(id):
-        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, add_stock_transaction, api_error, get_warehouse_stock_quantities, location_management_enabled, log_audit, log_operation, resolve_inventory_warehouse_id, update_location_inventory)
+        # P1-7（2026-09-25）：库存写入改经 apply_transfer_pair 单点入口
+        from services.warehouse_stock_service import apply_transfer_pair
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, api_error, get_warehouse_stock_quantities, location_management_enabled, log_audit, log_operation, resolve_inventory_warehouse_id)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """反提交调拨单"""
@@ -600,32 +587,21 @@ def register_transfer_routes(app):
                         return api_error(f'调入仓库 {destination.name} 库存不足，无法反提交调拨单')
             for item in transfer.items:
                 if item.material:
-                    quantity = item.quantity or 0
-                    if use_location:
-                        ok, error_msg = update_location_inventory(item.material, transfer.to_location, -quantity, warehouse=transfer.to_warehouse)
-                        if not ok:
-                            db.session.rollback()
-                            return api_error(error_msg)
-                        loc_ok, loc_err = update_location_inventory(item.material, transfer.from_location, quantity, warehouse=transfer.from_warehouse)
-                        if not loc_ok:
-                            db.session.rollback()
-                            return api_error(loc_err or '来源库位库存恢复失败')
-                    add_stock_transaction(
-                        item.material, quantity, 'transfer_in',
-                        reference_type='transfer',
+                    # P1-7（2026-09-25）：反提交 = 把 from / to 对调再走同一个入口
+                    # （out 落在原调入仓、in 落在原调出仓，库位账同步反向）。
+                    ok, err = apply_transfer_pair(
+                        item.material, item.quantity or 0,
+                        from_warehouse=transfer.to_warehouse,
+                        to_warehouse=transfer.from_warehouse,
+                        from_location=transfer.to_location,
+                        to_location=transfer.from_location,
                         reference_id=transfer.id,
-                        location=transfer.from_location,
-                        warehouse=transfer.from_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
-                        remark=f'反提交调拨 {transfer.transfer_no}'
+                        out_remark=f'反提交调拨 {transfer.transfer_no}',
+                        in_remark=f'反提交调拨 {transfer.transfer_no}',
                     )
-                    add_stock_transaction(
-                        item.material, -quantity, 'transfer_out',
-                        reference_type='transfer',
-                        reference_id=transfer.id,
-                        location=transfer.to_location,
-                        warehouse=transfer.to_warehouse,  # B-2026-08-27：写入端统一落 warehouse_id
-                        remark=f'反提交调拨 {transfer.transfer_no}'
-                    )
+                    if not ok:
+                        db.session.rollback()
+                        return api_error(err)
 
             transfer.status = 'pending'
             db.session.commit()

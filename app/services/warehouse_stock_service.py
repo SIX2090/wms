@@ -75,3 +75,84 @@ def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
             if not loc_ok:
                 return False, loc_err or '库位库存更新失败'
     return True, ''
+
+
+def apply_transfer_pair(material, quantity, *, from_warehouse=None, to_warehouse=None,
+                        from_location=None, to_location=None,
+                        reference_type='transfer', reference_id=None,
+                        out_remark='', in_remark=''):
+    """调拨专用库存入口：写**双向流水** + **库位账**，①总账**不动**。
+
+    为什么单列一个入口而不复用 apply_stock_delta
+    ---------------------------------------------
+    调拨是物料在公司内部搬家，物料没离开公司，①总账必须保持原值。
+    而 apply_stock_delta 走 add_stock / deduct_stock_atomic，**必然改 ①**，
+    还会给调拨凭空引入一次「仓库级库存不足」校验
+    （deduct_stock_atomic 内的 get_warehouse_stock_quantities 分支）——
+    那正是审计 1.1 里反复复发的「读全局账」错误方向。
+    判据见 tests/test_p1_7_three_ledgers_business_paths.py T1~T3：
+    调拨后 ① 必须不变、Σ③ 净增 0。
+
+    反提交也用本函数：**把 from / to 对调**即可，无需额外开关。
+        complete: from=A, to=B  → out(-q)@A, in(+q)@B；库位 A:-q, B:+q
+        revert:   from=B, to=A  → out(-q)@B, in(+q)@A；库位 B:-q, A:+q
+
+    库位账两条腿刻意不对称（沿用存量定式）：
+      - 调出腿用 deduct_location_inventory_atomic：原子扣，防超发/重复反提交；
+      - 调入腿用 update_location_inventory：自动建账，不会为负，无需原子性。
+
+    参数：
+        quantity: 调拨数量（>0）。quantity<=0 时不写库位账也不写流水，
+            直接返回成功（避免出现 0 数量噪声流水）。
+    返回：(是否成功, 错误信息)。失败时调用方负责 db.session.rollback()。
+    """
+    from app import (_stock_location_from_warehouse, add_stock_transaction,
+                     deduct_location_inventory_atomic,
+                     location_management_enabled, resolve_inventory_warehouse_id,
+                     update_location_inventory)
+
+    if not material:
+        return False, '物料不存在'
+    qty = quantity or 0
+    if qty <= 0:
+        return True, ''
+
+    use_location = location_management_enabled()
+    if use_location:
+        # 调出腿：原子扣库位（防超发）。库位键口径与存量定式一致：
+        # 行级库位为空时回退仓库（_stock_location_from_warehouse）。
+        out_loc = (from_location or '').strip() or (_stock_location_from_warehouse(from_warehouse) or '')
+        if out_loc:
+            ok, err = deduct_location_inventory_atomic(
+                material.id, out_loc, qty,
+                material_code_hint=getattr(material, 'code', None),
+                warehouse_id=resolve_inventory_warehouse_id(from_warehouse),
+            )
+            if not ok:
+                return False, err or '调出库位库存扣减失败'
+        # 调入腿：自动建账，非破坏性
+        in_loc = (to_location or '').strip() or (_stock_location_from_warehouse(to_warehouse) or '')
+        if in_loc:
+            ok_in, err_in = update_location_inventory(
+                material, in_loc, qty, warehouse=to_warehouse)
+            if not ok_in:
+                return False, err_in or '调入库位库存更新失败'
+
+    # ③流水账：一对异号流水，净增 0；①总账完全不动
+    add_stock_transaction(
+        material, -qty, 'transfer_out',
+        reference_type=reference_type,
+        reference_id=reference_id,
+        location=from_location,
+        warehouse=from_warehouse,
+        remark=out_remark or '',
+    )
+    add_stock_transaction(
+        material, qty, 'transfer_in',
+        reference_type=reference_type,
+        reference_id=reference_id,
+        location=to_location,
+        warehouse=to_warehouse,
+        remark=in_remark or '',
+    )
+    return True, ''
