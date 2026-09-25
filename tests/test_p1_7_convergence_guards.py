@@ -83,3 +83,28 @@ def test_services_module_exposes_all_entries():
     # 入口必须有 * 分隔的关键字参数，防止调用方按位置误传仓库/库位
     assert "*, transaction_type," in src.replace("'", "").replace('"', "")
     assert "*, warehouse=None, location=None" in src
+
+
+def _function_body(src: str, name: str) -> str:
+    """取顶层函数 name 的函数体（到下一个顶层 def / class 为止）。"""
+    m = re.search(rf"^def {name}\(", src, re.MULTILINE)
+    assert m, f"{name} 不存在"
+    rest = src[m.start():]
+    nxt = re.search(r"^(def |class |@)", rest[1:], re.MULTILINE)
+    return rest[: nxt.start() + 1] if nxt else rest
+
+
+def test_opening_stock_balance_uses_entry():
+    """期初建账函数必须经建账入口，不得再手写 StockTransaction / 库位账。
+
+    app.py 太大（3.4 万行、全库原语都在里面），按文件粒度做门禁必然误报，
+    所以这条按**函数体**粒度卡住 _apply_opening_stock_balance 一处。
+    """
+    src = (APP_DIR / "app.py").read_text(encoding="utf-8")
+    body = _strip_comments(_function_body(src, "_apply_opening_stock_balance"))
+    assert "apply_opening_balance" in body, "期初建账未使用建账入口"
+    for primitive in ("StockTransaction(", "update_location_inventory("):
+        assert not _calls(body, primitive.rstrip("(")), (
+            f"_apply_opening_stock_balance 仍在手工 {primitive}——"
+            "必须改经 apply_opening_balance，否则三账双写会再次分叉。"
+        )

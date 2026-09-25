@@ -8079,30 +8079,28 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             .values(stock=Material.stock + quantity_delta)
         )
         db.session.expire(material, ['stock'])
-        # AI-OS-MW-001：台账和月报都依赖 location 字段
-        location_value = warehouse.name if warehouse else (opening.warehouse.name if opening.warehouse else '')
-        db.session.add(StockTransaction(
-            material_id=material.id,
-            transaction_type='opening',
-            quantity=quantity_delta,
-            location=location_value,
-            # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
-            warehouse_id=warehouse.id if warehouse else (opening.warehouse_id if opening.warehouse_id else None),
-            reference_type='opening_stock',
-            reference_id=opening.id,
-            operator_id=current_user.id if current_user.is_authenticated else None,
-            remark=remark or '期初库存调整'
-        ))
-
-    # BUG-2026-08-16-002：开启库位管理时同步库位账，防止 Material.stock 总账与
-    # LocationInventory 库位账分叉（此前期初只改总账，库存查询/报表/移动端全部看不到）。
-    # 未填库位时以仓库名作占位行，保证仓库级库存聚合（get_warehouse_stock_quantities）可见。
-    if location_management_enabled() and warehouse and abs(quantity_delta) > STOCK_COMPARE_EPSILON:
-        effective_location = location or (warehouse.name or '').strip()
-        if effective_location:
-            if quantity_delta < 0 and old_quantity > 0:
-                # 历史数据回填：老库位账缺行时先按旧期初数量补基线再扣差额，
-                # 最终行值 == new_quantity，与 Material.stock 口径一致。
+        # P1-7③（2026-09-25）：③流水 + ②库位账收敛到建账专用入口
+        # apply_opening_balance；①总账仍由上面的 sa_update 自己改（建账语义：
+        # ① 由调用方负责，入口绝不碰——否则与 Material.stock 双改、直接翻倍）。
+        #
+        # 落库口径逐条对齐旧实现（不是换皮）：
+        #   - 流水 location：旧值恒为 `warehouse.name`（warehouse 为 None 时回退
+        #     `opening.warehouse.name`，再没有则 ''）。入口传 warehouse 后由
+        #     _stock_location_from_warehouse 解析出同样的名字；warehouse 为 None
+        #     时这里把 opening.warehouse 顶上去，回退口径因此完全一致。
+        #   - 库位键：旧值 `location or warehouse.name`，入口传 location 即可。
+        #   - warehouse 为 None 时旧代码根本不写库位账（旧条件 `and warehouse`），
+        #     故显式 sync_location=bool(warehouse) 保持该口径。
+        #   - delta 的 EPSILON 门槛仍在最外层（小于 1e-6 的差额一笔账都不写），
+        #     与旧实现的两处 `abs(quantity_delta) > STOCK_COMPARE_EPSILON` 一致。
+        #
+        # legacy 回填（老库位账缺行时先按旧期初数量补基线）是**准备动作**，
+        # 必须发生在库位账写入之前，故保留在入口调用之前原样执行。
+        #   顺序变化：旧实现是 ③ → 回填 → ②，现在是 回填 → ③+②。
+        #   回填只动 LocationInventory、③只动 StockTransaction，两者无交互，安全。
+        if location_management_enabled() and warehouse:
+            effective_location = location or (warehouse.name or '').strip()
+            if effective_location and quantity_delta < 0 and old_quantity > 0:
                 legacy_row = LocationInventory.query.filter(
                     LocationInventory.material_id == material.id,
                     LocationInventory.location == effective_location,
@@ -8115,10 +8113,18 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
                     )
                     if not ok_backfill:
                         raise ValueError(msg_backfill)
-            ok_inv, msg_inv = update_location_inventory(
-                material, effective_location, quantity_delta, warehouse=warehouse)
-            if not ok_inv:
-                raise ValueError(msg_inv)
+        from services.warehouse_stock_service import apply_opening_balance
+        ok_open, msg_open = apply_opening_balance(
+            material,
+            quantity_delta,
+            warehouse=warehouse or (opening.warehouse if opening.warehouse_id else None),
+            location=location or None,
+            reference_id=opening.id,
+            remark=remark or '期初库存调整',
+            sync_location=bool(warehouse),
+        )
+        if not ok_open:
+            raise ValueError(msg_open)
     return opening, quantity_delta
 
 

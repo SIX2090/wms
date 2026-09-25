@@ -159,8 +159,8 @@ def apply_transfer_pair(material, quantity, *, from_warehouse=None, to_warehouse
 
 
 def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
-                          reference_type='opening_stock', reference_id=None,
-                          remark=''):
+                          txn_location=None, reference_type='opening_stock',
+                          reference_id=None, remark='', sync_location=True):
     """建账专用库存入口：只写 ③流水 + ②库位账，**①总账不动**。
 
     与另两个入口的语义边界（P1-7③，2026-09-25）：
@@ -176,7 +176,14 @@ def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
     参数：
         quantity: 有符号数量；>0 建账、<0 调减（期初改单的差额可为负）；
             ==0 不写任何账、直接成功（与 material.py `initial_stock > 0` 口径一致）。
-        location: 行级库位；缺省时库位键回退 warehouse（既有定式逐字沿用）。
+        location: ②库位账的库位键；缺省时回退 warehouse（既有定式逐字沿用）。
+        txn_location: ③流水的 location，**缺省时回退 warehouse 名**。
+            必须与 location 分开：期初建账的旧实现里流水 location 恒记仓库名，
+            而库位账记的是明细行库位（两处本就不一致，P1-7③ 判据已钉死），
+            共用一个参数会把流水的落库值改掉。
+        sync_location: 是否同步 ②库位账，默认 True。期初单据在 warehouse 为
+            None 时原本就不写库位账（app.py 旧条件 `and warehouse`），故由调用方
+            显式传 False 保持该口径。
     返回：(是否成功, 错误信息)。失败时调用方负责 db.session.rollback()。
     """
     # 延迟导入 app 原语：服务层由路由函数在请求期导入，模块级 import app 会
@@ -190,18 +197,22 @@ def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
     if qty == 0:
         return True, ''
 
+    # ③流水：location 默认回退仓库名（与期初旧实现「流水恒记仓库名」同口径），
+    # 与 ② 的库位键 location 互不干扰。
+    # 注意 add_stock_transaction 只把 warehouse 解析成 warehouse_id，**不会**
+    # 顺带填 location，所以这里必须自己用 _stock_location_from_warehouse 回退。
     add_stock_transaction(
         material, qty, 'opening',
         reference_type=reference_type,
         reference_id=reference_id,
-        location=location or None,
+        location=(txn_location or _stock_location_from_warehouse(warehouse) or None),
         warehouse=warehouse,
         remark=remark or '',
     )
 
     # ②库位账同步：仅在开启库位管理时写；qty 同号（正加负减），
     # update_location_inventory 内部按正负自动分发 add/deduct 原语。
-    if location_management_enabled():
+    if sync_location and location_management_enabled():
         loc_key = (location or '').strip() or (_stock_location_from_warehouse(warehouse) or '')
         if loc_key:
             loc_ok, loc_err = update_location_inventory(

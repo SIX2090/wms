@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 455 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 130 条，最新 BUG-2026-09-25-014；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 456 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 131 条，最新 BUG-2026-09-25-015；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1731,3 +1731,48 @@
   故本次只收敛 `material.py` 那一半，期初单据账务单独一个 atomic 处理。
 - **生效条件**：代码改动，重启 WMS 服务后生效。
 - **生效确认**：本地全量 2798 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。
+
+---
+
+### BUG-2026-09-25-015：P1-7③ 下半 —— 期初建账 `_apply_opening_stock_balance` 收敛到建账入口
+
+- **关联**：BUG-2026-09-25-014（建账专用入口 `apply_opening_balance` 与
+  `material.py` 那一半）。本条收敛用户点名的 `app/app.py:8060` 一带的期初手写 SQL。
+- **做法**：`_apply_opening_stock_balance` 里手写的 `StockTransaction(` 与库位账
+  双写，改为经 `apply_opening_balance`；**①总账仍由原有的 `sa_update` 自己改**
+  （建账语义：① 由调用方负责，入口绝不碰，否则与 `Material.stock` 双改直接翻倍）。
+- **入口为此扩展两个参数（不是加戏，是旧实现真有两个不同口径）**：
+  - `txn_location`：③流水的 location，**必须与②的库位键分开**。旧实现里
+    流水 location **恒记 `warehouse.name`**，而库位账记的是**明细行库位**
+    ——两处本就不一致，共用一个参数会把流水的落库值改掉。
+  - `sync_location`：是否同步②。旧实现在 `warehouse` 为 None 时**根本不写库位账**
+    （旧条件 `and warehouse`），由调用方显式传 `False` 保持该口径。
+- **判据当场抓出两个真实偏差（这正是先写判据的价值，不是事后补记）**：
+  1. 收敛第一版把明细行库位 `LOC-1` 写进了**流水** location（旧值应为 `仓库A`）
+     ——因为入口把同一个 `location` 参数同时喂给了 ③ 和 ②；
+  2. `warehouse=None` 时流水 location 变成 `None`（旧值应回退 `opening.warehouse.name`）
+     ——`add_stock_transaction` 只把 warehouse 解析成 `warehouse_id`，
+     **不会顺带填 location**，回退必须由入口自己做
+     （`_stock_location_from_warehouse`）。
+  两处都由 `tests/test_p1_7_opening_stock_balance_converged.py` 钉死。
+- **刻意保留的旧口径（逐条核对，不是照抄）**：
+  ① `sa_update` 自改；③ 一条 `opening` 流水（`reference_type='opening_stock'`、
+  `reference_id=opening.id`）；② 库位键 `location or warehouse.name`；
+  `abs(delta) > STOCK_COMPARE_EPSILON(1e-6)` 门槛（小于它一笔账都不写）；
+  **legacy 回填**（老库位账缺行时先按旧期初数量补基线再扣差额，使最终行值 ==
+  `new_quantity`）作为**准备动作**保留在入口调用之前。
+  顺序变化：旧实现 ③ → 回填 → ②，现为 回填 → ③+②；回填只动
+  `LocationInventory`、③只动 `StockTransaction`，两者无交互，安全。
+- **回归**：新增 `tests/test_p1_7_opening_stock_balance_converged.py` **6 项**
+  （新建 1 + 改小 1 + 库位/流水口径分离 1 + legacy 回填 1 + warehouse=None 回退 1 +
+  EPSILON 门槛 1）。防回退门禁扩到 **23 项**，新增**函数级**门禁：
+  `app.py` 有 3.4 万行、全库原语都在里面，按文件粒度必然误报，故只卡
+  `_apply_opening_stock_balance` 的函数体——不得再手写 `StockTransaction(` /
+  `update_location_inventory(`。
+  P1-7 五个测试文件合计 48 passed；全量 **2805 passed / 87 skipped / 0 failed**。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线。
+- **剩余同类未收敛（下一个 atomic）**：`_reverse_opening_stock_line`
+  （app/app.py:8134，期初删除回冲 + 流水物理清理）。它是"回冲 + 删流水"语义，
+  不是建账，需先判定应落在哪个入口（或直接沿用现有原语）再动。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2805 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。
