@@ -242,6 +242,7 @@ def register_adjustment_routes(app):
             date_str = (data.get('date') or '').strip()
             remark = (data.get('remark') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
+            raw_warehouse_id = data.get('warehouse_id')
             items_data = data.get('items', [])
             replace_items = 'items' in data
         else:
@@ -251,6 +252,7 @@ def register_adjustment_routes(app):
             date_str = (request.form.get('date') or '').strip()
             remark = (request.form.get('remark') or '').strip()
             warehouse = (request.form.get('warehouse') or '').strip()
+            raw_warehouse_id = request.form.get('warehouse_id')
             items_data = []
             material_id = request.form.get('material_id')
             quantity = request.form.get('quantity')
@@ -279,14 +281,15 @@ def register_adjustment_routes(app):
                 return api_error('请选择调整类型')
 
             # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
-            if not warehouse:
+            # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
             # INV-AUDIT-005：仓库必须存在且 active
-            wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
             if wh_err:
                 return api_error(wh_err)
             warehouse = wh_obj.name

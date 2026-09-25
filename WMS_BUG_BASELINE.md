@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 449 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 124 条，最新 BUG-2026-09-25-008；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 450 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 125 条，最新 BUG-2026-09-25-009；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1458,3 +1458,46 @@
 - **生效确认**：本地全量 2730 passed / 0 failed；lint 0 违规；棘轮门禁通过。
   推送后 CI 验证。
 
+
+---
+
+### BUG-2026-09-25-009：P1-6 第三批 —— requisition / check / adjustment 仓库参数统一（含共用单据模板）
+
+- **关联**：同 BUG-2026-09-25-007（in_order）、008（out_order），同根因（审计 3.2 名称模式）。
+- **本次范围**：三类单据的写入路径。
+  - `requisition.py`：`/requisition/save_table`（JSON，header/data 双取）、
+    `/requisition/add`（表单）、`/requisition/<id>/update`（表单）——3 处用户输入点。
+    第 4 处（导入路径自动取默认仓）非用户输入，保持原样。
+  - `check.py`：`/check/save_table`（JSON）、`/check/add`（表单）——2 处。
+  - `adjustment.py`：JSON 分支 + 表单分支——2 处。
+- **关键发现（本批最大坑）**：`/requisition/add` 与 `/check/add` **并不渲染**
+  `requisition.html` / `check.html`，而是走 `app.py` 的
+  `_render_requisition_form()` / `_render_check_form()` 渲染共用模板
+  **`document_table_form.html`**（`doc_type='requisition'` / `'check'`）。
+  只改 `requisition.html` / `check.html` 会让「新增」按钮继续提交仓库名称，
+  即迁移落空。已一并迁移该共用模板的：
+  - 2 处 `<select name="warehouse">` → `name="warehouse_id"`，option `value="{{ warehouse.id }}"`，
+    预选条件兼容 `header.warehouse_id`（ID）与 `header.warehouse`（历史名称）。
+  - `refreshWarehouses()` 动态重建 option：选择器改 `[name="warehouse_id"]`，
+    比较与 value 均改 `w.id`（原为 `w.name`）。
+  - **`collectHeader()`**：`warehouse:get('warehouse')` → `warehouse_id:get('warehouse_id')`
+    —— 这是保存时真正提交表头的入口，漏改则后端永远收不到 ID。
+- **顺带**：`requisition.html`（列表页新增弹窗）、`check.html`、`adjustment_add.html`
+  （select + JS）同步迁移。
+- **回归**：新增 `tests/test_p1_6_requisition_check_adjustment_warehouse_id.py` **12 项**
+  （后端 6：requisition add ID / 名称兜底 / update ID / 无效 ID 400 / check add ID /
+  adjustment add ID；前端 3：requisition / check / adjustment 页面；
+  共用模板 3：`/requisition/add`、`/check/add`、`/requisition` 列表页）。
+  定向 `-k "requisition or check or adjustment or transfer or document_table or bom"`
+  338 passed / 5 skipped / 0 failed；
+  全量 **2742 passed / 87 skipped / 0 failed**（2730 + 本批 12）。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线，无新增。
+- **剩余**：13 个页面中已迁移 in_order(2) + out_order(2) + requisition(1) +
+  check(1) + adjustment(1) + document_table_form(2 select) = **9 个**，
+  还剩 **6 个**：`subcontract_issue` / `subcontract_receive` / `after_sale_out_add` /
+  `sales_order_add` / `sales_order_edit`，以及 `document_table_form` 的
+  transfer 分支（`from_location` / `to_location` 仍为名称，需随 P1-7 一并处理）。
+  未迁移页面走名称兜底分支，功能完全不受影响。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2742 passed / 0 failed；lint 0 违规；棘轮门禁通过。
+  推送后 CI 验证。

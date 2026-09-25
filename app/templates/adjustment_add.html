@@ -299,10 +299,10 @@
                     {# BUG-2026-08-02-015：调整单仓库必填，未填写时模板预选默认仓库 #}
                     <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="warehouse" {% if readonly %}disabled{% endif %} required>
+                        <select class="form-select" name="warehouse_id" {% if readonly %}disabled{% endif %} required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if (adjustment and adjustment.warehouse == warehouse.name) or (not adjustment and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if (adjustment and adjustment.warehouse == warehouse.name) or (not adjustment and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -672,7 +672,7 @@ function submitForm(completeAfterSave) {
     }
 
     // BUG-2026-08-02-015：仓库必填前端校验
-    const warehouseEl = document.querySelector('[name="warehouse"]');
+    const warehouseEl = document.querySelector('[name="warehouse_id"]');
     const warehouse = warehouseEl ? warehouseEl.value.trim() : '';
     if (!warehouse) {
         showToast('请选择仓库', 'warning');

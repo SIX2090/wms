@@ -219,10 +219,10 @@
                     {# BUG-2026-08-16-016：领料单补仓库 select 与条件库位字段，避免只能默认仓库回退 #}
                     <div class="mb-3">
                         <label for="warehouse" class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" id="warehouse" name="warehouse" required>
+                        <select class="form-select" id="warehouse" name="warehouse_id" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if default_warehouse and default_warehouse.id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>

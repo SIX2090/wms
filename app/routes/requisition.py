@@ -126,13 +126,20 @@ def register_requisition_routes(app):
             return api_error('请至少填写一条工单领料明细')
 
         # BUG-2026-08-05-008：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
+        # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
         warehouse = (header.get('warehouse') or data.get('warehouse') or '').strip()
-        if not warehouse:
+        raw_warehouse_id = header.get('warehouse_id') or data.get('warehouse_id')
+        if not warehouse and not raw_warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse = default_wh.name
-        if not warehouse:
+        if not warehouse and not raw_warehouse_id:
             return api_error('请选择仓库')
+        if raw_warehouse_id:
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
         # BUG-2026-08-16-016：仓库必须处于启用状态（与其他出入库单据一致）
         wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
         if not wh_ok:
@@ -224,7 +231,7 @@ def register_requisition_routes(app):
         from app import (ProductionRequisition, api_error,
                          assert_warehouse_active, generate_order_no,
                          get_default_warehouse, location_management_enabled,
-                         log_operation)
+                         log_operation, validate_inventory_warehouse)
         try:
             bom_id = request.form.get('bom_id')
             production_order = (request.form.get('production_order') or '').strip()
@@ -232,13 +239,20 @@ def register_requisition_routes(app):
             picker = (request.form.get('picker') or '').strip()
             remark = (request.form.get('remark') or '').strip()
             # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
+            # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip()
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
+            if raw_warehouse_id:
+                wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+                if wh_err:
+                    return api_error(wh_err)
+                warehouse = wh_obj.name
             # BUG-2026-08-16-016：仓库必须处于启用状态（与其他出入库单据一致）
             wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
             if not wh_ok:
@@ -277,7 +291,8 @@ def register_requisition_routes(app):
     @login_required
     def update_requisition(id):
         from app import (ProductionRequisition, api_error,
-                         get_default_warehouse, log_operation)
+                         get_default_warehouse, log_operation,
+                         validate_inventory_warehouse)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以修改')
@@ -289,13 +304,20 @@ def register_requisition_routes(app):
             requisition.purpose = (request.form.get('purpose') or '').strip()
             requisition.picker = (request.form.get('picker') or '').strip()
             # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
+            # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip()
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
+            if raw_warehouse_id:
+                wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+                if wh_err:
+                    return api_error(wh_err)
+                warehouse = wh_obj.name
             # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
             location = (request.form.get('location') or '').strip()
             requisition.warehouse = warehouse

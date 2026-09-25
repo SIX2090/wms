@@ -278,15 +278,17 @@ def register_check_routes(app):
             return api_error('请至少填写一条盘点明细')
 
         # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则），未填写时自动带入默认仓库
+        # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
         warehouse = (header.get('warehouse') or data.get('warehouse') or '').strip()
-        if not warehouse:
+        raw_warehouse_id = header.get('warehouse_id') or data.get('warehouse_id')
+        if not warehouse and not raw_warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse = default_wh.name
-        if not warehouse:
+        if not warehouse and not raw_warehouse_id:
             return api_error('请选择仓库')
         # INV-AUDIT-005：仓库必须存在且 active
-        wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+        wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
         if wh_err:
             return api_error(wh_err)
         warehouse = wh_obj.name
@@ -418,15 +420,17 @@ def register_check_routes(app):
         try:
             remark = (request.form.get('remark') or '').strip()
             # BUG-2026-08-02-013：仓库必填，未填写时自动带入默认仓库
+            # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip()
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
             # INV-AUDIT-005：仓库必须存在且 active
-            wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
             if wh_err:
                 return api_error(wh_err)
             warehouse = wh_obj.name

@@ -151,10 +151,10 @@
                     {# BUG-2026-08-02-014：新建盘点单仓库必填，未填写时预选默认仓库 #}
                     <div class="mb-3">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="warehouse" required>
+                        <select class="form-select" name="warehouse_id" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if default_warehouse and default_warehouse.id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
