@@ -2488,6 +2488,118 @@ def ensure_material_status_column(db_path: str | None = None):
                 pass
 
 
+# -------------------------------------------- 一个物料只允许一个物料编号（DB 级）
+# 「一物两码」的数据库级硬保证：在 material 上建**表达式唯一索引**，判重键与
+# 应用层 find_material_by_name_spec_brand() 同源（去空格 + 不分大小写 + 品牌）。
+# 必须与 _material_dedupe_expr() 生成的 SQL 逐字一致 —— 否则应用层认为重复的
+# 两条在数据库层却不算重复，判据又分叉了（这个根因本期已修 5 处，别再造第 6 处）。
+MATERIAL_DEDUPE_KEY_SQL = (
+    "lower(replace(replace(trim(coalesce({col},'')), ' ', ''), '\u3000', ''))"
+)
+
+MATERIAL_DEDUPE_UNIQUE_INDEX_DDL = (
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_material_dedupe_key ON material ("
+    + MATERIAL_DEDUPE_KEY_SQL.format(col='name') + ", "
+    + MATERIAL_DEDUPE_KEY_SQL.format(col='spec') + ", "
+    + MATERIAL_DEDUPE_KEY_SQL.format(col='brand') + ")"
+)
+
+MATERIAL_DEDUPE_CONFLICT_SQL = (
+    "SELECT {kn} AS k_name, {ks} AS k_spec, {kb} AS k_brand, "
+    "COUNT(*) AS cnt, GROUP_CONCAT(code, ',') AS codes, "
+    "GROUP_CONCAT(id, ',') AS ids "
+    "FROM material WHERE {kn} <> '' "
+    "GROUP BY {kn}, {ks}, {kb} HAVING COUNT(*) > 1 LIMIT {limit}"
+).format(kn=MATERIAL_DEDUPE_KEY_SQL.format(col='name'),
+         ks=MATERIAL_DEDUPE_KEY_SQL.format(col='spec'),
+         kb=MATERIAL_DEDUPE_KEY_SQL.format(col='brand'),
+         limit='{limit}')
+
+
+def find_material_dedupe_conflicts(limit=50):
+    """列出存量库里仍然「一物多码」的分组（只读）。
+
+    唯一索引建不建得成就看这个：有冲突就建不上，必须先合并。
+    """
+    rows = db.session.execute(
+        db.text(MATERIAL_DEDUPE_CONFLICT_SQL.format(limit=int(limit)))
+    ).fetchall()
+    out = []
+    for r in rows:
+        rec = r._mapping if hasattr(r, '_mapping') else r
+        out.append({
+            'name': rec['k_name'], 'spec': rec['k_spec'], 'brand': rec['k_brand'],
+            'count': rec['cnt'],
+            'codes': [c for c in (rec['codes'] or '').split(',') if c],
+            'ids': [int(x) for x in (rec['ids'] or '').split(',') if x],
+        })
+    return out
+
+
+def ensure_material_dedupe_unique_index(db_path: str | None = None):
+    """建「一个物料只允许一个物料编号」的数据库级唯一索引。
+
+    返回 (ok, conflicts)：
+      ok=True  —— 索引已存在或刚建好，数据库层已物理杜绝一物两码
+      ok=False —— 存量还有一物两码，索引建不上；conflicts 列出冲突组，先去合并
+
+    为什么选唯一索引而不是 CHECK / 触发器：CHECK 约束不能跨行聚合（做不到
+    "全表里这个键只出现一次"）；触发器每次写入都要 SUM 全表，且存量脏数据未知，
+    会把整库写锁死。唯一索引是数据库原生、写入零额外成本、且可即时验证的做法。
+
+    与 ensure_material_status_column 同一套范式：独立 sqlite 连接、独立于迁移
+    开关无条件执行、幂等（IF NOT EXISTS）。存量库还有重复时**不报错**，只是
+    建不上 —— 等合并完再建，否则一启动就炸。
+    """
+    conn = None
+    try:
+        if db_path is None:
+            db_path = _resolve_sqlite_db_path()
+            if db_path is None:
+                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+        if not os.path.exists(db_path):
+            return False, []
+        import sqlite3
+        conn = sqlite3.connect(db_path, timeout=60)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute('PRAGMA journal_mode=WAL')
+        cur.execute('PRAGMA busy_timeout=60000')
+        exists = cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='material'"
+        ).fetchone()
+        if not exists:
+            return False, []
+        conflicts = [dict(r) for r in cur.execute(
+            MATERIAL_DEDUPE_CONFLICT_SQL.format(limit=50)).fetchall()]
+        if conflicts:
+            logging.getLogger(__name__).warning(
+                '[DB] 存量仍有 %d 组一物多码，未建 material 判重唯一索引；'
+                '合并后再启动会自动补建', len(conflicts))
+            return False, conflicts
+        cur.execute(MATERIAL_DEDUPE_UNIQUE_INDEX_DDL)
+        conn.commit()
+        return True, []
+    except Exception as e:  # noqa: BLE001
+        try:
+            logging.getLogger(__name__).error(
+                f'ensure_material_dedupe_unique_index 失败: {e}', exc_info=True)
+        except Exception:  # noqa: BLE001
+            pass
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+        return False, []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def ensure_purchase_return_source_columns(db_path: str | None = None):
     """启动期无条件补齐 P1-7 采购退货出库的来源采购入库单列（仿 ensure_sales_return_source_columns）。
 
@@ -3144,6 +3256,11 @@ ensure_outbound_department_columns()
 # 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启补不上，物料列表一查状态即 500。
 # 独立于迁移开关无条件执行，幂等补列（R6 同根因，别再踩第 6 次）。
 ensure_material_status_column()
+
+# 「一个物料只允许一个物料编号」的数据库级唯一索引（2026-09-25）。
+# 存量还有一物两码时建不上（只告警，不阻断启动）—— 合并完那几组，下次启动
+# 会自动补建；也允许在合并操作当场补建（见 /material/<id>/merge）。
+ensure_material_dedupe_unique_index()
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。

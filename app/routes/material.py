@@ -884,6 +884,20 @@ def register_material_routes(app):
             _d = stats.get('ledger_detail') or {}
             _msg += (f'\n注意：该物料三账本来就不平（①={_d.get("one")} '
                      f'③Σ={_d.get("three")}），与本次合并无关，请另行核对')
+        # 每合并掉一组就试着补建一次判重唯一索引：存量全部清完的那一刻，
+        # 数据库层的一物一码硬保证就自动生效了。
+        try:
+            from app import (ensure_material_dedupe_unique_index,
+                             find_material_dedupe_conflicts)
+            _ok, _conflicts = ensure_material_dedupe_unique_index()
+            if _ok:
+                _msg += '\n已启用数据库级「一物一码」唯一约束'
+            else:
+                _left = _conflicts or find_material_dedupe_conflicts(limit=50)
+                if _left:
+                    _msg += f'\n库里还有 {len(_left)} 组重复物料未合并'
+        except Exception as exc:  # noqa: BLE001
+            app.logger.warning('合并后补建判重唯一索引失败：%s', exc)
         return jsonify({'status': 'success', 'msg': _msg, 'data': stats})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

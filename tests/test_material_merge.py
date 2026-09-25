@@ -337,3 +337,117 @@ def test_merge_preview_route_rejects_mismatch():
                     json={"source_code": "B-1", "target_code": "A-1"},
                     headers=AJAX_HEADERS)
     assert r.get_json()["status"] == "error"
+
+
+# ------------------------------------------------- 数据库级「一物一码」唯一约束
+
+def test_find_material_dedupe_conflicts():
+    """冲突查询：找出仍然一物多码的分组（空格/大小写变体也要算同一组）。"""
+    _reset()
+    _seed("105020", name="浪涌后备保护", spec="JKDB-25I/4P 25KA")
+    _seed("105021", name="浪涌后备保护", spec="JKDB-25I/4P 25kA")
+    _seed("108032", name="按钮", spec="LA38-11 绿色")
+    _seed("108034", name="按钮", spec="LA38-11绿色")
+    _seed("900001", name="唯一物料", spec="NO-DUP")
+    with app_module.app.app_context():
+        from app import find_material_dedupe_conflicts
+        conflicts = find_material_dedupe_conflicts()
+    assert len(conflicts) == 2, conflicts
+    codes = {c for grp in conflicts for c in grp["codes"]}
+    assert codes == {"105020", "105021", "108032", "108034"}
+
+
+def test_ensure_material_dedupe_unique_index(tmp_path):
+    """存量无重复 → 建上唯一索引；建上后数据库层拒绝插入重复。
+
+    这是「一个物料只允许一个物料编号」的物理保证：应用层判重可能被绕过
+    （新入口、直连数据库、老版本代码），唯一索引绕不过去。
+    """
+    import sqlite3
+
+    from app import (MATERIAL_DEDUPE_UNIQUE_INDEX_DDL,
+                     ensure_material_dedupe_unique_index)
+
+    db_file = tmp_path / "inventory.db"
+    con = sqlite3.connect(str(db_file))
+    con.execute("CREATE TABLE material (id INTEGER PRIMARY KEY, code TEXT, "
+                "name TEXT, spec TEXT, brand TEXT)")
+    con.execute("INSERT INTO material VALUES (1,'A','按钮','LA38-11',NULL)")
+    con.commit()
+    con.close()
+
+    ok, conflicts = ensure_material_dedupe_unique_index(str(db_file))
+    assert ok and not conflicts
+
+    # 索引建上后：空格/大小写变体也插不进去
+    con = sqlite3.connect(str(db_file))
+    for bad in [("B", "按钮", "LA38-11 ", None), ("C", "按钮", "la38-11", None)]:
+        try:
+            con.execute("INSERT INTO material (code,name,spec,brand) VALUES (?,?,?,?)", bad)
+            con.commit()
+            assert False, f"数据库层必须拒绝重复物料：{bad}"
+        except sqlite3.IntegrityError:
+            con.rollback()
+    # 同名称不同规格 / 同规格不同品牌 —— 合法，必须放行
+    con.execute("INSERT INTO material (code,name,spec,brand) VALUES ('D','按钮','LA38-22',NULL)")
+    con.execute("INSERT INTO material (code,name,spec,brand) VALUES ('E','按钮','LA38-11','欧姆龙')")
+    con.commit()
+    con.close()
+
+
+def test_ensure_material_dedupe_unique_index_blocked_by_conflicts(tmp_path):
+    """存量还有一物两码 → 索引建不上，但**不能抛异常**（启动期会被调用）。"""
+    import sqlite3
+
+    from app import ensure_material_dedupe_unique_index
+
+    db_file = tmp_path / "inventory.db"
+    con = sqlite3.connect(str(db_file))
+    con.execute("CREATE TABLE material (id INTEGER PRIMARY KEY, code TEXT, "
+                "name TEXT, spec TEXT, brand TEXT)")
+    con.execute("INSERT INTO material VALUES (1,'A','按钮','LA38-11 绿色',NULL)")
+    con.execute("INSERT INTO material VALUES (2,'B','按钮','LA38-11绿色',NULL)")
+    con.commit()
+    con.close()
+
+    ok, conflicts = ensure_material_dedupe_unique_index(str(db_file))
+    assert not ok, "有重复时必须拒绝建索引"
+    assert len(conflicts) == 1
+    # 没建上索引 → 数据库仍可写入（不能因为索引建不上就让业务写不了）
+    con = sqlite3.connect(str(db_file))
+    con.execute("INSERT INTO material (code,name,spec,brand) VALUES ('C','按钮','LA38-11绿色',NULL)")
+    con.commit()
+    con.close()
+
+    # 合并掉重复之后（只留一条）→ 这次能建上了
+    con = sqlite3.connect(str(db_file))
+    con.execute("DELETE FROM material WHERE code IN ('A', 'B')")
+    con.commit()
+    con.close()
+    ok2, _ = ensure_material_dedupe_unique_index(str(db_file))
+    assert ok2, "重复清掉后必须能补建索引"
+
+
+def test_merge_then_unique_index_becomes_possible(tmp_path):
+    """端到端：合并掉一组重复 → 唯一索引从「建不上」变成「建得上」。"""
+    import sqlite3
+
+    from app import ensure_material_dedupe_unique_index
+
+    db_file = tmp_path / "inventory.db"
+    con = sqlite3.connect(str(db_file))
+    con.execute("CREATE TABLE material (id INTEGER PRIMARY KEY, code TEXT, "
+                "name TEXT, spec TEXT, brand TEXT)")
+    con.execute("INSERT INTO material VALUES (1,'115021','模块前连接器40针','6ES75921BM000XB0','西门子')")
+    con.execute("INSERT INTO material VALUES (2,'115022','模块前连接器40针','6ES75921BM000XB0','西门子')")
+    con.commit()
+    con.close()
+
+    assert not ensure_material_dedupe_unique_index(str(db_file))[0]
+    _merge(1, 2)
+    with app_module.app.app_context():
+        con = sqlite3.connect(str(db_file))
+        con.execute("DELETE FROM material WHERE code='115022'")
+        con.commit()
+        con.close()
+    assert ensure_material_dedupe_unique_index(str(db_file))[0]
