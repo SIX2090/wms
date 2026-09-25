@@ -17,6 +17,104 @@
 
 from __future__ import annotations
 
+# P2b（2026-09-25）：三账恒等式运行时校验。
+#   为什么不做数据库级约束（CHECK/触发器）：
+#     - CHECK 不能跨表、不能写子查询聚合，而恒等式是跨表聚合，根本表达不出来；
+#     - 触发器能做到，但每次写入都触发一次 SUM()，且本库历史上修过 100 多次
+#       库存问题、存量脏数据未知——一上线就会把整库写入锁死。
+#   故降级为：入口内可开关的运行时断言（测试默认开、生产默认关）+ 既有
+#   scripts/verify_inventory_identity.py 的 CI 全库恒等式判据。
+LEDGER_EPS = 0.01
+
+
+def three_ledger_guard_enabled() -> bool:
+    """三账运行时校验开关。
+
+    取值优先级：环境变量 WMS_THREE_LEDGER_ASSERT > 运行环境推断。
+      - 1/true/yes/on/strict → 开
+      - 0/false/no/off       → 关（生产默认走这条）
+      - 未设置：pytest 或 Flask TESTING 下开，生产关
+    """
+    import os
+
+    env = (os.environ.get('WMS_THREE_LEDGER_ASSERT') or '').strip().lower()
+    if env in ('1', 'true', 'yes', 'on', 'strict'):
+        return True
+    if env in ('0', 'false', 'no', 'off'):
+        return False
+    if os.environ.get('PYTEST_CURRENT_TEST'):
+        return True
+    try:
+        from flask import current_app
+        return bool(current_app.config.get('TESTING'))
+    except Exception:
+        return False
+
+
+def three_ledger_guard_strict() -> bool:
+    """是否把恒等式不成立视为致命错误（抛 AssertionError）。
+
+    只有显式 WMS_THREE_LEDGER_ASSERT=strict 才抛。默认即便开启也只告警——
+    存量脏数据未知，不能让一条对不上账的历史行把正常业务写挂。
+    """
+    import os
+
+    return (os.environ.get('WMS_THREE_LEDGER_ASSERT') or '').strip().lower() == 'strict'
+
+
+def verify_material_three_ledgers(material) -> tuple[bool, dict]:
+    """校验单个物料的三账恒等式：① == Σ③；开启库位管理时还要求 ① == Σ②。
+
+    返回 (是否成立, 明细 dict)。明细含 one/two/three/location_on，便于告警
+    与测试定位是哪一层的账先歪了。
+
+    注意：读的是**当前 session/库里的真实值**，不是 ORM 实例的缓存值
+    （入口内部 expire 过 Material.stock，直接读实例会拿到旧值）。
+    """
+    from app import (LocationInventory, Material, StockTransaction,
+                     location_management_enabled)
+
+    mid = getattr(material, 'id', material)
+    mat = Material.query.get(mid)
+    one = float(mat.stock or 0) if mat else 0.0
+    three = float(sum((r.quantity or 0)
+                      for r in StockTransaction.query.filter_by(material_id=mid).all()))
+    location_on = location_management_enabled()
+    two = None
+    if location_on:
+        two = float(sum((r.quantity or 0)
+                        for r in LocationInventory.query.filter_by(material_id=mid).all()))
+    ok = abs(one - three) <= LEDGER_EPS
+    if location_on and two is not None:
+        ok = ok and abs(one - two) <= LEDGER_EPS
+    return ok, {'one': one, 'two': two, 'three': three, 'location_on': location_on}
+
+
+def guard_three_ledgers(material) -> bool:
+    """入口内调用的三账守卫：开了才校验，默认只告警、不阻断。
+
+    - 未开启：直接返回 True（生产零成本，只有一次环境变量读取）。
+    - 开启且恒等式不成立：logger.error 记明细；strict 模式下抛 AssertionError
+      （供专项测试证明"这套校验真能抓到分叉"）。
+    """
+    if not three_ledger_guard_enabled():
+        return True
+    ok, detail = verify_material_three_ledgers(material)
+    if ok:
+        return True
+    mid = getattr(material, 'id', material)
+    msg = (f'三账恒等式不成立 material_id={mid}：'
+           f"①={detail['one']} ②={detail['two']} ③Σ={detail['three']} "
+           f"(location_on={detail['location_on']})")
+    try:
+        from flask import current_app
+        current_app.logger.error(msg)
+    except Exception:
+        pass
+    if three_ledger_guard_strict():
+        raise AssertionError(msg)
+    return False
+
 
 def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
                       reference_id=None, remark='', warehouse=None, location=None):
@@ -74,6 +172,12 @@ def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
                 material, loc_key, delta, warehouse=warehouse)
             if not loc_ok:
                 return False, loc_err or '库位库存更新失败'
+    # P2b：写入后立刻校验三账恒等式（开关默认生产关 / 测试开，只告警不阻断）。
+    # 只挂在入/出库入口：调拨（①不动、③双向净 0）与建账（①由调用方在入口外改）
+    # 的恒等式都依赖入口之外的动作，在入口内校验会产生**误报窗口**
+    # （调用方还没改①就先调入口），故不挂。这两条路径由
+    # tests/test_p1_7_* 的判据与 scripts/verify_inventory_identity.py 守着。
+    guard_three_ledgers(material)
     return True, ''
 
 
