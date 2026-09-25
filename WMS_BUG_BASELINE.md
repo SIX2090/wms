@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 453 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 128 条，最新 BUG-2026-09-25-012；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 454 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 129 条，最新 BUG-2026-09-25-013；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1634,3 +1634,52 @@
 - **生效条件**：代码改动，重启 WMS 服务后生效。
 - **生效确认**：本地全量 2769 passed / 0 failed；lint 0 违规；棘轮门禁通过。
   推送后 CI 验证。
+
+---
+
+### BUG-2026-09-25-013：P1-7② —— 领料扣减收敛到 apply_stock_delta（纯重构）
+
+- **关联**：BUG-2026-09-25-011（判据先行，先钉死行为再动手术）、
+  BUG-2026-09-25-012（调拨专用入口，同批收敛的另一条路径）。
+- **做法**：`app/routes/requisition.py` 的 `complete_requisition` / `revert_requisition`
+  两处手写三账，改为经 `services/warehouse_stock_service.apply_stock_delta()` 单点入口；
+  移除因此不再使用的底层原语导入（`deduct_stock` / `deduct_location_inventory_atomic` /
+  `resolve_inventory_warehouse_id` / `add_stock` / `update_location_inventory` /
+  `location_management_enabled`）。
+- **为什么是纯重构（三条逐字核对，不靠"应该没变"）**：
+  1. `deduct_stock`（app/app.py:4478）本就是 `deduct_stock_atomic` 的薄包装，
+     原子条件扣减与失败语义原样保留；
+  2. 入口的库位分支对负 delta 最终落到 `deduct_location_inventory_atomic`
+     （app/app.py:4692），且在调用前多做一步「无库位记录且不允许负库存 → 失败」的
+     显式校验（方向是**严格更强**，不是放宽）；
+  3. 库位键口径一致：原写法 `(location or '').strip() or requisition.warehouse`，入口是
+     `(location or '').strip() or _stock_location_from_warehouse(warehouse)`，
+     而 `_stock_location_from_warehouse` 对字符串入参返回其 strip 后的自身
+     （app/app.py:4493）。
+- **唯一真实口径差（已显式补回，不许"顺手放宽"）**：
+  `apply_stock_delta` 对 `delta == 0` **直接成功且不写账**；而原来的
+  `deduct_stock(material, 0)` 会走进 `deduct_stock_atomic` 的 `qty <= 0` 分支返回
+  `(False, '扣减数量必须大于 0')`，**整单失败**。直接替换会把 0 数量明细行从
+  「拒绝整单」悄悄放宽为「放行且全程无报错」——与 BUG-2026-09-20-008 同型的
+  静默账实分裂温床。故在循环内显式保留 `if item.material and qty <= 0: 拒绝整单`；
+  物料为空仍交由入口返回「物料不存在」，与原 `deduct_stock` 逐字一致。
+- **钉子（判据 T8）**：`tests/test_p1_7_three_ledgers_business_paths.py` 新增 T8——
+  0 数量明细必须拒绝整单、① 总账不变、不产生任何 `requisition` 流水。
+  HTTP 入口 `/requisition/<id>/item/add` 本身拒绝 `quantity<=0`，故 T8 直接落
+  历史脏数据行来覆盖该分支。
+  **已做反向验证**：把守卫临时改成 `if False` 后 T8 立即变红（响应 `status` 由
+  `error` 变 `success`），证明该测试能真正抓到回归，不是常绿摆设。
+- **防回退门禁**：新增 `tests/test_p1_7_convergence_guards.py` **15 项**静态门禁——
+  已收敛的 `transfer.py` / `requisition.py` 必须引用各自入口，且不得再出现
+  `add_stock` / `deduct_stock` / `deduct_stock_atomic` / `add_stock_transaction` /
+  `update_location_inventory` / `deduct_location_inventory_atomic` 的**实际调用**
+  （先剥掉 Python 行注释再匹配「名字后紧跟 `(`」，避免把注释里的函数名误判为违规）。
+  行为正确性由判据文件覆盖，本门禁只管「不许再有人手写绕过」。
+- **回归**：定向 `-k requisition` 84 passed / 1 skipped / 0 failed；
+  判据 + 门禁 23 passed；全量 **2785 passed / 87 skipped / 0 failed**（2784 + T8）。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线。
+- **剩余同类未收敛**（下一个 atomic）：物料初始库存（`material.py:239/275` 的
+  `add_stock_transaction` + `update_location_inventory`）与期初建账手写 SQL
+  （`app/app.py:_apply_opening_stock_balance`，文档标 8406，用户点名 8060 一带）。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2785 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。

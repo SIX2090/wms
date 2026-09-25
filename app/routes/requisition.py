@@ -550,11 +550,11 @@ def register_requisition_routes(app):
     @login_required
     def complete_requisition(id):
         from sqlalchemy.orm import selectinload
+        # P1-7②（2026-09-25）：库存写入改经 apply_stock_delta 单点入口
+        from services.warehouse_stock_service import apply_stock_delta
         from app import (ProductionRequisition, _acquire_order_write_lock,
-                         api_error, deduct_location_inventory_atomic,
-                         deduct_stock, get_default_warehouse,
-                         location_management_enabled, log_operation,
-                         resolve_inventory_warehouse_id)
+                         api_error, get_default_warehouse,
+                         location_management_enabled, log_operation)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('当前工单领料单状态不可完结')
@@ -576,28 +576,34 @@ def register_requisition_routes(app):
             if location_management_enabled() and not (requisition.location or '').strip():
                 db.session.rollback()
                 return api_error('库位管理已启用，请选择库位')
-            # P1-BUGFIX: 开启库位管理时优先用 requisition.location，未开库位退回 requisition.warehouse
-            use_location = bool(location_management_enabled() and (requisition.location or requisition.warehouse))
-            loc_dim = (requisition.location or '').strip() or requisition.warehouse
+            # P1-7②（2026-09-25）：领料扣减收敛到唯一入口 apply_stock_delta。
+            # 纯重构、行为不变：deduct_stock 本就是 deduct_stock_atomic 的薄包装
+            # （app.py:4478），入口的库位分支最终也落到
+            # deduct_location_inventory_atomic（app.py:4692），原子性未变；
+            # 库位键口径 (location or '').strip() or warehouse 与这里原写法逐字一致。
+            #
+            # 唯一口径差（必须显式补回，否则会把"0 数量明细拒绝整单"放宽为放行）：
+            #   apply_stock_delta 对 delta==0 直接成功且不写账，而原
+            #   deduct_stock(material, 0) 会走进 deduct_stock_atomic 的
+            #   qty<=0 分支返回 (False, '扣减数量必须大于 0')。
+            #   因此这里对"物料存在但数量 <= 0"显式拒绝，保持原语义；
+            #   material 为空仍交由入口返回 '物料不存在'，与原 deduct_stock 一致。
             for item in requisition.items:
-                ok, error_msg = deduct_stock(item.material, item.quantity or 0,
-                                             transaction_type='requisition',
-                                             reference_type='requisition',
-                                             reference_id=requisition.id,
-                                             warehouse=requisition.warehouse)
+                qty = item.quantity or 0
+                if item.material and qty <= 0:
+                    db.session.rollback()
+                    return api_error('扣减数量必须大于 0')
+                ok, error_msg = apply_stock_delta(
+                    item.material, -qty,
+                    transaction_type='requisition',
+                    reference_type='requisition',
+                    reference_id=requisition.id,
+                    warehouse=requisition.warehouse,
+                    location=requisition.location,
+                )
                 if not ok:
                     db.session.rollback()
                     return api_error(error_msg or f'物料 {item.material.code} 库存不足')
-                # 原子扣库位（与 out_order 领料出库一致：仓库名即库位维度）
-                if use_location and loc_dim:
-                    ok2, err2 = deduct_location_inventory_atomic(
-                        item.material_id, loc_dim, item.quantity or 0,
-                        material_code_hint=item.material.code if item.material else None,
-                        warehouse_id=resolve_inventory_warehouse_id(requisition.warehouse),
-                    )
-                    if not ok2:
-                        db.session.rollback()
-                        return api_error(err2 or '库位库存扣减失败')
             requisition.status = 'completed'
             try:
                 db.session.commit()
@@ -619,9 +625,10 @@ def register_requisition_routes(app):
     def revert_requisition(id):
         """工单领料单撤销"""
         from sqlalchemy.orm import selectinload
+        # P1-7②（2026-09-25）：库存写入改经 apply_stock_delta 单点入口
+        from services.warehouse_stock_service import apply_stock_delta
         from app import (ProductionRequisition, _acquire_order_write_lock,
-                         add_stock, api_error, location_management_enabled,
-                         log_operation, update_location_inventory)
+                         api_error, log_operation)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'completed':
             return api_error('只有已完成的工单领料单可以撤销')
@@ -635,24 +642,19 @@ def register_requisition_routes(app):
             # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
             for item in requisition.items:
                 if item.material and (item.quantity or 0) > 0:
-                    ok, err = add_stock(item.material, item.quantity or 0,
-                                        transaction_type='revert_requisition',
-                                        reference_type='requisition',
-                                        reference_id=requisition.id,
-                                        remark=f'撤销工单领料单 {requisition.req_no}',
-                                        warehouse=requisition.warehouse)
+                    # P1-7②（2026-09-25）：与 complete 对称，恢复也走唯一入口
+                    ok, err = apply_stock_delta(
+                        item.material, item.quantity or 0,
+                        transaction_type='revert_requisition',
+                        reference_type='requisition',
+                        reference_id=requisition.id,
+                        remark=f'撤销工单领料单 {requisition.req_no}',
+                        warehouse=requisition.warehouse,
+                        location=requisition.location,
+                    )
                     if not ok:
                         db.session.rollback()
                         return api_error(err or '库存恢复失败')
-                    # BUG-2026-08-05-008：同步还原库位库存（与 complete_requisition 对称）。
-                    # P1-BUGFIX: 开启库位管理时优先用 requisition.location，未开库位退回 requisition.warehouse
-                    if location_management_enabled():
-                        loc_dim = (requisition.location or '').strip() or requisition.warehouse
-                        if loc_dim:
-                            loc_ok, loc_err = update_location_inventory(item.material, loc_dim, item.quantity or 0, warehouse=requisition.warehouse)
-                            if not loc_ok:
-                                db.session.rollback()
-                                return api_error(loc_err or '库位库存还原失败')
 
             requisition.status = 'pending'
             try:

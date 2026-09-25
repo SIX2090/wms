@@ -29,6 +29,9 @@
   T5. 领料完成（开库位）：② 同步 -q，① == Σ② == Σ③
   T6. 领料撤销：账回到领料前
   T7. 物料初始库存：① == Σ③ == initial（开库位时 Σ② 也相等）
+  T8. 领料 0 数量明细（历史脏数据）：拒绝整单、一笔账都不写
+     （deduct_stock 对 0 是失败，apply_stock_delta 对 0 是静默成功——
+      收敛必须显式补回这个守卫，否则边界口径在无报错中放宽）
 """
 from __future__ import annotations
 
@@ -309,6 +312,40 @@ class TestRequisitionThreeLedgers:
         assert abs(_ledger(mid) - 10) <= TOL, _ledger(mid)
         assert abs(_txn_sum(mid) - 10) <= TOL, _txn_sum(mid)
         _assert_identity(mid, location_on=False)
+
+    def test_zero_quantity_item_rejected_without_writing_any_ledger(self, client):
+        """T8：0 数量明细必须拒绝整单，且一笔账都不写。
+
+        口径来源（收敛前真实行为）：deduct_stock(material, 0) 会走进
+        deduct_stock_atomic 的 qty<=0 分支返回 (False, '扣减数量必须大于 0')，
+        整单因此失败；而 apply_stock_delta 对 delta==0 是**直接成功且不写账**。
+        收敛时若不显式补回这个守卫，0 数量行就从「拒绝整单」悄悄放宽为「放行」，
+        全程无报错——这正是 BUG-2026-09-20-008 型静默账实分裂的同类温床。
+
+        HTTP 入口 /requisition/<id>/item/add 本身就拒绝 quantity<=0，
+        所以这里直接落一条历史脏数据行来覆盖该分支。
+        """
+        with app_module.app.test_request_context():
+            _reset_db()
+            mat = _seed(location_on=False)
+            from app import add_stock
+            add_stock(mat, 10, transaction_type='opening', warehouse='仓库A')
+            db.session.commit()
+            mid = mat.id
+        _login(client)
+        rid = _make_requisition(client, "仓库A", 3)
+        with app_module.app.test_request_context():
+            from app import ProductionRequisitionItem
+            db.session.add(ProductionRequisitionItem(
+                requisition_id=rid, material_id=mid, quantity=0, unit_id=1))
+            db.session.commit()
+        resp = client.post(f"/requisition/{rid}/complete")
+        body = resp.get_json()
+        assert body.get("status") == "error", body
+        assert '扣减数量必须大于 0' in (body.get("msg") or ""), body
+        # 整单回滚：前面的 3 也不许留下痕迹
+        assert abs(_ledger(mid) - 10) <= TOL, _ledger(mid)
+        assert 'requisition' not in _txn_types(mid), _txn_types(mid)
 
 
 # ────────────────────────── T7 物料初始库存 ──────────────────────────
