@@ -476,10 +476,12 @@ textarea.form-control {
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">发货仓库</label>
-                        <select class="form-select" name="warehouse">
+                        {# P1-6（2026-09-25）：warehouse(名称) → warehouse_id(ID)；
+                           原 option 无 value 属性，提交的是文本名称。 #}
+                        <select class="form-select" name="warehouse_id">
                             <option value="">请选择</option>
                             {% for warehouse in warehouses %}
-                            <option {% if order.warehouse == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if order.warehouse_id == warehouse.id or order.warehouse == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -632,7 +634,8 @@ textarea.form-control {
     var editUrl = "{{ url_for('sales_order_edit', id=order.id) }}";
     var orderId = {{ order.id }};
     var body = document.getElementById('materialTableBody');
-    var formFields = ['order_no', 'date', 'customer_id', 'delivery_date', 'warehouse', 'salesperson_id', 'project_no', 'currency', 'settlement_method', 'remark'];
+    // P1-6（2026-09-25）：'warehouse' → 'warehouse_id'
+    var formFields = ['order_no', 'date', 'customer_id', 'delivery_date', 'warehouse_id', 'salesperson_id', 'project_no', 'currency', 'settlement_method', 'remark'];
     var esc = function(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); };
     var escAttr = function(value) { return esc(value).replace(/`/g, '&#96;'); };
     var unitName = function(material) { return material && material.unit && typeof material.unit === 'object' ? material.unit.name : (material && material.unit) || ''; };

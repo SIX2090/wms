@@ -217,7 +217,8 @@ def register_after_sale_out_routes(app):
                          assert_warehouse_active, api_error,
                          generate_order_no, get_default_warehouse, location_management_enabled,
                          log_operation,
-                         parse_date_value, parse_float_value, round_to_2_decimals)
+                         parse_date_value, parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         from flask_login import current_user
         try:
             payload = request.get_json(silent=True)
@@ -241,7 +242,9 @@ def register_after_sale_out_routes(app):
             reason = (data.get('reason') or '').strip()
             remark = (data.get('remark') or '').strip()
             # BUG-2026-08-02-005 修复：售后出库仓库必填，模型字段已存在但之前闲置。
+            # P1-6（2026-09-25）：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (data.get('warehouse') or '').strip()
+            raw_warehouse_id = data.get('warehouse_id')
             # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
             location = (data.get('location') or '').strip()
             source_sales_order_id = _clean_int(data.get('source_sales_order_id'))
@@ -252,12 +255,18 @@ def register_after_sale_out_routes(app):
                 return jsonify({'status': 'error', 'msg': '来源销售出库单不存在'}), 400
 
             # BUG-2026-08-02-005 修复：仓库必填，未填写时自动带入默认仓库，无默认仓库则拒绝保存。
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 if default_wh:
                     warehouse = default_wh.name
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
+            # P1-6：ID 优先解析（JSON 模式下 warehouse_id 可能是 int，不可 .strip()）
+            if raw_warehouse_id:
+                wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+                if wh_err:
+                    return jsonify({'status': 'error', 'msg': wh_err}), 400
+                warehouse = wh_obj.name
             # BUG-2026-08-16-014：仓库必须处于启用状态（与完成路由/其他单据一致）
             wh_ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
             if not wh_ok:

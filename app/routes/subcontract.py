@@ -168,7 +168,7 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from app import (SubcontractOrder, api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse, log_operation,
-                         parse_date_value)
+                         parse_date_value, validate_inventory_warehouse)
         try:
             supplier_id = request.form.get('supplier_id')
             order_no = (request.form.get('order_no') or '').strip()
@@ -177,12 +177,18 @@ def register_subcontract_routes(app):
             deadline = parse_date_value(request.form.get('deadline'))
             remark = (request.form.get('remark') or '').strip()
             # P0-BUGFIX: 仓库必填（AGENTS.md 规则一）
+            # P1-6（2026-09-25）：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip()
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 warehouse = default_wh.name if default_wh else ''
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
             wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
             if not wh_ok:
                 return api_error(wh_err)
@@ -1034,7 +1040,8 @@ def register_subcontract_routes(app):
                          SubcontractOrder, api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse,
                          location_management_enabled, log_operation,
-                         parse_float_value, round_to_2_decimals)
+                         parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
             issue_no = (request.form.get('issue_no') or '').strip()
@@ -1048,12 +1055,18 @@ def register_subcontract_routes(app):
                 return api_error('委外加工单不存在')
 
             # P0-BUGFIX: 仓库必填，优先从父委外单继承（AGENTS.md 规则一）
+            # P1-6（2026-09-25）：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip() or getattr(subcontract_order, 'warehouse', '') or ''
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 warehouse = default_wh.name if default_wh else ''
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
             wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
             if not wh_ok:
                 return api_error(wh_err)
@@ -1695,7 +1708,8 @@ def register_subcontract_routes(app):
                          SubcontractReceiveItem, api_error, assert_warehouse_active,
                          generate_order_no, get_default_warehouse,
                          location_management_enabled, log_operation,
-                         parse_float_value, round_to_2_decimals)
+                         parse_float_value, round_to_2_decimals,
+                         validate_inventory_warehouse)
         try:
             subcontract_order_id = request.form.get('subcontract_order_id')
             receive_no = (request.form.get('receive_no') or '').strip()
@@ -1709,12 +1723,18 @@ def register_subcontract_routes(app):
                 return api_error('委外加工单不存在')
 
             # P0-BUGFIX: 仓库必填，优先从父委外单继承（AGENTS.md 规则一）
+            # P1-6（2026-09-25）：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
             warehouse = (request.form.get('warehouse') or '').strip() or getattr(subcontract_order, 'warehouse', '') or ''
-            if not warehouse:
+            raw_warehouse_id = request.form.get('warehouse_id')
+            if not warehouse and not raw_warehouse_id:
                 default_wh = get_default_warehouse()
                 warehouse = default_wh.name if default_wh else ''
-            if not warehouse:
+            if not warehouse and not raw_warehouse_id:
                 return api_error('请选择仓库')
+            wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
+            if wh_err:
+                return api_error(wh_err)
+            warehouse = wh_obj.name
             wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
             if not wh_ok:
                 return api_error(wh_err)

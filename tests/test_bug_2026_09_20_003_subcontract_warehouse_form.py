@@ -78,30 +78,43 @@ def _order_id():
         return SubcontractOrder.query.filter_by(order_no="SC001").one().id
 
 
+def _default_warehouse_id(name="主仓"):
+    """P1-6：option value 改为仓库 ID 后，断言需要用 ID 而非名称。"""
+    with app_module.app.app_context():
+        return Warehouse.query.filter_by(name=name).one().id
+
+
 # ---------- 表单渲染 ----------
 
 def test_issue_form_has_required_warehouse_select(client):
+    # P1-6（2026-09-25）：仓库参数统一为 warehouse_id（option value 为仓库 ID）
+    wh_id = _default_warehouse_id("主仓")
     html = client.get("/subcontract_issue").get_data(as_text=True)
-    assert 'name="warehouse"' in html
+    assert 'name="warehouse_id"' in html
     assert 'id="issueWarehouse"' in html
     assert "请选择仓库" in html
-    # required + 默认仓 selected + 委外单联动数据
-    m = re.search(r'<select[^>]*name="warehouse"[^>]*>', html)
+    # required + 默认仓（按 ID）selected + 委外单联动数据
+    m = re.search(r'<select[^>]*name="warehouse_id"[^>]*>', html)
     assert m and "required" in m.group(0)
     assert 'data-warehouse="主仓"' in html
+    # 父委外单只存名称，模板须额外给出 ID 供 JS 回填
+    assert f'data-warehouse-id="{wh_id}"' in html
     default_opt = re.search(
-        r'<option value="主仓"[^>]*selected[^>]*>', html)
+        r'<option value="%d"[^>]*selected[^>]*>' % wh_id, html)
     assert default_opt, "默认仓应预选中"
 
 
 def test_receive_form_has_required_warehouse_select(client):
+    # P1-6（2026-09-25）：仓库参数统一为 warehouse_id（option value 为仓库 ID）
+    wh_id = _default_warehouse_id("主仓")
     html = client.get("/subcontract_receive").get_data(as_text=True)
-    assert 'name="warehouse"' in html
+    assert 'name="warehouse_id"' in html
     assert 'id="receiveWarehouse"' in html
-    m = re.search(r'<select[^>]*name="warehouse"[^>]*>', html)
+    m = re.search(r'<select[^>]*name="warehouse_id"[^>]*>', html)
     assert m and "required" in m.group(0)
     assert 'data-warehouse="主仓"' in html
-    assert re.search(r'<option value="主仓"[^>]*selected[^>]*>', html)
+    assert f'data-warehouse-id="{wh_id}"' in html
+    assert re.search(r'<option value="%d"[^>]*selected[^>]*>' % wh_id, html)
 
 
 # ---------- 提交行为 ----------

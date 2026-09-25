@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-25（持续滚动更新；累计 450 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 125 条，最新 BUG-2026-09-25-009；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
+更新时间：2026-09-25（持续滚动更新；累计 451 条：2026-07 共 42 条，2026-08 共 241 条，2026-09 共 126 条，最新 BUG-2026-09-25-010；另含新增能力条目 WECOM-BOT-001、FEAT-2026-09-24-001 等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -1500,4 +1500,51 @@
   未迁移页面走名称兜底分支，功能完全不受影响。
 - **生效条件**：代码改动，重启 WMS 服务后生效。
 - **生效确认**：本地全量 2742 passed / 0 failed；lint 0 违规；棘轮门禁通过。
+  推送后 CI 验证。
+
+
+---
+
+### BUG-2026-09-25-010：P1-6 第四批（收尾）—— subcontract / after_sale_out / sales_order 仓库参数统一
+
+- **关联**：同 007（in_order）、008（out_order）、009（requisition/check/adjustment）。
+- **后端**：
+  - `subcontract.py` 3 处：`/subcontract/add`、`/subcontract_issue/add`、
+    `/subcontract_receive/add`（后两处原还会从父委外单继承仓库名）。
+  - `after_sale_out.py` 1 处：`/after_sale_out/add`（JSON 分支）。
+  - `sales.py` **本就支持** `warehouse_id`（`validate_sales_warehouse(payload.get('warehouse'), payload.get('warehouse_id'))`，
+    sales.py:545/691），本批只迁前端——再次印证「能力已具备、只是接线不全」。
+- **前端 5 个页面**：`subcontract_issue.html`、`subcontract_receive.html`、
+  `after_sale_out_add.html`、`sales_order_add.html`、`sales_order_edit.html`。
+  至此全库 `grep 'name="warehouse"'` 模板**已清零**。
+- **本批两个必须处理的坑**：
+  1. **委外父单只存仓库名称**（`SubcontractOrder.warehouse`），下拉改 ID 后
+     原 `data-warehouse` 名称无法回填。解决：模板用
+     `warehouses|selectattr('name','equalto', ...)|map(attribute='id')|first`
+     在委外单 option 上补 `data-warehouse-id`，JS 改 `.data('warehouse-id')` 回填。
+  2. **售后出库「历史仓库名不在启用列表」分支**原输出
+     `<option value="{{ order.warehouse }}">`（名称）。改 ID 后名称会被当成
+     `warehouse_id` 提交，而 `resolve_active_inventory_warehouse` 对非数字
+     warehouse_id 直接 `int()` 失败判无效（**不会回退按名称匹配**）→ 必 400。
+     改为 `<option value="" disabled>` + 提示「仓库已变更，请重新选择」，
+     强制用户改选有效仓库（原行为同样会保存失败，只是提示更晚）。
+- **回归**：新增 `tests/test_p1_6_subcontract_after_sale_sales_warehouse_id.py` **14 项**
+  （委外 4：发料 ID / 收料 ID / ID 优先于名称 / 无效 ID 400；
+   售后 3：ID / 名称兜底 / 无效 ID 400；
+   前端 4：`/subcontract_issue`、`/subcontract_receive`、`/after_sale_out/add`、`/sales/add`；
+   销售编辑页 1；委外 data-warehouse-id 2）。
+  定向 `-k "subcontract or after_sale or sales or warehouse"` 638 passed / 16 skipped / 0 failed；
+  全量 **2756 passed / 87 skipped / 0 failed**（2742 + 本批 14）。
+  lint `--staged` 0 违规；`--full --full-gate` 417 = 基线，无新增。
+- **同步更新的既有测试**（契约迁移，非弱化）：
+  - `test_bug_2026_09_20_003_subcontract_warehouse_form.py`：断言从
+    `name="warehouse"` / `value="主仓"` 改为 `name="warehouse_id"` / `value=仓库ID`，
+    并新增 `data-warehouse-id` 断言；新增 `_default_warehouse_id()` 辅助。
+  - `test_p1_2_after_sale_out_validation.py::test_aso_t3_warehouse_keeps_required`：
+    正则改 `name="warehouse_id"`，`required` 语义不变。
+- **P1-6 收尾状态**：13 个页面全部迁移完成。剩余唯一名称态字段是
+  `document_table_form.html` 的 **transfer 分支**（`from_location` / `to_location`
+  仍是仓库名称），属 P1-7 调拨单收敛范围，不在 P1-6 内。
+- **生效条件**：代码改动，重启 WMS 服务后生效。
+- **生效确认**：本地全量 2756 passed / 0 failed；lint 0 违规；棘轮门禁通过。
   推送后 CI 验证。

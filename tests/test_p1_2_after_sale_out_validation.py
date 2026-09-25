@@ -65,8 +65,9 @@ def test_aso_t2_customer_has_required():
 
 
 def test_aso_t3_warehouse_keeps_required():
-    m = re.search(r'<select[^>]*name="warehouse"[^>]*>', _src())
-    assert m, "找不到 name=warehouse 的下拉框"
+    # P1-6（2026-09-25）：仓库参数统一为 warehouse_id（ID），required 语义不变
+    m = re.search(r'<select[^>]*name="warehouse_id"[^>]*>', _src())
+    assert m, "找不到 name=warehouse_id 的下拉框"
     assert re.search(r"\brequired\b", m.group(0)), "仓库必须保持 required"
 
 

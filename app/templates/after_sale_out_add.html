@@ -248,13 +248,17 @@
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="warehouse" required>
+                        {# P1-6（2026-09-25）：warehouse(名称) → warehouse_id(ID) #}
+                        <select class="form-select" name="warehouse_id" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if (order and order.warehouse == warehouse.name) or (not order or not order.warehouse) and default_warehouse and default_warehouse.name == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if (order and (order.warehouse_id == warehouse.id or order.warehouse == warehouse.name)) or (not order or not order.warehouse) and default_warehouse and default_warehouse.id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
+                            {# 历史单据可能挂在已停用/已改名仓库上。名称不能当 ID 提交
+                               （resolve_active_inventory_warehouse 对非数字 warehouse_id 直接判无效），
+                               故置空并禁用，强制用户改选有效仓库。 #}
                             {% if order and order.warehouse and order.warehouse not in warehouses|map(attribute='name')|list %}
-                            <option value="{{ order.warehouse }}" selected>{{ order.warehouse }}</option>
+                            <option value="" disabled selected>{{ order.warehouse }}（仓库已变更，请重新选择）</option>
                             {% endif %}
                         </select>
                     </div>
@@ -644,7 +648,7 @@ function submitForm() {
         customer: document.querySelector('[name="customer"]').value,
         contact: document.querySelector('[name="contact"]').value,
         phone: document.querySelector('[name="phone"]').value,
-        warehouse: document.querySelector('[name="warehouse"]').value,
+        warehouse_id: document.querySelector('[name="warehouse_id"]').value,
         reason: document.querySelector('[name="reason"]').value,
         source_sales_order_id: document.querySelector('[name="source_sales_order_id"]').value,
         source_out_order_id: document.querySelector('[name="source_out_order_id"]').value,
