@@ -71,8 +71,13 @@ fun HomeScreen(
     StatusBarIconEffect(darkIcons = false)
 
     // BUG-2026-09-10-010：首页概览的仓库切换需要仓库列表，进入首页时加载一次。
+    // BUG-2026-09-26-003：底部 Tab 用 saveState/restoreState 恢复首页时，VM 存活、
+    // loadWarehouses 早退，dashboard 停留旧值——录完单回首页"今日入库"不更新，
+    // 只能杀进程重开。effect 在恢复时重启，此处补 loadDashboard() 让数字跟上
+    // （GET 幂等，与 loadWarehouses 内部触发的刷新并发安全）。
     LaunchedEffect(Unit) {
         homeViewModel.loadWarehouses()
+        homeViewModel.loadDashboard()
     }
 
     val cards = remember {
@@ -640,7 +645,9 @@ fun TodayOverviewBar(
             value = "${dashboard.alertCount}",
             sub = "低库存",
             icon = Icons.Outlined.WarningAmber,
-            color = Error,
+            // BUG-2026-09-26-003：0 告警时用中性色。红色=有问题的语义不能被
+            // 常驻的红色 0 稀释——天天看红 0，真告警时反而麻木。
+            color = if (dashboard.alertCount > 0) Error else OnSurfaceSecondary,
             // AI-MOB-DRILLDOWN-01：此前跳查库存的空白搜索框，
             // 用户看到数字却不知道具体是哪些物料。改跳告警明细。
             screen = Screen.OverviewAlerts
