@@ -1,5 +1,6 @@
 package com.factory.wms
 
+import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.viewmodel.report.StockLedgerRangeLogic
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -100,9 +101,11 @@ class StockLedgerRangeLogicTest {
 
     @Test
     fun `formatQty keeps integers plain and decimals at two places`() {
-        assertEquals("12", StockLedgerRangeLogic.formatQty(12.0))
-        assertEquals("0", StockLedgerRangeLogic.formatQty(0.0))
-        assertEquals("2.50", StockLedgerRangeLogic.formatQty(2.5))
-        assertEquals("0.75", StockLedgerRangeLogic.formatQty(0.75))
+        // AI-APP-FIX-403：formatQty 已从 StockLedgerRangeLogic 成员合并为
+        // ui/util/Format.kt 顶层函数（六份同规则实现合一），行为不变。
+        assertEquals("12", formatQty(12.0))
+        assertEquals("0", formatQty(0.0))
+        assertEquals("2.50", formatQty(2.5))
+        assertEquals("0.75", formatQty(0.75))
     }
 }
