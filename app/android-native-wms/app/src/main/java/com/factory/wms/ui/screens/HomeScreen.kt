@@ -131,7 +131,7 @@ fun HomeScreen(
             ),
             FunctionCard(
                 title = "物料档案",
-                subtitle = "搜索物料 · 拍照上传档案照片",
+                subtitle = "搜索 · 拍照建档",
                 icon = Icons.Outlined.Badge,
                 gradient = listOf(CardAmber, CardAmberDark),
                 screen = Screen.MaterialArchive
@@ -145,28 +145,28 @@ fun HomeScreen(
             ),
             FunctionCard(
                 title = "库存日报",
-                subtitle = "按仓展示 · 各物料每日结存",
+                subtitle = "按仓每日结存",
                 icon = Icons.Outlined.Inventory2,
                 gradient = listOf(CardCyanLight, CardCyanDark),
                 screen = Screen.StockDailyReport
             ),
             FunctionCard(
                 title = "出入库明细",
-                subtitle = "日期范围 · 按仓查看流水",
+                subtitle = "按仓查流水",
                 icon = Icons.Outlined.SwapVert,
                 gradient = listOf(CardGreen, CardGreenDark),
                 screen = Screen.InOutDetailReport
             ),
             FunctionCard(
                 title = "库存台账",
-                subtitle = "单物料 · 期初出入结存流水",
+                subtitle = "期初出入结存",
                 icon = Icons.Outlined.MenuBook,
                 gradient = listOf(CardTealLight, CardTealDark),
                 screen = Screen.StockLedgerReport
             ),
             FunctionCard(
                 title = "盘点记录",
-                subtitle = "本人盘点 · 回查差异与采纳状态",
+                subtitle = "回查差异采纳",
                 icon = Icons.Outlined.History,
                 gradient = listOf(CardPurple, CardPurpleDark),
                 screen = Screen.StocktakeRecord
@@ -206,7 +206,7 @@ fun HomeScreen(
                             )
                         )
                     )
-                    .padding(top = 16.dp, bottom = 32.dp)
+                    .padding(top = 16.dp, bottom = 48.dp)
             ) {
                 // Decorative circles
                 Box(
@@ -312,54 +312,63 @@ fun HomeScreen(
             // 顶部提供仓库切换（默认仓 / 各仓 / 全部仓库汇总）。
             val dashboardData = homeUiState.dashboard
             if (dashboardData != null) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        "今日概览",
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(start = 20.dp)
-                    )
-                    Spacer(modifier = Modifier.weight(1f))
-                    WarehouseSelector(
-                        currentLabel = dashboardData.warehouse,
-                        warehouses = homeUiState.warehouses,
-                        selectedId = homeUiState.selectedWarehouseId,
-                        onSelect = { homeViewModel.selectWarehouse(it) },
-                        showDefaultWarehouse = false,
-                        allowAll = false
+                // 标题 + 概览条整体半悬浮，上探压住 Hero 下边缘（Hero 底部已留 48dp）
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "今日概览",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            // 半悬浮后标题压在 Hero 深蓝背景上，需白色
+                            color = Color.White,
+                            modifier = Modifier.padding(start = 20.dp)
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        WarehouseSelector(
+                            currentLabel = dashboardData.warehouse,
+                            warehouses = homeUiState.warehouses,
+                            selectedId = homeUiState.selectedWarehouseId,
+                            onSelect = { homeViewModel.selectWarehouse(it) },
+                            showDefaultWarehouse = false,
+                            allowAll = false
+                        )
+                    }
+                    TodayOverviewBar(
+                        dashboard = dashboardData,
+                        onNavigate = onNavigate
                     )
                 }
-                TodayOverviewBar(
-                    dashboard = dashboardData,
-                    onNavigate = onNavigate
-                )
             } else {
                 // AI-APP-UI-002：数据未返回时渲染同形骨架。
-                // 原先此处整块不渲染，数据到达瞬间功能卡网格整体下沉一截，
-                // 看起来像"页面闪了一下"；骨架占位让布局高度始终稳定。
-                DashboardOverviewSkeleton()
+                // 与真实布局同形半悬浮（标题占位在 Hero 上用白色 shimmer）。
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
+                    DashboardOverviewSkeleton()
+                }
             }
 
             // ── Card Grid ──
             Spacer(modifier = Modifier.height(20.dp))
 
             val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-            val cardWidth = (screenWidth - 56.dp) / 2
-            val rowCount = (cards.size + 1) / 2
+            val gridSpacing = 10.dp
+            // 3 列：左右各 20dp 外边距 + 2 个间距
+            val cardWidth = (screenWidth - 40.dp - gridSpacing * 2) / 3
+            val rowCount = (cards.size + 2) / 3
 
             for (row in 0 until rowCount) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(gridSpacing)
                 ) {
-                    for (col in 0..1) {
-                        val index = row * 2 + col
+                    for (col in 0..2) {
+                        val index = row * 3 + col
                         if (index < cards.size) {
                             val card = cards[index]
                             FunctionCardItem(
@@ -368,10 +377,13 @@ fun HomeScreen(
                                 modifier = Modifier.width(cardWidth),
                                 onClick = { onNavigate(card.screen) }
                             )
+                        } else {
+                            // 13 张卡 3 列末行只 1 张：不补占位会被 spacedBy 拉变形
+                            Spacer(modifier = Modifier.width(cardWidth))
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
             }
 
             // ── Bottom Info ──
@@ -482,19 +494,19 @@ fun FunctionCardItem(
 
     Card(
         modifier = modifier
-            .height(168.dp)
+            .height(104.dp)
             .graphicsLayer {
                 alpha = entrance.value
                 translationY = (1f - entrance.value) * 36f
             }
             .scale(scale)
             .shadow(
-                elevation = if (pressed) 4.dp else 8.dp,
-                shape = RoundedCornerShape(22.dp),
+                elevation = if (pressed) 3.dp else 5.dp,
+                shape = RoundedCornerShape(16.dp),
                 ambientColor = card.gradient.first().copy(alpha = 0.15f),
                 spotColor = card.gradient.first().copy(alpha = 0.2f)
             )
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(16.dp))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -503,7 +515,7 @@ fun FunctionCardItem(
                     onClick()
                 }
             ),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
@@ -518,25 +530,25 @@ fun FunctionCardItem(
                     )
                 )
         ) {
-            // Decorative background elements
+            // Decorative background elements（随卡片缩小，避免溢出）
             Box(
                 modifier = Modifier
-                    .size(90.dp)
-                    .offset(x = 80.dp, y = (-30).dp)
+                    .size(70.dp)
+                    .offset(x = 60.dp, y = (-28).dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.08f))
             )
             Box(
                 modifier = Modifier
-                    .size(50.dp)
-                    .offset(x = 70.dp, y = 50.dp)
+                    .size(40.dp)
+                    .offset(x = 55.dp, y = 45.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.05f))
             )
             Box(
                 modifier = Modifier
-                    .size(30.dp)
-                    .offset(x = (-10).dp, y = 120.dp)
+                    .size(22.dp)
+                    .offset(x = (-8).dp, y = 78.dp)
                     .clip(CircleShape)
                     .background(Color.White.copy(alpha = 0.06f))
             )
@@ -544,14 +556,14 @@ fun FunctionCardItem(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(18.dp),
+                    .padding(10.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 // Icon container
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(Color.White.copy(alpha = 0.22f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -559,26 +571,27 @@ fun FunctionCardItem(
                         imageVector = card.icon,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(26.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
-                // Title & subtitle
+                // Title & subtitle（104dp 高度内单行副标题，Ellipsis 兜底截断）
                 Column {
                     Text(
                         text = card.title,
                         color = Color.White,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        letterSpacing = 0.5.sp
+                        fontSize = 15.sp,
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = card.subtitle,
                         color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
-                        maxLines = 2,
+                        fontSize = 11.sp,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -613,7 +626,7 @@ fun TodayOverviewBar(
         OverviewItem(
             label = "待处理单据",
             value = "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
-            sub = "入${dashboard.pendingInOrders} 出${dashboard.pendingOutOrders}",
+            sub = "入${dashboard.pendingInOrders}·出${dashboard.pendingOutOrders}",
             icon = Icons.Outlined.PendingActions,
             color = CardOrange,
             // AI-MOB-DRILLDOWN-01：此前为 null，点了完全没反应。
@@ -625,7 +638,7 @@ fun TodayOverviewBar(
         OverviewItem(
             label = "库存告警",
             value = "${dashboard.alertCount}",
-            sub = "低于安全库存",
+            sub = "低库存",
             icon = Icons.Outlined.WarningAmber,
             color = Error,
             // AI-MOB-DRILLDOWN-01：此前跳查库存的空白搜索框，
@@ -640,7 +653,8 @@ fun TodayOverviewBar(
             .padding(horizontal = 20.dp),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        // 半悬浮由调用点 Column 统一 offset（标题+卡片一起上移），此处只加深投影
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         // AI-APP-UI-002：卡片内不再重复渲染「今日概览」标题——
         // 外层已有同名标题 + 仓库切换器，卡片内再来一遍是纯视觉冗余。
@@ -648,7 +662,9 @@ fun TodayOverviewBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            // 四格 sub 行数不一致时（如"低库存"vs"入0·出0"）图标和数值仍顶对齐
+            verticalAlignment = Alignment.Top
         ) {
             items.forEach { item ->
                 OverviewItemCell(
@@ -676,6 +692,7 @@ private fun DashboardOverviewSkeleton() {
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // 半悬浮后标题占位压在 Hero 深蓝背景上，shimmer 用 OnSurfaceVariant 在暗底上仍可辨
             WmsShimmerBox(modifier = Modifier.size(width = 76.dp, height = 20.dp), corner = 6.dp)
             Spacer(modifier = Modifier.weight(1f))
             WmsShimmerBox(modifier = Modifier.size(width = 96.dp, height = 32.dp), corner = 16.dp)
@@ -693,7 +710,8 @@ private fun DashboardOverviewSkeleton() {
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 10.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Top
             ) {
                 repeat(4) {
                     Column(
@@ -773,12 +791,18 @@ private fun OverviewItemCell(
         Text(
             item.label,
             fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
         Text(
             item.sub,
             fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }

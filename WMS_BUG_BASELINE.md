@@ -1862,3 +1862,40 @@
   `test_guard_three_ledgers` 后才过。
 - **生效条件**：代码改动，重启 WMS 服务后生效（默认生产关闭，行为零变化）。
 - **生效确认**：本地全量 2836 passed / 0 failed；lint 双门禁通过；推送后 CI 验证。
+
+### BUG-2026-09-26-001（2026-09-26，WMS 手机端首页：13 张卡滚两屏 + 副标题截断 + 概览条错位）
+
+- **现场**：用户截图（Screenshot_20260926_121717）暴露三个可见问题——
+  ① 13 张功能卡 2 列 × 168dp 高，首屏只能看 4 张，要滚两屏才能看完；
+  ② 卡片副标题（如"手工/扫码 · 多物料入库"、"搜索物料 · 拍照上传档案照片"）
+     在窄卡内被 Ellipsis 截断；
+  ③ 今日概览条四格副标题（"入0 出0"、"低于安全库存"）未设 maxLines，
+     换行导致四格基线错位（"0单据"、"低于安全库/存"断裂）。
+- **决策（用户确认三选）**：数据口径**不动**（数字 0 是真实数据，用户自己切仓看）；
+  卡片**全部保留但缩小**；副标题**保留**，只修截断。
+- **修复**（仅 `HomeScreen.kt`，约 40 行，零外溢——FunctionCardItem/TodayOverviewBar
+  均为本文件私有组件）：
+
+  | 区域 | 原值 | 新值 |
+  |---|---|---|
+  | 卡片网格 | 2 列 × 168dp | **3 列 × 104dp**，末行补 Spacer 占位防变形 |
+  | 卡片副标题 | 2 行 12sp | **1 行 11sp + Ellipsis**，5 条超长文案精简 |
+  | 概览条四格 | 无 maxLines | label/sub 均 **maxLines=1 + 顶对齐** |
+  | 库存告警文案 | "低于安全库存" | "低库存" |
+  | Hero 区 | 概览条平铺下方 | **半悬浮**——Hero 底部留 48dp，标题+概览条整体上探 28dp 压住下边缘 |
+
+  **半悬浮实现要点**：`Column(modifier = Modifier.offset(y = (-28).dp))` 包裹
+  「今日概览」标题 Row + TodayOverviewBar，骨架同形。Compose 负 offset 仅视觉位移、
+  不影响布局空间，外滚 Column 自动补偿。**踩过的坑**：一开始同时在调用点 Column 和
+  概览条 Card 上都加了 offset，导致概览条被上移 56dp 叠穿 Hero——审 diff 时发现，
+  已改为只在调用点 Column 上 offset，Card 只加深投影（2dp→4dp）。
+- **R6 同类排查**：副标题 `maxLines=2` 仅 `FunctionCardItem` 一处；`OverviewItemCell`
+  的 label/sub 未设 maxLines 仅首页概览条一处；网格 Row/Column 手动循环仅首页一处。
+- **回归**：新增 `tests/test_android_home_3col_compact.py` 11 项（3 列生效/末行占位/
+  卡片高度/副标题单行/概览条单行/顶对齐/文案精简/Hero padding/半悬浮 offset/卡片数不变），
+  **反向破坏验证 5 场景全部精准捕获**（3列改回2列、高度改回168、文案改回长、去掉占位、
+  Hero padding 改回32 各命中 1 项）。
+- **生效条件**：Android 改动需 CI `assembleRelease` 产出新 APK 后用户重装（本地沙箱无
+  Java/Android SDK，编译验收以 CI 为准，BUG-2026-09-12-006 规则）。
+- **生效确认**：全量测试见 CI；lint 双门禁通过；推送后 CI 验证。
+
