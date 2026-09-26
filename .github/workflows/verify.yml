@@ -1,5 +1,9 @@
 name: WMS AI Verification
 
+# CI-RUNNER-2026-09-26：runs-on 钉 ubuntu-24.04（防 2026-10-19 起 ubuntu-latest
+# 自动切 Ubuntu 26 的环境漂移，理由同 ci.yml 头部注释）；setup-python v5→v6
+# （v5 为 Node.js 20 线，已被 GitHub 强制 Node 24；v6 与 ci.yml 现状对齐，
+# python-version/cache 参数不变）。
 on:
   push:
     branches: [main]
@@ -23,12 +27,12 @@ jobs:
   # Job 1：源码与静态规程检查（快，~30s）
   # ==========================================================================
   static-checks:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
@@ -71,12 +75,12 @@ jobs:
   # verify_wms_bugs.py（后者属 FULL_EXTRA_SCRIPTS，只在 --level full 时跑）、
   # verify_production_readiness.py。三者在两个 job 间**零重叠**。
   ai-core:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 

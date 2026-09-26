@@ -11,6 +11,9 @@ name: WMS Perf Baseline
 # 每日定时跑一次（UTC 18:45，错开 18:30 的三个门禁工作流），保证
 # 即使当天没人推代码，也能发现依赖变更导致的性能漂移。
 
+# CI-RUNNER-2026-09-26：runs-on 钉 ubuntu-24.04（防 2026-10-19 起 ubuntu-latest
+# 自动切 Ubuntu 26 的环境漂移，理由同 ci.yml 头部注释）；upload-artifact v4→v7
+# （v4 为 Node 20 线，已被 GitHub 强制 Node 24，v7 参数兼容）。
 on:
   push:
     branches: [main]
@@ -20,7 +23,7 @@ on:
 
 jobs:
   perf:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 阈值告警而非硬门禁（P2-1 验收口径）：装置性失败/回归不使本工作流变红，
     # 回归以 ::warning:: 注解形式出现在 summary 与文件 diff 上。
     continue-on-error: true
@@ -56,7 +59,7 @@ jobs:
 
       - name: "Upload current perf result"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: perf-current
           path: /tmp/perf_current.json

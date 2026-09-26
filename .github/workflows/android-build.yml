@@ -31,6 +31,15 @@ on:
   schedule:
     - cron: '30 18 * * *'
 
+# CI-RUNNER-2026-09-26：运行环境钉版（理由同 ci.yml 头部注释）：
+#   - runs-on 钉 ubuntu-24.04（防 2026-10-19 起 ubuntu-latest 自动切 Ubuntu 26；
+#     Android SDK 由 setup-android 显式安装 platforms;android-35 build-tools;35.0.0，
+#     与 runner Ubuntu 版本解耦，钉版不影响构建）。
+#   - upload-artifact v5→v7：v5 只是"preliminary" Node 24 支持、默认仍跑 Node 20，
+#     同样产生 deprecation 警告；v7 才是默认 Node 24。参数兼容。
+#   - cache v4→v5：v4 为 Node 20 线；v5 官方标注 runs on Node.js 24 runtime，
+#     参数（path/key/restore-keys）兼容。
+#
 # CI-PERF-2026-09-24：原单一 job 串行 465s（Build Release APK 325s + Lint 83s
 # + Unit tests 36s），全部排在一条关键路径上。现拆成**三个互不依赖的并行 job**，
 # 总时长由最慢的 `build` 决定（~350s），收益 ~115s。
@@ -53,7 +62,7 @@ jobs:
   # Job 1：出包 + 发布（原 job 的主体，~350s，为关键路径）
   # ==========================================================================
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
@@ -75,7 +84,7 @@ jobs:
       # CI-PERF-2026-09-24：Gradle 依赖与 wrapper 缓存。key 含 gradle 文件哈希，
       # 构建脚本变更时自动失效；restore-keys 保证首次也能命中上一次的近似缓存。
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -129,7 +138,7 @@ jobs:
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: app-release
           path: |
@@ -164,7 +173,7 @@ jobs:
   # lintRelease 检查静态问题（无用资源/API 误用/可访问性等）。
   # 同样不带 -Pwms.sherpa=true（AI-MOB-APK-001），保证与产物构建配置一致。
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -182,7 +191,7 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -215,7 +224,7 @@ jobs:
   # NO-SOURCE 空跑却显示绿色，故 tests/verify_bug_2026_09_14_033_android_unit_test_infra.py
   # 断言本工作流必须保留 `testReleaseUnitTest` 字符串 —— 拆分后该步骤仍在，断言不破。
   unit-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -233,7 +242,7 @@ jobs:
           packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
 
       - name: Cache Gradle
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.gradle/caches
@@ -266,7 +275,7 @@ jobs:
       # system-out 才能定位。仅在失败时上传（if: failure()），成功不上传省存储。
       - name: Upload unit test report on failure (BUG-2026-09-22-001 诊断)
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: test-release-unit-test-report
           path: |

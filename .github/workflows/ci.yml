@@ -11,6 +11,18 @@ on:
   schedule:
     - cron: '30 18 * * *'
 
+# CI-RUNNER-2026-09-26：两处运行环境钉版（与 CI-ENV-2026-09-11 钉版测试依赖
+# 同一动机：杜绝"没人改代码、CI 却变红"的环境性失败）：
+#   1. runs-on 由 ubuntu-latest 钉为 ubuntu-24.04 —— GitHub 通知 ubuntu-latest
+#      标签将于 2026-10-19 起指向 Ubuntu 26（github.com/actions/runner-images#14748）。
+#      本工作流是全绿门禁的一部分，被动跟随漂移可能引入 Python/系统包差异；
+#      钉死后升级改为显式动作（届时人工评估 26.04 兼容性后再切换）。
+#      当前 ubuntu-latest 就是 24.04，本次钉版行为零变化。
+#   2. upload-artifact v4→v7 —— v4 是 Node.js 20 线（GitHub 已于 2026-06-16 起
+#      强制 Node 24、2026-09-16 起彻底移除 Node 20 二进制），每次运行都产生
+#      "Node.js 20 is deprecated" 警告注解。v7 参数（name/path/if-no-files-found/
+#      retention-days）与 v4 完全兼容，v7 新增的 archive 参数为可选项。
+#
 # CI-PERF-2026-09-17：原单一 job 串行 20 分钟，其中 93% 花在两处：
 #   - "Unit tests + coverage"       526s（含 3.6 分钟纯覆盖率测量开销）
 #   - "Verify regression"           583s（173 个文件逐进程，启动开销占 8.6 分钟）
@@ -25,7 +37,7 @@ jobs:
   # Job 1：静态门禁（快，约 40s，作为最快的反馈信号）
   # ==========================================================================
   lint-and-static:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -165,7 +177,7 @@ jobs:
   # 切片只改变"喂给 pytest 的文件集合"，不改变执行方式与隔离模型。
   # 任一 shard 失败独立亮红（A12：只加强不削弱）。
   unit-tests-shard-0:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -207,7 +219,7 @@ jobs:
         run: python3 scripts/run_tests_sharded.py
 
   unit-tests-shard-1:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -236,7 +248,7 @@ jobs:
         run: python3 scripts/run_tests_sharded.py
 
   unit-tests-shard-2:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -278,7 +290,7 @@ jobs:
   # 任一 shard 失败独立亮红，门禁语义不变（AGENTS.md §六 A12：只加强不削弱）。
   # 冒烟测试拆到独立 job（smoke），与 verify 并行，不再串在 verify 后面。
   verify-shard-0:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -308,7 +320,7 @@ jobs:
 
       - name: "Upload verify failure summary"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-0
           path: verify_failures_summary.md
@@ -316,7 +328,7 @@ jobs:
           retention-days: 7
 
   verify-shard-1:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -346,7 +358,7 @@ jobs:
 
       - name: "Upload verify failure summary"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-1
           path: verify_failures_summary.md
@@ -354,7 +366,7 @@ jobs:
           retention-days: 7
 
   verify-shard-2:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -384,7 +396,7 @@ jobs:
 
       - name: "Upload verify failure summary"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-2
           path: verify_failures_summary.md
@@ -392,7 +404,7 @@ jobs:
           retention-days: 7
 
   verify-shard-3:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -422,7 +434,7 @@ jobs:
 
       - name: "Upload verify failure summary"
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-3
           path: verify_failures_summary.md
@@ -434,7 +446,7 @@ jobs:
   # ==========================================================================
   # 原串在 verify 之后（verify 跑完才启服务），现已无数据依赖，拆开并行。
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
