@@ -93,17 +93,21 @@ def test_t3_dialog_copy_aligned():
 
     只在**代码**上断言：`ScanScreens.kt` 里有一条说明注释引用了旧句
     「…确认提交出库？」用于解释改了什么，注释里保留历史是合理的。
+
+    AI-APP-FIX-406：弹窗骨架收敛为 WmsSubmitConfirmDialog——标题与主按钮
+    文案改经 title/confirmLabel 参数传入（组件内渲染为 Text(title)/
+    Text(confirmLabel)），口径约束不变。
     """
     body = _code_only(_outbound_screen(_read(SCREENS)))
     # 弹窗标题
-    assert re.search(r'title\s*=\s*\{\s*Text\("确认出库"', body), \
+    assert re.search(r'title\s*=\s*"确认出库"', body), \
         '弹窗标题不是「确认出库」'
     # 弹窗正文：应为「…，确认出库？」
     assert re.search(r'Text\("共 \$\{uiState\.scanLines\.size\} 种物料[^"]*确认出库？"\)', body), \
         '弹窗正文未统一为「确认出库？」'
     assert '确认提交出库' not in body, '弹窗正文仍是「确认提交出库」'
     # 主按钮
-    assert re.search(r'\)\s*\{\s*\n\s*Text\("确认出库"\)\s*\n\s*\}', body), \
+    assert re.search(r'confirmLabel\s*=\s*"确认出库"', body), \
         '弹窗主按钮不是「确认出库」'
 
 

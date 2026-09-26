@@ -82,11 +82,16 @@ def test_screen_ui_and_confirm_gate():
     # BUG-2026-09-12-010：该 enabled 表达式改为跨行（追加了 !uiState.isLoading
     # 防重复提交守卫），故按语义断言"两个前置条件都在提交按钮的 enabled 块内"，
     # 不再依赖单行字面量。原始意图（未选盘点单不得提交）保持不变。
+    # AI-APP-FIX-406：弹窗骨架收敛为 WmsSubmitConfirmDialog，enabled 表达式改经
+    # confirmEnabled 参数传入（组件内 Button(enabled = confirmEnabled)），断言相应
+    # 兼容两种写法。
     # 定位方式：从调用 viewModel.submitStocktake() 的按钮块内取 enabled 表达式，
     # 避免误命中页面上其他组件的 enabled（如仓库选择卡）。
     btn = src.index("viewModel.submitStocktake()")
     block = src[btn:btn + 900]
-    assert "enabled" in block, "未找到盘点提交按钮的 enabled 前置校验"
+    assert "confirmEnabled" in block or "enabled" in block, (
+        "未找到盘点提交按钮的 enabled 前置校验"
+    )
     assert "uiState.selectedCheckOrder != null" in block, (
         "盘点确认按钮必须依赖已选盘点单（未选不得提交）"
     )

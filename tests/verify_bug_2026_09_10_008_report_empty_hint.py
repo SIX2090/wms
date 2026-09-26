@@ -48,7 +48,9 @@ def test_t2_diagnostics_model_exists():
 
 def test_t3_empty_state_uses_hint_function():
     src = SCREEN.read_text(encoding="utf-8")
-    assert "emptyStateHint(uiState.report, uiState.reportType.label)" in src, (
+    # AI-APP-FIX-2xx：emptyStateHint 重构为单参（label 不再需要——标题已带类型），
+    # 返回 null 时由调用方给默认副文案。契约不变：空态必须走 emptyStateHint，不得硬编码。
+    assert "emptyStateHint(uiState.report)" in src, (
         "空态必须调用 emptyStateHint（动态提示），不得硬编码"
     )
     assert "private fun emptyStateHint(" in src
@@ -58,7 +60,11 @@ def test_t4_hint_null_safe():
     src = SCREEN.read_text(encoding="utf-8")
     body = src[src.index("private fun emptyStateHint("):]
     body = body[:body.index("@Composable")]
-    assert "?: return base" in body, "diagnostics 为 null（旧版后端）必须回退基础文案"
+    # diagnostics 为 null（旧版后端）必须安全回退——重构后返回 null，
+    # 由调用方 `?: 默认副文案` 兜底（与旧版 `?: return base` 同语义）
+    assert "diagnostics ?: return null" in body, (
+        "diagnostics 为 null（旧版后端）必须回退（返回 null 由调用方给默认文案）"
+    )
     assert "pendingOrders ?: 0" in body, "pendingOrders 必须判空"
 
 

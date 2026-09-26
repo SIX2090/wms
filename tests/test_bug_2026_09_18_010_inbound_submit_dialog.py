@@ -94,10 +94,15 @@ def test_t1_dialog_shows_warehouse():
 
 # ------------------------------------------------- T2 未选仓库时按钮禁用
 def test_t2_confirm_button_requires_warehouse():
-    """确认按钮必须有"已选仓库"前置校验，且不被 isLoading 覆盖。"""
+    """确认按钮必须有"已选仓库"前置校验，且不被 isLoading 覆盖。
+
+    AI-APP-FIX-406：弹窗骨架收敛为 WmsSubmitConfirmDialog，enabled 表达式改经
+    confirmEnabled 参数传入（组件内 Button(enabled = confirmEnabled)），
+    前置校验语义不变。"""
     body = _inbound_submit_dialog(_read(SCREENS))
-    m = re.search(r'enabled\s*=\s*(.+?),\s*\n', body, re.S)
-    assert m, '找不到确认按钮的 enabled 表达式'
+    m = re.search(r'confirmEnabled\s*=\s*(.+?),\s*\n', body, re.S) or \
+        re.search(r'enabled\s*=\s*(.+?),\s*\n', body, re.S)
+    assert m, '找不到确认按钮的 enabled/confirmEnabled 表达式'
     cond = m.group(1)
     assert 'selectedWarehouse != null' in cond, \
         f'确认按钮未校验仓库已选：{cond!r}'
@@ -132,10 +137,13 @@ def test_t4_dialog_keeps_material_summary():
 
 # --------------------------------------------- T5 与盘点弹窗口径一致
 def test_t5_consistent_with_stocktake_dialog():
-    """盘点弹窗是本仓库既有的正确范式，入库页应与它同口径。"""
+    """盘点弹窗是本仓库既有的正确范式，入库页应与它同口径。
+
+    AI-APP-FIX-406：两个弹窗都收敛为 WmsSubmitConfirmDialog，前置校验经
+    confirmEnabled 传入（跨行 && 链保持不变）。"""
     src = _read(SCREENS)
     # 盘点弹窗：前置校验用 && 串联
-    m = re.search(r'enabled = uiState\.selectedWarehouse != null &&\s*\n\s*uiState\.selectedCheckOrder != null &&\s*\n\s*!uiState\.isLoading', src)
+    m = re.search(r'confirmEnabled = uiState\.selectedWarehouse != null &&\s*\n\s*uiState\.selectedCheckOrder != null &&\s*\n\s*!uiState\.isLoading', src)
     assert m, '盘点弹窗的既有 && 前置校验写法发生了变化（本修复以它为范式）'
     # 两者都必须展示仓库
     assert '盘点仓库：' in src, '盘点弹窗未展示仓库'

@@ -48,6 +48,17 @@ BUG-2026-08-09-003 回归测试：Android App"识物盘点"等拍照页点拍照
   且 internal 允许同 module 的单测/预览复用，比 private 更贴合工程实践。
   故断言放开为 `private|internal`，public（无修饰符）仍判失败。
 
+实现演进（2026-09-26 复核，AI-APP-FIX-101 / AI-APP-FIX-405）：
+  ①AI-APP-FIX-101：拍照链路升级为 TakePicture 契约 + 预建文件直写全尺寸照片，
+    `saveBitmapToCacheAndGetUri`（Bitmap 缩略图 + 二次 JPEG 落盘）整体移除——
+    少一次压缩、取消时删预建空文件。T7 相应改锁新链路不变量（FileProvider/cacheDir/
+    authority/禁 MediaStore），行为目标（不闪退、不拿 null Uri）不变。
+  ②AI-APP-FIX-405：`rememberCameraLauncherWithPermission` 迁至
+    ui/components/CameraLauncher.kt（internal 不变），三个 AI 页的拍照/相册按钮
+    收敛进 ui/components/AiCaptureScaffold.kt（ImageSourcePicker 双通道）。
+    T5/T6 相应改为锁"三页都走脚手架 + 脚手架拍照通道接 launchCamera()"，
+    权限守卫行为不变。
+
 使用方法：
   cd /workspace && python -m pytest tests/verify_bug_2026_08_09_003_takepicture_permission_and_path.py -xvs
 """
@@ -59,17 +70,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ANDROID_DIR = ROOT / "app" / "android-native-wms" / "app" / "src" / "main"
 AI_SCREENS_KT = ANDROID_DIR / "java" / "com" / "factory" / "wms" / "ui" / "screens" / "AiScreens.kt"
+# AI-APP-FIX-405：相机 helper 与采集脚手架已从 AiScreens.kt 收敛到 components 包，
+# 三个 AI 页统一经 AiCaptureScaffold → ImageSourcePicker → rememberCameraLauncherWithPermission。
+CAMERA_LAUNCHER_KT = ANDROID_DIR / "java" / "com" / "factory" / "wms" / "ui" / "components" / "CameraLauncher.kt"
+AI_CAPTURE_SCAFFOLD_KT = ANDROID_DIR / "java" / "com" / "factory" / "wms" / "ui" / "components" / "AiCaptureScaffold.kt"
 MANIFEST_XML = ANDROID_DIR / "AndroidManifest.xml"
 FILE_PATHS_XML = ANDROID_DIR / "res" / "xml" / "file_paths.xml"
 
 
-def _src() -> str:
-    raw = AI_SCREENS_KT.read_text(encoding="utf-8")
+def _strip(raw: str) -> str:
     # 去掉 Kotlin 注释（// 单行、/* ... */ 块），避免历史 BUG 注释文本触发误报。
     # 注意：必须避免匹配字符串里的 `image/*` 之类的文本——用 (?<!\S) 限制 `/*` 前面必须是空白或行首。
     no_block = re.sub(r"(?<!\S)/\*.*?\*/", "", raw, flags=re.DOTALL)
-    no_line = re.sub(r"//[^\n]*", "", no_block)
-    return no_line
+    return re.sub(r"//[^\n]*", "", no_block)
+
+
+def _src() -> str:
+    return _strip(AI_SCREENS_KT.read_text(encoding="utf-8"))
+
+
+def _launcher_src() -> str:
+    return _strip(CAMERA_LAUNCHER_KT.read_text(encoding="utf-8"))
+
+
+def _scaffold_src() -> str:
+    return _strip(AI_CAPTURE_SCAFFOLD_KT.read_text(encoding="utf-8"))
 
 
 def _manifest() -> str:
@@ -182,21 +207,30 @@ def test_t4_insertimage_and_uri_parse_null_path_removed():
 
 
 # ---------------------------------------------------------------------------
-# T5. 三个拍照按钮的 onClick 必须改为 launchCamera()
+# T5. 三个拍照入口统一走 launchCamera()（经 AiCaptureScaffold → ImageSourcePicker）
 # ---------------------------------------------------------------------------
 def test_t5_three_takephoto_buttons_use_launchcamera():
-    """3 个拍照 OutlinedButton.onClick 必须改为 launchCamera()，cameraLauncher.launch(null) 清零。"""
+    """AI-APP-FIX-405 后：三个 AI 页不再各自写拍照按钮，统一由 AiCaptureScaffold 提供
+    「拍照/选择图片」双通道（ImageSourcePicker），拍照通道必须接 launchCamera()；
+    旧的 cameraLauncher.launch(null) 必须清零。"""
+    # 1) 三个 Screen 都消费公共脚手架（拍照入口的唯一来源）
     src = _src()
-    # 计数：3 个拍照按钮的 onClick = { launchCamera() }
-    launch_camera_clicks = re.findall(r"onClick\s*=\s*\{\s*launchCamera\s*\(\s*\)\s*\}", src)
-    assert len(launch_camera_clicks) == 3, (
-        f"应恰好 3 个拍照按钮的 onClick = {{ launchCamera() }}，"
-        f"实际 {len(launch_camera_clicks)} 个"
+    for name in ("DocumentOcrScreen", "ObjectRecognizeScreen", "StocktakeRecognizeScreen"):
+        m = re.search(rf"fun\s+{name}\s*\(.*?(?=\n@OptIn|\n@Composable|\Z)", src, re.DOTALL)
+        assert m and "AiCaptureScaffold(" in m.group(0), (
+            f"{name} 未使用 AiCaptureScaffold——拍照入口脱离了统一脚手架"
+        )
+    # 2) 脚手架的拍照通道必须调 launchCamera()（权限守卫在 helper 内）
+    scaffold = _scaffold_src()
+    assert re.search(r"onCamera\s*=\s*\{\s*launchCamera\s*\(\s*\)\s*\}", scaffold), (
+        "AiCaptureScaffold 的拍照按钮未接 launchCamera()"
     )
-    # 业务按钮里不应再有 cameraLauncher.launch(null)——仅允许出现在新 helper 内部
-    # 业务按钮指的是 OutlinedButton 上下文里出现 cameraLauncher.launch(null)
+    assert "rememberCameraLauncherWithPermission(" in scaffold, (
+        "AiCaptureScaffold 未创建 rememberCameraLauncherWithPermission"
+    )
+    # 3) 业务代码里 cameraLauncher.launch(null) 必须清零
     business_camera_launch = re.findall(
-        r"onClick\s*=\s*\{\s*cameraLauncher\.launch\s*\(\s*null\s*\)\s*\}", src
+        r"onClick\s*=\s*\{\s*cameraLauncher\.launch\s*\(\s*null\s*\)\s*\}", src + scaffold
     )
     assert len(business_camera_launch) == 0, (
         f"业务按钮仍存在 cameraLauncher.launch(null) 共 {len(business_camera_launch)} 处，"
@@ -208,15 +242,11 @@ def test_t5_three_takephoto_buttons_use_launchcamera():
 # T6. rememberCameraLauncherWithPermission helper 存在并用 RequestPermission
 # ---------------------------------------------------------------------------
 def test_t6_helper_requests_runtime_camera_permission():
-    """rememberCameraLauncherWithPermission 私有 Composable 必须存在，使用
-    ActivityResultContracts.RequestPermission() 请求 Manifest.permission.CAMERA。"""
-    src = _src()
-    # 函数定义
-    # BUG-2026-08-16-017 F5：可见性修饰符放开为 private|internal。
-    # 实现用 `internal fun`——internal 对同 module 可见，Android 单测/同包 Composable 调用
-    # 不被阻断，比 private 更合理（private 会让同文件外的预览/测试无法复用）。
-    # 断言的真实意图是"这是个收敛在 screens 内部的 helper、未被误做成 public API"，
-    # 故 private|internal 都算通过，public（无修饰符）仍应失败。
+    """rememberCameraLauncherWithPermission 非 public Composable 必须存在，使用
+    ActivityResultContracts.RequestPermission() 请求 Manifest.permission.CAMERA。
+    AI-APP-FIX-405：helper 从 AiScreens.kt 迁至 components/CameraLauncher.kt（internal 不变）。"""
+    src = _launcher_src()
+    # 函数定义（private|internal，public 判失败；同 T6 历史复核口径）
     assert re.search(
         r"@Composable\s+(?:private|internal)\s+fun\s+rememberCameraLauncherWithPermission\s*\(",
         src,
@@ -246,47 +276,33 @@ def test_t6_helper_requests_runtime_camera_permission():
 
 
 # ---------------------------------------------------------------------------
-# T7. saveBitmapToCacheAndGetUri 函数存在并用 FileProvider.getUriForFile
+# T7. 拍照落盘走 FileProvider + cacheDir（不再 MediaStore.insertImage）
 # ---------------------------------------------------------------------------
 def test_t7_save_bitmap_uses_fileprovider():
-    """saveBitmapToCacheAndGetUri 必须存在，内部用 FileProvider.getUriForFile 暴露 Uri，缓存写入 cacheDir/camera/。"""
-    src = _src()
-    # BUG-2026-08-16-017 F5：同 T6，可见性放开为 private|internal（实现用的是 internal fun）。
-    assert re.search(
-        r"(?:private|internal)\s+fun\s+saveBitmapToCacheAndGetUri\s*\(",
-        src,
-    ), (
-        "缺少 saveBitmapToCacheAndGetUri 私有函数"
-        "（应为 private 或 internal，不得是 public）"
-    )
+    """AI-APP-FIX-101 起实现升级：TakePicture 契约 + 预建文件取代
+    Bitmap 缩略图 + saveBitmapToCacheAndGetUri 二次落盘——相机直写全尺寸照片，
+    取消时删除预建的 0 字节文件。本测试锁定新链路的关键不变量：
+    FileProvider 暴露 cacheDir 文件、authority 与 manifest 对齐、不写 MediaStore。"""
+    src = _launcher_src()
     assert "FileProvider.getUriForFile" in src, (
-        "saveBitmapToCacheAndGetUri 未使用 FileProvider.getUriForFile"
+        "拍照输出未使用 FileProvider.getUriForFile"
     )
     assert "context.cacheDir" in src, (
-        "saveBitmapToCacheAndGetUri 必须写入 context.cacheDir 而非 MediaStore"
+        "拍照输出必须写入 context.cacheDir 而非 MediaStore"
     )
     # Uri 拼接：用 packageName + ".fileprovider" 与 manifest authority 对齐
     assert re.search(
         r"\$\{context\.packageName\}\.fileprovider", src
     ), "FileProvider authority 拼接必须用 ${context.packageName}.fileprovider"
-    # Bitmap.compress JPEG 90
-    assert re.search(
-        r"Bitmap\.CompressFormat\.JPEG,\s*90", src
-    ), "saveBitmapToCacheAndGetUri 应以 JPEG 90 压缩缓存图片"
-    # 异常吞掉返回 null 而非抛——兼容两种 Kotlin 写法：
-    #   a) `} catch (...) { ... return null }`
-    #   b) `return try { ... } catch (...) { Log.e(...); null }`（catch 块最后表达式 = null）
-    catch_block = re.search(
-        r"catch\s*\([^)]+\)\s*\{(?P<body>[^}]*)\}", src, re.DOTALL,
+    # TakePicture 契约（全尺寸直写预建文件）
+    assert re.search(r"ActivityResultContracts\.TakePicture\s*\(\s*\)", src), (
+        "helper 未使用 TakePicture 契约（全尺寸直写预建文件）"
     )
-    assert catch_block is not None, (
-        "saveBitmapToCacheAndGetUri 缺少 catch 块（异常必须被吞掉而非抛）"
+    # 取消/失败必须删除预建的 0 字节文件（防缓存垃圾）
+    assert re.search(r"pending\?\.second?\.delete\s*\(\s*\)|\.delete\s*\(\s*\)", src), (
+        "取消或拍摄失败时必须删除预建的空文件"
     )
-    body = catch_block.group("body")
-    # 块内最后非空行要么是 `return null`，要么是单独一行的 `null`（Kotlin 隐式 return）
-    tail = re.sub(r"\s+", "", body)
-    assert tail.endswith("returnnull") or tail.endswith("null") or re.search(
-        r"return\s+null", body,
-    ) or re.search(r"\bnull\b\s*$", body, re.DOTALL), (
-        "saveBitmapToCacheAndGetUri 失败时必须返回 null（return null 或 catch 块最后表达式为 null）"
+    # 任何路径都不得回退 MediaStore.insertImage（BUG 根因）
+    assert "MediaStore.Images.Media.insertImage" not in src, (
+        "MediaStore.Images.Media.insertImage 回潮——API 29+ 受限可返回 null 导致闪退"
     )

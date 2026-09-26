@@ -20,6 +20,9 @@ repo = (ROOT / "data" / "repository" / "WmsRepository.kt").read_text(encoding="u
 vm = (ROOT / "ui" / "viewmodel" / "report" / "StockDailyReportViewModel.kt").read_text(encoding="utf-8")
 screen = (ROOT / "ui" / "screens" / "StockDailyReportScreen.kt").read_text(encoding="utf-8")
 home = (ROOT / "ui" / "screens" / "HomeScreen.kt").read_text(encoding="utf-8")
+# AI-APP-FIX-402：日期导航 UI 已收敛为公共组件 WmsDateNavRow（前后箭头/回到今天/禁用
+# 后翻都在组件内实现），页面只负责接线（onPrev/onNext/nextEnabled/onResetToday）。
+components = (ROOT / "ui" / "components" / "WmsComponents.kt").read_text(encoding="utf-8")
 
 checks = []
 
@@ -36,10 +39,16 @@ check("T2a shiftDay 存在且钳制未来", "fun shiftDay(offset: Int)" in vm an
 check("T2b resetToday 恢复今天模式", "fun resetToday()" in vm and "dateIsToday = true" in vm)
 check("T2c 今天模式跨天自动校正", "if (_uiState.value.dateIsToday)" in vm)
 
-# T3 页面 UI
-check("T3a 前一天/后一天箭头", "ChevronLeft" in screen and "ChevronRight" in screen)
-check("T3b 回到今天按钮", "回到今天" in screen and "viewModel.resetToday()" in screen)
-check("T3c 到达今天禁用后翻", "enabled = uiState.date < todayStr" in screen)
+# T3 页面 UI（FIX-402 后：页面经 WmsDateNavRow 接线，箭头实体在组件内）
+check("T3a 前一天/后一天箭头",
+      "WmsDateNavRow(" in screen
+      and "onPrev = { viewModel.shiftDay(-1) }" in screen
+      and "onNext = { viewModel.shiftDay(1) }" in screen
+      and "ChevronLeft" in components and "ChevronRight" in components)
+check("T3b 回到今天按钮", "回到今天" in components and "viewModel.resetToday()" in screen)
+check("T3c 到达今天禁用后翻",
+      "nextEnabled = uiState.date <" in screen
+      and "IconButton(onClick = onNext, enabled = nextEnabled)" in components)
 check("T3d 历史日期数据截至显示（generatedAt 空时 --:--）", 'uiState.generatedAt ?: "--:--"' in screen)
 
 # T4 空态与 >0 口径

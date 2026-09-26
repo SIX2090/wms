@@ -37,10 +37,11 @@ def test_result_card_badge_two_band_uses_safety_stock():
     assert 'scanStock <= scanMinStock -> Triple("低于最低库存", Error, ErrorContainer)' in screens_src
     assert "(material.stock ?: 0.0) > (material.minStock ?: 0.0)" not in screens_src
     # 结果卡展示最低库存/安全库存（后端本次起下发真值）
-    assert 'InfoChip("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))' in screens_src
+    # AI-APP-FIX-406：InfoChip 收敛为 WmsInfoCell（同款视觉，语义不变）
+    assert 'WmsInfoCell("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))' in screens_src
     # AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外必须叫「安全库存」。
     # 旧叫法「再订货点」已下线，见 verify_inventory_threshold_naming.py 的 T8。
-    assert 'InfoChip("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))' in screens_src
+    assert 'WmsInfoCell("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))' in screens_src
 
 
 def test_result_card_has_locations_distribution_block():

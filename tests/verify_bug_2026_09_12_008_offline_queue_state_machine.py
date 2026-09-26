@@ -30,6 +30,8 @@ REPO = KT / "data/repository/WmsRepository.kt"
 APP = KT / "WmsApplication.kt"
 VM = KT / "ui/viewmodel/scan/ScanViewModel.kt"
 SCREENS = KT / "ui/screens/ScanScreens.kt"
+SCREENS_BASE = KT / "ui/screens/ScanScreenBase.kt"
+COMPONENTS = KT / "ui/components/WmsComponents.kt"
 
 
 def _read(p: Path) -> str:
@@ -235,20 +237,32 @@ def test_010_all_submits_have_isloading_guard():
 
 
 def test_010_ui_buttons_disabled_while_loading():
-    src = _read(SCREENS)
-    # 三个提交按钮的 enabled 表达式都须含 !uiState.isLoading。
-    # 表达式可能跨多行（盘点按钮带两个前置校验），故按 "enabled =" 起始
-    # 一直吃到该赋值结束（遇逗号/右括号/下一个参数）再统计。
-    blocks = re.findall(
-        r"enabled\s*=\s*(.*?)(?=,\s*(?:shape|colors|onClick|contentDescription)|\))",
-        src,
-        re.S,
+    """提交链路 UI 层的防重复点按守卫（AI-APP-FIX-404/406 后的三层结构）：
+
+    1. 页面底部提交按钮（入/出/盘点共用 ScanScreenBase）→ WmsPrimaryButton，
+       loading 接线 isLoading；
+    2. WmsPrimaryButton 组件内部把 loading 折算进 enabled（enabled && !loading）；
+    3. 三个确认弹窗（WmsSubmitConfirmDialog）的 confirmEnabled 仍显式含
+       !uiState.isLoading，且盘点弹窗的「仓库+盘点单必选」前置校验不得丢失。
+    """
+    base = _read(SCREENS_BASE)
+    assert re.search(r"WmsPrimaryButton\(", base), "提交按钮必须是 WmsPrimaryButton"
+    assert re.search(r"loading\s*=\s*isLoading", base), (
+        "BUG-2026-09-12-010：底部提交按钮未把 isLoading 接入 loading（提交中仍可点）"
     )
+    components = _read(COMPONENTS)
+    assert "enabled = enabled && !loading" in components, (
+        "WmsPrimaryButton 必须把 loading 折算进 enabled（enabled && !loading），"
+        "否则提交中按钮仍可点"
+    )
+    src = _read(SCREENS)
+    # 三个弹窗的 confirmEnabled 表达式都须含 !uiState.isLoading
+    blocks = re.findall(r"confirmEnabled\s*=\s*(.*?)(?=,\s*\n)", src, re.S)
     withGuard = [b for b in blocks if "!uiState.isLoading" in b]
     assert len(withGuard) >= 3, (
-        f"BUG-2026-09-12-010：三个提交按钮（入库/出库/盘点）的 enabled 都应含 "
+        f"BUG-2026-09-12-010：三个提交弹窗（入库/出库/盘点）的 confirmEnabled 都应含 "
         f"!uiState.isLoading，实际只找到 {len(withGuard)} 处。"
-        f"共解析 enabled 表达式 {len(blocks)} 个"
+        f"共解析 confirmEnabled 表达式 {len(blocks)} 个"
     )
     # 盘点按钮不得丢弃原有的"仓库+盘点单必选"校验
     stocktake_block = "\n".join(withGuard)

@@ -3,7 +3,7 @@ setlocal EnableExtensions EnableDelayedExpansion
 REM Use PYTHONUTF8=1 for UTF-8 support.
 cd /d "%~dp0" || exit /b 1
 
-REM 确保 logs 目录存在（Python RotatingFileHandler 用）
+REM Ensure logs directory exists (used by Python RotatingFileHandler).
 if not exist "%~dp0logs" mkdir "%~dp0logs"
 
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
@@ -11,12 +11,14 @@ set "FLASK_ENV=production"
 set "PYTHONUTF8=1"
 set "WMS_ALLOW_AUTO_SECRET_KEY=1"
 set "WMS_NO_DB_TOUCH=1"
-REM BUG-2026-09-19-003：生产模式下若 SESSION_COOKIE_SECURE 未启用，
-REM config.py 的 validate_production_security_config 会**直接拒绝启动**
-REM （防 HTTP 明文会话 Cookie）。本脚本用于**本机/可信内网离线部署**
-REM （http://127.0.0.1:8080），故显式 opt-in 放行；启动日志会打一条
-REM CRITICAL 告警提示该风险，属预期输出。
-REM ⚠️ 若部署到 HTTPS 环境：删掉下面这行，并改设 SESSION_COOKIE_SECURE=true。
+REM BUG-2026-09-19-003: in production mode, if SESSION_COOKIE_SECURE is not
+REM enabled, config.py validate_production_security_config will REFUSE to start
+REM (prevents plaintext session cookies over HTTP). This script targets
+REM offline deployment on localhost / trusted intranet (http://127.0.0.1:8080),
+REM so we explicitly opt in below; startup logs one CRITICAL warning about the
+REM risk, which is expected output.
+REM WARNING: for HTTPS deployments, delete the next line and set
+REM SESSION_COOKIE_SECURE=true instead.
 set "WMS_ALLOW_INSECURE_COOKIE=1"
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 
@@ -27,7 +29,7 @@ echo Initial password: WMS_BOOTSTRAP_PASSWORD, or admin on first creation when u
 echo Log file: %~dp0logs\app.log
 echo.
 
-REM 查找 Python：优先便携版，其次系统安装版
+REM Locate Python: prefer the portable runtime, fall back to system installs.
 set "PYTHON_CMD="
 if exist "%APP_ROOT%\python\python.exe" set "PYTHON_CMD=%APP_ROOT%\python\python.exe"
 if not defined PYTHON_CMD if exist "%APP_ROOT%\python\Scripts\python.exe" set "PYTHON_CMD=%APP_ROOT%\python\Scripts\python.exe"
@@ -44,7 +46,7 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 
-REM 自动修复数据库字段
+REM Auto-fix database columns.
 echo [Auto-Fix] Checking database columns...
 "%PYTHON_CMD%" "fix_db_columns.py"
 echo.

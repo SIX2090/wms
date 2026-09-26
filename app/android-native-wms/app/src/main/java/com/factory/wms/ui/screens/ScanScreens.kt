@@ -2316,6 +2316,3 @@ private fun InboundRemarkCard(
         }
     }
 }
-
-/** 出入库页顶部的仓库选择卡片；未选择时提示"请选择"。 */
-@OptIn(ExperimentalMaterial3Api::class)

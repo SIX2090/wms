@@ -63,7 +63,11 @@ def test_t4_screen_uses_warehouse_selector():
     src = SCREEN.read_text(encoding="utf-8")
     assert "WarehouseSelector(" in src, "首页必须提供仓库切换"
     assert "homeViewModel.selectWarehouse" in src
-    assert "dashboard.warehouse" in src, "当前口径标签应取服务端回传的 warehouse"
+    # 当前口径标签应取服务端回传的 warehouse
+    # （AI-APP-FIX 批次后状态变量名为 dashboardData，原名为 dashboard，两者同语义）
+    assert ("currentLabel = dashboardData.warehouse" in src) or ("dashboard.warehouse" in src), (
+        "当前口径标签应取服务端回传的 warehouse"
+    )
     # 用户需求：首页下拉只列真实仓库，关闭「默认仓库」与「全部仓库（汇总）」
     assert "showDefaultWarehouse = false" in src, "首页下拉必须关闭「默认仓库」选项"
     assert "allowAll = false" in src, "首页下拉必须关闭「全部仓库（汇总）」选项"

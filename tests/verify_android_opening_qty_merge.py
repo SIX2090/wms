@@ -21,7 +21,11 @@ T2. ViewModel 必须声明 updateLineQuantity（点行改数量的确切值入�
     且其对数量做非负校验。
 T3. OpeningStockScreen 的行卡片可点击（clickable）且点击打开编辑弹窗
     （editLineIndex 状态），弹窗确认接线 viewModel.updateLineQuantity。
-T4. 连续扫描回调仍把 manualQty 传给 addLine（累加链路接线未断）。
+T4. 连续扫描回调仍逐件加行（累加链路接线未断）。
+    2026-09-26 修订（BUG-2026-09-26-007 / AI-APP-FIX-108）：扫码加行数量固定为 1.0，
+    与手动弹窗的 manualQty **解耦**——原写法复用 manualQty，弹窗里输了 5 又取消时
+    残留值会让接下来每扫一件加 5（静默错账）。故断言从「传入 manualQty」改为
+    「固定传 1.0」，累加由 addLine 的 existing.quantity + quantity 保证。
 """
 from __future__ import annotations
 
@@ -113,4 +117,8 @@ def test_t4_continuous_scan_still_feeds_addline():
     assert "viewModel.addLine(barcode" in cb, (
         "扫码回调不再调 addLine——连续扫描加行链路断了"
     )
-    assert "manualQty" in cb, "扫码回调未把 manualQty 传给 addLine"
+    # BUG-2026-09-26-007：扫码通道固定逐件加 1，与 manualQty 解耦（防残留值错账）
+    assert "viewModel.addLine(barcode, 1.0)" in cb, (
+        "扫码加行必须固定为 1.0（逐件计数）——复用 manualQty 会让取消手动弹窗后的"
+        "残留数量乘到每一次扫码上（静默错账）"
+    )

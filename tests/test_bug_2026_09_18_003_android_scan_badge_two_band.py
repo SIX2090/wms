@@ -19,9 +19,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCREENS = ROOT / "app/android-native-wms/app/src/main/java/com/factory/wms/ui/screens/ScanScreens.kt"
 COLOR = ROOT / "app/android-native-wms/app/src/main/java/com/factory/wms/ui/theme/Color.kt"
+# AI-APP-FIX-3xx（暗黑模式）：调色板内部化为 Color.kt 的 internal Palette*，
+# 对外令牌收敛为 ThemeTokens.kt 的 composable getter（同名 Warning/WarningContainer）。
+THEME_TOKENS = ROOT / "app/android-native-wms/app/src/main/java/com/factory/wms/ui/theme/ThemeTokens.kt"
 
 screens_src = SCREENS.read_text(encoding="utf-8")
 color_src = COLOR.read_text(encoding="utf-8")
+tokens_src = THEME_TOKENS.read_text(encoding="utf-8") if THEME_TOKENS.exists() else ""
 
 
 def test_result_card_badge_is_two_band():
@@ -58,9 +62,16 @@ def test_no_leftover_single_level_badge_comparison():
 
 
 def test_warning_palette_available():
-    """T5：danger 档黄色依赖主题 Warning/WarningContainer，必须存在（防误删）。"""
-    assert "val Warning = Color(" in color_src
-    assert "val WarningContainer = Color(" in color_src
+    """T5：danger 档黄色依赖主题 Warning/WarningContainer，必须存在（防误删）。
+
+    AI-APP-FIX-3xx 后两种载体都合法：旧版 Color.kt 顶层 `val Warning = Color(...)`，
+    或新版 ThemeTokens.kt 的 composable getter `val Warning: Color`（语义色随亮暗主题切换）。
+    """
+    legacy = "val Warning = Color(" in color_src and "val WarningContainer = Color(" in color_src
+    themed = "val Warning: Color" in tokens_src and "val WarningContainer: Color" in tokens_src
+    assert legacy or themed, (
+        "Warning/WarningContainer 主题令牌缺失（Color.kt 顶层常量或 ThemeTokens.kt getter 均无）"
+    )
 
 
 def test_kotlin_brace_balance():

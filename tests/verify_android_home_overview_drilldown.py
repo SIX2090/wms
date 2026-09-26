@@ -209,9 +209,23 @@ def test_viewmodel_supports_three_kinds_and_paging():
         "进入待处理单据列表应默认筛选 pending"
     )
 
-    # 错误分级：翻页失败不清空已有数据
-    assert "error = if (reset) (message ?: \"加载失败\") else _uiState.value.error" in src, (
-        "翻页失败不应清空已有列表"
+    # 错误分级：翻页失败不清空已有数据。
+    # AI-APP-FIX-201：错误态升级为「首屏失败全屏错误（loadError）/ 带数据失败
+    # 仅 Snackbar（error）」两级；失败路径统一走 onLoadFailed，且不得回写
+    # alerts/orders（否则翻页失败会清空已有列表）。
+    assert "private fun onLoadFailed(message: String?, reset: Boolean)" in src, (
+        "失败路径应收敛到 onLoadFailed"
+    )
+    assert 'loadError = if (reset && listEmpty) (message ?: "加载失败") else s.loadError' in src, (
+        "首屏失败应落 loadError 渲染全屏错误态"
+    )
+    assert 'error = if (reset && !listEmpty) (message ?: "加载失败") else s.error' in src, (
+        "带数据的刷新/翻页失败只弹 Snackbar，不清空已有列表"
+    )
+    failed_body = src[src.index("private fun onLoadFailed("):]
+    failed_body = failed_body[:failed_body.index("\n    fun ")]
+    assert "alerts =" not in failed_body and "orders =" not in failed_body, (
+        "onLoadFailed 不得回写 alerts/orders——翻页失败会清空已有列表"
     )
     assert "isLoadingMore = !reset" in src
 

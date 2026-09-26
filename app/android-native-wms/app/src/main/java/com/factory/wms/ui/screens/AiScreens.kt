@@ -723,9 +723,7 @@ fun ObjectRecognizeScreen(
                                     Text(
                                         "规格: ${material.spec}",
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = OnSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        color = OnSurfaceVariant
                                     )
                                 }
                                 Row(
