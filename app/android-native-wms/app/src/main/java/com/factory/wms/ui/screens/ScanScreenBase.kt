@@ -45,11 +45,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import java.io.ByteArrayOutputStream
 import android.util.Base64
-import com.factory.wms.ui.screens.rememberCameraLauncherWithPermission
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,11 +114,6 @@ fun ScanScreenBase(
     val haptics = LocalHapticFeedback.current
     val scanState by viewModel.uiState.collectAsState()
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
-    val evidenceCamera = rememberCameraLauncherWithPermission(snackbarHostState) { bitmap: Bitmap ->
-        val output = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
-        viewModel.addEvidence(Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP))
-    }
     pendingRemoval?.let { line ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
@@ -145,6 +142,22 @@ fun ScanScreenBase(
     // 用一个与组合生命周期绑定的 scope，弹窗关闭后自动取消，不会泄漏。
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    // 拍照取证（BUG-2026-09-18-009）：AI-APP-FIX-101 后相机 helper 回传的是全尺寸
+    // 照片 Uri（TakePicture + FileProvider），不再是 TakePicturePreview 的低清缩略图。
+    // 此处解码 → JPEG 80 压缩 → Base64；解码在 IO 线程执行，避免大图卡主线程。
+    val evidenceCamera = rememberCameraLauncherWithPermission(snackbarHostState) { uri: Uri ->
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    BitmapFactory.decodeStream(input)
+                }
+            }.getOrNull()?.let { bitmap ->
+                val output = ByteArrayOutputStream()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+                viewModel.addEvidence(Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP))
+            }
+        }
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
