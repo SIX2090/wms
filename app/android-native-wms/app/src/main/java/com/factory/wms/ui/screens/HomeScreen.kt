@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DashboardDto
+import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.components.WmsShimmerBox
@@ -348,11 +349,24 @@ fun HomeScreen(
                         onNavigate = onNavigate
                     )
                 }
-            } else {
+            } else if (homeUiState.isLoading) {
                 // AI-APP-UI-002：数据未返回时渲染同形骨架。
                 // 与真实布局同形半悬浮（标题占位在 Hero 上用白色 shimmer）。
                 Column(modifier = Modifier.offset(y = (-28).dp)) {
                     DashboardOverviewSkeleton()
+                }
+            } else {
+                // BUG-2026-09-26-004：加载失败（dashboard=null 且不在加载中）此前也
+                // 落到骨架分支——shimmer 永远转下去，用户分不清"在加载"还是"坏了"，
+                // 且没有任何重试入口。渲染同形失败条：点击重试 + 切仓入口常驻
+                // （换仓本身会触发 loadDashboard，也是一条重试路径）。
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
+                    DashboardOverviewError(
+                        warehouses = homeUiState.warehouses,
+                        selectedId = homeUiState.selectedWarehouseId,
+                        onSelectWarehouse = { homeViewModel.selectWarehouse(it) },
+                        onRetry = { homeViewModel.loadDashboard() }
+                    )
                 }
             }
 
@@ -687,6 +701,76 @@ fun TodayOverviewBar(
 }
 
 /**
+ * 「今日概览」失败条（BUG-2026-09-26-004）：与真实卡片同形——标题行保留
+ * 仓库切换器（换仓即重试），卡片正文为"加载失败，点击重试"。
+ * 仅当 dashboard=null 且不在加载中时渲染（加载中走骨架，成功走真实条）。
+ */
+@Composable
+private fun DashboardOverviewError(
+    warehouses: List<WarehouseDto>,
+    selectedId: String?,
+    onSelectWarehouse: (String?) -> Unit,
+    onRetry: () -> Unit
+) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "今日概览",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                // 半悬浮后标题压在 Hero 深蓝背景上，需白色（与真实条一致）
+                color = Color.White,
+                modifier = Modifier.padding(start = 20.dp)
+            )
+            Spacer(modifier = Modifier.weight(1f))
+            WarehouseSelector(
+                currentLabel = null,
+                warehouses = warehouses,
+                selectedId = selectedId,
+                onSelect = onSelectWarehouse,
+                showDefaultWarehouse = false,
+                allowAll = false
+            )
+        }
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .clickable(onClick = onRetry),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = CardBackground),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 20.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Refresh,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "概览加载失败，点击重试",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+/**
  * 「今日概览」骨架占位（AI-APP-UI-002）：与真实卡片同形同高，
  * dashboard 加载期间布局不跳动。
  */
@@ -756,9 +840,9 @@ private fun OverviewItemCell(
 ) {
     val haptics = LocalHapticFeedback.current
     val clickModifier = if (onClicked != null) {
+        // BUG-2026-09-26-004：恢复默认 ripple。此前 indication=null 只有震动、
+        // 无任何视觉反馈，弱网/请求中用户以为没点上就连点。震动保留，涟漪补上。
         Modifier.clickable(
-            interactionSource = remember { MutableInteractionSource() },
-            indication = null,
             onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClicked()
