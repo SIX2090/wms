@@ -431,7 +431,7 @@ private fun InOutDetailItemRow(item: InOutDetailItem) {
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 // AI-APP-FIX-403：数字列单行省略 + 固定右栏宽 + tnum 等宽数字
-                style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                 textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

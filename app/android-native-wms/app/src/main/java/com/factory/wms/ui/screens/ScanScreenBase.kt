@@ -26,6 +26,8 @@ import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.PendingSyncBanner
 import com.factory.wms.ui.components.ScannerDialog
+// AI-APP-FIX-405：拍照 launcher 迁至 ui/components/CameraLauncher.kt，此处需显式导入
+import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.components.WmsOutlinedActionButton

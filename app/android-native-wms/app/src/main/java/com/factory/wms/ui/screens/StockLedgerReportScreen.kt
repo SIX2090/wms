@@ -650,14 +650,14 @@ private fun StockLedgerItemRow(item: StockLedgerItem) {
                     },
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
-                    style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                    style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = if (hasOut && !hasIn) Error else Success
                 )
                 Text(
                     "结存 " + formatQty(item.balanceQuantity),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSetting = "tnum"),
+                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

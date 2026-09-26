@@ -368,7 +368,7 @@ private fun StockDailyItemRow(item: StockDailyItem) {
                 "${formatQty(item.stock)} ${item.unit.orEmpty()}".trim(),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
-                style = LocalTextStyle.current.copy(fontFeatureSetting = "tnum"),
+                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                 textAlign = TextAlign.End,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

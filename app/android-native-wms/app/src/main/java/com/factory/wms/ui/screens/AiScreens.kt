@@ -1123,27 +1123,27 @@ fun StocktakeRecognizeScreen(
                         val code = materialCode?.trim()
                         // AI-APP-FIX-105 / BUG-2026-09-26-001：非法数量必须拦截提示，
                         // 禁止 ?: 1.0 静默兜底（清空输入即按 1 盘入，现场无感知）。
+                        // 注：自定义组件的命名参数 lambda 不支持参数名做 return 标签，
+                        // 校验分支用 if/else 串联，不用 return@onClick 提前退出。
                         val qty = countQty.toPositiveQtyOrNull()
                         if (code.isNullOrBlank()) {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("无法识别物料编码，请重试或手动添加", duration = SnackbarDuration.Short)
                             }
-                            return@onClick
-                        }
-                        if (qty == null) {
+                        } else if (qty == null) {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
                             }
-                            return@onClick
+                        } else {
+                            scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar(
+                                    "已加入盘点清单：$code x ${formatQuantity(qty)}",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
+                            onBack()
                         }
-                        scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
-                        coroutineScope.launch {
-                            snackbarHostState.showSnackbar(
-                                "已加入盘点清单：$code x ${formatQuantity(qty)}",
-                                duration = SnackbarDuration.Short
-                            )
-                        }
-                        onBack()
                     },
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Outlined.AddCircle,
