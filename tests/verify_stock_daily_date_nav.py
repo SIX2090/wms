@@ -56,7 +56,9 @@ check("T4 空态主文案为「该仓当天无结存物料」", "该仓当天无
 
 # T5 文案对齐
 check("T5a 页头副标题「各物料每日结存 · 按仓展示」", "各物料每日结存 · 按仓展示" in screen)
-check("T5b 首页卡片副标题「按仓展示 · 各物料每日结存」", "按仓展示 · 各物料每日结存" in home)
+# BUG-2026-09-26-001：首页卡片副标题已精简为「按仓每日结存」（3 列紧凑网格下
+# 原长文案必然被 Ellipsis 截断）。此处同步更新断言以匹配新文案。
+check("T5b 首页卡片副标题「按仓每日结存」", "按仓每日结存" in home)
 
 failed = [name for name, ok in checks if not ok]
 for name, ok in checks:
