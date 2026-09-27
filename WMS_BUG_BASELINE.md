@@ -1899,3 +1899,78 @@
   Java/Android SDK，编译验收以 CI 为准，BUG-2026-09-12-006 规则）。
 - **生效确认**：全量测试见 CI；lint 双门禁通过；推送后 CI 验证。
 
+
+### BUG-2026-09-27-001：采购入库单/库存调整单「保存失败：仓库不存在或已停用：1」——P1-6 前端提交字段改漏
+
+- **现场**（用户截图，2026-09-27）：新增采购入库单，仓库选「项目仓」，
+  明细 1 行（`112016` 欧姆龙继电器 × 80），点保存弹
+  **「保存失败：仓库不存在或已停用：1」**。用户原话：
+  「为什么这样，用了二个月都没有问题，越修问题越多？」
+- **根因**：P1-6（`BUG-2026-09-25-007`）把仓库参数统一为 `warehouse_id`，
+  分三处改造，其中**第三处「JS 提交字段名」改漏**：
+
+  | 层次 | P1-6 改动 | 验证 |
+  |---|---|---|
+  | ① 下拉渲染 `name="warehouse_id"` + `value="{{ warehouse.id }}"` | ✅ 已改 | ✅ T7/T8/T9 静态断言 |
+  | ② 后端 `validate_inventory_warehouse(value, warehouse_id)` ID 优先 | ✅ 已改 | ✅ 后端 6 项 |
+  | ③ **JS payload 发 `warehouse_id`** | ❌ **改漏** | ❌ **无覆盖** |
+
+  `in_order_add.html` 的 `submitForm()` 从 `[name="warehouse_id"]` 读到的是
+  **仓库 ID 字符串**（`"1"`），却塞进 `warehouse` 字段。后端
+  `data.get('warehouse_id')` 为 `None`，只拿到 `warehouse="1"`，于是
+  **拿 `"1"` 当仓库名去匹配 `Warehouse.name`/`code`** → 查不到 → 400
+  「仓库不存在或已停用：1」。**用户选的「项目仓」从未被传出去**（报错里的
+  `1` 正是被误当名称的 ID）。
+- **为什么原有 21 项 P1-6 测试全绿却没拦住**（关键教训）：
+  - `test_p1_6_in_order_warehouse_id_param.py` 的后端 6 项**自己构造**
+    符合新契约的请求（`_post_in_order(..., warehouse_id=wh_b.id)`）直接打后端，
+    **从不经过前端**；
+  - 其「前端 3 项」（T7/T8/T9）只是**静态字符串断言** `'name="warehouse_id"' in html`，
+    测的是**下拉的属性**，不是**提交的 payload**。
+  - 结论：**后端 + 下拉两层被测住，前端提交字段名这一层完全在雷达外**。
+    绿灯证明的是「已知检查都过了」，不是「功能是好的」。
+- **同类点全量排查（R6，脚本化对账而非抽样）**：扫描全部模板的仓库提交点
+  （JS payload / `FormData` / 原生表单 / URL 参数四种方式）与全部后端接收参数路由
+  （21 个前端提交点 × 64 处后端接收点交叉比对），确认**同根因共 2 处**：
+
+  | # | 位置 | 状态 |
+  |---|---|---|
+  | 1 | `in_order_add.html:1629` `warehouse: warehouse` | 🔴 **本次修复** |
+  | 2 | `adjustment_add.html:698` `warehouse: warehouse` | 🔴 **同根因，一并修复** |
+
+  已核实**正常、无需改动**的消费点：`in_order_add.html:1462`、
+  `out_order_add.html:1290`、`after_sale_out_add.html:651`、
+  `document_table_form.html:707/710`（均已正确发 `warehouse_id`）；
+  `subcontract_issue/receive.html`（`FormData` 整表单序列化，字段名天然正确）；
+  `purchase_order_detail.html:374`（前端发名称/后端收名称，两端一致）；
+  `mobile_scan.html` 5 处（datalist/select 的 value 均为仓库名，后端按名称解析，一致）。
+- **修复**：
+  - `app/templates/in_order_add.html`：`submitForm()` 内变量
+    `const warehouse = ...` → `const warehouseId = ...`（含 2 处引用），
+    payload `warehouse: warehouse` → **`warehouse_id: warehouseId`**；
+    补注释说明「下拉 value 是仓库 ID，承载 ID 的变量必须放进 `warehouse_id` 字段」。
+  - `app/templates/adjustment_add.html`：同款修复（`warehouse` → `warehouseId`，
+    payload 改发 `warehouse_id`）。
+- **回归（防假绿设计，R8 第 3 条）**：新增
+  `tests/test_bug_2026_09_27_001_in_order_warehouse_submit_field.py` **8 项**。
+  **刻意不满足于「源码里有 `warehouse_id` 字符串」**（注释里写一句就能骗过），
+  而是用 **node 真实执行**从模板抽取的「取数语句 + payload 字段行」——
+  在假 DOM 上执行 `querySelector('[name="warehouse_id"]').value`，
+  再代入对象字面量，断言**执行结果的字段名与取值**：
+  T1 payload 存在 `warehouse_id`／T2 不存在旧字段 `warehouse`（防复活）／
+  T3 值为仓库 ID 而非显示文本（名称）／T4 取数选择器是 `[name="warehouse_id"]`／
+  T5 提交端点是 `/in_order/add`；T6~T8 下拉 `name`/option `value`/JS 语法静态契约。
+  **回退验证（文件备份法 `cp` + `git checkout --`，未用 `git stash`）**：
+  把 `warehouse_id: warehouseId` 退回 `warehouse: warehouseId` 后，
+  **4 项精准变红**（T1/T2/T3 + 语法项），失败信息直指现场
+  （`assert 'warehouse' == 'warehouse_id'`），4 项对照（T4/T5/T6/T7）保持绿；
+  恢复后 `diff` 与备份**字节一致**、8 项全绿。**证明该锁真能拦住复发**。
+- **受影响模块全量 + 相邻回归**：P1-6 四个专项文件
+  （in_order / out_order / requisition_check_adjustment / subcontract_after_sale_sales）
+  + 本次新测试共 **49 passed / 0 failed**；`scripts/lint_wms_rules.py --staged`
+  A1–A14 **0 违规**；`scripts/lint_no_raw_post_fetch.py` 通过。
+- **生效条件（R3）**：纯 Jinja 模板内联 JS 改动，**生产需重启 WMS 服务生效**，
+  浏览器 `Ctrl+F5` 清缓存。
+- **生效确认**：项修（生效确认）**待确认**——待用户在生产环境重启服务后实测
+  「新增采购入库单 → 选仓库 → 保存」返回「草稿保存成功」，并由确认人补记。
+- **关联**：`BUG-2026-09-25-007`（P1-6 首批 in_order，该次改造未覆盖前端提交层）。

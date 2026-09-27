@@ -1567,7 +1567,9 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
 
     const date = document.querySelector('[name="date"]').value;
     const supplierId = document.querySelector('[name="' + partyField + '"]').value;
-    const warehouse = document.querySelector('[name="warehouse_id"]').value;
+    // BUG-2026-09-27-001：下拉 name="warehouse_id" 的 value 是仓库 ID（P1-6 契约），
+    // 变量承载的是 ID，提交时必须放进 warehouse_id 字段。
+    const warehouseId = document.querySelector('[name="warehouse_id"]').value;
     const locationInput = document.querySelector('[name="location"]');
     const location = locationInput ? locationInput.value.trim() : '';
     const errors = [];
@@ -1578,7 +1580,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     if (!date) errors.push({ message: '日期不能为空，请填写单据日期。' });
     if (supplierRequired && !supplierId) errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
     // BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
-    if (!warehouse) errors.push({ message: '仓库不能为空，请选择仓库。' });
+    if (!warehouseId) errors.push({ message: '仓库不能为空，请选择仓库。' });
     // 库位管理启用时库位为必填（AGENTS.md 规则二）
     if (locationInput && !location) errors.push({ message: '库位不能为空，请输入库位。' });
 
@@ -1626,7 +1628,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         business_type: document.querySelector('[name="business_type"]').value,
         purpose: document.querySelector('[name="purpose"]').value.trim(),
         [partyField]: supplierId,
-        warehouse: warehouse,
+        warehouse_id: warehouseId,
         auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
         remark: document.querySelector('[name="remark"]').value,
         items: items
