@@ -1971,7 +1971,13 @@
   A1–A14 **0 违规**；`scripts/lint_no_raw_post_fetch.py` 通过。
 - **生效条件（R3）**：纯 Jinja 模板内联 JS 改动，**生产需重启 WMS 服务生效**，
   浏览器 `Ctrl+F5` 清缓存。
-- **生效确认**：项修（生效确认）**待确认**——待用户在生产环境重启服务后实测
+- **生效确认**：**推送已实证（2026-09-27）**——API 通道（§8.1）推送后反查
+  `GET /repos/SIX2090/wms/commits/main`：远程 main `914a9e40db38`，
+  父提交 `3f3382ab9c5a`，files 变更与预期逐一致（3 个文件：
+  `WMS_BUG_BASELINE.md` M、`app/templates/in_order_add.html` M、
+  `tests/test_bug_2026_09_27_001_in_order_warehouse_submit_field.py` A）；
+  并以 `git/trees?recursive=1` 逐文件比对 blob SHA，本地与远程**字节一致**。
+  **业务生效仍待确认**——待用户在生产环境重启 WMS 服务后实测
   「新增采购入库单 → 选仓库 → 保存」返回「草稿保存成功」，并由确认人补记。
 - **关联**：`BUG-2026-09-25-007`（P1-6 首批 in_order，该次改造未覆盖前端提交层）。
 
@@ -2026,7 +2032,13 @@
   **23 passed / 0 failed**；`scripts/lint_wms_rules.py --staged` A1–A14 **0 违规**。
 - **生效条件（R3）**：纯 Jinja 模板内联 JS 改动，**生产需重启 WMS 服务生效**，
   浏览器 `Ctrl+F5` 清缓存。
-- **生效确认**：**待确认**——待用户在生产环境重启服务后实测
+- **生效确认**：**推送已实证（2026-09-27）**——API 通道（§8.1）推送后反查
+  `GET /repos/SIX2090/wms/commits/main`：远程 main `45f8c09d2ce1`，
+  父提交 `f747e8ca3e`，files 变更与预期逐一致（3 个文件：
+  `WMS_BUG_BASELINE.md` M、`app/templates/in_order_add.html` M、
+  `tests/test_bug_2026_09_27_002_in_order_draft_warehouse_roundtrip.py` A）；
+  并以 `git/trees?recursive=1` 逐文件比对 blob SHA，本地与远程**字节一致**。
+  **业务生效仍待确认**——待用户在生产环境重启服务后实测
   「录单中途关闭页面 → 重新打开新增页 → 草稿恢复」，确认仓库与备注被正确回填，
   并由确认人补记。
 - **关联**：`BUG-2026-09-27-001`（同批排查发现）、`BUG-2026-09-25-007`（P1-6 改造）。
