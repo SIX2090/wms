@@ -1974,3 +1974,59 @@
 - **生效确认**：项修（生效确认）**待确认**——待用户在生产环境重启服务后实测
   「新增采购入库单 → 选仓库 → 保存」返回「草稿保存成功」，并由确认人补记。
 - **关联**：`BUG-2026-09-25-007`（P1-6 首批 in_order，该次改造未覆盖前端提交层）。
+
+### BUG-2026-09-27-002：采购入库单自动草稿的仓库与备注「静默失效」（取值选择器指向不存在的元素）
+
+- **发现**：在 BUG-2026-09-27-001 的 R6 全量排查中顺带发现（同批 P1-6 改动遗留）。
+- **根因**：`in_order_add.html` 的自动草稿（localStorage，30 秒一次）用两个
+  **在本模板中根本不存在**的 id 取值：
+
+  | 字段 | 草稿代码用的选择器 | 元素真实标识 | 结果 |
+  |---|---|---|---|
+  | 仓库 | `#warehouseSelect` | `<select name="warehouse_id">`（**无 id**） | ❌ 恒为空 |
+  | 备注 | `#remarkInput` | `<textarea name="remark">`（**无 id**） | ❌ 恒为空 |
+
+  `querySelector('#...')` 对不存在的元素返回 `null`，`?.value` 为 `undefined`，
+  `|| ''` 兜成空串 → **草稿里仓库与备注永远是空的**；恢复时
+  `if (data.warehouse)` / `if (data.remark)` 恒为假，**也永远回填不上**。
+- **危害（典型静默失效）**：不报错、不崩溃、无提示，功能就是不生效。用户在录单
+  中途关掉页面，30 秒前「自动保存」的草稿丢失仓库与备注，误以为系统已保存完整。
+  与 BUG-001 的区别：001 是**看得见**的失败（弹窗报错），本条是**看不见**的失败
+  （用户以为存了，其实没存对），排查难度更高。
+- **佐证（本模板内自相矛盾）**：同一模板其他 4 处读备注一律用 `[name="remark"]`
+  （1465 / 1633 / 2181 / 2427 行），**只有草稿这 2 处**用了不存在的 `#remarkInput`
+  ——说明是写草稿功能时凭记忆写错 id，从未与其他读取路径对齐。
+- **修复**：
+  - `collectFormData()`：`warehouse: querySelector('#warehouseSelect')` →
+    **`warehouse_id: querySelector('[name="warehouse_id"]')`**；
+    `remark: querySelector('#remarkInput')` → **`querySelector('[name="remark"]')`**。
+  - `restoreDraft()`：恢复仓库改读 `data.warehouse_id` 并写入
+    `[name="warehouse_id"]`；恢复备注写入 `[name="remark"]`。
+  - 备注键名保持 `remark` 不变（本就正确），只修选择器。
+- **回归（防假绿设计，R8 第 3 条）**：新增
+  `tests/test_bug_2026_09_27_002_in_order_draft_warehouse_roundtrip.py` **7 项**。
+  用 node **真实执行**「取数 → 存草稿 → 恢复」闭环：假 DOM 中
+  `querySelector` 对不存在的 id **返回 null**（复现原缺陷），对真实存在
+  `[name=...]` 返回带 getter/setter 的元素（可记录回填动作）。
+  断言 T1 存出的 `warehouse_id` **值非空**／T2 无旧键 `warehouse`
+  （**刻意用「值非空」而非「字段存在」**：旧代码字段存在但恒为空，
+  只断言存在会漏掉本缺陷）／T3 备注值非空／T4 恢复后下拉被写入且值一致／
+  T5 恢复后备注被写入；T6~T7 静态兜底——JS 代码行不得再出现
+  `#warehouseSelect` / `#remarkInput`（**剔除 `//` 注释后判定**，
+  避免被本次新增的说明性注释误伤——初版曾因此假红，已修正）。
+  **回退验证（文件备份法，未用 `git stash`）**：退回旧字段名与旧选择器后
+  **7 项全部变红**，恢复后 `diff` 字节一致。
+- **踩坑记录（测试自身）**：初版 `_harness()` 用**字面量列表**拼装 JS
+  harness，其中含 `'[name="warehouse_id"]'` 这类既需转义双引号、又需配对
+  方括号的混合字面量，导致 Python 报 `'[' was never closed`（行号指向
+  `parts = [`，误导排查方向）。**改用 `parts = []` + 逐条 `append` 后立即通过**。
+  另：抽出的 `collectFormData` 字面量引用了函数内变量 `rows`，
+  harness 需先 `const rows = [];` 否则 `ReferenceError: rows is not defined`。
+- **受影响模块相邻回归**：与 BUG-2026-09-27-001 两个测试文件合计
+  **23 passed / 0 failed**；`scripts/lint_wms_rules.py --staged` A1–A14 **0 违规**。
+- **生效条件（R3）**：纯 Jinja 模板内联 JS 改动，**生产需重启 WMS 服务生效**，
+  浏览器 `Ctrl+F5` 清缓存。
+- **生效确认**：**待确认**——待用户在生产环境重启服务后实测
+  「录单中途关闭页面 → 重新打开新增页 → 草稿恢复」，确认仓库与备注被正确回填，
+  并由确认人补记。
+- **关联**：`BUG-2026-09-27-001`（同批排查发现）、`BUG-2026-09-25-007`（P1-6 改造）。

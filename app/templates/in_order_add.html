@@ -2823,8 +2823,13 @@ function applyBatchUpdate() {
 
         return {
             supplier: document.querySelector('#supplierSearch')?.value || '',
-            warehouse: document.querySelector('#warehouseSelect')?.value || '',
-            remark: document.querySelector('#remarkInput')?.value || '',
+            // BUG-2026-09-27-002：'#warehouseSelect' 元素在本模板中不存在，
+            // 取值恒为 undefined→''，导致自动草稿永远存不到仓库、恢复也回填不了。
+            // 统一改用真实存在的 [name="warehouse_id"]。
+            warehouse_id: document.querySelector('[name="warehouse_id"]')?.value || '',
+            // BUG-2026-09-27-002：'#remarkInput' 同样不存在，改用 [name="remark"]
+            // （与 1465/1633 行提交路径、2181/2427 行读取路径保持一致）。
+            remark: document.querySelector('[name="remark"]')?.value || '',
             rows: rows
         };
     }
@@ -2844,15 +2849,15 @@ function applyBatchUpdate() {
                 if (supplierInput) supplierInput.value = data.supplier;
             }
 
-            // 恢复仓库
-            if (data.warehouse) {
-                const warehouseSelect = document.querySelector('#warehouseSelect');
-                if (warehouseSelect) warehouseSelect.value = data.warehouse;
+            // 恢复仓库（BUG-2026-09-27-002：改用真实存在的 [name="warehouse_id"]）
+            if (data.warehouse_id) {
+                const warehouseSelect = document.querySelector('[name="warehouse_id"]');
+                if (warehouseSelect) warehouseSelect.value = data.warehouse_id;
             }
 
-            // 恢复备注
+            // 恢复备注（BUG-2026-09-27-002：改用真实存在的 [name="remark"]）
             if (data.remark) {
-                const remarkInput = document.querySelector('#remarkInput');
+                const remarkInput = document.querySelector('[name="remark"]');
                 if (remarkInput) remarkInput.value = data.remark;
             }
 
