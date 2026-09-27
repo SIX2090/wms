@@ -672,9 +672,11 @@ function submitForm(completeAfterSave) {
     }
 
     // BUG-2026-08-02-015：仓库必填前端校验
+    // BUG-2026-09-27-001：下拉 name="warehouse_id" 的 value 是仓库 ID（P1-6 契约），
+    // 该变量承载 ID，提交时必须放进 warehouse_id 字段（发 warehouse 会被后端当名称解析）。
     const warehouseEl = document.querySelector('[name="warehouse_id"]');
-    const warehouse = warehouseEl ? warehouseEl.value.trim() : '';
-    if (!warehouse) {
+    const warehouseId = warehouseEl ? warehouseEl.value.trim() : '';
+    if (!warehouseId) {
         showToast('请选择仓库', 'warning');
         if (warehouseEl) warehouseEl.focus();
         return;
@@ -695,7 +697,7 @@ function submitForm(completeAfterSave) {
         adjustment_no: document.querySelector('[name="adjustment_no"]').value,
         date: date,
         adjustment_type: document.querySelector('[name="adjustment_type"]').value,
-        warehouse: warehouse,
+        warehouse_id: warehouseId,
         remark: document.querySelector('[name="remark"]').value,
         items: result.items
     };
