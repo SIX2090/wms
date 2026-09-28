@@ -25,6 +25,9 @@ app/backups/
 backups/
 app/static/uploads/
 static/uploads/
+/uploads/
+/app/uploads/
+/.wms_preview/
 *.db
 *.db-journal
 *.db-wal
