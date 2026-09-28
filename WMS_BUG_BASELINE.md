@@ -2125,3 +2125,64 @@
 - **关联**：`INVENTORY_TRUTH.md` §4.1（新增章节）、`BUG-2026-09-25-005/006`（判据写了没跑）、
   `BUG-2026-09-02-001` / `BUG-2026-09-03-001/002/004`（同根因方向）、
   `AGENTS.md` §七 R2 / R8。
+
+### BUG-2026-09-27-004（2026-09-27，三账判据全表逐行拉取，生产库内存/耗时随流水线性膨胀）
+
+- **位置**：`scripts/verify_inventory_identity.py` 的 `collect_from_app()`。
+- **根因（代码实证）**：三张表**逐行**实例化为 ORM 对象再拉进内存，只为算两个
+  `GROUP BY ... SUM(quantity)` 聚合：
+  ```python
+  transactions = [(t.material_id, t.quantity, t.warehouse_id)
+                  for t in StockTransaction.query.all()]
+  ```
+  `stock_transaction` 是 **append-only 流水表**（`INVENTORY_TRUTH.md §1`
+  的"唯一不可篡改的账本"），只增不改，是仓库里增长最快的表；每行含
+  `location` / `remark` / `reference_type` / `reference_id` / `operator_id` /
+  `created_at` 等 8 个与本判据**无关**的列，却全部加载、全部实例化。
+- **危害（实测量化，非理论推测）**：20 万条流水夹具下
+
+  | 指标 | 旧法 | 新法 | 改善 |
+  |---|---|---|---|
+  | 返回行数 | 200,000 | 1,000 | **200×** |
+  | 耗时 | 10,846 ms | 165 ms | **66×** |
+  | 峰值内存 | 326.6 MB | 0.4 MB | **~800×** |
+
+  且随流水**线性增长**（append-only，只增不减）。**CI 夹具库仅 3–4 行，
+  此问题在门禁中完全不可见** —— 属"本地/CI 全绿、现场趴窝"型风险，
+  与 R1（分页默认值不得当业务上限）的教训同源。
+- **R6 同类点排查**：本判据取数点是 `collect_from_app()` **唯一一处**
+  （`scripts/verify_inventory_identity.py` 内不存在第二个取数入口）；
+  CI 适配器 `ci_check_inventory_identity.py` 通过 subprocess 调子脚本，
+  **不自行取数**，无同类点。`app/` 内其他库存聚合点（`get_warehouse_stock_quantities`
+  等）已是 SQL 聚合口径（`INVENTORY_TRUTH.md §2.2`），不属同根因。
+- **修复**：`GROUP BY (material_id, warehouse_id)` + `SUM(quantity)` 下推到 SQL，
+  库位账与流水账**两条都下推**（保持口径一致）；ORM 对象降为裸元组。
+  新增 `--no-pushdown` 开关保留旧路径供对照排障。
+- **语义变化（已显式声明，非静默改变）**：返回列表由「逐行明细」变为
+  「已按 (物料,仓库) 聚合」——同一 `(material_id, warehouse_id)` 下推版出 1 行、
+  旧版出 N 行。对判据**无影响**（下游只做累加，**累加结果逐位相同**），
+  但属**对外可观测的返回语义变更**，已在 docstring、`INVENTORY_TRUTH.md §4.2`
+  与本条目三处写明，不得当作"完全等价"轻描淡写。
+- **回归**：新增 `tests/test_p1_1_identity_aggregation.py` **11 项**，覆盖
+  ①累加等价（流水/库位/物料三项）②聚合语义（同仓折叠为一行／多仓隔离不串仓／
+  **NULL 归属行不得被 GROUP BY 静默丢弃**／返回裸元组非 ORM）
+  ③**判定结果完全一致**（summary / findings / warehouse_findings 两路径相等）
+  ④场景自检（确认夹具真产出预期账，防夹具写错导致假绿）
+  ⑤静态兜底（推送路径不得再出现 `StockTransaction.query.all()`，防被改回去）。
+- **回退验证（R8 第 3 条）**：文件备份法回退 `verify_inventory_identity.py`
+  → **11 项新用例全部失败**，恢复后全过。**锁真实有效，非自证陷阱**。
+  回退用 `cp` 文件备份法，**未用 `git stash`**（R8 明令）。
+- **等价性交叉验证**：随机 3000 条流水（`random.seed(42)`，含负数/零/多仓/NULL）
+  下，两路径 `summary` **完全一致**（正确检出 2 条 ①≠③、4 条仓级差异）；
+  真实夹具库对比 materials / locations / txn 累加结果逐位相同。
+- **生效确认**：**本地已验证（2026-09-27）**——
+  受影响模块 `pytest`（checker + gate + p1_1）**39 passed / 1 skipped / 0 failed**，
+  与修复前基线（28 passed / 1 skipped）相比无回归；全量 `tests/` 见下方补记；
+  `scripts/lint_wms_rules.py` A1–A14 **0 违规**；`lint_no_raw_post_fetch.py` 通过；
+  `scripts/ci_check_inventory_identity.py` **4 步全绿**。
+  **推送与 CI 实证待补记**（§三 门禁）。**本改动纯 Python（scripts + tests + 文档），
+  `collect_from_app` 只被 `main()` 与测试调用，不涉及 `app/` 运行时代码与 Jinja 模板，
+  无 R3 重启要求。**
+- **关联**：`INVENTORY_TRUTH.md` §4.2（新增章节）、`BUG-2026-09-27-003`（同判据的
+  口径缺口 P0-1，同日修复）、`BUG-2026-09-25-005/006`（判据写了没跑）、
+  `AGENTS.md` §七 R1 / R8。

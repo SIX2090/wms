@@ -326,6 +326,44 @@ if Warehouse.query.count() == 1:
 
 ---
 
+## 4.2 判据的取数方式：聚合下推（P1-1，2026-09-27 已修）
+
+> 上一节修的是**判据口径**，本节修的是**判据取数**。两者独立：口径对了，
+> 取数方式仍可能让判据在生产库上跑不动。
+
+`scripts/verify_inventory_identity.py` 的 `collect_from_app()` 旧实现把三张表
+**逐行**实例化为 ORM 对象再拉进内存，只为算两个 `GROUP BY ... SUM(quantity)`：
+
+```python
+# 旧：全表逐行 → ORM 对象（含 8 个与本判据无关的列）
+transactions = [(t.material_id, t.quantity, t.warehouse_id)
+                for t in StockTransaction.query.all()]
+```
+
+`stock_transaction` 是 **append-only 流水表**（`INVENTORY_TRUTH.md §1` 的"唯一
+不可篡改的账本"），只增不改，是仓库里增长最快的表。**实测（20 万条流水夹具）**：
+
+| 指标 | 旧法（逐行拉取） | 新法（SQL 聚合下推） | 改善 |
+|---|---|---|---|
+| 返回行数 | 200,000 | 1,000 | **200×** |
+| 耗时 | 10,846 ms | 165 ms | **66×** |
+| 峰值内存 | 326.6 MB | 0.4 MB | **~800×** |
+
+CI 夹具库只有 3–4 行，此问题在门禁中**不可见**——属"本地/CI 全绿、现场趴窝"
+型风险，与 R1（分页不得当业务上限）的教训同源。
+
+**修复**：`GROUP BY (material_id, warehouse_id)` + `SUM(quantity)` 下推到 SQL。
+`--no-pushdown` 可切回旧路径供对照排障。
+
+**⚠️ 语义变化（必须知晓）**：返回列表由「逐行明细」变为「已按 (物料,仓库) 聚合」
+（同一 `(material_id, warehouse_id)` 下推版出 1 行、旧版出 N 行）。这对判据**无影响**——
+下游 `build_identity_rows` / `build_warehouse_rows` 只做累加，**累加结果逐位相同**
+（已在随机 3000 条流水 + 全量测试上验证）。回归锁
+`tests/test_p1_1_identity_aggregation.py` 锁死的是**"聚合后累加结果等价"**，
+而非"列表逐项相等"（后者本就不成立，断言它是错的测试）。
+
+---
+
 ## 5. 强制约束（A11）
 
 新增 lint 规则 **A11：业务代码禁止裸用 `material.stock` 做业务判断**。

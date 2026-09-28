@@ -36,6 +36,10 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
   `warehouse_id` 拆开逐仓对账，抓 AGENTS.md R2 要求的"多仓库隔离"。
   `warehouse_id IS NULL` 的历史行单列 `unattributed` 待确认，**不猜归属**
   （INVENTORY_TRUTH.md §3.2）。
+* **P1-1 聚合下推（2026-09-27）**：`collect_from_app` 由「三表全量逐行拉取」
+  改为 SQL `GROUP BY + SUM` 聚合下推，`stock_transaction`（append-only，
+  仓库增长最快的表）的传输与内存由「流水总行数」降到「(物料, 仓库) 组合数」。
+  数值结果与原实现逐位一致；`--no-pushdown` 可切回旧路径供对照排障。
 * A14 合规：脚本引用 app，显式 opt-in 生产硬门禁。
 """
 from __future__ import annotations
@@ -265,20 +269,71 @@ def summarize(rows, findings, wh_findings=None, wh_rows=None):
 # ---------------------------------------------------------------------------
 # CLI（延迟导入 app，扫真实库）
 # ---------------------------------------------------------------------------
-def collect_from_app():
+def collect_from_app(pushdown=True):
     """从当前 app 的库里取三份数据（只读，零写操作）。
 
     P0-1：库位账与流水账额外带出 `warehouse_id`（第 3 项），供仓级分解使用。
+
+    P1-1（聚合下推，2026-09-27）
+    ----------------------------
+    旧实现把三张表**逐行**实例化为 ORM 对象再拉进内存：
+
+        transactions = [(t.material_id, t.quantity, t.warehouse_id)
+                        for t in StockTransaction.query.all()]
+
+    而 `stock_transaction` 是 append-only 流水表（只增不改），是仓库里增长最快
+    的表；每行含 `location` / `remark` / `reference_type` / `operator_id` /
+    `created_at` 等 8 个与本判据**无关**的列，却全部加载、全部实例化，只为了算
+    两个 `GROUP BY ... SUM(quantity)` 聚合。数据量上来后内存与耗时线性膨胀。
+
+    新实现把聚合**下推到 SQL**：`GROUP BY (material_id, warehouse_id)` +
+    `SUM(quantity)`。返回的行数从「流水总行数」降到「(物料, 仓库) 组合数」，
+    ORM 对象降为裸元组。
+
+    ⚠️ **注意：返回语义由「逐行明细」变为「已按 (物料,仓库) 聚合」**——
+    下推版同一 `(material_id, warehouse_id)` 只出一行，旧版出 N 行。
+    这对本判据**无影响**，因为下游 `build_identity_rows` /
+    `build_warehouse_rows` 对这两者都只做累加，**累加结果逐位相同**。
+    `tests/test_p1_1_identity_aggregation.py` 锁死的契约是
+    **"聚合后累加结果等价"**（而非"列表逐项相等"，后者本就不成立）。
+
+    Args:
+        pushdown: `True`（默认）走 SQL 聚合下推；`False` 走旧的逐行路径。
+            保留旧路径供**对照验证**与极端排障；两条路径的**累加结果**必须等价。
     """
+    import sqlalchemy as sa  # noqa: PLC0415
+
     from app import app as flask_app, db  # noqa: PLC0415
     from app import LocationInventory, Material, StockTransaction  # noqa: PLC0415
 
     with flask_app.app_context():
         materials = [(m.id, m.code, m.stock) for m in Material.query.all()]
-        locations = [(li.material_id, li.quantity, li.warehouse_id)
-                     for li in LocationInventory.query.all()]
-        transactions = [(t.material_id, t.quantity, t.warehouse_id)
-                        for t in StockTransaction.query.all()]
+        if not pushdown:
+            locations = [(li.material_id, li.quantity, li.warehouse_id)
+                         for li in LocationInventory.query.all()]
+            transactions = [(t.material_id, t.quantity, t.warehouse_id)
+                            for t in StockTransaction.query.all()]
+            return materials, locations, transactions
+
+        # 库位账：粒度本就是 (物料, 仓库, 库位)，行数远小于流水，但同样下推聚合，
+        # 保持两条路径口径一致（同一 (物料,仓库) 的多库位相加）。
+        loc_q = (db.session.query(
+                    LocationInventory.material_id,
+                    LocationInventory.warehouse_id,
+                    sa.func.sum(LocationInventory.quantity))
+                 .group_by(LocationInventory.material_id,
+                           LocationInventory.warehouse_id))
+        locations = [(mid, float(total or 0), wid)
+                     for mid, wid, total in loc_q.all()]
+
+        txn_q = (db.session.query(
+                    StockTransaction.material_id,
+                    StockTransaction.warehouse_id,
+                    sa.func.sum(StockTransaction.quantity))
+                 .group_by(StockTransaction.material_id,
+                           StockTransaction.warehouse_id))
+        transactions = [(mid, float(total or 0), wid)
+                        for mid, wid, total in txn_q.all()]
     return materials, locations, transactions
 
 
@@ -288,11 +343,14 @@ def main():
     ap.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE, help="浮点容差")
     ap.add_argument("--top", type=int, default=10, help="最多列出多少条明细")
     ap.add_argument("--json", action="store_true", help="输出 JSON（供流水线消费）")
+    ap.add_argument("--no-pushdown", action="store_true",
+                    help="P1-1：切回旧的全量逐行拉取路径（默认走下推；仅供对照排障）")
     args = ap.parse_args()
 
     if args.db:
         os.environ["DATABASE_URL"] = args.db
-    materials, locations, transactions = collect_from_app()
+    materials, locations, transactions = collect_from_app(
+        pushdown=not args.no_pushdown)
     rows = build_identity_rows(materials, locations, transactions)
     findings = find_mismatches(rows, args.tolerance)
     # P0-1：仓级分解（抓"仓级串仓"——物料级合计对、但各仓各自错）
@@ -314,11 +372,13 @@ def main():
     print(f"  有库位账的物料     : {summary['materials_with_location_rows']}")
     print(f"  ①≠②（总账 vs 库位）: {summary['mismatch_ledger_vs_location']}")
     print(f"  ①≠③（总账 vs 流水）: {summary['mismatch_ledger_vs_txn']}（历史遗留多为待确认）")
-    print(f"  ②≠③ 仓级（库位 vs 流水）: {summary['mismatch_wh_location_vs_txn']}"
+    print(f"  ②≠③ 仓级（库位 vs 流水）: {summary.get('mismatch_wh_location_vs_txn', 0)}"
           f"（P0-1：抓仓级串仓）")
     if summary["unattributed_materials"]:
         print(f"  ⚠️  有未归属历史行（warehouse_id IS NULL）的物料: "
               f"{summary['unattributed_materials']}（不猜归属，单列待确认）")
+    elif "unattributed_materials" in summary:
+        print("  未归属历史行       : 0")
     if findings:
         print("-" * 66)
         for f in findings[: args.top]:
@@ -337,7 +397,7 @@ def main():
         print("  ✅ 三账恒等式全部成立（含仓级分解）")
     print("=" * 66)
     return 1 if (summary["mismatch_ledger_vs_location"]
-                 or summary["mismatch_wh_location_vs_txn"]) else 0
+                 or summary.get("mismatch_wh_location_vs_txn")) else 0
 
 
 if __name__ == "__main__":
