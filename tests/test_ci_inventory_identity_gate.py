@@ -92,6 +92,45 @@ class TestFixtureSchemaMatchesModels:
                 f"{table} 脏数据 SQL 用了不存在的列：{sorted(used - actual)}"
             )
 
+    def test_cross_wh_sql_columns_exist(self, mod, fixture_db):
+        """P0-1：仓级串仓夹具的列名必须真实存在，且必须带 warehouse_id。
+
+        不带 warehouse_id 的话，`find_warehouse_mismatches` 只会看到
+        UNATTRIBUTED 桶、一条都报不出来 —— 第 4 步会假绿。
+        """
+        for table in ("warehouse", "material", "location_inventory",
+                      "stock_transaction"):
+            used = _insert_columns(mod._CROSS_WH_SQL, table)
+            assert used, f"仓级夹具 SQL 未覆盖表 {table}"
+            actual = _columns(fixture_db, table)
+            assert used <= actual, (
+                f"{table} 仓级夹具用了不存在的列：{sorted(used - actual)}；"
+                f"实际列：{sorted(actual)}"
+            )
+        for table in ("location_inventory", "stock_transaction"):
+            assert "warehouse_id" in _insert_columns(mod._CROSS_WH_SQL, table), (
+                f"{table} 仓级夹具缺 warehouse_id —— 仓级判据将看不到任何仓库"
+            )
+
+    def test_cross_wh_sql_respects_not_null_columns(self, mod, fixture_db):
+        """非空列（如 warehouse.is_default）必须显式赋值，否则 INSERT 炸。"""
+        for table, sql in (
+            ("warehouse", mod._CROSS_WH_SQL),
+            ("material", mod._CROSS_WH_SQL),
+            ("location_inventory", mod._CROSS_WH_SQL),
+            ("stock_transaction", mod._CROSS_WH_SQL),
+        ):
+            conn = sqlite3.connect(str(fixture_db))
+            try:
+                cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            finally:
+                conn.close()
+            notnull = {c[1] for c in cols if c[3] and c[1] != "id"}
+            missing = notnull - _insert_columns(sql, table)
+            assert not missing, (
+                f"{table} 非空列未赋值：{sorted(missing)}（INSERT 会失败）"
+            )
+
     def test_seed_respects_not_null_columns(self, mod, fixture_db):
         """非空列必须都被显式赋值，否则 INSERT 必然失败。"""
         for table, sql in (
@@ -164,6 +203,47 @@ class TestIdentityAssertions:
         summary = _run_checker_summary(db)
         assert summary["materials"] == 3
         assert summary["materials_with_location_rows"] == 2
+
+    def test_cross_warehouse_contamination_is_caught(self, mod, fixture_db, tmp_path):
+        """P0-1 反向验证：物料级合计相等但仓级串仓 → 必须报 wh_location_vs_txn。
+
+        这是 AGENTS.md R2「多仓库隔离」的最低要求，也是 P0-1 修复的核心价值。
+        若此用例失败，说明仓级维度没生效 —— 第 4 步门禁等于空转。
+        """
+        db = tmp_path / "crosswh.db"
+        _copy_db(fixture_db, db)
+        mod._sqlite_exec(db, mod._SEED_SQL)
+        mod._sqlite_exec(db, mod._CROSS_WH_SQL)
+        summary = _run_checker_summary(db)
+
+        # 物料级：Σ② = 20 + 80 = 100 = ① → 物料级判据**全绿**（旧版在此漏网）
+        assert summary["mismatch_ledger_vs_location"] == 0
+        # 仓级：必须抓到 A(20 vs 60) 与 B(80 vs 40) 两处
+        assert summary["mismatch_wh_location_vs_txn"] == 2
+        deltas = sorted(f["delta"] for f in summary["warehouse_findings"])
+        assert deltas == [-40.0, 40.0]
+        assert all(f["dimension"] == "wh_location_vs_txn"
+                   for f in summary["warehouse_findings"])
+
+    def test_correct_warehouse_split_not_flagged(self, mod, fixture_db, tmp_path):
+        """对照：仓级数据正确时不得误报（防止修成"见仓库就报"）。"""
+        db = tmp_path / "crosswh_ok.db"
+        _copy_db(fixture_db, db)
+        mod._sqlite_exec(db, mod._SEED_SQL)
+        mod._sqlite_exec(db, mod._CROSS_WH_SQL)
+        # 让两仓各自自洽：A 仓库位账 20 → 60（对齐 A 仓流水 60）；
+        #                   B 仓流水 40 → 80（对齐 B 仓库位账 80）。
+        mod._sqlite_exec(db, """
+            UPDATE location_inventory SET quantity = 60.0
+            WHERE material_id IN (SELECT id FROM material WHERE code = 'CI-XWH')
+              AND warehouse_id IN (SELECT id FROM warehouse WHERE code = 'CI-WHA');
+            UPDATE stock_transaction SET quantity = 80.0
+            WHERE material_id IN (SELECT id FROM material WHERE code = 'CI-XWH')
+              AND warehouse_id IN (SELECT id FROM warehouse WHERE code = 'CI-WHB');
+        """)
+        summary = _run_checker_summary(db)
+        assert summary["mismatch_wh_location_vs_txn"] == 0
+        assert summary["warehouse_findings"] == []
 
 
 def _copy_db(src: Path, dst: Path) -> None:

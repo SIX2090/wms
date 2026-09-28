@@ -287,6 +287,45 @@ if Warehouse.query.count() == 1:
 
 ---
 
+## 4.1 判据自身的口径缺口：物料级恒等式不等于分布正确（P0-1，2026-09-27 已修）
+
+> **这是"判据的判据"问题**：§1 的恒等式 `① = Σ② = Σ③` 是**物料级**的，
+> 只能证明**总数**对，**不能证明分布对**。
+
+实测反例（2026-09-27，修复前）：
+
+```
+物料 M1 应为 A仓 60 + B仓 40 = 100（总账 100 正确）
+库位账被写坏成 A仓 20、B仓 80（合计仍 100，两仓各自都错）
+
+修复前：findings=[]  ①≠② 条数=0  退出码=0     ← 全绿放行
+```
+
+`scripts/verify_inventory_identity.py` 此前**全文零次出现 `warehouse`**，
+而 `location_inventory` / `stock_transaction` 都带 `warehouse_id`——
+即判据在架构上**抓不到仓级串仓**，而这正是 R2 实证 20+ 条同类 BUG
+（`BUG-2026-09-02-001`、`BUG-2026-09-03-001/002/004`）的根因方向。
+
+**修复内容（判据扩展，净增强）**：
+
+| 新增纯函数 | 作用 |
+|---|---|
+| `build_warehouse_rows(locations, transactions)` | 按 `(material_id, warehouse_id)` 汇总库位账与流水账 |
+| `find_warehouse_mismatches(rows, wh_rows, tol)` | 逐 (物料, 仓库) 比对，报 `wh_location_vs_txn` |
+| `UNATTRIBUTED` 桶 | `warehouse_id IS NULL` 的历史行**单列待确认，不猜归属**（§3.2） |
+
+- **向后兼容**：`build_identity_rows` / `find_mismatches` 的返回值与调用签名
+  **逐字不变**；`summarize` 不传仓级参数时输出键与旧版一致。旧调用方零改动。
+- **硬失败条件扩展**：`①≠②` **或** 仓级 `②≠③` 均返回退出码 1。
+- **CI 门禁同步强化**：`scripts/ci_check_inventory_identity.py` 由 3 步扩为 4 步，
+  新增"注入仓级串仓 → 断言判据报错"的反向验证——否则这道新能力在 CI 里无守护、
+  被改坏也无人知（与 `BUG-2026-09-25-006` 的教训同一逻辑：门禁必须"会失败"）。
+- **回归**：`tests/test_inventory_identity_checker.py` 新增 6 项、
+  `tests/test_ci_inventory_identity_gate.py` 新增 3 项；回退验证确认新用例全部失败
+  （非自证陷阱）。
+
+---
+
 ## 5. 强制约束（A11）
 
 新增 lint 规则 **A11：业务代码禁止裸用 `material.stock` 做业务判断**。

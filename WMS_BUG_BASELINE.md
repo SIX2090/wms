@@ -2042,3 +2042,66 @@
   「录单中途关闭页面 → 重新打开新增页 → 草稿恢复」，确认仓库与备注被正确回填，
   并由确认人补记。
 - **关联**：`BUG-2026-09-27-001`（同批排查发现）、`BUG-2026-09-25-007`（P1-6 改造）。
+
+### BUG-2026-09-27-003（2026-09-27，三账恒等式判据无仓库维度 → 仓级串仓全绿放行）
+
+- **位置**：`scripts/verify_inventory_identity.py`（全仓唯一的三账恒等式判据）。
+- **根因（代码实证）**：判据**全文零次出现 `warehouse`**，
+  `build_identity_rows()` 只按 `material_id` 汇总；而 `location_inventory`
+  （唯一约束 `(material_id, warehouse_id, location)`）与 `stock_transaction`
+  （`idx_stock_txn_warehouse_id`）**都带 `warehouse_id` 维度**。
+  即 §1 恒等式 `① = Σ② = Σ③` 是**物料级**的：只能证明**总数**对，
+  **不能证明分布对**。
+- **危害（实测复现，非理论推测）**：
+  ```
+  物料 M1 应为 A仓 60 + B仓 40 = 100（总账 100 正确）
+  库位账被写坏成 A仓 20、B仓 80（合计仍 100，两仓各自都错）
+  修复前：findings=[]  ①≠② 条数=0  退出码=0   ← 全绿放行
+  ```
+  门禁在 CI 里打 ✓，给人"三账已对齐"的错觉。**这正是 AGENTS.md R2
+  「多仓库隔离」明令必验项，也是 `BUG-2026-09-02-001`（全局当单仓账面）、
+  `BUG-2026-09-03-001/002/004`（同根因四处复发）的同一根因方向**——
+  判据在架构上抓不到这一类，等于 R2 在"核对"环节无守护。
+- **R6 同类点排查**：本判据是**全仓唯一**三账恒等式入口
+  （`grep verify_inventory_identity` 仅命中 CI 适配器 `ci_check_inventory_identity.py`
+  与文档/测试，无第二个消费点）。同类"物料级判据冒充全局判据"的形态已一并检查：
+  `_material_stock_unattributed`（反提交兜底）与 `get_warehouse_stock_quantities`
+  （仓库级读取）均已是仓库级口径，不属同根因，不需同批修改。
+- **修复（判据扩展，**净增强**）**：新增两个纯函数
+  `build_warehouse_rows(locations, transactions)`（按 `(material_id, warehouse_id)`
+  汇总库位账与流水账）与 `find_warehouse_mismatches(rows, wh_rows, tol)`
+  （逐 (物料, 仓库) 比对，报 `wh_location_vs_txn`）；`warehouse_id IS NULL`
+  的历史行入 `UNATTRIBUTED` 桶**单列待确认**，**不猜归属**
+  （INVENTORY_TRUTH.md §3.2）。硬失败条件由 `①≠②` 扩展为
+  **`①≠②` 或 仓级 `②≠③`**。
+- **向后兼容（关键约束）**：`build_identity_rows` / `find_mismatches` 的返回值
+  与调用签名**逐字不变**（已实测旧式 2 元组入参返回结果与旧版一致）；
+  `summarize` 不传仓级参数时输出键与旧版一致。既有调用方与测试零改动。
+- **CI 门禁同步强化**：`scripts/ci_check_inventory_identity.py` 由 3 步扩为 4 步，
+  新增第 4 步"注入仓级串仓（物料级合计仍相等）→ 断言判据报出
+  `wh_location_vs_txn`（rc=1）"。无此步则本能力在 CI 里无守护、被改坏也无人知
+  （与 `BUG-2026-09-25-006` 的教训同一逻辑：门禁必须"会失败"）。
+- **回归**：`tests/test_inventory_identity_checker.py` 新增 `TestP01WarehouseDimension`
+  **6 项**（仓级串仓必被抓／正确分布不误报／NULL 不猜归属／"一仓多一仓等额少"最刁钻形态／
+  2 元组向后兼容／summarize 无仓级参数保持旧键）；
+  `tests/test_ci_inventory_identity_gate.py` 新增 **3 项**（`_CROSS_WH_SQL` 列名与
+  非空列校验、仓级反向验证、仓级正确时不误报）。
+- **回退验证（R8 第 3 条，双件）**：① 用文件备份法回退 `verify_inventory_identity.py`
+  → **5 项新用例全部失败**（`AttributeError: no attribute 'build_warehouse_rows'`），
+  原 10 项仍通过；② 回退判据后跑 CI 门禁 → 第 4 步**正确报错**
+  「P0-1 的仓级维度没生效或已被改坏」。**两道锁都锁得住，非自证陷阱**。
+  回退用 `cp` 文件备份法，**未用 `git stash`**（R8 明令，本环境曾因 stash 被
+  SIGTERM 中断致仓库损坏）。
+- **生效确认**：**本地已验证（2026-09-27）**——
+  受影响与相邻模块 `pytest`（checker + gate + p2b + p1_7 三条链 + warehouse_stock_service）
+  **72 passed / 1 skipped / 0 failed**，与修复前基线（35 passed / 1 skipped）相比
+  **无任何回归**；`scripts/lint_wms_rules.py` A1–A14 **0 违规**；
+  `scripts/lint_no_raw_post_fetch.py` 通过；`scripts/ci_check_inventory_identity.py`
+  **4 步全绿**（含 ①≠② 与 仓级②≠③ 双反向验证）。
+  **CI 实证待确认**——按 §三 CI 全绿门禁，需推送后确认三工作流
+  （Android APK Build / WMS AI Verification / WMS CI）在 main 上转绿，
+  由 `scripts/check_ci_green.py` 复跑核验后补记。**本改动纯 Python（scripts + tests + 文档），
+  不涉及 Jinja 模板与 `app/` 运行时代码，无 R3 重启要求。**
+- **关联**：`INVENTORY_TRUTH.md` §4.1（新增章节）、`BUG-2026-09-25-005/006`（判据写了没跑）、
+  `BUG-2026-09-02-001` / `BUG-2026-09-03-001/002/004`（同根因方向）、
+  `AGENTS.md` §七 R2 / R8。

@@ -76,6 +76,36 @@ INSERT INTO stock_transaction (material_id, transaction_type, quantity, created_
 SELECT id, 'in', 999.0, datetime('now') FROM material WHERE code = 'CI-DIRTY';
 """
 
+# P0-1（2026-09-27）：仓级串仓夹具 —— 物料级合计**恰好相等**，
+# 但两个仓库各自都错。旧版判据在此全绿（这正是 P0-1 的漏网口），
+# 新版仓级维度必须抓到，否则这道门禁等于没有覆盖 R2「多仓库隔离」。
+# 构造：总账 100；库位账 A 仓 20 / B 仓 80；流水 A 仓 60 / B 仓 40。
+#   物料级 Σ② = 100 = ①  ✓（漏网）
+#   仓级   A: 库位 20 vs 流水 60 → 差 −40  ✗
+#          B: 库位 80 vs 流水 40 → 差 +40  ✗
+_CROSS_WH_SQL = """
+INSERT INTO warehouse (name, code, status, is_default, created_at)
+VALUES ('夹具仓A', 'CI-WHA', 'active', 0, datetime('now')),
+       ('夹具仓B', 'CI-WHB', 'active', 0, datetime('now'));
+
+INSERT INTO material (code, name, stock, created_at)
+VALUES ('CI-XWH', '夹具-仓级串仓', 100.0, datetime('now'));
+
+INSERT INTO location_inventory (material_id, warehouse_id, location, quantity)
+SELECT m.id, w.id, 'X-01', 20.0 FROM material m, warehouse w
+WHERE m.code = 'CI-XWH' AND w.code = 'CI-WHA';
+INSERT INTO location_inventory (material_id, warehouse_id, location, quantity)
+SELECT m.id, w.id, 'X-02', 80.0 FROM material m, warehouse w
+WHERE m.code = 'CI-XWH' AND w.code = 'CI-WHB';
+
+INSERT INTO stock_transaction (material_id, warehouse_id, transaction_type, quantity, created_at)
+SELECT m.id, w.id, 'in', 60.0, datetime('now') FROM material m, warehouse w
+WHERE m.code = 'CI-XWH' AND w.code = 'CI-WHA';
+INSERT INTO stock_transaction (material_id, warehouse_id, transaction_type, quantity, created_at)
+SELECT m.id, w.id, 'in', 40.0, datetime('now') FROM material m, warehouse w
+WHERE m.code = 'CI-XWH' AND w.code = 'CI-WHB';
+"""
+
 
 def _run(cmd, **kw):
     print(f"  $ {' '.join(str(c) for c in cmd)}", flush=True)
@@ -168,7 +198,7 @@ def main() -> int:
     python = sys.executable
     env_note = os.environ.get("VIRTUAL_ENV") or python
     print("=" * 66)
-    print("  三账恒等式 CI 门禁（BUG-2026-09-25-006）")
+    print("  三账恒等式 CI 门禁（BUG-2026-09-25-006 / P0-1 仓级扩展 2026-09-27）")
     print(f"  python: {env_note}")
     print("=" * 66)
 
@@ -177,7 +207,7 @@ def main() -> int:
         db_path = _build_fixture_db(python, workdir)
 
         # ---- 第 1 步：干净夹具，恒等式必须成立 ----
-        print("\n[1/3] 灌入一致夹具数据，期望恒等式成立（rc=0）")
+        print("\n[1/4] 灌入一致夹具数据，期望恒等式成立（rc=0）")
         _sqlite_exec(db_path, _SEED_SQL)
         r = _checker(python, db_path)
         print(r.stdout.rstrip())
@@ -189,7 +219,7 @@ def main() -> int:
         print("  ✓ 通过")
 
         # ---- 第 2 步：反向验证 —— 判据必须能报错 ----
-        print("\n[2/3] 注入『只写总账不写库位账』脏数据，期望判据报错（rc=1）")
+        print("\n[2/4] 注入『只写总账不写库位账』脏数据，期望判据报错（rc=1）")
         _sqlite_exec(db_path, _DIRTY_SQL)
         r = _checker(python, db_path)
         print(r.stdout.rstrip())
@@ -203,7 +233,7 @@ def main() -> int:
         print("  ✓ 判据正确报出 ①≠②（反向验证通过）")
 
         # ---- 第 3 步：清除脏数据，恒等式恢复 ----
-        print("\n[3/3] 清除脏数据，期望恒等式恢复（rc=0）")
+        print("\n[3/4] 清除脏数据，期望恒等式恢复（rc=0）")
         import sqlite3
         conn = sqlite3.connect(str(db_path))
         try:
@@ -227,8 +257,25 @@ def main() -> int:
             return 1
         print("  ✓ 通过")
 
+        # ---- 第 4 步（P0-1）：仓级串仓反向验证 ----
+        # 这一步覆盖 AGENTS.md R2「多仓库隔离」：物料级合计相等但各仓各自错。
+        # 没有这一步，P0-1 新增的仓级能力在 CI 里就没有守护 —— 被改坏也无人知。
+        print("\n[4/4] 注入『仓级串仓』数据（物料级合计仍相等），"
+              "期望判据报出 wh_location_vs_txn（rc=1）")
+        _sqlite_exec(db_path, _CROSS_WH_SQL)
+        r = _checker(python, db_path)
+        print(r.stdout.rstrip())
+        if r.returncode == 0:
+            print("\n✗ 物料级合计相等但仓级串仓时，判据仍返回 0 —— "
+                  "P0-1 的仓级维度没生效或已被改坏，R2「多仓库隔离」无守护。")
+            return 1
+        if "wh_location_vs_txn" not in r.stdout:
+            print("\n✗ 判据失败原因不是仓级 ②≠③，不符合预期。")
+            return 1
+        print("  ✓ 判据正确报出仓级串仓（P0-1 反向验证通过）")
+
     print("\n" + "=" * 66)
-    print("  ✓ 三账恒等式门禁通过（含反向验证：判据确实会失败）")
+    print("  ✓ 三账恒等式门禁通过（含 ①≠② 与 仓级②≠③ 双反向验证）")
     print("=" * 66)
     return 0
 
