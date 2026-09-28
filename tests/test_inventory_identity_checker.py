@@ -193,3 +193,103 @@ class TestP01WarehouseDimension:
         s = v.summarize(rows, v.find_mismatches(rows))
         assert "warehouse_findings" not in s
         assert "mismatch_wh_location_vs_txn" not in s
+
+
+class TestP21DriftGate:
+    """P2-1 回归锁（2026-09-27）：`①≠③` 不得静默放行。
+
+    背景：修复前退出码只认 `①≠②` 与仓级 `②≠③`，`①≠③` 无论差多少条都返回 0。
+    这形成双重盲区——物料级不阻断 + 仓级判据跳过 `UNATTRIBUTED` 桶，
+    两者交集无任何判据覆盖。而 `INVENTORY_TRUTH.md` §2 文档正文把
+    「① 独立于 ②③ 变动」定为**禁止**。
+
+    本类锁死纯函数层的分级契约（端到端退出码由
+    `tests/test_p2_1_drift_gate.py` 用真子进程锁）。
+    """
+
+    def _rows_and_findings(self):
+        # M1：总账 100 / 库位 100 / 流水 40 → 只有 ①≠③
+        rows = v.build_identity_rows(
+            materials=[(1, "P21-M1", 100.0)],
+            locations=[(1, 100.0, None)],
+            transactions=[(1, 40.0, None)],
+        )
+        return rows, v.find_mismatches(rows)
+
+    def test_no_allowlist_all_drift_is_hard(self):
+        rows, findings = self._rows_and_findings()
+        hard, waived = v.split_drift_findings(rows, findings, None)
+        assert len(hard) == 1
+        assert hard[0]["dimension"] == "ledger_vs_txn"
+        assert waived == []
+
+    def test_allowlist_by_code_waives_with_reason(self):
+        rows, findings = self._rows_and_findings()
+        hard, waived = v.split_drift_findings(rows, findings,
+                                              {"P21-M1": "期初历史差"})
+        assert hard == []
+        assert waived[0]["waive_reason"] == "期初历史差"
+
+    def test_allowlist_by_id_string_waives(self):
+        rows, findings = self._rows_and_findings()
+        hard, waived = v.split_drift_findings(rows, findings, {"1": "期初历史差"})
+        assert hard == []
+        assert len(waived) == 1
+
+    def test_other_material_allowlist_does_not_waive(self):
+        """名单里是别的物料 → 不得误豁免（防"宽泛白名单"）。"""
+        rows, findings = self._rows_and_findings()
+        hard, waived = v.split_drift_findings(rows, findings,
+                                              {"P21-OTHER": "不相干"})
+        assert len(hard) == 1
+        assert waived == []
+
+    def test_ledger_vs_location_not_subject_to_waiver(self):
+        """①≠② 从不参与豁免：有差异时仍原样出现在 findings 里。"""
+        rows = v.build_identity_rows(
+            materials=[(1, "X", 100.0)],
+            locations=[(1, 5.0, None)],
+            transactions=[(1, 100.0, None)],
+        )
+        findings = v.find_mismatches(rows)
+        hard, waived = v.split_drift_findings(rows, findings, {"X": "编个理由"})
+        # hard/waived 只装 ledger_vs_txn
+        assert all(f["dimension"] == "ledger_vs_txn" for f in hard + waived)
+        # 而 ledger_vs_location 仍在 findings 里，未被吞
+        assert any(f["dimension"] == "ledger_vs_location" for f in findings)
+
+    def test_summarize_adds_drift_keys_only_when_passed(self):
+        """向后兼容：不传 drift 参数时，输出键与旧版一致（P0-1 同款策略）。"""
+        rows, findings = self._rows_and_findings()
+        s_old = v.summarize(rows, findings)
+        assert "drift_hard" not in s_old
+        assert "drift_waived" not in s_old
+
+        s_new = v.summarize(rows, findings, drift_hard=[{"a": 1}], drift_waived=[])
+        assert s_new["drift_hard"] == 1
+        assert s_new["drift_waived"] == 0
+
+    def test_allowlist_loader_rejects_blank_reason(self, tmp_path):
+        """空理由 = 未登记（防"空名单糊过去"）。"""
+        p = tmp_path / "blank.json"
+        p.write_text('{"materials": {"M1": "   "}}', encoding="utf-8")
+        assert v.load_drift_allowlist(str(p)) == {}
+
+    def test_allowlist_loader_raises_on_bad_input(self, tmp_path):
+        for name, content in [("bad.json", "{oops"),
+                              ("nostruct.json", '{"other": {}}'),
+                              ("list.json", '{"materials": []}')]:
+            p = tmp_path / name
+            p.write_text(content, encoding="utf-8")
+            try:
+                v.load_drift_allowlist(str(p))
+            except v.DriftAllowlistError:
+                continue
+            raise AssertionError(f"{name} 应当抛 DriftAllowlistError")
+        # 文件不存在
+        try:
+            v.load_drift_allowlist(str(tmp_path / "nope.json"))
+        except v.DriftAllowlistError:
+            pass
+        else:
+            raise AssertionError("缺失文件应当抛 DriftAllowlistError")

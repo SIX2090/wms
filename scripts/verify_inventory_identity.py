@@ -40,6 +40,13 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
   改为 SQL `GROUP BY + SUM` 聚合下推，`stock_transaction`（append-only，
   仓库增长最快的表）的传输与内存由「流水总行数」降到「(物料, 仓库) 组合数」。
   数值结果与原实现逐位一致；`--no-pushdown` 可切回旧路径供对照排障。
+* **P2-1 ①≠③ 不再静默放行（2026-09-27）**：此前退出码只认 `①≠②` 与
+  仓级 `②≠③`，`①≠③`（总账 vs 流水）**无论多少条都返回 0**。这形成双重盲区：
+  物料级不阻断 + 仓级判据跳过 `UNATTRIBUTED` 桶，两者交集（NULL 归属历史行
+  造成的 ①≠③）无任何判据覆盖。且 `INVENTORY_TRUTH.md` §2 文档正文把
+  「① 独立于 ②③ 变动」定为**禁止**，仅有本脚本注释单方降级为「待确认」。
+  现改为：**默认硬失败**（`①≠③` 即 rc=1），历史差须经 `--allow-drift <json>`
+  逐条登记理由后才降级为 🟡 告警。详见 `INVENTORY_TRUTH.md` §4.3。
 * A14 合规：脚本引用 app，显式 opt-in 生产硬门禁。
 """
 from __future__ import annotations
@@ -231,11 +238,113 @@ def find_mismatches(rows, tolerance=DEFAULT_TOLERANCE):
     return findings
 
 
-def summarize(rows, findings, wh_findings=None, wh_rows=None):
+# ---------------------------------------------------------------------------
+# P2-1：①≠③ 的分级判定与豁免登记
+#
+# 为什么必须升级为硬失败
+# ----------------------
+# `INVENTORY_TRUTH.md` §2 文档正文把「① 独立于 ②③ 变动」定为 **❌ 禁止**
+# （除非 `# stock-truth:reason=` 显式豁免）；只有本脚本的旧注释单方把它降级为
+# 「待确认不阻断」。更糟的是这形成**双重盲区**：
+#   * 物料级 `ledger_vs_txn` 不阻断；
+#   * P0-1 新增的仓级判据**主动跳过** `warehouse_id IS NULL` 的 UNATTRIBUTED 桶
+#     （那是「不猜归属」的刻意设计，见 §3.2）。
+# 两者交集 —— NULL 归属历史行造成的 ①≠③ —— **没有任何判据覆盖**。
+#
+# 但 ①≠③ 也确实存在真实历史来源（期初建账早于流水制度、物料合并遗留等），
+# 一刀切硬失败会让现场库直接爆红、判据被忽略。故做**分级**：
+#
+#   🔴 硬失败：有 ①≠③ 且该物料**无豁免登记**        → 退出码 1
+#   🟡 豁免  ：有 ①≠③ 且物料在名单内且**理由非空** → 退出码 0
+#
+# 为什么用「豁免登记」而不是「阈值」：阈值只能回答"差多少算多"，
+# 不能回答"这条差是不是已知的"——差 1e-9 的真 BUG 与差 10 万的历史建账
+# 在阈值法下无法区分，且阈值本身是新的魔法数（AGENTS.md R1 教训）。
+# ---------------------------------------------------------------------------
+class DriftAllowlistError(Exception):
+    """豁免文件缺失 / JSON 非法 / 结构不符。**必须显式报错，不得静默降级**（A12）。"""
+
+
+def load_drift_allowlist(path):
+    """读取 ①≠③ 豁免登记文件，返回 {物料键: 理由} 字典。
+
+    文件格式（顶层必须含 `materials` 对象）：
+
+        {"materials": {"M-001": "期初导入早于流水制度（2026-08-16 建账），已验证非缺陷"}}
+
+    规则（**安全默认 + 失败可见**）：
+    * 理由为**空串/纯空白** → 视为**未登记**，该键不进入返回字典（防"空名单糊过去"）；
+    * 理由必须是**字符串**，非字符串即报错；
+    * 文件不存在 / JSON 解析失败 / 顶层缺 `materials` / `materials` 非对象
+      → 抛 `DriftAllowlistError`，由 `main()` 以 rc=2 退出，**绝不静默当空名单**。
+
+    键可以是 `material.code`（如 `M-001`），也可以是 `material_id` 的字符串形式
+    （如 `"12"`）——`split_drift_findings` 两者都查。
+    """
+    p = Path(path)
+    if not p.is_file():
+        raise DriftAllowlistError(f"豁免文件不存在：{path}")
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DriftAllowlistError(f"豁免文件无法解析为 JSON：{path}（{exc}）") from exc
+    if not isinstance(raw, dict):
+        raise DriftAllowlistError(f"豁免文件顶层必须是对象：{path}")
+    materials = raw.get("materials")
+    if not isinstance(materials, dict):
+        raise DriftAllowlistError(
+            f"豁免文件顶层必须含 `materials` 对象：{path}")
+
+    allow = {}
+    for key, reason in materials.items():
+        if not isinstance(reason, str):
+            raise DriftAllowlistError(
+                f"豁免理由必须是字符串：{key} → {reason!r}")
+        reason = reason.strip()
+        if not reason:
+            # 空理由 = 未登记：故意不加入，让它继续硬失败
+            continue
+        allow[str(key)] = reason
+    return allow
+
+
+def split_drift_findings(rows, findings, allowlist):
+    """把 `ledger_vs_txn`（①≠③）findings 拆成 (hard, waived) 两组。
+
+    `allowlist` 为 None 或空 → 全部算 hard（**默认严格**）。
+    命中豁免的条目会带上 `waive_reason` 字段，便于输出与追溯。
+
+    注意：**只处理 `ledger_vs_txn`**。`ledger_vs_location`（①≠②）与仓级
+    findings 不参与豁免——它们从来就是硬失败，本次不改变其地位。
+    """
+    allowlist = allowlist or {}
+    hard, waived = [], []
+    for f in findings:
+        if f.get("dimension") != "ledger_vs_txn":
+            continue
+        mid = f.get("material_id")
+        code = f.get("code") or ""
+        # 键优先按 code 查，再按 material_id 的字符串形式查
+        reason = allowlist.get(str(code)) if code else None
+        if reason is None:
+            reason = allowlist.get(str(mid))
+        if reason:
+            item = dict(f)
+            item["waive_reason"] = reason
+            waived.append(item)
+        else:
+            hard.append(f)
+    return hard, waived
+
+
+def summarize(rows, findings, wh_findings=None, wh_rows=None,
+              drift_hard=None, drift_waived=None):
     """汇总：物料总数、有库位账的物料数、各维度不一致条数。
 
     P0-1：新增仓级维度 `mismatch_wh_location_vs_txn` 与未归属统计。
-    `wh_findings` / `wh_rows` 缺省时保持旧行为（向后兼容既有调用与测试）。
+    P2-1：新增 `drift_hard` / `drift_waived`（①≠③ 的分级结果）。
+    `wh_findings` / `wh_rows` / `drift_hard` / `drift_waived` 缺省时**保持旧行为**
+    （向后兼容既有调用与测试——新键仅在显式传参时出现）。
     """
     summary = {
         "materials": len(rows),
@@ -263,6 +372,13 @@ def summarize(rows, findings, wh_findings=None, wh_rows=None):
         summary["warehouse_findings"] = wh_findings
         summary["unattributed_materials"] = len(unattributed)
         summary["unattributed"] = unattributed
+    if drift_hard is not None or drift_waived is not None:
+        drift_hard = drift_hard or []
+        drift_waived = drift_waived or []
+        summary["drift_hard"] = len(drift_hard)
+        summary["drift_waived"] = len(drift_waived)
+        summary["drift_hard_findings"] = drift_hard
+        summary["drift_waived_findings"] = drift_waived
     return summary
 
 
@@ -345,7 +461,18 @@ def main():
     ap.add_argument("--json", action="store_true", help="输出 JSON（供流水线消费）")
     ap.add_argument("--no-pushdown", action="store_true",
                     help="P1-1：切回旧的全量逐行拉取路径（默认走下推；仅供对照排障）")
+    ap.add_argument("--allow-drift", metavar="JSON",
+                    help="P2-1：①≠③ 豁免登记文件（JSON）。不传则所有 ①≠③ 都硬失败。"
+                         "格式：{\"materials\": {\"物料编码或ID\": \"理由（必填）\"}}")
     args = ap.parse_args()
+
+    # P2-1：豁免文件加载失败 → 显式报错（rc=2），绝不静默当空名单放过（A12）
+    try:
+        allowlist = (load_drift_allowlist(args.allow_drift)
+                     if args.allow_drift else None)
+    except DriftAllowlistError as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        return 2
 
     if args.db:
         os.environ["DATABASE_URL"] = args.db
@@ -356,14 +483,18 @@ def main():
     # P0-1：仓级分解（抓"仓级串仓"——物料级合计对、但各仓各自错）
     wh_rows = build_warehouse_rows(locations, transactions)
     wh_findings = find_warehouse_mismatches(rows, wh_rows, args.tolerance)
-    summary = summarize(rows, findings, wh_findings, wh_rows)
+    # P2-1：①≠③ 分级（有豁免登记的降级为告警，其余硬失败）
+    drift_hard, drift_waived = split_drift_findings(rows, findings, allowlist)
+    summary = summarize(rows, findings, wh_findings, wh_rows,
+                        drift_hard, drift_waived)
 
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
-        # 判据用途：①≠② 或 仓级 ②≠③ 均视为硬失败；
-        # ① vs ③ 差异多为历史遗留（期初早于流水制度），列为待确认不阻断。
+        # 判据用途：①≠②、仓级 ②≠③、以及**未登记的** ①≠③ 均为硬失败；
+        # 已显式登记理由的 ①≠③ 降级为告警（P2-1）。
         return 1 if (summary["mismatch_ledger_vs_location"]
-                     or summary.get("mismatch_wh_location_vs_txn")) else 0
+                     or summary.get("mismatch_wh_location_vs_txn")
+                     or summary.get("drift_hard")) else 0
 
     print("=" * 66)
     print("  库存三账恒等式校验（INVENTORY_TRUTH.md §1：① = Σ② = Σ③）")
@@ -371,7 +502,9 @@ def main():
     print(f"  物料总数           : {summary['materials']}")
     print(f"  有库位账的物料     : {summary['materials_with_location_rows']}")
     print(f"  ①≠②（总账 vs 库位）: {summary['mismatch_ledger_vs_location']}")
-    print(f"  ①≠③（总账 vs 流水）: {summary['mismatch_ledger_vs_txn']}（历史遗留多为待确认）")
+    print(f"  ①≠③（总账 vs 流水）: {summary['mismatch_ledger_vs_txn']}"
+          f"（🔴 未登记硬失败 {summary.get('drift_hard', 0)} / "
+          f"🟡 已豁免 {summary.get('drift_waived', 0)}）")
     print(f"  ②≠③ 仓级（库位 vs 流水）: {summary.get('mismatch_wh_location_vs_txn', 0)}"
           f"（P0-1：抓仓级串仓）")
     if summary["unattributed_materials"]:
@@ -393,11 +526,27 @@ def main():
                   f"库位账={f['locations']} 流水={f['txns']} 差={f['delta']}")
         if len(wh_findings) > args.top:
             print(f"  ... 另有 {len(wh_findings) - args.top} 条仓级差异（--top 调大查看）")
+    if drift_waived:
+        print("-" * 66)
+        for f in drift_waived[: args.top]:
+            print(f"  🟡 [已豁免 ①≠③] {f['code'] or f['material_id']}: "
+                  f"总账={f['ledger']} 流水={f['other']} 差={f['delta']}"
+                  f"  ← {f['waive_reason']}")
+        if len(drift_waived) > args.top:
+            print(f"  ... 另有 {len(drift_waived) - args.top} 条已豁免（--top 调大查看）")
+    if drift_hard:
+        print("-" * 66)
+        print(f"  🔴 未登记的 ①≠③ 有 {len(drift_hard)} 条 —— 必须查清或显式登记豁免：")
+        for f in drift_hard[: args.top]:
+            print(f"      {f['code'] or f['material_id']}: "
+                  f"总账={f['ledger']} 流水={f['other']} 差={f['delta']}")
+        print("      （登记方式：--allow-drift <json>，见 INVENTORY_TRUTH.md §4.3）")
     if not findings and not wh_findings:
         print("  ✅ 三账恒等式全部成立（含仓级分解）")
     print("=" * 66)
     return 1 if (summary["mismatch_ledger_vs_location"]
-                 or summary.get("mismatch_wh_location_vs_txn")) else 0
+                 or summary.get("mismatch_wh_location_vs_txn")
+                 or summary.get("drift_hard")) else 0
 
 
 if __name__ == "__main__":

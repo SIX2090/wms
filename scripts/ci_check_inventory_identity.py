@@ -106,6 +106,31 @@ SELECT m.id, w.id, 'in', 40.0, datetime('now') FROM material m, warehouse w
 WHERE m.code = 'CI-XWH' AND w.code = 'CI-WHB';
 """
 
+# P2-1（2026-09-27）：①≠③ 静默放行反向验证夹具。
+# 构造「只有 ①≠③」的场景 —— 三重条件缺一不可，缺任一就会被别的判据兜住而失去区分度：
+#   ①=②   ：总账 100，库位账 100        → ledger_vs_location 不报
+#   仓级相等：库位与流水同在 NULL 归属   → warehouse_id 全 NULL，仓级判据跳过
+#   ①≠③   ：流水净额 40（差 60）        → **只有** ledger_vs_txn 命中
+# 修复前此夹具 rc=0（双重盲区）；修复后必须 rc=1。
+_P21_DRIFT_SQL = """
+INSERT INTO material (code, name, stock, created_at)
+VALUES ('CI-P21', '夹具-只有1v3差异', 100.0, datetime('now'));
+
+INSERT INTO location_inventory (material_id, location, quantity)
+SELECT id, 'P21-01', 100.0 FROM material WHERE code = 'CI-P21';
+
+INSERT INTO stock_transaction (material_id, transaction_type, quantity, created_at)
+SELECT id, 'in', 40.0, datetime('now') FROM material WHERE code = 'CI-P21';
+"""
+
+# 与 _P21_DRIFT_SQL 配套的豁免登记（CI-P21 应为 ①≠③，登记后须转绿）
+_P21_ALLOWLIST = """{
+  "materials": {
+    "CI-P21": "CI 夹具：模拟已登记的期初历史差（INVENTORY_TRUTH.md §4.3）"
+  }
+}
+"""
+
 
 def _run(cmd, **kw):
     print(f"  $ {' '.join(str(c) for c in cmd)}", flush=True)
@@ -187,18 +212,37 @@ def _sqlite_exec(db_path: Path, sql: str) -> None:
         conn.close()
 
 
-def _checker(python: str, db_path: Path):
-    return _run(
-        [python, str(CHECKER), "--db", f"sqlite:///{db_path}", "--json"],
-        cwd=str(ROOT),
-    )
+def _checker(python: str, db_path: Path, extra_args=None):
+    cmd = [python, str(CHECKER), "--db", f"sqlite:///{db_path}", "--json"]
+    if extra_args:
+        cmd += list(extra_args)
+    return _run(cmd, cwd=str(ROOT))
+
+
+def _json_has_waived(stdout: str) -> bool:
+    """从混有 app 启动日志的 stdout 里截出 JSON，判断 drift_waived >= 1。
+
+    app 导入期会往 stdout 打日志，不能直接 `json.loads`。判据的 JSON 主体
+    必然从**行首的 `{`** 开始。
+    """
+    import json
+    lines = stdout.splitlines()
+    try:
+        start = next(i for i, ln in enumerate(lines) if ln.startswith("{"))
+    except StopIteration:
+        return False
+    try:
+        payload = json.loads("\n".join(lines[start:]))
+    except ValueError:
+        return False
+    return int(payload.get("drift_waived") or 0) >= 1
 
 
 def main() -> int:
     python = sys.executable
     env_note = os.environ.get("VIRTUAL_ENV") or python
     print("=" * 66)
-    print("  三账恒等式 CI 门禁（BUG-2026-09-25-006 / P0-1 仓级扩展 2026-09-27）")
+    print("  三账恒等式 CI 门禁（BUG-2026-09-25-006 / P0-1 仓级扩展 / P2-1 ①≠③ 2026-09-27）")
     print(f"  python: {env_note}")
     print("=" * 66)
 
@@ -207,7 +251,7 @@ def main() -> int:
         db_path = _build_fixture_db(python, workdir)
 
         # ---- 第 1 步：干净夹具，恒等式必须成立 ----
-        print("\n[1/4] 灌入一致夹具数据，期望恒等式成立（rc=0）")
+        print("\n[1/5] 灌入一致夹具数据，期望恒等式成立（rc=0）")
         _sqlite_exec(db_path, _SEED_SQL)
         r = _checker(python, db_path)
         print(r.stdout.rstrip())
@@ -219,7 +263,7 @@ def main() -> int:
         print("  ✓ 通过")
 
         # ---- 第 2 步：反向验证 —— 判据必须能报错 ----
-        print("\n[2/4] 注入『只写总账不写库位账』脏数据，期望判据报错（rc=1）")
+        print("\n[2/5] 注入『只写总账不写库位账』脏数据，期望判据报错（rc=1）")
         _sqlite_exec(db_path, _DIRTY_SQL)
         r = _checker(python, db_path)
         print(r.stdout.rstrip())
@@ -233,7 +277,7 @@ def main() -> int:
         print("  ✓ 判据正确报出 ①≠②（反向验证通过）")
 
         # ---- 第 3 步：清除脏数据，恒等式恢复 ----
-        print("\n[3/4] 清除脏数据，期望恒等式恢复（rc=0）")
+        print("\n[3/5] 清除脏数据，期望恒等式恢复（rc=0）")
         import sqlite3
         conn = sqlite3.connect(str(db_path))
         try:
@@ -260,7 +304,7 @@ def main() -> int:
         # ---- 第 4 步（P0-1）：仓级串仓反向验证 ----
         # 这一步覆盖 AGENTS.md R2「多仓库隔离」：物料级合计相等但各仓各自错。
         # 没有这一步，P0-1 新增的仓级能力在 CI 里就没有守护 —— 被改坏也无人知。
-        print("\n[4/4] 注入『仓级串仓』数据（物料级合计仍相等），"
+        print("\n[4/5] 注入『仓级串仓』数据（物料级合计仍相等），"
               "期望判据报出 wh_location_vs_txn（rc=1）")
         _sqlite_exec(db_path, _CROSS_WH_SQL)
         r = _checker(python, db_path)
@@ -274,8 +318,51 @@ def main() -> int:
             return 1
         print("  ✓ 判据正确报出仓级串仓（P0-1 反向验证通过）")
 
+        # ---- 第 5 步（P2-1）：①≠③ 反向验证 + 豁免转绿 ----
+        # 这一步覆盖「总账 vs 流水」维度。修复前该维度**无论差多少条都 rc=0**
+        # （双重盲区：物料级不阻断 + 仓级跳过 NULL 归属桶）。没有这一步，
+        # P2-1 的能力在 CI 里无守护 —— 被改回静默放行也无人知。
+        # 注意：先清空第 4 步的仓级脏数据，否则会混入 wh_location_vs_txn 干扰判定。
+        print("\n[5/5] 注入『只有 ①≠③』数据（①=②、仓级相等），"
+              "期望判据报出 ledger_vs_txn（rc=1）；再传豁免登记期望转绿（rc=0）")
+        import sqlite3
+        _conn = sqlite3.connect(str(db_path))
+        try:
+            for table in ("stock_transaction", "location_inventory", "material"):
+                _conn.execute(f"DELETE FROM {table}")
+            _conn.commit()
+        finally:
+            _conn.close()
+
+        _sqlite_exec(db_path, _P21_DRIFT_SQL)
+        r = _checker(python, db_path)
+        print(r.stdout.rstrip())
+        if r.returncode == 0:
+            print("\n✗ 只有 ①≠③ 时判据仍返回 0 —— P2-1 的分级判定没生效或已被改回"
+                  "静默放行（INVENTORY_TRUTH.md §4.3 / 文档正文 §2「①独立变动=禁止」）。")
+            return 1
+        if "ledger_vs_txn" not in r.stdout:
+            print("\n✗ 判据失败原因不是 ①≠③，不符合预期。")
+            return 1
+        print("  ✓ 判据正确报出未登记的 ①≠③（P2-1 反向验证通过）")
+
+        # 5b：同一脏数据 + 豁免登记 → 必须转绿（证明豁免通道真的通）
+        allow_file = workdir / "p21_allow_drift.json"
+        allow_file.write_text(_P21_ALLOWLIST, encoding="utf-8")
+        r2 = _checker(python, db_path, ["--allow-drift", str(allow_file)])
+        print(r2.stdout.rstrip())
+        if r2.returncode != 0:
+            print("\n✗ 已登记的 ①≠③ 仍被阻断 —— 豁免通道失效，"
+                  "现场将无法有序消除历史差。")
+            return 1
+        if not _json_has_waived(r2.stdout):
+            print("\n✗ 豁免命中数未体现在 --json 输出的 drift_waived 上。")
+            return 1
+        print("  ✓ 已登记的 ①≠③ 正确降级为告警（P2-1 豁免通道通过）")
+
     print("\n" + "=" * 66)
-    print("  ✓ 三账恒等式门禁通过（含 ①≠② 与 仓级②≠③ 双反向验证）")
+    print("  ✓ 三账恒等式门禁通过"
+          "（含 ①≠②、仓级②≠③、①≠③ 三项反向验证 + ①≠③ 豁免转绿）")
     print("=" * 66)
     return 0
 

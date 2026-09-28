@@ -150,6 +150,47 @@ class TestFixtureSchemaMatchesModels:
                 f"{table} 非空列未赋值：{sorted(missing)}（INSERT 会失败）"
             )
 
+    def test_drift_sql_columns_exist(self, mod, fixture_db):
+        """P2-1：①≠③ 夹具的列名必须真实存在。
+
+        该夹具必须**刻意不带** warehouse_id —— 带上的话会被仓级判据兜住，
+        就测不出「①≠③ 静默放行」这个 P2-1 缺陷了。
+        """
+        for table in ("material", "location_inventory", "stock_transaction"):
+            used = _insert_columns(mod._P21_DRIFT_SQL, table)
+            actual = _columns(fixture_db, table)
+            assert used <= actual, (
+                f"{table} P2-1 夹具用了不存在的列：{sorted(used - actual)}；"
+                f"实际列：{sorted(actual)}"
+            )
+        for table in ("location_inventory", "stock_transaction"):
+            assert "warehouse_id" not in _insert_columns(mod._P21_DRIFT_SQL, table), (
+                f"{table} P2-1 夹具**不应**带 warehouse_id —— "
+                "带了会被仓级判据兜住，失去区分度（P2-1 测的就是双重盲区）"
+            )
+
+    def test_drift_sql_respects_not_null_columns(self, mod, fixture_db):
+        for table in ("material", "location_inventory", "stock_transaction"):
+            conn = sqlite3.connect(str(fixture_db))
+            try:
+                cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            finally:
+                conn.close()
+            notnull = {c[1] for c in cols if c[3] and c[1] != "id"}
+            missing = notnull - _insert_columns(mod._P21_DRIFT_SQL, table)
+            assert not missing, (
+                f"{table} 非空列未赋值：{sorted(missing)}（INSERT 会失败）"
+            )
+
+    def test_p21_allowlist_is_valid_json(self, mod):
+        """CI 自带的豁免登记必须是合法 JSON 且带非空理由。"""
+        import json
+        payload = json.loads(mod._P21_ALLOWLIST)
+        assert isinstance(payload.get("materials"), dict)
+        assert payload["materials"].get("CI-P21", "").strip(), (
+            "CI 豁免登记必须给 CI-P21 一个非空理由（空理由会被视为未登记）"
+        )
+
     def test_material_table_has_no_legacy_unit_column(self, fixture_db):
         """回归：material 用 unit_id 关联单位表，一度误写成 unit 导致 CI 炸。"""
         cols = _columns(fixture_db, "material")
@@ -245,21 +286,71 @@ class TestIdentityAssertions:
         assert summary["mismatch_wh_location_vs_txn"] == 0
         assert summary["warehouse_findings"] == []
 
+    def test_p21_only_ledger_vs_txn_is_flagged(self, mod, fixture_db, tmp_path):
+        """P2-1 反向验证：只有 ①≠③ 的物料必须被列为 drift_hard（阻断）。
+
+        修复前此场景 `drift_hard` 键都不存在、退出码 0 —— 就是 P2-1 的漏网口。
+        """
+        db = tmp_path / "p21.db"
+        _copy_db(fixture_db, db)
+        mod._sqlite_exec(db, mod._P21_DRIFT_SQL)
+        summary = _run_checker_summary(db)
+
+        # ①=②：库位账 100 = 总账 100
+        assert summary["mismatch_ledger_vs_location"] == 0
+        # 仓级不覆盖（warehouse_id 全 NULL，进 UNATTRIBUTED 桶）
+        assert summary["mismatch_wh_location_vs_txn"] == 0
+        # 只有 ①≠③ 命中，且是**未登记 → 硬失败**
+        assert summary["mismatch_ledger_vs_txn"] == 1
+        assert summary["drift_hard"] == 1
+        assert summary["drift_waived"] == 0
+        assert summary["drift_hard_findings"][0]["code"] == "CI-P21"
+        assert summary["drift_hard_findings"][0]["delta"] == 60.0
+
+    def test_p21_allowlist_downgrades_to_waived(self, mod, fixture_db, tmp_path):
+        """对照：同一脏数据 + 豁免登记 → drift_waived=1、drift_hard=0（不阻断）。
+
+        这是防「修成一律硬失败」的控制组。
+        """
+        db = tmp_path / "p21_ok.db"
+        _copy_db(fixture_db, db)
+        mod._sqlite_exec(db, mod._P21_DRIFT_SQL)
+        allow = tmp_path / "allow.json"
+        allow.write_text(mod._P21_ALLOWLIST, encoding="utf-8")
+
+        summary = _run_checker_summary(db, ["--allow-drift", str(allow)])
+        assert summary["mismatch_ledger_vs_txn"] == 1
+        assert summary["drift_hard"] == 0
+        assert summary["drift_waived"] == 1
+        assert summary["drift_waived_findings"][0]["waive_reason"].strip()
+
+    def test_p21_blank_reason_allowlist_still_hard(self, mod, fixture_db, tmp_path):
+        """名单内理由为空白 = 未登记 → 仍必须 drift_hard（防"空名单糊过去"）。"""
+        db = tmp_path / "p21_blank.db"
+        _copy_db(fixture_db, db)
+        mod._sqlite_exec(db, mod._P21_DRIFT_SQL)
+        allow = tmp_path / "blank.json"
+        allow.write_text('{"materials": {"CI-P21": "   "}}', encoding="utf-8")
+
+        summary = _run_checker_summary(db, ["--allow-drift", str(allow)])
+        assert summary["drift_hard"] == 1
+        assert summary["drift_waived"] == 0
+
 
 def _copy_db(src: Path, dst: Path) -> None:
     import shutil
     shutil.copyfile(str(src), str(dst))
 
 
-def _run_checker_summary(db_path: Path) -> dict:
+def _run_checker_summary(db_path: Path, extra_args=None) -> dict:
     """调用真判据脚本，解析 JSON 输出。"""
     import json
-    r = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "verify_inventory_identity.py"),
-         "--db", f"sqlite:///{db_path}", "--json"],
-        cwd=str(ROOT), capture_output=True, text=True,
-    )
-    # 判据在有 ①≠② 时返回 1，这是预期行为，不当作错误
+    cmd = [sys.executable, str(ROOT / "scripts" / "verify_inventory_identity.py"),
+           "--db", f"sqlite:///{db_path}", "--json"]
+    if extra_args:
+        cmd += list(extra_args)
+    r = subprocess.run(cmd, cwd=str(ROOT), capture_output=True, text=True)
+    # 判据在有 ①≠②/①≠③ 时返回 1，这是预期行为，不当作错误
     assert r.returncode in (0, 1), f"判据异常退出 rc={r.returncode}\n{r.stderr[-2000:]}"
     m = re.search(r"\{.*\}", r.stdout, re.DOTALL)
     assert m, f"判据未输出 JSON：{r.stdout[-2000:]}"
