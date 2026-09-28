@@ -2092,16 +2092,36 @@
   「P0-1 的仓级维度没生效或已被改坏」。**两道锁都锁得住，非自证陷阱**。
   回退用 `cp` 文件备份法，**未用 `git stash`**（R8 明令，本环境曾因 stash 被
   SIGTERM 中断致仓库损坏）。
-- **生效确认**：**本地已验证（2026-09-27）**——
+- **生效确认**：**已确认（2026-09-28）**——
   受影响与相邻模块 `pytest`（checker + gate + p2b + p1_7 三条链 + warehouse_stock_service）
   **72 passed / 1 skipped / 0 failed**，与修复前基线（35 passed / 1 skipped）相比
-  **无任何回归**；`scripts/lint_wms_rules.py` A1–A14 **0 违规**；
+  **无任何回归**；**全量 `tests/` 2933 passed / 87 skipped / 0 failed（828s）**；
+  `scripts/lint_wms_rules.py` 全量与 `--staged` 均 A1–A14 **0 违规**；
   `scripts/lint_no_raw_post_fetch.py` 通过；`scripts/ci_check_inventory_identity.py`
   **4 步全绿**（含 ①≠② 与 仓级②≠③ 双反向验证）。
-  **CI 实证待确认**——按 §三 CI 全绿门禁，需推送后确认三工作流
-  （Android APK Build / WMS AI Verification / WMS CI）在 main 上转绿，
-  由 `scripts/check_ci_green.py` 复跑核验后补记。**本改动纯 Python（scripts + tests + 文档），
-  不涉及 Jinja 模板与 `app/` 运行时代码，无 R3 重启要求。**
+  **推送已实证（2026-09-28）**——API 通道（§8.1）推送后反查
+  `GET /repos/SIX2090/wms/commits/main`：远程 main `3d4eba3af617`，
+  父提交 `1f8df6f424c6`，files 变更 6 个与预期逐一致
+  （`INVENTORY_TRUTH.md` +39、`WMS_BUG_BASELINE.md` +63、
+  `scripts/ci_check_inventory_identity.py` +52/-5、
+  `scripts/verify_inventory_identity.py` +166/-14、
+  `tests/test_ci_inventory_identity_gate.py` +80、
+  `tests/test_inventory_identity_checker.py` +95）；
+  `git diff FETCH_HEAD HEAD` **零差异**，本地与远程 tree 同为 `927c209455`，**字节级一致**。
+  **CI 实证（§三 门禁，最强证据）**：`scripts/check_ci_green.py` rc=0，三工作流全绿且
+  `WMS CI` #1286 与 `WMS AI Verification` #1581 **均指向本次提交 `3d4eba3a`**
+  （2026-09-28T00:21:17Z）——即本次修改的三账门禁**在真实 CI 环境中已跑通**
+  （`Android APK Build` #756 仍指 `1f8df6f`：本改动无 Android 文件，
+  该工作流按路径过滤未触发新运行，不构成未验证项）。
+  **本改动纯 Python（scripts + tests + 文档），不涉及 Jinja 模板与 `app/` 运行时代码，
+  无 R3 重启要求。**
+- **踩坑记录（通道细节，与 §8.1 有出入）**：本环境实测 token 认证头是
+  **`Authorization: token <T>`**，而 §8.1 记载的 `Bearer` 返回
+  401 `Bad credentials`；`get_token.sh` 必须与后续 curl/脚本写在**同一条命令**里
+  （子 shell 导出会丢，实测出现 `token 长度: 0`）。另：`git push` 走 ghproxy
+  前缀报 `could not read Username`（与 §8.1「代理只能拉取不能推送」一致）；
+  `api.github.com` 经 DoH 解析 IP 写 `/etc/hosts` 后直连可用（200）。
+  **§8.1 的 `Bearer` 写法建议后续修订**。
 - **关联**：`INVENTORY_TRUTH.md` §4.1（新增章节）、`BUG-2026-09-25-005/006`（判据写了没跑）、
   `BUG-2026-09-02-001` / `BUG-2026-09-03-001/002/004`（同根因方向）、
   `AGENTS.md` §七 R2 / R8。
