@@ -163,7 +163,7 @@ from utils import (
     sanitize_print_html,
     currency_cn, from_json_filter, to_json_filter, range_filter, add_filter
 )
-from notifications import notification_manager
+from notifications import init_notification_scheduler, notification_manager
 
 STOCK_COMPARE_EPSILON = 1e-6
 # BUG-2026-07-29-005: 收紧物料主数据（库存/价格）业务上限到 99999999.99，
@@ -19547,12 +19547,24 @@ def _ai_is_page_navigation_question(message):
     return any(word in compact for word in nav_words) and any(word in compact for word in page_words)
 
 def _ai_safe_url_for(endpoint, **values):
-    if endpoint not in app.view_functions:
-        return None
+    """安全生成 URL；endpoint 不存在或生成失败返回空串。
+
+    BUG-2026-09-28-001：本函数曾在 app.py 中被定义两次（此处与历史 31900 行），
+    后者签名 `(endpoint: str) -> str` 不支持 **values，覆盖前者后导致
+    `_ai_page_navigation_catalog` 中带 routing values 的 3 个条目
+    （采购入库列表 / 销售出库 / 风险操作审计）在 url_for 处抛 TypeError，
+    被静默吞成空串后从 AI 导航目录消失。现合并为单一定义：
+    保留 **values 能力，同时保持「失败返回空串」的调用方契约（caller 用
+    `if not url: continue` 判断），失败路径补日志以满足 A12（失败可见）。
+    """
+    if not endpoint or endpoint not in app.view_functions:
+        return ''
     try:
         return url_for(endpoint, **values)
-    except Exception:
-        return None
+    except Exception as exc:  # noqa: BLE001 - 单个页面失败不应影响整个目录
+        app.logger.warning('AI 导航 URL 生成失败: endpoint=%s values=%s err=%s',
+                           endpoint, values, exc)
+        return ''
 
 def _ai_page_navigation_catalog():
     pages = [
@@ -31897,14 +31909,10 @@ def api_ai_knowledge_deprecate():
         app.logger.error(f'知识失效失败: {e}')
         return jsonify({'status': 'error', 'msg': f'失效失败：{str(e)}'}), 500
 
-def _ai_safe_url_for(endpoint: str) -> str:
-    """安全生成 URL，失败返回空串。"""
-    if not endpoint:
-        return ''
-    try:
-        return url_for(endpoint)
-    except Exception:
-        return ''
+# BUG-2026-09-28-001：此处曾重复定义 _ai_safe_url_for(endpoint: str) -> str，
+# 与文件上方的 _ai_safe_url_for(endpoint, **values) 同名。Python 后定义覆盖前者，
+# 致 _ai_page_navigation_catalog 的带 values 条目全部抛 TypeError 被吞成空串。
+# 已删除本处重复定义，统一使用上方支持 **values 的版本。
 
 # ===== AI-R13 Agent 预算、取消、熔断和并发控制 API 端点 =====
 
@@ -34904,6 +34912,11 @@ if __name__ == '__main__':
         raise
 
     # Start notification scheduler
+    # BUG-2026-09-28-002：本块曾因 app.py 顶部只导入 notification_manager、
+    # 未导入 init_notification_scheduler 而抛 NameError，被下方裸 except 吞成
+    # 一行 "[WARN] scheduler failed"（无堆栈），导致 python app.py 直启时
+    # 微信分享定时任务静默不运行。已补导入并改为 logger.exception 保留堆栈，
+    # 满足 A12（失败可见）。生产入口 app/run_server.py 不受影响（其导入正确）。
     try:
         scheduler = init_notification_scheduler(app, db, Material, User)
         scheduler.add_job(
@@ -34915,8 +34928,8 @@ if __name__ == '__main__':
             max_instances=1,
         )
         print("[OK] scheduler started")
-    except Exception as e:
-        print("[WARN] scheduler failed")
+    except Exception:
+        app.logger.exception("[WARN] scheduler failed")
 
     # SERVER-AUTOPRINT-01：内置本机打印代理（与 run_server.py 入口行为一致）；
     # 失败不阻断主服务。WMS_LOCAL_PRINT_AGENT=0 可关闭。

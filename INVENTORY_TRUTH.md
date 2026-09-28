@@ -237,7 +237,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:28251`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:28263`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -400,7 +400,7 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为 app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:28251`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> （`app/app.py:28263`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
 > 但**歧义行与无法解析行有意保留 NULL**（`app/app.py:28264`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 

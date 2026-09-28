@@ -461,7 +461,11 @@ try:
             wms_app.OpeningStock.query.filter_by(material_id=material.id).delete()
             wms_app.StockTransaction.query.filter_by(material_id=material.id, transaction_type='opening').delete()
             wms_app.Material.query.filter_by(id=material.id).delete()
-            wms_app.Warehouse.query.filter(Warehouse.code.in_(['WH-T1', 'WH-T2', 'WH-T3'])).delete()
+            # BUG-2026-09-28-003：原为裸名 Warehouse（本文件未导入该符号），
+            # 抛 NameError 被外层 except 吞成 rollback，静默导致测试仓清理失败。
+            wms_app.Warehouse.query.filter(
+                wms_app.Warehouse.code.in_(['WH-T1', 'WH-T2', 'WH-T3'])
+            ).delete()
             if unit_record and not wms_app.Material.query.filter_by(unit_id=unit_record.id).first():
                 db.session.delete(unit_record)
             db.session.commit()

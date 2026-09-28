@@ -272,7 +272,11 @@ try:
             wms_app.StockTransaction.query.filter(
                 wms_app.StockTransaction.material_id.in_([m1.id, m2.id])
             ).delete(synchronize_session=False)
-            wms_app.Material.query.filter(Material.id.in_([m1.id, m2.id])).delete(synchronize_session=False)
+            # BUG-2026-09-28-003：原为裸名 Material（本文件未导入该符号），
+            # 抛 NameError 被外层 except 吞成 rollback，静默导致测试数据清理失败。
+            wms_app.Material.query.filter(
+                wms_app.Material.id.in_([m1.id, m2.id])
+            ).delete(synchronize_session=False)
             db.session.commit()
         except Exception:
             db.session.rollback()
