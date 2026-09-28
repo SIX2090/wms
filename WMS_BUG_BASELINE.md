@@ -2175,14 +2175,34 @@
 - **等价性交叉验证**：随机 3000 条流水（`random.seed(42)`，含负数/零/多仓/NULL）
   下，两路径 `summary` **完全一致**（正确检出 2 条 ①≠③、4 条仓级差异）；
   真实夹具库对比 materials / locations / txn 累加结果逐位相同。
-- **生效确认**：**本地已验证（2026-09-27）**——
-  受影响模块 `pytest`（checker + gate + p1_1）**39 passed / 1 skipped / 0 failed**，
-  与修复前基线（28 passed / 1 skipped）相比无回归；全量 `tests/` 见下方补记；
-  `scripts/lint_wms_rules.py` A1–A14 **0 违规**；`lint_no_raw_post_fetch.py` 通过；
+- **生效确认**：**已确认（2026-09-28）**——推送 `d85b8a23`（本地 `d4fc065`，API 推送，
+  远端 tree 与本地 tree 逐位一致 `5439769e`，`git diff FETCH_HEAD HEAD` 零差异）；
+  `WMS AI Verification` **#1583** ✅、`WMS CI` **#1288** ✅（均 @`d85b8a23`），
+  `Android APK Build` #756 ✅，三工作流全绿（`scripts/check_ci_green.py` 判定
+  「允许开工」）。本地实证：受影响模块 **39 passed / 1 skipped / 0 failed**，
+  全量 `tests/` **2944 passed / 87 skipped / 0 failed**（828s）；
+  `scripts/lint_wms_rules.py` 全量与 `--staged` 均 **0 违规**（含 pre-commit hook 实跑通过）；
   `scripts/ci_check_inventory_identity.py` **4 步全绿**。
-  **推送与 CI 实证待补记**（§三 门禁）。**本改动纯 Python（scripts + tests + 文档），
-  `collect_from_app` 只被 `main()` 与测试调用，不涉及 `app/` 运行时代码与 Jinja 模板，
-  无 R3 重启要求。**
+  **本改动纯 Python（scripts + tests + 文档），`collect_from_app` 只被 `main()` 与
+  测试调用，不涉及 `app/` 运行时代码与 Jinja 模板，无 R3 重启要求。**
+- **踩坑记录（供后续复用）**：
+  1. **推送通道**：`github.com` 的 git 协议在沙箱内 TLS 被封，`git push` 走 `ghproxy.net`
+     报 `could not read Username`（代理只读）。改走 §8.1 的 Git Data API 四步重放。
+     实测 **`Authorization` 头正确写法是 `token <T>`，不是 §8.1 记的 `Bearer <T>`**
+     （`Bearer` 返回 `401 Bad credentials`）——建议后续把 §8.1 订正。
+  2. **`get_token.sh` 必须与使用同一条命令**：`source` 的 export 在子 shell 里丢，
+     分两条命令会出现 `token 长度: 0`。
+  3. **本地无远端对象**：API 推的 commit 在本地对象库不存在，
+     `git update-ref refs/remotes/origin/main <remote-sha>` 会报 `nonexistent object`。
+     正确做法是先 `git fetch --depth 1 <proxy-url> main` 再 `update-ref … FETCH_HEAD`。
+  4. **测试顺序依赖（本次真实踩到）**：`tests/test_p1_1_identity_aggregation.py`
+     初版用 `scope="module"` 夹具 + `config.TestingConfig.SQLALCHEMY_DATABASE_URI = …`
+     切库，**单独跑 11 passed，全量跑 1 failed（`assert 3 == 2`）**——原因是 app 已初始化，
+     事后改 config 的 URI **不生效**，判据读到了上一模块残留的库。
+     已按仓库既有标准写法重写（`sqlite:///:memory:` 走环境变量 + 函数级夹具
+     `db.drop_all()/db.create_all()`），全量复跑消除。**教训：新增测试必须跑全量，
+     只跑单模块会漏掉顺序依赖**（R7 的正确用法不是"避免全局 config"，
+     而是"新测试必须经全量顺序验证"）。
 - **关联**：`INVENTORY_TRUTH.md` §4.2（新增章节）、`BUG-2026-09-27-003`（同判据的
   口径缺口 P0-1，同日修复）、`BUG-2026-09-25-005/006`（判据写了没跑）、
   `AGENTS.md` §七 R1 / R8。
