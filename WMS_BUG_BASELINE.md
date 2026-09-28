@@ -2277,9 +2277,30 @@
     「豁免后必须转绿」控制组 + 空白理由仍硬失败）。
 - **回退验证（R8 第 3 条）**：实现前先写回归锁 → **旧代码上 18 failed**（锁得住）；
   实现后全过。回退用 `cp` 文件备份法，**未用 `git stash`**（R8 明令）。
-- **生效确认**：**待补记**（推送与 CI 实证，§三 门禁）。
+- **生效确认**：**已确认（2026-09-28）**——推送 `48ad15f3`（本地 `58c1c9f`，API 推送，
+  远端 tree 与本地 tree 逐位一致 `a5ab4e1b`，`git diff FETCH_HEAD HEAD` 零差异）；
+  `WMS AI Verification` **#1585** ✅、`WMS CI` **#1290** ✅（均 @`48ad15f3`），
+  `Android APK Build` #756 ✅，三工作流全绿（`scripts/check_ci_green.py` 判定
+  「允许开工」）。本地实证：全量 `tests/` **2979 passed / 87 skipped / 0 failed**（878s，
+  较修复前基线 2944 增加 35 个新用例）；相邻模块 **91 passed / 1 skipped**；
+  `scripts/lint_wms_rules.py` 全量与 `--staged` 均 **0 违规**（含 pre-commit hook 实跑通过）；
+  `scripts/ci_check_inventory_identity.py` **5 步全绿**。
   **本改动纯 Python（scripts + tests + 文档），不涉及 `app/` 运行时代码与 Jinja 模板，
   无 R3 重启要求。**
+- **踩坑记录（供后续复用）**：
+  1. **端到端用例必须用真文件库，不能用 `:memory:`**：判据是**子进程**，
+     读不到测试进程内存里的内存库（内存库不跨进程）。首版 3 个端到端用例因此失败。
+     改用文件库 + `sqlite:///{path}` 后通过。
+  2. **`scope="module"` 建库 + 每用例重置数据** 比"每用例建库"快 3 倍
+     （111s → 36s）。重置是「删三表数据 + 重灌夹具」的确定性操作，不引入顺序依赖。
+  3. **app 启动日志会混进 stdout**，`json.loads` 报 `Extra data`。
+     判据的 JSON 主体必然从**行首的 `{`** 开始——按此截取（`_extract_json`）。
+  4. **CLI 复现不出 P2-1**：`app` 启动的 `backfill_stock_txn_warehouse_id`
+     （`app/app.py:28251`）会把能唯一确定归属的 NULL 行填上，从而被仓级判据兜住。
+     只有**歧义行/无法解析行**（`app/app.py:28264` 有意保留 NULL）才落在盲区里——
+     所以复现必须用**纯函数**直测，或用**刻意不带 warehouse_id** 的夹具。
+     这也是 CI 第 5 步夹具的设计依据（`tests/test_ci_inventory_identity_gate.py`
+     有一条测试专门断言该夹具**不得**带 `warehouse_id`）。
 - **现场升级路径（开硬门禁前必读）**：现有库若存在历史 `①≠③`，升级后判据会直接变红。
   有序做法：① `--json` 摸底条数与物料 → ② 逐条查清成因（真缺陷去修 / 历史建账登记）
   → ③ 确认无碍者写入 `--allow-drift` 并写清理由 → ④ 复核后固化为日常检查。
