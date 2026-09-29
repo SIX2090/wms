@@ -263,7 +263,7 @@ SIX2090/wms
 │   ├── requirements.txt          运行依赖（全钉版）
 │   ├── requirements-test.txt     测试依赖（CI 同源钉版）
 │   ├── models/                   SQLAlchemy 模型（core / inventory / master_data / ai / documents / print / wechat）
-│   ├── routes/                   业务路由（47 个模块：物料/出入库/盘点/调拨/采购/销售/报表/打印×5/移动端×2/AI 反馈/审批/备份等）
+│   ├── routes/                   业务路由（46 个业务模块：物料/出入库/盘点/调拨/采购/销售/报表/打印×5/移动端×2/AI 反馈/审批/备份等）
 │   ├── services/                 仓库级库存口径服务（warehouse_stock_service / warehouse_scope）
 │   ├── ai/                       AI 子系统（71 个 .py：agents / analysis / documents / ops / tools、routes.py、v2_routes.py、orchestrator.py、providers）
 │   ├── android-native-wms/       Android 客户端（Kotlin + Compose，102 个 .kt，独立 Gradle 工程）
@@ -382,7 +382,7 @@ make check
 # 本地全量回归请复刻 CI 参数（串行跑法存在跨文件环境污染，不可作判据）
 pytest tests/ -q -n 4 --dist loadfile
 
-# AI 子系统全量验证（核心 / 完整两档）
+# AI 子系统全量验证（smoke / core / full 三档）
 python3 scripts/verify_ai_all.py --level core
 python3 scripts/verify_ai_all.py --level full
 

@@ -2,7 +2,7 @@
 
 > 目的：减少 BUG 数量，提升代码质量，让"加功能"不再"天天几十个 BUG"
 > 适用范围：所有在 WMS 仓库 `SIX2090/wms` 工作的开发者
-> 最后更新：2026-08-28（v4：补 R1–R6 防反复规则、同步真实测试规模）
+> 最后更新：2026-09-20（v5：新增 R8 修 BUG 净收益原则；A1–A14 / R1–R8 与 AGENTS.md 对齐）
 > 配套文件：[`AGENTS.md`](./AGENTS.md)（规则速查与流程）、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md)（BUG 台账）
 
 ---

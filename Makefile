@@ -24,19 +24,19 @@ help: ## 显示本 Makefile 所有可执行 target
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "示例："
-	@echo "  make check    # 提交前：lint + 86 BUG 回归 + pytest"
+	@echo "  make check    # 提交前：lint + 74 项 BUG 回归 + pytest"
 	@echo "  make smoke    # 改完模板/路由后：121 冒烟（需先启动 WMS 服务）"
 
 .PHONY: lint
-lint: ## 跑 7 条防 BUG 规则 + 禁止裸调非 GET fetch
-	@echo ">> lint_wms_rules.py (A1-A7)"
+lint: ## 跑 A1–A14 共 14 条防 BUG 规则 + 禁止裸调非 GET fetch
+	@echo ">> lint_wms_rules.py (A1-A14)"
 	@$(PYTHON) scripts/lint_wms_rules.py
 	@echo ">> lint_no_raw_post_fetch.py (防 CSRF 漏写)"
 	@$(PYTHON) scripts/lint_no_raw_post_fetch.py
 	@echo "OK: lint 通过"
 
 .PHONY: bugs
-bugs: ## 跑 86 项 BUG 静态回归（无需启动服务）
+bugs: ## 跑 74 项 BUG 静态回归（无需启动服务）
 	@echo ">> verify_wms_bugs.py"
 	@$(PYTHON) scripts/verify_wms_bugs.py
 
@@ -46,7 +46,7 @@ unit: ## 跑 pytest 单元测试（tests/）
 	@$(PYTHON) -m pytest tests/ -q
 
 .PHONY: check
-check: lint bugs unit ## 提交前必跑：lint + 86 BUG 回归 + pytest
+check: lint bugs unit ## 提交前必跑：lint + 74 项 BUG 回归 + pytest
 	@echo ""
 	@echo "✓ make check 全部通过，可以 commit"
 

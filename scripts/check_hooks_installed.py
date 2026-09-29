@@ -66,7 +66,7 @@ def main():
     current = get_current_hooks_path()
     if current is None:
         print("✗ core.hooksPath 未设置")
-        print("  说明: 提交时不会跑 .githooks/pre-commit 的 7 条防 BUG 规则")
+        print("  说明: 提交时不会跑 .githooks/pre-commit 的 14 条防 BUG 规则")
         print("  修复: bash .githooks/install-hooks.sh")
         return 1
 

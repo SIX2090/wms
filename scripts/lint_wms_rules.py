@@ -5,9 +5,9 @@ lint_wms_rules.py
 =================
 
 WMS 防 BUG 多规则静态检查器
-统一扫描 10 条最常见的"招 BUG 写法"，每条规则可独立开关。
+统一扫描 14 条最常见的"招 BUG 写法"，每条规则可独立开关。
 
-10 条规则一览
+14 条规则一览
 ------------
 * **A1** 模板 ``<form method="post">`` 必须有 csrf_token
 * **A2** Python POST 路由必须有 ``@csrf.exempt`` / ``@login_required`` / ``@csrf_protect``
@@ -19,9 +19,12 @@ WMS 防 BUG 多规则静态检查器
 * **A8** 新增 POST/PUT/DELETE 路由必须用 pydantic 输入模型（防数据校验 BUG）
 * **A9** 新增业务函数必须在 ``tests/`` 至少有 1 个失败测试（防未测试代码上线）
 * **A10** ``app/app.py`` 禁止新增 ``@app.route`` 路由（防 app.py 重新膨胀，强制走 ``app/routes/`` 模块）
+* **A11** 禁止裸用 ``material.stock``（总账）做库存校验，必须用仓库级 ``get_warehouse_stock_quantities()``（R2 机械化，CI ``--full-a11`` 全量）
+* **A12** 测试文件模块顶层禁止裸 app context ``.push()``/``.pop()``（R7 机械化）
 * **A13** 台账 ``WMS_BUG_BASELINE.md`` 新增 BUG 条目必须含「生效确认」字段（R3 机械化）
+* **A14** ``scripts/`` 下新增 app 引用脚本必须显式放行生产硬门禁（R6 机械化）
 
-A8/A9/A10/A13 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
+A8/A9/A10/A13/A14 是"新增代码生效"规则：仅对 git staged 的新增行强制，不会对存量代码一次性报几百条违规。
 
 设计要点
 --------
@@ -1628,7 +1631,7 @@ def format_report(
 # ---------------------------------------------------------------------------
 
 HELP_TEXT = """\
-WMS 防 BUG 多规则静态检查器（12 条规则）
+WMS 防 BUG 多规则静态检查器（14 条规则）
 
 用法：
   python3 scripts/lint_wms_rules.py                  跑所有规则
