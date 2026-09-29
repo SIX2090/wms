@@ -8,7 +8,8 @@
 - `../../WMS_BUSINESS_SCOPE.md`
 - `../../WMS_BUG_BASELINE.md`
 - `../../WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`
+- `../../WMS_QUALITY_REPORT.md`（最新一期月报）
 
-（2026-09-29 更新：`SALES_MANAGEMENT_DEVELOPMENT_PLAN.md` 等已完成计划快照已移入本目录，不再作为当前口径来源。）
+（2026-09-29 更新：`SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`、`SYSTEM_TEST_*` 等已完成计划快照已移入本目录；`WMS_QUALITY_REPORT_2026-07.md` / `_2026-08.md` 为历史月报归档，最新一期仍留在仓库根目录。）
 
 需要重新确认历史问题时，必须先核对当前代码并运行对应验证脚本。

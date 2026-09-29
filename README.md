@@ -333,7 +333,7 @@ http://127.0.0.1:8080
 | `INVENTORY_TRUTH.md` | 库存三份数据的权威关系、派生方向与写入归属铁律 |
 | `PRODUCTION_DEPLOYMENT_CHECKLIST.md` | 每次生产发布前重新填写的验收模板 |
 | `WMS_BUG_BASELINE.md` | 已核验 BUG、风险、误报和暂缓项基线 |
-| `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因） |
+| `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因），保留最新一期；历史各期在 `docs/archive/WMS_QUALITY_REPORT_YYYY-MM.md` |
 | `WMS_STABILITY_BASELINE.md` | 发布门禁覆盖的 10 条关键链路 |
 | `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则详解 |
 | `SHERPA_INTEGRATION.md` | Android 端 sherpa-onnx 离线中文语音识别集成说明 |
