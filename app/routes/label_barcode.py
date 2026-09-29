@@ -176,12 +176,16 @@ def register_label_barcode_routes(app):
         return render_template('label_preview.html', template=template, materials=materials)
 
     @app.route('/label_template/<int:id>/print')
+    @require_role('admin', 'warehouse')  # LABEL-FIX-2026-09-29-003：与 label_template_detail 同口径，不留 @login_required 裸奔
     @login_required
     def print_labels(id):
         from app import LabelTemplate, Material, render_template, request
         template = LabelTemplate.query.get_or_404(id)
-        material_ids = request.args.get('ids', '').split(',')
-        materials = Material.query.filter(Material.id.in_(material_ids)).all() if material_ids and material_ids[0] else []
+        # LABEL-FIX-2026-09-29-003：与 label.py print_batch_labels 同口径，
+        # 只接受数字 id，非数字静默丢弃（此前字符串直接进 in_()，依赖 SQLite 隐式转换）
+        ids = request.args.get('ids', '').split(',')
+        ids = [int(i) for i in ids if i.strip().isdigit()]
+        materials = Material.query.filter(Material.id.in_(ids)).all() if ids else []
         all_templates = LabelTemplate.query.all()
         return render_template('print_label.html', template=template, materials=materials, templates=all_templates)
 
