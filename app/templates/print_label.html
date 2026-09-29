@@ -276,6 +276,16 @@
                                     <span class="cell-value">{{ material.category.name if material.category else '' }}</span>
                                     {% elif cell_data.field == 'supplier' %}
                                     <span class="cell-value">{{ material.supplier.name if material.supplier else '' }}</span>
+                                    {% elif cell_data.field == 'unit_name' %}
+                                    <span class="cell-value">{{ material.unit.name if material.unit else '' }}</span>
+                                    {% elif cell_data.field == 'category_name' %}
+                                    <span class="cell-value">{{ material.category.name if material.category else '' }}</span>
+                                    {% elif cell_data.field == 'price' %}
+                                    <span class="cell-value">{{ material.price if material.price else '' }}</span>
+                                    {% elif cell_data.field == 'date' %}
+                                    <span class="cell-value">{{ now.strftime('%Y-%m-%d') if now is defined and now else '' }}</span>
+                                    {% elif cell_data.field == 'supplier_name' %}
+                                    <span class="cell-value">{{ material.supplier.name if material.supplier else '' }}</span>
                                     {% else %}
                                     <span class="cell-value"></span>
                                     {% endif %}

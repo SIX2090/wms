@@ -179,7 +179,7 @@ def register_label_barcode_routes(app):
     @require_role('admin', 'warehouse')  # LABEL-FIX-2026-09-29-003：与 label_template_detail 同口径，不留 @login_required 裸奔
     @login_required
     def print_labels(id):
-        from app import LabelTemplate, Material, render_template, request
+        from app import LabelTemplate, Material, datetime, render_template, request
         template = LabelTemplate.query.get_or_404(id)
         # LABEL-FIX-2026-09-29-003：与 label.py print_batch_labels 同口径，
         # 只接受数字 id，非数字静默丢弃（此前字符串直接进 in_()，依赖 SQLite 隐式转换）
@@ -187,7 +187,9 @@ def register_label_barcode_routes(app):
         ids = [int(i) for i in ids if i.strip().isdigit()]
         materials = Material.query.filter(Material.id.in_(ids)).all() if ids else []
         all_templates = LabelTemplate.query.all()
-        return render_template('print_label.html', template=template, materials=materials, templates=all_templates)
+        # LABEL-FIX-2026-09-29-001：模板 date 字段需要 now（与 label.py:50 语义一致）
+        return render_template('print_label.html', template=template, materials=materials,
+                               templates=all_templates, now=datetime.now())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/label_template/<int:id>/set_default', methods=['POST'])
