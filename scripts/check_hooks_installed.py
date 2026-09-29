@@ -12,6 +12,7 @@
   1 = 未设置或设置错误（提示用户跑 install-hooks.sh）
   2 = 仓库根目录找不到（不在 git 仓库里）
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -73,6 +74,14 @@ def main():
     # current 可能是绝对路径或相对路径，统一结尾比较
     if current.endswith(EXPECTED_HOOKS_SUFFIX) or current == str(githooks_dir):
         print(f"✓ core.hooksPath 已正确指向 {EXPECTED_HOOKS_SUFFIX}")
+        # BUG-2026-09-29-001：hooksPath 正确不代表钩子会执行——git 要求钩子文件
+        # 带可执行位，否则静默跳过（只打一行 ignored 提示）。这里显式校验。
+        not_exec = [h.name for h in (githooks_dir / "pre-commit", githooks_dir / "pre-push") if not os.access(h, os.X_OK)]
+        if not_exec:
+            print(f"✗ 以下钩子缺少可执行位，git 会静默跳过：{', '.join(not_exec)}")
+            print("  修复: chmod +x .githooks/pre-commit .githooks/pre-push")
+            return 1
+        print("✓ 钩子文件均可执行（pre-commit / pre-push）")
         print(f"  当前值: {current}")
         return 0
 

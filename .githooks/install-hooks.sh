@@ -21,6 +21,12 @@ fi
 
 git config core.hooksPath "$HOOKS_DIR"
 
+# BUG-2026-09-29-001 防护：确保钩子文件本身可执行。
+# git 只有在钩子文件带可执行位时才会运行它；若仓库中记录的 mode 是 100644
+# （历史曾如此），git 会**静默跳过**钩子并只打一行 "hook was ignored" 提示，
+# 等于 A1–A14 防 BUG 规则完全失效。这里在启用时顺带修正本地权限。
+chmod +x "$HOOKS_DIR/pre-commit" "$HOOKS_DIR/pre-push" 2>/dev/null || true
+
 echo "✓ pre-commit 钩子已启用"
 echo "  hooksPath = $(git config core.hooksPath)"
 echo "  钩子文件: pre-commit (防 BUG 14 条规则 A1–A14) / pre-push (禁删 main)"
