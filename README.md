@@ -337,9 +337,8 @@ http://127.0.0.1:8080
 | `WMS_STABILITY_BASELINE.md` | 发布门禁覆盖的 10 条关键链路 |
 | `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则详解 |
 | `SHERPA_INTEGRATION.md` | Android 端 sherpa-onnx 离线中文语音识别集成说明 |
-| `SYSTEM_TEST_PLAN.md` / `SYSTEM_TEST_REPORT.md` | 系统测试计划与报告 |
+| `docs/archive/` | 已结束的 BUG、巡检、专项审计报告与已完成计划快照（含 SYSTEM_TEST_*、SALES_MANAGEMENT_*、AI-MOB-OFFLINE-01），仅供追溯 |
 | `上线部署说明.md` | 腾讯云 Windows 部署和数据保护说明 |
-| `docs/archive/` | 已结束的 BUG、巡检和专项审计历史报告，仅供追溯 |
 
 > 为避免计划冲突，仓库只保留 `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` 作为 AI 开发主计划，禁止另建并行 AI 计划。
 

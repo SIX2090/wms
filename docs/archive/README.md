@@ -8,6 +8,7 @@
 - `../../WMS_BUSINESS_SCOPE.md`
 - `../../WMS_BUG_BASELINE.md`
 - `../../WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`
-- `../../SALES_MANAGEMENT_DEVELOPMENT_PLAN.md`
+
+（2026-09-29 更新：`SALES_MANAGEMENT_DEVELOPMENT_PLAN.md` 等已完成计划快照已移入本目录，不再作为当前口径来源。）
 
 需要重新确认历史问题时，必须先核对当前代码并运行对应验证脚本。

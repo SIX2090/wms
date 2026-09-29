@@ -4,6 +4,11 @@
 > 编制日期：2026-09-11
 > 适用仓库：`/workspace/wms`（Flask + SQLAlchemy 单体 + Android 原生 WMS）
 > **本方案所有条目均已定位到具体文件与行号；未标"待核实"的结论都已实测。**
+>
+> ⚠️ **状态说明（2026-09-29 补注，避免误读为待办）**：本文是 **2026-09-11 的修复方案快照**，不是当前任务清单。
+> - 文中 **P0-4 已消化**：`supplier_evaluation` 工具已注册（`app/ai/tools/registry.py`，任务 AI-LLM-GATE-002 完成）。
+> - **P0-x 编号与 AI 台账 §P0 系列不同义**——台账 P0-1/P0-2 指的是委外模块仓库字段等另一批任务，勿混用编号。
+> - 当前真实待办以 [`WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`](./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md) §11「当前下一项」为唯一准绳。
 
 ---
 

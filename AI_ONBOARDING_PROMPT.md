@@ -66,11 +66,10 @@ wms-main/
 ├── docs/  samples/  qa_screenshots/
 ├── AGENTS.md                    # ★ AI 必读规则
 ├── AI_PERMISSION_MATRIX.md      # ★ AI 能力权限矩阵
-├── WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md  # ★ AI 开发唯一台账（216KB，16 章节）
+├── WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md  # ★ AI 开发唯一台账（16 章节）
 ├── PRODUCTION_DEPLOYMENT_CHECKLIST.md   # 生产发布验收模板
 ├── WMS_BUG_BASELINE.md             # 当前 BUG 回归基线
-├── docs/archive/                   # 已结束的历史报告，仅供追溯
-├── SALES_MANAGEMENT_DEVELOPMENT_PLAN.md
+├── docs/archive/                   # 已结束的历史报告 / 计划快照（含 SALES_MANAGEMENT_DEVELOPMENT_PLAN.md、SYSTEM_TEST_*、AI-MOB-OFFLINE-01、WMS_AUDIT_REPORT_2026-09-13），仅供追溯
 ├── README.md / 上线部署说明.md
 └── install.bat / wms.bat / start_wms_offline.bat / build_portable_dist.bat
 ```
