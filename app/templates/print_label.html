@@ -230,14 +230,23 @@
             <div class="label-item-wrapper" data-material-id="{{ material.id }}">
                 <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
                     <table class="label-table">
-                        {% set layout = template.layout | default('{}') | from_json %}
+                        {# LABEL-FIX-2026-09-29-002：优先用后端归一+键控转换后的 layout_json，
+                           兼容设计器 cells 列表格式；行高按 rowHeights 占比分配，
+                           与 print_batch_labels.html rowHeightMm() 同口径（此前强行均分） #}
+                        {% set layout = layout_json | default(template.layout) | default('{}') | from_json %}
                         {% set margin_top = layout.get('marginTop', 0) %}
                         {% set margin_right = layout.get('marginRight', 0) %}
                         {% set margin_bottom = layout.get('marginBottom', 0) %}
                         {% set margin_left = layout.get('marginLeft', 0) %}
+                        {% set layout_rh = layout.get('rowHeights', []) %}
+                        {% set ns_rh = namespace(total=0) %}
+                        {% for i in range(template.rows) %}
+                        {% set ns_rh.total = ns_rh.total + (layout_rh[i] if (i < layout_rh|length and layout_rh[i] is number and layout_rh[i] > 0) else 30) %}
+                        {% endfor %}
                         {% for row in range(template.rows) %}
                         {% set row_skip = namespace(skip=0) %}
-                        <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                        {% set row_px = layout_rh[row] if (row < layout_rh|length and layout_rh[row] is number and layout_rh[row] > 0) else 30 %}
+                        <tr style="height: {{ ((row_px / ns_rh.total) * template.height * 3.78) | round(0) }}px;">
                             {% for col in range(template.cols) %}
                             {% if row_skip.skip > 0 %}
                             {% set row_skip.skip = row_skip.skip - 1 %}
@@ -286,6 +295,8 @@
                                     <span class="cell-value">{{ now.strftime('%Y-%m-%d') if now is defined and now else '' }}</span>
                                     {% elif cell_data.field == 'supplier_name' %}
                                     <span class="cell-value">{{ material.supplier.name if material.supplier else '' }}</span>
+                                    {% elif cell_data.text %}
+                                    <span class="cell-value">{{ cell_data.text }}</span>
                                     {% else %}
                                     <span class="cell-value"></span>
                                     {% endif %}
