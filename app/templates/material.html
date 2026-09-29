@@ -3190,14 +3190,25 @@ function __notify(msg, type) {
     else { alert(msg); }  // allow-alert
 }
 
+// LABEL-FIX-2026-09-29-004：尺寸选择器为 custom 时，保存前先把输入框的值
+// 同步进 currentTemplate，避免用户改了数字没点「应用」导致保存尺寸与界面不符
+function __syncCustomSizeBeforeSave() {
+    var sizeSelect = document.getElementById('labelSizeSelect');
+    if (sizeSelect && sizeSelect.value === 'custom') {
+        applyCustomSize();
+    }
+}
+
 // 保存：已载入模板则原地更新（含尺寸），否则按"另存为"新建
 function saveTemplate() {
+    __syncCustomSizeBeforeSave();
     if (currentTemplateId) { updateExistingTemplate(); }
     else { saveAsTemplate(); }
 }
 
 // 另存为 / 新建模板
 function saveAsTemplate() {
+    __syncCustomSizeBeforeSave();
     var nameInput = document.getElementById('templateNameInput');
     var templateName = nameInput.value.trim();
     if (!templateName) {
