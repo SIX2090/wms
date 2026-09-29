@@ -248,10 +248,12 @@
                         {% set row_px = layout_rh[row] if (row < layout_rh|length and layout_rh[row] is number and layout_rh[row] > 0) else 30 %}
                         <tr style="height: {{ ((row_px / ns_rh.total) * template.height * 3.78) | round(0) }}px;">
                             {% for col in range(template.cols) %}
+                            {# LABEL-FIX-2026-09-29-005：本应用未启用 jinja2.ext.loopcontrols，
+                               {% continue %} 会直接 TemplateSyntaxError（该页因此长期 500）。
+                               合并格跳列逻辑改为 if/else 包裹，不依赖 loopcontrols #}
                             {% if row_skip.skip > 0 %}
                             {% set row_skip.skip = row_skip.skip - 1 %}
-                            {% continue %}
-                            {% endif %}
+                            {% else %}
                             {% set cell_key = row|string + '-' + col|string %}
                             {% set cell_data = layout.get(cell_key) %}
                             {% if cell_data %}
@@ -308,6 +310,7 @@
                                     <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
                                 </div>
                             </td>
+                            {% endif %}
                             {% endif %}
                             {% endfor %}
                         </tr>

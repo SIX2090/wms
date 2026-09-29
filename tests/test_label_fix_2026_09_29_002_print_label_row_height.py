@@ -49,6 +49,32 @@ def test_template_prefers_layout_json():
     assert "layout_json" in text, "模板未优先使用 layout_json"
 
 
+def test_full_template_compiles_with_production_jinja_config():
+    """LABEL-FIX-2026-09-29-005 回归锁：整页模板必须在「生产实际 jinja 配置」下可编译。
+
+    背景：本应用未启用 jinja2.ext.loopcontrols，而 print_label.html 历史上使用
+    {% continue %}，导致 /label_template/<id>/print 长期 500（修复前实证）。
+    测试桩若私自启用扩展会掩盖生产现实（假绿），故本锁用裸 Environment
+    （仅注册 app.py 里 app.jinja_env.filters 登记过的过滤器名）编译整页模板。
+    """
+    import jinja2
+    app_src = (ROOT / "app" / "app.py").read_text(encoding="utf-8")
+    filter_names = re.findall(r"app\.jinja_env\.filters\['(\w+)'\]", app_src)
+    env = jinja2.Environment()  # 裸环境：无扩展，与 app 一致
+    for name in set(filter_names):
+        env.filters[name] = lambda v, *a, **k: v  # 编译期只需名字存在
+    src = PAGE.read_text(encoding="utf-8")
+    env.from_string(src)  # 失败即 TemplateSyntaxError，测试变红（A12）
+
+
+def test_no_loopcontrol_tags_anywhere():
+    """模板不得使用 {% continue %}/{% break %}（app 未启用 loopcontrols）。"""
+    text = PAGE.read_text(encoding="utf-8")
+    # 先剥掉 Jinja 注释（注释里允许出现字面文字说明，解析器也忽略）
+    stripped = re.sub(r"\{#.*?#\}", "", text, flags=re.DOTALL)
+    assert "{% continue %}" not in stripped and "{% break %}" not in stripped
+
+
 # ---------- 渲染级验证（防假绿：用真实模板文件片段渲染） ----------
 
 class _Obj:
@@ -68,9 +94,10 @@ def _render_table(layout_json_str, rows, cols, height=40):
     assert start > 0
     end = src.find('</table>', start) + len('</table>')
     frag = src[start:end]
-    # loopcontrols：模板使用 {% continue %}，Flask 默认 jinja_options 含该扩展，
-    # 测试桩必须显式启用，否则 TemplateSyntaxError（测试桩问题，非产品缺陷）
-    env = Environment(loader=BaseLoader(), extensions=['jinja2.ext.loopcontrols'])
+    # 测试桩必须与生产 jinja 配置一致：本应用未启用 loopcontrols 等扩展
+    # （LABEL-FIX-2026-09-29-005 实证：生产上 {% continue %} 直接 500），
+    # 仅注册 app.py 中 app.jinja_env.filters 登记过的自定义过滤器。
+    env = Environment(loader=BaseLoader())
     env.filters['from_json'] = lambda v: json.loads(v) if v else {}
     tpl = env.from_string("{% for material in materials %}" + frag + "{% endfor %}")
     template = _mk(width=60, height=height, rows=rows, cols=cols, layout='{}')
