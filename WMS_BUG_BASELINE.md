@@ -2384,5 +2384,17 @@
 - **回归**：新增 `tests/test_bug_2026_09_30_005_query_search_limit.py`（A9）6 项：默认 100+has_more / 自定义 limit / 上限钳 500 / 非法回退 / 小结果集全量返回+字段完整性 / code 升序首页。
 - **回退验证（R8 第 3 条）**：cp 备份法回退修复后 6 项全失败（limit/has_more 字段不存在+全量返回）→ 恢复后全过，锁有效性实证。
 - **修复后实测**：5000 物料宽关键词 **4.73s/664KB → 0.108s/12.6KB（44× 提速，内存 23.3MB → 0.7MB）**，数据见 `scripts/perf_export_baseline_5000_after_c4.json`。
-- **生效确认**：待确认——推送后等三工作流转绿回填；Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
+- **生效确认**：已确认（2026-09-30）——推送 `74fbe73` 后 `WMS CI #1322` / `WMS AI Verification #1617` / `WMS Perf Baseline #177` 全绿；Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
 - **关联**：`app/routes/stock_query.py` `api_query_search`、AGENTS.md §七 R1、P0 计划 §三 C4、M1 基线 E4。
+
+### BUG-2026-09-30-006（2026-09-30，/report/stock/print 硬编码版式路径 m.category 逐物料懒加载 N+1）
+
+- **发现方式**：M1 C1 基线 E1（5000 物料 2.68s/20.7MB 线性增长）+ C2' 同模式排查——`report_stock_print` 查询仅 `joinedload(Material.unit)`，循环体 `m.category.name` 走懒加载；物料**有分类**时每物料触发 1 次 SQL（5000 物料 = 5000 次额外查询）。
+- **重要口径说明**：物料 category_id 为 NULL 时 SQLAlchemy 跳过 many-to-one 懒加载查询——M1 基线造数不配分类，故 E1 基线耗时中不含此 N+1（本次修复后复测 2.68s→2.44s 仅 9%，余量为 openpyxl 万行写入+主查询+库存聚合，属写入侧固有成本）。**真实生产物料普遍配分类，N+1 实际触发**，本修复消除该场景的 5000 次查询（回归锁实证：60 物料各配独立分类，修复前 ~70 条 SQL，修复后 ~10 条）。
+- **R6 同类点排查**：grep `app/routes/` `joinedload(Material.unit)` 无 category 预加载的同款查询——`report_stock_print` 模板路径（只访问 unit，不触 category）与本处共 2 处，仅本处需修；其余 Material 循环消费点均已有完整预加载或走分页。
+- **修复**：硬编码版式路径查询追加 `joinedload(Material.category)`。导出内容、库存口径（BUG-2026-08-12-005 仓库级）、预警列零改动。
+- **回归**：新增 `tests/test_bug_2026_09_30_006_stock_print_category_n_plus_one.py`（A9）：① 查询计数锁——60 物料各配独立分类导出 SQL ≤20（修复前 ~70）；② 内容锁——「分类」列全集显示分类名。
+- **回退验证（R8 第 3 条）**：cp 备份法回退修复（git checkout 仅回退本改动，不影响已提交的 C2'）后锁失败 → 恢复后通过。
+- **修复后实测**：5000 物料（无分类造数）2.68s→2.439s；有分类场景查询数 ~N→~2（锁实证 60:70→10）；数据见 `scripts/perf_export_baseline_5000_after_c3.json`。注：基线脚本造数不含分类，未覆盖该 N+1 场景，后续如需可扩展 seed 加分类（本条不扩展，避免基线口径漂移）。
+- **生效确认**：待确认——推送后等三工作流转绿回填；Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
+- **关联**：`app/routes/report.py` `report_stock_print`、P0 计划 §三 C3、M1 基线 E1、BUG-2026-09-30-004（同模式）。

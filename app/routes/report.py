@@ -472,7 +472,12 @@ def register_report_routes(app):
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存', '库存状态'])
         ws.append(headers)
-        materials = Material.query.options(joinedload(Material.unit)).all()
+        materials = Material.query.options(
+            joinedload(Material.unit),
+            # BUG-2026-09-30-006：m.category.name 逐物料懒加载（即使 NULL 也触发
+            # 查询），5000 物料 = 5000 次 N+1（基线 E1 2.68s 主因之一）
+            joinedload(Material.category),
+        ).all()
         status_map = {
             'low': '低于最低库存',
             'danger': '低于安全库存',
