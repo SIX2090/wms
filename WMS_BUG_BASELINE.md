@@ -2405,5 +2405,19 @@
 - **根因（分层）**：①工作流 unit-test job 无 `timeout-minutes`——挂起类故障不会失败、不会上传 JUnit 报告（`if: failure()` 不含 cancelled 路径），诊断链路整体缺失（工程缺陷，本条修复）；②测试真实挂起点**未定位**——静态排查已排除：MockWebServer 链路（OkHttp 30s 读超时必失败）、DataStore 草稿链路（runBlocking 事件循环自泵）、Main 派发器死锁（无测试 setMain、viewModelScope immediate 内联执行后仅挂起不阻塞测试线程）、依赖缓存（命中）。定位依赖下一轮 CI 的 25 分钟超时击杀 + 报告上传（已完成用例清单中**缺失的那个测试**即卡点）。
 - **修复（工程防御）**：unit-test job 增加 `timeout-minutes: 25`（历史绿构建 ~5 分钟的 5 倍余量，只拦真挂死不误伤慢构建）；报告上传条件 `if: failure()` → `if: failure() || cancelled()`（超时击杀的步骤结论是 cancelled，挂起故障的 JUnit 报告恰好只在此路径产生）。
 - **回归**：无需新增——本条为 CI 基础设施防御，`tests/verify_bug_2026_09_14_033_android_unit_test_infra.py` 已有的 `testReleaseUnitTest` 存在性护栏不受影响（该命令未动）。
-- **生效确认**：待确认——推送后需观察三工作流对最终 HEAD 全绿（或 unit-test 25 分钟超时击杀并产出诊断报告）。
-- **关联**：M2' 阶段（APK 字节码验证 + Robolectric 补强）、`tests/` 新增 4 文件 25 用例、BUG-2026-09-22-001（报告上传机制的上一轮迭代）。
+- **根因（已定位，#762 探针实证）**：`by preferencesDataStore` 委托是 JVM 级单例，跨 Robolectric 沙箱（每 @Test 方法一个环境）复用——EditDraftPersistenceTest 方法 3 的 `restoreEditDraft` 草稿收集协程在旧沙箱销毁后仍向同一 DataStore actor 排入写请求，actor 链被毒化后**方法 4 的 `saveLoginInfo`（dataStore.edit）永久挂起**（DBG7 后 DBG8 永未打印；同一时刻独立工厂实例的探针 edit 正常返回，挂死前 2ms）。
+- **根因修复**：`DataStoreTestReset`（test sources）反射清空 `WmsRepositoryKt.dataStore$delegate` 的 INSTANCE 缓存，每个测试方法取绑定当前沙箱 filesDir 的新实例（`528015c`）；androidx 内部字段双名兜底（INSTANCE/dataStore），失败大声打印不静默。
+- **生效确认**：**已确认（2026-10-01）**——推送 `528015c` 后 `Android APK Build #763` success（**4 分钟正常速度跑完，74/74 passed**，含 25 项新增 Robolectric 用例；对照 #760/#761/#762 三轮挂死 25 分钟超时）、`WMS CI #1329` / `WMS AI Verification #1624` 全绿。诊断仪表（testLogging STARTED/标准流）为永久保留的基础设施改进。
+- **关联**：M2' 阶段（APK 字节码验证 + Robolectric 补强）、`tests/` 新增 4 文件 25 用例、BUG-2026-09-22-001（报告上传机制的上一轮迭代）、产品侧同类隐患（草稿/提交路径 dataStore.edit 无超时，见 M2' 记录段末尾，待立项）。
+
+### M2' Android 替代验证记录（2026-10-01，无真机环境，AGENTS.md R8 诚实边界）
+
+**背景**：P0 三项中 Android 真机测试不可行（沙箱无真机/无 Java/无 Android SDK），按 M2' 计划以两条替代路径收窄不确定性。**BUG-2026-09-13-018/019/020/021/023 台账状态保持「待真机验收」不变**——替代验证只收窄不确定性，不构成真机验收。
+
+**替代 1：CI Release APK 字节码级验证（已通过）**——Android APK Build #758 产物 `wms-mobile-scan.apk`（25,397,359 字节与 Release 元数据一致，排除 BUG-2026-09-25 截断前科）：①ZIP CRC 全表校验通过；②versionCode=27/versionName=3.9.3 与 build.gradle 一致（**BUG-2026-09-14-027 版本冻结陷阱已排除**，现场覆盖安装可正常替换）；③DEX 字符串表 18/18 硬判据全命中——BUG-018（新行/累计/移除/复核 5 条文案）、BUG-019（/api/outbound/preflight 注解值）、BUG-020（草稿键前缀+4 条文案）、BUG-021（库位上限+同库位校验 2 条文案）、BUG-023（4 条降级日志串）。类描述符未命中系 R8 混淆预期内，口径以字符串常量为准。验证脚本：工作区 `m2_apk/verify_apk_markers.py`（不入库）。**结论：产物已确认含全部修复代码，剩余仅运行时行为待真机。**
+
+**替代 2：Robolectric 补强（CI 实证 74/74 passed）**——新增 4 测试文件 25 用例（文件 6→10，用例 49→74）：`ScanFeedbackTest`（BUG-018，9 项：新行「已加入」/合并「已累计（本次+N）」反馈、移除按编码+库位定位与数量快照复核、盘点替换不翻倍）、`EditDraftPersistenceTest`（BUG-020，7 项：草稿键三重隔离、非法作业类型拒绝、DataStore 落盘往返、删空即删除、脏行剔除、普通草稿恢复可编辑、中断提交恢复幂等键且禁改原清单）、`OutboundPreflightTest`（BUG-019，3 项，MockWebServer 挂真实 Retrofit：预检→提交两连击幂等键透传、业务拒绝不入离线队列、幂等回放跳过预检）、`LocationSelectionTest`（BUG-021，6 项：表头库位落行、空白裁剪、超长拒绝不改写、清空同步清行、草稿模式新行盖库位、关闭写 null）。
+
+**过程故障与修复**：①首推 #759 编译错（字符串模板 `$name` 引用不存在变量，全仓排查修 3 处，`4437ed8`）；②#760/#761/#762 unit-test 挂起（详见 BUG-2026-10-001，根因 DataStore 委托单例跨 Robolectric 沙箱毒化，`528015c` 修复）；③最终 `Android APK Build #763` **4 分钟全绿，74/74 passed**（含 25 项新增），CI #1329 / AI Verification #1624 同绿。
+
+**新发现的产品侧隐患（登记待评估，本阶段不修）**：BUG-2026-10-001 的测试侧根因揭示生产路径存在同类风险——`ScanViewModel.persistEditDraft`（草稿自动保存收集器）与 `prepareDraftSubmission`（提交前落盘幂等键）都直接 `dataStore.edit`：若 DataStore actor 因写失败死亡（如磁盘满/文件损坏风暴），**提交路径的 edit 会永久挂起 = 提交按钮无限转圈**。生产环境为单进程单环境，触发概率低于测试沙箱场景，但后果严重，建议后续单独立项评估（加超时/降级）。

@@ -55,12 +55,9 @@ class OutboundPreflightTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        println("[DBG-P1] OutboundTest: setUp 开始") // 诊断探针（BUG-2026-10-01-001）
         server = MockWebServer()
         server.start()
-        println("[DBG-P2] MockWebServer 已启动") // 诊断探针
         repository = WmsRepository(context)
-        println("[DBG-P3] WmsRepository 构造完成") // 诊断探针
         // 把真实 Retrofit 链路指向本地 MockWebServer（authInterceptor 原样经过）
         RetrofitClient.setBaseUrl(server.url("/").toString())
         RetrofitClient.setToken("token-for-test")
@@ -96,12 +93,10 @@ class OutboundPreflightTest {
 
     @Test
     fun `first outbound submit calls preflight then submit in order with idempotency key`() = runBlocking {
-        println("[DBG-P4] 契约1: submitOutbound 调用前") // 诊断探针（BUG-2026-10-01-001）
         server.enqueue(ok("""{"status":"success","data":{"warehouse_code":"WH01"}}"""))
         server.enqueue(ok("""{"status":"success","data":{"id":7,"order_no":"OUT-7","check_no":null}}"""))
 
         val result = repository.submitOutbound(request(), requestId = "idem-1")
-        println("[DBG-P5] 契约1: submitOutbound 返回") // 诊断探针
 
         assertTrue(result.isSuccess)
         assertEquals("OUT-7", result.getOrNull()!!.order_no)
