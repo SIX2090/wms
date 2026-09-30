@@ -46,6 +46,12 @@ ALERT_TYPE_LABELS = {
     'print_workstation_offline': '工作站离线',
 }
 
+# 打印告警域只覆盖以下三类（与 ALERT_TYPE_LABELS 严格对应）。
+# 库存预警(low_stock/expiring) 写于 app/notifications.py、其展示由「库存预警 /alert」
+# 实时计算承担，不应出现在打印告警页/铃铛里——否则铃铛会把库存预警也算进
+# "打印告警"未读，与页面口径打架（BUG-2026-09-30-001）。以下三处查询统一按此常量过滤。
+PRINT_ALERT_TYPES = ('print_failed', 'print_pending_timeout', 'print_workstation_offline')
+
 # 打印任务类型 → 中文名（与 print_routing.BUSINESS_EVENT_LABELS 对齐）
 JOB_TYPE_LABELS = {
     'out_order': '领料单/出库单',
@@ -368,6 +374,7 @@ def register_print_alert_routes(app):
             from app import Notification
             window = datetime.now() - timedelta(days=30)
             count = Notification.query.filter(
+                Notification.type.in_(PRINT_ALERT_TYPES),
                 Notification.is_read.is_(False),
                 Notification.created_at >= window,
             ).count()
@@ -382,6 +389,7 @@ def register_print_alert_routes(app):
         from app import Notification
         show_all = request.args.get('all') == '1'
         query = Notification.query.filter(
+            Notification.type.in_(PRINT_ALERT_TYPES),
             Notification.created_at >= datetime.now() - timedelta(days=30),
         )
         if not show_all:
@@ -405,7 +413,10 @@ def register_print_alert_routes(app):
             req = MarkReadRequest.model_validate(payload)
         except Exception:
             return jsonify({'status': 'error', 'msg': '参数格式不正确'}), 422
-        query = Notification.query.filter(Notification.is_read.is_(False))
+        query = Notification.query.filter(
+            Notification.type.in_(PRINT_ALERT_TYPES),
+            Notification.is_read.is_(False),
+        )
         if not req.all:
             if not req.ids:
                 return jsonify({'status': 'error', 'msg': '请指定要标记的告警'}), 422

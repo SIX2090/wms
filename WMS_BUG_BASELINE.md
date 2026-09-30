@@ -2329,3 +2329,14 @@
   `BUG-2026-09-27-003`（同判据的仓库维度缺口 P0-1）、`BUG-2026-09-27-004`（同判据取数 P1-1）、
   `BUG-2026-09-25-005/006`（判据写了没跑）、`BUG-2026-08-16-002`（期初只改总账，
   历史差的主要来源）、`AGENTS.md` §七 R1 / R8 / A12。
+
+### BUG-2026-09-30-001（2026-09-30，打印告警铃铛角标把库存预警也算进"打印告警"未读，与页面口径打架）
+
+- **发现方式**：用户走查「打印告警」页截图——页面显示"暂无未读告警，打印链路运行正常"，但右下角悬浮铃铛角标显示 2。
+- **根因**：`Notification` 表被两类功能域共用：打印告警（`print_failed`/`print_pending_timeout`/`print_workstation_offline`，写于 `app/routes/print_alerts.py`）与库存预警（`low_stock`/`expiring`，写于 `app/notifications.py` 定时任务）。打印告警域的三处查询——铃铛未读数 context_processor（`print_alerts.py:370`）、页面列表（`:384`）、"全部标为已读"（`:408`）——全部 `Notification.query.filter(...)` **未加 `type` 过滤**，把库存预警也计入"打印告警"未读，导致铃铛数字与页面/实际打印告警不符。
+- **R6 同类点排查**：grep 全仓 `Notification` 读取点，仅 `app/routes/print_alerts.py` 一处消费该表（`low_stock`/`expiring` 无移动端 /alert 之外的展示入口），故库存告警从打印告警域移出后不会在其他页面重复出现、也无需改其他消费点；其展示职责本就由「库存预警 /alert」实时计算承担（与 `app/notifications.py` 写入冗余，属镜像）。
+- **修复**：新增常量 `PRINT_ALERT_TYPES = ('print_failed','print_pending_timeout','print_workstation_offline')`，铃铛未读计数、页面列表（含"查看全部"近 30 天）、"全部标为已读"三处统一加 `Notification.type.in_(PRINT_ALERT_TYPES)` 过滤。铃铛从此只代表打印告警、与页面严格一致；库存预警不再出现在打印告警页与铃铛（按用户拍板"库存告警移出"执行）。
+- **回归**：新增 `tests/test_print_alerts.py::test_print_alert_domain_only_counts_print_types`——1 条打印失败 + 1 条 low_stock 未读 → 铃铛角标=1、页面只列打印告警且不出现 `low_stock` 原始英文标签、"全部标为已读"只清打印告警不动库存告警；既有 `test_bell_badge_shows_unread_count`/`test_mark_read_all`/`test_page_renders_for_admin` 不受影响。
+- **回退验证（R8 第 3 条）**：实现前在旧代码上跑新用例 → 铃铛=2、页面列 2 条（含 `low_stock`）→ 失败（锁得住）；加 `type.in_` 过滤后全绿。回退用 `cp` 文件备份法，**未用 `git stash`**。
+- **生效确认**：**待确认**——推送后反查 `GET /repos/SIX2090/wms/commits/<SHA>` 确认 `files` 与预期一致、三工作流全绿（`scripts/check_ci_green.py` rc=0）后回填。后端改动，**生产需重启 WMS 服务生效（R3）**。
+- **关联**：`app/routes/print_alerts.py`、`app/notifications.py`、`AGENTS.md` §七 R2 / R6、A13。

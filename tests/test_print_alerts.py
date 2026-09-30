@@ -375,3 +375,44 @@ def test_bell_badge_shows_unread_count(client):
     html = resp.get_data(as_text=True)
     assert "print-alert-bell" in html
     assert "print-alert-badge" in html
+
+
+def test_print_alert_domain_only_counts_print_types(client):
+    """打印告警域（铃铛角标/页面列表/全部标为已读）只统计 3 类打印告警。
+
+    BUG-2026-09-30-001：Notification 表被打印告警与库存预警(low_stock/expiring)共用，
+    修复前铃铛/页面/全部已读均未按 type 过滤，铃铛把库存预警也算进"打印告警"未读，
+    与页面口径打架。回归锁：1 条打印失败 + 1 条低库存未读 → 铃铛角标=1、页面只列
+    打印告警、不出现 low_stock 原始英文标签；"全部标为已读"只清打印告警、不动库存告警。
+    """
+    import re
+
+    from app import Notification as _N  # 避免与模块级 Notification 重名歧义
+
+    with app_module.app.app_context():
+        # 打印告警 1 条
+        job = _make_job(status="printing", attempts=1)
+        mark_job_printed(job, False, "缺纸")
+        # 库存告警 1 条（与打印告警共用 Notification 表）
+        db.session.add(_N(type="low_stock", target_id=1,
+                          title="库存预警物料X", content="低库存", is_read=False))
+        db.session.commit()
+
+    # 铃铛角标应为 1（仅打印告警），不应把库存告警算进去
+    resp = client.get("/print_alerts")
+    html = resp.get_data(as_text=True)
+    assert "print-alert-badge" in html
+    m = re.search(r'print-alert-badge">(\d+)</span>', html)
+    assert m and m.group(1) == "1", f"铃铛角标应为 1，实际 {m.group(1) if m else '无'}"
+
+    # 页面只列打印告警，不出现库存告警
+    assert "缺纸" in html
+    assert "low_stock" not in html, "库存告警(low_stock)不应出现在打印告警页"
+    assert "库存预警物料X" not in html, "库存告警标题不应出现在打印告警页"
+
+    # "全部标为已读"只清打印告警；库存告警保持未读
+    resp = client.post("/print_alerts/mark_read", json={"all": True})
+    assert resp.status_code == 200
+    with app_module.app.app_context():
+        remaining = Notification.query.filter(Notification.is_read.is_(False)).count()
+        assert remaining == 1, "库存告警不应被打印告警页的'全部标为已读'清除"
