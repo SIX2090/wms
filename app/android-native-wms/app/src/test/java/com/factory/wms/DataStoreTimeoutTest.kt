@@ -3,6 +3,7 @@ package com.factory.wms
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.DraftScanLine
 import com.factory.wms.data.model.ScanEditDraft
 import com.factory.wms.data.model.ScanLine
