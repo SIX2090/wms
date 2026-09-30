@@ -2360,5 +2360,5 @@
 - **修复**：`app/requirements.txt` 钉版升级 `urllib3==2.7.0 → 2.8.0`（PyPI 实测存在，requires_python>=3.10，CI 3.11 / 本机 3.13 均满足；requests==2.33.0 兼容约束 `urllib3<3,>=1.21.1` 满足）。
 - **回归**：本机 venv 升级 2.8.0 后冒烟 `tests/test_perf_baseline.py + tests/test_purchase_return_e2e_p0.py` 20 passed；urllib3 无直接 import，行为面为 requests HTTP 传输层，兼容性由 requests 导入与既有 HTTP 测试覆盖。
 - **回退验证（R8 第 3 条）**：依赖版本回退无行为断言可锁，以 CI 实证代替——推送后 WMS CI 的 pip-audit 步骤必须转绿；若仍红则回退本提交并升级 pip-audit 排查口径。
-- **生效确认**：待确认——已推送后需等 `WMS CI` 新运行 pip-audit 步骤转绿（预计 SHA：<本提交>，结果回填本条）；生产部署需按新 requirements.txt 重建依赖并重启 WMS 服务生效（R3）。
+- **生效确认**：已确认（2026-09-30）——推送 `a0f201a` 后 `WMS CI #1319 @a0f201a` 的 `lint-and-static` job（含 pip-audit 步骤）转绿，全 9 job success；生产部署需按新 requirements.txt 重建依赖并重启 WMS 服务生效（R3）。
 - **关联**：`app/requirements.txt`、AGENTS.md §三 CI 全绿门禁、BUG-2026-08-16-018（pip-audit 门禁引入）。
