@@ -2362,3 +2362,15 @@
 - **回退验证（R8 第 3 条）**：依赖版本回退无行为断言可锁，以 CI 实证代替——推送后 WMS CI 的 pip-audit 步骤必须转绿；若仍红则回退本提交并升级 pip-audit 排查口径。
 - **生效确认**：已确认（2026-09-30）——推送 `a0f201a` 后 `WMS CI #1319 @a0f201a` 的 `lint-and-static` job（含 pip-audit 步骤）转绿，全 9 job success；生产部署需按新 requirements.txt 重建依赖并重启 WMS 服务生效（R3）。
 - **关联**：`app/requirements.txt`、AGENTS.md §三 CI 全绿门禁、BUG-2026-08-16-018（pip-audit 门禁引入）。
+
+### BUG-2026-09-30-004（2026-09-30，/report/inout/print 与 /report/inout/export N+1 懒加载，5000 单导出 15.57s/45.3MB）
+
+- **发现方式**：M1 C1 性能基线实测（`scripts/perf_export_baseline_5000.json`）——E2 出入库导出 5000 物料/单 3 轮均值 15.57s、tracemalloc 峰值 45.3MB，而响应体仅 172KB：耗时全在 SQL 查询而非 Excel 写入。线性外推 1 万物料约 31s，生产网关超时风险实锤。
+- **根因**：`app/routes/report.py` `report_inout_print`（`/report/inout/export` 委托同一函数）双层循环内触发三条懒加载链——① `order.items` 逐单 1 次；② `order.supplier` 逐单 1 次（入库侧）；③ `item.material` 逐行 1 次。每单 ≈ 3 次额外查询，5000 单 ≈ 1.5 万次 SQL。
+- **R6 同类点排查**：grep `app/routes/` + `app/app.py` 同模式（`.all():` 后循环访问 `order.items` / `item.material` 的导出/报表路径）——`report_stock_print`（本批 C3 处理）、`report_supplier_print_excel`（2026-09 已修 SQL 分页）之外，其余 `order.items` 循环点均在分页列表页（页大小 ≤100，懒加载量级可接受），暂不属同根因急修范围。
+- **修复**：两查询加 `selectinload` 批量预加载——入库侧 `selectinload(InOrder.items).selectinload(InOrderItem.material)` + `selectinload(InOrder.supplier)`，出库侧同构。查询数与单据数解耦（selectin 每批 500），5000 单查询数从 ~1.5 万降至 ~30。导出内容、排序、仓库过滤逻辑零改动（A11 不涉及：本修复不新增库存校验口径）。
+- **回归**：新增 `tests/test_bug_2026_09_30_004_inout_export_n_plus_one.py`（A9）：① 查询计数锁——80 入库单 + 40 出库单导出期间 SQL ≤50 条（修复前实测 ~320 条）；② 内容正确性锁——行数/编号/供应商名/物料/数量/金额与造数一致，supplier 批量预加载全集校验。
+- **回退验证（R8 第 3 条）**：cp 备份法回退修复后新测试失败（查询计数锁触发）→ 恢复修复后通过，锁有效性实证。
+- **修复后实测**：5000 物料 3 轮均值 **15.57s → 4.277s（3.6×）**，内存峰值 45.3MB → 44.2MB（剩余耗时为 openpyxl 两 sheet 万行写入本身）；数据见 `scripts/perf_export_baseline_5000_after_c2.json`。
+- **生效确认**：待确认——推送后等三工作流转绿回填；本改动为 Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
+- **关联**：`app/routes/report.py` `report_inout_print`、P0 计划 §三 C2'、M1 基线 E2。

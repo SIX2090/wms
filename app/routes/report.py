@@ -335,7 +335,8 @@ def register_report_routes(app):
     @login_required
     def report_inout_print():
         from openpyxl import Workbook
-        from app import InOrder, OutOrder, api_error, db, resolve_request_warehouse
+        from sqlalchemy.orm import selectinload
+        from app import InOrder, OutOrder, InOrderItem, OutOrderItem, api_error, db, resolve_request_warehouse
         # BUG-2026-08-12-005：旧版导出必须按仓库过滤（AGENTS.md 仓库必填）：
         # 显式 warehouse_id/code/name 校验，缺省时带入默认仓库，无默认仓库 400
         warehouse, wh_err = resolve_request_warehouse(request.args)
@@ -367,6 +368,13 @@ def register_report_routes(app):
             in_query = in_query.filter(InOrder.date >= start_date)
         if end_date:
             in_query = in_query.filter(InOrder.date <= end_date)
+        # BUG-2026-09-30-004：N+1 修复——items/supplier 逐单懒加载 + material 逐行懒加载，
+        # 5000 单触发 ~1.5 万次查询（基线 15.57s/45.3MB）。selectinload 批量预加载
+        # 后查询数与单数解耦（每 500 单一批）。
+        in_query = in_query.options(
+            selectinload(InOrder.items).selectinload(InOrderItem.material),
+            selectinload(InOrder.supplier),
+        )
         for order in in_query.order_by(InOrder.date.desc()).all():
             for item in order.items:
                 ws_in.append([
@@ -389,6 +397,10 @@ def register_report_routes(app):
             out_query = out_query.filter(OutOrder.date >= start_date)
         if end_date:
             out_query = out_query.filter(OutOrder.date <= end_date)
+        # BUG-2026-09-30-004：N+1 修复，同入库侧
+        out_query = out_query.options(
+            selectinload(OutOrder.items).selectinload(OutOrderItem.material),
+        )
         for order in out_query.order_by(OutOrder.date.desc()).all():
             for item in order.items:
                 ws_out.append([
