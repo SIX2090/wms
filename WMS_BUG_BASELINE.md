@@ -2351,3 +2351,14 @@
 - **回退验证（R8 第 3 条）**：纯展示文案无行为可回退，以 grep 复核代替（新文案落位、旧文案全仓清零）。
 - **生效确认**：已确认（2026-09-30）——PAT 直通 git push 推送至 main；反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD、parent、变更文件与本地提交一致。后端 Python 改动，**设置页文案需重启 WMS 服务生效（R3）**。
 - **关联**：`app/app.py:3726`、台账 P1-7、AGENTS.md §七 R6 / A13。
+
+### BUG-2026-09-30-003（2026-09-30，urllib3 2.7.0 新披露 3 个 CVE 触发 pip-audit 阻塞门禁，WMS CI main 转 红）
+
+- **发现方式**：M3 性能修复开工前例行 CI 全绿门禁检查（§三）——`WMS CI #1318 @f24908a` 的 `lint-and-static` job「Security scan - pip-audit（BUG-2026-08-16-018 阻塞门禁）」步骤失败：`Found 3 known vulnerabilities in 1 package`——urllib3 2.7.0 命中 CVE-2026-97687 / CVE-2026-97688 / CVE-2026-97689，修复版本 2.8.0。同 SHA 下单元测试与 verify 分片全绿，`WMS AI Verification #1613` 亦绿，确认为**时间性故障**（CVE 数据库新披露，与同批推送内容无关）。
+- **根因**：`app/requirements.txt` 钉版 `urllib3==2.7.0`；该版本在 2026-09-30 前无已知 CVE，pip-audit 当时放行；新 CVE 披露后同配置即红。
+- **R6 同类点排查**：grep 全仓 `import urllib3|from urllib3` 零命中——纯 requests 传递依赖，无直接消费点需同步排查；`requirements-test.txt` 未单独钉 urllib3（经 requirements.txt 传导），无需第二处修改。
+- **修复**：`app/requirements.txt` 钉版升级 `urllib3==2.7.0 → 2.8.0`（PyPI 实测存在，requires_python>=3.10，CI 3.11 / 本机 3.13 均满足；requests==2.33.0 兼容约束 `urllib3<3,>=1.21.1` 满足）。
+- **回归**：本机 venv 升级 2.8.0 后冒烟 `tests/test_perf_baseline.py + tests/test_purchase_return_e2e_p0.py` 20 passed；urllib3 无直接 import，行为面为 requests HTTP 传输层，兼容性由 requests 导入与既有 HTTP 测试覆盖。
+- **回退验证（R8 第 3 条）**：依赖版本回退无行为断言可锁，以 CI 实证代替——推送后 WMS CI 的 pip-audit 步骤必须转绿；若仍红则回退本提交并升级 pip-audit 排查口径。
+- **生效确认**：待确认——已推送后需等 `WMS CI` 新运行 pip-audit 步骤转绿（预计 SHA：<本提交>，结果回填本条）；生产部署需按新 requirements.txt 重建依赖并重启 WMS 服务生效（R3）。
+- **关联**：`app/requirements.txt`、AGENTS.md §三 CI 全绿门禁、BUG-2026-08-16-018（pip-audit 门禁引入）。

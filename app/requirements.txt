@@ -30,7 +30,10 @@ openpyxl==3.1.2
 
 # HTTP
 requests==2.33.0
-urllib3==2.7.0
+# urllib3 2.7.0 → 2.8.0：CVE-2026-97687/97688/97689 修复版（BUG-2026-09-30-003，
+# pip-audit 阻塞门禁 2026-09-30 转 红）；全仓无直接 import，纯 requests 传递依赖，
+# 本机 3.13 + CI 3.11 冒烟通过
+urllib3==2.8.0
 
 # PDF
 reportlab==4.4.10
