@@ -19,14 +19,20 @@ import com.factory.wms.data.local.PendingOperationEntity
 import com.factory.wms.util.NetworkMonitor
 import com.factory.wms.data.model.*
 import com.google.gson.Gson
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.map
 import retrofit2.Response
 import java.util.UUID
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wms_settings")
 
-class WmsRepository(private val context: Context) {
+class WmsRepository(
+    private val context: Context,
+    /** BUG-2026-10-002：DataStore actor 死亡时读/写会永久挂起；测试可注入 0ms。 */
+    private val dataStoreTimeoutMs: Long = DATASTORE_TIMEOUT_MS
+) {
 
     private val api: WmsApiService
         get() = RetrofitClient.apiService
@@ -151,6 +157,16 @@ class WmsRepository(private val context: Context) {
             val operationLabel: String
         ) : Exception("网络不可用，$operationLabel 已暂存，联网后自动提交")
 
+        const val DATASTORE_TIMEOUT_MS = 5_000L
+
+        /**
+         * BUG-2026-10-002：把仓库层自身触发的 DataStore 超时转换为非取消型异常。
+         *
+         * `TimeoutCancellationException` 继承自 `CancellationException`，若直接上抛，
+         * `ScanViewModel.persistEditDraft` 会把它当作协程取消继续透传，无法进入
+         * “清单未保存到本机”分支。这里必须在仓库层完成类型转换；普通取消仍透传。
+         */
+        class DataStoreTimeoutException(message: String) : Exception(message)
         private const val KEY_TOKEN = "auth_token"
         private const val SECURE_PREFS_NAME = "wms_secure_prefs"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
@@ -158,6 +174,46 @@ class WmsRepository(private val context: Context) {
         private val KEY_ROLE = stringPreferencesKey("role")
         // BUG-2026-09-03-003 断点续盘：盘点草稿 JSON（DataStore）
         private val KEY_STOCKTAKE_DRAFT = stringPreferencesKey("stocktake_draft")
+    }
+
+    /**
+     * BUG-2026-10-002：编辑草稿是提交前强一致保障，超时必须抛给
+     * ScanViewModel.persistEditDraft，让既有 catch 转 draftSaveError 并阻止提交。
+     * 超时被转换为 [DataStoreTimeoutException]；普通协程取消仍原样透传。
+     */
+    internal suspend fun <T> requireDataStore(block: suspend () -> T): T = try {
+        withTimeout(dataStoreTimeoutMs) { block() }
+    } catch (e: TimeoutCancellationException) {
+        throw DataStoreTimeoutException(
+            "DataStore 访问超时（actor 疑似死亡），本次写入未完成: ${e.message}"
+        )
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    }
+
+    /**
+     * BUG-2026-10-002：会话/登录/盘点草稿等路径按既有降级语义继续运行。
+     * 超时返回 fallback，但普通异常不再向上扩散为未捕获异常。
+     */
+    internal suspend fun <T> withDataStoreFallback(
+        fallback: T,
+        block: suspend () -> T
+    ): T = try {
+        withTimeout(dataStoreTimeoutMs) { block() }
+    } catch (e: TimeoutCancellationException) {
+        android.util.Log.e(
+            "WmsRepo",
+            "DataStore 访问超时（actor 疑似死亡），降级处理: ${e.message}"
+        )
+        fallback
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (e: Exception) {
+        android.util.Log.w(
+            "WmsRepo",
+            "DataStore 访问失败，降级处理: ${e.javaClass.simpleName}: ${e.message}"
+        )
+        fallback
     }
 
     // 幂等键：每次写操作生成唯一 request_id，配合后端 mobile_api_idempotent
@@ -179,16 +235,22 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun getSavedBaseUrl(): String? {
-        return context.dataStore.data.map { it[KEY_BASE_URL] }.first()
+        return withDataStoreFallback(null) {
+            context.dataStore.data.map { it[KEY_BASE_URL] }.first()
+        }
     }
 
     // BUG-2026-09-03-003 断点续盘：盘点草稿持久化（DataStore JSON，进程被杀可恢复）
     suspend fun saveStocktakeDraft(draft: StocktakeDraft) {
-        context.dataStore.edit { it[KEY_STOCKTAKE_DRAFT] = Gson().toJson(draft) }
+        withDataStoreFallback(Unit) {
+            context.dataStore.edit { it[KEY_STOCKTAKE_DRAFT] = Gson().toJson(draft) }
+        }
     }
 
     suspend fun loadStocktakeDraft(): StocktakeDraft? {
-        val json = context.dataStore.data.map { it[KEY_STOCKTAKE_DRAFT] }.first() ?: return null
+        val json = withDataStoreFallback<String?>(null) {
+            context.dataStore.data.map { it[KEY_STOCKTAKE_DRAFT] }.first()
+        } ?: return null
         return try {
             Gson().fromJson(json, StocktakeDraft::class.java)
         } catch (e: Exception) {
@@ -198,7 +260,9 @@ class WmsRepository(private val context: Context) {
 
     suspend fun editDraftKey(operation: String): String {
         require(operation == "inbound" || operation == "outbound")
-        val preferences = context.dataStore.data.first()
+        val preferences = withDataStoreFallback(null) {
+            context.dataStore.data.first()
+        } ?: throw IllegalStateException("请先登录再恢复清单")
         val server = preferences[KEY_BASE_URL].orEmpty().trimEnd('/')
         val username = preferences[KEY_USERNAME].orEmpty()
         check(server.isNotBlank() && username.isNotBlank()) { "请先登录再恢复清单" }
@@ -210,9 +274,11 @@ class WmsRepository(private val context: Context) {
     }
 
     suspend fun saveEditDraft(key: String, draft: ScanEditDraft?) {
-        context.dataStore.edit {
-            if (draft == null || draft.lines.isEmpty()) it.remove(stringPreferencesKey(key))
-            else it[stringPreferencesKey(key)] = Gson().toJson(draft)
+        requireDataStore {
+            context.dataStore.edit {
+                if (draft == null || draft.lines.isEmpty()) it.remove(stringPreferencesKey(key))
+                else it[stringPreferencesKey(key)] = Gson().toJson(draft)
+            }
         }
     }
 
@@ -233,7 +299,9 @@ class WmsRepository(private val context: Context) {
      *    要么（脏到无法安全修补时）整体退化为 null，确保返回值里绝不带 null 字段进 UI。
      */
     suspend fun loadEditDraft(key: String): ScanEditDraft? {
-        val json = context.dataStore.data.first()[stringPreferencesKey(key)] ?: return null
+        val json = withDataStoreFallback<String?>(null) {
+            context.dataStore.data.first()[stringPreferencesKey(key)]
+        } ?: return null
         return try {
             Gson().fromJson(json, ScanEditDraft::class.java)?.let { sanitizeEditDraft(it) }
         } catch (e: Exception) {
@@ -261,7 +329,9 @@ class WmsRepository(private val context: Context) {
     }.getOrNull()
 
     suspend fun clearStocktakeDraft() {
-        context.dataStore.edit { it.remove(KEY_STOCKTAKE_DRAFT) }
+        withDataStoreFallback(Unit) {
+            context.dataStore.edit { it.remove(KEY_STOCKTAKE_DRAFT) }
+        }
     }
 
     /**
@@ -293,10 +363,12 @@ class WmsRepository(private val context: Context) {
             android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
         }
         // Non-sensitive data stored in DataStore
-        context.dataStore.edit {
-            it[KEY_BASE_URL] = baseUrl
-            it[KEY_USERNAME] = username
-            it[KEY_ROLE] = role
+        withDataStoreFallback(Unit) {
+            context.dataStore.edit {
+                it[KEY_BASE_URL] = baseUrl
+                it[KEY_USERNAME] = username
+                it[KEY_ROLE] = role
+            }
         }
         RetrofitClient.setToken(token)
         RetrofitClient.setBaseUrl(baseUrl)
@@ -326,20 +398,20 @@ class WmsRepository(private val context: Context) {
         }
         // DataStore 清空失败同样不应阻断登出：内存态 token 一定会被清掉，
         // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
-        try {
-            context.dataStore.edit { it.clear() }
-        } catch (e: Exception) {
-            android.util.Log.w("WmsRepo", "清空 DataStore 失败: ${e.message}")
-        }
+        withDataStoreFallback(Unit) { context.dataStore.edit { it.clear() } }
         RetrofitClient.setToken(null)
     }
 
     suspend fun getUsername(): String? {
-        return context.dataStore.data.map { it[KEY_USERNAME] }.first()
+        return withDataStoreFallback(null) {
+            context.dataStore.data.map { it[KEY_USERNAME] }.first()
+        }
     }
 
     suspend fun getRole(): String? {
-        return context.dataStore.data.map { it[KEY_ROLE] }.first()
+        return withDataStoreFallback(null) {
+            context.dataStore.data.map { it[KEY_ROLE] }.first()
+        }
     }
 
     suspend fun login(username: String, password: String, baseUrl: String): Result<LoginData> {

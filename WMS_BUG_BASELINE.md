@@ -2410,6 +2410,16 @@
 - **生效确认**：**已确认（2026-10-01）**——推送 `528015c` 后 `Android APK Build #763` success（**4 分钟正常速度跑完，74/74 passed**，含 25 项新增 Robolectric 用例；对照 #760/#761/#762 三轮挂死 25 分钟超时）、`WMS CI #1329` / `WMS AI Verification #1624` 全绿。诊断仪表（testLogging STARTED/标准流）为永久保留的基础设施改进。
 - **关联**：M2' 阶段（APK 字节码验证 + Robolectric 补强）、`tests/` 新增 4 文件 25 用例、BUG-2026-09-22-001（报告上传机制的上一轮迭代）、产品侧同类隐患（草稿/提交路径 dataStore.edit 无超时，见 M2' 记录段末尾，待立项）。
 
+### BUG-2026-10-002（2026-10-01，Android DataStore 访问无超时：actor 死亡时关键交互路径永久挂起）
+
+- **发现方式**：BUG-2026-10-001 的 #762 探针实证——`preferencesDataStore` 委托是 JVM 级单例，DataStore actor 链毒化后 `dataStore.edit` 永久挂起；同刻独立工厂实例正常返回。测试侧已修复跨 Robolectric 沙箱复用问题，但生产侧 11 个 DataStore 读写仍无超时，挂起型故障不会进入任何 catch/Result 分支。
+- **危害**：极端磁盘/文件系统异常导致 actor 死亡时，P0 入出库提交前安全落盘会让提交按钮永久转圈且 `draftMutex` 排队；P1 登录、草稿恢复、冷启动会话还原会挂起；P2 盘点草稿保存/清理与登出可能静默卡死。请求尚未发出，因此不产生重复单据，属于可用性故障而非数据一致性故障。
+- **R6 同类点排查**：全仓 Android 生产源码仅 `WmsRepository` 持有唯一 `wms_settings` DataStore 委托；`getSavedBaseUrl` / `saveStocktakeDraft` / `loadStocktakeDraft` / `editDraftKey` / `saveEditDraft` / `loadEditDraft` / `clearStocktakeDraft` / `saveLoginInfo` / `logout` / `getUsername` / `getRole` 共 11 个消费点全部收口，无遗漏。
+- **修复**：`WmsRepository` 新增 5s 默认超时（测试可注入 0ms）：`saveEditDraft` 超时继续抛异常，复用 `persistEditDraft` 的 `draftSaveError` / `prepareDraftSubmission` 的「未安全保存，暂不提交」与 loading 复位分支；其余读写按既有安全语义降级（null / Unit / 登录内存态继续 / 登出继续清内存 token）。超时先捕获 `TimeoutCancellationException`，再透传普通 `CancellationException`，避免把页面退出取消误报为 DataStore 故障。版本 3.9.3(27)→3.9.4(28)。
+- **回归**：新增 Robolectric/JVM 测试 `DataStoreTimeoutTest` 共 6 用例：①超时后 `saveEditDraft` 抛非取消型异常；②`editDraftKey` 超时降级并抛出「请先登录再恢复清单」；③默认超时下正常 DataStore 往返不受影响；④提交前读键超时时，`prepareDraftSubmission` 复用「登录账号或服务器已变更」分支并复位 `isLoading`；⑤写草稿超时时，`persistEditDraft` 返回 false 并置 `draftSaveError`；⑥外层协程取消仍透传，不误吞为超时降级。
+- **生效条件**：Android 代码随 APK 发布生效；需重新构建安装 versionCode 28。生产 WMS 服务端无改动、无需重启 Web 服务。
+- **生效确认**：待确认（等待推送后三工作流全绿；Android 编译与 Robolectric 由 `Android APK Build` 实证，本沙箱无 Android SDK）。
+
 ### M2' Android 替代验证记录（2026-10-01，无真机环境，AGENTS.md R8 诚实边界）
 
 **背景**：P0 三项中 Android 真机测试不可行（沙箱无真机/无 Java/无 Android SDK），按 M2' 计划以两条替代路径收窄不确定性。**BUG-2026-09-13-018/019/020/021/023 台账状态保持「待真机验收」不变**——替代验证只收窄不确定性，不构成真机验收。

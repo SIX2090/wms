@@ -124,9 +124,13 @@ data class SubmittedPrintInfo(
     val orderNo: String?
 )
 
-class ScanViewModel(application: Application) : AndroidViewModel(application) {
+class ScanViewModel(
+    application: Application,
+    /** BUG-2026-10-002：测试注入 0ms 超时，复现 DataStore actor 死亡。 */
+    dataStoreTimeoutMs: Long = WmsRepository.DATASTORE_TIMEOUT_MS
+) : AndroidViewModel(application) {
 
-    private val repository = WmsRepository(application)
+    private val repository = WmsRepository(application, dataStoreTimeoutMs)
 
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
@@ -201,7 +205,9 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun persistEditDraft(): Boolean = draftMutex.withLock {
+    internal suspend fun persistEditDraft(): Boolean = draftMutex.withLock {
+        // BUG-2026-10-002：DataStore 超时已由仓库层转换为非取消型 DataStoreTimeoutException。
+        // 编辑草稿必须走失败分支，绝不把未落盘清单误报为已保存。
         val key = editDraftKey ?: return@withLock false
         try {
             repository.saveEditDraft(key, editDraftSnapshot())
@@ -215,7 +221,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private suspend fun prepareDraftSubmission(): String? {
+    internal suspend fun prepareDraftSubmission(): String? {
         val operation = editDraftOperation
         val currentKey = try {
             operation?.let { repository.editDraftKey(it) }

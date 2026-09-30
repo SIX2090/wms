@@ -29,8 +29,9 @@ android {
         // 3.9.2(26)=AI-MOB-LDG-F01 手机端库存台账页（单一物料期初/入/出/结存流水链，只读；后端 /api/mobile/report/stock_ledger）。
         // 3.9.3(27)=BUG-2026-09-21-005 删库重建前备份并回补离线待同步队列（修静默丢单），
         //           并强制构建后立即打开库文件，让删库恢复分支对"库损坏/迁移缺失"真实可达。
-        versionCode = 27
-        versionName = "3.9.3"
+        // 3.9.4(28)=BUG-2026-10-002 DataStore 访问加 5s 超时/降级，actor 死亡时提交/登录不再永久挂起。
+        versionCode = 28
+        versionName = "3.9.4"
 
         // sherpa-onnx 本地语音识别开关：通过 -Pwms.sherpa=true 启用，
         // 默认 false（保持现有国内 / 离线构建无网络依赖）。启用后会引入
