@@ -126,10 +126,28 @@ android {
     //
     // includeAndroidResources：Robolectric 需要访问合并后的资源与 Manifest，
     // 否则 @Config 声明的 Application/资源读取会失败。
+    //
+    // BUG-2026-10-01-001（M2' 诊断）：testReleaseUnitTest 挂起时 Gradle 默认
+    // 零输出（测试 stdout 只在失败时展示），#760/#761 两轮挂起日志里完全没有
+    // "卡在哪个测试"的证据。开 STARTED 逐用例事件 + 标准流直显：
+    // 挂起被 timeout-minutes 击杀后，日志中**最后一个 STARTED** 即卡点，
+    // println 探针输出（showStandardStreams）即卡点内部位置。
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
+            all {
+                it.testLogging {
+                    events(
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.STARTED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.PASSED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.FAILED,
+                        org.gradle.api.tasks.testing.logging.TestLogEvent.SKIPPED
+                    )
+                    exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                    showStandardStreams = true
+                }
+            }
         }
     }
 }

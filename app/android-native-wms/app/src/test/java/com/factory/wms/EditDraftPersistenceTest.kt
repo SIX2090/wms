@@ -10,6 +10,12 @@ import com.factory.wms.data.model.SupplierDto
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -60,7 +66,34 @@ class EditDraftPersistenceTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
+        // —— 诊断探针（BUG-2026-10-01-001，定位挂点后整段移除）——
+        // #760/#761 两轮 CI 挂起零输出，本类是字母序首个执行的新测试类。
+        // 逐项隔离三个"本套件首次触碰"的子系统，哪个探针之后无输出即卡点。
+        println("[DBG1] setUp: context 获取完成 thread=${Thread.currentThread().name}")
+        probeSubsystems()
+        // —— 探针结束 ——
         repository = WmsRepository(context)
+        println("[DBG6] setUp: WmsRepository 构造完成")
+    }
+
+    /** 诊断探针（BUG-2026-10-01-001）：隔离 Keystore 与 DataStore，定位后移除。 */
+    private fun probeSubsystems() {
+        println("[DBG2] 探针: MasterKey/AndroidKeyStore 构建…")
+        val mk = runCatching {
+            androidx.security.crypto.MasterKey.Builder(context)
+                .setKeyScheme(androidx.security.crypto.MasterKey.KeyScheme.AES256_GCM)
+                .build()
+        }
+        println("[DBG3] 探针: MasterKey 结果=${mk.isSuccess}（false=无 AndroidKeyStore，走降级路径）")
+        println("[DBG4] 探针: 独立 DataStore edit…")
+        val probe = PreferenceDataStoreFactory.create(
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob()),
+            produceFile = { java.io.File(context.filesDir, "probe_bug_2026_10_01_001.preferences_pb") }
+        )
+        runBlocking {
+            probe.edit { it[stringPreferencesKey("probe")] = "1" }
+        }
+        println("[DBG5] 探针: 独立 DataStore edit 返回——DataStore@Robolectric 可用")
     }
 
     @After
@@ -76,7 +109,9 @@ class EditDraftPersistenceTest {
 
     private suspend fun seedLogin(server: String, user: String) {
         // editDraftKey 从 DataStore 读 base_url/username；saveLoginInfo 是唯一公开写入口
+        println("[DBG7] seedLogin 进入 server=$server") // 诊断探针（BUG-2026-10-01-001）
         repository.saveLoginInfo(token = "token-x", baseUrl = server, username = user, role = "admin")
+        println("[DBG8] seedLogin saveLoginInfo 返回") // 诊断探针
     }
 
     private fun sampleLine(code: String, qty: Double, location: String? = null) = ScanLine(

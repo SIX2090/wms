@@ -52,6 +52,7 @@ class ScanFeedbackTest {
         // 无真机环境下，"ScanViewModel 可以在 Robolectric 沙箱里完整构造出来"
         // 本身就是对三层兜底的运行时证据。
         viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
+        println("[DBG-S1] ScanFeedbackTest: ScanViewModel 构造完成") // 诊断探针（BUG-2026-10-01-001）
     }
 
     // ---------------------------------------------------------------

@@ -54,7 +54,9 @@ class LocationSelectionTest {
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
         repository = WmsRepository(context)
+        println("[DBG-L1] LocationTest: WmsRepository 构造完成") // 诊断探针（BUG-2026-10-01-001）
         viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
+        println("[DBG-L2] LocationTest: ScanViewModel 构造完成") // 诊断探针
     }
 
     @After
@@ -76,9 +78,12 @@ class LocationSelectionTest {
 
     /** 草稿模式必需：seedLogin + 落一份带库位设置的草稿再恢复。 */
     private suspend fun enterDraftMode(location: String, enabled: Boolean) {
+        println("[DBG-L3] enterDraftMode 进入") // 诊断探针（BUG-2026-10-01-001）
         repository.saveLoginInfo(token = "token-x", baseUrl = "https://srv.example.com",
             username = "userA", role = "admin")
+        println("[DBG-L4] saveLoginInfo 返回") // 诊断探针
         val key = repository.editDraftKey("inbound")
+        println("[DBG-L5] editDraftKey=$key") // 诊断探针
         // 草稿至少要有一行才落得住（空行清单会被 saveEditDraft 删除）
         repository.saveEditDraft(key, ScanEditDraft(
             lines = listOf(DraftScanLine(line("M001"), "轴承", "608", "SKF")),
@@ -87,7 +92,9 @@ class LocationSelectionTest {
             inboundBusinessType = "采购入库",
             selectedLocation = location, locationEnabled = enabled
         ))
+        println("[DBG-L6] saveEditDraft 返回") // 诊断探针
         viewModel.restoreEditDraft("inbound")
+        println("[DBG-L7] restoreEditDraft 返回") // 诊断探针
     }
 
     // ---------------------------------------------------------------
