@@ -19,6 +19,7 @@ import com.factory.wms.data.local.PendingOperationEntity
 import com.factory.wms.util.NetworkMonitor
 import com.factory.wms.data.model.*
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
