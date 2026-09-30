@@ -1,6 +1,6 @@
 ﻿# WMS BUG 基线
 
-更新时间：2026-09-29（持续滚动更新；BUG 条目 427 条：2026-07 共 42 条，2026-08 共 220 条，2026-09 共 165 条，最新 BUG-2026-09-28-003；另含非 BUG 条目：LABEL-FIX-2026-09-29-001~005、FEAT-2026-09-24-001、WECOM-BOT-001、INV-AUDIT/VULN/CONF 系列等）
+更新时间：2026-09-30（持续滚动更新；BUG 条目 427 条：2026-07 共 42 条，2026-08 共 220 条，2026-09 共 165 条，最新 BUG-2026-09-30-002；另含非 BUG 条目：LABEL-FIX-2026-09-29-001~005、FEAT-2026-09-24-001、WECOM-BOT-001、INV-AUDIT/VULN/CONF 系列等）
 
 用途：把已经核验过的问题固定下来，避免不同 AI 模型每天重复报告同一批“疑似 BUG”。后续扫描结果必须先对照本文件：已修复项看回归，误报项不重复报，暂缓项只在风险条件变化时重新评估。新 BUG 登记前先 grep 本文件查同根因历史（AGENTS.md 防反复规则 R6），同模式复发必须同时修复全部同类消费点。
 
@@ -2340,3 +2340,14 @@
 - **回退验证（R8 第 3 条）**：实现前在旧代码上跑新用例 → 铃铛=2、页面列 2 条（含 `low_stock`）→ 失败（锁得住）；加 `type.in_` 过滤后全绿。回退用 `cp` 文件备份法，**未用 `git stash`**。
 - **生效确认**：**已确认（2026-09-30）**——用户授权 GitHub PAT，经 `scripts/api_push.py`（Git Data API 四步重放）推送至 main；反查 `GET /repos/SIX2090/wms/commits/main` → HEAD=`94042fe9e167a7b21836561220f1de9bd3046c20`，parent=`768a86d`（克隆时远端 HEAD），变更文件 3（`WMS_BUG_BASELINE.md`/`app/routes/print_alerts.py`/`tests/test_print_alerts.py`），与本地提交 `82410c7` 内容一致；`verify_remote_sync.py` 全量 tree 比对通过（1492 文件完全一致）。三工作流（Android APK Build / WMS AI Verification / WMS CI）将在推送后自动触发，待其转绿即满足 §三 下一轮开工门禁。后端改动，**生产需重启 WMS 服务生效（R3）**。
 - **关联**：`app/routes/print_alerts.py`、`app/notifications.py`、`AGENTS.md` §七 R2 / R6、A13。
+
+### BUG-2026-09-30-002（2026-09-30，系统设置「采购退货必须关联订单」remark 仍写"为后续采购退货流程预留"，文案与已上线实现不符）
+
+- **发现方式**：P0 三项深度测试计划制定时核证——审查报告 §二.2 判"采购退货为预留状态"，实测台账 P1-7（`WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md:3036`，2026-09-20）已全量实现（选源接口 `app/routes/in_order.py:214` 只列已完成入库单并带可退数量、行级防超退闸 `app/routes/out_order.py:859-863`、来源归属 `app/models/documents.py:234-260`），`app/app.py:3726` remark 为唯一残留过时表述，误导后续 AI/开发者对功能现状的判断。
+- **根因**：P1-7 实现时遗漏同步系统设置页的 remark 文案——设置项 `purchase_return_requires_order` 早在 P1-7 之前即存在，remark 写于"预留"期，功能落地后未回写。
+- **R6 同类点排查**：grep 全仓 `为后续采购退货流程预留`，仅 `app/app.py:3726` 一处（`app/routes/`、`app/templates/` 均无同文案残留）；`documents.py:83` 的"预留作废流转"是真实未实现的另一功能域（单据作废流转），不属于本条。
+- **修复**：remark 改写为与 P1-7 实现及开关实际语义一致的描述：默认开=强制关联来源采购入库单（仅已完成单可选源、按行防超退）；关=允许免关联创建，退货供应商必填仍生效（`out_order.py:676-681`），无来源时无法做行级防超退。纯文案改动，不触及任何业务逻辑、开关默认值与校验路径。
+- **回归**：无行为改动，文案不参与逻辑，无新增测试必要；grep 复核全仓无第二处同文案。门禁：pre-commit A1–A14 通过。
+- **回退验证（R8 第 3 条）**：纯展示文案无行为可回退，以 grep 复核代替（新文案落位、旧文案全仓清零）。
+- **生效确认**：已确认（2026-09-30）——PAT 直通 git push 推送至 main；反查 `GET /repos/SIX2090/wms/commits/main` 确认 HEAD、parent、变更文件与本地提交一致。后端 Python 改动，**设置页文案需重启 WMS 服务生效（R3）**。
+- **关联**：`app/app.py:3726`、台账 P1-7、AGENTS.md §七 R6 / A13。
