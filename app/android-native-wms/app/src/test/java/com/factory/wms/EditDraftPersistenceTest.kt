@@ -65,6 +65,9 @@ class EditDraftPersistenceTest {
 
     @Before
     fun setUp() {
+        // BUG-2026-10-001：委托 DataStore 是 JVM 级单例，跨沙箱复用会被毒化
+        // （#762 探针实证第 4 方法挂死），每方法先复位再取新实例。
+        DataStoreTestReset.resetWmsSettingsDataStore()
         context = ApplicationProvider.getApplicationContext()
         // —— 诊断探针（BUG-2026-10-01-001，定位挂点后整段移除）——
         // #760/#761 两轮 CI 挂起零输出，本类是字母序首个执行的新测试类。
