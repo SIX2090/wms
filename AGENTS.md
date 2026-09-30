@@ -12,7 +12,8 @@
 5. [AI 开发台账](#五ai-开发台账)
 6. [防 BUG 规则 A1–A14](#六防-bug-规则a1a142026-07-31-新增)
 7. [反复 BUG 模式清单与强制防护 R1–R8](#七反复-bug-模式清单与强制防护r1r82026-08-28-新增)
-8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订)
+8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订2026-09-30-修订)
+   - [8.0 通道实测与决策表（含"建议不要用"清单）](#80-通道实测与决策表2026-09-30-新增)
 
 ## 一、业务操作铁律（AI 行为边界）
 
@@ -238,7 +239,67 @@
   （测试用 `ROOT / "xxx.bat"` **拼接路径**，文件名不以完整字面量出现）→ CI 单测红灯才暴露。
 - 详见 [DEVELOPMENT_RULES.md §七 R8](./DEVELOPMENT_RULES.md)。
 
-## 八、受限网络环境的 GitHub 推送与拉取（2026-08-23 新增，2026-08-26 修订）
+## 八、受限网络环境的 GitHub 推送与拉取（2026-08-23 新增，2026-08-26 修订，2026-09-30 修订）
+
+> **2026-09-30 修订摘要**：本机环境（Windows 实机，非沙箱）实测证明**常规 git 直连 `github.com` 完全可用**，§8.2 原"必须走代理前缀浅克隆"的结论已过时。本次修订新增 [§8.0 通道实测与决策表](#80-通道实测与决策表2026-09-30-新增)（成功/失败方法全记录 + 建议不要用清单），并把 §8.2 首选通道改为**直连浅克隆**。原代理通道保留作为降级路径，但标注"建议不要用"。
+
+### 8.0 通道实测与决策表（2026-09-30 新增）
+
+> 来源：2026-09-30 在 Windows 实机（非沙箱）上对 `SIX2090/wms` 的完整拉取实测，成功克隆到 `a5d27af`，1492 文件，耗时 2m17s。
+> **环境前提会随时间和网络变化，用前必须重新探测**；但判别方法（见 §8.0.2）是稳定的。
+
+#### 8.0.1 实测结果总表
+
+| 通道 | 用途 | 实测结果 | 结论 |
+|---|---|---|---|
+| **github.com 直连 git**<br>`git ls-remote` / `git clone --depth 1` | 拉取 | ✅ **成功**，2m17s，约 52KB/s，HEAD `a5d27af` 与网页端一致 | **首选** |
+| **codeload.github.com**<br>tarball 下载 | 拉取（无 git 历史） | ✅ 成功，6.08MB / 4m03s，1577 条目 | **备选**（见 §8.0.3） |
+| **api.github.com 直连** | 校验 HEAD / 推送 | ✅ `HTTP 200`，无需 DoH 解析、无需写 `/etc/hosts` | **可用** |
+| **ghproxy.net 代理前缀浅克隆** | 拉取 | ❌ **连续 3 次失败**（5m14s / 8m04s / 1m44s），均在 ~4MB 处 `early EOF` + `curl 18 transfer closed` | **建议不要用** |
+| **gitclone.com** | 拉取 | ❌ `curl (35) CRYPT_E_REVOCATION_OFFLINE`（吊销服务器不可达） | **建议不要用** |
+| **github.com（curl 探测）** | 探测 | ❌ `curl (52) Empty reply from server` → `000` | **误判，见 §8.0.2** |
+
+> **"建议不要用"清单（2026-09-30 实证）**：`ghproxy.net` 代理前缀浅克隆、`gitclone.com`、以及**用 `curl` 判定 git 通道可用性**。
+> 历史记录（2026-08-23）曾实测 `ghproxy.net` ✅，本次 3/3 全部失败——代理可用性随时间漂移，这正是必须重新探测的原因；但在直连可用的前提下，**不应再把代理作为首选**。
+
+#### 8.0.2 判别方法纠正（关键，防止反复踩坑）
+
+**禁止用 `curl` 判定 git 通道是否可用。** `curl https://github.com` 返回 `000` / `Empty reply from server` **不代表 git 不可用**——2026-09-30 实测中 curl 报 `000`，但同一时刻 `git ls-remote` 正常返回 `a5d27af35e241f0a2f6d9218f38591796d8b5cf5`，且直连浅克隆成功。
+
+**正确判别命令（廉价、只读、秒级）**：
+
+```bash
+timeout 45 git ls-remote https://github.com/SIX2090/wms.git main
+# 返回 "<SHA>	refs/heads/main" 且退出码 0 → 直连可用，直接 git clone，不要再折腾代理
+# 报 gnutls_handshake / SSL_ERROR_SYSCALL / 超时 → 直连不可用，才降级到 §8.2 代理路径
+```
+
+决策顺序：**① `git ls-remote` 直连探测 → ② 通就直连浅克隆 → ③ 不通才走代理/API 通道**。跳过第 ① 步直接上代理，是本条修订要杜绝的做法。
+
+#### 8.0.3 备选方案：codeload tarball（无 git 历史时的兜底）
+
+当 git 协议彻底不可用、但 `codeload.github.com` 可达时，可用 tarball 拿代码（**该方法不含 `.git`，无法直接满足 §8.2 验证标准，仅作最后兜底**）：
+
+```bash
+# 1. 取准确的 main HEAD SHA（api.github.com 直连可用）
+curl -sS -m 20 https://api.github.com/repos/SIX2090/wms/commits/main | grep -m1 '"sha"'
+# 2. 直接下载该 SHA 的 tarball（实测 6.08MB）
+curl -sS -L -o wms_src.tar.gz "https://codeload.github.com/SIX2090/wms/tar.gz/<SHA>"
+# 3. 校验完整性（两步都必须过，否则重下）
+gzip -t wms_src.tar.gz && tar -tzf wms_src.tar.gz > /dev/null && echo OK
+# 4. 解压
+tar -xzf wms_src.tar.gz && mv wms-<SHA> wms
+```
+
+> 用 tarball 兜底时：需自行 `git init -b main` + 提交基线 + `git remote add origin https://github.com/SIX2090/wms.git`，并**在汇报中明确说明本地 HEAD 与上游 HEAD 不一致**（内容一致，SHA 不同）。后续推送走 §8.1 API 通道（以远程 HEAD 为 parent，不依赖本地历史对齐）。
+
+#### 8.0.4 其他环境事实勘误（2026-09-30）
+
+| 项目 | AGENTS.md 原文 | 2026-09-30 实测 |
+|---|---|---|
+| 仓库可见性 | §8.1 提及"免费私有仓库" | **`visibility: public`**（公开仓库，读取无需 token） |
+| 凭证脚本 | `~/.codebuddy/skills/github-connector/scripts/get_token.sh` | 本机**该路径不存在**；且无 `gh` CLI。需凭证时改用 GitHub 连接器或用户提供的 PAT |
+| api.github.com | 需 DoH 解析 + 写 `/etc/hosts` | **域名直连即 200**，无需任何 hosts 改动 |
 
 ### 8.1 推送（API 通道）
 
@@ -286,22 +347,46 @@ source ~/.codebuddy/skills/github-connector/scripts/get_token.sh github
 ### 8.2 拉取（浅克隆通道）
 
 > 适用场景：AI 代理运行在沙箱/受限网络，`github.com` 的 git 协议（HTTPS TLS）被网络层拦截，常规 `git clone` 直接失败（报 `gnutls_handshake() failed: The TLS connection was non-properly terminated` 或 `SSL_ERROR_SYSCALL`）。该方法 2026-08-23 实际验证通过（克隆到 `11cea47`，1171 个文件，约 26MB，工作树完整）。
+>
+> **2026-09-30 修订**：**先读 [§8.0 通道实测与决策表](#80-通道实测与决策表2026-09-30-新增)**。本环境已实测直连可用，**代理前缀不再是首选**。开工顺序必须是「`git ls-remote` 探测 → 直连浅克隆 → 失败才走代理」，禁止跳过探测直接套代理。
 
 **通道探测（按序尝试，以实测为准）**：
 
-1. 常规 HTTPS clone（`git clone https://github.com/SIX2090/wms.git wms`）——TLS 可通则优先走常规通道。
-2. 均失败 → 实测可用镜像/代理（2026-08-23 结果）：`ghproxy.net` ✅、`gitclone.com` ✅；`ghproxy.com`、`mirror.ghproxy.com`、`kgithub.com`、`github.com.cnpmjs.org` ❌ 均被拦。镜像可用性随时间变化，用前必须重新探测。
-3. 判别命令：`curl -sS -m 15 -o /dev/null -w "%{http_code}" https://<host>` 返回 `200` 才可作代理前缀。
+1. **`git ls-remote` 直连探测（必做第一步，2026-09-30 新增）**：
 
-**浅克隆步骤（代理前缀 + HTTP/1.1 + 浅克隆）**：
+   ```bash
+   timeout 45 git ls-remote https://github.com/SIX2090/wms.git main
+   ```
 
-> 全量克隆走代理易在收尾被中断（`curl 92 HTTP/2 stream ... INTERNAL_ERROR` + `early EOF` + `fetch-pack: invalid index-pack output`），必须用以下参数组合：
+   返回 `<SHA>	refs/heads/main` 且退出码 0 → **直连可用，走下面的「首选：直连浅克隆」，不要碰代理**。
+
+2. 直连探测失败 → 才考虑镜像/代理。历史实测（2026-08-23）：`ghproxy.net` ✅、`gitclone.com` ✅；`ghproxy.com`、`mirror.ghproxy.com`、`kgithub.com`、`github.com.cnpmjs.org` ❌ 均被拦。
+   **2026-09-30 复测：`ghproxy.net` ❌ 3/3 失败、`gitclone.com` ❌——代理可用性随时间漂移，必须重新探测，且探测结果以"能否真的克隆成功"为准，不能以代理首页 200 为准**（本次 `ghproxy.net` 首页返回 `200`，但克隆 3 次全部在 ~4MB 处中断）。
+3. 代理判别命令仅作**粗筛**：`curl -sS -m 15 -o /dev/null -w "%{http_code}" https://<host>` 返回 `200` 才可作代理前缀。**禁止用 curl 判定 `github.com` 本身是否可用**（§8.0.2）。
+
+**首选：直连浅克隆（2026-09-30 实测成功，2m17s）**：
 
 ```bash
-git config --global http.version HTTP/1.1      # 强制 HTTP/1.1，避开 HTTP/2 流被代理掐断
+git config --global http.version HTTP/1.1      # 强制 HTTP/1.1，避开 HTTP/2 流被中间设备掐断
 git config --global http.postBuffer 524288000  # 500MB 发送缓冲
 git config --global core.compression 0         # 关闭传输压缩，减少中断概率
+git clone --depth 1 https://github.com/SIX2090/wms.git wms
+```
+
+> 上述三条 git config 在直连场景同样建议保留（本次实测即在该配置下成功）。
+
+**降级：代理前缀浅克隆（建议不要用，仅当直连探测失败时）**：
+
+> **2026-09-30 实测 `ghproxy.net` 连续 3 次失败**：均在下载 ~4MB 时中断，报
+> `error: RPC failed; curl 18 transfer closed with outstanding read data remaining` +
+> `fetch-pack: unexpected disconnect while reading sideband packet` + `fatal: early EOF` +
+> `fatal: fetch-pack: invalid index-pack output`。
+> **结论：代理首页返回 `200` 不代表能克隆成功；本环境直连可用时，不建议走代理。**
+
+```bash
 git clone --depth 1 "https://ghproxy.net/https://github.com/SIX2090/wms.git" wms
+# 备选代理（2026-08-23 曾可用，2026-09-30 实测失败）：
+# git clone --depth 1 https://gitclone.com/github.com/SIX2090/wms.git wms
 ```
 
 **浅克隆后的补全（按需）**：
@@ -313,4 +398,15 @@ git clone --depth 1 "https://ghproxy.net/https://github.com/SIX2090/wms.git" wms
 **验证与完成标准**：
 
 - 克隆后必须验证：`git status` 工作树干净；`git log --oneline -1` 与 GitHub 网页端 main HEAD 一致。
-- 克隆超过 10 分钟无输出视为代理挂起：`rm -rf wms` 后换 `gitclone.com` 通道（`git clone --depth 1 https://gitclone.com/github.com/SIX2090/wms.git wms`）重试。
+  2026-09-30 实证：直连克隆后 `git log --oneline -1` = `a5d27af`，与 `api.github.com` 反查的 main HEAD `a5d27af35e241f0a2f6d9218f38591796d8b5cf5` 一致，工作树干净，1492 文件。
+- **判断是否"挂起"（2026-09-30 修订）**：不要只看"有无输出"，要**采样 pack 文件实际增长**：
+
+  ```bash
+  du -sh wms; ls -la wms/.git/objects/pack/   # 间隔 30s 采样两次
+  # 有增长 → 只是慢，继续等；停止增长或超过 10 分钟 → 判定挂起
+  ```
+
+- 判定代理挂起后**不要再盲目重试同一代理**（本次 ghproxy.net 重试 3 次全败）。应先 `rm -rf wms` 清理，然后按 §8.0.1 决策：
+  ① 先回 **`git ls-remote` 直连探测**——很多时候直连其实是通的，只是从没试过；
+  ② 直连不通 → 换 `gitclone.com`（若其可用性复测通过）；
+  ③ 全部不通 → 走 §8.0.3 codeload tarball 兜底（注意该方法无 git 历史，须按 §8.0.3 说明汇报 SHA 差异）。
