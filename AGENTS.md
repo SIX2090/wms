@@ -14,6 +14,7 @@
 7. [反复 BUG 模式清单与强制防护 R1–R8](#七反复-bug-模式清单与强制防护r1r82026-08-28-新增)
 8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订2026-09-30-修订)
    - [8.0 通道实测与决策表（含"建议不要用"清单）](#80-通道实测与决策表2026-09-30-新增)
+   - [8.1 推送通道决策：PAT 直通 → MCP 端点 → API 重放](#81-推送通道决策pat-直通--mcp-端点--api-重放)
 
 ## 一、业务操作铁律（AI 行为边界）
 
@@ -301,32 +302,76 @@ tar -xzf wms_src.tar.gz && mv wms-<SHA> wms
 | 凭证脚本 | `~/.codebuddy/skills/github-connector/scripts/get_token.sh` | 本机**该路径不存在**；且无 `gh` CLI。需凭证时改用 GitHub 连接器或用户提供的 PAT |
 | api.github.com | 需 DoH 解析 + 写 `/etc/hosts` | **域名直连即 200**，无需任何 hosts 改动 |
 
-### 8.1 推送（API 通道）
+### 8.1 推送（通道决策：PAT 直通 → MCP 端点 → API 重放）
 
-> 适用场景：AI 代理运行在沙箱/受限网络，`github.com` 的 git 协议（HTTPS TLS / SSH 22）被网络层拦截，常规 `git push` 不可用，但持有用户授权的 GitHub OAuth token（CodeBuddy 连接器）。该方法 2026-08-23 实际验证通过（提交 `f09e8215` / `f2709a8b` / `81a682a8`），2026-08-26 再次实测通过（提交 `39ee99c254a8` / `7fbae2ecdad1`）。
+> 适用场景：向 `main` 推送 atomic action，且本机没有可直接复用的 git 写凭证。
+> **2026-09-30 修订**：实测确认 **PAT 直通 `git push` 在本环境完全可用**（TLS 可通），故推送首选由"API 通道重放"改为 **PAT 直通 push**。原 API 四步重放保留为无 PAT 时的兜底，另新增 **MCP 本地端点通道**（无需 PAT 即可推送）。
 
-**凭证获取（唯一实测有效来源）**：
+**凭证获取（2026-09-30 实测）**：
 
-```bash
-source ~/.codebuddy/skills/github-connector/scripts/get_token.sh github
-# 成功后环境变量 GITHUB_TOKEN 就绪（ghu_ 开头的 OAuth user token）
-# 注意：每个 Bash 调用是新 shell，取 token 与后续 git/curl 必须写在同一条命令里
-```
+| 来源 | 实测 | 说明 |
+|---|---|---|
+| **用户直接提供 PAT**（`ghp_` / `github_pat_` 前缀） | ✅ **唯一实测有效**，`GET /user` 返回 200，`git push` 认证通过 | 首选。由用户在对话中给出。若要免重复输入，可存本机 `~/.git-credentials`，但属**明文存盘**，须用户明确同意 |
+| `~/.codebuddy/skills/github-connector/scripts/get_token.sh` | ❌ **本机路径不存在** | 2026-08-23/26 曾有效，当前环境已无此脚本；不要假设它还在 |
+| GitHub 连接器 / GitHub MCP server | ⚠️ 其 Bearer token 对 `api.github.com` 直连返回 **401** | 该 token 只对 WorkBuddy 的 MCP 代理有效，**不能**当 PAT 用；但 MCP 工具本身可推送（见 §8.1.2） |
+| `gh` CLI | ❌ 本机未安装 | — |
+| Windows 凭据管理器 | ❌ 无 github 条目 | `credential.helper=helper-selector` 存在但无凭证，裸 push 报 `could not read Username` |
 
 > 2026-08-26 实测**不可用**的凭证/通道（不要再试）：
 > - `git-credential-helper`（向 `git.auth-proxy.local` 查询）→ 404「git credentials not found in space labels」
-> - GitHub MCP server（github-remote）→ 会话内连接失败，界面绿点不代表可用
 > - SSH over 443 → 本环境无部署公钥
 > - ghproxy.net / gitclone.com 代理前缀 **push** → 代理只对 github.com 域名供凭证，push 会卡在 `could not read Username`；**代理只能用于拉取，不能用于推送**
 
 **通道探测（按序尝试，以实测为准）**：
 
-1. 常规 HTTPS push（`git push https://oauth2:<TOKEN>@github.com/SIX2090/wms.git main`）——TLS 可通则优先走常规通道（2026-08-26 实测仍被拦，报 `gnutls_handshake() failed`）
-2. 失败 → 使用下述 API 通道
+1. **PAT 直通 push（首选，2026-09-30 实测可用）**——见 §8.1.1
+2. 无 PAT → **MCP 本地端点通道**（2026-09-30 实证成功，提交 `fe3e86f`）——见 §8.1.2
+3. 均不可用（如 `github.com` TLS 被拦）→ API 四步重放——见 §8.1.3
 
-**API 通道步骤（Git Data API 重放提交，等效一次 git push）**：
+#### 8.1.1 首选：PAT 直通 push（2026-09-30 实测通过）
 
-1. **打通 api.github.com**：`github.com` 被拦不代表 `api.github.com` 被拦，须分别实测（域名直连实测 000，须走 IP）。用 DoH 解析真实 IP（如 `https://dns.alidns.com/resolve?name=api.github.com&type=A`），将可用 IP 写入 `/etc/hosts`（2026-08-26 实测可用：`20.205.243.168 api.github.com`）。
+```bash
+TOKEN='<用户提供的 PAT>'
+git push "https://oauth2:${TOKEN}@github.com/SIX2090/wms.git" main 2>&1 \
+  | sed -E 's#oauth2:[^@]*@#oauth2:***@#g'   # 输出脱敏，防止 token 进日志
+```
+
+**凭证安全红线（硬性）**：
+
+- token **只在同一条 Bash 命令内以 shell 变量传入**，禁止写入仓库文件、脚本、`.git/config`、`git remote set-url`。
+- 若临时用 `git remote set-url` 塞过 token，**推送后立即改回无 token 的 URL**。
+- 输出必须脱敏；禁止把 token 回显到对话、日志或 commit message。
+- 禁止把 PAT 写进 AGENTS.md 或任何会被提交的文件——本文档只记录用法，不记录值。
+- 该 PAT 若曾在对话中明文出现，提醒用户到 GitHub → Settings → Developer settings → Personal access tokens **撤销轮换**。
+
+> 实测：`git push` 返回 `Everything up-to-date`（退出码 0）= 认证通过且无待推送内容；
+> 返回 `-> main` 且带新 SHA = 推送成功。**必须读取实际输出确认，不得凭假设报完成**（§三推送验证）。
+
+#### 8.1.2 降级：MCP 本地端点通道（无 PAT 时，2026-09-30 实证）
+
+GitHub MCP server 在本机以 **本地 HTTP 端点** 形式运行（`http://127.0.0.1:<port>/<id>/mcp`，地址见环境变量 `CODEBUDDY_MCP_CONFIG` 的 `mcpServers.github.url`）。用脚本走 MCP JSON-RPC 即可推送，**无需 PAT**，且文件内容可直接从磁盘读取（避免手工转义大文件）：
+
+```python
+# 握手：POST initialize（带 Authorization 头）→ 取响应头 Mcp-Session-Id
+# 通知：POST notifications/initialized（带同一 Session-Id）
+# 调用：POST tools/call  name=push_files
+#       arguments={owner, repo, branch:"main", message, files:[{path, content}]}
+```
+
+- 该通道 2026-09-30 实证成功，产出提交 `fe3e86f`（AGENTS.md +105/-9）。
+- 推送后 MCP 返回的 `object.sha` 即远程新 HEAD；**仍需按 §8.1.4 反查确认**。
+- 脚本不要放进仓库（避免 A14 门禁与凭证泄漏），放在工作区根目录即可。
+
+#### 8.1.3 兜底：API 四步重放（Git Data API，等效一次 git push）
+
+> 该方法 2026-08-23 实际验证通过（提交 `f09e8215` / `f2709a8b` / `81a682a8`），2026-08-26 再次实测通过（提交 `39ee99c254a8` / `7fbae2ecdad1`）。仅当 §8.1.1 / §8.1.2 都不可用时使用。
+
+**步骤**：
+
+1. **打通 api.github.com**：`github.com` 被拦不代表 `api.github.com` 被拦，须分别实测。
+   **2026-09-30 实测：域名直连即返回 200，无需 DoH 解析、无需写 `/etc/hosts`**（见 §8.0.4）。
+   仅当直连返回 000 时才走 IP：用 DoH 解析真实 IP（如 `https://dns.alidns.com/resolve?name=api.github.com&type=A`），
+   写入 `/etc/hosts`（2026-08-26 实测可用：`20.205.243.168 api.github.com`）。
 2. **认证**：token 仅通过请求头 `Authorization: Bearer <TOKEN>` 使用；禁止写入仓库文件、脚本持久化或输出到日志；推送完成后若曾把 token 写进 `git remote set-url`，必须立即改回无 token 的 URL。
 3. **四步重放**（全部走 `https://api.github.com`）：
 
@@ -339,10 +384,18 @@ source ~/.codebuddy/skills/github-connector/scripts/get_token.sh github
 
 4. **本地提交照常**：沙箱本地仍按常规 `git commit` 保持历史可续作。远程 commit SHA 与本地不同（时间戳/committer 信息差异）但内容一致，属预期，不算失败。
 
-**验证与完成标准（对接第三节推送验证）**：
+#### 8.1.4 验证与完成标准（三条通道通用，对接 §三推送验证）
 
-- API 推送后必须反查 `GET /repos/SIX2090/wms/commits/main`：确认 HEAD SHA 已更新、`files` 变更列表与预期一致，才可报告完成。
-- 多文件改动：步骤 ② 的 `tree` 数组一次传入全部变更文件；禁止逐文件各建一个 commit。
+1. **反查远程 HEAD**：`GET /repos/SIX2090/wms/commits/main` 确认 HEAD SHA 已更新、
+   `parents` 为推送前的 SHA、`files` 变更列表与预期一致。
+   （2026-09-30 实证：`fe3e86f` ← parent `a5d27af`，`AGENTS.md +105/-9`。）
+2. **本地对齐（API/MCP 通道必做）**：这两条通道产生的远程 SHA 与本地不同，
+   必须 `git fetch --depth 1 origin main` + `git reset --hard origin/main` 让本地与 origin/main 同 SHA，
+   才算满足 §三「本地 `git log -1` 与 `git log origin/main -1` 相同」的完成标准。
+   > 直连 fetch 有**间歇性** `schannel: failed to receive handshake` / SSL 错误，
+   > **重试 1–2 次即可成功**，不要因此判定通道不可用（2026-09-30 实证：第 1 次失败、第 2 次成功）。
+3. **PAT 直通 push** 天然满足本地=远程，无需第 2 步；但仍须读取实际 `git push` 输出确认（`-> main` + 新 SHA）。
+4. 多文件改动：一次 commit 传入全部变更文件；禁止逐文件各建一个 commit。
 
 ### 8.2 拉取（浅克隆通道）
 
