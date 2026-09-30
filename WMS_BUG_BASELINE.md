@@ -2372,5 +2372,17 @@
 - **回归**：新增 `tests/test_bug_2026_09_30_004_inout_export_n_plus_one.py`（A9）：① 查询计数锁——80 入库单 + 40 出库单导出期间 SQL ≤50 条（修复前实测 ~320 条）；② 内容正确性锁——行数/编号/供应商名/物料/数量/金额与造数一致，supplier 批量预加载全集校验。
 - **回退验证（R8 第 3 条）**：cp 备份法回退修复后新测试失败（查询计数锁触发）→ 恢复修复后通过，锁有效性实证。
 - **修复后实测**：5000 物料 3 轮均值 **15.57s → 4.277s（3.6×）**，内存峰值 45.3MB → 44.2MB（剩余耗时为 openpyxl 两 sheet 万行写入本身）；数据见 `scripts/perf_export_baseline_5000_after_c2.json`。
-- **生效确认**：待确认——推送后等三工作流转绿回填；本改动为 Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
+- **生效确认**：已确认（2026-09-30）——推送 `9fa0468` 后 `WMS CI #1321` / `WMS AI Verification #1616` / `WMS Perf Baseline #176` 全绿；本改动为 Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
 - **关联**：`app/routes/report.py` `report_inout_print`、P0 计划 §三 C2'、M1 基线 E2。
+
+### BUG-2026-09-30-005（2026-09-30，/api/query/search 无 LIMIT 无分页，5000 物料单请求 4.73s/664KB 全量返回）
+
+- **发现方式**：M1 C1 性能基线实测（`scripts/perf_export_baseline_5000.json` E4）——宽关键词（"M"）命中全部 5000 物料时，单请求返回全量行：4.73s / 响应 664KB / 内存峰值 23.3MB，违反 AGENTS.md §七 R1（列表接口必须让调用方显式知晓取的是"前 N 条"或显式翻页取全）。
+- **根因**：`app/routes/stock_query.py` `api_query_search` 查询链 `.order_by(Material.code.asc()).all()`——无 LIMIT 无分页元数据，命中数即返回数。
+- **R6 同类点排查**：全仓 grep `/api/query/search` 消费点——无前端模板/静态 JS/Android 消费（仅 `scripts/e2e_purchase_flow_10sets.py` e2e 助手与 3 个测试文件引用，均为小结果集，不受默认 limit=100 影响）；`mobile.py:161 _search` 已有 `.limit(5)`；`native_api` 各搜索端点均带 limit。无其他同类漏网点。
+- **修复**：探测式有界分页——`limit` 表单参数（默认 100、上限 500、下限 1、非法值回退 100），查询取 `limit+1` 条判断 `has_more` 后截断（免 COUNT 全表扫描）；响应增加 `limit` / `has_more` 元数据字段，调用方可按 R1 显式知晓"仅前 N 条"。命中排序（Material.code 升序）、仓库级库存口径（INV-AUDIT-004）零改动。
+- **回归**：新增 `tests/test_bug_2026_09_30_005_query_search_limit.py`（A9）6 项：默认 100+has_more / 自定义 limit / 上限钳 500 / 非法回退 / 小结果集全量返回+字段完整性 / code 升序首页。
+- **回退验证（R8 第 3 条）**：cp 备份法回退修复后 6 项全失败（limit/has_more 字段不存在+全量返回）→ 恢复后全过，锁有效性实证。
+- **修复后实测**：5000 物料宽关键词 **4.73s/664KB → 0.108s/12.6KB（44× 提速，内存 23.3MB → 0.7MB）**，数据见 `scripts/perf_export_baseline_5000_after_c4.json`。
+- **生效确认**：待确认——推送后等三工作流转绿回填；Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
+- **关联**：`app/routes/stock_query.py` `api_query_search`、AGENTS.md §七 R1、P0 计划 §三 C4、M1 基线 E4。

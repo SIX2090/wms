@@ -202,6 +202,16 @@ def register_stock_query_routes(app):
         if wh_error:
             return api_error(wh_error, 400)
 
+        # BUG-2026-09-30-005：R1——原实现 .all() 无 LIMIT 无分页，宽关键词命中
+        # 全量物料时单请求返回全部行（基线实测 5000 物料 4.73s / 664KB）。
+        # 现按 limit+1 探测式分页：默认 100、上限 500、下限 1，has_more 告知
+        # 调用方"仅取前 N 条"，免 COUNT 全表扫描。
+        try:
+            limit = int(request.form.get('limit', 100))
+        except (TypeError, ValueError):
+            limit = 100
+        limit = max(1, min(500, limit))
+
         keyword_like = f'%{keyword}%'
         materials = Material.query.outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
             MaterialCategory, Material.category_id == MaterialCategory.id
@@ -215,7 +225,11 @@ def register_stock_query_routes(app):
                 MaterialCategory.name.like(keyword_like),
                 Unit.name.like(keyword_like)
             )
-        ).order_by(Material.code.asc()).all()
+        ).order_by(Material.code.asc()).limit(limit + 1).all()
+
+        # limit+1 探测：多取 1 条判断 has_more，响应仍只返回 limit 条
+        has_more = len(materials) > limit
+        materials = materials[:limit]
 
         # INV-AUDIT-004：库存按仓库级返回，不再回退全局 Material.stock
         warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
@@ -232,4 +246,5 @@ def register_stock_query_routes(app):
                 'supplier': m.supplier.name if m.supplier else ''
             })
 
-        return jsonify({'status': 'success', 'data': data})
+        return jsonify({'status': 'success', 'data': data,
+                        'limit': limit, 'has_more': has_more})

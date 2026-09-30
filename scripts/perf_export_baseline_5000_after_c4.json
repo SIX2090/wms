@@ -1,0 +1,54 @@
+{
+  "meta": {
+    "date": "2026-10-01 01:08:50",
+    "materials": 5000,
+    "rounds": 3,
+    "db": "sqlite temp file"
+  },
+  "endpoints": {
+    "E1_stock_print": {
+      "label": "库存 Excel 导出",
+      "method": "GET",
+      "url": "/report/stock/print?warehouse_id=1",
+      "rounds": 3,
+      "status": 200,
+      "mean_s": 2.504,
+      "max_s": 2.581,
+      "peak_mem_mb": 20.7,
+      "resp_kb": 142.3
+    },
+    "E2_inout_export": {
+      "label": "出入库 Excel 导出",
+      "method": "GET",
+      "url": "/report/inout/export?warehouse_id=1&warehouse=%E4%BB%93%E5%BA%93A&warehouse_code=WHA&start_date=2026-09-01&end_date=2026-09-30",
+      "rounds": 3,
+      "status": 200,
+      "mean_s": 3.961,
+      "max_s": 4.037,
+      "peak_mem_mb": 44.2,
+      "resp_kb": 172.4
+    },
+    "E3_supplier_print_excel": {
+      "label": "供应商报表模板导出",
+      "method": "GET",
+      "url": "/report/supplier_purchase_summary/print_excel?warehouse_id=1",
+      "rounds": 3,
+      "status": 200,
+      "mean_s": 0.21,
+      "max_s": 0.277,
+      "peak_mem_mb": 9.2,
+      "resp_kb": 5.4
+    },
+    "E4_query_search": {
+      "label": "全局搜索（无 LIMIT）",
+      "method": "POST",
+      "url": "/api/query/search",
+      "rounds": 3,
+      "status": 200,
+      "mean_s": 0.108,
+      "max_s": 0.115,
+      "peak_mem_mb": 0.7,
+      "resp_kb": 12.6
+    }
+  }
+}
