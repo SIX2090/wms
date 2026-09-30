@@ -66,7 +66,7 @@ class ScanFeedbackTest {
         material_code = code,
         quantity = qty,
         location_code = location,
-        material_name = "物料$name",
+        material_name = "物料$code",
         material_spec = "规格"
     )
 
