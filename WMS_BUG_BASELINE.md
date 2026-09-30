@@ -2398,3 +2398,12 @@
 - **修复后实测**：5000 物料（无分类造数）2.68s→2.439s；有分类场景查询数 ~N→~2（锁实证 60:70→10）；数据见 `scripts/perf_export_baseline_5000_after_c3.json`。注：基线脚本造数不含分类，未覆盖该 N+1 场景，后续如需可扩展 seed 加分类（本条不扩展，避免基线口径漂移）。
 - **生效确认**：已确认（2026-09-30）——推送 `15f034c` 后 `WMS CI #1323` / `WMS AI Verification #1618` / `WMS Perf Baseline #178` 全绿；Python 路由代码，**生产需重启 WMS 服务生效（R3）**。
 - **关联**：`app/routes/report.py` `report_stock_print`、P0 计划 §三 C3、M1 基线 E1、BUG-2026-09-30-004（同模式）。
+
+### BUG-2026-10-01-001（2026-10-01，CI Android unit-test job 无超时上限，新增 Robolectric 测试疑似挂起烧 runner 70+ 分钟）
+
+- **发现方式**：M2' 替代 2 推送 4 个 Robolectric 测试（`1ca3e9d`~`bf8e600`）后，`Android APK Build` **#760** 的 unit-test job 在「Unit tests (BUG-2026-08-16-021)」步骤上静默卡死 70+ 分钟（历史绿构建全程仅 ~5 分钟；Gradle 缓存命中 8s 排除依赖下载；步骤计时实证卡在测试执行期）。GitHub Actions 默认 job 超时 **360 分钟**，不干预会烧满 6 小时 runner——已手动取消 #760 止损。
+- **根因（分层）**：①工作流 unit-test job 无 `timeout-minutes`——挂起类故障不会失败、不会上传 JUnit 报告（`if: failure()` 不含 cancelled 路径），诊断链路整体缺失（工程缺陷，本条修复）；②测试真实挂起点**未定位**——静态排查已排除：MockWebServer 链路（OkHttp 30s 读超时必失败）、DataStore 草稿链路（runBlocking 事件循环自泵）、Main 派发器死锁（无测试 setMain、viewModelScope immediate 内联执行后仅挂起不阻塞测试线程）、依赖缓存（命中）。定位依赖下一轮 CI 的 25 分钟超时击杀 + 报告上传（已完成用例清单中**缺失的那个测试**即卡点）。
+- **修复（工程防御）**：unit-test job 增加 `timeout-minutes: 25`（历史绿构建 ~5 分钟的 5 倍余量，只拦真挂死不误伤慢构建）；报告上传条件 `if: failure()` → `if: failure() || cancelled()`（超时击杀的步骤结论是 cancelled，挂起故障的 JUnit 报告恰好只在此路径产生）。
+- **回归**：无需新增——本条为 CI 基础设施防御，`tests/verify_bug_2026_09_14_033_android_unit_test_infra.py` 已有的 `testReleaseUnitTest` 存在性护栏不受影响（该命令未动）。
+- **生效确认**：待确认——推送后需观察三工作流对最终 HEAD 全绿（或 unit-test 25 分钟超时击杀并产出诊断报告）。
+- **关联**：M2' 阶段（APK 字节码验证 + Robolectric 补强）、`tests/` 新增 4 文件 25 用例、BUG-2026-09-22-001（报告上传机制的上一轮迭代）。

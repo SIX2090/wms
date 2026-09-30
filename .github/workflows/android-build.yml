@@ -225,6 +225,11 @@ jobs:
   # 断言本工作流必须保留 `testReleaseUnitTest` 字符串 —— 拆分后该步骤仍在，断言不破。
   unit-test:
     runs-on: ubuntu-24.04
+    # BUG-2026-10-01-001（M2' 发现）：新增 Robolectric 测试后 unit-test 挂起，
+    # 历史 run #760 在测试步骤上无提示卡死 70+ 分钟，GitHub 默认 job 超时 360 分钟
+    # 会烧满 6 小时 runner。挂起类故障必须**快速失败**才能被看见：
+    # 历史绿构建全程 ~5 分钟，25 分钟上限 = 5 倍余量，只拦真挂死不误伤慢构建。
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -273,8 +278,11 @@ jobs:
       # 也看不到 backupPendingOperations/restorePendingOperations 被 runCatching 吞掉的
       # 异常堆栈——偶发根因（跨用例污染 vs 单次环境失败）必须靠报告里的完整断言与
       # system-out 才能定位。仅在失败时上传（if: failure()），成功不上传省存储。
+      # BUG-2026-10-01-001：补 cancelled() —— job 超时（timeout-minutes）击杀的步骤
+      # 结论是 cancelled 而非 failure，挂起类故障的报告（已完成用例清单 = 卡点定位
+      # 依据）恰好只在 cancelled 路径上产生，漏掉它诊断链路就断了。
       - name: Upload unit test report on failure (BUG-2026-09-22-001 诊断)
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@v7
         with:
           name: test-release-unit-test-report
