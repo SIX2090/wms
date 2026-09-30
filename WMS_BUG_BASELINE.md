@@ -2418,7 +2418,7 @@
 - **修复**：`WmsRepository` 新增 5s 默认超时（测试可注入 0ms）：`saveEditDraft` 超时继续抛异常，复用 `persistEditDraft` 的 `draftSaveError` / `prepareDraftSubmission` 的「未安全保存，暂不提交」与 loading 复位分支；其余读写按既有安全语义降级（null / Unit / 登录内存态继续 / 登出继续清内存 token）。超时先捕获 `TimeoutCancellationException`，再透传普通 `CancellationException`，避免把页面退出取消误报为 DataStore 故障。版本 3.9.3(27)→3.9.4(28)。
 - **回归**：新增 Robolectric/JVM 测试 `DataStoreTimeoutTest` 共 6 用例：①超时后 `saveEditDraft` 抛非取消型异常；②`editDraftKey` 超时降级并抛出「请先登录再恢复清单」；③默认超时下正常 DataStore 往返不受影响；④提交前读键超时时，`prepareDraftSubmission` 复用「登录账号或服务器已变更」分支并复位 `isLoading`；⑤写草稿超时时，`persistEditDraft` 返回 false 并置 `draftSaveError`；⑥外层协程取消仍透传，不误吞为超时降级。
 - **生效条件**：Android 代码随 APK 发布生效；需重新构建安装 versionCode 28。生产 WMS 服务端无改动、无需重启 Web 服务。
-- **生效确认**：待确认（等待推送后三工作流全绿；Android 编译与 Robolectric 由 `Android APK Build` 实证，本沙箱无 Android SDK）。
+- **生效确认**：已确认（2026-10-01，确认人：AI；核对方式：远端 main `093042362ffdf792fe118e2b38e8ecee1bd90c3c` 上三工作流全绿——`Android APK Build` #36793317426、`WMS CI` #36793317478、`WMS AI Verification` #36793317436，均 success；本地无 Android SDK，以 CI 编译与 Robolectric 结果为准）。
 
 ### M2' Android 替代验证记录（2026-10-01，无真机环境，AGENTS.md R8 诚实边界）
 
