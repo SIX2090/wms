@@ -3048,9 +3048,9 @@ T3 无仓库时页面渲染警示条 + 按钮 disabled；T4 有仓库时无警�
 
 | # | 范围 | 提交 | 状态 |
 |---|---|---|---|
-| A1 | 模型列 `source_in_order_id`/`source_in_order_no`/`source_in_order_item_id` + 静态 ALTER 与启动期 `ensure_purchase_return_source_columns` 幂等兜底 | `876ff62` | 已提交 |
-| A2 | 业务逻辑 + 前端模板/页面 + 18 项回归测试 | `d6fcb20` | 已提交 |
-| A3 | 台账登记（本文件 + `WMS_BUG_BASELINE.md`） | 本次 | 进行中 |
+| A1 | 模型列 `source_in_order_id`/`source_in_order_no`/`source_in_order_item_id` + 静态 ALTER 与启动期 `ensure_purchase_return_source_columns` 幂等兜底 | 远端 `4d756f5`（本地 `876ff62`，见下方 SHA 勘误） | 已提交（2026-09-20T12:57Z） |
+| A2 | 业务逻辑 + 前端模板/页面 + 18 项回归测试 | 远端 `2c272b0`（本地 `d6fcb20`，见下方 SHA 勘误） | 已提交（2026-09-20T23:02Z） |
+| A3 | 台账登记（本文件 + `WMS_BUG_BASELINE.md`） | 本次 | **已提交（2026-10-02，见下）** |
 
 ### 实现要点
 
@@ -3134,6 +3134,81 @@ R6 守卫 `tests/test_r6_startup_migration_column_guard.py` 3 passed。
 
 **整改方案状态**：P1-5（销售退货入库）+ **P1-7（采购退货出库）已完成** ——
 整改方案 §P1 系列的**最后一项功能缺口清零**。
+
+---
+
+### A3 台账登记收尾（2026-10-02 补登记）
+
+A1/A2 代码早已推送，但本条一直停在「进行中」。2026-10-02 收尾时按 §五「台账 → 代码」双向对账，
+发现**仅凭旧记录无法完成闭环**，补登记如下。
+
+#### A3-1 提交号勘误（重要）
+
+台账原记 A1=`876ff62`、A2=`d6fcb20`——这两个是**本地 SHA**，按 §8.1.3 API 通道推送后
+远端产生了新的不同的 commit SHA，本地号在 GitHub 上**不可解析**
+（`GET /repos/SIX2090/wms/commits/876ff62` → `No commit found for SHA`）。
+后果：台账里的哈希指向不了任何可被审阅的提交，追溯链断掉。已补真值：
+
+| atomic | 本地 SHA（旧记） | **远端 SHA（真值）** | 推送时间 | 变更文件 |
+|---|---|---|---|---|
+| A1 | `876ff62` | **`4d756f5`** | 2026-09-20T12:57Z | `app/app.py` +121、`app/fix_db_columns.py` +25、`app/models/documents.py` +8、`fix_p17_columns.py`（新增 +108）、`tests/test_ensure_purchase_return_source_columns.py`（新增 +183）、`tests/test_fix_db_columns.py` +80 |
+| A2 | `d6fcb20` | **`2c272b0`** | 2026-09-20T23:02Z | `app/app.py` +91、`app/routes/in_order.py` +84、`app/routes/out_order.py` +144/-14、`app/templates/out_order*.html` ×3、`tests/verify_purchase_return_outbound.py`（新增 +733） |
+
+**约定**：本节往后登记一律写「本地 ↔ 远端」双号，凡走 API 通道推送的提交必须反查
+`GET /repos/SIX2090/wms/commits/<sha>` 确认可解析后再落账。
+
+#### A3-2 账实核对（声明的功能是否真的在代码里）
+
+按 §五对账口径逐项核对 **main HEAD `a4a1a3a`**，全部命中：
+
+| 台账声明 | 核验结果 |
+|---|---|
+| 模型列 `source_in_order_id` / `source_in_order_no` / `source_in_order_item_id` | ✅ `app/models/documents.py` + `app/fix_db_columns.py` |
+| 启动期幂等兜底 `ensure_purchase_return_source_columns` | ✅ `app/app.py`，并锁于 `tests/test_ensure_purchase_return_source_columns.py` |
+| 保存期校验 `validate_purchase_return_quantity` | ✅ 定义 `app/app.py`，调用 `app/routes/out_order.py` |
+| 完成期真闸 `purchase_return_remaining_check` | ✅ 同上，`complete_out_order` 路径已挂 |
+| 已退量聚合派生 `_purchase_returned_quantity_by_source_item` | ✅ `app/app.py` + `app/routes/in_order.py`（**未**在 `InOrderItem` 加 `returned_quantity` 状态字段，符合口径） |
+| 开关 `purchase_return_requires_order` | ✅ `app/app.py:4282` `get_system_setting_bool(..., True)` + `:3722` 配置项 |
+| 选源接口 `/api/purchase_in_order/selectable` | ✅ 落在 `app/routes/in_order.py:210`，满足 A10（不在 app.py 新增路由） |
+| 类型别名 `purchase_return` / `return_out` → 采购退货出库 | ✅ `app/routes/out_order.py:318-325`，单号前缀 `PR`（`:534`） |
+| 前端三页（新增/详情/列表） | ✅ `out_order_add.html` / `out_order_detail.html` / `out_order.html` |
+| 回归锁 18 项 | ✅ `tests/verify_purchase_return_outbound.py` 实收 **18 tests** |
+| AI 是否越界参与 | ✅ 无 AI 草稿能力（T12 断言持有），符合台账边界 |
+
+#### A3-3 派生子修复（P1-7 上线后暴露的三道绕过）
+
+代码里有、但 §P1-7 正文从未提及的三条后续补丁，一并挂回本任务避免遗落
+（均已在 `WMS_BUG_BASELINE.md` 单独登记）：
+
+| BUG ID | 漏洞 | 回归锁 | 远端 SHA |
+|---|---|---|---|
+| `BUG-2026-09-22-005` | 批量完成路径 `batch_complete_out_order` 漏挂防超退闸 | `tests/test_bug_2026_09_22_005_batch_complete_purchase_return_gate.py`（2） | `81be853` |
+| `BUG-2026-09-22-007` | 明细级接口可绕过防超退闸（接口层与保存层不对称） | `tests/test_bug_2026_09_22_007_purchase_return_item_endpoints.py`（4） | `2027829` |
+| `BUG-2026-09-22-010` | 手填单号可击穿来源的类型与状态校验（与选源接口口径不一致） | `tests/test_bug_2026_09_22_010_purchase_return_source_type_status.py`（5） | `b0789ea` |
+
+三者是 R6「同一能力的多个消费点」的教科书案例：单据路径挂了闸，**批量路径和两个明细接口没挂**。
+
+#### A3-4 本次验证
+
+```bash
+WMS_ALLOW_INSECURE_COOKIE=1 python -m pytest \
+  tests/verify_purchase_return_outbound.py \
+  tests/test_bug_2026_09_22_005_batch_complete_purchase_return_gate.py \
+  tests/test_bug_2026_09_22_007_purchase_return_item_endpoints.py \
+  tests/test_bug_2026_09_22_010_purchase_return_source_type_status.py -q
+```
+
+**29 passed**（21.51s），即本任务与其三道派生闸**当前仍然全绿**——台账里 2026-09-20 记的
+「18 passed」在今天重跑仍成立，不是过期结论被抄进完成记录。
+
+#### A3-5 遗留子项（不在本次范围，待独立 atomic action）
+
+1. **根目录残留一次性脚本 `fix_p17_columns.py`**（A1 一并带入，3,938 字节）——代码检疫问题：
+   它不在 `scripts/`（逃过 A14 门禁）、无人引用，删与留需对 rename/引用做全仓库核对后单独处理。
+2. **A13 门禁对「表格行」登记的 BUG 无覆盖**：`scripts/lint_wms_rules.py` 的 `_ENTRY_HEAD`
+   只匹配 `^### (BUG|...)-` 标题式条目；而 `WMS_BUG_BASELINE.md` 里 09-21 之后的登记多为
+   `| BUG-… |` 表格行（含上述 005/007/010），因此这些条目**缺「生效确认」字段却不被拦截**。
+   修补防线须改动 lint 脚本本身（并需先容下存量表格行），属独立动作。
 
 ---
 
