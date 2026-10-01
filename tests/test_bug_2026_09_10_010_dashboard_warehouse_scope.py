@@ -52,6 +52,12 @@ app_module.app.config["WTF_CSRF_ENABLED"] = False
 TODAY = date.today()
 YESTERDAY = TODAY - timedelta(days=1)
 
+@pytest.fixture(autouse=True)
+def _refresh_today():
+    # BUG-2026-10-001 follow-up: avoid import-to-execution date drift.
+    global TODAY, YESTERDAY
+    TODAY = date.today()
+    YESTERDAY = TODAY - timedelta(days=1)
 
 def _seed():
     from app import (Department, InOrder, InOrderItem, Material, OutOrder,

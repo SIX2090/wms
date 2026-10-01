@@ -32,7 +32,7 @@ from __future__ import annotations
 import io
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +54,7 @@ from app import (  # noqa: E402
 )
 
 app_module.app.config["TESTING"] = True
+TODAY = date.today()
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 
@@ -236,8 +237,8 @@ class TestLedgerContractNoColumn:
             _mk_in_item(o, m1, contract_no="ROW-X")
             _mk_txn(m1, 10, 'in_order', o.id, mins=1)
             filters = _filters(m1)
-            filters['start_date'] = date(2026, 9, 1)
-            filters['end_date'] = date(2026, 9, 30)
+            filters['start_date'] = date(TODAY.year, TODAY.month, 1)
+            filters['end_date'] = TODAY
             all_rows = _collect_ledger_rows(filters)
             markers = [r for r in all_rows
                        if r.get('reference_type') in ('期初结存', '本期合计')]

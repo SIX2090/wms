@@ -43,8 +43,14 @@ app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 URL = "/api/mobile/report/stock_daily"
 TODAY = date.today()
-D1 = TODAY - timedelta(days=1)
-D2 = TODAY - timedelta(days=2)
+
+@pytest.fixture(autouse=True)
+def _refresh_today():
+    # BUG-2026-10-001 follow-up: avoid import-to-execution date drift.
+    global TODAY, D1, D2
+    TODAY = date.today()
+    D1 = TODAY - timedelta(days=1)
+    D2 = TODAY - timedelta(days=2)
 
 
 def _reset_db():

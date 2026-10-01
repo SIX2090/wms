@@ -33,6 +33,7 @@ from __future__ import annotations
 import io
 import os
 import sys
+import pytest
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -55,6 +56,13 @@ app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 TODAY = date.today()
 NOW = datetime.now()
+
+@pytest.fixture(autouse=True)
+def _refresh_today():
+    # BUG-2026-10-001 follow-up: avoid import-to-execution date drift.
+    global TODAY
+    TODAY = date.today()
+    NOW = datetime.now()
 
 
 def _xlsx_rows(resp_bytes):

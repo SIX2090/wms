@@ -43,6 +43,12 @@ app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 TODAY = date.today()
+
+@pytest.fixture(autouse=True)
+def _refresh_today():
+    # BUG-2026-10-001 follow-up: avoid import-to-execution date drift.
+    global TODAY
+    TODAY = date.today()
 SCAN_REQUESTS_KT = (ROOT / "app/android-native-wms/app/src/main/java/com/factory/wms/"
                     "data/model/ScanRequests.kt")
 
