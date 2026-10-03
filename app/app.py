@@ -3982,7 +3982,7 @@ SYSTEM_SETTING_GROUPS = [
                 'key': 'ai_llm_timeout_seconds',
                 'label': '请求超时',
                 'type': 'int',
-                'default': str(int(float(app.config.get('WMS_LLM_TIMEOUT_SECONDS', 8) or 8))),
+                'default': str(int(float(app.config.get('WMS_LLM_TIMEOUT_SECONDS', 20) or 20))),
                 'min': 1,
                 'max': 60,
                 'unit': '秒',
@@ -3992,11 +3992,11 @@ SYSTEM_SETTING_GROUPS = [
                 'key': 'ai_llm_max_tokens',
                 'label': '最大输出',
                 'type': 'int',
-                'default': str(int(app.config.get('WMS_LLM_MAX_TOKENS', 300) or 300)),
+                'default': str(int(app.config.get('WMS_LLM_MAX_TOKENS', 1500) or 1500)),
                 'min': 50,
                 'max': 4096,
                 'unit': 'tokens',
-                'remark': '当前只让模型输出意图 JSON，通常 300 足够。',
+                'remark': '思考型模型（带推理过程）会额外消耗 tokens，建议不低于 1500；纯输出型模型 300 即可。过低会导致回答截断为空并静默降级本地规则。',
             },
         ],
     },
@@ -12387,7 +12387,7 @@ def _ai_llm_timeout_seconds(overrides=None):
             return max(1.0, min(60.0, float(override)))
         except ValueError:
             return 8.0
-    return get_system_setting_float('ai_llm_timeout_seconds', float(app.config.get('WMS_LLM_TIMEOUT_SECONDS') or 8))
+    return get_system_setting_float('ai_llm_timeout_seconds', float(app.config.get('WMS_LLM_TIMEOUT_SECONDS') or 20))
 
 def _ai_llm_max_tokens(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_max_tokens')
@@ -12396,7 +12396,9 @@ def _ai_llm_max_tokens(overrides=None):
             return max(50, min(4096, int(override)))
         except ValueError:
             return 300
-    return get_system_setting_int('ai_llm_max_tokens', int(app.config.get('WMS_LLM_MAX_TOKENS') or 300))
+    # WMS-AI-THINK-001：思考型模型推理消耗大量 token（实测简单问答 reasoning 181 tokens），
+    # 默认 300 会导致 content 截断为空、AI 静默降级本地规则；默认提至 1500（仍可设置页下调）。
+    return get_system_setting_int('ai_llm_max_tokens', int(app.config.get('WMS_LLM_MAX_TOKENS') or 1500))
 
 def _ai_llm_endpoint(overrides=None):
     override = _ai_override_value(overrides, 'ai_llm_base_url')
@@ -12608,7 +12610,7 @@ def _ai_call_llm_chat(message):
             {'role': 'user', 'content': message[:1000]},
         ],
         'temperature': 0.4,
-        'max_tokens': min(max(_ai_llm_max_tokens(), 120), 420),
+        'max_tokens': min(max(_ai_llm_max_tokens(), 120), 2000),
     }
     headers = _ai_llm_headers()
     try:
