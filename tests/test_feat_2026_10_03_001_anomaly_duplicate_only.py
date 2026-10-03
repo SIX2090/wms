@@ -8,7 +8,11 @@
 变更口径：
   * 移除数量偏离（quantity_deviation）与价格偏离（price_deviation）检测，
     连同专用辅助函数 _calc_smart_threshold 一并删除；
-  * 保留重复单据检测（duplicate_order：同日同物料同供应商/客户/部门）；
+  * 保留重复单据检测（duplicate_order：同日同供应商/客户/部门）；
+  * 口径补充（同日用户进一步明确）：「单据明细重复」指一张单据【所有明细】
+    的重复（本单全部明细物料 ⊆ 另一张单），而非某一条明细撞车即报——
+    同一供应商一天送多批货、物料有交集是正常业务，只有整单重复才是
+    疑似重复录入；
   * check_anomalies 路由的 AI 分析 prompt 改用通用键（type/material/msg）——
     原 current/average/deviation 三键仅偏离类异常才有，重复单据直接索引
     会 KeyError（存量隐患，本次口径下必然触发，一并修复）。
@@ -16,12 +20,14 @@
 断言（函数级 + 真实 HTTP 端到端，非源码字符串匹配）：
   T1 入库：数量偏离近30天均值 100%（截图场景复现）→ 不再报异常
   T2 入库：价格偏离近期均价 100% → 不再报异常
-  T3 入库：同日同供应商同物料 → 仍报 duplicate_order（保住要保留的能力）
+  T3 入库：同日同供应商整单明细全同 → 仍报 duplicate_order（保住要保留的能力）
   T4 入库路由：check_anomalies 偏离场景 has_anomalies=False；
-     重复场景 anomalies 全为 duplicate_order 且含 existing_order
+     整单重复场景 anomalies 全为 duplicate_order 且含 existing_order
   T5 出库：数量偏离近30天均值 100% → 不再报异常
-  T6 出库：同日同客户同物料 → 仍报 duplicate_order
+  T6 出库：同日同客户整单明细全同 → 仍报 duplicate_order
   T7 出库路由：check_anomalies 偏离场景 has_anomalies=False
+  T8 入库：仅部分明细撞车（本单 2 项，另一张单只有其中 1 项）→ 不报
+  T9 出库：仅部分明细撞车 → 不报
 """
 from datetime import date, timedelta
 from pathlib import Path
@@ -70,7 +76,9 @@ def _seed(wms):
         Warehouse(code="FEAT1003001-W", name="主仓库", status="active",
                   is_default=True),
         Material(code="FEAT1003001-M", name="电流端子", stock=0),
+        Material(code="FEAT1003001-M2", name="入库物料二", stock=0),
         Material(code="FEAT1003001-OM", name="出库物料", stock=0),
+        Material(code="FEAT1003001-OM2", name="出库物料二", stock=0),
         Supplier(code="FEAT1003001-S", name="测试供应商"),
     ])
     wms.db.session.commit()
@@ -245,3 +253,42 @@ def test_t7_out_check_route_deviation_silent(wms_env):
     assert body["status"] == "success"
     assert body["has_anomalies"] is False
     assert body["anomalies"] == []
+
+
+# --------------------------------------------------------------------------
+# 口径补充负向用例：仅部分明细撞车 → 不报（整单重复才是重复录入）
+# --------------------------------------------------------------------------
+def test_t8_in_partial_material_overlap_not_reported(wms_env):
+    """本单 2 项明细，另一张同日同供应商单只含其中 1 项 → 不报重复。"""
+    from app import _check_in_order_anomalies
+
+    mat1, mat2 = _mat(wms_env), _mat(wms_env, "FEAT1003001-M2")
+    today = date.today()
+    _make_in_order(wms_env, "FEAT1003001-H8", today, 100, 100, mat1,
+                   status="completed", supplier=_sup(wms_env))
+    # 本单明细 [M1, M2]，H8 只有 [M1] → 仅部分撞车，非整单重复
+    pending = _make_in_order(wms_env, "FEAT1003001-P8", today, 50, 100, mat1,
+                             supplier=_sup(wms_env))
+    wms_env.db.session.add(wms_env.InOrderItem(
+        in_order_id=pending.id, material_id=mat2.id,
+        quantity=50, price=100, amount=5000))
+    wms_env.db.session.commit()
+
+    assert _check_in_order_anomalies(pending) == []
+
+
+def test_t9_out_partial_material_overlap_not_reported(wms_env):
+    """本单 2 项明细，另一张同日同客户单只含其中 1 项 → 不报重复。"""
+    from app import _check_out_order_anomalies
+
+    omat1, omat2 = _mat(wms_env, "FEAT1003001-OM"), _mat(wms_env, "FEAT1003001-OM2")
+    today = date.today()
+    _make_out_order(wms_env, "FEAT1003001-OH9", today, 100, 100, omat1,
+                    status="completed")
+    pending = _make_out_order(wms_env, "FEAT1003001-OP9", today, 50, 100, omat1)
+    wms_env.db.session.add(wms_env.OutOrderItem(
+        out_order_id=pending.id, material_id=omat2.id,
+        quantity=50, price=100, amount=5000))
+    wms_env.db.session.commit()
+
+    assert _check_out_order_anomalies(pending) == []

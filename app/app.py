@@ -24406,12 +24406,18 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
 
 
 def _check_in_order_anomalies(order):
-    """检测入库单重复单据：同一天同物料同供应商。返回异常列表。
+    """检测入库单整单重复：同一天同供应商，且本单全部明细物料都出现在
+    另一张单中。返回异常列表。
 
     口径变更（FEAT-2026-10-03-001，用户拍板 2026-10-03）：异常检测只保留
     「单据明细重复」一项；数量/价格偏离均值检测（如「本次入库量偏离近30天
     均值达 100%」弹确认框）误报率高、干扰正常提交，已随本变更移除，
     附带的 _calc_smart_threshold 智能阈值函数一并删除。
+
+    口径补充（同日用户进一步明确）：「单据明细重复」指一张单据【所有明细】
+    的重复（本单全部明细物料 ⊆ 另一张单），而非某一条明细撞车即报——
+    同一供应商一天送多批货、物料有交集是正常业务，只有整单重复才是
+    疑似重复录入。
     """
     anomalies = []
     if not order.items:
@@ -24419,7 +24425,7 @@ def _check_in_order_anomalies(order):
 
     today = date.today()
 
-    # 重复单据检测：同一天同物料同供应商
+    # 整单重复检测：同一天同供应商，本单全部明细物料都在另一张单中
     if order.supplier_id and order.date == today:
         order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
         if order_material_ids:
@@ -24434,17 +24440,14 @@ def _check_in_order_anomalies(order):
                 .all()
             )
             for to in today_orders:
-                for ti in to.items:
-                    if ti.material_id in order_material_ids:
-                        # order.items 的 material 已在外层 selectinload 预加载
-                        oi = next((x for x in order.items if x.material_id == ti.material_id), None)
-                        material_name = (oi.material.name if oi and oi.material else None) or (oi.material.code if oi and oi.material else '') or str(ti.material_id)
-                        anomalies.append({
-                            'type': 'duplicate_order',
-                            'material': material_name,
-                            'existing_order': to.order_no,
-                            'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
-                        })
+                to_material_ids = {ti.material_id for ti in to.items if ti.material_id}
+                if order_material_ids <= to_material_ids:
+                    anomalies.append({
+                        'type': 'duplicate_order',
+                        'material': '（整单）',
+                        'existing_order': to.order_no,
+                        'msg': f'本单全部 {len(order_material_ids)} 项明细物料与今天单据 {to.order_no} 完全重复，请确认是否为重复录入'
+                    })
 
     return anomalies
 
@@ -25908,11 +25911,15 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
 
 
 def _check_out_order_anomalies(order):
-    """检测出库单重复单据：同一天同物料同客户/部门。返回异常列表。
+    """检测出库单整单重复：同一天同客户/部门，且本单全部明细物料都出现在
+    另一张单中。返回异常列表。
 
     口径变更（FEAT-2026-10-03-001，用户拍板 2026-10-03）：异常检测只保留
     「单据明细重复」一项；数量/金额偏离均值检测误报率高、干扰正常提交，
     已随本变更移除，附带的 _calc_smart_threshold 智能阈值函数一并删除。
+
+    口径补充（同日用户进一步明确）：「单据明细重复」指一张单据【所有明细】
+    的重复（本单全部明细物料 ⊆ 另一张单），而非某一条明细撞车即报。
     """
     anomalies = []
     if not order.items:
@@ -25920,8 +25927,11 @@ def _check_out_order_anomalies(order):
 
     today = date.today()
 
-    # 重复单据检测：同一天同物料同客户/部门
+    # 整单重复检测：同一天同客户/部门，本单全部明细物料都在另一张单中
     if order.date == today:
+        order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
+        if not order_material_ids:
+            return anomalies
         today_orders = OutOrder.query.filter(
             OutOrder.date == today,
             OutOrder.id != order.id
@@ -25938,16 +25948,14 @@ def _check_out_order_anomalies(order):
         if today_orders:
             today_orders = today_orders.all()
             for to in today_orders:
-                for ti in to.items:
-                    for oi in order.items:
-                        if ti.material_id == oi.material_id:
-                            material_name = oi.material.name or oi.material.code
-                            anomalies.append({
-                                'type': 'duplicate_order',
-                                'material': material_name,
-                                'existing_order': to.order_no,
-                                'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中出库，请确认是否为重复操作'
-                            })
+                to_material_ids = {ti.material_id for ti in to.items if ti.material_id}
+                if order_material_ids <= to_material_ids:
+                    anomalies.append({
+                        'type': 'duplicate_order',
+                        'material': '（整单）',
+                        'existing_order': to.order_no,
+                        'msg': f'本单全部 {len(order_material_ids)} 项明细物料与今天单据 {to.order_no} 完全重复，请确认是否为重复录入'
+                    })
 
     return anomalies
 
