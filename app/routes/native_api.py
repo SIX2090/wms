@@ -29,6 +29,7 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import json
 import re
 
 from flask import jsonify, request
@@ -375,6 +376,7 @@ def _parse_voice_out_text(text):
         'quantity': None,
         'unit': '',
         'spec_hint': '',
+        'parse_source': 'rules',
     }
     if not normalized:
         return result
@@ -419,6 +421,122 @@ def _parse_voice_out_text(text):
         keyword = spec_hint
     result['keyword'] = keyword
     return result
+
+
+# ---------------------------------------------------------------------------
+# WMS-VOICE-LLM-001：语音指令 LLM 解析（2026-10-03）
+# 背景：正则解析器对自然语序/口语表达「有点弱智」（用户原话）——只会固定模式；
+# 大模型已配置后，优先用 LLM 抽取 keyword/spec_hint/quantity/unit，
+# 失败或不确定一律回退正则（R5：不确定不猜）；草稿仍需人工确认，边界不变。
+# ---------------------------------------------------------------------------
+
+_VOICE_LLM_PARSE_PROMPT = (
+    '把仓库领料/出库语音指令解析成JSON。只输出一个JSON对象，不要输出其他内容。字段：'
+    '{"keyword":"物料名称关键词（不含规格/数量/动词）",'
+    '"spec_hint":"规格型号（如 8*25、M8、6204，无则空字符串）",'
+    '"quantity":数量（数字；用户没说则为 null，禁止猜测）,'
+    '"unit":"量词（个/套/盒/件/箱等，没说则空字符串）"}\n'
+    '规则：①规格里的数字（如 8*25 的 8 和 25）不是数量；②数量必须带量词才采信；'
+    '③领/拿/出库/我要/帮我 等动词与语气词不得混入 keyword；④不确定的字段留空或 null。\n'
+    '指令：%s'
+)
+
+
+def _voice_llm_chat(prompt):
+    """语音解析专用 LLM 调用：懒导入 app 层配置；未配置/异常一律返回 None（调用方回退正则）。"""
+    try:
+        from app import (
+            _ai_llm_configured,
+            _ai_llm_endpoint,
+            _ai_llm_headers,
+            _ai_llm_model,
+            _ai_llm_timeout_seconds,
+        )
+    except Exception:
+        return None
+    try:
+        # 配置读取依赖 app 上下文/数据库，任何异常都按「不可用」处理（回退正则）
+        if not _ai_llm_configured():
+            return None
+        endpoint = _ai_llm_endpoint()
+        headers = _ai_llm_headers()
+        model = _ai_llm_model()
+        timeout = _ai_llm_timeout_seconds()
+    except Exception:
+        return None
+    import requests as _requests
+
+    payload = {
+        'model': model,
+        'messages': [
+            {'role': 'system', 'content': '你是仓库语音指令解析器，只输出JSON。'},
+            {'role': 'user', 'content': prompt},
+        ],
+        'temperature': 0.1,
+        # WMS-AI-THINK-001：思考型模型推理消耗大量 token，给足头部空间避免 content 截断为空
+        'max_tokens': 1500,
+    }
+    try:
+        resp = _requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+        return content or None
+    except Exception:
+        return None
+
+
+def _parse_voice_out_text_llm(text, chat_fn=None):
+    """LLM 版语音解析：返回与 _parse_voice_out_text 同构的 dict（parse_source='llm'）。
+
+    任何一步失败/不确定（无 LLM、HTTP 异常、非 JSON、字段缺失、数量非法）都返回 None，
+    由调用方回退 _parse_voice_out_text（正则）——不猜、不编造（R5）。
+    chat_fn 可注入替身便于测试。
+    """
+    raw = (text or '').strip()
+    if not raw:
+        return None
+    chat = chat_fn or _voice_llm_chat
+    content = chat(_VOICE_LLM_PARSE_PROMPT % raw[:200])
+    if not content:
+        return None
+    start, end = content.find('{'), content.rfind('}')
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(content[start:end + 1])
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    keyword = str(data.get('keyword') or '').strip()
+    spec_hint = str(data.get('spec_hint') or '').strip()
+    unit = str(data.get('unit') or '').strip()
+    quantity = data.get('quantity')
+    if quantity is not None:
+        try:
+            quantity = float(quantity)
+        except (TypeError, ValueError):
+            quantity = None
+        else:
+            if quantity <= 0:
+                quantity = None
+    if not keyword and not spec_hint:
+        return None
+    return {
+        'raw': raw,
+        'normalized': _normalize_voice_text(raw),
+        'keyword': keyword,
+        'quantity': quantity,
+        'unit': unit,
+        'spec_hint': spec_hint,
+        'parse_source': 'llm',
+    }
 
 
 # 物料名词根候选：从关键词里剥离规格后，若关键词含以下词根则用词根降级搜索
@@ -3440,7 +3558,8 @@ def register_native_api_routes(app):
                 return api_json_error('请选择仓库', 400)
 
         # ① 解析语音文本 → 关键词/数量/规格
-        parsed = _parse_voice_out_text(req.text)
+        # WMS-VOICE-LLM-001：LLM 优先（自然口语理解），失败回退正则（不猜、不编造）
+        parsed = _parse_voice_out_text_llm(req.text) or _parse_voice_out_text(req.text)
         keyword = parsed['keyword']
         spec_hint = parsed['spec_hint']
 
