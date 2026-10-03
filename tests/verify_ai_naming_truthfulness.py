@@ -93,10 +93,12 @@ def test_t7_plain_pages_titles_honest():
 
 
 def test_t8_nav_no_smart_replenishment_claim():
-    """T8: 导航浮层同步改名（智能补货建议 → 补货建议（规则））。"""
+    """T8: 导航浮层两个补货入口可区分且不自称智能（WMS-AI-MENU-001 二次改名：
+    同名「补货建议（规则）」→「补货建议（安全库存）/补货建议（周转分析）」）。"""
     base = _base_html()
     assert "智能补货建议" not in base
-    assert "补货建议（规则）" in base
+    assert "补货建议（安全库存）" in base
+    assert "补货建议（周转分析）" in base
     # 真 LLM 入口保留原名
     assert "供应商智能评估" in base
     assert "智能库位推荐" in base

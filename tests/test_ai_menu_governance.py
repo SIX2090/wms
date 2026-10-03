@@ -12,7 +12,9 @@
 测试用例：
   T1. base.html 必须含指向 /ai/agent_tasks 的菜单链接（巡检报告入口）
   T2. 两个补货入口标签必须可区分：/ai/replenishment=补货建议（安全库存），
-      /ai/replenishment_smart=智能补货分析；全模板不得再出现旧标签「补货建议（规则）」
+      /ai/replenishment_smart=补货建议（周转分析）（不得含「智能」字样——
+      命名真实性 tests/verify_ai_naming_truthfulness.py T8 约束：规则页不得自称智能）；
+      全模板不得再出现旧标签「补货建议（规则）」
   T3. /ai/location_recommendation 菜单链接必须包裹在
       {% if location_management_enabled %} 条件块内
 """
@@ -42,7 +44,8 @@ class TestAiMenuGovernance:
         m2 = re.search(r'href="/ai/replenishment_smart"[^>]*>.*?</a>', html, re.S)
         assert m1 and m2, "base.html 两个补货入口必须都存在"
         assert "补货建议（安全库存）" in m1.group(0), f"/ai/replenishment 标签错误: {m1.group(0)}"
-        assert "智能补货分析" in m2.group(0), f"/ai/replenishment_smart 标签错误: {m2.group(0)}"
+        assert "补货建议（周转分析）" in m2.group(0), f"/ai/replenishment_smart 标签错误: {m2.group(0)}"
+        assert "智能补货" not in m2.group(0), "规则页标签不得自称智能（命名真实性约束）"
         for tpl in TPL_DIR.glob("*.html"):
             assert "补货建议（规则）" not in tpl.read_text(encoding="utf-8"), f"{tpl.name} 仍残留旧标签「补货建议（规则）」"
 
