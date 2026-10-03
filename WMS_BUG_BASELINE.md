@@ -2433,3 +2433,14 @@
 **过程故障与修复**：①首推 #759 编译错（字符串模板 `$name` 引用不存在变量，全仓排查修 3 处，`4437ed8`）；②#760/#761/#762 unit-test 挂起（详见 BUG-2026-10-001，根因 DataStore 委托单例跨 Robolectric 沙箱毒化，`528015c` 修复）；③最终 `Android APK Build #763` **4 分钟全绿，74/74 passed**（含 25 项新增），CI #1329 / AI Verification #1624 同绿。
 
 **新发现的产品侧隐患（登记待评估，本阶段不修）**：BUG-2026-10-001 的测试侧根因揭示生产路径存在同类风险——`ScanViewModel.persistEditDraft`（草稿自动保存收集器）与 `prepareDraftSubmission`（提交前落盘幂等键）都直接 `dataStore.edit`：若 DataStore actor 因写失败死亡（如磁盘满/文件损坏风暴），**提交路径的 edit 会永久挂起 = 提交按钮无限转圈**。生产环境为单进程单环境，触发概率低于测试沙箱场景，但后果严重，建议后续单独立项评估（加超时/降级）。
+
+## BUG-2026-10-03-001：AI 治理合并后 verify 断言仍引用旧文案（verify.yml + WMS CI 双红灯）
+
+- **日期**：2026-10-03
+- **发现方式**：AA1 推送后 `verify.yml` 立即红灯；修复后暴露 `WMS CI` 第二处红灯（行号引用）
+- **根因**：R6 同根因复发——修改了被多处断言引用的页面文案/代码行数，推送前未全库排查引用点：
+  1. `base.html` 菜单文案「补货建议（规则）」改为「补货建议（安全库存）」后，`scripts/verify_ai_stage7_replenishment.py` 与 `tests/verify_ai_naming_truthfulness.py` 两处断言仍匹配旧文案 → `verify.yml` #1647 红灯
+  2. `app.py` 新增 4 行（ai_llm_active 注入 + max_tokens 默认值注释）后，`tests/test_inventory_truth_line_refs.py` 中 app.py 回填行号引用偏移 +4（超出 ±2 行窗口）→ `WMS CI` #1353 红灯（verify.yml 修好后才暴露）
+- **修复**：推送 `3d6a611`（同步两处断言 + 「智能补货分析」→「补货建议（周转分析）」消除 T8 违规）+ `a59166f`（补登行号引用 28123→28127 + INVENTORY_TRUTH.md 同步）
+- **教训**：改任何页面文案/在 app.py 插入行之前，必须先 `grep` 全库（含 scripts/、tests/、docs/）排查引用点；verify.yml 修绿后必须等 WMS CI 也出结果才能判定 CI 绿——两个工作流是独立工作流，一个绿不代表全绿（AA1 的教训）。同时工作区根 `scripts/check_ci_green.py` 门口的存在就是为了拦截此类事件，必须无条件先跑。
+- **生效确认**：已确认（2026-10-03）——推送 `3d6a611`/`a59166f` 后三工作流全绿：`WMS AI Verification` #1648/#1649 success、`WMS CI` #1354 success、`Android Build` success @a59166f
