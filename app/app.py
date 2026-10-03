@@ -24405,133 +24405,47 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
 
 
 
-def _calc_smart_threshold(values, base_threshold=0.5, min_threshold=0.2, max_threshold=1.0):
-    """基于历史数据计算智能异常阈值。
-    数据稳定（变异系数小）→ 阈值收紧；数据波动大 → 阈值放宽。
-    返回 (threshold, mean, std)。
-    """
-    if not values or len(values) < 2:
-        return base_threshold, (sum(values) / len(values) if values else 0), 0
-    
-    n = len(values)
-    mean = sum(values) / n
-    if mean <= 0:
-        return base_threshold, mean, 0
-    
-    variance = sum((v - mean) ** 2 for v in values) / (n - 1)
-    std = variance ** 0.5
-    cv = std / mean  # 变异系数
-    
-    # 变异系数映射到阈值系数：cv=0 → 0.6倍基础阈值，cv=1 → 1.5倍基础阈值
-    scale = 0.6 + cv * 0.9
-    scale = max(0.6, min(scale, 2.0))
-    threshold = base_threshold * scale
-    threshold = max(min_threshold, min(threshold, max_threshold))
-    
-    return threshold, mean, std
-
 def _check_in_order_anomalies(order):
-    """检测入库单异常：数量异常、价格异常、重复单据。返回异常列表。"""
+    """检测入库单重复单据：同一天同物料同供应商。返回异常列表。
+
+    口径变更（FEAT-2026-10-03-001，用户拍板 2026-10-03）：异常检测只保留
+    「单据明细重复」一项；数量/价格偏离均值检测（如「本次入库量偏离近30天
+    均值达 100%」弹确认框）误报率高、干扰正常提交，已随本变更移除，
+    附带的 _calc_smart_threshold 智能阈值函数一并删除。
+    """
     anomalies = []
     if not order.items:
         return anomalies
-    
-    today = date.today()
-    thirty_days_ago = today - timedelta(days=30)
-    
-    # 收集所有物料ID
-    material_ids = [item.material_id for item in order.items if item.material_id]
-    if not material_ids:
-        return anomalies
-    
-    # 一次性查询近30天所有相关物料的入库明细（性能优化）
-    recent_items = InOrderItem.query.join(InOrder).filter(
-        InOrder.status == 'completed',
-        InOrder.date >= thirty_days_ago,
-        InOrder.date < today,
-        InOrder.id != order.id,
-        InOrderItem.material_id.in_(material_ids)
-    ).all()
-    
-    # 按物料ID分组数据
-    qty_by_material = {}
-    price_by_material = {}
-    for ri in recent_items:
-        mid = ri.material_id
-        if ri.quantity:
-            qty_by_material.setdefault(mid, []).append(ri.quantity)
-        if ri.price and ri.price > 0:
-            price_by_material.setdefault(mid, []).append(ri.price)
-    
-    for item in order.items:
-        if not item.material:
-            continue
-        
-        material_name = item.material.name or item.material.code or '未知物料'
-        
-        # 1. 数量异常检测：与近30天平均入库量对比（智能阈值）
-        recent_quantities = qty_by_material.get(item.material_id, [])
-        if recent_quantities:
-            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
-            if avg_qty > 0 and item.quantity:
-                deviation = abs(item.quantity - avg_qty) / avg_qty
-                if deviation > qty_threshold:
-                    anomalies.append({
-                        'type': 'quantity_deviation',
-                        'material': material_name,
-                        'current': item.quantity,
-                        'average': round(avg_qty, 2),
-                        'deviation': f'{deviation*100:.0f}%',
-                        'threshold': f'{qty_threshold*100:.0f}%',
-                        'msg': f'物料 {material_name} 本次入库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
-                    })
-        
-        # 2. 价格异常检测：与近3次采购价对比（智能阈值）
-        if item.price and item.price > 0:
-            recent_prices = price_by_material.get(item.material_id, [])
-            if recent_prices:
-                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
-                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
-                if avg_price > 0:
-                    price_deviation = abs(item.price - avg_price) / avg_price
-                    if price_deviation > price_threshold:
-                        anomalies.append({
-                            'type': 'price_deviation',
-                            'material': material_name,
-                            'current': item.price,
-                            'average': round(avg_price, 2),
-                            'deviation': f'{price_deviation*100:.0f}%',
-                            'threshold': f'{price_threshold*100:.0f}%',
-                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
-                        })
-    
-    # 3. 重复单据检测：同一天同物料同供应商
-    if order.supplier_id and order.date == today:
-        today_orders = (
-            InOrder.query
-            .options(selectinload(InOrder.items))
-            .filter(
-                InOrder.date == today,
-                InOrder.supplier_id == order.supplier_id,
-                InOrder.id != order.id
-            )
-            .all()
-        )
 
+    today = date.today()
+
+    # 重复单据检测：同一天同物料同供应商
+    if order.supplier_id and order.date == today:
         order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
-        for to in today_orders:
-            for ti in to.items:
-                if ti.material_id in order_material_ids:
-                    # order.items 的 material 已在外层 selectinload 预加载
-                    oi = next((x for x in order.items if x.material_id == ti.material_id), None)
-                    material_name = (oi.material.name if oi and oi.material else None) or (oi.material.code if oi and oi.material else '') or str(ti.material_id)
-                    anomalies.append({
-                        'type': 'duplicate_order',
-                        'material': material_name,
-                        'existing_order': to.order_no,
-                        'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
-                    })
-    
+        if order_material_ids:
+            today_orders = (
+                InOrder.query
+                .options(selectinload(InOrder.items))
+                .filter(
+                    InOrder.date == today,
+                    InOrder.supplier_id == order.supplier_id,
+                    InOrder.id != order.id
+                )
+                .all()
+            )
+            for to in today_orders:
+                for ti in to.items:
+                    if ti.material_id in order_material_ids:
+                        # order.items 的 material 已在外层 selectinload 预加载
+                        oi = next((x for x in order.items if x.material_id == ti.material_id), None)
+                        material_name = (oi.material.name if oi and oi.material else None) or (oi.material.code if oi and oi.material else '') or str(ti.material_id)
+                        anomalies.append({
+                            'type': 'duplicate_order',
+                            'material': material_name,
+                            'existing_order': to.order_no,
+                            'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中入库，请确认是否为重复操作'
+                        })
+
     return anomalies
 
 
@@ -25994,81 +25908,19 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
 
 
 def _check_out_order_anomalies(order):
-    """检测出库单异常：数量异常、金额异常、重复单据。返回异常列表。"""
+    """检测出库单重复单据：同一天同物料同客户/部门。返回异常列表。
+
+    口径变更（FEAT-2026-10-03-001，用户拍板 2026-10-03）：异常检测只保留
+    「单据明细重复」一项；数量/金额偏离均值检测误报率高、干扰正常提交，
+    已随本变更移除，附带的 _calc_smart_threshold 智能阈值函数一并删除。
+    """
     anomalies = []
     if not order.items:
         return anomalies
-    
+
     today = date.today()
-    thirty_days_ago = today - timedelta(days=30)
-    
-    # 收集所有物料ID
-    material_ids = [item.material_id for item in order.items if item.material_id]
-    if not material_ids:
-        return anomalies
-    
-    # 一次性查询近30天所有相关物料的出库明细（性能优化）
-    recent_items = OutOrderItem.query.join(OutOrder).filter(
-        OutOrder.status == 'completed',
-        OutOrder.date >= thirty_days_ago,
-        OutOrder.date < today,
-        OutOrder.id != order.id,
-        OutOrderItem.material_id.in_(material_ids)
-    ).all()
-    
-    # 按物料ID分组数据
-    qty_by_material = {}
-    price_by_material = {}
-    for ri in recent_items:
-        mid = ri.material_id
-        if ri.quantity:
-            qty_by_material.setdefault(mid, []).append(ri.quantity)
-        if ri.price and ri.price > 0:
-            price_by_material.setdefault(mid, []).append(ri.price)
-    
-    for item in order.items:
-        if not item.material:
-            continue
-        
-        material_name = item.material.name or item.material.code or '未知物料'
-        
-        # 1. 数量异常检测：与近30天平均出库量对比（智能阈值）
-        recent_quantities = qty_by_material.get(item.material_id, [])
-        if recent_quantities:
-            qty_threshold, avg_qty, _ = _calc_smart_threshold(recent_quantities, base_threshold=0.5)
-            if avg_qty > 0 and item.quantity:
-                deviation = abs(item.quantity - avg_qty) / avg_qty
-                if deviation > qty_threshold:
-                    anomalies.append({
-                        'type': 'quantity_deviation',
-                        'material': material_name,
-                        'current': item.quantity,
-                        'average': round(avg_qty, 2),
-                        'deviation': f'{deviation*100:.0f}%',
-                        'threshold': f'{qty_threshold*100:.0f}%',
-                        'msg': f'物料 {material_name} 本次出库量 {item.quantity} 偏离近30天均值 {round(avg_qty, 2)} 达 {deviation*100:.0f}%（动态阈值 {qty_threshold*100:.0f}%），请确认是否正确'
-                    })
-        
-        # 2. 金额异常检测：与近3次出库单价对比（智能阈值）
-        if item.price and item.price > 0:
-            recent_prices = price_by_material.get(item.material_id, [])
-            if recent_prices:
-                recent_prices_sorted = sorted(recent_prices, reverse=True)[:3]  # 取最近3次
-                price_threshold, avg_price, _ = _calc_smart_threshold(recent_prices_sorted, base_threshold=0.3)
-                if avg_price > 0:
-                    price_deviation = abs(item.price - avg_price) / avg_price
-                    if price_deviation > price_threshold:
-                        anomalies.append({
-                            'type': 'price_deviation',
-                            'material': material_name,
-                            'current': item.price,
-                            'average': round(avg_price, 2),
-                            'deviation': f'{price_deviation*100:.0f}%',
-                            'threshold': f'{price_threshold*100:.0f}%',
-                            'msg': f'物料 {material_name} 本次单价 {item.price} 偏离近期均价 {round(avg_price, 2)} 达 {price_deviation*100:.0f}%（动态阈值 {price_threshold*100:.0f}%），请确认'
-                        })
-    
-    # 3. 重复单据检测：同一天同物料同客户/部门
+
+    # 重复单据检测：同一天同物料同客户/部门
     if order.date == today:
         today_orders = OutOrder.query.filter(
             OutOrder.date == today,
@@ -26082,7 +25934,7 @@ def _check_out_order_anomalies(order):
             today_orders = today_orders.filter(OutOrder.department_id == order.department_id)
         else:
             today_orders = None  # 无客户/部门信息时不检测重复
-        
+
         if today_orders:
             today_orders = today_orders.all()
             for to in today_orders:
@@ -26096,7 +25948,7 @@ def _check_out_order_anomalies(order):
                                 'existing_order': to.order_no,
                                 'msg': f'物料 {material_name} 今天已在单据 {to.order_no} 中出库，请确认是否为重复操作'
                             })
-    
+
     return anomalies
 
 

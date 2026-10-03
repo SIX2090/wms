@@ -1048,13 +1048,13 @@ def register_out_order_routes(app):
         # 如果有异常且启用了AI，添加AI原因分析
         if anomalies and _ai_llm_configured():
             for anomaly in anomalies:
-                # 生成AI分析提示
+                # 生成AI分析提示（FEAT-2026-10-03-001：异常检测仅保留重复单据，
+                # anomaly 只有 type/material/msg 等通用键；原 current/average/
+                # deviation 三键仅偏离类异常才有，重复单据直接索引会 KeyError）
                 prompt = f"作为仓库管理专家，请分析以下出库异常情况并给出简短建议（50字内）：\n"
                 prompt += f"异常类型：{anomaly['type']}\n"
                 prompt += f"物料：{anomaly['material']}\n"
-                prompt += f"当前值：{anomaly['current']}\n"
-                prompt += f"历史均值：{anomaly['average']}\n"
-                prompt += f"偏离度：{anomaly['deviation']}\n"
+                prompt += f"提示：{anomaly['msg']}\n"
                 prompt += f"可能原因和建议："
 
                 try:
