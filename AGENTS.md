@@ -5,6 +5,7 @@
 
 ## 目录
 
+0. [环境画像与已拍板决策](#〇环境画像与已拍板决策2026-10-03-新增)
 1. [业务操作铁律（AI 行为边界）](#一业务操作铁律ai-行为边界)
 2. [仓库与库位必填规则](#二仓库与库位必填规则)
 3. [任务粒度与提交流程](#三任务粒度与提交流程) —— 含 [CI 全绿门禁（开工前置条件）](#三任务粒度与提交流程)
@@ -15,6 +16,46 @@
 8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订2026-09-30-修订)
    - [8.0 通道实测与决策表（含"建议不要用"清单）](#80-通道实测与决策表2026-09-30-新增)
    - [8.1 推送通道决策：PAT 直通 → MCP 端点 → API 重放](#81-推送通道决策pat-直通--mcp-端点--api-重放)
+
+## 〇、环境画像与已拍板决策（2026-10-03 新增）
+
+> **本节数据会随时间漂移**（加人、加仓库、开库位、换部署方式），任何一项变化时必须同步更新本表并评估关联规则。AI 代理做风险评估前必须先读本表，判断哪些规则"当前活跃"、哪些是"未来防御"。
+
+### 环境画像（2026-10-03 经用户确认）
+
+| 项 | 当前值 | 影响的规则 |
+|---|---|---|
+| 用户规模 | **单人使用** | §一 中审计追溯/双岗制衡类要求降级为可选；下方"已拍板决策"两项据此成立 |
+| 仓库数 | **4 个** | R2 多仓边界规则处于**活跃防御**状态（历史 20+ 条同类 BUG）；[`INVENTORY_TRUTH.md`](./INVENTORY_TRUTH.md) §3.3a 单仓短路分支**未激活**——增减仓库时必须重读本条并验证库存连续性 |
+| 库位管理 | **未开启**（代码默认 `'0'`，`app/app.py:4227`） | §二 适用**规则一**（仅仓库必填）；开启后切换到规则二，需评估存量单据与库存账的库位维度回填 |
+| 部署形态 | Windows 实机生产部署（见 §8.0.4） | R3 模板改动"生产需重启生效"提示适用 |
+
+### 已知设计取舍（经用户拍板，AI 不得重复报告为问题）
+
+> 以下两项已经用户（2026-10-03）明确拍板接受现状。AI 代理在代码审查/流程分析中**不得再次作为缺陷或风险报告**；仅当环境画像发生变化（如转为多人使用）时才需重新评估。
+
+1. **入/出库单无作废（cancelled）态**：错误草稿只能物理删除，无作废留痕。单人使用，无审计追溯需求——接受现状。
+2. **§一"提交/审核/完成"措辞与实现的口径差**：主链路（in_order/out_order）实际仅 `pending → completed` 一跳，无审核岗（审核态仅存在于采购申请与销售订单）。接受现状，§一 措辞不改。
+
+### 单据状态权威表（2026-10-03 依据 `app/models/documents.py` @ `d2f0fad` 整理）
+
+| 单据 | status 取值 | 反提交 | 草稿可删 | 备注 |
+|---|---|---|---|---|
+| 入库单 InOrder | pending / completed | ✅ `revert_in_order` | ✅（completed 须先反提交） | business_type 4 种 |
+| 出库单 OutOrder | pending / completed | ✅ `revert_out_order` | ✅（同上） | business_type 4 种 |
+| 调拨单 Transfer | pending / completed / cancelled | — | ✅ | cancelled 为软终态 |
+| 调整单 Adjustment | pending / completed / cancelled | ✅（对称回退，`adjustment.py:505`） | ✅ | 差异来源于盘点 |
+| 盘点单 InventoryCheck | pending / completed | ✅（须其调整单未提交，`check.py:634`） | ✅ | 差异自动生成调整单 |
+| 扫码盘点 Scan | pending / completed / void | — | — | void 作废留痕（INV-REVERT-001） |
+| 售后出库 AfterSaleOut | pending / completed | ✅ | ✅ | |
+| 工单领料 Requisition | pending / completed | — | ✅ | |
+| 期初库存单 OpeningStockDoc | active | — | ✅（逐行回冲，见 INVENTORY_TRUTH §2.1.2） | 多单据汇总口径 |
+| 采购申请 PurchaseRequest | pending / approved / rejected / completed | — | — | 有审批态 |
+| 采购订单 PurchaseOrder | pending / partial / completed | — | — | 行级 received_quantity 跟踪 |
+| 销售订单 SalesOrder | draft / confirmed | — | — | 另有 shipment_status：pending/partial/shipped |
+| 委外订单 Subcontract | pending / processing / completed | — | — | 发料/收料单为 pending/completed |
+
+> 本表以 `app/models/documents.py` 的 status 列注释为唯一权威来源；模型变更时必须同步回填本表。
 
 ## 一、业务操作铁律（AI 行为边界）
 
