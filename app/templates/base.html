@@ -2461,7 +2461,7 @@
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">AI功能</div>
-                            <a class="flyout-link" href="/ai/replenishment"><i class="bi bi-lightning-charge"></i> 补货建议（规则）</a>
+                            <a class="flyout-link" href="/ai/replenishment"><i class="bi bi-lightning-charge"></i> 补货建议（安全库存）</a>
                         </div>
                     </div>
                 </div>
@@ -2546,11 +2546,14 @@
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">AI 功能</div>
-                            <a class="flyout-link" href="/ai/replenishment_smart"><i class="bi bi-stars"></i> 补货建议（规则）</a>
+                            <a class="flyout-link" href="/ai/agent_tasks"><i class="bi bi-clipboard-check"></i> AI 巡检报告</a>
+                            <a class="flyout-link" href="/ai/replenishment_smart"><i class="bi bi-stars"></i> 智能补货分析</a>
                             <a class="flyout-link" href="/ai/inventory_health"><i class="bi bi-heart-pulse"></i> 库存健康度</a>
                             <a class="flyout-link" href="/ai/document_ocr"><i class="bi bi-file-earmark-text"></i> 单据OCR识别</a>
                             <a class="flyout-link" href="/ai/supplier_evaluation"><i class="bi bi-building"></i> 供应商智能评估</a>
+                            {% if location_management_enabled %}
                             <a class="flyout-link" href="/ai/location_recommendation"><i class="bi bi-geo-alt"></i> 智能库位推荐</a>
+                            {% endif %}
                             <a class="flyout-link" href="/ai/demand_forecast"><i class="bi bi-graph-up"></i> 需求预测</a>
                         </div>
                     </div>
