@@ -4349,6 +4349,8 @@ def inject_query_helpers():
         'inventory_alert_enabled': inventory_alert_enabled(),
         'location_management_enabled': location_management_enabled(),
         'material_code_editable': material_code_editable(),
+        # WMS-AI-DEGRADE-001：AI 浮窗「本地规则模式」标识（大模型未配置/不可用时为 False）
+        'ai_llm_active': _ai_llm_configured(),
         'now': datetime.now(),
         # BUG-2026-07-28-011 修复：登录页模板用得到
         'max_login_failures': max_login_failures,
@@ -30577,8 +30579,8 @@ def ai_replenishment_suggestions():
     # 无独立能力键，复用补货规划能力（同一页面族、同一角色集）。
     if not _ai_capability_allowed('replenishment_planning'):
         return _ai_permission_denied_response('replenishment_planning')
-    if not _ai_llm_configured():
-        return api_error('请先在系统设置中配置大模型API')
+    # WMS-AI-GATE-001：统计建议不门禁大模型——无 LLM 时 ai_analysis 自动降级为提示文案，
+    # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
     
     # 查询库存低于补货点的物料
     materials = Material.query.filter(
@@ -30658,8 +30660,8 @@ def ai_inventory_health():
     # 无独立能力键，复用库存健康能力（同一页面族、同一角色集）。
     if not _ai_capability_allowed('inventory_health'):
         return _ai_permission_denied_response('inventory_health')
-    if not _ai_llm_configured():
-        return api_error('请先在系统设置中配置大模型API')
+    # WMS-AI-GATE-001：健康度评分为纯规则计算——无 LLM 时 ai_analysis 自动降级为提示文案，
+    # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
     
     # 查询所有有库存的物料
     materials = Material.query.filter(Material.stock > 0).all()
@@ -33354,8 +33356,8 @@ def api_supplier_evaluation():
     # AI_TOOL_REGISTRY（另含 AI_PERMISSION_MATRIX.md 与 verify 脚本两处台账）。
     if not _ai_capability_allowed('supplier_evaluation'):
         return _ai_permission_denied_response('supplier_evaluation')
-    if not _ai_llm_configured():
-        return api_error('请先在系统设置中配置大模型API')
+    # WMS-AI-GATE-001：供应商评分为规则计算——无 LLM 时 ai_analysis 自动降级为提示文案，
+    # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
 
     suppliers = Supplier.query.all()
     if not suppliers:
@@ -33481,8 +33483,8 @@ def api_recommend_location():
     # 此前仅 @login_required，viewer/user 可刷计费且灰度开关对它无效。
     if not _ai_capability_allowed('location_recommendation'):
         return _ai_permission_denied_response('location_recommendation')
-    if not _ai_llm_configured():
-        return api_error('请先在系统设置中配置大模型API')
+    # WMS-AI-GATE-001：统计评分不门禁大模型——无 LLM 时 ai_analysis 自动降级为提示文案，
+    # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
 
     data = request.get_json() or {}
     material_id = data.get('material_id')
@@ -33674,8 +33676,8 @@ def api_demand_forecast():
     # 此前仅 @login_required，viewer/user 可刷计费且灰度开关对它无效。
     if not _ai_capability_allowed('demand_forecast'):
         return _ai_permission_denied_response('demand_forecast')
-    if not _ai_llm_configured():
-        return api_error('请先在系统设置中配置大模型API')
+    # WMS-AI-GATE-001：统计预测不门禁大模型——无 LLM 时 ai_analysis 自动降级为提示文案，
+    # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
 
     data = request.get_json() or {}
     forecast_days = data.get('forecast_days', 30)  # 预测天数：7/14/30
