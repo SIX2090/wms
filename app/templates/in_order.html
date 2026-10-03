@@ -235,6 +235,9 @@
                     <td>
                         {% if item.in_order.status == 'pending' %}
                         <span class="badge bg-warning">未审核/待完成</span>
+                        {% if item.in_order.id in reverted_in_order_ids %}
+                        <span class="badge bg-danger" title="曾完成后反提交：库存已回退，但仍占用来源采购订单的收货预留，请尽快重新完成或删除草稿释放预留">反提交草稿</span>
+                        {% endif %}
                         {% elif item.in_order.status == 'completed' %}
                         <span class="badge bg-success">已完成</span>
                         {% else %}

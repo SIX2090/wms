@@ -206,6 +206,17 @@
         </div>
     </div>
 
+    {% if is_reverted_draft %}
+    <!-- P2（2026-10-03）：反提交草稿警示横幅 -->
+    <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+        <i class="bi bi-exclamation-triangle-fill mt-1"></i>
+        <div>
+            <strong>该单曾完成后反提交。</strong>库存已回退，但仍占用来源采购订单的收货预留（received_quantity）。
+            请尽快<b>重新完成</b>或<b>删除草稿</b>（删除才释放预留），避免采购订单收货进度虚高。
+        </div>
+    </div>
+    {% endif %}
+
     {% if push_history %}
     <div class="order-info-card">
         <div class="card-header-custom"><i class="bi bi-diagram-3"></i> 下推记录</div>

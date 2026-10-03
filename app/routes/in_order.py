@@ -46,6 +46,37 @@ from db import db
 from utils import print_token_or_login_required, require_role
 
 
+def get_reverted_in_order_ids(order_ids):
+    """P2（2026-10-03）：批量判定哪些入库单"曾完成后被反提交"。
+
+    判据（append-only 流水事实源，INVENTORY_TRUTH ③）：存在
+    StockTransaction(transaction_type='revert_in', reference_type='in_order',
+    reference_id=单据id) 的流水——revert_in_order 与 batch_revert_in_order
+    均写该类型流水。
+
+    背景：反提交只回退库存、不释放来源采购订单 received_quantity 预留（只有
+    删除草稿 delete_in_order 才释放，见本文件 revert 分支注释）。此类
+    "反提交草稿"若长期滞留，采购订单将持续显示已收货而仓库库存已回退。
+    本函数供列表/详情页对该类草稿做醒目标识，与普通新草稿区分。
+
+    回归测试：tests/test_reverted_in_order_badge.py。
+    """
+    from app import StockTransaction
+    ids = [i for i in (order_ids or []) if i is not None]
+    if not ids:
+        return set()
+    rows = (StockTransaction.query
+            .with_entities(StockTransaction.reference_id)
+            .filter(
+                StockTransaction.transaction_type == 'revert_in',
+                StockTransaction.reference_type == 'in_order',
+                StockTransaction.reference_id.in_(ids),
+            )
+            .distinct()
+            .all())
+    return {row[0] for row in rows}
+
+
 def _parse_item_batch_no(value):
     """P0 批次/有效期捕获：解析行级批次号。
 
@@ -422,6 +453,11 @@ def register_in_order_routes(app):
             'supplier_name': supplier_name_filter,
         }
         page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
+        # P2（2026-10-03）：标识"反提交草稿"——曾完成后被反提交的 pending 单仍
+        # 占用来源采购订单收货预留（删除草稿才释放），列表页需与普通新草稿醒目区分。
+        reverted_in_order_ids = get_reverted_in_order_ids(
+            [row.in_order.id for row in items if row.in_order and row.in_order.id]
+        )
         # BUG-2026-09-23-003：本视图同时挂在 /in_order 与 /other_in_order 两个规则上，
         # Flask 的 url_for('in_order_list') 只会稳定解析到「后注册」的那个（/other_in_order），
         # 模板分页若走 url_for 会把采购入库明细表的翻页链接全部指到其他入库明细表；
@@ -439,6 +475,7 @@ def register_in_order_routes(app):
             filters=filters,
             page_title=page_title,
             list_base_path=list_base_path,
+            reverted_in_order_ids=reverted_in_order_ids,
             purchase_order_status_label=purchase_order_status_label,
             warehouses=get_active_warehouses(),
             default_warehouse=get_default_warehouse(),
@@ -474,9 +511,14 @@ def register_in_order_routes(app):
         warehouses = get_active_warehouses()
         warehouse_names = [warehouse.name for warehouse in warehouses]
         default_warehouse = get_default_warehouse()
+        # P2（2026-10-03）：反提交草稿警示——库存已回退但采购收货预留未释放
+        is_reverted_draft = (
+            order.status == 'pending' and order.id in get_reverted_in_order_ids([order.id])
+        )
         return render_template(
             'in_order_detail.html',
             order=order,
+            is_reverted_draft=is_reverted_draft,
             suppliers=suppliers,
             push_history=_in_order_push_history(order),
             can_push=order.status == 'completed' and _in_order_push_source_type(order) is not None,
