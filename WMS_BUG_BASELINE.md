@@ -2467,3 +2467,13 @@
   2. `VoiceAssistant.kt`：FAB modifier 改为 `.navigationBarsPadding().padding(end = 20.dp, bottom = 88.dp)`——先抬过系统手势区再抬过应用底栏（与同文件 SnackbarHost `bottom = 88.dp` 同一口径）。
 - **回归锁**：`tests/verify_bug_2026_10_04_002_home_header_fab_position.py`（标题行不在 offset Column 内、标题在 Hero 区内且白字、卡片悬浮保留、FAB 抬升口径、台账登记五断言）。
 - **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机安装新 APK 核对首页标题完整可读、FAB 不再遮挡「我的」后回填。
+
+## BUG-2026-10-04-003：Hero 蓝底上「项目仓」切换器深色文字不可读（002 修复引入的对比度回退）
+
+- **日期**：2026-10-04
+- **发现方式**：真机截图实证——BUG-2026-10-04-002 修复生效（标题完整、FAB 不挡「我的」）后，「项目仓」切换器在 Hero 深蓝底上呈深色、几乎不可读。
+- **根因**：`WarehouseSelector` 从报表页（浅底）提取为共享组件（BUG-2026-09-10-010）时未考虑深底场景，无前景色参数，`TextButton` 默认主题色（primary）+ 箭头 `onSurfaceVariant` 均为深色；002 把切换器收进 Hero 蓝底后深色压蓝底对比度不足。**002 修复时未同步评估组件颜色语义**——改动布局归属必须连带检查被移动组件的主题假设。
+- **修复**：`WarehouseSelector` 新增 `contentColor: Color? = null` 参数（默认 null=主题色，报表页等浅底调用方行为不变）；`HomeScreen` Hero 调用点显式传 `contentColor = Color.White` 并加半透明白底 chip（`White.copy(alpha = 0.15f)` + 圆角 16dp，与 Hero 右上角退出按钮同一套控件语言）。
+- **R6 同类点排查**：共享组件全部调用点已 grep——报表页（浅底，不传参保持主题色）、`test_mobile_stock_ledger_page.py` 引用的页面均已核对，无其他深底场景。
+- **回归锁**：`tests/verify_bug_2026_10_04_003_hero_selector_contrast.py`（参数存在、Hero 传白、报表页不受影响、台账登记四断言）。
+- **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机核对「项目仓」白字清晰可读后回填。

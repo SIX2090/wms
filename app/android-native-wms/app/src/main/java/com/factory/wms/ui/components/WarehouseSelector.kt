@@ -3,6 +3,7 @@ package com.factory.wms.ui.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -15,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.WarehouseDto
@@ -33,6 +35,9 @@ import com.factory.wms.data.model.WarehouseDto
  * @param allowAll 是否提供"全部仓库（汇总）"选项（首页支持；每日报表按需求不提供）
  * @param showDefaultWarehouse 是否提供"默认仓库"选项（首页支持；每日报表按需求不提供，
  *        此时下拉只列真实仓库，进入页默认选中第一个仓库）。
+ * @param contentColor 前景色（文字+箭头）。默认 null=主题色（浅底场景）；
+ *        BUG-2026-10-04-003：组件放进 Hero 深蓝底时必须显式传 Color.White，
+ *        否则深色文字压蓝底对比度不足不可读。
  */
 @Composable
 fun WarehouseSelector(
@@ -42,7 +47,8 @@ fun WarehouseSelector(
     onSelect: (String?) -> Unit,
     allowAll: Boolean = true,
     showDefaultWarehouse: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentColor: Color? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     // 当前选中仓库（无回传标签时取名称兜底，避免去掉"默认仓库"后显示成空/错名称）
@@ -56,12 +62,19 @@ fun WarehouseSelector(
             ?: "选择仓库"
     }
     Box(modifier = modifier) {
-        TextButton(onClick = { expanded = true }) {
+        TextButton(
+            onClick = { expanded = true },
+            colors = if (contentColor != null) {
+                ButtonDefaults.textButtonColors(contentColor = contentColor)
+            } else {
+                ButtonDefaults.textButtonColors()
+            }
+        ) {
             Text(label, fontSize = 14.sp)
             Icon(
                 Icons.Filled.ArrowDropDown,
                 "切换仓库",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = contentColor ?: MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

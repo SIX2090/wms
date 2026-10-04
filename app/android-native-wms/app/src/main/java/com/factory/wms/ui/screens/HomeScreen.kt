@@ -337,13 +337,20 @@ fun HomeScreen(
                                 color = Color.White
                             )
                             Spacer(modifier = Modifier.weight(1f))
+                            // BUG-2026-10-04-003：切换器压在 Hero 深蓝底上，
+                            // 必须白色前景 + 半透明白底 chip（与右上角退出按钮同套
+                            // Hero 控件语言），默认主题深色文字压蓝底不可读
                             WarehouseSelector(
                                 currentLabel = dashboardData?.warehouse,
                                 warehouses = homeUiState.warehouses,
                                 selectedId = homeUiState.selectedWarehouseId,
                                 onSelect = { homeViewModel.selectWarehouse(it) },
                                 showDefaultWarehouse = false,
-                                allowAll = false
+                                allowAll = false,
+                                contentColor = Color.White,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color.White.copy(alpha = 0.15f))
                             )
                         }
                     }
