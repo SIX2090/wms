@@ -3346,3 +3346,15 @@ python scripts/lint_wms_rules.py --staged                                       
 **台账**：`WMS_BUG_BASELINE.md` 已登记 **BUG-2026-09-25-001**（委外快速收货漏写库位账）。
 
 **P2-3 状态**：写入点收敛 **7/8 完成**；`requisition.py` 1 处待单独评估。
+
+## AI-PROMPT-V2-2026-10-04 —— 应用内 system prompt 结构化升级 + 运行时截断/意图契约修复（2026-10-04）
+
+**问题**：①`legacy-v1` system prompt 中英混杂、红线是口号无行为指令、R5「低置信度回退人工」未注入运行时、无输出契约；②`providers.py` `user_message[:1000]` 硬截断，长文本后半段静默丢失且模型不知数据不全；③`call_llm_intent` 只设 `json_object` 不定义字段，输出字段漂移靠运气。
+
+**改动**（2 个 atomic action）：
+1. `app/ai/prompts.py`：注册 `copilot-v2` 并切换 `CURRENT_PROMPT_VERSION`（红线落到行为指令 + R5 回退义务 + 输出契约；保留全部被 BUG-2026-08-12-003 锁定的关键词与英文安全边界，版本槽可秒级回滚）。文件头补「改 prompt 必跑 golden 回归并记录命中率」纪律。commit `0ee74a1`。
+2. `app/ai/providers.py`：新增 `truncate_ai_user_message`（首尾保留 + 显式截断标记「不得假设数据完整/禁止臆造」）替换两处硬截断；`call_llm_intent` 追加 `_INTENT_OUTPUT_CONTRACT`（字段契约 + unknown 兜底 + 高风险拒答 + 禁止猜测）。commit `2bc5b04`。
+
+**验证**：新增 `verify_ai_prompt_copilot_v2.py` 5 项 + `verify_ai_providers_truncation.py` 6 项；红线回归 4 项；`verify_ai_platform_foundations.py` PASS；AI 子系统相关 129 passed / 0 failed；`lint_wms_rules.py --staged` 0 违规。
+
+**遗留子项**：①app.py 4 处 `[:1000]`（聊天/意图链路）未动——行号被 `test_inventory_truth_line_refs.py` 锚定，新增 import 会移位，需单行替换方案另行立项；②v2 上线后首个golden 回归周期需在 `provider_evaluation` 按 prompt_hash 对比 legacy-v1/copilot-v2 的识别命中率并回填本条目；③生产需重启 WMS 服务生效（R3）。
