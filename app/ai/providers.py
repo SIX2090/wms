@@ -320,6 +320,42 @@ def call_llm(
 
 # ---- 便捷函数 ----
 
+# AI-PROMPT-V2-2026-10-04：截断标记必须告知模型「数据不完整」——
+# 否则模型会把半截文本当成完整输入，静默丢失的信息（如送货单后半段物料行）
+# 会被当成"不存在"而不是"未提供"，这是最危险的幻觉形态。
+_TRUNCATION_MARKER = (
+    '\n[系统提示：用户消息过长，中间内容已截断（原始 {total} 字符，仅保留首尾）。'
+    '解析时不得假设数据完整；无法确认的部分请在输出中标注"待补充"，禁止臆造。]\n'
+)
+
+
+def truncate_ai_user_message(text: str, limit: int = 1000) -> str:
+    """结构化截断过长的用户消息：保留首尾 + 显式截断标记。
+
+    替代原先的 ``text[:1000]`` 硬截断——硬截断会让模型把残缺输入当完整输入，
+    后半段信息（长送货单的物料行、长问题的主干）静默丢失且无任何提示。
+    首段保留表头/开头语义，尾段保留结尾物料行与落款，中间以标记说明。
+    """
+    if len(text) <= limit:
+        return text
+    marker = _TRUNCATION_MARKER.format(total=len(text))
+    budget = limit - len(marker)
+    if budget < 40:  # limit 太小放不下标记时退化为硬截断（防御性兜底）
+        return text[:limit]
+    head = int(budget * 0.6)
+    tail = budget - head
+    return text[:head] + marker + text[-tail:]
+
+
+# 意图解析的输出契约：json_object 只保证合法 JSON、不保证字段——
+# 契约必须写进 prompt，把"字段漂移靠运气"变成"有约定"。
+_INTENT_OUTPUT_CONTRACT = (
+    '\n只输出 JSON：{"intent": "<意图名>", "params": {...}}，不要输出解释。'
+    '无法确定意图，或请求属于提交/审核/完成/作废/删除等高风险人工操作时，'
+    '输出 {"intent": "unknown", "params": {}}，禁止猜测。'
+)
+
+
 def call_llm_intent(
     config: OpenAICompatibleConfig,
     system_prompt: str,
@@ -327,8 +363,8 @@ def call_llm_intent(
 ) -> Optional[dict]:
     """调用 LLM 进行意图解析，返回解析后的 dict 或 None。"""
     messages = [
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': user_message[:1000]},
+        {'role': 'system', 'content': system_prompt + _INTENT_OUTPUT_CONTRACT},
+        {'role': 'user', 'content': truncate_ai_user_message(user_message)},
     ]
     content = call_llm(
         config, messages,
@@ -355,7 +391,7 @@ def call_llm_chat(
     """调用 LLM 进行普通对话，返回回复文本或 None。"""
     messages = [
         {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': user_message[:1000]},
+        {'role': 'user', 'content': truncate_ai_user_message(user_message)},
     ]
     content = call_llm(
         config, messages,
