@@ -2444,3 +2444,13 @@
 - **修复**：推送 `3d6a611`（同步两处断言 + 「智能补货分析」→「补货建议（周转分析）」消除 T8 违规）+ `a59166f`（补登行号引用 28123→28127 + INVENTORY_TRUTH.md 同步）
 - **教训**：改任何页面文案/在 app.py 插入行之前，必须先 `grep` 全库（含 scripts/、tests/、docs/）排查引用点；verify.yml 修绿后必须等 WMS CI 也出结果才能判定 CI 绿——两个工作流是独立工作流，一个绿不代表全绿（AA1 的教训）。同时工作区根 `scripts/check_ci_green.py` 门口的存在就是为了拦截此类事件，必须无条件先跑。
 - **生效确认**：已确认（2026-10-03）——推送 `3d6a611`/`a59166f` 后三工作流全绿：`WMS AI Verification` #1648/#1649 success、`WMS CI` #1354 success、`Android Build` success @a59166f
+
+## BUG-2026-10-04-001：ScanViewModel 两参构造后 NavGraph 无工厂反射创建，入出库/库存/盘点页一打开即闪退
+
+- **日期**：2026-10-04
+- **发现方式**：真机（HUAWEI LIO-AN00，SDK 31，v3.9.4）用户回传崩溃堆栈：`RuntimeException: Cannot create an instance of class ...scan.ScanViewModel`，`Caused by: NoSuchMethodException: ScanViewModel.<init> [class android.app.Application]`，发生于 Compose 导航创建 ViewModel 时（doFrame 渲染链路）。
+- **根因**：BUG-2026-10-002（`7537b3d`，DataStore 超时）给 `ScanViewModel` 构造函数新增第二参数 `dataStoreTimeoutMs: Long = WmsRepository.DATASTORE_TIMEOUT_MS`。**Kotlin 默认参数不生成 `(Application)` 单参构造方法**；NavGraph 5 处 `viewModel(key=...)` 均为无工厂创建，走 `AndroidViewModelFactory` 反射查找 `<init>(Application)` 必然抛 `NoSuchMethodException`。当时只改了单测里的手写构造（`DataStoreTimeoutTest` 等直接 new），**漏改 NavGraph 全部反射创建点**；且项目全部 Python"Android 测试"是源码字符串断言、单测又绕过了框架创建路径，无任何环节能暴露该签名失配，带病上线。
+- **R6 同根因排查**：与 BUG-2026-09-14-029（构造期急切解析 api）/032（组合根饿汉创建）根因不同；已全量 grep 主源码 `ScanViewModel = viewModel(` 创建点共 5 处（inbound/outbound/stock_query/stocktake×2），全部补齐 factory；其余 ViewModel 均为单参构造不受影响。
+- **修复**：`ScanViewModel` 新增 `companion object { val Factory = viewModelFactory { initializer { ... } } }`（CreationExtras 取 `APPLICATION_KEY`）；NavGraph 5 处创建点改传 `factory = ScanViewModel.Factory`。新增回归锁 `tests/verify_bug_2026_10_04_001_scan_viewmodel_factory.py`（工厂声明 + 创建点必须传 factory + 台账登记三断言）。
+- **教训**：改 ViewModel 构造签名时，必须同时排查**框架反射创建点**（NavGraph/`viewModel()`/`by viewModels()`），单测手写 new 不代表运行时路径安全；凡构造参数多于 `AndroidViewModelFactory` 能注入的签名，必须同步提供 Factory 并让全部创建点引用它。
+- **生效确认**：待确认——本机无 Android SDK/Kotlin 工具链，无法本地编译验证（R8-5）；须等 `Android APK Build` 转绿 + 真机安装新 APK 打开入/出库页验证不再闪退后回填。

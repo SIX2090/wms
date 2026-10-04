@@ -121,10 +121,12 @@ def test_032_scan_vms_created_inside_routes_with_distinct_keys(route_key: str) -
     """
     src = _src()
     top = _appnavgraph_top_region(src)
-    assert f'viewModel(key = "{route_key}")' not in top, (
+    # BUG-2026-10-04-001：创建点现追加 factory = ScanViewModel.Factory（两参构造必需），
+    # 断言同步为按 key 前缀匹配——语义不变：必须带 key 且在路由内创建
+    assert f'viewModel(key = "{route_key}"' not in top, (
         f'key="{route_key}" 的 ViewModel 仍在组合根顶层创建，应下沉到路由内'
     )
-    assert f'viewModel(key = "{route_key}")' in src, (
+    assert f'viewModel(key = "{route_key}"' in src, (
         f'未找到 key="{route_key}" 的 ViewModel 创建（路由内应存在）'
     )
 

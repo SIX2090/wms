@@ -2,7 +2,10 @@ package com.factory.wms.ui.viewmodel.scan
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
 import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
@@ -131,6 +134,24 @@ class ScanViewModel(
 ) : AndroidViewModel(application) {
 
     private val repository = WmsRepository(application, dataStoreTimeoutMs)
+
+    companion object {
+        /**
+         * BUG-2026-10-04-001：BUG-2026-10-002 给构造函数新增 dataStoreTimeoutMs 第二参数后，
+         * Kotlin 默认参数不会生成 (Application) 单参构造方法；NavGraph 无工厂 viewModel()
+         * 走 AndroidViewModelFactory 反射查找 <init>(Application) 必然抛
+         * NoSuchMethodException —— 入库/出库/库存查询/盘点四个页面一打开即进程闪退。
+         * 因此全部创建点必须经本工厂：viewModel(key = ..., factory = ScanViewModel.Factory)。
+         */
+        val Factory: ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                ScanViewModel(
+                    this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]
+                        ?: error("APPLICATION_KEY missing in CreationExtras")
+                )
+            }
+        }
+    }
 
     private val _uiState = MutableStateFlow(ScanUiState())
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()

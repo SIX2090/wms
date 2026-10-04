@@ -223,7 +223,9 @@ fun AppNavGraph() {
                 }
 
                 composable(Screen.Inbound.route) {
-                    val inboundScanViewModel: ScanViewModel = viewModel(key = "inbound_scan")
+                    // BUG-2026-10-04-001：ScanViewModel 为 (Application, Long) 两参构造，
+                    // 无工厂 viewModel() 反射创建必然闪退，必须传 Factory（下同 3 处）
+                    val inboundScanViewModel: ScanViewModel = viewModel(key = "inbound_scan", factory = ScanViewModel.Factory)
                     InboundScreen(
                         viewModel = inboundScanViewModel,
                         onBack = { navController.popBackStack() }
@@ -231,7 +233,7 @@ fun AppNavGraph() {
                 }
 
                 composable(Screen.Outbound.route) {
-                    val outboundScanViewModel: ScanViewModel = viewModel(key = "outbound_scan")
+                    val outboundScanViewModel: ScanViewModel = viewModel(key = "outbound_scan", factory = ScanViewModel.Factory)
                     val voiceDraftViewModel: VoiceOutDraftViewModel = viewModel()
                     OutboundScreen(
                         viewModel = outboundScanViewModel,
@@ -246,7 +248,7 @@ fun AppNavGraph() {
                 }
 
                 composable(Screen.StockQuery.route) {
-                    val stockQueryViewModel: ScanViewModel = viewModel(key = "stock_query")
+                    val stockQueryViewModel: ScanViewModel = viewModel(key = "stock_query", factory = ScanViewModel.Factory)
                     StockQueryScreen(
                         viewModel = stockQueryViewModel,
                         onBack = { navController.popBackStack() },
@@ -256,7 +258,7 @@ fun AppNavGraph() {
                 }
 
                 composable(Screen.Stocktake.route) {
-                    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake")
+                    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake", factory = ScanViewModel.Factory)
                     StocktakeScreen(
                         viewModel = stocktakeViewModel,
                         onBack = { navController.popBackStack() },
@@ -295,7 +297,7 @@ fun AppNavGraph() {
 
                 composable(Screen.StocktakeRecognize.route) {
                     val aiViewModel: AiViewModel = viewModel()
-                    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake")
+                    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake", factory = ScanViewModel.Factory)
                     StocktakeRecognizeScreen(
                         aiViewModel = aiViewModel,
                         scanViewModel = stocktakeViewModel,
