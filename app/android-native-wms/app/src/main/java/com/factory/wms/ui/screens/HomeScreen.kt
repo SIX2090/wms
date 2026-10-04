@@ -200,6 +200,9 @@ fun HomeScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
+            // 今日概览数据提前取出：Hero 内的标题行与下方卡片共用
+            val dashboardData = homeUiState.dashboard
+
             // ── Hero Section ──
             Box(
                 modifier = Modifier
@@ -310,48 +313,55 @@ fun HomeScreen(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // BUG-2026-10-04-002：「今日概览」标题行收进 Hero 蓝底内。
+                    // 原设计把标题行放进 offset(-28) 的半悬浮 Column，假定行高 ≤28dp；
+                    // 仓库切换器（~32dp 高）使行高超出预留，白字下半截落到 Hero 外的
+                    // 白底上「被裁切」。标题放 Hero 内后行高任意都恒在蓝底上。
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (dashboardData == null && homeUiState.isLoading) {
+                            // 加载中：标题与切换器同形 shimmer（与骨架卡片同口径）
+                            WmsShimmerBox(modifier = Modifier.size(width = 76.dp, height = 20.dp), corner = 6.dp)
+                            Spacer(modifier = Modifier.weight(1f))
+                            WmsShimmerBox(modifier = Modifier.size(width = 96.dp, height = 32.dp), corner = 16.dp)
+                        } else {
+                            Text(
+                                "今日概览",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 15.sp,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            WarehouseSelector(
+                                currentLabel = dashboardData?.warehouse,
+                                warehouses = homeUiState.warehouses,
+                                selectedId = homeUiState.selectedWarehouseId,
+                                onSelect = { homeViewModel.selectWarehouse(it) },
+                                showDefaultWarehouse = false,
+                                allowAll = false
+                            )
+                        }
+                    }
                 }
             }
 
-            // ── 今日概览条 ──
+            // ── 今日概览卡片（半悬浮，上探 28dp 压住 Hero 下边缘；Hero 底部已留 48dp）──
             // BUG-2026-09-10-010：多仓用户此前只能看到默认仓的今日数据，
-            // 顶部提供仓库切换（默认仓 / 各仓 / 全部仓库汇总）。
-            val dashboardData = homeUiState.dashboard
+            // 仓库切换器已收进上方 Hero 标题行（BUG-2026-10-04-002）。
             if (dashboardData != null) {
-                // 标题 + 概览条整体半悬浮，上探压住 Hero 下边缘（Hero 底部已留 48dp）
                 Column(modifier = Modifier.offset(y = (-28).dp)) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "今日概览",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 15.sp,
-                            // 半悬浮后标题压在 Hero 深蓝背景上，需白色
-                            color = Color.White,
-                            modifier = Modifier.padding(start = 20.dp)
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        WarehouseSelector(
-                            currentLabel = dashboardData.warehouse,
-                            warehouses = homeUiState.warehouses,
-                            selectedId = homeUiState.selectedWarehouseId,
-                            onSelect = { homeViewModel.selectWarehouse(it) },
-                            showDefaultWarehouse = false,
-                            allowAll = false
-                        )
-                    }
                     TodayOverviewBar(
                         dashboard = dashboardData,
                         onNavigate = onNavigate
                     )
                 }
             } else if (homeUiState.isLoading) {
-                // AI-APP-UI-002：数据未返回时渲染同形骨架。
-                // 与真实布局同形半悬浮（标题占位在 Hero 上用白色 shimmer）。
+                // AI-APP-UI-002：数据未返回时渲染同形骨架（标题 shimmer 在 Hero 内）。
                 Column(modifier = Modifier.offset(y = (-28).dp)) {
                     DashboardOverviewSkeleton()
                 }
@@ -701,8 +711,8 @@ fun TodayOverviewBar(
 }
 
 /**
- * 「今日概览」失败条（BUG-2026-09-26-004）：与真实卡片同形——标题行保留
- * 仓库切换器（换仓即重试），卡片正文为"加载失败，点击重试"。
+ * 「今日概览」失败条（BUG-2026-09-26-004）：卡片正文为"加载失败，点击重试"。
+ * 标题行与仓库切换器已收进 Hero（BUG-2026-10-04-002，换仓即重试语义不变）。
  * 仅当 dashboard=null 且不在加载中时渲染（加载中走骨架，成功走真实条）。
  */
 @Composable
@@ -712,31 +722,9 @@ private fun DashboardOverviewError(
     onSelectWarehouse: (String?) -> Unit,
     onRetry: () -> Unit
 ) {
+    // warehouses/selectedId/onSelectWarehouse 参数保留：失败时 Hero 标题行的
+    // 切换器由调用方统一渲染，此处签名不变以便后续恢复卡片内切换器
     Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "今日概览",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
-                // 半悬浮后标题压在 Hero 深蓝背景上，需白色（与真实条一致）
-                color = Color.White,
-                modifier = Modifier.padding(start = 20.dp)
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            WarehouseSelector(
-                currentLabel = null,
-                warehouses = warehouses,
-                selectedId = selectedId,
-                onSelect = onSelectWarehouse,
-                showDefaultWarehouse = false,
-                allowAll = false
-            )
-        }
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -776,19 +764,8 @@ private fun DashboardOverviewError(
  */
 @Composable
 private fun DashboardOverviewSkeleton() {
+    // 标题 shimmer 已收进 Hero（BUG-2026-10-04-002），骨架只保留卡片同形占位
     Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // 半悬浮后标题占位压在 Hero 深蓝背景上，shimmer 用 OnSurfaceVariant 在暗底上仍可辨
-            WmsShimmerBox(modifier = Modifier.size(width = 76.dp, height = 20.dp), corner = 6.dp)
-            Spacer(modifier = Modifier.weight(1f))
-            WmsShimmerBox(modifier = Modifier.size(width = 96.dp, height = 32.dp), corner = 16.dp)
-        }
-        Spacer(modifier = Modifier.height(6.dp))
         Card(
             modifier = Modifier
                 .fillMaxWidth()

@@ -2454,3 +2454,16 @@
 - **修复**：`ScanViewModel` 新增 `companion object { val Factory = viewModelFactory { initializer { ... } } }`（CreationExtras 取 `APPLICATION_KEY`）；NavGraph 5 处创建点改传 `factory = ScanViewModel.Factory`。新增回归锁 `tests/verify_bug_2026_10_04_001_scan_viewmodel_factory.py`（工厂声明 + 创建点必须传 factory + 台账登记三断言）。
 - **教训**：改 ViewModel 构造签名时，必须同时排查**框架反射创建点**（NavGraph/`viewModel()`/`by viewModels()`），单测手写 new 不代表运行时路径安全；凡构造参数多于 `AndroidViewModelFactory` 能注入的签名，必须同步提供 Factory 并让全部创建点引用它。
 - **生效确认**：待确认——本机无 Android SDK/Kotlin 工具链，无法本地编译验证（R8-5）；须等 `Android APK Build` 转绿 + 真机安装新 APK 打开入/出库页验证不再闪退后回填。
+
+## BUG-2026-10-04-002：首页「今日概览」标题行被裁切 + 语音 FAB 压住底部导航「我的」入口
+
+- **日期**：2026-10-04
+- **发现方式**：真机截图实证（HUAWEI LIO-AN00）——「今日概览/项目仓」标题行下半截被概览卡片裁切；右下角语音麦克风悬浮球压住底部导航最右「我的」（角色）入口。
+- **根因（两处，均布局层）**：
+  1. 标题行放在 `offset(y = (-28).dp)` 的半悬浮 Column 里，设计假定行高 ≤28dp；`WarehouseSelector` 切换器（~32dp 高）使行高超出预留，标题白字下半截落到 Hero 深蓝区之外的白底上——白字白底不可见，视觉上被卡片"切掉一半"。
+  2. `VoiceAssistantOverlay` 叠加在 NavHost 之上、对底栏无感知，FAB 用 `padding(20.dp)` 从屏幕底缘算起，正好盖住 `WmsBottomBar`（M3 NavigationBar，80dp）最右 tab。
+- **修复**：
+  1. `HomeScreen.kt`：标题行（含三态：成功=文字+切换器 / 加载=shimmer / 失败=文字+切换器）收进 Hero 蓝底内，行高任意都恒在蓝底上；概览卡片保留 `offset(-28)` 半悬浮不变（Hero 底部 48dp 预留不动）；`DashboardOverviewError`/`DashboardOverviewSkeleton` 移除各自重复的标题行。
+  2. `VoiceAssistant.kt`：FAB modifier 改为 `.navigationBarsPadding().padding(end = 20.dp, bottom = 88.dp)`——先抬过系统手势区再抬过应用底栏（与同文件 SnackbarHost `bottom = 88.dp` 同一口径）。
+- **回归锁**：`tests/verify_bug_2026_10_04_002_home_header_fab_position.py`（标题行不在 offset Column 内、标题在 Hero 区内且白字、卡片悬浮保留、FAB 抬升口径、台账登记五断言）。
+- **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机安装新 APK 核对首页标题完整可读、FAB 不再遮挡「我的」后回填。

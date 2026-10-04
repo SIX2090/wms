@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Mic
@@ -138,7 +139,12 @@ fun VoiceAssistantOverlay(
             },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(20.dp),
+                // BUG-2026-10-04-002：悬浮层叠加在 NavHost 之上、对底栏无感知，
+                // 原 padding(20.dp) 从屏幕底缘算起，FAB 正好压住底部导航最右
+                // 「我的」入口。先抬过系统手势区，再抬过应用底栏
+                // （与上方 SnackbarHost bottom = 88.dp 同一口径）。
+                .navigationBarsPadding()
+                .padding(end = 20.dp, bottom = 88.dp),
             shape = RoundedCornerShape(16.dp),
             containerColor = Primary,
             contentColor = Color.White,
