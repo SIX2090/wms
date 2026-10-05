@@ -2518,5 +2518,11 @@
   对照修复前基线（同一脚本）：第 ④ 步**零请求**发出、吐司恒为「请选择出库日期」、弹窗不关、仓库不变。
   门禁：`scripts/lint_wms_rules.py` 0 违规、`scripts/lint_no_raw_post_fetch.py` 通过、
   新回归锁 7 passed、相邻模块回归 95 passed/2 skipped/0 failed。
-  ⚠️ 本机为 Linux 沙箱复现环境，**Windows 实机（用户环境）待复核**：
-  请用户在实机重走「领料单→反提交→编辑单据→改仓库→保存」，确认弹窗关闭且仓库已改。
+- **推送与 CI**：已 push `main`（`863f72e..3a8a4a1`）。三大门禁全绿 ✅：
+  `WMS CI`（[run 37263835479](https://github.com/SIX2090/wms/actions/runs/37263835479)）、
+  `WMS AI Verification`（[run 37263835375](https://github.com/SIX2090/wms/actions/runs/37263835375)）、
+  `WMS Perf Baseline`（[run 37263835411](https://github.com/SIX2090/wms/actions/runs/37263835411)）。
+  提交内 12 项 check-runs（smoke / lint-and-static / static-checks / unit-tests-shard-0~2 /
+  verify-shard-0~3 / perf / ai-core）**全部 success**。
+- **生效确认**：⚠️ Linux 沙箱已实测通过（详见上一条），但**Windows 实机（用户环境）待复核**：
+  请用户在实机重走「领料单→反提交→编辑单据→改仓库→保存」，确认弹窗关闭且仓库已改，然后回填本字段。
