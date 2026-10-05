@@ -2526,3 +2526,27 @@
   verify-shard-0~3 / perf / ai-core）**全部 success**。
 - **生效确认**：⚠️ Linux 沙箱已实测通过（详见上一条），但**Windows 实机（用户环境）待复核**：
   请用户在实机重走「领料单→反提交→编辑单据→改仓库→保存」，确认弹窗关闭且仓库已改，然后回填本字段。
+- **全面性复核（用户追问"其他单据是否也修了"后补做，2026-10-05）**：
+  **代码层全仓扫描**：`grep '\.entries()'` 命中的业务代码仅 5 处 ——
+  `in_order_detail.html:1301`（`Object.fromEntries`，正确）、
+  `ai_data_retention.html:126`（`Object.fromEntries`，正确）、
+  `report_view.html:386/433`（`for...of` 解构，正确）、
+  `out_order_detail.html:1477`（本次修复处）。
+  `Array.prototype.*.call` 命中 3 处真实业务代码：本处（Iterator，**BUG 已修**）、
+  `mobile_scan.html:1214` 与 `base.html:2282`（目标均为 `querySelectorAll` 的 **NodeList，有 length**，合法）。
+  `new FormData` 直接喂 `fetch(body:)` 的 `adjustment.html:276` / `transfer.html:362` 不迭代，安全。
+  `subcontract_detail.html:1075` 的 `saveHeaderEdit` 用 `getElementById().value` 逐个取值，不经过 FormData，不受影响。
+- **全面性复核——真实浏览器逐类型实测**：`out_order_detail.html` 是**四种出库单共用的同一模板**
+  （第 153/565 行按 `business_type` 分支渲染），故一处修复覆盖全部。实测 5 张单据全部 PASS：
+  | 单据 | 业务类型 | 实测操作 | 结果 |
+  |---|---|---|---|
+  | id=1 | 领料单 | 改仓库 成品仓→仓库A | ✅ `POST /out_order/1/update -> 200`，落库 |
+  | id=2 | 领料单 | 改仓库 成品仓→仓库B | ✅ `POST /out_order/2/update -> 200`，落库 |
+  | id=3 | 其他出库 | 改仓库 材料仓→仓库A | ✅ `POST /out_order/3/update -> 200`，落库 |
+  | id=4 | 销售出库 | 改备注（该类型按设计无仓库字段） | ✅ `POST /out_order/4/update -> 200`，备注落库 |
+  | id=5 | 采购退货出库 | 改仓库 材料仓→仓库A | ✅ `POST /out_order/5/update -> 200`，落库 |
+  5 张单据均：吐司无「请选择出库日期」、弹窗正常关闭（`modal fade`）、DB 值真实变更。
+- **回归锁扩容（2026-10-05）**：`tests/test_bug_2026_10_05_001_out_order_edit_header_formdata.py` 由 7 断言扩至 **9 断言**，
+  新增 ①`NodeList` 白名单钉死（防止日后把 `querySelectorAll` 偷换成 `FormData.entries()` 仍留白名单）、
+  ②全仓 `new FormData(...).entries()` 消费方式必须迭代器安全。
+  A14 反向验证复跑：BUG 版本下 **5 项报红**（含新增的全仓扫描），对照组 4 项保持绿。

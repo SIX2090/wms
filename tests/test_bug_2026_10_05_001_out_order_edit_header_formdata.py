@@ -166,24 +166,102 @@ def test_no_iterator_misuse_anywhere_in_templates():
 
 
 def test_no_iterator_misuse_in_static_js():
-    """静态 JS 目录同样扫描。"""
-    js_dir = os.path.join(ROOT, "app", "static", "js")
+    """静态 JS 目录同样扫描（排除压缩库/第三方 CDN）。"""
     offenders = []
-    if os.path.isdir(js_dir):
-        for name in sorted(os.listdir(js_dir)):
-            if not name.endswith(".js"):
+    for base, _dirs, files in os.walk(os.path.join(ROOT, "app", "static")):
+        if os.sep + "cdn" + os.sep in base + os.sep:
+            continue
+        for name in sorted(files):
+            if not name.endswith(".js") or name.endswith(".min.js"):
                 continue
-            src = _read(os.path.join(js_dir, name))
+            src = _read(os.path.join(base, name))
             for m in _BAD_ITER_CALL.finditer(src):
                 line = src[: m.start()].count("\n") + 1
-                offenders.append(f"{name}:{line}: {m.group(0)[:80]}")
+                rel = os.path.relpath(os.path.join(base, name), ROOT)
+                offenders.append(f"{rel}:{line}: {m.group(0)[:80]}")
     assert not offenders, (
-        "app/static/js 下检测到迭代器被 Array.prototype.*.call 直接遍历：\n  "
+        "app/static 下（排除 cdn/min）检测到迭代器被 Array.prototype.*.call 直接遍历：\n  "
         + "\n  ".join(offenders)
     )
 
 
-# ===================== 5. 台账登记（A13：生效确认字段必须存在） =====================
+# ===================== 5. NodeList 白名单：有 length 的合法用法不得误报 =====================
+
+# 这两处目标都是 NodeList（有 length），Array.prototype.*.call 是合法且惯用的写法。
+# 锁定它们"目标确实是 querySelectorAll"，防止日后误换成 FormData.entries() 却仍留在白名单里。
+_NODELIST_ALLOWED = (
+    (os.path.join(TPL_DIR, "mobile_scan.html"), "querySelectorAll"),
+    (os.path.join(TPL_DIR, "base.html"), "querySelectorAll"),
+)
+
+
+def test_nodelist_call_usages_are_legit_and_pinned():
+    """NodeList 上的 Array.prototype.*.call 是合法的；锁死其目标防止被偷换。"""
+    for path, expect in _NODELIST_ALLOWED:
+        if not os.path.isfile(path):
+            continue
+        src = _read(path)
+        for m in _BAD_ITER_CALL.finditer(src):
+            seg = src[m.start(): m.start() + 120]
+            assert expect in seg, (
+                f"{os.path.basename(path)} 的 Array.prototype.*.call 目标不再是 "
+                f"querySelectorAll（NodeList 才有 length）：{seg[:100]!r}"
+            )
+
+
+# ===================== 6. 全仓 new FormData 用法必须迭代器安全 =====================
+
+# 允许的迭代器安全消费方式：直接传给 fetch body / Object.fromEntries / Array.from /
+# FormData 自带 forEach / for...of 解构。
+_SAFE_FD_CONSUMERS = (
+    "Object.fromEntries(", "Array.from(", "URLSearchParams(",
+    "body: formData", "body: fd", "body: new FormData(this)",
+    "body: new FormData(", "body: formData,", "fd.forEach(", ".forEach(function",
+)
+
+
+def test_all_new_formdata_usages_are_iteration_safe():
+    """全仓每一处 `new FormData(...)` 的消费方式都必须迭代器安全（R6 防复发）。
+
+    做法：按 `;` / 换行把代码切成"语句"，找出同时含 `new FormData(` 与
+    `.entries()` 的语句；该语句内必须出现迭代器安全的消费方式。
+    取整条语句而非固定窗口，避免 Object.fromEntries(...new FormData...) 这种
+    安全模式写在前面却被截断造成的误报。
+    """
+    offenders = []
+    for base, _dirs, files in os.walk(TPL_DIR):
+        if "_disabled_unused" in base:
+            continue
+        for name in sorted(files):
+            if not name.endswith((".html", ".htm")):
+                continue
+            path = os.path.join(base, name)
+            src = _read(path)
+            # 按分号拆语句；跨行 for...of 用换行再兜一层
+            stmts = re.split(r";\s*|\n(?=\s*(?:for|const|var|let|if))", src)
+            for stmt in stmts:
+                if "new FormData(" not in stmt:
+                    continue
+                if ".entries()" not in stmt:
+                    continue
+                if any(s in stmt for s in _SAFE_FD_CONSUMERS):
+                    continue
+                # 跨语句 for...of（formData 变量在上一句定义）：向前看一小段
+                idx = src.find(stmt)
+                around = src[max(0, idx - 200): idx + len(stmt) + 200]
+                if re.search(r"for\s*\(\s*(?:const|let|var)\s*\[", around):
+                    continue
+                line = src[:idx].count("\n") + 1
+                rel = os.path.relpath(path, ROOT)
+                offenders.append(f"{rel}:{line}: {stmt.strip()[:140]!r}")
+    assert not offenders, (
+        "检测到 new FormData(...).entries() 未使用迭代器安全消费方式"
+        f"（应含 {' / '.join(_SAFE_FD_CONSUMERS)}，或用 for...of 解构）：\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+# ===================== 7. 台账登记（A13：生效确认字段必须存在） =====================
 
 BUG_ID = "BUG-2026-10-05-001"
 
