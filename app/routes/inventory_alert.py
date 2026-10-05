@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from flask import current_app, flash, json, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
+from sqlalchemy import func
 from sqlalchemy.orm import joinedload
 
 from db import db
@@ -56,6 +57,56 @@ def _parse_alert_material_ids(raw_ids):
 
 
 # no-test:reason=路由注册辅助函数，能力由 alert_* 各路由测试覆盖
+def _warehouse_scoped_material_ids(warehouse, warehouse_quantities):
+    """BUG-2026-10-05-004：仓库告警范围判定——该仓"业务物料" id 集合。
+
+    判据（满足其一即为本仓业务物料，参与告警判定）：
+      a. 库位账有该仓库存记录（含数量 0 的历史行——进过仓、当前为 0 属
+         真缺货，必须告警）；
+      b. 流水账按该仓聚合的净流水（Σ入-Σ出）> 0（进过货且有净持有记录）。
+    两者皆无 = 物料从未进过该仓 / 误录后已完全冲回（净额 0、无库位行），
+    不属于该仓业务范围，不参与该仓告警（避免"专仓物料 + 全局阈值"在
+    其他仓库视图的误报，AGENTS.md R2 多仓边界）。
+    warehouse_quantities 为 get_warehouse_stock_quantities(warehouse) 结果，
+    非空说明库位账已有该仓记录；另查流水净额兜底关库位管理场景。
+    """
+    from app import StockTransaction, db  # noqa: F401  (db 延迟导入定式，func 已在模块顶部)
+
+    if warehouse is None:
+        return set(warehouse_quantities.keys())
+    # 判据 b：流水净额（Σ入-Σ出）> 0 才算本仓业务物料。
+    # 关库位管理时 warehouse_quantities 本身来自流水聚合，可能包含净额 0 的
+    # "误录已冲回"行——必须走同样的净额判据过滤，不能直接采信其 keys()
+    # （BUG-2026-10-05-004 S3：+20 -20 净 0 误入 scoped 导致误报）。
+    net = (db.session.query(
+               StockTransaction.material_id,
+               func.coalesce(func.sum(StockTransaction.quantity), 0))
+           .filter(StockTransaction.warehouse_id == warehouse.id)
+           .group_by(StockTransaction.material_id).all())
+    scoped = {material_id for material_id, total in net if (total or 0) > 0}
+    # 判据 a：库位账行（数量 0 的历史行也算——进过仓、当前为 0 属真缺货）。
+    # 兼容口径与 get_warehouse_stock_quantities 一致（INV-AUDIT-001/002）：
+    # warehouse_id 命中，或历史行 warehouse_id IS NULL 且 location == 仓库名/编码。
+    from app import LocationInventory
+    _name = (warehouse.name or '').strip()
+    _code = (warehouse.code or '').strip()
+    _loc_clauses = [LocationInventory.warehouse_id == warehouse.id]
+    if _name:
+        _loc_clauses.append(db.and_(
+            LocationInventory.warehouse_id.is_(None),
+            LocationInventory.location == _name,
+        ))
+    if _code and _code != _name:
+        _loc_clauses.append(db.and_(
+            LocationInventory.warehouse_id.is_(None),
+            LocationInventory.location == _code,
+        ))
+    li_ids = {row.material_id for row in db.session.query(LocationInventory.material_id)
+              .filter(db.or_(*_loc_clauses)).distinct().all()}
+    scoped |= li_ids
+    return scoped
+
+
 def register_inventory_alert_routes(app):
     @app.route('/alert')
     @login_required
@@ -142,8 +193,18 @@ def register_inventory_alert_routes(app):
                     search_status = key
                     break
 
+        # BUG-2026-10-05-004：仓库视图先算"本仓业务物料"范围——从未进过该仓 /
+        # 误录已冲回（库位无行且净流水<=0）的物料不参与该仓告警，避免专仓物料
+        # 挂全局阈值在其他仓库视图误报（与手机端 /api/mobile/alert/list 同口径）。
+        scoped_material_ids = (
+            _warehouse_scoped_material_ids(warehouse, warehouse_quantities)
+            if warehouse_quantities is not None else None)
+
         for material in materials:
             if warehouse_quantities is not None:
+                if scoped_material_ids is not None and material.id not in scoped_material_ids:
+                    # 非本仓业务物料：跳过判定（不告警、也不计入任何状态分组）
+                    continue
                 # 仓库级判定：缺记录物料按 0 处理，不回退全局 Material.stock（A11/R2）。
                 stock, min_stock, safety_stock, alert_status = _material_alert_status_values(
                     material, stock=warehouse_quantities.get(material.id, 0))

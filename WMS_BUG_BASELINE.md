@@ -2608,3 +2608,26 @@
   unit-tests-shard-0~2 / verify-shard-0~3 / perf / ai-core）**全部 success**。
   注：首个提交曾因浏览器脚本误置 `tests/` 触发依赖钉版规则使 `unit-tests-shard-1` 报红，
   经 `88cff24` 移出 `scripts/` 后复跑全绿。
+
+
+---
+
+## BUG-2026-10-05-003：AI 库存工具 Stock 模型导入错误（4 接口 500）
+
+- **现象**：`/api/ai/v2/tools/inventory/health`、`/api/ai/v2/tools/inventory/material`、`/api/ai/v2/tools/inventory/low-stock`、`/api/ai/v2/tools/inventory/value` 登录后全部返回 500，错误信息为 `ImportError: cannot import name 'Stock' from 'app'`。
+- **根因**：`app/ai/tools/inventory.py` 中 4 处延迟导入引用了不存在的 `Stock` 模型（全项目无 `class Stock` 定义，仅 `StockTransaction` 存在于 `models/inventory.py:48`）。系统实际用 `Material.stock` 字段表达全局库存，`Stock` 为历史遗留死代码。
+- **修复**（v2，2026-10-05 二次修复以满足 A11 门禁）：4 处 `from app import db, Material, Stock` 改为 `from app import db, Material`；`material_query` / `inventory_health` / `low_stock_report` 3 处改 `get_all_warehouses_stock_quantities()` 全仓汇总口径（Σ②库位账，A11 合规，附带消除每物料一次查询的 N+1）；`stock_value_analysis` 为纯展示聚合（乘价格求和、无比较校验语境），保留 `material.stock` 并按 INVENTORY_TRUTH.md §5 加 `# stock-truth:reason=` 豁免注释。v1 曾改 4 处 `qty = m.stock or 0`，审计发现其中 3 处后续做 `qty <= min_stock` 比较属校验语境、违反 A11，故升级为 v2。
+- **验证**：A11 lint `--full-a11` 0 违规；沙箱内存库实测 4 函数正常（A 仓入库 20 件、阈值 5：quantity=20、low_stock_report 空、health 无低库存/负库存、价值 200）。
+- **R6 同类点排查**：全仓 grep `from app import.*Stock[^T]` 确认无其他残留；`StockTransaction` 引用均合法。
+- **回归锁**：`tests/test_bug_2026_10_05_003_ai_inventory_stock_import.py`（T1 四工具可调用无 ImportError、结构正确；T2 仓库级口径断言：quantity=20 / low_stock 不误报 / 价值走总账 200）——实测 2/2 PASSED。
+- **生效确认**：✅ Linux 沙箱实测通过：A11 lint 0 违规 + 回归测试 2/2 PASSED + 08-16 系列 43 项存量回归全绿。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-05-003 修复 Stock 模型导入错误`）。
+
+## BUG-2026-10-05-004：仓库级库存告警对"非本仓业务物料"误报
+- **现象**（生产实测，4 仓环境）：铜排仓专放铜排并设安全库存；在告警页选择"项目仓库"时铜排亮红色低库存告警。两个触发路径：① 物料从未进过所选仓库（库位账/流水均无记录），`warehouse_quantities.get(material.id, 0)` 按 0 参与判定；② 物料曾误录入该仓后又删除/反提交（库位行数量归 0 不删行、正负流水相抵净额 0），仍按 0 判定。
+- **根因**：`inventory_alert.py` 按仓判定（BUG-2026-09-18-004 引入，方向正确）但缺失"该物料是否本仓业务"的范围判断——把"没进过这个仓"与"进过但用光/录错冲回"一律按 0 与全局阈值比较。阈值（min_stock/reorder_point）挂在物料主档、无仓库维度，见 AGENTS.md R2 多仓边界。
+- **修复**：`/alert` 仓库视图增加"本仓业务物料"范围判定（`_warehouse_scoped_material_ids`）——仅当物料在所选仓库有净流水（入-出>0，`StockTransaction` 按 warehouse_id 聚合）**或**有库位库存行（含数量 0 的历史行；兼容 warehouse_id IS NULL 且 location==仓库名/编码的旧行，同 `get_warehouse_stock_quantities` 口径）时参与告警；两者皆无（从未进仓/误录已冲回净额 0）则不纳入该仓告警列表。手机端 `/api/mobile/alert/list` 同口径。全局视图（全部仓库）行为不变。
+- **验证**：新增回归测试 4 场景实测全绿——S1 从未进仓不告警 / S2 真缺货（3<5）照常告警 / S3 误录冲回净 0 不告警 / S4 全局视图行为不变。防破坏回归：告警/AI 工具/08-16 系列共 45 项 + 手机端 08-12-004 共 25 项全 PASSED（期间暴露并修复判据 a 两处漏洞：流水聚合 0 值行误入 scoped、NULL warehouse_id 历史行兼容）。A11 lint 0 违规，`--full-gate` EXIT=0。
+- **回归锁**：`tests/test_bug_2026_10_05_004_alert_warehouse_scope.py`（4 用例）+ 存量 `test_bug_2026_08_12_004_mobile_warehouse_scope.py`。
+- **生效确认**：✅ Linux 沙箱实测通过：4/4 新场景 + 70 项存量回归全绿。
+- **推送与 CI**：待 push（atomic action：`fix(alert): BUG-2026-10-05-004 仓库级告警范围误报`）。

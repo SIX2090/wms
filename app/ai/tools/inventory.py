@@ -41,7 +41,7 @@ def material_query(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
     Returns:
         物料列表，每项包含 id/code/name/spec/warehouse/quantity/alert_status
     """
-    from app import db, Material, Stock
+    from app import db, Material, get_all_warehouses_stock_quantities
 
     results = []
     try:
@@ -55,10 +55,13 @@ def material_query(keyword: str, limit: int = 8) -> list[dict[str, Any]]:
             )
         ).limit(limit).all()
 
+        # BUG-2026-10-05-003：库存查询改全仓汇总（Σ②库位账）口径，
+        # 不回退全局 Material.stock（A11/R2，与告警页 stock_query 同源）。
+        all_wh_stock = get_all_warehouses_stock_quantities()
+
         for m in materials:
-            # 获取当前库存
-            stock = Stock.query.filter_by(material_id=m.id).first()
-            qty = stock.quantity if stock else 0
+            # 获取当前库存：全仓仓库级口径（A11），非校验语境亦不回退总账
+            qty = all_wh_stock.get(m.id, 0)
 
             # 判断预警状态
             alert_status = 'normal'
@@ -125,7 +128,8 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
     Returns:
         包含 health_score / low_stock_count / negative_stock_count / slow_moving_count / materials 的字典
     """
-    from app import db, Material, Stock, StockTransaction
+    from app import (db, Material, StockTransaction,
+                     get_all_warehouses_stock_quantities)
 
     result = {
         'health_score': 100,
@@ -139,9 +143,12 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
         materials = Material.query.limit(limit).all()
         cutoff_date = datetime.now() - timedelta(days=days)
 
+        # BUG-2026-10-05-003：健康度判定改全仓汇总（Σ②库位账）口径（A11/R2）。
+        all_wh_stock = get_all_warehouses_stock_quantities()
+
         for m in materials:
-            stock = Stock.query.filter_by(material_id=m.id).first()
-            qty = stock.quantity if stock else 0
+            # 获取当前库存：全仓仓库级口径（A11），低库存/负库存判定不回退总账
+            qty = all_wh_stock.get(m.id, 0)
 
             # 检查负库存
             if qty < 0:
@@ -193,15 +200,18 @@ def low_stock_report() -> list[dict[str, Any]]:
     Returns:
         低库存物料列表
     """
-    from app import db, Material, Stock
+    from app import db, Material, get_all_warehouses_stock_quantities
 
     results = []
     try:
         materials = Material.query.filter(Material.min_stock.isnot(None)).all()
 
+        # BUG-2026-10-05-003：低库存判定改全仓汇总（Σ②库位账）口径（A11/R2）。
+        all_wh_stock = get_all_warehouses_stock_quantities()
+
         for m in materials:
-            stock = Stock.query.filter_by(material_id=m.id).first()
-            qty = stock.quantity if stock else 0
+            # 获取当前库存：全仓仓库级口径（A11），低库存判定不回退总账
+            qty = all_wh_stock.get(m.id, 0)
 
             if qty <= m.min_stock:
                 results.append({
@@ -228,7 +238,7 @@ def stock_value_analysis(category: Optional[str] = None) -> dict[str, Any]:
     Returns:
         包含 total_value / material_count / by_category 的字典
     """
-    from app import db, Material, Stock
+    from app import db, Material
 
     result = {
         'total_value': 0.0,
@@ -243,8 +253,8 @@ def stock_value_analysis(category: Optional[str] = None) -> dict[str, Any]:
 
         materials = query.all()
         for m in materials:
-            stock = Stock.query.filter_by(material_id=m.id).first()
-            qty = stock.quantity if stock else 0
+            # stock-truth:reason=库存价值分析为纯展示聚合（乘价格求和），无比较/校验语境，按 INVENTORY_TRUTH.md §5 允许使用全局总账
+            qty = m.stock or 0
             value = qty * (m.price or 0)
 
             result['total_value'] += value

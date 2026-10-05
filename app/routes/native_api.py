@@ -1974,6 +1974,37 @@ def register_native_api_routes(app):
             db.or_(Material.min_stock > 0, Material.reorder_point > 0),
         ).order_by(Material.code.asc()).all()
 
+        # BUG-2026-10-05-004：只对"本仓业务物料"告警——从未进过该仓 / 误录已冲回
+        # （净流水 0 且无库位行）的物料不参与，与 PC /alert 同口径。
+        # 注意：quantities 的 keys() 可能含流水聚合出的净额 0 行（误录已冲回），
+        # 必须按净额>0 过滤，不能直接采信。
+        from sqlalchemy import func as _sa_func
+        from app import StockTransaction, LocationInventory
+        _net = (db.session.query(
+                    StockTransaction.material_id,
+                    _sa_func.coalesce(_sa_func.sum(StockTransaction.quantity), 0))
+                .filter(StockTransaction.warehouse_id == warehouse.id)
+                .group_by(StockTransaction.material_id).all())
+        scoped_ids = {_mid for _mid, _total in _net if (_total or 0) > 0}
+        # 判据 a 兼容历史行（同 get_warehouse_stock_quantities 口径）：
+        # warehouse_id 命中，或 IS NULL 且 location == 仓库名/编码。
+        from sqlalchemy import or_ as _sa_or, and_ as _sa_and
+        _wh_name = (warehouse.name or '').strip()
+        _wh_code = (warehouse.code or '').strip()
+        _clauses = [LocationInventory.warehouse_id == warehouse.id]
+        if _wh_name:
+            _clauses.append(_sa_and(
+                LocationInventory.warehouse_id.is_(None),
+                LocationInventory.location == _wh_name))
+        if _wh_code and _wh_code != _wh_name:
+            _clauses.append(_sa_and(
+                LocationInventory.warehouse_id.is_(None),
+                LocationInventory.location == _wh_code))
+        scoped_ids |= {row.material_id for row in db.session.query(
+            LocationInventory.material_id)
+            .filter(_sa_or(*_clauses)).distinct().all()}
+        candidates = [m for m in candidates if m.id in scoped_ids]
+
         rows = []
         for m in candidates:
             qty = normalize_stock_quantity(quantities.get(m.id, 0))
