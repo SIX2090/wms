@@ -2550,3 +2550,51 @@
   新增 ①`NodeList` 白名单钉死（防止日后把 `querySelectorAll` 偷换成 `FormData.entries()` 仍留白名单）、
   ②全仓 `new FormData(...).entries()` 消费方式必须迭代器安全。
   A14 反向验证复跑：BUG 版本下 **5 项报红**（含新增的全仓扫描），对照组 4 项保持绿。
+
+## BUG-2026-10-05-002：iframe 嵌入页重复渲染右下角浮动按钮，出现「两个打印告警铃铛」重叠
+
+- **日期**：2026-10-05
+- **发现方式**：用户真机截图报障——右下角出现**两个打印告警铃铛叠在一起**（各带红色角标「8」），
+  点击任意一个都跳 `/print_alerts`。用户追问「点击都是打印告警，二个在一起你觉得没有问题？」。
+- **真实浏览器复现**（Playwright + Chromium 1440x900，`scripts` 之外的临时脚本）：
+  - 外层主页面：`.print-alert-bell` → x=1364, y=756；
+  - 内嵌 iframe 页（`/?embedded=1`）：`.print-alert-bell` → x=1349, y=741。
+  两者坐标仅差约 15px，同为 48×48 fixed 圆按钮 → **严重重叠**，视觉上就是"两个铃铛"。
+  修复后同一脚本复测：全视口可见铃铛 = **1**（仅 outer）。
+- **根因**：`app/templates/base.html` 的 `body.embedded-page` CSS 隐藏规则覆盖了
+  `.sidebar`、`.app-wrapper`、`.main-content`、`.tab-workspace`，
+  **唯独遗漏了右下角悬浮按钮**（`.print-alert-bell` / `.ai-assistant-button` / `.ai-assistant-panel`）。
+  而 iframe 内页面（`?embedded=1`，见 `base.html:2382` body class、`app.js:150-158`
+  `isWmsEmbeddedPage()`）同样是完整的 base.html 渲染，于是**又渲染了一整套 fixed 定位的浮动按钮**，
+  与外层 `right/bottom` 完全相同 → 完全重叠。
+  **为什么两个铃铛都是"打印告警"**：它们是同一个模板块在内外两层各渲染一次，角标同源
+  （`print_alert_unread_count`），故数字一样、跳转目标一样。
+  对比反证：`.sidebar` / `.tab-workspace` 都做了 `body.embedded-page` 隐藏，唯独浮动按钮漏了。
+- **修复**：在 `base.html` 的 `body.embedded-page` 规则组内，紧随 `.tab-workspace` 之后补齐：
+  ```css
+  body.embedded-page .print-alert-bell,
+  body.embedded-page .ai-assistant-button,
+  body.embedded-page .ai-assistant-panel {
+      display: none !important;
+  }
+  ```
+  **设计口径**：右下角浮动按钮（打印告警铃铛 / AI 助手）由**外层主页面统一提供**；
+  嵌入页只负责内容区。与既有 `insertGlobalActionBar()`（`app.js:3183`）
+  「嵌入场景由 iframe 内部注入内容工具栏、外层负责全局」的分工一致。
+- **R6 同类点排查**：`base.html` 中所有 `body.embedded-page` 隐藏规则逐条核对——
+  `.sidebar` / `.app-wrapper` / `.main-content` / `.tab-workspace` 已覆盖，
+  本次补齐浮动按钮三件套。全仓 `.print-alert-bell` 模板标签**仍为 1 处**
+  （`base.html:2876`），确认不是模板重复渲染，而是 CSS 遗漏导致的 iframe 叠加。
+- **回归锁**：`tests/test_bug_2026_10_05_002_embedded_duplicate_fab.py`（6 断言：
+  嵌入页隐藏铃铛、嵌入页隐藏 AI 按钮+面板、隐藏规则与既有规则同组且紧随其后、
+  外层仍渲染铃铛恰好 1 处、非嵌入页不得隐藏铃铛、台账登记含「生效确认」五字段）。
+  另有真实浏览器验证 `tests/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py`
+  （无 Playwright / 服务不可达时自动 skip，不阻塞 CI）。
+  A14 反向验证已执行：回退 CSS 修复后，嵌入页隐藏类 4 项断言报红，
+  「外层仍渲染铃铛」「非嵌入页不隐藏」2 项保持绿，证明锁定有效且无假阳性。
+- **生效确认**：✅ Linux 沙箱已用 Playwright + Chromium 真实浏览器实测通过：
+  修复前「首页可见外层 + iframe 两个铃铛、坐标差 15px 重叠」；
+  修复后「首页可见铃铛 = 1（outer x=1364 y=756）、打开 `/out_order?embedded=1` 内容页
+  仍为 1 个、AI 按钮 = 1 个、铃铛 href=/print_alerts」。
+  ⚠️ **Windows 实机（用户环境）待复核**：请在实机刷新页面确认右下角只剩一个打印告警铃铛，
+  然后回填本字段。
