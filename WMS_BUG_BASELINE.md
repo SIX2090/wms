@@ -2588,8 +2588,13 @@
 - **回归锁**：`tests/test_bug_2026_10_05_002_embedded_duplicate_fab.py`（6 断言：
   嵌入页隐藏铃铛、嵌入页隐藏 AI 按钮+面板、隐藏规则与既有规则同组且紧随其后、
   外层仍渲染铃铛恰好 1 处、非嵌入页不得隐藏铃铛、台账登记含「生效确认」五字段）。
-  另有真实浏览器验证 `tests/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py`
-  （无 Playwright / 服务不可达时自动 skip，不阻塞 CI）。
+  另有真实浏览器验证 `scripts/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py`
+  （独立可执行，无 Playwright / 服务不可达时以退出码 2 跳过）。
+  **为何置于 `scripts/`**：Playwright 需额外下载浏览器二进制，CI 无图形环境不适合安装；
+  且 `tests/test_bug_2026_09_23_001_test_deps_pinned.py` 要求 `tests/` 下所有三方
+  import 必须钉入 `app/requirements-test.txt`——本脚本属"本地手动验证工具"，
+  与既有 `scripts/verify_ai_browser_e2e.py` 同类。首次提交时误置于 `tests/`，
+  导致 CI `unit-tests-shard-1` 的依赖钉版规则报红（已修正，避免往 CI 依赖塞 Playwright）。
   A14 反向验证已执行：回退 CSS 修复后，嵌入页隐藏类 4 项断言报红，
   「外层仍渲染铃铛」「非嵌入页不隐藏」2 项保持绿，证明锁定有效且无假阳性。
 - **生效确认**：✅ Linux 沙箱已用 Playwright + Chromium 真实浏览器实测通过：

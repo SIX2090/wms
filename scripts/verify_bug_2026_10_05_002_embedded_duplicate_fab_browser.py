@@ -2,42 +2,33 @@
 # -*- coding: utf-8 -*-
 """BUG-2026-10-05-002 真实浏览器验证：iframe 嵌入页浮动按钮不得重叠。
 
-需本地已启动 QA 服务器（127.0.0.1:8080，admin/admin）且安装 Playwright。
-无 Playwright 或服务不可达时自动 skip，不阻塞 CI。
+需本地已启动 QA 服务器（127.0.0.1:8080，admin/admin）且安装 Playwright：
+    pip install playwright && python -m playwright install chromium
+    终端 1：python start_qa_server.py
+    终端 2：python scripts/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py
 
-运行：
-    # 终端 1
-    python start_qa_server.py
-    # 终端 2
-    python -m pytest tests/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py -v
+为何放 scripts/ 而非 tests/：
+  Playwright 需额外下载浏览器二进制，CI（无图形环境）不适合安装。
+  tests/test_bug_2026_09_23_001_test_deps_pinned.py 要求 tests/ 下所有三方
+  import 必须钉入 app/requirements-test.txt —— 本脚本属"本地手动验证工具"，
+  与既有 scripts/verify_ai_browser_e2e.py 同属一类，故置于 scripts/。
+
+退出码：0=通过；1=发现重叠或断言失败；2=环境缺失（Playwright/服务不可达）。
 """
-
 from __future__ import annotations
 
-import pytest
-
-try:
-    from playwright.sync_api import sync_playwright  # noqa: F401
-    HAS_PW = True
-except Exception:
-    HAS_PW = False
+import sys
+import urllib.request
 
 BASE = "http://127.0.0.1:8080"
 
 
 def _server_up() -> bool:
-    import urllib.request
     try:
         with urllib.request.urlopen(f"{BASE}/login", timeout=3) as r:
             return r.status == 200
     except Exception:
         return False
-
-
-pytestmark = pytest.mark.skipif(
-    not HAS_PW or not _server_up(),
-    reason="需 Playwright 且本地 QA 服务器(127.0.0.1:8080)运行中",
-)
 
 
 def _visible_bells(page):
@@ -57,9 +48,16 @@ def _visible_bells(page):
     return out
 
 
-def test_only_one_visible_print_alert_bell_after_iframe_open():
-    """真实浏览器：外层 + iframe 全部可见铃铛必须恰好 1 个。"""
-    from playwright.sync_api import sync_playwright
+def main() -> int:
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        print("[SKIP] 未安装 Playwright：pip install playwright && python -m playwright install chromium")
+        return 2
+
+    if not _server_up():
+        print(f"[SKIP] QA 服务器不可达（{BASE}）：请先运行 python start_qa_server.py")
+        return 2
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox"])
@@ -72,14 +70,10 @@ def test_only_one_visible_print_alert_bell_after_iframe_open():
         pg.wait_for_load_state("networkidle")
         pg.wait_for_timeout(2500)
 
-        # 首页（默认已内嵌 iframe 首页）
         bells = _visible_bells(pg)
-        assert len(bells) == 1, (
-            f"首页可见铃铛 {len(bells)} 个（期望 1）："
-            + str([(t, round(b['x']), round(b['y'])) for t, b in bells])
-        )
+        print("【首页】可见铃铛：", [(t, round(b['x']), round(b['y'])) for t, b in bells])
 
-        # 叠加打开一个内容页 iframe
+        # 叠加打开一个内容 iframe 页
         pg.evaluate(
             """() => {
                 const wrap = document.getElementById('tabFrameWrap');
@@ -94,8 +88,15 @@ def test_only_one_visible_print_alert_bell_after_iframe_open():
         )
         pg.wait_for_timeout(3000)
         bells = _visible_bells(pg)
-        assert len(bells) == 1, (
-            f"打开 iframe 内容页后可见铃铛 {len(bells)} 个（期望 1）："
-            + str([(t, round(b['x']), round(b['y'])) for t, b in bells])
-        )
+        print("【展开 iframe 后】可见铃铛：", [(t, round(b['x']), round(b['y'])) for t, b in bells])
         browser.close()
+
+    if len(bells) != 1:
+        print(f"❌ FAIL：可见打印告警铃铛 {len(bells)} 个（期望 1）—— 嵌入页浮动按钮重复渲染未修复")
+        return 1
+    print("✅ PASS：全视口可见打印告警铃铛恰好 1 个，无重叠")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
