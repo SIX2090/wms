@@ -2477,3 +2477,46 @@
 - **R6 同类点排查**：共享组件全部调用点已 grep——报表页（浅底，不传参保持主题色）、`test_mobile_stock_ledger_page.py` 引用的页面均已核对，无其他深底场景。
 - **回归锁**：`tests/verify_bug_2026_10_04_003_hero_selector_contrast.py`（参数存在、Hero 传白、报表页不受影响、台账登记四断言）。
 - **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机核对「项目仓」白字清晰可读后回填。
+
+## BUG-2026-10-05-001：出库单（含领料单）「编辑单据」保存恒失败，永弹「请选择出库日期」
+
+- **日期**：2026-10-05
+- **发现方式**：真实浏览器（Playwright + Chromium）复现用户报障链路——「领料单反提交修改仓库后无法保存一直提示修改出库日期」。完成→反提交→编辑单据→改仓库为「成品仓」→点「保存」：**无任何 POST 请求发出**、弹窗不关闭、吐司固定为「请选择出库日期」。数据库 `out_order.warehouse` 保持原值不变。
+- **根因**：`app/templates/out_order_detail.html` 的 `saveHeader()` 用
+  `Array.prototype.forEach.call(new FormData(form).entries(), cb)` 收集表单。
+  `FormData.prototype.entries()` 返回的是 **Iterator**，不是 Array，也不是 Array-like
+  ——**没有 `length` 属性**。`Array.prototype.forEach` 对非数组对象按 `length` 索引遍历，
+  `length` 为 `undefined`（转数字为 0），于是**循环 0 次**，`data` 恒为 `{}`，
+  `data.date` 恒 `undefined`，**必然**命中 `if (!data.date)` 分支弹出「请选择出库日期」并 `return`。
+  **文案误导**：报错说「请选择出库日期」，实际与日期无关——该弹窗的**任何**字段都保存不了，
+  改仓库只是最容易触发和观察的操作，导致用户误判为日期问题。
+  **为什么此前测试没抓到**：`Array.from(...)` / `for...of` / `Object.fromEntries(...)` 都支持迭代器协议，
+  用它们做验证会永远"通过"；只有浏览器里真实 click 走 `Array.prototype.forEach.call` 才会暴露。
+- **修复**：`saveHeader()` 改为 `var data = Object.fromEntries(new FormData(form).entries());`
+  —— 与同功能的 `in_order_detail.html:1301` 对齐（入库单一直是正确写法，两份实现此前分叉）。
+  已补注释说明 `entries()` 是 Iterator、禁止用 `Array.prototype.*.call` 遍历。
+- **R6 同类点排查**：全仓 grep `Array.prototype.*.call(<...>.entries()`——
+  `app/templates/`（含 `in_order_detail.html`、`report_view.html`、
+  `ai_data_retention.html`）与 `app/static/js/` 全部核对：**仅 `out_order_detail.html:1475` 一处**该错误写法。
+  其余同类取值均为 `Object.fromEntries(formData.entries())`（L126/L1301）或
+  `for (const [k,v] of formData.entries())`（L386/L433），写法正确。
+  另核对 `Array.prototype.forEach.call(listEl.querySelectorAll(...))`（`mobile_scan.html:1214`）
+  —— `NodeList` 有 `length`，是合法用法，不属于本根因。
+- **回归锁**：`tests/test_bug_2026_10_05_001_out_order_edit_header_formdata.py`（7 断言：
+  出库单无迭代器误用、出库单用迭代器安全取值、出库单与入库单写法统一、
+  **入库单对照组不得被改坏**、全模板 R6 扫描、static/js R6 扫描、台账登记五字段）。
+  A14 反向验证已执行：回退修复代码后 5 项报红（3 项出库单断言 + R6 模板扫描 + 台账断言），
+  对照组 2 项（入库单正确性、static/js 无残留）保持绿，证明锁定有效且无假阳性。
+- **生效确认**：修复后用同一浏览器脚本（Playwright + Chromium 真实点击）**从零跑完整用户链路**，全绿：
+  ① 新建领料单 OU26100002（材料仓，物料 M001×5）→ `POST /out_order/add -> 200`；
+  ② 完成领料 → 触发同料异常提醒 → 确认后 `POST /out_order/2/complete?force=true -> 200` → `status=completed`；
+  ③ **反提交** → `POST /out_order/2/revert -> 200` → `status=pending`；
+  ④ **编辑单据 → 改仓库 材料仓→成品仓 → 保存** → `POST /out_order/2/update -> 200`，
+  payload `{"date":"2026-10-05","department_id":"1","picker":"张三","warehouse_id":"2",...}`，
+  响应 `{"status":"success","msg":"保存成功"}`，弹窗正常关闭（`modal fade`，无 `show`），
+  数据库 `out_order.warehouse` 由「材料仓」**真实变为「成品仓」**。
+  对照修复前基线（同一脚本）：第 ④ 步**零请求**发出、吐司恒为「请选择出库日期」、弹窗不关、仓库不变。
+  门禁：`scripts/lint_wms_rules.py` 0 违规、`scripts/lint_no_raw_post_fetch.py` 通过、
+  新回归锁 7 passed、相邻模块回归 95 passed/2 skipped/0 failed。
+  ⚠️ 本机为 Linux 沙箱复现环境，**Windows 实机（用户环境）待复核**：
+  请用户在实机重走「领料单→反提交→编辑单据→改仓库→保存」，确认弹窗关闭且仓库已改。

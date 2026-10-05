@@ -1471,10 +1471,10 @@ function copyOrder(id) {
 function saveHeader() {
     var form = document.getElementById('editHeaderForm');
     if (!form) return;
-    var data = {};
-    Array.prototype.forEach.call(new FormData(form).entries(), function(entry) {
-        data[entry[0]] = entry[1];
-    });
+    // BUG-2026-10-05-001：FormData.entries() 返回 Iterator（无 length），
+    // 不能用 Array.prototype.forEach.call 遍历（会 0 次循环导致 data 恒为空），
+    // 必须用 Object.fromEntries / Array.from 转换后遍历。
+    var data = Object.fromEntries(new FormData(form).entries());
     if (!data.date) {
         _showToast('请选择出库日期', 'warning');
         return;
