@@ -2603,3 +2603,8 @@
   仍为 1 个、AI 按钮 = 1 个、铃铛 href=/print_alerts」。
   ⚠️ **Windows 实机（用户环境）待复核**：请在实机刷新页面确认右下角只剩一个打印告警铃铛，
   然后回填本字段。
+- **推送与 CI**：已 push `main`（`f732df0..88cff24`，3 个 atomic commit）。
+  三大门禁全绿 ✅：本提交 12 项 check-runs（smoke / lint-and-static / static-checks /
+  unit-tests-shard-0~2 / verify-shard-0~3 / perf / ai-core）**全部 success**。
+  注：首个提交曾因浏览器脚本误置 `tests/` 触发依赖钉版规则使 `unit-tests-shard-1` 报红，
+  经 `88cff24` 移出 `scripts/` 后复跑全绿。
