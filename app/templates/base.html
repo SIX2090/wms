@@ -1453,6 +1453,17 @@
         body.embedded-page .tab-workspace {
             display: none !important;
         }
+        /* BUG-2026-10-05-002：iframe 嵌入页（?embedded=1 / window.self!==window.top）
+           由外层主页面统一提供右下角悬浮按钮（打印告警铃铛 / AI 助手）。
+           此前遗漏隐藏规则，导致内层 base.html 又渲染一遍同名按钮，
+           与外层 fixed 定位完全重叠（right/bottom 相同）——视觉上就是
+           「两个打印告警铃铛叠在一起，点哪个都跳 /print_alerts」。
+           嵌入页必须隐藏自身浮动按钮，避免重复渲染。 */
+        body.embedded-page .print-alert-bell,
+        body.embedded-page .ai-assistant-button,
+        body.embedded-page .ai-assistant-panel {
+            display: none !important;
+        }
         body:not(.embedded-page) .embedded-content {
             display: none !important;
         }
