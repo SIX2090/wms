@@ -2642,3 +2642,14 @@
 - **生效确认**：✅ Linux 沙箱实测通过：4/4 新场景 + 113 项存量回归全绿；A11 0 违规。
 - **推送与 CI**：待 push（atomic action：`fix(mobile): BUG-2026-10-06-001 dashboard 告警计数与列表同口径`）。
 - **教训**：修一类口径问题时要排查所有同语义入口——004 修复时只改了告警列表，漏掉了首页计数这第二条代码路径，用户从手机端首页一眼看出不一致。
+
+## BUG-2026-10-06-002：AI 库存工具漏报 danger 档 + value 接口 500（MaterialCategory 当 dict key）
+- **现象**（深度检测模块5 手机端 API 全接口扫描发现）：
+  1. `/api/ai/v2/tools/inventory/value` 500，traceback `TypeError: keys must be str, int, float, bool or None, not MaterialCategory`——`stock_value_analysis()` 用 ORM relationship 对象 `m.category` 当 dict key；
+  2. 三个 AI 库存工具（material_query / inventory_health / low_stock_report）只判 `qty <= min_stock`（low 档），漏 `qty <= reorder_point/safety_stock` 的 **danger 档**——min_stock=5/reorder_point=10/库存 8 时 AI 报 normal，而 PC dashboard、手机端 alert/list 均报 danger，五入口口径不一致（AI-CI-GREEN-005-F04/F05 两级告警要求的调用方缺口）。
+- **根因**：`app/ai/tools/inventory.py` 各工具自行实现告警判定且只覆盖一级阈值；`_alert_status_for()`（app.py:7413）是全系统唯一实现（low+danger+normal+disabled），AI 工具未复用。另 material_query 返回恒空的 `m.warehouse_name` 幽灵字段、`filter_by(category=...)` 传中文名过滤无效（category 是 relationship，须 join MaterialCategory.name）。
+- **修复**（+49/-14）：新增共用判定 `_ai_inventory_alert_status(material, qty, use_switch=False)`——口径对齐 `_alert_status_for`（low：qty≤min_stock；danger：qty≤safety_stock=max(reorder_point,min_stock)；开关关闭且 use_switch 时 disabled；阈值未配置 disabled；qty<0 时 material_query 另报 negative）。use_switch 语义分流：material_query 的 alert_status 是纯展示字段（历史行为不受开关影响，保 test_bug_2026_10_05_003 存量行为）→ False；inventory_health / low_stock_report 驱动统计（与 dashboard 同语义）→ True。三工具统计条件统一 `alert_status in ('low','danger')`；low_stock_report 新增 alert_status 字段、shortage 统一按 safety_stock 口径；value 接口 `m.category.name if m.category else '未分类'` + join 过滤 + import MaterialCategory；material_query 删幽灵字段改 `'category': m.category.name if m.category else ''`。
+- **验证**：8 场景回归测试全绿——A1/A2 danger 档三工具均报（health count=1 含 danger）/ A3 low 档（qty≤min）/ A4 开关关闭统计口径 disabled（health count=0、low-stock 空）/ A5 material_query 展示口径不受开关影响（仍 danger）/ A6 与 `_alert_status_for` 等价性（low/danger/normal/disabled 四态全对齐）/ A7 value 接口分类汇总 200 无 TypeError / A8 shortage 按 safety_stock（4 库存→6 非 1，与手机端 gap 同口径）。修复后五入口一致：AI low-stock=[M001 danger]、AI health count=1、AI material danger、mobile alert/list danger total=1、dashboard count=1。存量防破坏：test_bug_2026_10_05_003 10/10、test_bug_2026_10_06_001 全绿。
+- **回归锁**：`tests/test_bug_2026_10_06_002_ai_tools_alert_status.py`（8 用例）。
+- **测试踩坑（勿删注释）**：① set_system_setting 不自动 commit，退出 app_context 事务回滚 → 必须双 commit；② Material(unit="个") 触发 backref 炸 `'str' object has no _sa_instance_state'`，须 unit_id + 预建 Unit；③ 跨 context 存 ORM 对象 DetachedInstanceError，存 id；④ Flask 外层 app_ctx 存活时 test_client/test_request_context 复用同一 g，login_user 写的 g._login_user 泄漏污染后续请求（测试脚本须 seed 后退出 ctx 再操作 client）。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-002 AI 库存工具补 danger 档 + value 接口 MaterialCategory 500`）。
