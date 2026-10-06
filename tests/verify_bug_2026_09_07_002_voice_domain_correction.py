@@ -57,9 +57,15 @@ def test_t2_onresult_applies_correction() -> None:
     assert idx != -1, "缺少 onResult 回调"
     body = src[idx:idx + 1500]
     assert "correctVoiceAsrText(" in body, "onResult 必须调用 correctVoiceAsrText"
-    # 纠正必须先于指令解析（同在 onResult 函数体内比较）
-    assert body.index("correctVoiceAsrText(") < body.index("parseCommand(text)"), \
-        "onResult 内 correctVoiceAsrText 必须先于 parseCommand"
+    # 纠正必须先于指令解析（同在 onResult 函数体内比较）。
+    # AI-VOICE-INTENT-001 起 onResult 不再直调 parseCommand：建单意图走
+    # detectOutboundDraft 本地秒判，其余走 resolveCommand（后端 LLM 意图优先、
+    # 本地 parseCommand 兜底）。故锚点改为「纠正先于两个指令解析入口」。
+    entries = [i for i in (body.find("detectOutboundDraft("),
+                           body.find("resolveCommand(")) if i != -1]
+    assert entries, "onResult 必须有指令解析入口（detectOutboundDraft/resolveCommand）"
+    assert body.index("correctVoiceAsrText(") < min(entries), \
+        "onResult 内 correctVoiceAsrText 必须先于指令解析入口"
 
 
 def test_t3_lingliao_command_branch() -> None:
