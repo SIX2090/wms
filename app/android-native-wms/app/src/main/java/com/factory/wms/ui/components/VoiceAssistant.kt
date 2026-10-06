@@ -202,6 +202,7 @@ fun VoiceAssistantOverlay(
         if (pending != null) {
             val draft = pending as? VoiceCommand.CreateOutboundDraft
             val unrecognized = pending is VoiceCommand.Unrecognized
+            val llmReply = pending as? VoiceCommand.LlmReply
             // AI-VOICE-OUT-F01：「领8*25螺丝 1000个」不弹"即将执行"确认框，
             // 直接进语音建单流程——用户要的是建单，不是跳转出库页。
             // 建单流程自身有核对弹窗（物料/数量/领料人），不会越过用户。
@@ -229,7 +230,13 @@ fun VoiceAssistantOverlay(
                                 )
                                 Spacer(Modifier.height(12.dp))
                             }
-                            if (unrecognized) {
+                            if (llmReply != null) {
+                                Text(
+                                    llmReply.text.take(600),
+                                    fontSize = 15.sp,
+                                    lineHeight = 22.sp
+                                )
+                            } else if (unrecognized) {
                                 Text("未识别到可执行指令，可点「重试」重新说话。")
                             } else {
                                 Text(
@@ -254,7 +261,10 @@ fun VoiceAssistantOverlay(
                                 executeVoiceCommand(cmd, navController, authViewModel)
                             }) {
                                 // AI-APP-FIX-303：PrimaryDark 在暗色底上近不可读，改用随主题切换的 Primary
-                                Text("执行", color = Primary, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    if (llmReply != null) "知道了" else "执行",
+                                    color = Primary, fontWeight = FontWeight.SemiBold
+                                )
                             }
                         }
                     },
@@ -312,6 +322,9 @@ private fun executeVoiceCommand(
         // 建单指令由 VoiceAssistantOverlay 内部的 LaunchedEffect 消费，
         // 不会走到这里（且建单流程自带核对弹窗，无需二次确认）。
         is VoiceCommand.CreateOutboundDraft -> Unit
+        // AI-VOICE-INTENT-001：LLM 文本回复走 pendingCommand 确认弹窗展示，
+        // 不做导航；此处仅终止命令流。
+        is VoiceCommand.LlmReply -> Unit
         VoiceCommand.Unrecognized -> Unit
     }
 }

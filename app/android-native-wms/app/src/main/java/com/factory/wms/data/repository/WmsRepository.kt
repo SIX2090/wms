@@ -1093,6 +1093,16 @@ class WmsRepository(
     }
 
     /**
+     * AI-VOICE-INTENT-001：语音意图理解。失败/超时由调用方按
+     * fallback（本地 contains）处理，不在此重试。
+     */
+    suspend fun understandVoiceIntent(text: String): Result<VoiceIntentResult> {
+        return safeCall {
+            api.voiceIntent(newRequestId(), VoiceIntentRequest(text))
+        }
+    }
+
+    /**
      * 首页概览。
      *
      * BUG-2026-09-10-010：新增 [warehouseId] —— null 跟随系统默认仓（旧行为），

@@ -262,6 +262,17 @@ interface WmsApiService {
      * 两阶段：dry_run=true 只解析匹配（消歧）；dry_run=false 建草稿。
      * 多命中时后端返回 match_status=multiple + matches，由客户端点选后再建单。
      */
+    /**
+     * AI-VOICE-INTENT-001：语音意图理解——ASR 文本交后端 LLM 意图路由，
+     * 返回移动端动作（navigate/reply/fallback_local）。
+     * App 本地 contains 解析降级为该端点不可用时的兜底。
+     */
+    @POST("api/mobile/voice_intent")
+    suspend fun voiceIntent(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: VoiceIntentRequest
+    ): Response<ApiEnvelope<VoiceIntentResult>>
+
     @POST("api/mobile/voice_out_draft")
     suspend fun voiceOutDraft(
         @Header("X-Idempotency-Key") requestId: String,

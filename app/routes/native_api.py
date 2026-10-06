@@ -3753,3 +3753,105 @@ def register_native_api_routes(app):
             db.session.rollback()
             app.logger.exception('Mobile voice out draft failed')
             return api_json_error('语音建单草稿生成失败，请稍后重试', 500)
+
+    # ------------------------------------------------------------------
+    # AI-VOICE-INTENT-001：语音意图理解端点（App 本地 contains 的 LLM 替代）
+    #
+    # 背景：App 端 parseCommand 是 13 个 contains 对暗号，「我要领点螺丝」这类
+    # 口语永远「未识别到可执行指令」。本端点把 ASR 文本交给后端 LLM 意图路由
+    # （复用 PC AI 助手的 _ai_call_llm_intent，同一套 prompt/口径），返回
+    # 移动端动作协议；App 本地 contains 降级为 LLM 不可用时的兜底。
+    #
+    # 边界：本端点只做「意图 → 动作建议」，不执行任何业务写操作（不建草稿、
+    # 不改库存）；create_out_* 仅告知 App 走已有 voice_out_draft 建单链路。
+    @app.route('/api/mobile/voice_intent', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('voice_intent')
+    def native_api_voice_intent(user):
+        from pydantic import BaseModel, Field
+        from app import api_json_error, api_json_success
+
+        class VoiceIntentRequest(BaseModel):
+            text: str = Field(min_length=1, max_length=300)
+
+        req_body = request.get_json(silent=True) or {}
+        try:
+            req = VoiceIntentRequest(**req_body)
+        except Exception:  # noqa: BLE001
+            return api_json_error('请求参数不合法', 400)
+        text = req.text.strip()
+
+        # LLM 不可用（未配置/总开关关闭）→ 明确告知 App 走本地兜底，不猜
+        from app import _ai_call_llm_intent, _ai_global_enabled
+        if not _ai_global_enabled():
+            return api_json_success({
+                'action': 'fallback_local',
+                'reason': 'ai_disabled',
+            }, 'AI 功能未启用')
+        intent_payload = _ai_call_llm_intent(text)
+        if not intent_payload:
+            return api_json_success({
+                'action': 'fallback_local',
+                'reason': 'llm_unavailable',
+            }, 'LLM 意图不可用，请用本地指令')
+
+        intent = intent_payload.get('intent')
+        params = intent_payload.get('params') or {}
+
+        # intent → 移动端动作映射（App Screen 有限，无对应页面的返回 reply 文本）
+        # 说明：query_material/stock_alerts 等查询类在 App 端落到对应页面后
+        # 由页面自身带参查询；此处只导航不传业务参数（页面尚无深链参数协议）。
+        _NAV = {
+            'create_in_order_draft': ('inbound', '好的，打开入库页'),
+            'create_out_order_draft': ('outbound', '好的，打开出库页'),
+            'create_check_draft': ('stocktake', '好的，打开盘点页'),
+            'query_material': ('stock_query', '好的，打开查库存'),
+            'stock_alerts': ('overview_alerts', '好的，打开库存告警'),
+            'pending_documents': ('overview_orders', '好的，打开待处理单据'),
+            'today_issued_materials': ('in_out_detail_report', '好的，打开出入库明细'),
+            'today_received_materials': ('in_out_detail_report', '好的，打开出入库明细'),
+            'today_summary': ('home', '好的，回到首页看板'),
+            'delivery_note_inbound': ('document_ocr', '好的，打开识别单据'),
+        }
+        screen_key, speak = _NAV.get(intent, (None, None))
+        if screen_key:
+            return api_json_success({
+                'action': 'navigate',
+                'screen': screen_key,
+                'intent': intent,
+                'speak': speak,
+            }, speak or '导航指令')
+
+        # 无页面映射的 intent：执行后端意图拿 reply 文本（PC 同款），App 朗读/展示
+        # 注意 _ai_execute_intent 返回 flask Response(jsonify)，解包取 reply。
+        from app import _ai_execute_intent
+        try:
+            resp = _ai_execute_intent(text, intent_payload, context={
+                'page_url': '/mobile/voice', 'page_title': '语音助手',
+            })
+            reply = ''
+            cards = []
+            if resp is not None:
+                try:
+                    body = resp.get_json() or {}
+                    reply = str(body.get('reply') or '')
+                    cards = body.get('cards') or []
+                except Exception:  # noqa: BLE001
+                    reply = ''
+            if reply:
+                # PC reply 可能带 markdown 表格（分析类），App 侧以文本展示
+                return api_json_success({
+                    'action': 'reply',
+                    'intent': intent,
+                    'speak': reply,
+                }, '语音回复')
+        except Exception:  # noqa: BLE001
+            app.logger.exception('voice_intent execute failed')
+
+        # 意图明确但执行失败/空回复：让 App 走本地兜底（例如建单动词命中）
+        return api_json_success({
+            'action': 'fallback_local',
+            'reason': 'intent_no_mapping',
+            'intent': intent,
+        }, '请使用标准指令说法')

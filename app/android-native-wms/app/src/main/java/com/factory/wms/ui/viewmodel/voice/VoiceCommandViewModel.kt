@@ -1,8 +1,11 @@
 package com.factory.wms.ui.viewmodel.voice
 
+import android.app.Application
 import android.content.Context
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.ui.navigation.Screen
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -61,6 +64,23 @@ fun correctVoiceAsrText(text: String): String {
  * 判定规则：含建单动词 **且**（含数字 **或** 剥离动词后残余物料词长度 ≥2）。
  * 「领料」「出库」这类纯导航语仍走原 [VoiceCommand.Navigate]，无回归。
  */
+/**
+ * AI-VOICE-INTENT-001：后端 voice_intent 返回的 screen 键 → [Screen] 映射。
+ * 键集合与后端 native_api._NAV 表一致（改动必须双边同步）。
+ */
+fun screenByRouteKey(key: String?): Screen? = when (key) {
+    "home" -> Screen.Home
+    "inbound" -> Screen.Inbound
+    "outbound" -> Screen.Outbound
+    "stock_query" -> Screen.StockQuery
+    "stocktake" -> Screen.Stocktake
+    "overview_orders" -> Screen.OverviewOrders
+    "overview_alerts" -> Screen.OverviewAlerts
+    "document_ocr" -> Screen.DocumentOcr
+    "in_out_detail_report" -> Screen.InOutDetailReport
+    else -> null
+}
+
 fun parseCommand(heardText: String): VoiceCommand {
     val t = heardText.trim()
     if (t.isEmpty()) return VoiceCommand.Unrecognized
@@ -150,6 +170,12 @@ sealed class VoiceCommand(val label: String) {
     data object Unrecognized : VoiceCommand("未识别到可执行指令")
 
     /**
+     * AI-VOICE-INTENT-001：LLM 意图返回的文本回复（无页面映射的分析/问答类），
+     * 由 VoiceAssistantOverlay 展示（可朗读）。
+     */
+    data class LlmReply(val text: String) : VoiceCommand("语音回复")
+
+    /**
      * AI-VOICE-OUT-F01：语音建领料单草稿（如「领8*25螺丝 1000个」）。
      *
      * [rawText] 为语音原文，交给后端解析（单一真相源，避免双端解析漂移）。
@@ -175,10 +201,24 @@ data class VoiceUiState(
  * 依赖 [VoiceSttEngine] 抽象，不再直接操作 Android 系统识别 API；
  * 构造时传入引擎（如 [AndroidVoiceSttEngine] 或 [SherpaVoiceSttEngine]），
  * ViewModel 只负责 UI 状态、8 秒兜底超时与命令解析。
+ *
+ * AI-VOICE-INTENT-001：识别文本先交后端 LLM 意图理解（/api/mobile/voice_intent），
+ * 本地 [parseCommand] contains 对暗号降级为兜底（后端不可用/超时/无映射）。
+ * 建单意图（[detectOutboundDraft]）保持本地判定——它有独立的
+ * voice_out_draft 两阶段链路，不重复进 LLM 意图路由。
  */
 class VoiceCommandViewModel(
-    private val engineFactory: VoiceSttEngineFactory = DefaultEngineFactory
-) : ViewModel() {
+    application: Application,
+    private val engineFactory: VoiceSttEngineFactory
+) : AndroidViewModel(application) {
+
+    /**
+     * viewModel() 无参委托走的构造：反射调用 (Application) 单参构造，
+     * 引擎工厂取默认 [DefaultEngineFactory]（系统识别优先 + sherpa/云引擎回退）。
+     */
+    constructor(application: Application) : this(application, DefaultEngineFactory)
+
+    private val repository = WmsRepository(application)
 
     private val _uiState = MutableStateFlow(VoiceUiState())
     val uiState: StateFlow<VoiceUiState> = _uiState.asStateFlow()
@@ -264,7 +304,6 @@ class VoiceCommandViewModel(
             // BUG-2026-09-07-002：先按仓库领域词表强制纠正（系统识别/sherpa 路径
             // 未经过服务端纠正），纠正后的文本同时用于展示与指令解析
             val text = correctVoiceAsrText(texts.firstOrNull()?.trim().orEmpty())
-            val command = parseCommand(text)
             engine?.destroy()
             engine = null
             _uiState.value = VoiceUiState(
@@ -272,7 +311,17 @@ class VoiceCommandViewModel(
                 heardText = text,
                 message = if (text.isEmpty()) "未识别到内容" else "识别结果：$text"
             )
-            viewModelScope.launch { _commands.emit(command) }
+            if (text.isEmpty()) {
+                viewModelScope.launch { _commands.emit(VoiceCommand.Unrecognized) }
+                return
+            }
+            // 建单意图本地秒判（有独立 voice_out_draft 链路，不进 LLM 意图路由）
+            detectOutboundDraft(text)?.let { draft ->
+                viewModelScope.launch { _commands.emit(draft) }
+                return
+            }
+            // AI-VOICE-INTENT-001：导航/查询类先问后端 LLM 意图
+            resolveCommand(text)
         }
 
         override fun onError(error: SttError, detail: String?) {
@@ -288,6 +337,36 @@ class VoiceCommandViewModel(
                 isListening = false,
                 error = shown
             )
+        }
+    }
+
+    /**
+     * AI-VOICE-INTENT-001：语音指令解析——后端 LLM 意图优先，本地 contains 兜底。
+     *
+     * - 后端 action=navigate → [VoiceCommand.Navigate]（按 screen route 键映射）
+     * - 后端 action=reply → [VoiceCommand.LlmReply]（文本由 UI 展示/朗读）
+     * - fallback_local / 请求失败 / 超时 → 本地 [parseCommand]
+     * - 后端意图判定为建单（screen=outbound 且含物料语境）时，本地
+     *   [detectOutboundDraft] 已在上游拦截，此处不会重复建单。
+     */
+    private fun resolveCommand(text: String) {
+        viewModelScope.launch {
+            val llmCommand = runCatching {
+                repository.understandVoiceIntent(text)
+                    .fold(onSuccess = { result ->
+                        when (result.action) {
+                            "navigate" -> screenByRouteKey(result.screen)?.let {
+                                VoiceCommand.Navigate(it)
+                            }
+                            "reply" -> result.speak?.takeIf { it.isNotBlank() }
+                                ?.let { VoiceCommand.LlmReply(it) }
+                            else -> null // fallback_local / 未知 action → 本地兜底
+                        }
+                    }, onFailure = { null })
+            }.getOrNull()
+
+            val command = llmCommand ?: parseCommand(text)
+            _commands.emit(command)
         }
     }
 

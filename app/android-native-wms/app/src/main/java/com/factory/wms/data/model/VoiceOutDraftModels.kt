@@ -83,3 +83,24 @@ data class VoiceOutDraftResult(
     val picker: String? = null,
     val items: List<VoiceOutDraftItem>? = emptyList()
 )
+
+// ── AI-VOICE-INTENT-001：语音意图理解（App 本地 contains 的 LLM 替代）──
+
+/** POST api/mobile/voice_intent 请求体。 */
+data class VoiceIntentRequest(
+    @SerializedName("text") val text: String
+)
+
+/**
+ * 意图理解结果（后端 api_json_success 的 data）：
+ * - action=navigate：screen 为 [com.factory.wms.ui.navigation.Screen] 的 route 键
+ * - action=reply：speak 为展示/朗读文本
+ * - action=fallback_local：LLM 不可用/无映射，App 走本地 contains 兜底
+ */
+data class VoiceIntentResult(
+    @SerializedName("action") val action: String?,
+    @SerializedName("screen") val screen: String?,
+    @SerializedName("intent") val intent: String?,
+    @SerializedName("speak") val speak: String?,
+    @SerializedName("reason") val reason: String?
+)
