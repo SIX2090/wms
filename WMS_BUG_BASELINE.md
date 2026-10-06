@@ -2661,3 +2661,20 @@
 - **验证**：3 场景回归测试全绿——B1 v1/v2 同数据同结果（danger 档 M001 两边都报、库存数一致、M002 normal 两边都不报）/ B2 开关关闭不报 / B3 **两仓脏数据场景**（总账 stock=999 但 B仓流水仅 5 → 全仓汇总 5≤min_stock 应报 low；旧实现读总账列会误判 normal 漏报——本用例在修复前确实红）。存量防破坏：10-05-003/004 + 10-06-001/002 共 20 项全绿。
 - **回归锁**：`tests/test_bug_2026_10_06_003_v1_low_stock_report_scope.py`（3 用例）。
 - **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-003 v1 低库存报告转调 v2 工具统一口径`）。
+
+---
+## 2026-10-06 CI 修复补记（晚间）
+
+BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部修复并验证：
+
+1. **行号锚定漂移（shard-0）**：app.py 净增 9 行导致 INVENTORY_TRUTH 10 处函数
+   行号全部过期 → 同步更新 tests/test_inventory_truth_line_refs.py REFS +
+   INVENTORY_TRUTH.md（a8f11b0）。教训：改 app.py 后必须核对行号锚定测试。
+2. **测试路径不可移植（shard-1）**：003 回归测试硬编码沙箱绝对路径
+   /Coze/Drive/... → 改 Path(__file__).parents[1]/app 相对定位（5013764）。
+3. **依赖 CVE（lint-and-static）**：Werkzeug 3.1.6 披露 CVE-2026-102598 →
+   钉包升级 3.1.9（5013764）。werkzeug 3.1.9 + flask 3.1.3 定向回归
+   43 passed + login/auth 存量 41 passed。
+
+终态：5013764 的 WMS CI 9/9 job 全绿（含 3 unit-tests-shard + 4 verify-shard
++ lint-and-static + smoke）。至此深度检测全部 BUG 修复完毕，CI 全绿。
