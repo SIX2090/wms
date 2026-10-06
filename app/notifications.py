@@ -379,5 +379,64 @@ def init_notification_scheduler(app, db, Material, User):
         max_instances=1,
     )
 
+    # AI-ASSISTANT-PATROL-001：每日 08:10 自动巡检仓库（负库存/待处理单据/
+    # 草稿阻塞/采购到货），生成 Agent 巡检任务并给管理员发站内通知。
+    # 设计边界：巡检是纯读取分析（_ai_run_warehouse_patrol_agent 只建任务
+    # 记录 steps，不执行任何业务写操作）；AI 能力关闭时静默跳过（巡检是
+    # 增值功能，不应当在 AI 关闭时报错）。
+    # 上下文依赖：巡检链路里 _ai_create_agent_task 取 current_user.id、
+    # 5 处 url_for 需要 request context；scheduler 只有 app context，因此
+    # 用 test_request_context() 包装并以首位管理员身份执行（系统行为，
+    # 不代表具体用户操作）。
+    def daily_agent_patrol():
+        with app.app_context():
+            from flask_login import login_user
+            from app import (Notification, User, _ai_global_enabled,
+                             _ai_run_warehouse_patrol_agent)
+            if not _ai_global_enabled():
+                return
+            try:
+                with app.test_request_context():
+                    sys_user = User.query.filter_by(
+                        role='admin', status='normal'
+                    ).order_by(User.id).first()
+                    if sys_user is None:
+                        logging.getLogger(__name__).warning(
+                            'AI-ASSISTANT-PATROL-001 无可用管理员，跳过巡检')
+                        return
+                    login_user(sys_user)
+                    task, error = _ai_run_warehouse_patrol_agent()
+            except Exception:  # noqa: BLE001
+                logging.getLogger(__name__).exception(
+                    'AI-ASSISTANT-PATROL-001 巡检执行失败')
+                return
+            if error or task is None:
+                return
+            notification = Notification(
+                type='ai_patrol',
+                target_id=task.id,
+                title=f'AI 巡检完成：任务 #{task.id}',
+                content=(task.summary or '今日仓库巡检已完成，'
+                         '点击查看库存风险、待处理单据与采购到货情况。'),
+                is_read=False
+            )
+            db.session.add(notification)
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                logging.getLogger(__name__).error(
+                    f'AI-ASSISTANT-PATROL-001 通知落库失败: {e}')
+
+    scheduler.add_job(
+        daily_agent_patrol,
+        'cron',
+        hour=8,
+        minute=10,
+        id='daily_agent_patrol',
+        replace_existing=True,
+        max_instances=1,
+    )
+
     scheduler.start()
     return scheduler
