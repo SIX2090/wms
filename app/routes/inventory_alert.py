@@ -63,10 +63,14 @@ def _warehouse_scoped_material_ids(warehouse, warehouse_quantities):
     判据（满足其一即为本仓业务物料，参与告警判定）：
       a. 库位账有该仓库存记录（含数量 0 的历史行——进过仓、当前为 0 属
          真缺货，必须告警）；
-      b. 流水账按该仓聚合的净流水（Σ入-Σ出）> 0（进过货且有净持有记录）。
-    两者皆无 = 物料从未进过该仓 / 误录后已完全冲回（净额 0、无库位行），
-    不属于该仓业务范围，不参与该仓告警（避免"专仓物料 + 全局阈值"在
-    其他仓库视图的误报，AGENTS.md R2 多仓边界）。
+      b. 流水账按该仓聚合的净流水（Σ入-Σ出）> 0（进过货且有净持有记录）；
+      c. 该仓存在正常出库流水（transaction_type='out'）——真用光（入 20
+         出 20 净 0、无库位行）与误录冲回（仅 in + delete_in_item）账面
+         长得一样，唯一区分信号是有无 out 流水；漏判会把真缺货静默屏蔽
+         （004 v2 审计发现的漏报回归）。
+    三者皆无 = 物料从未进过该仓 / 误录后已完全冲回（净额 0、无库位行、
+    无正常出库），不属于该仓业务范围，不参与该仓告警（避免"专仓物料 +
+    全局阈值"在其他仓库视图的误报，AGENTS.md R2 多仓边界）。
     warehouse_quantities 为 get_warehouse_stock_quantities(warehouse) 结果，
     非空说明库位账已有该仓记录；另查流水净额兜底关库位管理场景。
     """
@@ -104,6 +108,13 @@ def _warehouse_scoped_material_ids(warehouse, warehouse_quantities):
     li_ids = {row.material_id for row in db.session.query(LocationInventory.material_id)
               .filter(db.or_(*_loc_clauses)).distinct().all()}
     scoped |= li_ids
+    # 判据 c：该仓存在正常出库流水（'out'）——真用光场景兜底（004 v2）。
+    # 只有误录冲回（in + delete_in_item）净 0 才应排除；有真实 out 流水
+    # 说明物料确实在这个仓被领用过，净 0 属"用光"而非"没来过"。
+    out_ids = {row.material_id for row in db.session.query(StockTransaction.material_id)
+               .filter(StockTransaction.warehouse_id == warehouse.id,
+                       StockTransaction.transaction_type == 'out').distinct().all()}
+    scoped |= out_ids
     return scoped
 
 

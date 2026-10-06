@@ -7,9 +7,13 @@
   S2. 真缺货照常告警：铜排入项目仓 3 件、阈值 5 → 项目仓视图应报 low。
   S3. 误录已冲回：铜排误入项目仓 20 后又反提交/删除（净流水 0、库位行 0）
       → 项目仓视图不应告警。
+  S5. 真用光照常告警（v2 漏报回归）：铜排入项目仓 20、正常出库 20（净 0、
+      关库位管理无库位行）→ 项目仓视图应告警（004 v1 判据误杀，v2 补
+      判据 c"存在 out 正常出库流水"修复）。
+  S6. 手机端同口径：S3/S5 场景在 /api/mobile/alert/list 一致。
 
-口径：/alert 仓库视图仅对"本仓业务物料"（库位有行 或 净流水>0）判定；
-全部仓库视图行为不变。手机端 /api/mobile/alert/list 同口径。
+口径：/alert 仓库视图仅对"本仓业务物料"（库位有行 或 净流水>0 或 有
+正常出库流水）判定；全部仓库视图行为不变。手机端同口径。
 """
 from __future__ import annotations
 
@@ -175,3 +179,78 @@ class TestAlertWarehouseScope:
             assert resp.status_code == 200, f"S4 状态码 {resp.status_code}"
             html = resp.get_data(as_text=True)
             assert "M001" not in html, "S4 失败：全局视图 20>5 不应告警"
+
+    def test_s5_real_depletion_still_alerted(self):
+        """S5（v2 漏报回归）：真用光——入 20 正常出库 20（净 0、无库位行），应告警。"""
+        with app_module.app.app_context():
+            _reset()
+            mat, admin = _seed()
+            with app_module.app.test_request_context("/"):
+                from flask_login import login_user
+                login_user(admin)
+                ok, err = add_stock(mat, 20, transaction_type="in", warehouse="项目仓库")
+                assert ok, err
+                # 正常出库（transaction_type='out'）——与误录冲回
+                # （delete_in_item）的唯一区分信号
+                from app.services.warehouse_stock_service import apply_stock_delta
+                ok2, err2 = apply_stock_delta(
+                    mat, -20, transaction_type="out",
+                    reference_type="out_order", reference_id=1,
+                    remark="真实出库", warehouse="项目仓库")
+                assert ok2, err2
+                db.session.commit()
+
+            # 前置事实核验：净流水 0、存在 out 流水、无库位行（关库位管理）
+            from app import StockTransaction, LocationInventory
+            txns = StockTransaction.query.filter_by(
+                material_id=mat.id, warehouse_id=_wh_id("WHPJ")).all()
+            assert txns, "S5 前置失败：流水未按仓库归属"
+            net = sum(t.quantity or 0 for t in txns)
+            assert net == 0, f"S5 前置失败：净流水应为 0，实际 {net}"
+            assert any(t.transaction_type == "out" for t in txns), \
+                "S5 前置失败：缺少 out 正常出库流水"
+            li = LocationInventory.query.filter_by(
+                material_id=mat.id, warehouse_id=_wh_id("WHPJ")).all()
+            assert not li, "S5 前置失败：关库位管理不应产生库位行"
+
+            c = app_module.app.test_client()
+            _login(c)
+            resp = c.get(f"/alert?warehouse_id={_wh_id('WHPJ')}")
+            assert resp.status_code == 200, f"S5 状态码 {resp.status_code}"
+            html = resp.get_data(as_text=True)
+            assert "M001" in html, "S5 失败：真用光（净 0 但有 out 流水）被漏报"
+
+    def test_s6_mobile_api_same_scope(self):
+        """S6：手机端同口径——S5 场景告警 / S3 场景不告警。"""
+        from app import StockTransaction
+        for expected, kind in [(True, "out"), (False, "revert")]:
+            with app_module.app.app_context():
+                _reset()
+                mat, admin = _seed()
+                with app_module.app.test_request_context("/"):
+                    from flask_login import login_user
+                    login_user(admin)
+                    ok, err = add_stock(mat, 20, transaction_type="in",
+                                        warehouse="项目仓库")
+                    assert ok, err
+                    from app.services.warehouse_stock_service import apply_stock_delta
+                    ttype = "out" if kind == "out" else "delete_in_item"
+                    ok2, err2 = apply_stock_delta(
+                        mat, -20, transaction_type=ttype,
+                        reference_type="out_order" if kind == "out" else "in_order",
+                        reference_id=1, remark="S6", warehouse="项目仓库")
+                    assert ok2, err2
+                    db.session.commit()
+
+                c = app_module.app.test_client()
+                _login(c)
+                resp = c.get(
+                    f"/api/mobile/alert/list?warehouse_id={_wh_id('WHPJ')}")
+                assert resp.status_code == 200, f"S6({kind}) 状态码 {resp.status_code}"
+                body = resp.get_data(as_text=True)
+                if expected:
+                    assert "M001" in body, \
+                        "S6 失败：真用光在手机端被漏报（out 判据未同步）"
+                else:
+                    assert "M001" not in body, \
+                        "S6 失败：误录已冲回在手机端仍误报"

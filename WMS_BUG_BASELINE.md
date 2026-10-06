@@ -2626,8 +2626,9 @@
 ## BUG-2026-10-05-004：仓库级库存告警对"非本仓业务物料"误报
 - **现象**（生产实测，4 仓环境）：铜排仓专放铜排并设安全库存；在告警页选择"项目仓库"时铜排亮红色低库存告警。两个触发路径：① 物料从未进过所选仓库（库位账/流水均无记录），`warehouse_quantities.get(material.id, 0)` 按 0 参与判定；② 物料曾误录入该仓后又删除/反提交（库位行数量归 0 不删行、正负流水相抵净额 0），仍按 0 判定。
 - **根因**：`inventory_alert.py` 按仓判定（BUG-2026-09-18-004 引入，方向正确）但缺失"该物料是否本仓业务"的范围判断——把"没进过这个仓"与"进过但用光/录错冲回"一律按 0 与全局阈值比较。阈值（min_stock/reorder_point）挂在物料主档、无仓库维度，见 AGENTS.md R2 多仓边界。
-- **修复**：`/alert` 仓库视图增加"本仓业务物料"范围判定（`_warehouse_scoped_material_ids`）——仅当物料在所选仓库有净流水（入-出>0，`StockTransaction` 按 warehouse_id 聚合）**或**有库位库存行（含数量 0 的历史行；兼容 warehouse_id IS NULL 且 location==仓库名/编码的旧行，同 `get_warehouse_stock_quantities` 口径）时参与告警；两者皆无（从未进仓/误录已冲回净额 0）则不纳入该仓告警列表。手机端 `/api/mobile/alert/list` 同口径。全局视图（全部仓库）行为不变。
-- **验证**：新增回归测试 4 场景实测全绿——S1 从未进仓不告警 / S2 真缺货（3<5）照常告警 / S3 误录冲回净 0 不告警 / S4 全局视图行为不变。防破坏回归：告警/AI 工具/08-16 系列共 45 项 + 手机端 08-12-004 共 25 项全 PASSED（期间暴露并修复判据 a 两处漏洞：流水聚合 0 值行误入 scoped、NULL warehouse_id 历史行兼容）。A11 lint 0 违规，`--full-gate` EXIT=0。
-- **回归锁**：`tests/test_bug_2026_10_05_004_alert_warehouse_scope.py`（4 用例）+ 存量 `test_bug_2026_08_12_004_mobile_warehouse_scope.py`。
-- **生效确认**：✅ Linux 沙箱实测通过：4/4 新场景 + 70 项存量回归全绿。
-- **推送与 CI**：待 push（atomic action：`fix(alert): BUG-2026-10-05-004 仓库级告警范围误报`）。
+- **修复**：`/alert` 仓库视图增加"本仓业务物料"范围判定（`_warehouse_scoped_material_ids`）——仅当物料满足以下判据之一时参与该仓告警：a. 有库位库存行（含数量 0 的历史行；兼容 warehouse_id IS NULL 且 location==仓库名/编码的旧行，同 `get_warehouse_stock_quantities` 口径）；b. 该仓净流水（入-出）> 0（`StockTransaction` 按 warehouse_id 聚合）；c. **（v2）该仓存在正常出库流水（transaction_type='out'）**。三者皆无（从未进仓/误录已冲回净额 0）则不纳入该仓告警列表。手机端 `/api/mobile/alert/list` 同口径。全局视图（全部仓库）行为不变。
+- **v2 漏报回归（审计发现并修复）**：v1 判据（a+b）在关库位管理 + 真用光场景（入 20、正常出库 20 → 净流水 0、无库位行）把"真缺货"判成"非本仓业务"而静默漏报；经 E2E 真实路径复现（POST /out_order/<id>/complete）+ git worktree 父提交对照（修复前同场景会告警）确认为 004 引入的回归。修复：补判据 c——真用光（有 out 正常出库流水）与误录冲回（仅 in + delete_in_item）账面同为净 0，唯一区分信号是有无 out 流水。
+- **验证**：新增回归测试 6 场景实测全绿——S1 从未进仓不告警 / S2 真缺货（3<5）照常告警 / S3 误录冲回净 0 不告警 / S4 全局视图行为不变 / S5 真用光（净 0 + out 流水）照常告警 / S6 手机端同口径（S5 告警、S3 不告警）。防破坏回归：告警/AI 工具/08-16 系列 + 手机端 08-12-004 共 90 项 PASSED（1 skipped 属既有）。A11 lint 0 违规。
+- **回归锁**：`tests/test_bug_2026_10_05_004_alert_warehouse_scope.py`（6 用例）+ 存量 `test_bug_2026_08_12_004_mobile_warehouse_scope.py`。
+- **生效确认**：✅ Linux 沙箱实测通过：6/6 新场景（v2 含 S5 漏报回归锁）+ 90 项存量回归全绿；A11 0 违规。
+- **推送与 CI**：待 push（atomic action：`fix(alert): BUG-2026-10-05-004 v2 补漏报判据——真用光（out 流水）照常告警`）。

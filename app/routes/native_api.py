@@ -1978,6 +1978,9 @@ def register_native_api_routes(app):
         # （净流水 0 且无库位行）的物料不参与，与 PC /alert 同口径。
         # 注意：quantities 的 keys() 可能含流水聚合出的净额 0 行（误录已冲回），
         # 必须按净额>0 过滤，不能直接采信。
+        # v2 判据 c：存在正常出库流水（'out'）也算本仓业务物料——真用光
+        # （入 20 出 20 净 0、无库位行）与误录冲回账面相同，靠有无 out
+        # 流水区分，否则真缺货被静默屏蔽（漏报回归，与 PC 端同步）。
         from sqlalchemy import func as _sa_func
         from app import StockTransaction, LocationInventory
         _net = (db.session.query(
@@ -2003,6 +2006,11 @@ def register_native_api_routes(app):
         scoped_ids |= {row.material_id for row in db.session.query(
             LocationInventory.material_id)
             .filter(_sa_or(*_clauses)).distinct().all()}
+        # v2 判据 c：存在正常出库流水（'out'）→ 本仓业务物料（真用光兜底）
+        scoped_ids |= {row.material_id for row in db.session.query(
+            StockTransaction.material_id)
+            .filter(StockTransaction.warehouse_id == warehouse.id,
+                    StockTransaction.transaction_type == 'out').distinct().all()}
         candidates = [m for m in candidates if m.id in scoped_ids]
 
         rows = []
