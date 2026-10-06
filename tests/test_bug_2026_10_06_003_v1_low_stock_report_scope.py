@@ -14,8 +14,10 @@ v1 对话关键词入口（"补货建议/低库存报告"）与 v2 AI 工具 low
 import re
 import sys
 import os
+from pathlib import Path
 
-APP_DIR = "/Coze/Drive/扣子/wms/app"
+# CI 兼容：不得硬编码沙箱绝对路径（shard-1 曾因 /Coze/Drive/... 收集报错）
+APP_DIR = str(Path(__file__).resolve().parents[1] / "app")
 sys.path.insert(0, APP_DIR)
 os.chdir(APP_DIR)
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
