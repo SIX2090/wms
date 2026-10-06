@@ -26,6 +26,8 @@ sealed class Screen(val route: String, val title: String) {
     data object InOutDetailReport : Screen("in_out_detail_report", "出入库明细")
     data object StockLedgerReport : Screen("stock_ledger_report", "库存台账")
     data object StocktakeRecord : Screen("stocktake_record", "盘点记录")
+    // AI-ASSISTANT-MOBILE-001：App 端 AI 助手聊天页（与 PC 同链路 28 意图）
+    data object AssistantChat : Screen("assistant_chat", "AI 助手")
     data object Profile : Screen("profile", "我的")
 
     /**

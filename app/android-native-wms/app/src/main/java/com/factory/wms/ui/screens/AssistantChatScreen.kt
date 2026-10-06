@@ -1,0 +1,327 @@
+package com.factory.wms.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.factory.wms.ui.components.StatusBarIconEffect
+import com.factory.wms.ui.components.WmsGradientHeader
+import com.factory.wms.ui.theme.*
+import com.factory.wms.ui.viewmodel.ai.AssistantChatMessage
+import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
+
+/**
+ * AI-ASSISTANT-MOBILE-001：App 端 AI 助手聊天页。
+ *
+ * 与 PC AI 助手同一后端链路（28 个意图）：查库存、查单号、今日概况、
+ * 建单草稿引导、库存分析问答。所有理解在服务端完成，本地零解析。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AssistantChatScreen(
+    viewModel: AssistantChatViewModel,
+    onBack: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    StatusBarIconEffect(darkIcons = false)
+
+    // 新消息到达或加载态变化时滚到底部
+    LaunchedEffect(uiState.messages.size, uiState.isLoading) {
+        if (uiState.messages.isNotEmpty()) {
+            listState.animateScrollToItem(uiState.messages.size - 1)
+        }
+    }
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let {
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            viewModel.clearError()
+        }
+    }
+
+    Scaffold(
+        containerColor = Background,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            WmsGradientHeader(
+                title = "AI 助手",
+                subtitle = "查库存 · 查单号 · 今日概况 · 分析问答",
+                accent = Primary,
+                onBack = onBack,
+                trailing = {
+                    IconButton(onClick = { viewModel.clearConversation() }) {
+                        Icon(
+                            Icons.Outlined.DeleteSweep,
+                            contentDescription = "清空对话",
+                            tint = Color.White
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 12.dp)
+            ) {
+                if (uiState.messages.isEmpty()) {
+                    item { AssistantEmptyHint() }
+                }
+                items(uiState.messages, key = { it.id }) { message ->
+                    AssistantMessageBubble(message)
+                }
+                if (uiState.isLoading) {
+                    item {
+                        AssistantTypingBubble()
+                    }
+                }
+            }
+
+            // 输入区
+            Surface(
+                color = CardBackground,
+                tonalElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .navigationBarsPadding(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { if (it.length <= 2000) input = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("问我任何仓库问题…", fontSize = 14.sp) },
+                        shape = RoundedCornerShape(22.dp),
+                        maxLines = 4,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(
+                            onSend = {
+                                viewModel.send(input)
+                                input = ""
+                            }
+                        ),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Primary,
+                            unfocusedBorderColor = SurfaceVariant
+                        )
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilledIconButton(
+                        onClick = {
+                            viewModel.send(input)
+                            input = ""
+                        },
+                        enabled = input.isNotBlank() && !uiState.isLoading,
+                        shape = RoundedCornerShape(50),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = Primary,
+                            contentColor = Color.White,
+                            disabledContainerColor = Primary.copy(alpha = 0.35f)
+                        )
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Outlined.Send,
+                            contentDescription = "发送",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 空态引导：列出高频问法，降低首次使用门槛。 */
+@Composable
+private fun AssistantEmptyHint() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text("你好，我是仓库 AI 助手 🤖", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "可以直接问我：",
+            fontSize = 13.sp,
+            color = OnSurfaceSecondary
+        )
+        Spacer(Modifier.height(12.dp))
+        listOf(
+            "A001 还有多少库存",
+            "今天概况",
+            "查 IN26050001",
+            "低库存报告",
+            "帮我巡检仓库"
+        ).forEach { hint ->
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = CardBackground,
+                tonalElevation = 1.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Text(
+                    hint,
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    fontSize = 14.sp,
+                    color = Primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+/** 消息气泡：用户右侧主色，助手左侧白底；助手带卡片/动作展示。 */
+@Composable
+private fun AssistantMessageBubble(message: AssistantChatMessage) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
+    ) {
+        Surface(
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (message.isUser) 16.dp else 4.dp,
+                bottomEnd = if (message.isUser) 4.dp else 16.dp
+            ),
+            color = if (message.isUser) Primary else CardBackground,
+            tonalElevation = if (message.isUser) 0.dp else 1.dp
+        ) {
+            Text(
+                message.text,
+                modifier = Modifier
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+                    .widthIn(max = 300.dp),
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                color = if (message.isUser) Color.White else OnSurface
+            )
+        }
+        // 助手消息附带的结构化卡片（物料/单据）
+        if (!message.isUser && message.cards.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            message.cards.take(4).forEach { card ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = CardBackground,
+                    tonalElevation = 1.dp,
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .padding(vertical = 3.dp)
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(
+                            card.title ?: "",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 14.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        card.meta?.let {
+                            Spacer(Modifier.height(3.dp))
+                            Text(
+                                it,
+                                fontSize = 12.sp,
+                                color = OnSurfaceSecondary,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        // 建议动作（仅展示文本标签）
+        if (!message.isUser && message.actions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                message.actions.take(3).forEach { action ->
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = PrimaryContainer
+                    ) {
+                        Text(
+                            action.label ?: "",
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            fontSize = 12.sp,
+                            color = Primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 加载中气泡：静态省略号（三个点）。 */
+@Composable
+private fun AssistantTypingBubble() {
+    Surface(
+        shape = RoundedCornerShape(
+            topStart = 4.dp,
+            topEnd = 16.dp,
+            bottomStart = 16.dp,
+            bottomEnd = 16.dp
+        ),
+        color = CardBackground,
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            repeat(3) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(OnSurfaceSecondary.copy(alpha = 0.5f))
+                )
+            }
+        }
+    }
+}

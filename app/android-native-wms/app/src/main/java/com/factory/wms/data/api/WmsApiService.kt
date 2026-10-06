@@ -273,6 +273,16 @@ interface WmsApiService {
         @Body request: VoiceIntentRequest
     ): Response<ApiEnvelope<VoiceIntentResult>>
 
+    /**
+     * AI-ASSISTANT-MOBILE-001：App 端 AI 助手对话（与 PC 共用处理链，
+     * 支持 28 个意图：查库存/查单号/今日概况/建单草稿/分析问答）。
+     */
+    @POST("api/mobile/assistant_chat")
+    suspend fun assistantChat(
+        @Header("X-Idempotency-Key") requestId: String,
+        @Body request: AssistantChatRequest
+    ): Response<ApiEnvelope<AssistantChatResult>>
+
     @POST("api/mobile/voice_out_draft")
     suspend fun voiceOutDraft(
         @Header("X-Idempotency-Key") requestId: String,

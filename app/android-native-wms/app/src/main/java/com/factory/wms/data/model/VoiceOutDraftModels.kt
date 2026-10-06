@@ -104,3 +104,40 @@ data class VoiceIntentResult(
     @SerializedName("speak") val speak: String?,
     @SerializedName("reason") val reason: String?
 )
+
+
+/**
+ * AI-ASSISTANT-MOBILE-001：App 端 AI 助手对话请求。
+ *
+ * 对应后端 `POST /api/mobile/assistant_chat`（与 PC AI 助手共用同一处理链，
+ * 支持 28 个意图：查库存/查单号/今日概况/建单草稿/分析问答）。
+ */
+data class AssistantChatRequest(
+    /** 用户输入，1~2000 字 */
+    val text: String
+)
+
+/**
+ * AI 助手回复：reply 为主体文本（可能含 markdown 表格/列表），
+ * cards 为结构化卡片（物料/单据等），actions 为建议动作。
+ */
+data class AssistantChatResult(
+    val action: String? = null,
+    val reply: String? = null,
+    val cards: List<AssistantCard>? = null,
+    val actions: List<AssistantAction>? = null,
+    @SerializedName("conversation_id") val conversationId: Long? = null
+)
+
+/** PC 同款业务卡片（物料/单据/巡检任务等）。 */
+data class AssistantCard(
+    val title: String? = null,
+    val meta: String? = null,
+    val url: String? = null
+)
+
+/** PC 同款建议动作（仅展示 label；跳转由 App 端意图映射决定）。 */
+data class AssistantAction(
+    val label: String? = null,
+    val url: String? = null
+)

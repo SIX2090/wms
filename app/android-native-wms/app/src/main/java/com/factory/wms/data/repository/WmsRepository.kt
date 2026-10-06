@@ -1102,6 +1102,11 @@ class WmsRepository(
         }
     }
 
+    /** AI-ASSISTANT-MOBILE-001：AI 助手对话（与 PC 同链路）。 */
+    suspend fun assistantChat(text: String): Result<AssistantChatResult> {
+        return safeCall { api.assistantChat(newRequestId(), AssistantChatRequest(text)) }
+    }
+
     /**
      * 首页概览。
      *

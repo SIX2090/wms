@@ -790,7 +790,8 @@ def register_native_api_routes(app):
     # 装饰器为 app.py 内部定义（csrf / api_role_required / mobile_api_idempotent /
     # web_or_api_required），需在函数定义期（注册期）可用，故在 register 内延迟导入，
     # 避免 app.py 模块加载期触发循环导入。
-    from app import (api_role_required, csrf, mobile_api_idempotent, web_or_api_required)
+    from app import (api_role_required, csrf, mobile_api_idempotent,
+                     web_or_api_required, web_or_api_role_required)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/api/csrf_refresh', methods=['POST'])
@@ -3855,3 +3856,105 @@ def register_native_api_routes(app):
             'reason': 'intent_no_mapping',
             'intent': intent,
         }, '请使用标准指令说法')
+
+
+
+    # ---------------------------------------------------------------------------
+    # AI-ASSISTANT-MOBILE-001：App 端 AI 助手对话端点。
+    #
+    # 背景：AI 助手此前只有 PC web 入口（/api/ai/warehouse_assistant），App 全部
+    # 40 个端点无任何 AI 对话入口，仓库端手机用户完全用不上 AI 助手的 28 个意图
+    # （查库存/查单号/今日概况/五类建单草稿/分析类问答）。
+    #
+    # 设计：
+    # - 与 PC 共用同一处理函数 _ai_handle_warehouse_assistant_request（含高危
+    #   拦截、意图路由、草稿生成、图片识别、知识库全链路），保证双端行为一致，
+    #   不长第二套逻辑；
+    # - PC 返回 {status, reply, cards, actions}（flask Response）；App 侧把
+    #   cards/actions 原样透传（App 用 route_key/actions 里 label 提示，页面跳转
+    #   由 App 端 screenByRouteKey/意图映射自行决定，跳转协议同 voice_intent）；
+    # - 每轮对话写 ai_conversation/ai_message（经 audit.py），App 与 PC 后续可共享
+    #   「对话历史恢复」能力（AI-ASSISTANT-HISTORY-001 前提）；
+    # - 鉴权同 document_ocr：web_or_api_role_required + Bearer token，仓库角色可用。
+    # ---------------------------------------------------------------------------
+    @app.route('/api/mobile/assistant_chat', methods=['POST'])
+    @csrf.exempt
+    @api_role_required('warehouse')
+    @mobile_api_idempotent('assistant_chat')
+    def native_api_assistant_chat(user):
+        from pydantic import BaseModel, Field
+
+        from app import api_json_error, api_json_success
+
+        class AssistantChatRequest(BaseModel):
+            text: str = Field(min_length=1, max_length=2000)
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            req = AssistantChatRequest(**payload)
+        except Exception:  # noqa: BLE001
+            return api_json_error('消息内容不能为空且不超过 2000 字', 400)
+
+        text = req.text.strip()
+        if not text:
+            return api_json_error('消息内容不能为空', 400)
+
+        from app import _ai_handle_warehouse_assistant_request, _ai_global_enabled
+
+        if not _ai_global_enabled():
+            return api_json_success({
+                'action': 'reply',
+                'reply': 'AI 功能当前已由管理员关闭，请联系管理员在系统设置中开启。',
+            }, 'AI 未启用')
+
+        # PC 共用处理链依赖 flask-login 的 current_user（user_id 取历史归属、
+        # 部分意图按登录态取数据范围）。App 走 Bearer token 时 flask-login 不会
+        # 自动加载用户（login_manager 只配了 session user_loader），这里手动把
+        # Bearer 用户灌进本次请求上下文，保证与 PC web 行为一致。
+        from flask_login import login_user
+        login_user(user)
+
+        resp = _ai_handle_warehouse_assistant_request({
+            'message': text,
+            'page_url': '/mobile/assistant',
+            'page_title': 'AI 助手（App）',
+        })
+        if resp is None:
+            return api_json_error('AI 助手暂时不可用，请稍后重试', 503)
+
+        # PC 通道错误分支返回 (Response, code) 元组
+        if isinstance(resp, tuple):
+            try:
+                body = resp[0].get_json(silent=True) or {}
+                msg = str(body.get('msg') or '处理失败')
+            except Exception:  # noqa: BLE001
+                msg = '处理失败'
+            return api_json_error(msg, int(resp[1]) if len(resp) > 1 else 400)
+
+        try:
+            body = resp.get_json(silent=True) or {}
+        except Exception:  # noqa: BLE001
+            body = {}
+        reply = str(body.get('reply') or '')
+        if not reply:
+            return api_json_error('AI 助手没有返回有效回复，请换个说法试试', 502)
+
+        # 对话历史：AI-ASSISTANT-HISTORY-001 起 _ai_handle_warehouse_assistant_request
+        # 内部的 _ai_append_history 已做内存+DB 双写，这里不再重复落库，只读会话 ID
+        # 回传给 App（失败不影响回复）。
+        conversation_id = None
+        try:
+            from ai.audit import list_conversations
+            convs = list_conversations(user.id, limit=1)
+            if convs:
+                conversation_id = convs[0].id
+        except Exception:  # noqa: BLE001
+            app.logger.exception('assistant_chat history lookup failed')
+
+        return api_json_success({
+            'action': 'reply',
+            'reply': reply,
+            'cards': body.get('cards') or [],
+            'actions': body.get('actions') or [],
+            'conversation_id': conversation_id,
+        }, 'AI 助手回复')

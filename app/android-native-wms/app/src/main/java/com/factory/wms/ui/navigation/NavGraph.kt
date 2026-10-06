@@ -43,6 +43,7 @@ import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
+import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
 import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
@@ -278,6 +279,15 @@ fun AppNavGraph() {
                     val aiViewModel: AiViewModel = viewModel()
                     DocumentOcrScreen(
                         viewModel = aiViewModel,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+
+                // AI-ASSISTANT-MOBILE-001：AI 助手聊天页（VM 惰性创建，同 OCR 路由惯例）
+                composable(Screen.AssistantChat.route) {
+                    val assistantChatViewModel: AssistantChatViewModel = viewModel()
+                    AssistantChatScreen(
+                        viewModel = assistantChatViewModel,
                         onBack = { navController.popBackStack() }
                     )
                 }

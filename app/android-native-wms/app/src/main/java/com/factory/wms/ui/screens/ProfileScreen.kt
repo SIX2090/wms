@@ -220,6 +220,13 @@ fun ProfileScreen(
                     icon = Icons.Outlined.Home,
                     label = "回到首页",
                     value = "说“回到首页”",
+                    isHint = true
+                )
+                ProfileRow(
+                    // AI-ASSISTANT-MOBILE-001：语音也支持任意 AI 问答（经 LLM 意图路由）
+                    icon = Icons.Outlined.SmartToy,
+                    label = "AI 问答",
+                    value = "说任意问题，如“低库存报告”",
                     isHint = true,
                     showDivider = false
                 )

@@ -176,6 +176,14 @@ fun HomeScreen(
                 icon = Icons.Outlined.History,
                 gradient = listOf(CardPurple, CardPurpleDark),
                 screen = Screen.StocktakeRecord
+            ),
+            // AI-ASSISTANT-MOBILE-001：AI 助手入口（与 PC 同链路 28 意图）
+            FunctionCard(
+                title = "AI 助手",
+                subtitle = "查库存 · 查单号 · 分析问答",
+                icon = Icons.Outlined.SmartToy,
+                gradient = listOf(CardBlueLight, CardBlueDark),
+                screen = Screen.AssistantChat
             )
         )
     }

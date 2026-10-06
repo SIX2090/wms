@@ -3902,9 +3902,44 @@
             });
         }
 
+        let historyLoaded = false;
+        function restoreHistory() {
+            // AI-ASSISTANT-HISTORY-001：面板首次打开时从 DB 恢复最近活跃会话，
+            // 刷新/重启后对话不再丢失。失败静默（老行为：空面板开新对话）。
+            if (historyLoaded) return;
+            historyLoaded = true;
+            fetch('/api/ai/conversations?limit=1')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (!data || data.status !== 'success' || !data.conversations || !data.conversations.length) return;
+                    var conv = data.conversations[0];
+                    if (conv.status !== 'active') return;
+                    return fetch('/api/ai/conversations/' + conv.id + '?limit=20')
+                        .then(function(r) { return r.json(); })
+                        .then(function(detail) {
+                            if (!detail || detail.status !== 'success' || !detail.messages || !detail.messages.length) return;
+                            detail.messages.forEach(function(m) {
+                                if (m.role !== 'user' && m.role !== 'assistant') return;
+                                var html = m.role === 'assistant' ? renderMarkdown(m.content) : escapeHtml(m.content);
+                                addMessage(html, m.role, null, m.role === 'assistant');
+                            });
+                            // 恢复的消息同步进内存 chatHistory，供多轮上下文拼接
+                            detail.messages.forEach(function(m) {
+                                if (m.role !== 'user' && m.role !== 'assistant') return;
+                                chatHistory.push({role: m.role, content: m.content});
+                            });
+                            while (chatHistory.length > maxHistory) chatHistory.shift();
+                            messages.scrollTop = messages.scrollHeight;
+                        });
+                })
+                .catch(function() {});
+        }
         button.addEventListener('click', function() {
             panel.classList.toggle('open');
-            if (panel.classList.contains('open')) input.focus();
+            if (panel.classList.contains('open')) {
+                restoreHistory();
+                input.focus();
+            }
         });
         closeButton.addEventListener('click', function() {
             panel.classList.remove('open');

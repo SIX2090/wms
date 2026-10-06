@@ -22063,8 +22063,44 @@ def _ai_get_history(user_id):
     return get_history(user_id)
 
 def _ai_append_history(user_id, role, content):
-    """Append a message to the current user AI chat history."""
+    """Append a message to the current user AI chat history.
+
+    AI-ASSISTANT-HISTORY-001：内存历史 + 数据库历史双写。
+    - 内存通道（ai/history.py 字典）保持原行为：多轮上下文拼接 + 重启即丢。
+    - DB 通道（AIConversation/AIMessage）持久化对话，供前端刷新/重启后恢复。
+    - DB 写失败只记日志，不影响 AI 回复主链路（历史持久化是增值能力）。
+    - user 消息落库时：若内存历史为空（典型：进程刚重启），先把 DB 里最近
+      N 条消息回填进内存，让本轮意图识别立刻恢复多轮上下文。
+    """
     append_history(user_id, role, content)
+    if not user_id or not content:
+        return
+    try:
+        from ai.audit import create_conversation, create_message, list_conversations, list_messages
+        conv = None
+        convs = list_conversations(user_id, limit=1)
+        if convs and convs[0].status == 'active':
+            conv = convs[0]
+        if conv is None:
+            conv = create_conversation(user_id, title=content[:30])
+            # 新会话说明内存历史与 DB 历史对齐（都是从零开始），无需回填
+        elif role == 'user' and not get_history(user_id)[:-1]:
+            # 内存里只有刚 append 的这条 user 消息（历史为空）→ 用 DB 历史回填，
+            # 保留刚才那条，避免重复
+            db_messages = list_messages(conv.id, limit=20, user_id=user_id)
+            restored = [
+                {'role': m.role, 'content': m.content}
+                for m in db_messages
+                if m.role in ('user', 'assistant')
+            ]
+            if restored:
+                from ai.history import _AI_CHAT_HISTORY
+                merged = restored + [{'role': role, 'content': content}]
+                _AI_CHAT_HISTORY[user_id] = merged[-AI_CHAT_HISTORY_MAX_TURNS * 2:]
+        create_message(conv.id, role, content)
+    except Exception:  # noqa: BLE001
+        db.session.rollback()
+        app.logger.exception('AI-ASSISTANT-HISTORY-001 对话历史落库失败（不影响 AI 回复）')
 
 def _ai_handle_chat_stream_request(payload):
     """流式返回 AI 回答（SSE），支持多轮对话上下文。

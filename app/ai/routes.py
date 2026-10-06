@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_login import current_user, login_required
 
 from ai.handlers import handle_chat_stream, handle_draft_check, handle_warehouse_assistant
@@ -78,6 +78,14 @@ def chat_clear():
     """Clear the current user's AI chat history."""
     user_id = current_user.id if current_user.is_authenticated else 0
     clear_history(user_id)
+    # AI-ASSISTANT-HISTORY-001：清空同时归档当前活跃 DB 会话，刷新/重启后
+    # 前端不再恢复已清空的对话；历史会话仍可在对话管理页查看。
+    try:
+        for conv in list_conversations(user_id, limit=1):
+            if conv.status == 'active':
+                archive_conversation(conv.id, user_id=user_id)
+    except Exception:
+        current_app.logger.exception('AI-ASSISTANT-HISTORY-001 归档会话失败')
     return jsonify({'status': 'success', 'msg': '已清空对话历史'})
 
 
