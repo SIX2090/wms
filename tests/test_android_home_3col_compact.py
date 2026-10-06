@@ -144,8 +144,8 @@ def test_long_subtitles_shortened():
 
 
 def test_cards_count_unchanged():
-    """13 张卡全部保留（用户决策：只缩小不减少）。"""
+    """13 张卡全部保留（用户决策：只缩小不减少）+ AI 助手卡（AI-ASSISTANT-MOBILE-001）。"""
     src = _read()
     count = src.count("FunctionCard(")
-    # FunctionCard 定义 1 次 + 13 张卡实例 = 14
-    assert count == 14, f"卡片数量变动：FunctionCard( 出现 {count} 次（应为 14）"
+    # FunctionCard 定义 1 次 + 13 张卡实例 + AI 助手卡 = 15
+    assert count == 15, f"卡片数量变动：FunctionCard( 出现 {count} 次（应为 15）"
