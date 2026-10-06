@@ -2653,3 +2653,11 @@
 - **回归锁**：`tests/test_bug_2026_10_06_002_ai_tools_alert_status.py`（8 用例）。
 - **测试踩坑（勿删注释）**：① set_system_setting 不自动 commit，退出 app_context 事务回滚 → 必须双 commit；② Material(unit="个") 触发 backref 炸 `'str' object has no _sa_instance_state'`，须 unit_id + 预建 Unit；③ 跨 context 存 ORM 对象 DetachedInstanceError，存 id；④ Flask 外层 app_ctx 存活时 test_client/test_request_context 复用同一 g，login_user 写的 g._login_user 泄漏污染后续请求（测试脚本须 seed 后退出 ctx 再操作 client）。
 - **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-002 AI 库存工具补 danger 档 + value 接口 MaterialCategory 500`）。
+
+## BUG-2026-10-06-003：AI v1 低库存报告与 v2 工具口径分叉（总账列 + max_stock 补货算法）
+- **现象**（深度检测遗留问题复核，用户拍板立即修复）：AI 对话关键词入口（"补货建议/低库存报告"/intent=analysis_low_stock，app.py:10064 `_ai_analysis_low_stock_report()`）与 v2 工具 `/api/ai/v2/tools/inventory/low-stock` 同数据不同结果：① v1 读 `Material.stock` 总账列且无 stock-truth 豁免（A11 违规：低库存判定属校验语境）；② v1 建议补货量按 `max_stock - stock` 计算，v2 按 safety_stock 口径，同一物料两入口给出不同补货数字；③ v1 排序只按 min_stock 差值，无两级告警概念。
+- **根因**：v1 是 BUG-2026-10-05-003/10-06-002 两轮修复都漏掉的平行入口——同类口径问题的"同语义入口全量排查"没覆盖到 app.py 内嵌的 v1 版本（教训同 10-06-001：dashboard 只有一条代码路径却漏改）。
+- **修复**（app.py `_ai_analysis_low_stock_report()` 重写）：直接转调 v2 工具 `low_stock_report()` 渲染 markdown（R6 防口径分叉：单一实现源）——全仓汇总口径（Σ②库位账）、两级告警（low/danger 列）、补货量按 safety_stock 口径，开关关闭保持"未启用"提示。表头新增"预警级别"列。
+- **验证**：3 场景回归测试全绿——B1 v1/v2 同数据同结果（danger 档 M001 两边都报、库存数一致、M002 normal 两边都不报）/ B2 开关关闭不报 / B3 **两仓脏数据场景**（总账 stock=999 但 B仓流水仅 5 → 全仓汇总 5≤min_stock 应报 low；旧实现读总账列会误判 normal 漏报——本用例在修复前确实红）。存量防破坏：10-05-003/004 + 10-06-001/002 共 20 项全绿。
+- **回归锁**：`tests/test_bug_2026_10_06_003_v1_low_stock_report_scope.py`（3 用例）。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-003 v1 低库存报告转调 v2 工具统一口径`）。

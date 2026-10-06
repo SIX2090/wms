@@ -10062,24 +10062,33 @@ def _ai_analysis_category_summary(category=None):
     return '\n'.join(lines)
 
 def _ai_analysis_low_stock_report():
-    """低库存补货建议报告"""
+    """低库存补货建议报告（AI 对话关键词 / intent 入口）。
+
+    BUG-2026-10-06-003：与 v2 AI 工具 low_stock_report()（app/ai/tools/inventory.py）
+    统一口径，消除三条历史偏差：
+    1. 库存读数改全仓汇总（Σ②库位账，get_all_warehouses_stock_quantities），
+       不再读 Material.stock 总账列（A11：低库存判定属校验语境，禁回退总账）；
+    2. 告警判定改两级口径（low ≤ min_stock / danger ≤ safety_stock），
+       与 _alert_status_for 同源——旧实现排序/补货建议全部只按 min_stock 计算；
+    3. 建议补货量统一按 safety_stock 口径（与 v2 shortage 同算法），
+       旧实现按 max_stock 计算导致两入口数字不一致。
+    实现直接转调 v2 工具结果渲染 markdown，同数据同结果（R6 防口径分叉）。
+    """
     if not inventory_alert_enabled():
         return '库存预警未启用，无法生成低库存报告。请到系统设置开启库存预警。'
-    rows = (
-        Material.query
-        .filter(_material_low_stock_filter())
-        .order_by((Material.min_stock - Material.stock).desc())
-        .limit(20)
-        .all()
-    )
+    from ai.tools.inventory import low_stock_report
+    rows = low_stock_report()
     if not rows:
         return '当前没有低库存物料，库存状态良好。'
     lines = [f'**低库存预警报告（共 {len(rows)} 项）**：\n']
-    lines.append('| 物料编码 | 名称 | 当前库存 | 最低库存 | 建议补货 |')
-    lines.append('|---------|------|---------|---------|---------|')
-    for m in rows:
-        reorder = max(0, (m.max_stock or m.min_stock or 0) - m.stock)
-        lines.append(f'| {m.code} | {(m.name or "")[:12]} | {m.stock:.0f} | {m.min_stock:.0f} | {reorder:.0f} |')
+    lines.append('| 物料编码 | 名称 | 当前库存 | 最低库存 | 预警级别 | 建议补货 |')
+    lines.append('|---------|------|---------|---------|---------|---------|')
+    for r in rows[:20]:
+        reorder = max(0, r.get('shortage') or 0)
+        lines.append(
+            f'| {r.get("code")} | {(r.get("name") or "")[:12]} | '
+            f'{(r.get("quantity") or 0):.0f} | {(r.get("min_stock") or 0):.0f} | '
+            f'{r.get("alert_status") or "-"} | {reorder:.0f} |')
     return '\n'.join(lines)
 
 def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
