@@ -739,6 +739,52 @@ def _match_voice_material(keyword, spec_hint='', warehouse=None, limit=10):
             'root': root, 'spec': spec, 'strategies_tried': tried}
 
 
+def _mobile_alert_warehouse_scoped_ids(warehouse):
+    """BUG-2026-10-06-001：仓库级告警"本仓业务物料" id 集合。
+
+    供 dashboard alert_count 与 /api/mobile/alert/list 共用——此前两段
+    逻辑在 alert_list 里内联，dashboard 未套范围过滤，导致首页计数 20
+    点进去却是空列表（口径不一致）。
+
+    判据（满足其一即为本仓业务物料）：
+      a. 库位账有该仓库存行（含数量 0 历史行；兼容 warehouse_id IS NULL
+         且 location==仓库名/编码的旧行，同 get_warehouse_stock_quantities）；
+      b. 该仓净流水（入-出）> 0（StockTransaction 按 warehouse_id 聚合）；
+      c. 该仓存在正常出库流水（transaction_type='out'）——真用光（入 20
+         出 20 净 0、无库位行）与误录冲回（仅 in + delete_in_item）账面
+         相同，靠有无 out 流水区分，否则真缺货被静默屏蔽。
+    三者皆无（从未进仓/误录已冲回净额 0）不参与该仓告警判定。
+    与 PC inventory_alert._warehouse_scoped_material_ids 同口径。
+    """
+    from sqlalchemy import func as _sa_func, or_ as _sa_or, and_ as _sa_and
+    from app import StockTransaction, LocationInventory
+    _net = (db.session.query(
+                StockTransaction.material_id,
+                _sa_func.coalesce(_sa_func.sum(StockTransaction.quantity), 0))
+            .filter(StockTransaction.warehouse_id == warehouse.id)
+            .group_by(StockTransaction.material_id).all())
+    scoped_ids = {_mid for _mid, _total in _net if (_total or 0) > 0}
+    _wh_name = (warehouse.name or '').strip()
+    _wh_code = (warehouse.code or '').strip()
+    _clauses = [LocationInventory.warehouse_id == warehouse.id]
+    if _wh_name:
+        _clauses.append(_sa_and(
+            LocationInventory.warehouse_id.is_(None),
+            LocationInventory.location == _wh_name))
+    if _wh_code and _wh_code != _wh_name:
+        _clauses.append(_sa_and(
+            LocationInventory.warehouse_id.is_(None),
+            LocationInventory.location == _wh_code))
+    scoped_ids |= {row.material_id for row in db.session.query(
+        LocationInventory.material_id)
+        .filter(_sa_or(*_clauses)).distinct().all()}
+    scoped_ids |= {row.material_id for row in db.session.query(
+        StockTransaction.material_id)
+        .filter(StockTransaction.warehouse_id == warehouse.id,
+                StockTransaction.transaction_type == 'out').distinct().all()}
+    return scoped_ids
+
+
 # no-test:reason=路由注册辅助函数，能力由 native_api_* 与 mobile_api_* 各路由测试覆盖
 def register_native_api_routes(app):
     # 装饰器为 app.py 内部定义（csrf / api_role_required / mobile_api_idempotent /
@@ -1694,13 +1740,22 @@ def register_native_api_routes(app):
                 alert_material_ids = set()
                 for wh in _Warehouse.query.filter_by(status='active').all():
                     quantities = get_warehouse_stock_quantities(wh)
+                    # BUG-2026-10-06-001：逐仓也要套"本仓业务物料"范围过滤，
+                    # 与单仓视图同口径。
+                    wh_scoped = _mobile_alert_warehouse_scoped_ids(wh)
                     for m in candidates:
-                        if _alerting(quantities, m):
+                        if m.id in wh_scoped and _alerting(quantities, m):
                             alert_material_ids.add(m.id)
                 alert_count = len(alert_material_ids)
             else:
                 quantities = get_warehouse_stock_quantities(warehouse)
-                alert_count = sum(1 for m in candidates if _alerting(quantities, m))
+                # BUG-2026-10-06-001：首页告警计数须套"本仓业务物料"范围过滤，
+                # 与 /api/mobile/alert/list 同口径——否则首页计数 20 点进去
+                # 空列表（铜排这类专仓物料从未进项目仓，不该计入）。
+                scoped_ids = _mobile_alert_warehouse_scoped_ids(warehouse)
+                alert_count = sum(
+                    1 for m in candidates
+                    if m.id in scoped_ids and _alerting(quantities, m))
 
         return api_json_success({
             'today_in_orders': today_in_count,
@@ -1981,36 +2036,9 @@ def register_native_api_routes(app):
         # v2 判据 c：存在正常出库流水（'out'）也算本仓业务物料——真用光
         # （入 20 出 20 净 0、无库位行）与误录冲回账面相同，靠有无 out
         # 流水区分，否则真缺货被静默屏蔽（漏报回归，与 PC 端同步）。
-        from sqlalchemy import func as _sa_func
-        from app import StockTransaction, LocationInventory
-        _net = (db.session.query(
-                    StockTransaction.material_id,
-                    _sa_func.coalesce(_sa_func.sum(StockTransaction.quantity), 0))
-                .filter(StockTransaction.warehouse_id == warehouse.id)
-                .group_by(StockTransaction.material_id).all())
-        scoped_ids = {_mid for _mid, _total in _net if (_total or 0) > 0}
-        # 判据 a 兼容历史行（同 get_warehouse_stock_quantities 口径）：
-        # warehouse_id 命中，或 IS NULL 且 location == 仓库名/编码。
-        from sqlalchemy import or_ as _sa_or, and_ as _sa_and
-        _wh_name = (warehouse.name or '').strip()
-        _wh_code = (warehouse.code or '').strip()
-        _clauses = [LocationInventory.warehouse_id == warehouse.id]
-        if _wh_name:
-            _clauses.append(_sa_and(
-                LocationInventory.warehouse_id.is_(None),
-                LocationInventory.location == _wh_name))
-        if _wh_code and _wh_code != _wh_name:
-            _clauses.append(_sa_and(
-                LocationInventory.warehouse_id.is_(None),
-                LocationInventory.location == _wh_code))
-        scoped_ids |= {row.material_id for row in db.session.query(
-            LocationInventory.material_id)
-            .filter(_sa_or(*_clauses)).distinct().all()}
-        # v2 判据 c：存在正常出库流水（'out'）→ 本仓业务物料（真用光兜底）
-        scoped_ids |= {row.material_id for row in db.session.query(
-            StockTransaction.material_id)
-            .filter(StockTransaction.warehouse_id == warehouse.id,
-                    StockTransaction.transaction_type == 'out').distinct().all()}
+        # BUG-2026-10-06-001：判据逻辑提取至 _mobile_alert_warehouse_scoped_ids，
+        # 供 dashboard alert_count 复用，消除首页计数与列表口径不一致。
+        scoped_ids = _mobile_alert_warehouse_scoped_ids(warehouse)
         candidates = [m for m in candidates if m.id in scoped_ids]
 
         rows = []

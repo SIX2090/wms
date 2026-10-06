@@ -2632,3 +2632,13 @@
 - **回归锁**：`tests/test_bug_2026_10_05_004_alert_warehouse_scope.py`（6 用例）+ 存量 `test_bug_2026_08_12_004_mobile_warehouse_scope.py`。
 - **生效确认**：✅ Linux 沙箱实测通过：6/6 新场景（v2 含 S5 漏报回归锁）+ 90 项存量回归全绿；A11 0 违规。
 - **推送与 CI**：待 push（atomic action：`fix(alert): BUG-2026-10-05-004 v2 补漏报判据——真用光（out 流水）照常告警`）。
+
+## BUG-2026-10-06-001：手机端首页 dashboard 告警计数与告警列表口径不一致
+- **现象**（生产实测，手机端截图）：项目仓首页"库存告警"计数显示 20，点进告警列表却是空——从未进过项目仓的铜排等 20 种专仓物料被首页计数误计。
+- **根因**：`/api/mobile/dashboard` 的 `alert_count` 与 `/api/mobile/alert/list` 是两条代码路径。BUG-2026-10-05-004 只修了列表的"本仓业务物料"范围过滤（判据内联在 alert_list 里），dashboard 的 `alert_count` 从未套该过滤，仍按老口径（所有候选物料 × 全局阈值，`quantities.get(m.id, 0)`→0<min_stock 即计数）统计——两条路径口径不一致。
+- **修复**：把 alert_list 内联判据提取为模块级函数 `_mobile_alert_warehouse_scoped_ids(warehouse)`（判据 a 库位行 / b 净流水>0 / c out 流水，与 PC `inventory_alert._warehouse_scoped_material_ids` 同口径）；dashboard 单仓分支与全部仓库分支（逐仓）均套该过滤；alert_list 改为调用同一函数，消除重复逻辑。修后首页计数与列表同源同口径。
+- **验证**：新增回归测试 4 场景实测全绿——D1 专仓物料不计入他仓计数（修复前 1 → 修后 0）/ D2 同场景列表为空（口径一致）/ D3 真缺货（3<5）计入且列表含该物料（不引入漏报）/ D4 全部仓库模式逐仓过滤（铜排属铜排仓业务计 1，项目仓视角 0）。防破坏回归：dashboard/alert/08-12-004/09-10-010/10-05 系列共 113 项 PASSED（4 skipped 属既有）。A11 lint `--full-a11` 0 违规。
+- **回归锁**：`tests/test_bug_2026_10_06_001_dashboard_alert_count_scope.py`（4 用例）+ 存量 `test_bug_2026_09_10_010_dashboard_warehouse_scope.py`（9 用例全绿）。
+- **生效确认**：✅ Linux 沙箱实测通过：4/4 新场景 + 113 项存量回归全绿；A11 0 违规。
+- **推送与 CI**：待 push（atomic action：`fix(mobile): BUG-2026-10-06-001 dashboard 告警计数与列表同口径`）。
+- **教训**：修一类口径问题时要排查所有同语义入口——004 修复时只改了告警列表，漏掉了首页计数这第二条代码路径，用户从手机端首页一眼看出不一致。
