@@ -42,10 +42,16 @@ import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
 import com.factory.wms.ui.viewmodel.ai.AssistantVoiceInputViewModel
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import android.util.Base64
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
 import kotlinx.coroutines.Dispatchers
 
@@ -197,6 +203,59 @@ fun AssistantChatScreen(
                 input = draft
             }
             viewModel.consumeFailedDraft()
+        }
+    }
+
+    // FEATURE-2026-10-07-010：剪贴板图片检测——App 切回前台时查剪贴板，
+    // 发现 image URI 就提示「点此添加为附件」（对标 PC 端 Ctrl+V 贴图能力）。
+    // Android 12+ 系统会弹剪贴板访问提示，属正常行为。
+    val clipboardImageDetected = remember { mutableStateOf<Uri?>(null) }
+    val lastClipboardPromptedUri = remember { mutableStateOf<Uri?>(null) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val alreadyHasAttachment = viewModel.uiState.value.pendingImage != null ||
+                        viewModel.uiState.value.pendingFile != null
+                if (!alreadyHasAttachment) {
+                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    val clip = cm?.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val uri = clip.getItemAt(0).uri
+                        val hasImage = clip.description?.hasMimeType("image/") == true ||
+                                (uri != null && context.contentResolver.getType(uri)?.startsWith("image/") == true)
+                        // 同一 URI 只提示一次（用户拒绝后不再烦人）
+                        if (hasImage && uri != null && uri != lastClipboardPromptedUri.value) {
+                            lastClipboardPromptedUri.value = uri
+                            clipboardImageDetected.value = uri
+                        }
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    if (clipboardImageDetected.value != null) {
+        val clipUri = clipboardImageDetected.value
+        LaunchedEffect(clipUri) {
+            val result = snackbarHostState.showSnackbar(
+                message = "检测到剪贴板图片，添加为附件？",
+                actionLabel = "添加",
+                duration = SnackbarDuration.Indefinite
+            )
+            if (result == SnackbarResult.ActionPerformed) {
+                scope.launch(Dispatchers.IO) {
+                    val bytes = runCatching {
+                        context.contentResolver.openInputStream(clipUri!!)?.use { it.readBytes() }
+                    }.getOrNull()
+                    if (bytes != null) {
+                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        scope.launch { viewModel.setPendingImage(base64) }
+                    }
+                }
+            }
+            clipboardImageDetected.value = null
         }
     }
 

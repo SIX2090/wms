@@ -172,3 +172,14 @@ def test_fix_p3_mime_sniffing():
     assert "b'\\x89PNG" in content, '无 PNG 嗅探'
     assert 'image/webp' in content, '无 WEBP 嗅探'
     assert "f'data:image/jpeg;base64,{req.image}'" not in content, 'MIME 仍写死 jpeg'
+
+
+def test_feature_010_clipboard_image_detection():
+    """FEATURE-010：App 切前台检测剪贴板图片，弹「添加为附件」提示"""
+    content = _screen_content()
+    assert 'CLIPBOARD_SERVICE' in content, '未接入剪贴板服务'
+    assert 'ON_RESUME' in content, '未监听切前台事件'
+    assert '检测到剪贴板图片' in content, '无剪贴板图片提示文案'
+    assert 'lastClipboardPromptedUri' in content, '无同图去重（会反复弹）'
+    # 已有附件时不打扰
+    assert 'alreadyHasAttachment' in content, '已有附件时仍会弹提示'
