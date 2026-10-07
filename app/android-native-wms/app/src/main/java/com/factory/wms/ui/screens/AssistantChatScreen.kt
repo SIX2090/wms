@@ -1,5 +1,9 @@
 package com.factory.wms.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,41 +16,85 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.compose.runtime.saveable.rememberSaveable
 import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.ai.AssistantChatMessage
 import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
+import com.factory.wms.ui.viewmodel.ai.AssistantVoiceInputViewModel
+import kotlinx.coroutines.launch
 
 /**
  * AI-ASSISTANT-MOBILE-001：App 端 AI 助手聊天页。
  *
  * 与 PC AI 助手同一后端链路（28 个意图）：查库存、查单号、今日概况、
  * 建单草稿引导、库存分析问答。所有理解在服务端完成，本地零解析。
+ *
+ * AI-ASSISTANT-VOICE-001：输入区新增语音输入——复用语音指令链的
+ * [com.factory.wms.ui.viewmodel.voice.VoiceSttEngine] 三级引擎回退
+ * （云 ASR → sherpa 本地 → 系统识别），识别文本回填输入框（不自动发送，
+ * 用户可修改后手动发送）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AssistantChatScreen(
     viewModel: AssistantChatViewModel,
+    voiceViewModel: AssistantVoiceInputViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var input by remember { mutableStateOf("") }
+    val voiceState by voiceViewModel.uiState.collectAsState()
+    var input by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     StatusBarIconEffect(darkIcons = false)
+
+    // 麦克风权限：授权后立即开录；拒绝则提示
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            voiceViewModel.startListening(context)
+        } else {
+            voiceViewModel.stopListening()
+            voiceViewModel.clearResult()
+            scope.launch { snackbarHostState.showSnackbar("需要麦克风权限才能使用语音输入") }
+        }
+    }
+
+    // AI-ASSISTANT-VOICE-001：识别完成的文本回填输入框（追加在已有文本后，
+    // 便于连续口述分段补充；不自动发送——ASR 可能有误，用户过目再发）
+    LaunchedEffect(Unit) {
+        voiceViewModel.recognizedText.collect { text ->
+            input = if (input.isBlank()) text else "$input$text"
+        }
+    }
+
+    // 语音输入错误提示（识别失败/无权限/引擎不可用/超时）
+    LaunchedEffect(voiceState.error) {
+        voiceState.error?.let {
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            voiceViewModel.clearResult()
+        }
+    }
 
     // 新消息到达或加载态变化时滚到底部
     LaunchedEffect(uiState.messages.size, uiState.isLoading) {
@@ -121,6 +169,43 @@ fun AssistantChatScreen(
                         .navigationBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
+                    FilledIconButton(
+                        onClick = {
+                            if (voiceState.isListening) {
+                                voiceViewModel.stopListening()
+                            } else {
+                                val granted = ContextCompat.checkSelfPermission(
+                                    context, Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                                if (granted) {
+                                    voiceViewModel.startListening(context)
+                                } else {
+                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(50),
+                        colors = IconButtonDefaults.filledIconButtonColors(
+                            containerColor = if (voiceState.isListening) Error else CardBackground,
+                            contentColor = if (voiceState.isListening) Color.White else Primary
+                        )
+                    ) {
+                        if (voiceState.isListening) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(
+                                Icons.Outlined.Mic,
+                                contentDescription = "语音输入",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
                         value = input,
                         onValueChange = { if (it.length <= 2000) input = it },
@@ -163,6 +248,38 @@ fun AssistantChatScreen(
                     }
                 }
             }
+        }
+
+        // AI-ASSISTANT-VOICE-001：聆听中弹窗——倒计时提示 + 实时识别文本
+        if (voiceState.isListening) {
+            AlertDialog(
+                onDismissRequest = { voiceViewModel.stopListening() },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("语音输入", fontWeight = FontWeight.SemiBold) },
+                text = {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(voiceState.message)
+                        }
+                        if (voiceState.partialText.isNotBlank()) {
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                voiceState.partialText,
+                                color = OnSurfaceVariant,
+                                fontSize = 14.sp
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { voiceViewModel.stopListening() }) { Text("取消") }
+                }
+            )
         }
     }
 }
