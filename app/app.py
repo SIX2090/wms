@@ -12580,6 +12580,80 @@ def _ai_prepare_vision_image(data_url, mime_type):
     compressed_url = 'data:image/jpeg;base64,' + base64.b64encode(compressed).decode('ascii')
     return compressed_url, 'image/jpeg', ''
 
+def _ai_normalize_file_attachments(raw_files):
+    """BUG-2026-10-07-009：解析 App 上传的文件（Excel/PDF），提取文本内容。
+    返回 (file_texts, error)：file_texts 是 [{'name': 'xxx.xlsx', 'text': '...'}] 列表。
+    """
+    if not isinstance(raw_files, list):
+        return [], ''
+    if len(raw_files) > 3:
+        return [], '一次最多上传 3 个文件。'
+    file_texts = []
+    for item in raw_files:
+        if not isinstance(item, dict):
+            continue
+        data_url = str(item.get('data_url') or '').strip()
+        name = str(item.get('name') or '文件').strip()[:80]
+        if not data_url.startswith('data:') or ';base64,' not in data_url:
+            return [], '文件格式不正确。'
+        try:
+            _header, b64_data = data_url.split(',', 1)
+            file_bytes = base64.b64decode(b64_data, validate=True)
+        except Exception:
+            return [], f'文件「{name}」base64 数据不正确。'
+        if len(file_bytes) > 10 * 1024 * 1024:
+            return [], f'文件「{name}」太大，请上传 10MB 以内的文件。'
+        
+        # 按扩展名解析
+        ext = name.rsplit('.', 1)[-1].lower() if '.' in name else ''
+        if ext in {'xlsx', 'xls'}:
+            text = _ai_parse_excel_bytes(file_bytes, name)
+        elif ext == 'pdf':
+            text = _ai_parse_pdf_bytes(file_bytes, name)
+        elif ext in {'txt', 'csv'}:
+            text = file_bytes.decode('utf-8', errors='replace')
+        else:
+            return [], f'不支持的文件类型「{ext}」，请上传 Excel、PDF、TXT 或 CSV。'
+        
+        if text:
+            file_texts.append({'name': name, 'text': text[:5000]})  # 最多 5000 字
+    return file_texts, ''
+
+def _ai_parse_excel_bytes(file_bytes, name):
+    """解析 Excel 文件，提取所有 sheet 的文本"""
+    try:
+        import openpyxl
+        from io import BytesIO
+        wb = openpyxl.load_workbook(BytesIO(file_bytes), read_only=True, data_only=True)
+        texts = []
+        for sheet in wb.worksheets:
+            texts.append(f'## Sheet: {sheet.title}')
+            for row in sheet.iter_rows(values_only=True):
+                row_text = ' | '.join(str(cell) if cell is not None else '' for cell in row)
+                if row_text.strip(' |'):
+                    texts.append(row_text)
+        wb.close()
+        return '\n'.join(texts)
+    except Exception as e:
+        app.logger.warning(f'解析 Excel {name} 失败: {e}')
+        return ''
+
+def _ai_parse_pdf_bytes(file_bytes, name):
+    """解析 PDF 文件，提取文本"""
+    try:
+        import PyPDF2
+        from io import BytesIO
+        reader = PyPDF2.PdfReader(BytesIO(file_bytes))
+        texts = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text:
+                texts.append(text)
+        return '\n'.join(texts)
+    except Exception as e:
+        app.logger.warning(f'解析 PDF {name} 失败: {e}')
+        return ''
+
 def _ai_normalize_intent(raw):
     if not isinstance(raw, dict):
         return None
@@ -22102,10 +22176,14 @@ def _ai_handle_warehouse_assistant_request(payload):
         'page_url': (payload.get('page_url') or '').strip(),
         'page_title': (payload.get('page_title') or '').strip(),
     }
-    images, image_error = _ai_normalize_image_attachments(payload.get('attachments'))
+    # BUG-2026-10-07-009：App 端传 images/files，PC 端传 attachments，统一处理
+    images, image_error = _ai_normalize_image_attachments(payload.get('attachments') or payload.get('images'))
     if image_error:
         return jsonify({'status': 'error', 'msg': image_error}), 400
-    if not message and not images:
+    files, file_error = _ai_normalize_file_attachments(payload.get('files'))
+    if file_error:
+        return jsonify({'status': 'error', 'msg': file_error}), 400
+    if not message and not images and not files:
         return jsonify({'status': 'error', 'msg': '请输入要查询或处理的内容'}), 400
 
     if not _ai_global_enabled():
@@ -22120,6 +22198,13 @@ def _ai_handle_warehouse_assistant_request(payload):
     augmented_message = message
 
     try:
+        # BUG-2026-10-07-009：文件内容拼到 message 前面
+        if files:
+            file_context = '\n\n'.join([f'# 文件「{f["name"]}」内容：\n{f["text"]}' for f in files])
+            augmented_message = f'{file_context}\n\n# 用户问题：\n{message}'
+        else:
+            augmented_message = message
+        
         if images:
             if not _ai_feature_enabled('ai_feature_vision_enabled', True):
                 return _ai_json_response(

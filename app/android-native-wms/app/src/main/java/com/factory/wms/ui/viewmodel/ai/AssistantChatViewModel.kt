@@ -29,7 +29,11 @@ data class AssistantChatUiState(
     val messages: List<AssistantChatMessage> = emptyList(),
     val error: String? = null,
     /** AUDIT-2026-10-07-P6：发送失败需退回输入框的文本（null=无待退回）。 */
-    val failedDraft: String? = null
+    val failedDraft: String? = null,
+    /** BUG-2026-10-07-009：待发送的图片（base64，null=无） */
+    val pendingImage: String? = null,
+    /** BUG-2026-10-07-009：待发送的文件（base64 + 文件名，null=无） */
+    val pendingFile: Pair<String, String>? = null
 )
 
 /**
@@ -61,15 +65,21 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _uiState.value.isLoading) return
 
+        // BUG-2026-10-07-009：附加待发送的图片/文件
+        val image = _uiState.value.pendingImage
+        val file = _uiState.value.pendingFile
+
         _uiState.value = _uiState.value.copy(
             messages = _uiState.value.messages + AssistantChatMessage(text = trimmed, isUser = true),
             isLoading = true,
             error = null,
-            failedDraft = null
+            failedDraft = null,
+            pendingImage = null,
+            pendingFile = null
         )
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
-            val result = repository.assistantChat(trimmed)
+            val result = repository.assistantChat(trimmed, image, file)
             result.fold(
                 onSuccess = { data: AssistantChatResult? ->
                     val reply = data?.reply?.takeIf { it.isNotBlank() }
@@ -95,6 +105,21 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
                 }
             )
         }
+    }
+
+    /** BUG-2026-10-07-009：设置待发送的图片 */
+    fun setPendingImage(base64: String?) {
+        _uiState.value = _uiState.value.copy(pendingImage = base64)
+    }
+
+    /** BUG-2026-10-07-009：设置待发送的文件 */
+    fun setPendingFile(base64: String, fileName: String) {
+        _uiState.value = _uiState.value.copy(pendingFile = base64 to fileName)
+    }
+
+    /** BUG-2026-10-07-009：清除待发送的图片/文件 */
+    fun clearPendingAttachments() {
+        _uiState.value = _uiState.value.copy(pendingImage = null, pendingFile = null)
     }
 
     /** 清空当前对话（仅清本地展示；服务端历史由后端保留）。 */

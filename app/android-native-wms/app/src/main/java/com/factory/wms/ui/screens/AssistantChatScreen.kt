@@ -2,6 +2,7 @@ package com.factory.wms.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -15,6 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteSweep
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
@@ -38,6 +40,10 @@ import com.factory.wms.ui.viewmodel.ai.AssistantChatMessage
 import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
 import com.factory.wms.ui.viewmodel.ai.AssistantVoiceInputViewModel
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
 
 /**
  * AI-ASSISTANT-MOBILE-001：App 端 AI 助手聊天页。
@@ -67,6 +73,43 @@ fun AssistantChatScreen(
     val scope = rememberCoroutineScope()
 
     StatusBarIconEffect(darkIcons = false)
+
+    // BUG-2026-10-07-009：相机/相册/文件 launcher
+    val cameraLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicturePreview()
+    ) { bitmap: Bitmap? ->
+        bitmap?.let {
+            val baos = ByteArrayOutputStream()
+            it.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+            val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+            viewModel.setPendingImage(base64)
+        }
+    }
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.openInputStream(it)?.use { input ->
+                val bytes = input.readBytes()
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                viewModel.setPendingImage(base64)
+            }
+        }
+    }
+
+    val fileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            context.contentResolver.openInputStream(it)?.use { input ->
+                val bytes = input.readBytes()
+                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val fileName = it.lastPathSegment ?: "文件"
+                viewModel.setPendingFile(base64, fileName)
+            }
+        }
+    }
 
     // 麦克风权限：授权后立即开录；拒绝则提示
     val micPermissionLauncher = rememberLauncherForActivityResult(
@@ -185,6 +228,51 @@ fun AssistantChatScreen(
                         .navigationBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // BUG-2026-10-07-009：+ 按钮（相机/相册/文件）
+                    var showAttachMenu by remember { mutableStateOf(false) }
+                    Box {
+                        FilledIconButton(
+                            onClick = { showAttachMenu = true },
+                            shape = RoundedCornerShape(50),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = CardBackground,
+                                contentColor = Primary
+                            )
+                        ) {
+                            Icon(
+                                Icons.Outlined.Add,
+                                contentDescription = "附件",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showAttachMenu,
+                            onDismissRequest = { showAttachMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("拍照") },
+                                onClick = {
+                                    showAttachMenu = false
+                                    cameraLauncher.launch(null)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("相册") },
+                                onClick = {
+                                    showAttachMenu = false
+                                    galleryLauncher.launch("image/*")
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("文件") },
+                                onClick = {
+                                    showAttachMenu = false
+                                    fileLauncher.launch("*/*")
+                                }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.width(8.dp))
                     // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
                     FilledIconButton(
                         onClick = {

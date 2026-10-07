@@ -114,7 +114,13 @@ data class VoiceIntentResult(
  */
 data class AssistantChatRequest(
     /** 用户输入，1~2000 字 */
-    val text: String
+    val text: String,
+    /** BUG-2026-10-07-009：图片 base64（可选） */
+    val image: String? = null,
+    /** BUG-2026-10-07-009：文件 base64（可选） */
+    val file: String? = null,
+    /** BUG-2026-10-07-009：文件名（可选，解析用） */
+    @SerializedName("file_name") val fileName: String? = null
 )
 
 /**

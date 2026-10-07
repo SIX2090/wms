@@ -1103,12 +1103,26 @@ class WmsRepository(
     }
 
     /** AI-ASSISTANT-MOBILE-001：AI 助手对话（与 PC 同链路）。 */
-    suspend fun assistantChat(text: String): Result<AssistantChatResult> {
+    suspend fun assistantChat(
+        text: String,
+        image: String? = null,
+        file: Pair<String, String>? = null
+    ): Result<AssistantChatResult> {
         // AUDIT-2026-10-07-P3：冷启动竞态兜底（同 getDashboard 口径）。
         // App 启动直接进 AI 聊天页发消息时，若 session 还没还原（baseUrl 空），
         // apiService getter 会抛「服务器地址未配置」——先 ensureSession 再发。
         ensureSession()
-        return safeCall { api.assistantChat(newRequestId(), AssistantChatRequest(text)) }
+        return safeCall {
+            api.assistantChat(
+                newRequestId(),
+                AssistantChatRequest(
+                    text = text,
+                    image = image,
+                    file = file?.first,
+                    fileName = file?.second
+                )
+            )
+        }
     }
 
     /**

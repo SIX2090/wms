@@ -3888,6 +3888,9 @@ def register_native_api_routes(app):
 
         class AssistantChatRequest(BaseModel):
             text: str = Field(min_length=1, max_length=2000)
+            image: str | None = Field(None, max_length=10_000_000)  # base64，可选
+            file: str | None = Field(None, max_length=10_000_000)  # base64，可选
+            file_name: str | None = Field(None, max_length=255)  # 文件名（解析用）
 
         payload = request.get_json(silent=True) or {}
         try:
@@ -3914,10 +3917,20 @@ def register_native_api_routes(app):
         from flask_login import login_user
         login_user(user)
 
+        # BUG-2026-10-07-009：App 支持上传图片/文件给 AI 识别
+        images = []
+        if req.image:
+            images.append({'data_url': f'data:image/jpeg;base64,{req.image}'})
+        files = []
+        if req.file and req.file_name:
+            files.append({'data_url': f'data:application/octet-stream;base64,{req.file}', 'name': req.file_name})
+
         resp = _ai_handle_warehouse_assistant_request({
             'message': text,
             'page_url': '/mobile/assistant',
             'page_title': 'AI 助手（App）',
+            'images': images if images else None,
+            'files': files if files else None,
         })
         if resp is None:
             return api_json_error('AI 助手暂时不可用，请稍后重试', 503)
