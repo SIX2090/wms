@@ -121,6 +121,8 @@ object RetrofitClient {
     // AUDIT-2026-10-07-P1：LLM 长请求读超时（秒）。
     // 后端 ai_llm_timeout_seconds 上限 60s（系统设置），再留一倍余量给
     // 意图理解 + 查库 + 兜底重试，120s 足够覆盖最坏链路。
+    // BUG-2026-10-07-013：识物/单据 OCR 的后端视觉超时是 max(配置,60)=60s+，
+    // 大图识别常超 30s——此白名单已覆盖 recognize_material / document_ocr。
     // 注意：Interceptor.Chain.withReadTimeout 的签名是 (Int, TimeUnit)，
     // 用 Int 而不是 Long（CI 编译错误教训：Long 会 Argument type mismatch）。
     const val LLM_READ_TIMEOUT_SECONDS: Int = 120
