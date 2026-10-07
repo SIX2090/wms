@@ -2678,3 +2678,15 @@ BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部�
 
 终态：5013764 的 WMS CI 9/9 job 全绿（含 3 unit-tests-shard + 4 verify-shard
 + lint-and-static + smoke）。至此深度检测全部 BUG 修复完毕，CI 全绿。
+
+## BUG-2026-10-07-004：视觉模型纯 JSON 回复被丢弃，误报「没有返回具体错误」
+
+- **日期**：2026-10-07
+- **现象**：AI 助手上传票据图 +「提取产品名称 产品型号」，模型成功识别并按 OCR prompt 返回纯 JSON（无文字说明、无 ```json 包裹），前端却收到「图片已收到，但当前大模型没有成功返回图片分析结果。没有返回具体错误。」
+- **根因**：`_ai_call_llm_vision` 的解析链只认「文字回复」：`_ai_vision_parse_extracted` 对裸 JSON（无代码块包裹）返回 reply=整个 JSON 文本或 extracted=None；doc vision 链 normalize 失败（document_type=other 等）后回落到 vision 链，reply 为空时主链路直接判失败，提取结果全部丢弃。
+- **修复**（app/app.py 三处）：
+  1. `_ai_call_llm_vision`：`_ai_vision_parse_extracted` 解析不出 extracted 时，补裸 JSON 兜底 `_ai_extract_json_object(content)`；reply 与 extracted 双空时才报「没有可用内容」。
+  2. 主链路：`vision_reply` 为空但 `extracted` 非空时，用新增的 `_ai_vision_extracted_fallback_reply(extracted)` 生成可读明细兜底回复，继续走建单/确认流程。
+  3. 新增 `_ai_vision_extracted_fallback_reply`：渲染单据类型/单号/供应商/明细（编码、名称、规格、数量、单位，上限 20 条）；空提取（无 items 且无单号）返回空串、保持原错误分支。
+- **验证**：tests/verify_bug_2026_10_07_004_vision_json_only.py 7 项静态契约全过；关联回归 62 passed（OCR/draft/chat endpoint/wechat share/document confirmation）；lint --staged 0 违规；app.py ast.parse 语法通过。
+- **关联**：修复脚本 tools/fix_bug_2026_10_07_004_vision_json_only.py（幂等）。

@@ -12700,6 +12700,14 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
         if not content:
             return None, None, '供应商接口返回成功，但 choices[0].message.content 为空'
         reply, extracted = _ai_vision_parse_extracted(content)
+        if not extracted:
+            bare = _ai_extract_json_object(content)
+            if isinstance(bare, dict):
+                extracted = bare
+                if not reply or not reply.strip():
+                    reply = ''
+        if not reply.strip() and not extracted:
+            return None, None, '供应商接口返回成功，但没有可用的文本或结构化内容'
         return reply[:1400], extracted, ''
     except Exception as exc:
         app.logger.warning('AI vision model unavailable: %s', exc)
@@ -12722,6 +12730,41 @@ def _ai_vision_parse_extracted(content):
     except (ValueError, TypeError):
         pass
     return content.strip(), None
+
+
+def _ai_vision_extracted_fallback_reply(extracted):
+    """BUG-2026-10-07-004：视觉模型只返回结构化提取（无文字说明）时的兜底回复。
+
+    模型按 doc prompt 输出纯 JSON 时，主链路不应把提取结果当成「模型没有返回」。
+    这里把 items 渲染成用户可读的明细列表，供后续建单/确认流程继续走。
+    """
+    if not isinstance(extracted, dict):
+        return ''
+    items = extracted.get('items') or []
+    lines = ['图片已识别，提取到以下内容：']
+    doc_type = str(extracted.get('document_type') or '').strip()
+    if doc_type:
+        label = AI_DOC_TYPE_LABELS.get(doc_type) or doc_type
+        lines.append(f'单据类型：{label}')
+    for field in ('order_no', 'delivery_no', 'supplier', 'customer'):
+        value = str(extracted.get(field) or '').strip()
+        if value:
+            lines.append(f'{field}：{value}')
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+        bits = []
+        for key, label in (('code', '编码'), ('name', '名称'), ('spec', '规格'), ('quantity', '数量'), ('unit', '单位')):
+            value = str(item.get(key) or '').strip()
+            if value and value not in ('0', '0.0'):
+                bits.append(f'{label} {value}')
+        if bits:
+            lines.append('・' + '，'.join(bits))
+    if len(items) > 20:
+        lines.append(f'……共 {len(items)} 条明细')
+    if not extracted.get('order_no') and not items:
+        return ''
+    return '\n'.join(lines)
 
 def _ai_vision_try_create_draft(extracted, message):
     """根据视觉模型提取的结构化数据尝试创建单据草稿。
@@ -21911,6 +21954,8 @@ def _ai_handle_warehouse_assistant_request(payload):
                     return _ai_json_response(reply_text, body.get('cards') or [], body.get('actions') or [])
 
             vision_reply, extracted, vision_error = _ai_call_llm_vision(message, images, context)
+            if not vision_reply and extracted:
+                vision_reply = _ai_vision_extracted_fallback_reply(extracted)
             if vision_reply:
                 # 尝试根据提取的结构化数据自动建单
                 structured_response = _ai_create_draft_from_extracted(extracted, source='vision', context=context)
