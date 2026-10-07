@@ -12547,6 +12547,8 @@ def _ai_call_llm_intent(message, overrides=None):
         'analysis_turnover, analysis_stock_value, analysis_supplier, analysis_consumption_trend, analysis_low_stock, analysis_category, exception_workbench, agent_patrol, delivery_note_inbound, help。'
         'params 允许包含：keyword、warehouse（仓库名/库位，字符串）、days（天数，整数）、category（物料分类名，字符串）。'
         '只有用户明确提到时才填相应字段，未提到就省略。'
+        '用户提到「X仓」「X仓库」「X库房」时，必须在 params.warehouse 填仓库名（去掉「仓/仓库/库房」后缀），例如「铜牌仓」→warehouse="铜牌"，「原材料仓库」→warehouse="原材料"。'
+        '用户问「某仓有什么物料/某仓所有物料库存/某仓有多少物料」且没有指定具体物料时，intent 选 query_material，params 只填 warehouse，不填 keyword。'
         '新增、生成、开单只能选择草稿 intent；不要选择提交、审核、完成等高风险动作。'
         '如果用户问库存、物料、还有多少，选择 query_material；问流水/最近变化选择 stock_transactions；'
         '问库存账物不一致/账实不符/账实不一致/系统库存和实物不一致/库存盘点差异/库存不准怎么办，选择 inventory_discrepancy；'
@@ -21648,6 +21650,31 @@ def _ai_execute_intent(message, intent_payload, context=None):
         alt_keyword = keyword.replace('×', '*')
         if _ai_material_query(alt_keyword, limit=1):
             keyword = alt_keyword
+    # BUG-2026-10-07-006：LLM 未填 warehouse 时，用规则从消息里识别仓库。
+    # 策略：遍历 active 仓库，消息里包含仓库名/编码（可加「仓/仓库」后缀）即识别。
+    if not str(params.get('warehouse') or '').strip() and intent in {'query_material', 'stock_transactions', 'stock_alerts'}:
+        msg_compact = (message or '').replace(' ', '')
+        matched_wh = None
+        matched_alias = ''
+        for wh in get_active_warehouses():
+            aliases = [wh.name, wh.code]
+            # 也接受「X仓」「X仓库」「X库房」的扩展形式
+            aliases.extend([f'{wh.name}仓', f'{wh.name}仓库', f'{wh.name}库房'])
+            for alias in aliases:
+                if alias and len(alias) >= 2 and alias in msg_compact:
+                    # 取最长匹配（避免「铜排仓」优先于「铜排」）
+                    if not matched_wh or len(alias) > len(matched_alias):
+                        matched_wh = wh
+                        matched_alias = alias
+        if matched_wh:
+            params['warehouse'] = matched_wh.name
+            # 把消息里匹配到的仓库部分剔除，看剩下还有没有其他物料关键词
+            cleaned = msg_compact.replace(matched_alias, ' ', 1)
+            cleaned_kw = _ai_guess_keyword(cleaned)
+            if not cleaned_kw or not _ai_material_query(cleaned_kw, limit=1):
+                keyword = ''
+            else:
+                keyword = cleaned_kw
     context = context or {}
 
     supplier_profile_response = _ai_supplier_profile_response(message, context)
@@ -21766,6 +21793,46 @@ def _ai_execute_intent(message, intent_payload, context=None):
         )
 
     if intent in {'query_material', 'stock_transactions'}:
+        # BUG-2026-10-07-006：用户问「某仓有什么物料/某仓所有物料库存」时，
+        # params.warehouse 有值但 keyword 可能为空或不相关。此时按仓库列出库存物料。
+        warehouse_param = str(params.get('warehouse') or '').strip()
+        if warehouse_param:
+            warehouse_obj = Warehouse.query.filter(
+                db.or_(Warehouse.name == warehouse_param, Warehouse.code == warehouse_param)
+            ).order_by(Warehouse.id.asc()).first()
+            if not warehouse_obj:
+                return _ai_json_response(f'没有找到仓库「{warehouse_param}」，可以换仓库名称或编码再试一次。')
+            stock_map = get_warehouse_stock_quantities(warehouse_obj)
+            if not stock_map:
+                return _ai_json_response(f'仓库「{warehouse_obj.name}」当前没有库存物料。')
+            # keyword 有值时在仓库内过滤，否则列出全部
+            material_ids = list(stock_map.keys())
+            q = Material.query.options(
+                joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier)
+            ).filter(Material.id.in_(material_ids))
+            if keyword:
+                like = f'%{keyword}%'
+                q = q.filter(db.or_(
+                    Material.code.ilike(like),
+                    Material.name.ilike(like),
+                    Material.spec.ilike(like),
+                ))
+            materials = q.order_by(Material.code.asc()).limit(20).all()
+            if not materials:
+                return _ai_json_response(f'仓库「{warehouse_obj.name}」没有找到匹配「{keyword}」的物料。')
+            cards = []
+            for m in materials:
+                payload = _ai_material_payload(m)
+                payload['stock'] = normalize_stock_quantity(stock_map.get(m.id, 0))
+                payload['warehouse'] = warehouse_obj.name
+                cards.append(payload)
+            total_qty = sum(stock_map.get(m.id, 0) for m in materials)
+            actions = [{'label': '打开库存查询', 'url': url_for('material_list', search=keyword or '', warehouse_id=warehouse_obj.id)}]
+            return _ai_json_response(
+                f'仓库「{warehouse_obj.name}」共 {len(materials)} 种物料，合计库存 {normalize_stock_quantity(total_qty)}。',
+                cards,
+                actions,
+            )
         materials = _ai_material_query(keyword, limit=8)
         if not materials and keyword:
             materials = _ai_material_query(_ai_guess_keyword(message), limit=8)
