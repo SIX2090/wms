@@ -12641,9 +12641,9 @@ def _ai_parse_excel_bytes(file_bytes, name):
 def _ai_parse_pdf_bytes(file_bytes, name):
     """解析 PDF 文件，提取文本"""
     try:
-        import PyPDF2
+        import pypdf
         from io import BytesIO
-        reader = PyPDF2.PdfReader(BytesIO(file_bytes))
+        reader = pypdf.PdfReader(BytesIO(file_bytes))
         texts = []
         for page in reader.pages:
             text = page.extract_text()

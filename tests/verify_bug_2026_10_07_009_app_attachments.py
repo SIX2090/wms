@@ -68,7 +68,7 @@ def test_app_parses_pdf():
     app_py = Path(__file__).parent.parent / 'app' / 'app.py'
     content = app_py.read_text(encoding='utf-8', errors='replace')
     assert 'def _ai_parse_pdf_bytes(' in content
-    assert 'PyPDF2' in content
+    assert 'pypdf' in content
 
 
 def test_android_viewmodel_supports_image():
