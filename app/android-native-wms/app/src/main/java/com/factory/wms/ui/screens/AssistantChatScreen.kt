@@ -120,10 +120,29 @@ fun AssistantChatScreen(
     ) { uri: Uri? ->
         uri?.let {
             scope.launch(Dispatchers.IO) {
-                val bytes = runCatching {
-                    context.contentResolver.openInputStream(it)?.use { input -> input.readBytes() }
+                // FIX-2026-10-07-011：相册原图动辄 3-5MB（HEIC 更大），base64 后
+                // +33% 极易超 nginx client_max_body_size（默认 1M）→ 413。
+                // 与拍照同口径：解码后按最长边 1600px 压缩 + JPEG 85%。
+                val bitmap = runCatching {
+                    context.contentResolver.openInputStream(it)?.use { input ->
+                        BitmapFactory.decodeStream(input)
+                    }
                 }.getOrNull() ?: return@launch
-                val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                val maxSide = 1600
+                val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
+                    val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
+                    Bitmap.createScaledBitmap(
+                        bitmap,
+                        (bitmap.width * scale).toInt().coerceAtLeast(1),
+                        (bitmap.height * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    bitmap
+                }
+                val baos = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
                 scope.launch { viewModel.setPendingImage(base64) }
             }
         }
@@ -246,11 +265,28 @@ fun AssistantChatScreen(
             )
             if (result == SnackbarResult.ActionPerformed) {
                 scope.launch(Dispatchers.IO) {
-                    val bytes = runCatching {
-                        context.contentResolver.openInputStream(clipUri!!)?.use { it.readBytes() }
+                    // FIX-2026-10-07-011：同相册口径，最长边 1600px + JPEG 85%
+                    val bitmap = runCatching {
+                        context.contentResolver.openInputStream(clipUri!!)?.use { input ->
+                            BitmapFactory.decodeStream(input)
+                        }
                     }.getOrNull()
-                    if (bytes != null) {
-                        val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    if (bitmap != null) {
+                        val maxSide = 1600
+                        val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
+                            val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
+                            Bitmap.createScaledBitmap(
+                                bitmap,
+                                (bitmap.width * scale).toInt().coerceAtLeast(1),
+                                (bitmap.height * scale).toInt().coerceAtLeast(1),
+                                true
+                            )
+                        } else {
+                            bitmap
+                        }
+                        val baos = ByteArrayOutputStream()
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                        val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
                         scope.launch { viewModel.setPendingImage(base64) }
                     }
                 }

@@ -183,3 +183,14 @@ def test_feature_010_clipboard_image_detection():
     assert 'lastClipboardPromptedUri' in content, '无同图去重（会反复弹）'
     # 已有附件时不打扰
     assert 'alreadyHasAttachment' in content, '已有附件时仍会弹提示'
+
+
+def test_fix_011_gallery_clipboard_compressed():
+    """FIX-011：相册/剪贴板图片统一压缩（最长边 1600px + JPEG85），防 413"""
+    content = _screen_content()
+    # 相册路径和剪贴板路径都必须走解码压缩，不能直接 readBytes
+    gallery_section = content[content.find('val galleryLauncher'):content.find('val fileLauncher')]
+    assert 'BitmapFactory.decodeStream' in gallery_section, '相册仍直传原图'
+    assert gallery_section.count('readBytes()') == 0, '相册未压缩直传'
+    clipboard_section = content[content.find('clipboardImageDetected.value != null'):content.find('Scaffold(')]
+    assert 'BitmapFactory.decodeStream' in clipboard_section, '剪贴板仍直传原图'
