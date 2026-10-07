@@ -10811,6 +10811,60 @@ def _ai_today_issued_materials(limit=12):
     reply = f'今天共有 {total_orders} 张出库/领料单，下面列出前 {len(cards)} 条出库物料。' if cards else '今天还没有出库/领料物料记录。'
     return reply, cards
 
+def _ai_supplier_deliveries(supplier_name, days=1, limit=20):
+    """BUG-2026-10-07-008：按供应商查入库单。
+    用户问「X今天送了什么货」「X最近送了什么」时调用。
+    """
+    supplier = Supplier.query.filter(
+        db.or_(
+            Supplier.name.ilike(f'%{supplier_name}%'),
+            Supplier.code.ilike(f'%{supplier_name}%')
+        )
+    ).order_by(Supplier.id.asc()).first()
+    if not supplier:
+        return f'没有找到供应商「{supplier_name}」，可以换名称或编码再试一次。', []
+
+    start_date = date.today() - timedelta(days=days - 1)
+    rows = (
+        InOrderItem.query
+        .options(joinedload(InOrderItem.material).joinedload(Material.unit), joinedload(InOrderItem.in_order))
+        .join(InOrder, InOrderItem.in_order_id == InOrder.id)
+        .join(Material, InOrderItem.material_id == Material.id)
+        .filter(InOrder.supplier_id == supplier.id, InOrder.date >= start_date)
+        .order_by(InOrder.date.desc(), InOrder.id.desc(), InOrderItem.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+    cards = []
+    for item in rows:
+        material = item.material
+        order = item.in_order
+        cards.append({
+            'title': f'{material.code if material else ""} {material.name if material else ""}'.strip(),
+            'meta': f'入库 {normalize_stock_quantity(item.quantity or 0)} {material.unit.name if material and material.unit else ""}，单号 {order.order_no if order else ""}，日期 {order.date if order else ""}',
+            'url': url_for('in_order_detail', id=order.id) if order else '',
+        })
+
+    total_orders = InOrder.query.filter(
+        InOrder.supplier_id == supplier.id,
+        InOrder.date >= start_date
+    ).count()
+
+    if days == 1:
+        time_desc = '今天'
+    elif days == 7:
+        time_desc = '最近7天'
+    else:
+        time_desc = f'最近{days}天'
+
+    reply = (
+        f'供应商「{supplier.name}」{time_desc}共有 {total_orders} 张入库单，下面列出前 {len(cards)} 条明细。'
+        if cards else
+        f'供应商「{supplier.name}」{time_desc}没有入库记录。'
+    )
+    return reply, cards
+
 def _ai_stock_transactions(material, limit=8):
     rows = StockTransaction.query.filter_by(material_id=material.id).order_by(StockTransaction.created_at.desc()).limit(limit).all()
     cards = []
@@ -12581,9 +12635,9 @@ def _ai_call_llm_intent(message, overrides=None):
         '你是仓库管理系统的意图解析器，只输出 JSON，不要输出解释。'
         '可用 intent：greeting, model_status, current_time, general_chat, inventory_discrepancy, today_issued_materials, today_received_materials, today_summary, '
         'create_out_order_draft, create_in_order_draft, create_transfer_draft, create_check_draft, create_adjustment_draft, '
-        'find_orders, stock_alerts, pending_documents, query_material, stock_transactions, '
+        'find_orders, stock_alerts, pending_documents, query_material, stock_transactions, query_supplier_deliveries, '
         'analysis_turnover, analysis_stock_value, analysis_supplier, analysis_consumption_trend, analysis_low_stock, analysis_category, exception_workbench, agent_patrol, delivery_note_inbound, help。'
-        'params 允许包含：keyword、warehouse（仓库名/库位，字符串）、days（天数，整数）、category（物料分类名，字符串）。'
+        'params 允许包含：keyword、warehouse（仓库名/库位，字符串）、days（天数，整数）、category（物料分类名，字符串）、supplier（供应商名/编码，字符串）。'
         '只有用户明确提到时才填相应字段，未提到就省略。'
         '用户提到「X仓」「X仓库」「X库房」时，必须在 params.warehouse 填仓库名（去掉「仓/仓库/库房」后缀），例如「铜牌仓」→warehouse="铜牌"，「原材料仓库」→warehouse="原材料"。'
         '用户问「某仓有什么物料/某仓所有物料库存/某仓有多少物料」且没有指定具体物料时，intent 选 query_material，params 只填 warehouse，不填 keyword。'
@@ -12594,6 +12648,7 @@ def _ai_call_llm_intent(message, overrides=None):
         '问你好/您好/在吗选择 greeting；问你是谁/哪个模型/是否接入大模型选择 model_status；'
         '问现在几点/当前时间/今天日期选择 current_time；完全不属于仓库业务或系统操作的问题选择 general_chat；'
         '问今天概况选择 today_summary；问今天入库/到货选择 today_received_materials；问今天出库/领料选择 today_issued_materials。'
+        '问「某供应商今天/最近送了什么货」选择 query_supplier_deliveries，params 必须填 supplier（供应商名或编码），可选填 days（默认1=今天，7=最近7天）。'
         '生成领料单/出库单选择 create_out_order_draft；生成入库单/产品入库选择 create_in_order_draft；'
         '调拨/转移/转库（从一个仓库转到另一个仓库）选择 create_transfer_draft；'
         '盘点/盘库/清点库存选择 create_check_draft；'
@@ -21745,6 +21800,14 @@ def _ai_execute_intent(message, intent_payload, context=None):
 
     if intent == 'today_received_materials':
         reply, cards = _ai_today_received_materials()
+        return _ai_json_response(reply, cards, [{'label': '打开入库列表', 'url': url_for('in_order_list')}])
+
+    if intent == 'query_supplier_deliveries':
+        supplier_param = str(params.get('supplier') or '').strip()
+        days = int(params.get('days') or 1)
+        if not supplier_param:
+            return _ai_json_response('请告诉我要查哪个供应商，例如「万通今天送了什么货」。')
+        reply, cards = _ai_supplier_deliveries(supplier_param, days)
         return _ai_json_response(reply, cards, [{'label': '打开入库列表', 'url': url_for('in_order_list')}])
 
     if intent == 'today_summary':
