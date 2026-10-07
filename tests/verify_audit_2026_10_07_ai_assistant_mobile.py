@@ -62,10 +62,11 @@ def test_p1_llm_paths_covered():
 
 
 def test_p1_timeout_value():
-    """超时常量 120s 定义且被引用。"""
+    """超时常量 120s 定义且被引用（Int 类型——withReadTimeout 签名要求）。"""
     src = _read(RETROFIT)
     assert "LLM_READ_TIMEOUT_SECONDS" in src, "P1：超时常量缺失"
-    assert "120L" in src, "P1：超时值不是 120s"
+    assert "120" in src, "P1：超时值不是 120s"
+    assert "LLM_READ_TIMEOUT_SECONDS: Int" in src, "P1：超时常量必须是 Int"
 
 
 def test_p1_interceptor_registered():

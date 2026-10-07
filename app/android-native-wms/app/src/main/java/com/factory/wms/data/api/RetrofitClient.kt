@@ -115,5 +115,7 @@ object RetrofitClient {
     // AUDIT-2026-10-07-P1：LLM 长请求读超时（秒）。
     // 后端 ai_llm_timeout_seconds 上限 60s（系统设置），再留一倍余量给
     // 意图理解 + 查库 + 兜底重试，120s 足够覆盖最坏链路。
-    const val LLM_READ_TIMEOUT_SECONDS: Long = 120L
+    // 注意：Interceptor.Chain.withReadTimeout 的签名是 (Int, TimeUnit)，
+    // 用 Int 而不是 Long（CI 编译错误教训：Long 会 Argument type mismatch）。
+    const val LLM_READ_TIMEOUT_SECONDS: Int = 120
 }
