@@ -53,11 +53,17 @@ object RetrofitClient {
     // 30s 必断——用户只看到「网络错误: timeout」，后端 503 JSON 都收不到。
     // 方案：Interceptor.Chain.withReadTimeout（OkHttp 4.10+）按路径放宽到 120s，
     // 其余请求保持 30s 不变。
+    // BUG-2026-10-07-013：识物 recognize_material 与单据 OCR document_ocr 同样走
+    // 视觉 LLM（_ai_call_llm_vision，后端超时 max(配置,60)=60s+），视觉识别大图
+    // 常超 30s；P1 白名单漏了这两条路径——用户拍照识物 30s 必被 App 掐断，
+    // 只见「网络错误: timeout」，误以为识物功能全坏。补进白名单。
     private val llmTimeoutInterceptor = Interceptor { chain ->
         val path = chain.request().url.encodedPath
         val isLlmPath = path.endsWith("/api/mobile/assistant_chat") ||
             path.endsWith("/api/mobile/voice_intent") ||
-            path.endsWith("/api/mobile/voice_out_draft")
+            path.endsWith("/api/mobile/voice_out_draft") ||
+            path.endsWith("/api/recognize_material") ||
+            path.endsWith("/api/ai/document_ocr")
         if (isLlmPath) {
             chain.withReadTimeout(LLM_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .proceed(chain.request())

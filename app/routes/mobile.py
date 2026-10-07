@@ -1068,6 +1068,13 @@ def register_mobile_routes(app):
                 system_prompt=material_system_prompt,
             )
             if error:
+                # BUG-2026-10-07-013：识物失败不留任何痕迹（不写 ai_run/操作日志），
+                # 现场排障只能靠猜。这里补一条 warning（仅状态与原因，不含图片数据
+                # 与供应商原始响应，避免敏感信息入日志）。
+                current_app.logger.warning(
+                    '识物失败 user=%s size=%dKB reason=%s',
+                    getattr(_user, 'id', None), file_size // 1024, error[:200],
+                )
                 return jsonify({'status': 'error', 'success': False, 'msg': error}), 500
 
             matches = []
