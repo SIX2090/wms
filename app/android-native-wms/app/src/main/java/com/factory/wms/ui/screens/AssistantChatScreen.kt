@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.DeleteSweep
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Mic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -43,7 +44,10 @@ import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.provider.OpenableColumns
 import android.util.Base64
+import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
+import kotlinx.coroutines.Dispatchers
 
 /**
  * AI-ASSISTANT-MOBILE-001：App 端 AI 助手聊天页。
@@ -74,15 +78,34 @@ fun AssistantChatScreen(
 
     StatusBarIconEffect(darkIcons = false)
 
-    // BUG-2026-10-07-009：相机/相册/文件 launcher
-    val cameraLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicturePreview()
-    ) { bitmap: Bitmap? ->
-        bitmap?.let {
-            val baos = ByteArrayOutputStream()
-            it.compress(Bitmap.CompressFormat.JPEG, 85, baos)
-            val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
-            viewModel.setPendingImage(base64)
+    // AUDIT-2026-10-07-009-P1：相机改用全尺寸拍照（TakePicture + FileProvider），
+    // 不再用低清缩略图契约（送货单小字识别需要全分辨率）。
+    // 复用 components/CameraLauncher.kt（含权限申请与 OEM 兼容授权，ScanScreenBase 同款）。
+    val cameraCapture = rememberCameraLauncherWithPermission(snackbarHostState) { uri: Uri ->
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    BitmapFactory.decodeStream(input)
+                }
+            }.getOrNull()?.let { bitmap ->
+                // 限制最长边 1600px：送货单细节保留 + 控制上传体积（base64 后 ~1MB 内）
+                val maxSide = 1600
+                val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
+                    val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
+                    Bitmap.createScaledBitmap(
+                        bitmap,
+                        (bitmap.width * scale).toInt().coerceAtLeast(1),
+                        (bitmap.height * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                } else {
+                    bitmap
+                }
+                val baos = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+                scope.launch { viewModel.setPendingImage(base64) }
+            }
         }
     }
 
@@ -90,10 +113,12 @@ fun AssistantChatScreen(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            context.contentResolver.openInputStream(it)?.use { input ->
-                val bytes = input.readBytes()
+            scope.launch(Dispatchers.IO) {
+                val bytes = runCatching {
+                    context.contentResolver.openInputStream(it)?.use { input -> input.readBytes() }
+                }.getOrNull() ?: return@launch
                 val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                viewModel.setPendingImage(base64)
+                scope.launch { viewModel.setPendingImage(base64) }
             }
         }
     }
@@ -102,11 +127,23 @@ fun AssistantChatScreen(
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
-            context.contentResolver.openInputStream(it)?.use { input ->
-                val bytes = input.readBytes()
+            scope.launch(Dispatchers.IO) {
+                // AUDIT-2026-10-07-009-P1：文件名从 ContentResolver 查 DISPLAY_NAME。
+                // uri.lastPathSegment 在 content:// URI 下返回 provider 内部 ID（如 msf:76），
+                // 不带扩展名 → 后端按扩展名路由解析会直接拒绝。
+                val fileName = runCatching {
+                    context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+                    }
+                }.getOrNull() ?: it.lastPathSegment ?: "文件"
+
+                val bytes = runCatching {
+                    context.contentResolver.openInputStream(it)?.use { input -> input.readBytes() }
+                }.getOrNull() ?: return@launch
+
                 val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                val fileName = it.lastPathSegment ?: "文件"
-                viewModel.setPendingFile(base64, fileName)
+                scope.launch { viewModel.setPendingFile(base64, fileName) }
             }
         }
     }
@@ -216,6 +253,44 @@ fun AssistantChatScreen(
                 }
             }
 
+            // AUDIT-2026-10-07-009-P2：附件预览条——拍照/选文件后必须有可视反馈，
+            // 否则用户不知道附件是否选上（原实现选完界面无任何变化）。
+            if (uiState.pendingImage != null || uiState.pendingFile != null) {
+                Surface(
+                    color = SurfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Outlined.Image,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = when {
+                                uiState.pendingFile != null -> "已选文件：${uiState.pendingFile?.second ?: ""}"
+                                else -> "已选图片（发送时随消息上传）"
+                            },
+                            fontSize = 13.sp,
+                            color = OnSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { viewModel.clearPendingAttachments() }) {
+                            Text("移除", color = Error, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+
             // 输入区
             Surface(
                 color = CardBackground,
@@ -253,7 +328,7 @@ fun AssistantChatScreen(
                                 text = { Text("拍照") },
                                 onClick = {
                                     showAttachMenu = false
-                                    cameraLauncher.launch(null)
+                                    cameraCapture()
                                 }
                             )
                             DropdownMenuItem(
@@ -336,7 +411,7 @@ fun AssistantChatScreen(
                             viewModel.send(input)
                             input = ""
                         },
-                        enabled = input.isNotBlank() && !uiState.isLoading,
+                        enabled = (input.isNotBlank() || uiState.pendingImage != null || uiState.pendingFile != null) && !uiState.isLoading,
                         shape = RoundedCornerShape(50),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = Primary,

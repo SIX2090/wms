@@ -60,17 +60,24 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(failedDraft = null)
     }
 
-    /** 发送一条消息；进行中时忽略新发送（防连点重复请求）。 */
+    /** 发送一条消息；进行中时忽略新发送（防连点重复请求）。
+     *  AUDIT-2026-10-07-009-P2：有附件时允许空文本（纯图/纯文件发送），
+     *  消息气泡展示「[图片]」/「[文件]」占位。 */
     fun send(text: String) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || _uiState.value.isLoading) return
-
-        // BUG-2026-10-07-009：附加待发送的图片/文件
         val image = _uiState.value.pendingImage
         val file = _uiState.value.pendingFile
+        val hasAttachment = image != null || file != null
+        if ((trimmed.isEmpty() && !hasAttachment) || _uiState.value.isLoading) return
+
+        val displayText = when {
+            trimmed.isNotEmpty() -> trimmed
+            file != null -> "[文件] ${file.second}"
+            else -> "[图片]"
+        }
 
         _uiState.value = _uiState.value.copy(
-            messages = _uiState.value.messages + AssistantChatMessage(text = trimmed, isUser = true),
+            messages = _uiState.value.messages + AssistantChatMessage(text = displayText, isUser = true),
             isLoading = true,
             error = null,
             failedDraft = null,
@@ -79,7 +86,9 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         )
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
-            val result = repository.assistantChat(trimmed, image, file)
+            // AUDIT-2026-10-07-009-P2：纯附件时后端要求 text 非空，补占位文案
+            val requestText = trimmed.ifEmpty { "请识别附件内容" }
+            val result = repository.assistantChat(requestText, image, file)
             result.fold(
                 onSuccess = { data: AssistantChatResult? ->
                     val reply = data?.reply?.takeIf { it.isNotBlank() }

@@ -29,6 +29,7 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import base64
 import json
 import re
 
@@ -3887,7 +3888,8 @@ def register_native_api_routes(app):
         from app import api_json_error, api_json_success
 
         class AssistantChatRequest(BaseModel):
-            text: str = Field(min_length=1, max_length=2000)
+            # AUDIT-2026-10-07-009-P2：有附件时允许空文本（纯图/纯文件直接发送）
+            text: str = Field('', max_length=2000)
             image: str | None = Field(None, max_length=10_000_000)  # base64，可选
             file: str | None = Field(None, max_length=10_000_000)  # base64，可选
             file_name: str | None = Field(None, max_length=255)  # 文件名（解析用）
@@ -3899,7 +3901,7 @@ def register_native_api_routes(app):
             return api_json_error('消息内容不能为空且不超过 2000 字', 400)
 
         text = req.text.strip()
-        if not text:
+        if not text and not req.image and not (req.file and req.file_name):
             return api_json_error('消息内容不能为空', 400)
 
         from app import _ai_handle_warehouse_assistant_request, _ai_global_enabled
@@ -3918,9 +3920,23 @@ def register_native_api_routes(app):
         login_user(user)
 
         # BUG-2026-10-07-009：App 支持上传图片/文件给 AI 识别
+        # AUDIT-2026-10-07-009-P3：MIME 按图片二进制头嗅探（PNG/WEBP/GIF/BMP），
+        # 不再写死 jpeg——相册选 PNG/HEIC 转 JPEG 之外的格式时 MIME 与内容不符，
+        # 严格的 vision API 会拒。嗅探失败回退 jpeg（相机拍照恒为 JPEG）。
         images = []
         if req.image:
-            images.append({'data_url': f'data:image/jpeg;base64,{req.image}'})
+            img_bytes = base64.b64decode(req.image)
+            if img_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
+                mime = 'image/png'
+            elif img_bytes[:4] == b'RIFF' and img_bytes[8:12] == b'WEBP':
+                mime = 'image/webp'
+            elif img_bytes[:6] in (b'GIF87a', b'GIF89a'):
+                mime = 'image/gif'
+            elif img_bytes[:2] == b'BM':
+                mime = 'image/bmp'
+            else:
+                mime = 'image/jpeg'
+            images.append({'data_url': f'data:{mime};base64,{req.image}'})
         files = []
         if req.file and req.file_name:
             files.append({'data_url': f'data:application/octet-stream;base64,{req.file}', 'name': req.file_name})

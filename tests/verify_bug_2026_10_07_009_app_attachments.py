@@ -96,11 +96,11 @@ def test_android_screen_has_attach_button():
 
 
 def test_android_screen_has_camera_launcher():
-    """App 聊天页有相机 launcher"""
+    """App 聊天页有相机入口（AUDIT-2026-10-07-009-P1 后改全尺寸 TakePicture 链路）"""
     screen_kt = Path(__file__).parent.parent / 'app' / 'android-native-wms/app/src/main/java/com/factory/wms/ui/screens/AssistantChatScreen.kt'
     content = screen_kt.read_text(encoding='utf-8')
-    assert 'cameraLauncher' in content
-    assert 'TakePicturePreview' in content
+    assert 'cameraCapture' in content
+    assert 'rememberCameraLauncherWithPermission' in content
 
 
 def test_android_screen_has_gallery_launcher():
@@ -116,3 +116,59 @@ def test_android_screen_has_file_launcher():
     screen_kt = Path(__file__).parent.parent / 'app' / 'android-native-wms/app/src/main/java/com/factory/wms/ui/screens/AssistantChatScreen.kt'
     content = screen_kt.read_text(encoding='utf-8')
     assert 'fileLauncher' in content
+
+
+# ==================== AUDIT-2026-10-07-009 五条缺陷修复验证 ====================
+
+def _screen_content():
+    return (Path(__file__).parent.parent / 'app' / 'android-native-wms' /
+            'app' / 'src' / 'main' / 'java' / 'com' / 'factory' / 'wms' / 'ui' /
+            'screens' / 'AssistantChatScreen.kt').read_text(encoding='utf-8', errors='replace')
+
+
+def _viewmodel_content():
+    return (Path(__file__).parent.parent / 'app' / 'android-native-wms' /
+            'app' / 'src' / 'main' / 'java' / 'com' / 'factory' / 'wms' / 'ui' /
+            'viewmodel' / 'ai' / 'AssistantChatViewModel.kt').read_text(encoding='utf-8', errors='replace')
+
+
+def test_fix_p1_camera_full_resolution():
+    """P1修复：拍照用 TakePicture+FileProvider（非低清缩略图契约）"""
+    content = _screen_content()
+    assert 'TakePicturePreview' not in content, '仍在用低清缩略图契约'
+    assert 'rememberCameraLauncherWithPermission' in content, '未复用全尺寸相机组件'
+
+
+def test_fix_p1_file_name_display_name():
+    """P1修复：文件名从 ContentResolver 查 DISPLAY_NAME（非 lastPathSegment）"""
+    content = _screen_content()
+    assert 'OpenableColumns.DISPLAY_NAME' in content, '未用 DISPLAY_NAME 查真实文件名'
+    # lastPathSegment 只允许作为 DISPLAY_NAME 查询失败时的兜底（runCatching 之后）
+    fallback_pos = content.find('it.lastPathSegment')
+    display_pos = content.find('OpenableColumns.DISPLAY_NAME')
+    assert display_pos >= 0 and fallback_pos > display_pos, 'lastPathSegment 应只作兜底'
+
+
+def test_fix_p2_attachment_preview_bar():
+    """P2修复：附件预览条（可视反馈 + 移除按钮）"""
+    content = _screen_content()
+    assert 'clearPendingAttachments' in content, '预览条无移除入口'
+    assert '已选' in content, '无附件已选提示文案'
+
+
+def test_fix_p2_attachment_only_send():
+    """P2修复：有附件时允许空文本发送"""
+    vm = _viewmodel_content()
+    assert 'hasAttachment' in vm, '未实现附件时空文本放行'
+    assert '请识别附件内容' in vm, '纯附件请求无占位文案'
+    screen = _screen_content()
+    assert 'pendingImage != null || uiState.pendingFile != null' in screen, '发送按钮未联动附件状态'
+
+
+def test_fix_p3_mime_sniffing():
+    """P3修复：图片 MIME 按二进制头嗅探（非写死 jpeg）"""
+    api_py = Path(__file__).parent.parent / 'app' / 'routes' / 'native_api.py'
+    content = api_py.read_text(encoding='utf-8', errors='replace')
+    assert "b'\\x89PNG" in content, '无 PNG 嗅探'
+    assert 'image/webp' in content, '无 WEBP 嗅探'
+    assert "f'data:image/jpeg;base64,{req.image}'" not in content, 'MIME 仍写死 jpeg'
