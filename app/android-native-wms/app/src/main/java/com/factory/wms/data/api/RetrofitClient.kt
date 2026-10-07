@@ -47,8 +47,28 @@ object RetrofitClient {
         level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
     }
 
+    // AUDIT-2026-10-07-P1：LLM 长请求独立超时。
+    // 默认 readTimeout=30s，但 assistant_chat / voice_intent / voice_out_draft
+    // 走 LLM 链路，后端 ai_llm_timeout_seconds 可在系统设置调到 60s+（app.py:12399），
+    // 30s 必断——用户只看到「网络错误: timeout」，后端 503 JSON 都收不到。
+    // 方案：Interceptor.Chain.withReadTimeout（OkHttp 4.10+）按路径放宽到 120s，
+    // 其余请求保持 30s 不变。
+    private val llmTimeoutInterceptor = Interceptor { chain ->
+        val path = chain.request().url.encodedPath
+        val isLlmPath = path.endsWith("/api/mobile/assistant_chat") ||
+            path.endsWith("/api/mobile/voice_intent") ||
+            path.endsWith("/api/mobile/voice_out_draft")
+        if (isLlmPath) {
+            chain.withReadTimeout(LLM_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                .proceed(chain.request())
+        } else {
+            chain.proceed(chain.request())
+        }
+    }
+
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
+        .addInterceptor(llmTimeoutInterceptor)
         .addInterceptor(loggingInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -91,4 +111,9 @@ object RetrofitClient {
     fun getBaseUrl(): String = baseUrl
 
     fun sharedOkHttpClient(): OkHttpClient = okHttpClient
+
+    // AUDIT-2026-10-07-P1：LLM 长请求读超时（秒）。
+    // 后端 ai_llm_timeout_seconds 上限 60s（系统设置），再留一倍余量给
+    // 意图理解 + 查库 + 兜底重试，120s 足够覆盖最坏链路。
+    const val LLM_READ_TIMEOUT_SECONDS: Long = 120L
 }

@@ -60,6 +60,7 @@ fun AssistantChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val voiceState by voiceViewModel.uiState.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
+    var showClearConfirm by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -109,6 +110,16 @@ fun AssistantChatScreen(
         }
     }
 
+    // AUDIT-2026-10-07-P6：发送失败的消息退回输入框（不覆盖用户已输入的新内容）
+    LaunchedEffect(uiState.failedDraft) {
+        uiState.failedDraft?.let { draft ->
+            if (input.isBlank()) {
+                input = draft
+            }
+            viewModel.consumeFailedDraft()
+        }
+    }
+
     Scaffold(
         containerColor = Background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -119,7 +130,12 @@ fun AssistantChatScreen(
                 accent = Primary,
                 onBack = onBack,
                 trailing = {
-                    IconButton(onClick = { viewModel.clearConversation() }) {
+                    IconButton(onClick = {
+                        // AUDIT-2026-10-07-P5：清空前确认——误触即丢整段对话且无恢复入口
+                        if (uiState.messages.isNotEmpty()) {
+                            showClearConfirm = true
+                        }
+                    }) {
                         Icon(
                             Icons.Outlined.DeleteSweep,
                             contentDescription = "清空对话",
@@ -248,6 +264,25 @@ fun AssistantChatScreen(
                     }
                 }
             }
+        }
+
+        // AUDIT-2026-10-07-P5：清空对话确认弹窗
+        if (showClearConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearConfirm = false },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("清空对话", fontWeight = FontWeight.SemiBold) },
+                text = { Text("确定清空当前对话吗？清空后本页消息不可恢复。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        viewModel.clearConversation()
+                        showClearConfirm = false
+                    }) { Text("清空", color = Error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+                }
+            )
         }
 
         // AI-ASSISTANT-VOICE-001：聆听中弹窗——倒计时提示 + 实时识别文本

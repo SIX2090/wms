@@ -85,13 +85,12 @@ class AssistantVoiceInputViewModel(
             message = "正在聆听，请说出问题…"
         )
         e.start(SttConfig())
-
         listenTimeoutJob?.cancel()
         listenTimeoutJob = viewModelScope.launch {
             val totalSeconds = VOICE_LISTEN_TIMEOUT_MS / 1000L
             for (remaining in totalSeconds downTo 1) {
                 _uiState.value = _uiState.value.copy(
-                    message = "正在聆听（剩余 $remaining 秒），说完停顿即自动识别"
+                    message = "正在聆听（剩余 $remaining 秒）"
                 )
                 delay(1000)
             }
@@ -102,7 +101,7 @@ class AssistantVoiceInputViewModel(
                 engine = null
                 _uiState.value = _uiState.value.copy(
                     isListening = false,
-                    error = "识别超时：请在点按麦克风后 8 秒内说出问题"
+                    error = "识别超时：请点按麦克风后 $VOICE_LISTEN_SECONDS_TEXT 秒内说出问题"
                 )
             }
         }
@@ -169,6 +168,9 @@ class AssistantVoiceInputViewModel(
     companion object {
         /** 兜底超时（毫秒），与 VoiceCommandViewModel 保持同口径。 */
         private const val VOICE_LISTEN_TIMEOUT_MS = 8_000L
+
+        /** 超时文案用的秒数文本（与 VOICE_LISTEN_TIMEOUT_MS 保持同步）。 */
+        private const val VOICE_LISTEN_SECONDS_TEXT = "8"
 
         /** 错误 detail 最大展示长度，防止超长堆栈撑爆 Snackbar。 */
         private const val MAX_ERROR_DETAIL_LEN = 80

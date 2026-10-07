@@ -27,7 +27,9 @@ data class AssistantChatMessage(
 data class AssistantChatUiState(
     val isLoading: Boolean = false,
     val messages: List<AssistantChatMessage> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    /** AUDIT-2026-10-07-P6：发送失败需退回输入框的文本（null=无待退回）。 */
+    val failedDraft: String? = null
 )
 
 /**
@@ -46,7 +48,12 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
     private var chatJob: Job? = null
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null)
+        _uiState.value = _uiState.value.copy(error = null, failedDraft = null)
+    }
+
+    /** P6：UI 取走退回草稿后清标记，避免重组时反复回填。 */
+    fun consumeFailedDraft() {
+        _uiState.value = _uiState.value.copy(failedDraft = null)
     }
 
     /** 发送一条消息；进行中时忽略新发送（防连点重复请求）。 */
@@ -57,7 +64,8 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         _uiState.value = _uiState.value.copy(
             messages = _uiState.value.messages + AssistantChatMessage(text = trimmed, isUser = true),
             isLoading = true,
-            error = null
+            error = null,
+            failedDraft = null
         )
         chatJob?.cancel()
         chatJob = viewModelScope.launch {
@@ -79,7 +87,10 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = e.message ?: "网络异常，请稍后重试"
+                        error = e.message ?: "网络异常，请稍后重试",
+                        // AUDIT-2026-10-07-P6：失败消息退回输入框，用户改后重发，
+                        // 不用手打一遍
+                        failedDraft = trimmed
                     )
                 }
             )

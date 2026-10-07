@@ -431,7 +431,11 @@ fun AppNavGraph() {
         // 它就是 ViewModelStore 的按 key 查表，本身是 O(1) 且幂等，无需额外的 remember。
         // 与 Outbound 路由内的 voiceDraftViewModel 类型相同 → 同一 ViewModelStore key
         // → **共享同一实例**，语音建单草稿与出库页读写的是同一份状态（语义未变）。
-        if (authState.isLoggedIn) {
+        // AUDIT-2026-10-07-P2：AI 助手聊天页隐藏悬浮语音球。聊天页输入区有自己的
+        // 语音输入（AssistantVoiceInputViewModel），悬浮球（VoiceCommandViewModel）
+        // 此时仍可点 → 两个引擎同时抢麦克风，录音互相干扰/失败。进聊天页时隐藏，
+        // 返回其他页面自动恢复。
+        if (authState.isLoggedIn && currentRoute != Screen.AssistantChat.route) {
             VoiceAssistantOverlay(
                 voiceViewModel = viewModel(),
                 voiceDraftViewModel = viewModel(),
