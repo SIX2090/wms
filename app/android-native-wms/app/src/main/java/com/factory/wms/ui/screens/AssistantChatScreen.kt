@@ -756,8 +756,6 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
     }
 }
 
-/** 加载中气泡：静态省略号（三个点）。 */
-@Composable
 /**
  * FEATURE-2026-10-07-012：全屏图片查看器。
  * 双指缩放 + 单指拖动 + 双击复位，点击空白区域关闭。
@@ -831,6 +829,8 @@ private fun FullScreenImageViewer(base64: String, onDismiss: () -> Unit) {
     }
 }
 
+/** 加载中气泡：静态省略号（三个点）。 */
+@Composable
 private fun AssistantTypingBubble() {
     Surface(
         shape = RoundedCornerShape(
