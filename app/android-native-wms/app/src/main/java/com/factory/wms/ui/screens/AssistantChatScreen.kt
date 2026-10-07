@@ -48,7 +48,18 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import android.util.Base64
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -81,6 +92,8 @@ fun AssistantChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    // FEATURE-2026-10-07-012：全屏查看器当前展示的图片 base64（null=关闭）
+    val viewerImage = remember { mutableStateOf<String?>(null) }
 
     StatusBarIconEffect(darkIcons = false)
 
@@ -339,7 +352,7 @@ fun AssistantChatScreen(
                     item { AssistantEmptyHint() }
                 }
                 items(uiState.messages, key = { it.id }) { message ->
-                    AssistantMessageBubble(message)
+                    AssistantMessageBubble(message) { img -> viewerImage.value = img }
                 }
                 if (uiState.isLoading) {
                     item {
@@ -524,6 +537,11 @@ fun AssistantChatScreen(
             }
         }
 
+        // FEATURE-2026-10-07-012：点击气泡缩略图全屏查看大图（双指缩放+拖动，点空白关闭）
+        viewerImage.value?.let { base64 ->
+            FullScreenImageViewer(base64 = base64, onDismiss = { viewerImage.value = null })
+        }
+
         // AUDIT-2026-10-07-P5：清空对话确认弹窗
         if (showClearConfirm) {
             AlertDialog(
@@ -624,7 +642,7 @@ private fun AssistantEmptyHint() {
 
 /** 消息气泡：用户右侧主色，助手左侧白底；助手带卡片/动作展示。 */
 @Composable
-private fun AssistantMessageBubble(message: AssistantChatMessage) {
+private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: (String) -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
@@ -639,15 +657,45 @@ private fun AssistantMessageBubble(message: AssistantChatMessage) {
             color = if (message.isUser) Primary else CardBackground,
             tonalElevation = if (message.isUser) 0.dp else 1.dp
         ) {
-            Text(
-                message.text,
-                modifier = Modifier
-                    .padding(horizontal = 14.dp, vertical = 10.dp)
-                    .widthIn(max = 300.dp),
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                color = if (message.isUser) Color.White else OnSurface
-            )
+            // FEATURE-2026-10-07-012：用户图片消息渲染缩略图（点击全屏查看）
+            if (message.isUser && message.image != null) {
+                val bitmap = remember(message.id) {
+                    runCatching {
+                        val bytes = Base64.decode(message.image, Base64.NO_WRAP)
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    }.getOrNull()
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap.asImageBitmap(),
+                        contentDescription = "已发送图片",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .padding(horizontal = 6.dp, vertical = 6.dp)
+                            .widthIn(max = 300.dp)
+                            .heightIn(max = 320.dp)
+                            .clickable { onImageClick(message.image) }
+                    )
+                } else {
+                    Text(
+                        "[图片]",
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        fontSize = 14.sp,
+                        color = if (message.isUser) Color.White else OnSurface
+                    )
+                }
+            }
+            if (message.text.isNotBlank()) {
+                Text(
+                    message.text,
+                    modifier = Modifier
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                        .widthIn(max = 300.dp),
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = if (message.isUser) Color.White else OnSurface
+                )
+            }
         }
         // 助手消息附带的结构化卡片（物料/单据）
         if (!message.isUser && message.cards.isNotEmpty()) {
@@ -710,6 +758,79 @@ private fun AssistantMessageBubble(message: AssistantChatMessage) {
 
 /** 加载中气泡：静态省略号（三个点）。 */
 @Composable
+/**
+ * FEATURE-2026-10-07-012：全屏图片查看器。
+ * 双指缩放 + 单指拖动 + 双击复位，点击空白区域关闭。
+ */
+@Composable
+private fun FullScreenImageViewer(base64: String, onDismiss: () -> Unit) {
+    val bitmap = remember(base64) {
+        runCatching {
+            val bytes = Base64.decode(base64, Base64.NO_WRAP)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }.getOrNull()
+    }
+    if (bitmap == null) {
+        onDismiss()
+        return
+    }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.92f))
+                .pointerInput(Unit) {
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val newScale = (scale * zoom).coerceIn(1f, 6f)
+                        // 缩放围绕双指中心
+                        offsetX = (offsetX + pan.x) * (newScale / scale) + centroid.x * (1 - newScale / scale)
+                        offsetY = (offsetY + pan.y) * (newScale / scale) + centroid.y * (1 - newScale / scale)
+                        scale = newScale
+                        if (scale <= 1.01f) {
+                            offsetX = 0f
+                            offsetY = 0f
+                        }
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = { onDismiss() },
+                        onDoubleTap = {
+                            if (scale > 1.01f) {
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            } else {
+                                scale = 2.5f
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "查看大图",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+        }
+    }
+}
+
 private fun AssistantTypingBubble() {
     Surface(
         shape = RoundedCornerShape(

@@ -21,7 +21,9 @@ data class AssistantChatMessage(
     val text: String,
     val isUser: Boolean,
     val cards: List<com.factory.wms.data.model.AssistantCard> = emptyList(),
-    val actions: List<com.factory.wms.data.model.AssistantAction> = emptyList()
+    val actions: List<com.factory.wms.data.model.AssistantAction> = emptyList(),
+    /** FEATURE-2026-10-07-012：用户发送的图片 base64（null=纯文本），气泡显示缩略图，点击可全屏查看 */
+    val image: String? = null
 )
 
 data class AssistantChatUiState(
@@ -77,7 +79,12 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         }
 
         _uiState.value = _uiState.value.copy(
-            messages = _uiState.value.messages + AssistantChatMessage(text = displayText, isUser = true),
+            // FEATURE-2026-10-07-012：图片进消息模型，气泡渲染缩略图（点击全屏查看）
+            messages = _uiState.value.messages + AssistantChatMessage(
+                text = displayText,
+                isUser = true,
+                image = image
+            ),
             isLoading = true,
             error = null,
             failedDraft = null,

@@ -194,3 +194,30 @@ def test_fix_011_gallery_clipboard_compressed():
     assert gallery_section.count('readBytes()') == 0, '相册未压缩直传'
     clipboard_section = content[content.find('clipboardImageDetected.value != null'):content.find('Scaffold(')]
     assert 'BitmapFactory.decodeStream' in clipboard_section, '剪贴板仍直传原图'
+
+
+def test_feature_012_image_in_message_model():
+    """FEATURE-012：图片进消息模型（AssistantChatMessage 有 image 字段，发送时存入）"""
+    vm = _viewmodel_content()
+    assert 'val image: String? = null' in vm, '消息模型无 image 字段'
+    # send() 时 pendingImage 必须写入消息（不再用完即弃）
+    send_section = vm[vm.find('fun send(text: String)'):vm.find('fun setPendingImage')]
+    assert 'AssistantChatMessage(' in send_section, 'send 未构造消息'
+    assert send_section.find('image = image') != -1, '图片未存入消息模型'
+
+
+def test_feature_012_bubble_thumbnail_and_viewer():
+    """FEATURE-012：气泡渲染图片缩略图 + 点击全屏查看器"""
+    content = _screen_content()
+    # 气泡里渲染缩略图（有图时不再只有文字占位）
+    bubble_section = content[content.find('private fun AssistantMessageBubble'):content.find('private fun FullScreenImageViewer')]
+    assert 'message.image != null' in bubble_section, '气泡不区分有无图片'
+    assert 'BitmapFactory.decodeByteArray' in bubble_section, '气泡不解码图片'
+    assert 'onImageClick' in bubble_section, '缩略图不可点击'
+    # 全屏查看器
+    viewer_section = content[content.find('private fun FullScreenImageViewer'):]
+    assert 'detectTransformGestures' in viewer_section, '查看器不支持缩放'
+    assert 'detectTapGestures' in viewer_section, '查看器不支持点击关闭'
+    assert 'coerceIn(1f, 6f)' in viewer_section, '缩放倍数无上限保护'
+    # 消息列表把点击回调接进气泡
+    assert 'AssistantMessageBubble(message) { img -> viewerImage.value = img }' in content, '点击回调未接线'
