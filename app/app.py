@@ -10836,7 +10836,13 @@ def _ai_extract_material_candidates(message):
     text = (message or '').strip()
     candidates = []
     seen = set()
-    for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-./*]{1,}', text):
+    for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-./*×x*]{1,}', text):
+        # 尝试将 × 替换为 * 以匹配数据库中的 spec
+        if '×' in token:
+            alt_token = token.replace('×', '*')
+            if alt_token not in seen:
+                seen.add(alt_token)
+                candidates.append(alt_token)
         normalized = token.strip('.,;:!?，。；：！？、')
         if not normalized or normalized in seen:
             continue
@@ -21630,6 +21636,18 @@ def _ai_execute_intent(message, intent_payload, context=None):
     intent = intent_payload.get('intent')
     params = intent_payload.get('params') or {}
     keyword = str(params.get('keyword') or '').strip() or _ai_guess_keyword(message)
+    # 如果 keyword 找不到物料，尝试从消息中提取更完整的候选词（如 60×10）
+    if keyword and not _ai_material_query(keyword, limit=1):
+        candidates = _ai_extract_material_candidates(message)
+        for candidate in candidates:
+            if _ai_material_query(candidate, limit=1):
+                keyword = candidate
+                break
+    # 处理 × 和 * 的规格匹配
+    if '×' in keyword:
+        alt_keyword = keyword.replace('×', '*')
+        if _ai_material_query(alt_keyword, limit=1):
+            keyword = alt_keyword
     context = context or {}
 
     supplier_profile_response = _ai_supplier_profile_response(message, context)
