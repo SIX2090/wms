@@ -1,5 +1,6 @@
 package com.factory.wms.ui.viewmodel.ai
 
+import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -8,7 +9,6 @@ import com.factory.wms.ui.viewmodel.voice.SttConfig
 import com.factory.wms.ui.viewmodel.voice.SttError
 import com.factory.wms.ui.viewmodel.voice.VoiceSttEngine
 import com.factory.wms.ui.viewmodel.voice.VoiceSttEngineFactory
-import com.factory.wms.ui.viewmodel.voice.VoiceSttEngineRegistry
 import com.factory.wms.ui.viewmodel.voice.VoiceSttListener
 import com.factory.wms.ui.viewmodel.voice.correctVoiceAsrText
 import kotlinx.coroutines.Job
