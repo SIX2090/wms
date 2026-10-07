@@ -12535,6 +12535,44 @@ def _ai_normalize_intent(raw):
     params = raw.get('params') if isinstance(raw.get('params'), dict) else {}
     return {'intent': intent, 'params': params}
 
+def _ai_business_context_text():
+    """BUG-2026-10-07-007：动态拼接基础资料上下文，让 AI 熟悉仓库/分类/编码规则。
+    数据实时查询，不缓存，保证基础资料变更后 AI 立即感知。
+    """
+    try:
+        # 仓库列表
+        warehouses = get_active_warehouses()
+        wh_lines = []
+        for wh in warehouses:
+            default_mark = '（默认）' if getattr(wh, 'is_default', False) else ''
+            wh_lines.append(f'{wh.name}({wh.code}){default_mark}')
+        wh_text = '、'.join(wh_lines) if wh_lines else '无'
+
+        # 物料分类 + 编码前缀规则
+        categories = MaterialCategory.query.order_by(MaterialCategory.code.asc()).all()
+        cat_lines = []
+        for cat in categories:
+            cnt = Material.query.filter_by(category_id=cat.id).count()
+            if cnt > 0:
+                cat_lines.append(f'{cat.code}={cat.name}({cnt}个)')
+        cat_text = '；'.join(cat_lines) if cat_lines else '无'
+
+        # 物料总数
+        total_materials = Material.query.count()
+
+        return (
+            f'\n\n# 基础资料（实时）\n'
+            f'仓库：{wh_text}\n'
+            f'物料分类（编码前缀=分类名）：{cat_text}\n'
+            f'物料总数：{total_materials} 个\n'
+            f'编码规则：物料编码前 3 位对应分类编码（如 202xxx=接线端子/线耳，212xxx/LPYxxx=铜排）。'
+            f'LPY 开头的编码是铜排专用。'
+        )
+    except Exception:
+        # 数据库异常时不阻塞 AI 调用
+        return ''
+
+
 def _ai_call_llm_intent(message, overrides=None):
     if not _ai_llm_configured(overrides):
         return None
@@ -12568,6 +12606,8 @@ def _ai_call_llm_intent(message, overrides=None):
         '问按分类汇总/各分类库存/分类占比选择 analysis_category。'
         '输出格式示例：{"intent":"query_material","params":{"keyword":"A001"}}'
     )
+    # BUG-2026-10-07-007：注入基础资料上下文
+    system_prompt += _ai_business_context_text()
     payload = {
         'model': _ai_llm_model(overrides),
         'messages': [
@@ -12620,6 +12660,8 @@ def _ai_call_llm_chat(message):
         '如果用户要求提交、审核、删除、清库、改库存等高风险动作，说明只能协助生成草稿或引导到页面由用户确认。'
         '回答要简洁、直接、像仓库主管给操作建议；优先控制在 200 字以内。不要写营销话术，不要泛泛讲“先维护基础资料”除非问题确实是基础资料维护。'
     )
+    # BUG-2026-10-07-007：注入基础资料上下文，让 AI 熟悉仓库/分类/编码规则
+    system_prompt += _ai_business_context_text()
     payload = {
         'model': _ai_llm_model(),
         'messages': [
