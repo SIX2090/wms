@@ -12487,10 +12487,6 @@ _AI_MODEL_ROUTE = {
 
 def _ai_llm_model_for_purpose(purpose=None, overrides=None):
     """按场景自动选择模型。purpose: vision/text/document/None(默认)"""
-    # 手动覆盖优先
-    override = _ai_override_value(overrides, 'ai_llm_model')
-    if override:
-        return override
     # 场景手动覆盖（系统设置里可以单独指定某个场景的模型）
     if purpose:
         scene_override = get_system_setting(f'ai_llm_model_{purpose}', '')
