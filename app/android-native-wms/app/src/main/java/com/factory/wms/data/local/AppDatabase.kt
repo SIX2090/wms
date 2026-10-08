@@ -138,7 +138,7 @@ abstract class AppDatabase : RoomDatabase() {
             // 修复：只读读到空且文件非空时，回退读写打开再读一次。
             val readonly = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READONLY)
             if (readonly != null) {
-                val rows = runCatching { readonly.use(readRows) }.getOrElse { err ->
+                val rows = runCatching { readonly.use { readRows(it) } }.getOrElse { err ->
                     Log.e(
                         "AppDatabase",
                         "离线待同步单据备份失败（只读读取异常，未同步记录在删库前已无法取出）: " +
@@ -154,7 +154,7 @@ abstract class AppDatabase : RoomDatabase() {
                 if (dbFile.length() > 0L) {
                     val rw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
                     if (rw != null) {
-                        val rwRows = runCatching { rw.use(readRows) }.getOrElse { emptyList() }
+                        val rwRows = runCatching { rw.use { readRows(it) } }.getOrElse { emptyList() }
                         if (rwRows.isNotEmpty()) {
                             Log.w(
                                 "AppDatabase",
@@ -176,7 +176,7 @@ abstract class AppDatabase : RoomDatabase() {
                 return emptyList()
             }
             return runCatching {
-                rwFallback.use(readRows)
+                rwFallback.use { readRows(it) }
             }.onSuccess { rows ->
                 if (rows.isNotEmpty()) {
                     Log.w("AppDatabase", "删库重建前已备份 ${rows.size} 条离线待同步单据")
