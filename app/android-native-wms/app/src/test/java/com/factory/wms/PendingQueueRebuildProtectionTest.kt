@@ -130,6 +130,21 @@ class PendingQueueRebuildProtectionTest {
                 )
             }
             raw.version = userVersion
+            // BUG-2026-10-08-014：关闭前强制 WAL checkpoint，消除顽固偶发。
+            // 本类「rebuild preserving queue keeps pending rows」在 CI 第三次复发
+            // （302b2c1 SIGBUS、74eedaf 断言 expected:<1> but was:<0>）。
+            // 根因：WAL 模式下 use{} 关闭时，刚写入的行可能仍留在 -wal 侧车未刷
+            // 到主文件；backupPendingOperations 先以 OPEN_READONLY 打开，只读打开
+            // 无法恢复 WAL 索引 → 读不到刚种的行 → 备份为空 → 重建后自然为空。
+            // 是否触发取决于前序用例（getDatabase catch delegates...）留下的
+            // Room 实例何时完成 WAL 恢复，纯时序漂移——这正是「每次挂的方法都不同」
+            // 的原因。TRUNCATE checkpoint 把 WAL 数据合并进主文件并截断侧车，
+            // 任何打开方式都能读到，与执行顺序无关。
+            raw.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).close()
+        }
+        // 兜底：删干净侧车文件，保证后续 OPEN_READONLY 打开的是自洽主文件。
+        listOf("-wal", "-shm").forEach { suffix ->
+            context.getDatabasePath(dbName + suffix).delete()
         }
     }
 
