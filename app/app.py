@@ -12488,6 +12488,15 @@ def _ai_llm_model_for_purpose(purpose=None, overrides=None):
     # 默认：返回用户配置的模型
     return (get_system_setting('ai_llm_model', app.config.get('WMS_LLM_MODEL', 'gpt-4.1-mini')) or 'gpt-4.1-mini').strip()
 
+
+def _ai_llm_vision_enabled(overrides=None):
+    if not _ai_feature_enabled('ai_feature_vision_enabled', True):
+        return False
+    override = _ai_override_value(overrides, 'ai_llm_vision_enabled')
+    if override is not None:
+        return override == '1'
+    return get_system_setting_bool('ai_llm_vision_enabled', True)
+
 def _ai_llm_model(overrides=None, purpose=None):
     override = _ai_override_value(overrides, 'ai_llm_model')
     if override:
