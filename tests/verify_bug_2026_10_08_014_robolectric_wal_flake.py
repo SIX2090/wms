@@ -132,9 +132,9 @@ def test_bug_014_backup_readwrite_fallback_reads_rows():
     """回退读写打开后必须真正执行读行（不是只打开不读）。"""
     src = _read(APP_DB)
     body = _backup_method_body(src)
-    # 读写回退分支里必须复用 readRows 读取逻辑
-    assert "readRows" in body, "BUG-014：备份读行逻辑必须抽成 readRows 复用"
-    # use { readRows(it) } 在三个分支各出现一次（只读主路径 + 只读空回退 + 只读打开失败回退）
+    # 读写回退分支里必须复用 readRows 读取逻辑（局部函数）
+    assert "fun readRows" in body, "BUG-014：备份读行逻辑必须抽成 readRows 局部函数复用"
+    # readRows(it) 在三个分支各出现一次（只读主路径 + 只读空回退 + 只读打开失败回退）
     assert body.count("readRows(it)") >= 3, \
         "BUG-014：只读主路径/只读空回退/只读打开失败回退都必须用 readRows 读行"
 

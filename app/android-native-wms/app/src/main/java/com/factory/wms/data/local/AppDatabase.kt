@@ -94,39 +94,38 @@ abstract class AppDatabase : RoomDatabase() {
             // Room 默认以 WAL 模式打开库，而 OPEN_READONLY 打开 WAL 库可能因无法恢复
             // WAL 索引直接失败（SQLiteCantOpenDatabaseException）——先只读、失败回退
             // 读写打开（读写打开会正常完成 WAL 恢复），两档都失败才认定文件不可读。
-            val readRows: (SQLiteDatabase) -> List<PendingOperationEntity> = { db ->
+            fun readRows(db: SQLiteDatabase): List<PendingOperationEntity> {
                 val hasTable = db.rawQuery(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_operations' LIMIT 1",
                     null
                 ).use { it.moveToFirst() }
                 if (!hasTable) {
-                    emptyList()
-                } else {
-                    db.rawQuery(
-                        "SELECT request_id, operation_type, payload_json, warehouse_code, " +
-                            "summary, status, attempt_count, last_error, created_at, updated_at " +
-                            "FROM pending_operations",
-                        null
-                    ).use { c ->
-                        val rows = mutableListOf<PendingOperationEntity>()
-                        while (c.moveToNext()) {
-                            rows.add(
-                                PendingOperationEntity(
-                                    requestId = c.getString(0),
-                                    operationType = c.getString(1),
-                                    payloadJson = c.getString(2),
-                                    warehouseCode = if (c.isNull(3)) null else c.getString(3),
-                                    summary = c.getString(4),
-                                    status = c.getString(5),
-                                    attemptCount = c.getInt(6),
-                                    lastError = if (c.isNull(7)) null else c.getString(7),
-                                    createdAt = c.getLong(8),
-                                    updatedAt = c.getLong(9)
-                                )
-                            }
-                        }
-                        rows
+                    return emptyList()
+                }
+                return db.rawQuery(
+                    "SELECT request_id, operation_type, payload_json, warehouse_code, " +
+                        "summary, status, attempt_count, last_error, created_at, updated_at " +
+                        "FROM pending_operations",
+                    null
+                ).use { c ->
+                    val rows = mutableListOf<PendingOperationEntity>()
+                    while (c.moveToNext()) {
+                        rows.add(
+                            PendingOperationEntity(
+                                requestId = c.getString(0),
+                                operationType = c.getString(1),
+                                payloadJson = c.getString(2),
+                                warehouseCode = if (c.isNull(3)) null else c.getString(3),
+                                summary = c.getString(4),
+                                status = c.getString(5),
+                                attemptCount = c.getInt(6),
+                                lastError = if (c.isNull(7)) null else c.getString(7),
+                                createdAt = c.getLong(8),
+                                updatedAt = c.getLong(9)
+                            )
+                        )
                     }
+                    rows
                 }
             }
 
