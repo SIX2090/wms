@@ -29,7 +29,11 @@ data class AiUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     val selectedWarehouse: WarehouseDto? = null,
     val draftSubmitting: Boolean = false,
-    val draftResult: InboundDraftResult? = null
+    val draftResult: InboundDraftResult? = null,
+    // FEATURE-2026-10-08-EXCEL：OCR 结果导出 Excel
+    val isExportingExcel: Boolean = false,
+    val excelExportedPath: String? = null,
+    val excelExportedName: String? = null
 )
 
 class AiViewModel(application: Application) : AndroidViewModel(application) {
@@ -74,6 +78,33 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
         }
+    }
+
+    /**
+     * FEATURE-2026-10-08-EXCEL：OCR 识别结果导出 Excel。
+     * 独立 isExporting 状态，不占用 isLoading（避免「识别中」文案复用）。
+     */
+    fun exportOcrExcel(imagePart: MultipartBody.Part) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isExportingExcel = true, excelExportedPath = null, error = null)
+            val result = repository.documentOcrExcel(imagePart)
+            result.fold(
+                onSuccess = { (path, name) ->
+                    _uiState.value = _uiState.value.copy(
+                        isExportingExcel = false,
+                        excelExportedPath = path,
+                        excelExportedName = name,
+                    )
+                },
+                onFailure = { e ->
+                    _uiState.value = _uiState.value.copy(isExportingExcel = false, error = e.message)
+                }
+            )
+        }
+    }
+
+    fun clearExcelExport() {
+        _uiState.value = _uiState.value.copy(excelExportedPath = null, excelExportedName = null)
     }
 
     /** AI-APP-FIX-507：取消进行中的 OCR 识别（复位按钮态，不写错误）。 */

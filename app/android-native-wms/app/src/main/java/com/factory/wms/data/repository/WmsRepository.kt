@@ -20,6 +20,7 @@ import com.factory.wms.util.NetworkMonitor
 import com.factory.wms.data.model.*
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
@@ -748,6 +749,59 @@ class WmsRepository(
     suspend fun documentOcr(imagePart: okhttp3.MultipartBody.Part): Result<DocumentOcrResult> {
         return safeCall {
             api.documentOcr(imagePart)
+        }
+    }
+
+    /**
+     * FEATURE-2026-10-08-EXCEL：单据图片 OCR 提取结果导出 Excel。
+     * 下载二进制流写入应用外部文件目录，返回 (绝对路径, 文件名)。
+     * 失败时服务端可能返回 JSON 错误（Content-Type: application/json），需识别并抛出。
+     */
+    suspend fun documentOcrExcel(imagePart: okhttp3.MultipartBody.Part): Result<Pair<String, String>> {
+        return runCatching {
+            val response = api.documentOcrExcel(imagePart)
+            if (!response.isSuccessful) {
+                val errBody = response.errorBody()?.string()
+                throw Exception(parseApiErrorMessage(errBody) ?: "导出失败（HTTP ${response.code()}）")
+            }
+            val contentType = response.headers()["Content-Type"] ?: ""
+            if (contentType.contains("json", ignoreCase = true)) {
+                // 服务端返回了 JSON 错误而不是 xlsx 流
+                val errBody = response.body()?.string()
+                throw Exception(parseApiErrorMessage(errBody) ?: "未识别到单据内容")
+            }
+            val bytes = response.body()?.bytes()
+                ?: throw Exception("服务器没有返回文件内容")
+            val disp = response.headers()["Content-Disposition"] ?: ""
+            val fileName = Regex("filename\*=UTF-8''([^;]+)").find(disp)?.groupValues?.get(1)
+                ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+                ?: Regex("filename="?([^"]+)"?").find(disp)?.groupValues?.get(1)
+                ?: "单据导出_${System.currentTimeMillis()}.xlsx"
+            withContext(Dispatchers.IO) {
+                val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
+                    ?: context.filesDir
+                if (!dir.exists()) dir.mkdirs()
+                val safeName = fileName.replace(Regex("[\\/:*?\"<>|]"), "_")
+                val outFile = java.io.File(dir, safeName)
+                java.io.FileOutputStream(outFile).use { it.write(bytes) }
+                // MEDIA_SCANNER：让文件管理器立即可见
+                android.media.MediaScannerConnection.scanFile(
+                    context, arrayOf(outFile.absolutePath), arrayOf(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    ), null
+                )
+                Pair(outFile.absolutePath, safeName)
+            }
+        }
+    }
+
+    private fun parseApiErrorMessage(body: String?): String? {
+        if (body.isNullOrBlank()) return null
+        return try {
+            val json = org.json.JSONObject(body)
+            json.optString("msg").ifBlank { json.optString("message") }.ifBlank { null }
+        } catch (e: Exception) {
+            null
         }
     }
 

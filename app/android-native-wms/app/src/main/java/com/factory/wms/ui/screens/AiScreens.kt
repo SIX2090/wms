@@ -15,6 +15,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -129,11 +130,67 @@ fun DocumentOcrScreen(
             // OCR Results
             uiState.ocrResult?.let { result ->
                 Spacer(modifier = Modifier.height(20.dp))
-                Text(
-                    "识别结果",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "识别结果",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    // FEATURE-2026-10-08-EXCEL：识别结果一键导出 Excel
+                    WmsOutlinedActionButton(
+                        text = if (uiState.isExportingExcel) "导出中..." else "导出Excel",
+                        onClick = {
+                            imageUri?.let { uri ->
+                                coroutineScope.launch {
+                                    viewModel.exportOcrExcel(uriToMultipart(uri, context, "image"))
+                                }
+                            }
+                        },
+                        modifier = Modifier.height(40.dp),
+                        color = CardTeal,
+                        enabled = !uiState.isExportingExcel && imageUri != null
+                    )
+                }
+                // FEATURE-2026-10-08-EXCEL：导出成功提示 + 打开文件
+                uiState.excelExportedPath?.let { excelPath ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = PrimaryContainer)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.CheckCircle,
+                                contentDescription = "导出成功",
+                                tint = Primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "已导出：${uiState.excelExportedName ?: "单据明细.xlsx"}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnPrimaryContainer
+                                )
+                            }
+                            TextButton(onClick = {
+                                openExportedExcel(context, excelPath)
+                            }) {
+                                Text("打开")
+                            }
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Card(
@@ -1182,7 +1239,30 @@ private fun OcrResultRow(label: String, value: String) {
     }
 }
 
-private fun docTypeLabel(type: String?): String = when (type) {
+private /**
+ * FEATURE-2026-10-08-EXCEL：打开导出的 Excel 文件（FileProvider + 系统打开方式）。
+ */
+private fun openExportedExcel(context: android.content.Context, path: String) {
+    try {
+        val file = java.io.File(path)
+        if (!file.exists()) {
+            android.widget.Toast.makeText(context, "文件不存在或已被清理", android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", file
+        )
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(intent, "打开单据 Excel"))
+    } catch (e: Exception) {
+        android.widget.Toast.makeText(context, "打开失败：${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun docTypeLabel(type: String?): String = when (type) {
     "in_order" -> "入库单 / 送货单"
     "out_order" -> "出库单 / 领料单"
     "transfer" -> "调拨单"

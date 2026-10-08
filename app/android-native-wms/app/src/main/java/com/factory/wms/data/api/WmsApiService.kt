@@ -3,6 +3,7 @@ package com.factory.wms.data.api
 import com.factory.wms.data.model.*
 import com.google.gson.annotations.SerializedName
 import okhttp3.MultipartBody
+import okhttp3.ResponseBody
 import okhttp3.RequestBody
 import retrofit2.Response
 import retrofit2.http.*
@@ -112,6 +113,18 @@ interface WmsApiService {
         @Part image: MultipartBody.Part,
         @Part("document_type") documentType: RequestBody? = null
     ): Response<ApiEnvelope<DocumentOcrResult>>
+
+    /**
+     * FEATURE-2026-10-08-EXCEL：单据图片 OCR 提取结果导出 Excel。
+     * 服务端返回二进制 xlsx 流；失败时返回 ApiEnvelope JSON 错误。
+     */
+    @Streaming
+    @Multipart
+    @POST("api/ai/document_ocr_excel")
+    suspend fun documentOcrExcel(
+        @Part image: MultipartBody.Part,
+        @Part("document_type") documentType: RequestBody? = null
+    ): Response<ResponseBody>
 
     @Multipart
     @POST("mobile/api/recognize_material")

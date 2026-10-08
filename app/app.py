@@ -3415,6 +3415,9 @@ app.register_blueprint(unit_bp)
 # AI 反馈域路由：AI-FEEDBACK-LOOP-001 待修清单页（admin 只读，无 LLM）。
 from routes.ai_feedback import ai_feedback_bp
 app.register_blueprint(ai_feedback_bp)
+# 单据 OCR 导出 Excel：FEATURE-2026-10-08-EXCEL（拍照→提取→xlsx 下载）。
+from routes.ai_excel import ai_excel_bp
+app.register_blueprint(ai_excel_bp)
 # 供应商域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_supplier_routes(app)
 # 物料分类域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
