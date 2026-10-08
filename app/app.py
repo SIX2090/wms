@@ -12512,11 +12512,17 @@ def _ai_llm_vision_enabled(overrides=None):
     return get_system_setting_bool('ai_llm_vision_enabled', True)
 
 def _ai_llm_model(overrides=None, purpose=None):
+    # 场景手动覆盖优先（ai_llm_model_vision / ai_llm_model_text / ai_llm_model_document）
+    if purpose:
+        scene_override = _ai_override_value(overrides, f'ai_llm_model_{purpose}')
+        if scene_override:
+            return scene_override.strip()
+        # 场景自动路由
+        return _ai_llm_model_for_purpose(purpose, overrides)
+    # 全局 override
     override = _ai_override_value(overrides, 'ai_llm_model')
     if override:
         return override
-    if purpose:
-        return _ai_llm_model_for_purpose(purpose, overrides)
     return (get_system_setting('ai_llm_model', app.config.get('WMS_LLM_MODEL', 'gpt-4.1-mini')) or 'gpt-4.1-mini').strip()
     if not _ai_feature_enabled('ai_feature_vision_enabled', True):
         return False
