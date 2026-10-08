@@ -12961,8 +12961,9 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
             bare = _ai_extract_json_object(content)
             if isinstance(bare, dict):
                 extracted = bare
-                if not reply or not reply.strip():
-                    reply = ''
+                # 从 reply 里剥离裸 JSON，避免用户看到原始 JSON
+                json_str = json.dumps(bare, ensure_ascii=False)
+                reply = reply.replace(json_str, '').strip()
         if not reply.strip() and not extracted:
             return None, None, '供应商接口返回成功，但没有可用的文本或结构化内容'
         return reply[:1400], extracted, ''
@@ -22290,7 +22291,26 @@ def _ai_handle_warehouse_assistant_request(payload):
                     actions=[{'label': 'AI助手参数', 'url': url_for('system_settings_page')}],
                 )
             extracted_doc, doc_vision_error = _ai_call_llm_document_vision_extract(message, images, context)
-            if extracted_doc:
+            # 判断提取结果是否有效单据：至少要有实际业务字段（物料/供应商/单号/数量等）
+            # 避免把普通产品照片误判为 label 类型单据
+            def _is_valid_document_extract(doc):
+                if not doc or not isinstance(doc, dict):
+                    return False
+                doc_type = str(doc.get('document_type') or '').strip().lower()
+                # label/other 类型且没有实际业务字段 → 不是有效单据
+                if doc_type in ('label', 'other', ''):
+                    has_business_fields = any([
+                        doc.get('supplier'), doc.get('order_no'), doc.get('items'),
+                        doc.get('materials'), doc.get('warehouse'), doc.get('quantity'),
+                    ])
+                    if not has_business_fields:
+                        return False
+                # items 为空或只有空对象 → 不是有效单据
+                items = doc.get('items') or []
+                if not items:
+                    return False
+                return True
+            if extracted_doc and _is_valid_document_extract(extracted_doc):
                 structured_response = _ai_create_draft_from_extracted(extracted_doc, source='vision', context=context)
                 if structured_response:
                     body = structured_response.get_json(silent=True) or {}
