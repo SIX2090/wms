@@ -12435,13 +12435,66 @@ def _ai_llm_api_key(overrides=None):
         return _secret_decrypt(stored).strip()
     return str(app.config.get('WMS_LLM_API_KEY') or '').strip()
 
-def _ai_llm_model(overrides=None):
+
+# ── AI 模型场景路由（实测验证可用模型列表 + 按场景自动选择）──────────────
+# 实测可用模型（2026-10-08 验证，网关 http://81.71.29.219:7863/v1）
+# 格式：(model_id, display_name, vision_speed_rank, text_iq_rank)
+# vision_speed_rank: 视觉速度排名（1=最快）
+# text_iq_rank: 文本智力排名（1=最强）
+_AI_MODEL_POOL = [
+    # 视觉优先（识物/OCR/图片识别）
+    ('cn:glm-5v-turbo',      'GLM-5v-Turbo',      1, 5),   # 视觉最快 1.5s
+    ('cn:deepseek-v4.1-flash','Deepseek-V4.1-Flash',2, 2),   # 视觉 2.0s，文本强
+    ('cn:glm-5.3-flash',     'GLM-5.3-Flash',     3, 6),   # 视觉 4.3s
+    ('cn:kimi-k2.8-preview', 'Kimi-K2.8-Preview',  4, 3),   # 视觉 3.6s
+    # 文本优先（意图识别/聊天/分析）
+    ('cn:deepseek-v4-pro',   'Deepseek-V4-Pro',   9, 1),   # 文本最强
+    ('cn:kimi-k3-1',         'Kimi-K3',          10, 4),   # 均衡但慢
+    ('cn:glm-5.3',           'GLM-5.3',           5, 7),   # 均衡
+    ('cn:glm-5.2',           'GLM-5.2',           6, 8),
+    ('cn:glm-5.1',           'GLM-5.1',           7, 9),
+    ('cn:kimi-k2.6',         'Kimi-K2.6',         8, 10),
+    ('cn:hy4-preview',       'Hy4-Preview',       11, 11),
+    ('cn:minimax-m3',        'MiniMax-M3',        12, 12),
+    ('cn:hy3',               'Hy3',               13, 13),
+    ('cn:space-bunny',       'Space-Bunny',       14, 14),
+]
+
+# 场景 → 模型选择策略
+# vision: 视觉场景（识物、OCR、图片识别）→ 按 vision_speed_rank 升序
+# text: 文本场景（意图识别、聊天、分析）→ 按 text_iq_rank 升序
+# document: 单据场景（文档提取）→ 按 text_iq_rank 升序（文本理解为主）
+# default: 默认场景 → 返回用户配置的模型
+_AI_MODEL_ROUTE = {
+    'vision':   lambda pool: sorted(pool, key=lambda x: x[2])[0][0],
+    'text':     lambda pool: sorted(pool, key=lambda x: x[3])[0][0],
+    'document': lambda pool: sorted(pool, key=lambda x: x[3])[0][0],
+}
+
+def _ai_llm_model_for_purpose(purpose=None, overrides=None):
+    """按场景自动选择模型。purpose: vision/text/document/None(默认)"""
+    # 手动覆盖优先
     override = _ai_override_value(overrides, 'ai_llm_model')
     if override:
         return override
+    # 场景手动覆盖（系统设置里可以单独指定某个场景的模型）
+    if purpose:
+        scene_override = get_system_setting(f'ai_llm_model_{purpose}', '')
+        if scene_override:
+            return scene_override.strip()
+    # 自动路由
+    if purpose and purpose in _AI_MODEL_ROUTE:
+        return _AI_MODEL_ROUTE[purpose](_AI_MODEL_POOL)
+    # 默认：返回用户配置的模型
     return (get_system_setting('ai_llm_model', app.config.get('WMS_LLM_MODEL', 'gpt-4.1-mini')) or 'gpt-4.1-mini').strip()
 
-def _ai_llm_vision_enabled(overrides=None):
+def _ai_llm_model(overrides=None, purpose=None):
+    override = _ai_override_value(overrides, 'ai_llm_model')
+    if override:
+        return override
+    if purpose:
+        return _ai_llm_model_for_purpose(purpose, overrides)
+    return (get_system_setting('ai_llm_model', app.config.get('WMS_LLM_MODEL', 'gpt-4.1-mini')) or 'gpt-4.1-mini').strip()
     if not _ai_feature_enabled('ai_feature_vision_enabled', True):
         return False
     override = _ai_override_value(overrides, 'ai_llm_vision_enabled')
@@ -12738,7 +12791,7 @@ def _ai_call_llm_intent(message, overrides=None):
     # BUG-2026-10-07-007：注入基础资料上下文
     system_prompt += _ai_business_context_text()
     payload = {
-        'model': _ai_llm_model(overrides),
+        'model': _ai_llm_model(overrides, purpose='text'),
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': message[:1000]},
@@ -12792,7 +12845,7 @@ def _ai_call_llm_chat(message):
     # BUG-2026-10-07-007：注入基础资料上下文，让 AI 熟悉仓库/分类/编码规则
     system_prompt += _ai_business_context_text()
     payload = {
-        'model': _ai_llm_model(),
+        'model': _ai_llm_model(purpose='text'),
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': message[:1000]},
@@ -12855,7 +12908,7 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
         user_content.append({'type': 'image_url', 'image_url': {'url': image['data_url']}})
 
     payload = {
-        'model': _ai_llm_model(),
+        'model': _ai_llm_model(purpose='vision'),
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_content},
@@ -13505,7 +13558,7 @@ def _ai_call_llm_document_extract(message):
         'If material code is absent, put the external material name in name. Keep all uncertain text in remarks.'
     )
     payload = {
-        'model': _ai_llm_model(),
+        'model': _ai_llm_model(purpose='document'),
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': text[:2000]},
@@ -13743,7 +13796,7 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
     for image in images:
         user_content.append({'type': 'image_url', 'image_url': {'url': image['data_url']}})
     payload = {
-        'model': _ai_llm_model(),
+        'model': _ai_llm_model(purpose='vision'),
         'messages': [
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_content},
@@ -21747,7 +21800,7 @@ def _ai_test_llm_vision(overrides=None):
         return None, '系统设置里没有启用图片识别'
 
     payload = {
-        'model': _ai_llm_model(overrides),
+        'model': _ai_llm_model(overrides, purpose='vision'),
         'messages': [
             {'role': 'system', 'content': '你是图片识别连通性测试助手。只用一句中文回答图片的主要颜色。'},
             {
