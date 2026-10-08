@@ -257,6 +257,16 @@ class PendingQueueRebuildProtectionTest {
     fun `rebuild preserving queue keeps pending rows`() = runBlocking {
         plantRawDatabase(listOf(sampleEntity("req-survive")), userVersion = 2)
 
+        // BUG-2026-10-08-014 诊断：先直接验证 backup 能不能读出来，把失败点
+        // 二分定位到 backup 半区（读不出来）还是 restore 半区（读出来了但丢了）。
+        // 三次复发全是 expected:<1> but was:<0>，必须先分清数据丢在哪一步。
+        val backup = AppDatabase.backupPendingOperations(context)
+        assertEquals(
+            "backupPendingOperations 必须读出刚种的 1 行（诊断性断言，定位 BUG-014 失败半区）",
+            1,
+            backup.size
+        )
+
         val db = AppDatabase.rebuildPreservingQueue(context)
         try {
             val rows = db.pendingOperationDao().listAll()
