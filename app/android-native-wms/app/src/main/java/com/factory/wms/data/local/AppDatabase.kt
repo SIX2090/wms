@@ -94,22 +94,14 @@ abstract class AppDatabase : RoomDatabase() {
             // Room 默认以 WAL 模式打开库，而 OPEN_READONLY 打开 WAL 库可能因无法恢复
             // WAL 索引直接失败（SQLiteCantOpenDatabaseException）——先只读、失败回退
             // 读写打开（读写打开会正常完成 WAL 恢复），两档都失败才认定文件不可读。
-            val raw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READONLY)
-                ?: openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
-            if (raw == null) {
-                Log.e(
-                    "AppDatabase",
-                    "离线待同步单据备份失败（原库文件不可读，未同步记录在删库前已无法取出）"
-                )
-                return emptyList()
-            }
-            return runCatching {
-                raw.use { db ->
-                    val hasTable = db.rawQuery(
-                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_operations' LIMIT 1",
-                        null
-                    ).use { it.moveToFirst() }
-                    if (!hasTable) return@use emptyList()
+            val readRows: (SQLiteDatabase) -> List<PendingOperationEntity> = { db ->
+                val hasTable = db.rawQuery(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='pending_operations' LIMIT 1",
+                    null
+                ).use { it.moveToFirst() }
+                if (!hasTable) {
+                    emptyList()
+                } else {
                     db.rawQuery(
                         "SELECT request_id, operation_type, payload_json, warehouse_code, " +
                             "summary, status, attempt_count, last_error, created_at, updated_at " +
@@ -131,11 +123,60 @@ abstract class AppDatabase : RoomDatabase() {
                                     createdAt = c.getLong(8),
                                     updatedAt = c.getLong(9)
                                 )
-                            )
+                            }
                         }
                         rows
                     }
                 }
+            }
+
+            // BUG-2026-10-08-014：OPEN_READONLY 打开成功但读到空也可能是 WAL 未恢复
+            // （Robolectric 影子实现下，只读打开不执行 WAL recovery，直接读主文件——
+            // 刚写入的行还在 -wal 侧车 → 读到空）。原回退只在「打开抛异常」时触发，
+            // 「打开成功但读到空」不触发 → 备份静默为空 → 删库重建后单据全丢
+            // （CI 三次复发：run #691/#692/#695/302b2c1/74eedaf/df97b0d）。
+            // 修复：只读读到空且文件非空时，回退读写打开再读一次。
+            val readonly = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READONLY)
+            if (readonly != null) {
+                val rows = runCatching { readonly.use(readRows) }.getOrElse { err ->
+                    Log.e(
+                        "AppDatabase",
+                        "离线待同步单据备份失败（只读读取异常，未同步记录在删库前已无法取出）: " +
+                            "${err.javaClass.simpleName}: ${err.message}"
+                    )
+                    emptyList()
+                }
+                if (rows.isNotEmpty()) {
+                    Log.w("AppDatabase", "删库重建前已备份 ${rows.size} 条离线待同步单据")
+                    return rows
+                }
+                // 只读读到空：可能真无单，也可能 WAL 未恢复。文件非空时回退读写再确认。
+                if (dbFile.length() > 0L) {
+                    val rw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
+                    if (rw != null) {
+                        val rwRows = runCatching { rw.use(readRows) }.getOrElse { emptyList() }
+                        if (rwRows.isNotEmpty()) {
+                            Log.w(
+                                "AppDatabase",
+                                "只读备份为空，读写回退备份 ${rwRows.size} 条离线待同步单据（WAL 未恢复）"
+                            )
+                            return rwRows
+                        }
+                    }
+                }
+                return rows
+            }
+            // 只读打开失败：回退读写（原有路径，读写打开完成 WAL 恢复）
+            val rwFallback = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
+            if (rwFallback == null) {
+                Log.e(
+                    "AppDatabase",
+                    "离线待同步单据备份失败（原库文件不可读，未同步记录在删库前已无法取出）"
+                )
+                return emptyList()
+            }
+            return runCatching {
+                rwFallback.use(readRows)
             }.onSuccess { rows ->
                 if (rows.isNotEmpty()) {
                     Log.w("AppDatabase", "删库重建前已备份 ${rows.size} 条离线待同步单据")
