@@ -3963,6 +3963,20 @@ SYSTEM_SETTING_GROUPS = [
                 'remark': '例如 gpt-4.1-mini、deepseek-chat、qwen-plus 等，按供应商实际模型名填写。如需识别图片，必须填写供应商支持视觉/图片理解的模型名称。',
             },
             {
+                'key': 'ai_llm_model_vision',
+                'label': '视觉模型（留空自动）',
+                'type': 'text',
+                'default': '',
+                'remark': '识物、图片识别、OCR 等视觉场景专用模型。留空则自动选择视觉最快的模型（当前：GLM-5v-Turbo）。',
+            },
+            {
+                'key': 'ai_llm_model_text',
+                'label': '文本模型（留空自动）',
+                'type': 'text',
+                'default': '',
+                'remark': '意图识别、聊天、分析等文本场景专用模型。留空则自动选择文本最强的模型（当前：Deepseek-V4-Pro）。',
+            },
+            {
                 'key': 'ai_llm_vision_enabled',
                 'label': '启用图片识别',
                 'type': 'bool',
