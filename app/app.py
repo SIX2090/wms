@@ -17597,7 +17597,7 @@ def _ai_is_stock_query_question(message):
 
 
 def _ai_stock_query_response(message, context=None):
-    """AI 查库存工具：解析物料描述，返回实时库存。"""
+    """AI 查库存工具：解析物料描述，基于实时数据生成自然语言回复。"""
     if not _ai_is_stock_query_question(message):
         return None
     if not _ai_capability_allowed('warehouse_insights'):
@@ -17618,23 +17618,116 @@ def _ai_stock_query_response(message, context=None):
     current_stock = normalize_stock_quantity(quantities.get(material.id, 0))
     unit_name = material.unit.name if material.unit else ''
 
-    # 构建回复
+    # 准备 LLM 上下文：物料档案 + 库存数据
+    material_info = {
+        'code': material.code or '',
+        'name': material.name or '',
+        'spec': material.spec or '',
+        'unit': unit_name,
+        'current_stock': current_stock,
+        'warehouse': warehouse.name or '',
+        'category': material.category.name if material.category else '',
+        'supplier': material.supplier.name if material.supplier else '',
+        'min_stock': normalize_stock_quantity(material.min_stock) if material.min_stock else None,
+        'safety_stock': normalize_stock_quantity(material.safety_stock) if material.safety_stock else None,
+    }
+
+    # 如果有多个候选，也列出来供 LLM 参考
+    other_candidates = []
+    if len(candidates) > 1:
+        for m in candidates[1:3]:
+            other_qty = normalize_stock_quantity(quantities.get(m.id, 0))
+            other_candidates.append({
+                'code': m.code or '',
+                'name': m.name or '',
+                'spec': m.spec or '',
+                'stock': other_qty,
+            })
+
+    # 构建 LLM prompt
+    prompt = _build_stock_query_llm_prompt(message, material_info, other_candidates)
+    
+    # 调用 LLM 生成自然语言回复
+    llm_reply = _voice_llm_chat(prompt)
+    
+    if llm_reply:
+        # LLM 成功生成回复
+        reply_text = llm_reply.strip()
+        # 附加操作按钮
+        actions = [
+            {'label': '库存查询', 'url': url_for('stock_query')},
+            {'label': '物料详情', 'url': url_for('material_detail', id=material.id)},
+        ]
+        return _ai_json_response(reply_text, actions=actions)
+    
+    # LLM 失败回退到机械式回复
     reply_parts = [f'物料「{material.code} {material.name}」']
     if material.spec:
         reply_parts.append(f'规格：{material.spec}')
     reply_parts.append(f'当前库存：{current_stock}{unit_name}')
-
-    # 如果有多个候选，提示用户
     if len(candidates) > 1:
         other_codes = [f'{m.code} {m.name}' for m in candidates[1:3]]
         reply_parts.append(f'\n找到 {len(candidates)} 个相似物料，以上显示第一个。其他：{"、".join(other_codes)}')
-
+    
     actions = [
         {'label': '库存查询', 'url': url_for('stock_query')},
         {'label': '物料详情', 'url': url_for('material_detail', id=material.id)},
     ]
-
     return _ai_json_response('\n'.join(reply_parts), actions=actions)
+
+
+def _build_stock_query_llm_prompt(user_message, material_info, other_candidates=None):
+    """构建库存查询的 LLM prompt，让 AI 基于实时数据生成自然语言回复。"""
+    lines = [
+        '你是一个仓库管理助手。用户询问库存信息，请根据以下实时数据生成简洁、自然、友好的回复。',
+        '',
+        '【用户问题】',
+        user_message,
+        '',
+        '【物料档案】',
+        f'物料编码：{material_info["code"]}',
+        f'物料名称：{material_info["name"]}',
+        f'规格型号：{material_info["spec"]}',
+        f'计量单位：{material_info["unit"]}',
+        f'所属类别：{material_info["category"]}',
+        f'默认供应商：{material_info["supplier"]}',
+        '',
+        '【库存数据】',
+        f'当前仓库：{material_info["warehouse"]}',
+        f'当前库存：{material_info["current_stock"]} {material_info["unit"]}',
+    ]
+    
+    if material_info.get('min_stock') is not None:
+        lines.append(f'最低库存：{material_info["min_stock"]} {material_info["unit"]}')
+    if material_info.get('safety_stock') is not None:
+        lines.append(f'安全库存：{material_info["safety_stock"]} {material_info["unit"]}')
+    
+    # 库存状态提示
+    if material_info.get('min_stock') is not None and material_info['current_stock'] <= material_info['min_stock']:
+        lines.append('⚠️ 库存已低于最低库存，需要补货')
+    elif material_info.get('safety_stock') is not None and material_info['current_stock'] <= material_info['safety_stock']:
+        lines.append('⚠️ 库存已低于安全库存，建议关注')
+    
+    if other_candidates:
+        lines.extend(['', '【其他相似物料】'])
+        for i, m in enumerate(other_candidates, 1):
+            lines.append(f'{i}. {m["code"]} {m["name"]} 规格{m["spec"]} 库存{m["stock"]}')
+    
+    lines.extend([
+        '',
+        '【回复要求】',
+        '1. 直接回答用户问题，不要绕弯',
+        '2. 包含关键信息：物料名称、规格、当前库存、单位',
+        '3. 如果库存低于最低/安全库存，主动提醒',
+        '4. 如果有多个相似物料，简要提及（避免混淆）',
+        '5. 语气自然友好，像仓库管理员一样专业',
+        '6. 回复长度控制在 100 字以内',
+        '7. 不要使用 markdown 格式，纯文本即可',
+        '',
+        '请直接输出回复内容：',
+    ])
+    
+    return '\n'.join(lines)
 
 
 def _ai_is_exception_workbench_question(message):
