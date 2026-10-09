@@ -23,17 +23,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # (符号/文本片段, 文件, 行号) —— 与 INVENTORY_TRUTH.md 逐条对应
 REFS = [
-    ("def deduct_stock_atomic(", "app/app.py", 4721),
-    ("def add_stock(", "app/app.py", 4789),
-    ("def _apply_opening_stock_balance(", "app/app.py", 8241),
-    ("def add_stock_transaction(", "app/app.py", 5063),
-    ("def add_location_inventory_atomic(", "app/app.py", 4920),
-    ("def deduct_location_inventory_atomic(", "app/app.py", 5005),
-    ("def update_location_inventory(", "app/app.py", 4858),
-    ("def backfill_stock_txn_warehouse_id(", "app/app.py", 28492),
-    ("def _material_stock_unattributed(", "app/app.py", 5531),
+    ("def deduct_stock_atomic(", "app/app.py", 4741),
+    ("def add_stock(", "app/app.py", 4809),
+    ("def _apply_opening_stock_balance(", "app/app.py", 8261),
+    ("def add_stock_transaction(", "app/app.py", 5083),
+    ("def add_location_inventory_atomic(", "app/app.py", 4940),
+    ("def deduct_location_inventory_atomic(", "app/app.py", 5025),
+    ("def update_location_inventory(", "app/app.py", 4878),
+    ("def backfill_stock_txn_warehouse_id(", "app/app.py", 28665),
+    ("def _material_stock_unattributed(", "app/app.py", 5551),
     # 单仓库短路（文档 §3.3 (a)，在 get_warehouse_stock_quantities 内部）
-    ("if Warehouse.query.count() == 1:", "app/app.py", 5348),
+    ("if Warehouse.query.count() == 1:", "app/app.py", 5368),
     # 列定义：注意不在 app.py，在模型文件里
     ("warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))",
      "app/models/inventory.py", 73),

@@ -4,7 +4,7 @@
 
 覆盖：
 T1. 端点注册（mobile_asr）。
-T2. 未配置腾讯云密钥 -> 400。
+T2. 无腾讯云密钥且无大模型配置（TokenHub 回退也不可用）-> 502。
 T3. 未上传音频 -> 400。
 T4. 不支持的音频格式 -> 400。
 T5. 音频超限 -> 400。
@@ -90,7 +90,13 @@ def test_t1_endpoint_registered():
     assert "def mobile_asr" in src
 
 
-def test_t2_missing_credentials_returns_400():
+def test_t2_missing_credentials_returns_502():
+    """无腾讯云密钥时回退 TokenHub；若大模型也未配置（本测试内存库无 LLM
+    配置），TokenHub 回退同样不可用 → 502 + 未配置大模型提示。
+
+    FEATURE-2026-10-08-ASR 行为变更：原「未配置腾讯云密钥 → 400」改为
+    「先回退 TokenHub，回退也不可用才报错」，报错文案与状态码随之更新。
+    """
     _reset_db()
     _clear_credentials()
     client = _make_client()
@@ -100,8 +106,8 @@ def test_t2_missing_credentials_returns_400():
         data={"audio": (BytesIO(_WAV), "cmd.wav")},
         content_type="multipart/form-data",
     )
-    assert r.status_code == 400
-    assert "未配置腾讯云 ASR 密钥" in r.get_json()["msg"]
+    assert r.status_code == 502
+    assert "语音识别不可用" in r.get_json()["msg"]
 
 
 def test_t3_no_audio_returns_400():

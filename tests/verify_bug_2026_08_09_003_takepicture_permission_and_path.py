@@ -140,18 +140,32 @@ def test_t1_fileprovider_registered_in_manifest():
 # T2. res/xml/file_paths.xml 必须存在且只暴露 cache-path
 # ---------------------------------------------------------------------------
 def test_t2_file_paths_xml_exposes_cache_only():
-    """file_paths.xml 必须存在，且只暴露 cache-path/path=camera/（最小权限原则）"""
+    """file_paths.xml 必须存在，且只暴露最小必要路径（最小权限原则）。
+
+    FEATURE-2026-10-08-EXCEL：OCR 导出 Excel 需 external-files-path，但
+    必须限定在 app 私有外部目录的 Documents/ 子目录（getExternalFilesDir
+    (DIRECTORY_DOCUMENTS)），不得宽泛暴露整个外部存储。因此检查从「禁止
+    一切 external-files-path」改为「禁止未限定子目录的宽泛路径」。
+    """
     assert FILE_PATHS_XML.exists(), "缺少 res/xml/file_paths.xml"
     body = _file_paths()
     assert "<cache-path" in body, "file_paths.xml 必须包含 <cache-path>"
     assert re.search(r'<cache-path[^>]*path="camera/"', body), (
         "file_paths.xml 必须暴露 <cache-path path='camera/'>"
     )
-    # 不应暴露外部存储/根目录等高权限路径
-    for forbidden in ("<external-path", "<external-files-path", "<external-cache-path",
-                      "<files-path", "<root-path", "<external-cache-path"):
+    # 仍禁止：整个外部存储 / 根目录 / 应用文件根等宽泛高权限路径。
+    for forbidden in ("<external-path", "<external-cache-path",
+                      "<files-path", "<root-path"):
         assert forbidden not in body, (
             f"file_paths.xml 不应暴露 {forbidden}（最小权限原则）"
+        )
+    # external-files-path 仅在限定到子目录（如 Documents/）时允许；
+    # 禁止 path="." 或 path="" 这类暴露整个外部私有目录的宽泛写法。
+    for m in re.finditer(r'<external-files-path[^>]*path="([^"]*)"', body):
+        sub = m.group(1)
+        assert sub not in (".", "", "/"), (
+            f"external-files-path 暴露整个外部私有目录 path={sub!r}，"
+            "必须限定到具体子目录（如 Documents/）"
         )
 
 
