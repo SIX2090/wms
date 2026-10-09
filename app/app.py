@@ -9754,7 +9754,6 @@ def _ai_material_query(keyword, limit=8):
     query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
     if keyword:
         # 中文语音识别常见错误同音字容错映射（牌/排、的/地/得 等）
-        # 双向映射：搜"铜牌"时也搜"铜排"，反之亦然
         homophone_variants = [keyword]
         homophone_pairs = [
             ('牌', '排'), ('排', '牌'),
@@ -9768,17 +9767,52 @@ def _ai_material_query(keyword, limit=8):
                 variant = keyword.replace(old, new)
                 if variant not in homophone_variants:
                     homophone_variants.append(variant)
-        
-        # 对每个变体都进行模糊搜索
+
+        # 分离规格（6*10、6x10 等）和物料名（铜排）
+        import re
+        spec_patterns = re.findall(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', keyword)
+        name_part = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', keyword).strip()
+        # 清理常见动词
+        name_part = re.sub(r'^[查查询问一一下]+', '', name_part).strip()
+        name_part = re.sub(r'[的了啊吗呢吧]+$', '', name_part).strip()
+
+        # 优先：名称精确匹配（铜排 = 铜排）
+        exact_conditions = []
+        for variant in homophone_variants:
+            variant_clean = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
+            variant_clean = re.sub(r'^[查查询问一一下]+', '', variant_clean).strip()
+            variant_clean = re.sub(r'[的了啊吗呢吧]+$', '', variant_clean).strip()
+            if variant_clean and len(variant_clean) >= 2:
+                exact_conditions.append(Material.name.ilike(f'%{variant_clean}%'))
+
+        if exact_conditions:
+            exact_query = query.filter(db.or_(*exact_conditions))
+            # 如果有规格，进一步过滤规格
+            if spec_patterns:
+                spec = spec_patterns[0].replace('×', '*').replace('x', '*').replace('X', '*')
+                exact_query = exact_query.filter(Material.spec.ilike(f'%{spec}%'))
+            exact_results = exact_query.order_by(Material.code.asc()).limit(limit).all()
+            if exact_results:
+                return exact_results
+
+        # 回退：宽松模糊搜索（名称+规格组合）
         conditions = []
         for variant in homophone_variants:
-            like = f'%{variant}%'
-            conditions.extend([
-                Material.code.ilike(like),
-                Material.name.ilike(like),
-                Material.spec.ilike(like),
-            ])
-        query = query.filter(db.or_(*conditions))
+            # 名称匹配（排除规格部分）
+            variant_name = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
+            variant_name = re.sub(r'^[查查询问一一下]+', '', variant_name).strip()
+            variant_name = re.sub(r'[的了啊吗呢吧]+$', '', variant_name).strip()
+            if variant_name:
+                conditions.append(Material.name.ilike(f'%{variant_name}%'))
+
+            # 规格匹配
+            for spec in spec_patterns:
+                spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
+                conditions.append(Material.spec.ilike(f'%{spec_norm}%'))
+
+        if conditions:
+            query = query.filter(db.or_(*conditions))
+
     return query.order_by(Material.code.asc()).limit(limit).all()
 
 def _ai_material_payload(material):
