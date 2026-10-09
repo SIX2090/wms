@@ -11015,13 +11015,24 @@ def _ai_extract_material_candidates(message):
 
 def _ai_find_materials_from_message(message, limit=8):
     candidates = _ai_extract_material_candidates(message)
-    for keyword in candidates:
+    
+    # 首先：尝试整体消息作为 keyword 查询（保留组合关系，如"指示灯红色"）
+    if message and len(message.strip()) >= 2:
         exact = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier)).filter(
-            db.func.lower(Material.code) == keyword.lower()
+            db.func.lower(Material.code) == message.strip().lower()
         ).first()
         if exact:
             return [exact]
-
+        
+        # 整体模糊查询：名称+规格+备注
+        msg_clean = re.sub(r'^[查查询问一一下]+', '', message.strip()).strip()
+        msg_clean = re.sub(r'[的了啊吗呢吧]+$', '', msg_clean).strip()
+        if msg_clean and len(msg_clean) >= 2:
+            combined_results = _ai_material_query(msg_clean, limit=limit)
+            if combined_results:
+                return combined_results
+    
+    # 回退：逐个候选词查询
     found = []
     seen_ids = set()
     for keyword in candidates:
