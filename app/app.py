@@ -9753,12 +9753,32 @@ def _ai_material_query(keyword, limit=8):
     keyword = (keyword or '').strip()
     query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
     if keyword:
-        like = f'%{keyword}%'
-        query = query.filter(db.or_(
-            Material.code.ilike(like),
-            Material.name.ilike(like),
-            Material.spec.ilike(like),
-        ))
+        # 中文语音识别常见错误同音字容错映射（牌/排、的/地/得 等）
+        # 双向映射：搜"铜牌"时也搜"铜排"，反之亦然
+        homophone_variants = [keyword]
+        homophone_pairs = [
+            ('牌', '排'), ('排', '牌'),
+            ('的', '地'), ('地', '的'),
+            ('的', '得'), ('得', '的'),
+            ('在', '再'), ('再', '在'),
+            ('做', '作'), ('作', '做'),
+        ]
+        for old, new in homophone_pairs:
+            if old in keyword:
+                variant = keyword.replace(old, new)
+                if variant not in homophone_variants:
+                    homophone_variants.append(variant)
+        
+        # 对每个变体都进行模糊搜索
+        conditions = []
+        for variant in homophone_variants:
+            like = f'%{variant}%'
+            conditions.extend([
+                Material.code.ilike(like),
+                Material.name.ilike(like),
+                Material.spec.ilike(like),
+            ])
+        query = query.filter(db.or_(*conditions))
     return query.order_by(Material.code.asc()).limit(limit).all()
 
 def _ai_material_payload(material):
@@ -10910,6 +10930,8 @@ def _ai_extract_material_candidates(message):
     text = (message or '').strip()
     candidates = []
     seen = set()
+    
+    # 1. 提取英文/数字/规格符号 token（如 6×10、ABC-123）
     for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-./*×x*]{1,}', text):
         # 尝试将 × 替换为 * 以匹配数据库中的 spec
         if '×' in token:
@@ -10922,6 +10944,14 @@ def _ai_extract_material_candidates(message):
             continue
         seen.add(normalized)
         candidates.append(normalized)
+    
+    # 2. 提取中文物料名称 token（如 铜排、螺丝、钢板）
+    # 中文连续 2-4 个字作为一个候选词
+    for token in re.findall(r'[\u4e00-\u9fff]{2,4}', text):
+        if token not in seen:
+            seen.add(token)
+            candidates.append(token)
+    
     return candidates
 
 def _ai_find_materials_from_message(message, limit=8):
