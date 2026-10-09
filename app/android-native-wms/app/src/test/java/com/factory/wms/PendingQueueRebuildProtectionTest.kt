@@ -275,7 +275,21 @@ class PendingQueueRebuildProtectionTest {
         // BUG-2026-10-08-014 诊断：先直接验证 backup 能不能读出来，把失败点
         // 二分定位到 backup 半区（读不出来）还是 restore 半区（读出来了但丢了）。
         // 三次复发全是 expected:<1> but was:<0>，必须先分清数据丢在哪一步。
+        // BUG-2026-10-08-014 直连探针：绕开 AppDatabase，用与 backupPendingOperations
+        // 完全相同的原生 SQLite 路径独立读一次，确认数据是否真的落盘。
+        // 若此探针也读 0 → 种数据环节在 Robolectric 下根本没写盘（环境问题）；
+        // 若探针读 1 而 backup 读 0 → AppDatabase 读取逻辑有 bug（代码问题）。
+        val probeFile = context.getDatabasePath(dbName)
+        val probeCount = SQLiteDatabase.openDatabase(
+            probeFile.absolutePath, null, SQLiteDatabase.OPEN_READWRITE
+        ).use { probe ->
+            probe.rawQuery("SELECT COUNT(*) FROM pending_operations", null)
+                .use { c -> c.moveToFirst(); c.getLong(0) }
+        }
+        System.err.println("BUG-014-PROBE: 文件存在=${probeFile.isFile} 大小=${probeFile.length()} 直连读到行数=$probeCount")
+
         val backup = AppDatabase.backupPendingOperations(context)
+        System.err.println("BUG-014-PROBE: backupPendingOperations 返回 ${backup.size} 行")
         assertEquals(
             "backupPendingOperations 必须读出刚种的 1 行（诊断性断言，定位 BUG-014 失败半区）",
             1,
