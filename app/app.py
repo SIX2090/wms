@@ -9772,6 +9772,14 @@ def _ai_material_query(keyword, limit=8):
         import re
         spec_patterns = re.findall(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', keyword)
         name_part = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', keyword).strip()
+
+        # 提取颜色/属性词（红色、黄色、蓝色、绿色、白色、黑色、灰色、透明等）
+        color_words = re.findall(r'(红|黄|蓝|绿|白|黑|灰|透明|橙|紫|粉|棕|银|金)色?', name_part)
+        color_part = ''.join(color_words) if color_words else ''
+        # 从名称中移除颜色词，得到纯物料名
+        if color_part:
+            name_part = re.sub(r'(红|黄|蓝|绿|白|黑|灰|透明|橙|紫|粉|棕|银|金)色?', '', name_part).strip()
+
         # 清理常见动词
         name_part = re.sub(r'^[查查询问一一下]+', '', name_part).strip()
         name_part = re.sub(r'[的了啊吗呢吧]+$', '', name_part).strip()
@@ -9791,24 +9799,41 @@ def _ai_material_query(keyword, limit=8):
             if spec_patterns:
                 spec = spec_patterns[0].replace('×', '*').replace('x', '*').replace('X', '*')
                 exact_query = exact_query.filter(Material.spec.ilike(f'%{spec}%'))
+            # 如果有颜色，在名称或规格或备注中过滤
+            if color_part:
+                exact_query = exact_query.filter(
+                    db.or_(
+                        Material.name.ilike(f'%{color_part}%'),
+                        Material.spec.ilike(f'%{color_part}%'),
+                        Material.remark.ilike(f'%{color_part}%')
+                    )
+                )
             exact_results = exact_query.order_by(Material.code.asc()).limit(limit).all()
             if exact_results:
                 return exact_results
 
-        # 回退：宽松模糊搜索（名称+规格组合）
+        # 回退：宽松模糊搜索（名称+规格+颜色组合）
         conditions = []
         for variant in homophone_variants:
-            # 名称匹配（排除规格部分）
+            # 名称匹配（排除规格和颜色部分）
             variant_name = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
             variant_name = re.sub(r'^[查查询问一一下]+', '', variant_name).strip()
             variant_name = re.sub(r'[的了啊吗呢吧]+$', '', variant_name).strip()
-            if variant_name:
-                conditions.append(Material.name.ilike(f'%{variant_name}%'))
+            # 从名称中移除颜色词
+            variant_name_clean = re.sub(r'(红|黄|蓝|绿|白|黑|灰|透明|橙|紫|粉|棕|银|金)色?', '', variant_name).strip()
+            if variant_name_clean and len(variant_name_clean) >= 2:
+                conditions.append(Material.name.ilike(f'%{variant_name_clean}%'))
 
             # 规格匹配
             for spec in spec_patterns:
                 spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
                 conditions.append(Material.spec.ilike(f'%{spec_norm}%'))
+
+            # 颜色匹配
+            if color_part:
+                conditions.append(Material.name.ilike(f'%{color_part}%'))
+                conditions.append(Material.spec.ilike(f'%{color_part}%'))
+                conditions.append(Material.remark.ilike(f'%{color_part}%'))
 
         if conditions:
             query = query.filter(db.or_(*conditions))
