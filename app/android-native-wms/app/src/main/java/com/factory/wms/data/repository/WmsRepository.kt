@@ -776,7 +776,7 @@ class WmsRepository(
             val disp = response.headers()["Content-Disposition"] ?: ""
             val fileName = Regex("filename\*=UTF-8''([^;]+)").find(disp)?.groupValues?.get(1)
                 ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
-                ?: Regex("filename="?([^"]+)"?").find(disp)?.groupValues?.get(1)
+                ?: Regex("filename=\"?([^\"]+)\"?").find(disp)?.groupValues?.get(1)
                 ?: "单据导出_${System.currentTimeMillis()}.xlsx"
             withContext(Dispatchers.IO) {
                 val dir = context.getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS)
