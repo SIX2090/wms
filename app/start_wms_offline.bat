@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 REM Use PYTHONUTF8=1 for UTF-8 support.
+chcp 65001 >nul
 cd /d "%~dp0" || exit /b 1
 
 REM Ensure logs directory exists (used by Python RotatingFileHandler).

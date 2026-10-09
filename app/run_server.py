@@ -5,6 +5,12 @@ import signal
 import sys
 from datetime import datetime
 
+# 强制 UTF-8 输出，解决 Windows 控制台 GBK 乱码
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 from waitress import serve
 
 from app import (
