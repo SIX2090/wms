@@ -17551,6 +17551,62 @@ def _ai_inventory_discrepancy_response(message, context=None):
     ]
     return _ai_json_response(reply, cards, material_actions)
 
+
+def _ai_is_stock_query_question(message):
+    """判断是否是查库存问题（如"查一下6×10的铜排的库存"）。"""
+    text = (message or '').strip().lower()
+    if not text:
+        return False
+    # 查库存关键词
+    stock_keywords = ['库存', '存量', '还剩多少', '还有多少', '有多少', '数量']
+    has_stock_keyword = any(kw in text for kw in stock_keywords)
+    # 排除盘点/调整/差异类问题（这些走其他工具）
+    exclude_keywords = ['盘点', '调整', '差异', '不一致', '对不上', '账物']
+    has_exclude = any(kw in text for kw in exclude_keywords)
+    return has_stock_keyword and not has_exclude
+
+
+def _ai_stock_query_response(message, context=None):
+    """AI 查库存工具：解析物料描述，返回实时库存。"""
+    if not _ai_is_stock_query_question(message):
+        return None
+    if not _ai_capability_allowed('warehouse_insights'):
+        return _ai_permission_denied_response('warehouse_insights')
+
+    # 从消息中提取物料关键词
+    candidates = _ai_find_materials_from_message(message, limit=5)
+    if not candidates:
+        return None  # 没识别到物料，走通用聊天
+
+    # 取第一个（最匹配的）物料查库存
+    material = candidates[0]
+    warehouse = get_default_warehouse()
+    if not warehouse:
+        return _ai_json_response('系统未配置默认仓库，无法查询库存。')
+
+    quantities = get_warehouse_stock_quantities(warehouse)
+    current_stock = normalize_stock_quantity(quantities.get(material.id, 0))
+    unit_name = material.unit.name if material.unit else ''
+
+    # 构建回复
+    reply_parts = [f'物料「{material.code} {material.name}」']
+    if material.spec:
+        reply_parts.append(f'规格：{material.spec}')
+    reply_parts.append(f'当前库存：{current_stock}{unit_name}')
+
+    # 如果有多个候选，提示用户
+    if len(candidates) > 1:
+        other_codes = [f'{m.code} {m.name}' for m in candidates[1:3]]
+        reply_parts.append(f'\n找到 {len(candidates)} 个相似物料，以上显示第一个。其他：{"、".join(other_codes)}')
+
+    actions = [
+        {'label': '库存查询', 'url': url_for('stock_query')},
+        {'label': '物料详情', 'url': url_for('material_detail', id=material.id)},
+    ]
+
+    return _ai_json_response('\n'.join(reply_parts), actions=actions)
+
+
 def _ai_is_exception_workbench_question(message):
     compact = (message or '').replace(' ', '').lower()
     if not compact:
@@ -20457,6 +20513,7 @@ AI_LOCAL_SKILLS.append({
 
 def _ai_warehouse_insights_response(message, context=None):
     for handler in (
+        _ai_stock_query_response,  # 查库存优先
         _ai_replenishment_planning_response,
         _ai_agent_patrol_response,
         _ai_exception_workbench_response,
@@ -20520,6 +20577,7 @@ AI_TOOL_DISPATCHERS = {
     'replenishment_planning': _ai_replenishment_planning_response,
     'master_data_insights': _ai_master_data_insights_response,
     'admin_insights': _ai_admin_insights_response,
+    'stock_query': _ai_stock_query_response,  # 独立查库存工具
 }
 
 def _ai_dispatch_registered_tool(tool_name, message, context=None):
@@ -22651,6 +22709,8 @@ def _ai_handle_chat_stream_request(payload):
         priority_response = _ai_product_suggestion_response(message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_benchmark_roadmap_response(message, context)
+    if priority_response is None and not force_general_chat:
+        priority_response = _ai_dispatch_registered_tool('stock_query', message, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_dispatch_registered_tool('warehouse_insights', message, context)
     if priority_response is None and not force_general_chat:
