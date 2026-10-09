@@ -3418,6 +3418,9 @@ app.register_blueprint(ai_feedback_bp)
 # 单据 OCR 导出 Excel：FEATURE-2026-10-08-EXCEL（拍照→提取→xlsx 下载）。
 from routes.ai_excel import ai_excel_bp
 app.register_blueprint(ai_excel_bp)
+# FEATURE-2026-10-08-EXCEL：App 原生端走 Bearer Token（无 CSRF token），
+# 豁免导出接口的 CSRF 检查；权限由 _web_or_api_role_required 独立校验。
+csrf.exempt(app.view_functions['ai_excel.api_document_ocr_excel'])
 # 供应商域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_supplier_routes(app)
 # 物料分类域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -12973,6 +12976,75 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
     except Exception as exc:
         app.logger.warning('AI vision model unavailable: %s', exc)
         return None, None, str(exc)
+
+# FEATURE-2026-10-08-ASR：语音识别回退 TokenHub 同步 ASR（wand-asr-v1）。
+# 生产机未配置腾讯云 ASR 专用密钥（TENCENTCLOUD_SECRET_ID/KEY 属独立付费产品，
+# 无免费额度），而 LLM 网关（TokenHub）已含同步 ASR 能力、同一把 API Key 即可调用。
+# 接口：POST {base}/v1/wand/asrproxy/sync_transcribe，data 字段传 base64 音频。
+# https://cloud.tencent.com/document/product/1823/135793
+def _asr_tokenhub_endpoint():
+    """TokenHub ASR 端点：从 LLM base_url（如 http://xx/v1 或 https://tokenhub.xxx）
+    推导 ASR 域名，返回 {origin}/v1/wand/asrproxy/sync_transcribe。"""
+    base_url = get_system_setting(
+        'ai_llm_base_url',
+        app.config.get('WMS_LLM_BASE_URL') or '',
+    ).strip()
+    if not base_url:
+        return ''
+    try:
+        parsed = urlparse(base_url)
+        origin = f'{parsed.scheme}://{parsed.netloc}'
+        return origin + '/v1/wand/asrproxy/sync_transcribe'
+    except Exception:
+        return ''
+
+def _asr_call_tokenhub(audio_bytes, voice_format='wav'):
+    """调用 TokenHub 同步 ASR 识别短音频，返回 (text, error)。
+
+    audio_bytes: 原始音频字节；voice_format: wav/mp3/m4a 等（写进
+    voice_encode_format 帮助后端解码，缺省 auto）。
+    错误返回 (None, '人类可读错误')；成功返回 (text, '')。
+    """
+    if not _ai_llm_configured():
+        return None, '未配置大模型 API Key，语音识别不可用（系统设置 → AI助手参数）'
+    endpoint = _asr_tokenhub_endpoint()
+    if not endpoint:
+        return None, '未配置大模型接口地址，语音识别不可用'
+    try:
+        b64 = base64.b64encode(audio_bytes).decode('ascii')
+    except Exception:
+        return None, '音频数据编码失败'
+    payload = {
+        'model': 'wand-asr-v1',
+        'data': b64,
+        'source': 'zh',
+    }
+    if voice_format:
+        payload['voice_encode_format'] = voice_format
+    try:
+        response = requests.post(
+            endpoint,
+            headers=_ai_llm_headers(),
+            json=payload,
+            timeout=max(_ai_llm_timeout_seconds(), 60),
+        )
+    except requests.RequestException as exc:
+        app.logger.warning('TokenHub ASR request failed: %s', exc)
+        return None, '语音识别服务连接失败，请稍后重试'
+    if not response.ok:
+        app.logger.warning('TokenHub ASR error: %s', _ai_llm_error_message(response))
+        return None, '语音识别服务返回错误：{0}'.format(_ai_llm_error_message(response)[:120])
+    try:
+        data = response.json()
+    except ValueError:
+        return None, '语音识别服务响应格式异常'
+    if data.get('status') not in (None, 'completed', 'succeeded', 'success'):
+        return None, '语音识别任务未完成（status={0}）'.format(data.get('status'))
+    output = data.get('output') or {}
+    text = str(output.get('text') or '').strip()
+    if not text:
+        return None, '未识别到语音内容'
+    return text, ''
 
 def _ai_vision_parse_extracted(content):
     """从视觉模型回复中解析末尾的 JSON 代码块，返回 (clean_reply, extracted_or_none)"""
@@ -31257,6 +31329,7 @@ def document_ocr_page():
     return render_template('document_ocr.html')
 
 @app.route('/api/ai/document_ocr', methods=['POST'])
+@csrf.exempt
 @web_or_api_role_required('warehouse', 'purchase')
 def api_document_ocr():
     """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""

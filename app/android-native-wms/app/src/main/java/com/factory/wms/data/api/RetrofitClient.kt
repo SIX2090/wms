@@ -57,13 +57,15 @@ object RetrofitClient {
     // 视觉 LLM（_ai_call_llm_vision，后端超时 max(配置,60)=60s+），视觉识别大图
     // 常超 30s；P1 白名单漏了这两条路径——用户拍照识物 30s 必被 App 掐断，
     // 只见「网络错误: timeout」，误以为识物功能全坏。补进白名单。
+    // FEATURE-2026-10-08-EXCEL：Excel 导出接口同样走视觉 LLM，一并放宽。
     private val llmTimeoutInterceptor = Interceptor { chain ->
         val path = chain.request().url.encodedPath
         val isLlmPath = path.endsWith("/api/mobile/assistant_chat") ||
             path.endsWith("/api/mobile/voice_intent") ||
             path.endsWith("/api/mobile/voice_out_draft") ||
             path.endsWith("/api/recognize_material") ||
-            path.endsWith("/api/ai/document_ocr")
+            path.endsWith("/api/ai/document_ocr") ||
+            path.endsWith("/api/ai/document_ocr_excel")
         if (isLlmPath) {
             chain.withReadTimeout(LLM_READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                 .proceed(chain.request())

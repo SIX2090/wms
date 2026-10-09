@@ -226,13 +226,15 @@ def find_mobile_material(keyword):
 
 # no-test:reason=路由注册辅助函数，能力由 mobile_* 各路由测试覆盖
 def register_mobile_routes(app):
-    # 启动自检：语音指令（/mobile/api/asr）依赖腾讯云 ASR 密钥环境变量，
-    # 缺失时 App 端会一直识别失败；启动即告警，避免问题被掩盖到用户侧才暴露
+    # 启动自检：语音指令（/mobile/api/asr）优先依赖腾讯云 ASR 密钥环境变量；
+    # 缺失时自动回退 TokenHub 同步 ASR（复用 LLM 网关 API Key），
+    # 两者都没有才告警不可用（FEATURE-2026-10-08-ASR）。
     if not os.environ.get('TENCENTCLOUD_SECRET_ID', '').strip() \
             or not os.environ.get('TENCENTCLOUD_SECRET_KEY', '').strip():
         app.logger.warning(
             '腾讯云 ASR 密钥未配置（TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY），'
-            '手机 App 语音指令功能将不可用，请在服务环境变量中配置后重启'
+            '语音指令将回退 TokenHub 同步 ASR（wand-asr-v1）；'
+            '若大模型 API Key 也未配置，手机 App 语音识别将不可用'
         )
 
     @app.route('/mobile/app')
@@ -1129,23 +1131,21 @@ def register_mobile_routes(app):
     @app.route('/mobile/api/asr', methods=['POST'])
     @_web_or_api_required
     def mobile_asr():
-        """手机端语音指令：接收音频 -> 调腾讯云一句话识别 -> 返回中文文本。
+        """手机端语音指令：接收音频 -> 语音识别 -> 返回中文文本。
 
         音频由 Android 端录音后上传（wav/mp3/m4a 等），短指令（<60s）走
-        一句话识别，返回文本供 App 端做关键词指令解析。腾讯云密钥从环境变量读取：
-        TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY / TENCENTCLOUD_REGION。
+        一句话识别，返回文本供 App 端做关键词指令解析。
+
+        引擎选择（FEATURE-2026-10-08-ASR）：
+        1. 配置了腾讯云 ASR 密钥（TENCENTCLOUD_SECRET_ID / _KEY）→ 腾讯云一句话识别；
+        2. 未配置 → 回退 TokenHub 同步 ASR（wand-asr-v1，复用 LLM 网关 API Key）。
         """
         from flask import current_app, jsonify, request
 
         secret_id = os.environ.get('TENCENTCLOUD_SECRET_ID', '').strip()
         secret_key = os.environ.get('TENCENTCLOUD_SECRET_KEY', '').strip()
         region = os.environ.get('TENCENTCLOUD_REGION', 'ap-guangzhou').strip()
-        if not secret_id or not secret_key:
-            return jsonify({
-                'status': 'error',
-                'success': False,
-                'msg': '未配置腾讯云 ASR 密钥（TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY）'
-            }), 400
+        use_tencent = bool(secret_id and secret_key)
 
         if 'audio' not in request.files:
             return jsonify({'status': 'error', 'success': False, 'msg': '请上传音频文件'}), 400
@@ -1165,37 +1165,55 @@ def register_mobile_routes(app):
         if file_size > 10 * 1024 * 1024:
             return jsonify({'status': 'error', 'success': False, 'msg': '音频大小不能超过10MB'}), 400
 
+        audio_bytes = file.read()
+
+        # 分支一：腾讯云一句话识别（热词表同音增强）
+        if use_tencent:
+            try:
+                from tencent_asr import TencentAsrError, correct_voice_asr_text, sentence_recognition
+                # BUG-2026-09-07-002：核心指令词全部提到权重 100（同音增强替换），
+                # 识别内容只允许收敛到仓库领域词；领料/盘点/查库存等此前仅权重 5~11，
+                # 约束力不足，实测「领料」被识别成「饮料」。
+                text = sentence_recognition(
+                    audio_bytes,
+                    secret_id=secret_id,
+                    secret_key=secret_key,
+                    region=region,
+                    voice_format=ext,
+                    eng_service_type='16k_zh',
+                    hotword_list='入库|100,出库|100,领料|100,盘点|100,查库存|100,库存|100,识物|100,识别|100,期初|100,送货单|100,退货|100,调拨|100,首页|11,返回|11,退出|11,扫码|11,打印|11',
+                )
+                # 双保险：腾讯云热词同音替换仍可能漏网（如 欲哭→入库），
+                # 识别后按领域词表强制纠正一次再返回给 App。
+                text = correct_voice_asr_text(text)
+                return jsonify({'status': 'success', 'success': True, 'text': text})
+            except TencentAsrError as e:
+                current_app.logger.exception('腾讯云 ASR 失败')
+                # 透传腾讯云错误摘要（含错误码，截断防超长），便于 App 端和管理员定位
+                # 是密钥无效、服务未开通还是音频参数问题，而非笼统的"请重试"
+                detail = str(e)[:120]
+                return jsonify({
+                    'status': 'error',
+                    'success': False,
+                    'msg': '语音识别失败：{0}'.format(detail),
+                }), 502
+            except Exception:
+                current_app.logger.exception('语音识别失败')
+                return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 500
+
+        # 分支二（FEATURE-2026-10-08-ASR）：TokenHub 同步 ASR 回退。
+        # 无腾讯云专用密钥时不再直接报错，改用 LLM 网关（TokenHub）的
+        # wand-asr-v1 模型识别；识别结果同样过领域词纠正兜底。
         try:
-            from tencent_asr import TencentAsrError, correct_voice_asr_text, sentence_recognition
-            audio_bytes = file.read()
-            # BUG-2026-09-07-002：核心指令词全部提到权重 100（同音增强替换），
-            # 识别内容只允许收敛到仓库领域词；领料/盘点/查库存等此前仅权重 5~11，
-            # 约束力不足，实测「领料」被识别成「饮料」。
-            text = sentence_recognition(
-                audio_bytes,
-                secret_id=secret_id,
-                secret_key=secret_key,
-                region=region,
-                voice_format=ext,
-                eng_service_type='16k_zh',
-                hotword_list='入库|100,出库|100,领料|100,盘点|100,查库存|100,库存|100,识物|100,识别|100,期初|100,送货单|100,退货|100,调拨|100,首页|11,返回|11,退出|11,扫码|11,打印|11',
-            )
-            # 双保险：腾讯云热词同音替换仍可能漏网（如 欲哭→入库），
-            # 识别后按领域词表强制纠正一次再返回给 App。
+            from app import _asr_call_tokenhub
+            from tencent_asr import correct_voice_asr_text
+            text, asr_error = _asr_call_tokenhub(audio_bytes, voice_format=ext)
+            if asr_error:
+                return jsonify({'status': 'error', 'success': False, 'msg': asr_error}), 502
             text = correct_voice_asr_text(text)
             return jsonify({'status': 'success', 'success': True, 'text': text})
-        except TencentAsrError as e:
-            current_app.logger.exception('腾讯云 ASR 失败')
-            # 透传腾讯云错误摘要（含错误码，截断防超长），便于 App 端和管理员定位
-            # 是密钥无效、服务未开通还是音频参数问题，而非笼统的"请重试"
-            detail = str(e)[:120]
-            return jsonify({
-                'status': 'error',
-                'success': False,
-                'msg': '语音识别失败：{0}'.format(detail),
-            }), 502
         except Exception:
-            current_app.logger.exception('语音识别失败')
+            current_app.logger.exception('TokenHub ASR 失败')
             return jsonify({'status': 'error', 'success': False, 'msg': '语音识别失败，请稍后重试'}), 500
 
     # ───────────────────────── 物料档案（多图） ─────────────────────────
