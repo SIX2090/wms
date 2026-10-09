@@ -17710,6 +17710,99 @@ def _ai_is_stock_query_question(message):
     return has_stock_keyword and not has_exclude
 
 
+def _ai_llm_parse_stock_intent(message):
+    """用 LLM（DeepSeek-V4-Pro）解析库存查询意图，输出结构化条件。
+    返回 {'name': str, 'color': str|None, 'spec': str|None, 'brand': str|None} 或 None。
+    """
+    try:
+        prompt = f"""你是 WMS 仓库管理系统的意图解析器。用户要查库存，请解析出物料查询条件。
+
+用户输入："{message}"
+
+请输出 JSON 格式：
+{{
+    "name": "物料名称（如：指示灯、铜排、螺丝）",
+    "color": "颜色（如：红、黄、蓝、绿、白、黑），没有则为 null",
+    "spec": "规格型号（如：6*10、XB2BVM4LC、M8*20），没有则为 null",
+    "brand": "品牌（如：施耐德、西门子），没有则为 null"
+}}
+
+只输出 JSON，不要其他内容。"""
+
+        # 强制使用 DeepSeek-V4-Pro（文本智力最强）
+        reply = _voice_llm_chat(prompt, force_model='cn:deepseek-v4-pro')
+        if not reply:
+            return None
+        
+        # 解析 JSON
+        import json
+        # 尝试提取 JSON 部分
+        reply = reply.strip()
+        if '```json' in reply:
+            reply = reply.split('```json')[1].split('```')[0].strip()
+        elif '```' in reply:
+            reply = reply.split('```')[1].split('```')[0].strip()
+        
+        data = json.loads(reply)
+        if not isinstance(data, dict):
+            return None
+        
+        # 验证必需字段
+        if not data.get('name'):
+            return None
+        
+        return {
+            'name': str(data.get('name', '')).strip(),
+            'color': str(data.get('color', '')).strip() if data.get('color') else None,
+            'spec': str(data.get('spec', '')).strip() if data.get('spec') else None,
+            'brand': str(data.get('brand', '')).strip() if data.get('brand') else None,
+        }
+    except Exception as exc:
+        app.logger.warning('AI stock intent parse failed: %s', exc)
+        return None
+
+
+def _ai_query_materials_by_intent(intent, limit=8):
+    """按 LLM 解析的结构化条件查询物料。"""
+    if not intent or not intent.get('name'):
+        return []
+    
+    query = Material.query.options(
+        joinedload(Material.unit),
+        joinedload(Material.category),
+        joinedload(Material.supplier)
+    )
+    
+    # 名称匹配（核心）
+    name = intent['name']
+    query = query.filter(Material.name.ilike(f'%{name}%'))
+    
+    # 颜色过滤（名称、规格、备注任一匹配）
+    color = intent.get('color')
+    if color:
+        query = query.filter(
+            db.or_(
+                Material.name.ilike(f'%{color}%'),
+                Material.spec.ilike(f'%{color}%'),
+                Material.remark.ilike(f'%{color}%')
+            )
+        )
+    
+    # 规格过滤
+    spec = intent.get('spec')
+    if spec:
+        # 规格标准化：6×10 → 6*10
+        spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
+        query = query.filter(Material.spec.ilike(f'%{spec_norm}%'))
+    
+    # 品牌过滤
+    brand = intent.get('brand')
+    if brand:
+        query = query.filter(Material.brand.ilike(f'%{brand}%'))
+    
+    return query.order_by(Material.code.asc()).limit(limit).all()
+
+
 def _ai_stock_query_response(message, context=None):
     """AI 查库存工具：解析物料描述，基于实时数据生成自然语言回复。"""
     if not _ai_is_stock_query_question(message):
@@ -17717,8 +17810,18 @@ def _ai_stock_query_response(message, context=None):
     if not _ai_capability_allowed('warehouse_insights'):
         return _ai_permission_denied_response('warehouse_insights')
 
-    # 从消息中提取物料关键词
-    candidates = _ai_find_materials_from_message(message, limit=5)
+    # 用 LLM（DeepSeek-V4-Pro）解析用户意图，输出结构化查询条件
+    parsed_intent = _ai_llm_parse_stock_intent(message)
+    
+    candidates = []
+    if parsed_intent:
+        # LLM 解析成功，按结构化条件精确查询
+        candidates = _ai_query_materials_by_intent(parsed_intent, limit=5)
+    
+    # LLM 解析失败或未命中，回退到正则匹配
+    if not candidates:
+        candidates = _ai_find_materials_from_message(message, limit=5)
+    
     if not candidates:
         return None  # 没识别到物料，走通用聊天
 

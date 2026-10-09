@@ -443,8 +443,10 @@ _VOICE_LLM_PARSE_PROMPT = (
 )
 
 
-def _voice_llm_chat(prompt):
-    """语音解析专用 LLM 调用：懒导入 app 层配置；未配置/异常一律返回 None（调用方回退正则）。"""
+def _voice_llm_chat(prompt, force_model=None):
+    """语音解析专用 LLM 调用：懒导入 app 层配置；未配置/异常一律返回 None（调用方回退正则）。
+    force_model: 强制使用指定模型（如 'cn:deepseek-v4-pro'），用于特定场景。
+    """
     try:
         from app import (
             _ai_llm_configured,
@@ -461,7 +463,7 @@ def _voice_llm_chat(prompt):
             return None
         endpoint = _ai_llm_endpoint()
         headers = _ai_llm_headers()
-        model = _ai_llm_model()
+        model = force_model or _ai_llm_model()
         timeout = _ai_llm_timeout_seconds()
     except Exception:
         return None
