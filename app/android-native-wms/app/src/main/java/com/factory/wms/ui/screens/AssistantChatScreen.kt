@@ -107,8 +107,9 @@ fun AssistantChatScreen(
                     BitmapFactory.decodeStream(input)
                 }
             }.getOrNull()?.let { bitmap ->
-                // 限制最长边 1600px：送货单细节保留 + 控制上传体积（base64 后 ~1MB 内）
-                val maxSide = 1600
+                // 限制最长边 1024px + JPEG 70%：vision 模型处理小图更快（千问 APP 同款策略）
+                // base64 后 ~300KB，上传快、识别快、504 超时风险大幅降低
+                val maxSide = 1024
                 val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
                     val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
                     Bitmap.createScaledBitmap(
@@ -121,7 +122,7 @@ fun AssistantChatScreen(
                     bitmap
                 }
                 val baos = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                scaled.compress(Bitmap.CompressFormat.JPEG, 70, baos)
                 val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
                 scope.launch { viewModel.setPendingImage(base64) }
             }
@@ -135,13 +136,14 @@ fun AssistantChatScreen(
             scope.launch(Dispatchers.IO) {
                 // FIX-2026-10-07-011：相册原图动辄 3-5MB（HEIC 更大），base64 后
                 // +33% 极易超 nginx client_max_body_size（默认 1M）→ 413。
-                // 与拍照同口径：解码后按最长边 1600px 压缩 + JPEG 85%。
+                // 与拍照同口径：解码后按最长边 1024px 压缩 + JPEG 70%（千问 APP 同款策略）
+                // base64 后 ~300KB，上传快、识别快、504 超时风险大幅降低
                 val bitmap = runCatching {
                     context.contentResolver.openInputStream(it)?.use { input ->
                         BitmapFactory.decodeStream(input)
                     }
                 }.getOrNull() ?: return@launch
-                val maxSide = 1600
+                val maxSide = 1024
                 val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
                     val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
                     Bitmap.createScaledBitmap(
@@ -154,7 +156,7 @@ fun AssistantChatScreen(
                     bitmap
                 }
                 val baos = ByteArrayOutputStream()
-                scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                scaled.compress(Bitmap.CompressFormat.JPEG, 70, baos)
                 val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
                 scope.launch { viewModel.setPendingImage(base64) }
             }
