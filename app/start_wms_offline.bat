@@ -51,5 +51,6 @@ echo [Auto-Fix] Checking database columns...
 "%PYTHON_CMD%" "fix_db_columns.py"
 echo.
 
-"%PYTHON_CMD%" "run_server.py"
+echo [Log] Console output -> logs\service_console.log
+powershell -NoProfile -Command "& '%PYTHON_CMD%' 'run_server.py' *>&1 | Tee-Object -FilePath '%~dp0logs\service_console.log'"
 pause
