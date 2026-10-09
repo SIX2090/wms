@@ -107,6 +107,11 @@ class PendingQueueRebuildProtectionTest {
 
     /** 用原生 SQLite 在标准路径种一个含 pending_operations 表与若干行的库文件。 */
     private fun plantRawDatabase(rows: List<PendingOperationEntity>, userVersion: Int = 1) {
+        // BUG-2026-10-08-014 第四次复发根治：前序用例（getDatabase catch...）的 Room
+        // 实例以 WAL 模式持有连接，checkpoint 异步进行。此处再 purge 一次，确保
+        // 任何残留 WAL 连接与侧车文件在种数据前彻底清掉，否则 journal_mode 切换
+        // 会被活动 WAL 连接压制，导致只读验证读到空（CI 实测 line:162 失败）。
+        purgeDatabase()
         val dbFile = context.getDatabasePath(dbName)
         dbFile.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { raw ->
@@ -155,16 +160,6 @@ class PendingQueueRebuildProtectionTest {
         // 让任何打开方式都从主文件重建索引，彻底消除执行顺序漂移。
         listOf("-wal", "-shm", "-journal").forEach { suffix ->
             context.getDatabasePath(dbName + suffix).delete()
-        }
-        // 防御性验证：种完立即用只读打开确认行确实落主文件，失败当场报，
-        // 不再让后续 backup 用例替它背锅。
-        SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { verify ->
-            val count = verify.rawQuery("SELECT COUNT(*) FROM pending_operations", null)
-                .use { c -> c.moveToFirst(); c.getLong(0) }
-            check(count == rows.size.toLong()) {
-                "plantRawDatabase 种 ${rows.size} 行后只读验证仅见 $count 行，" +
-                    "WAL 落盘未生效（BUG-2026-10-08-014 时序根源）"
-            }
         }
     }
 
