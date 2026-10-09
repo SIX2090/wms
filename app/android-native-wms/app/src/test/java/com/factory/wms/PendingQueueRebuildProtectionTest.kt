@@ -110,6 +110,12 @@ class PendingQueueRebuildProtectionTest {
         val dbFile = context.getDatabasePath(dbName)
         dbFile.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { raw ->
+            // BUG-2026-10-08-014 根治：Robolectric 影子 SQLite 的 WAL recovery 是
+            // 时序漂移根源（只读打开不执行 recovery，刚写入的行还在 -wal 侧车 → 读到空）。
+            // 种数据改用 TRUNCATE journal 模式（SQLite 默认的 rollback journal），
+            // 写入直接落主文件，不产 -wal/-shm 侧车，任何打开方式都能读到，
+            // 从输入侧彻底消除对 WAL recovery 的依赖，与用例执行顺序无关。
+            raw.rawQuery("PRAGMA journal_mode=TRUNCATE", null).close()
             raw.execSQL(
                 "CREATE TABLE IF NOT EXISTS `pending_operations` (" +
                     "`request_id` TEXT NOT NULL, `operation_type` TEXT NOT NULL, " +
@@ -143,8 +149,22 @@ class PendingQueueRebuildProtectionTest {
             raw.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).close()
         }
         // 兜底：删干净侧车文件，保证后续 OPEN_READONLY 打开的是自洽主文件。
-        listOf("-wal", "-shm").forEach { suffix ->
+        // BUG-2026-10-08-014 第四次复发定位：Robolectric 影子 SQLite 的 WAL recovery
+        // 依赖 -shm 索引；checkpoint(TRUNCATE) 清空 -wal 但 -shm 可能残留过期索引，
+        // 只读打开时影子实现用旧索引映射主文件 → 读到空。必须连同 -shm 一起删，
+        // 让任何打开方式都从主文件重建索引，彻底消除执行顺序漂移。
+        listOf("-wal", "-shm", "-journal").forEach { suffix ->
             context.getDatabasePath(dbName + suffix).delete()
+        }
+        // 防御性验证：种完立即用只读打开确认行确实落主文件，失败当场报，
+        // 不再让后续 backup 用例替它背锅。
+        SQLiteDatabase.openDatabase(dbFile.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { verify ->
+            val count = verify.rawQuery("SELECT COUNT(*) FROM pending_operations", null)
+                .use { c -> c.moveToFirst(); c.getLong(0) }
+            check(count == rows.size.toLong()) {
+                "plantRawDatabase 种 ${rows.size} 行后只读验证仅见 $count 行，" +
+                    "WAL 落盘未生效（BUG-2026-10-08-014 时序根源）"
+            }
         }
     }
 

@@ -149,19 +149,34 @@ abstract class AppDatabase : RoomDatabase() {
                     Log.w("AppDatabase", "删库重建前已备份 ${rows.size} 条离线待同步单据")
                     return rows
                 }
-                // 只读读到空：可能真无单，也可能 WAL 未恢复。文件非空时回退读写再确认。
-                if (dbFile.length() > 0L) {
-                    val rw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
-                    if (rw != null) {
-                        val rwRows = runCatching { rw.use { readRows(it) } }.getOrElse { emptyList() }
-                        if (rwRows.isNotEmpty()) {
-                            Log.w(
-                                "AppDatabase",
-                                "只读备份为空，读写回退备份 ${rwRows.size} 条离线待同步单据（WAL 未恢复）"
-                            )
-                            return rwRows
-                        }
+                // 只读读到空：可能真无单，也可能 WAL 未恢复（Robolectric 影子实现下
+                // 只读打开不执行 WAL recovery，刚写入的行还在 -wal 侧车 → 读到空）。
+                // 只要文件存在就回退读写再确认——读写打开会正常完成 WAL 恢复。
+                // BUG-2026-10-08-014 第三次复发证明：length()>0 判断不足以覆盖所有
+                // checkpoint 后的文件状态，必须无条件重试。
+                val rw = openRawDatabase(dbFile.absolutePath, SQLiteDatabase.OPEN_READWRITE)
+                if (rw != null) {
+                    val rwRows = runCatching { rw.use { readRows(it) } }.getOrElse { err ->
+                        Log.e(
+                            "AppDatabase",
+                            "只读备份为空后读写回退读取异常: ${err.javaClass.simpleName}: ${err.message}"
+                        )
+                        emptyList()
                     }
+                    if (rwRows.isNotEmpty()) {
+                        Log.w(
+                            "AppDatabase",
+                            "只读备份为空，读写回退备份 ${rwRows.size} 条离线待同步单据（WAL 未恢复）"
+                        )
+                        return rwRows
+                    }
+                    Log.w("AppDatabase", "只读与读写打开均读到空队列表（真无单可保）")
+                } else {
+                    Log.e(
+                        "AppDatabase",
+                        "只读备份为空，且读写打开失败（库文件存在但不可读写），" +
+                            "未同步记录在删库前已无法取出"
+                    )
                 }
                 return rows
             }
