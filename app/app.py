@@ -12493,9 +12493,9 @@ def _ai_llm_api_key(overrides=None):
 # text_iq_rank: 文本智力排名（1=最强）
 _AI_MODEL_POOL = [
     # 视觉优先（识物/OCR/图片识别）
-    ('cn:glm-5v-turbo',      'GLM-5v-Turbo',      1, 5),   # 视觉最快 1.5s
-    ('cn:deepseek-v4.1-flash','Deepseek-V4.1-Flash',2, 2),   # 视觉 2.0s，文本强
-    ('cn:glm-5.3-flash',     'GLM-5.3-Flash',     3, 6),   # 视觉 4.3s
+    ('cn:glm-5.3-flash',     'GLM-5.3-Flash',     1, 6),   # 视觉最快 6.8s（Roboflow 实测）
+    ('cn:glm-5v-turbo',      'GLM-5v-Turbo',      2, 5),   # 视觉稳定 11.5s（降级备用）
+    ('cn:deepseek-v4.1-flash','Deepseek-V4.1-Flash',3, 2),   # 视觉 2.0s，文本强
     ('cn:kimi-k2.8-preview', 'Kimi-K2.8-Preview',  4, 3),   # 视觉 3.6s
     # 文本优先（意图识别/聊天/分析）
     ('cn:deepseek-v4-pro',   'Deepseek-V4-Pro',   9, 1),   # 文本最强
@@ -12980,40 +12980,75 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
     headers = _ai_llm_headers()
     # vision 模型处理图片耗时较长，超时给足 120 秒（原 60 秒可能不够）
     vision_timeout = max(_ai_llm_timeout_seconds(), 120)
-    try:
-        response = requests.post(
-            _ai_llm_endpoint(),
-            headers=headers,
-            json=payload,
-            timeout=vision_timeout,
-        )
-        if not response.ok:
-            return None, None, _ai_llm_error_message(response)
-        response.raise_for_status()
-        data = response.json()
-        content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
-        if not content:
-            return None, None, '供应商接口返回成功，但 choices[0].message.content 为空'
-        reply, extracted = _ai_vision_parse_extracted(content)
-        if not extracted:
-            bare = _ai_extract_json_object(content)
-            if isinstance(bare, dict):
-                extracted = bare
-                # 从 reply 里剥离裸 JSON，避免用户看到原始 JSON
-                json_str = json.dumps(bare, ensure_ascii=False)
-                reply = reply.replace(json_str, '').strip()
-        if not reply.strip() and not extracted:
-            return None, None, '供应商接口返回成功，但没有可用的文本或结构化内容'
-        return reply[:1400], extracted, ''
-    except requests.exceptions.Timeout:
-        app.logger.warning('AI vision model timeout after %ss', vision_timeout)
-        return None, None, f'图片识别超时（>{vision_timeout}s），请换一张更小的图片或稍后重试'
-    except requests.exceptions.ConnectionError as exc:
-        app.logger.warning('AI vision model connection error: %s', exc)
-        return None, None, '图片识别服务连接失败，请检查网络或稍后重试'
-    except Exception as exc:
-        app.logger.warning('AI vision model unavailable: %s', exc)
-        return None, None, str(exc)
+    
+    # 双模型降级：vision 场景取前两个模型（GLM-5.3-Flash 主力 + GLM-5v-Turbo 备用）
+    vision_models = [m[0] for m in sorted(_AI_MODEL_POOL, key=lambda x: x[2])[:2]]
+    current_model = payload.get('model')
+    # 如果当前模型不在 vision 前二里，强制用第一优先级
+    if current_model not in vision_models:
+        payload['model'] = vision_models[0]
+        current_model = vision_models[0]
+    
+    last_error = None
+    for model_idx, model_name in enumerate(vision_models):
+        if model_idx > 0:
+            # 降级：换模型，记日志
+            app.logger.info('AI vision fallback: %s -> %s', current_model, model_name)
+            payload['model'] = model_name
+            current_model = model_name
+        
+        try:
+            response = requests.post(
+                _ai_llm_endpoint(),
+                headers=headers,
+                json=payload,
+                timeout=vision_timeout,
+            )
+            if not response.ok:
+                last_error = _ai_llm_error_message(response)
+                # 5xx 服务器错误才降级，4xx 客户端错误直接返回
+                if 500 <= response.status_code < 600:
+                    app.logger.warning('AI vision %s server error %s, will fallback', model_name, response.status_code)
+                    continue
+                return None, None, last_error
+            response.raise_for_status()
+            data = response.json()
+            content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+            if not content:
+                last_error = '供应商接口返回成功，但 choices[0].message.content 为空'
+                continue  # 空内容也降级试试
+            reply, extracted = _ai_vision_parse_extracted(content)
+            if not extracted:
+                bare = _ai_extract_json_object(content)
+                if isinstance(bare, dict):
+                    extracted = bare
+                    # 从 reply 里剥离裸 JSON，避免用户看到原始 JSON
+                    json_str = json.dumps(bare, ensure_ascii=False)
+                    reply = reply.replace(json_str, '').strip()
+            if not reply.strip() and not extracted:
+                last_error = '供应商接口返回成功，但没有可用的文本或结构化内容'
+                continue
+            # 成功：如果用了降级模型，在回复前加提示
+            if model_idx > 0:
+                reply = f'[已自动切换至 {model_name}]\n{reply}'
+            return reply[:1400], extracted, ''
+            
+        except requests.exceptions.Timeout:
+            last_error = f'图片识别超时（>{vision_timeout}s）'
+            app.logger.warning('AI vision %s timeout after %ss, will fallback', model_name, vision_timeout)
+            continue
+        except requests.exceptions.ConnectionError as exc:
+            last_error = f'图片识别服务连接失败: {exc}'
+            app.logger.warning('AI vision %s connection error: %s, will fallback', model_name, exc)
+            continue
+        except Exception as exc:
+            last_error = str(exc)
+            app.logger.warning('AI vision %s error: %s, will fallback', model_name, exc)
+            continue
+    
+    # 所有模型都失败
+    app.logger.error('AI vision all models failed. Last error: %s', last_error)
+    return None, None, f'图片识别服务暂时不可用（已尝试 {len(vision_models)} 个模型），请稍后重试'
 
 # FEATURE-2026-10-08-ASR：语音识别回退 TokenHub 同步 ASR（wand-asr-v1）。
 # 生产机未配置腾讯云 ASR 专用密钥（TENCENTCLOUD_SECRET_ID/KEY 属独立付费产品，
