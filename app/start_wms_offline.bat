@@ -52,6 +52,5 @@ echo [Auto-Fix] Checking database columns...
 "%PYTHON_CMD%" "fix_db_columns.py"
 echo.
 
-echo [Log] Console output -> logs\service_console.log
-"%PYTHON_CMD%" "run_server.py" 1>> "%~dp0logs\service_console.log" 2>>&1
+"%PYTHON_CMD%" "run_server.py"
 pause
