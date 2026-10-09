@@ -12978,12 +12978,14 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
         'max_tokens': min(max(_ai_llm_max_tokens(), 200), 1200),
     }
     headers = _ai_llm_headers()
+    # vision 模型处理图片耗时较长，超时给足 120 秒（原 60 秒可能不够）
+    vision_timeout = max(_ai_llm_timeout_seconds(), 120)
     try:
         response = requests.post(
             _ai_llm_endpoint(),
             headers=headers,
             json=payload,
-            timeout=max(_ai_llm_timeout_seconds(), 60),
+            timeout=vision_timeout,
         )
         if not response.ok:
             return None, None, _ai_llm_error_message(response)
@@ -13003,6 +13005,12 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
         if not reply.strip() and not extracted:
             return None, None, '供应商接口返回成功，但没有可用的文本或结构化内容'
         return reply[:1400], extracted, ''
+    except requests.exceptions.Timeout:
+        app.logger.warning('AI vision model timeout after %ss', vision_timeout)
+        return None, None, f'图片识别超时（>{vision_timeout}s），请换一张更小的图片或稍后重试'
+    except requests.exceptions.ConnectionError as exc:
+        app.logger.warning('AI vision model connection error: %s', exc)
+        return None, None, '图片识别服务连接失败，请检查网络或稍后重试'
     except Exception as exc:
         app.logger.warning('AI vision model unavailable: %s', exc)
         return None, None, str(exc)

@@ -3925,6 +3925,9 @@ def register_native_api_routes(app):
         # 严格的 vision API 会拒。嗅探失败回退 jpeg（相机拍照恒为 JPEG）。
         images = []
         if req.image:
+            # 图片大小预检：base64 超过 5MB（约 3.7MB 原图）拒绝，避免 vision 超时
+            if len(req.image) > 5 * 1024 * 1024:
+                return api_json_error('图片太大（超过 5MB），请压缩后重试', 400)
             img_bytes = base64.b64decode(req.image)
             if img_bytes.startswith(b'\x89PNG\r\n\x1a\n'):
                 mime = 'image/png'
