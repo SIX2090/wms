@@ -12982,20 +12982,21 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
     vision_timeout = max(_ai_llm_timeout_seconds(), 120)
     
     # 双模型降级：vision 场景取前两个模型（GLM-5.3-Flash 主力 + GLM-5v-Turbo 备用）
-    vision_models = [m[0] for m in sorted(_AI_MODEL_POOL, key=lambda x: x[2])[:2]]
+    # 存 (model_id, display_name) 元组，降级提示用友好名称
+    vision_models = [(m[0], m[1]) for m in sorted(_AI_MODEL_POOL, key=lambda x: x[2])[:2]]
     current_model = payload.get('model')
     # 如果当前模型不在 vision 前二里，强制用第一优先级
-    if current_model not in vision_models:
-        payload['model'] = vision_models[0]
-        current_model = vision_models[0]
+    if current_model not in [m[0] for m in vision_models]:
+        payload['model'] = vision_models[0][0]
+        current_model = vision_models[0][0]
     
     last_error = None
-    for model_idx, model_name in enumerate(vision_models):
+    for model_idx, (model_id, model_name) in enumerate(vision_models):
         if model_idx > 0:
             # 降级：换模型，记日志
-            app.logger.info('AI vision fallback: %s -> %s', current_model, model_name)
-            payload['model'] = model_name
-            current_model = model_name
+            app.logger.info('AI vision fallback: %s -> %s (%s)', current_model, model_id, model_name)
+            payload['model'] = model_id
+            current_model = model_id
         
         try:
             response = requests.post(
@@ -13008,7 +13009,7 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
                 last_error = _ai_llm_error_message(response)
                 # 5xx 服务器错误才降级，4xx 客户端错误直接返回
                 if 500 <= response.status_code < 600:
-                    app.logger.warning('AI vision %s server error %s, will fallback', model_name, response.status_code)
+                    app.logger.warning('AI vision %s (%s) server error %s, will fallback', model_id, model_name, response.status_code)
                     continue
                 return None, None, last_error
             response.raise_for_status()
@@ -13028,22 +13029,22 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
             if not reply.strip() and not extracted:
                 last_error = '供应商接口返回成功，但没有可用的文本或结构化内容'
                 continue
-            # 成功：如果用了降级模型，在回复前加提示
+            # 成功：如果用了降级模型，在回复前加友好提示
             if model_idx > 0:
                 reply = f'[已自动切换至 {model_name}]\n{reply}'
             return reply[:1400], extracted, ''
             
         except requests.exceptions.Timeout:
             last_error = f'图片识别超时（>{vision_timeout}s）'
-            app.logger.warning('AI vision %s timeout after %ss, will fallback', model_name, vision_timeout)
+            app.logger.warning('AI vision %s (%s) timeout after %ss, will fallback', model_id, model_name, vision_timeout)
             continue
         except requests.exceptions.ConnectionError as exc:
             last_error = f'图片识别服务连接失败: {exc}'
-            app.logger.warning('AI vision %s connection error: %s, will fallback', model_name, exc)
+            app.logger.warning('AI vision %s (%s) connection error: %s, will fallback', model_id, model_name, exc)
             continue
         except Exception as exc:
             last_error = str(exc)
-            app.logger.warning('AI vision %s error: %s, will fallback', model_name, exc)
+            app.logger.warning('AI vision %s (%s) error: %s, will fallback', model_id, model_name, exc)
             continue
     
     # 所有模型都失败
