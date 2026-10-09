@@ -1239,7 +1239,7 @@ private fun OcrResultRow(label: String, value: String) {
     }
 }
 
-private /**
+/**
  * FEATURE-2026-10-08-EXCEL：打开导出的 Excel 文件（FileProvider + 系统打开方式）。
  */
 private fun openExportedExcel(context: android.content.Context, path: String) {

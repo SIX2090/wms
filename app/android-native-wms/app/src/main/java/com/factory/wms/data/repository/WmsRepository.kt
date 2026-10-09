@@ -774,7 +774,7 @@ class WmsRepository(
             val bytes = response.body()?.bytes()
                 ?: throw Exception("服务器没有返回文件内容")
             val disp = response.headers()["Content-Disposition"] ?: ""
-            val fileName = Regex("filename\*=UTF-8''([^;]+)").find(disp)?.groupValues?.get(1)
+            val fileName = Regex("filename\\*=UTF-8''([^;]+)").find(disp)?.groupValues?.get(1)
                 ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
                 ?: Regex("filename=\"?([^\"]+)\"?").find(disp)?.groupValues?.get(1)
                 ?: "单据导出_${System.currentTimeMillis()}.xlsx"
