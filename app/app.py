@@ -9808,6 +9808,13 @@ def _ai_material_query(keyword, limit=8):
             # 如果有规格，进一步过滤规格
             if spec_patterns:
                 spec = spec_patterns[0].replace('×', '*').replace('x', '*').replace('X', '*')
+                # FIX-2026-10-10：SQL 粗筛 + Python 边界精筛，防 '6*10' 匹配 'SM76*10'
+                exact_rows = exact_query.filter(Material.spec.ilike(f'%{spec}%')).order_by(Material.code.asc()).all()
+                exact_rows = [m for m in exact_rows if _ai_spec_matches(m.spec, spec)]
+                if exact_rows:
+                    return exact_rows[:limit]
+                # 规格不匹配：不降级到无规格精确（名称对但规格错时，
+                # 由调用方宽松回退处理——名称硬过滤路径会给出该物料全部规格）
                 exact_query = exact_query.filter(Material.spec.ilike(f'%{spec}%'))
             # 如果有颜色，在名称或规格或备注中过滤
             if color_part:
@@ -9822,31 +9829,60 @@ def _ai_material_query(keyword, limit=8):
             if exact_results:
                 return exact_results
 
-        # 回退：宽松模糊搜索（名称+规格+颜色组合）
-        conditions = []
+        # 回退：宽松模糊搜索
+        # FIX-2026-10-10：有明确物料名时，名称匹配是硬条件（AND），规格/颜色
+        # 只作排序参考不做 OR 放行——原写法规格条件进 OR，导致"铜排 6*10"
+        # 精确无果后绝缘子 SM76*10（spec 含 6*10）顶上来，跨物料乱匹配。
+        name_conditions = []
         for variant in homophone_variants:
-            # 名称匹配（排除规格和颜色部分）
             variant_name = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
             variant_name = re.sub(r'^[查查询问一一下]+', '', variant_name).strip()
             variant_name = re.sub(r'[的了啊吗呢吧]+$', '', variant_name).strip()
-            # 从名称中移除颜色词
             variant_name_clean = re.sub(r'(红|黄|蓝|绿|白|黑|灰|透明|橙|紫|粉|棕|银|金)色?', '', variant_name).strip()
             if variant_name_clean and len(variant_name_clean) >= 2:
-                conditions.append(Material.name.ilike(f'%{variant_name_clean}%'))
+                name_conditions.append(Material.name.ilike(f'%{variant_name_clean}%'))
 
-            # 规格匹配
-            for spec in spec_patterns:
-                spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
-                conditions.append(Material.spec.ilike(f'%{spec_norm}%'))
-
-            # 颜色匹配
+        if name_conditions:
+            # 名称硬过滤 + 可选颜色过滤；规格不匹配的物料排后（不再 OR 放行）
+            fallback_query = query.filter(db.or_(*name_conditions))
             if color_part:
-                conditions.append(Material.name.ilike(f'%{color_part}%'))
-                conditions.append(Material.spec.ilike(f'%{color_part}%'))
-                conditions.append(Material.remark.ilike(f'%{color_part}%'))
+                fallback_query = fallback_query.filter(
+                    db.or_(
+                        Material.name.ilike(f'%{color_part}%'),
+                        Material.spec.ilike(f'%{color_part}%'),
+                        Material.remark.ilike(f'%{color_part}%')
+                    )
+                )
+            if spec_patterns:
+                spec_norm = spec_patterns[0].replace('×', '*').replace('x', '*').replace('X', '*')
+                # 规格匹配的优先（CASE 排序），不匹配的仍返回（用户可能记错规格）
+                fallback_query = fallback_query.order_by(
+                    db.case((Material.spec.ilike(f'%{spec_norm}%'), 0), else_=1),
+                    Material.code.asc()
+                )
+            else:
+                fallback_query = fallback_query.order_by(Material.code.asc())
+            return fallback_query.limit(limit).all()
 
+        # 没有可识别的物料名：才允许纯规格/颜色搜索（如"6*10 的库存"）
+        conditions = []
+        for spec in spec_patterns:
+            spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
+            conditions.append(Material.spec.ilike(f'%{spec_norm}%'))
+        if color_part:
+            conditions.append(Material.name.ilike(f'%{color_part}%'))
+            conditions.append(Material.spec.ilike(f'%{color_part}%'))
+            conditions.append(Material.remark.ilike(f'%{color_part}%'))
         if conditions:
-            query = query.filter(db.or_(*conditions))
+            # FIX-2026-10-10：纯规格搜索也做边界精筛（'6*10' 不应命中 'SM76*10'）
+            rows = query.filter(db.or_(*conditions)).order_by(Material.code.asc()).all()
+            if spec_patterns:
+                spec_norm0 = spec_patterns[0].replace('×', '*').replace('x', '*').replace('X', '*')
+                strict = [m for m in rows if _ai_spec_matches(m.spec, spec_norm0)]
+                if strict:
+                    return strict[:limit]
+            return rows[:limit]
+        return []
 
     return query.order_by(Material.code.asc()).limit(limit).all()
 
@@ -10999,7 +11035,15 @@ def _ai_extract_material_candidates(message):
     text = (message or '').strip()
     candidates = []
     seen = set()
-    
+
+    # 0. FIX-2026-10-10：先剥掉查询/量词类词汇，防止"库存""多少"等进入
+    # 候选词后污染逐词回退查询（"6*10"单独触发纯规格搜索 → 绝缘子顶上）
+    text = re.sub(
+        r'(库存|存量|存货|还剩多少|还有多少|有多少|多少件|多少个|多少支|多少条|多少卷|'
+        r'多少米|多少盒|多少箱|多少包|多少吨|多少公斤|还多吗|够不够|还够吗|剩下|'
+        r'查一下|查询|查查|帮我|请问|吗|呢|吧)',
+        '', text)
+
     # 1. 提取英文/数字/规格符号 token（如 6×10、ABC-123）
     for token in re.findall(r'[A-Za-z0-9][A-Za-z0-9_\-./*×x*]{1,}', text):
         # 尝试将 × 替换为 * 以匹配数据库中的 spec
@@ -17711,9 +17755,17 @@ def _ai_is_stock_query_question(message):
     text = (message or '').strip().lower()
     if not text:
         return False
-    # 查库存关键词
-    stock_keywords = ['库存', '存量', '还剩多少', '还有多少', '有多少', '数量']
+    # 查库存关键词（FIX-2026-10-10：扩充口语化问法）
+    stock_keywords = [
+        '库存', '存量', '还剩多少', '还有多少', '有多少', '数量',
+        '多少件', '多少个', '多少支', '多少条', '多少卷', '多少米',
+        '多少盒', '多少箱', '多少包', '多少吨', '多少公斤',
+        '存货', '还多吗', '够不够', '还够吗', '剩下',
+    ]
     has_stock_keyword = any(kw in text for kw in stock_keywords)
+    # "有铜排吗"/"有没有铜排"：物料名 + 吗/有没有，也视为查库存
+    if not has_stock_keyword and ('吗' in text or '有没有' in text):
+        has_stock_keyword = text.startswith(('有', '还有')) or '有没有' in text
     # 排除盘点/调整/差异类问题（这些走其他工具）
     exclude_keywords = ['盘点', '调整', '差异', '不一致', '对不上', '账物']
     has_exclude = any(kw in text for kw in exclude_keywords)
@@ -17772,6 +17824,29 @@ def _ai_llm_parse_stock_intent(message):
         return None
 
 
+
+def _ai_spec_matches(material_spec, query_spec):
+    """规格边界安全匹配（Python 端）：'6*10' 不匹配 'SM76*10'/'16*100'。
+    规则：把双方 ×/x/X 归一化为 * 后，query 在 material_spec 中出现处，
+    前一个字符不能是字母数字（防 'SM76*10'），后一个字符不能是数字（防 '16*100'）。
+    完全相等恒为 True。
+    """
+    import re as _re
+    q = (query_spec or '').replace('×', '*').replace('x', '*').replace('X', '*').strip()
+    s = (material_spec or '').replace('×', '*').replace('x', '*').replace('X', '*').strip()
+    if not q or not s:
+        return False
+    if q == s:
+        return True
+    for m in _re.finditer(_re.escape(q), s):
+        start, end = m.start(), m.end()
+        prev_ok = start == 0 or not (s[start-1].isalnum())
+        next_ok = end >= len(s) or not s[end].isdigit()
+        if prev_ok and next_ok:
+            return True
+    return False
+
+
 def _ai_query_materials_by_intent(intent, limit=8):
     """按 LLM 解析的结构化条件查询物料。"""
     if not intent or not intent.get('name'):
@@ -17803,7 +17878,10 @@ def _ai_query_materials_by_intent(intent, limit=8):
     if spec:
         # 规格标准化：6×10 → 6*10
         spec_norm = spec.replace('×', '*').replace('x', '*').replace('X', '*')
-        query = query.filter(Material.spec.ilike(f'%{spec_norm}%'))
+        # FIX-2026-10-10：SQL 粗筛（子串）+ Python 边界精筛，
+        # 防 '6*10' 误匹配 'SM76*10'（绝缘子）
+        rows = query.filter(Material.spec.ilike(f'%{spec_norm}%')).order_by(Material.code.asc()).all()
+        return [m for m in rows if _ai_spec_matches(m.spec, spec_norm)][:limit]
     
     # 品牌过滤
     brand = intent.get('brand')
@@ -17811,6 +17889,36 @@ def _ai_query_materials_by_intent(intent, limit=8):
         query = query.filter(Material.brand.ilike(f'%{brand}%'))
     
     return query.order_by(Material.code.asc()).limit(limit).all()
+
+
+def _ai_material_not_found_response(message, parsed_intent=None):
+    """查库存明确提到物料但档案未命中时的友好提示（FIX-2026-10-10）。"""
+    # 从意图或原文提取物料名提示
+    hint_name = None
+    if parsed_intent and parsed_intent.get('name'):
+        hint_name = parsed_intent['name']
+    if not hint_name:
+        # 回退：取消息里最长的中文词
+        import re as _re
+        tokens = _re.findall(r'[\u4e00-\u9fff]{2,4}', message or '')
+        hint_name = max(tokens, key=len) if tokens else None
+
+    parts = ['在物料档案中没有找到']
+    if hint_name:
+        # 相近候选（放宽一层：名称任一字段模糊）
+        from sqlalchemy import or_
+        nearby = (Material.query.filter(or_(
+            Material.name.ilike(f'%{hint_name[:2]}%'),
+            Material.remark.ilike(f'%{hint_name}%'),
+        )).order_by(Material.code.asc()).limit(3).all())
+        if nearby:
+            names = '、'.join(f'{m.name}（{m.spec or "无规格"}）' for m in nearby)
+            parts.append(f'与「{hint_name}」相近的物料：{names}。')
+        else:
+            parts.append(f'与「{hint_name}」相近的物料。')
+    parts.append('请确认物料名称，或到「物料管理」中新建该物料档案。')
+    actions = [{'label': '物料管理', 'url': url_for('material_list')}]
+    return _ai_json_response(''.join(parts), actions=actions)
 
 
 def _ai_stock_query_response(message, context=None):
@@ -17833,7 +17941,9 @@ def _ai_stock_query_response(message, context=None):
         candidates = _ai_find_materials_from_message(message, limit=5)
     
     if not candidates:
-        return None  # 没识别到物料，走通用聊天
+        # FIX-2026-10-10：用户明确问某物料库存但档案无此物料时，直接告知
+        # 未找到（顺带给最接近的候选提示），而不是返回 None 掉进通用聊天瞎答
+        return _ai_material_not_found_response(message, parsed_intent)
 
     # 取第一个（最匹配的）物料查库存
     material = candidates[0]
@@ -17894,9 +18004,15 @@ def _ai_stock_query_response(message, context=None):
     if material.spec:
         reply_parts.append(f'规格：{material.spec}')
     reply_parts.append(f'当前库存：{current_stock}{unit_name}')
+    # FIX-2026-10-10：多候选时列出全部库存数字（原只列名字，用户看不到其他物料库存）
     if len(candidates) > 1:
-        other_codes = [f'{m.code} {m.name}' for m in candidates[1:3]]
-        reply_parts.append(f'\n找到 {len(candidates)} 个相似物料，以上显示第一个。其他：{"、".join(other_codes)}')
+        other_lines = []
+        for m in candidates[1:5]:
+            m_unit = m.unit.name if m.unit else ''
+            m_qty = normalize_stock_quantity(quantities.get(m.id, 0))
+            other_lines.append(f'{m.name}：{m_qty}{m_unit}')
+        reply_parts.append('\n其他相似物料：')
+        reply_parts.extend(f'  {line}' for line in other_lines)
     
     actions = [
         {'label': '库存查询', 'url': url_for('stock_query')},
