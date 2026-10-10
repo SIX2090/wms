@@ -9794,14 +9794,30 @@ def _ai_material_query(keyword, limit=8):
         name_part = re.sub(r'^[查查询问一一下]+', '', name_part).strip()
         name_part = re.sub(r'[的了啊吗呢吧]+$', '', name_part).strip()
 
+        # FIX-2026-10-10-F3：'6*10的铜排' 分离规格后 name_part='的铜排'，
+        # '的' 在中间没剥导致名称条件 ILIKE '%的铜排%' 零命中 → 掉进纯规格
+        # 路径返回绝缘子。剥掉中间'的'后若仍是 ≥2 字中文则作为额外变体。
+        if '的' in name_part:
+            de_stripped = name_part.replace('的', '').strip()
+            if de_stripped and len(de_stripped) >= 2 and de_stripped != name_part:
+                if de_stripped not in homophone_variants:
+                    homophone_variants.append(de_stripped)
+
         # 优先：名称精确匹配（铜排 = 铜排）
         exact_conditions = []
+        exact_rank_names = []  # FIX-2026-10-10-F3：纯文本名称，供同名最前排序
         for variant in homophone_variants:
             variant_clean = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
             variant_clean = re.sub(r'^[查查询问一一下]+', '', variant_clean).strip()
             variant_clean = re.sub(r'[的了啊吗呢吧]+$', '', variant_clean).strip()
+            if '的' in variant_clean:
+                variant_de = variant_clean.replace('的', '').strip()
+                if variant_de and len(variant_de) >= 2 and variant_de not in homophone_variants:
+                    homophone_variants.append(variant_de)
+                    variant_clean = variant_de
             if variant_clean and len(variant_clean) >= 2:
                 exact_conditions.append(Material.name.ilike(f'%{variant_clean}%'))
+                exact_rank_names.append(variant_clean)
 
         if exact_conditions:
             exact_query = query.filter(db.or_(*exact_conditions))
@@ -9825,7 +9841,12 @@ def _ai_material_query(keyword, limit=8):
                         Material.remark.ilike(f'%{color_part}%')
                     )
                 )
-            exact_results = exact_query.order_by(Material.code.asc()).limit(limit).all()
+            # FIX-2026-10-10-F3：名称完全相等排最前（'铜排'优先于'铜排机感应传感器'）
+            _rank_name = min(exact_rank_names, key=len) if exact_rank_names else ''
+            exact_results = exact_query.order_by(
+                db.case((db.func.lower(Material.name) == _rank_name.lower(), 0), else_=1),
+                Material.code.asc()
+            ).limit(limit).all()
             if exact_results:
                 return exact_results
 
@@ -9834,6 +9855,7 @@ def _ai_material_query(keyword, limit=8):
         # 只作排序参考不做 OR 放行——原写法规格条件进 OR，导致"铜排 6*10"
         # 精确无果后绝缘子 SM76*10（spec 含 6*10）顶上来，跨物料乱匹配。
         name_conditions = []
+        fallback_rank_names = []  # FIX-2026-10-10-F3：纯文本名，供同名最前排序
         for variant in homophone_variants:
             variant_name = re.sub(r'\d+[\*xX×]\d+(?:[\-–]\d+)?', '', variant).strip()
             variant_name = re.sub(r'^[查查询问一一下]+', '', variant_name).strip()
@@ -9841,10 +9863,16 @@ def _ai_material_query(keyword, limit=8):
             variant_name_clean = re.sub(r'(红|黄|蓝|绿|白|黑|灰|透明|橙|紫|粉|棕|银|金)色?', '', variant_name).strip()
             if variant_name_clean and len(variant_name_clean) >= 2:
                 name_conditions.append(Material.name.ilike(f'%{variant_name_clean}%'))
+                fallback_rank_names.append(variant_name_clean)
 
         if name_conditions:
             # 名称硬过滤 + 可选颜色过滤；规格不匹配的物料排后（不再 OR 放行）
             fallback_query = query.filter(db.or_(*name_conditions))
+            # FIX-2026-10-10-F3：名称完全相等的排最前（'铜排' == 铜排 优先于
+            # '铜排机感应传感器'），否则长名前缀物料总靠 code 序占首位
+            fallback_query = fallback_query.order_by(
+                db.case((db.func.lower(Material.name) == (min(fallback_rank_names, key=len) if fallback_rank_names else '').lower(), 0), else_=1),
+            )
             if color_part:
                 fallback_query = fallback_query.filter(
                     db.or_(
@@ -11040,8 +11068,8 @@ def _ai_extract_material_candidates(message):
     # 候选词后污染逐词回退查询（"6*10"单独触发纯规格搜索 → 绝缘子顶上）
     text = re.sub(
         r'(库存|存量|存货|还剩多少|还有多少|有多少|多少件|多少个|多少支|多少条|多少卷|'
-        r'多少米|多少盒|多少箱|多少包|多少吨|多少公斤|还多吗|够不够|还够吗|剩下|'
-        r'查一下|查询|查查|帮我|请问|吗|呢|吧)',
+        r'多少米|多少盒|多少箱|多少包|多少吨|多少公斤|还多吗|够不够|还够吗|够用|剩下|'
+        r'查一下|查询|查查|帮我|请问|吗|呢|吧|用|能|可以|有没有|有)',
         '', text)
 
     # 1. 提取英文/数字/规格符号 token（如 6×10、ABC-123）
@@ -11081,12 +11109,21 @@ def _ai_find_materials_from_message(message, limit=8):
         # 整体模糊查询：名称+规格+备注
         msg_clean = re.sub(r'^[查查询问一一下]+', '', message.strip()).strip()
         msg_clean = re.sub(r'[的了啊吗呢吧]+$', '', msg_clean).strip()
+        # FIX-2026-10-10-F3：剥尾部查询词（'6*10的铜排库存'→'6*10的铜排'），
+        # 否则整体查询无果后逐词查询让纯规格词（6*10→绝缘子）抢占排序
+        msg_clean = re.sub(
+            r'(的)?(库存|存量|存货|有多少|还剩多少|还有多少|还多吗|还够吗|够不够|够用)$',
+            '', msg_clean).strip()
         if msg_clean and len(msg_clean) >= 2:
             combined_results = _ai_material_query(msg_clean, limit=limit)
             if combined_results:
                 return combined_results
     
-    # 回退：逐个候选词查询
+    # 回退：逐个候选词查询（FIX-2026-10-10-F3：中文词优先——纯规格词排后，
+    # 防止 '6*10'（绝缘子）抢在 '铜排' 前面）
+    def _is_chinese_word(w):
+        return bool(w) and all('\u4e00' <= ch <= '\u9fff' for ch in w)
+    candidates = sorted(candidates, key=lambda w: 0 if _is_chinese_word(w) else 1)
     found = []
     seen_ids = set()
     for keyword in candidates:
@@ -17969,9 +18006,11 @@ def _ai_llm_parse_stock_intent(message):
 
 
 def _ai_spec_matches(material_spec, query_spec):
-    """规格边界安全匹配（Python 端）：'6*10' 不匹配 'SM76*10'/'16*100'。
+    """规格边界安全匹配（Python 端）：'6*10' 不匹配 'SM76*10'/'16*100'/'6*10内卡'。
     规则：把双方 ×/x/X 归一化为 * 后，query 在 material_spec 中出现处，
-    前一个字符不能是字母数字（防 'SM76*10'），后一个字符不能是数字（防 '16*100'）。
+    前一个字符不能是字母数字（防 'SM76*10'），后一个字符不能是数字
+    （防 '16*100'）也不能是中文（FIX-2026-10-10-F3，防 '6*10内卡2-3mm'
+    密封条顶替铜排；mm2 等 ASCII 单位后缀仍放行）。
     完全相等恒为 True。
     """
     import re as _re
@@ -17984,7 +18023,12 @@ def _ai_spec_matches(material_spec, query_spec):
     for m in _re.finditer(_re.escape(q), s):
         start, end = m.start(), m.end()
         prev_ok = start == 0 or not (s[start-1].isalnum())
-        next_ok = end >= len(s) or not s[end].isdigit()
+        if end >= len(s):
+            next_ok = True
+        else:
+            nxt = s[end]
+            # FIX-2026-10-10-F3：后字符为中文则不放行
+            next_ok = (not nxt.isdigit()) and not ('\u4e00' <= nxt <= '\u9fff')
         if prev_ok and next_ok:
             return True
     return False
