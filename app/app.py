@@ -17767,9 +17767,152 @@ def _ai_is_stock_query_question(message):
     if not has_stock_keyword and ('吗' in text or '有没有' in text):
         has_stock_keyword = text.startswith(('有', '还有')) or '有没有' in text
     # 排除盘点/调整/差异类问题（这些走其他工具）
-    exclude_keywords = ['盘点', '调整', '差异', '不一致', '对不上', '账物']
+    # FIX-2026-10-10-F2：排除流水类问题（进了多少/出库多少等，走流水查询工具）
+    exclude_keywords = ['盘点', '调整', '差异', '不一致', '对不上', '账物',
+                        '流水', '入库', '出库', '进了', '入了', '出了', '领了', '用了']
     has_exclude = any(kw in text for kw in exclude_keywords)
     return has_stock_keyword and not has_exclude
+
+
+def _ai_is_flow_query_question(message):
+    """判断是否是出入库流水查询问题（如"上周进了多少铜排""这月指示灯用了多少"）。"""
+    text = (message or '').strip().lower()
+    if not text:
+        return False
+    flow_action = ['流水', '入库', '出库', '进了', '入了', '出了', '领了', '用了', '发了', '退了', '收到']
+    question_mark = ['多少', '几笔', '明细', '记录', '流水']
+    has_action = any(kw in text for kw in flow_action)
+    has_question = any(kw in text for kw in question_mark)
+    # "最近的出入库记录"/"铜排流水" 这类无"多少"也算
+    return has_action and has_question or '流水' in text
+
+
+def _ai_parse_flow_time_range(message):
+    """从消息解析时间范围，返回 (start_dt, end_dt, label)。默认最近 7 天。"""
+    import re as _re
+    from datetime import datetime as _dt, timedelta as _td
+    now = _dt.now()
+    # 今天
+    if '今天' in message:
+        return now.replace(hour=0, minute=0, second=0, microsecond=0), now, '今天'
+    if '昨天' in message:
+        start = (now - _td(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + _td(days=1), '昨天'
+    if '本周' in message or '这周' in message:
+        start = (now - _td(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, now, '本周'
+    if '上周' in message:
+        start = (now - _td(days=now.weekday() + 7)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start, start + _td(days=7), '上周'
+    if '本月' in message or '这个月' in message or '这月' in message:
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start, now, '本月'
+    if '上月' in message or '上个月' in message:
+        start = (now.replace(day=1) - _td(days=1)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        return start, now.replace(day=1, hour=0, minute=0, second=0, microsecond=0), '上月'
+    # 最近 N 天
+    m = _re.search(r'最近(\d+)', message)
+    if m:
+        days = min(int(m.group(1)), 366)
+        return now - _td(days=days), now, f'最近{days}天'
+    return now - _td(days=7), now, '最近7天'
+
+
+def _ai_flow_query_response(message, context=None):
+    """出入库流水查询：如"上周进了多少铜排""本月指示灯用了多少"。"""
+    if not _ai_is_flow_query_question(message):
+        return None
+    if not _ai_capability_allowed('warehouse_insights'):
+        return _ai_permission_denied_response('warehouse_insights')
+
+    # 解析物料（LLM 意图优先，回退正则）
+    parsed_intent = _ai_llm_parse_stock_intent(message)
+    materials = []
+    if parsed_intent:
+        materials = _ai_query_materials_by_intent(parsed_intent, limit=5)
+    if not materials:
+        # 剥掉流水动词后找物料
+        import re as _re
+        msg_clean = _re.sub(r'(流水|入库|出库|进了|入了|出了|领了|用了|发了|退了|收到|多少|几笔|明细|记录|'
+                            r'今天|昨天|本周|这周|上周|本月|这个月|这月|上月|上个月|最近|的|了|吗|呢|有|查|问)',
+                            '', message or '')
+        if msg_clean.strip():
+            materials = _ai_find_materials_from_message(msg_clean.strip(), limit=5)
+            if materials:
+                # FIX-2026-10-10-F2：短名称优先——"铜排"应优先命中「铜排」而非
+                # 「铜排机感应传感器」这类长名前缀物料（流水查询只报一个物料，
+                # 选错会漏报真实流水）
+                keyword = msg_clean.strip()
+                exact = [m for m in materials if m.name == keyword or (m.name or '').startswith(keyword)
+                         and len(m.name or '') <= len(keyword) + 2]
+                if exact:
+                    materials = exact
+    if not materials:
+        return _ai_material_not_found_response(message, parsed_intent)
+
+    material = materials[0]
+    start, end, time_label = _ai_parse_flow_time_range(message)
+
+    # FIX-2026-10-10-F2：同名多规格（如 38 种「铜排」）时聚合所有同名物料流水，
+    # 否则只报第一条规格的流水会漏报其他规格
+    same_name_ids = [m.id for m in Material.query.filter(Material.name == material.name).all()]
+    if len(same_name_ids) > 1 and material.id in same_name_ids:
+        material_ids = same_name_ids
+        scope_label = material.name
+    else:
+        material_ids = [material.id]
+        scope_label = f'{material.name}（{material.spec or "无规格"}）'
+
+    txns = StockTransaction.query.filter(
+        StockTransaction.material_id.in_(material_ids),
+        StockTransaction.created_at >= start,
+        StockTransaction.created_at < end,
+    ).order_by(StockTransaction.created_at.desc()).all()
+
+    in_total = sum(t.quantity or 0 for t in txns if (t.quantity or 0) > 0)
+    out_total = abs(sum(t.quantity or 0 for t in txns if (t.quantity or 0) < 0))
+    unit_name = material.unit.name if material.unit else ''
+
+    type_names = {'in': '入库', 'out': '出库', 'transfer_in': '调入', 'transfer_out': '调出',
+                  'adjustment_in': '盘盈', 'adjustment_out': '盘亏'}
+
+    # LLM 生成自然回复（带明细数据）
+    spec_by_id = {m.id: (m.spec or '') for m in Material.query.filter(Material.id.in_(material_ids)).all()}
+    detail_lines = []
+    for t in txns[:8]:
+        t_spec = spec_by_id.get(t.material_id, '')
+        spec_tag = f'[{t_spec}] ' if (len(material_ids) > 1 and t_spec) else ''
+        detail_lines.append(f'{spec_tag}{type_names.get(t.transaction_type, t.transaction_type)} '
+                            f'{normalize_stock_quantity(abs(t.quantity or 0))}{unit_name} '
+                            f'{t.created_at.strftime("%m-%d %H:%M") if t.created_at else ""}')
+    prompt = f"""你是仓库管理助手。用户查询出入库流水，请根据数据生成简洁回复。
+
+【用户问题】{message}
+【物料】{material.code} {material.name} 规格{material.spec or '无'} 单位{unit_name}
+【时间范围】{time_label}（{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}）
+【汇总】入库合计 {normalize_stock_quantity(in_total)}{unit_name}，出库合计 {normalize_stock_quantity(out_total)}{unit_name}，共 {len(txns)} 笔
+【最近明细】
+{chr(10).join(detail_lines) if detail_lines else '（无流水记录）'}
+
+要求：直接回答用户问题，给出入库/出库合计和笔数；如有明细列举最近 3-5 笔；无记录就明确说没有；100 字以内。"""
+    llm_reply = _voice_llm_chat(prompt)
+    if llm_reply:
+        reply_text = llm_reply.strip()
+    else:
+        if not txns:
+            reply_text = f'{time_label}{scope_label}没有出入库记录。'
+        else:
+            parts = [f'{time_label}「{scope_label}」入库合计 {normalize_stock_quantity(in_total)}{unit_name}，'
+                     f'出库合计 {normalize_stock_quantity(out_total)}{unit_name}，共 {len(txns)} 笔。',
+                     '最近明细：']
+            parts.extend(f'  {line}' for line in detail_lines[:5])
+            reply_text = '\n'.join(parts)
+
+    actions = [
+        {'label': '物料详情', 'url': url_for('get_material', id=material.id)},
+        {'label': '库存查询', 'url': url_for('stock_query', search=material.code or material.name or '')},
+    ]
+    return _ai_json_response(reply_text, actions=actions)
 
 
 def _ai_llm_parse_stock_intent(message):
@@ -18004,6 +18147,13 @@ def _ai_stock_query_response(message, context=None):
     if material.spec:
         reply_parts.append(f'规格：{material.spec}')
     reply_parts.append(f'当前库存：{current_stock}{unit_name}')
+    # FIX-2026-10-10-F1：机械回退也给出"够不够"结论
+    threshold = max(material.reorder_point or 0, material.min_stock or 0)
+    if threshold:
+        if current_stock <= threshold:
+            reply_parts.append(f'⚠️ 已低于安全库存（{normalize_stock_quantity(threshold)}{unit_name}），建议补货。')
+        else:
+            reply_parts.append(f'高于安全库存（{normalize_stock_quantity(threshold)}{unit_name}），库存充足。')
     # FIX-2026-10-10：多候选时列出全部库存数字（原只列名字，用户看不到其他物料库存）
     if len(candidates) > 1:
         other_lines = []
@@ -18063,11 +18213,12 @@ def _build_stock_query_llm_prompt(user_message, material_info, other_candidates=
         '【回复要求】',
         '1. 直接回答用户问题，不要绕弯',
         '2. 包含关键信息：物料名称、规格、当前库存、单位',
-        '3. 如果库存低于最低/安全库存，主动提醒',
-        '4. 如果有多个相似物料，简要提及（避免混淆）',
-        '5. 语气自然友好，像仓库管理员一样专业',
-        '6. 回复长度控制在 100 字以内',
-        '7. 不要使用 markdown 格式，纯文本即可',
+        '3. 如果用户问"够不够/还能用吗"，结合当前库存与最低/安全库存给出明确判断（够/不够）',
+        '4. 如果库存低于最低/安全库存，主动提醒补货',
+        '5. 如果有多个相似物料，简要提及（避免混淆）',
+        '6. 语气自然友好，像仓库管理员一样专业',
+        '7. 回复长度控制在 100 字以内',
+        '8. 不要使用 markdown 格式，纯文本即可',
         '',
         '请直接输出回复内容：',
     ])
@@ -20981,7 +21132,8 @@ AI_LOCAL_SKILLS.append({
 
 def _ai_warehouse_insights_response(message, context=None):
     for handler in (
-        _ai_stock_query_response,  # 查库存优先
+        _ai_flow_query_response,  # FIX-2026-10-10-F2：流水查询优先（"进了多少/用了多少"）
+        _ai_stock_query_response,  # 查库存
         _ai_replenishment_planning_response,
         _ai_agent_patrol_response,
         _ai_exception_workbench_response,
@@ -21046,6 +21198,7 @@ AI_TOOL_DISPATCHERS = {
     'master_data_insights': _ai_master_data_insights_response,
     'admin_insights': _ai_admin_insights_response,
     'stock_query': _ai_stock_query_response,  # 独立查库存工具
+    'stock_flow_query': _ai_flow_query_response,  # 独立流水查询工具（FIX-2026-10-10-F2）
 }
 
 def _ai_dispatch_registered_tool(tool_name, message, context=None):
