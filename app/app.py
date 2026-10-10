@@ -114,6 +114,16 @@ from routes.user_auth import register_user_auth_routes
 from routes.report import register_report_routes
 # 原生/移动端 API + 通用数据查询（native_api）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.native_api import register_native_api_routes
+# FIX-2026-10-10：_ai_stock_query_response / _ai_llm_parse_stock_intent 调用
+# _voice_llm_chat，但该函数定义在 routes/native_api.py，app.py 此前未导入，
+# 运行时 NameError → 查库存 500。94aa806 起 LLM 注入链路一直是坏的。
+from routes.native_api import _voice_llm_chat as _wms_voice_llm_chat
+
+
+def _voice_llm_chat(prompt, force_model=None):
+    """app 层薄包装：转发到 routes/native_api.py 的实现（该函数懒导入 app 层
+    LLM 配置，不能在模块顶层直接反向 import 以避免循环依赖问题扩大）。"""
+    return _wms_voice_llm_chat(prompt, force_model=force_model)
 # 导出（export）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.export import register_export_routes
 # 批量导入（batch_import）域路由注册函数（register-on-app 模式，endpoint 名不变）。
@@ -17875,7 +17885,7 @@ def _ai_stock_query_response(message, context=None):
         # 附加操作按钮
         actions = [
             {'label': '库存查询', 'url': url_for('stock_query')},
-            {'label': '物料详情', 'url': url_for('material_detail', id=material.id)},
+            {'label': '物料详情', 'url': url_for('get_material', id=material.id)},
         ]
         return _ai_json_response(reply_text, actions=actions)
     
@@ -17890,7 +17900,7 @@ def _ai_stock_query_response(message, context=None):
     
     actions = [
         {'label': '库存查询', 'url': url_for('stock_query')},
-        {'label': '物料详情', 'url': url_for('material_detail', id=material.id)},
+        {'label': '物料详情', 'url': url_for('get_material', id=material.id)},
     ]
     return _ai_json_response('\n'.join(reply_parts), actions=actions)
 
