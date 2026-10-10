@@ -17846,7 +17846,9 @@ def _ai_stock_query_response(message, context=None):
         'category': material.category.name if material.category else '',
         'supplier': material.supplier.name if material.supplier else '',
         'min_stock': normalize_stock_quantity(material.min_stock) if material.min_stock else None,
-        'safety_stock': normalize_stock_quantity(material.safety_stock) if material.safety_stock else None,
+        # FIX-2026-10-10：safety_stock 不是列（约定见 models/master_data.py 头注释），
+        # 原写法 material.safety_stock 会 AttributeError 导致查库存 500。改用约定计算值。
+        'safety_stock': normalize_stock_quantity(max(material.reorder_point or 0, material.min_stock or 0)) if (material.reorder_point or material.min_stock) else None,
     }
 
     # 如果有多个候选，也列出来供 LLM 参考

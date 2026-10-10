@@ -148,12 +148,26 @@ fun ScanScreenBase(
     val evidenceCamera = rememberCameraLauncherWithPermission(snackbarHostState) { uri: Uri ->
         scope.launch(Dispatchers.IO) {
             runCatching {
+                // FIX-2026-10-10：原写法 decodeStream 全尺寸解码（FIX-101 后为全尺寸照片，
+                // 数千万像素 Bitmap 数百 MB），不缩放直接压 JPEG 80，有 OOM 风险且 Base64 体积大。
+                // 对齐 AI 助手口径：先 inJustDecodeBounds + inSampleSize 降采样到 ≤1024px 再压缩。
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    BitmapFactory.decodeStream(input)
+                    BitmapFactory.decodeStream(input, null, bounds)
+                }
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null else {
+                    var sample = 1
+                    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 1024) {
+                        sample *= 2
+                    }
+                    val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sample }
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        BitmapFactory.decodeStream(input, null, decodeOpts)
+                    }
                 }
             }.getOrNull()?.let { bitmap ->
                 val output = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, output)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 70, output)
                 viewModel.addEvidence(Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP))
             }
         }

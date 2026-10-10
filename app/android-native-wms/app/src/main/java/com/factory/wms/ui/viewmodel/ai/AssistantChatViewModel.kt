@@ -116,7 +116,11 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
                         error = e.message ?: "网络异常，请稍后重试",
                         // AUDIT-2026-10-07-P6：失败消息退回输入框，用户改后重发，
                         // 不用手打一遍
-                        failedDraft = trimmed
+                        failedDraft = trimmed,
+                        // FIX-2026-10-10：原写法失败只退回文本，图片/文件附件被
+                        // clear 后直接丢失，纯附件失败用户必须重选。一并退回。
+                        pendingImage = image,
+                        pendingFile = file
                     )
                 }
             )

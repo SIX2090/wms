@@ -280,14 +280,14 @@ fun AssistantChatScreen(
             )
             if (result == SnackbarResult.ActionPerformed) {
                 scope.launch(Dispatchers.IO) {
-                    // FIX-2026-10-07-011：同相册口径，最长边 1600px + JPEG 85%
+                    // FIX-2026-10-07-011：同相册口径；2026-10-09 对齐相册/拍照压缩（1024px + JPEG 70%），降低 504
                     val bitmap = runCatching {
                         context.contentResolver.openInputStream(clipUri!!)?.use { input ->
                             BitmapFactory.decodeStream(input)
                         }
                     }.getOrNull()
                     if (bitmap != null) {
-                        val maxSide = 1600
+                        val maxSide = 1024
                         val scaled = if (bitmap.width > maxSide || bitmap.height > maxSide) {
                             val scale = maxSide.toFloat() / maxOf(bitmap.width, bitmap.height)
                             Bitmap.createScaledBitmap(
@@ -300,7 +300,7 @@ fun AssistantChatScreen(
                             bitmap
                         }
                         val baos = ByteArrayOutputStream()
-                        scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                        scaled.compress(Bitmap.CompressFormat.JPEG, 70, baos)
                         val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
                         scope.launch { viewModel.setPendingImage(base64) }
                     }
