@@ -157,8 +157,9 @@ class TestDispatchLayer:
             ctx.pop()
 
     def test_warehouse_insights_chain_intact(self):
-        """链路顺序：调度层在最前，返回 None 时落回原 handler。"""
-        with patch.object(app_module, "_ai_tool_call_dispatch_response", return_value=None) as mock_disp, \
+        """链路顺序：调度层在快速路径之后，返回 None 时落回原 handler。"""
+        with patch.object(app_module, "_ai_fast_route_response", return_value=None), \
+             patch.object(app_module, "_ai_tool_call_dispatch_response", return_value=None) as mock_disp, \
              patch.object(app_module, "_ai_stock_query_response", return_value="STOCK_RESP") as mock_stock:
             resp = app_module._ai_warehouse_insights_response("铜排库存还有多少")
         mock_disp.assert_called_once()

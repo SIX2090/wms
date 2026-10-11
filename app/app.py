@@ -21214,6 +21214,31 @@ AI_LOCAL_SKILLS.append({
     'description': '引导用户上传送货单图片，并走图片识别、采购订单匹配、采购入库草稿生成流程。',
 })
 
+def _ai_fast_route_response(message, context=None):
+    """P3-2026-10-12：规则快速路径（SuperSonic 双路解析器模式）。
+
+    模式化问题（约 80% 的仓库查询：库存/够不够/流水）先走现有意图
+    判定函数直接路由，不调 LLM——零 token、毫秒级。现有 handler 内部
+    的 LLM（意图解析/回复润色）有自己的回退链路，LLM 不可用时机械
+    输出，与本层无关。
+    返回 None 表示未命中快速路径模式（问题复杂或与仓库无关），
+    由调用方继续走 P2 调度层。
+    """
+    if not _ai_capability_allowed('warehouse_insights'):
+        return None
+    try:
+        if _ai_is_flow_query_question(message):
+            app.logger.info('AI fast route: stock_flow_query')
+            return _ai_flow_query_response(message, context)
+        if _ai_is_stock_query_question(message):
+            app.logger.info('AI fast route: stock_query')
+            return _ai_stock_query_response(message, context)
+    except Exception as exc:
+        app.logger.warning('AI fast route failed, fallback to LLM: %s', exc)
+        return None
+    return None
+
+
 def _ai_tool_call_dispatch_response(message, context=None):
     """P2-2026-10-11：Tool Calling 调度层。
 
@@ -21283,7 +21308,13 @@ def _ai_tool_call_dispatch_response(message, context=None):
 
 
 def _ai_warehouse_insights_response(message, context=None):
-    # P2-2026-10-11：Tool Calling 调度层优先（调研结论：结构化工具选择比
+    # P3-2026-10-12：规则快速路径最前（模式化问题零 LLM token、毫秒级；
+    # SuperSonic 双路解析器模式）。未命中才走 P2 Tool Calling 调度层，
+    # 再落回原有 handler 链路。
+    response = _ai_fast_route_response(message, context)
+    if response:
+        return response
+    # P2-2026-10-11：Tool Calling 调度层（调研结论：结构化工具选择比
     # 自由文本 prompt 更精确）。返回 None（未命中/LLM 不可用/输出非法）时
     # 落回原有链路，F1-F3 行为保持不变。
     response = _ai_tool_call_dispatch_response(message, context)
