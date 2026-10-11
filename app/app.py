@@ -147,6 +147,7 @@ from routes.pending_documents import register_pending_documents_routes
 # 单位/供应商导入导出（unit_supplier_import）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.unit_supplier_import import register_unit_supplier_import_routes
 from ai.tools.registry import get_ai_tool_spec
+from ai.schema_meta import get_schema_meta
 from ai.documents.sales_draft_validation import (
     SalesLineInfo,
     SalesOrderInfo,
@@ -17953,6 +17954,9 @@ def _ai_flow_query_response(message, context=None):
                             f'{t.created_at.strftime("%m-%d %H:%M") if t.created_at else ""}')
     prompt = f"""你是仓库管理助手。用户查询出入库流水，请根据数据生成简洁回复。
 
+【系统数据说明】
+{get_schema_meta('flow')}
+
 【用户问题】{message}
 【物料】{material.code} {material.name} 规格{material.spec or '无'} 单位{unit_name}
 【时间范围】{time_label}（{start.strftime('%Y-%m-%d')} 至 {end.strftime('%Y-%m-%d')}）
@@ -17987,6 +17991,9 @@ def _ai_llm_parse_stock_intent(message):
     """
     try:
         prompt = f"""你是 WMS 仓库管理系统的意图解析器。用户要查库存，请解析出物料查询条件。
+
+【系统数据说明】
+{get_schema_meta('stock')}
 
 用户输入："{message}"
 
@@ -18248,6 +18255,9 @@ def _build_stock_query_llm_prompt(user_message, material_info, other_candidates=
     """构建库存查询的 LLM prompt，让 AI 基于实时数据生成自然语言回复。"""
     lines = [
         '你是一个仓库管理助手。用户询问库存信息，请根据以下实时数据生成简洁、自然、友好的回复。',
+        '',
+        '【系统数据说明】',
+        get_schema_meta('stock'),
         '',
         '【用户问题】',
         user_message,
