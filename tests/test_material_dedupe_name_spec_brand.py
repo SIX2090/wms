@@ -442,8 +442,11 @@ def test_material_dedupe_implementation_is_single():
     """
     import ast
 
-    # 白名单：唯一实现 + 一处「按名称文本找物料」的单字段查找（不是名称+规格判重）
-    ALLOWED = {'find_material_by_name_spec_brand', '_ai_parse_material_lines'}
+    # 白名单：唯一判重实现 + 一处「按名称文本找物料」的单字段查找（不是判重）
+    # + _materials_sharing_name：同名多规格流水聚合展示（精确 ==，非判重口径；
+    #   FIX-2026-10-11 从 _ai_flow_query_response 抽出具名收敛后登记）
+    ALLOWED = {'find_material_by_name_spec_brand', '_ai_parse_material_lines',
+               '_materials_sharing_name'}
     TARGET = {'name', 'spec', 'brand'}
 
     def _is_material_field(node):

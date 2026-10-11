@@ -9763,6 +9763,17 @@ def _ai_material_query(keyword, limit=8):
     keyword = (keyword or '').strip()
     query = Material.query.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
     if keyword:
+        # FIX-2026-10-11：恢复编码精确匹配层——F3 重构（6bb3fa40 系列）删除了
+        # 旧版（2ea1ea4a）的 code.ilike 三字段搜索，新版分层只搜名称/规格/
+        # 备注，纯编码关键词（"A001"）必然落空（回归：test_ai_assistant_mobile_001）。
+        # 编码用大小写不敏感精确 ==，不做 %..% 模糊——防 'A001' 命中 'XA0012'
+        # 前缀（与新版防跨物料乱匹配的哲学一致）。
+        exact_code = query.filter(
+            db.func.lower(Material.code) == keyword.lower()
+        ).first()
+        if exact_code:
+            return [exact_code]
+
         # 中文语音识别常见错误同音字容错映射（牌/排、的/地/得 等）
         homophone_variants = [keyword]
         homophone_pairs = [
@@ -17855,6 +17866,19 @@ def _ai_parse_flow_time_range(message):
     return now - _td(days=7), now, '最近7天'
 
 
+def _materials_sharing_name(name):
+    """同名物料全集（流水聚合展示用，非判重口径）。
+
+    FIX-2026-10-11：从 _ai_flow_query_response 抽出具名收敛——同名多规格
+    聚合（FIX-2026-10-10-F2）按 Material.name 精确相等取同名物料集。
+    判重/查重请用 find_material_by_name_spec_brand()（含去空格、大小写
+    归一与品牌维度）；本函数刻意保持精确 ==（展示聚合语义，不做归一），
+    两者用途不同，均已登记 tests/test_material_dedupe_name_spec_brand.py
+    的 ALLOWED 白名单。
+    """
+    return Material.query.filter(Material.name == name).all()
+
+
 def _ai_flow_query_response(message, context=None):
     """出入库流水查询：如"上周进了多少铜排""本月指示灯用了多少"。"""
     if not _ai_is_flow_query_question(message):
@@ -17892,7 +17916,8 @@ def _ai_flow_query_response(message, context=None):
 
     # FIX-2026-10-10-F2：同名多规格（如 38 种「铜排」）时聚合所有同名物料流水，
     # 否则只报第一条规格的流水会漏报其他规格
-    same_name_ids = [m.id for m in Material.query.filter(Material.name == material.name).all()]
+    # FIX-2026-10-11：收敛到 _materials_sharing_name（判重防腐测试白名单函数）
+    same_name_ids = [m.id for m in _materials_sharing_name(material.name)]
     if len(same_name_ids) > 1 and material.id in same_name_ids:
         material_ids = same_name_ids
         scope_label = material.name
