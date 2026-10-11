@@ -74,7 +74,9 @@ def register_user_auth_routes(app):
         from flask_login import current_user, login_user
         from werkzeug.security import check_password_hash
         from app import (User, add_login_log, get_request_ip, resolve_redirect_target,
-                         account_lock_minutes, max_login_failures)
+                         account_lock_minutes, max_login_failures,
+                         LOGIN_IP_RATE_LIMIT_PER_MINUTE)
+        from rate_limit import is_rate_limited, record_failure
         next_page = (request.values.get('next') or '').strip()
         login_date = date.today().strftime('%Y-%m-%d')
         # BUG-2026-07-28-011 修复：把锁定/失败相关上下文统一封装，默认空，避免每个分支重复
@@ -120,6 +122,14 @@ def register_user_auth_routes(app):
                 app.logger.warning('探测 admin 锁定状态失败: %s', _e)
             return render_template('login.html', **login_ctx)
 
+        # F2.2 / S3：单 IP 全局失败限流（跨账号），防单 IP 扫号。
+        request_ip = get_request_ip()
+        rate_key = f'login_fail:{request_ip}'
+        if is_rate_limited(rate_key, LOGIN_IP_RATE_LIMIT_PER_MINUTE, 60):
+            app.logger.warning('F2.2：IP %s 登录失败频率超限，拒绝本次登录请求', request_ip)
+            flash('尝试过于频繁，请稍后再试', 'danger')
+            return render_template('login.html', **login_ctx), 429
+
         username = (request.form.get('username') or '').strip()
         password = request.form.get('password') or ''
         usage_consent = request.form.get('usage_consent') == '1'
@@ -143,6 +153,7 @@ def register_user_auth_routes(app):
 
         user = User.query.filter_by(username=username).first()
         if not user:
+            record_failure(rate_key, 60)  # F2.2：记录该 IP 一次失败
             add_login_log(status='failed', username=username, fail_reason='failed')
             try:
                 db.session.commit()
@@ -168,7 +179,7 @@ def register_user_auth_routes(app):
             flash('管理员模式仅允许管理员账号登录', 'danger')
             return render_template('login.html', **login_ctx), 403
 
-        request_ip = get_request_ip()
+        # request_ip 已在 POST 入口定义（F2.2 限流需要），此处直接复用
         if user.is_locked_for(request_ip):
             remaining_min = user.login_lock_remaining(request_ip)
             remaining_sec = user.login_lock_remaining_seconds(request_ip)
@@ -218,6 +229,7 @@ def register_user_auth_routes(app):
             return redirect(resolve_redirect_target(next_page))
 
         user.increment_failed_count(request_ip)
+        record_failure(rate_key, 60)  # F2.2：记录该 IP 一次失败
         fail_reason = ''
         if user.is_locked_for(request_ip):
             fail_reason = f'{account_lock_minutes()}'

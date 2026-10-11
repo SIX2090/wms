@@ -44,3 +44,24 @@ import app as _wms_app  # noqa: E402
 
 if not hasattr(_wms_app, "__path__"):
     _wms_app.__path__ = [str(_APP_DIR)]
+
+
+# F2.2 / S3：登录失败单 IP 限流是**进程内**状态（app/rate_limit.py），测试间必须隔离，
+# 否则前一个用例累积的失败计数会让后续用例的登录请求被 429 误拦（且 test_client 默认
+# 远端地址统一为 127.0.0.1，天然共享同一个限流 key）。
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_login_rate_limit():
+    try:
+        import rate_limit as _rl
+        _rl.reset()
+    except Exception:
+        pass
+    yield
+    try:
+        import rate_limit as _rl
+        _rl.reset()
+    except Exception:
+        pass

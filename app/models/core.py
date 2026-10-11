@@ -117,24 +117,34 @@ class User(UserMixin, db.Model):
 
     # no-test: reason=ARCH-MODELS-01 自 app.py 原样迁移，登录锁定行为由既有测试覆盖
     def increment_failed_count(self, ip_address=None):
-        """Increase failed login count and lock account if needed."""
+        """Increase failed login count and lock account if needed.
+
+        F2.2 / S3：改为**账号维度跨 IP 累计**。此前按「账号 + 来源 IP」计数，换一个
+        IP 即清零重来，攻击者可用代理池无限爆破。现在：
+        - ``login_failed_count`` 只累加、不因来源 IP 变化而清零，达到阈值即锁定账号
+          （``locked_until``，对所有来源 IP 生效）；
+        - 仍保留按来源 IP 的计数（``login_ip_failed_count``）供展示/审计，但不再作为
+          唯一锁定依据。
+        """
         # ARCH-MODELS-01：登录安全配置函数留守 app.py，运行时延迟导入避免循环依赖。
         from app import account_lock_minutes, max_login_failures
         if self.locked_until and self.locked_until <= datetime.now():
             self.login_failed_count = 0
             self.locked_until = None
-        # 保留历史字段用于审计，但新失败锁定按账号+来源 IP 计算，避免任意来源锁死账号。
+        limit = max_login_failures()
+        # 账号维度累计（跨 IP 不清零）
         self.login_failed_count = (self.login_failed_count or 0) + 1
         if ip_address:
-            if self.login_lock_ip != ip_address or (
-                    self.login_ip_locked_until and self.login_ip_locked_until <= datetime.now()):
+            # 记录最近来源 IP 供审计；仅当来源 IP 变化时重置该 IP 的计数
+            if self.login_lock_ip != ip_address:
                 self.login_lock_ip = ip_address
                 self.login_ip_failed_count = 0
                 self.login_ip_locked_until = None
             self.login_ip_failed_count = (self.login_ip_failed_count or 0) + 1
-            if self.login_ip_failed_count >= max_login_failures():
+            if self.login_ip_failed_count >= limit:
                 self.login_ip_locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
-        elif self.login_failed_count >= max_login_failures():
+        # 账号维度达阈值 → 锁定账号（对所有来源 IP 生效）
+        if self.login_failed_count >= limit:
             self.locked_until = datetime.now() + timedelta(minutes=account_lock_minutes())
 
 

@@ -3542,6 +3542,9 @@ def format_file_size(size):
 
 MAX_LOGIN_FAILURES = 5
 ACCOUNT_LOCK_MINUTES = 30
+# F2.2 / S3：单 IP 每分钟登录失败上限（跨账号，进程内滑动窗口，见 app/rate_limit.py）。
+# 用于防单 IP 扫号；WMS_LOGIN_IP_RATE_LIMIT 可覆盖，<=0 关闭。
+LOGIN_IP_RATE_LIMIT_PER_MINUTE = int(os.environ.get('WMS_LOGIN_IP_RATE_LIMIT', '20') or 20)
 
 # ==================== 系统配置常量 ====================
 SYSTEM_CONFIG = {
