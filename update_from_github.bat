@@ -93,9 +93,34 @@ if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "STAMP=%%i"
 
 if "%CONSOLE_OK%"=="1" echo [1/6] Backing up business data...
+
+REM F1.2 (P0-1): copy /Y on a LIVE SQLite file can capture a torn WAL state and
+REM produce an unrestorable backup. Use sqlite3 online backup API instead
+REM (scripts/online_backup.py, stdlib only). Detect Python here because the
+REM canonical PYTHON_CMD detection happens later at step [5/6].
+set "BACKUP_PY="
+if exist "%ROOT_DIR%\python\python.exe" set "BACKUP_PY=%ROOT_DIR%\python\python.exe"
+if not defined BACKUP_PY if exist "%ROOT_DIR%\runtime\Python311\python.exe" set "BACKUP_PY=%ROOT_DIR%\runtime\Python311\python.exe"
+if not defined BACKUP_PY if exist "%APP_DIR%\python\python.exe" set "BACKUP_PY=%APP_DIR%\python\python.exe"
+if not defined BACKUP_PY (
+  where python.exe >nul 2>nul
+  if not errorlevel 1 set "BACKUP_PY=python.exe"
+)
+if not defined BACKUP_PY (
+  where py.exe >nul 2>nul
+  if not errorlevel 1 set "BACKUP_PY=py.exe -3"
+)
+if not defined BACKUP_PY if exist "%LocalAppData%\Programs\Python\Python311\python.exe" set "BACKUP_PY=%LocalAppData%\Programs\Python\Python311\python.exe"
+
 set "BACKED_UP="
+if not defined BACKUP_PY (
+  if "%CONSOLE_OK%"=="1" echo [ERROR] Python not found; cannot take an online-consistent database backup.
+  if "%CONSOLE_OK%"=="1" echo [ERROR] Refusing to fall back to raw file copy of a live database.
+  pause
+  exit /b 1
+)
 if exist "%APP_DIR%\instance\inventory.db" (
-  copy /Y "%APP_DIR%\instance\inventory.db" "%BACKUP_DIR%\before_github_update_%STAMP%_app_inventory.db" >nul
+  %BACKUP_PY% "%ROOT_DIR%\scripts\online_backup.py" "%APP_DIR%\instance\inventory.db" "%BACKUP_DIR%\before_github_update_%STAMP%_app_inventory.db"
   if errorlevel 1 (
     if "%CONSOLE_OK%"=="1" echo [ERROR] Failed to back up app\instance\inventory.db.
     pause
@@ -105,7 +130,7 @@ if exist "%APP_DIR%\instance\inventory.db" (
   if "%CONSOLE_OK%"=="1" echo Backup: %BACKUP_DIR%\before_github_update_%STAMP%_app_inventory.db
 )
 if exist "%ROOT_DIR%\instance\inventory.db" (
-  copy /Y "%ROOT_DIR%\instance\inventory.db" "%BACKUP_DIR%\before_github_update_%STAMP%_root_inventory.db" >nul
+  %BACKUP_PY% "%ROOT_DIR%\scripts\online_backup.py" "%ROOT_DIR%\instance\inventory.db" "%BACKUP_DIR%\before_github_update_%STAMP%_root_inventory.db"
   if errorlevel 1 (
     if "%CONSOLE_OK%"=="1" echo [ERROR] Failed to back up instance\inventory.db.
     pause

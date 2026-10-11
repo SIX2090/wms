@@ -416,3 +416,105 @@ def test_print_alert_domain_only_counts_print_types(client):
     with app_module.app.app_context():
         remaining = Notification.query.filter(Notification.is_read.is_(False)).count()
         assert remaining == 1, "库存告警不应被打印告警页的'全部标为已读'清除"
+
+
+# ==================== F1.5：打印告警邮件通道 ====================
+
+def test_push_print_alert_email(client):
+    """开关默认关：不发邮件（push_print_alert_email 返回 False）。"""
+    import routes.print_alerts as alerts_module
+    with app_module.app.app_context():
+        n = Notification(type="print_failed", target_id=1,
+                         title="打印失败：领料单 A", content="缺纸", is_read=False)
+        db.session.add(n)
+        db.session.commit()
+        alerts_module._email_last_sent_at["ts"] = None
+        assert alerts_module.push_print_alert_email(n) is False
+
+
+def test_email_push_sends_to_admin_when_enabled(client, monkeypatch):
+    """开关开启 + admin 有邮箱：向该邮箱发信（send_email 被调用一次）。"""
+    import routes.print_alerts as alerts_module
+    sent = []
+
+    def _fake_send(to_email, subject, html_content, text_content=None):
+        sent.append((to_email, subject))
+        return True
+
+    from notifications import notification_manager
+    monkeypatch.setattr(notification_manager, "send_email", _fake_send)
+
+    with app_module.app.app_context():
+        admin = User.query.filter_by(username="admin").first()
+        admin.email = "boss@example.com"
+        db.session.commit()
+
+        def _setting_bool(key, default=False):
+            return True if key == "print_alert_email_enabled" else default
+
+        def _setting_int(key, default=0):
+            return 10
+
+        monkeypatch.setattr(app_module, "get_system_setting_bool", _setting_bool)
+        monkeypatch.setattr(app_module, "get_system_setting_int", _setting_int)
+
+        n = Notification(type="print_pending_timeout", target_id=7,
+                         title="打印任务滞留：领料单 B", content="超时未认领", is_read=False)
+        db.session.add(n)
+        db.session.commit()
+        alerts_module._email_last_sent_at["ts"] = None
+
+        assert alerts_module.push_print_alert_email(n) is True
+        assert sent and sent[0][0] == "boss@example.com"
+        assert "打印" in sent[0][1]
+
+
+def test_email_push_rate_limited(client, monkeypatch):
+    """限流：10 分钟窗口内第二条不再发。"""
+    import routes.print_alerts as alerts_module
+    sent = []
+    monkeypatch.setattr(
+        __import__("notifications", fromlist=["notification_manager"]).notification_manager,
+        "send_email",
+        lambda *a, **k: (sent.append(a[0]), True)[1],
+    )
+    with app_module.app.app_context():
+        User.query.filter_by(username="admin").first().email = "boss@example.com"
+        db.session.commit()
+        monkeypatch.setattr(app_module, "get_system_setting_bool", lambda k, d=False: True)
+        monkeypatch.setattr(app_module, "get_system_setting_int", lambda k, d=0: 10)
+        alerts_module._email_last_sent_at["ts"] = None
+        n1 = Notification(type="print_failed", target_id=11, title="告警1", content="c", is_read=False)
+        n2 = Notification(type="print_failed", target_id=12, title="告警2", content="c", is_read=False)
+        db.session.add_all([n1, n2])
+        db.session.commit()
+        assert alerts_module.push_print_alert_email(n1) is True
+        assert alerts_module.push_print_alert_email(n2) is False, "限流窗口内不应重复发信"
+        assert len(sent) == 1
+
+
+def test_email_push_no_recipient_returns_false(client, monkeypatch):
+    """无任何带邮箱的 admin：不发且不抛异常。"""
+    import routes.print_alerts as alerts_module
+    with app_module.app.app_context():
+        monkeypatch.setattr(app_module, "get_system_setting_bool", lambda k, d=False: True)
+        monkeypatch.setattr(app_module, "get_system_setting_int", lambda k, d=0: 10)
+        alerts_module._email_last_sent_at["ts"] = None
+        n = Notification(type="print_failed", target_id=99, title="x", content="y", is_read=False)
+        db.session.add(n)
+        db.session.commit()
+        assert alerts_module.push_print_alert_email(n) is False
+
+
+def test_create_alert_email_exception_does_not_block(client, monkeypatch):
+    """邮件推送抛异常不阻断告警落库（与微信通道同哲学）。"""
+    import routes.print_alerts as alerts_module
+
+    def _boom(notification):
+        raise RuntimeError("smtp exploded")
+
+    monkeypatch.setattr(alerts_module, "push_print_alert_email", _boom)
+    with app_module.app.app_context():
+        before = Notification.query.count()
+        alerts_module.create_print_alert("print_failed", 55, "标题", "内容")
+        assert Notification.query.count() == before + 1, "邮件异常不应阻断告警落库"

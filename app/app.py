@@ -108,6 +108,8 @@ from routes.adjustment import register_adjustment_routes
 from routes.doc_print_excel import register_doc_print_excel_routes
 # 系统设置（system_settings）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.system_settings import register_system_settings_routes
+# 进程级健康检查（healthz）路由注册函数（register-on-app 模式，免认证、不查库）。
+from routes.health import register_health_routes
 # 用户/认证/管理员控制台/操作审计（user_auth）域路由注册函数（register-on-app 模式，endpoint 名不变）。
 from routes.user_auth import register_user_auth_routes
 # 报表（report）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
@@ -3433,6 +3435,8 @@ app.register_blueprint(ai_excel_bp)
 csrf.exempt(app.view_functions['ai_excel.api_document_ocr_excel'])
 # 供应商域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_supplier_routes(app)
+# 进程级健康检查：/healthz 免认证探活端点（F1.4），注册于最前，业务路由加载失败不影响其语义。
+register_health_routes(app)
 # 物料分类域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
 register_category_routes(app)
 # 员工域路由：register-on-app 模式，在此注册，endpoint 名与 app.py 原实现一致。
@@ -36072,6 +36076,9 @@ if __name__ == '__main__':
     # 满足 A12（失败可见）。生产入口 app/run_server.py 不受影响（其导入正确）。
     try:
         scheduler = init_notification_scheduler(app, db, Material, User)
+        # F1.2：每日自动备份（AUTO_BACKUP_* 配置接入，失败 logger.exception 可见）
+        from backup_scheduler import register_backup_jobs
+        register_backup_jobs(scheduler, app)
         scheduler.add_job(
             lambda: run_due_wechat_share_jobs(),
             'interval',

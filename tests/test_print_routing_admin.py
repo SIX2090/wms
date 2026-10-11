@@ -493,3 +493,50 @@ def test_known_printers_returns_reported_system_names(client):
     # 不存在的 id → 404
     resp = client.get("/print_routing/workstations/99999/printers/known")
     assert resp.status_code == 404
+
+
+# ==================== GBK 编码兜底（F1.4 / P0-4 / 审计 §7.3） ====================
+
+def test_gbk_encodes_use_errors_replace():
+    """机械守卫：print_routing.py 里所有 .encode('gbk') 必须带 errors= 参数。
+
+    背景：部署包内 run.bat/start.bat/install-service.bat 用 GBK 编码（zh-CN
+    默认 cp936 下中文可读）。若未来往 bat 模板注入动态内容（如工作站名、
+    打印机名）而工作站名恰含 GBK 外字符（emoji/生僻字），裸 .encode('gbk')
+    会抛 UnicodeEncodeError → 下载 500。三处已加 errors='replace'
+    （不可编码字符替换为 ?，bat 仍可生成）；本测试防止回退与新增裸调用。
+    """
+    import re
+
+    src = (APP_DIR / "routes" / "print_routing.py").read_text(encoding="utf-8")
+    calls = re.findall(r"\.encode\(\s*['\"]gbk['\"][^)]*\)", src)
+    assert calls, "扫描异常：print_routing.py 应存在 gbk encode 调用（部署包 bat）"
+    for call in calls:
+        assert "errors=" in call, (
+            f"发现裸 gbk 编码调用（无 errors= 参数），GBK 外字符会 500：{call}"
+        )
+
+
+def test_gbk_errors_replace_survives_emoji():
+    """errors='replace' 行为验证：含 emoji/生僻字文本编码不抛异常。"""
+    tricky = "打印机 🖨️ 工作站 𠀀 生僻字"
+    encoded = tricky.encode("gbk", errors="replace")
+    assert isinstance(encoded, bytes)
+    # 不可编码字符被替换为 ? 而不是抛 UnicodeEncodeError
+    assert b"?" in encoded
+    # 反向解码不炸（bat 文件在 cp936 环境可读）
+    assert "打印机" in encoded.decode("gbk")
+
+
+def test_download_agent_bats_decodable_gbk(client):
+    """路由级验收：下载的部署包 bat 三件套必须 GBK 可解码（cp936 环境可读）。"""
+    import io
+    import zipfile
+
+    resp = client.get("/print_routing/download_agent")
+    assert resp.status_code == 200
+    zf = zipfile.ZipFile(io.BytesIO(resp.data))
+    for name in ("run.bat", "start.bat", "install-service.bat"):
+        raw = zf.read(name)
+        # 不抛 UnicodeDecodeError 即通过（errors='replace' 兜底下永不应炸）
+        raw.decode("gbk")

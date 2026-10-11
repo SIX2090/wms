@@ -124,6 +124,12 @@ def create_print_alert(alert_type, target_id, title, content):
         except Exception:
             from flask import current_app
             current_app.logger.exception('Print alert wechat push failed')
+        # 邮件推送（可选，默认关；F1.5）；推送异常不阻断通知落库
+        try:
+            push_print_alert_email(notification)
+        except Exception:
+            from flask import current_app
+            current_app.logger.exception('Print alert email push failed')
         return notification
     except Exception:
         db.session.rollback()
@@ -354,6 +360,64 @@ def _render_alert_image(notification):
         except Exception:
             pass
         return None
+
+
+# ==================== 邮件推送（F1.5 / 审计 §7.2） ====================
+
+# 进程内限流游标：APScheduler 单进程运行，内存级足够；重启重置可接受
+# （通知本身当日去重，邮件仅对「新产生的告警」触发，限流只防批量风暴）。
+_email_last_sent_at = {'ts': None}
+
+
+def push_print_alert_email(notification):
+    """可选邮件推送：打印告警 → 全部带邮箱的 admin 用户。
+
+    - 开关 print_alert_email_enabled 默认关；
+      print_alert_email_interval_min（默认 10 分钟）全局限流防轰炸；
+    - SMTP 未配置时 notification_manager.send_email 优雅返回 False（不抛异常）；
+    - SMTP 配置项：系统设置/环境变量 MAIL_SERVER / MAIL_PORT / MAIL_USER /
+      MAIL_PASSWORD / MAIL_FROM（见 app/notifications.py init_app）。
+    - 返回 True=已向至少一名 admin 发出，False=未推送。
+    """
+    from app import get_system_setting_bool, get_system_setting_int
+    if not get_system_setting_bool('print_alert_email_enabled', False):
+        return False
+
+    interval_min = max(1, get_system_setting_int('print_alert_email_interval_min', 10))
+    last = _email_last_sent_at['ts']
+    if last and datetime.now() - last < timedelta(minutes=interval_min):
+        return False
+
+    from app import User
+    from notifications import notification_manager
+    recipients = [
+        u.email for u in User.query.filter_by(role='admin').all()
+        if getattr(u, 'email', None)
+    ]
+    if not recipients:
+        return False
+
+    type_label = ALERT_TYPE_LABELS.get(notification.type, notification.type)
+    subject = f'[WMS 打印告警] {notification.title or type_label}'
+    text = (
+        f'{notification.title or ""}\n\n{notification.content or ""}\n\n'
+        f'类型：{type_label}\n时间：{datetime.now().strftime("%Y-%m-%d %H:%M")}\n'
+        '请到「系统管理 → 打印告警」查看处理。'
+    )
+    html = (
+        f'<h3 style="color:#c0392b">{notification.title or type_label}</h3>'
+        f'<p>{(notification.content or "").replace(chr(10), "<br>")}</p>'
+        f'<p style="color:#888">类型：{type_label}　时间：'
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}</p>'
+        '<p>请到「系统管理 → 打印告警」查看处理。</p>'
+    )
+    sent = False
+    for addr in recipients:
+        if notification_manager.send_email(addr, subject, html, text_content=text):
+            sent = True
+    if sent:
+        _email_last_sent_at['ts'] = datetime.now()
+    return sent
 
 
 # ==================== 路由注册 ====================

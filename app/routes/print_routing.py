@@ -304,14 +304,14 @@ def register_print_routing_routes(app):
                     '"%PY%" wms_print_agent.py --config agent_config.json',
                     'pause',
                 ]) + "\r\n"
-            zf.writestr('run.bat', run_bat.encode('gbk'))
+            zf.writestr('run.bat', run_bat.encode('gbk', errors='replace'))
             start_bat = "\r\n".join(
                 py_detect + [
                     'set "PYW=%PY:python.exe=pythonw.exe%"',
                     'if not exist "%PYW%" set "PYW=%PY%"',
                     'start "" /min "%PYW%" wms_print_agent.py --config agent_config.json',
                 ]) + "\r\n"
-            zf.writestr('start.bat', start_bat.encode('gbk'))
+            zf.writestr('start.bat', start_bat.encode('gbk', errors='replace'))
             # PRINT-ROUTING-F01-P5 / 85-C2：一键注册开机自启的 install-service.bat。
             # 复用 py_detect 自动定位 Python（排除 WindowsApps 假 python → 常见安装
             # 目录 → py 启动器）；自动提权（schtasks 注册需管理员）；python.exe 推导
@@ -347,7 +347,7 @@ def register_print_routing_routes(app):
                 '  exit /b 1',
                 ')',
             ]
-            zf.writestr('install-service.bat', ("\r\n".join(install_service)).encode('gbk'))
+            zf.writestr('install-service.bat', ("\r\n".join(install_service)).encode('gbk', errors='replace'))
         buf.seek(0)
         suffix = f"_{ws.code}" if ws else ""
         return send_file(buf, mimetype='application/zip',

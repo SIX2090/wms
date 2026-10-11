@@ -203,6 +203,9 @@ def main():
     global _scheduler
     try:
         _scheduler = init_notification_scheduler(app, db, Material, User)
+        # F1.2：每日自动备份（AUTO_BACKUP_* 配置接入，失败 logger.exception 可见）
+        from backup_scheduler import register_backup_jobs
+        register_backup_jobs(_scheduler, app)
         _scheduler.add_job(
             lambda: run_due_wechat_share_jobs(),
             "interval",

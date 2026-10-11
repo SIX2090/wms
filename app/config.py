@@ -48,10 +48,11 @@ class Config:
     CACHE_TYPE = 'SimpleCache'
     CACHE_DEFAULT_TIMEOUT = 300
     
-    # 自动备份
+    # 自动备份（F1.2：已接入 app/backup_scheduler.py 每日调度，不再是死配置）
     AUTO_BACKUP_ENABLED = os.environ.get('AUTO_BACKUP_ENABLED', 'true').lower() in ('true', '1', 'yes')
-    AUTO_BACKUP_TIME = '02:00'  # 每天凌晨2点自动备份
-    BACKUP_RETENTION_DAYS = 30  # 保留30天备份
+    AUTO_BACKUP_TIME = os.environ.get('AUTO_BACKUP_TIME', '02:00')  # 每天凌晨2点自动备份
+    BACKUP_RETENTION_DAYS = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))  # 保留30天备份
+    # 备份目标目录：WMS_BACKUP_DIR 环境变量（默认 C:\wms_backups，见 backup_scheduler.get_backup_dir）
 
     # 本机微信助手拉取云端待发送任务的访问令牌
     # 未显式配置时不使用默认弱令牌，由 app.py 启动期生成并持久化到 instance/wechat_helper_token

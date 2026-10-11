@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import datetime
 import os
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -161,7 +160,17 @@ def find_python() -> str | None:
 
 
 def backup_database() -> None:
-    """更新前备份 instance/inventory.db 到 backups/。"""
+    """更新前备份 instance/inventory.db 到 backups/。
+
+    F1.2（审计 §5.2 / P0-1）：shutil.copy2 直接拷贝**运行中**的 SQLite 文件，
+    可能拷到 WAL 未 checkpoint 的中间态，产出不可恢复的撕裂备份。
+    改用 sqlite3 在线备份 API（与 app.py create_sqlite_online_backup 同一语义）：
+    以只读 URI 打开源库，通过 backup() 在源库读一致性快照，拷贝期间业务写入不阻断。
+    本模块是独立脚本（run_server.py 在业务模块加载前调用），不能 import app，
+    故用标准库 sqlite3 内联实现。
+    """
+    import sqlite3
+
     db = APP_DIR / "instance" / "inventory.db"
     if not db.exists():
         return
@@ -170,9 +179,26 @@ def backup_database() -> None:
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = backup_dir / f"before_auto_update_{stamp}_inventory.db"
     try:
-        shutil.copy2(db, dest)
-        log(f"数据库已备份: {dest}")
-    except OSError as e:
+        source_uri = f"file:{db.resolve().as_posix()}?mode=ro"
+        src_conn = sqlite3.connect(source_uri, uri=True, timeout=30)
+        try:
+            dst_conn = sqlite3.connect(str(dest), timeout=30)
+            try:
+                src_conn.backup(dst_conn)
+            finally:
+                dst_conn.close()
+        finally:
+            src_conn.close()
+        # 备份完整性校验：坏备份比没备份更危险（给人虚假安全感）。
+        check_conn = sqlite3.connect(str(dest), timeout=30)
+        try:
+            result = check_conn.execute("PRAGMA integrity_check").fetchone()
+            if not result or result[0] != "ok":
+                raise OSError(f"备份完整性校验失败: {result[0] if result else 'no result'}")
+        finally:
+            check_conn.close()
+        log(f"数据库已备份(在线一致性快照): {dest}")
+    except (OSError, sqlite3.Error) as e:
         log(f"[警告] 数据库备份失败: {e}")
 
 
