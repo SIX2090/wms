@@ -304,6 +304,7 @@ def register_label_barcode_routes(app):
         return send_file(output, mimetype='application/pdf', download_name=f'{code}.pdf')
 
     @app.route('/api/barcode/<path:code>')
+    @login_required
     def api_barcode_image(code):
         """生成条码图片（PNG格式）"""
         from app import io, jsonify, send_file
@@ -326,6 +327,7 @@ def register_label_barcode_routes(app):
             return jsonify({'status': 'error', 'msg': '生成条码失败'}), 500
 
     @app.route('/api/qrcode/<path:data>')
+    @login_required
     def api_qrcode_image(data):
         """生成二维码图片（PNG格式）
         

@@ -47,7 +47,30 @@ app_module.app.config["WTF_CSRF_ENABLED"] = False
 
 @pytest.fixture()
 def client():
-    return app_module.app.test_client()
+    """F2.6 适配：/api/barcode、/api/qrcode 已收紧为登录态访问（匿名 401），
+    故本文件全部用例改为以管理员会话发起请求——测试目标仍是「条码/二维码清晰度」，
+    访问控制由 tests/test_f26_public_route_hardening.py 专项覆盖。
+    """
+    from werkzeug.security import generate_password_hash
+
+    from app import User, db
+
+    with app_module.app.app_context():
+        db.create_all()
+        if not User.query.filter_by(username="admin").first():
+            db.session.add(User(
+                username="admin",
+                password_hash=generate_password_hash("admin"),
+                role="admin",
+                status="normal",
+                must_change_password=False,
+            ))
+            db.session.commit()
+
+    c = app_module.app.test_client()
+    resp = c.post("/login", data={"username": "admin", "password": "admin"})
+    assert resp.status_code == 302, f"测试登录失败（F2.6 后接口需登录态）: {resp.status_code}"
+    return c
 
 
 def _open_png(resp):

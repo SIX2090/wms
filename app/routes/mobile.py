@@ -15,6 +15,49 @@ from utils import sync_material_primary_image
 # 物料档案：每个物料最多归档 5 张图片（移动端上传数量上限）
 MAX_MATERIAL_IMAGES = 5
 
+# F2.6 / S7：APK 下载重定向白名单。
+# 允许三类目标：① 同源 host；② GitHub 发布域（release 直链）；③ 私网/回环地址
+# （内网文件服务器分发 APK 是合法且主要的方式）。其余公网第三方域一律拒绝，
+# 防止 WMS 被诱导跳转到钓鱼站（开放重定向）。
+_APK_REDIRECT_ALLOWED_HOSTS = frozenset({
+    'github.com', 'www.github.com', 'codeload.github.com',
+    'objects.githubusercontent.com', 'github-releases.githubusercontent.com',
+    'release-assets.githubusercontent.com', 'raw.githubusercontent.com',
+})
+
+
+def _is_private_or_loopback_host(host):
+    """host 是否为私网/回环/链路本地地址（内网分发 APK 的合法场景）。"""
+    import ipaddress
+    h = (host or '').strip().lower()
+    if h == 'localhost':
+        return True
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return False
+    return bool(ip.is_private or ip.is_loopback or ip.is_link_local)
+
+
+def _apk_redirect_allowed(url, request_host):
+    """F2.6/S7：校验 APK 重定向目标是否在允许范围内。"""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse((url or '').strip())
+    except Exception:  # noqa: BLE001
+        return False
+    if parsed.scheme not in ('http', 'https'):
+        return False
+    host = (parsed.hostname or '').strip().lower()
+    if not host:
+        return False
+    req_host = (request_host or '').split(':')[0].strip().lower()
+    if req_host and host == req_host:
+        return True
+    if host in _APK_REDIRECT_ALLOWED_HOSTS:
+        return True
+    return _is_private_or_loopback_host(host)
+
 
 def _web_or_api_required(f):
     """Accept a web session or a mobile Bearer token; lazily resolve app deps
@@ -247,7 +290,13 @@ def register_mobile_routes(app):
         # 1. 管理员配置 WMS_ANDROID_APK_URL（内网文件服务器/GitHub Releases）→ 302 跳转；
         apk_url = (os.environ.get('WMS_ANDROID_APK_URL') or '').strip()
         if apk_url:
-            return redirect(apk_url)
+            from flask import request as _request
+            if _apk_redirect_allowed(apk_url, _request.host):
+                return redirect(apk_url)
+            # F2.6/S7：非白名单目标拒绝重定向（防开放重定向），落回本地文件/说明页。
+            app.logger.warning(
+                'F2.6：WMS_ANDROID_APK_URL 指向非白名单域，拒绝重定向：%s', apk_url
+            )
         # 2. 本地 APK 文件（仓库根 app-release.apk 或构建输出）→ 直接发送；
         apk_path = next((path for path in ANDROID_APK_PATHS if os.path.isfile(path)), None)
         if apk_path:

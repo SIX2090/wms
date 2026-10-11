@@ -84,15 +84,32 @@ class TestMobileAppDownloadFallback:
             assert resp.get_data() == b"PK\x03\x04-fake-apk-content"
 
     def test_config_takes_priority_over_file(self, tmp_path, monkeypatch):
-        """T4：配置与文件同时存在 → 配置优先（302）。"""
+        """T4：配置与文件同时存在 → 配置优先（302，白名单内地址）。"""
         fake_apk = tmp_path / "app-release.apk"
         fake_apk.write_bytes(b"PK\x03\x04")
         monkeypatch.setattr(app_module, "ANDROID_APK_PATHS", (str(fake_apk),))
         with app_module.app.test_request_context():
-            os.environ["WMS_ANDROID_APK_URL"] = "http://example.com/wms.apk"
+            # F2.6/S7：改用白名单内的 GitHub release 地址（原 example.com 现会被拒）
+            os.environ["WMS_ANDROID_APK_URL"] = \
+                "https://github.com/SIX2090/wms/releases/download/v1/wms.apk"
             try:
                 resp = _client().get("/mobile/app")
                 assert resp.status_code == 302, \
                     f"配置应优先于本地文件（302），实际 {resp.status_code}"
+            finally:
+                os.environ.pop("WMS_ANDROID_APK_URL", None)
+
+    def test_non_whitelisted_public_host_not_redirected(self, tmp_path, monkeypatch):
+        """T5（F2.6/S7）：公网非白名单域拒绝重定向，回退本地文件（防开放重定向）。"""
+        fake_apk = tmp_path / "app-release.apk"
+        fake_apk.write_bytes(b"PK\x03\x04-local")
+        monkeypatch.setattr(app_module, "ANDROID_APK_PATHS", (str(fake_apk),))
+        with app_module.app.test_request_context():
+            os.environ["WMS_ANDROID_APK_URL"] = "http://evil.example.com/wms.apk"
+            try:
+                resp = _client().get("/mobile/app")
+                assert resp.status_code == 200, \
+                    f"非白名单域不应 302 跳转，实际 {resp.status_code}"
+                assert resp.mimetype == "application/vnd.android.package-archive"
             finally:
                 os.environ.pop("WMS_ANDROID_APK_URL", None)
