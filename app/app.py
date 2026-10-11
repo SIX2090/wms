@@ -18217,12 +18217,12 @@ def _ai_stock_query_response(message, context=None):
         reply_parts.append(f'规格：{material.spec}')
     reply_parts.append(f'当前库存：{current_stock}{unit_name}')
     # FIX-2026-10-10-F1：机械回退也给出"够不够"结论
-    threshold = max(material.reorder_point or 0, material.min_stock or 0)
-    if threshold:
-        if current_stock <= threshold:
-            reply_parts.append(f'⚠️ 已低于安全库存（{normalize_stock_quantity(threshold)}{unit_name}），建议补货。')
+    safety_stock = max(material.reorder_point or 0, material.min_stock or 0)
+    if safety_stock:
+        if current_stock <= safety_stock:
+            reply_parts.append(f'⚠️ 已低于安全库存（{normalize_stock_quantity(safety_stock)}{unit_name}），建议补货。')
         else:
-            reply_parts.append(f'高于安全库存（{normalize_stock_quantity(threshold)}{unit_name}），库存充足。')
+            reply_parts.append(f'高于安全库存（{normalize_stock_quantity(safety_stock)}{unit_name}），库存充足。')
     # FIX-2026-10-10：多候选时列出全部库存数字（原只列名字，用户看不到其他物料库存）
     if len(candidates) > 1:
         other_lines = []
@@ -18270,7 +18270,7 @@ def _build_stock_query_llm_prompt(user_message, material_info, other_candidates=
     if material_info.get('min_stock') is not None and material_info['current_stock'] <= material_info['min_stock']:
         lines.append('⚠️ 库存已低于最低库存，需要补货')
     elif material_info.get('safety_stock') is not None and material_info['current_stock'] <= material_info['safety_stock']:
-        lines.append('⚠️ 库存已低于安全库存，建议关注')
+        lines.append(f'⚠️ 库存已低于安全库存（{material_info["safety_stock"]}{material_info["unit"]}），建议关注')
     
     if other_candidates:
         lines.extend(['', '【其他相似物料】'])

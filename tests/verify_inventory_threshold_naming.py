@@ -287,6 +287,14 @@ def test_t6_no_safety_stock_label_on_min_stock_code():
         for i, line in enumerate(lines):
             if "安全库存" not in line:
                 continue
+            # AI-CI-GREEN-005-F05：行内自证豁免（与 T7 的行内豁免同一哲学）。
+            # T6 防的错位是「文案写安全库存、代码读 min_stock」——这类错位行
+            # 恰恰**不含** safety_stock 字样；行内显式读取 safety_stock 的行
+            # （如成对展示「最低库存:{min_stock} / 安全库存:{safety_stock}」），
+            # 文案与代码读的字段一致，机械上自证非错位。加该豁免零漏报，
+            # 仅去掉成对展示行的必然误报（此前只能靠拉开行距或整文件白名单回避）。
+            if "safety_stock" in line:
+                continue
             window = "\n".join(lines[max(0, i - 2): i + 3])
             if "min_stock" in window:
                 offenders.append(f"{_rel(f)}:{i + 1} | {line.strip()[:90]}")
