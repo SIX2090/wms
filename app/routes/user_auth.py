@@ -207,9 +207,11 @@ def register_user_auth_routes(app):
 
         if check_password_hash(user.password_hash, password):
             session.clear()
-            # AI-LOGIN-F02：remember=True 下发持久 Cookie（默认 365 天），8 小时会话
-            # 过期后手机浏览器凭它自动恢复登录，无需重复输密码；退出登录会清除。
-            login_user(user, remember=True)
+            # F2.3 / S5：是否下发持久 Cookie 改由用户在登录页勾选「记住我」决定。
+            # 不勾选 → 仅会话级 Cookie（关浏览器即失效）；勾选 → 按
+            # REMEMBER_COOKIE_DURATION（默认 365 天）长效，退出登录会清除。
+            remember_me = (request.form.get('remember') or '').strip().lower() in ('1', 'on', 'true', 'yes')
+            login_user(user, remember=remember_me)
             session.permanent = True
             session['login_at'] = datetime.now().isoformat()
             user.last_login_at = datetime.now()

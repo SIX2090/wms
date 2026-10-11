@@ -48,8 +48,11 @@ def client():
     yield c
 
 
-def _login(c):
-    return c.post("/login", data={"username": "admin", "password": "admin"},
+def _login(c, remember=False):
+    data = {"username": "admin", "password": "admin"}
+    if remember:
+        data["remember"] = "1"
+    return c.post("/login", data=data,
                   content_type="application/x-www-form-urlencoded")
 
 
@@ -71,14 +74,23 @@ def test_remember_cookie_duration_configured():
 
 
 def test_login_sets_remember_cookie(client):
-    resp = _login(client)
+    """F2.3/S5：勾选「记住我」后下发持久 Cookie。"""
+    resp = _login(client, remember=True)
     assert resp.status_code == 302
     assert "remember_token" in _cookie_names(client)
 
 
+def test_login_without_remember_has_no_persistent_cookie(client):
+    """F2.3/S5：未勾选「记住我」时不下发 remember_token，仅会话级 Cookie。"""
+    resp = _login(client, remember=False)
+    assert resp.status_code == 302
+    assert "remember_token" not in _cookie_names(client)
+    assert "session" in _cookie_names(client)
+
+
 def test_remember_cookie_restores_login_after_session_expiry(client):
     """会话过期后凭 remember_token 自动恢复登录，不再跳登录页。"""
-    _login(client)
+    _login(client, remember=True)
     _drop_session_cookie(client)
     resp = client.get("/print_routing")
     assert resp.status_code == 200
@@ -86,7 +98,7 @@ def test_remember_cookie_restores_login_after_session_expiry(client):
 
 def test_logout_clears_remember_cookie(client):
     """退出登录必须同时清除 remember_token，防止共用手机退出后仍长登录。"""
-    _login(client)
+    _login(client, remember=True)
     assert "remember_token" in _cookie_names(client)
     client.get("/logout")
     assert "remember_token" not in _cookie_names(client)

@@ -643,7 +643,11 @@
                             <input class="form-check-input" type="checkbox" name="usage_consent" value="1" checked>
                             <span class="form-check-label">阅读并同意使用本系统</span>
                         </label>
-                        <span>请使用管理员分配的账号登录</span>
+                        {# F2.3 / S5：勾选才下发持久 Cookie；不勾选仅会话级，关浏览器即失效 #}
+                        <label class="form-check mb-0">
+                            <input class="form-check-input" type="checkbox" name="remember" value="1">
+                            <span class="form-check-label">记住我</span>
+                        </label>
                     </div>
                     {# BUG-2026-07-28-011 修复：登录失败 / IP 累计 / 账号锁定 UI 反馈 #}
                     <div id="ipWarning" class="ip-warning" {% if not ip_failed_count or ip_failed_count == 0 %}hidden{% endif %} aria-live="polite">
