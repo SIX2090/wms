@@ -76,4 +76,32 @@ if [ "${blocked}" -ne 0 ]; then
     exit 1
 fi
 
+# ---------------------------------------------------------------------------
+# F2.8：CI 全绿门禁（AGENTS.md §三）—— main 最近一次运行非全绿则阻断 push。
+#
+# 门禁检查三个工作流：WMS CI / WMS AI Verification / Android APK Build。
+# 逃生舱：WMS_SKIP_CI_GATE=1 可临时跳过（风险自负，仅在确知要强行推送时使用）。
+# 说明：本 hook 仅拦截本地 git push；走 GitHub API（MCP push_files）的推送不经过它。
+# ---------------------------------------------------------------------------
+if [ "${WMS_SKIP_CI_GATE:-0}" = "1" ]; then
+    echo "⚠️  WMS_SKIP_CI_GATE=1：已跳过 CI 全绿门禁（风险自负）。" >&2
+else
+    CI_PY=""
+    for cand in python3 python py; do
+        if command -v "${cand}" >/dev/null 2>&1; then CI_PY="${cand}"; break; fi
+    done
+    if [ -z "${CI_PY}" ]; then
+        echo "❌ PRE-PUSH BLOCKED: 找不到 python，无法执行 CI 全绿门禁。" >&2
+        echo "   逃生舱：WMS_SKIP_CI_GATE=1 git push ...（风险自负）" >&2
+        exit 1
+    fi
+    if ! "${CI_PY}" scripts/check_ci_green.py --quiet; then
+        echo "" >&2
+        echo "❌ PRE-PUSH BLOCKED: CI 门禁未通过（main 最近一次运行非全绿）。" >&2
+        echo "   请先修绿 WMS CI / WMS AI Verification / Android APK Build。" >&2
+        echo "   逃生舱：WMS_SKIP_CI_GATE=1 git push ...（风险自负）" >&2
+        exit 1
+    fi
+fi
+
 exit 0
