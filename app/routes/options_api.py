@@ -261,15 +261,21 @@ def _score(item, low):
 
 def register_options_routes(app):
     """在 app 上注册通用候选接口。endpoint: api_options"""
-    # 认证：Web 会话或 API Token 均可（与系统其它 API 一致）。
-    # 延迟导入避免循环依赖；取不到时降级为不鉴权（内网部署场景）。
-    try:
-        from app import web_or_api_required as _auth_required
-    except Exception:
-        _auth_required = None
-
+    # F2.5 / S6：鉴权改为**请求期解析**。原因：本 register 在 app.py 中的调用点
+    # （约 3489 行）早于 web_or_api_required 的定义（约 7038 行），注册期必然取不到
+    # 该装饰器；此前代码因此在注册期降级为「不鉴权」→ /api/options/* 长期匿名放行
+    # （这正是 S6 的实质）。改为请求期解析后：匿名请求被拒（401），解析失败则
+    # fail-close（抛出即 500），绝不降级为匿名放行。
     def _decorate(fn):
-        return _auth_required(fn) if _auth_required else fn
+        from functools import wraps
+
+        # no-test:reason=装饰器包装函数，由 endpoint 鉴权测试覆盖
+        @wraps(fn)
+        def _guarded(*args, **kwargs):
+            from app import web_or_api_required as _real
+            return _real(fn)(*args, **kwargs)
+
+        return _guarded
 
     @app.route('/api/options/<entity>', methods=['GET'])
     @_decorate

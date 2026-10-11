@@ -246,3 +246,33 @@ def test_templates_carry_data_ks_attributes():
         if "data-ks=" not in p.read_text(encoding="utf-8"):
             missing.append(name)
     assert not missing, "以下模板未挂载关键词选择组件: %s" % ", ".join(missing)
+
+
+# ---------------- F2.5 / S6：鉴权 + fail-close ----------------
+
+def test_options_requires_auth_when_anonymous():
+    """F2.5/S6：匿名访问 /api/options/* 被拒（401），不再裸奔放行。"""
+    client = app_module.app.test_client()  # 未登录
+    resp = client.get("/api/options/supplier")
+    assert resp.status_code == 401, (
+        "匿名访问 /api/options 未被拒 → S6 未修复（实际 %s）" % resp.status_code
+    )
+
+
+def test_options_authenticated_still_works():
+    """对照组：已登录用户正常取候选（鉴权未误伤正常调用）。"""
+    client = _make_client()
+    resp = _get(client, "supplier", kw="S001")
+    assert resp.status_code == 200
+
+
+def test_register_options_routes_fail_close_when_auth_unavailable(monkeypatch):
+    """F2.5/S6：认证装饰器不可用时 fail-close（500），不得匿名放行。"""
+    from flask import Flask
+    flask_app = Flask(__name__)
+    options_api.register_options_routes(flask_app)
+    monkeypatch.delattr(app_module, "web_or_api_required", raising=False)
+    resp = flask_app.test_client().get("/api/options/material")
+    assert resp.status_code == 500, (
+        "认证不可用时未 fail-close，实际 %s" % resp.status_code
+    )
