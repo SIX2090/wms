@@ -148,6 +148,7 @@ from routes.pending_documents import register_pending_documents_routes
 from routes.unit_supplier_import import register_unit_supplier_import_routes
 from ai.tools.registry import get_ai_tool_spec
 from ai.schema_meta import get_schema_meta
+from ai.query_tools import AI_QUERY_TOOLS, build_tool_call_prompt, validate_tool_call
 from ai.documents.sales_draft_validation import (
     SalesLineInfo,
     SalesOrderInfo,
@@ -21213,7 +21214,81 @@ AI_LOCAL_SKILLS.append({
     'description': '引导用户上传送货单图片，并走图片识别、采购订单匹配、采购入库草稿生成流程。',
 })
 
+def _ai_tool_call_dispatch_response(message, context=None):
+    """P2-2026-10-11：Tool Calling 调度层。
+
+    LLM 从注册表（ai/query_tools.py）中选择工具并提取参数，输出结构化
+    JSON {"tool": ..., "params": ...}；应用层校验后复用现有 handler 执行。
+    设计（调研结论落地）：
+    - LLM 不可用 / 输出非法 JSON / 未知工具 / tool=none → 返回 None，
+      落回原有正则 + 机械链路（F1-F3 行为不变）
+    - 参数校验通过后，把 params 里的物料条件合成到 message 传给现有
+      handler，物料匹配仍走已验证的候选词 + ILIKE + 规格边界链路
+    - 只读：注册表内只有查询类工具，写操作请求直接说明不支持
+    """
+    if not _ai_capability_allowed('warehouse_insights'):
+        return None  # 权限拒绝交给原链路的统一入口处理，避免双报
+    # 快速短路：明显与仓库查询无关的短消息不浪费 LLM 调用
+    text = (message or '').strip()
+    if not text or len(text) < 4:
+        return None
+    try:
+        import json as _json
+        prompt = build_tool_call_prompt(text)
+        reply = _voice_llm_chat(prompt, force_model='cn:deepseek-v4-pro')
+        if not reply:
+            return None
+        raw = reply.strip()
+        if '```json' in raw:
+            raw = raw.split('```json')[1].split('```')[0].strip()
+        elif '```' in raw:
+            raw = raw.split('```')[1].split('```')[0].strip()
+        data = _json.loads(raw)
+        if not isinstance(data, dict):
+            return None
+        if data.get('tool') in (None, 'none', 'NONE', 'None'):
+            return None
+        tool_name, params = validate_tool_call(data)
+        if tool_name is None:
+            app.logger.info('AI tool call rejected: %s', params)  # params 此时是错误原因
+            return None
+        spec = AI_QUERY_TOOLS[tool_name]
+        handler = globals().get(spec['handler'])
+        if handler is None:
+            return None
+        # 合成 enriched message：原问题 + LLM 提取的结构化条件。
+        # 不直接替换 message，保留原句让现有意图判断/回退链路继续可用。
+        parts = [text]
+        name = params.get('material_name')
+        if name:
+            parts.append(f'（物料：{name}）')
+        spec_v = params.get('spec')
+        if spec_v:
+            parts.append(f'（规格：{spec_v}）')
+        color_v = params.get('color')
+        if color_v:
+            parts.append(f'（颜色：{color_v}）')
+        brand_v = params.get('brand')
+        if brand_v:
+            parts.append(f'（品牌：{brand_v}）')
+        qty_v = params.get('required_qty')
+        if qty_v:
+            parts.append(f'（需要数量：{qty_v}）')
+        enriched = ' '.join(parts)
+        app.logger.info('AI tool call dispatched: %s params=%s', tool_name, params)
+        return handler(enriched, context)
+    except Exception as exc:
+        app.logger.warning('AI tool call dispatch failed: %s', exc)
+        return None
+
+
 def _ai_warehouse_insights_response(message, context=None):
+    # P2-2026-10-11：Tool Calling 调度层优先（调研结论：结构化工具选择比
+    # 自由文本 prompt 更精确）。返回 None（未命中/LLM 不可用/输出非法）时
+    # 落回原有链路，F1-F3 行为保持不变。
+    response = _ai_tool_call_dispatch_response(message, context)
+    if response:
+        return response
     for handler in (
         _ai_flow_query_response,  # FIX-2026-10-10-F2：流水查询优先（"进了多少/用了多少"）
         _ai_stock_query_response,  # 查库存
