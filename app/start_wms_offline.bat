@@ -47,6 +47,33 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 
+REM Preflight: core dependencies must exist, otherwise run_server.py dies with
+REM ModuleNotFoundError (e.g. "No module named 'waitress'") on a fresh Python.
+REM Self-heal by installing requirements.txt, then re-check before proceeding.
+echo [Preflight] Checking core dependencies...
+"%PYTHON_CMD%" -c "import waitress, flask, flask_sqlalchemy" >nul 2>&1
+if errorlevel 1 (
+    echo [Preflight] Core dependencies missing - installing from requirements.txt...
+    "%PYTHON_CMD%" -m pip install -r "%~dp0requirements.txt"
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Dependency installation failed.
+        echo         Install manually, then start again:
+        echo         "%PYTHON_CMD%" -m pip install -r "%~dp0requirements.txt"
+        pause
+        exit /b 1
+    )
+    "%PYTHON_CMD%" -c "import waitress, flask, flask_sqlalchemy" >nul 2>&1
+    if errorlevel 1 (
+        echo.
+        echo [ERROR] Dependencies still missing after install. See output above.
+        pause
+        exit /b 1
+    )
+)
+echo [Preflight] Dependencies OK
+echo.
+
 REM Auto-fix database columns.
 echo [Auto-Fix] Checking database columns...
 "%PYTHON_CMD%" "fix_db_columns.py"
