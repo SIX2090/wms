@@ -179,7 +179,7 @@ ok, err = apply_stock_delta(
 | 概念 | 表 | 说明 |
 |---|---|---|
 | 单据头 | `opening_stock_doc` | `doc_no`（QS+YYMM+4位）、`date`（建账日期）、`warehouse_id`（可空，仓库可下放到行）、`status`、`remark`、`operator_id` |
-| 明细行 | `opening_stock` | 每行一个 `doc_id` 彝属某张单；唯一键收窄为 `(material_id, warehouse_id, doc_id)` |
+| 明细行 | `opening_stock` | 每行一个 `doc_id` 归属某张单；唯一键收窄为 `(material_id, warehouse_id, doc_id)` |
 
 **核心口径（写代码前必须记住）：**
 
