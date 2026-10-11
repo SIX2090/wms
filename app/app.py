@@ -6701,7 +6701,9 @@ def ensure_bootstrap_admin_user():
         role='admin',
         status='normal',
         created_at=datetime.now(),
-        must_change_password=False,
+        # F2.1：未显式设置 WMS_BOOTSTRAP_PASSWORD（即用默认弱密码 'admin'）时
+        # 强制首次登录改密；显式设置了则视为可信，不强制。
+        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
     )
     db.session.add(user)
     try:
@@ -6717,14 +6719,21 @@ def ensure_admin_user_exists():
     """Ensure admin user exists; create if missing, unlock only if disabled."""
     user = User.query.filter_by(username='admin').first()
     if user:
-        # 不再强制首次登录改密码；保留环境变量覆盖能力（设置 WMS_BOOTSTRAP_PASSWORD 时清除标记）
-        if os.environ.get('WMS_BOOTSTRAP_PASSWORD') and user.must_change_password:
-            user.must_change_password = False
-            try:
+        # F2.1：默认弱密码强制改密（幂等）。
+        # - 管理员显式设置 WMS_BOOTSTRAP_PASSWORD → 视为可信，清除强制标记；
+        # - 否则（仍用默认 'admin'）若密码未被修改过（仍匹配 'admin'），置位强制改密。
+        #   check_password_hash 保证改密后不再被重复置位（避免每次启动都强制）。
+        try:
+            if os.environ.get('WMS_BOOTSTRAP_PASSWORD'):
+                if user.must_change_password:
+                    user.must_change_password = False
+                    db.session.commit()
+            elif not user.must_change_password and check_password_hash(user.password_hash, 'admin'):
+                user.must_change_password = True
                 db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f'Failed to reset must_change_password for admin: {e}')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f'Failed to sync must_change_password for admin: {e}')
         # 仅在账号被显式 disabled 时启动期解锁；is_locked（因登录失败次数过多触发的临时锁定）
         # 应等待 locked_until 自然到期，避免攻击者通过触发重启重置锁定计数绕过暴力破解保护。
         if user.status == 'disabled':
@@ -6749,7 +6758,8 @@ def ensure_admin_user_exists():
         role='admin',
         status='normal',
         created_at=datetime.now(),
-        must_change_password=False,
+        # F2.1：默认弱密码 'admin' 强制首次登录改密；显式设 WMS_BOOTSTRAP_PASSWORD 则不强制。
+        must_change_password=not bool(os.environ.get('WMS_BOOTSTRAP_PASSWORD')),
     )
     db.session.add(user)
     try:
