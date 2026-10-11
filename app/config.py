@@ -118,6 +118,23 @@ class ProductionConfig(Config):
         'X-Frame-Options': 'SAMEORIGIN',
         'X-XSS-Protection': '1; mode=block',
         'Referrer-Policy': 'strict-origin-when-cross-origin',
+        # F2.7 / S9：CSP 从宽松白名单起步（全站大量内联脚本/样式 + 本地托管 CDN 资源，
+        # 模板无外部 http(s) 外链）。object-src/base-uri/frame-ancestors 先行收紧，
+        # script/style 暂保留 unsafe-inline 以不破坏既有页面；后续可逐步收敛。
+        'Content-Security-Policy': (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: blob:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'self'"
+        ),
+        # F2.7 / S9：HSTS 仅在 HTTPS 生效（HTTP 响应忽略该头），includeSubDomains
+        # 覆盖 www 等子域；生产 nginx 层亦加同名头（见 nginx_wms_server_block.conf）。
+        'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
     }
 
 
