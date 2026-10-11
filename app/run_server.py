@@ -111,6 +111,17 @@ def _resolve_waitress_threads(env) -> int:
     return _default_waitress_threads()
 
 
+def _resolve_bind_host(env, config) -> str:
+    """解析监听地址（S4 / F2.4）。
+
+    默认仅绑定回环 ``127.0.0.1``，避免服务在 ``0.0.0.0`` 上默认暴露给整个网段。
+    需要外部直连（不经 nginx 反代）时，显式设置 ``WMS_HOST``（如 ``WMS_HOST=0.0.0.0``）
+    或 ``app.config['HOST']`` 覆盖。环境变量值会 strip；空串视为未设置。
+    """
+    explicit = (env.get("WMS_HOST") or config.get("HOST") or "").strip()
+    return explicit or "127.0.0.1"
+
+
 def _github_auto_update_setting_enabled() -> bool:
     """Read system setting github_auto_update_enabled; default False if unavailable."""
     try:
@@ -160,7 +171,8 @@ def main():
     _run_startup_auto_update()
 
     # 端口/Host 支持环境变量覆盖：CI 测试时用 WMS_PORT=18080 避免与本机服务冲突
-    host = os.environ.get("WMS_HOST", app.config.get("HOST", "0.0.0.0"))
+    # S4 / F2.4：默认仅绑回环（127.0.0.1），需外部直连时显式设 WMS_HOST=0.0.0.0。
+    host = _resolve_bind_host(os.environ, app.config)
     port = int(os.environ.get("WMS_PORT", app.config.get("PORT", 8080)))
     # 线程数默认按 CPU 核数自适应（BUG-2026-09-13-001）：
     # 曾写死 16（8→16 为缓解 queue depth 12），但生产多为 2 vCPU/2GB 低配云主机，
