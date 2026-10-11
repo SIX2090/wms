@@ -418,7 +418,12 @@ def register_report_routes(app):
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
-        return send_file(output, download_name='inout_report.xlsx', as_attachment=True)
+        # FIX-2026-10-11：补 Excel MIME 类型——BytesIO 无文件名可猜，
+        # Flask 回退 application/octet-stream，财务导出测试断言
+        # content_type 含 application/vnd 失败（同文件 report_stock_print 已带）
+        return send_file(
+            output, download_name='inout_report.xlsx', as_attachment=True,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/report/inout/export')
     @login_required
