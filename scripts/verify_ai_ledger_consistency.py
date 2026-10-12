@@ -10,10 +10,12 @@
 - 校验台账第 8 节"后续完成记录"中每个已完成任务至少有一个代码标记（防虚假报告）
 - 未标记的 AI 相关代码（含 ai/ 目录或 AI_TOOL_REGISTRY 引用）输出警告，不阻塞
 
-渐进式策略：当前仅要求 AI-R01 已完成的核心代码有标记，其余未标记仅警告。
-通过 ENFORCE_TASK_IDS 环境变量可切换为强制模式。
+渐进式策略：F3.8 起默认收紧为强制模式——台账登记"已完成"的 AI-RXX 任务
+在代码中无 AI_TASK 标记即失败（退出码 1），模拟未登记变更会被拦截。
+可用 AI_LEDGER_ENFORCE=gradual 临时回退为警告模式（仅排障用）。
 
-退出码 0=通过（含警告），1=失败（标记的 ID 不存在于台账或状态非已完成）。
+退出码 0=通过（含警告），1=失败（标记的 ID 不存在于台账、状态非已完成、
+或台账登记已完成但代码无标记）。
 """
 from __future__ import annotations
 
@@ -116,8 +118,11 @@ def main() -> int:
             )
 
     # 3. 台账第 8 节已完成任务应有代码标记（防虚假报告）
-    #    渐进式策略：仅对 AI-RXX 主任务强制，子修复项（如 AI-SEC-F01）和 P0/UX 暂不强制
-    enforce_mode = os.environ.get('AI_LEDGER_ENFORCE', 'gradual')
+    #    F3.8：默认收紧为 strict（未登记即失败）；仅对 AI-RXX 主任务强制，
+    #    子修复项（如 AI-SEC-F01）和 P0/UX 暂不强制。
+    #    CI（WMS AI Verification / core 套件）与本机 pre-commit 之外，
+    #    MCP/API 推送通道由 CI 侧本脚本兜底，等同强制。
+    enforce_mode = os.environ.get('AI_LEDGER_ENFORCE', 'strict')
     for task_id in completed_tasks:
         if not task_id.startswith('AI-R'):
             continue
