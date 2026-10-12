@@ -453,6 +453,18 @@ def collect_from_app(pushdown=True):
     return materials, locations, transactions
 
 
+def _location_management_enabled() -> bool:
+    """F3.15：读取系统设置「库位管理」开关。读不到（如纯 sqlite 直读、
+    表缺失）时按「未开启」处理——宁可跳过仓级判定，也不误报。"""
+    try:
+        from app import app as flask_app, location_management_enabled  # noqa: PLC0415
+
+        with flask_app.app_context():
+            return bool(location_management_enabled())
+    except Exception:
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description="库存三账恒等式校验器（P2-3 前置判据）")
     ap.add_argument("--db", help="SQLAlchemy URL，如 sqlite:///c:/wms/app/instance/inventory.db")
@@ -480,13 +492,21 @@ def main():
         pushdown=not args.no_pushdown)
     rows = build_identity_rows(materials, locations, transactions)
     findings = find_mismatches(rows, args.tolerance)
-    # P0-1：仓级分解（抓"仓级串仓"——物料级合计对、但各仓各自错）
+    # F3.15：仓级判据（②库位账 vs ③流水）只在库位管理开启时判定——
+    # 关库位管理时 LocationInventory 不再维护，残留/缺失行属预期，
+    # 照判只会误报（审计 §3.5：判据必须 gate 在 location_management_enabled() 上）。
     wh_rows = build_warehouse_rows(locations, transactions)
-    wh_findings = find_warehouse_mismatches(rows, wh_rows, args.tolerance)
+    _loc_enabled = _location_management_enabled()
+    if _loc_enabled:
+        wh_findings = find_warehouse_mismatches(rows, wh_rows, args.tolerance)
+    else:
+        wh_findings = []
     # P2-1：①≠③ 分级（有豁免登记的降级为告警，其余硬失败）
     drift_hard, drift_waived = split_drift_findings(rows, findings, allowlist)
     summary = summarize(rows, findings, wh_findings, wh_rows,
                         drift_hard, drift_waived)
+    # F3.15：JSON 消费方可据此区分「仓级 0 差异」与「仓级判定未执行」
+    summary["wh_gate_location_management_enabled"] = _loc_enabled
 
     if args.json:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -505,8 +525,11 @@ def main():
     print(f"  ①≠③（总账 vs 流水）: {summary['mismatch_ledger_vs_txn']}"
           f"（🔴 未登记硬失败 {summary.get('drift_hard', 0)} / "
           f"🟡 已豁免 {summary.get('drift_waived', 0)}）")
-    print(f"  ②≠③ 仓级（库位 vs 流水）: {summary.get('mismatch_wh_location_vs_txn', 0)}"
-          f"（P0-1：抓仓级串仓）")
+    if _loc_enabled:
+        print(f"  ②≠③ 仓级（库位 vs 流水）: {summary.get('mismatch_wh_location_vs_txn', 0)}"
+              f"（P0-1：抓仓级串仓）")
+    else:
+        print("  ②≠③ 仓级（库位 vs 流水）: 跳过（库位管理未开启，F3.15）")
     if summary["unattributed_materials"]:
         print(f"  ⚠️  有未归属历史行（warehouse_id IS NULL）的物料: "
               f"{summary['unattributed_materials']}（不猜归属，单列待确认）")
