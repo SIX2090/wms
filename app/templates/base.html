@@ -31,6 +31,18 @@
             }
         }
     });
+    // F2.14 全局错误提示（节流 3s，避免并发失败刷屏）：优先复用 app.js 的 toast
+    var __wmsLastErrToast = 0;
+    function wmsGlobalErrorToast(msg) {
+        var now = Date.now();
+        if (now - __wmsLastErrToast < 3000) return;
+        __wmsLastErrToast = now;
+        if (typeof window.showToast === 'function') {
+            window.showToast(msg, 'danger', 3600);
+        } else if (typeof window.toast === 'function') {
+            window.toast(msg, 'danger', 3600);
+        }
+    }
     (function() {
         var csrfToken = document.querySelector('meta[name="csrf-token"]');
         var originalFetch = window.fetch;
@@ -80,12 +92,27 @@
                             // Allow showing the prompt again on the next request
                             setTimeout(function() { window.__wmsSessionExpiredShown = false; }, 5000);
                         }
+                        return;
                     }
-                }).catch(function() { /* swallow to avoid unhandled rejection */ });
+                    // F2.14 全局错误兜底：5xx/网关错误统一提示，避免模板 .then 无 .catch 时静默失败
+                    if (resp && resp.status >= 500) {
+                        wmsGlobalErrorToast('服务器错误（HTTP ' + resp.status + '），操作可能未生效，请稍后重试');
+                    }
+                }).catch(function() {
+                    // F2.14 网络错误（fetch 拒绝）同样提示，避免静默失败
+                    wmsGlobalErrorToast('网络请求失败，请检查网络后重试');
+                });
             }
             return promise;
         };
     })();
+    // F2.14 全局兜底：未被捕获的 Promise 拒绝（模板 .then 无 .catch 的 fetch 链）
+    // 统一 toast，避免 500/网络错误时页面零提示、用户误以为操作成功。
+    window.addEventListener('unhandledrejection', function(event) {
+        var reason = event && event.reason;
+        var msg = (reason && (reason.message || reason)) || '未知错误';
+        wmsGlobalErrorToast('操作失败：' + msg);
+    });
     // Global CSRF helpers (SM-P6-03-1): sales_*.html / purchase_*.html / out_order_detail.html
     // reuse these instead of redefining per template.
     function getCsrfToken() {
