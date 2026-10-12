@@ -1620,6 +1620,8 @@ def register_sales_routes(app):
     @login_required
     def sales_report():
         from datetime import date, datetime
+        from types import SimpleNamespace
+        from sqlalchemy.orm import joinedload, selectinload
         from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem, Warehouse,
                          _require_report_warehouse, round_to_2_decimals, sales_status_label)
         date_start = request.args.get('date_start') or (date.today().replace(day=1).isoformat())
@@ -1641,7 +1643,12 @@ def register_sales_routes(app):
         if not selected_warehouse:
             orders = []
         else:
-            query = SalesOrder.query.filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
+            # F2.16：预加载客户/业务员/明细→物料，消除报表三重懒加载 N+1
+            query = SalesOrder.query.options(
+                joinedload(SalesOrder.customer),
+                joinedload(SalesOrder.salesperson),
+                selectinload(SalesOrder.items).joinedload(SalesOrderItem.material),
+            ).filter(SalesOrder.date >= start, SalesOrder.date <= end, SalesOrder.status != 'cancelled')
             if drill_customer_id:
                 query = query.filter(SalesOrder.customer_id == drill_customer_id)
             if salesperson_id:
@@ -1692,12 +1699,12 @@ def register_sales_routes(app):
         total_untaxed = round_to_2_decimals(sum(order.untaxed_amount or 0 for order in orders))
         total_tax = round_to_2_decimals(sum(order.tax_amount or 0 for order in orders))
         # 钻取明细行
-        drill_items = []
+        drill_items_all = []
         if drill_material_id:
             for order in orders:
                 for item in order.items:
                     if item.material_id == drill_material_id:
-                        drill_items.append({
+                        drill_items_all.append({
                             'order_no': order.order_no,
                             'order_id': order.id,
                             'date': order.date,
@@ -1711,7 +1718,20 @@ def register_sales_routes(app):
                             'tax_included_amount': item.tax_included_amount or item.amount or 0,
                             'shipped_quantity': item.shipped_quantity or 0,
                         })
-        return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, warehouse_id=warehouse_id or '', drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
+        # F2.16：钻取明细加分页，避免大页全量返回
+        drill_page = request.args.get('page', 1, type=int) or 1
+        drill_per_page = max(1, min(request.args.get('per_page', 50, type=int) or 50, 200))
+        drill_total = len(drill_items_all)
+        drill_pages = max(1, (drill_total + drill_per_page - 1) // drill_per_page)
+        drill_page = min(max(1, drill_page), drill_pages)
+        _dstart = (drill_page - 1) * drill_per_page
+        drill_items = drill_items_all[_dstart:_dstart + drill_per_page]
+        drill_pagination = SimpleNamespace(
+            total=drill_total, page=drill_page, per_page=drill_per_page, pages=drill_pages,
+            has_prev=drill_page > 1, prev_num=drill_page - 1,
+            has_next=drill_page < drill_pages, next_num=drill_page + 1,
+        )
+        return render_template('sales_report.html', date_start=date_start, date_end=date_end, drill_customer_id=drill_customer_id, drill_material_code=drill_material_code, salesperson_id=salesperson_id, status=status, shipment_status=shipment_status, project_no=project_no, warehouse=warehouse, warehouse_id=warehouse_id or '', drill_material_name=(Material.query.get(drill_material_id).name if drill_material_id else ''), drill_items=drill_items, drill_pagination=drill_pagination, customers=Customer.query.order_by(Customer.code.asc()).all(), employees=Employee.query.order_by(Employee.id.asc()).all(), warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), orders=orders, by_customer=sorted(by_customer.values(), key=lambda row: row['amount'], reverse=True), by_material=sorted(by_material.values(), key=lambda row: row['amount'], reverse=True), by_salesperson=sorted(by_salesperson.values(), key=lambda row: row['amount'], reverse=True), total_amount=total_amount, total_untaxed=total_untaxed, total_tax=total_tax, shipped_amount=shipped_amount, pending_amount=round_to_2_decimals(total_amount - shipped_amount), shipped_quantity=shipped_quantity, total_orders=len(orders), status_label=sales_status_label)
 
     @app.route('/sales/outflow_report')
     @login_required

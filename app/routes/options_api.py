@@ -50,6 +50,8 @@ ENTITY_CONFIG = {
     'unit':       ('Unit',             'code', 'name', ()),
     'category':   ('MaterialCategory', 'code', 'name', ()),
     'contract':   ('Contract',         'contract_no', 'project_name', ()),
+    # F2.16：BOM 搜索式下拉（领料单关联BOM），字段 bom_no + product_name
+    'bom':        ('BOM',              'bom_no',      'product_name', ()),
 }
 
 # 纯文本候选：从多张表的历史值去重提取（无 id）

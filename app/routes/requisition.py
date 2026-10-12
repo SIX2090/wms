@@ -68,15 +68,22 @@ def register_requisition_routes(app):
                 ProductionRequisitionItem, ProductionRequisitionItem.requisition_id == ProductionRequisition.id
             ).outerjoin(Material, ProductionRequisitionItem.material_id == Material.id).filter(db.or_(*conditions)).distinct()
         sort_col = getattr(ProductionRequisition, sort_by, ProductionRequisition.created_at)
-        requisitions = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
-        boms = BOM.query.all()
+        # F2.16：列表分页（此前全量 .all()），并去掉全量 BOM 下拉（模板改 quick-select）
+        page = max(1, request.args.get('page', default=1, type=int))
+        per_page = request.args.get('per_page', default=20, type=int)
+        if per_page not in (20, 50, 100, 200):
+            per_page = 20
+        pagination = query.order_by(
+            sort_col.asc() if sort_order == 'asc' else sort_col.desc()
+        ).paginate(page=page, per_page=per_page, error_out=False)
+        requisitions = pagination.items
         filters = {
             'status': status_filter,
             'search': search,
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
         }
-        return render_template('requisition.html', requisitions=requisitions, boms=boms, filters=filters, sort_by=sort_by, sort_order=sort_order, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(), location_management_enabled=location_management_enabled())
+        return render_template('requisition.html', requisitions=requisitions, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(), location_management_enabled=location_management_enabled())
 
     @app.route('/production_requisition/add')
     @app.route('/production_requisition')

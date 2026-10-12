@@ -74,7 +74,7 @@
     <div class="card-header d-flex justify-content-between align-items-center">
       <span>物料钻取明细：{{ drill_material_name }}（{{ drill_material_code }}）</span>
       <span class="d-flex align-items-center gap-2">
-        <span class="text-muted small">共 {{ drill_items|length }} 条明细</span>
+        <span class="text-muted small">共 {{ drill_pagination.total }} 条明细</span>
         <button type="button" class="btn btn-sm btn-outline-secondary" title="显示/隐藏及调整明细字段">
           <i class="bi bi-list-columns"></i> 栏目设置
         </button>
@@ -105,6 +105,17 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center px-3 py-2">
+      <span class="text-muted small">共 {{ drill_pagination.total }} 条，第 {{ drill_pagination.page }}/{{ drill_pagination.pages }} 页</span>
+      <ul class="pagination pagination-sm mb-0">
+        <li class="page-item {% if not drill_pagination.has_prev %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=drill_customer_id or '', material_code=drill_material_code, salesperson_id=salesperson_id or '', status=status, shipment_status=shipment_status, project_no=project_no, warehouse_id=warehouse_id or '', page=drill_pagination.prev_num or 1, per_page=drill_pagination.per_page) }}">上一页</a>
+        </li>
+        <li class="page-item {% if not drill_pagination.has_next %}disabled{% endif %}">
+          <a class="page-link" href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=drill_customer_id or '', material_code=drill_material_code, salesperson_id=salesperson_id or '', status=status, shipment_status=shipment_status, project_no=project_no, warehouse_id=warehouse_id or '', page=drill_pagination.next_num or drill_pagination.pages, per_page=drill_pagination.per_page) }}">下一页</a>
+        </li>
+      </ul>
     </div>
   </div>
   {% endif %}

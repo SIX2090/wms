@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% import '_list_macros.html' as list_macros %}
 
 {% block title %}工单领料管理{% endblock %}
 
@@ -102,7 +103,7 @@
     <div class="card">
         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
             <span><i class="bi bi-list-ul"></i> 工单领料单列表</span>
-            <span class="badge bg-light text-dark">共 {{ requisitions|length }} 条</span>
+            <span class="badge bg-light text-dark">共 {{ pagination.total }} 条</span>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive-wrapper">
@@ -188,6 +189,7 @@
                     </tbody>
                 </table>
             </div>
+            {{ list_macros.pager(pagination, 'requisition_list', base_kwargs={'sort': sort_by, 'order': sort_order, 'per_page': per_page, 'status': filters.status, 'search': filters.search, 'date_start': filters.date_start, 'date_end': filters.date_end, 'embedded': request.args.get('embedded')}) }}
         </div>
     </div>
 </div>
@@ -204,13 +206,12 @@
                 <input type="hidden" id="order_id" name="order_id">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label for="bom_id" class="form-label">关联BOM</label>
-                        <select class="form-select" id="bom_id" name="bom_id">
-                            <option value="">请选择BOM</option>
-                            {% for bom in boms %}
-                            <option value="{{ bom.id }}">{{ bom.bom_no }} - {{ bom.product_name }}</option>
-                            {% endfor %}
-                        </select>
+                        <label for="bom_id_display" class="form-label">关联BOM</label>
+                        {# F2.16：BOM 下拉改 quick-select 输入式（不再全量 BOM.query.all() 入下拉） #}
+                        <input type="text" class="form-control" id="bom_id_display"
+                               data-ks="bom" data-ks-put="label" data-ks-id="#bom_id"
+                               placeholder="输入BOM编号/产品名称" autocomplete="off">
+                        <input type="hidden" id="bom_id" name="bom_id">
                     </div>
                     <div class="mb-3">
                         <label for="production_order" class="form-label">工单号</label>

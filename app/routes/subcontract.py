@@ -87,10 +87,23 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/<int:id>')
     @login_required
     def subcontract_detail(id):
-        from sqlalchemy.orm import joinedload
-        from app import (Material, SubcontractOrder, Supplier, Unit,
+        from sqlalchemy.orm import joinedload, selectinload
+        from app import (Material, SubcontractIssue, SubcontractIssueItem,
+                         SubcontractOrder, SubcontractItem, SubcontractReceive,
+                         SubcontractReceiveItem, Supplier, Unit,
                          get_recent_operation_logs, serialize_material)
-        order = SubcontractOrder.query.get_or_404(id)
+        # F2.16：详情页预加载，消除 order.items / issue_orders / receive_orders
+        # 三重懒加载 N+1（对齐同文件 print_subcontract 的 .options 写法）。
+        order = SubcontractOrder.query.options(
+            joinedload(SubcontractOrder.supplier),
+            joinedload(SubcontractOrder.operator),
+            selectinload(SubcontractOrder.items).joinedload(SubcontractItem.material).joinedload(Material.unit),
+            selectinload(SubcontractOrder.items).joinedload(SubcontractItem.unit),
+            selectinload(SubcontractOrder.issue_orders).joinedload(SubcontractIssue.operator),
+            selectinload(SubcontractOrder.issue_orders).joinedload(SubcontractIssue.items).joinedload(SubcontractIssueItem.material).joinedload(Material.unit),
+            selectinload(SubcontractOrder.receive_orders).joinedload(SubcontractReceive.operator),
+            selectinload(SubcontractOrder.receive_orders).joinedload(SubcontractReceive.items).joinedload(SubcontractReceiveItem.material).joinedload(Material.unit),
+        ).get_or_404(id)
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
