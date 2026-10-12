@@ -56,6 +56,10 @@
 
 任何一次库存写入，都必须在同一事务内维护这条恒等式所涉及的全部层级。**只改其中一层就是账实分裂。**
 
+> **分档说明（库位管理开关，2026-10-12 补）**：② `location_inventory` **只在 `location_management_enabled()` 开启时落账**；关闭时所有库存写入只维护 ① 与 ③，② 保持存量不动。因此恒等式按开关分两档理解：
+> - **开启库位管理**：① = Σ② = Σ③，三层全量成立，`scripts/verify_inventory_identity.py` 的 ①≠Σ② 与 ②≠③ 判据全部生效；
+> - **关闭库位管理**：② 不落账（多为空表或历史残留），恒等式退化为 **① = Σ③**；②≠③ 不算差异，`verify_inventory_identity.py` 自 F3.15（`426cc70a`）起对该判据 gate 在开关上，关闭时自动跳过并在 JSON 标注 `wh_gate_location_management_enabled=false`。
+
 ---
 
 ## 2. 派生方向（谁由谁算出来）
