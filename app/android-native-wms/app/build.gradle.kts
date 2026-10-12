@@ -70,9 +70,8 @@ android {
     tasks.configureEach {
         if (name == "validateSigningRelease" || name == "packageRelease") {
             doFirst {
-                // AI-MOB-APK-001：未配置 WMS_STORE_FILE 时走 debug 签名（见 buildTypes.release），
-                // 不再强制要求签名参数；一旦配置则必须给全，防止打出无法安装/更新的包。
                 if (System.getenv("WMS_STORE_FILE") != null) {
+                    // 配置了正式签名：参数必须给全，防止打出无法安装/更新的包。
                     val pwd = System.getenv("WMS_STORE_PASSWORD")
                     val keyPwd = System.getenv("WMS_KEY_PASSWORD")
                     val alias = System.getenv("WMS_KEY_ALIAS")
@@ -82,6 +81,16 @@ android {
                                 "WMS_KEY_ALIAS / WMS_KEY_PASSWORD（keystore 与密码绝不上传仓库）。"
                         )
                     }
+                } else if (System.getenv("WMS_ALLOW_DEBUG_SIGNED_RELEASE") != "1") {
+                    // F3.12（审计 §4.6）：未设 WMS_STORE_FILE 时构建**失败**，
+                    // 不再静默回退 debug 签名——防止本地误打出
+                    // 「名为 release 实为 debug 签名」的包流出当正式包分发。
+                    throw GradleException(
+                        "F3.12：未配置 WMS_STORE_FILE，release 构建拒绝静默回退 debug 签名。" +
+                            "请设置 WMS_STORE_FILE / WMS_STORE_PASSWORD / WMS_KEY_ALIAS / " +
+                            "WMS_KEY_PASSWORD 走正式签名；如确需 debug 签名的内部测试包，" +
+                            "显式设置 WMS_ALLOW_DEBUG_SIGNED_RELEASE=1。"
+                    )
                 }
             }
         }
@@ -92,13 +101,18 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // AI-MOB-APK-001：CI 无 keystore（签名材料绝不上传仓库）。GitHub runner
-            // 镜像预置的 debug.keystore 跨构建稳定，且与现行 debug 包同签名，
-            // release 包可直接覆盖安装；配置 WMS_STORE_FILE 时自动切正式签名。
-            signingConfig = if (System.getenv("WMS_STORE_FILE") != null) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            // F3.12（审计 §4.6）签名三态：
+            //   配置 WMS_STORE_FILE → 正式签名（CI 发布/本地出包）；
+            //   显式 WMS_ALLOW_DEBUG_SIGNED_RELEASE=1 → debug 签名
+            //     （CI 内部测试包，runner 固定 debug.keystore 跨构建稳定，
+            //      见 android-build.yml 与 BUG-2026-09-04-003）；
+            //   两者皆无 → null，由 validateSigningRelease/packageRelease
+            //     阶段的校验抛出明确错误（执行期失败，不影响
+            //     lintRelease/testReleaseUnitTest 的配置解析）。
+            signingConfig = when {
+                System.getenv("WMS_STORE_FILE") != null -> signingConfigs.getByName("release")
+                System.getenv("WMS_ALLOW_DEBUG_SIGNED_RELEASE") == "1" -> signingConfigs.getByName("debug")
+                else -> null
             }
         }
     }

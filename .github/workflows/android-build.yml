@@ -133,8 +133,13 @@ jobs:
       # -Pwms.sherpa=true 并恢复下载步骤即可。
       # 方案A：用 assembleRelease 做编译验证（Debug 无需签名，避免 release keystore 缺失
       # 导致构建在签名配置阶段即失败，从而真正走到 Kotlin 编译，暴露语法/依赖问题）。
+      # F3.12：CI 内部测试包**显式**选择 debug 签名（WMS_ALLOW_DEBUG_SIGNED_RELEASE=1），
+      # 配合上面还原的固定 debug.keystore，跨构建签名稳定、可覆盖安装；
+      # 未显式设置时 release 构建直接失败（不再静默回退）。
       - name: Build Release APK (R8 瘦身)
         working-directory: app/android-native-wms
+        env:
+          WMS_ALLOW_DEBUG_SIGNED_RELEASE: "1"
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
