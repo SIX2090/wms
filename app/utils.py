@@ -13,6 +13,7 @@ import html.parser
 import logging
 import math
 from datetime import datetime, date
+from decimal import Decimal, ROUND_HALF_UP
 from functools import wraps
 
 from flask import request, jsonify, current_app, has_app_context, redirect, url_for, flash
@@ -23,7 +24,13 @@ from db import db
 
 # ==================== 数值处理 ====================
 def round_to_2_decimals(value):
-    """将数值四舍五入到2位小数。
+    """将数值四舍五入到2位小数（ROUND_HALF_UP，符合财务习惯）。
+
+    F4.1: 原实现 ``round(fval * 100) / 100`` 有两处偏差：
+      1) Python 内置 round 为银行家舍入（half-to-even），1.005 会变 1.00；
+      2) ``fval * 100`` 引入二进制浮点误差（如 1.005*100 = 100.49999…）。
+    改用 Decimal(str(fval)) + ROUND_HALF_UP，按十进制字面精确舍入：
+      round_to_2_decimals(1.005) == 1.01，round_to_2_decimals(1234.565) == 1234.57。
 
     P0-BUGFIX: 拒绝 NaN/Infinity。float('nan') 不抛异常但会污染
     Material.stock，导致该物料库存永久失效。非有限值统一返回 0.0。
@@ -36,7 +43,8 @@ def round_to_2_decimals(value):
         return 0.0
     if not math.isfinite(fval):
         return 0.0
-    return round(fval * 100) / 100
+    # str(fval) 取 float 的最短十进制表示，避免 fval*100 的二进制误差
+    return float(Decimal(str(fval)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
 
 
 STOCK_COMPARE_EPSILON = 1e-6
