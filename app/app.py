@@ -9316,18 +9316,42 @@ def _format_delete_blockers(blockers):
     return '；'.join(f'{label} {count} 条' for label, count in blockers if count)
 
 def _warehouse_delete_blockers(warehouse):
+    """仓库删除阻断检查（F3.9，审计 §3.4）。
+
+    - 有 warehouse_id 外键的表（SalesOrder/LocationInventory/StockTransaction）
+      一律按 ID 精确匹配——名称与编码撞车的两个仓库互不误伤；
+    - 补齐此前漏检的 stock_transaction.warehouse_id；
+    - 仅字符串列的表（InOrder/OutOrder/TransferOrder/AdjustmentOrder）保持
+      名称/编码全等匹配（in_ 为精确匹配，不做相似匹配）；
+    - 历史行 warehouse_id 可能为 NULL（回填前的存量流水/库位库存），
+      用 location 字符串兜底防漏检；旧调拨单 from_warehouse 为空时
+      from_location/to_location 存的是仓库名，一并保留字符串兜底。
+    """
     values = _nonempty_reference_values(warehouse.name, warehouse.code)
-    if not values:
-        return []
     checks = [
-        ('入库单', InOrder.query.filter(InOrder.warehouse.in_(values)).count()),
-        ('领料单', OutOrder.query.filter(OutOrder.warehouse.in_(values)).count()),
         ('销售订单', SalesOrder.query.filter(SalesOrder.warehouse_id == warehouse.id).count()),
-        ('调拨单', TransferOrder.query.filter(db.or_(TransferOrder.from_location.in_(values), TransferOrder.to_location.in_(values))).count()),
-        ('库存调整明细', AdjustmentOrderItem.query.filter(AdjustmentOrderItem.location.in_(values)).count()),
-        ('库位库存', LocationInventory.query.filter(LocationInventory.location.in_(values)).count()),
-        ('库存流水', StockTransaction.query.filter(StockTransaction.location.in_(values)).count()),
+        ('库位库存', LocationInventory.query.filter(LocationInventory.warehouse_id == warehouse.id).count()),
+        ('库存流水', StockTransaction.query.filter(StockTransaction.warehouse_id == warehouse.id).count()),
     ]
+    if values:
+        checks.extend([
+            ('入库单', InOrder.query.filter(InOrder.warehouse.in_(values)).count()),
+            ('领料单', OutOrder.query.filter(OutOrder.warehouse.in_(values)).count()),
+            ('调拨单', TransferOrder.query.filter(db.or_(
+                TransferOrder.from_warehouse.in_(values),
+                TransferOrder.to_warehouse.in_(values),
+                TransferOrder.from_location.in_(values),
+                TransferOrder.to_location.in_(values))).count()),
+            ('库存调整单', AdjustmentOrder.query.filter(AdjustmentOrder.warehouse.in_(values)).count()),
+            ('库存调整明细', AdjustmentOrderItem.query.filter(AdjustmentOrderItem.location.in_(values)).count()),
+            # 历史未归属行（warehouse_id IS NULL）字符串兜底
+            ('库位库存(历史未归属)', LocationInventory.query.filter(
+                LocationInventory.warehouse_id.is_(None),
+                LocationInventory.location.in_(values)).count()),
+            ('库存流水(历史未归属)', StockTransaction.query.filter(
+                StockTransaction.warehouse_id.is_(None),
+                StockTransaction.location.in_(values)).count()),
+        ])
     return [(label, count) for label, count in checks if count]
 
 def _department_delete_blockers(department):
