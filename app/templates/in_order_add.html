@@ -1460,7 +1460,13 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     let validLineCount = 0;
 
     if (!date) errors.push({ message: '日期不能为空，请填写单据日期。' });
-    if (supplierRequired && !supplierId) errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
+    // F3.17：销售退货入库必须选择退货客户（与后端 in_order.py 同口径拦截）
+    const businessType = document.querySelector('[name="business_type"]').value;
+    if (businessType === '销售退货入库' && !supplierId) {
+        errors.push({ message: '销售退货入库单必须选择退货客户。' });
+    } else if (supplierRequired && !supplierId) {
+        errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
+    }
     // BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
     if (!warehouseId) errors.push({ message: '仓库不能为空，请选择仓库。' });
     // 库位管理启用时库位为必填（AGENTS.md 规则二）
@@ -1486,6 +1492,20 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             markRowError(row, '.material-price');
         }
         if (qty > 10000) largeQtyCount += 1;
+
+        // F3.17：批次号/有效期前端校验与后端 _parse_item_batch_no /
+        // _parse_item_expiry_date 同口径（粘贴导入/草稿回填可绕过
+        // maxlength 与 date 控件约束，提交前必须兜底）。
+        const batchNoVal = (row.querySelector('.material-batch-no')?.value || '').trim();
+        if (batchNoVal.length > 50) {
+            errors.push({ rowIndex, selector: '.material-batch-no', message: '第 ' + (rowIndex + 1) + ' 行批次号不能超过 50 个字符。' });
+            markRowError(row, '.material-batch-no');
+        }
+        const expiryVal = (row.querySelector('.material-expiry')?.value || '').trim();
+        if (expiryVal && !/^\d{4}-\d{2}-\d{2}$/.test(expiryVal)) {
+            errors.push({ rowIndex, selector: '.material-expiry', message: '第 ' + (rowIndex + 1) + ' 行有效期格式不正确，应为 YYYY-MM-DD。' });
+            markRowError(row, '.material-expiry');
+        }
 
         const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: (row.querySelector('.material-batch-no')?.value || '').trim(), expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
