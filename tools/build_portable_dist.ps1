@@ -60,7 +60,7 @@ if (Test-Path $dist) {
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
 
 Write-Host "[2/6] Copying application files..."
-robocopy $appSrc (Join-Path $dist 'app') /E /XD __pycache__ instance backups logs /XF *.pyc | Out-Null
+robocopy $appSrc (Join-Path $dist 'app') /E /XD __pycache__ instance backups logs /XF *.pyc *.bak_* | Out-Null
 if ($LASTEXITCODE -ge 8) {
     throw "robocopy app failed with exit code $LASTEXITCODE"
 }
