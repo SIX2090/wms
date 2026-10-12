@@ -5,11 +5,13 @@
 > 不再属于日常开发路径；如需运行请自行核对相对路径（部分脚本按根目录定位写的）。
 >
 > 仍留在根目录的例外（**活依赖，不在归档范围**）：
-> - `fix_p15_columns.py`——`tests/test_fix_db_columns.py` 活引用其 `MIGRATIONS`
->   （生产止血脚本与应用代码一致性断言）。
 > - `fix_inventory_check_columns.bat`——`tests/test_fix_inventory_check_columns.py::
 >   test_bat_script_wiring` 断言根目录必须存在该双击修复 bat。
 >   2026-09-20 首次归档时误迁（CI #1146 红灯暴露），已迁回根目录。
+>
+> 2026-10-12（F3.6）：`fix_p15_columns.py`/`fix_p17_columns.py` 已删除——
+> 其迁移清单早与 `app/fix_db_columns.py` 重复，统一入口后根目录副本移除，
+> `tests/test_fix_db_columns.py` 的对应一致性断言同步精简。
 >
 > **教训（2026-09-20）**：归档前只按字符串 grep 引用不够——测试可能用
 > `ROOT / "xxx.bat"` / `import xxx` 这类**拼接或动态**路径引用，文件名在测试里

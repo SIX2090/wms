@@ -327,20 +327,6 @@ def test_p15_ddl_matches_app_py_antidrift():
     # in_order_item 的 ALTER 在 app.py 里是整句字面量，可直接逐字比对
     assert 'ALTER TABLE in_order_item ADD COLUMN source_sales_order_item_id INTEGER' in app_src
 
-    # 生产一次性止血脚本 fix_p15_columns.py 必须与上面同一份清单，
-    # 否则「脚本补了 A 列、兜底层补了 B 列」，事故换个库又复发
-    from fix_p15_columns import MIGRATIONS as standalone_migs
-    expected_migs = {
-        ('in_order', 'source_sales_order_id', 'INTEGER'),
-        ('in_order', 'source_sales_order_no', 'VARCHAR(50)'),
-        ('in_order_item', 'source_sales_order_item_id', 'INTEGER'),
-    }
-    assert set(standalone_migs) == expected_migs, (
-        'fix_p15_columns.py 的 MIGRATIONS 与 fix_db_columns / app.py 不一致 '
-        f'（多余 {set(standalone_migs) - expected_migs}、'
-        f'缺失 {expected_migs - set(standalone_migs)}）'
-    )
-
 
 # ---- P1-7 采购退货出库来源采购入库单列（R6 迁移列治理，与 P1-5 同构）----
 
@@ -384,8 +370,7 @@ def test_fix_columns_purchase_return_columns_idempotent(temp_db):
 
 
 def test_p17_ddl_matches_app_py_antidrift():
-    """防漂移：fix_db_columns 的 P1-7 补列 DDL 必须与 app.py 的定义逐字一致，
-    且一次性止血脚本 fix_p17_columns.py 必须与上面同一份清单。"""
+    """防漂移：fix_db_columns 的 P1-7 补列 DDL 必须与 app.py 的定义逐字一致。"""
     root = os.path.dirname(os.path.dirname(__file__))
     with open(os.path.join(root, 'app', 'app.py'), encoding='utf-8') as f:
         app_src = f.read()
@@ -407,19 +392,6 @@ def test_p17_ddl_matches_app_py_antidrift():
     assert 'ALTER TABLE out_order ADD COLUMN source_in_order_id INTEGER' in app_src
     assert 'ALTER TABLE out_order ADD COLUMN source_in_order_no VARCHAR(50)' in app_src
     assert 'ALTER TABLE out_order_item ADD COLUMN source_in_order_item_id INTEGER' in app_src
-
-    # 生产一次性止血脚本 fix_p17_columns.py 必须与上面同一份清单
-    from fix_p17_columns import MIGRATIONS as standalone_migs
-    expected_migs = {
-        ('out_order', 'source_in_order_id', 'INTEGER'),
-        ('out_order', 'source_in_order_no', 'VARCHAR(50)'),
-        ('out_order_item', 'source_in_order_item_id', 'INTEGER'),
-    }
-    assert set(standalone_migs) == expected_migs, (
-        'fix_p17_columns.py 的 MIGRATIONS 与 fix_db_columns / app.py 不一致 '
-        f'（多余 {set(standalone_migs) - expected_migs}、'
-        f'缺失 {expected_migs - set(standalone_migs)}）'
-    )
 
 
 def test_fix_columns_ddl_matches_app_py_and_standalone_script():
