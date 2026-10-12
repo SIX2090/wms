@@ -11,7 +11,7 @@
 
 > **所有改动只能直推 main，且必须先过本地 L1 + L2 两道关，再等 CI 三工作流转绿。**
 
-本仓库使用 GitHub 免费版 + 私有仓库，**main 分支无服务端强制保护**。同时按 [AGENTS.md](./AGENTS.md) 的硬规则，**禁止在 GitHub 上创建任何新分支**（包括 `feature/*` / `fix/*` / `chore/*`）。这意味着：
+本仓库使用 GitHub 免费版 + **公开仓库**（2026-09 已由私有转公开，见 `WMS_BUG_BASELINE.md` BUG-2026-07-31-002 三次验证记录）。main 分支已启用服务端保护（强制线性历史 / 禁止 force push / 禁止删除分支），但**刻意未启用** Require PR 与强制 status checks，直接 push 仍可进 main。同时按 [AGENTS.md](./AGENTS.md) 的硬规则，**禁止在 GitHub 上创建任何新分支**（包括 `feature/*` / `fix/*` / `chore/*`）。这意味着：
 
 - 没有 PR review 流程，所有 review 都在 commit 之前人工完成
 - 没有任何"合并前最后一道闸门"，错代码一旦 push 就是 main 历史
@@ -285,7 +285,7 @@ SIX2090/wms
 │   ├── verify_ai_all.py          AI 子系统全量验证（core/smoke/full 三档，进程池并发）
 │   ├── monthly_bug_review.py     月度 BUG 复盘
 │   └── check_hooks_installed.py  验证 git hooks 是否启用
-├── tests/                        pytest 测试套件（394 个 test_*.py）
+├── tests/                        pytest 测试套件（442 个 test_*.py，2026-10-12 实测）
 ├── samples/ai_documents/         AI 文档识别 golden 样本（104 个脱敏样本）
 ├── tools/                        安装和维护工具（便携包构建 / clone 恢复 / 打印代理 / 管理员密码重置）
 ├── .githooks/                    git 钩子（pre-commit / pre-push / install-hooks.sh）
@@ -300,7 +300,7 @@ SIX2090/wms
 
 | 指标 | 数值 | 验证方式 |
 |---|---|---|
-| pytest 全量 | 2984 passed / 87 skipped / 0 failed | CI 同参数 `pytest tests/ -q -n 4 --dist loadfile`（254s） |
+| pytest 全量 | 2984 passed / 87 skipped / 0 failed（**历史快照，2026-09-29**） | 快照口径 `pytest tests/ -q -n 4 --dist loadfile`。**注意：本行仅为基线快照，不代表当前状态；每次改动后必须以 CI 三工作流全绿为准，不得引用本行跳过 CI 检查** |
 | 防 BUG lint（A1–A14） | 0 违规 | `python3 scripts/lint_wms_rules.py`（含 A11/A8/A9/A10/A13/A14 CI 全量模式） |
 | BUG 静态回归 | 74 项全 PASS | `python3 scripts/verify_wms_bugs.py` |
 | 业务冒烟 | 121 项 | `python3 scripts/full_smoke_test.py`（需启动服务） |
