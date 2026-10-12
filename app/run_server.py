@@ -193,6 +193,18 @@ def main():
     # P0-3：迁移哨兵自检（initialize_database 之后），缺失列/表一眼可见。
     db_check_line = log_startup_self_check(app, db=db, include_db=True)
 
+    # F3.3：表/列/类型/FK 四维 schema diff——实物库与代码声明不一致即
+    # 阻断启动（连错库/版本回滚未处理 schema 时不再带病运行）。
+    # WMS_NO_DB_TOUCH 等启动迁移禁用场景跳过（schema 本就声明不管理）；
+    # 排障逃生门 WMS_SCHEMA_CHECK=off。
+    from startup_check import verify_schema_or_raise
+    from app import startup_db_upgrade_disabled
+    if startup_db_upgrade_disabled():
+        schema_check_line = f"wms schema-check: skipped（启动迁移已禁用）"
+    else:
+        schema_check_line = verify_schema_or_raise(app, db)
+    app.logger.info(schema_check_line)
+
     print("=" * 60, flush=True)
     print("WMS server starting", flush=True)
     print(config_check_line, flush=True)
