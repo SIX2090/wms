@@ -235,6 +235,13 @@ T6_ALLOWLIST = {
     "routes/material.py",          # Excel 表头 + 导入兼容别名注释
     "routes/export.py",            # 同上
     "routes/inventory_alert.py",   # safety_stock 字段的校验/变更文案，属正确用法
+    # AI-CI-GREEN-005-F06：LLM schema 元数据（注入提示词的字段字典）与
+    # models/master_data.py 同理——它是字段中文名的**单一事实来源**，必然在
+    # 同一行里同时给出 min_stock（最低库存）与 reorder_point（对外叫「安全库存」）
+    # 的中文名。这类共现是这行的**本意**，不是「文案指 reorder_point、代码读
+    # min_stock」的错位：该行显式写着 reorder_point 才是「安全库存」。
+    # 放行整文件（而非放宽判据），故不影响其它文件的检出强度。
+    "ai/schema_meta.py",
 }
 
 
@@ -271,7 +278,7 @@ def _code_part(line):
 
 
 def test_t6_no_safety_stock_label_on_min_stock_code():
-    """T6：展示文案里的「安全库存」不得与 min_stock 共现（白名单 4 个文件除外）。
+    """T6：展示文案里的「安全库存」不得与 min_stock 共现（白名单 5 个文件除外）。
 
     命中条件：某行的**代码部分**含「安全库存」，且其 ±2 行的代码部分窗口内出现
     min_stock。这类共现几乎必然是「文案指 reorder_point、代码却读 min_stock」的错位。
