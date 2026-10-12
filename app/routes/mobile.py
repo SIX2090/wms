@@ -510,7 +510,8 @@ def register_mobile_routes(app):
                 order = InOrder(
                     order_no=generate_order_no('IN'),
                     date=date.today(),
-                    business_type='产品入库',
+                    # F2.15：手机扫码入库实际是采购入库（与 PC/Android 口径对齐）
+                    business_type='采购入库',
                     purpose='手机扫码入库',
                     warehouse=warehouse.name,
                     location=location,
@@ -922,7 +923,8 @@ def register_mobile_routes(app):
                 order = InOrder(
                     order_no=generate_order_no('IN'),
                     date=date.today(),
-                    business_type='产品入库',
+                    # F2.15：手机扫码入库实际是采购入库（与 PC/Android 口径对齐）
+                    business_type='采购入库',
                     purpose='手机扫码入库（待确认）',
                     warehouse=warehouse.name,
                     location=location,

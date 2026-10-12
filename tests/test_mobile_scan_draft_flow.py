@@ -379,3 +379,39 @@ class TestBatchDraftLocationNameConsistency:
         order_id = resp.get_json()["data"]["order_id"]
         with app_module.app.app_context():
             assert InOrder.query.get(order_id).location == "默认仓"
+
+class TestMobileInboundBusinessType:
+    """F2.15：手机扫码入库口径 = 采购入库（与 PC/Android 对齐，审计 §4.3）。
+
+    此前手机端硬编码 business_type='产品入库'，导致按「采购入库」归集的报表
+    永久缺失手机端数据。经用户拍板：手机扫码入库实际就是采购入库。
+    """
+
+    def test_scan_submit_in_uses_purchase_business_type(self, client):
+        from app import InOrder
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        resp = client.post(
+            "/mobile/api/scan_submit",
+            json={"mode": "in", "code": "M001", "quantity": 3},
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        assert resp.get_json()["status"] == "success"
+        with app_module.app.app_context():
+            order = InOrder.query.filter_by(purpose="手机扫码入库").first()
+            assert order is not None
+            assert order.business_type == "采购入库"
+
+    def test_scan_batch_draft_in_uses_purchase_business_type(self, client):
+        from app import InOrder
+        with app_module.app.app_context():
+            _seed_material("M001", "物料A", stock=0)
+        resp = client.post(
+            "/mobile/api/scan_batch_draft",
+            json={"mode": "in", "lines": [{"material_code": "M001", "quantity": 2}]},
+        )
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        order_id = resp.get_json()["data"]["order_id"]
+        with app_module.app.app_context():
+            order = InOrder.query.get(order_id)
+            assert order.business_type == "采购入库"
