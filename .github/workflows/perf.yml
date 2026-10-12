@@ -14,6 +14,12 @@ name: WMS Perf Baseline
 # CI-RUNNER-2026-09-26：runs-on 钉 ubuntu-24.04（防 2026-10-19 起 ubuntu-latest
 # 自动切 Ubuntu 26 的环境漂移，理由同 ci.yml 头部注释）；upload-artifact v4→v7
 # （v4 为 Node 20 线，已被 GitHub 强制 Node 24，v7 参数兼容）。
+
+# F3.16：连续推送只保留最新 run——同一分支的旧 run 自动取消，
+# 避免排队积压与资源浪费（审计 §3.8）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]

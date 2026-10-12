@@ -1,5 +1,11 @@
 name: WMS CI
 
+
+# F3.16：连续推送只保留最新 run——同一分支的旧 run 自动取消，
+# 避免排队积压与资源浪费（审计 §3.8）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]

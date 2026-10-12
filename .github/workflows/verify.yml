@@ -4,6 +4,12 @@ name: WMS AI Verification
 # 自动切 Ubuntu 26 的环境漂移，理由同 ci.yml 头部注释）；setup-python v5→v6
 # （v5 为 Node.js 20 线，已被 GitHub 强制 Node 24；v6 与 ci.yml 现状对齐，
 # python-version/cache 参数不变）。
+
+# F3.16：连续推送只保留最新 run——同一分支的旧 run 自动取消，
+# 避免排队积压与资源浪费（审计 §3.8）。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 on:
   push:
     branches: [main]
