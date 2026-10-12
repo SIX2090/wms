@@ -89,14 +89,18 @@ def validate_tool_call(data):
     return tool_name, params
 
 
-def build_tool_call_prompt(message):
-    """构建让 LLM 选择工具并填参的 prompt（含 Schema 摘要与工具清单）。"""
+def build_tool_call_prompt(message, memory_text=''):
+    """构建让 LLM 选择工具并填参的 prompt（含 Schema 摘要与工具清单）。
+
+    memory_text：P4 查询记忆注入的 few-shot 示例（可为空串）。
+    """
     from ai.schema_meta import get_schema_meta
+    memory_block = f'\n{memory_text}\n' if memory_text else ''
     return f"""你是 WMS 仓库管理系统的查询调度器。根据用户问题选择一个工具并提取参数。
 
 【系统数据说明】
 {get_schema_meta('all')}
-
+{memory_block}
 【可用工具】
 {AI_QUERY_TOOLS_PROMPT}
 

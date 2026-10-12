@@ -21259,7 +21259,11 @@ def _ai_tool_call_dispatch_response(message, context=None):
         return None
     try:
         import json as _json
-        prompt = build_tool_call_prompt(text)
+        from ai.query_memory import memory_examples_text, record_query_memory
+        memory_text = memory_examples_text(text)
+        if memory_text:
+            app.logger.info('AI query memory: injected few-shot examples')
+        prompt = build_tool_call_prompt(text, memory_text=memory_text)
         reply = _voice_llm_chat(prompt, force_model='cn:deepseek-v4-pro')
         if not reply:
             return None
@@ -21301,6 +21305,12 @@ def _ai_tool_call_dispatch_response(message, context=None):
             parts.append(f'（需要数量：{qty_v}）')
         enriched = ' '.join(parts)
         app.logger.info('AI tool call dispatched: %s params=%s', tool_name, params)
+        # P4-2026-10-12：记录成功选择（问题 → tool+params），下次相似问题
+        # 作为 few-shot 注入（Vanna Tool Memory 简化版）。失败静默不影响主链路。
+        try:
+            record_query_memory(text, tool_name, params)
+        except Exception:
+            pass
         return handler(enriched, context)
     except Exception as exc:
         app.logger.warning('AI tool call dispatch failed: %s', exc)
