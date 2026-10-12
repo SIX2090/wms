@@ -21605,8 +21605,10 @@ def ai_inventory_health_page():
     )
     
     if export == 'csv':
-        output = io.StringIO()
-        writer = csv.writer(output)
+        # utf-8-sig BOM：Excel 直接打开中文 CSV 不乱码（对齐 opening_stock 范式）
+        buffer = io.BytesIO()
+        wrapper = io.TextIOWrapper(buffer, encoding='utf-8-sig', newline='')
+        writer = csv.writer(wrapper)
         writer.writerow([
             '健康分', '物料编码', '名称', '规格', '单位', '当前库存', '最低库存', '最大库存',
             f'近{days}天出库', '可用天数', '风险类型', 'AI优化建议'
@@ -21632,11 +21634,14 @@ def ai_inventory_health_page():
                 risk_labels.get(row['risk_type'], '正常'),
                 row['ai_suggestion'],
             ])
-        output.seek(0)
-        return Response(
-            output.getvalue(),
+        wrapper.flush()
+        wrapper.detach()  # 交还底层 buffer 所有权，防 wrapper 析构关闭 BytesIO
+        buffer.seek(0)
+        return send_file(
+            buffer,
+            download_name='inventory_health_report.csv',
+            as_attachment=True,
             mimetype='text/csv',
-            headers={'Content-Disposition': 'attachment; filename=inventory_health_report.csv'}
         )
     
     return render_template('ai_inventory_health.html', report=report, risk=risk)
@@ -21662,8 +21667,10 @@ def ai_replenishment_smart_page():
     )
 
     if export == 'csv':
-        output = io.StringIO()
-        writer = csv.writer(output)
+        # utf-8-sig BOM：Excel 直接打开中文 CSV 不乱码（对齐 opening_stock 范式）
+        buffer = io.BytesIO()
+        wrapper = io.TextIOWrapper(buffer, encoding='utf-8-sig', newline='')
+        writer = csv.writer(wrapper)
         writer.writerow([
             '优先级', '物料编码', '名称', '规格', '单位', '当前库存',
             f'近{days}天出库', '日均消耗', '可用天数', '在途数量', '建议补货量',
@@ -21687,13 +21694,16 @@ def ai_replenishment_smart_page():
                 row['suggestion_confidence'],
                 '是' if row['needs_review'] else '',
             ])
-        csv_content = output.getvalue()
-        output.close()
+        wrapper.flush()
+        wrapper.detach()  # 交还底层 buffer 所有权，防 wrapper 析构关闭 BytesIO
+        buffer.seek(0)
+        # send_file 的 download_name 自动做 RFC 5987 编码，中文文件名不再乱码
         filename = f'补货建议规则_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-        return Response(
-            csv_content,
+        return send_file(
+            buffer,
+            download_name=filename,
+            as_attachment=True,
             mimetype='text/csv',
-            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
         )
 
     return render_template('ai_replenishment_smart.html', report=report, risk=risk)
