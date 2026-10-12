@@ -84,6 +84,9 @@ SELECT id, 'in', 999.0, datetime('now') FROM material WHERE code = 'CI-DIRTY';
 #   仓级   A: 库位 20 vs 流水 60 → 差 −40  ✗
 #          B: 库位 80 vs 流水 40 → 差 +40  ✗
 _CROSS_WH_SQL = """
+INSERT INTO system_setting (key, value, remark)
+VALUES ('location_management_enabled', '1', '夹具：开启库位管理，仓级判据才生效');
+
 INSERT INTO warehouse (name, code, status, is_default, created_at)
 VALUES ('夹具仓A', 'CI-WHA', 'active', 0, datetime('now')),
        ('夹具仓B', 'CI-WHB', 'active', 0, datetime('now'));
@@ -148,6 +151,17 @@ def _build_fixture_db(python: str, workdir: Path) -> Path:
     """
     db_path = workdir / "identity_fixture.db"
     bootstrap = workdir / "_bootstrap_fixture.py"
+    # F4.5：URI 必须用 repr() 生成字面量。直接 f-string 内插 Windows 路径
+    # （C:\Users\...）会让生成的 bootstrap 源码里出现裸 \U，子进程 import 时
+    # 抛 SyntaxError: truncated \UXXXXXXXX escape（CI 在 ubuntu 上路径无 \U，
+    # 因此长期不复现）。repr() 会正确转义反斜杠，跨平台一致。
+    # F4.5：这里用 db.create_all() 而非 initialize_database()。
+    # initialize_database() 内部被 startup_db_upgrade_disabled() 守卫，而该守卫
+    # 会因生产保护文件 app/WMS_NO_DB_TOUCH.flag 的存在（git-ignored，由
+    # update_from_github.bat 在生产机上生成）直接 return —— 本地开发机一旦存在
+    # 该文件，夹具库就会 0 张表，本测试 17 个用例集体 error（CI 机器无该文件，
+    # 因此长期不复现）。夹具建的是临时库，本就不该受生产保护开关影响。
+    fixture_uri = f"sqlite:///{db_path}"
     bootstrap.write_text(
         "import os, sys\n"
         "os.environ.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')\n"
@@ -159,10 +173,10 @@ def _build_fixture_db(python: str, workdir: Path) -> Path:
         "sys.path.insert(0, 'app')\n"
         "import config\n"
         # 关键：TestingConfig 的 URI 是硬编码 :memory:，必须在 import app 前改写
-        f"config.TestingConfig.SQLALCHEMY_DATABASE_URI = 'sqlite:///{db_path}'\n"
-        "from app import app, db, initialize_database\n"
+        f"config.TestingConfig.SQLALCHEMY_DATABASE_URI = {fixture_uri!r}\n"
+        "from app import app, db\n"
         "with app.app_context():\n"
-        "    initialize_database()\n"
+        "    db.create_all()\n"
         "    db.session.commit()\n"
         "print('fixture schema ready ->', app.config['SQLALCHEMY_DATABASE_URI'])\n",
         encoding="utf-8",
@@ -213,10 +227,19 @@ def _sqlite_exec(db_path: Path, sql: str) -> None:
 
 
 def _checker(python: str, db_path: Path, extra_args=None):
+    # F4.5：把 checker 子进程的 DATABASE_URL 也指向夹具库。判据里的
+    # location_management_enabled() 读的是 **app 默认库**（不是 --db），
+    # 不设的话会落到空库/不存在的 inventory.db → 开关读作关闭 → 仓级判据
+    # 被 gate 掉，跨仓场景断言永远 0。设 WMS_SKIP_STARTUP_DB_UPGRADE=1
+    # 防止 checker 启动期对夹具库跑 schema 迁移。
     cmd = [python, str(CHECKER), "--db", f"sqlite:///{db_path}", "--json"]
     if extra_args:
         cmd += list(extra_args)
-    return _run(cmd, cwd=str(ROOT))
+    env = dict(os.environ)
+    env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
+    env.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
+    return _run(cmd, cwd=str(ROOT), env=env)
 
 
 def _json_has_waived(stdout: str) -> bool:
