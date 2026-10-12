@@ -53,6 +53,9 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
 
     private var chatJob: Job? = null
 
+    /** 服务端返回的会话。清空前一直带回，避免和另一台设备抢最新一条。 */
+    private var conversationId: Long? = null
+
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null, failedDraft = null)
     }
@@ -95,9 +98,10 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
         chatJob = viewModelScope.launch {
             // AUDIT-2026-10-07-009-P2：纯附件时后端要求 text 非空，补占位文案
             val requestText = trimmed.ifEmpty { "请识别附件内容" }
-            val result = repository.assistantChat(requestText, image, file)
+            val result = repository.assistantChat(requestText, image, file, conversationId)
             result.fold(
                 onSuccess = { data: AssistantChatResult? ->
+                    data?.conversationId?.let { conversationId = it }
                     val reply = data?.reply?.takeIf { it.isNotBlank() }
                         ?: "AI 助手没有返回有效回复，请换个说法试试。"
                     _uiState.value = _uiState.value.copy(
@@ -144,6 +148,7 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
 
     /** 清空当前对话（仅清本地展示；服务端历史由后端保留）。 */
     fun clearConversation() {
+        conversationId = null
         _uiState.value = AssistantChatUiState()
     }
 }

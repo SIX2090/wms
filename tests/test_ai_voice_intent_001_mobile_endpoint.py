@@ -88,19 +88,39 @@ def _patch_intent(monkeypatch, payload):
 
 
 class TestVoiceIntentEndpoint:
-    def test_v1_llm_query_material_navigates(self, monkeypatch):
-        """V1：LLM 返回 query_material → navigate stock_query。"""
+    def test_v1_query_with_keyword_replies_instead_of_empty_jump(self, monkeypatch):
+        """V1：查库存带了关键词，页面吃不下条件，回回复和卡片，不空跳。"""
         client, hdr = _client()
         _patch_intent(monkeypatch, {"intent": "query_material",
                                     "params": {"keyword": "螺丝"}})
+
+        def _fake_execute(text, payload, context=None):
+            return app_module.jsonify({
+                "reply": "螺丝库存 12",
+                "cards": [{"title": "螺丝", "meta": "库存 12", "url": ""}],
+            })
+
+        monkeypatch.setattr(app_module, "_ai_execute_intent", _fake_execute)
         r = client.post("/api/mobile/voice_intent",
                         json={"text": "螺丝还有多少"}, headers=hdr)
         assert r.status_code == 200, r.get_data(as_text=True)
         data = r.get_json()["data"]
+        assert data["action"] == "reply"
+        assert data["intent"] == "query_material"
+        assert "螺丝" in (data.get("speak") or "")
+        assert data["cards"][0]["title"] == "螺丝"
+        assert "screen" not in data
+
+    def test_v1b_query_without_filter_navigates(self, monkeypatch):
+        """没带物料、单号、日期时，仍只打开查库存页。"""
+        client, hdr = _client()
+        _patch_intent(monkeypatch, {"intent": "query_material", "params": {}})
+        r = client.post("/api/mobile/voice_intent",
+                        json={"text": "打开查库存"}, headers=hdr)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()["data"]
         assert data["action"] == "navigate"
         assert data["screen"] == "stock_query"
-        assert data["intent"] == "query_material"
-        assert data["speak"]
 
     def test_v2_llm_create_in_navigates_inbound(self, monkeypatch):
         """V2：建单意图 → navigate 对应页面（不直接建单，由 App 页面承接）。"""
@@ -152,3 +172,61 @@ class TestVoiceIntentEndpoint:
         client = app_module.app.test_client()
         r = client.post("/api/mobile/voice_intent", json={"text": "查库存"})
         assert r.status_code == 401, r.get_data(as_text=True)
+
+    def test_v7_outbound_with_material_hands_off_draft(self, monkeypatch):
+        """有物料的领料意图交给现有语音建单核对，服务端不在这里建单。"""
+        client, hdr = _client()
+        _patch_intent(monkeypatch, {
+            "intent": "create_out_order_draft",
+            "params": {"keyword": "螺丝", "quantity": 10},
+        })
+        r = client.post("/api/mobile/voice_intent",
+                        json={"text": "领10个螺丝"}, headers=hdr)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()["data"]
+        assert data["action"] == "voice_out_draft"
+        assert data["text"] == "领10个螺丝"
+
+    def test_v8_outbound_without_material_navigates(self, monkeypatch):
+        """没说物料，仍然只打开出库页。"""
+        client, hdr = _client()
+        _patch_intent(monkeypatch, {"intent": "create_out_order_draft", "params": {}})
+        r = client.post("/api/mobile/voice_intent",
+                        json={"text": "我要出库"}, headers=hdr)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()["data"]
+        assert data["action"] == "navigate"
+        assert data["screen"] == "outbound"
+
+    def test_v9_permission_denied_falls_back_local(self, monkeypatch):
+        """没有知识库权限时不报 403，本地口令还能用。"""
+        import ai.policies as policies
+        monkeypatch.setattr(policies, "is_ai_capability_allowed_for_role", lambda *a, **k: False)
+        client, hdr = _client()
+        r = client.post("/api/mobile/voice_intent",
+                        json={"text": "打开查库存"}, headers=hdr)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()["data"]
+        assert data["action"] == "fallback_local"
+        assert data["reason"] == "permission_denied"
+
+    def test_v10_draft_switch_off_does_not_hand_off(self, monkeypatch):
+        """草稿开关关掉时，不把领料交给建单，只提示去出库页。"""
+        client, hdr = _client()
+        _patch_intent(monkeypatch, {
+            "intent": "create_out_order_draft",
+            "params": {"keyword": "螺丝"},
+        })
+
+        def _flag(name, default=True):
+            if name == "ai_feature_drafts_enabled":
+                return False
+            return default
+
+        monkeypatch.setattr(app_module, "_ai_feature_enabled", _flag)
+        r = client.post("/api/mobile/voice_intent",
+                        json={"text": "领螺丝"}, headers=hdr)
+        assert r.status_code == 200, r.get_data(as_text=True)
+        data = r.get_json()["data"]
+        assert data["action"] == "reply"
+        assert "出库" in (data.get("speak") or "")

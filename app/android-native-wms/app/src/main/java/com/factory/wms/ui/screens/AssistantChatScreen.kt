@@ -6,6 +6,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -736,10 +738,12 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
         // 建议动作（仅展示文本标签）
         if (!message.isUser && message.actions.isNotEmpty()) {
             Row(
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                message.actions.take(3).forEach { action ->
+                message.actions.forEach { action ->
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = PrimaryContainer

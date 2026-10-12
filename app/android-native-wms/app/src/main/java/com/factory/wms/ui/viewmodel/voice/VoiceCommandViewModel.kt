@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.factory.wms.data.model.AssistantCard
 import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.ui.navigation.Screen
 import kotlinx.coroutines.Job
@@ -173,7 +174,10 @@ sealed class VoiceCommand(val label: String) {
      * AI-VOICE-INTENT-001：LLM 意图返回的文本回复（无页面映射的分析/问答类），
      * 由 VoiceAssistantOverlay 展示（可朗读）。
      */
-    data class LlmReply(val text: String) : VoiceCommand("语音回复")
+    data class LlmReply(
+        val text: String,
+        val cards: List<AssistantCard> = emptyList()
+    ) : VoiceCommand("语音回复")
 
     /**
      * AI-VOICE-OUT-F01：语音建领料单草稿（如「领8*25螺丝 1000个」）。
@@ -358,9 +362,12 @@ class VoiceCommandViewModel(
                             "navigate" -> screenByRouteKey(result.screen)?.let {
                                 VoiceCommand.Navigate(it)
                             }
+                            "voice_out_draft" -> VoiceCommand.CreateOutboundDraft(
+                                rawText = result.text?.takeIf { it.isNotBlank() } ?: text
+                            )
                             "reply" -> result.speak?.takeIf { it.isNotBlank() }
-                                ?.let { VoiceCommand.LlmReply(it) }
-                            else -> null // fallback_local / 未知 action → 本地兜底
+                                ?.let { VoiceCommand.LlmReply(it, result.cards.orEmpty()) }
+                            else -> null // fallback_local / 未知 action → 本地兜底，不猜页面
                         }
                     }, onFailure = { null })
             }.getOrNull()

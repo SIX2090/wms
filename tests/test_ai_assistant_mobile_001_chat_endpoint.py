@@ -127,16 +127,13 @@ def test_v3_history_persisted_to_ai_message(monkeypatch):
                      json={"text": "今天概况"}, headers=headers)
     conv_id_1 = r1.get_json()["data"]["conversation_id"]
     r2 = client.post("/api/mobile/assistant_chat",
-                     json={"text": "今天入库了多少"}, headers=headers)
+                     json={"text": "今天入库了多少", "conversation_id": conv_id_1},
+                     headers=headers)
     conv_id_2 = r2.get_json()["data"]["conversation_id"]
-    # 无外部会话中断 → 同一会话
-    assert conv_id_1 and conv_id_2
+    assert conv_id_1 and conv_id_2 == conv_id_1
 
-    from app import AIConversation, AIMessage
-    conv = AIConversation.query.filter(
-        AIConversation.user_id.isnot(None)).first()
-    assert conv is not None, "应存在 ai_conversation 记录"
-    msgs = AIMessage.query.filter_by(conversation_id=conv.id).order_by(
+    from app import AIMessage
+    msgs = AIMessage.query.filter_by(conversation_id=conv_id_1).order_by(
         AIMessage.created_at.asc()).all()
     roles = [m.role for m in msgs]
     assert roles.count("user") == 2, f"应有 2 条 user 消息，实际 {roles}"
@@ -172,3 +169,68 @@ def test_v6_requires_auth():
     r = client.post("/api/mobile/assistant_chat",
                     json={"text": "今天概况"})
     assert r.status_code == 401
+
+
+def test_v3b_without_conversation_id_starts_a_new_thread(monkeypatch):
+    """不带会话 id 时不挂到最新一条，避免和另一台手机串话。"""
+    monkeypatch.setattr(
+        app_module, "_ai_call_llm_intent",
+        lambda text, overrides=None: {"intent": "today_summary", "params": {}})
+    client, headers = _client()
+    r1 = client.post("/api/mobile/assistant_chat",
+                     json={"text": "今天概况"}, headers=headers)
+    r2 = client.post("/api/mobile/assistant_chat",
+                     json={"text": "今天入库了多少"}, headers=headers)
+    id1 = r1.get_json()["data"]["conversation_id"]
+    id2 = r2.get_json()["data"]["conversation_id"]
+    assert id1 and id2 and id1 != id2
+
+
+def test_v3c_foreign_conversation_is_not_reused(monkeypatch):
+    """别人的会话 id 不能写入。
+
+    默认灰度是 off，仓管会被总门禁拒绝，测不到会话归属。
+    这里打开 role 模式：knowledge_base 对 warehouse 放行，再验证不能写进别人的会话。
+    本文件把 app context 挂在整个模块上，系统设置缓存会留在 g 里；
+    写完设置后清掉这一项，避免请求仍读到之前的 off。
+    """
+    monkeypatch.setattr(
+        app_module, "_ai_call_llm_intent",
+        lambda text, overrides=None: {"intent": "today_summary", "params": {}})
+    client, headers = _client()
+    from flask import g, has_app_context
+
+    from app import set_system_setting
+    set_system_setting("ai_feature_rollout_mode", "role")
+    db.session.commit()
+    if has_app_context():
+        cache = getattr(g, "_system_setting_cache", None)
+        if cache is not None:
+            cache.pop("ai_feature_rollout_mode", None)
+    own = client.post("/api/mobile/assistant_chat",
+                      json={"text": "今天概况"}, headers=headers)
+    own_id = own.get_json()["data"]["conversation_id"]
+    from app import AIMessage, User
+    before = AIMessage.query.filter_by(conversation_id=own_id).count()
+    keeper = User.query.filter_by(username="keeper").one()
+    rk = client.post("/api/login", json={"username": "keeper", "password": "keeper"})
+    assert rk.status_code == 200, rk.get_data(as_text=True)
+    kheaders = {"Authorization": f"Bearer {rk.get_json()['data']['token']}"}
+    stolen = client.post("/api/mobile/assistant_chat",
+                         json={"text": "今天概况", "conversation_id": own_id},
+                         headers=kheaders)
+    assert stolen.status_code == 200, stolen.get_data(as_text=True)
+    stolen_id = stolen.get_json()["data"]["conversation_id"]
+    assert stolen_id != own_id
+    assert AIMessage.query.filter_by(conversation_id=own_id).count() == before
+    assert keeper.id != User.query.filter_by(username="admin").one().id
+
+
+def test_v7_permission_denied_is_403(monkeypatch):
+    """助手入口走同一套能力矩阵，没权限直接拒绝。"""
+    import ai.policies as policies
+    monkeypatch.setattr(policies, "is_ai_capability_allowed_for_role", lambda *a, **k: False)
+    client, headers = _client()
+    r = client.post("/api/mobile/assistant_chat",
+                    json={"text": "今天概况"}, headers=headers)
+    assert r.status_code == 403, r.get_data(as_text=True)

@@ -236,6 +236,26 @@ fun VoiceAssistantOverlay(
                                     fontSize = 15.sp,
                                     lineHeight = 22.sp
                                 )
+                                llmReply.cards.take(8).forEach { card ->
+                                    if (card.title.isNullOrBlank() && card.meta.isNullOrBlank()) {
+                                        return@forEach
+                                    }
+                                    Spacer(Modifier.height(8.dp))
+                                    if (!card.title.isNullOrBlank()) {
+                                        Text(
+                                            card.title,
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    if (!card.meta.isNullOrBlank()) {
+                                        Text(
+                                            card.meta,
+                                            fontSize = 12.sp,
+                                            color = OnSurfaceVariant
+                                        )
+                                    }
+                                }
                             } else if (unrecognized) {
                                 Text("未识别到可执行指令，可点「重试」重新说话。")
                             } else {

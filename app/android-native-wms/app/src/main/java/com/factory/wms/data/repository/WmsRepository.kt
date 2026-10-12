@@ -1161,7 +1161,8 @@ class WmsRepository(
     suspend fun assistantChat(
         text: String,
         image: String? = null,
-        file: Pair<String, String>? = null
+        file: Pair<String, String>? = null,
+        conversationId: Long? = null
     ): Result<AssistantChatResult> {
         // AUDIT-2026-10-07-P3：冷启动竞态兜底（同 getDashboard 口径）。
         // App 启动直接进 AI 聊天页发消息时，若 session 还没还原（baseUrl 空），
@@ -1174,7 +1175,8 @@ class WmsRepository(
                     text = text,
                     image = image,
                     file = file?.first,
-                    fileName = file?.second
+                    fileName = file?.second,
+                    conversationId = conversationId
                 )
             )
         }

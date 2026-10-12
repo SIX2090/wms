@@ -38,6 +38,86 @@ from flask import jsonify, request
 from db import db
 from sqlalchemy.exc import OperationalError
 
+_VOICE_MATERIAL_KEYS = (
+    'material', 'material_code', 'material_name', 'keyword', 'spec', 'quantity', 'qty',
+)
+_VOICE_FILTER_KEYS = _VOICE_MATERIAL_KEYS + (
+    'order_no', 'date', 'start_date', 'end_date', 'q',
+)
+
+
+def _voice_param_present(params, keys):
+    """意图参数里是否已经带了页面吃不下去的业务条件。"""
+    if not isinstance(params, dict):
+        return False
+    for key in keys:
+        value = params.get(key)
+        if value not in (None, '', [], {}):
+            return True
+    return False
+
+
+def _slim_mobile_cards(cards):
+    """只留手机能展示的 title/meta/url，不补页面上没有的字段。"""
+    slim = []
+    if not isinstance(cards, list):
+        return slim
+    for card in cards[:8]:
+        if not isinstance(card, dict):
+            continue
+        title = (
+            card.get('title') or card.get('name')
+            or card.get('material_name') or card.get('code') or ''
+        )
+        meta = card.get('meta') if card.get('meta') not in (None, '') else ''
+        if not meta:
+            bits = []
+            for key in ('code', 'spec', 'stock', 'warehouse', 'order_no', 'status'):
+                value = card.get(key)
+                if value not in (None, ''):
+                    bits.append(f'{key}:{value}')
+            meta = ' '.join(bits)
+        url = card.get('url') or ''
+        if title or meta:
+            slim.append({'title': str(title), 'meta': str(meta), 'url': str(url)})
+    return slim
+
+
+def _mobile_capability_allowed(user, capability, drafts=False):
+    """与语音建单同一套矩阵、灰度和总开关。内存 Feature Flag 不参与放行。"""
+    from flask import current_app
+    from ai.ops.rollout_control import evaluate_rollout_access
+    from ai.policies import is_ai_capability_allowed_for_role
+    from ai.tools.registry import get_ai_tool_spec
+    from app import (
+        AI_CAPABILITY_BUSINESS_ENDPOINTS,
+        _ai_feature_enabled,
+        _ai_global_enabled,
+        _ai_rollout_mode,
+    )
+
+    spec = get_ai_tool_spec(capability)
+    endpoint_name = AI_CAPABILITY_BUSINESS_ENDPOINTS.get(capability, '')
+    biz_view = current_app.view_functions.get(endpoint_name)
+    biz_roles = getattr(biz_view, '_required_roles', None) if biz_view else None
+    decision = evaluate_rollout_access(
+        capability=capability,
+        role=getattr(user, 'role', None),
+        user_id=getattr(user, 'id', None),
+        risk_level=(spec.risk_level if spec else 'read'),
+        mode=_ai_rollout_mode(),
+        allowed_user_ids=None,
+        global_enabled=_ai_global_enabled(),
+    )
+    drafts_ok = _ai_feature_enabled('ai_feature_drafts_enabled', True) if drafts else True
+    return bool(
+        spec
+        and is_ai_capability_allowed_for_role(
+            capability, getattr(user, 'role', None), business_roles=biz_roles)
+        and decision.allowed
+        and drafts_ok
+    )
+
 
 def _append_crash_report(report, username):
     """把一条移动端崩溃报告以 JSON 行追加到 logs/crash_reports.log。
@@ -3809,6 +3889,11 @@ def register_native_api_routes(app):
                 'action': 'fallback_local',
                 'reason': 'ai_disabled',
             }, 'AI 功能未启用')
+        if not _mobile_capability_allowed(user, 'knowledge_base'):
+            return api_json_success({
+                'action': 'fallback_local',
+                'reason': 'permission_denied',
+            }, '当前账号不能使用语音助手')
         intent_payload = _ai_call_llm_intent(text)
         if not intent_payload:
             return api_json_success({
@@ -3818,6 +3903,20 @@ def register_native_api_routes(app):
 
         intent = intent_payload.get('intent')
         params = intent_payload.get('params') or {}
+        if intent == 'create_out_order_draft' and _voice_param_present(params, _VOICE_MATERIAL_KEYS):
+            if _mobile_capability_allowed(user, 'voice_out_draft', drafts=True):
+                return api_json_success({
+                    'action': 'voice_out_draft',
+                    'intent': intent,
+                    'text': text,
+                    'speak': '好的，先核对领料内容',
+                }, '先核对领料内容')
+            return api_json_success({
+                'action': 'reply',
+                'intent': intent,
+                'speak': '领料草稿当前未开放，请到出库页手工开单',
+                'cards': [],
+            }, '领料草稿未开放')
 
         # intent → 移动端动作映射（App Screen 有限，无对应页面的返回 reply 文本）
         # 说明：query_material/stock_alerts 等查询类在 App 端落到对应页面后
@@ -3835,6 +3934,12 @@ def register_native_api_routes(app):
             'delivery_note_inbound': ('document_ocr', '好的，打开识别单据'),
         }
         screen_key, speak = _NAV.get(intent, (None, None))
+        if (
+            screen_key
+            and intent != 'today_summary'
+            and _voice_param_present(params, _VOICE_FILTER_KEYS)
+        ):
+            screen_key = None
         if screen_key:
             return api_json_success({
                 'action': 'navigate',
@@ -3865,6 +3970,7 @@ def register_native_api_routes(app):
                     'action': 'reply',
                     'intent': intent,
                     'speak': reply,
+                    'cards': _slim_mobile_cards(cards),
                 }, '语音回复')
         except Exception:  # noqa: BLE001
             app.logger.exception('voice_intent execute failed')
@@ -3911,6 +4017,7 @@ def register_native_api_routes(app):
             image: str | None = Field(None, max_length=10_000_000)  # base64，可选
             file: str | None = Field(None, max_length=10_000_000)  # base64，可选
             file_name: str | None = Field(None, max_length=255)  # 文件名（解析用）
+            conversation_id: int | None = None
 
         payload = request.get_json(silent=True) or {}
         try:
@@ -3929,6 +4036,8 @@ def register_native_api_routes(app):
                 'action': 'reply',
                 'reply': 'AI 功能当前已由管理员关闭，请联系管理员在系统设置中开启。',
             }, 'AI 未启用')
+        if not _mobile_capability_allowed(user, 'knowledge_base'):
+            return api_json_error('当前账号没有权限使用 AI 助手', 403)
 
         # PC 共用处理链依赖 flask-login 的 current_user（user_id 取历史归属、
         # 部分意图按登录态取数据范围）。App 走 Bearer token 时 flask-login 不会
@@ -3936,6 +4045,10 @@ def register_native_api_routes(app):
         # Bearer 用户灌进本次请求上下文，保证与 PC web 行为一致。
         from flask_login import login_user
         login_user(user)
+        from flask import g
+        g.ai_history_channel = 'mobile'
+        g.ai_bound_conversation_id = None
+        g.ai_requested_conversation_id = int(req.conversation_id) if req.conversation_id else None
 
         # BUG-2026-10-07-009：App 支持上传图片/文件给 AI 识别
         # AUDIT-2026-10-07-009-P3：MIME 按图片二进制头嗅探（PNG/WEBP/GIF/BMP），
@@ -3989,17 +4102,8 @@ def register_native_api_routes(app):
         if not reply:
             return api_json_error('AI 助手没有返回有效回复，请换个说法试试', 502)
 
-        # 对话历史：AI-ASSISTANT-HISTORY-001 起 _ai_handle_warehouse_assistant_request
-        # 内部的 _ai_append_history 已做内存+DB 双写，这里不再重复落库，只读会话 ID
-        # 回传给 App（失败不影响回复）。
-        conversation_id = None
-        try:
-            from ai.audit import list_conversations
-            convs = list_conversations(user.id, limit=1)
-            if convs:
-                conversation_id = convs[0].id
-        except Exception:  # noqa: BLE001
-            app.logger.exception('assistant_chat history lookup failed')
+        from flask import g
+        conversation_id = getattr(g, 'ai_bound_conversation_id', None)
 
         return api_json_success({
             'action': 'reply',

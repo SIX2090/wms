@@ -56,12 +56,20 @@ def _push_ctx():
 USER_ID = 101
 
 
+def _wipe_memory():
+    """清掉该用户的内存线程和入口指针。键已是 (user_id, conversation_id)。"""
+    from ai.history import _AI_CHAT_HISTORY, _CHANNEL_CONVERSATION
+    for key in [k for k in _AI_CHAT_HISTORY if k == USER_ID or (isinstance(k, tuple) and k and k[0] == USER_ID)]:
+        _AI_CHAT_HISTORY.pop(key, None)
+    for key in [k for k in _CHANNEL_CONVERSATION if isinstance(k, tuple) and len(k) > 1 and k[1] == USER_ID]:
+        _CHANNEL_CONVERSATION.pop(key, None)
+
+
 def _reset():
     """重建内存库 + 清空内存历史。"""
     db.drop_all()
     db.create_all()
-    from ai.history import _AI_CHAT_HISTORY
-    _AI_CHAT_HISTORY.pop(USER_ID, None)
+    _wipe_memory()
 
 
 def test_t1_append_history_writes_both_memory_and_db():
@@ -105,13 +113,12 @@ def test_t2_two_rounds_one_conversation():
 def test_t3_memory_restored_from_db_after_restart():
     """T3：进程重启（内存清空）后，DB 历史自动回填内存。"""
     from ai.models import AIConversation, AIMessage
-    from ai.history import _AI_CHAT_HISTORY
     _reset()
     app_module._ai_append_history(USER_ID, 'user', '查一下A001库存')
     app_module._ai_append_history(USER_ID, 'assistant', 'A001 当前库存 120')
 
-    # 模拟重启：只清内存，DB 保留
-    _AI_CHAT_HISTORY.pop(USER_ID, None)
+    # 模拟重启：内存和入口指针都丢，DB 保留。不能只 pop 旧的整数键。
+    _wipe_memory()
     assert app_module._ai_get_history(USER_ID) == []
 
     # 新一轮 user 消息到达 → 落库时应回填

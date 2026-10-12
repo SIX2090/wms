@@ -81,9 +81,23 @@ def chat_clear():
     # AI-ASSISTANT-HISTORY-001：清空同时归档当前活跃 DB 会话，刷新/重启后
     # 前端不再恢复已清空的对话；历史会话仍可在对话管理页查看。
     try:
-        for conv in list_conversations(user_id, limit=1):
-            if conv.status == 'active':
-                archive_conversation(conv.id, user_id=user_id)
+        from ai.models import AIConversation, AIMessage
+        rows = (
+            AIConversation.query
+            .join(AIMessage, AIMessage.conversation_id == AIConversation.id)
+            .filter(
+                AIConversation.user_id == user_id,
+                AIConversation.status == 'active',
+                AIMessage.prompt_version == 'entry:pc',
+            )
+            .all()
+        )
+        archived = set()
+        for conv in rows:
+            if conv.id in archived:
+                continue
+            archived.add(conv.id)
+            archive_conversation(conv.id, user_id=user_id)
     except Exception:
         current_app.logger.exception('AI-ASSISTANT-HISTORY-001 归档会话失败')
     return jsonify({'status': 'success', 'msg': '已清空对话历史'})

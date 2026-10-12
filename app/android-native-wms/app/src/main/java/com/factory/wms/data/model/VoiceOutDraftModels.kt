@@ -102,7 +102,11 @@ data class VoiceIntentResult(
     @SerializedName("screen") val screen: String?,
     @SerializedName("intent") val intent: String?,
     @SerializedName("speak") val speak: String?,
-    @SerializedName("reason") val reason: String?
+    @SerializedName("reason") val reason: String?,
+    /** voice_out_draft 时为语音原文，交给现有核对流程。 */
+    @SerializedName("text") val text: String? = null,
+    /** reply 时只带 title/meta/url，不在这里猜页面。 */
+    @SerializedName("cards") val cards: List<AssistantCard>? = null
 )
 
 
@@ -120,7 +124,9 @@ data class AssistantChatRequest(
     /** BUG-2026-10-07-009：文件 base64（可选） */
     val file: String? = null,
     /** BUG-2026-10-07-009：文件名（可选，解析用） */
-    @SerializedName("file_name") val fileName: String? = null
+    @SerializedName("file_name") val fileName: String? = null,
+    /** 续同一会话。不传则服务端新开，不挂到账号下最新一条。 */
+    @SerializedName("conversation_id") val conversationId: Long? = null
 )
 
 /**
