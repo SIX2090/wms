@@ -24,7 +24,10 @@ class Config:
     
     # 日志配置
     LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-    LOG_FILE = os.environ.get('LOG_FILE') or 'logs/app.log'
+    # F3.13：默认日志路径锚定应用目录（绝对路径），避免 nssm 服务等
+    # 非仓库根 CWD 启动时把日志写到工作目录下的相对 logs/ 里。
+    LOG_FILE = os.environ.get('LOG_FILE') or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'logs', 'app.log')
     LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB
     LOG_BACKUP_COUNT = 5
     WMS_SLOW_REQUEST_MS = os.environ.get('WMS_SLOW_REQUEST_MS', '500')

@@ -46,13 +46,27 @@ PIP_REQUIRE_HASHES = os.environ.get("WMS_PIP_REQUIRE_HASHES", "0").strip().lower
 _GIT_EXE: str | None = None
 
 
+# F3.13：auto_update.log 轮转——单文件超 2MB 时滚动为 .1（覆盖旧的 .1），
+# 最多 2 个文件约 4MB，避免长年累月无界增长。
+LOG_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _rotate_log_if_needed() -> None:
+    try:
+        if LOG_FILE.exists() and LOG_FILE.stat().st_size > LOG_MAX_BYTES:
+            os.replace(LOG_FILE, LOG_FILE.with_suffix(".log.1"))
+    except OSError:
+        pass
+
+
 def log(msg: str) -> None:
-    """输出到 stdout 并追加到 logs/auto_update.log。"""
+    """输出到 stdout 并追加到 logs/auto_update.log（超 2MB 自动轮转）。"""
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{stamp}] {msg}"
     print(line, flush=True)
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+        _rotate_log_if_needed()
         with open(LOG_FILE, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError:
