@@ -97,7 +97,7 @@ AI 只能创建和检查草稿。完成、审核、作废、删除以及库存�
 ## 技术栈
 
 - Python 3.11（版本号随发布递增，当前 `2026.09.1`，见 `app/version.py`；启动自检横幅 `wms v版本 (git短SHA)`）
-- Flask 3.1 + Flask-SQLAlchemy 3.0 + SQLAlchemy 2.0 + alembic/Flask-Migrate（迁移）
+- Flask 3.1 + Flask-SQLAlchemy 3.0 + SQLAlchemy 2.0（F3.1 起迁移机制唯一：启动期 auto_migrate_database() 幂等补列；Alembic/Flask-Migrate 已废弃）
 - Flask-WTF（CSRF 保护）、Flask-Login、pydantic v2（新增路由输入校验，A8 强制）
 - APScheduler（定时任务）、waitress（生产 WSGI）
 - SQLite（默认本地数据库，WAL + `synchronous=NORMAL` + `busy_timeout=30s`）
@@ -269,7 +269,6 @@ SIX2090/wms
 │   ├── android-native-wms/       Android 客户端（Kotlin + Compose，102 个 .kt，独立 Gradle 工程）
 │   ├── templates/                页面模板（135 个 .html）
 │   ├── static/                   前端静态资源（js/ 6 个业务文件 + cdn/ 三方库）
-│   ├── migrations/               alembic 迁移
 │   ├── local_print_agent.py      内置打印代理
 │   ├── wechat_helper.py          微信助手
 │   ├── notifications.py          定时通知（APScheduler）

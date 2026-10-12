@@ -1,96 +1,15 @@
+"""location_inventory.warehouse_id 兼容迁移测试（F3.1 后）。
+
+F3.1 废弃 Alembic（app/migrations/ 已删除），schema 迁移机制唯一 =
+auto_migrate_database() 启动幂等补列。本文件保留两条契约：
+模型声明（nullable warehouse_id + 外键）与启动迁移回填行为
+（仅唯一匹配仓库名才回填，撞名/未知/带空格一律不动）。
+"""
 from __future__ import annotations
 
-import importlib.util
 import sqlite3
-from pathlib import Path
 
 import sqlalchemy as sa
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
-
-
-ROOT = Path(__file__).resolve().parent.parent
-MIGRATION_PATH = ROOT / 'app' / 'migrations' / 'versions' / '8b17c4d90a2e_location_inventory_warehouse_compat.py'
-
-
-def _load_migration():
-    spec = importlib.util.spec_from_file_location('location_inventory_warehouse_compat', MIGRATION_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _create_legacy_schema(connection):
-    connection.exec_driver_sql(
-        """
-        CREATE TABLE warehouse (
-            id INTEGER PRIMARY KEY,
-            code VARCHAR(50) NOT NULL,
-            name VARCHAR(100) NOT NULL
-        )
-        """
-    )
-    connection.exec_driver_sql(
-        """
-        CREATE TABLE location_inventory (
-            id INTEGER PRIMARY KEY,
-            material_id INTEGER NOT NULL,
-            location VARCHAR(100) NOT NULL,
-            quantity FLOAT
-        )
-        """
-    )
-    connection.exec_driver_sql(
-        """
-        INSERT INTO warehouse (id, code, name) VALUES
-        (1, 'WH-A', '材料仓'),
-        (2, 'WH-B', '成品仓'),
-        (3, '材料仓', '另一仓'),
-        (4, 'WH-C', '原料仓')
-        """
-    )
-    connection.exec_driver_sql(
-        """
-        INSERT INTO location_inventory (id, material_id, location, quantity) VALUES
-        (1, 10, '材料仓', 1),
-        (2, 11, 'WH-B', 2),
-        (3, 12, '不存在仓', 3),
-        (4, 13, '材料仓 ', 4),
-        (5, 14, '原料仓', 5)
-        """
-    )
-
-
-def test_location_inventory_migration_backfills_only_unique_warehouse_matches():
-    engine = sa.create_engine('sqlite:///:memory:')
-    migration = _load_migration()
-    with engine.begin() as connection:
-        _create_legacy_schema(connection)
-        context = MigrationContext.configure(connection)
-        with Operations.context(context):
-            migration.upgrade()
-
-        columns = {
-            row[1]: row for row in connection.exec_driver_sql(
-                'PRAGMA table_info(location_inventory)'
-            ).fetchall()
-        }
-        assert columns['warehouse_id'][3] == 0
-
-        rows = connection.exec_driver_sql(
-            'SELECT id, warehouse_id FROM location_inventory ORDER BY id'
-        ).fetchall()
-        assert rows == [(1, None), (2, 2), (3, None), (4, None), (5, 4)]
-
-        indexes = connection.exec_driver_sql(
-            'PRAGMA index_list(location_inventory)'
-        ).fetchall()
-        assert any(row[1] == 'idx_location_inventory_warehouse' for row in indexes)
-
-        foreign_keys = connection.exec_driver_sql(
-            'PRAGMA foreign_key_list(location_inventory)'
-        ).fetchall()
-        assert any(row[2] == 'warehouse' and row[3] == 'warehouse_id' for row in foreign_keys)
 
 
 def test_location_inventory_model_declares_nullable_warehouse_id():

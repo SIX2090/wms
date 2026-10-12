@@ -7,12 +7,11 @@ Flask-WTF==1.2.1
 WTForms==3.0.1
 
 # Database
-# SQLAlchemy / alembic：50+ 模块与 migrations/env.py 直接 import，
-# 历史上仅靠 Flask-SQLAlchemy / Flask-Migrate 传递依赖带入（版本不受控），
-# CI-ENV-2026-09-11 显式钉版 = 本地全绿环境实测版本
+# SQLAlchemy：50+ 模块直接 import，历史上仅靠 Flask-SQLAlchemy 传递依赖
+# 带入（版本不受控），CI-ENV-2026-09-11 显式钉版 = 本地全绿环境实测版本。
+# F3.1：废弃 Alembic / Flask-Migrate（删除 app/migrations/），
+# schema 迁移机制唯一 = auto_migrate_database() 启动幂等补列。
 SQLAlchemy==2.0.52
-alembic==1.19.2
-Flask-Migrate==4.0.5
 PyMySQL==1.1.1
 cryptography==50.0.0
 

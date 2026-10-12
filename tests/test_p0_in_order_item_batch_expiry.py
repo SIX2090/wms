@@ -6,8 +6,9 @@
 效期预警、先进先出与质量追溯。本次补上行级 batch_no / expiry_date：
 
   * 模型：InOrderItem.batch_no / expiry_date（均可空，只记事实，不参与库存维度）
-  * schema 三层：alembic 迁移 + auto_migrate_database() + 启动期自愈
+  * schema 机制（F3.1 后唯一）：auto_migrate_database() + 启动期自愈
     ensure_in_order_item_batch_columns()（存量库唯一自愈路径）+ fix_db_columns.py 兜底
+    （Alembic 已于 F3.1 废弃，app/migrations/ 删除）
   * 保存：add_in_order / add_in_order_item / 批量粘贴 / 编辑保存 四处消费点
   * 展示：入库单详情页批次号、有效期两列
 

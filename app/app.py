@@ -1697,8 +1697,8 @@ def auto_migrate_database():
                 modified = True
 
         # BUG-2026-08-27-004 治本 B1：库存流水补仓库外键列。SQLite ALTER 无法带外键
-        # 约束（与 workstation_id 等列同法，仅加 INTEGER 列）；MySQL/PG 走 alembic
-        # 迁移 c1d2e3f4a5b6（含外键与索引）。历史行 warehouse_id 由
+        # 约束（与 workstation_id 等列同法，仅加 INTEGER 列）；F3.1 起全走
+        # auto_migrate_database()（Alembic 已废弃，机制唯一）。历史行 warehouse_id 由
         # backfill_stock_txn_warehouse_id() 启动幂等回填，此处只补列+索引。
         if _table_exists('stock_transaction'):
             cursor.execute("PRAGMA table_info(stock_transaction)")
@@ -2175,8 +2175,8 @@ def ensure_stock_transaction_warehouse_id_column(db_path: str | None = None):
     本函数仿照 ``ensure_print_job_columns``：用独立 sqlite 连接、独立于
     迁移开关无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），
     列片段与 ``auto_migrate_database()`` 的 ALTER 语句保持一致
-    （SQLite ALTER 不支持外键，仅加 INTEGER 列 + 索引；MySQL/PG 走
-    alembic ``c1d2e3f4a5b6``）。
+    （SQLite ALTER 不支持外键，仅加 INTEGER 列 + 索引；F3.1 起全走
+    ``auto_migrate_database()``，Alembic 已废弃）。
     """
     conn = None
     try:
@@ -2356,7 +2356,7 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
     仿照 ``ensure_inventory_check_columns``：独立 sqlite 连接、独立于迁移开关
     无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），列定义与
     ``auto_migrate_database()`` 的 ALTER 逐字一致（SQLite ALTER 不支持外键，
-    仅加列；MySQL/PG 走 alembic 迁移）。
+    仅加列；F3.1 起全走 auto_migrate_database()，Alembic 已废弃）。
 
     注意：本函数是**唯一能自愈存量库**的路径——fix_db_columns.py 只在
     start_wms_offline.bat 里被调用，start_wms_auto.bat 不跑它。
@@ -2631,7 +2631,7 @@ def ensure_purchase_return_source_columns(db_path: str | None = None):
     仿照 ``ensure_sales_return_source_columns``：独立 sqlite 连接、独立于
     迁移开关**无条件执行**、幂等（PRAGMA table_info 判断列存在则不 ALTER），
     列定义与 ``auto_migrate_database()`` 的 ALTER 逐字一致（SQLite ALTER 不
-    支持外键，仅加列；MySQL/PG 走 alembic 迁移）。本函数是存量库唯一自愈路径。
+    支持外键，仅加列；F3.1 起全走 auto_migrate_database()，Alembic 已废弃）。本函数是存量库唯一自愈路径。
     """
     conn = None
     try:
@@ -2707,7 +2707,7 @@ def ensure_in_order_item_batch_columns(db_path: str | None = None):
     """启动期无条件补齐 P0 入库明细批次/有效期列（仿 ensure_sales_return_source_columns）。
 
     背景：P0 给 ``in_order_item`` 加了 batch_no / expiry_date，列在
-    ``auto_migrate_database()`` 与 alembic 迁移里都会 ADD，但
+    ``auto_migrate_database()`` 负责 ADD（Alembic 已废弃，F3.1），但
     ``start_wms_offline.bat`` / ``start_wms_auto.bat`` 默认
     ``WMS_NO_DB_TOUCH=1`` 会整体跳过 ``auto_migrate_database()``，
     且 start_wms_auto.bat 连 fix_db_columns.py 都不跑。存量生产库
@@ -2978,7 +2978,7 @@ def ensure_opening_stock_doc_columns(db_path: str | None = None):
     仿照 ``ensure_sales_return_source_columns``：独立 sqlite 连接、独立于迁移
     开关无条件执行、幂等（PRAGMA table_info 判断列存在则不 ALTER），列定义与
     ``auto_migrate_database()`` 的 ALTER 一致（SQLite ALTER 不支持外键，仅
-    加列；MySQL/PG 走 alembic 迁移）。
+    加列；F3.1 起全走 auto_migrate_database()，Alembic 已废弃）。
 
     注意：这里只补**列**。旧库还带 ``UNIQUE(material_id, warehouse_id)`` 约束，
     需要重建表（auto_migrate_database 里的 12 步重建），那条路径天然要求
@@ -3365,10 +3365,6 @@ app.config['STATIC_VERSION'] = _compute_static_version()
 # Database
 from db import db
 db.init_app(app)
-
-# Flask-Migrate: 版本化数据库迁移，替代启动时手动 ALTER TABLE 补列
-from flask_migrate import Migrate
-migrate = Migrate(app, db)
 
 _original_drop_all = db.drop_all
 

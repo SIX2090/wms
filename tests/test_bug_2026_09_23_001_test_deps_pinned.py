@@ -40,7 +40,6 @@ _IMPORT_TO_PKG = {
     "flask_login": "flask-login",
     "flask_wtf": "flask-wtf",
     "flask_sqlalchemy": "flask-sqlalchemy",
-    "flask_migrate": "flask-migrate",
     "flask_cors": "flask-cors",
     "xdist": "pytest-xdist",
     "MySQLdb": "mysqlclient",

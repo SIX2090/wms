@@ -132,7 +132,7 @@
 **CI-ENV-2026-09-11 环境固化**：测试依赖统一由 `app/requirements-test.txt` 钉版
 （含生产清单 `-r requirements.txt` + pytest==9.1.1 + PyYAML==6.0.3），
 ci.yml / verify.yml 同源引用；pytest 不再裸装最新版。
-生产依赖直连 import 但历史仅靠传递依赖带入的包（SQLAlchemy / alembic / pypinyin）
+生产依赖直连 import 但历史仅靠传递依赖带入的包（SQLAlchemy / pypinyin）
 已在 requirements.txt 显式钉版。事故背景：API 推送漏掉 1 个提交导致远端
 15 轮红 CI 而本地全绿——推送后必须跑 `python3 scripts/verify_remote_sync.py`。
 | `scripts/full_smoke_test.py` | 121 项冒烟 | 推荐（需启动服务） |
