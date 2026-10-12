@@ -1095,6 +1095,28 @@
 | AI-STOCK-INTENT-001 | 2026-10-09~10-10 | `91b612eb` + `4023cdb7` + `d4fba35a` + `07e0f485` + `805a24f2` + `030f5b60` + `75f55449` + `06e6ba38` + `25947740` | 物料查询匹配链路优化（名称精确优先/颜色属性词提取/整体消息匹配保组合关系）；查库存接入 DeepSeek-V4-Pro 意图解析替代正则硬匹配；手机/电脑端助手 4 处 BUG 修复；2 处运行时 500 修复；真实库 1231 物料回归 3 处匹配缺陷修复 | 真实数据回归（55 项全过） | 通过（意图解析替代正则，真实库匹配缺陷清零） | 无 |
 | AI-STOCK-FLOW-001 | 2026-10-10 | `6bb3fa40` | `app/ai/` 查库存够用判断 + `stock_flow_query` 出入库流水查询 | 测试 55 项全过 | 通过（库存够用判断 + 流水追问同工具链闭环） | 无 |
 | AI-TOOLCALL-001 | 2026-10-11 | `f61a31f2` + `2da7fb4e` + `4ce515da` | `app/ai/` Schema 元数据注入 LLM 提示词（P1）+ Tool Calling 调度层与结构化 JSON 输出（P2）+ 规则快速路径与 LLM 兜底双路并行（P3，调研结论落地） | CI 全绿 | 通过（P1-P3 调研结论全部落地，双路并行上线） | 无 |
+| F3.6 | 2026-10-12 | `69e0e1a0` | 根目录 `fix_p15_columns.py`/`fix_p17_columns.py` 删除（一次性止血脚本收敛，统一入口 `app/fix_db_columns.py`；tests/scripts/archive 同步） | 相关回归 + 语法检查 | 通过（迁移机制唯一入口收敛） | 无 |
+| F3.9 | 2026-10-12 | `b9eba966` | `app/app.py` `_warehouse_delete_blockers` 改 ID 匹配；补 stock_transaction.warehouse_id 漏检；调拨单双向仓检查；新测试 6 用例 | 单测 6 用例 | 通过（按 ID 判占用，重名/改名不再误报） | 无 |
+| F3.10 | 2026-10-12 | `9fae1b7b` | `app/routes/material.py` 批量删除前查 MaterialImage，有图拒绝并明示编码 | 新测试 2 用例 | 通过（带图物料不再被静默删成孤儿图片） | 无 |
+| F3.12 | 2026-10-12 | `64a38ac7` | Android 三态签名：`WMS_STORE_FILE` 走正式签名 / 显式 `WMS_ALLOW_DEBUG_SIGNING=1` 才允许 debug / 两者皆无构建失败；CI 显式 opt-in | verify_release_build_slim 契约（T5/T6/T7） | 通过（签名缺失不再静默降级 debug 签名） | 无 |
+| F3.13 | 2026-10-12 | `47a9cd2a` | `auto_update.log` >2MB 滚动 `.1`；`LOG_FILE` 默认改 `app/logs/app.log` 绝对路径；nginx 配置补轮转说明 | 日志滚动单测 | 通过（日志不再无界增长） | 生产需按新默认路径检查 logs 目录 |
+| F3.15 | 2026-10-12 | `426cc70a` | `verify_inventory_identity.py` 仓级 ②≠③ 判据 gate 在 `location_management_enabled()`；JSON 加 wh_gate 键 | 脚本自测 | 通过（库位管理关闭时不再误报仓级差异） | 无 |
+| F3.16 | 2026-10-12 | `cde18b15` | 四个 workflow（android-build/ci/perf/verify）加 concurrency（group=workflow+ref, cancel-in-progress） | YAML 语法 + CI | 通过（同分支旧 run 自动取消） | 无 |
+| F3.17 | 2026-10-12 | `c21295e2` | `in_order_add.html` submitForm：批次号 >50 字符拦截、有效期 YYYY-MM-DD 校验、销售退货显式必选客户 | 前端回归 | 通过（前后端校验对齐，坏数据不再依赖后端兜底） | 无 |
+| F3.8 | 2026-10-12 | `7b2af21f` | `verify_ai_ledger_consistency.py` 默认 strict（未标记即 exit 1）；`AI_LEDGER_ENFORCE=gradual` 仅排障回退 | 假行注入→exit 1→还原→PASS | 通过（漏登台账在门禁处拦截） | 无 |
+| F3.1 | 2026-10-12 | `2b33d047` | 废弃 Alembic（拍板 #5）：删 `app/migrations/` 9 文件、Flask-Migrate 依赖与 Migrate 挂载；迁移机制唯一走 auto_ 系 | 全量回归 224 passed | 通过（启动不再因 alembic 表缺失告警） | 生产旧库的 alembic_version 表保留无害 |
+| F3.3 | 2026-10-12 | `df84ddef` | `startup_check.py` 扩为表/列/类型/FK 四维 schema diff：硬错误 RuntimeError 阻断启动；FK 仅警告；`WMS_SCHEMA_CHECK=off` 逃生门 | 新测试 7 用例（含验收：删一列→启动被拒） | 通过（schema 漂移启动期拦截） | 需重启生产服务生效 |
+| F3.4-① | 2026-10-12 | `a6ede1ec` | README 三处事实更正：私有→公开（保护措施已启用）、测试文件数 394→442、全量基线标注历史快照 | 人工核对 | 通过（README 与仓库实际状态一致） | 无 |
+| F3.4-② | 2026-10-12 | `f8ee1868` | BUG 基线「未修复/待处理」重命名「历史登记区」并加状态列（133 行中 96 行实为已修复/已交付，名不副实） | 状态分布核对 | 通过（阅读以状态列为准） | 含一个空 diff 重复提交（推送重试所致，历史不可改） |
+| F3.4-③ | 2026-10-12 | `c5b7e459` | 台账补登 2026-10-05 后 12 项 AI 变更（语音意图/助手四件套/模型路由/DOCTYPE/库存查询/降级/意图/流水/ToolCall）；§11 加补记 | verify_ai_ledger_consistency PASS | 通过（38 代码标记 / 83 台账完成映射一致） | 无 |
+| F3.4-④ | 2026-10-12 | `abf478ab` | INVENTORY_TRUTH 恒等式补库位管理开关分档说明（②仅开启时落账，关闭时 ①=Σ③） | 与 F3.15 wh_gate 判据交叉核对 | 通过（文档与实现口径一致） | 无 |
+| F3.5-① | 2026-10-12 | `6ca32212` | 删 `app/app.py.bak_f1`/`bak_p2`（2.8MB 工作区残留）；`build_portable_dist.ps1` robocopy 加 `/XF *.bak_*` | 打包脚本检查 | 通过（bak 不再混入便携包） | 无 |
+| F3.5-② | 2026-10-12 | `ffd97e9f` | `releases/app-release-b7090cb.apk`（25.4MB）移出 git——拍板 #6 仅删文件不改历史（不做 filter-repo） | git ls-files 确认 | 通过（git 不再作为 APK 分发介质） | 历史 blob 仍在旧提交中（拍板接受） |
+| F3.7 | 2026-10-12 | `fd81c07d` | lint 扩到模板内联 JS（warn 观察期，`--templates-strict` 可转严）；存量 166 处摸清；违规提示统一 WMS.api.*，消除 csrfFetch 口径矛盾（AGENTS.md/钩子同步） | stability_gate 2 passed + warn/strict 退出码 | 通过（观察 3 周后定棘轮基线） | 166 处存量待棘轮；`.githooks/pre-commit` 远端 mode 644（install-hooks.sh chmod 兜底） |
+| F3.11-① | 2026-10-12 | `416f5f3b` | 删死接口 `/api/field_config/<page_type>` GET/POST 及 DEFAULT_FIELD_CONFIGS 等配套（-136 行；前端走 localStorage 零调用） | f26 路由加固 + stability_gate 17 passed | 通过（路由 768→762 清理后） | 无 |
+| F3.11-② | 2026-10-12 | `6b546910` | 删 AI-R12 知识库生命周期 6 条死接口（search/versions/draft/publish/rollback/deprecate，-231 行；模块保留供进程内复用） | f26 + stability_gate 9 passed | 通过（路由 760；三侧零引用实证） | AI-R13 agent_* 6 条与 rollout/* 6 条存疑保留（golden 测试锁定/运维控制面） |
+| F3.14 | 2026-10-12 | `07bd5433` | LLM vision 通道阻塞缓解（拍板 #7 双做）：①地板超时 60s→30s；②请求级信号量并发 2，满则快速失败友好提示 | 新测试 + excel_ocr/vision 回归 38 passed | 通过（vision 慢调用不再堆满 WSGI 线程池） | 需重启生产服务生效 |
+| F3.2 | 2026-10-12 | —（本轮跳过） | 拍板 #3：停机窗口另约（依赖 F1.2 备份验收后执行脏数据清理） | — | 暂缓（刻意） | 待停机窗口 |
 
 
 
