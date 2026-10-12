@@ -1083,6 +1083,18 @@
 | F2.15 | 2026-10-12 | `40c6e888` | `app/routes/mobile.py`（`scan_submit` 与 `scan_batch_draft` 两处 `business_type='产品入库'` → `'采购入库'`，与 PC/Android 口径对齐；拍板 #2：手机扫码入库实际是采购入库。`purchase_in_order_requires_order()` 恒返回 False，不触发 PO 关联强制）、`tests/test_mobile_scan_draft_flow.py`（新增 `TestMobileInboundBusinessType` 2 项断言） | `pytest -q tests/test_mobile_scan_draft_flow.py`（17 passed；临时改回旧值 2 项转红，双向验证）、手机端扫码相关回归 36+63 项通过 | 通过（手机扫码入库单据归集「采购入库」；`产品入库` 在 mobile.py 归零） | 无 |
 | F2.16 | 2026-10-12 | `8cb7e992` | `app/routes/subcontract.py`（详情页 `get_or_404` 加 `.options(...)`：supplier/operator joinedload + items/issue_orders/receive_orders selectinload 链，消除三重懒加载 N+1）、`app/routes/sales.py`（报表加 `joinedload(SalesOrder.customer/salesperson)` + `selectinload(SalesOrder.items).joinedload(SalesOrderItem.material)`；钻取明细收集 `drill_items_all` 后按 `page/per_page` 切片，`SimpleNamespace` 构造 `drill_pagination`）、`app/templates/sales_report.html`（钻取明细分页 UI，翻页链接带全部筛选条件含 warehouse_id）、`app/routes/requisition.py`（列表 `.all()` 改 `paginate(page, per_page)`，per_page 白名单 20/50/100/200；去掉全量 `BOM.query.all()`）、`app/templates/requisition.html`（徽标改 `pagination.total`、关联BOM 下拉改 quick-select 输入式、表后加 `_list_macros.pager`）、`app/routes/options_api.py`（ENTITY_CONFIG 新增 `bom` 实体：bom_no + product_name） | `pytest -q` F2.16 相关回归 224 passed / 0 failed（含 test_filter_params_follow 50 passed、领料/委外分页专项 16 passed、选项 API、列表页渲染、路由拆分校验等）、`scripts/lint_wms_rules.py` 0 违规、`scripts/lint_no_raw_post_fetch.py` 通过 | 通过（详情页 SQL 由 O(n) 降为常数；报表/列表大页不再全量返回；BOM 下拉不再全量入 DOM） | 无 |
 | F2.17 | 2026-10-12 | `37837f97` | `app/templates/in_order_add.html`（删除 `submitFormLegacy`（原 1390-1506，118 行）——全仓零调用且不校验仓库；`submitForm` 保留） | 大括号平衡 662/662、Jinja 编译通过、30 项相关回归通过 | 通过（模板无 legacy 提交路径，表单提交回归正常） | 无 |
+| AI-VOICE-INTENT-001 | 2026-10-06 | `c8e8dbf9` + `5a3f5f5e` | `app/ai/`（语音意图理解端点：App 导航由本地对暗号升级为后端 LLM 意图路由；T2 锚点跟进——onResult 不再直调 parseCommand） | 锚点测试 + CI 全绿 | 通过（语音指令走 LLM 意图路由，本地硬匹配退场） | 无 |
+| AI-ASSISTANT-MOBILE-001 + AI-ASSISTANT-HISTORY-001 | 2026-10-06 | `9f0bad64` + `f0043259` | App 端 AI 助手入口 + 对话历史持久化（CI 跟进：锚点更新 + Color import） | CI 三工作流 | 通过（App 内可进 AI 助手并回看历史对话） | 无 |
+| AI-ASSISTANT-PATROL-001 | 2026-10-06 | `360d9e96` + `f0043259` | `app/ai/` 每日定时巡检 + 站内通知通道 | CI 三工作流 | 通过（巡检结果每日推送站内通知） | 无 |
+| AI-ASSISTANT-VOICE-001 | 2026-10-07 | `f886952f` + `4a3e3d49` | App AI 助手聊天页语音输入（AssistantVoiceInputViewModel） | CI 编译 + 单测 | 通过（聊天页可语音输入转文字） | 无 |
+| AI-ASSISTANT-ATTACH-001 | 2026-10-07 | `81662e06` + `39e2107c` + `b4d1d3c9` + `ff5c43c7` + `038ea302` | App AI 助手图片/文件上传（相机/相册/文件）+ 剪贴板图片检测（FEATURE-2026-10-07-010）+ 相册/剪贴板统一压缩（FIX-2026-10-07-011）+ 聊天图片消息可视化（FEATURE-2026-10-07-012） | CI 编译 + 单测 | 通过（助手支持多模态输入，图片在聊天气泡内可视化） | 无 |
+| AI-MODEL-ROUTER-001 | 2026-10-08 | `66de39d1` + `418dca5e` + `f6f44c80` + `547e1be7` + `ce4205bd` | `app/ai/` AI 模型场景自动路由（文本/视觉分场景选模型）；系统设置加视觉/文本模型字段（留空自动路由）；场景路由优先于全局 override | CI 全绿 | 通过（不设模型时按场景自动路由，设置后按场景优先） | 无 |
+| AI-VISION-DOCTYPE-001 | 2026-10-08~10-09 | `a2a8aaf9` + `acccfd35` + `8ce264d7` + `233f013d` + `3541330d` | 产品照片不再被误判为单据 + 剥离裸 JSON；送货单拍照 OCR 提取文字并导出 Excel（FEATURE-2026-10-08-EXCEL）；ASR TokenHub 回退 + Excel OCR 接口 CSRF 豁免 + App 网络白名单 | CI 编译 + 三工作流 | 通过（单据/产品照片分流正确，送货单 OCR 可导 Excel） | 无 |
+| AI-STOCK-QUERY-001 | 2026-10-09 | `874066f2` + `09db93ee` + `94aa806c` | `app/ai/` 新增 `stock_query` 工具（修查库存智力弱）；物料查询中文同音字容错 + 中文 token 提取；查库存改 LLM 上下文注入生成自然语言回复 | 工具回归测试 | 通过（自然语言查库存走专用工具，容错中文输入） | 无 |
+| AI-VISION-FALLBACK-001 | 2026-10-09 | `53ce8bb8` + `17e7de30` + `bd21f5f7` + `51114cc6` | `app/ai/` 图片识别 504 超时保护；压缩 1600px/85%→1024px/70%；vision 双模型降级（GLM-5.3-Flash 主力 + GLM-5v-Turbo 备用）；降级提示友好模型名 | CI 全绿 | 通过（vision 超时可控，主备双模型自动降级） | 无 |
+| AI-STOCK-INTENT-001 | 2026-10-09~10-10 | `91b612eb` + `4023cdb7` + `d4fba35a` + `07e0f485` + `805a24f2` + `030f5b60` + `75f55449` + `06e6ba38` + `25947740` | 物料查询匹配链路优化（名称精确优先/颜色属性词提取/整体消息匹配保组合关系）；查库存接入 DeepSeek-V4-Pro 意图解析替代正则硬匹配；手机/电脑端助手 4 处 BUG 修复；2 处运行时 500 修复；真实库 1231 物料回归 3 处匹配缺陷修复 | 真实数据回归（55 项全过） | 通过（意图解析替代正则，真实库匹配缺陷清零） | 无 |
+| AI-STOCK-FLOW-001 | 2026-10-10 | `6bb3fa40` | `app/ai/` 查库存够用判断 + `stock_flow_query` 出入库流水查询 | 测试 55 项全过 | 通过（库存够用判断 + 流水追问同工具链闭环） | 无 |
+| AI-TOOLCALL-001 | 2026-10-11 | `f61a31f2` + `2da7fb4e` + `4ce515da` | `app/ai/` Schema 元数据注入 LLM 提示词（P1）+ Tool Calling 调度层与结构化 JSON 输出（P2）+ 规则快速路径与 LLM 兜底双路并行（P3，调研结论落地） | CI 全绿 | 通过（P1-P3 调研结论全部落地，双路并行上线） | 无 |
 
 
 
@@ -1105,6 +1117,8 @@
 - [ ] 已提交并推送 `main`。
 
 ## 11. 当前下一项
+
+> **2026-10-12 补记**：2026-10-05 之后的 12 项 AI 变更（语音意图路由 / App AI 助手三件套与语音输入 / 附件多模态 / 模型场景路由 / 单据 OCR 导 Excel / stock_query / vision 双模型降级 / DeepSeek-V4-Pro 意图解析 / stock_flow_query / Schema 注入 + Tool Calling 双路并行等）已全部补登 §8，勿再误判「近期无 AI 工作」。
 
 **当前下一项：待用户指派**（AI-CI-GREEN-001/002/003/004/005、AI-CI-GREEN-005-F01/F02/F03/F04 与 CI-PERF-2026-09-17 均已完成；WMS CI 三工作流全绿、耗时 20.0min → 4.2min；库存阈值命名已统一为「最低库存 / 安全库存」，Python 与 Kotlin 两侧的错位/旧叫法均已清零并加了 T6/T7/T8 守卫；预警判定已收敛为 1 套两级口径，手机端首次能看到 danger 档；总开关已能同时管住通知；`/alert` 已有可见入口；CI verify 的 makedirs TOCTOU 竞态已根治）。
 
