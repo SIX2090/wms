@@ -18,7 +18,12 @@ lint_no_raw_post_fetch.py
 
     fetch(url, { method: 'POST' })   # 或 PUT / DELETE / PATCH
 
-的"裸调"调用。
+的"裸调"调用。业务代码应改走 ``WMS.api.get/post/put/delete(url, data)``
+（``app/static/js/api.js`` 统一封装，自带 CSRF）。
+
+F3.7（2026-10-12）起同时扫描 ``app/templates/`` 下 ``.html`` 的 ``<script>``
+内联块，但**暂为 warn 模式**：违规只打印不计入退出码（观察期摸清存量，
+再定棘轮基线转 strict；``--templates-strict`` 可提前按违规处理）。
 
 白名单（即使匹配也不报错）：
 1. ``app/static/js/app.js`` 顶部 30 行内的 ``if (typeof csrfFetch !== 'function')``
@@ -279,6 +284,55 @@ def scan_repo(repo_root: Path) -> List[Tuple[int, str, str]]:
 
 
 # ---------------------------------------------------------------------------
+# F3.7：模板内联 <script> 扫描（warn 模式观察期）
+# ---------------------------------------------------------------------------
+
+# 提取无 src 的 <script>...</script> 块（内容，块起始偏移）
+_SCRIPT_BLOCK = re.compile(
+    r"<script(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def scan_template_file(
+    file_path: Path, repo_root: Path
+) -> List[Tuple[int, str, str]]:
+    """扫描单个 ``.html`` 模板内联 <script> 块的裸调非 GET fetch。"""
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = file_path.read_text(encoding="utf-8", errors="replace")
+
+    rel = str(file_path.relative_to(repo_root)).replace("\\", "/")
+    violations: List[Tuple[int, str, str]] = []
+    for block in _SCRIPT_BLOCK.finditer(text):
+        body_text = block.group(1)
+        base = block.start(1)
+        csrf_bodies = find_csrf_fetch_bodies(body_text)
+        stripped = strip_comments(body_text)
+        for pattern in PATTERNS:
+            for m in pattern.finditer(stripped):
+                pos = m.start()
+                if is_inside_csrf_fetch(pos, csrf_bodies):
+                    continue
+                ln = line_number_at(text, base + pos)
+                snippet = line_snippet(text, base + pos)
+                violations.append((ln, snippet, rel))
+    return violations
+
+
+def scan_templates(repo_root: Path) -> List[Tuple[int, str, str]]:
+    """扫描 ``app/templates/`` 下所有 ``.html`` 模板的内联脚本。"""
+    scan_dir = repo_root / "app" / "templates"
+    if not scan_dir.is_dir():
+        return []
+    violations: List[Tuple[int, str, str]] = []
+    for html_path in sorted(scan_dir.rglob("*.html")):
+        violations.extend(scan_template_file(html_path, repo_root))
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -316,6 +370,12 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default=REPO_ROOT,
         help="仓库根目录（默认取脚本所在目录的上一级）",
     )
+    parser.add_argument(
+        "--templates-strict",
+        action="store_true",
+        default=False,
+        help="模板内联 JS 违规按失败处理（默认 warn 模式，只打印不影响退出码）",
+    )
     return parser.parse_args(argv)
 
 
@@ -329,11 +389,28 @@ def main(argv: List[str] | None = None) -> int:
         return 2
 
     violations = scan_repo(repo_root)
+    tpl_violations = scan_templates(repo_root)
+
+    if tpl_violations:
+        # F3.7 观察期：模板违规 warn 模式（摸清存量后转 --templates-strict 棘轮）
+        tag = "✗" if args.templates_strict else "⚠"
+        print(f"{tag} app/templates/ 内联 <script> 裸调非 GET fetch "
+              f"{len(tpl_violations)} 处"
+              + ("" if args.templates_strict else "（warn 模式观察期，不计入退出码）"))
+        for ln, snippet, rel in tpl_violations[:50]:
+            print(f"  {rel}:{ln}  ->  {snippet}")
+        if len(tpl_violations) > 50:
+            print(f"  ... 其余 {len(tpl_violations) - 50} 处省略")
+
     if not violations:
         print("✓ 未发现裸调非 GET fetch（app/static/js/ 扫描通过）")
+        if args.templates_strict and tpl_violations:
+            print(f"发现 {len(tpl_violations)} 处模板违规（strict 模式）")
+            return 1
         return 0
 
-    print("✗ 禁止裸调非 GET fetch！请改用 csrfFetch(url, options)")
+    print("✗ 禁止裸调非 GET fetch！请改用 WMS.api.post/put/delete(url, data)"
+          "（app/static/js/api.js 统一封装，自带 CSRF）")
     for ln, snippet, rel in violations:
         print(f"{rel}:{ln}  ->  {snippet}")
     print(f"发现 {len(violations)} 处违规")

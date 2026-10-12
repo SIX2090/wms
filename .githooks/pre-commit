@@ -131,7 +131,7 @@ if [ -n "$STAGED_JS" ]; then
     if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
         echo ""
         echo "[pre-commit] ✗ 提交被拒绝：发现裸调非 GET fetch"
-        echo "[pre-commit] 请将所有非 GET 请求改为 csrfFetch(url, options) 或 api.xxx()"
+        echo "[pre-commit] 请将所有非 GET 请求改为 WMS.api.post/put/delete(url, data)（app/static/js/api.js 统一封装，自带 CSRF；勿用全局 csrfFetch 或裸 fetch）"
         echo "[pre-commit] 临时绕过（不建议）：git commit --no-verify"
         exit 1
     fi

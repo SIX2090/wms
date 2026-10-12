@@ -142,7 +142,7 @@
 ## 四、分支与前端约束
 
 - **分支策略（硬性规则，无例外）**：AI/TRAE 必须直接在 `main` 分支工作。严格禁止创建、切换到或推送任何新分支——包括 `feature/*`、`fix/*`、`chore/*` 或任何 `trae/*` worktree 分支。所有 commit 和 push 必须指向 `main`。本地 pre-push 钩子 `.githooks/pre-push` 在客户端强制执行（**允许删除非 `main` 远程分支**——如 `trae/*` 残留分支可按需清理；仅 `main` 禁止删除，防止误删丢失全部历史；除 `main` 外禁止创建、切换或推送任何新分支）。注意：在 GitHub 侧强制分支保护需要私有仓库的 GitHub Pro；免费私有仓库只有本地钩子 + CI 两层强制。
-- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A14），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
+- **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装——统一推荐口径是 `WMS.api.*`，pre-commit 钩子提示与本条一致（F3.7 已消除历史上钩子提示 `csrfFetch` 的矛盾）。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A14），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。F3.7（2026-10-12）起 `lint_no_raw_post_fetch.py` 同时扫描 `app/templates/` 内联 `<script>`，**暂为 warn 模式**（只打印不计退出码；存量实测 166 处，观察 3 周后定棘轮基线转 `--templates-strict`）。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
 
 ## 五、AI 开发台账
 
