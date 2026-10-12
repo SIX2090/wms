@@ -2106,7 +2106,11 @@ def register_in_order_routes(app):
                 wh_obj = Warehouse.query.filter(
                     db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
                 ).order_by(Warehouse.id.asc()).first()
-            warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
+            # F2.12 BUG-C（审计 §1.4）：仓库级库存快照**按行现取**，不在循环外只算一次。
+            # 原实现 `warehouse_stock = get_warehouse_stock_quantities(wh_obj)` 在删除/
+            # 新增/改量三路写入之间复用同一份陈旧快照——同一张单里同物料多行时，前一行
+            # 已经 apply_stock_delta 落账的扣减不会被后一行的校验看见，导致"删得动、
+            # 却算错"的放行（与 INVENTORY_TRUTH.md 仓库级严格口径相悖）。
 
             affected_purchase_order_ids = set()
             # 1. Delete detail rows and reverse their stock changes
@@ -2118,7 +2122,8 @@ def register_in_order_routes(app):
                         # BUG-2026-08-17-002：与 revert_in_order 同根因，仓库解析
                         # 失败时回退全局 Material.stock 口径。
                         if wh_obj is not None:
-                            current_stock = warehouse_stock.get(item.material_id, 0)
+                            # F2.12 BUG-C：按行现取仓库快照（同单多行同物料时前一行已落账）
+                            current_stock = get_warehouse_stock_quantities(wh_obj).get(item.material_id, 0)
                             # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
                             # 全部为历史未归属流水（location 为空）时回退全局口径，
                             # 避免“明明有库存却拒绝删除明细/反提交”。
@@ -2245,7 +2250,20 @@ def register_in_order_routes(app):
                         if qty_diff < 0:
                             deduct_qty = abs(qty_diff)
                             if not allow_negative_stock():
-                                current_stock = warehouse_stock.get(item.material_id, 0)
+                                # F2.12 BUG-B（审计 §1.4）：改量减库存分支补齐与「删除
+                                # 明细」分支同口径的两级兜底——① 仓库解析失败回退全局总账；
+                                # ② 仓库级聚合查不到但该物料库存全部为历史未归属流水时回退
+                                # 全局，避免同一张单"删行能过、改小被拒"的不对称（BUG-A/B
+                                # 同根因：同一校验在多个消费点写法不一致）。
+                                if wh_obj is not None:
+                                    # F2.12 BUG-C：按行现取仓库快照（前一行已落账）
+                                    current_stock = get_warehouse_stock_quantities(wh_obj).get(item.material_id, 0)
+                                    if not is_stock_sufficient(current_stock, deduct_qty) and _material_stock_unattributed(item.material_id):
+                                        # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
+                                        current_stock = item.material.stock if item.material else 0
+                                else:
+                                    # stock-truth:reason=仓库解析失败时回退全局总账（BUG-2026-08-17-002 登记的兼容兜底，与删除明细分支一致）
+                                    current_stock = item.material.stock if item.material else 0
                                 if not is_stock_sufficient(current_stock, deduct_qty):
                                     return fail(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{deduct_qty:.2f}')
                         if item.source_purchase_order_item and abs(qty_diff) > STOCK_COMPARE_EPSILON:
@@ -2395,60 +2413,6 @@ def register_in_order_routes(app):
         if order.status != 'completed':
             return api_error('只有已完成的入库单可以反提交')
 
-        # BUG-2026-08-16-009：反提交库存充足校验改仓库级口径（get_warehouse_stock_quantities），
-        # 避免多仓库下 A 仓库存掩护 B 仓入库单反提交、打穿 B 仓账面。
-        # OFF 模式按流水 location 聚合，ON 模式按 LocationInventory 聚合。
-        wh_obj = None
-        if (order.warehouse or '').strip():
-            wh_key = order.warehouse.strip()
-            wh_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-            ).order_by(Warehouse.id.asc()).first()
-        warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
-        for item in order.items:
-            quantity = normalize_stock_quantity(item.quantity or 0)
-            if not allow_negative_stock():
-                if wh_obj is not None:
-                    current_stock = warehouse_stock.get(item.material_id, 0)
-                    # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
-                    # 全部为历史未归属流水（location 为空）时回退全局口径，
-                    # 避免“明明有库存却拒绝反提交”（与 update_completed_in_order、
-                    # batch_revert_in_order 同一兜底）。
-                    if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(item.material_id):
-                        # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
-                        current_stock = item.material.stock if item.material else 0
-                    # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
-                    # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
-                    # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
-                    if not is_stock_sufficient(current_stock, quantity):
-                        # stock-truth:reason=BUG-2026-08-18-002-fix：全局充足且存在未归属流水时修正流水归属后放行，全局总账仅作兜底判据
-                        global_stock = item.material.stock if item.material else 0
-                        if is_stock_sufficient(global_stock, quantity):
-                            unattributed = StockTransaction.query.filter(
-                                StockTransaction.material_id == item.material_id,
-                                db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
-                            ).count()
-                            if unattributed > 0:
-                                StockTransaction.query.filter_by(
-                                    reference_type='in_order', reference_id=order.id,
-                                    material_id=item.material_id,
-                                ).filter(
-                                    db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
-                                ).update({'location': order.warehouse.strip()}, synchronize_session=False)
-                                current_stock = global_stock
-                else:
-                    # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
-                    # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
-                    # Material.stock 口径——与 batch_revert_in_order、deduct_stock
-                    # 实际回退口径一致，避免“有库存却拒绝反提交”。
-                    # stock-truth:reason=老数据无仓库/仓库解析失败时回退全局总账（BUG-2026-08-17-002 登记的兼容兜底，与 deduct_stock 口径一致）
-                    current_stock = item.material.stock if item.material else 0
-                if not is_stock_sufficient(current_stock, quantity):
-                    return jsonify({
-                        'status': 'error',
-                        'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能反提交'
-                    })
-
         try:
             # 加写锁并重新读取状态，避免多 worker 并发反提交导致库存重复回退。
             # 预加载 items.material + items.source_purchase_order_item.purchase_order，
@@ -2460,6 +2424,69 @@ def register_in_order_routes(app):
             if not ok:
                 return api_error('该入库单已反提交，不能重复操作')
             order = locked
+
+            # F2.12 BUG-A（审计 §1.4）：库存充足校验与「未归属流水归属修正」必须放在
+            # **加锁之后**。原实现把这段写在 _acquire_order_write_lock 之前，而该锁在
+            # SQLite 分支第一步就是 db.session.rollback()（app.py:25920）——锁前的
+            # UPDATE 归属修正被整段丢弃，成为**死代码**（批量版 batch_revert_in_order
+            # 同一段写在加锁后，是有效的）。移动后单张反提交与批量反提交行为一致。
+            #
+            # BUG-2026-08-16-009：反提交库存充足校验改仓库级口径（get_warehouse_stock_quantities），
+            # 避免多仓库下 A 仓库存掩护 B 仓入库单反提交、打穿 B 仓账面。
+            # OFF 模式按流水 location 聚合，ON 模式按 LocationInventory 聚合。
+            wh_obj = None
+            if (order.warehouse or '').strip():
+                wh_key = order.warehouse.strip()
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
+            warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
+            for item in order.items:
+                quantity = normalize_stock_quantity(item.quantity or 0)
+                if not allow_negative_stock():
+                    if wh_obj is not None:
+                        current_stock = warehouse_stock.get(item.material_id, 0)
+                        # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
+                        # 全部为历史未归属流水（location 为空）时回退全局口径，
+                        # 避免“明明有库存却拒绝反提交”（与 update_completed_in_order、
+                        # batch_revert_in_order 同一兜底）。
+                        if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(item.material_id):
+                            # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
+                            current_stock = item.material.stock if item.material else 0
+                        # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
+                        # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
+                        # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
+                        if not is_stock_sufficient(current_stock, quantity):
+                            # stock-truth:reason=BUG-2026-08-18-002-fix：全局充足且存在未归属流水时修正流水归属后放行，全局总账仅作兜底判据
+                            global_stock = item.material.stock if item.material else 0
+                            if is_stock_sufficient(global_stock, quantity):
+                                unattributed = StockTransaction.query.filter(
+                                    StockTransaction.material_id == item.material_id,
+                                    db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+                                ).count()
+                                if unattributed > 0:
+                                    StockTransaction.query.filter_by(
+                                        reference_type='in_order', reference_id=order.id,
+                                        material_id=item.material_id,
+                                    ).filter(
+                                        db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
+                                    ).update({'location': order.warehouse.strip()}, synchronize_session=False)
+                                    current_stock = global_stock
+                    else:
+                        # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
+                        # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
+                        # Material.stock 口径——与 batch_revert_in_order、deduct_stock
+                        # 实际回退口径一致，避免“有库存却拒绝反提交”。
+                        # stock-truth:reason=老数据无仓库/仓库解析失败时回退全局总账（BUG-2026-08-17-002 登记的兼容兜底，与 deduct_stock 口径一致）
+                        current_stock = item.material.stock if item.material else 0
+                    if not is_stock_sufficient(current_stock, quantity):
+                        # 已加锁（BEGIN IMMEDIATE），错误出口必须先 rollback 释放写锁
+                        db.session.rollback()
+                        return jsonify({
+                            'status': 'error',
+                            'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能反提交'
+                        })
+
             affected_purchase_order_ids = set()
             for item in order.items:
                 # P2-3 收敛：反提交经单点入口，delta 取负（与 complete 对称），
