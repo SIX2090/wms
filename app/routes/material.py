@@ -947,6 +947,7 @@ def register_material_routes(app):
             InventoryCheckScanItem,
             LocationInventory,
             Material,
+            MaterialImage,
             OpeningStock,
             OutOrderItem,
             ProductionRequisitionItem,
@@ -981,10 +982,24 @@ def register_material_routes(app):
         fail_count = 0
         # BUG-2026-08-16-012：记录被删物料快照，供结构化变更审计
         _deleted_audit = []
+        # F3.10（审计 §3.4）：记录失败原因，响应中给出明确提示
+        _fail_reasons = []
 
         for id in ids:
             material = db.session.get(Material, id)
             if material:
+                # F3.10：先查物料图片——有图片的物料直接给出明确提示，
+                # 否则 raw DELETE 撞 FK 后只落一个静默的「失败 N 条」。
+                try:
+                    if MaterialImage.query.filter_by(material_id=id).first():
+                        fail_count += 1
+                        _fail_reasons.append(f'{material.code}：存在物料图片')
+                        current_app.logger.info(
+                            f"跳过删除物料 {id}({material.code})：存在物料图片，请先删除图片")
+                        continue
+                except Exception as _e:
+                    current_app.logger.warning(
+                        f"物料 {id} 图片检查跳过（表或字段缺失，视为无图片）: {_e}")
                 # 引用完整性校验：被已完成单据或库存流水引用的物料不允许删除，
                 # 避免历史单据变空壳、审计流水丢失。仅允许删除无业务引用的物料。
                 # 逐表检查并分别 try/except：旧库可能缺少新增的 AI 关联表
@@ -1010,6 +1025,7 @@ def register_material_routes(app):
                         continue
                 if _referenced:
                     fail_count += 1
+                    _fail_reasons.append(f'{material.code}：存在业务引用')
                     current_app.logger.info(f"跳过删除物料 {id}({material.code})：存在业务引用，建议改为停用")
                     continue
                 try:
@@ -1058,11 +1074,13 @@ def register_material_routes(app):
             )
 
         if success_count == 0:
-            return api_error('删除失败，没有物料被删除')
+            _detail = ('；' + '；'.join(_fail_reasons[:5])) if _fail_reasons else ''
+            return api_error(f'删除失败，没有物料被删除{_detail}')
 
         return jsonify({
             'status': 'success',
             'msg': f'物料删除完成，成功 {success_count} 条' + (f'，失败 {fail_count} 条' if fail_count > 0 else '')
+                   + (('；' + '；'.join(_fail_reasons[:5])) if _fail_reasons else '')
         })
 
     @app.route('/material/download_template')
