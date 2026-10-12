@@ -132,6 +132,11 @@
 | F3.11-② | ai | completions-2026-10.md |
 | F3.14 | ai | completions-2026-10.md |
 | F3.2 | ai | completions-2026-10.md |
+| F4.1 | ai | completions-2026-10.md |
+| F4.2 | ai | completions-2026-10.md |
+| F4.3 | ai | completions-2026-10.md |
+| F4.4 | ai | completions-2026-10.md |
+| F4.5 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
