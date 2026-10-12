@@ -44,8 +44,14 @@ def register_system_settings_routes(app):
     @require_role('admin')
     def save_system_settings():
         from app import (SYSTEM_SETTING_DEFINITIONS, _secret_encrypt, api_error,
-                         get_system_setting, log_operation, set_system_setting)
+                         get_system_setting, location_management_enabled,
+                         log_operation, set_system_setting)
+        from services.warehouse_stock_service import find_location_ledger_mismatches
         try:
+            # F2.10 ①（审计 §1.3）：捕获"开启库位管理"的原值。set_system_setting 会
+            # 同步请求级缓存（app.py get_system_setting 的 BUG-2026-08-23-002 缓存），
+            # 循环内再读已是新值，故必须在循环前取原值。
+            was_location_enabled = location_management_enabled()
             changed = []
             for key, definition in SYSTEM_SETTING_DEFINITIONS.items():
                 setting_type = definition.get('type', 'text')
@@ -81,6 +87,28 @@ def register_system_settings_routes(app):
                 current_value = get_system_setting(key, definition.get('default', ''))
                 if current_value != value:
                     changed.append(definition['label'])
+                # F2.10 ①（审计 §1.3 高危）：库位管理由「关」→「开」前强制跑三账恒等式。
+                # 开启后 get_warehouse_stock_quantities 会切换到读 location_inventory，
+                # 若库位账与流水账不一致（历史库位账为空是常态），开启即生产事故：
+                # 库存查询/报表/手机端大面积显示 0、出库被拒、存量单据调整/调拨完成失败。
+                # 有差异则拒绝开启，并指引用 backfill 工具先回填。
+                if (key == 'location_management_enabled' and value == '1'
+                        and not was_location_enabled):
+                    mismatches = find_location_ledger_mismatches(limit=20)
+                    if mismatches:
+                        db.session.rollback()
+                        sample = '；'.join(
+                            f"{m['code'] or m['material_id']}"
+                            f"@{m['warehouse_id'] if m['warehouse_id'] is not None else '总账'}"
+                            f"(库位账{m['location']}/流水{m['txn']})"
+                            for m in mismatches[:5])
+                        return jsonify({
+                            'status': 'error',
+                            'msg': (f'拒绝开启库位管理：库位账与流水账存在 {len(mismatches)} 处'
+                                    f'（含更多）不一致，开启后会导致库存查询/出库大面积失效。'
+                                    f'请先执行 scripts/backfill_location_inventory.py 回填并对齐'
+                                    f'库位账（建议先 --dry-run 核对）后重试。示例：{sample}'),
+                        }), 400
                 setting = set_system_setting(key, value)
                 setting.remark = definition.get('remark', '')
 

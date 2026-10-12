@@ -90,6 +90,75 @@ def verify_material_three_ledgers(material) -> tuple[bool, dict]:
     return ok, {'one': one, 'two': two, 'three': three, 'location_on': location_on}
 
 
+def find_location_ledger_mismatches(tolerance=LEDGER_EPS, limit=20):
+    """开启库位管理前的防爆前置校验（F2.10 ①，审计报告 §1.3）。
+
+    「库位管理」是**高危开关**：开启后 `get_warehouse_stock_quantities` 由按流水
+    `location` 聚合切换为按 `LocationInventory` 聚合。若库位账（②）与流水账（③）
+    不一致（典型：历史库位账为空），开启后库存查询/报表/手机端会大面积显示 0、
+    出库被拒、存量单据调整/调拨完成失败。故由 0→1 前必须先跑本判据。
+
+    判据与 `scripts/verify_inventory_identity.py` 的**硬失败维度**对齐（只读）：
+      - 仓级 ②≠③：逐 (material_id, warehouse_id) 比对库位账净额与流水净额；
+        `warehouse_id IS NULL` 的历史行**不猜归属**、跳过（与脚本 UNATTRIBUTED 桶一致）；
+      - 物料级 ①≠Σ②：仅对**存在库位账行**的物料判——库位账整体为空是"关库位管理"
+        的预期状态，与脚本 `find_mismatches`（`location_rows > 0` 才判）同口径。
+
+    返回不一致清单（每条 dict，最多 limit 条）；空列表表示可以安全开启。
+    只读，不写任何账。
+    """
+    import sqlalchemy as sa
+
+    from app import LocationInventory, Material, StockTransaction, db
+
+    loc_rows = (db.session.query(
+                    LocationInventory.material_id,
+                    LocationInventory.warehouse_id,
+                    sa.func.sum(LocationInventory.quantity))
+                .group_by(LocationInventory.material_id,
+                          LocationInventory.warehouse_id).all())
+    txn_rows = (db.session.query(
+                    StockTransaction.material_id,
+                    StockTransaction.warehouse_id,
+                    sa.func.sum(StockTransaction.quantity))
+                .group_by(StockTransaction.material_id,
+                          StockTransaction.warehouse_id).all())
+    codes = dict(db.session.query(Material.id, Material.code).all())
+    ledger = {mid: float(stock or 0)
+              for mid, stock in db.session.query(Material.id, Material.stock).all()}
+
+    loc_by_key = {(mid, wid): float(qty or 0) for mid, wid, qty in loc_rows}
+    txn_by_key = {(mid, wid): float(qty or 0) for mid, wid, qty in txn_rows}
+
+    findings = []
+    # 仓级 ②≠③：遍历两边的并集（仅出现在流水侧、库位账缺行的仓也必须判出来）
+    for key in sorted(set(loc_by_key) | set(txn_by_key), key=lambda k: (str(k[0]), str(k[1]))):
+        mid, wid = key
+        if wid is None:
+            continue  # 未归属历史行不猜归属
+        loc_q = loc_by_key.get(key, 0.0)
+        txn_q = txn_by_key.get(key, 0.0)
+        if abs(loc_q - txn_q) > tolerance:
+            findings.append({
+                "dimension": "wh_location_vs_txn", "material_id": mid,
+                "code": codes.get(mid, ""), "warehouse_id": wid,
+                "location": round(loc_q, 2), "txn": round(txn_q, 2),
+                "delta": round(loc_q - txn_q, 2)})
+    # 物料级 ①≠Σ②：仅对存在库位账行的物料判
+    loc_total_by_mid = {}
+    for (mid, _wid), q in loc_by_key.items():
+        loc_total_by_mid[mid] = loc_total_by_mid.get(mid, 0.0) + q
+    for mid, loc_total in loc_total_by_mid.items():
+        one = ledger.get(mid, 0.0)
+        if abs(one - loc_total) > tolerance:
+            findings.append({
+                "dimension": "ledger_vs_location", "material_id": mid,
+                "code": codes.get(mid, ""), "warehouse_id": None,
+                "location": round(loc_total, 2), "txn": round(one, 2),
+                "delta": round(one - loc_total, 2)})
+    return findings[:limit]
+
+
 def guard_three_ledgers(material) -> bool:
     """入口内调用的三账守卫：开了才校验，默认只告警、不阻断。
 
