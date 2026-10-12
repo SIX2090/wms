@@ -2,6 +2,8 @@
 # AI_TASK: AI-R02
 
 校验代码中的 AI 任务标记与台账 WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md 不脱节。
+F4.4 拆分后：台账完成记录按月分片于 docs/ledger/ai/（completions-*.md /
+records-*.md），本脚本对账时合并主文件与全部分片（INDEX.md 除外）。
 
 机制：
 - 代码中用注释 `# AI_TASK: <ID>` 标记 AI 能力归属（路由、工具注册、Feature Flag 等）
@@ -28,6 +30,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / 'app'
 LEDGER_PATH = ROOT / 'WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md'
+# F4.4 拆分：§8 完成记录表 → completions-*.md；§16 完成记录小节及散装记录 → records-*.md。
+# 对账需合并主文件 + 全部分片（与拆分前的全文行为等价）；INDEX.md 为衍生索引不参与。
+LEDGER_SHARD_DIR = ROOT / 'docs' / 'ledger' / 'ai'
 
 # 匹配代码中的 AI 任务标记：# AI_TASK: AI-R01 或 <!-- AI_TASK: AI-R01 -->
 TASK_MARKER_RE = re.compile(r'AI_TASK:\s*([A-Z]+-[A-Z0-9-]+)')
@@ -48,6 +53,12 @@ LEDGER_COMPLETED_RE = re.compile(
 def parse_ledger_tasks() -> tuple[dict[str, str], set[str]]:
     """返回 (任务ID->状态, 已完成任务ID集合)"""
     text = LEDGER_PATH.read_text(encoding='utf-8')
+    # F4.4：合并分片（completions-*.md + records-*.md），等价于拆分前的全文
+    if LEDGER_SHARD_DIR.exists():
+        for shard in sorted(LEDGER_SHARD_DIR.glob('*.md')):
+            if shard.name == 'INDEX.md':
+                continue
+            text += '\n' + shard.read_text(encoding='utf-8')
     task_status: dict[str, str] = {}
     completed: set[str] = set()
 

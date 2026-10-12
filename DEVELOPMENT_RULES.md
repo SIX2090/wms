@@ -52,15 +52,15 @@
 
 发现 BUG 后：
 
-1. 在 `WMS_BUG_BASELINE.md` 添加一条
-2. 格式：`BUG-YYYY-MM-DD-NNN: <标题>`
+1. 在 BUG 台账分片 `docs/ledger/bugs/entries-<当月>.md` 添加一条（F4.4 拆分后主文件 `WMS_BUG_BASELINE.md` 只承载规则与索引；查询：`python scripts/query_ledger.py --task <ID>`）
+2. 格式：`### BUG-YYYY-MM-DD-NNN: <标题>`（含「生效确认」字段，A13 门禁）
 3. 状态：未修复
 
 ### 2.2 修复
 
 1. commit message 写明：`fix(<模块>): BUG-YYYY-MM-DD-NNN <简述>`
 2. 加一个回归测试（如果是 verify_wms_bugs 脚本能查的，就在那里加一条）
-3. 在 `WMS_BUG_BASELINE.md` 把状态改为"已修复"
+3. 在对应分片把状态改为"已修复"（同月分片内该条目；跨月修复在修复当月分片追加修复记录）
 
 ### 2.3 复盘（每月一次）
 

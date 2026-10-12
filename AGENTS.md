@@ -148,7 +148,7 @@
 
 - [`WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`](./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md) 是唯一的 AI 开发待办与完成台账。实现任何 AI 功能前，先查其唯一任务 ID、当前状态、现有代码、测试、页面和 Git 历史；绝不重复开发已完成或等价能力。
 - 每个 AI 代码变更必须映射到唯一台账任务 ID。新增任务前必须做全仓库查重；对已完成能力的修复必须使用子修复 ID，不得重复原任务。
-- 标记 AI 任务完成的前提：代码、权限、人工确认边界、测试、文档、验证，**以及所有 atomic action 按上述推送规则完成提交推送**，全部齐备。立即在台账记录完成日期、提交哈希、变更模块、验证命令、结果和遗留子项。权限边界见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)。
+- 标记 AI 任务完成的前提：代码、权限、人工确认边界、测试、文档、验证，**以及所有 atomic action 按上述推送规则完成提交推送**，全部齐备。立即在台账记录完成日期、提交哈希、变更模块、验证命令、结果和遗留子项（F4.4 拆分后完成记录登记到 `docs/ledger/ai/completions-<当月>.md` 表尾并更新索引 `docs/ledger/INDEX.md`，用 `python scripts/query_ledger.py --rebuild-index` 重建）。权限边界见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)。
 - 每个 AI 任务结束时，将台账与 AI 路由、工具、模型、模板、特性开关、迁移和验证脚本对账，确保已实现的能力不被遗漏、计划中的能力不被误报为已实现。
 
 ## 六、防 BUG 规则（A1–A14，2026-07-31 新增）
@@ -190,7 +190,7 @@
 
 ### 修复 BUG 流程
 
-1. 在 [`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 登记（`BUG-YYYY-MM-DD-NNN: <标题>`）
+1. 在 BUG 台账分片 `docs/ledger/bugs/entries-<当月>.md` 登记（`### BUG-YYYY-MM-DD-NNN: <标题>`，含「生效确认」字段；主文件 `WMS_BUG_BASELINE.md` 只承载规则与索引，查询用 `python scripts/query_ledger.py --task <ID>`）
 2. commit message 关联 BUG ID：`fix: BUG-2026-07-31-001 xxx`
 3. 加回归测试
 4. 改状态为"已修复"

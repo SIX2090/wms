@@ -1,0 +1,297 @@
+# BUG 基线 · 详情归档 2026-10
+
+> 本分片由 `WMS_BUG_BASELINE.md BUG 详情小节（开工前置门禁段及文件尾部）` 拆出（F4.4（2026-10-13））。
+> 新增 BUG 详情小节请写入当月分片，且必须含「生效确认」字段（A13）。
+
+---
+
+### BUG-2026-10-01-001（2026-10-01，CI Android unit-test job 无超时上限，新增 Robolectric 测试疑似挂起烧 runner 70+ 分钟）
+
+- **发现方式**：M2' 替代 2 推送 4 个 Robolectric 测试（`1ca3e9d`~`bf8e600`）后，`Android APK Build` **#760** 的 unit-test job 在「Unit tests (BUG-2026-08-16-021)」步骤上静默卡死 70+ 分钟（历史绿构建全程仅 ~5 分钟；Gradle 缓存命中 8s 排除依赖下载；步骤计时实证卡在测试执行期）。GitHub Actions 默认 job 超时 **360 分钟**，不干预会烧满 6 小时 runner——已手动取消 #760 止损。
+- **根因（分层）**：①工作流 unit-test job 无 `timeout-minutes`——挂起类故障不会失败、不会上传 JUnit 报告（`if: failure()` 不含 cancelled 路径），诊断链路整体缺失（工程缺陷，本条修复）；②测试真实挂起点**未定位**——静态排查已排除：MockWebServer 链路（OkHttp 30s 读超时必失败）、DataStore 草稿链路（runBlocking 事件循环自泵）、Main 派发器死锁（无测试 setMain、viewModelScope immediate 内联执行后仅挂起不阻塞测试线程）、依赖缓存（命中）。定位依赖下一轮 CI 的 25 分钟超时击杀 + 报告上传（已完成用例清单中**缺失的那个测试**即卡点）。
+- **修复（工程防御）**：unit-test job 增加 `timeout-minutes: 25`（历史绿构建 ~5 分钟的 5 倍余量，只拦真挂死不误伤慢构建）；报告上传条件 `if: failure()` → `if: failure() || cancelled()`（超时击杀的步骤结论是 cancelled，挂起故障的 JUnit 报告恰好只在此路径产生）。
+- **回归**：无需新增——本条为 CI 基础设施防御，`tests/verify_bug_2026_09_14_033_android_unit_test_infra.py` 已有的 `testReleaseUnitTest` 存在性护栏不受影响（该命令未动）。
+- **根因（已定位，#762 探针实证）**：`by preferencesDataStore` 委托是 JVM 级单例，跨 Robolectric 沙箱（每 @Test 方法一个环境）复用——EditDraftPersistenceTest 方法 3 的 `restoreEditDraft` 草稿收集协程在旧沙箱销毁后仍向同一 DataStore actor 排入写请求，actor 链被毒化后**方法 4 的 `saveLoginInfo`（dataStore.edit）永久挂起**（DBG7 后 DBG8 永未打印；同一时刻独立工厂实例的探针 edit 正常返回，挂死前 2ms）。
+- **根因修复**：`DataStoreTestReset`（test sources）反射清空 `WmsRepositoryKt.dataStore$delegate` 的 INSTANCE 缓存，每个测试方法取绑定当前沙箱 filesDir 的新实例（`528015c`）；androidx 内部字段双名兜底（INSTANCE/dataStore），失败大声打印不静默。
+- **生效确认**：**已确认（2026-10-01）**——推送 `528015c` 后 `Android APK Build #763` success（**4 分钟正常速度跑完，74/74 passed**，含 25 项新增 Robolectric 用例；对照 #760/#761/#762 三轮挂死 25 分钟超时）、`WMS CI #1329` / `WMS AI Verification #1624` 全绿。诊断仪表（testLogging STARTED/标准流）为永久保留的基础设施改进。
+- **关联**：M2' 阶段（APK 字节码验证 + Robolectric 补强）、`tests/` 新增 4 文件 25 用例、BUG-2026-09-22-001（报告上传机制的上一轮迭代）、产品侧同类隐患（草稿/提交路径 dataStore.edit 无超时，见 M2' 记录段末尾，待立项）。
+
+### BUG-2026-10-002（2026-10-01，Android DataStore 访问无超时：actor 死亡时关键交互路径永久挂起）
+
+- **发现方式**：BUG-2026-10-001 的 #762 探针实证——`preferencesDataStore` 委托是 JVM 级单例，DataStore actor 链毒化后 `dataStore.edit` 永久挂起；同刻独立工厂实例正常返回。测试侧已修复跨 Robolectric 沙箱复用问题，但生产侧 11 个 DataStore 读写仍无超时，挂起型故障不会进入任何 catch/Result 分支。
+- **危害**：极端磁盘/文件系统异常导致 actor 死亡时，P0 入出库提交前安全落盘会让提交按钮永久转圈且 `draftMutex` 排队；P1 登录、草稿恢复、冷启动会话还原会挂起；P2 盘点草稿保存/清理与登出可能静默卡死。请求尚未发出，因此不产生重复单据，属于可用性故障而非数据一致性故障。
+- **R6 同类点排查**：全仓 Android 生产源码仅 `WmsRepository` 持有唯一 `wms_settings` DataStore 委托；`getSavedBaseUrl` / `saveStocktakeDraft` / `loadStocktakeDraft` / `editDraftKey` / `saveEditDraft` / `loadEditDraft` / `clearStocktakeDraft` / `saveLoginInfo` / `logout` / `getUsername` / `getRole` 共 11 个消费点全部收口，无遗漏。
+- **修复**：`WmsRepository` 新增 5s 默认超时（测试可注入 0ms）：`saveEditDraft` 超时继续抛异常，复用 `persistEditDraft` 的 `draftSaveError` / `prepareDraftSubmission` 的「未安全保存，暂不提交」与 loading 复位分支；其余读写按既有安全语义降级（null / Unit / 登录内存态继续 / 登出继续清内存 token）。超时先捕获 `TimeoutCancellationException`，再透传普通 `CancellationException`，避免把页面退出取消误报为 DataStore 故障。版本 3.9.3(27)→3.9.4(28)。
+- **回归**：新增 Robolectric/JVM 测试 `DataStoreTimeoutTest` 共 6 用例：①超时后 `saveEditDraft` 抛非取消型异常；②`editDraftKey` 超时降级并抛出「请先登录再恢复清单」；③默认超时下正常 DataStore 往返不受影响；④提交前读键超时时，`prepareDraftSubmission` 复用「登录账号或服务器已变更」分支并复位 `isLoading`；⑤写草稿超时时，`persistEditDraft` 返回 false 并置 `draftSaveError`；⑥外层协程取消仍透传，不误吞为超时降级。
+- **生效条件**：Android 代码随 APK 发布生效；需重新构建安装 versionCode 28。生产 WMS 服务端无改动、无需重启 Web 服务。
+- **生效确认**：已确认（2026-10-01，确认人：AI；核对方式：远端 main `093042362ffdf792fe118e2b38e8ecee1bd90c3c` 上三工作流全绿——`Android APK Build` #36793317426、`WMS CI` #36793317478、`WMS AI Verification` #36793317436，均 success；本地无 Android SDK，以 CI 编译与 Robolectric 结果为准）。
+
+### M2' Android 替代验证记录（2026-10-01，无真机环境，AGENTS.md R8 诚实边界）
+
+**背景**：P0 三项中 Android 真机测试不可行（沙箱无真机/无 Java/无 Android SDK），按 M2' 计划以两条替代路径收窄不确定性。**BUG-2026-09-13-018/019/020/021/023 台账状态保持「待真机验收」不变**——替代验证只收窄不确定性，不构成真机验收。
+
+**替代 1：CI Release APK 字节码级验证（已通过）**——Android APK Build #758 产物 `wms-mobile-scan.apk`（25,397,359 字节与 Release 元数据一致，排除 BUG-2026-09-25 截断前科）：①ZIP CRC 全表校验通过；②versionCode=27/versionName=3.9.3 与 build.gradle 一致（**BUG-2026-09-14-027 版本冻结陷阱已排除**，现场覆盖安装可正常替换）；③DEX 字符串表 18/18 硬判据全命中——BUG-018（新行/累计/移除/复核 5 条文案）、BUG-019（/api/outbound/preflight 注解值）、BUG-020（草稿键前缀+4 条文案）、BUG-021（库位上限+同库位校验 2 条文案）、BUG-023（4 条降级日志串）。类描述符未命中系 R8 混淆预期内，口径以字符串常量为准。验证脚本：工作区 `m2_apk/verify_apk_markers.py`（不入库）。**结论：产物已确认含全部修复代码，剩余仅运行时行为待真机。**
+
+**替代 2：Robolectric 补强（CI 实证 74/74 passed）**——新增 4 测试文件 25 用例（文件 6→10，用例 49→74）：`ScanFeedbackTest`（BUG-018，9 项：新行「已加入」/合并「已累计（本次+N）」反馈、移除按编码+库位定位与数量快照复核、盘点替换不翻倍）、`EditDraftPersistenceTest`（BUG-020，7 项：草稿键三重隔离、非法作业类型拒绝、DataStore 落盘往返、删空即删除、脏行剔除、普通草稿恢复可编辑、中断提交恢复幂等键且禁改原清单）、`OutboundPreflightTest`（BUG-019，3 项，MockWebServer 挂真实 Retrofit：预检→提交两连击幂等键透传、业务拒绝不入离线队列、幂等回放跳过预检）、`LocationSelectionTest`（BUG-021，6 项：表头库位落行、空白裁剪、超长拒绝不改写、清空同步清行、草稿模式新行盖库位、关闭写 null）。
+
+**过程故障与修复**：①首推 #759 编译错（字符串模板 `$name` 引用不存在变量，全仓排查修 3 处，`4437ed8`）；②#760/#761/#762 unit-test 挂起（详见 BUG-2026-10-001，根因 DataStore 委托单例跨 Robolectric 沙箱毒化，`528015c` 修复）；③最终 `Android APK Build #763` **4 分钟全绿，74/74 passed**（含 25 项新增），CI #1329 / AI Verification #1624 同绿。
+
+**新发现的产品侧隐患（登记待评估，本阶段不修）**：BUG-2026-10-001 的测试侧根因揭示生产路径存在同类风险——`ScanViewModel.persistEditDraft`（草稿自动保存收集器）与 `prepareDraftSubmission`（提交前落盘幂等键）都直接 `dataStore.edit`：若 DataStore actor 因写失败死亡（如磁盘满/文件损坏风暴），**提交路径的 edit 会永久挂起 = 提交按钮无限转圈**。生产环境为单进程单环境，触发概率低于测试沙箱场景，但后果严重，建议后续单独立项评估（加超时/降级）。
+
+## BUG-2026-10-03-001：AI 治理合并后 verify 断言仍引用旧文案（verify.yml + WMS CI 双红灯）
+
+- **日期**：2026-10-03
+- **发现方式**：AA1 推送后 `verify.yml` 立即红灯；修复后暴露 `WMS CI` 第二处红灯（行号引用）
+- **根因**：R6 同根因复发——修改了被多处断言引用的页面文案/代码行数，推送前未全库排查引用点：
+  1. `base.html` 菜单文案「补货建议（规则）」改为「补货建议（安全库存）」后，`scripts/verify_ai_stage7_replenishment.py` 与 `tests/verify_ai_naming_truthfulness.py` 两处断言仍匹配旧文案 → `verify.yml` #1647 红灯
+  2. `app.py` 新增 4 行（ai_llm_active 注入 + max_tokens 默认值注释）后，`tests/test_inventory_truth_line_refs.py` 中 app.py 回填行号引用偏移 +4（超出 ±2 行窗口）→ `WMS CI` #1353 红灯（verify.yml 修好后才暴露）
+- **修复**：推送 `3d6a611`（同步两处断言 + 「智能补货分析」→「补货建议（周转分析）」消除 T8 违规）+ `a59166f`（补登行号引用 28123→28127 + INVENTORY_TRUTH.md 同步）
+- **教训**：改任何页面文案/在 app.py 插入行之前，必须先 `grep` 全库（含 scripts/、tests/、docs/）排查引用点；verify.yml 修绿后必须等 WMS CI 也出结果才能判定 CI 绿——两个工作流是独立工作流，一个绿不代表全绿（AA1 的教训）。同时工作区根 `scripts/check_ci_green.py` 门口的存在就是为了拦截此类事件，必须无条件先跑。
+- **生效确认**：已确认（2026-10-03）——推送 `3d6a611`/`a59166f` 后三工作流全绿：`WMS AI Verification` #1648/#1649 success、`WMS CI` #1354 success、`Android Build` success @a59166f
+
+## BUG-2026-10-04-001：ScanViewModel 两参构造后 NavGraph 无工厂反射创建，入出库/库存/盘点页一打开即闪退
+
+- **日期**：2026-10-04
+- **发现方式**：真机（HUAWEI LIO-AN00，SDK 31，v3.9.4）用户回传崩溃堆栈：`RuntimeException: Cannot create an instance of class ...scan.ScanViewModel`，`Caused by: NoSuchMethodException: ScanViewModel.<init> [class android.app.Application]`，发生于 Compose 导航创建 ViewModel 时（doFrame 渲染链路）。
+- **根因**：BUG-2026-10-002（`7537b3d`，DataStore 超时）给 `ScanViewModel` 构造函数新增第二参数 `dataStoreTimeoutMs: Long = WmsRepository.DATASTORE_TIMEOUT_MS`。**Kotlin 默认参数不生成 `(Application)` 单参构造方法**；NavGraph 5 处 `viewModel(key=...)` 均为无工厂创建，走 `AndroidViewModelFactory` 反射查找 `<init>(Application)` 必然抛 `NoSuchMethodException`。当时只改了单测里的手写构造（`DataStoreTimeoutTest` 等直接 new），**漏改 NavGraph 全部反射创建点**；且项目全部 Python"Android 测试"是源码字符串断言、单测又绕过了框架创建路径，无任何环节能暴露该签名失配，带病上线。
+- **R6 同根因排查**：与 BUG-2026-09-14-029（构造期急切解析 api）/032（组合根饿汉创建）根因不同；已全量 grep 主源码 `ScanViewModel = viewModel(` 创建点共 5 处（inbound/outbound/stock_query/stocktake×2），全部补齐 factory；其余 ViewModel 均为单参构造不受影响。
+- **修复**：`ScanViewModel` 新增 `companion object { val Factory = viewModelFactory { initializer { ... } } }`（CreationExtras 取 `APPLICATION_KEY`）；NavGraph 5 处创建点改传 `factory = ScanViewModel.Factory`。新增回归锁 `tests/verify_bug_2026_10_04_001_scan_viewmodel_factory.py`（工厂声明 + 创建点必须传 factory + 台账登记三断言）。
+- **教训**：改 ViewModel 构造签名时，必须同时排查**框架反射创建点**（NavGraph/`viewModel()`/`by viewModels()`），单测手写 new 不代表运行时路径安全；凡构造参数多于 `AndroidViewModelFactory` 能注入的签名，必须同步提供 Factory 并让全部创建点引用它。
+- **生效确认**：待确认——本机无 Android SDK/Kotlin 工具链，无法本地编译验证（R8-5）；须等 `Android APK Build` 转绿 + 真机安装新 APK 打开入/出库页验证不再闪退后回填。
+
+## BUG-2026-10-04-002：首页「今日概览」标题行被裁切 + 语音 FAB 压住底部导航「我的」入口
+
+- **日期**：2026-10-04
+- **发现方式**：真机截图实证（HUAWEI LIO-AN00）——「今日概览/项目仓」标题行下半截被概览卡片裁切；右下角语音麦克风悬浮球压住底部导航最右「我的」（角色）入口。
+- **根因（两处，均布局层）**：
+  1. 标题行放在 `offset(y = (-28).dp)` 的半悬浮 Column 里，设计假定行高 ≤28dp；`WarehouseSelector` 切换器（~32dp 高）使行高超出预留，标题白字下半截落到 Hero 深蓝区之外的白底上——白字白底不可见，视觉上被卡片"切掉一半"。
+  2. `VoiceAssistantOverlay` 叠加在 NavHost 之上、对底栏无感知，FAB 用 `padding(20.dp)` 从屏幕底缘算起，正好盖住 `WmsBottomBar`（M3 NavigationBar，80dp）最右 tab。
+- **修复**：
+  1. `HomeScreen.kt`：标题行（含三态：成功=文字+切换器 / 加载=shimmer / 失败=文字+切换器）收进 Hero 蓝底内，行高任意都恒在蓝底上；概览卡片保留 `offset(-28)` 半悬浮不变（Hero 底部 48dp 预留不动）；`DashboardOverviewError`/`DashboardOverviewSkeleton` 移除各自重复的标题行。
+  2. `VoiceAssistant.kt`：FAB modifier 改为 `.navigationBarsPadding().padding(end = 20.dp, bottom = 88.dp)`——先抬过系统手势区再抬过应用底栏（与同文件 SnackbarHost `bottom = 88.dp` 同一口径）。
+- **回归锁**：`tests/verify_bug_2026_10_04_002_home_header_fab_position.py`（标题行不在 offset Column 内、标题在 Hero 区内且白字、卡片悬浮保留、FAB 抬升口径、台账登记五断言）。
+- **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机安装新 APK 核对首页标题完整可读、FAB 不再遮挡「我的」后回填。
+
+## BUG-2026-10-04-003：Hero 蓝底上「项目仓」切换器深色文字不可读（002 修复引入的对比度回退）
+
+- **日期**：2026-10-04
+- **发现方式**：真机截图实证——BUG-2026-10-04-002 修复生效（标题完整、FAB 不挡「我的」）后，「项目仓」切换器在 Hero 深蓝底上呈深色、几乎不可读。
+- **根因**：`WarehouseSelector` 从报表页（浅底）提取为共享组件（BUG-2026-09-10-010）时未考虑深底场景，无前景色参数，`TextButton` 默认主题色（primary）+ 箭头 `onSurfaceVariant` 均为深色；002 把切换器收进 Hero 蓝底后深色压蓝底对比度不足。**002 修复时未同步评估组件颜色语义**——改动布局归属必须连带检查被移动组件的主题假设。
+- **修复**：`WarehouseSelector` 新增 `contentColor: Color? = null` 参数（默认 null=主题色，报表页等浅底调用方行为不变）；`HomeScreen` Hero 调用点显式传 `contentColor = Color.White` 并加半透明白底 chip（`White.copy(alpha = 0.15f)` + 圆角 16dp，与 Hero 右上角退出按钮同一套控件语言）。
+- **R6 同类点排查**：共享组件全部调用点已 grep——报表页（浅底，不传参保持主题色）、`test_mobile_stock_ledger_page.py` 引用的页面均已核对，无其他深底场景。
+- **回归锁**：`tests/verify_bug_2026_10_04_003_hero_selector_contrast.py`（参数存在、Hero 传白、报表页不受影响、台账登记四断言）。
+- **生效确认**：待确认——本机无 Android SDK（R8-5），须等 `Android APK Build` 转绿 + 真机核对「项目仓」白字清晰可读后回填。
+
+## BUG-2026-10-05-001：出库单（含领料单）「编辑单据」保存恒失败，永弹「请选择出库日期」
+
+- **日期**：2026-10-05
+- **发现方式**：真实浏览器（Playwright + Chromium）复现用户报障链路——「领料单反提交修改仓库后无法保存一直提示修改出库日期」。完成→反提交→编辑单据→改仓库为「成品仓」→点「保存」：**无任何 POST 请求发出**、弹窗不关闭、吐司固定为「请选择出库日期」。数据库 `out_order.warehouse` 保持原值不变。
+- **根因**：`app/templates/out_order_detail.html` 的 `saveHeader()` 用
+  `Array.prototype.forEach.call(new FormData(form).entries(), cb)` 收集表单。
+  `FormData.prototype.entries()` 返回的是 **Iterator**，不是 Array，也不是 Array-like
+  ——**没有 `length` 属性**。`Array.prototype.forEach` 对非数组对象按 `length` 索引遍历，
+  `length` 为 `undefined`（转数字为 0），于是**循环 0 次**，`data` 恒为 `{}`，
+  `data.date` 恒 `undefined`，**必然**命中 `if (!data.date)` 分支弹出「请选择出库日期」并 `return`。
+  **文案误导**：报错说「请选择出库日期」，实际与日期无关——该弹窗的**任何**字段都保存不了，
+  改仓库只是最容易触发和观察的操作，导致用户误判为日期问题。
+  **为什么此前测试没抓到**：`Array.from(...)` / `for...of` / `Object.fromEntries(...)` 都支持迭代器协议，
+  用它们做验证会永远"通过"；只有浏览器里真实 click 走 `Array.prototype.forEach.call` 才会暴露。
+- **修复**：`saveHeader()` 改为 `var data = Object.fromEntries(new FormData(form).entries());`
+  —— 与同功能的 `in_order_detail.html:1301` 对齐（入库单一直是正确写法，两份实现此前分叉）。
+  已补注释说明 `entries()` 是 Iterator、禁止用 `Array.prototype.*.call` 遍历。
+- **R6 同类点排查**：全仓 grep `Array.prototype.*.call(<...>.entries()`——
+  `app/templates/`（含 `in_order_detail.html`、`report_view.html`、
+  `ai_data_retention.html`）与 `app/static/js/` 全部核对：**仅 `out_order_detail.html:1475` 一处**该错误写法。
+  其余同类取值均为 `Object.fromEntries(formData.entries())`（L126/L1301）或
+  `for (const [k,v] of formData.entries())`（L386/L433），写法正确。
+  另核对 `Array.prototype.forEach.call(listEl.querySelectorAll(...))`（`mobile_scan.html:1214`）
+  —— `NodeList` 有 `length`，是合法用法，不属于本根因。
+- **回归锁**：`tests/test_bug_2026_10_05_001_out_order_edit_header_formdata.py`（7 断言：
+  出库单无迭代器误用、出库单用迭代器安全取值、出库单与入库单写法统一、
+  **入库单对照组不得被改坏**、全模板 R6 扫描、static/js R6 扫描、台账登记五字段）。
+  A14 反向验证已执行：回退修复代码后 5 项报红（3 项出库单断言 + R6 模板扫描 + 台账断言），
+  对照组 2 项（入库单正确性、static/js 无残留）保持绿，证明锁定有效且无假阳性。
+- **生效确认**：修复后用同一浏览器脚本（Playwright + Chromium 真实点击）**从零跑完整用户链路**，全绿：
+  ① 新建领料单 OU26100002（材料仓，物料 M001×5）→ `POST /out_order/add -> 200`；
+  ② 完成领料 → 触发同料异常提醒 → 确认后 `POST /out_order/2/complete?force=true -> 200` → `status=completed`；
+  ③ **反提交** → `POST /out_order/2/revert -> 200` → `status=pending`；
+  ④ **编辑单据 → 改仓库 材料仓→成品仓 → 保存** → `POST /out_order/2/update -> 200`，
+  payload `{"date":"2026-10-05","department_id":"1","picker":"张三","warehouse_id":"2",...}`，
+  响应 `{"status":"success","msg":"保存成功"}`，弹窗正常关闭（`modal fade`，无 `show`），
+  数据库 `out_order.warehouse` 由「材料仓」**真实变为「成品仓」**。
+  对照修复前基线（同一脚本）：第 ④ 步**零请求**发出、吐司恒为「请选择出库日期」、弹窗不关、仓库不变。
+  门禁：`scripts/lint_wms_rules.py` 0 违规、`scripts/lint_no_raw_post_fetch.py` 通过、
+  新回归锁 7 passed、相邻模块回归 95 passed/2 skipped/0 failed。
+- **推送与 CI**：已 push `main`（`863f72e..3a8a4a1`）。三大门禁全绿 ✅：
+  `WMS CI`（[run 37263835479](https://github.com/SIX2090/wms/actions/runs/37263835479)）、
+  `WMS AI Verification`（[run 37263835375](https://github.com/SIX2090/wms/actions/runs/37263835375)）、
+  `WMS Perf Baseline`（[run 37263835411](https://github.com/SIX2090/wms/actions/runs/37263835411)）。
+  提交内 12 项 check-runs（smoke / lint-and-static / static-checks / unit-tests-shard-0~2 /
+  verify-shard-0~3 / perf / ai-core）**全部 success**。
+- **生效确认**：⚠️ Linux 沙箱已实测通过（详见上一条），但**Windows 实机（用户环境）待复核**：
+  请用户在实机重走「领料单→反提交→编辑单据→改仓库→保存」，确认弹窗关闭且仓库已改，然后回填本字段。
+- **全面性复核（用户追问"其他单据是否也修了"后补做，2026-10-05）**：
+  **代码层全仓扫描**：`grep '\.entries()'` 命中的业务代码仅 5 处 ——
+  `in_order_detail.html:1301`（`Object.fromEntries`，正确）、
+  `ai_data_retention.html:126`（`Object.fromEntries`，正确）、
+  `report_view.html:386/433`（`for...of` 解构，正确）、
+  `out_order_detail.html:1477`（本次修复处）。
+  `Array.prototype.*.call` 命中 3 处真实业务代码：本处（Iterator，**BUG 已修**）、
+  `mobile_scan.html:1214` 与 `base.html:2282`（目标均为 `querySelectorAll` 的 **NodeList，有 length**，合法）。
+  `new FormData` 直接喂 `fetch(body:)` 的 `adjustment.html:276` / `transfer.html:362` 不迭代，安全。
+  `subcontract_detail.html:1075` 的 `saveHeaderEdit` 用 `getElementById().value` 逐个取值，不经过 FormData，不受影响。
+- **全面性复核——真实浏览器逐类型实测**：`out_order_detail.html` 是**四种出库单共用的同一模板**
+  （第 153/565 行按 `business_type` 分支渲染），故一处修复覆盖全部。实测 5 张单据全部 PASS：
+  | 单据 | 业务类型 | 实测操作 | 结果 |
+  |---|---|---|---|
+  | id=1 | 领料单 | 改仓库 成品仓→仓库A | ✅ `POST /out_order/1/update -> 200`，落库 |
+  | id=2 | 领料单 | 改仓库 成品仓→仓库B | ✅ `POST /out_order/2/update -> 200`，落库 |
+  | id=3 | 其他出库 | 改仓库 材料仓→仓库A | ✅ `POST /out_order/3/update -> 200`，落库 |
+  | id=4 | 销售出库 | 改备注（该类型按设计无仓库字段） | ✅ `POST /out_order/4/update -> 200`，备注落库 |
+  | id=5 | 采购退货出库 | 改仓库 材料仓→仓库A | ✅ `POST /out_order/5/update -> 200`，落库 |
+  5 张单据均：吐司无「请选择出库日期」、弹窗正常关闭（`modal fade`）、DB 值真实变更。
+- **回归锁扩容（2026-10-05）**：`tests/test_bug_2026_10_05_001_out_order_edit_header_formdata.py` 由 7 断言扩至 **9 断言**，
+  新增 ①`NodeList` 白名单钉死（防止日后把 `querySelectorAll` 偷换成 `FormData.entries()` 仍留白名单）、
+  ②全仓 `new FormData(...).entries()` 消费方式必须迭代器安全。
+  A14 反向验证复跑：BUG 版本下 **5 项报红**（含新增的全仓扫描），对照组 4 项保持绿。
+
+## BUG-2026-10-05-002：iframe 嵌入页重复渲染右下角浮动按钮，出现「两个打印告警铃铛」重叠
+
+- **日期**：2026-10-05
+- **发现方式**：用户真机截图报障——右下角出现**两个打印告警铃铛叠在一起**（各带红色角标「8」），
+  点击任意一个都跳 `/print_alerts`。用户追问「点击都是打印告警，二个在一起你觉得没有问题？」。
+- **真实浏览器复现**（Playwright + Chromium 1440x900，`scripts` 之外的临时脚本）：
+  - 外层主页面：`.print-alert-bell` → x=1364, y=756；
+  - 内嵌 iframe 页（`/?embedded=1`）：`.print-alert-bell` → x=1349, y=741。
+  两者坐标仅差约 15px，同为 48×48 fixed 圆按钮 → **严重重叠**，视觉上就是"两个铃铛"。
+  修复后同一脚本复测：全视口可见铃铛 = **1**（仅 outer）。
+- **根因**：`app/templates/base.html` 的 `body.embedded-page` CSS 隐藏规则覆盖了
+  `.sidebar`、`.app-wrapper`、`.main-content`、`.tab-workspace`，
+  **唯独遗漏了右下角悬浮按钮**（`.print-alert-bell` / `.ai-assistant-button` / `.ai-assistant-panel`）。
+  而 iframe 内页面（`?embedded=1`，见 `base.html:2382` body class、`app.js:150-158`
+  `isWmsEmbeddedPage()`）同样是完整的 base.html 渲染，于是**又渲染了一整套 fixed 定位的浮动按钮**，
+  与外层 `right/bottom` 完全相同 → 完全重叠。
+  **为什么两个铃铛都是"打印告警"**：它们是同一个模板块在内外两层各渲染一次，角标同源
+  （`print_alert_unread_count`），故数字一样、跳转目标一样。
+  对比反证：`.sidebar` / `.tab-workspace` 都做了 `body.embedded-page` 隐藏，唯独浮动按钮漏了。
+- **修复**：在 `base.html` 的 `body.embedded-page` 规则组内，紧随 `.tab-workspace` 之后补齐：
+  ```css
+  body.embedded-page .print-alert-bell,
+  body.embedded-page .ai-assistant-button,
+  body.embedded-page .ai-assistant-panel {
+      display: none !important;
+  }
+  ```
+  **设计口径**：右下角浮动按钮（打印告警铃铛 / AI 助手）由**外层主页面统一提供**；
+  嵌入页只负责内容区。与既有 `insertGlobalActionBar()`（`app.js:3183`）
+  「嵌入场景由 iframe 内部注入内容工具栏、外层负责全局」的分工一致。
+- **R6 同类点排查**：`base.html` 中所有 `body.embedded-page` 隐藏规则逐条核对——
+  `.sidebar` / `.app-wrapper` / `.main-content` / `.tab-workspace` 已覆盖，
+  本次补齐浮动按钮三件套。全仓 `.print-alert-bell` 模板标签**仍为 1 处**
+  （`base.html:2876`），确认不是模板重复渲染，而是 CSS 遗漏导致的 iframe 叠加。
+- **回归锁**：`tests/test_bug_2026_10_05_002_embedded_duplicate_fab.py`（6 断言：
+  嵌入页隐藏铃铛、嵌入页隐藏 AI 按钮+面板、隐藏规则与既有规则同组且紧随其后、
+  外层仍渲染铃铛恰好 1 处、非嵌入页不得隐藏铃铛、台账登记含「生效确认」五字段）。
+  另有真实浏览器验证 `scripts/verify_bug_2026_10_05_002_embedded_duplicate_fab_browser.py`
+  （独立可执行，无 Playwright / 服务不可达时以退出码 2 跳过）。
+  **为何置于 `scripts/`**：Playwright 需额外下载浏览器二进制，CI 无图形环境不适合安装；
+  且 `tests/test_bug_2026_09_23_001_test_deps_pinned.py` 要求 `tests/` 下所有三方
+  import 必须钉入 `app/requirements-test.txt`——本脚本属"本地手动验证工具"，
+  与既有 `scripts/verify_ai_browser_e2e.py` 同类。首次提交时误置于 `tests/`，
+  导致 CI `unit-tests-shard-1` 的依赖钉版规则报红（已修正，避免往 CI 依赖塞 Playwright）。
+  A14 反向验证已执行：回退 CSS 修复后，嵌入页隐藏类 4 项断言报红，
+  「外层仍渲染铃铛」「非嵌入页不隐藏」2 项保持绿，证明锁定有效且无假阳性。
+- **生效确认**：✅ Linux 沙箱已用 Playwright + Chromium 真实浏览器实测通过：
+  修复前「首页可见外层 + iframe 两个铃铛、坐标差 15px 重叠」；
+  修复后「首页可见铃铛 = 1（outer x=1364 y=756）、打开 `/out_order?embedded=1` 内容页
+  仍为 1 个、AI 按钮 = 1 个、铃铛 href=/print_alerts」。
+  ⚠️ **Windows 实机（用户环境）待复核**：请在实机刷新页面确认右下角只剩一个打印告警铃铛，
+  然后回填本字段。
+- **推送与 CI**：已 push `main`（`f732df0..88cff24`，3 个 atomic commit）。
+  三大门禁全绿 ✅：本提交 12 项 check-runs（smoke / lint-and-static / static-checks /
+  unit-tests-shard-0~2 / verify-shard-0~3 / perf / ai-core）**全部 success**。
+  注：首个提交曾因浏览器脚本误置 `tests/` 触发依赖钉版规则使 `unit-tests-shard-1` 报红，
+  经 `88cff24` 移出 `scripts/` 后复跑全绿。
+
+
+---
+
+## BUG-2026-10-05-003：AI 库存工具 Stock 模型导入错误（4 接口 500）
+
+- **现象**：`/api/ai/v2/tools/inventory/health`、`/api/ai/v2/tools/inventory/material`、`/api/ai/v2/tools/inventory/low-stock`、`/api/ai/v2/tools/inventory/value` 登录后全部返回 500，错误信息为 `ImportError: cannot import name 'Stock' from 'app'`。
+- **根因**：`app/ai/tools/inventory.py` 中 4 处延迟导入引用了不存在的 `Stock` 模型（全项目无 `class Stock` 定义，仅 `StockTransaction` 存在于 `models/inventory.py:48`）。系统实际用 `Material.stock` 字段表达全局库存，`Stock` 为历史遗留死代码。
+- **修复**（v2，2026-10-05 二次修复以满足 A11 门禁）：4 处 `from app import db, Material, Stock` 改为 `from app import db, Material`；`material_query` / `inventory_health` / `low_stock_report` 3 处改 `get_all_warehouses_stock_quantities()` 全仓汇总口径（Σ②库位账，A11 合规，附带消除每物料一次查询的 N+1）；`stock_value_analysis` 为纯展示聚合（乘价格求和、无比较校验语境），保留 `material.stock` 并按 INVENTORY_TRUTH.md §5 加 `# stock-truth:reason=` 豁免注释。v1 曾改 4 处 `qty = m.stock or 0`，审计发现其中 3 处后续做 `qty <= min_stock` 比较属校验语境、违反 A11，故升级为 v2。
+- **验证**：A11 lint `--full-a11` 0 违规；沙箱内存库实测 4 函数正常（A 仓入库 20 件、阈值 5：quantity=20、low_stock_report 空、health 无低库存/负库存、价值 200）。
+- **R6 同类点排查**：全仓 grep `from app import.*Stock[^T]` 确认无其他残留；`StockTransaction` 引用均合法。
+- **回归锁**：`tests/test_bug_2026_10_05_003_ai_inventory_stock_import.py`（T1 四工具可调用无 ImportError、结构正确；T2 仓库级口径断言：quantity=20 / low_stock 不误报 / 价值走总账 200）——实测 2/2 PASSED。
+- **生效确认**：✅ Linux 沙箱实测通过：A11 lint 0 违规 + 回归测试 2/2 PASSED + 08-16 系列 43 项存量回归全绿。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-05-003 修复 Stock 模型导入错误`）。
+
+## BUG-2026-10-05-004：仓库级库存告警对"非本仓业务物料"误报
+- **现象**（生产实测，4 仓环境）：铜排仓专放铜排并设安全库存；在告警页选择"项目仓库"时铜排亮红色低库存告警。两个触发路径：① 物料从未进过所选仓库（库位账/流水均无记录），`warehouse_quantities.get(material.id, 0)` 按 0 参与判定；② 物料曾误录入该仓后又删除/反提交（库位行数量归 0 不删行、正负流水相抵净额 0），仍按 0 判定。
+- **根因**：`inventory_alert.py` 按仓判定（BUG-2026-09-18-004 引入，方向正确）但缺失"该物料是否本仓业务"的范围判断——把"没进过这个仓"与"进过但用光/录错冲回"一律按 0 与全局阈值比较。阈值（min_stock/reorder_point）挂在物料主档、无仓库维度，见 AGENTS.md R2 多仓边界。
+- **修复**：`/alert` 仓库视图增加"本仓业务物料"范围判定（`_warehouse_scoped_material_ids`）——仅当物料满足以下判据之一时参与该仓告警：a. 有库位库存行（含数量 0 的历史行；兼容 warehouse_id IS NULL 且 location==仓库名/编码的旧行，同 `get_warehouse_stock_quantities` 口径）；b. 该仓净流水（入-出）> 0（`StockTransaction` 按 warehouse_id 聚合）；c. **（v2）该仓存在正常出库流水（transaction_type='out'）**。三者皆无（从未进仓/误录已冲回净额 0）则不纳入该仓告警列表。手机端 `/api/mobile/alert/list` 同口径。全局视图（全部仓库）行为不变。
+- **v2 漏报回归（审计发现并修复）**：v1 判据（a+b）在关库位管理 + 真用光场景（入 20、正常出库 20 → 净流水 0、无库位行）把"真缺货"判成"非本仓业务"而静默漏报；经 E2E 真实路径复现（POST /out_order/<id>/complete）+ git worktree 父提交对照（修复前同场景会告警）确认为 004 引入的回归。修复：补判据 c——真用光（有 out 正常出库流水）与误录冲回（仅 in + delete_in_item）账面同为净 0，唯一区分信号是有无 out 流水。
+- **验证**：新增回归测试 6 场景实测全绿——S1 从未进仓不告警 / S2 真缺货（3<5）照常告警 / S3 误录冲回净 0 不告警 / S4 全局视图行为不变 / S5 真用光（净 0 + out 流水）照常告警 / S6 手机端同口径（S5 告警、S3 不告警）。防破坏回归：告警/AI 工具/08-16 系列 + 手机端 08-12-004 共 90 项 PASSED（1 skipped 属既有）。A11 lint 0 违规。
+- **回归锁**：`tests/test_bug_2026_10_05_004_alert_warehouse_scope.py`（6 用例）+ 存量 `test_bug_2026_08_12_004_mobile_warehouse_scope.py`。
+- **生效确认**：✅ Linux 沙箱实测通过：6/6 新场景（v2 含 S5 漏报回归锁）+ 90 项存量回归全绿；A11 0 违规。
+- **推送与 CI**：待 push（atomic action：`fix(alert): BUG-2026-10-05-004 v2 补漏报判据——真用光（out 流水）照常告警`）。
+
+## BUG-2026-10-06-001：手机端首页 dashboard 告警计数与告警列表口径不一致
+- **现象**（生产实测，手机端截图）：项目仓首页"库存告警"计数显示 20，点进告警列表却是空——从未进过项目仓的铜排等 20 种专仓物料被首页计数误计。
+- **根因**：`/api/mobile/dashboard` 的 `alert_count` 与 `/api/mobile/alert/list` 是两条代码路径。BUG-2026-10-05-004 只修了列表的"本仓业务物料"范围过滤（判据内联在 alert_list 里），dashboard 的 `alert_count` 从未套该过滤，仍按老口径（所有候选物料 × 全局阈值，`quantities.get(m.id, 0)`→0<min_stock 即计数）统计——两条路径口径不一致。
+- **修复**：把 alert_list 内联判据提取为模块级函数 `_mobile_alert_warehouse_scoped_ids(warehouse)`（判据 a 库位行 / b 净流水>0 / c out 流水，与 PC `inventory_alert._warehouse_scoped_material_ids` 同口径）；dashboard 单仓分支与全部仓库分支（逐仓）均套该过滤；alert_list 改为调用同一函数，消除重复逻辑。修后首页计数与列表同源同口径。
+- **验证**：新增回归测试 4 场景实测全绿——D1 专仓物料不计入他仓计数（修复前 1 → 修后 0）/ D2 同场景列表为空（口径一致）/ D3 真缺货（3<5）计入且列表含该物料（不引入漏报）/ D4 全部仓库模式逐仓过滤（铜排属铜排仓业务计 1，项目仓视角 0）。防破坏回归：dashboard/alert/08-12-004/09-10-010/10-05 系列共 113 项 PASSED（4 skipped 属既有）。A11 lint `--full-a11` 0 违规。
+- **回归锁**：`tests/test_bug_2026_10_06_001_dashboard_alert_count_scope.py`（4 用例）+ 存量 `test_bug_2026_09_10_010_dashboard_warehouse_scope.py`（9 用例全绿）。
+- **生效确认**：✅ Linux 沙箱实测通过：4/4 新场景 + 113 项存量回归全绿；A11 0 违规。
+- **推送与 CI**：待 push（atomic action：`fix(mobile): BUG-2026-10-06-001 dashboard 告警计数与列表同口径`）。
+- **教训**：修一类口径问题时要排查所有同语义入口——004 修复时只改了告警列表，漏掉了首页计数这第二条代码路径，用户从手机端首页一眼看出不一致。
+
+## BUG-2026-10-06-002：AI 库存工具漏报 danger 档 + value 接口 500（MaterialCategory 当 dict key）
+- **现象**（深度检测模块5 手机端 API 全接口扫描发现）：
+  1. `/api/ai/v2/tools/inventory/value` 500，traceback `TypeError: keys must be str, int, float, bool or None, not MaterialCategory`——`stock_value_analysis()` 用 ORM relationship 对象 `m.category` 当 dict key；
+  2. 三个 AI 库存工具（material_query / inventory_health / low_stock_report）只判 `qty <= min_stock`（low 档），漏 `qty <= reorder_point/safety_stock` 的 **danger 档**——min_stock=5/reorder_point=10/库存 8 时 AI 报 normal，而 PC dashboard、手机端 alert/list 均报 danger，五入口口径不一致（AI-CI-GREEN-005-F04/F05 两级告警要求的调用方缺口）。
+- **根因**：`app/ai/tools/inventory.py` 各工具自行实现告警判定且只覆盖一级阈值；`_alert_status_for()`（app.py:7413）是全系统唯一实现（low+danger+normal+disabled），AI 工具未复用。另 material_query 返回恒空的 `m.warehouse_name` 幽灵字段、`filter_by(category=...)` 传中文名过滤无效（category 是 relationship，须 join MaterialCategory.name）。
+- **修复**（+49/-14）：新增共用判定 `_ai_inventory_alert_status(material, qty, use_switch=False)`——口径对齐 `_alert_status_for`（low：qty≤min_stock；danger：qty≤safety_stock=max(reorder_point,min_stock)；开关关闭且 use_switch 时 disabled；阈值未配置 disabled；qty<0 时 material_query 另报 negative）。use_switch 语义分流：material_query 的 alert_status 是纯展示字段（历史行为不受开关影响，保 test_bug_2026_10_05_003 存量行为）→ False；inventory_health / low_stock_report 驱动统计（与 dashboard 同语义）→ True。三工具统计条件统一 `alert_status in ('low','danger')`；low_stock_report 新增 alert_status 字段、shortage 统一按 safety_stock 口径；value 接口 `m.category.name if m.category else '未分类'` + join 过滤 + import MaterialCategory；material_query 删幽灵字段改 `'category': m.category.name if m.category else ''`。
+- **验证**：8 场景回归测试全绿——A1/A2 danger 档三工具均报（health count=1 含 danger）/ A3 low 档（qty≤min）/ A4 开关关闭统计口径 disabled（health count=0、low-stock 空）/ A5 material_query 展示口径不受开关影响（仍 danger）/ A6 与 `_alert_status_for` 等价性（low/danger/normal/disabled 四态全对齐）/ A7 value 接口分类汇总 200 无 TypeError / A8 shortage 按 safety_stock（4 库存→6 非 1，与手机端 gap 同口径）。修复后五入口一致：AI low-stock=[M001 danger]、AI health count=1、AI material danger、mobile alert/list danger total=1、dashboard count=1。存量防破坏：test_bug_2026_10_05_003 10/10、test_bug_2026_10_06_001 全绿。
+- **回归锁**：`tests/test_bug_2026_10_06_002_ai_tools_alert_status.py`（8 用例）。
+- **测试踩坑（勿删注释）**：① set_system_setting 不自动 commit，退出 app_context 事务回滚 → 必须双 commit；② Material(unit="个") 触发 backref 炸 `'str' object has no _sa_instance_state'`，须 unit_id + 预建 Unit；③ 跨 context 存 ORM 对象 DetachedInstanceError，存 id；④ Flask 外层 app_ctx 存活时 test_client/test_request_context 复用同一 g，login_user 写的 g._login_user 泄漏污染后续请求（测试脚本须 seed 后退出 ctx 再操作 client）。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-002 AI 库存工具补 danger 档 + value 接口 MaterialCategory 500`）。
+
+## BUG-2026-10-06-003：AI v1 低库存报告与 v2 工具口径分叉（总账列 + max_stock 补货算法）
+- **现象**（深度检测遗留问题复核，用户拍板立即修复）：AI 对话关键词入口（"补货建议/低库存报告"/intent=analysis_low_stock，app.py:10064 `_ai_analysis_low_stock_report()`）与 v2 工具 `/api/ai/v2/tools/inventory/low-stock` 同数据不同结果：① v1 读 `Material.stock` 总账列且无 stock-truth 豁免（A11 违规：低库存判定属校验语境）；② v1 建议补货量按 `max_stock - stock` 计算，v2 按 safety_stock 口径，同一物料两入口给出不同补货数字；③ v1 排序只按 min_stock 差值，无两级告警概念。
+- **根因**：v1 是 BUG-2026-10-05-003/10-06-002 两轮修复都漏掉的平行入口——同类口径问题的"同语义入口全量排查"没覆盖到 app.py 内嵌的 v1 版本（教训同 10-06-001：dashboard 只有一条代码路径却漏改）。
+- **修复**（app.py `_ai_analysis_low_stock_report()` 重写）：直接转调 v2 工具 `low_stock_report()` 渲染 markdown（R6 防口径分叉：单一实现源）——全仓汇总口径（Σ②库位账）、两级告警（low/danger 列）、补货量按 safety_stock 口径，开关关闭保持"未启用"提示。表头新增"预警级别"列。
+- **验证**：3 场景回归测试全绿——B1 v1/v2 同数据同结果（danger 档 M001 两边都报、库存数一致、M002 normal 两边都不报）/ B2 开关关闭不报 / B3 **两仓脏数据场景**（总账 stock=999 但 B仓流水仅 5 → 全仓汇总 5≤min_stock 应报 low；旧实现读总账列会误判 normal 漏报——本用例在修复前确实红）。存量防破坏：10-05-003/004 + 10-06-001/002 共 20 项全绿。
+- **回归锁**：`tests/test_bug_2026_10_06_003_v1_low_stock_report_scope.py`（3 用例）。
+- **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-003 v1 低库存报告转调 v2 工具统一口径`）。
+
+---
+## 2026-10-06 CI 修复补记（晚间）
+
+BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部修复并验证：
+
+1. **行号锚定漂移（shard-0）**：app.py 净增 9 行导致 INVENTORY_TRUTH 10 处函数
+   行号全部过期 → 同步更新 tests/test_inventory_truth_line_refs.py REFS +
+   INVENTORY_TRUTH.md（a8f11b0）。教训：改 app.py 后必须核对行号锚定测试。
+2. **测试路径不可移植（shard-1）**：003 回归测试硬编码沙箱绝对路径
+   /Coze/Drive/... → 改 Path(__file__).parents[1]/app 相对定位（5013764）。
+3. **依赖 CVE（lint-and-static）**：Werkzeug 3.1.6 披露 CVE-2026-102598 →
+   钉包升级 3.1.9（5013764）。werkzeug 3.1.9 + flask 3.1.3 定向回归
+   43 passed + login/auth 存量 41 passed。
+
+终态：5013764 的 WMS CI 9/9 job 全绿（含 3 unit-tests-shard + 4 verify-shard
++ lint-and-static + smoke）。至此深度检测全部 BUG 修复完毕，CI 全绿。
+
+## BUG-2026-10-07-004：视觉模型纯 JSON 回复被丢弃，误报「没有返回具体错误」
+
+- **日期**：2026-10-07
+- **现象**：AI 助手上传票据图 +「提取产品名称 产品型号」，模型成功识别并按 OCR prompt 返回纯 JSON（无文字说明、无 ```json 包裹），前端却收到「图片已收到，但当前大模型没有成功返回图片分析结果。没有返回具体错误。」
+- **根因**：`_ai_call_llm_vision` 的解析链只认「文字回复」：`_ai_vision_parse_extracted` 对裸 JSON（无代码块包裹）返回 reply=整个 JSON 文本或 extracted=None；doc vision 链 normalize 失败（document_type=other 等）后回落到 vision 链，reply 为空时主链路直接判失败，提取结果全部丢弃。
+- **修复**（app/app.py 三处）：
+  1. `_ai_call_llm_vision`：`_ai_vision_parse_extracted` 解析不出 extracted 时，补裸 JSON 兜底 `_ai_extract_json_object(content)`；reply 与 extracted 双空时才报「没有可用内容」。
+  2. 主链路：`vision_reply` 为空但 `extracted` 非空时，用新增的 `_ai_vision_extracted_fallback_reply(extracted)` 生成可读明细兜底回复，继续走建单/确认流程。
+  3. 新增 `_ai_vision_extracted_fallback_reply`：渲染单据类型/单号/供应商/明细（编码、名称、规格、数量、单位，上限 20 条）；空提取（无 items 且无单号）返回空串、保持原错误分支。
+- **验证**：tests/verify_bug_2026_10_07_004_vision_json_only.py 7 项静态契约全过；关联回归 62 passed（OCR/draft/chat endpoint/wechat share/document confirmation）；lint --staged 0 违规；app.py ast.parse 语法通过。
+- **关联**：修复脚本 tools/fix_bug_2026_10_07_004_vision_json_only.py（幂等）。
+

@@ -1386,7 +1386,7 @@ class RuleA12NoTopLevelCtxPush(Rule):
 # ---------------------------------------------------------------------------
 
 class RuleA13BaselineEffectConfirmation(Rule):
-    """``WMS_BUG_BASELINE.md`` 新增条目必须含「生效确认」字段。
+    """``WMS_BUG_BASELINE.md`` 及其分片（docs/ledger/bugs/）新增条目必须含「生效确认」字段。
 
     R3（修复→生效无确认回路，台账 23+ 条「改了没重启/没装新包」）的机械化：
     「生效条件」只写"重启生效"不够，登记时必须强制填「生效确认」（确认人/
@@ -1395,23 +1395,27 @@ class RuleA13BaselineEffectConfirmation(Rule):
     与 A8/A9/A10/A11 同为"新增代码生效"规则：仅检查 git staged 新增行里
     出现的条目头（``### BUG-…`` 等），要求该条目块内（至下一个同级标题
     或文件尾）含「生效确认」字样；编辑存量条目、计数行不触发。
+    F4.4 拆分后 BUG 详情小节登记到 ``docs/ledger/bugs/entries-*.md``，
+    本规则同步覆盖该目录下全部分片。
     """
 
     name = "a13"
     description = "台账新增 BUG 条目必须含「生效确认」字段（R3）"
     enabled = True
-    scan_paths = ("WMS_BUG_BASELINE.md",)
+    scan_paths = ("WMS_BUG_BASELINE.md", "docs/ledger/bugs")
     exclude_paths = ()
     extensions = (".md",)
 
     _ENTRY_HEAD = re.compile(
         r"^###\s+(?:BUG|WECOM|INV|PUR|SALES|SYS|AUDIT)-")
 
+    _LEDGER_TARGETS = ("WMS_BUG_BASELINE.md", "docs/ledger/bugs/")
+
     def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
         violations: List[Violation] = []
         for f in files:
             rel = str(f.relative_to(repo_root)).replace("\\", "/")
-            if rel != "WMS_BUG_BASELINE.md":
+            if rel != "WMS_BUG_BASELINE.md" and not rel.startswith("docs/ledger/bugs/"):
                 continue
             added_lines = get_staged_added_lines(repo_root, f)
             if not added_lines:

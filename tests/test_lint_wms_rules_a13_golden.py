@@ -111,3 +111,38 @@ def test_a13_ignores_non_entry_edits(temp_repo):
     _stage_baseline(temp_repo, content)
     code, out = _run_lint_staged(temp_repo)
     assert code == 0, out
+
+
+def test_a13_covers_ledger_shard_entries(temp_repo):
+    """F4.4：分片 docs/ledger/bugs/entries-*.md 的新增条目缺「生效确认」→ 违规。"""
+    shard = temp_repo / "docs" / "ledger" / "bugs"
+    shard.mkdir(parents=True)
+    content = (
+        "# BUG 基线 · 详情归档 2026-10\n\n"
+        "### BUG-2026-10-20-001（分片新条目）\n\n"
+        "- **根因**：xxx。\n"
+        "- **生效条件**：重启生效。\n"
+    )
+    (shard / "entries-2026-10.md").write_text(content, encoding="utf-8")
+    _run_git(["add", "-A"], temp_repo)
+    code, out = _run_lint_staged(temp_repo)
+    assert code == 1, out
+    assert "BUG-2026-10-20-001" in out
+    assert "生效确认" in out
+
+
+def test_a13_passes_shard_entry_with_confirmation(temp_repo):
+    """F4.4：分片新条目含「生效确认」→ 通过。"""
+    shard = temp_repo / "docs" / "ledger" / "bugs"
+    shard.mkdir(parents=True)
+    content = (
+        "# BUG 基线 · 详情归档 2026-10\n\n"
+        "### BUG-2026-10-20-002（分片新条目）\n\n"
+        "- **根因**：xxx。\n"
+        "- **生效条件**：重启生效。\n"
+        "- **生效确认**：待确认。\n"
+    )
+    (shard / "entries-2026-10.md").write_text(content, encoding="utf-8")
+    _run_git(["add", "-A"], temp_repo)
+    code, out = _run_lint_staged(temp_repo)
+    assert code == 0, out

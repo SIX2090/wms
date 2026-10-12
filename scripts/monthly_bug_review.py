@@ -18,6 +18,9 @@ from datetime import datetime
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE_FILE = REPO_ROOT / 'WMS_BUG_BASELINE.md'
+# F4.4 拆分：历史记录按月分片至 docs/ledger/bugs/（fixed-/history-/entries-*.md），
+# 复盘需合并主文件 + 全部分片；INDEX.md 为衍生索引不参与。
+BUG_SHARD_DIR = REPO_ROOT / 'docs' / 'ledger' / 'bugs'
 DEFAULT_OUTPUT = REPO_ROOT / 'WMS_QUALITY_REPORT.md'
 
 # BUG ID 格式: BUG-YYYY-MM-DD-NNN
@@ -96,13 +99,17 @@ def get_commits_for_month(month_str):
 def build_status_index(baseline_content):
     """构建 BUG ID → 状态 的索引，按 BUG ID 出现的最近 section header 判定。
     状态：fixed / open / false_positive / deferred / unknown
+
+    F4.4 拆分兼容：分片文件头为一级标题（``# BUG 基线 · 已修复归档 YYYY-MM``
+    等），本函数匹配一二级标题（``^#{1,2}\\s+``），使分片自带状态语义，
+    与拆分前「主文件章节标题判定」行为等价、且与拼接顺序无关。
     """
     # 解析 section header
     status_by_id = {}  # 第一次出现的状态
     current_section = 'unknown'
 
     for line in baseline_content.split('\n'):
-        section_m = re.match(r'^##\s+(.+)', line)
+        section_m = re.match(r'^#{1,2}\s+(.+)', line)
         if section_m:
             title = section_m.group(1)
             if '已修复' in title or '已修复并纳入回归' in title:
@@ -231,6 +238,53 @@ def format_report(month_str, data):
     return '\n'.join(lines)
 
 
+def _load_baseline_text() -> str:
+    """加载基线全文：主文件 + F4.4 分片，按拆分前的章节顺序线性化拼接。
+
+    状态判定（build_status_index）依赖「最近章节标题 + 首次出现」，顺序还原
+    保证与拆分前的单文件行为**逐 ID 等价**（fixed 315 / unknown 141 /
+    deferred 19 / false_positive 1，2026-10-13 拆分时验证）。
+    若主文件缺任一章节标题（未来结构变更），退化为「主文件 + 全部分片」。
+    """
+    main_lines = BASELINE_FILE.read_text(encoding='utf-8').split('\n')
+
+    def find(needle):
+        for i, line in enumerate(main_lines):
+            if line.startswith(needle):
+                return i
+        return None
+
+    def shards(prefix):
+        if not BUG_SHARD_DIR.exists():
+            return ''
+        return '\n'.join(
+            p.read_text(encoding='utf-8')
+            for p in sorted(BUG_SHARD_DIR.glob(f'{prefix}-*.md'))
+        )
+
+    i_fixed = find('## 已修复并纳入回归')
+    i_mis = find('## 已确认误报')
+    i_hist = find('## 历史登记区')
+    i_daily = find('## 每日使用方式')
+    if None in (i_fixed, i_mis, i_hist, i_daily):
+        # 降级：不保证顺序等价，但统计仍可运行
+        text = '\n'.join(main_lines)
+        if BUG_SHARD_DIR.exists():
+            for shard in sorted(BUG_SHARD_DIR.glob('*.md')):
+                if shard.name != 'INDEX.md':
+                    text += '\n' + shard.read_text(encoding='utf-8')
+        return text
+
+    return (
+        '\n'.join(main_lines[:i_fixed]) + '\n'          # 前部（判定规则、技术债等）
+        + shards('fixed') + '\n'                         # 原「已修复并纳入回归」
+        + '\n'.join(main_lines[i_mis:i_hist]) + '\n'     # 已确认误报 + 降级或暂缓
+        + shards('history') + '\n'                       # 原「历史登记区」
+        + '\n'.join(main_lines[i_daily:]) + '\n'         # 每日使用方式 + 门禁说明
+        + shards('entries')                              # 原门禁段小节 + 尾部详情小节
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description='WMS 每月 BUG 复盘')
     parser.add_argument('--month', default=datetime.now().strftime('%Y-%m'),
@@ -243,7 +297,7 @@ def main():
         print(f'错误：{BASELINE_FILE} 不存在', file=sys.stderr)
         return 1
 
-    baseline_content = BASELINE_FILE.read_text(encoding='utf-8')
+    baseline_content = _load_baseline_text()
     data = analyze(baseline_content, args.month)
     report = format_report(args.month, data)
 

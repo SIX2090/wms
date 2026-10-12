@@ -478,7 +478,7 @@ python3 scripts/check_hooks_installed.py
 
 ### 修复 BUG 流程
 
-1. 在 [WMS_BUG_BASELINE.md](./WMS_BUG_BASELINE.md) 登记（`BUG-YYYY-MM-DD-NNN: <标题>`，含「生效确认」字段）
+1. 在 BUG 台账分片 `docs/ledger/bugs/entries-<当月>.md` 登记（`### BUG-YYYY-MM-DD-NNN: <标题>`，含「生效确认」字段；查询用 `python scripts/query_ledger.py --task <ID>`）
 2. 登记前先 grep 台账查同根因历史（R6），同模式复发必须一并修复所有同类消费点
 3. commit message 关联 BUG ID：`fix: BUG-2026-09-29-NNN xxx`
 4. 加回归测试，且回退修复后新测试必须失败（回归锁自证，R8）
