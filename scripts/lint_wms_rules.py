@@ -68,6 +68,7 @@ import re
 import subprocess
 import sys
 from abc import ABC, abstractmethod
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -1715,6 +1716,60 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
 _FULL_GATE_RULES: Tuple[str, ...] = ("a8", "a9", "a10", "a13", "a14")
 _FULL_BASELINE_REL = "scripts/lint_full_scan_baseline.json"
 
+# F4.3 季度棘轮 SLA：基线文件里的 _ratchet 块声明"每过一个季度，
+# 各规则允许上限至少再降 reduction_pct%"。存量快照因此不会长期停在
+# 一个固定数字上——每季度自动收紧，直到清零。
+_RATCHET_DEFAULT_PCT = 10
+
+
+def _quarter_start(d: date) -> date:
+    """返回 d 所在季度的首日（Q1→01-01, Q2→04-01, Q3→07-01, Q4→10-01）。"""
+    return date(d.year, ((d.month - 1) // 3) * 3 + 1, 1)
+
+
+def _quarters_elapsed(established: date, today: date) -> int:
+    """从 established 所在季度到 today 所在季度经过的整季度数（恒 ≥ 0）。"""
+    s, t = _quarter_start(established), _quarter_start(today)
+    return max(0, (t.year - s.year) * 4 + (t.month - s.month) // 3)
+
+
+def _ratchet_target(baseline_count: int, quarters: int, pct: int) -> int:
+    """季度下降目标 = baseline × (1 - pct/100)^quarters，向下取整。
+
+    向下取整（而非 ceil）确保实际降幅 ≥ pct%：217 → 195（降 10.1%），
+    若用 ceil 得 196（仅降 9.7%），不满足"至少 -10%"。
+    quarters ≤ 0（基线刚建立当季）时目标等于基线，不收紧。
+    """
+    if quarters <= 0 or pct <= 0:
+        return baseline_count
+    factor = (100 - pct) / 100.0
+    return int(baseline_count * (factor ** quarters))
+
+
+def _load_ratchet_policy(repo_root: Path) -> Optional[Tuple[date, int]]:
+    """读取基线文件的 _ratchet 块，返回 (established, reduction_pct)。
+
+    块缺失 / 字段损坏时返回 None —— 此时退化为纯"只减不增"门禁，
+    与 F4.3 之前的行为一致（既有测试与老基线文件不受影响）。
+    """
+    path = repo_root / _FULL_BASELINE_REL
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    block = raw.get("_ratchet")
+    if not isinstance(block, dict):
+        return None
+    established = block.get("established")
+    pct = block.get("reduction_pct", _RATCHET_DEFAULT_PCT)
+    if not isinstance(established, str) or not isinstance(pct, int) or pct <= 0:
+        return None
+    try:
+        est_date = date.fromisoformat(established)
+    except ValueError:
+        return None
+    return est_date, pct
+
 
 def _load_full_scan_baseline(repo_root: Path) -> Dict[str, int]:
     """读取全量扫描存量快照；文件缺失或损坏时返回空 dict（视作基线全 0）。"""
@@ -1754,6 +1809,17 @@ def write_full_scan_baseline(repo_root: Path, counts: Dict[str, int]) -> None:
         entry["count"] = counts[rid]
         rules[rid] = entry
     raw["rules"] = rules
+    # F4.3 季度棘轮：刷新基线时把起点重置为当前季度首日——当季不额外收紧，
+    # 从下一季度起按 reduction_pct 自动下降，避免"刚更新就被卡住"。
+    existing_ratchet = raw.get("_ratchet")
+    if not isinstance(existing_ratchet, dict):
+        existing_ratchet = {}
+    raw["_ratchet"] = {
+        "policy": "季度棘轮：每过一个季度，各规则允许上限至少再降 reduction_pct%",
+        "established": _quarter_start(date.today()).isoformat(),
+        "reduction_pct": existing_ratchet.get("reduction_pct", _RATCHET_DEFAULT_PCT),
+        "note": "由 --update-full-baseline 自动重置为当前季度首日；当季不收紧，次季起自动下降",
+    }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(raw, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -1761,27 +1827,52 @@ def write_full_scan_baseline(repo_root: Path, counts: Dict[str, int]) -> None:
 
 
 def check_full_scan_baseline(
-    repo_root: Path, results: Dict[str, List[Violation]]
+    repo_root: Path,
+    results: Dict[str, List[Violation]],
+    today: Optional[date] = None,
 ) -> int:
-    """棘轮比对：存量违规不得增加。返回 0（通过）或 1（有新增）。"""
+    """棘轮比对：存量违规不得增加，且不得高于季度下降目标。
+
+    F4.3：允许上限 = min(基线值, 季度目标)。季度目标由基线文件 _ratchet 块
+    声明（每季至少再降 reduction_pct%）。_ratchet 缺失时退化为纯"只减不增"。
+    返回 0（通过）或 1（超限）。
+    """
     baseline = _load_full_scan_baseline(repo_root)
+    policy = _load_ratchet_policy(repo_root)
+    if today is None:
+        today = date.today()
+    quarters = 0
+    pct = 0
+    if policy:
+        established, pct = policy
+        quarters = _quarters_elapsed(established, today)
     regressions: List[str] = []
     improvements: List[str] = []
     for rid in _FULL_GATE_RULES:
         current = len(results.get(rid, []))
         allowed = baseline.get(rid, 0)
-        if current > allowed:
+        target = _ratchet_target(allowed, quarters, pct) if policy else allowed
+        effective = min(allowed, target)
+        if current > effective:
+            if current > allowed:
+                detail = f"新增 {current - allowed} 处"
+            else:
+                detail = f"超季度下降目标（基线 {allowed} → 目标 {target}）"
             regressions.append(
-                f"  [{rid.upper()}] {current} 处 > 基线 {allowed} 处"
-                f"（新增 {current - allowed} 处）"
+                f"  [{rid.upper()}] {current} 处 > 允许 {effective} 处（{detail}）"
             )
-        elif current < allowed:
+        elif current < effective:
             improvements.append(
-                f"  [{rid.upper()}] {current} 处 < 基线 {allowed} 处"
-                f"（已消除 {allowed - current} 处，建议收紧基线）"
+                f"  [{rid.upper()}] {current} 处 < 允许 {effective} 处"
+                f"（已消除 {effective - current} 处，建议收紧基线）"
             )
     print("─" * 64)
     print("全量棘轮门禁（--full-gate）：存量违规只减不增")
+    if policy:
+        print(
+            f"  季度棘轮：建立于 {policy[0].isoformat()}，每季 -{pct}%，"
+            f"已过 {quarters} 个季度"
+        )
     print("─" * 64)
     if improvements:
         print("存量下降（正向）：")

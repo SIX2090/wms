@@ -14,6 +14,12 @@
   ],
   "_generated_at": "2026-09-25",
   "_generated_note": "由 lint_wms_rules.py --full --update-full-baseline 生成，仅统计 staged 类规则在全量模式下的违规数",
+  "_ratchet": {
+    "policy": "季度棘轮（F4.3）：每过一个季度，各规则允许上限至少再降 reduction_pct%",
+    "established": "2026-10-01",
+    "reduction_pct": 10,
+    "note": "允许上限 = min(基线值, 基线值 × 0.9^季度数)。当季不收紧，2027-01-01 起自动降至 90%，逐季递减直至清零；--update-full-baseline 会把 established 重置为当前季度首日"
+  },
   "rules": {
     "a8": {
       "count": 66,
