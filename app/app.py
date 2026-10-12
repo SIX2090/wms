@@ -4795,7 +4795,7 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
 
     condition = Material.id == material_id
     if not allow_negative_stock():
-        condition = db.and_(condition, Material.stock >= qty)
+        condition = db.and_(condition, Material.stock >= qty, *_wh_stock_guards(material_id, warehouse, qty))
     rowcount = db.session.execute(
         sa_update(Material)
         .where(condition)
@@ -36188,6 +36188,74 @@ def _sales_report_filters_context():
 
 
 
+
+
+def _wh_stock_guards(material_id, warehouse, qty):
+    """F2.9（审计 §1.2，TOCTOU 高危）：把仓库级库存校验下推为可放进
+    ``deduct_stock_atomic`` 条件 UPDATE 的 WHERE 子句的相关子查询，使
+    「仓库级校验 + 扣减」成为**同一条原子 SQL**。
+
+    背景：原实现是「先 SELECT get_warehouse_stock_quantities() 做仓库级校验 →
+    再条件 UPDATE 扣总账」。两条语句之间存在窗口——两个并发出库请求都读到
+    「仓库库存充足」，随后各自 UPDATE 成功（总账条件 Material.stock >= qty 仍成立），
+    仓库账被扣成负数。把仓库级条件折进 UPDATE 的 WHERE 后，单条语句在
+    SQLite 写锁下原子求值，后到的事务读到的是已扣减后的仓库净额，正确拒绝。
+
+    返回 SQLAlchemy 条件列表（0 或 1 个元素），调用方以
+    ``db.and_(..., *_wh_stock_guards(material_id, warehouse, qty))`` 展开。
+    **仅在 SQL 口径与 get_warehouse_stock_quantities() 完全等价时才下推**，
+    否则返回 []（保留调用方原有 Python 校验——宁可不加固也不误拒）：
+      - 未指定仓库 / 开启库位管理 / allow_negative_stock：本就不走仓库级校验；
+      - 物料无可归属流水（_material_stock_unattributed）：仓库级查不到，回退总账；
+      - 单仓系统：get_warehouse_stock_quantities 直接返回全局 Material.stock，
+        仓库级 == 总账，既有 Material.stock >= qty 条件已覆盖；
+      - 存在「空 location + 带来源单据」的历史流水：这些行由来源单据推断仓库，
+        SQL 无法表达，Python 侧 available 会大于 SQL 聚合，下推会误拒。
+    下推的 SQL 口径：``warehouse_id == wid``
+      OR (``warehouse_id IS NULL`` AND ``location IN <仓库名/编码/该仓库下库位名>``)。
+    """
+    if not warehouse or location_management_enabled() or allow_negative_stock():
+        return []
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
+    if not warehouse_id:
+        return []
+    warehouse_obj = db.session.get(Warehouse, warehouse_id)
+    if not warehouse_obj:
+        return []
+    # 单仓系统：仓库级 == 全局总账（get_warehouse_stock_quantities 的单仓短路），
+    # 无需下推；先判可省去后续几次查询。
+    if Warehouse.query.count() == 1:
+        return []
+    if _material_stock_unattributed(material_id):
+        return []
+    # 「空 location + 带来源单据」的历史行由 _filter_txn_list_by_warehouse_scope
+    # 在 Python 侧按来源单据归属补入，SQL 聚合无法表达 → 口径不等价，跳过下推。
+    _src = db.session.query(StockTransaction.id).filter(
+        StockTransaction.material_id == material_id,
+        StockTransaction.warehouse_id.is_(None),
+        db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
+        StockTransaction.reference_type.isnot(None),
+        StockTransaction.reference_type != '',
+        StockTransaction.reference_id.isnot(None),
+    ).first()
+    if _src is not None:
+        return []
+    loc_names = _warehouse_location_filter_values(
+        warehouse_obj.id, (warehouse_obj.name or '').strip(),
+        (warehouse_obj.code or '').strip())
+    if not loc_names:
+        return []
+    agg = (db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0))
+           .filter(
+               StockTransaction.material_id == material_id,
+               db.or_(
+                   StockTransaction.warehouse_id == warehouse_obj.id,
+                   db.and_(StockTransaction.warehouse_id.is_(None),
+                           StockTransaction.location.in_(loc_names)),
+               ),
+           )
+           .scalar_subquery())
+    return [agg >= qty]
 
 
 # ==================== Application entrypoint ====================

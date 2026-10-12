@@ -7,6 +7,7 @@ import time
 from collections import defaultdict
 
 from flask_login import login_required
+from sqlalchemy.exc import OperationalError
 
 from utils import sync_material_primary_image
 
@@ -556,10 +557,21 @@ def register_mobile_routes(app):
                 if quantity <= 0:
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库数量必须大于0'}), 400
 
+                # F2.9（审计 §1.2 TOCTOU 高危）：并发出库必须串行化「仓库级校验 →
+                # 建单 → 扣减」。SQLite 无 SELECT ... FOR UPDATE，用 BEGIN IMMEDIATE
+                # 取写锁（与 routes/sales.py 同式）；取锁后下方
+                # get_warehouse_stock_quantities 重新读取，看到的是最新库存，两个
+                # 并发请求不会都通过校验把同一仓扣成负数。取锁前无未提交写入，rollback 安全。
+                if db.engine.dialect.name == 'sqlite':
+                    db.session.rollback()
+                    db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+
                 # INV-AUDIT-003：优先按仓库级库存校验，避免使用全局 Material.stock
                 warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
                 current_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                    # 已取写锁，错误出口先 rollback 释放，避免锁悬挂到请求结束
+                    db.session.rollback()
                     return jsonify({
                         'status': 'error',
                         'success': False,
@@ -573,6 +585,7 @@ def register_mobile_routes(app):
                     ).first()
                     location_stock = normalize_stock_quantity(location_inventory.quantity if location_inventory else 0)
                     if not is_stock_sufficient(location_stock, quantity):
+                        db.session.rollback()
                         return jsonify({
                             'status': 'error',
                             'success': False,
@@ -715,6 +728,13 @@ def register_mobile_routes(app):
                         'material': mobile_material_payload(material, warehouse=warehouse),
                     },
                 })
+        except OperationalError:
+            # F2.9：BEGIN IMMEDIATE 取写锁超时（SQLite "database is locked"）或
+            # 并发写冲突——这是可重试的瞬时冲突，返回 409 而非 500，客户端可重试。
+            db.session.rollback()
+            current_app.logger.warning('Mobile scan submit 写锁冲突（可重试）')
+            return jsonify({'status': 'error', 'success': False,
+                            'msg': '当前有其他出库操作正在处理，请稍后重试'}), 409
         except Exception:
             db.session.rollback()
             current_app.logger.exception('Mobile scan submit failed')

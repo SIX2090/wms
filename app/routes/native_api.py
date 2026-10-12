@@ -36,6 +36,7 @@ import re
 from flask import jsonify, request
 
 from db import db
+from sqlalchemy.exc import OperationalError
 
 
 def _append_crash_report(report, username):
@@ -1138,8 +1139,17 @@ def register_native_api_routes(app):
                 if not location:
                     return api_json_error('启用库位管理后，出库必须填写库位')
 
+        # F2.9（审计 §1.2 TOCTOU 高危）：并发出库必须串行化「仓库级校验 → 建单 →
+        # 扣减」。SQLite 无 SELECT ... FOR UPDATE，用 BEGIN IMMEDIATE 取写锁（与
+        # routes/sales.py 同式）；取锁后 _native_outbound_stock_error 重新读取，
+        # 看到的是最新库存，两个并发请求不会都通过校验把同一仓扣成负数。
+        # 取锁前本请求只有读操作，rollback 安全。
+        if db.engine.dialect.name == 'sqlite':
+            db.session.rollback()
+            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
         stock_error = _native_outbound_stock_error(parsed, warehouse)
         if stock_error:
+            db.session.rollback()
             return api_json_error(stock_error, 400)
 
         try:
@@ -1225,6 +1235,12 @@ def register_native_api_routes(app):
                                    created_by=user.id, source_event='scan_outbound')
             db.session.commit()
             return api_json_success({'id': order.id, 'order_no': order.order_no}, '出库提交成功')
+        except OperationalError:
+            # F2.9：BEGIN IMMEDIATE 取写锁超时（SQLite "database is locked"）或并发
+            # 写冲突——可重试的瞬时冲突，返回 409 而非 500，客户端可重试。
+            db.session.rollback()
+            app.logger.warning('Android outbound 写锁冲突（可重试）')
+            return api_json_error('当前有其他出库操作正在处理，请稍后重试', 409)
         except Exception:
             db.session.rollback()
             app.logger.exception('Android outbound failed')
