@@ -451,11 +451,8 @@ def test8_api_endpoints_e2e():
     resp = client.get('/api/ai/purchase_followup_workbench')
     assert resp.status_code == 200, f'采购跟进工作台 API 应 200，实际 {resp.status_code}'
 
-    # ---- R12 知识检索 API ----
-    resp = client.get('/api/ai/knowledge_search?q=入库')
-    assert resp.status_code == 200, f'知识检索 API 应 200，实际 {resp.status_code}'
-    data = resp.get_json()
-    assert data is not None, '知识检索 API 应返回 JSON'
+    # ---- R12 知识检索 API ----（F3.11-② 已删除：AI-R12 HTTP 端点全仓零调用，
+    # 知识库生命周期模块 app/ai/knowledge_lifecycle.py 保留供进程内使用）
 
     # ---- R13 Agent 预算校验 API ----
     resp = client.post('/api/ai/agent_validate_safety', json={
