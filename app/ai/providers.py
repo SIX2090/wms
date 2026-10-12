@@ -78,6 +78,17 @@ _intent_breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=60)
 _chat_breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=60)
 _vision_breaker = CircuitBreaker(failure_threshold=2, cooldown_seconds=120)
 
+# F3.14：vision 通道并发隔离——请求级信号量上限 2。
+# 背景（审计 §7.6）：vision 调用地板超时 60s，16 并发识图可占满全部
+# WSGI 线程，导致其余页面（登录/扫码）假死。双管齐下：
+# ① 地板超时 60s→30s（见 call_llm_vision 的 timeout_override）；
+# ② 本信号量：最多 2 个 vision 请求真正在飞，其余**快速失败**（不排队，
+#    避免等待线程同样把线程池堆满）。
+import threading as _threading
+
+_vision_semaphore = _threading.Semaphore(2)
+VISION_BUSY_MSG = '图片识别通道繁忙，请稍后重试（并发上限 2）'
+
 
 def get_breaker(mode: str) -> CircuitBreaker:
     """获取指定模式的熔断器。"""
@@ -419,12 +430,20 @@ def call_llm_vision(
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': user_content},
     ]
-    content = call_llm(
-        config, messages,
-        temperature=0.2,
-        timeout_override=max(config.timeout_seconds, 60),
-        mode='vision',
-    )
+    # F3.14：并发上限 2，满则快速失败（不占用线程排队）
+    if not _vision_semaphore.acquire(blocking=False):
+        logger.warning('vision 并发已满（上限 2），快速失败')
+        return None, None, VISION_BUSY_MSG
+    try:
+        content = call_llm(
+            config, messages,
+            temperature=0.2,
+            # F3.14①：vision 地板超时 60s→30s（审计 §7.6）
+            timeout_override=max(config.timeout_seconds, 30),
+            mode='vision',
+        )
+    finally:
+        _vision_semaphore.release()
     if not content:
         return None, None, '模型未返回内容'
 
