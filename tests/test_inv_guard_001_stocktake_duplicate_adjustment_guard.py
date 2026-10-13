@@ -60,6 +60,10 @@ def _release_app_ctx_after_module():
 def _reset_db():
     db.drop_all()
     db.create_all()
+    # drop_all 只删表不清 session identity map；同进程先前用例的残留对象会在
+    # 后续查询时顶替新行（SAWarning: Identity map already had an identity），
+    # 导致 seed 的 B仓 等被旧对象覆盖而误判"仓库不存在"。
+    db.session.expunge_all()
 
 
 def _make_client():
