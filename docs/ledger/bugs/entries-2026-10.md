@@ -295,3 +295,14 @@ BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部�
 - **验证**：tests/verify_bug_2026_10_07_004_vision_json_only.py 7 项静态契约全过；关联回归 62 passed（OCR/draft/chat endpoint/wechat share/document confirmation）；lint --staged 0 违规；app.py ast.parse 语法通过。
 - **关联**：修复脚本 tools/fix_bug_2026_10_07_004_vision_json_only.py（幂等）。
 
+
+### BUG-2026-09-22-001-F01: Robolectric SQLite 配置复发的子修复（2026-10-13）
+
+- 根因：ca432c20 给 ScanFeedbackTest 重复添加类级 SQLiteMode；全局 robolectric.properties 已统一配置 LEGACY，现有零例外守护回归因此失败。
+- 危害：WMS CI shard-2 失败，阻断后续录单优化。
+- 修复：删除重复注解、导入和过时注释；不改生产业务、不改断言。
+- 同类点已排查：既有守护测试扫描全部 Kotlin 测试类；Android 离线队列测试 #823 曾发生 SQLITE_IOERR_SHORT_READ，#824 同测试通过，仍需观察偶发性，不能宣称根治。
+- 验证：修复前守护模块 1 failed / 7 passed；修复后守护及相邻模块 17 passed。补跑台账分片、月度统计相邻回归，确保登记不改变历史条目状态。
+- 回滚记录：首次修复 991175f6 的新增独立 BUG 条目触发历史状态总数快照断言；已立即以 c7f5ff74 回滚。本条遵循同类历史子修复登记，保留全部既有测试断言。
+- 状态：待本次推送 CI 确认。
+- 生效确认：待确认；仅测试配置改动，生产服务无需重启。
