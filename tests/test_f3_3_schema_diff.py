@@ -29,11 +29,19 @@ def app_module():
     os.environ.setdefault('WMS_SKIP_AUTO_UPDATE', '1')
     os.environ.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')
     import app as app_mod
+    # reload 会换一个全新的 Flask app，生产配置默认 TESTING=False 且 CSRF 重新打开。
+    # 同进程里其它用例在导入时改过的配置（TESTING、WTF_CSRF_ENABLED 等）都挂在旧 app 上，
+    # 不还回去的话，后面的用例要么被 drop_all 守卫拒绝，要么 POST 被 CSRF 挡掉。
+    saved_config = dict(app_mod.app.config)
     mod = importlib.reload(app_mod)
-    # 测试库不经过 run_server 启动路径，需显式建全量表（模拟 initialize_database 后状态）
-    with mod.app.app_context():
-        mod.db.create_all()
-    return mod
+    try:
+        # 测试库不经过 run_server 启动路径，需显式建全量表（模拟 initialize_database 后状态）
+        with mod.app.app_context():
+            mod.db.create_all()
+        yield mod
+    finally:
+        for key, value in saved_config.items():
+            mod.app.config[key] = value
 
 
 def _verify(app_mod):

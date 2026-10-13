@@ -13,10 +13,8 @@ def _storage_key(user_id: int, conversation_id: int | None) -> tuple[int, int]:
 
 
 def get_history(user_id: int, conversation_id: int | None = None) -> list[dict[str, str]]:
-    """返回指定会话的内存历史。未指定会话时不混读其他会话。"""
+    """返回指定会话的内存历史。未指定会话时只读默认桶，不混读真实会话。"""
     if not user_id:
-        return []
-    if not conversation_id:
         return []
     return list(_AI_CHAT_HISTORY.get(_storage_key(user_id, conversation_id), []))
 

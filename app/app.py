@@ -3366,14 +3366,14 @@ app.config['STATIC_VERSION'] = _compute_static_version()
 from db import db
 db.init_app(app)
 
-_original_drop_all = db.drop_all
+_original_drop_all = getattr(db.drop_all, "_wms_original_drop_all", db.drop_all)
 
-def guarded_drop_all(*args, **kwargs):
+def guarded_drop_all(*args, _orig=_original_drop_all, **kwargs):
     if not app.config.get('TESTING') or app.config.get('SQLALCHEMY_DATABASE_URI') != 'sqlite:///:memory:':
         raise RuntimeError('Refusing db.drop_all outside testing in-memory database')
-    return _original_drop_all(*args, **kwargs)
-
+    return _orig(*args, **kwargs)
 db.drop_all = guarded_drop_all
+guarded_drop_all._wms_original_drop_all = _original_drop_all
 
 # 在 db.init_app 之后导入 AI 模型,确保 db 已初始化
 from ai.models import AIConversation, AIMessage, AIFeedback, AIConfirmation
