@@ -15,7 +15,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 
 /**
  * BUG-2026-09-21-005：删库重建不得静默清空离线待同步队列。
@@ -35,9 +34,11 @@ import org.robolectric.annotation.SQLiteMode
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
-// Robolectric 原生 SQLite 在切换 WAL 时会在 walIndexAppend 里 SIGBUS，整次单测被杀。
-// 本类验证的是备份/回补，不依赖原生 WAL，改走 LEGACY 引擎。
-@SQLiteMode(SQLiteMode.Mode.LEGACY)
+// LEGACY SQLite 引擎改由全局配置统一施加：
+// app/src/test/resources/robolectric.properties 的 sqliteMode=LEGACY。
+// 原先本类单独挂 @SQLiteMode(LEGACY)，但 native 崩溃取决于「进程是否碰过
+// SQLite」而非具体测试类——2026-10-13 ScanFeedbackTest 就因此在 nativeClose
+// SIGSEGV，把同 worker 的全部用例一起带走。开关下沉到全局后新增测试不会再漏。
 class PendingQueueRebuildProtectionTest {
 
     private lateinit var context: Context
