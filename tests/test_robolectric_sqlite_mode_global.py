@@ -30,9 +30,11 @@ Gradle 只能报 exit134，不指向任何具体断言。
 ## 本测试锁定的约束
 
 1. ``app/src/test/resources/robolectric.properties`` 必须存在且含
-   ``sqliteMode=LEGACY`` —— 全局唯一开关；
-2. 测试类上不得再挂 ``@SQLiteMode``—— 两处配置必然漂移，且逐类加注解的
-   治标方式已经失败过一次。
+   ``sqliteMode=LEGACY`` —— 全局默认开关；
+2. 测试类挂 ``@SQLiteMode`` 必须是**显式登记的例外**，且注解上方须写明理由。
+   目前唯一登记的例外是 PendingQueueRebuildProtectionTest：它验证的正是
+   「WAL 恢复后的主文件备份回补」，LEGACY 的引用计数连接池会让它抛
+   SQLITE_BUSY —— 那等于把门禁关掉，不是修复。
 """
 from __future__ import annotations
 
@@ -79,23 +81,46 @@ class TestRobolectricSqliteModeIsGlobal:
             f"Android 12 / sdk 31）。不钉住的话默认值会随 Robolectric 版本漂移。"
         )
 
-    def test_no_class_level_sqlite_mode_annotation(self):
-        """禁止测试类再挂 @SQLiteMode——全局开关已是唯一入口。
+    def test_no_unregistered_class_level_sqlite_mode(self):
+        """测试类挂@SQLiteMode 必须是**显式登记的例外**，且须写明理由。
 
-        两处配置会漂移；更重要的是，逐类加注解的治标方式已经被
-        BUG-2026-09-21-005 那次修复证伪过一次。
+        判据刻意做成「白名单 + 强制说明」而非「一律禁止」：
+        确有测试的被测语义依赖 native（见 PendingQueueRebuildProtectionTest——
+        它验证 WAL 恢复后的备份回补，LEGACY 下SQLITE_BUSY）。
+        但例外必须登记，理由必须落在文件里，否则「临时加个注解试试」会悄悄
+        扩散，且没人知道它是否还成立。
         """
+        registered = {
+            # 备份/回补链路验证 WAL 恢复后的主文件，LEGACY 下SQLITE_BUSY。
+            # 详见该类注解处的说明与 robolectric.properties 的「例外」段。
+            "PendingQueueRebuildProtectionTest.kt",
+        }
+
         offenders = []
         for path in _kotlin_test_files():
             text = path.read_text(encoding="utf-8", errors="replace")
-            # 只看注解用法（@SQLiteMode），注释里的说明不算
-            if re.search(r"^\s*@SQLiteMode\b", text, re.M):
-                offenders.append(path.name)
+            if not re.search(r"^\s*@SQLiteMode\b", text, re.M):
+                continue
+            if path.name in registered:
+                # 已登记的例外：要求紧邻注解处有非空的理由说明（≥3 行注释）
+                idx = text.index("@SQLiteMode")
+                head = text[:idx].rsplit("\n\n", 1)[-1]
+                lines = [ln for ln in head.splitlines() if ln.strip().startswith("//")]
+                if len(lines) < 3:
+                    offenders.append(
+                        f"{path.name}: 已登记例外，但注解上方理由不足 3 行——"
+                        f"例外必须写清为什么它不能用全局配置"
+                    )
+                continue
+            offenders.append(path.name)
+
         assert not offenders, (
-            f"这些测试类挂了类级 @SQLiteMode：{offenders}。\n"
-            f"请改由 app/src/test/resources/robolectric.properties 统一施加——"
-            f"native 崩溃取决于进程是否碰过 SQLite，与具体测试类无关，"
-            f"逐类加注解必然漏（2026-10-13 ScanFeedbackTest 即是漏网的那个）。"
+            f"这些测试类挂了类级 @SQLiteMode 但未登记为例外：{offenders}。\n"
+            f"默认应走全局 robolectric.properties 的 sqliteMode=LEGACY——"
+            f"native 崩溃取决于进程是否碰过 SQLite，与具体测试类无关，逐类"
+            f"加注解必然漏（2026-10-13 ScanFeedbackTest 即是漏网的那个）。\n"
+            f"若本类确实必须用 native，请把它加进本测试的 registered 白名单"
+            f"并写明理由。"
         )
 
     def test_properties_file_has_migration_rationale(self):

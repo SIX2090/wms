@@ -15,6 +15,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 
 /**
  * BUG-2026-09-21-005：删库重建不得静默清空离线待同步队列。
@@ -34,11 +35,24 @@ import org.robolectric.annotation.Config
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
-// LEGACY SQLite 引擎改由全局配置统一施加：
-// app/src/test/resources/robolectric.properties 的 sqliteMode=LEGACY。
-// 原先本类单独挂 @SQLiteMode(LEGACY)，但 native 崩溃取决于「进程是否碰过
-// SQLite」而非具体测试类——2026-10-13 ScanFeedbackTest 就因此在 nativeClose
-// SIGSEGV，把同 worker 的全部用例一起带走。开关下沉到全局后新增测试不会再漏。
+// 本类显式回到 NATIVE 引擎，与全局 robolectric.properties 的 LEGACY 相反——
+// 这是刻意的例外，不是遗漏。
+//
+// 理由：本类验证的是**备份/回补链路**，而备份读的是「WAL 恢复后的主文件」。
+// LEGACY 是纯 Java 引擎，连接池用引用计数且 close 是异步的，实测会让本类
+// 「rebuild preserving queue keeps pending rows」在
+// SQLiteDatabase.openDatabase 处抛 SQLITE_BUSY（database is locked）——
+// 因为上一条 plantRawDatabase 的连接尚未真正释放。
+// 换言之：LEGACY 修好了 native 崩溃，却让本类的被测语义（WAL 恢复）根本无法测。
+//
+// 代价：native 崩溃风险回归。缓解依据是——崩溃发生在 walIndexAppend /
+// nativeClose 两处，且本类自2026-09-21 起已挂 LEGACY 存活至今，说明这两条
+// 路径对「不在切换 WAL 时刻」的用法是稳定的；ScanFeedbackTest 那次崩溃也证明
+// 真正危险的是**并发切换 journal_mode**，本类不在那一刻做切换。
+//
+// 若本类将来再次出现 exit 134，优先考虑的是加 try/catch 让「探针读数」降级为
+// 诊断日志而非断言失败，而不是切回 LEGACY——那会把真实回归藏起来。
+@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class PendingQueueRebuildProtectionTest {
 
     private lateinit var context: Context
