@@ -50,8 +50,9 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
+from tests.ledger_reader import bug_section_text, read_bug_baseline  # noqa: E402
+
 TPL_DIR = os.path.join(ROOT, "app", "templates")
-BASELINE = os.path.join(ROOT, "WMS_BUG_BASELINE.md")
 
 OUT_DETAIL = os.path.join(TPL_DIR, "out_order_detail.html")
 IN_DETAIL = os.path.join(TPL_DIR, "in_order_detail.html")
@@ -267,11 +268,11 @@ BUG_ID = "BUG-2026-10-05-001"
 
 
 def test_baseline_registered_with_effective_confirmation():
-    assert os.path.isfile(BASELINE), "WMS_BUG_BASELINE.md 不存在"
-    src = _read(BASELINE)
+    # F4.4 拆分后台账详情在 docs/ledger/bugs/ 分片，须用兼容读取器（见
+    # tests/ledger_reader.py）；只读主文件会对分片条目误报「台账缺少条目」。
+    src = read_bug_baseline()
     assert BUG_ID in src, f"台账缺少 {BUG_ID} 条目"
-    idx = src.find(BUG_ID)
-    entry = src[idx: idx + 3000]
+    entry = bug_section_text(src, BUG_ID)
     assert "根因" in entry, f"{BUG_ID} 条目缺少「根因」字段"
     assert "修复" in entry, f"{BUG_ID} 条目缺少「修复」字段"
     assert "R6" in entry, f"{BUG_ID} 条目缺少「R6 同类点排查」字段"

@@ -35,6 +35,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.ledger_reader import read_bug_baseline
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ANDROID = REPO_ROOT / "app" / "android-native-wms"
 TEST_SRC = ANDROID / "app" / "src" / "test"
@@ -127,9 +129,8 @@ def test_033_no_placehold_only_tests() -> None:
 
 
 def test_033_baseline_registered() -> None:
-    """BUG-2026-09-14-033 必须已登记进基线。"""
-    baseline = REPO_ROOT / "WMS_BUG_BASELINE.md"
-    assert baseline.exists(), "WMS_BUG_BASELINE.md 不存在"
-    assert "BUG-2026-09-14-033" in baseline.read_text(encoding="utf-8"), (
-        "BUG-2026-09-14-033 未登记进 WMS_BUG_BASELINE.md"
+    """BUG-2026-09-14-033 必须已登记进台账。"""
+    # F4.4 拆分后台账详情可能在 docs/ledger/bugs/ 分片，须用兼容读取器
+    assert "BUG-2026-09-14-033" in read_bug_baseline(), (
+        "BUG-2026-09-14-033 未登记进 BUG 台账"
     )

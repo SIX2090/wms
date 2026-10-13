@@ -43,6 +43,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.ledger_reader import read_bug_baseline
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NAVGRAPH = (
     REPO_ROOT
@@ -186,10 +188,9 @@ def test_032_no_duplicate_viewmodel_key_collision() -> None:
 
 
 def test_032_baseline_registered() -> None:
-    """BUG-2026-09-14-032 必须已登记进基线（AGENTS.md BUG 流程要求）。"""
-    baseline = REPO_ROOT / "WMS_BUG_BASELINE.md"
-    assert baseline.exists(), "WMS_BUG_BASELINE.md 不存在"
-    content = baseline.read_text(encoding="utf-8")
+    """BUG-2026-09-14-032 必须已登记进台账（AGENTS.md BUG 流程要求）。"""
+    # F4.4 拆分后台账详情可能在 docs/ledger/bugs/ 分片，须用兼容读取器
+    content = read_bug_baseline()
     assert "BUG-2026-09-14-032" in content, (
-        "BUG-2026-09-14-032 未登记进 WMS_BUG_BASELINE.md"
+        "BUG-2026-09-14-032 未登记进 BUG 台账"
     )

@@ -89,10 +89,47 @@ class TestLedgerReader:
         with pytest.raises(AssertionError, match="query_ledger.py"):
             bug_section_text(content, "BUG-1970-01-001-NOT-EXIST")
 
+    def test_no_test_reads_baseline_main_file_directly(self):
+        """元回归：凡提到 WMS_BUG_BASELINE 的测试，必须经 ledger_reader 读台账。
 
-# ---------------------------------------------------------------------------
-# 2. staged 取数批量化
-# ---------------------------------------------------------------------------
+        ## 为什么需要这条
+
+        F4.4 拆分时，5 个 A13 台账登记测试的旧写法全部漏改，CI 上表现为
+        4 个 verify 分片 + 2 个 unit-tests 分片误报。修完前 4 个之后，
+        下一个 unit-tests 分片又冒出第 5 个——最初的排查用 grep 找
+        in content 这类**字面模式**，漏掉了把 ID 存进 BUG_ID 变量
+        再 assert BUG_ID in src 的等价写法。
+
+        教训：靠 grep 列受影响清单不可靠。**正向要求**比反向罗列启发式可靠——
+        凡提到该文件名就得走读取器，漏判只能来自显式白名单，而白名单可审。
+        """
+        allowed = {
+            # 读取器本体与元回归自身
+            "ledger_reader.py",
+            "test_lint_staged_batch_and_ledger_reader.py",
+            # tmp 仓库夹具，自造台账内容，不读真实台账
+            "test_lint_wms_rules_a13_golden.py",
+            # 仅在注释/文档字符串里提到该文件名，不读其内容
+            "test_p2_1_drift_gate.py",
+            "verify_inventory_truth_contract.py",
+            # 拆分契约测试本身：它**必须**分别读主文件与每个分片来验证
+            # ID 守恒与体积上限，走读取器反而掩盖了它要验的东西
+            "test_f4_4_ledger_split.py",
+        }
+        offenders = []
+        for p in sorted((ROOT / "tests").glob("*.py")):
+            if p.name in allowed:
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if "WMS_BUG_BASELINE" in text and "ledger_reader" not in text:
+                offenders.append(p.name)
+        assert not offenders, (
+            f"这些测试提到 WMS_BUG_BASELINE.md 却不经 tests.ledger_reader 读取，"
+            f"F4.4 拆分后分片条目会被误判为未登记：请改用 "
+            f"ledger_reader.read_bug_baseline()：{offenders}"
+        )
+
+
 class TestStagedIndexBatching:
     def test_subprocess_count_is_constant(self, tmp_path, monkeypatch):
         """问 N 个文件的 staged 行，git fork 次数必须是常数（2），不是 2N。
