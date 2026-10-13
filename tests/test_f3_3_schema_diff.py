@@ -33,6 +33,13 @@ def app_module():
     # 同进程里其它用例在导入时改过的配置（TESTING、WTF_CSRF_ENABLED 等）都挂在旧 app 上，
     # 不还回去的话，后面的用例要么被 drop_all 守卫拒绝，要么 POST 被 CSRF 挡掉。
     saved_config = dict(app_mod.app.config)
+    # reload 还会把 app_mod.app / app_mod.db 换成**新对象**。其它测试模块在导入期
+    # 就已 `from app import app` 绑定了旧单例（如 test_auto_migrate_db_path.py 的
+    # flask_app），reload 后那些绑定与 app_mod.app 永久分叉：测试改旧对象的 config，
+    # 被测代码读新对象的 config，于是「改配置不生效」类断言随机变红——且红哪个文件
+    # 取决于 xdist 的分片调度，每次都不一样。
+    # 故在 finally 里把模块属性还原成 reload 前的单例，让污染不外泄。
+    saved_app, saved_db = app_mod.app, app_mod.db
     mod = importlib.reload(app_mod)
     try:
         # 测试库不经过 run_server 启动路径，需显式建全量表（模拟 initialize_database 后状态）
@@ -42,6 +49,8 @@ def app_module():
     finally:
         for key, value in saved_config.items():
             mod.app.config[key] = value
+        mod.app = saved_app
+        mod.db = saved_db
 
 
 def _verify(app_mod):
