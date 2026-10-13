@@ -49,9 +49,12 @@ def main() -> int:
 
     clear_history(user_id)
     clear_history(other_user_id)
-    append_history(user_id, 'user', 'hello')
-    append_history(user_id, 'assistant', 'world')
-    append_history(other_user_id, 'user', 'keep me')
+    # 8d3cbf19 起历史按 (user_id, conversation_id) 会话键存储/读取；
+    # 验证场景显式使用会话 1，保持「clear 只清自己」的安全断言意图。
+    conv = 1
+    append_history(user_id, 'user', 'hello', conversation_id=conv)
+    append_history(user_id, 'assistant', 'world', conversation_id=conv)
+    append_history(other_user_id, 'user', 'keep me', conversation_id=conv)
 
     client = app.test_client()
     failures: list[str] = []
@@ -69,9 +72,9 @@ def main() -> int:
         if payload.get('status') != 'success':
             failures.append('clear response status is not success')
 
-    if get_history(user_id):
+    if get_history(user_id, conv):
         failures.append('current user history was not cleared')
-    if len(get_history(other_user_id)) != 1:
+    if len(get_history(other_user_id, conv)) != 1:
         failures.append('clear endpoint changed another user history')
 
     if failures:
