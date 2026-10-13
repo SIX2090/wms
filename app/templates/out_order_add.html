@@ -599,6 +599,7 @@ textarea.form-control {
                     <i class="bi bi-layout-three-columns"></i> 字段设置
                 </button>
             </div>
+            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
             
             <div class="table-responsive">
                 <table id="materialTable">
@@ -891,11 +892,31 @@ function selectMaterial(row, code) {
 }
 
 function handleKeydown(event, row) {
+    if (event.isComposing || event.keyCode === 229) return;
+    const dropdown = row.querySelector('.material-dropdown');
+    const isCodeInput = event.target.classList.contains('material-code');
+    const dropdownOpen = dropdown && dropdown.style.display !== 'none';
+
+    if (isCodeInput && dropdownOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        const items = Array.from(dropdown.querySelectorAll('.material-dropdown-item[data-code]'));
+        if (!items.length) return;
+        let idx = items.findIndex(el => el.classList.contains('active'));
+        if (idx < 0) idx = event.key === 'ArrowDown' ? -1 : items.length;
+        const nextIdx = event.key === 'ArrowDown'
+            ? Math.min(idx + 1, items.length - 1)
+            : Math.max(idx - 1, 0);
+        items.forEach(el => el.classList.remove('active'));
+        items[nextIdx].classList.add('active');
+        items[nextIdx].scrollIntoView({ block: 'nearest' });
+        return;
+    }
     if (event.key === 'Enter') {
         event.preventDefault();
-        const dropdown = row.querySelector('.material-dropdown');
-        const activeItem = dropdown && dropdown.style.display !== 'none' ? dropdown.querySelector('.material-dropdown-item') : null;
-        if (activeItem && event.target.classList.contains('material-code')) {
+        const activeItem = dropdownOpen
+            ? (dropdown.querySelector('.material-dropdown-item.active[data-code]') || dropdown.querySelector('.material-dropdown-item[data-code]'))
+            : null;
+        if (activeItem && isCodeInput) {
             selectMaterial(row, activeItem.dataset.code);
             return;
         }
@@ -1742,6 +1763,7 @@ function findEmptyRow() {
 // ==================== 扫码自动填充 ====================
 function setupScanAutoFill() {
     document.addEventListener('keydown', function(e) {
+        if (e.isComposing || e.keyCode === 229) return;
         if (e.key === 'Enter' && e.target.classList.contains('material-code')) {
             const input = e.target;
             const code = input.value.trim();
