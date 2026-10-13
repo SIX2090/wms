@@ -11,6 +11,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.SQLiteMode
 
 /**
  * BUG-2026-09-13-018：扫码累加**数量反馈状态机**的真实可执行测试。
@@ -41,6 +42,9 @@ import org.robolectric.annotation.Config
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31]) // 与现场设备 HUAWEI LIO-AN00（Android 12 / sdk 31）对齐
+// Robolectric 原生 SQLite 在本类打开 WAL 时会在 SQLiteConnection.open 里 SIGSEGV，
+// 整次单测被杀。本类验证的是 ViewModel 扫码反馈状态机，不依赖原生 WAL，改走 LEGACY 引擎。
+@SQLiteMode(SQLiteMode.Mode.LEGACY)
 class ScanFeedbackTest {
 
     private lateinit var viewModel: ScanViewModel
