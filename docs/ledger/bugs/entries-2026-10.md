@@ -295,3 +295,14 @@ BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部�
 - **验证**：tests/verify_bug_2026_10_07_004_vision_json_only.py 7 项静态契约全过；关联回归 62 passed（OCR/draft/chat endpoint/wechat share/document confirmation）；lint --staged 0 违规；app.py ast.parse 语法通过。
 - **关联**：修复脚本 tools/fix_bug_2026_10_07_004_vision_json_only.py（幂等）。
 
+
+### BUG-2026-10-13-001: 扫码测试重复配置 SQLite 引擎导致 CI 守护回归失败
+
+- 日期：2026-10-13。
+- 根因：ca432c20 给 ScanFeedbackTest 新增类级 @SQLiteMode(LEGACY)，与既有全局 robolectric.properties 配置和零例外守护契约冲突；WMS CI #1543 的 shard-2 因此失败。
+- 危害：main CI 非绿，阻断后续界面与录单效率优化。
+- 修复：删除重复的类级注解、导入及对应过时注释，继续沿用全局 LEGACY 配置，不改变扫码业务逻辑和测试断言。
+- 同类点已排查：tests/test_robolectric_sqlite_mode_global.py 扫描全部 Kotlin 测试类；现有守护测试覆盖新增注解的复发。
+- 回归验证：修复前守护模块 1 failed / 7 passed；修复后守护模块及本次上游改动相邻 Python 测试共 17 passed。现有回归锁在修复前确实失败，未放宽断言。
+- 状态：本地验证通过，待本次推送 CI 确认。Android #823 另有 PendingQueueRebuildProtectionTest SQLITE_IOERR_SHORT_READ，继续单独定位，不混入未经验证的生产改动。
+- 生效确认：待确认；以推送后 WMS CI 和 Android APK Build 的实际运行结果为准。本次仅测试配置改动，生产服务无需重启。
