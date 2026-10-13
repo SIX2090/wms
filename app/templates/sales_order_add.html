@@ -797,6 +797,7 @@ textarea.form-control {
     }
 
     function handleKeydown(event, row) {
+        if (event.isComposing || event.keyCode === 229) return;
         var dropdown = row.querySelector('.material-dropdown');
         var isCodeInput = event.target.classList.contains('material-code');
         var dropdownOpen = dropdown && dropdown.style.display !== 'none';

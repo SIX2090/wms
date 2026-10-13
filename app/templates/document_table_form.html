@@ -30,7 +30,7 @@
 .material-input { position:relative; }
 .material-dropdown { position:fixed; min-width:420px; max-height:280px; overflow-y:auto; background:#fff; border:1px solid #d9d9d9; border-radius:3px; z-index:99999; box-shadow:0 2px 12px rgba(0,0,0,.12); }
 .material-dropdown-item { padding:6px 10px; cursor:pointer; border-bottom:1px solid #f0f0f0; font-size:12px; }
-.material-dropdown-item:hover { background:#e6f7ff; }
+.material-dropdown-item:hover, .material-dropdown-item.active { background:#e6f7ff; }
 .material-dropdown-item .code { font-weight:600; color:#1890ff; }
 .material-dropdown-item .meta { color:#999; font-size:11px; margin-left:6px; }
 .doc-grid tfoot td { padding:8px; font-size:12px; border:1px solid #ffe58f; font-weight:600; color:#333; background:#fffbe6; }
@@ -218,6 +218,7 @@
                 <button type="button" class="btn btn-outline-success" onclick="showPasteModal()"><i class="bi bi-clipboard"></i> 粘贴导入</button>
                 <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()"><i class="bi bi-arrow-clockwise"></i> 刷新物料</button>
             </div>
+            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
             {% endif %}
 
             {# INV-BATCH-001-D：盘点批次进度与回查（PC 盘点单即批次） #}
@@ -334,6 +335,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const docType = {{ doc_type|tojson }};
 const saveUrl = {{ save_url|tojson }};
@@ -513,6 +515,17 @@ function bindRowEvents(row) {
         showDropdown(row);
     });
     codeInput.addEventListener('keydown', function(event) {
+        const dropdown = row.querySelector('.material-dropdown');
+        if (WMS.MaterialPicker.handleKeydown(event, dropdown, function(item) {
+            const material = findMaterialByCode(item.dataset.code);
+            if (!material) return;
+            fillMaterialFields(row, material);
+            hideDropdown();
+            (row.querySelector('.line-qty') || row.querySelector('.actual-stock'))?.focus();
+        })) {
+            if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) hideDropdown();
+            return;
+        }
         if (event.key === 'Escape') hideDropdown();
         if (event.key === 'Enter') {
             event.preventDefault();

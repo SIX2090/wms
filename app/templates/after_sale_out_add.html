@@ -82,7 +82,8 @@
     border-bottom: 1px solid #F0F0F0;
     font-size: 12px;
 }
-.material-dropdown-item:hover {
+.material-dropdown-item:hover,
+.material-dropdown-item.active {
     background-color: #E6F7FF;
 }
 .material-dropdown-item .dropdown-code {
@@ -299,6 +300,7 @@
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
             </div>
+            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
 
             <div class="table-responsive">
                 <table id="materialTable">
@@ -336,6 +338,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
 const customers = {{ customers|tojson }};
@@ -403,6 +406,13 @@ function bindRow(row) {
         showDropdown(row);
     });
     row.querySelector('.material-code').addEventListener('keydown', function(event) {
+        const dropdown = row.querySelector('.material-dropdown');
+        if (WMS.MaterialPicker.handleKeydown(event, dropdown, function(item) {
+            selectMaterial(row, item.dataset.code);
+        })) {
+            if (event.key === 'Escape' && !event.isComposing && event.keyCode !== 229) activeDropdown = null;
+            return;
+        }
         if (event.key === 'Escape') {
             row.querySelector('.material-dropdown').style.display = 'none';
             activeDropdown = null;
@@ -477,6 +487,8 @@ function selectMaterial(row, code) {
     row.querySelector('.material-dropdown').style.display = 'none';
     activeDropdown = null;
     calcAmount(row);
+    row.querySelector('.material-qty').focus();
+    row.querySelector('.material-qty').select();
 }
 
 function calcAmount(row) {

@@ -639,6 +639,7 @@ function bindMaterialInput(row) {
     });
 
     input.addEventListener('keydown', function(e) {
+        if (e.isComposing || e.keyCode === 229) return;
         const visible = dropdown.style.display === 'block';
         const items = Array.from(dropdown.querySelectorAll('.material-dropdown-item:not([data-empty="1"])'));
         if (e.key === 'ArrowDown') {

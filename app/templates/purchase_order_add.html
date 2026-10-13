@@ -748,6 +748,7 @@ function bindRow(row) {
         showMaterialDropdown(row);
     });
     codeInput.addEventListener('keydown', function(event) {
+        if (event.isComposing || event.keyCode === 229) return;
         const dropdown = row.querySelector('.material-dropdown');
         const active = dropdown.querySelector('.material-dropdown-item.active');
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
