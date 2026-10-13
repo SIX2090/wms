@@ -15,7 +15,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.SQLiteMode
 
 /**
  * BUG-2026-09-21-005：删库重建不得静默清空离线待同步队列。
@@ -35,24 +34,6 @@ import org.robolectric.annotation.SQLiteMode
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
-// 本类显式回到 NATIVE 引擎，与全局 robolectric.properties 的 LEGACY 相反——
-// 这是刻意的例外，不是遗漏。
-//
-// 理由：本类验证的是**备份/回补链路**，而备份读的是「WAL 恢复后的主文件」。
-// LEGACY 是纯 Java 引擎，连接池用引用计数且 close 是异步的，实测会让本类
-// 「rebuild preserving queue keeps pending rows」在
-// SQLiteDatabase.openDatabase 处抛 SQLITE_BUSY（database is locked）——
-// 因为上一条 plantRawDatabase 的连接尚未真正释放。
-// 换言之：LEGACY 修好了 native 崩溃，却让本类的被测语义（WAL 恢复）根本无法测。
-//
-// 代价：native 崩溃风险回归。缓解依据是——崩溃发生在 walIndexAppend /
-// nativeClose 两处，且本类自2026-09-21 起已挂 LEGACY 存活至今，说明这两条
-// 路径对「不在切换 WAL 时刻」的用法是稳定的；ScanFeedbackTest 那次崩溃也证明
-// 真正危险的是**并发切换 journal_mode**，本类不在那一刻做切换。
-//
-// 若本类将来再次出现 exit 134，优先考虑的是加 try/catch 让「探针读数」降级为
-// 诊断日志而非断言失败，而不是切回 LEGACY——那会把真实回归藏起来。
-@SQLiteMode(SQLiteMode.Mode.NATIVE)
 class PendingQueueRebuildProtectionTest {
 
     private lateinit var context: Context
@@ -126,20 +107,29 @@ class PendingQueueRebuildProtectionTest {
 
     /** 用原生 SQLite 在标准路径种一个含 pending_operations 表与若干行的库文件。 */
     private fun plantRawDatabase(rows: List<PendingOperationEntity>, userVersion: Int = 1) {
-        // BUG-2026-10-08-014 第四次复发根治：前序用例（getDatabase catch...）的 Room
-        // 实例以 WAL 模式持有连接，checkpoint 异步进行。此处再 purge 一次，确保
-        // 任何残留 WAL 连接与侧车文件在种数据前彻底清掉，否则 journal_mode 切换
-        // 会被活动 WAL 连接压制，导致只读验证读到空（CI 实测 line:162 失败）。
+        // 前序用例（getDatabase catch...）的 Room 实例可能仍持有连接。此处再 purge
+        // 一次，确保任何残留连接与侧车文件在种数据前彻底清掉（CI 实测曾因此
+        // 只读验证读到空）。
         purgeDatabase()
         val dbFile = context.getDatabasePath(dbName)
         dbFile.parentFile?.mkdirs()
         SQLiteDatabase.openOrCreateDatabase(dbFile, null).use { raw ->
-            // BUG-2026-10-08-014 根治：Robolectric 影子 SQLite 的 WAL recovery 是
-            // 时序漂移根源（只读打开不执行 recovery，刚写入的行还在 -wal 侧车 → 读到空）。
-            // 种数据改用 TRUNCATE journal 模式（SQLite 默认的 rollback journal），
-            // 写入直接落主文件，不产 -wal/-shm 侧车，任何打开方式都能读到，
-            // 从输入侧彻底消除对 WAL recovery 的依赖，与用例执行顺序无关。
-            raw.rawQuery("PRAGMA journal_mode=TRUNCATE", null).close()
+            // BUG-2026-10-08-014 根治（本轮修正）：**不要在这里切 journal_mode 或
+            // 做 wal_checkpoint**。
+            //
+            // purgeDatabase() 已把主文件连同 -wal/-shm/-journal 整个删掉，所以新建的
+            // 文件默认就是 rollback journal 模式，根本不是 WAL——两条 PRAGMA 都是
+            // 对不存在的问题出手。历史注释把它们当成"根治"，实测两条都是反效果：
+            //
+            //   * NATIVE 引擎：切换 journal_mode 会走进 walIndexAppend，正是
+            //     BUG-2026-09-21-005 那次 SIGBUS（exit 134）的路径；
+            //   * LEGACY 引擎：切换会留下未完成事务，紧接着的 openDatabase 在
+            //     setLocaleFromConfiguration 提交时抛 SQLITE_BUSY（database is locked），
+            //     表现为「rebuild preserving queue keeps pending rows」失败。
+            //
+            // 换言之这两个症状同源：**只要切 journal_mode，两种引擎各坏一处**。
+            // 新建文件本就不是 WAL，删除后不产侧车，INSERT 直接落主文件，
+            // 任何打开方式（含 OPEN_READONLY）都能读到——这才是与执行顺序无关的正解。
             raw.execSQL(
                 "CREATE TABLE IF NOT EXISTS `pending_operations` (" +
                     "`request_id` TEXT NOT NULL, `operation_type` TEXT NOT NULL, " +
@@ -160,17 +150,6 @@ class PendingQueueRebuildProtectionTest {
                 )
             }
             raw.version = userVersion
-            // BUG-2026-10-08-014：关闭前强制 WAL checkpoint，消除顽固偶发。
-            // 本类「rebuild preserving queue keeps pending rows」在 CI 第三次复发
-            // （302b2c1 SIGBUS、74eedaf 断言 expected:<1> but was:<0>）。
-            // 根因：WAL 模式下 use{} 关闭时，刚写入的行可能仍留在 -wal 侧车未刷
-            // 到主文件；backupPendingOperations 先以 OPEN_READONLY 打开，只读打开
-            // 无法恢复 WAL 索引 → 读不到刚种的行 → 备份为空 → 重建后自然为空。
-            // 是否触发取决于前序用例（getDatabase catch delegates...）留下的
-            // Room 实例何时完成 WAL 恢复，纯时序漂移——这正是「每次挂的方法都不同」
-            // 的原因。TRUNCATE checkpoint 把 WAL 数据合并进主文件并截断侧车，
-            // 任何打开方式都能读到，与执行顺序无关。
-            raw.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).close()
         }
         // 兜底：删干净侧车文件，保证后续 OPEN_READONLY 打开的是自洽主文件。
         // BUG-2026-10-08-014 第四次复发定位：Robolectric 影子 SQLite 的 WAL recovery
