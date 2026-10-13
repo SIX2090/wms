@@ -38,9 +38,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.ledger_reader import bug_section_text, read_bug_baseline
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_HTML = REPO_ROOT / "app" / "templates" / "base.html"
-BASELINE = REPO_ROOT / "WMS_BUG_BASELINE.md"
 
 # 嵌入页必须隐藏的浮动按钮选择器
 EMBED_HIDDEN_SELECTORS = [
@@ -145,12 +146,8 @@ def test_outer_page_still_renders_bell_once() -> None:
 
 def test_bug_registered_with_confirmation_field() -> None:
     """BUG-2026-10-05-002 必须登记台账且含「生效确认」字段（A13）。"""
-    content = _read(BASELINE)
-    assert "BUG-2026-10-05-002" in content, "BUG-2026-10-05-002 未登记进 WMS_BUG_BASELINE.md"
-    m = re.search(
-        r"(##[^\n]*BUG-2026-10-05-002[^\n]*\n.*?)(?=\n##\s|\Z)",
-        content,
-        re.S,
-    )
-    assert m, "无法定位 BUG-2026-10-05-002 条目段落"
-    assert "生效确认" in m.group(1), "BUG-2026-10-05-002 条目缺少「生效确认」字段（A13）"
+    # F4.4 拆分后台账详情在 docs/ledger/bugs/ 分片，须用兼容读取器，见 tests/ledger_reader.py
+    content = read_bug_baseline()
+    assert "BUG-2026-10-05-002" in content, "BUG-2026-10-05-002 未登记进 BUG 台账"
+    section = bug_section_text(content, "BUG-2026-10-05-002")
+    assert "生效确认" in section, "BUG-2026-10-05-002 条目缺少「生效确认」字段（A13）"

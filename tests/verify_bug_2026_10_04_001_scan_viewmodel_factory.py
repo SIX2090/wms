@@ -24,7 +24,8 @@ NavGraph 反射路径无任何测试覆盖，故 4 个扫码页全部带病上�
 1. ScanViewModel 必须声明 companion Factory（viewModelFactory DSL + APPLICATION_KEY）。
 2. 主源码中**每一个** `XxxViewModel: ScanViewModel = viewModel(` 创建点都必须传
    `factory = ScanViewModel.Factory`——不允许再出现无工厂反射创建。
-3. BUG-2026-10-04-001 必须登记进 WMS_BUG_BASELINE.md（含「生效确认」字段，A13）。
+3. BUG-2026-10-04-001 必须登记进 BUG 台账（WMS_BUG_BASELINE.md 及其
+   docs/ledger/bugs/ 分片，含「生效确认」字段，A13）。
 
 ## 为什么是静态断言
 
@@ -37,6 +38,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.ledger_reader import bug_section_text, read_bug_baseline
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC = (
     REPO_ROOT
@@ -45,7 +48,6 @@ SRC = (
 )
 SCAN_VM = SRC / "ui" / "viewmodel" / "scan" / "ScanViewModel.kt"
 NAVGRAPH = SRC / "ui" / "navigation" / "NavGraph.kt"
-BASELINE = REPO_ROOT / "WMS_BUG_BASELINE.md"
 
 SCAN_VM_CREATION_RE = re.compile(
     r"val\s+\w+\s*:\s*ScanViewModel\s*=\s*viewModel\(([^)]*)\)"
@@ -114,11 +116,12 @@ def test_001_all_four_scan_keys_use_scan_factory() -> None:
 
 def test_001_bug_registered_with_confirmation_field() -> None:
     """BUG-2026-10-04-001 必须登记台账且含「生效确认」字段（AGENTS.md A13）。"""
-    content = _read(BASELINE)
-    assert "BUG-2026-10-04-001" in content, "BUG-2026-10-04-001 未登记进 WMS_BUG_BASELINE.md"
+    # F4.4 拆分后台账详情在 docs/ledger/bugs/ 分片，须用兼容读取器
+    # （主文件 + 分片），见 tests/ledger_reader.py 说明。
+    content = read_bug_baseline()
+    assert "BUG-2026-10-04-001" in content, "BUG-2026-10-04-001 未登记进 BUG 台账"
     # 截取该条目段落（到下一个同级标题为止）检查生效确认字段
-    m = re.search(r"(##[^\n]*BUG-2026-10-04-001[^\n]*\n.*?)(?=\n##\s|\Z)", content, re.S)
-    assert m, "无法定位 BUG-2026-10-04-001 条目段落"
-    assert "生效确认" in m.group(1), (
+    section = bug_section_text(content, "BUG-2026-10-04-001")
+    assert "生效确认" in section, (
         "BUG-2026-10-04-001 条目缺少「生效确认」字段（A13 硬性要求，允许「待确认」占位）"
     )

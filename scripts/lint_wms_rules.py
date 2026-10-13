@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -154,46 +155,16 @@ _HUNK_HEADER = re.compile(
 )
 
 
-def get_staged_added_lines(repo_root: Path, file_path: Path) -> Set[int]:
-    """返回 staged 文件相对 HEAD 新增行（在新文件中的行号集合）。
+def _parse_added_lines_for_file(diff_text: str) -> Set[int]:
+    """从「单个文件的 ``git diff --cached --unified=0`` 输出」解析新增行号。
 
-    - 对新增文件（A），所有行都算"新增"。
-    - 对修改文件（M），从 ``git diff --cached --unified=0`` 解析 hunk，仅取 ``+`` 行。
-    - 解析失败 / 不在 git 中：返回空集（不报错，让规则"沉默"地放行）。
+    抽成独立函数是为了让 :func:`_load_staged_index` 能复用同一套 hunk 解析逻辑
+    ——批量与逐文件两条路径必须给出完全一致的行号集合，否则「同一个文件在
+    --staged 与 --full 两条路径下判定结果不同」这类不一致会极难排查。
     """
-    try:
-        rel = str(file_path.relative_to(repo_root)).replace("\\", "/")
-        # 优先用 --diff-filter=A 简化新增文件的情况
-        result_a = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=A", "--", rel],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        is_new_file = rel in (result_a.stdout or "").split()
-        if is_new_file:
-            try:
-                text = file_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                return set()
-            return set(range(1, text.count("\n") + 2))
-
-        result = subprocess.run(
-            ["git", "diff", "--cached", "--unified=0", "--", rel],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except (FileNotFoundError, OSError):
-        return set()
-    if result.returncode != 0 or not result.stdout:
-        return set()
-
     added: Set[int] = set()
     new_line = 0
-    for line in result.stdout.splitlines():
+    for line in diff_text.splitlines():
         m = _HUNK_HEADER.match(line)
         if m:
             new_line = int(m.group("new_start"))
@@ -212,6 +183,220 @@ def get_staged_added_lines(repo_root: Path, file_path: Path) -> Set[int]:
             # 上下文行
             new_line += 1
     return added
+
+
+# 全仓 staged 批量缓存：(index 指纹, 新增文件集合, {rel: 新增行号})
+# 定义在 _load_staged_index 的 docstring 之后使用，故先于它声明。
+_STAGED_INDEX_CACHE: Optional[Tuple[Tuple[str, int, int], Set[str], Dict[str, Set[int]]]] = None
+
+
+def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
+    """一次性读取全仓 staged 数据，返回 (新增文件集合, {rel_path: 新增行号})。
+
+    ## 为什么要批量
+
+    旧实现 :func:`get_staged_added_lines` 对**每个文件** fork 两次 git
+    （一次 ``--diff-filter=A`` 判是否新增、一次 ``--unified=0`` 取 hunk）。
+    A8/A9/A10/A11/A13/A14 六条规则逐文件调用它，全仓 300+ 文件 → 600+ 次
+    子进程，实测 ``lint --rule a11`` 单条规则就要 46s。
+
+    这带来两个实际问题：
+
+    1. **超时**：``tests/verify_inventory_truth_contract.py`` 的 T10 会 fork
+       一次 ``lint --rule a11``，总耗时 52s，逼近 run_verify_parallel.py 的
+       单文件 60s 超时线；CI 上 4 进程并行抢 IO 时必然超时（实测 rc=124）。
+    2. **pre-commit 体验**：钩子每次提交都要等这条路径。
+
+    改为**一次** ``git diff --cached --unified=0``（不带 pathspec）拿到全量，
+    再按 ``diff --git a/... b/...`` 头切成每文件段。子进程数从 2N 降到 2。
+
+    ## 缓存与正确性
+
+    缓存键是 ``(repo_root, git index 的 mtime+size)``。同一次 lint 运行内
+    index 不会变，所以同文件被多次询问时复用缓存；运行之间若 index 变了
+    （新提交 / 新的 staged），键随之变化自动失效——不会出现「改了暂存区
+    但读到旧结果」。显式传入 ``fresh=True`` 可跳过缓存。
+    """
+    global _STAGED_INDEX_CACHE
+
+    try:
+        st = os.stat(os.path.join(str(repo_root), ".git", "index"))
+        key: Tuple[str, int, int] = (str(repo_root), st.st_mtime_ns, st.st_size)
+    except OSError:
+        key = (str(repo_root), -1, -1)
+
+    if _STAGED_INDEX_CACHE is not None and _STAGED_INDEX_CACHE[0] == key:
+        return _STAGED_INDEX_CACHE[1], _STAGED_INDEX_CACHE[2]
+
+    new_files: Set[str] = set()
+    per_file: Dict[str, Set[int]] = {}
+
+    try:
+        result_a = subprocess.run(
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=A"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        # ⚠️ 必须逐行反转义：core.quotePath=true 时非 ASCII 文件名在这里也是
+        # 八进制转义（"\350\257\264\346\230\216.txt"），直接与 rel 比对会永远
+        # 不相等 → 中文文件被当成「非新增」→ 新增文件的全行豁免失效。
+        new_files = {
+            _unquote_git_path(p)
+            for p in (result_a.stdout or "").split()
+            if p
+        }
+
+        result = subprocess.run(
+            ["git", "diff", "--cached", "--unified=0"],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout:
+            per_file = _split_diff_by_file(result.stdout)
+    except (FileNotFoundError, OSError):
+        new_files, per_file = set(), {}
+
+    _STAGED_INDEX_CACHE = (key, new_files, per_file)
+    return new_files, per_file
+
+
+# "diff --git a/<path> b/<path>"。
+#
+# ⚠️ 非 ASCII 路径的形态不是 "a/说明.txt b/说明.txt"，而是**整个带前缀的路径
+# 一起被引号包住**（core.quotePath=true 时）：
+#     diff --git "a/\350\257\264\346\230\216.txt" "b/\350\257\264\346\230\216.txt"
+# 所以引号既可能落在 ``a/`` 之后，也可能落在 ``a/`` 之前。正则按两种形态
+# 分别匹配，否则中文文件名会被整体漏掉（该规则对中文文件静默失效）。
+_DIFF_HEADER = re.compile(
+    r'^diff --git '
+    r'(?:"(?P<qpath_a>(?:a/|b/)(?:[^"\\]|\\.)*)" "b/(?:[^"\\]|\\.)*"'
+    r'|"a/(?:[^"\\]|\\.)*" "(?P<qpath_b>b/(?:[^"\\]|\\.)*)"'
+    r'|a/(?P<path>.+?) b/(?P<path2>.+))'
+)
+
+
+def _unquote_git_path(p: str) -> str:
+    """还原 git 在 ``core.quotePath=true`` 下对非 ASCII 路径的八进制转义。
+
+    push_mcp.py 场景已踩过同样的坑（``git -c core.quotePath=false diff-tree``）。
+    这里做等价的字符串还原，避免中文路径文件（``说明.txt`` 等）的 staged
+    新增行被解析成转义串而**静默丢行**——那会让规则对中文文件名整体失效。
+
+    入参**允许带引号也可不带**：``_DIFF_HEADER`` 的引号分支已把外层引号剥掉
+    （剩下 ``a/\\350\\257...``），而 ``--name-only`` 分支是整行带引号的
+    （``"\\350\\257\\264\\346\\230\\216.txt"``）。两条路径共用本函数，故这里
+    必须同时接受两种形态——只处理带引号的那种会让 diff 头路径解码失败。
+    """
+    p = p.strip()
+    if p.startswith('"') and p.endswith('"'):
+        p = p[1:-1]
+    if "\\" not in p:
+        return p
+    # git 把非 ASCII 路径的**原始字节**逐个八进制化，而 subprocess 已用
+    # text=True 按 UTF-8 解码——所以这里拿到的 \350 是一个字符而非一个字节。
+    # 必须先把八进制序列还原成 bytes 再整体按 UTF-8 解码；直接在 str 上
+    # chr() 会得到 Latin-1 乱码（实测 "说明.txt" → "è¯´æ\x98\x8e.txt"），
+    # 该串永远匹配不上 rel，导致中文文件被静默漏判。
+    raw = bytearray()
+    i = 0
+    while i < len(p):
+        ch = p[i]
+        if ch == "\\" and i + 1 < len(p):
+            oct_digits = p[i + 1 : i + 4]
+            if len(oct_digits) == 3 and all(c in "01234567" for c in oct_digits):
+                raw.append(int(oct_digits, 8))
+                i += 4
+                continue
+            esc = {"n": b"\n", "t": b"\t", "r": b"\r", '"': b'"', "\\": b"\\"}
+            if p[i + 1] in esc:
+                raw += esc[p[i + 1]]
+                i += 2
+                continue
+        # 非转义字符：编码回 UTF-8 字节，与转义字节拼成完整序列
+        raw += ch.encode("utf-8", errors="surrogateescape")
+        i += 1
+    return raw.decode("utf-8", errors="replace")
+
+
+def _strip_side_prefix(p: str) -> str:
+    """去掉 git 路径的 ``a/`` / ``b/`` 前缀。"""
+    return p[2:] if p[:2] in ("a/", "b/") else p
+
+
+def _split_diff_by_file(diff_text: str) -> Dict[str, Set[int]]:
+    """把全仓 ``git diff --cached --unified=0`` 输出按文件切成 {rel: 新增行号}。
+
+    按 ``diff --git`` 头分桶后逐桶复用 :func:`_parse_added_lines_for_file`，
+    保证与逐文件路径的解析结果一致。
+    """
+    buckets: Dict[str, List[str]] = {}
+    order: List[str] = []
+    current: Optional[str] = None
+
+    for line in diff_text.splitlines(keepends=True):
+        stripped = line.rstrip("\n")
+        m = _DIFF_HEADER.match(stripped)
+        if m:
+            # 三种形态取第一个非空分组；两侧不一致时以 b/ 侧为准（git 的真实目标）
+            raw = m.group("qpath_a") or m.group("qpath_b") or m.group("path") or ""
+            if not raw:
+                raw = m.group("path2") or ""
+            current = _strip_side_prefix(_unquote_git_path(raw))
+            if not current:
+                continue
+            if current not in buckets:
+                buckets[current] = []
+                order.append(current)
+            continue
+        if current is None:
+            continue
+        buckets[current].append(stripped)
+
+    return {path: _parse_added_lines_for_file("\n".join(buckets[path])) for path in order}
+
+
+def get_staged_added_lines(repo_root: Path, file_path: Path) -> Set[int]:
+    """返回 staged 文件相对 HEAD 新增行（在新文件中的行号集合）。
+
+    - 对新增文件（A），所有行都算"新增"。
+    - 对修改文件（M），从 ``git diff --cached --unified=0`` 解析 hunk，仅取 ``+`` 行。
+    - 解析失败 / 不在 git 中：返回空集（不报错，让规则"沉默"地放行）。
+
+    实现走 :func:`_load_staged_index` 的全仓批量结果（每次 lint 运行只 fork
+    2 次 git，而非每文件 2 次）；详见该函数的「为什么要批量」说明。
+    """
+    try:
+        rel = str(file_path.relative_to(repo_root)).replace("\\", "/")
+    except ValueError:
+        return set()
+
+    new_files, per_file = _load_staged_index(repo_root)
+    if rel in new_files:
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return set()
+        return set(range(1, text.count("\n") + 2))
+
+    lines = per_file.get(rel)
+    if lines is None:
+        return set()
+    return set(lines)
+
+
+def clear_staged_index_cache() -> None:
+    """清空 staged 批量缓存。
+
+    仅测试与「同一进程内多次改动 index 后需要重新取数」的场景需要；
+    ``git add`` 之后 index 的 mtime/size 变化会自动使缓存失效，正常流程
+    不需要显式调用。
+    """
+    global _STAGED_INDEX_CACHE
+    _STAGED_INDEX_CACHE = None
 
 
 def _all_lines(repo_root: Path, file_path: Path) -> Set[int]:
