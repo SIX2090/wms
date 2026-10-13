@@ -315,5 +315,5 @@ BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部�
 - 同类点已排查：采购入库与领料出库的 handleKeydown / setupScanAutoFill；其他入出库复用这两页，自动继承。通用 document_table_form 和 quick-select 是不同入口，未夹带重写，后续单项验证。
 - 回归：tests/test_document_material_keyboard.py 用 Node 执行实际模板处理函数，覆盖中文输入、非物料提示行、上下边界、行间隔离、选中与关闭后焦点行为。受影响页面与相邻筛选、台账测试共 33 passed。
 - 回退验证：文件备份后恢复 HEAD 两页，新测试 2 failed；恢复改动后 2 passed，未放宽任何断言。仅模拟 DOM 的运行时验证，尚未作为真实浏览器或现场验收证据。
-- 状态：本地验证通过，待推送 CI 和现场验收。
+- 状态：代码已修复并推送 main（9dfe4618）；WMS CI #1547 和 WMS AI Verification #1842 均 success，最近 Android APK Build #826 success（本次仅模板与测试改动，未触发 Android 构建）。现场体验待用户验收。
 - 生效确认：待用户确认；生产需重启 WMS 服务生效，浏览器 Ctrl+F5 强刷后在采购入库与领料出库输入关键词，验证上下键、回车选料及数量焦点。不涉及库存写入或数据库迁移。
