@@ -1,7 +1,7 @@
 """Return facts must retain enough completed source quantities after rollback."""
 import pytest
 import app as w
-from tests.test_flow_source_limits import flow_case
+from tests.test_flow_source_limits import flow_case, source_case
 from services.document_return_guard import sales_outbound_revert_check, purchase_inbound_revert_check
 
 
@@ -107,3 +107,56 @@ def test_purchase_inbound_revert_check(flow_case, batch):
         assert w.StockTransaction.query.count() == before
     assert client.post(f'/out_order/{rid}/revert').get_json()['status'] == 'success'
     assert client.post(f'/in_order/{oid}/revert').get_json()['status'] == 'success'
+
+
+@pytest.mark.parametrize('batch', [False, True])
+@pytest.mark.parametrize('invalid_source', ['reverted', 'other_type'])
+def test_purchase_return_completion_rechecks_source_fact(flow_case, batch, invalid_source):
+    client, ids = flow_case
+    with w.app.app_context():
+        source = w.InOrder(order_no='SOURCE', business_type='其他入库' if invalid_source == 'other_type' else '采购入库',
+                           warehouse='审计仓A', status='pending', supplier_id=ids['supplier'])
+        w.db.session.add(source)
+        w.db.session.flush()
+        line = w.InOrderItem(in_order_id=source.id, material_id=ids['mat'], quantity=10, price=5, amount=50)
+        w.db.session.add(line)
+        w.db.session.commit()
+        oid, sid = source.id, line.id
+    assert client.post(f'/in_order/{oid}/complete').get_json()['status'] == 'success'
+    with w.app.app_context():
+        ret = w.OutOrder(order_no='RETURN', business_type='采购退货出库', warehouse='审计仓A', status='pending')
+        w.db.session.add(ret)
+        w.db.session.flush()
+        w.db.session.add(w.OutOrderItem(out_order_id=ret.id, material_id=ids['mat'], quantity=4,
+                                       price=5, amount=20, source_in_order_item_id=sid))
+        w.db.session.commit()
+        rid = ret.id
+    if invalid_source == 'reverted':
+        assert client.post(f'/out_order/{rid}/complete').get_json()['status'] == 'success'
+        assert client.post(f'/out_order/{rid}/revert').get_json()['status'] == 'success'
+        assert client.post(f'/in_order/{oid}/revert').get_json()['status'] == 'success'
+    with w.app.app_context():
+        before = w.StockTransaction.query.count()
+    url = '/out_order/batch_complete' if batch else f'/out_order/{rid}/complete'
+    response = client.post(url, json={'ids':[rid]}).get_json()
+    assert '来源' in str(response)
+    with w.app.app_context():
+        assert w.db.session.get(w.OutOrder, rid).status == 'pending'
+        assert w.db.session.get(w.Material, ids['mat']).stock == (100 if invalid_source == 'reverted' else 110)
+        assert w.StockTransaction.query.count() == before
+
+
+@pytest.mark.parametrize('invalid_source', ['reverted', 'other_type'])
+def test_purchase_return_quantity_validator_rechecks_source(flow_case, invalid_source):
+    _, ids = flow_case
+    with w.app.app_context():
+        oid, sid = source_case(ids, 'purchase_return')
+        source = w.db.session.get(w.InOrder, oid)
+        if invalid_source == 'reverted':
+            source.status = 'pending'
+        else:
+            source.business_type = '其他入库'
+        w.db.session.commit()
+        ok, message = w.validate_purchase_return_quantity(w.db.session.get(w.InOrderItem, sid), 4)
+        assert ok is False
+        assert '来源' in message

@@ -35381,6 +35381,9 @@ def validate_purchase_return_quantity(in_item, return_qty, material_code=''):
     """
     if not in_item:
         return False, '来源采购入库明细不存在'
+    if (not in_item.in_order or in_item.in_order.business_type != '采购入库'
+            or in_item.in_order.status != 'completed'):
+        return False, '采购退货来源必须是已完成的采购入库单，请先核对或恢复来源单据'
     returned_map = _purchase_returned_quantity_by_source_item([in_item.id])
     returned = round_to_2_decimals(returned_map.get(in_item.id, 0))
     remaining = round_to_2_decimals((in_item.quantity or 0) - returned)
@@ -35426,6 +35429,9 @@ def purchase_return_remaining_check(out_order):
         ii = in_items.get(sid)
         if not ii:
             continue
+        if (not ii.in_order or ii.in_order.business_type != '采购入库'
+                or ii.in_order.status != 'completed'):
+            return False, '采购退货来源必须是已完成的采购入库单，请先核对或恢复来源单据'
         returned = round_to_2_decimals(returned_map.get(sid, 0))
         remaining = round_to_2_decimals((ii.quantity or 0) - returned)
         return_qty = requested_quantity
