@@ -3301,6 +3301,17 @@ function insertGlobalActionBar() {
         });
         buttons = trimWmsActionbarDividers(buttons);
     }
+    if (!isListPage) {
+        buttons = trimWmsActionbarDividers(buttons.filter(function(item) {
+            // A read-only detail is not a save target; modal forms must not be submitted.
+            if (item.key === 'save' && (!isFormPage() || pageHasOwnButton(['保存', '保存草稿'], bar))) return false;
+            // New documents have no saved record for the generic delete action.
+            if (item.key === 'delete' && /\/add\/?$/.test(window.location.pathname)) return false;
+            if (item.key === 'add' && /\/\d+\/?$/.test(window.location.pathname) && pageHasOwnButton(['再建一张', '新增'], bar)) return false;
+            if (item.key === 'settings' && !module.printTemplateUrl && pageHasOwnListAction('settings', bar)) return false;
+            return true;
+        }));
+    }
     buttons.forEach(function(item) {
         if (item.divider) {
             var divider = document.createElement('span');
@@ -3311,8 +3322,9 @@ function insertGlobalActionBar() {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-sm';
-        btn.title = item.label;
-        btn.innerHTML = '<i class="bi ' + item.icon + '"></i><span class="cb-actionbar-label">' + item.label + '</span>';
+        var actionLabel = item.key === 'settings' && module.printTemplateUrl ? '打印设置' : item.label;
+        btn.title = actionLabel;
+        btn.innerHTML = '<i class="bi ' + item.icon + '"></i><span class="cb-actionbar-label">' + actionLabel + '</span>';
         btn.addEventListener('click', item.action);
         if (item.key === 'save' && !isFormPage()) btn.classList.add('disabled');
         if (item.key === 'delete' && !module.deleteUrl && !module.detailDeleteUrl) btn.classList.add('disabled');

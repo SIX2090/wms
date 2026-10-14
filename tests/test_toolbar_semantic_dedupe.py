@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _render_toolbar(own):
+def _render_toolbar(own, **context):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required for toolbar runtime checks')
@@ -39,12 +39,12 @@ const own = data.own.map(o => element(o.text, o.visible !== false, !!o.inTable))
 let rendered;
 const content = {firstChild: null, insertBefore(bar) {rendered = bar;}};
 const document = {body: element(), getElementById() {return null;},
-    querySelector() {return content;}, querySelectorAll() {return own;}, createElement() {return element();}};
-const window = {location: {pathname: '/purchase_order'}};
+    querySelector(s) {return s === '.embedded-content' ? content : null;}, querySelectorAll() {return own;}, createElement() {return element();}};
+const window = {location: {pathname: data.path || '/purchase_order'}};
 function isWmsEmbeddedPage() {return true;}
-function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete'};}
-function isWmsListPage() {return true;}
-function isFormPage() {return false;}
+function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl};}
+function isWmsListPage() {return data.isList !== false;}
+function isFormPage() {return !!data.isForm;}
 function createDocumentNavigationGroup() {return null;}
 function saveCurrentPage() {}
 const code = ['pageHasOwnButton','trimWmsActionbarDividers','pageHasOwnListAction','insertGlobalActionBar']
@@ -54,7 +54,7 @@ insertGlobalActionBar();
 console.log(JSON.stringify(rendered.children.filter(c=>c.title).map(c=>c.title)));
 '''
     result = subprocess.run([node, '-e', script], input=json.dumps({
-        'source': str(ROOT / 'app/static/js/app.js'), 'own': own}),
+        'source': str(ROOT / 'app/static/js/app.js'), 'own': own, **context}),
         capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
@@ -88,3 +88,25 @@ def test_sales_selection_has_one_contextual_toolbar():
     source = (ROOT / 'app/templates/sales_outbound_selection.html').read_text(encoding='utf-8')
     assert '{% block body_class %}wms-no-global-actionbar{% endblock %}' in source
     assert source.count('onclick="createSelectedOutbound()"') == 1
+
+
+def test_read_only_detail_keeps_navigation_context_without_fake_save_or_duplicate_add():
+    labels = _render_toolbar([{'text': '再建一张'}], path='/in_order/579',
+                             isList=False, printTemplateUrl='/in_order_print_template')
+    assert '保存' not in labels and '新增' not in labels
+    assert '打印设置' in labels
+
+
+def test_new_document_keeps_save_and_labels_print_settings_but_has_no_record_delete():
+    labels = _render_toolbar([{'text': '字段设置'}], path='/in_order/add',
+                             isList=False, isForm=True,
+                             printTemplateUrl='/in_order_print_template')
+    assert '保存' in labels and '新增' in labels
+    assert '删除' not in labels and '打印设置' in labels
+
+
+def test_editable_form_uses_own_save_and_column_settings_without_losing_other_actions():
+    labels = _render_toolbar([{'text': '保存草稿'}, {'text': '字段设置'}],
+                             path='/sales/12/edit', isList=False, isForm=True)
+    assert '保存' not in labels and '设置' not in labels
+    assert '新增' in labels and '导出' in labels
