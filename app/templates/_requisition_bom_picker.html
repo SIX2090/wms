@@ -1,0 +1,38 @@
+<div class="modal fade" id="bomRequisitionModal" tabindex="-1" aria-labelledby="bomRequisitionTitle" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title" id="bomRequisitionTitle">按BOM领料</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <form id="bomRequisitionForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-body">
+                <p class="text-muted small">按BOM标准用量生成领料草稿，生成后可继续调整数量、工单号和用途。</p>
+                <div class="mb-3">
+                    <label for="bomRequisitionSearch" class="form-label">选择BOM <span class="text-danger">*</span></label>
+                    <input id="bomRequisitionSearch" class="form-control" data-ks="bom_active" data-ks-put="label" data-ks-id="#bomRequisitionId" placeholder="输入BOM编号、产品编码、名称或版本，选择候选" autocomplete="off" required>
+                    <input type="hidden" id="bomRequisitionId">
+                </div>
+                <div class="mb-3">
+                    <label for="bomRequisitionWarehouse" class="form-label">领料仓库 <span class="text-danger">*</span></label>
+                    <select id="bomRequisitionWarehouse" class="form-select" required>
+                        <option value="">请选择仓库</option>
+                        {% for warehouse in warehouses %}
+                        <option value="{{ warehouse.id }}" {% if default_warehouse and default_warehouse.id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% if location_management_enabled %}
+                <div class="mb-3">
+                    <label for="bomRequisitionLocation" class="form-label">库位 <span class="text-danger">*</span></label>
+                    <input id="bomRequisitionLocation" class="form-control" maxlength="100" required>
+                </div>
+                {% endif %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="submit" id="bomRequisitionSubmit" class="btn btn-primary">生成领料草稿</button>
+            </div>
+        </form>
+    </div></div>
+</div>

@@ -794,6 +794,7 @@ def register_bom_routes(app):
             bom_id=bom_id,
             warehouse=warehouse.name,
             location=location,
+            production_order='', purpose='', picker='', remark='',
             status='pending',
             operator_id=current_user.id
         )

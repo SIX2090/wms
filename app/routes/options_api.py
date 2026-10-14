@@ -52,6 +52,7 @@ ENTITY_CONFIG = {
     'contract':   ('Contract',         'contract_no', 'project_name', ()),
     # F2.16：BOM 搜索式下拉（领料单关联BOM），字段 bom_no + product_name
     'bom':        ('BOM',              'bom_no',      'product_name', ()),
+    'bom_active': ('BOM',              'bom_no',      'product_name', ('product_code', 'version')),
 }
 
 # 纯文本候选：从多张表的历史值去重提取（无 id）
@@ -129,6 +130,8 @@ def _build_entity_pool(entity):
     # 2026-09-25：物料排除停用。本函数是 16 处模板 quick-select 的统一候选源，
     # 不停在这里过滤，停用物料会继续出现在库存查询/列表的物料下拉里。
     _q = M.query
+    if entity == 'bom_active':
+        _q = _q.filter(M.status == 'active')
     if entity == 'material' and hasattr(M, 'status'):
         from db import db as _db
         _q = _q.filter(_db.or_(M.status == 'active',
@@ -196,6 +199,8 @@ def _sql_like_pool(entity, kw):
     if not conds:
         return []
     _q = M.query.filter(db.or_(*conds))
+    if entity == 'bom_active':
+        _q = _q.filter(M.status == 'active')
     # 2026-09-25：同上，大数据量退化路径也要排除停用物料
     if entity == 'material' and hasattr(M, 'status'):
         _q = _q.filter(db.or_(M.status == 'active',
