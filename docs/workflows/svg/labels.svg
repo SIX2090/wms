@@ -1,0 +1,62 @@
+<svg role="img" aria-label="23 标签、条码与单据模板打印" width="900" height="994" preserveAspectRatio="xMinYMin meet" viewBox="0 0 900 994" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="900" height="994"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-994)" style="clip-path: url(#clip)">
+		<g transform="">
+			<polyline points="452 862, 452 817" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 817, 455.356 823.1431, 448.644 823.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 725, 452 680" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 680, 455.356 686.1431, 448.644 686.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 588, 452 543" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 543, 455.356 549.1431, 448.644 549.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 451, 452 406" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 406, 455.356 412.1431, 448.644 412.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 314, 452 269" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 269, 455.356 275.1431, 448.644 275.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 177, 452 132" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 132, 455.356 138.1431, 448.644 138.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="336 634, 268 634" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="268 634, 274.1431 630.644, 274.1431 637.356" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="283.0" y="638.0" width="38.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="289.0" y="644.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,1288) scale(1,-1)">标签</text>
+			<polyline points="268 634, 315 634, 315 360, 336 360" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd; stroke-dasharray: 5, 4;"/>
+			<polygon points="336 360, 329.8569 363.356, 329.8569 356.644" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1; fill: rgb(57%,51%,70%); fill-rule: evenodd;"/>
+			<polyline points="568 360, 636 360" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="636 360, 629.8569 363.356, 629.8569 356.644" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="570.0" y="364.0" width="64.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="576.0" y="370.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,740) scale(1,-1)">远程打印</text>
+			<rect x="336" y="862" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="375.5" y="902.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1804) scale(1,-1)">选择物料或业务单据</text>
+			<text x="344" y="937" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1874) scale(1,-1)">01</text>
+			<rect x="336" y="725" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="354.868408203125" y="776.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1552) scale(1,-1)">选择标签或单据/报表打印</text>
+			<text x="435.0" y="754.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1508) scale(1,-1)">目标</text>
+			<text x="344" y="800" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1600) scale(1,-1)">02</text>
+			<rect x="336" y="588" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="358.5" y="628.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1256) scale(1,-1)">选模板、字段与打印份数</text>
+			<text x="344" y="663" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1326) scale(1,-1)">03</text>
+			<rect x="336" y="451" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="350.0" y="491.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,982) scale(1,-1)">读取已保存单据或查询结果</text>
+			<text x="344" y="526" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1052) scale(1,-1)">04</text>
+			<rect x="336" y="314" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="356.23388671875" y="365.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,730) scale(1,-1)">生成标签 / HTML / Excel</text>
+			<text x="418.0" y="343.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,686) scale(1,-1)">打印文件</text>
+			<text x="344" y="389" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,778) scale(1,-1)">05</text>
+			<rect x="336" y="177" width="232" height="92" rx="10" ry="10" style="stroke: rgb(60%,37%,9%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(100%,94%,87%); fill-rule: evenodd;"/>
+			<text x="358.5" y="217.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,434) scale(1,-1)">人工预览并选择打印方式</text>
+			<text x="344" y="252" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(60%,37%,9%); stroke:none;" transform="translate(0,504) scale(1,-1)">06</text>
+			<rect x="336" y="40" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="350.0" y="80.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,160) scale(1,-1)">出纸或下载文件后核对输出</text>
+			<text x="344" y="115" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,230) scale(1,-1)">07</text>
+			<rect x="36" y="588" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="75.338134765625" y="639.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1278) scale(1,-1)">标签条码 / 物料档案</text>
+			<text x="92.5" y="617.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1234) scale(1,-1)">按物料标识生成</text>
+			<rect x="636" y="314" width="232" height="92" rx="10" ry="10" style="stroke: rgb(39%,33%,60%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(94%,93%,98%); fill-rule: evenodd; stroke-dasharray: 5, 3;"/>
+			<text x="684.0" y="365.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,730) scale(1,-1)">路由到打印工作站</text>
+			<text x="675.5" y="343.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,686) scale(1,-1)">任务队列走下一专图</text>
+		</g>
+	</g>
+</svg>

@@ -1,0 +1,72 @@
+<svg role="img" aria-label="29 数据备份、保留与停机恢复" width="900" height="994" preserveAspectRatio="xMinYMin meet" viewBox="0 0 900 994" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="900" height="994"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-994)" style="clip-path: url(#clip)">
+		<g transform="">
+			<polyline points="452 862, 452 817" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 817, 455.356 823.1431, 448.644 823.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 725, 452 680" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 680, 455.356 686.1431, 448.644 686.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 588, 452 543" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 543, 455.356 549.1431, 448.644 549.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 451, 452 406" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 406, 455.356 412.1431, 448.644 412.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 314, 452 269" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 269, 455.356 275.1431, 448.644 275.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 177, 452 132" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 132, 455.356 138.1431, 448.644 138.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="336 771, 268 771" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="268 771, 274.1431 767.644, 274.1431 774.356" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="283.0" y="775.0" width="38.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="289.0" y="781.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,1562) scale(1,-1)">手动</text>
+			<polyline points="268 771, 315 771, 315 634, 336 634" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd; stroke-dasharray: 5, 4;"/>
+			<polygon points="336 634, 329.8569 637.356, 329.8569 630.644" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1; fill: rgb(57%,51%,70%); fill-rule: evenodd;"/>
+			<polyline points="568 497, 636 497" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="636 497, 629.8569 500.356, 629.8569 493.644" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="583.0" y="501.0" width="38.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="589.0" y="507.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,1014) scale(1,-1)">失败</text>
+			<polyline points="336 86, 268 86" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="268 86, 274.1431 82.64402, 274.1431 89.35598" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="270.0" y="90.0" width="64.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="276.0" y="96.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,192) scale(1,-1)">在线恢复</text>
+			<rect x="336" y="862" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="358.5" y="913.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1826) scale(1,-1)">生产服务启动并注册备份</text>
+			<text x="435.0" y="891.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1782) scale(1,-1)">调度</text>
+			<text x="344" y="937" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1874) scale(1,-1)">01</text>
+			<rect x="336" y="725" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="358.5" y="776.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1552) scale(1,-1)">按配置时间触发每日在线</text>
+			<text x="435.0" y="754.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1508) scale(1,-1)">备份</text>
+			<text x="344" y="800" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1600) scale(1,-1)">02</text>
+			<rect x="336" y="588" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="349.431396484375" y="639.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1278) scale(1,-1)">sqlite在线backup复制一致</text>
+			<text x="426.5" y="617.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1234) scale(1,-1)">性快照</text>
+			<text x="344" y="663" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1326) scale(1,-1)">03</text>
+			<rect x="336" y="451" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="350.0" y="491.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,982) scale(1,-1)">检查备份完整性并记录结果</text>
+			<text x="344" y="526" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1052) scale(1,-1)">04</text>
+			<rect x="336" y="314" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="359.525146484375" y="354.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,708) scale(1,-1)">清理到期auto_daily备份</text>
+			<text x="344" y="389" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,778) scale(1,-1)">05</text>
+			<rect x="336" y="177" width="232" height="92" rx="10" ry="10" style="stroke: rgb(60%,37%,9%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(100%,94%,87%); fill-rule: evenodd;"/>
+			<text x="354.868408203125" y="228.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,456) scale(1,-1)">人工下载/保存需要的备份</text>
+			<text x="435.0" y="206.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,412) scale(1,-1)">副本</text>
+			<text x="344" y="252" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(60%,37%,9%); stroke:none;" transform="translate(0,504) scale(1,-1)">06</text>
+			<rect x="336" y="40" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="350.0" y="91.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,182) scale(1,-1)">恢复必须走停机维护与复核</text>
+			<text x="435.0" y="69.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,138) scale(1,-1)">流程</text>
+			<text x="344" y="115" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,230) scale(1,-1)">07</text>
+			<rect x="36" y="725" width="232" height="92" rx="10" ry="10" style="stroke: rgb(39%,33%,60%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(94%,93%,98%); fill-rule: evenodd; stroke-dasharray: 5, 3;"/>
+			<text x="101.0" y="776.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1552) scale(1,-1)">手动创建备份</text>
+			<text x="75.5" y="754.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1508) scale(1,-1)">单独文件目录与列表</text>
+			<rect x="636" y="451" width="232" height="92" rx="10" ry="10" style="stroke: rgb(65%,22%,26%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(99%,92%,92%); fill-rule: evenodd;"/>
+			<text x="692.5" y="502.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1004) scale(1,-1)">完整性检查失败</text>
+			<text x="667.0" y="480.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,960) scale(1,-1)">丢弃坏备份并报告错误</text>
+			<rect x="36" y="40" width="232" height="92" rx="10" ry="10" style="stroke: rgb(65%,22%,26%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(99%,92%,92%); fill-rule: evenodd;"/>
+			<text x="101.0" y="91.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,182) scale(1,-1)">网页恢复请求</text>
+			<text x="103.046142578125" y="69.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,138) scale(1,-1)">固定拒绝403</text>
+		</g>
+	</g>
+</svg>

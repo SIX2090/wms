@@ -1,0 +1,64 @@
+<svg role="img" aria-label="13 仓库间调拨及反提交" width="900" height="994" preserveAspectRatio="xMinYMin meet" viewBox="0 0 900 994" xmlns="http://www.w3.org/2000/svg" version="1.0" fill-rule="evenodd" xmlns:xlink="http://www.w3.org/1999/xlink">
+	<title>...</title>
+	<desc>...</desc>
+	<clipPath id="clip">
+		<rect x="0" y="0" width="900" height="994"/>
+	</clipPath>
+	<g id="group" transform="scale(1,-1) translate(0,-994)" style="clip-path: url(#clip)">
+		<g transform="">
+			<polyline points="452 862, 452 817" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 817, 455.356 823.1431, 448.644 823.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 725, 452 680" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 680, 455.356 686.1431, 448.644 686.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 588, 452 543" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 543, 455.356 549.1431, 448.644 549.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 451, 452 406" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 406, 455.356 412.1431, 448.644 412.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 314, 452 269" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 269, 455.356 275.1431, 448.644 275.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="452 177, 452 132" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="452 132, 455.356 138.1431, 448.644 138.1431" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<polyline points="336 360, 268 360" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="268 360, 274.1431 356.644, 274.1431 363.356" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="283.0" y="364.0" width="38.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="289.0" y="370.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,740) scale(1,-1)">失败</text>
+			<polyline points="268 360, 315 360, 315 497, 336 497" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd; stroke-dasharray: 5, 4;"/>
+			<polygon points="336 497, 329.8569 500.356, 329.8569 493.644" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1; fill: rgb(57%,51%,70%); fill-rule: evenodd;"/>
+			<polyline points="568 86, 636 86" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd;"/>
+			<polygon points="636 86, 629.8569 89.35598, 629.8569 82.64402" style="stroke: rgb(52%,58%,64%); stroke-linecap: butt; stroke-width: 1; fill: rgb(52%,58%,64%); fill-rule: evenodd;"/>
+			<rect x="583.0" y="90.0" width="38.0" height="21.0" style="stroke: none; stroke-linecap: butt; stroke-width: 1; fill: rgb(100%,100%,100%); fill-rule: evenodd;"/>
+			<text x="589.0" y="96.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 13px;fill: rgb(32%,38%,45%); stroke:none;" transform="translate(0,192) scale(1,-1)">回退</text>
+			<polyline points="636 86, 615 86, 615 497, 568 497" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1.65; fill: None; fill-rule: evenodd; stroke-dasharray: 5, 4;"/>
+			<polygon points="568 497, 574.1431 493.644, 574.1431 500.356" style="stroke: rgb(57%,51%,70%); stroke-linecap: butt; stroke-width: 1; fill: rgb(57%,51%,70%); fill-rule: evenodd;"/>
+			<rect x="336" y="862" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="401.0" y="902.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1804) scale(1,-1)">新建调拨草稿</text>
+			<text x="344" y="937" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1874) scale(1,-1)">01</text>
+			<rect x="336" y="725" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="349.838134765625" y="765.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1530) scale(1,-1)">选择调出仓 / 调入仓及库位</text>
+			<text x="344" y="800" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1600) scale(1,-1)">02</text>
+			<rect x="336" y="588" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="375.5" y="628.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1256) scale(1,-1)">录入物料与调拨数量</text>
+			<text x="344" y="663" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1326) scale(1,-1)">03</text>
+			<rect x="336" y="451" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="358.636962890625" y="502.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,1004) scale(1,-1)">保存pending并核对两仓</text>
+			<text x="435.0" y="480.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,960) scale(1,-1)">条件</text>
+			<text x="344" y="526" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,1052) scale(1,-1)">04</text>
+			<rect x="336" y="314" width="232" height="92" rx="10" ry="10" style="stroke: rgb(60%,37%,9%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(100%,94%,87%); fill-rule: evenodd;"/>
+			<text x="350.0" y="354.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,708) scale(1,-1)">人工完成：检查调出仓库存</text>
+			<text x="344" y="389" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(60%,37%,9%); stroke:none;" transform="translate(0,778) scale(1,-1)">05</text>
+			<rect x="336" y="177" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="350.0" y="217.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,434) scale(1,-1)">写成对调拨流水与仓库余额</text>
+			<text x="344" y="252" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,504) scale(1,-1)">06</text>
+			<rect x="336" y="40" width="232" height="92" rx="10" ry="10" style="stroke: rgb(13%,34%,62%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(91%,94%,100%); fill-rule: evenodd;"/>
+			<text x="357.42919921875" y="91.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,182) scale(1,-1)">调拨单completed，联查</text>
+			<text x="418.0" y="69.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,138) scale(1,-1)">两仓台账</text>
+			<text x="344" y="115" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 10px;fill: rgb(13%,34%,62%); stroke:none;" transform="translate(0,230) scale(1,-1)">07</text>
+			<rect x="36" y="314" width="232" height="92" rx="10" ry="10" style="stroke: rgb(65%,22%,26%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(99%,92%,92%); fill-rule: evenodd;"/>
+			<text x="58.338134765625" y="365.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,730) scale(1,-1)">来源库存不足 / 无效仓库</text>
+			<text x="118.0" y="343.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,686) scale(1,-1)">拒绝完成</text>
+			<rect x="636" y="40" width="232" height="92" rx="10" ry="10" style="stroke: rgb(60%,37%,9%); stroke-linecap: butt; stroke-width: 1.4; fill: rgb(100%,94%,87%); fill-rule: evenodd;"/>
+			<text x="709.5" y="91.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,182) scale(1,-1)">人工反提交</text>
+			<text x="667.0" y="69.0" style="font-family: Microsoft YaHei, SimHei, sans-serif; font-size: 17px;fill: rgb(9%,17%,25%); stroke:none;" transform="translate(0,138) scale(1,-1)">检查调入仓可回退数量</text>
+		</g>
+	</g>
+</svg>

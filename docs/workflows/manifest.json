@@ -1,0 +1,12 @@
+{
+  "date": "2026-10-14",
+  "base_sha": "21b97ce28ad0a72929381b89b1739d0c40b5b7ef",
+  "chapters": 30,
+  "pdf_pages": 66,
+  "routes": 702,
+  "models": 96,
+  "menus": 97,
+  "reports": 14,
+  "validated_source_references": 118,
+  "pdf": "output/pdf/wms_flow_atlas_20261014.pdf"
+}
