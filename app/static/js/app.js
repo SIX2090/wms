@@ -3172,6 +3172,18 @@ function pageHasOwnButton(texts, selfBar) {
     return false;
 }
 
+function pageHasOwnListAction(action, selfBar) {
+    // Exact aliases only: 删除全部 and 批量打印 have different scope.
+    var aliases = {
+        add: ['新增', '新增采购申请', '新增采购单', '新增销售单', '新增调拨单', '新增盘点单', '新增委外加工单', '新增供应商', '新增客户', '新增分类', '新增单位', '新增仓库', '新增部门', '新增员工', '新增单据', '新增领料单', '新增调整单', '新增售后出库', '新增物料', '新增BOM'],
+        delete: ['删除已选', '批量删除'],
+        settings: ['字段设置', '列设置', '栏目设置'],
+        import: ['批量导入'],
+        export: ['导出 Excel', '导出Excel']
+    };
+    return !!aliases[action] && pageHasOwnButton(aliases[action], selfBar);
+}
+
 function trimWmsActionbarDividers(buttons) {
     return buttons.filter(function(item, index, arr) {
         if (!item.divider) return true;
@@ -3279,6 +3291,7 @@ function insertGlobalActionBar() {
         var keepDelete = !pageHasOwnButton(['删除'], bar);
         var keepPrint = !pageHasOwnButton(['打印'], bar);
         buttons = buttons.filter(function(item) {
+            if (pageHasOwnListAction(item.key, bar)) return false;
             if (item.key === 'import' && !keepImport) return false;
             if (item.key === 'export' && !keepExport) return false;
             if (item.key === 'template' && !keepTemplate) return false;

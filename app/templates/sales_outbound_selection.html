@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}销售出库选单{% endblock %}
+{% block body_class %}wms-no-global-actionbar{% endblock %}
 
 {% block extra_css %}
 <style>
 .page-header {
+    position: sticky;
+    top: 0;
+    z-index: 1020;
     background: #fff;
     padding: 12px 16px;
     border-bottom: 1px solid #D9D9D9;
@@ -200,9 +204,6 @@
                     </button>
                     <button class="btn btn-outline-secondary" type="button" onclick="document.getElementById('selectAll').click()">
                         <i class="bi bi-check2-square"></i> 全选/取消
-                    </button>
-                    <button class="btn btn-success" type="button" onclick="createSelectedOutbound()">
-                        <i class="bi bi-box-arrow-up"></i> 生成出库草稿
                     </button>
                 </div>
             </div>
