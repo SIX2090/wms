@@ -35236,15 +35236,17 @@ def sales_outbound_remaining_check(outbound):
             selectinload(SalesOrderItem.sales_order)
         ).filter(SalesOrderItem.id.in_(source_item_ids)).all()
     }
+    requested = {}
     for item in outbound.items:
         sid = getattr(item, 'source_sales_order_item_id', None)
-        if not sid:
-            continue
+        if sid:
+            requested[sid] = round_to_2_decimals(requested.get(sid, 0) + (item.quantity or 0))
+    for sid, requested_quantity in requested.items():
         si = sales_items.get(sid)
         if not si:
             continue
         remaining = round_to_2_decimals((si.quantity or 0) - (si.shipped_quantity or 0))
-        outbound_qty = round_to_2_decimals(item.quantity or 0)
+        outbound_qty = requested_quantity
         if outbound_qty - remaining > STOCK_COMPARE_EPSILON:
             so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
             return False, f'出库数量 {outbound_qty} 超过销售订单 {so_no} 的未发货数量 {remaining:.2f}'
@@ -35322,16 +35324,18 @@ def sales_return_remaining_check(in_order):
         ).filter(SalesOrderItem.id.in_(source_item_ids)).all()
     }
     returned_map = _sales_returned_quantity_by_source_item(source_item_ids)
+    requested = {}
     for item in in_order.items:
         sid = getattr(item, 'source_sales_order_item_id', None)
-        if not sid:
-            continue
+        if sid:
+            requested[sid] = round_to_2_decimals(requested.get(sid, 0) + (item.quantity or 0))
+    for sid, requested_quantity in requested.items():
         si = sales_items.get(sid)
         if not si:
             continue
         returned = round_to_2_decimals(returned_map.get(sid, 0))
         remaining = round_to_2_decimals((si.shipped_quantity or 0) - returned)
-        return_qty = round_to_2_decimals(item.quantity or 0)
+        return_qty = requested_quantity
         if return_qty - remaining > STOCK_COMPARE_EPSILON:
             so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
             return False, f'退货数量 {return_qty:.2f} 超过销售订单 {so_no} 的可退数量 {remaining:.2f}'
@@ -35409,16 +35413,18 @@ def purchase_return_remaining_check(out_order):
         ).filter(InOrderItem.id.in_(source_item_ids)).all()
     }
     returned_map = _purchase_returned_quantity_by_source_item(source_item_ids)
+    requested = {}
     for item in out_order.items:
         sid = getattr(item, 'source_in_order_item_id', None)
-        if not sid:
-            continue
+        if sid:
+            requested[sid] = round_to_2_decimals(requested.get(sid, 0) + (item.quantity or 0))
+    for sid, requested_quantity in requested.items():
         ii = in_items.get(sid)
         if not ii:
             continue
         returned = round_to_2_decimals(returned_map.get(sid, 0))
         remaining = round_to_2_decimals((ii.quantity or 0) - returned)
-        return_qty = round_to_2_decimals(item.quantity or 0)
+        return_qty = requested_quantity
         if return_qty - remaining > STOCK_COMPARE_EPSILON:
             io_no = ii.in_order.order_no if ii.in_order else f'item#{sid}'
             return False, f'退货数量 {return_qty:.2f} 超过采购入库单 {io_no} 的可退数量 {remaining:.2f}'

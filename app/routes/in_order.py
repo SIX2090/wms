@@ -1318,6 +1318,14 @@ def register_in_order_routes(app):
                     db.session.add(item)
 
             recalculate_order_total(order)
+            if business_type == '销售退货入库':
+                from app import sales_return_remaining_check
+                db.session.flush()
+                db.session.expire(order, ['items'])
+                valid, message = sales_return_remaining_check(order)
+                if not valid:
+                    db.session.rollback()
+                    return api_error(message)
             if source_purchase_order_ids and len(source_purchase_order_ids) == 1:
                 order.source_purchase_order_id = next(iter(source_purchase_order_ids))
             # P1-5 销售退货入库：单头聚合来源销售订单 + 冗余单号（原单变更后历史单据不变）

@@ -234,7 +234,13 @@ class TestCompleteOutOrderRemainingValidation:
                 "remark": "",
                 "items": [{"code": "M001", "quantity": 15, "price": 10}],
             })
-            assert edit_resp.status_code == 200, edit_resp.get_data(as_text=True)
+            # The save gate now rejects overflow earlier and preserves the old draft.
+            assert edit_resp.get_json()['status'] == 'error'
+            db.session.refresh(outbound)
+            assert outbound.items[0].quantity == 5
+            # Legacy invalid drafts still need the original completion gate below.
+            outbound.items[0].quantity = 15
+            db.session.commit()
             # 完成应被拒
             resp = client.post(f"/out_order/{outbound.id}/complete?force=true")
             body = resp.get_json()

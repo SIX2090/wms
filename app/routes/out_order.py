@@ -846,6 +846,17 @@ def register_out_order_routes(app):
                 ))
 
             recalculate_order_total(order)
+            # Aggregate all current rows by their actual source line before saving.
+            from app import sales_outbound_remaining_check, purchase_return_remaining_check
+            db.session.flush()
+            db.session.expire(order, ['items'])
+            check = (purchase_return_remaining_check if is_purchase_return
+                     else sales_outbound_remaining_check if business_type == '销售出库' else None)
+            if check:
+                valid, message = check(order)
+                if not valid:
+                    db.session.rollback()
+                    return api_error(message)
             # P1-7 采购退货出库：单头聚合来源采购入库单 + 冗余单号（原单变更后历史单据不变）。
             if is_purchase_return:
                 if source_in_order_ids and len(source_in_order_ids) == 1:
@@ -1013,7 +1024,8 @@ def register_out_order_routes(app):
             if not source_item:
                 return api_error('来源采购入库明细不存在，请重新关联来源')
             qty_ok, qty_msg = validate_purchase_return_quantity(
-                source_item, quantity,
+                source_item, quantity + sum((row.quantity or 0) for row in order.items
+                    if row.id != item.id and row.source_in_order_item_id == item.source_in_order_item_id),
                 item.material.code if item.material else str(item.material_id))
             if not qty_ok:
                 return api_error(qty_msg)
