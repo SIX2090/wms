@@ -2483,7 +2483,6 @@
                             <a class="flyout-link" href="/adjustment"><i class="bi bi-sliders"></i> 库存调整</a>
                             {% endif %}
                             <a class="flyout-link" href="/check"><i class="bi bi-clipboard-check"></i> 库存盘点</a>
-                            <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
                             <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
                             <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
                         </div>
@@ -2533,7 +2532,6 @@
                 </button>
                 <div class="module-flyout">
                     <div class="flyout-title">库存管理</div>
-                    <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM管理</a>
                     <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
                     <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
                 </div>
@@ -2578,7 +2576,7 @@
                 </div>
             </li>
             {% endif %}
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ['admin', 'warehouse', 'production'] %}
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
                     <span class="module-title"><i class="bi bi-folder2-open"></i> 基础资料</span>
@@ -2586,6 +2584,8 @@
                 </button>
                 <div class="module-flyout">
                     <div class="flyout-title">基础资料</div>
+                    <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM表管理</a>
+                    {% if current_user.role == 'admin' %}
                     <a class="flyout-link" href="/material"><i class="bi bi-box"></i> 物料管理</a>
 <a class="flyout-link" href="/contract"><i class="bi bi-file-earmark-text"></i> 合同/工程档案</a>
 <a class="flyout-link" href="/opening_stock"><i class="bi bi-bank"></i> 期初库存</a>
@@ -2596,8 +2596,11 @@
                     <a class="flyout-link" href="/warehouse"><i class="bi bi-house-door"></i> 仓库档案</a>
                     <a class="flyout-link" href="/department"><i class="bi bi-diagram-2"></i> 部门档案</a>
                     <a class="flyout-link" href="/employee"><i class="bi bi-person-badge"></i> 员工管理</a>
+                    {% endif %}
                 </div>
             </li>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
                     <span class="module-title"><i class="bi bi-gear"></i> 系统管理</span>
@@ -2706,11 +2709,6 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/bom">
-                    <i class="bi bi-diagram-3"></i> BOM管理
-                </a>
-            </li>
-            <li class="nav-item">
                 <a class="nav-link" href="/requisition">
                     <i class="bi bi-file-earmark-text"></i> 工单领料
                 </a>
@@ -2722,11 +2720,6 @@
             </li>
             {% endif %}
             {% if current_user.role == 'production' %}
-            <li class="nav-item">
-                <a class="nav-link" href="/bom">
-                    <i class="bi bi-diagram-3"></i> BOM管理
-                </a>
-            </li>
             <li class="nav-item">
                 <a class="nav-link" href="/requisition">
                     <i class="bi bi-file-earmark-text"></i> 工单领料
@@ -2760,13 +2753,15 @@
                 </a>
             </li>
             {% endif %}
-            {% if current_user.role == 'admin' %}
+            {% if current_user.role in ['admin', 'warehouse', 'production'] %}
             <li class="nav-item">
                 <button type="button" class="nav-link submenu-toggle w-100 border-0 bg-transparent text-start" onclick="toggleSubmenu(this)" aria-expanded="false">
                     <span><i class="bi bi-folder2-open"></i> 基础资料</span>
                     <i class="bi bi-chevron-down submenu-arrow"></i>
                 </button>
                 <ul class="submenu-list">
+                    <li><a class="nav-link" href="/bom"><i class="bi bi-circle"></i> BOM表管理</a></li>
+                    {% if current_user.role == 'admin' %}
                     <li><a class="nav-link" href="/material"><i class="bi bi-circle"></i> 物料管理</a></li>
 <li><a class="nav-link" href="/contract"><i class="bi bi-circle"></i> 合同/工程档案</a></li>
 <li><a class="nav-link" href="/opening_stock"><i class="bi bi-circle"></i> 期初库存</a></li>
@@ -2777,8 +2772,11 @@
                     <li><a class="nav-link" href="/warehouse"><i class="bi bi-circle"></i> 仓库档案</a></li>
                     <li><a class="nav-link" href="/department"><i class="bi bi-circle"></i> 部门档案</a></li>
                     <li><a class="nav-link" href="/employee"><i class="bi bi-circle"></i> 员工管理</a></li>
+                    {% endif %}
                 </ul>
             </li>
+            {% endif %}
+            {% if current_user.role == 'admin' %}
             <li class="nav-item">
                 <button type="button" class="nav-link submenu-toggle w-100 border-0 bg-transparent text-start" onclick="toggleSubmenu(this)" aria-expanded="false">
                     <span><i class="bi bi-gear"></i> 系统管理</span>
