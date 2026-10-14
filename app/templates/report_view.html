@@ -9,13 +9,15 @@
             <div class="text-muted">按当前筛选条件查看、导出和打印报表。</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-primary" type="button" id="toggleFilterBtn">
-                <i class="bi bi-funnel"></i> 筛选条件
+            <button class="btn btn-outline-primary" type="button" id="toggleFilterBtn" aria-expanded="true" aria-controls="filterPanel">
+                <i class="bi bi-funnel"></i> <span id="filterToggleLabel">收起筛选</span>
             </button>
             <button class="btn btn-outline-success" type="button" id="exportBtn">
                 <i class="bi bi-file-earmark-excel"></i> 导出 Excel
             </button>
-            <div class="input-group" style="width:auto;">
+            <details class="report-template-menu">
+                <summary class="btn btn-outline-secondary">模板打印</summary>
+                <div class="input-group report-template-options">
                 <select class="form-select" id="templateSelect" style="max-width:170px;">
                     <option value="">默认Excel模板</option>
                 </select>
@@ -25,7 +27,8 @@
                 <a class="btn btn-outline-secondary" href="/print_templates?target_type=report" target="_blank" title="在模板中心在线设计本报表的 Excel 模板">
                     <i class="bi bi-pencil-square"></i>
                 </a>
-            </div>
+                </div>
+            </details>
             <button class="btn btn-outline-info" type="button" id="printBtn">
                 <i class="bi bi-printer"></i> 打印
             </button>
@@ -44,6 +47,14 @@
         <form id="filterForm" class="row g-3">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if filters_config.date %}
+            <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                <span class="small text-muted">快捷日期</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="today">今天</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="week">本周</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="month">本月</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="30days">近30天</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="all">不限日期</button>
+            </div>
             <div class="col-md-3">
                 <label for="start_date" class="form-label">开始日期</label>
                 <input id="start_date" name="start_date" type="date" class="form-control">
@@ -151,12 +162,15 @@
                     <i class="bi bi-search"></i> 查询
                 </button>
                 <button class="btn btn-outline-secondary" type="button" id="resetBtn">
-                    <i class="bi bi-arrow-counterclockwise"></i> 重置
+                    <i class="bi bi-arrow-counterclockwise"></i> 清空条件
                 </button>
+                <span class="small text-muted align-self-center">保留当前仓库；按 Enter 查询</span>
             </div>
+            <div id="dateRangeError" class="col-12 text-danger small" role="alert" hidden>结束日期不能早于开始日期，请调整日期范围。</div>
         </form>
     </div>
 </section>
+<div id="activeFilterSummary" class="small text-muted mb-3" aria-live="polite"></div>
 
 <section class="row g-3 mb-3" id="summaryCards">
     <div class="col-md-4">
@@ -248,6 +262,7 @@ let currentRows = [];
 let currentColumns = [];
 let currentSortField = '';
 let currentSortOrder = 'asc';
+let reportRequestId = 0;
 
 const filterForm = document.getElementById('filterForm');
 const filterPanel = document.getElementById('filterPanel');
@@ -267,7 +282,9 @@ const pageSizeSelect = document.getElementById('pageSize');
 // 此处不再维护页面级自写下拉，避免双下拉并存互相遮挡、Enter 键行为冲突。
 
 toggleFilterBtn.addEventListener('click', () => {
-    filterPanel.classList.toggle('collapsed');
+    const collapsed = filterPanel.classList.toggle('collapsed');
+    toggleFilterBtn.setAttribute('aria-expanded', String(!collapsed));
+    document.getElementById('filterToggleLabel').textContent = collapsed ? '展开筛选' : '收起筛选';
 });
 
 filterForm.addEventListener('submit', (event) => {
@@ -277,7 +294,7 @@ filterForm.addEventListener('submit', (event) => {
 });
 
 resetBtn.addEventListener('click', () => {
-    filterForm.reset();
+    resetReportFilters();
     currentPage = 1;
     currentSortField = '';
     currentSortOrder = 'asc';
@@ -431,7 +448,7 @@ function buildParams(isExport = false) {
     const params = new URLSearchParams();
     const formData = new FormData(filterForm);
     for (const [key, value] of formData.entries()) {
-        if (String(value).trim()) {
+        if (key !== 'csrf_token' && String(value).trim()) {
             params.set(key, String(value).trim());
         }
     }
@@ -695,9 +712,20 @@ function renderPagination(total) {
 }
 
 async function loadData() {
+    const requestId = ++reportRequestId;
+    updateReportFilterSummary();
+    const startDate = filterForm.querySelector('#start_date');
+    const endDate = filterForm.querySelector('#end_date');
+    const invalidRange = !!(startDate && endDate && startDate.value && endDate.value && startDate.value > endDate.value);
+    document.getElementById('dateRangeError').hidden = !invalidRange;
+    if (invalidRange) {
+        setLoading(false);
+        return;
+    }
     // BUG-2026-08-02-014：报表仓库必填前端校验
     const warehouseSel = filterForm.querySelector('#warehouse_id');
     if (warehouseSel && !warehouseSel.value) {
+        setLoading(false);
         tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">请先选择仓库</td></tr>`;
         tableHeaderRow.innerHTML = '<th>提示</th>';
         renderSummary({ count: 0, quantity: 0, amount: 0 });
@@ -706,15 +734,18 @@ async function loadData() {
     }
     // 库存台账必须先指定物料，避免打开就返回全表数据
     if (reportType === 'ledger' && !filterForm.querySelector('#material_code').value.trim()) {
+        setLoading(false);
         renderSummary({ count: 0, quantity: 0, amount: 0 });
         renderTable(_defaultLedgerColumns(), []);
         renderPagination(0);
         return;
     }
     setLoading(true);
+    syncReportFilterUrl();
     try {
         const response = await fetch(`/report/api/${encodeURIComponent(reportType)}?${buildParams().toString()}`);
         const result = await response.json();
+        if (requestId !== reportRequestId) return;
         if (!response.ok || result.status !== 'success') {
             throw new Error(result.msg || '报表查询失败');
         }
@@ -723,13 +754,14 @@ async function loadData() {
         renderPagination(result.total || 0);
         renderTruncation(result);
     } catch (error) {
+        if (requestId !== reportRequestId) return;
         tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">${escapeHtml(error.message || '报表查询失败')}</td></tr>`;
         tableHeaderRow.innerHTML = '<th>错误</th>';
         paginationNav.innerHTML = '';
         pageTotal.textContent = '0';
         renderTruncation(null);
     } finally {
-        setLoading(false);
+        if (requestId === reportRequestId) setLoading(false);
     }
 }
 
@@ -753,10 +785,95 @@ function _defaultLedgerColumns() {
     ];
 }
 
+function setReportDate(input, value) {
+    if (!input) return;
+    if (input._flatpickr) {
+        if (value) input._flatpickr.setDate(value, false, 'Y-m-d');
+        else input._flatpickr.clear(false);
+    }
+    input.value = value;
+}
+
+function resetReportFilters() {
+    const warehouse = filterForm.querySelector('#warehouse_id');
+    const selectedWarehouse = warehouse ? warehouse.value : '';
+    filterForm.reset();
+    ['start_date', 'end_date'].forEach(id => setReportDate(document.getElementById(id), ''));
+    if (warehouse) warehouse.value = selectedWarehouse;
+}
+
+function restoreReportFilters() {
+    const params = new URLSearchParams(window.location.search);
+    Array.from(filterForm.elements).forEach(input => {
+        if (!input.name || input.name === 'csrf_token' || !params.has(input.name)) return;
+        const value = params.get(input.name);
+        if (input.type === 'checkbox') input.checked = value === input.value;
+        else if (input.id === 'start_date' || input.id === 'end_date') setReportDate(input, value);
+        else input.value = value;
+    });
+    if (Array.from(pageSizeSelect.options).some(o => o.value === params.get('page_size'))) {
+        pageSizeSelect.value = params.get('page_size');
+        pageSize = Number(pageSizeSelect.value);
+    }
+    const page = Number(params.get('page'));
+    if (Number.isInteger(page) && page > 0) currentPage = page;
+    currentSortField = params.get('sort_field') || '';
+    currentSortOrder = params.get('sort_order') === 'desc' ? 'desc' : 'asc';
+}
+
+function syncReportFilterUrl() {
+    const url = new URL(window.location.href);
+    const params = buildParams();
+    if (url.searchParams.has('embedded')) params.set('embedded', url.searchParams.get('embedded'));
+    url.search = params.toString();
+    window.history.replaceState(null, '', url.toString());
+}
+
+function updateReportFilterSummary() {
+    const labels = [];
+    Array.from(filterForm.elements).forEach(input => {
+        if (!input.name || input.type === 'hidden' || !input.value || (input.type === 'checkbox' && !input.checked)) return;
+        const label = filterForm.querySelector('label[for="' + input.id + '"]');
+        if (!label) return;
+        const value = input.tagName === 'SELECT' ? input.options[input.selectedIndex].text : input.value;
+        labels.push(input.type === 'checkbox' ? label.textContent.trim() : label.textContent.replace('*', '').trim() + '：' + value);
+    });
+    // flatpickr hides its original inputs; the visible summary must still include their dates.
+    ['start_date', 'end_date'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input && input.type === 'hidden' && input.value) labels.push((id === 'start_date' ? '开始日期：' : '结束日期：') + input.value);
+    });
+    document.getElementById('activeFilterSummary').textContent = '当前筛选：' + (labels.join(' · ') || '请先选择仓库');
+}
+
+function reportDateRange(kind, now = new Date()) {
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const start = new Date(end);
+    if (kind === 'all') return ['', ''];
+    if (kind === 'week') start.setDate(start.getDate() - (start.getDay() + 6) % 7);
+    if (kind === 'month') start.setDate(1);
+    if (kind === '30days') start.setDate(start.getDate() - 29);
+    const format = d => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+    return [format(start), format(end)];
+}
+
+document.querySelectorAll('[data-date-range]').forEach(button => {
+    button.addEventListener('click', () => {
+        const dates = reportDateRange(button.dataset.dateRange);
+        setReportDate(document.getElementById('start_date'), dates[0]);
+        setReportDate(document.getElementById('end_date'), dates[1]);
+        currentPage = 1;
+        loadData();
+    });
+});
+
+restoreReportFilters();
 loadData();
 </script>
 
 <style>
+.report-template-menu { position: relative; }
+.report-template-options { position: absolute; right: 0; top: 100%; z-index: 1030; width: 360px; max-width: 90vw; padding: 12px; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px #0002; }
 .filter-card.collapsed .card-body {
     display: none;
 }
