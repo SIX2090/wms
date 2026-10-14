@@ -64,6 +64,8 @@ console.log(JSON.stringify(rendered.children.filter(c=>c.title).map(c=>c.title))
     '新增采购申请', '新增采购单', '新增销售单', '新增调拨单', '新增盘点单',
     '新增委外加工单', '新增供应商', '新增客户', '新增分类', '新增单位',
     '新增仓库', '新增部门', '新增员工', '新增单据', '新增领料单',
+    '新增售后出库单', '新增其他出库', '新增采购退货出库',
+    '新增工单领料单', '新增BOM清单', '新增合同',
 ])
 def test_page_toolbar_aliases_keep_one_action(add_label):
     labels = [add_label, '删除已选', '字段设置', '批量导入', '导出', '下载模板']
