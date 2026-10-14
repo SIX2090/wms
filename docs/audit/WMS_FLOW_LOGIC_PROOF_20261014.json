@@ -1,0 +1,185 @@
+[
+  {
+    "case": "bom_unit_mismatch",
+    "save": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "msg": "保存成功",
+        "order_no": "B1",
+        "status": "success"
+      }
+    },
+    "create": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "status": "success"
+      }
+    },
+    "complete": {
+      "http": 200,
+      "body": {
+        "status": "success"
+      }
+    },
+    "stock": 98.0,
+    "material_unit": "个",
+    "line_unit": "箱",
+    "line_quantity": 2.0
+  },
+  {
+    "case": "requisition_inactive_warehouse",
+    "create": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "status": "success"
+      }
+    },
+    "complete": {
+      "http": 200,
+      "body": {
+        "status": "success"
+      }
+    },
+    "stock": 98.0,
+    "warehouse_status": "inactive"
+  },
+  {
+    "case": "sales_source_revert_after_return",
+    "sale_complete": {
+      "http": 200,
+      "body": {
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "return_complete": {
+      "http": 200,
+      "body": {
+        "auto_requisition_id": null,
+        "auto_requisition_no": null,
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "original_revert": {
+      "http": 200,
+      "body": {
+        "msg": "操作完成",
+        "status": "success"
+      }
+    },
+    "stock": 104.0,
+    "shipped_quantity": 0.0,
+    "original_status": "pending",
+    "return_status": "completed"
+  },
+  {
+    "case": "purchase_source_revert_after_return",
+    "receipt_complete": {
+      "http": 200,
+      "body": {
+        "auto_requisition_id": null,
+        "auto_requisition_no": null,
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "return_complete": {
+      "http": 200,
+      "body": {
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "original_revert": {
+      "http": 200,
+      "body": {
+        "msg": "操作完成",
+        "status": "success"
+      }
+    },
+    "stock": 96.0,
+    "original_status": "pending",
+    "return_status": "completed"
+  },
+  {
+    "case": "duplicate_source_rows_sale",
+    "create": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "msg": "保存成功",
+        "order_no": "DUPLICATE-ROWS",
+        "status": "success"
+      }
+    },
+    "complete": {
+      "http": 200,
+      "body": {
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "source_quantity": 10,
+    "current_row_quantities": [
+      6,
+      6
+    ],
+    "stock": 88.0
+  },
+  {
+    "case": "duplicate_source_rows_sales_return",
+    "create": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "msg": "保存成功",
+        "order_no": "DUPLICATE-ROWS",
+        "status": "success"
+      }
+    },
+    "complete": {
+      "http": 200,
+      "body": {
+        "auto_requisition_id": null,
+        "auto_requisition_no": null,
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "source_quantity": 10,
+    "current_row_quantities": [
+      6,
+      6
+    ],
+    "stock": 102.0
+  },
+  {
+    "case": "duplicate_source_rows_purchase_return",
+    "create": {
+      "http": 200,
+      "body": {
+        "id": 1,
+        "msg": "保存成功",
+        "order_no": "DUPLICATE-ROWS",
+        "status": "success"
+      }
+    },
+    "complete": {
+      "http": 200,
+      "body": {
+        "msg": "提交成功",
+        "status": "success"
+      }
+    },
+    "source_quantity": 10,
+    "current_row_quantities": [
+      6,
+      6
+    ],
+    "stock": 98.0
+  }
+]
