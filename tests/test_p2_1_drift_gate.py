@@ -220,21 +220,33 @@ def _build_fixture_file_db(db_path, seed_sql):
         "os.environ['WMS_BOOTSTRAP_PASSWORD'] = 'p21-fixture-admin'\n"
         "sys.path.insert(0, 'app')\n"
         "import config\n"
-        f"config.TestingConfig.SQLALCHEMY_DATABASE_URI = 'sqlite:///{db_path}'\n"
-        "from app import app, db, initialize_database\n"
+        "config.TestingConfig.SQLALCHEMY_DATABASE_URI = os.environ['WMS_P21_FIXTURE_DB_URL']\n"
+        "from app import app, db\n"
         "with app.app_context():\n"
-        "    initialize_database()\n"
+        "    assert str(db.engine.url) == os.environ['WMS_P21_FIXTURE_DB_URL']\n"
+        "    db.create_all()\n"
         "    db.session.commit()\n",
         encoding="utf-8",
     )
+    fixture_env = os.environ.copy()
+    fixture_env['WMS_P21_FIXTURE_DB_URL'] = 'sqlite:///' + db_path.as_posix()
+    fixture_env['DATABASE_URL'] = fixture_env['WMS_P21_FIXTURE_DB_URL']
+    fixture_env['WMS_DATABASE_URI'] = fixture_env['WMS_P21_FIXTURE_DB_URL']
     subprocess.run([sys.executable, str(bootstrap)],
-                   capture_output=True, text=True, cwd=str(ROOT), check=True)
+                   capture_output=True, text=True, cwd=str(ROOT), env=fixture_env, check=True)
     conn = sqlite3.connect(str(db_path))
     try:
         conn.executescript(seed_sql)
         conn.commit()
     finally:
         conn.close()
+
+
+def test_fixture_file_path_handles_quotes_and_unicode(tmp_path):
+    db_path = tmp_path / "quoted'中文.db"
+    _build_fixture_file_db(db_path, '')
+    with sqlite3.connect(str(db_path)) as connection:
+        assert connection.execute('SELECT count(*) FROM material').fetchone()[0] >= 0
 
 
 # 只有 ①≠③ 的夹具：总账 100 / 库位账 100（①=② 成立）/ 流水 40
