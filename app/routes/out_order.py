@@ -1236,6 +1236,11 @@ def register_out_order_routes(app):
             if not ok:
                 return api_error('该领料单已反提交，不能重复操作')
             order = locked
+            from services.document_return_guard import sales_outbound_revert_check
+            valid, message = sales_outbound_revert_check(order)
+            if not valid:
+                db.session.rollback()
+                return api_error(message)
             for item in order.items:
                 if not item.material or (item.quantity or 0) <= 0:
                     continue

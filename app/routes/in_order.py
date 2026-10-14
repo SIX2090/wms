@@ -2432,6 +2432,11 @@ def register_in_order_routes(app):
             if not ok:
                 return api_error('该入库单已反提交，不能重复操作')
             order = locked
+            from services.document_return_guard import purchase_inbound_revert_check
+            valid, message = purchase_inbound_revert_check(order)
+            if not valid:
+                db.session.rollback()
+                return api_error(message)
 
             # F2.12 BUG-A（审计 §1.4）：库存充足校验与「未归属流水归属修正」必须放在
             # **加锁之后**。原实现把这段写在 _acquire_order_write_lock 之前，而该锁在
@@ -2939,6 +2944,12 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 continue
             order = locked
+            from services.document_return_guard import purchase_inbound_revert_check
+            valid, message = purchase_inbound_revert_check(order)
+            if not valid:
+                skipped.append(f'{order.order_no}({message})')
+                db.session.rollback()
+                continue
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
