@@ -243,7 +243,7 @@ def test_legacy_header_update_validates_status_and_can_clear_remark(bom_case):
     assert db.session.get(BOM, ids['bom']).status == 'inactive'
 
 
-def test_bom_alternate_unit_is_rejected_without_replacing_material_unit(bom_case):
+def test_bom_alternate_unit_is_saved_without_replacing_material_unit(bom_case):
     client, ids = bom_case
     box = Unit(code='AUDIT-BOX', name='箱')
     db.session.add(box)
@@ -252,12 +252,9 @@ def test_bom_alternate_unit_is_rejected_without_replacing_material_unit(bom_case
     data = {'order_id':ids['bom'], 'order_no':'BOM-AUDIT',
             'header':{'product_code':'B-P','product_name':'审计产品','version':'V1','status':'active'},
             'items':[{'code':'B-M','quantity':3,'unit_id':box_id,'price':0}]}
-    response = client.post('/bom/save_table', json=data)
-    assert response.status_code == 400
-    assert '库存单位' in response.get_json()['msg']
+    assert client.post('/bom/save_table', json=data).status_code == 200
     db.session.remove()
-    assert db.session.get(BOM, ids['bom']).items[0].unit_id == ids['unit']
-    assert db.session.get(BOM, ids['bom']).items[0].quantity == 2
+    assert db.session.get(BOM, ids['bom']).items[0].unit_id == box_id
     assert db.session.get(Material, ids['material']).unit_id == ids['unit']
     html = client.get(f"/bom/{ids['bom']}").get_data(as_text=True)
     assert '箱' in html or '\\u7bb1' in html

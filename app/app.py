@@ -26101,10 +26101,6 @@ def debug_in_order(order_no):
 
 
 def calculate_bom_cost_value(bom, refresh_unit_cost=True):
-    from services.stock_unit_guard import require_stock_unit
-    for item in bom.items:
-        if item.material:
-            require_stock_unit(item.material, item.unit_id)
     total_cost = 0
     for item in bom.items:
         if refresh_unit_cost:

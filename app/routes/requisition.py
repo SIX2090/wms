@@ -207,12 +207,6 @@ def register_requisition_routes(app):
                 if quantity <= 0:
                     db.session.rollback()
                     return api_error(f'物料 {material.code} 的数量必须大于0')
-                from services.stock_unit_guard import require_stock_unit
-                try:
-                    unit_id = require_stock_unit(material, item_data.get('unit_id'))
-                except ValueError as error:
-                    db.session.rollback()
-                    return api_error(str(error))
                 current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
                 required = required_by_material.get(material.id, 0) + quantity
                 if not allow_negative_stock() and not is_stock_sufficient(current_stock, required):
@@ -223,7 +217,7 @@ def register_requisition_routes(app):
                     requisition_id=requisition.id,
                     material_id=material.id,
                     quantity=quantity,
-                    unit_id=unit_id,
+                    unit_id=_clean_int(item_data.get('unit_id')) or material.unit_id,
                     remark=(item_data.get('remark') or '').strip()
                 ))
 
@@ -367,11 +361,6 @@ def register_requisition_routes(app):
             if quantity <= 0:
                 return api_error('工单领料数量必须大于 0')
 
-            from services.stock_unit_guard import require_stock_unit
-            try:
-                unit_id = require_stock_unit(material, unit_id)
-            except ValueError as error:
-                return api_error(str(error))
             warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
             if warehouse_err:
                 return api_error(warehouse_err)
@@ -386,7 +375,7 @@ def register_requisition_routes(app):
                 requisition_id=id,
                 material_id=material.id,
                 quantity=quantity,
-                unit_id=unit_id
+                unit_id=int(unit_id) if unit_id else None
             )
             db.session.add(item)
             try:
@@ -421,11 +410,6 @@ def register_requisition_routes(app):
             quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
             if quantity <= 0:
                 return api_error('数量必须大于0')
-            from services.stock_unit_guard import require_stock_unit
-            try:
-                require_stock_unit(item.material, item.unit_id)
-            except ValueError as error:
-                return api_error(str(error))
             warehouse_obj, warehouse_err = validate_inventory_warehouse(requisition.warehouse)
             if warehouse_err:
                 return api_error(warehouse_err)
@@ -611,14 +595,6 @@ def register_requisition_routes(app):
             #   qty<=0 分支返回 (False, '扣减数量必须大于 0')。
             #   因此这里对"物料存在但数量 <= 0"显式拒绝，保持原语义；
             #   material 为空仍交由入口返回 '物料不存在'，与原 deduct_stock 一致。
-            from services.stock_unit_guard import require_stock_unit
-            for item in requisition.items:
-                if item.material:
-                    try:
-                        item.unit_id = require_stock_unit(item.material, item.unit_id)
-                    except ValueError as error:
-                        db.session.rollback()
-                        return api_error(str(error))
             for item in requisition.items:
                 qty = item.quantity or 0
                 if item.material and qty <= 0:
