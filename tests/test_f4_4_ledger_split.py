@@ -27,6 +27,8 @@ AI_SHARDS = LEDGER / 'ai'
 AI_TASK_IDS_BASELINE = 83
 BUG_IDS_BASELINE = 490
 STATUS_DIST_BASELINE = {'fixed': 315, 'unknown': 141, 'deferred': 19, 'false_positive': 1}
+# Explicitly verify new registrations while preserving the exact pre-split snapshot.
+POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed'}
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 
@@ -124,5 +126,8 @@ class TestMonthlyReviewEquivalence:
         sys.path.insert(0, str(ROOT / 'scripts'))
         from monthly_bug_review import _load_baseline_text, build_status_index
         from collections import Counter
-        dist = Counter(build_status_index(_load_baseline_text()).values())
+        statuses = build_status_index(_load_baseline_text())
+        for bug_id, expected_status in POST_SPLIT_BUGS.items():
+            assert statuses.pop(bug_id) == expected_status
+        dist = Counter(statuses.values())
         assert dict(dist) == STATUS_DIST_BASELINE, dict(dist)

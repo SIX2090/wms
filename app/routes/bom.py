@@ -20,12 +20,58 @@
 # 注意：本文件顶部不用多行 """docstring""" 作为模块说明，会触发 lint 脚本
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
+import math
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
 from utils import require_role
+
+
+class BomSaveRequest(BaseModel):
+    model_config = ConfigDict(extra='allow')
+    order_id: int | None = None
+    order_no: str = ''
+    bom_no: str = ''
+    header: dict = Field(default_factory=dict)
+    items: list[dict] = Field(default_factory=list)
+
+
+def _prepare_bom_items(items):
+    from app import Unit, _material_from_payload, round_to_2_decimals
+    prepared = []
+    for index, raw in enumerate(items, 1):
+        material = _material_from_payload(raw)
+        if not material:
+            raise ValueError(f'第{index}行物料不存在')
+        code = str(raw.get('code') or raw.get('material_code') or '').strip()
+        if code and code != material.code:
+            raise ValueError(f'第{index}行物料编码与所选物料不一致，请重新选择')
+        try:
+            quantity = float(raw.get('quantity'))
+            cost_value = raw.get('price')
+            cost = float(material.price or 0) if cost_value in (None, '') else float(cost_value)
+        except (TypeError, ValueError):
+            raise ValueError(f'第{index}行数量或单价不是有效数字')
+        if not math.isfinite(quantity) or quantity <= 0 or round_to_2_decimals(quantity) <= 0:
+            raise ValueError(f'第{index}行数量必须为大于0的有效数字')
+        if not math.isfinite(cost) or cost < 0:
+            raise ValueError(f'第{index}行单价必须为非负有效数字')
+        try:
+            unit_id = int(raw['unit_id']) if raw.get('unit_id') not in (None, '') else material.unit_id
+        except (TypeError, ValueError):
+            raise ValueError(f'第{index}行请选择有效单位')
+        if not unit_id or not db.session.get(Unit, unit_id):
+            raise ValueError(f'第{index}行单位不存在，请选择有效单位')
+        prepared.append(dict(material=material, quantity=round_to_2_decimals(quantity),
+                             unit_id=unit_id, unit_cost=round_to_2_decimals(cost),
+                             usage=str(raw.get('usage') or '').strip(),
+                             remark=str(raw.get('remark') or '').strip()))
+    if not math.isfinite(sum(row['quantity'] * row['unit_cost'] for row in prepared)):
+        raise ValueError('BOM成本计算超出允许范围，请检查数量和单价')
+    return prepared
 
 
 # no-test:reason=路由注册辅助函数，能力由 bom_* 各路由测试覆盖
@@ -117,11 +163,20 @@ def register_bom_routes(app):
         from app import (BOM, BOMItem, _clean_int, _material_from_payload,
                          api_error, calculate_bom_cost_value, generate_order_no,
                          log_operation, parse_float_value, round_to_2_decimals)
-        data = request.get_json(silent=True) or {}
+        data = request.get_json(silent=True)
+        try:
+            if isinstance(data, dict) and data.get('order_id') == '':
+                data = dict(data, order_id=None)
+            data = BomSaveRequest.model_validate(data).model_dump()
+        except ValidationError:
+            return api_error('BOM数据格式不正确，请检查表头和明细')
         order_id = _clean_int(data.get('order_id'))
         bom_no = (data.get('order_no') or data.get('bom_no') or '').strip() or generate_order_no('BOM')
         header = data.get('header') or {}
         items_data = data.get('items') or []
+        if any(not isinstance(header.get(key, data.get(key, '')), str)
+               for key in ('product_code', 'product_name', 'version', 'status', 'remark')):
+            return api_error('BOM表头必须填写文字')
 
         product_code = (header.get('product_code') or data.get('product_code') or '').strip()
         product_name = (header.get('product_name') or data.get('product_name') or '').strip()
@@ -132,11 +187,12 @@ def register_bom_routes(app):
         if not product_code or not product_name:
             return api_error('请输入产品编码和产品名称')
         if status not in ('active', 'inactive'):
-            status = 'active'
+            return api_error('BOM状态必须为启用或停用')
         if not items_data:
             return api_error('请至少填写一条BOM明细')
 
         try:
+            prepared = _prepare_bom_items(items_data)
             if order_id:
                 bom = db.session.get(BOM, order_id)
                 if not bom:
@@ -146,9 +202,10 @@ def register_bom_routes(app):
                     return api_error('BOM编号已存在')
             else:
                 bom = BOM.query.filter_by(bom_no=bom_no).first()
-                if not bom:
-                    bom = BOM(bom_no=bom_no)
-                    db.session.add(bom)
+                if bom:
+                    return api_error('BOM编号已存在，请打开原BOM编辑')
+                bom = BOM(bom_no=bom_no)
+                db.session.add(bom)
 
             bom.bom_no = bom_no
             bom.product_code = product_code
@@ -159,15 +216,11 @@ def register_bom_routes(app):
             db.session.flush()
             BOMItem.query.filter_by(bom_id=bom.id).delete()
 
-            for item_data in items_data:
-                material = _material_from_payload(item_data)
-                if not material:
-                    return api_error(f'物料不存在：{item_data.get("code") or ""}')
-                quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
-                if quantity <= 0:
-                    return api_error(f'物料 {material.code} 的数量必须大于0')
-                unit_id = _clean_int(item_data.get('unit_id')) or material.unit_id
-                unit_cost = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
+            for item_data in prepared:
+                material = item_data['material']
+                quantity = item_data['quantity']
+                unit_id = item_data['unit_id']
+                unit_cost = item_data['unit_cost']
                 db.session.add(BOMItem(
                     bom_id=bom.id,
                     material_id=material.id,
@@ -179,10 +232,17 @@ def register_bom_routes(app):
                     remark=(item_data.get('remark') or '').strip()
                 ))
 
+            db.session.flush()
+            db.session.expire(bom, ['items'])
             calculate_bom_cost_value(bom, refresh_unit_cost=False)
+            if not math.isfinite(bom.total_cost):
+                raise ValueError('BOM成本计算超出允许范围')
             db.session.commit()
             log_operation('保存BOM', f'BOM：{bom.bom_no}', 'bom', bom.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': bom.id, 'order_no': bom.bom_no})
+        except ValueError as e:
+            db.session.rollback()
+            return api_error(str(e))
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'保存BOM失败: {e}')
@@ -272,28 +332,27 @@ def register_bom_routes(app):
             if quantity <= 0:
                 return api_error('用量必须大于 0')
 
-            unit = db.session.get(Unit, unit_id) if unit_id else None
+            prepared = _prepare_bom_items([dict(code=material_code, quantity=quantity, unit_id=unit_id)])[0]
             unit_cost = material.price or 0
             item = BOMItem(
                 bom_id=id,
                 material_id=material.id,
-                quantity=quantity,
-                unit_id=unit.id if unit else None,
+                quantity=prepared['quantity'],
+                unit_id=prepared['unit_id'],
                 unit_cost=unit_cost,
                 total_cost=round_to_2_decimals(quantity * unit_cost),
                 usage=usage,
                 remark=remark
             )
             db.session.add(item)
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f'数据库操作失败: {e}')
-                return jsonify({'status': 'error', 'msg': '操作失败'}), 500
-            calculate_bom_cost_value(bom)
+            db.session.flush()
+            db.session.expire(bom, ['items'])
+            calculate_bom_cost_value(bom, refresh_unit_cost=False)
             db.session.commit()
             return jsonify({'status': 'success', 'msg': 'BOM 明细新增成功', 'id': item.id})
+        except ValueError as e:
+            db.session.rollback()
+            return api_error(str(e))
         except Exception as e:
             db.session.rollback()
             return api_error('操作失败，请稍后重试')
@@ -314,17 +373,18 @@ def register_bom_routes(app):
         item = BOMItem.query.get_or_404(item_id)
         if item.bom_id != id:
             return api_error('BOM')
-        db.session.delete(item)
         try:
+            db.session.delete(item)
+            db.session.flush()
+            bom = db.session.get(BOM, id)
+            if bom:
+                db.session.expire(bom, ['items'])
+                calculate_bom_cost_value(bom, refresh_unit_cost=False)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        bom = db.session.get(BOM, id)
-        if bom:
-            calculate_bom_cost_value(bom)
-            db.session.commit()
         return jsonify({'status': 'success'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

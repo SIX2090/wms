@@ -398,7 +398,7 @@ function fillMaterialFields(row, material) {
     const stockInput = row.querySelector('.material-stock');
     if (stockInput) stockInput.value = formatQty(material.stock);
     const priceInput = row.querySelector('.line-price');
-    if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+    if (priceInput && priceInput.value === '') {
         priceInput.value = formatQty(material.price);
     }
     const usageInput = row.querySelector('.line-usage');
@@ -693,7 +693,7 @@ function collectItems() {
         }
         const qtyInput = row.querySelector('.line-qty');
         const quantity = parseFloat(qtyInput.value);
-        if (!quantity || quantity <= 0) {
+        if (!Number.isFinite(quantity) || quantity <= 0) {
             qtyInput.style.borderColor = '#ff4d4f';
             invalidRows.push('第 ' + (index + 1) + ' 行数量无效');
             return;
@@ -704,7 +704,7 @@ function collectItems() {
             code: material.code,
             unit_id: unitId,
             quantity: quantity,
-            price: parseFloat(row.querySelector('.line-price')?.value) || material.price || 0,
+            price: row.querySelector('.line-price')?.value !== '' && Number.isFinite(Number(row.querySelector('.line-price')?.value)) ? Number(row.querySelector('.line-price').value) : (material.price || 0),
             usage: row.querySelector('.line-usage')?.value.trim() || '',
             remark: row.querySelector('.line-remark')?.value.trim() || ''
         });

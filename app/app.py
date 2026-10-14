@@ -26573,7 +26573,7 @@ def _render_bom_form(bom=None):
             'product_name': bom.product_name if bom else '',
             'version': bom.version if bom else 'V1.0',
             'status': bom.status if bom else 'active',
-            'remark': bom.remark if bom else '',
+            'remark': (bom.remark or '') if bom else '',
         },
         materials=_document_materials_json(),
         units=_document_units_json(),
@@ -26581,8 +26581,8 @@ def _render_bom_form(bom=None):
         boms=[],
         existing_items=[
             _material_line_data(item, extra={
-                'price': float(item.unit_cost or (item.material.price if item.material else 0) or 0),
-                'unit_cost': float(item.unit_cost or (item.material.price if item.material else 0) or 0),
+                'price': float(item.unit_cost if item.unit_cost is not None else (item.material.price if item.material else 0) or 0),
+                'unit_cost': float(item.unit_cost if item.unit_cost is not None else (item.material.price if item.material else 0) or 0),
                 'total_cost': float(item.total_cost or 0),
                 'usage': item.usage or '',
             }) for item in (bom.items if bom else [])
