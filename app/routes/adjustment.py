@@ -433,6 +433,11 @@ def register_adjustment_routes(app):
             if not ok:
                 return api_error('该调整单已提交，不能重复操作')
             adjustment = locked
+            from app import assert_warehouse_active
+            warehouse_ok, warehouse_message = assert_warehouse_active(adjustment.warehouse, allow_empty=False)
+            if not warehouse_ok:
+                db.session.rollback()
+                return api_error(warehouse_message)
             if not adjustment.items:
                 db.session.rollback()
                 return api_error('调整单没有明细，无法完成')

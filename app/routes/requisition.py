@@ -595,6 +595,11 @@ def register_requisition_routes(app):
             if not (requisition.warehouse or '').strip():
                 db.session.rollback()
                 return api_error('请选择仓库')
+            from app import assert_warehouse_active
+            warehouse_ok, warehouse_message = assert_warehouse_active(requisition.warehouse, allow_empty=False)
+            if not warehouse_ok:
+                db.session.rollback()
+                return api_error(warehouse_message)
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (requisition.location or '').strip():
                 db.session.rollback()

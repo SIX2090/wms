@@ -583,6 +583,11 @@ def register_check_routes(app):
             if not ok:
                 return api_error('该盘点单已提交，不能重复操作')
             check = locked
+            from app import assert_warehouse_active
+            warehouse_ok, warehouse_message = assert_warehouse_active(check.warehouse, allow_empty=False)
+            if not warehouse_ok:
+                db.session.rollback()
+                return api_error(warehouse_message)
             if not check.items:
                 db.session.rollback()
                 return api_error('盘点单没有明细，无法完成')
