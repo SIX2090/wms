@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ page_title }}{% endblock %}
+{% block body_class %}{% if doc_type == 'bom' and readonly %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -121,25 +122,25 @@
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">产品编码</label>
-                        <input type="text" class="form-control" name="product_code" value="{{ header.product_code }}" autocomplete="off">
+                        <input type="text" class="form-control" name="product_code" value="{{ header.product_code }}" autocomplete="off" {% if readonly %}readonly{% endif %}>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">产品名称</label>
-                        <input type="text" class="form-control" name="product_name" value="{{ header.product_name }}">
+                        <input type="text" class="form-control" name="product_name" value="{{ header.product_name }}" {% if readonly %}readonly{% endif %}>
                     </div>
                 </div>
                 <div class="col-md-2">
                     <div class="mb-2">
                         <label class="form-label">版本</label>
-                        <input type="text" class="form-control" name="version" value="{{ header.version }}">
+                        <input type="text" class="form-control" name="version" value="{{ header.version }}" {% if readonly %}readonly{% endif %}>
                     </div>
                 </div>
                 <div class="col-md-1">
                     <div class="mb-2">
                         <label class="form-label">状态</label>
-                        <select class="form-select" name="status">
+                        <select class="form-select" name="status" {% if readonly %}disabled{% endif %}>
                             <option value="active" {% if header.status == 'active' %}selected{% endif %}>激活</option>
                             <option value="inactive" {% if header.status == 'inactive' %}selected{% endif %}>停用</option>
                         </select>
@@ -435,7 +436,7 @@ function rowCells(item) {
         ${docType === 'requisition' ? '<td data-column-key="brand"><input type="text" class="material-brand" readonly></td>' : ''}
         <td data-column-key="material_name"><input type="text" class="material-name" readonly></td>
         <td data-column-key="spec"><input type="text" class="material-spec" readonly></td>
-        <td data-column-key="unit"><input type="text" class="material-unit" readonly><select class="unit-id d-none" ${disabledAttr}>${unitOptions(unitId)}</select></td>`;
+        <td data-column-key="unit"><input type="text" class="material-unit" ${docType === 'bom' && !readonly ? 'style="display:none;"' : ''} readonly><select class="unit-id ${docType === 'bom' && !readonly ? '' : 'd-none'}" ${disabledAttr}>${unitOptions(unitId)}</select></td>`;
     if (docType === 'transfer' || docType === 'requisition' || docType === 'check') {
         html += '<td class="num-col" data-column-key="stock"><input type="text" class="material-stock" readonly></td>';
     }

@@ -39,3 +39,24 @@ fields['.line-qty'].value='Infinity';assert.equal(collectItems().items.length,0)
                              json.dumps(str(ROOT / 'app/templates/document_table_form.html')), doc_type],
                             capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stderr
+
+
+def test_bom_unit_picker_is_visible_only_for_editable_bom():
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node.js required')
+    script = r'''
+const fs=require('node:fs'),assert=require('node:assert/strict');
+const source=fs.readFileSync(JSON.parse(process.argv[1]),'utf8');
+const start=source.indexOf('function rowCells('),end=source.indexOf('function createRow(',start);
+let docType='bom',readonly=false;
+function unitOptions(){return '<option value="2">箱</option>';}
+eval(source.slice(start,end));
+assert.match(rowCells({unit_id:2}),/class="unit-id " /);
+assert.match(rowCells({unit_id:2}),/material-unit" style="display:none;"/);
+readonly=true;assert.match(rowCells({unit_id:2}),/class="unit-id d-none" disabled/);
+readonly=false;docType='transfer';assert.match(rowCells({unit_id:2}),/class="unit-id d-none"/);
+'''
+    result = subprocess.run([node,'-e',script,json.dumps(str(ROOT/'app/templates/document_table_form.html'))],
+                            capture_output=True,text=True,encoding='utf-8',timeout=20)
+    assert result.returncode == 0, result.stderr

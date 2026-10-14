@@ -21,7 +21,8 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 import math
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from zipfile import BadZipFile
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
 from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
@@ -37,6 +38,33 @@ class BomSaveRequest(BaseModel):
     bom_no: str = ''
     header: dict = Field(default_factory=dict)
     items: list[dict] = Field(default_factory=list)
+
+
+class BomDeleteRequest(BaseModel):
+    ids: list[PositiveInt] = Field(min_length=1)
+
+
+class BomDraftRequest(BaseModel):
+    warehouse_id: PositiveInt | None = None
+    warehouse: str = ''
+    location: str = ''
+
+
+class BomHeaderRequest(BaseModel):
+    product_code: str | None = None
+    product_name: str | None = None
+    version: str | None = None
+    status: str | None = Field(default=None, pattern='^(active|inactive)$')
+    remark: str | None = None
+
+
+def _bom_deletion_error(bom):
+    from app import BOM, ProductionRequisition
+    if ProductionRequisition.query.filter_by(bom_id=bom.id).first():
+        return f'BOM {bom.bom_no} 已被领料单引用，不能删除，请停用'
+    if BOM.query.filter_by(parent_bom_id=bom.id).first():
+        return f'BOM {bom.bom_no} 已被子BOM引用，不能删除，请停用'
+    return None
 
 
 def _prepare_bom_items(items):
@@ -293,11 +321,17 @@ def register_bom_routes(app):
         from app import BOM, api_error
         bom = BOM.query.get_or_404(id)
         try:
-            bom.product_code = (request.form.get('product_code') or bom.product_code).strip()
-            bom.product_name = (request.form.get('product_name') or bom.product_name).strip()
-            bom.version = (request.form.get('version') or bom.version).strip()
-            bom.status = (request.form.get('status') or bom.status).strip()
-            bom.remark = (request.form.get('remark') or bom.remark).strip()
+            data = BomHeaderRequest.model_validate(
+                request.get_json(silent=True) if request.is_json else request.form.to_dict()).model_dump(exclude_none=True)
+            product_code = data.get('product_code', bom.product_code).strip()
+            product_name = data.get('product_name', bom.product_name).strip()
+            if not product_code or not product_name:
+                return api_error('请输入产品编码和产品名称')
+            bom.product_code = product_code
+            bom.product_name = product_name
+            bom.version = (data.get('version') or bom.version or 'V1.0').strip()
+            bom.status = data.get('status') or bom.status or 'active'
+            bom.remark = data.get('remark', bom.remark or '').strip()
             try:
                 db.session.commit()
             except Exception as e:
@@ -305,6 +339,9 @@ def register_bom_routes(app):
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
             return jsonify({'status': 'success'})
+        except ValidationError:
+            db.session.rollback()
+            return api_error('BOM表头格式不正确，状态必须为启用或停用')
         except Exception as e:
             db.session.rollback()
             return api_error('操作失败，请稍后重试')
@@ -399,11 +436,14 @@ def register_bom_routes(app):
     @require_role('production')
     @login_required
     def delete_bom(id):
-        from app import BOM, BOMItem
+        from app import BOM, BOMItem, api_error
         bom = BOM.query.get_or_404(id)
-        BOMItem.query.filter_by(bom_id=id).delete()
-        db.session.delete(bom)
+        error = _bom_deletion_error(bom)
+        if error:
+            return api_error(error)
         try:
+            BOMItem.query.filter_by(bom_id=id).delete()
+            db.session.delete(bom)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -423,12 +463,21 @@ def register_bom_routes(app):
     @require_role('production')
     @login_required
     def batch_delete_bom():
-        from app import BOM, BOMItem
-        ids = (request.get_json(silent=True) or {}).get('ids', [])
-        for bid in ids:
-            BOMItem.query.filter_by(bom_id=bid).delete()
-            BOM.query.filter_by(id=bid).delete()
+        from app import BOM, BOMItem, api_error
         try:
+            ids = list(dict.fromkeys(BomDeleteRequest.model_validate(request.get_json(silent=True)).ids))
+        except ValidationError:
+            return api_error('请选择有效的BOM编号')
+        boms = BOM.query.filter(BOM.id.in_(ids)).all()
+        if len(boms) != len(ids):
+            return api_error('部分BOM不存在，请刷新列表')
+        for bom in boms:
+            error = _bom_deletion_error(bom)
+            if error:
+                return api_error(error)
+        try:
+            BOMItem.query.filter(BOMItem.bom_id.in_(ids)).delete(synchronize_session=False)
+            BOM.query.filter(BOM.id.in_(ids)).delete(synchronize_session=False)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -532,12 +581,12 @@ def register_bom_routes(app):
                     col_map['remark'] = idx
 
             # Backward compatibility for the old three-column BOM import format.
-            if 'product_code' not in col_map and header_row:
-                col_map['product_code'] = 0
-            if 'product_name' not in col_map and len(header_row) > 1:
-                col_map['product_name'] = 1
-            if 'version' not in col_map and len(header_row) > 2:
-                col_map['version'] = 2
+            legacy_header = len(header_row) == 3 and not any(
+                key in col_map for key in ('material_code', 'quantity', 'unit'))
+            if legacy_header:
+                col_map.setdefault('product_code', 0)
+                col_map.setdefault('product_name', 1)
+                col_map.setdefault('version', 2)
 
             if 'product_code' not in col_map or 'product_name' not in col_map:
                 msg = f'Excel表头缺少必要列（产品编码、产品名称）。检测到的表头：{", ".join(header_row)}'
@@ -568,6 +617,9 @@ def register_bom_routes(app):
             skip = 0
             skip_details = []
             warnings = []
+            updated_bom_ids = set()
+            updated_items = 0
+            seen_item_rows = {}
 
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 product_code = get_val(row, 'product_code')
@@ -577,50 +629,61 @@ def register_bom_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：产品编码或产品名称为空')
                     continue
+                material_code = get_val(row, 'material_code')
+                if 'material_code' in col_map and not material_code:
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：物料编码为空')
+                    continue
+                quantity = get_num(row, 'quantity', 1)
+                material = None
+                unit_name = get_val(row, 'unit')
+                if material_code:
+                    if not math.isfinite(quantity) or quantity <= 0:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：数量必须为大于0的有效数字')
+                        continue
+                    material = Material.query.filter_by(code=material_code).first()
+                    if not material:
+                        material = reuse_material_by_name_spec(
+                            material_code, get_val(row, 'material_name'),
+                            get_val(row, 'spec'), warnings=warnings)
+                    if not unit_name and not (material and material.unit):
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：物料 {material_code} 缺少单位')
+                        continue
+                    unit_cost = (material.price or 0) if material else 0
+                    if not math.isfinite(unit_cost) or not math.isfinite(quantity * unit_cost):
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：物料成本不是有效数字')
+                        continue
 
                 bom_key = (product_code, version)
                 bom = boms_by_key.get(bom_key)
                 if not bom:
-                    bom = BOM.query.filter_by(product_code=product_code, version=version).first()
-                    if bom:
-                        warnings.append(f'第{row_idx}行：BOM {product_code}/{version} 已存在，追加明细')
+                    # Only two are needed to determine whether the update target is unique.
+                    matches = BOM.query.filter_by(product_code=product_code, version=version).limit(2).all()
+                    if len(matches) > 1:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：产品 {product_code}/{version} 有多份BOM，无法确定更新目标')
+                        continue
+                    if matches:
+                        bom = matches[0]
+                        updated_bom_ids.add(bom.id)
+                        warnings.append(f'第{row_idx}行：更新已有BOM {product_code}/{version}，未涉及子件保留')
                         bom.product_name = product_name
                     else:
-                        bom = BOM(
-                            bom_no=generate_order_no('BOM'),
-                            product_code=product_code,
-                            product_name=product_name,
-                            version=version,
-                            status='active'
-                        )
+                        bom = BOM(bom_no=generate_order_no('BOM'), product_code=product_code,
+                                  product_name=product_name, version=version, status='active')
                         db.session.add(bom)
                         db.session.flush()
                         count += 1
                     boms_by_key[bom_key] = bom
-
-                material_code = get_val(row, 'material_code')
                 if not material_code:
-                    continue
-
-                quantity = get_num(row, 'quantity', 1)
-                if quantity <= 0:
-                    skip += 1
-                    skip_details.append(f'第{row_idx}行：物料 {material_code} 数量必须大于0')
-                    continue
-
-                material = Material.query.filter_by(code=material_code).first()
+                    continue  # Legacy three-column files intentionally import only headers.
                 if not material:
-                    # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有物料，
-                    # 详见 reuse_material_by_name_spec 注释。
-                    material = reuse_material_by_name_spec(
-                        material_code, get_val(row, 'material_name'),
-                        get_val(row, 'spec'), warnings=warnings)
-                if not material:
-                    material = Material(
-                        code=material_code,
-                        name=get_val(row, 'material_name') or material_code,
-                        spec=get_val(row, 'spec')
-                    )
+                    material = Material(code=material_code,
+                                        name=get_val(row, 'material_name') or material_code,
+                                        spec=get_val(row, 'spec'))
                     db.session.add(material)
                     db.session.flush()
                     warnings.append(f'自动创建物料：{material_code}')
@@ -628,8 +691,6 @@ def register_bom_routes(app):
                     material.name = get_val(row, 'material_name')
                 if get_val(row, 'spec') and not material.spec:
                     material.spec = get_val(row, 'spec')
-
-                unit_name = get_val(row, 'unit')
                 unit = None
                 if unit_name:
                     unit = Unit.query.filter_by(name=unit_name).first() or Unit.query.filter_by(code=unit_name).first()
@@ -638,15 +699,14 @@ def register_bom_routes(app):
                         db.session.add(unit)
                         db.session.flush()
                         warnings.append(f'自动创建单位：{unit_name}')
-                if not unit and material.unit:
-                    unit = material.unit
                 if not unit:
-                    skip += 1
-                    skip_details.append(f'第{row_idx}行：物料 {material_code} 缺少单位')
-                    continue
+                    unit = material.unit
                 if not material.unit_id:
                     material.unit_id = unit.id
-
+                key = (bom.id, material.id)
+                if key in seen_item_rows:
+                    warnings.append(f'第{row_idx}行重复物料 {material.code}，将覆盖第{seen_item_rows[key]}行的用量')
+                seen_item_rows[key] = row_idx
                 existing_item = BOMItem.query.filter_by(bom_id=bom.id, material_id=material.id).first()
                 unit_cost = material.price or 0
                 if existing_item:
@@ -656,22 +716,22 @@ def register_bom_routes(app):
                     existing_item.total_cost = round_to_2_decimals(quantity * unit_cost)
                     existing_item.usage = get_val(row, 'usage')
                     existing_item.remark = get_val(row, 'remark')
+                    updated_items += 1
                 else:
-                    item = BOMItem(
-                        bom_id=bom.id,
-                        material_id=material.id,
-                        quantity=quantity,
-                        unit_id=unit.id,
-                        unit_cost=unit_cost,
-                        total_cost=round_to_2_decimals(quantity * unit_cost),
-                        usage=get_val(row, 'usage'),
-                        remark=get_val(row, 'remark')
-                    )
-                    db.session.add(item)
+                    db.session.add(BOMItem(bom_id=bom.id, material_id=material.id, quantity=quantity,
+                                           unit_id=unit.id, unit_cost=unit_cost,
+                                           total_cost=round_to_2_decimals(quantity * unit_cost),
+                                           usage=get_val(row, 'usage'), remark=get_val(row, 'remark')))
                     item_count += 1
-
+            if not boms_by_key:
+                db.session.rollback()
+                return api_error('没有可导入的有效BOM行；' + '；'.join(skip_details[:20]))
             for bom in boms_by_key.values():
-                calculate_bom_cost_value(bom)
+                db.session.flush()
+                db.session.expire(bom, ['items'])
+                calculate_bom_cost_value(bom, refresh_unit_cost=False)
+                if not math.isfinite(bom.total_cost):
+                    raise ValueError('BOM成本计算超出允许范围，请检查数量和单价')
 
             try:
                 db.session.commit()
@@ -679,7 +739,7 @@ def register_bom_routes(app):
                 db.session.rollback()
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
-            msg = f'BOM 导入成功，共导入 {count} 个BOM，{item_count} 条明细'
+            msg = f'BOM导入成功：新增{count}份，更新{len(updated_bom_ids)}份；新增{item_count}条明细，更新{updated_items}条明细'
             if skip:
                 msg += f'，跳过 {skip} 行'
             if skip_details:
@@ -688,9 +748,13 @@ def register_bom_routes(app):
             if warnings:
                 resp['warnings'] = '；'.join(warnings)
             return jsonify(resp)
+        except BadZipFile:
+            db.session.rollback()
+            return api_error('文件不是有效的.xlsx表格；旧版.xls请用Excel另存为.xlsx后导入')
         except Exception as e:
             db.session.rollback()
-            return api_error(f'BOM 导入失败：{str(e)}')
+            app.logger.error('BOM导入失败', exc_info=True)
+            return api_error('BOM导入失败，请检查表格格式和数据后重试')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/bom/<int:bom_id>/create_requisition', methods=['POST'])
@@ -698,32 +762,48 @@ def register_bom_routes(app):
     @login_required
     def create_requisition_from_bom(bom_id):
         from flask_login import current_user
-        from app import (BOM, ProductionRequisition, ProductionRequisitionItem,
-                         generate_order_no, get_default_warehouse)
+        from app import (BOM, ProductionRequisition, ProductionRequisitionItem, api_error,
+                         generate_order_no, resolve_request_warehouse, location_management_enabled)
         bom = BOM.query.get_or_404(bom_id)
+        try:
+            data = BomDraftRequest.model_validate(request.get_json(silent=True) or {}).model_dump()
+        except ValidationError:
+            return api_error('领料草稿参数格式不正确')
+        if bom.status != 'active':
+            return api_error('停用BOM不能生成领料草稿')
+        if not bom.items:
+            return api_error('BOM没有明细，请先录入并保存')
+        warehouse, error = resolve_request_warehouse(data)
+        if error:
+            return api_error(error if data['warehouse_id'] or data['warehouse'] else '请先配置并启用默认仓库，或在新建工单领料单时选择仓库')
+        location = data['location'].strip()
+        if location_management_enabled() and not location:
+            return api_error('库位管理已启用，请填写库位后生成领料草稿')
+        try:
+            prepared = _prepare_bom_items([dict(material_id=item.material_id, quantity=item.quantity,
+                                                unit_id=item.unit_id, price=item.unit_cost)
+                                           for item in bom.items])
+        except ValueError as error:
+            return api_error(str(error))
         # 复用 generate_order_no('REQ')，避免原先基于秒级时间戳生成 req_no
         # 在并发或同秒点击时产生重复单号，触发 unique 约束失败
         req_no = generate_order_no('REQ')
         # BUG-2026-08-05-008：BOM 下推工单领料单自动带入默认仓库
-        _default_wh = get_default_warehouse()
         requisition = ProductionRequisition(
             req_no=req_no,
             bom_id=bom_id,
-            warehouse=_default_wh.name if _default_wh else None,
+            warehouse=warehouse.name,
+            location=location,
             status='pending',
             operator_id=current_user.id
         )
-        db.session.add(requisition)
-        db.session.flush()
-        for item in bom.items:
-            req_item = ProductionRequisitionItem(
-                requisition_id=requisition.id,
-                material_id=item.material_id,
-                quantity=item.quantity,
-                unit_id=item.unit_id
-            )
-            db.session.add(req_item)
         try:
+            db.session.add(requisition)
+            db.session.flush()
+            for item in prepared:
+                db.session.add(ProductionRequisitionItem(
+                    requisition_id=requisition.id, material_id=item['material'].id,
+                    quantity=item['quantity'], unit_id=item['unit_id']))
             db.session.commit()
         except Exception as e:
             db.session.rollback()

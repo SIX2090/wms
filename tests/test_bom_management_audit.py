@@ -4,48 +4,10 @@ import json
 import re
 
 import pytest
-from flask import g
 from openpyxl import load_workbook
-from werkzeug.security import generate_password_hash
 from app import app, db, BOM, BOMItem, Material, MaterialCategory, Unit, User
 
 
-@pytest.fixture
-def bom_case(monkeypatch):
-    monkeypatch.setitem(app.config, 'TESTING', True)
-    monkeypatch.setitem(app.config, 'WTF_CSRF_ENABLED', False)
-    # Each request must load its user afresh, even while the fixture holds an app context.
-    def refresh_fixture_user():
-        g.pop('_login_user', None)
-    hooks = dict(app.before_request_funcs)
-    hooks[None] = [refresh_fixture_user, *hooks.get(None, [])]
-    monkeypatch.setattr(app, 'before_request_funcs', hooks)
-    with app.app_context():
-        db.session.remove()
-        db.drop_all()
-        db.create_all()
-        unit = Unit(code='B-U', name='个')
-        category = MaterialCategory(code='B-C', name='测试分类')
-        user = User(username='bom-audit', role='admin',
-                    password_hash=generate_password_hash('fixture-only'),
-                    must_change_password=False)
-        db.session.add_all([unit, category, user])
-        db.session.flush()
-        material = Material(code='B-M', name='测试子件', spec='审计规格',
-                            unit_id=unit.id, category_id=category.id, price=5, stock=10)
-        bom = BOM(bom_no='BOM-AUDIT', product_code='B-P', product_name='审计产品',
-                  version='V1', status='active', total_cost=10)
-        db.session.add_all([material, bom])
-        db.session.flush()
-        db.session.add(BOMItem(bom_id=bom.id, material_id=material.id,
-                              quantity=2, unit_id=unit.id, unit_cost=5, total_cost=10))
-        db.session.commit()
-        ids = {'bom': bom.id, 'material': material.id, 'unit': unit.id, 'user': user.id}
-        client = app.test_client()
-        client.environ_base['HTTP_X_REQUESTED_WITH'] = 'XMLHttpRequest'
-        assert client.post('/login', data={'username':'bom-audit','password':'fixture-only'}).status_code == 302
-        yield client, ids
-        db.session.remove()
 
 
 def payload(ids, **changes):
