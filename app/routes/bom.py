@@ -93,6 +93,8 @@ def _prepare_bom_items(items):
             raise ValueError(f'第{index}行请选择有效单位')
         if not unit_id or not db.session.get(Unit, unit_id):
             raise ValueError(f'第{index}行单位不存在，请选择有效单位')
+        from services.stock_unit_guard import require_stock_unit
+        unit_id = require_stock_unit(material, unit_id)
         prepared.append(dict(material=material, quantity=round_to_2_decimals(quantity),
                              unit_id=unit_id, unit_cost=round_to_2_decimals(cost),
                              usage=str(raw.get('usage') or '').strip(),
@@ -651,6 +653,12 @@ def register_bom_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：物料 {material_code} 缺少单位')
                         continue
+                    if material and material.unit_id and unit_name:
+                        unit = Unit.query.filter(db.or_(Unit.name == unit_name, Unit.code == unit_name)).first()
+                        if not unit or unit.id != material.unit_id:
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：物料 {material_code} 必须使用库存单位，未配置单位换算')
+                            continue
                     unit_cost = (material.price or 0) if material else 0
                     if not math.isfinite(unit_cost) or not math.isfinite(quantity * unit_cost):
                         skip += 1
