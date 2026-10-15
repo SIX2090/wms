@@ -154,6 +154,22 @@ def register_material_routes(app):
             'pages': pagination.pages
         })
 
+    @app.route('/material/api/by_codes')
+    @login_required
+    def material_api_by_codes():
+        """Resolve a bounded batch of exact material codes for document paste imports."""
+        from app import Material, material_selectable_filter, serialize_material
+        codes = request.args.getlist('code')
+        if not codes or len(codes) > 200 or any(not code.strip() or len(code) > 100 for code in codes):
+            return jsonify(status='error', msg='请提供1至200个有效物料编码，每个不超过100字符'), 400
+        query = Material.query.filter(Material.code.in_(list(dict.fromkeys(code.strip() for code in codes))))
+        selectable = material_selectable_filter(False)
+        if selectable is not None:
+            query = query.filter(selectable)
+        rows = query.options(joinedload(Material.unit)).order_by(Material.code).all()
+        return jsonify(status='success', data=[serialize_material(material) for material in rows],
+                       total=len(rows), page=1, page_size=len(codes), total_pages=1)
+
     @app.route('/material/api/all')
     @login_required
     def material_api_all():

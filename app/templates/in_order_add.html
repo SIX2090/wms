@@ -1889,28 +1889,20 @@ function showPasteModal() {
     setTimeout(() => pasteArea.focus(), 100);
 }
 
-function parsePastedData() {
+async function parsePastedData() {
     const pasteArea = document.getElementById('pasteArea');
+    const button = document.querySelector('#pasteModal button[onclick="parsePastedData()"]');
+    if (!pasteArea || button?.disabled) return;
     const text = pasteArea.value.trim();
-    if (!text) {
-        alert('请输入数据');
-        return;
-    }
-
+    if (!text) { showToast('请输入数据', 'warning'); return; }
+    if (button) button.disabled = true;
+    pasteArea.readOnly = true;
     const lines = text.split(/\r?\n/).filter(line => line.trim());
+    const failedLines = [];
+    const failList = [];
+    const parsed = [];
     let successCount = 0;
-    let failList = [];
-
-    // Excel/WPS 复制出来的行以 Tab 分隔（单元格内含 Tab 会加引号，这里不做
-    // 完整 CSV 解析——按 WMS 实际录入场景，编码/数量/单价/批次/有效期都不含 Tab）。
-    // 兼容手工键入用 2+ 空格分隔的旧习惯。
-    const splitRow = (line) => (line.indexOf('\t') >= 0
-        ? line.split('\t')
-        : line.split(/\s{2,}/)
-    ).map(s => s.trim());
-
-    // 归一化 Excel/WPS 的日期写法到 YYYY-MM-DD：
-    // 2026-09-01 / 2026/9/1 / 2026.9.1 / 2026年9月1日 / '2026/9/1 0:00'
+    const splitRow = line => (line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/)).map(s => s.trim());
     const normalizeExpiry = (raw) => {
         let s = String(raw || '').trim();
         if (!s) return '';
@@ -1927,66 +1919,80 @@ function parsePastedData() {
         if (dt.getFullYear() !== Number(y) || dt.getMonth() + 1 !== Number(m) || dt.getDate() !== Number(d)) return null;
         return iso;
     };
-
-    lines.forEach((line, idx) => {
-        const parts = splitRow(line);
-        if (parts.length < 2) {
-            failList.push('第' + (idx + 1) + '行格式错误：' + line);
-            return;
-        }
-
-        const code = parts[0];
-        const qty = parseFloat(parts[1]) || 0;
-        const price = parts.length >= 3 ? parseFloat(parts[2]) || 0 : 0;
-        // P0 批次/有效期捕获：第 4/5 列（可留空）
-        const batchNo = parts.length >= 4 ? (parts[3] || '') : '';
-        const rawExpiry = parts.length >= 5 ? (parts[4] || '') : '';
-        let expiry = '';
-        if (rawExpiry) {
-            expiry = normalizeExpiry(rawExpiry);
-            if (expiry === null) {
-                failList.push('第' + (idx + 1) + '行有效期格式错误（应为 2026-09-01）：' + rawExpiry);
-                return;
+    const reject = (line, idx, message) => {
+        failedLines.push(line);
+        failList.push('第' + (idx + 1) + '行：' + message);
+    };
+    try {
+        lines.forEach((line, idx) => {
+            const parts = splitRow(line);
+            if (parts.length < 2 || !parts[0]) { reject(line, idx, '请填写物料编码和数量'); return; }
+            const code = parts[0];
+            const qty = Number(parts[1]);
+            const price = parts.length >= 3 && parts[2] !== '' ? Number(parts[2]) : null;
+            const decimal = /^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/;
+            if (!decimal.test(parts[1]) || !Number.isFinite(qty) || qty <= 0) {
+                reject(line, idx, '数量必须大于0，最多两位小数'); return;
             }
-            if (expiry === '') expiry = '';
+            if (price !== null && (!decimal.test(parts[2]) || !Number.isFinite(price) || price < 0)) {
+                reject(line, idx, '单价必须不小于0，最多两位小数'); return;
+            }
+            const batchNo = parts[3] || '';
+            const expiry = normalizeExpiry(parts[4] || '');
+            if (batchNo.length > 50) { reject(line, idx, '批次号超过50字符'); return; }
+            if (expiry === null) { reject(line, idx, '有效期格式不正确'); return; }
+            parsed.push({line, idx, code, qty, price, batchNo, expiry});
+        });
+        const missing = [...new Set(parsed.map(entry => entry.code).filter(code => !materials.some(m => m.code === code)))];
+        for (let offset = 0; offset < missing.length; offset += 200) {
+            const params = new URLSearchParams();
+            missing.slice(offset, offset + 200).forEach(code => params.append('code', code));
+            const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
+            found.forEach(material => {
+                if (material && material.code && !materials.some(m => m.code === material.code)) materials.push(material);
+            });
         }
-        if (batchNo && batchNo.length > 50) {
-            failList.push('第' + (idx + 1) + '行批次号超过 50 个字符');
-            return;
+        // Cancel may remove the modal while the material lookup is in flight.
+        if (!pasteArea.isConnected) return;
+        parsed.forEach(entry => {
+            const material = materials.find(m => m.code === entry.code);
+            if (!material) { reject(entry.line, entry.idx, '物料不存在或已停用：' + entry.code); return; }
+            const row = findEmptyRow() || addNewRow();
+            fillMaterialFields(row, material, { forcePrice: true });
+            row.dataset.sourcePurchaseOrderItemId = '';
+            row.dataset.sourcePurchaseOrderNo = '';
+            const sourceInput = row.querySelector('.line-source-in-item-id');
+            if (sourceInput) sourceInput.value = '';
+            row.querySelector('.material-qty').value = formatQtyTrim(entry.qty);
+            const price = entry.price === null ? (Number(material.price) || 0) : entry.price;
+            row.querySelector('.material-price').value = price.toFixed(2);
+            row.querySelector('.material-batch-no').value = entry.batchNo;
+            row.querySelector('.material-expiry').value = entry.expiry;
+            calcAmount(row);
+            successCount++;
+        });
+        calcTotal();
+        if (failList.length) {
+            pasteArea.value = failedLines.join('\n');
+            let result = document.getElementById('pasteImportResult');
+            if (!result) {
+                result = document.createElement('div');
+                result.id = 'pasteImportResult';
+                result.style.cssText = 'white-space:pre-line;color:#b42318;max-height:150px;overflow:auto;margin-top:10px;';
+                pasteArea.parentNode.appendChild(result);
+            }
+            result.textContent = '已导入 ' + successCount + ' 行，以下 ' + failList.length + ' 行未导入，修正后可重试：\n' + failList.join('\n');
+            showToast('已导入 ' + successCount + ' 行，' + failList.length + ' 行待修正', 'warning');
+        } else {
+            document.getElementById('pasteModal').remove();
+            showToast('成功导入 ' + successCount + ' 条记录', 'success');
         }
-
-        const material = materials.find(m => m.code === code);
-        if (!material) {
-            failList.push('第' + (idx + 1) + '行物料不存在：' + code);
-            return;
-        }
-
-        // 找到第一个空行或添加新行
-        let row = findEmptyRow();
-        if (!row) {
-            addNewRow();
-            row = document.querySelector('#materialTableBody tr:last-child');
-        }
-
-        fillMaterialFields(row, material, { forcePrice: true });
-        row.querySelector('.material-qty').value = formatQtyTrim(qty);
-        row.querySelector('.material-price').value = price ? price.toFixed(2) : (material.price || 0).toFixed(2);
-        const batchInput = row.querySelector('.material-batch-no');
-        if (batchInput) batchInput.value = batchNo;
-        const expiryInput = row.querySelector('.material-expiry');
-        if (expiryInput) expiryInput.value = expiry;
-        calcAmount(row);
-        successCount++;
-    });
-
-    calcTotal();
-    document.getElementById('pasteModal').remove();
-
-    let msg = '成功导入 ' + successCount + ' 条记录';
-    if (failList.length > 0) {
-        msg += '\n\n失败 ' + failList.length + ' 条：\n' + failList.join('\n');
+    } catch (error) {
+        showToast('物料查询失败，未导入，请重试：' + error.message, 'danger');
+    } finally {
+        pasteArea.readOnly = false;
+        if (button) button.disabled = false;
     }
-    alert(msg);
 }
 
 function findEmptyRow() {
@@ -2534,6 +2540,11 @@ function applyBatchUpdate() {
         }
         if (field === 'price' && num < 0) {
             alert('单价不能小于 0');
+            valueInput.focus();
+            return;
+        }
+        if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(raw)) {
+            showToast('请输入最多两位小数的有效数字', 'danger');
             valueInput.focus();
             return;
         }

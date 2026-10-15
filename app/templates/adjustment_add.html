@@ -767,38 +767,80 @@ function showPasteModal() {
     setTimeout(function() { document.getElementById('pasteArea').focus(); }, 80);
 }
 
-function parsePastedData() {
-    const text = document.getElementById('pasteArea').value.trim();
-    if (!text) {
-        showToast('请输入要导入的数据', 'warning');
-        return;
-    }
+async function parsePastedData() {
+    const pasteArea = document.getElementById('pasteArea');
+    const button = document.querySelector('#pasteModal button[onclick="parsePastedData()"]');
+    if (!pasteArea || button?.disabled) return;
+    const text = pasteArea.value.trim();
+    if (!text) { showToast('请输入数据', 'warning'); return; }
+    if (button) button.disabled = true;
+    pasteArea.readOnly = true;
+    const lines = text.split(/\r?\n/).filter(line => line.trim());
+    const failedLines = [];
+    const failList = [];
+    const parsed = [];
+    let successCount = 0;
+    const splitRow = line => (line.includes('\t') ? line.split('\t') : line.split(/,|，|\s{2,}/)).map(s => s.trim());
 
-    let success = 0;
-    let failures = [];
-    text.split(/\r?\n/).forEach(function(line, index) {
-        if (!line.trim()) return;
-        const parts = line.split(/\t|,|，/).map(function(part) { return part.trim(); });
-        const code = parts[0] || '';
-        const quantity = parseFloat(parts[1]);
-        const material = findMaterialByCode(code);
-        if (!material || !quantity || quantity <= 0) {
-            failures.push('第 ' + (index + 1) + ' 行格式不正确');
-            return;
+    const reject = (line, idx, message) => {
+        failedLines.push(line);
+        failList.push('第' + (idx + 1) + '行：' + message);
+    };
+    try {
+        lines.forEach((line, idx) => {
+            const parts = splitRow(line);
+            if (parts.length < 2 || !parts[0]) { reject(line, idx, '请填写物料编码和数量'); return; }
+            const code = parts[0];
+            const qty = Number(parts[1]);
+            const decimal = /^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/;
+            if (!decimal.test(parts[1]) || !Number.isFinite(qty) || qty <= 0) {
+                reject(line, idx, '数量必须大于0，最多两位小数'); return;
+            }
+            parsed.push({line, idx, code, qty, parts});
+        });
+        const missing = [...new Set(parsed.map(entry => entry.code).filter(code => !materials.some(m => m.code === code)))];
+        for (let offset = 0; offset < missing.length; offset += 200) {
+            const params = new URLSearchParams();
+            missing.slice(offset, offset + 200).forEach(code => params.append('code', code));
+            const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
+            found.forEach(material => {
+                if (material && material.code && !materials.some(m => m.code === material.code)) materials.push(material);
+            });
         }
-        let row = findEmptyRow();
-        if (!row) {
-            row = createRow(null);
+        // Cancel may remove the modal while the material lookup is in flight.
+        if (!pasteArea.isConnected) return;
+        parsed.forEach(entry => {
+            const material = materials.find(m => m.code === entry.code);
+            if (!material) { reject(entry.line, entry.idx, '物料不存在或已停用：' + entry.code); return; }
+            const row = findEmptyRow() || createRow(null);
+            fillMaterialFields(row, material);
+            row.querySelector('.adjust-qty').value = formatQty(entry.qty);
+            row.querySelector('.adjust-location').value = entry.parts[2] || '';
+            row.querySelector('.adjust-reason').value = entry.parts[3] || '';
+            successCount++;
+        });
+        calcTotal();
+        if (failList.length) {
+            pasteArea.value = failedLines.join('\n');
+            let result = document.getElementById('pasteImportResult');
+            if (!result) {
+                result = document.createElement('div');
+                result.id = 'pasteImportResult';
+                result.style.cssText = 'white-space:pre-line;color:#b42318;max-height:150px;overflow:auto;margin-top:10px;';
+                pasteArea.parentNode.appendChild(result);
+            }
+            result.textContent = '已导入 ' + successCount + ' 行，以下 ' + failList.length + ' 行未导入，修正后可重试：\n' + failList.join('\n');
+            showToast('已导入 ' + successCount + ' 行，' + failList.length + ' 行待修正', 'warning');
+        } else {
+            document.getElementById('pasteModal').remove();
+            showToast('成功导入 ' + successCount + ' 条记录', 'success');
         }
-        fillMaterialFields(row, material);
-        row.querySelector('.adjust-qty').value = formatQty(quantity);
-        row.querySelector('.adjust-location').value = parts[2] || '';
-        row.querySelector('.adjust-reason').value = parts[3] || '';
-        success++;
-    });
-    calcTotal();
-    document.getElementById('pasteModal').remove();
-    showToast('成功导入 ' + success + ' 行' + (failures.length ? '，失败 ' + failures.length + ' 行' : ''), failures.length ? 'warning' : 'success', 3600);
+    } catch (error) {
+        showToast('物料查询失败，未导入，请重试：' + error.message, 'danger');
+    } finally {
+        pasteArea.readOnly = false;
+        if (button) button.disabled = false;
+    }
 }
 
 function findEmptyRow() {
