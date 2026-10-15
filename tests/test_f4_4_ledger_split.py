@@ -28,7 +28,7 @@ AI_TASK_IDS_BASELINE = 83
 BUG_IDS_BASELINE = 490
 STATUS_DIST_BASELINE = {'fixed': 315, 'unknown': 141, 'deferred': 19, 'false_positive': 1}
 # Explicitly verify new registrations while preserving the exact pre-split snapshot.
-POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed'}
+POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed', 'BUG-2026-10-15-001': 'fixed'}
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 

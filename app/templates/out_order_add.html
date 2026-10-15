@@ -580,7 +580,7 @@ textarea.form-control {
             </div>
             
             <div class="tplus-toolbar mb-3">
-                <button type="button" class="btn btn-primary" onclick="addNewRow()">
+                <button type="button" class="btn btn-primary" onclick="addRowAfterCurrent()">
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
                 <button type="button" class="btn btn-outline-primary" onclick="copyPreviousRow()">
@@ -968,11 +968,13 @@ function deleteRow(btn) {
 
 function copyValuesToRow(source, target) {
     if (!source || !target) return;
-    ['material-code', 'material-qty', 'material-price'].forEach(cls => {
-        target.querySelector('.' + cls).value = source.querySelector('.' + cls).value;
+    ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit',
+     'material-stock', 'material-qty', 'material-price', 'line-contract-no', 'line-project-name',
+     'material-remark', 'line-source-in-item-id'].forEach(cls => {
+        const input = source.querySelector('.' + cls);
+        const output = target.querySelector('.' + cls);
+        if (input && output) output.value = input.value;
     });
-    const material = findMaterialByCode(target.querySelector('.material-code').value);
-    if (material) fillMaterialFields(target, material, { forcePrice: true });
     calcAmount(target);
 }
 
@@ -986,14 +988,10 @@ function copyPreviousRow() {
         }
     }
     if (!source) {
-        addNewRow();
+        addRowAfterCurrent();
         return;
     }
-    addNewRow();
-    const target = document.querySelector('#materialTableBody tr:last-child');
-    copyValuesToRow(source, target);
-    target.querySelector('.material-qty').focus();
-    target.querySelector('.material-qty').select();
+    copyRowAfter(source);
 }
 
 function copyRowAfter(row) {
@@ -1009,7 +1007,7 @@ function copyRowAfter(row) {
 }
 
 function addRowAfterCurrent() {
-    const row = addNewRow();
+    const row = findEmptyRow() || addNewRow();
     row.querySelector('.material-code')?.focus();
 }
 

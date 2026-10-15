@@ -139,6 +139,7 @@
 | F4.5 | ai | completions-2026-10.md |
 | UI-PURCHASE-CONTINUE-001 | ai | completions-2026-10.md |
 | UI-REQUISITION-CONTINUE-001 | ai | completions-2026-10.md |
+| UI-RECEIPT-TOOLBAR-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -331,6 +332,7 @@
 | BUG-2026-08-16-021-F01 | bugs | entries-2026-10.md |
 | BUG-2026-09-20-007-F01 | bugs | entries-2026-10.md |
 | BUG-2026-09-22-010-F02 | bugs | entries-2026-10.md |
+| BUG-2026-10-15-001 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
