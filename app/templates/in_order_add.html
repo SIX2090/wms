@@ -1567,12 +1567,14 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             .then(res => res.json())
             .then(completeRes => {
                 if (completeRes.status === 'success') {
-                    alert('完成入库成功，库存已更新');
+                    showToast('完成入库成功，库存已更新', 'success');
+                    if (typeof clearDraft === 'function') clearDraft();
+                    window.location.href = businessType === '采购入库' ? '/in_order/add' :
+                        (saveAndNew ? returnAddUrl : `/in_order/${data.id}`);
                 } else {
-                    alert('单据已保存，但完成入库失败：' + (completeRes.msg || '未知错误'));
+                    showToast('单据已保存，但完成入库失败：' + (completeRes.msg || '未知错误'), 'danger');
+                    window.location.href = `/in_order/${data.id}`;
                 }
-                if (typeof clearDraft === 'function') clearDraft();
-                window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             });
     })
     .catch(error => {

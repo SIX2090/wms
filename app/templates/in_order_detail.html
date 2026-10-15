@@ -1335,7 +1335,13 @@ function completeOrder(id, force) {
                 showAnomalyWarning(res.anomalies, id);
             } else if (res.status === 'success') {
                 showToast(res.msg || '入库完成', 'success');
-                setTimeout(() => location.reload(), 600);
+                setTimeout(() => {
+                    if ({{ (order.business_type or '采购入库')|tojson }} === '采购入库') {
+                        window.location.href = '/in_order/add';
+                    } else {
+                        location.reload();
+                    }
+                }, 600);
             } else {
                 showToast(res.msg || '操作失败', 'danger');
             }
