@@ -765,7 +765,10 @@ function runComplete(actionUrl, force, orderId) {
         .then(done => {
             if (done.status === 'success') {
                 showToast(done.msg || '操作成功', 'success');
-                setTimeout(() => { window.location.href = detailUrl + '/' + (orderId || ''); }, 700);
+                setTimeout(() => {
+                    window.location.href = docType === 'requisition' ? '/requisition/add' :
+                        detailUrl + '/' + (orderId || '');
+                }, 700);
                 return;
             }
             if (done.status === 'confirm') {

@@ -138,6 +138,7 @@
 | F4.4 | ai | completions-2026-10.md |
 | F4.5 | ai | completions-2026-10.md |
 | UI-PURCHASE-CONTINUE-001 | ai | completions-2026-10.md |
+| UI-REQUISITION-CONTINUE-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
