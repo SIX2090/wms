@@ -25,7 +25,7 @@
 |---|---|---|
 | 新增/复制行 | `1bb3101f` | 最终本机3618 passed / 90 skipped；规则0违规；隔离冒烟及既有BUG检查通过；WMS CI、AI验证与性能检查success |
 | 粘贴/批量修改 | `155ae5fb` | 最终本机3666 passed / 90 skipped；专项及台账66 passed；规则0违规；隔离冒烟及既有BUG检查通过；WMS CI、AI验证与性能检查success |
-| 采购选单 | 本报告所在业务提交 | 旧基线44 passed；回退12 failed；专项及相邻/台账66 passed；最终3678 passed / 90 skipped（492.84秒）；规则0违规，既有BUG检查及隔离库冒烟通过；推送CI结果待登记 |
+| 采购选单 | `907eb10f` | 旧基线44 passed；回退12 failed；专项及相邻/台账66 passed；最终3678 passed / 90 skipped（492.84秒）；规则0违规，既有BUG检查及隔离库冒烟通过；WMS CI、AI验证及性能检查success |
 
 首次粘贴全量发现的数量格式守护失败已改回统一`formatQtyTrim`；AI查询记忆LRU单项首次失败未复现，相关70项及最终全量通过，未放宽断言、删除测试或增加跳过。
 
@@ -33,4 +33,8 @@
 
 ## 部署生效
 
-生产需重启 WMS 服务生效。待三项修复推送和CI通过后统一重启，核对新的启动SHA与登录页HTTP 200；此处尚不宣称生产已生效。未在生产执行入库完成、领料完成、反提交、删除、启停仓库或修改用户密码。
+2026-10-15已统一重启：旧进程11440停止，新进程10908运行现有 `C:\wms\app\run_server.py`，监听127.0.0.1:8080。启动日志确认业务版本 `907eb10`，登录页HTTP 200；三项修复全部包含在该版本中。沿用现有离线生产配置与数据库初始化禁用策略，没有数据库迁移。隔离审计服务已关闭。
+
+业务提交907eb10f的[WMS CI](https://github.com/SIX2090/wms/actions/runs/38724004890)、[WMS AI Verification](https://github.com/SIX2090/wms/actions/runs/38724004947)、性能检查均success；Android最近main运行success（本轮没有Android改动）。后续登记提交仅改文档，无需重复重启。
+
+本机生效证据：`app/logs/receipt_toolbar_stdout.log`、`app/logs/receipt_toolbar_activation.json`。未在生产执行入库完成、领料完成、反提交、删除、启停仓库或修改用户密码。用户刷新页面后可验收实际录单体验。
