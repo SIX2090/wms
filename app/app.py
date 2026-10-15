@@ -27353,6 +27353,7 @@ def api_purchase_order_selectable():
     search = (request.args.get('search') or '').strip().lower()
     limit = request.args.get('limit', 80, type=int)
     limit = min(max(limit, 1), 200)
+    page = max(1, request.args.get('page', 1, type=int) or 1)
 
     query = PurchaseOrder.query.options(
         joinedload(PurchaseOrder.supplier),
@@ -27362,15 +27363,27 @@ def api_purchase_order_selectable():
         query = query.filter(PurchaseOrder.id == purchase_order_id)
     if supplier_id:
         query = query.filter(PurchaseOrder.supplier_id == supplier_id)
-    query = query.order_by(
+    available = db.func.round(PurchaseOrderItem.quantity - db.func.coalesce(PurchaseOrderItem.received_quantity, 0), 2) > STOCK_COMPARE_EPSILON
+    query = query.filter(PurchaseOrder.items.any(available))
+    if search:
+        material_match = db.or_(*[
+            db.func.lower(column).contains(search, autoescape=True)
+            for column in (Material.code, Material.name, Material.spec, Material.brand)
+        ])
+        query = query.filter(db.or_(
+            db.func.lower(PurchaseOrder.order_no).contains(search, autoescape=True),
+            PurchaseOrder.supplier.has(db.func.lower(Supplier.name).contains(search, autoescape=True)),
+            PurchaseOrder.items.any(db.and_(available, PurchaseOrderItem.material.has(material_match))),
+        ))
+    pagination = query.order_by(
         PurchaseOrder.expected_date.asc().nullslast(),
         PurchaseOrder.date.asc(),
         PurchaseOrder.id.asc()
-    ).limit(limit).all()
+    ).paginate(page=page, per_page=limit, error_out=False)
 
     orders = []
     flat_items = []
-    for order in query:
+    for order in pagination.items:
         order_items = []
         supplier_name = order.supplier.name if order.supplier else ''
         order_match = not search or search in (order.order_no or '').lower() or search in supplier_name.lower()
@@ -27383,7 +27396,7 @@ def api_purchase_order_selectable():
             material_name = material.name if material else ''
             material_spec = material.spec if material else ''
             if search and not order_match:
-                haystack = ' '.join([material_code, material_name, material_spec]).lower()
+                haystack = ' '.join([material_code, material_name, material_spec, (material.brand or '') if material else '']).lower()
                 if search not in haystack:
                     continue
             row = {
@@ -27400,6 +27413,7 @@ def api_purchase_order_selectable():
                 'material_id': item.material_id,
                 'material_code': material_code,
                 'material_name': material_name,
+                'brand': material.brand if material else '',
                 'spec': material_spec,
                 'unit': material.unit.name if material and material.unit else '',
                 'quantity': round_to_2_decimals(item.quantity or 0),
@@ -27422,7 +27436,9 @@ def api_purchase_order_selectable():
                 'status_label': purchase_order_status_label(order.status),
                 'items': order_items,
             })
-    return jsonify({'status': 'success', 'orders': orders, 'items': flat_items})
+    return jsonify({'status': 'success', 'orders': orders, 'items': flat_items,
+                    'total': pagination.total, 'page': pagination.page,
+                    'page_size': pagination.per_page, 'total_pages': pagination.pages})
 
 # ==================== Report ====================
 

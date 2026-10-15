@@ -698,6 +698,7 @@ const sourcePurchaseOrderId = {{ source_purchase_order_id|tojson }};
 let activeDropdown = null;
 let activeIndex = -1;
 const purchaseOrderSelectableMap = new Map();
+let purchaseOrderSearchSeq = 0;
 
 function formatStock(value) {
     const stock = parseFloat(value);
@@ -2179,6 +2180,7 @@ function loadPurchaseOrderSelectable() {
     const body = document.getElementById('purchaseOrderSelectBody');
     const hint = document.getElementById('purchaseOrderSelectHint');
     if (!body) return;
+    const seq = ++purchaseOrderSearchSeq;
 
     const params = new URLSearchParams();
     const keyword = (document.getElementById('purchaseOrderSelectSearch')?.value || '').trim();
@@ -2186,7 +2188,9 @@ function loadPurchaseOrderSelectable() {
     if (sourcePurchaseOrderId) params.set('purchase_order_id', sourcePurchaseOrderId);
     if (keyword) params.set('search', keyword);
     if (supplierId) params.set('supplier_id', supplierId);
+    // 候选只展示前150张；关键词在服务端全量搜索后再分页。
     params.set('limit', '150');
+    params.set('page', '1');
 
     body.innerHTML = '<tr><td colspan="13" class="text-center text-muted" style="padding:24px;">正在加载...</td></tr>';
     if (hint) {
@@ -2196,14 +2200,19 @@ function loadPurchaseOrderSelectable() {
     fetch('/api/purchase_order/selectable?' + params.toString())
         .then(res => res.json())
         .then(data => {
+            if (seq !== purchaseOrderSearchSeq) return;
             if (!data || data.status !== 'success') {
                 body.innerHTML = '<tr><td colspan="13" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml((data && data.msg) || '未知错误') + '</td></tr>';
                 updatePurchaseOrderSelectionSummary();
                 return;
             }
             renderPurchaseOrderSelectableRows(data.items || []);
+            if (hint && data.total_pages > 1) {
+                hint.textContent += ' · 共 ' + data.total + ' 张候选，仅显示前150张，请输入单号、供应商或物料缩小范围';
+            }
         })
         .catch(error => {
+            if (seq !== purchaseOrderSearchSeq) return;
             body.innerHTML = '<tr><td colspan="13" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml(error.message) + '</td></tr>';
             updatePurchaseOrderSelectionSummary();
         });
@@ -2227,7 +2236,7 @@ function renderPurchaseOrderSelectableRows(items) {
         const expectedDate = item.expected_date || '';
         const overdueStyle = item.is_overdue ? 'color:#dc2626;font-weight:600;' : '';
         // 采购单号做成可点击,点一下就整单勾选同单号所有行(比金蝶一行一行勾快得多)
-        const orderNoCell = `<a href="javascript:void(0)" onclick="selectAllRowsOfOrder('${escapeHtml(item.purchase_order_no)}')" style="color:#1890ff;text-decoration:none;" title="点击勾选整张采购单">${escapeHtml(item.purchase_order_no)}</a>`;
+        const orderNoCell = `<a href="#" data-order-select="${escapeAttr(item.purchase_order_no)}" style="color:#1890ff;text-decoration:none;" title="点击勾选整张采购单">${escapeHtml(item.purchase_order_no)}</a>`;
         return `
             <tr data-order-no="${escapeHtml(item.purchase_order_no)}" data-supplier-id="${escapeHtml(String(item.supplier_id || ''))}">
                 <td><input type="checkbox" class="po-select-row" onchange="updatePurchaseOrderSelectionSummary()" data-item-id="${item.purchase_order_item_id}"></td>
@@ -2246,12 +2255,19 @@ function renderPurchaseOrderSelectableRows(items) {
             </tr>
         `;
     }).join('');
+    body.querySelectorAll('a[data-order-select]').forEach(link => {
+        link.addEventListener('click', function(event) {
+            event.preventDefault();
+            selectAllRowsOfOrder(this.dataset.orderSelect);
+        });
+    });
     updatePurchaseOrderSelectionSummary();
 }
 
 // 按采购单号批量勾选 / 取消勾选(点单号链接触发)
 function selectAllRowsOfOrder(orderNo) {
-    const rows = document.querySelectorAll(`#purchaseOrderSelectBody tr[data-order-no="${orderNo}"]`);
+    const rows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody tr'))
+        .filter(row => row.dataset.orderNo === orderNo);
     if (!rows.length) return;
     // 如果这张单的所有行都已勾选,则取消勾选;否则全部勾上
     const allChecked = Array.from(rows).every(r => r.querySelector('.po-select-row')?.checked);
