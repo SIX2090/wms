@@ -105,5 +105,5 @@
   "baseline_result": "3714 passed / 90 skipped; 322.36 seconds",
   "observation": "One intermediate write raised PermissionError WinError 5 at existing query_memory._save os.replace and returned False; final LRU assertion passed on this diagnostic run. Prior parallel LRU assertion failures remain recorded. Exact external cause of file-access denial is not established.",
   "query_memory_sha256": "1f766ee925d8166c756b04c5424253f4c90bfa3cdff97a24c9e17135757b1535",
-  "final_acceptance": "Canonical serial pytest tests/ -q on round2 repair: 3734 passed / 90 skipped / 1282 warnings in 1074.63 seconds; no diagnostic plugin or exclusions; GitHub CI pending"
+  "final_acceptance": "Round2 source 8d74f67c: canonical serial 3734 passed / 90 skipped in 1074.63s; all GitHub CI jobs, AI verification, perf success; production PID5604 HTTP200, maintenance OS lease refused. No production restore performed."
 }
