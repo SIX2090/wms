@@ -144,6 +144,7 @@
 | UI-RECEIPT-TOOLBAR-001-F03 | ai | completions-2026-10.md |
 | UI-RECEIPT-TOOLBAR-001-F04 | ai | completions-2026-10.md |
 | UI-DOCUMENT-ENTRY-001 | ai | completions-2026-10.md |
+| UI-DOCUMENT-SUMMARY-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -339,6 +340,7 @@
 | BUG-2026-10-15-001 | bugs | entries-2026-10.md |
 | BUG-2026-10-15-001-F02 | bugs | entries-2026-10.md |
 | BUG-2026-10-15-001-F03 | bugs | entries-2026-10.md |
+| BUG-2026-09-23-005-F02 | bugs | entries-2026-10.md |
 | BUG-2026-09-22-004-F03 | bugs | entries-2026-10.md |
 | BUG-2026-10-15-001-F04 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |

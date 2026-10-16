@@ -2845,16 +2845,7 @@ function initDocumentEntryMode() {
         detailTab.setAttribute('aria-selected', 'true');
         detailTab.textContent = '\u660e\u7ec6';
 
-        var summaryTab = document.createElement('button');
-        summaryTab.type = 'button';
-        summaryTab.className = 'wms-doc-tab';
-        summaryTab.setAttribute('role', 'tab');
-        summaryTab.setAttribute('aria-selected', 'false');
-        summaryTab.disabled = true;
-        summaryTab.textContent = '\u6c47\u603b';
-
         tabs.appendChild(detailTab);
-        tabs.appendChild(summaryTab);
         wrapper.parentNode.insertBefore(tabs, wrapper);
     }
 
@@ -3678,13 +3669,12 @@ function getRecentVisits() {
         host.hidden = true;
         host.innerHTML = '<section class="wms-field-settings" role="dialog" aria-modal="true" aria-labelledby="wmsFieldSettingsTitle">' +
             '<header class="wms-field-settings__title"><span id="wmsFieldSettingsTitle">栏目设置</span><button type="button" class="wms-field-settings__icon-btn" data-fs-close aria-label="关闭">&times;</button></header>' +
-            '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab" data-fs-tab="header">表头</button><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button><button type="button" class="wms-field-settings__tab" data-fs-tab="summary">汇总</button><button type="button" class="wms-field-settings__tab" data-fs-tab="footer">表尾</button></nav>' +
+            '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab" data-fs-tab="header">表头</button><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button><button type="button" class="wms-field-settings__tab" data-fs-tab="footer">表尾</button></nav>' +
             '<div class="wms-field-settings__tools"><input class="wms-field-settings__search" data-fs-search placeholder="请输入字段名称"><button class="wms-field-settings__btn" type="button" data-fs-locate>定位</button></div>' +
             '<div class="wms-field-settings__content">' +
             '<div class="wms-field-settings__panel" data-fs-panel="header" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表头字段设置功能开发中...</div></div>' +
             '<div class="wms-field-settings__panel" data-fs-panel="detail"><div class="wms-field-settings__table-wrap"><table class="wms-field-settings__table"><thead><tr><th style="width:52px">序号</th><th>字段名称</th><th>显示名称</th><th style="width:66px">显示</th></tr></thead><tbody data-fs-body></tbody></table><div class="wms-field-settings__empty" data-fs-empty hidden>当前区域暂无可设置字段</div></div>' +
             '<div class="wms-field-settings__move"><button type="button" data-fs-move="top" title="置顶">⇈</button><button type="button" data-fs-move="up" title="上移">↑</button><button type="button" data-fs-move="down" title="下移">↓</button><button type="button" data-fs-move="bottom" title="置底">⇊</button></div></div>' +
-            '<div class="wms-field-settings__panel" data-fs-panel="summary" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">汇总字段设置功能开发中...</div></div>' +
             '<div class="wms-field-settings__panel" data-fs-panel="footer" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表尾字段设置功能开发中...</div></div>' +
             '</div>' +
             '<div class="wms-field-settings__hint">调整内容将保存在当前浏览器，并应用于当前单据页面。</div>' +
