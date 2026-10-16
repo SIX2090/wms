@@ -1,0 +1,1186 @@
+{
+  "task": "AUDIT-FULL-20261016-001",
+  "date": "2026-10-16",
+  "base_commit": "f7f7aea688313c3d39601e649a422452c5984911",
+  "scope": "1691 baseline repository files; report artifacts excluded from own manifest",
+  "file_count": 1691,
+  "extension_counts": {
+    ".md": 86,
+    "": 9,
+    ".sh": 1,
+    ".yml": 4,
+    ".toml": 1,
+    ".py": 1052,
+    ".kts": 3,
+    ".pro": 1,
+    ".xml": 8,
+    ".kt": 111,
+    ".properties": 3,
+    ".txt": 5,
+    ".jar": 1,
+    ".bat": 22,
+    ".conf": 1,
+    ".css": 6,
+    ".js": 13,
+    ".woff": 1,
+    ".woff2": 1,
+    ".xlsx": 3,
+    ".html": 138,
+    ".cmd": 4,
+    ".json": 113,
+    ".png": 69,
+    ".svg": 30,
+    ".pdf": 1,
+    ".pkl": 1,
+    ".ps1": 3
+  },
+  "python_syntax_errors": [],
+  "pytest": {
+    "passed": 3714,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1116.34
+  },
+  "static": {
+    "checks": {
+      "markdown": 86,
+      "xml": 8,
+      "batch": 26,
+      "js": 13,
+      "jinja": 136,
+      "json": 113
+    },
+    "findings": [
+      {
+        "path": "app/wms.bat",
+        "check": "batch-local-reference",
+        "line": 2,
+        "target": "install.bat"
+      },
+      {
+        "path": "app/wms.cmd",
+        "check": "batch-local-reference",
+        "line": 2,
+        "target": "install.bat"
+      }
+    ],
+    "missing_md_links": [
+      {
+        "path": "WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md",
+        "target": "docs/ledger/ai/completions-1970-01.md",
+        "line": 998
+      },
+      {
+        "path": "docs/archive/WMS_QUALITY_REPORT_2026-07.md",
+        "target": "./WMS_BUG_BASELINE.md",
+        "line": 178
+      },
+      {
+        "path": "docs/archive/WMS_QUALITY_REPORT_2026-07.md",
+        "target": "./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md",
+        "line": 179
+      },
+      {
+        "path": "docs/archive/WMS_QUALITY_REPORT_2026-07.md",
+        "target": "./AGENTS.md",
+        "line": 180
+      },
+      {
+        "path": "docs/archive/WMS_QUALITY_REPORT_2026-07.md",
+        "target": "./DEVELOPMENT_RULES.md",
+        "line": 181
+      },
+      {
+        "path": "docs/archive/WMS_QUALITY_REPORT_2026-07.md",
+        "target": "./wms_smoke_report.md",
+        "line": 182
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L28803-L28812",
+        "line": 30
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L1058-L1067",
+        "line": 48
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L675-L717",
+        "line": 55
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L756-L789",
+        "line": 55
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L28852-L28860",
+        "line": 55
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L28844",
+        "line": 62
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/out_order.py#L412-L440",
+        "line": 71
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/out_order.py#L679-L706",
+        "line": 78
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py",
+        "line": 89
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/out_order.py#L634-L637",
+        "line": 117
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/out_order.py#L659-L677",
+        "line": 117
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L1244",
+        "line": 132
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L1296",
+        "line": 133
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L1815",
+        "line": 134
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L823-L836",
+        "line": 135
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L1617",
+        "line": 137
+      },
+      {
+        "path": "docs/audit/SALES_MANAGEMENT_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/sales.py#L900",
+        "line": 137
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L274",
+        "line": 19
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L6753",
+        "line": 20
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L6932-L6935",
+        "line": 21
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L6888",
+        "line": 22
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/tests/verify_app_py_split_system_settings.py",
+        "line": 30
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/tests/conftest.py",
+        "line": 31
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L41",
+        "line": 41
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L95",
+        "line": 42
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L153",
+        "line": 43
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/templates/system_settings.html#L283",
+        "line": 50
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/templates/system_settings.html#L120",
+        "line": 57
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L261-L264",
+        "line": 65
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/templates/system_settings.html#L223",
+        "line": 66
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L34-L36",
+        "line": 73
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L142",
+        "line": 81
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L236",
+        "line": 82
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L283",
+        "line": 83
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/templates/system_settings.html#L488",
+        "line": 91
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L169",
+        "line": 92
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/app.py#L5617-L5626",
+        "line": 100
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/models.py",
+        "line": 101
+      },
+      {
+        "path": "docs/audit/SYSTEM_SETTINGS_AUDIT_REPORT_20260814.md",
+        "target": "file:///workspace/app/routes/system_settings.py#L48-L86",
+        "line": 108
+      },
+      {
+        "path": "docs/ledger/bugs/fixed-2026-08.md",
+        "target": "app/templates/mobile_scan.html",
+        "line": 43
+      },
+      {
+        "path": "docs/ledger/bugs/history-2026-08.md",
+        "target": "./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md",
+        "line": 94
+      },
+      {
+        "path": "docs/ledger/bugs/history-2026-08.md",
+        "target": "./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md",
+        "line": 116
+      }
+    ]
+  },
+  "restore_repro": {
+    "scope": "temporary SQLite only; no production restore",
+    "idle_open_connection_detected_as_locked": false,
+    "unrelated_sqlite_restore_exit": 0,
+    "target_tables_after_restore": [
+      "unrelated_data"
+    ]
+  },
+  "restart_repro": {
+    "isolated_temp_only": true,
+    "missing_stop_script": true,
+    "stop_called": false,
+    "new_process_health_or_exit_checked": false,
+    "old_http_200_causes_success": true
+  },
+  "config_repro": {
+    "config_only_no_app_or_database_import": true,
+    "clean_production_config_exit": 1,
+    "clean_production_cookie_guard_triggered": true,
+    "invalid_retention_config_import_exit": 1,
+    "invalid_retention_value_error": true
+  },
+  "import_side_effect": {
+    "extracted_functions_only_no_app_import": true,
+    "no_database_opened": true,
+    "configured_uri": "sqlite:///:memory:",
+    "attempted_file_connection": "C:/audit-fixture/app\\instance\\inventory.db"
+  },
+  "database_readonly": {
+    "mode": "read-only sqlite; no app import",
+    "quick_check": "ok",
+    "table_count": 97,
+    "material_rows": 1295,
+    "stock_transaction_rows": 3734,
+    "warehouse_rows": 4,
+    "in_order_rows": 600,
+    "out_order_rows": 588,
+    "location_inventory_rows": 2,
+    "material_vs_transaction_mismatches": 0,
+    "negative_material_stock": 0,
+    "negative_warehouse_stock_groups": 0,
+    "unattributed_transactions": 0,
+    "location_management_enabled": [
+      "0"
+    ]
+  },
+  "backup_readonly": {
+    "backup_directory_exists": true,
+    "automatic_backup_files": 5,
+    "latest_file": "auto_daily_20261016_020000_inventory.db",
+    "latest_modified": "2026-10-16T02:00:00",
+    "latest_quick_check": "ok"
+  },
+  "script_risk": {
+    "imports_app_requires_isolation": [
+      "scripts/analyze_route_refs.py",
+      "scripts/crawl_all_pages.py",
+      "scripts/deep_audit_lib.py",
+      "scripts/deep_audit_mod1.py",
+      "scripts/deep_audit_mod1b.py",
+      "scripts/deep_audit_mod2.py",
+      "scripts/deep_audit_mod3.py",
+      "scripts/deep_audit_mod4.py",
+      "scripts/deep_audit_mod4b.py",
+      "scripts/deep_audit_mod5.py",
+      "scripts/deep_audit_mod6.py",
+      "scripts/enumerate_routes.py",
+      "scripts/fix_revert_stock_issue.py",
+      "scripts/perf_baseline.py",
+      "scripts/perf_export_baseline.py",
+      "scripts/repro_complete_in_order.py",
+      "scripts/repro_material_delete.py",
+      "scripts/repro_material_delete_ref.py",
+      "scripts/verify_adjustment_state_machine.py",
+      "scripts/verify_ai_acceptance_evidence.py",
+      "scripts/verify_ai_agents.py",
+      "scripts/verify_ai_audit_models.py",
+      "scripts/verify_ai_audit_routes.py",
+      "scripts/verify_ai_browser_e2e.py",
+      "scripts/verify_ai_business_permissions.py",
+      "scripts/verify_ai_business_quality_dashboard.py",
+      "scripts/verify_ai_chat_stream_endpoint.py",
+      "scripts/verify_ai_cross_user_isolation.py",
+      "scripts/verify_ai_document_jobs.py",
+      "scripts/verify_ai_draft_check_endpoint.py",
+      "scripts/verify_ai_draft_idempotency.py",
+      "scripts/verify_ai_high_risk_boundaries.py",
+      "scripts/verify_ai_history.py",
+      "scripts/verify_ai_idempotency.py",
+      "scripts/verify_ai_launch_acceptance.py",
+      "scripts/verify_ai_material_category_coding.py",
+      "scripts/verify_ai_permission_matrix.py",
+      "scripts/verify_ai_photo_document_flow.py",
+      "scripts/verify_ai_provider_evaluation.py",
+      "scripts/verify_ai_purchase_workbench_page.py",
+      "scripts/verify_ai_rollout_control.py",
+      "scripts/verify_ai_sales_followup_workbench.py",
+      "scripts/verify_ai_stage1_platform.py",
+      "scripts/verify_ai_stage4_knowledge.py",
+      "scripts/verify_ai_stage5_ops.py",
+      "scripts/verify_ai_stage6_prelaunch.py",
+      "scripts/verify_ai_stage7_replenishment.py",
+      "scripts/verify_ai_tools_endpoint.py",
+      "scripts/verify_ai_warehouse_assistant_endpoint.py",
+      "scripts/verify_ai_warehouse_workbench_page.py",
+      "scripts/verify_batch_limit.py",
+      "scripts/verify_bug_2026_07_29_all.py",
+      "scripts/verify_bug_2026_08_02_001.py",
+      "scripts/verify_bug_2026_08_02_002.py",
+      "scripts/verify_bug_2026_08_02_003.py",
+      "scripts/verify_bug_2026_08_02_004.py",
+      "scripts/verify_bug_2026_08_02_005.py",
+      "scripts/verify_bug_2026_08_02_007.py",
+      "scripts/verify_check_state_machine.py",
+      "scripts/verify_customer_supplied_lines.py",
+      "scripts/verify_empty_database_startup.py",
+      "scripts/verify_full_flow_20groups.py",
+      "scripts/verify_future_date_guard.py",
+      "scripts/verify_in_order_state_machine.py",
+      "scripts/verify_inbound_push.py",
+      "scripts/verify_init_business_data.py",
+      "scripts/verify_inventory_identity.py",
+      "scripts/verify_ledger_required_material.py",
+      "scripts/verify_login_experience.py",
+      "scripts/verify_opening_stock_multi_warehouse.py",
+      "scripts/verify_other_order_toolbar.py",
+      "scripts/verify_out_order_state_machine.py",
+      "scripts/verify_real_db_warehouse_stock.py",
+      "scripts/verify_sales_module.py",
+      "scripts/verify_transfer_state_machine.py",
+      "scripts/verify_warehouse_reports.py",
+      "scripts/verify_wms_bugs.py"
+    ],
+    "environment_specific_paths": [
+      "scripts/archive/_audit_doc_pages.py",
+      "scripts/archive/_audit_io_full.py",
+      "scripts/archive/_audit_render.py",
+      "scripts/archive/_bench_lock.py",
+      "scripts/archive/_browser_test_wms.py",
+      "scripts/archive/_challenge.py",
+      "scripts/archive/_check_import_validations.py",
+      "scripts/archive/_demo_login.py",
+      "scripts/archive/_e2e_audit_main.py",
+      "scripts/archive/_e2e_audit_setup.py",
+      "scripts/archive/_full_demo.py",
+      "scripts/archive/_full_demo2.py",
+      "scripts/archive/_generate_report.py",
+      "scripts/archive/_render_evidence.py",
+      "scripts/archive/_trae_login.py",
+      "scripts/archive/_verify_io_fixes.py",
+      "scripts/archive/_verify_m07_logs.py",
+      "scripts/archive/_verify_p0_1.py",
+      "scripts/archive/_verify_p1_a.py",
+      "scripts/archive/_verify_p1_b.py",
+      "scripts/archive/_verify_p1_c_perm.py",
+      "scripts/archive/_verify_p1_r2.py",
+      "scripts/archive/_wms_browser_e2e_audit.py",
+      "scripts/archive/_wms_browser_e2e_real.py",
+      "scripts/audit/scan_all_menus.py",
+      "scripts/deep_audit_lib.py",
+      "scripts/deep_audit_mod1.py",
+      "scripts/deep_audit_mod1b.py",
+      "scripts/deep_audit_mod2.py",
+      "scripts/deep_audit_mod3.py",
+      "scripts/deep_audit_mod4.py",
+      "scripts/deep_audit_mod4b.py",
+      "scripts/deep_audit_mod5.py",
+      "scripts/deep_audit_mod6.py",
+      "scripts/endpoint_sweep.py",
+      "scripts/verify_full_flow_20groups.py",
+      "scripts/verify_init_business_data.py",
+      "scripts/verify_ledger_required_material.py",
+      "scripts/verify_opening_stock_multi_warehouse.py",
+      "scripts/wms_e2e_visual.py"
+    ],
+    "explicit_destructive_or_fixture_operations": [
+      {
+        "file": "scripts/archive/_e2e_audit_main.py",
+        "calls": [
+          {
+            "line": 82,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_e2e_audit_setup.py",
+        "calls": [
+          {
+            "line": 101,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_render_evidence.py",
+        "calls": [
+          {
+            "line": 20,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_verify_p0_1.py",
+        "calls": [
+          {
+            "line": 19,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_verify_p1_a.py",
+        "calls": [
+          {
+            "line": 19,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_verify_p1_b.py",
+        "calls": [
+          {
+            "line": 19,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_verify_p1_c_perm.py",
+        "calls": [
+          {
+            "line": 19,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/archive/_verify_p1_r2.py",
+        "calls": [
+          {
+            "line": 33,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/deep_audit_lib.py",
+        "calls": [
+          {
+            "line": 40,
+            "call": "db.drop_all"
+          },
+          {
+            "line": 41,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/generate_ai_golden_samples.py",
+        "calls": [
+          {
+            "line": 309,
+            "call": "path.unlink"
+          },
+          {
+            "line": 311,
+            "call": "path.unlink"
+          },
+          {
+            "line": 313,
+            "call": "path.unlink"
+          }
+        ]
+      },
+      {
+        "file": "scripts/online_backup.py",
+        "calls": [
+          {
+            "line": 52,
+            "call": "os.remove"
+          }
+        ]
+      },
+      {
+        "file": "scripts/perf_export_baseline.py",
+        "calls": [
+          {
+            "line": 73,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/repro_complete_in_order.py",
+        "calls": [
+          {
+            "line": 31,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 32,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/repro_material_delete.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "db.drop_all"
+          },
+          {
+            "line": 31,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/repro_material_delete_ref.py",
+        "calls": [
+          {
+            "line": 39,
+            "call": "db.drop_all"
+          },
+          {
+            "line": 40,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_adjustment_state_machine.py",
+        "calls": [
+          {
+            "line": 20,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_acceptance_evidence.py",
+        "calls": [
+          {
+            "line": 584,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_agents.py",
+        "calls": [
+          {
+            "line": 24,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_audit_models.py",
+        "calls": [
+          {
+            "line": 33,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_audit_routes.py",
+        "calls": [
+          {
+            "line": 31,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_browser_e2e.py",
+        "calls": [
+          {
+            "line": 106,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 157,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 211,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 263,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 300,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 341,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 387,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 434,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_business_permissions.py",
+        "calls": [
+          {
+            "line": 97,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_chat_stream_endpoint.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_cross_user_isolation.py",
+        "calls": [
+          {
+            "line": 15,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_document_jobs.py",
+        "calls": [
+          {
+            "line": 24,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_draft_check_endpoint.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_draft_idempotency.py",
+        "calls": [
+          {
+            "line": 40,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_high_risk_boundaries.py",
+        "calls": [
+          {
+            "line": 96,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_history.py",
+        "calls": [
+          {
+            "line": 31,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_idempotency.py",
+        "calls": [
+          {
+            "line": 47,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_launch_acceptance.py",
+        "calls": [
+          {
+            "line": 350,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 394,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_material_category_coding.py",
+        "calls": [
+          {
+            "line": 96,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 97,
+            "call": "wms.db.create_all"
+          },
+          {
+            "line": 178,
+            "call": "os.remove"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_permission_matrix.py",
+        "calls": [
+          {
+            "line": 74,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_photo_document_flow.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 31,
+            "call": "wms.db.create_all"
+          },
+          {
+            "line": 144,
+            "call": "os.unlink"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_rollout_control.py",
+        "calls": [
+          {
+            "line": 614,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_stage4_knowledge.py",
+        "calls": [
+          {
+            "line": 38,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_stage5_ops.py",
+        "calls": [
+          {
+            "line": 46,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_stage6_prelaunch.py",
+        "calls": [
+          {
+            "line": 36,
+            "call": "wms_app.db.create_all"
+          },
+          {
+            "line": 82,
+            "call": "verify_backup.unlink"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_stage7_replenishment.py",
+        "calls": [
+          {
+            "line": 40,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_tools_endpoint.py",
+        "calls": [
+          {
+            "line": 31,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ai_warehouse_assistant_endpoint.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_batch_limit.py",
+        "calls": [
+          {
+            "line": 145,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_001.py",
+        "calls": [
+          {
+            "line": 156,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_002.py",
+        "calls": [
+          {
+            "line": 182,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_003.py",
+        "calls": [
+          {
+            "line": 111,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_004.py",
+        "calls": [
+          {
+            "line": 130,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_005.py",
+        "calls": [
+          {
+            "line": 104,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_bug_2026_08_02_007.py",
+        "calls": [
+          {
+            "line": 117,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_check_state_machine.py",
+        "calls": [
+          {
+            "line": 15,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_customer_supplied_lines.py",
+        "calls": [
+          {
+            "line": 29,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 30,
+            "call": "wms.db.create_all"
+          },
+          {
+            "line": 127,
+            "call": "os.unlink"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_empty_database_startup.py",
+        "calls": [
+          {
+            "line": 24,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 26,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_full_flow_20groups.py",
+        "calls": [
+          {
+            "line": 41,
+            "call": "os.remove"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_future_date_guard.py",
+        "calls": [
+          {
+            "line": 163,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_in_order_state_machine.py",
+        "calls": [
+          {
+            "line": 25,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_inbound_push.py",
+        "calls": [
+          {
+            "line": 30,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 31,
+            "call": "wms.db.create_all"
+          },
+          {
+            "line": 193,
+            "call": "os.unlink"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_init_business_data.py",
+        "calls": [
+          {
+            "line": 176,
+            "call": "os.unlink"
+          },
+          {
+            "line": 201,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_ledger_required_material.py",
+        "calls": [
+          {
+            "line": 135,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_login_experience.py",
+        "calls": [
+          {
+            "line": 86,
+            "call": "wms.db.drop_all"
+          },
+          {
+            "line": 87,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_opening_stock_multi_warehouse.py",
+        "calls": [
+          {
+            "line": 246,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_out_order_state_machine.py",
+        "calls": [
+          {
+            "line": 24,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_sales_module.py",
+        "calls": [
+          {
+            "line": 700,
+            "call": "os.remove"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_startup_auto_update.py",
+        "calls": [
+          {
+            "line": 162,
+            "call": "sys.path.remove"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_transfer_state_machine.py",
+        "calls": [
+          {
+            "line": 23,
+            "call": "wms.db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_warehouse_reports.py",
+        "calls": [
+          {
+            "line": 47,
+            "call": "db.drop_all"
+          },
+          {
+            "line": 48,
+            "call": "db.create_all"
+          }
+        ]
+      },
+      {
+        "file": "scripts/verify_wms_bugs.py",
+        "calls": [
+          {
+            "line": 129,
+            "call": "wms_app.db.create_all"
+          }
+        ]
+      }
+    ]
+  },
+  "route_static_match": {
+    "python_route_declarations": 738,
+    "android_api_declarations": 43,
+    "unmatched_requires_blueprint_review": []
+  }
+}
