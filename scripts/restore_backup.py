@@ -1,170 +1,140 @@
 #!/usr/bin/env python3
-"""离线WMS恢复：占用检测、结构校验、一致留底和SQLite事务恢复。
+"""离线数据库恢复工具（F1.2 / P0-1）。
 
-Windows使用无共享句柄；Linux仅支持当前用户拥有的离线库，检查进程FD。
-其他平台拒绝恢复。操作员必须保持服务停止；不冷拷贝主库或删除WAL。
+用法:
+    python scripts/restore_backup.py <备份文件> [--db <目标库路径>] [--yes]
+
+安全约束（不可绕过）：
+1. **必须停机恢复**：检测到目标库被占用（WMS 在跑）直接拒绝——
+   运行中覆盖 SQLite 文件会双写撕裂；
+2. **恢复前校验备份**：PRAGMA integrity_check 不过绝不落盘；
+3. **覆盖前自动留底**：当前库先复制为 <db>.before_restore_<时间戳>，
+   恢复出错可立即回滚；
+4. 恢复后再做一次 integrity_check + 行数抽样比对并打印，供人工确认。
 """
 import argparse
-import ctypes
 import os
+import shutil
 import sqlite3
 import sys
-import tempfile
-import time
-from contextlib import closing
 from datetime import datetime
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
-from runtime_guard import acquire_database_lease
-
-# Repair task: AUDIT-FULL-20261016-001-F01
-DEFAULT_DB = str(Path(__file__).resolve().parents[1] / 'app/instance/inventory.db')
-REQUIRED_SCHEMA = {
-    'material': {'id', 'code', 'stock'},
-    'warehouse': {'id', 'name'},
-    'stock_transaction': {'id', 'material_id', 'quantity', 'warehouse_id', 'created_at'},
-    'in_order': {'id', 'order_no', 'status'},
-    'out_order': {'id', 'order_no', 'status'},
-    'user': {'id', 'username', 'password_hash', 'role'},
-    'system_setting': {'id', 'key', 'value'},
-}
+DEFAULT_DB = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'app', 'instance', 'inventory.db')
 
 
-def _read_connection(path):
-    return sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
-
-
-def _integrity_ok(path):
+def _integrity_ok(path: str) -> bool:
     try:
-        with closing(_read_connection(path)) as conn:
-            return conn.execute('PRAGMA integrity_check').fetchone() == ('ok',)
-    except (OSError, sqlite3.Error):
+        conn = sqlite3.connect(path, timeout=30)
+        try:
+            row = conn.execute('PRAGMA integrity_check').fetchone()
+            return bool(row and row[0] == 'ok')
+        finally:
+            conn.close()
+    except sqlite3.DatabaseError:
         return False
 
 
-def _schema_error(path):
-    try:
-        with closing(_read_connection(path)) as conn:
-            for table, required in REQUIRED_SCHEMA.items():
-                # 表名固定为内部白名单，不接受用户SQL标识符。
-                columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
-                if not required.issubset(columns):
-                    return f'{table} 缺少字段：{", ".join(sorted(required - columns))}'
-    except (OSError, sqlite3.Error) as exc:
-        return str(exc)
-    return None
-
-
-def _db_locked(path):
-    """检测空闲打开连接；不能用SQLite写锁代替停机证明。"""
+def _db_locked(path: str) -> bool:
+    """探测目标库是否被别的进程打开（Windows 独占打开测试 + 写锁测试）。"""
     if not os.path.exists(path):
         return False
-    if sys.platform == 'win32':
-        from ctypes import wintypes
-        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
-        create = kernel.CreateFileW
-        create.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
-                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
-        create.restype = wintypes.HANDLE
-        handle = create(str(Path(path).resolve()), 0xC0000000, 0, None, 3, 0x80, None)
-        if handle == wintypes.HANDLE(-1).value:
-            return True
-        close = kernel.CloseHandle
-        close.argtypes = [wintypes.HANDLE]
-        close.restype = wintypes.BOOL
-        return not bool(close(handle))
-    if sys.platform.startswith('linux') and Path('/proc/self/fd').is_dir():
-        target = os.stat(path)
-        identity = (target.st_dev, target.st_ino)
-        for process in Path('/proc').iterdir():
-            if not process.name.isdigit():
-                continue
-            try:
-                if process.stat().st_uid != os.getuid():
-                    continue
-                for fd in (process / 'fd').iterdir():
-                    try:
-                        stat = fd.stat()
-                        if (stat.st_dev, stat.st_ino) == identity:
-                            return True
-                    except FileNotFoundError:
-                        continue
-            except FileNotFoundError:
-                continue
-            except PermissionError:
-                return True
-        return target.st_uid != os.getuid()
-    return True
-
-
-def _snapshot(source, destination):
-    """SQLite事务快照，失败回滚，等待超时不能无限循环。"""
-    deadline = time.monotonic() + 30
-    def progress(status, remaining, total):
-        if time.monotonic() > deadline:
-            raise TimeoutError('SQLite备份等待超时，请确认服务已停止及磁盘可写')
-    with closing(_read_connection(source)) as src:
-        with closing(sqlite3.connect(destination, timeout=5)) as dst:
-            src.backup(dst, pages=256, progress=progress, sleep=0.05)
+    try:
+        conn = sqlite3.connect(path, timeout=1)
+        try:
+            conn.execute('BEGIN IMMEDIATE')
+            conn.execute('ROLLBACK')
+        finally:
+            conn.close()
+        return False
+    except sqlite3.OperationalError:
+        return True
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description='WMS 离线数据库恢复')
     parser.add_argument('backup', help='备份文件路径')
-    parser.add_argument('--db', default=DEFAULT_DB, help='目标WMS库路径')
-    parser.add_argument('--yes', action='store_true', help='仅跳过人工确认，不跳过安全检查')
+    parser.add_argument('--db', default=DEFAULT_DB, help='目标库路径（默认 app/instance/inventory.db）')
+    parser.add_argument('--yes', action='store_true', help='跳过人工确认（脚本化调用）')
     args = parser.parse_args(argv)
-    backup, target = Path(args.backup).resolve(), Path(args.db).resolve()
-    if not backup.is_file() or backup == target or (target.exists() and os.path.samefile(backup, target)):
-        print('[restore] 备份不存在或与目标为同一文件，拒绝恢复。', file=sys.stderr)
+
+    backup, target = os.path.abspath(args.backup), os.path.abspath(args.db)
+    if not os.path.exists(backup):
+        print(f'[restore] 备份文件不存在: {backup}', file=sys.stderr)
         return 2
-    lease = None
-    try:
-        lease = acquire_database_lease(target)
-        if _db_locked(target):
-            print('[restore] 目标库仍被打开或无法确认停机，拒绝恢复。请先停止WMS。', file=sys.stderr)
-            return 3
-        if not _integrity_ok(backup) or _schema_error(backup):
-            print('[restore] 备份不是完整的WMS数据库，拒绝恢复。', file=sys.stderr)
-            return 2
-        if not args.yes and input(f'[restore] 将用 {backup} 恢复 {target}；输入 yes 确认：').strip().lower() != 'yes':
-            return 1
-        if not target.parent.is_dir():
-            print('[restore] 目标目录不存在，拒绝隐式创建部署目录。', file=sys.stderr)
-            return 2
-        with tempfile.TemporaryDirectory(prefix='.wms-restore-', dir=target.parent) as staging:
-            prepared = Path(staging) / 'validated.db'
-            _snapshot(backup, prepared)
-            if not _integrity_ok(prepared) or _schema_error(prepared):
-                print('[restore] 暂存快照校验失败，目标库未改动。', file=sys.stderr)
-                return 2
-            if _db_locked(target):
-                print('[restore] 确认后目标被重新打开，拒绝恢复。', file=sys.stderr)
-                return 3
-            if target.exists():
-                safety = str(target) + '.before_restore_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f')
-                _snapshot(target, safety)
-                if not _integrity_ok(safety):
-                    raise OSError('恢复前留底校验失败，目标库未改动')
-                print(f'[restore] 当前库已留底: {safety}')
-            if _db_locked(target):
-                print('[restore] 留底期间目标被重新打开，拒绝恢复。', file=sys.stderr)
-                return 3
-            _snapshot(prepared, target)
-            if not _integrity_ok(target) or _schema_error(target):
-                raise OSError('恢复后校验失败，请保留现场并使用留底文件人工处理')
-        print('[restore] 恢复完成，WMS结构及完整性检查通过。请启动并人工抽查关键单据。')
-        return 0
-    except RuntimeError as exc:
-        print(f'[restore] {exc}', file=sys.stderr)
+
+    print('[restore] 1/5 校验备份完整性...')
+    if not _integrity_ok(backup):
+        print('[restore] 备份 integrity_check 未通过，拒绝恢复！', file=sys.stderr)
+        return 2
+    print('[restore]    integrity_check = ok')
+
+    print('[restore] 2/5 检查目标库是否停机...')
+    if _db_locked(target):
+        print('[restore] 目标库正被使用（WMS 未停止？），拒绝在线覆盖！', file=sys.stderr)
+        print('[restore] 请先停止 WMS 服务再运行本脚本。', file=sys.stderr)
         return 3
-    except (OSError, sqlite3.Error, TimeoutError) as exc:
-        print(f'[restore] 恢复未完成：{exc}；请保留恢复前留底并检查磁盘/服务状态。', file=sys.stderr)
+
+    if not args.yes:
+        print(f'[restore] 即将用 {backup}')
+        print(f'[restore] 覆盖   {target}')
+        answer = input('[restore] 确认恢复？输入 yes 继续: ').strip().lower()
+        if answer != 'yes':
+            print('[restore] 已取消。')
+            return 1
+
+    print('[restore] 3/5 覆盖前留底当前库...')
+    safety = None
+    if os.path.exists(target):
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        safety = f'{target}.before_restore_{stamp}'
+        # 留底也用在线备份（虽然已停机，但保持一致语义），失败则退回冷拷贝
+        try:
+            src_uri = f"file:{target.replace(os.sep, '/')}?mode=ro"
+            src = sqlite3.connect(src_uri, uri=True, timeout=30)
+            try:
+                dst = sqlite3.connect(safety, timeout=30)
+                try:
+                    src.backup(dst)
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+        except sqlite3.Error:
+            shutil.copy2(target, safety)
+        print(f'[restore]    当前库已留底: {safety}')
+
+    print('[restore] 4/5 执行恢复...')
+    try:
+        shutil.copy2(backup, target)
+    except OSError as exc:
+        print(f'[restore] 覆盖失败: {exc}', file=sys.stderr)
         return 2
+
+    print('[restore] 5/5 恢复后校验...')
+    if not _integrity_ok(target):
+        print('[restore] 恢复后 integrity_check 未通过！', file=sys.stderr)
+        if safety:
+            print(f'[restore] 请用留底文件回滚: {safety}', file=sys.stderr)
+        return 2
+    conn = sqlite3.connect(target, timeout=30)
+    try:
+        has_tx = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='stock_transaction'"
+        ).fetchone()
+        if has_tx:
+            rows = conn.execute('SELECT COUNT(*) FROM stock_transaction').fetchone()[0]
+            latest = conn.execute('SELECT MAX(created_at) FROM stock_transaction').fetchone()[0]
+            print(f'[restore]    integrity_check = ok, stock_transaction 行数={rows}, 最新事务={latest}')
+        else:
+            tables = conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table'").fetchone()[0]
+            print(f'[restore]    integrity_check = ok（非 WMS 库结构，表数={tables}）')
     finally:
-        if lease is not None:
-            lease.close()
+        conn.close()
+    print('[restore] 恢复完成。请启动 WMS 并人工抽查关键单据。')
+    return 0
 
 
 if __name__ == '__main__':

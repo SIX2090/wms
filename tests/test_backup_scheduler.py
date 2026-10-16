@@ -35,17 +35,6 @@ def _make_db(path: Path, rows: int = 3) -> Path:
     conn = sqlite3.connect(str(path))
     try:
         conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
-        # 恢复入口现在拒绝非WMS库；保留原t表内容/留底断言，并补齐真实入口必需的结构。
-        conn.executescript('''
-            CREATE TABLE material (id INTEGER PRIMARY KEY, code TEXT, stock REAL);
-            CREATE TABLE warehouse (id INTEGER PRIMARY KEY, name TEXT);
-            CREATE TABLE stock_transaction (id INTEGER PRIMARY KEY, material_id INTEGER,
-                quantity REAL, warehouse_id INTEGER, created_at TEXT);
-            CREATE TABLE in_order (id INTEGER PRIMARY KEY, order_no TEXT, status TEXT);
-            CREATE TABLE out_order (id INTEGER PRIMARY KEY, order_no TEXT, status TEXT);
-            CREATE TABLE user (id INTEGER PRIMARY KEY, username TEXT, password_hash TEXT, role TEXT);
-            CREATE TABLE system_setting (id INTEGER PRIMARY KEY, key TEXT, value TEXT);
-        ''')
         conn.executemany("INSERT INTO t (v) VALUES (?)", [(f"r{i}",) for i in range(rows)])
         conn.commit()
     finally:
