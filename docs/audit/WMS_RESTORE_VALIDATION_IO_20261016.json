@@ -1,0 +1,109 @@
+{
+  "baseline": "f585d8a1",
+  "exit": 0,
+  "records": {
+    "memory-gw3.json": [
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 0
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 1
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 2
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 3
+      },
+      {
+        "event": "exception",
+        "function": "_save",
+        "line": 71,
+        "type": "PermissionError",
+        "errno": 13,
+        "winerror": 5
+      },
+      {
+        "event": "exception",
+        "function": "record_query_memory",
+        "line": 91,
+        "type": "PermissionError",
+        "errno": 13,
+        "winerror": 5
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": false
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 3
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 4
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 5
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      },
+      {
+        "event": "return",
+        "function": "_load",
+        "value": 5
+      },
+      {
+        "event": "return",
+        "function": "record_query_memory",
+        "value": true
+      }
+    ]
+  },
+  "scope": "original f585d8a1 business code and original tests only; new repair tests absent in that baseline; diagnostic trace does not alter assertions or persistence functions",
+  "baseline_result": "3714 passed / 90 skipped; 322.36 seconds",
+  "observation": "One intermediate write raised PermissionError WinError 5 at existing query_memory._save os.replace and returned False; final LRU assertion passed on this diagnostic run. Prior parallel LRU assertion failures remain recorded. Exact external cause of file-access denial is not established.",
+  "query_memory_sha256": "1f766ee925d8166c756b04c5424253f4c90bfa3cdff97a24c9e17135757b1535",
+  "final_acceptance": "Canonical serial pytest tests/ -q on round2 repair: 3734 passed / 90 skipped / 1282 warnings in 1074.63 seconds; no diagnostic plugin or exclusions; GitHub CI pending"
+}
