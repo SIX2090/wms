@@ -300,7 +300,7 @@
                     <i class="bi bi-plus"></i> 添加物料
                 </button>
             </div>
-            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
+            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；数量回车到单价，单价回车到下一行。输入中文时回车仅确认汉字。</div>
 
             <div class="table-responsive">
                 <table id="materialTable">
@@ -402,6 +402,10 @@ function fillRowData(row, data) {
 }
 
 function bindRow(row) {
+    WMS.MaterialPicker.bindEntryRow(row, ['.material-qty', '.material-price'], function() {
+        const next = row.nextElementSibling || addNewRow();
+        return next.querySelector('.material-code');
+    });
     row.querySelector('.material-code').addEventListener('input', function() {
         showDropdown(row);
     });

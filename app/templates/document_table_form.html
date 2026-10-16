@@ -219,7 +219,7 @@
                 <button type="button" class="btn btn-outline-success" onclick="showPasteModal()"><i class="bi bi-clipboard"></i> 粘贴导入</button>
                 <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()"><i class="bi bi-arrow-clockwise"></i> 刷新物料</button>
             </div>
-            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
+            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；数量回车到单价，无单价时到下一行；单价回车到下一行。输入中文时回车仅确认汉字。</div>
             {% endif %}
 
             {# INV-BATCH-001-D：盘点批次进度与回查（PC 盘点单即批次） #}
@@ -509,6 +509,10 @@ function createRow(item) {
 }
 function bindRowEvents(row) {
     if (readonly) return;
+    WMS.MaterialPicker.bindEntryRow(row, ['.line-qty', '.actual-stock', '.line-price'], function() {
+        const next = row.nextElementSibling || createRow(null);
+        return next.querySelector('.material-code');
+    });
     const codeInput = row.querySelector('.material-code');
     codeInput.addEventListener('input', function() {
         const material = findMaterialByCode(this.value);
