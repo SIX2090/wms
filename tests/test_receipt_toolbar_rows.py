@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize('price', ['0.00', '6.50'])
 @pytest.mark.parametrize('cached', [True, False])
 @pytest.mark.parametrize('page', ['in', 'out'])
-def test_copy_preserves_all_fields_and_inserts_next_to_source(price, cached, page):
+def test_row_menu_copy_preserves_all_fields_and_inserts_next_to_source(price, cached, page):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
@@ -46,7 +46,7 @@ function findMaterialByCode(){return CACHED ? {price:12} : null;}
 function fillMaterialFields(r){r.querySelector('.material-price').value='12.00';}
 function calcAmount(){}
 ''' .replace('PRICE', json.dumps(price)).replace('CACHED', json.dumps(cached)).replace('PAGE', json.dumps(page)) + helpers + r'''
-copyPreviousRow();
+copyRowAfter(src);
 const dst=rows[1];
 for(const f of fields) assert.equal(dst.querySelector('.'+f).value,src.querySelector('.'+f).value,f);
 if (PAGE==='in') {

@@ -966,6 +966,14 @@ function deleteRow(btn) {
     calcTotal();
 }
 
+let currentMaterialRow = null;
+function rememberMaterialRow(event) {
+    const row = event.target.closest && event.target.closest('#materialTableBody tr');
+    if (row) currentMaterialRow = row;
+}
+document.addEventListener('focusin', rememberMaterialRow);
+document.addEventListener('pointerdown', rememberMaterialRow);
+
 function copyValuesToRow(source, target) {
     if (!source || !target) return;
     ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit',
@@ -979,19 +987,20 @@ function copyValuesToRow(source, target) {
 }
 
 function copyPreviousRow() {
-    const rows = document.querySelectorAll('#materialTableBody tr');
-    let source = null;
-    for (let i = rows.length - 1; i >= 0; i--) {
-        if (rows[i].querySelector('.material-code').value.trim()) {
-            source = rows[i];
-            break;
-        }
-    }
-    if (!source) {
-        addRowAfterCurrent();
+    const tbody = document.getElementById('materialTableBody');
+    const target = currentMaterialRow;
+    if (!target || !tbody.contains(target)) {
+        showToast('请先点击要填写的明细行', 'warning');
         return;
     }
-    copyRowAfter(source);
+    const source = target.previousElementSibling;
+    if (!source || !source.querySelector('.material-code').value.trim()) {
+        showToast('上一行没有物料，无法复制', 'warning');
+        return;
+    }
+    copyValuesToRow(source, target);
+    target.querySelector('.material-qty').focus();
+    target.querySelector('.material-qty').select();
 }
 
 function copyRowAfter(row) {
