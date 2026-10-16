@@ -1,0 +1,66 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F02",
+  "bug": "BUG-2026-10-16-002",
+  "scope": "A14：17处文件维护None边界与独立只读库存CLI；不改变业务账务计算",
+  "baseline": {
+    "passed": 99,
+    "skipped": 1,
+    "isolated": true,
+    "log": "app/logs/audit_fix_readonly_baseline.log"
+  },
+  "regression": {
+    "passed": 62,
+    "log": "app/logs/audit_fix_readonly_new.log"
+  },
+  "rollback": {
+    "failed": 57,
+    "passed": 5,
+    "isolated": true,
+    "log": "app/logs/audit_fix_readonly_before.log"
+  },
+  "adjacent": {
+    "passed": 181,
+    "skipped": 1,
+    "log": "app/logs/audit_fix_readonly_adjacent.log"
+  },
+  "ledger": {
+    "passed": 10,
+    "log": "app/logs/audit_fix_readonly_ledger.log"
+  },
+  "gates": {
+    "normal_lint": "0违规",
+    "full_ratchet": "通过，无新增违规",
+    "existing_bug_regression": "通过",
+    "inventory_identity_fixture": "通过，包含反向差异与豁免验证"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_fix_readonly_serial_full.log",
+    "passed": 3796,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1038.52
+  },
+  "ci": "待业务提交后验证",
+  "activation": "待确认；生产未执行恢复、业务完成、删除或密码操作",
+  "production_readonly": {
+    "materials": 1301,
+    "location_enabled": false,
+    "ledger_vs_transaction_mismatches": 0,
+    "historical_location_mismatches": 2,
+    "exit": 1,
+    "original_math_equal": true,
+    "note": "旧版纯函数对同一只读快照输出一致；库位关闭后的历史残留判据留待A17，不在F02放宽或改库存"
+  },
+  "full_suite_round1": {
+    "status": "中止于约64%；发现10项代码行号引用失败，未提交",
+    "cause": "resolver新增两行注释使INVENTORY_TRUTH引用漂移",
+    "correction": "压缩注释保持原行数；不修改权威文档及测试断言",
+    "log": "app/logs/audit_fix_readonly_serial_full_round1.log"
+  },
+  "line_reference_recheck": {
+    "passed": 84,
+    "log": "app/logs/audit_fix_readonly_line_refs.log"
+  }
+}

@@ -23,8 +23,8 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
 
 设计要点
 --------
-* **纯函数与 app 导入分离**：`build_identity_rows` / `find_mismatches` 不依赖
-  Flask，可直接单测（A9）；只 `main()` 延迟导入 app。
+* **只读入口独立于应用启动**：CLI用SQLite只读事务，不导入app或运行迁移；
+  `collect_from_app`仅复用调用方已经初始化的应用，不自动启动应用。
 * **两个维度分开报**：
   - `ledger_vs_location`（① vs ②）：关库位管理时 location_inventory 为空，
     属预期，单独以 `no_location_rows` 标注而非判为不一致；
@@ -47,27 +47,21 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
   「① 独立于 ②③ 变动」定为**禁止**，仅有本脚本注释单方降级为「待确认」。
   现改为：**默认硬失败**（`①≠③` 即 rc=1），历史差须经 `--allow-drift <json>`
   逐条登记理由后才降级为 🟡 告警。详见 `INVENTORY_TRUTH.md` §4.3。
-* A14 合规：脚本引用 app，显式 opt-in 生产硬门禁。
+* Repair task: AUDIT-FULL-20261016-001-F02；不通过读取脚本修改安全环境配置。
 """
 from __future__ import annotations
 
-# A14（R6 机械化）：scripts/ 下引用 app 必须显式放行生产硬门禁，且必须在
-# 任何 app 导入之前设置（app 导入全部延迟到 main() 内）。
 import os
-
-os.environ.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
-os.environ.setdefault("WMS_SKIP_AUTO_UPDATE", "1")
-os.environ.setdefault("WMS_DEBUG", "0")
 
 import argparse
 import json
 import sys
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
 
 # 浮点容差：金额/数量经 round_to_2_decimals 后允许 0.01 级误差
 DEFAULT_TOLERANCE = 0.01
@@ -383,10 +377,10 @@ def summarize(rows, findings, wh_findings=None, wh_rows=None,
 
 
 # ---------------------------------------------------------------------------
-# CLI（延迟导入 app，扫真实库）
+# CLI（SQLite只读事务；集成调用仅复用已初始化app）
 # ---------------------------------------------------------------------------
 def collect_from_app(pushdown=True):
-    """从当前 app 的库里取三份数据（只读，零写操作）。
+    """仅从已经初始化的app取数据；不会因查询而导入/启动应用。
 
     P0-1：库位账与流水账额外带出 `warehouse_id`（第 3 项），供仓级分解使用。
 
@@ -419,10 +413,14 @@ def collect_from_app(pushdown=True):
     """
     import sqlalchemy as sa  # noqa: PLC0415
 
-    from app import app as flask_app, db  # noqa: PLC0415
-    from app import LocationInventory, Material, StockTransaction  # noqa: PLC0415
+    cached = sys.modules.get('app')
+    if cached is None or not all(hasattr(cached, name) for name in (
+            'app', 'db', 'LocationInventory', 'Material', 'StockTransaction')):
+        raise RuntimeError('应用尚未初始化；独立检查请使用SQLite只读命令行入口')
+    flask_app, db = cached.app, cached.db
+    LocationInventory, Material, StockTransaction = cached.LocationInventory, cached.Material, cached.StockTransaction
 
-    with flask_app.app_context():
+    with flask_app.app_context(), db.session.no_autoflush:
         materials = [(m.id, m.code, m.stock) for m in Material.query.all()]
         if not pushdown:
             locations = [(li.material_id, li.quantity, li.warehouse_id)
@@ -457,12 +455,63 @@ def _location_management_enabled() -> bool:
     """F3.15：读取系统设置「库位管理」开关。读不到（如纯 sqlite 直读、
     表缺失）时按「未开启」处理——宁可跳过仓级判定，也不误报。"""
     try:
-        from app import app as flask_app, location_management_enabled  # noqa: PLC0415
-
-        with flask_app.app_context():
-            return bool(location_management_enabled())
+        cached = sys.modules.get('app')
+        if cached is None:
+            return False
+        with cached.app.app_context(), cached.db.session.no_autoflush:
+            return bool(cached.location_management_enabled())
     except Exception:
         return False
+
+
+def collect_from_sqlite(uri, pushdown=True):
+    """只读、一致事务读取三账及库位开关；旧仓库列缺失保留NULL归属。"""
+    from sqlalchemy.engine import make_url
+    try:
+        url = make_url(uri)
+        if (url.get_backend_name() != 'sqlite' or not url.database
+                or url.database == ':memory:' or url.database.startswith('file:') or url.query):
+            raise ValueError
+    except Exception:
+        raise ValueError('请使用普通SQLite文件URL；不支持内存库或带参数URI，工具会强制只读打开') from None
+    path = Path(url.database)
+    if not os.path.isabs(str(path)):
+        path = APP_DIR / 'instance' / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError('指定数据库文件不存在')
+    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)) as conn:
+        conn.execute('PRAGMA query_only=ON')
+        conn.execute('BEGIN')
+        tables = {row[0].lower() for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {'material', 'stock_transaction'}.issubset(tables):
+            raise ValueError('缺少物料或库存流水表，无法核验')
+        enabled = False
+        if 'system_setting' in tables:
+            setting = conn.execute('SELECT value FROM system_setting WHERE key=? LIMIT 1',
+                                   ('location_management_enabled',)).fetchone()
+            enabled = bool(setting and setting[0] == '1')
+        if enabled and 'location_inventory' not in tables:
+            raise ValueError('库位管理已开启但库位账表缺失，无法核验')
+        materials = conn.execute('SELECT id, code, stock FROM material').fetchall()
+
+        def ledger_rows(table):
+            # table只来自下方两个固定内部表名，不能由用户传入。
+            if table not in tables:
+                return []
+            columns = {row[1].lower() for row in conn.execute(f'PRAGMA table_info("{table}")')}
+            if not {'material_id', 'quantity'}.issubset(columns):
+                raise ValueError('库存账表缺少物料或数量字段，无法核验')
+            warehouse = 'warehouse_id' if 'warehouse_id' in columns else 'NULL'
+            quantity = 'SUM(quantity)' if pushdown else 'quantity'
+            sql = f'SELECT material_id, {quantity}, {warehouse} FROM "{table}"'
+            if pushdown:
+                sql += f' GROUP BY material_id, {warehouse}'
+            return [(mid, float(total or 0), wid) for mid, total, wid in conn.execute(sql)]
+
+        locations = ledger_rows('location_inventory')
+        transactions = ledger_rows('stock_transaction')
+    return materials, locations, transactions, enabled
 
 
 def main():
@@ -486,17 +535,19 @@ def main():
         print(f"✗ {exc}", file=sys.stderr)
         return 2
 
-    if args.db:
-        os.environ["DATABASE_URL"] = args.db
-    materials, locations, transactions = collect_from_app(
-        pushdown=not args.no_pushdown)
+    uri = args.db or os.environ.get('DATABASE_URL') or 'sqlite:///inventory.db'
+    try:
+        materials, locations, transactions, _loc_enabled = collect_from_sqlite(
+            uri, pushdown=not args.no_pushdown)
+    except (ValueError, OSError, sqlite3.Error) as exc:
+        print(f'✗ 只读库存检查失败：{exc}', file=sys.stderr)
+        return 2
     rows = build_identity_rows(materials, locations, transactions)
     findings = find_mismatches(rows, args.tolerance)
     # F3.15：仓级判据（②库位账 vs ③流水）只在库位管理开启时判定——
     # 关库位管理时 LocationInventory 不再维护，残留/缺失行属预期，
     # 照判只会误报（审计 §3.5：判据必须 gate 在 location_management_enabled() 上）。
     wh_rows = build_warehouse_rows(locations, transactions)
-    _loc_enabled = _location_management_enabled()
     if _loc_enabled:
         wh_findings = find_warehouse_mismatches(rows, wh_rows, args.tolerance)
     else:

@@ -237,9 +237,9 @@ def startup_db_upgrade_disabled():
     )
 
 def _resolve_sqlite_db_path(uri=None, instance_path=None):
-    """从 SQLALCHEMY_DATABASE_URI 解析实际 sqlite 数据库文件路径。
+    """解析SQLite文件路径（Repair task: AUDIT-FULL-20261016-001-F02）。
 
-    返回 None 表示非 sqlite 或内存库（无需/无法做文件迁移）。
+    返回None表示非SQLite或内存库；调用者必须跳过维护，不得回落默认生产库。
     """
     try:
         if uri is None:
@@ -430,7 +430,7 @@ def auto_migrate_database():
         # 优先使用 Flask config 中的数据库路径，避免与 SQLAlchemy 实际使用的数据库不一致
         db_path = _resolve_sqlite_db_path()
         if db_path is None:
-            db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+            return
         if not os.path.exists(db_path):
             return
 
@@ -1750,7 +1750,7 @@ def backfill_empty_warehouse_documents(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             return
         import sqlite3
@@ -1876,7 +1876,7 @@ def ensure_print_job_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             return
         if not _sqlite_table_has_print_job(db_path):
@@ -1961,7 +1961,7 @@ def ensure_excel_print_template_table(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件都还没有，交给 initialize_database/create_all 建全量表
             return
@@ -2034,7 +2034,7 @@ def ensure_department_table(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件都还没有，交给 initialize_database/create_all 建全量表
             return
@@ -2095,7 +2095,7 @@ def ensure_outbound_department_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             return
         import sqlite3
@@ -2183,7 +2183,7 @@ def ensure_stock_transaction_warehouse_id_column(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 initialize_database/create_all 建全量表
             return
@@ -2261,7 +2261,7 @@ def ensure_inventory_check_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 initialize_database/create_all 建全量表
             return
@@ -2366,7 +2366,7 @@ def ensure_sales_return_source_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -2452,7 +2452,7 @@ def ensure_material_status_column(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -2570,7 +2570,7 @@ def ensure_material_dedupe_unique_index(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return False, []
         if not os.path.exists(db_path):
             return False, []
         import sqlite3
@@ -2638,7 +2638,7 @@ def ensure_purchase_return_source_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -2723,7 +2723,7 @@ def ensure_in_order_item_batch_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -2818,7 +2818,7 @@ def ensure_opening_stock_doc_table(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -2914,7 +2914,7 @@ def cleanup_dangling_opening_stock_transactions(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，无历史悬挂流水可清
             return
@@ -2989,7 +2989,7 @@ def ensure_opening_stock_doc_columns(db_path: str | None = None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             # 全新部署：库文件还没建，交给 create_all 建全量表
             return
@@ -6108,7 +6108,7 @@ def _ensure_default_print_templates_unconditional(db_path=None):
         if db_path is None:
             db_path = _resolve_sqlite_db_path()
             if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
+                return
         if not os.path.exists(db_path):
             return
         import sqlite3
