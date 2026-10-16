@@ -42,8 +42,21 @@
     "warnings": 1282,
     "seconds": 1038.52
   },
-  "ci": "待业务提交后验证",
-  "activation": "待确认；生产未执行恢复、业务完成、删除或密码操作",
+  "ci": {
+    "WMS CI": {
+      "run": 38915997574,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 38915998343,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 38915997181,
+      "result": "success"
+    }
+  },
+  "activation": "CLI已验证；app.py生产待人工重启。自动审批blocked by policy拒绝重启命令，未执行。旧PID5604/HTTP200正常；已请求用户手动重启。不作生产已切新版声明。",
   "production_readonly": {
     "materials": 1301,
     "location_enabled": false,
@@ -62,5 +75,6 @@
   "line_reference_recheck": {
     "passed": 84,
     "log": "app/logs/audit_fix_readonly_line_refs.log"
-  }
+  },
+  "commit": "3c64f4c383f2f927f28a46d858cf28bb1a2ec98d"
 }
