@@ -1,6 +1,6 @@
 # Windows 自动服务启动与部署（A09，2026-10-17）
 
-本说明对应 `app/start_wms_auto.bat`、`app/service_launcher.py` 和 `deploy_cloud.bat`。当前修复分两部分：已验证的启动配置与新服务部署保护，以及正在验证的 NSSM 托管维护边界。不要把普通进程更新器直接用于受服务管理器托管的实例。
+本说明对应 `app/start_wms_auto.bat`、`app/service_launcher.py` 和 `deploy_cloud.bat`。当前修复分两部分：已验证的启动配置与新服务部署保护，以及已验证的 NSSM 托管维护边界。不要把普通进程更新器直接用于受服务管理器托管的实例。
 
 ## 启动模式
 

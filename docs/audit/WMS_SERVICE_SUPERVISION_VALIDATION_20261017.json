@@ -4,7 +4,7 @@
   "audit": [
     "A09"
   ],
-  "status": "local_passed_pending_push_CI",
+  "status": "code_CI_passed",
   "baseline": {
     "passed": 119,
     "seconds": 137.29,
@@ -77,7 +77,10 @@
     "seconds": 1246.49
   },
   "ci": {
-    "status": "pending"
+    "WMS CI": 39039008996,
+    "WMS AI Verification": 39039009060,
+    "WMS Perf Baseline": 39039008962,
+    "result": "success"
   },
   "regression": {
     "passed": 32,
@@ -98,5 +101,6 @@
     "staged_lint": "0违规",
     "full_ratchet": "最终源码通过，A9=213，无新增违规",
     "existing_bugs": "通过"
-  }
+  },
+  "commit": "47d4c3f0bac09f330ed0502b5d2fd867eef805e7"
 }
