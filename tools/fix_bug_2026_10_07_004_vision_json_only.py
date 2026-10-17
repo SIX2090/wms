@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import Path
 
-APP_PY = '/Coze/Drive/扣子/wms/app/app.py'
+APP_PY = str(Path(__file__).resolve().parents[1] / 'app' / 'app.py')
 
 
 def read_src() -> str:

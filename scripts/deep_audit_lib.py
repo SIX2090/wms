@@ -11,7 +11,7 @@ import sys
 import json
 from pathlib import Path
 
-REPO = Path("/Coze/Drive/扣子/wms")
+REPO = Path(__file__).resolve().parents[1]
 APP_DIR = REPO / "app"
 sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)

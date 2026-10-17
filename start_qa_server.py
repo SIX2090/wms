@@ -3,13 +3,14 @@
 import os
 import sys
 
-os.chdir('/workspace/app')
+APP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app')
+os.chdir(APP_DIR)
 os.environ['WMS_SKIP_AUTO_UPDATE'] = '1'
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['SECRET_KEY'] = 'test-secret-key-for-qa'
 os.environ['WMS_BOOTSTRAP_PASSWORD'] = 'admin'
 
-sys.path.insert(0, '/workspace/app')
+sys.path.insert(0, APP_DIR)
 
 import config
 config.TestingConfig.SQLALCHEMY_DATABASE_URI = 'sqlite:///inventory_qa.db'

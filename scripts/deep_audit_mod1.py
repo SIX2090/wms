@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """模块1：库存核心链路深度检测——转库/调整/盘点 全链路 E2E + 四本账一致性。"""
 import sys
-sys.path.insert(0, "/Coze/Drive/扣子/wms/scripts")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from deep_audit_lib import (app_module, fresh_env, stock_in, make_client,
                              check, get_json, csrf_from as _csrf)
 from app import (Warehouse, StockTransaction, Material, db,

@@ -5,7 +5,8 @@
 """
 import re
 import sys
-sys.path.insert(0, "/Coze/Drive/扣子/wms/scripts")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from deep_audit_lib import app_module, fresh_env, check, csrf_from, make_client
 from app import db
 

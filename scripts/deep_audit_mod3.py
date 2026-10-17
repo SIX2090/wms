@@ -5,7 +5,8 @@
 四本账在主数据变更后的行为。
 """
 import sys
-sys.path.insert(0, "/Coze/Drive/扣子/wms/scripts")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from deep_audit_lib import app_module, fresh_env, stock_in, make_client, check, csrf_from
 from app import (db, Material, Warehouse, MaterialCategory, Unit,
                  Supplier, Customer, User)

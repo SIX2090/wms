@@ -4,7 +4,8 @@
 目标：每个接口 200/合法错误（400/401/404），抓 500 和静默异常。
 """
 import sys
-sys.path.insert(0, "/Coze/Drive/扣子/wms/scripts")
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from deep_audit_lib import (app_module, fresh_env, stock_in, make_client,
                              check, get_json)
 from app import Material, db, Warehouse, InOrder, InOrderItem, OutOrder, OutOrderItem

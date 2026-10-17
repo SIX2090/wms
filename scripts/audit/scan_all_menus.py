@@ -7,11 +7,13 @@ import re
 import subprocess
 import sys
 from html import unescape
+from pathlib import Path
 
 BASE = "http://127.0.0.1:8080"
 COOKIE = "/tmp/audit/cookie.txt"
-BASE_HTML = "/workspace/app/templates/base.html"
-OUT_FILE = "/workspace/docs/audit/MENU_PAGE_MISMATCH_REPORT.md"
+REPO = Path(__file__).resolve().parents[2]
+BASE_HTML = str(REPO / "app" / "templates" / "base.html")
+OUT_FILE = str(REPO / "docs" / "audit" / "MENU_PAGE_MISMATCH_REPORT.md")
 
 
 def fetch(url, timeout=10):
