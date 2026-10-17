@@ -66,5 +66,22 @@
     "staged_lint": "0违规",
     "full_ratchet": "通过，无新增违规",
     "existing_bugs": "通过"
-  }
+  },
+  "commit": "771873814c63485c3b2aaa4f83c0d078a7535698",
+  "ci": {
+    "WMS CI": {
+      "run": 39009310516,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 39009312364,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 39009310515,
+      "result": "success"
+    }
+  },
+  "production": "待人工重启确认；旧PID5604服务保持，自动审批blocked by policy，不绕过；没有生产合并",
+  "commit_environment_note": "首次钩子因未在git前设置UTF8而GBK编解码失败，提交被拒；统一UTF8后全钩子正常通过，未跳过钩子或修改规则。"
 }
