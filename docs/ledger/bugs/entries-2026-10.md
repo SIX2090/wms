@@ -778,8 +778,8 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
   - F08 CI 覆盖：verify_ai_cross_user_isolation 并入 core，verifier 补默认仓夹具；3e44010b。
   - F09 AI 对话限流：chat/stream 与 warehouse_assistant 每用户 20 次/分钟（进程内滑动窗口）；09572ed4。
 - 回归：新增 test_label_layout_script_encoding（真实渲染 + node 执行）、test_label_layout_validation、test_report_ai_insights_escaping、test_ai_draft_warehouse、test_ai_draft_idempotency_lease、test_ai_document_gate_wiring、test_audit_low_confidence_threshold、test_audit_lint_a2_blueprints、test_ai_rate_guard。
-- 状态：已修复（本地验证；待推送 CI 复核）。
-- 生效确认：待确认；模板改动需重启 WMS 生效（R3），其余为下次调用读新代码。
+- 状态：已修复（2026-10-18）：推送 bdda0826；WMS CI 39069539558（9/9 job）、AI Verification 39069539557、Perf 39069539570 均 success。
+- 生效确认：**CI 已确认（2026-10-18）**；生产侧：标签模板改动需重启 WMS 生效（R3），其余为下次调用读新代码；未对生产执行安装/更新/删除/恢复。
 
 ### BUG-2026-10-17-012: 批量入口 / 初始化 / 运行现场项（子修复 F01–F05）
 
@@ -790,8 +790,8 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
   - F04 业务数据初始化改为"先删③流水再归零①"，关键表删除失败即中止；1a133f3d。
   - F05 启动备份防抖（默认 600s）+ 完整性校验 + sidecar 清理 + 保留数可配；311ff643；pytest 日志隔离 14a55e64。
 - 回归：test_audit_batch_entry_guards、test_audit_init_business_data_order、test_audit_startup_backup_debounce。
-- 状态：已修复（本地验证；待推送 CI 复核）。
-- 生效确认：待确认；启动备份/日志为下次启动生效，批量与初始化为下次调用生效。
+- 状态：已修复（2026-10-18）：推送 bdda0826；WMS CI 39069539558、AI Verification 39069539557、Perf 39069539570 均 success。
+- 生效确认：**CI 已确认（2026-10-18）**；启动备份/日志为下次启动生效，批量/初始化/限流为下次调用生效；未对生产执行服务启停或数据操作。
 
 ### 本轮未纳入（明确记录，不假装已修）
 
