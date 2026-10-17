@@ -183,7 +183,7 @@ dist\WMS\
 
 该目录内包含 Python 解释器、依赖包、WMS 程序和启动入口。把整个 `dist\WMS\` 文件夹复制到用户电脑后，用户只需要双击 `启动WMS.bat` 或 `WMS.exe`，然后浏览器访问 `http://127.0.0.1:8080/login`。
 
-便携包由 `tools\build_portable_dist.ps1` 生成。
+便携包由 `tools\build_portable_dist.ps1` 生成。 打包电脑还需安装 Git；程序文件取自已提交的 HEAD，app/tools 已跟踪文件有未提交改动时拒绝构建。本地未跟踪文件、业务库、上传、备份、日志、环境及密钥文件不导出。输出只能是仓库 dist 下的全新直接子目录，已有目录一律拒绝覆盖，不自动删除。重复构建可指定 `build_portable_dist.bat -DistDir C:\wms\dist\WMS_20261017`；失败保留输出现场，另选新目录重试。这里只生成程序运行包，业务数据迁移与源码覆盖安装须另按对应流程。
 
 ### 源码离线安装
 

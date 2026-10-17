@@ -1,0 +1,51 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F06",
+  "bug": "BUG-2026-10-17-003",
+  "audit": [
+    "A07"
+  ],
+  "baseline": {
+    "passed": 111,
+    "seconds": 131.55,
+    "log": "app/logs/audit_fix_portable_baseline.log"
+  },
+  "regression": {
+    "passed": 30,
+    "seconds": 28.75,
+    "windows_native_prefix": 5,
+    "log": "app/logs/audit_fix_portable_new.log"
+  },
+  "rollback": {
+    "failed": 5,
+    "deselected": 25,
+    "seconds": 13.83,
+    "scope": "保留新helper；文件备份后只还原旧PowerShell，运行入口前缀5项，随后恢复源码",
+    "log": "app/logs/audit_fix_portable_rollback.log"
+  },
+  "adjacent": {
+    "passed": 146,
+    "seconds": 49.53,
+    "log": "app/logs/audit_fix_portable_adjacent.log"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_fix_portable_serial_full.log",
+    "passed": 3930,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1196.9
+  },
+  "gates": {
+    "normal_lint": "0违规",
+    "full_ratchet": "通过，无新增违规",
+    "existing_bugs": "通过"
+  },
+  "limits": [
+    "输出只允许仓库dist下全新直接子目录，已有输出拒绝覆盖，不自动清理",
+    "只导出HEAD已提交app/tools；未跟踪文件不导出，已跟踪程序脏改拒绝构建",
+    "排除业务库/上传/备份/日志/环境/已知密钥后缀；不是通用敏感文本内容扫描器",
+    "原生Windows测试仅真实准备/复制前缀，不下载/安装依赖/构建EXE/启动应用",
+    "未执行生产打包/目录删除/账号密码操作；F02统一人工重启待办仍保留"
+  ]
+}

@@ -53,21 +53,13 @@ if (-not $py) {
     throw 'Build machine needs Python 3.11 to install wheels into the portable runtime. User machines do not need Python after this package is built.'
 }
 
-Write-Host "[1/6] Cleaning dist..."
-if (Test-Path $dist) {
-    Remove-Item -LiteralPath $dist -Recurse -Force
+# Repair task: AUDIT-FULL-20261016-001-F06. Never delete a pre-existing output.
+Write-Host "[1/6] Validating a fresh output directory..."
+& $py (Join-Path $root 'tools\prepare_portable_sources.py') --root $root --dist $dist
+if ($LASTEXITCODE -ne 0) {
+    throw 'Package source preparation failed. Existing directories were preserved.'
 }
-New-Item -ItemType Directory -Force -Path $dist | Out-Null
-
-Write-Host "[2/6] Copying application files..."
-robocopy $appSrc (Join-Path $dist 'app') /E /XD __pycache__ instance backups logs /XF *.pyc *.bak_* | Out-Null
-if ($LASTEXITCODE -ge 8) {
-    throw "robocopy app failed with exit code $LASTEXITCODE"
-}
-robocopy (Join-Path $root 'tools') (Join-Path $dist 'tools') /E /XD __pycache__ /XF *.pyc | Out-Null
-if ($LASTEXITCODE -ge 8) {
-    throw "robocopy tools failed with exit code $LASTEXITCODE"
-}
+Write-Host "[2/6] Committed program files exported; local data excluded."
 
 Get-ChildItem -LiteralPath $dist -Recurse -Include *.bat,*.cmd | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
     $text = [System.IO.File]::ReadAllText($_.FullName)
