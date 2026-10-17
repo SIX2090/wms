@@ -1,6 +1,28 @@
 import os
 from datetime import timedelta
 
+
+def _env_int(name, default, minimum=None, maximum=None):
+    """读取整数环境变量，非法/越界时回退默认值而不是在 import 期抛异常。
+
+    AUDIT-FULL-20261016-001-F09-F06（原 A16）：旧实现直接 int(os.environ.get(...))，
+    空串/非数字会让 import config 抛 ValueError，调度器里的"回退 30 天"永远执行不到；
+    而 config 是 app.py 启动期第一批 import，等于服务直接起不来（或测试收集失败）。
+    """
+    raw = os.environ.get(name)
+    if raw is None or str(raw).strip() == '':
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    if maximum is not None and value > maximum:
+        return default
+    return value
+
+
 # ==================== 基础配置 ====================
 class Config:
     """基础配置"""
@@ -54,7 +76,7 @@ class Config:
     # 自动备份（F1.2：已接入 app/backup_scheduler.py 每日调度，不再是死配置）
     AUTO_BACKUP_ENABLED = os.environ.get('AUTO_BACKUP_ENABLED', 'true').lower() in ('true', '1', 'yes')
     AUTO_BACKUP_TIME = os.environ.get('AUTO_BACKUP_TIME', '02:00')  # 每天凌晨2点自动备份
-    BACKUP_RETENTION_DAYS = int(os.environ.get('BACKUP_RETENTION_DAYS', '30'))  # 保留30天备份
+    BACKUP_RETENTION_DAYS = _env_int('BACKUP_RETENTION_DAYS', 30, minimum=1, maximum=3650)  # 保留30天备份；非法值回退 30
     # 备份目标目录：WMS_BACKUP_DIR 环境变量（默认 C:\wms_backups，见 backup_scheduler.get_backup_dir）
 
     # 本机微信助手拉取云端待发送任务的访问令牌
@@ -65,7 +87,7 @@ class Config:
     PERMANENT_SESSION_LIFETIME = 28800  # 会话有效期8小时
     # AI-LOGIN-F02：登录"记住我"持久 Cookie 有效期（手机浏览器关掉后仍免登录）。
     # 默认 365 天，每次重新登录自动顺延；环境变量 WMS_REMEMBER_LOGIN_DAYS 可调，设 0 关闭长登录。
-    REMEMBER_COOKIE_DURATION = timedelta(days=int(os.environ.get('WMS_REMEMBER_LOGIN_DAYS', '365') or 0))
+    REMEMBER_COOKIE_DURATION = timedelta(days=_env_int('WMS_REMEMBER_LOGIN_DAYS', 365, minimum=0, maximum=3650))
     WTF_CSRF_TIME_LIMIT = 28800  # CSRF 令牌有效期 8 小时（与会话有效期一致，避免用户操作中途令牌过期）
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_HTTPONLY = True
