@@ -32723,7 +32723,7 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
         
     except Exception as e:
         app.logger.error(f'单据OCR识别失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'识别失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'识别失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/document_feedback', methods=['POST'])
 @login_required
@@ -32829,7 +32829,7 @@ def api_ai_document_feedback():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'字段反馈记录失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'记录失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'记录失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/document_quality')
 @login_required
@@ -32914,7 +32914,7 @@ def api_ai_document_quality():
         })
     except Exception as e:
         app.logger.error(f'文档质量指标聚合失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'聚合失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'聚合失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/ai/warehouse_workbench')
 @login_required
@@ -32956,7 +32956,7 @@ def api_ai_warehouse_workbench():
         return jsonify({'status': 'success', 'workbench': result})
     except Exception as e:
         app.logger.error(f'仓库工作台构建失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'构建失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/ai/purchase_workbench')
 @login_required
@@ -33003,7 +33003,7 @@ def api_ai_purchase_followup_workbench():
         return jsonify({'status': 'success', 'workbench': result})
     except Exception as e:
         app.logger.error(f'采购跟进工作台构建失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'构建失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/ai/sales_workbench')
 @login_required
@@ -33050,7 +33050,7 @@ def api_ai_sales_followup_workbench():
         return jsonify({'status': 'success', 'workbench': result})
     except Exception as e:
         app.logger.error(f'销售跟进工作台构建失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'构建失败，请稍后重试或联系管理员'}), 500
 
 # ===== AI-R13 Agent 预算、取消、熔断和并发控制 API 端点 =====
 
@@ -33097,7 +33097,7 @@ def api_ai_agent_budget_check():
         })
     except Exception as e:
         app.logger.error(f'AI-R13 预算检查失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'检查失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'检查失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/agent_concurrency_lock', methods=['POST'])
 @login_required
@@ -33140,7 +33140,7 @@ def api_ai_agent_concurrency_lock():
             return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
     except Exception as e:
         app.logger.error(f'AI-R13 并发锁操作失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'操作失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/agent_circuit_breaker', methods=['POST'])
 @login_required
@@ -33197,7 +33197,7 @@ def api_ai_agent_circuit_breaker():
             return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
     except Exception as e:
         app.logger.error(f'AI-R13 熔断器操作失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'操作失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/agent_human_confirmation', methods=['POST'])
 @login_required
@@ -33267,7 +33267,7 @@ def api_ai_agent_human_confirmation():
             return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
     except Exception as e:
         app.logger.error(f'AI-R13 人工确认操作失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'操作失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/agent_retry_record', methods=['POST'])
 @login_required
@@ -33322,7 +33322,7 @@ def api_ai_agent_retry_record():
             return jsonify({'status': 'error', 'msg': f'未知 action：{action}'}), 400
     except Exception as e:
         app.logger.error(f'AI-R13 重试记录操作失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'操作失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'操作失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/agent_validate_safety', methods=['POST'])
 @login_required
@@ -33384,7 +33384,7 @@ def api_ai_agent_validate_safety():
         })
     except Exception as e:
         app.logger.error(f'AI-R13 安全校验失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'校验失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/data_cleanup_preview', methods=['POST'])
 @login_required
@@ -33443,7 +33443,7 @@ def api_ai_data_cleanup_preview():
         })
     except Exception as e:
         app.logger.error(f'AI-R14 清理预览失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'预览失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'预览失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/data_cleanup_execute', methods=['POST'])
 @login_required
@@ -33498,7 +33498,7 @@ def api_ai_data_cleanup_execute():
         })
     except Exception as e:
         app.logger.error(f'AI-R14 清理执行失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'执行失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'执行失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/data_cleanup_logs', methods=['GET'])
 @login_required
@@ -33515,7 +33515,7 @@ def api_ai_data_cleanup_logs():
         })
     except Exception as e:
         app.logger.error(f'AI-R14 清理日志查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 def _ai_data_retention_config(dry_run=True):
     """构建 AI 数据保留配置：优先读取 SystemSetting 中管理员保存的值，缺省回退默认。
@@ -33569,7 +33569,7 @@ def api_ai_data_retention_config_get():
         })
     except Exception as e:
         app.logger.error(f'AI-R14 保留配置查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/data_retention_config', methods=['POST'])
 @login_required
@@ -33624,7 +33624,7 @@ def api_ai_data_retention_config_post():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R14-F01 保留配置保存失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'保存失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/data_retention_validate', methods=['POST'])
 @login_required
@@ -33687,7 +33687,7 @@ def api_ai_data_retention_validate():
         })
     except Exception as e:
         app.logger.error(f'AI-R14 安全校验失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'校验失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'校验失败，请稍后重试或联系管理员'}), 500
 
 # ===== AI-R15 业务质量指标和版本对比 API 端点 =====
 
@@ -33741,7 +33741,7 @@ def api_ai_business_quality_snapshot():
         })
     except Exception as e:
         app.logger.error(f'AI-R15 业务质量快照失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'快照计算失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'快照计算失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/business_quality_compare', methods=['POST'])
 @login_required
@@ -33809,7 +33809,7 @@ def api_ai_business_quality_compare():
         })
     except Exception as e:
         app.logger.error(f'AI-R15 版本对比失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'版本对比失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'版本对比失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/business_quality_metrics', methods=['GET'])
 @login_required
@@ -33829,7 +33829,7 @@ def api_ai_business_quality_metrics():
         })
     except Exception as e:
         app.logger.error(f'AI-R15 指标定义查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/ai/business_quality')
 @login_required
@@ -33901,7 +33901,7 @@ def api_ai_business_quality_drilldown():
         })
     except Exception as e:
         app.logger.error(f'AI-R15-F01 样本下钻失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/launch_acceptance', methods=['GET'])
 # AI_TASK: AI-R17
@@ -33927,7 +33927,7 @@ def api_ai_launch_acceptance():
         })
     except Exception as e:
         app.logger.error(f'AI-R17 上线验收报告查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/launch_acceptance/metrics', methods=['GET'])
 # AI_TASK: AI-R17
@@ -33948,7 +33948,7 @@ def api_ai_launch_acceptance_metrics():
         })
     except Exception as e:
         app.logger.error(f'AI-R17 指标定义查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 # ===== AI-R17-F01 真实用户白名单灰度与一键回滚闭环 端点 =====
 
@@ -34034,7 +34034,7 @@ def api_ai_rollout_status():
         })
     except Exception as e:
         app.logger.error(f'AI-R17-F01 灰度状态查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/allowlist', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -34074,7 +34074,7 @@ def api_ai_rollout_allowlist():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 维护白名单失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'保存失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'保存失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/shutdown', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -34125,7 +34125,7 @@ def api_ai_rollout_shutdown():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 一键关闭失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'关闭失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'关闭失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/restore', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -34202,7 +34202,7 @@ def api_ai_rollout_restore():
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 一键恢复失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'恢复失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'恢复失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/audit', methods=['GET'])
 # AI_TASK: AI-R17-F01
@@ -34242,7 +34242,7 @@ def api_ai_rollout_audit():
         })
     except Exception as e:
         app.logger.error(f'AI-R17-F01 审计查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/fallback_tasks', methods=['GET'])
 # AI_TASK: AI-R17-F01
@@ -34277,7 +34277,7 @@ def api_ai_rollout_fallback_tasks():
         })
     except Exception as e:
         app.logger.error(f'AI-R17-F01 降级任务查询失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'查询失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'查询失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/rollout/fallback_tasks/<task_id>', methods=['POST'])
 # AI_TASK: AI-R17-F01
@@ -34310,7 +34310,7 @@ def api_ai_rollout_fallback_task_handle(task_id):
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F01 处理降级任务失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'处理失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'处理失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/acceptance/daily_snapshot', methods=['POST'])
 @login_required
@@ -34377,11 +34377,11 @@ def api_ai_acceptance_daily_snapshot():
             'msg': f'已采集 {target_date} 验收快照',
         })
     except ValueError as e:
-        return jsonify({'status': 'error', 'msg': f'日期格式错误：{str(e)}'}), 400
+        return jsonify({'status': 'error', 'msg': f'日期格式错误，请稍后重试或联系管理员'}), 400
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F02 采集每日快照失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'采集失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'采集失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/acceptance/daily_snapshots')
 @login_required
@@ -34520,11 +34520,11 @@ def api_ai_acceptance_evidence_package():
             'msg': f'已构建 {package.start_date}~{package.end_date} 验收证据包',
         })
     except ValueError as e:
-        return jsonify({'status': 'error', 'msg': f'日期格式错误：{str(e)}'}), 400
+        return jsonify({'status': 'error', 'msg': f'日期格式错误，请稍后重试或联系管理员'}), 400
     except Exception as e:
         db.session.rollback()
         app.logger.error(f'AI-R17-F02 构建证据包失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'构建失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'构建失败，请稍后重试或联系管理员'}), 500
 
 @app.route('/api/ai/acceptance/evidence_package/<int:package_id>')
 @login_required

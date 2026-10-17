@@ -770,7 +770,7 @@ def register_material_routes(app):
             db.session.commit()
         except Exception as e:  # noqa: BLE001
             db.session.rollback()
-            return jsonify({'status': 'error', 'msg': f'状态更新失败：{str(e)}'}), 500
+            return jsonify({'status': 'error', 'msg': f'状态更新失败，请稍后重试或联系管理员'}), 500
         log_audit('update', 'material', material.id,
                   f'物料状态：{old_status} → {new_status}',
                   old_data={'status': old_status}, new_data={'status': new_status})
@@ -1092,7 +1092,7 @@ def register_material_routes(app):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'数据库操作失败: {e}')
-            return api_error(f'数据库操作失败: {str(e)}')
+            return api_error(f'数据库操作失败: 请稍后重试或联系管理员')
 
         # 记录操作日志
         log_operation('删除物料', f'批量删除物料，成功 {success_count} 条，失败 {fail_count} 条', 'material')
@@ -1449,8 +1449,8 @@ def register_material_routes(app):
             except Exception as e:
                 db.session.rollback()
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return api_error(f'导入失败：{str(e)}')
-                flash(f'导入失败：{str(e)}', 'danger')
+                    return api_error(f'导入失败，请稍后重试或联系管理员')
+                flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('material_list'))
             msg = f'物料导入成功，共导入 {count} 条'
             if skip:
@@ -1470,7 +1470,7 @@ def register_material_routes(app):
         except Exception as e:
             db.session.rollback()
             if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return api_error(f'物料导入失败：{str(e)}')
+                return api_error(f'物料导入失败，请稍后重试或联系管理员')
             flash('物料导入失败，请稍后重试', 'danger')
         return redirect(url_for('material_list'))
 

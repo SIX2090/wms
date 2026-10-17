@@ -832,4 +832,4 @@ def register_after_sale_out_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'售后出库导入失败: {e}')
-            return api_error(f'售后出库导入失败：{str(e)}')
+            return api_error(f'售后出库导入失败，请稍后重试或联系管理员')

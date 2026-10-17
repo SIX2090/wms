@@ -212,4 +212,4 @@ def api_document_ocr_excel():
     except Exception as e:  # noqa: BLE001
         from flask import current_app
         current_app.logger.error(f'OCR导出Excel失败: {e}')
-        return jsonify({'status': 'error', 'msg': f'导出失败：{str(e)}'}), 500
+        return jsonify({'status': 'error', 'msg': f'导出失败，请稍后重试或联系管理员'}), 500

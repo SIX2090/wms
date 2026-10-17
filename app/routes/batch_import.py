@@ -274,8 +274,8 @@ def register_batch_import_routes(app):
             except Exception as e:
                 db.session.rollback()
                 if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return api_error(f'导入失败：{str(e)}')
-                flash(f'导入失败：{str(e)}', 'danger')
+                    return api_error(f'导入失败，请稍后重试或联系管理员')
+                flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('batch_import_page'))
             msg = f'领料单导入成功，共导入 {count} 张单据'
             if skip:
@@ -293,8 +293,8 @@ def register_batch_import_routes(app):
         except Exception as e:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return api_error(f'领料单导入失败：{str(e)}')
-            flash(f'领料单导入失败：{str(e)}', 'danger')
+                return api_error(f'领料单导入失败，请稍后重试或联系管理员')
+            flash(f'领料单导入失败，请稍后重试或联系管理员', 'danger')
         return redirect(url_for('batch_import_page'))
 
     @app.route('/import/in_order', methods=['POST'])
@@ -612,8 +612,8 @@ def register_batch_import_routes(app):
             except Exception as e:
                 db.session.rollback()
                 if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                    return api_error(f'导入失败：{str(e)}')
-                flash(f'导入失败：{str(e)}', 'danger')
+                    return api_error(f'导入失败，请稍后重试或联系管理员')
+                flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('batch_import_page'))
             msg = f'入库单导入成功，共导入 {count} 张单据'
             if skip:
@@ -631,8 +631,8 @@ def register_batch_import_routes(app):
         except Exception as e:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-                return api_error(f'入库单导入失败：{str(e)}')
-            flash(f'入库单导入失败：{str(e)}', 'danger')
+                return api_error(f'入库单导入失败，请稍后重试或联系管理员')
+            flash(f'入库单导入失败，请稍后重试或联系管理员', 'danger')
         return redirect(url_for('batch_import_page'))
 
     @app.route('/batch_import')

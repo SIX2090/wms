@@ -728,7 +728,7 @@ def register_purchase_request_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'删除采购申请单失败: {str(e)}')
-            return api_error(f'删除失败：{str(e)}')
+            return api_error(f'删除失败，请稍后重试或联系管理员')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/purchase_request/batch_delete', methods=['POST'])
@@ -873,4 +873,4 @@ def register_purchase_request_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'采购申请导入失败: {e}')
-            return api_error(f'采购申请导入失败：{str(e)}')
+            return api_error(f'采购申请导入失败，请稍后重试或联系管理员')

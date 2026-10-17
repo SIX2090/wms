@@ -816,4 +816,4 @@ def register_adjustment_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'库存调整导入失败: {e}')
-            return api_error(f'库存调整导入失败：{str(e)}')
+            return api_error(f'库存调整导入失败，请稍后重试或联系管理员')

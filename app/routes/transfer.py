@@ -965,7 +965,7 @@ def register_transfer_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'库存调拨导入失败: {e}')
-            return api_error(f'库存调拨导入失败：{str(e)}')
+            return api_error(f'库存调拨导入失败，请稍后重试或联系管理员')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/transfer/<int:id>/batch_add_items', methods=['POST'])

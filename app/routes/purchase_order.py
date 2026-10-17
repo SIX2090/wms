@@ -371,7 +371,7 @@ def register_purchase_order_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'采购单导入失败: {e}')
-            return api_error(f'采购单导入失败：{str(e)}')
+            return api_error(f'采购单导入失败，请稍后重试或联系管理员')
 
     @app.route('/purchase_order/add')
     @login_required

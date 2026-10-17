@@ -943,7 +943,7 @@ def register_subcontract_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外加工导入失败: {e}')
-            return api_error(f'委外加工导入失败：{str(e)}')
+            return api_error(f'委外加工导入失败，请稍后重试或联系管理员')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/subcontract/<int:id>/complete', methods=['POST'])
@@ -1655,7 +1655,7 @@ def register_subcontract_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外发料导入失败: {e}')
-            return api_error(f'委外发料导入失败：{str(e)}')
+            return api_error(f'委外发料导入失败，请稍后重试或联系管理员')
 
     @app.route('/subcontract_receive')
     @app.route('/subcontract/receive')
@@ -2339,4 +2339,4 @@ def register_subcontract_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'委外入库导入失败: {e}')
-            return api_error(f'委外入库导入失败：{str(e)}')
+            return api_error(f'委外入库导入失败，请稍后重试或联系管理员')

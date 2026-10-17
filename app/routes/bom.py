@@ -272,6 +272,7 @@ def register_bom_routes(app):
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': bom.id, 'order_no': bom.bom_no})
         except ValueError as e:
             db.session.rollback()
+            # ValueError 是业务校验（单位/成本范围等），保留可行动的中文文案。
             return api_error(str(e))
         except Exception as e:
             db.session.rollback()

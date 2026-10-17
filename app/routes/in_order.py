@@ -2611,7 +2611,7 @@ def register_in_order_routes(app):
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'入库单转领料单失败: {e}')
-            return api_error(f'转换失败：{str(e)}')
+            return api_error(f'转换失败，请稍后重试或联系管理员')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/in_order/batch_delete', methods=['POST'])
