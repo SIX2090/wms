@@ -50,5 +50,20 @@
     "失败后程序或共享依赖可能部分改变，保留现场，不声称完整回滚",
     "A09继续验证真实首次初始化安全配置及NSSM托管启动协同",
     "生产旧服务保持运行；F02待人工统一重启，不绕过自动审批"
-  ]
+  ],
+  "commit": "ab283c6fa52684551b49977261f06b4d0db17e92",
+  "ci": {
+    "WMS CI": {
+      "run": 38993307366,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 38993307353,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 38993307362,
+      "result": "success"
+    }
+  }
 }
