@@ -1687,9 +1687,9 @@ document.querySelectorAll('.toolbar-btn-danger[data-id]').forEach(function(btn) 
 </script>
 
 {% if order.status == 'pending' %}
-<script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}"></script>
-<script src="{{ url_for('static', filename='js/excel-table.js') }}"></script>
-<script src="{{ url_for('static', filename='js/excel-import-export.js') }}"></script>
+<script src="{{ url_for('static', filename='js/xlsx.full.min.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/excel-table.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/excel-import-export.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 let excelTable = null;
 document.addEventListener('DOMContentLoaded', function() {

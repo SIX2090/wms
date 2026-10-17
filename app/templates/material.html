@@ -1242,7 +1242,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/material_merge.js') }}"></script>
+<script src="{{ url_for('static', filename='js/material_merge.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const quickSelectData = {
     category: [

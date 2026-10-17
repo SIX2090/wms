@@ -81,7 +81,7 @@
     <iframe class="print-iframe" id="printFrame" name="printFrame"></iframe>
 
     <script src="{{ url_for('static', filename='cdn/jquery-3.6.4.min.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <script>
     // ==================== 打印工作站守护逻辑 ====================
     (function() {
