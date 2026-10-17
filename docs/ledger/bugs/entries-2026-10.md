@@ -813,5 +813,6 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
   - F06 16 处 4 连问号乱码文案全部修复 + 回归守卫；b16c08e3。
   - F07 /print_queue/jobs：CSRF 豁免只服务 Bearer，Web 会话分支强制校验 token（审计 S3）；a827fa2f。
 - 回归：test_audit_multiline_stock_aggregation（2）、test_audit_legacy_quick_issue_replay（1）、test_audit_ai_llm_https_warning（2）、test_audit_no_mojibake（1）、test_audit_data_repairs_tool（2）、test_audit_growth_ratchets（2）、test_audit_print_queue_csrf（2）。
-- 状态：已修复（本地验证；待推送 CI 复核）。
-- 生效确认：待确认；旧委外端点/限流/门禁为下次调用生效，脚本无生产副作用。
+- 状态：已修复（2026-10-18）：a10cbc74；WMS CI 39072330430、AI Verification 39072330438、Perf 39072330444 均 success。
+  过程记录：df7832a1 首轮 CI 仅 2 个 INVENTORY_TRUTH 行号引用因 app.py 变长漂移而红；修复提交用 WMS_SKIP_CI_GATE=1 推送（唯一失败即该提交修复项），随后 a10cbc74 全绿。
+- 生效确认：**CI 已确认（2026-10-18）**；旧委外端点/限流/门禁为下次调用生效，脚本无生产副作用，未对生产执行数据写入。

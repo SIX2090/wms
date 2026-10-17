@@ -839,6 +839,8 @@ AI 盘点取总账（§4.2）、serialize_material 给前端全局库存（B11�
 | 013-F06 | 16 处用户可见 4 连问号乱码（§5.5） | b16c08e3 | 全部修复 + 1 条全仓扫描守卫 |
 | 013-F07 | /print_queue/jobs 的 CSRF 豁免对 Web 会话也生效（S3） | a827fa2f | Web 会话无 token 400、Bearer 走令牌；2 用例 |
 
+> CI 证据（2026-10-18）：第三批 a10cbc74 全绿——WMS CI 39072330430、AI Verification 39072330438、Perf 39072330444。首轮 df7832a1 仅 2 处 INVENTORY_TRUTH 行号漂移（新增代码导致 app.py 变长），已在 a10cbc74 修复；该修复提交因门禁阻塞使用 WMS_SKIP_CI_GATE=1 推送，属“红在待修项本身”的例外并已记录。
+
 **第三批后仍未做**：一物多码 4 组合并（需人工确认生产数据；工具已就绪：先 `python scripts/data_repairs.py --db <生产库>` 只读复核，再走页面合并）；模板 fetch 130+/pydantic 279 的机械迁移（已设棘轮，留 Phase 2）。
 
 **报告完。**
