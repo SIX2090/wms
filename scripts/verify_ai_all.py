@@ -75,6 +75,8 @@ CORE_SCRIPTS = SMOKE_SCRIPTS + (
     "verify_ai_sales_draft_validation.py",
     "verify_ai_release_handover.py",
     "verify_ai_acceptance_page.py",
+    # BUG-2026-10-17-011-F08：跨用户隔离此前只在 --level full 下跑、CI 从不执行。
+    "verify_ai_cross_user_isolation.py",
     "verify_startup_auto_update.py",
 )
 

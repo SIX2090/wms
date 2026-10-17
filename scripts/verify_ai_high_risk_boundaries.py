@@ -107,6 +107,11 @@ def main() -> int:
             price=10,
         )
         wms_app.db.session.add(material)
+        # BUG-2026-10-17-011-F03：AI 建单现在强制解析仓库（AGENTS §二）。
+        # 该脚本此前没有仓库夹具，手工确认链路会因"无法确定仓库"被拒。
+        if wms_app.Warehouse.query.filter_by(is_default=True).first() is None:
+            wms_app.db.session.add(wms_app.Warehouse(
+                code='VERIFY-WH', name='验证仓', status='active', is_default=True))
         user = wms_app.User(
             username=username,
             password_hash='not-used',
