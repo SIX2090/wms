@@ -683,3 +683,15 @@ F07B本地最终验收：完整串行4015 passed / 90 skipped（1246.49秒），
 
 
 F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推送main且本地/远程一致；WMS CI39039008996、AI39039009060、性能39039008962全部success。完整4015/90、新32、相邻181、原58脚本及旧代码回注12 failed / 2 passed均齐备；F07A第二轮和F07B合计完成A09代码验收，原18项中10项代码/CI通过、8项待修（A10/A11/A12/A13/A15/A16/A17/A18）。生效确认：入口下次调用读新脚本；仅临时库/假服务/目录连接及系统只读元数据验证，无生产注册/启停/更新/账号操作。F02与人工合并待人工统一重启保留，不将代码验收写成生产已部署。
+
+### BUG-2026-10-17-006: check_ci_green.py 在中文 Windows 控制台（cp936）直接崩溃，§三 门禁命令在默认控制台不可用
+
+- **发现方式**：2026-10-17 起跑检查，在 Windows 默认控制台（stdout 编码 cp936）执行 `python scripts/check_ci_green.py`，脚本以 `UnicodeEncodeError: 'gbk' codec can't encode character '\u2705' in position 2` 退出，**一个工作流状态都没打印出来**（rc=1 但输出只有 traceback）；必须手动加 `PYTHONIOENCODING=utf-8` 才能跑通。
+- **根因**：脚本把 ✅/❌/⏳/🚫/⚠️ 直接交给 `print`，未考虑 stdout 的编码能力。Windows 生产平台的默认控制台/管道编码是 cp936，emoji 不可编码即抛 `UnicodeEncodeError`；CI 跑在 Linux/UTF-8 上永不触发，属"只在生产平台复现"的盲区。
+- **危害**：AGENTS.md §三 把该命令列为**开工前置门禁的推荐检查方式**，在 Windows 上却一次都跑不成功；操作者只能改用人工看板或自行补环境变量，门禁在真实平台等于失效或被绕过（与 BUG-2026-09-23-001 同型：脚本在 CI 绿、在真实消费环境炸）。
+- **修复**：`scripts/check_ci_green.py` 新增 `stdout_encoding()` / `can_encode()` / `icons()` / `marks()` / `configure_stdout()`：按 stdout 编码能力自动降级为 ASCII 标记（`[OK]`/`[FAIL]`/`[WAIT]`/`[NONE]`、`[BLOCKED]`/`[WARN]`），并在任何输出前把 stdout 的 `errors` 设为 `replace` 兜底；UTF-8 环境（Linux CI）输出与行为完全不变。
+- **回归**：新增 `tests/test_check_ci_green_output_encoding.py` 4 用例——①cp936 放行路径不崩且输出 `[OK]`；②cp936 阻断路径不崩且输出 `[FAIL]`/`[BLOCKED]`；③UTF-8 仍输出 emoji（防止过度降级）；④`can_encode` 对不可编码/未知编码返回 False 不抛异常。用 `TextIOWrapper` 替换 `sys.stdout`、桩掉 `latest_run`，不联网。
+- **回退验证**：把 `check_ci_green.py` 换回 HEAD 版本后 **3 failed / 1 passed**——两条 cp936 用例以 `UnicodeEncodeError: 'gbk' codec can't encode character '\u2705' / '\u274c'`（现场原样复现）失败，`can_encode` 契约用例因符号缺失报 `AttributeError`；恢复修复后 **4 passed**，未删改任何既有断言。
+- **同类点已排查**：`scripts/` 下其余脚本按 emoji 字形 grep 复核，本脚本是唯一在**门禁必需路径**上直接打印 emoji 的；其余脚本的 emoji 只出现在非门禁用途的说明文案里，不属 §三 强制命令链。
+- **状态**：已修复（本地提交，尚未推送——本机暂无推送凭证）。
+- **生效确认**：**待确认**——推送后在不设 `PYTHONIOENCODING` 的 Windows 控制台复跑 `python scripts/check_ci_green.py`，确认 rc=0、三工作流全绿且输出为 `[OK]` 标记；Linux CI 侧应仍为 emoji。

@@ -74,8 +74,62 @@ PENDING = {"queued", "in_progress", "requested", "waiting", "pending"}
 FAILED = {"failure", "timed_out", "cancelled", "action_required", "startup_failure", "stale"}
 
 
+# BUG-2026-10-17-006：中文 Windows 控制台（cp936/GBK）无法编码 ✅/❌/🚫 等 emoji，
+# `print` 直接抛 UnicodeEncodeError，使 AGENTS.md §三 推荐的门禁命令在默认 Windows
+# 控制台**完全不可用**（复现：`python scripts/check_ci_green.py` →
+# `UnicodeEncodeError: 'gbk' codec can't encode character '\u2705'`）。
+# 修法：按输出流编码能力自动降级为 ASCII 标记；同时把 stdout 的 errors 设为
+# replace 兜底，任何意外字符（如 API 返回的 emoji 文案）都不会让门禁崩掉。
+UNICODE_ICONS = {"green": "✅", "failed": "❌", "pending": "⏳", "missing": "❓"}
+ASCII_ICONS = {"green": "[OK]", "failed": "[FAIL]", "pending": "[WAIT]", "missing": "[NONE]"}
+UNICODE_MARKS = {"ok": "✅", "blocked": "🚫", "warn": "⚠️"}
+ASCII_MARKS = {"ok": "[OK]", "blocked": "[BLOCKED]", "warn": "[WARN]"}
+
+
 def log(msg: str) -> None:
     print(msg, flush=True)
+
+
+def stdout_encoding() -> str:
+    """当前 stdout 的编码名；拿不到时按 utf-8 处理。"""
+    return getattr(sys.stdout, "encoding", None) or "utf-8"
+
+
+def can_encode(text: str, encoding: str | None = None) -> bool:
+    """输出流编码能否表示 text。不确定（LookupError）时返回 False，走 ASCII 降级。"""
+    try:
+        text.encode(encoding or stdout_encoding())
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
+
+
+def icons() -> dict[str, str]:
+    """状态图标：编码支持 emoji 用 emoji，否则退化为 ASCII 标记。"""
+    if all(can_encode(v) for v in UNICODE_ICONS.values()):
+        return UNICODE_ICONS
+    return ASCII_ICONS
+
+
+def marks() -> dict[str, str]:
+    """结论标记（放行/阻断/告警）同上，随输出流编码能力降级。"""
+    if all(can_encode(v) for v in UNICODE_MARKS.values()):
+        return UNICODE_MARKS
+    return ASCII_MARKS
+
+
+def configure_stdout() -> None:
+    """把 stdout 的错误策略降级为 replace：极端字符也不崩（cp936 下 emoji 变 '?'）。
+
+    必须在任何输出之前调用；不可重配置的流（如测试替身）静默跳过。
+    """
+    reconfigure = getattr(sys.stdout, "reconfigure", None)
+    if not callable(reconfigure):
+        return
+    try:
+        reconfigure(errors="replace")
+    except (ValueError, OSError):
+        pass
 
 
 def resolve_token() -> str | None:
@@ -149,6 +203,11 @@ def main() -> int:
     ap.add_argument("--quiet", action="store_true", help="仅在非绿时输出")
     args = ap.parse_args()
 
+    # BUG-2026-10-17-006：先固定输出流的容错策略，再做任何编码能力探测与输出。
+    configure_stdout()
+    icon = icons()
+    mark = marks()
+
     token = resolve_token()
     results = []
     api_error = None
@@ -195,7 +254,6 @@ def main() -> int:
     if ok and args.quiet:
         return 0
 
-    icon = {"green": "✅", "failed": "❌", "pending": "⏳", "missing": "❓"}
     log("")
     log("=" * 66)
     log("  WMS CI 全绿门禁检查（AGENTS.md §三）")
@@ -211,17 +269,17 @@ def main() -> int:
     log("=" * 66)
 
     if ok:
-        log("  ✅ 三个工作流全绿，允许开工。")
+        log(f"  {mark['ok']} 三个工作流全绿，允许开工。")
         log("")
         return 0
 
-    log("  🚫 门禁阻断：以下工作流非绿，**禁止开始新任务**，请先修绿：")
+    log(f"  {mark['blocked']} 门禁阻断：以下工作流非绿，**禁止开始新任务**，请先修绿：")
     for r in blocked:
         log(f"     - {r['workflow']}（{r['state']}: {r['detail']}）")
         if r["html_url"]:
             log(f"       {r['html_url']}")
     if api_error:
-        log(f"  ⚠️  检查过程出现 API 异常：{api_error}")
+        log(f"  {mark['warn']}  检查过程出现 API 异常：{api_error}")
         log("     无法确认即不放行（本门禁宁可误报阻断，不可漏报放行）。")
     log("")
     return 1
