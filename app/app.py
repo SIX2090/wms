@@ -11360,6 +11360,46 @@ def _ai_parse_material_lines(message):
         seen.add(material.id)
     return parsed
 
+def _ai_match_warehouse(text):
+    """把文本里提到的仓库名/编码匹配为 active 仓库；匹配不到返回 None。"""
+    text = (text or '').strip()
+    if not text:
+        return None
+    active = Warehouse.query.filter_by(status='active').all()
+    upper = text.upper()
+    for wh in active:
+        if text == (wh.name or '') or (wh.code and upper == wh.code.upper()):
+            return wh
+    for wh in sorted(active, key=lambda item: len(item.name or ''), reverse=True):
+        if wh.name and wh.name in text:
+            return wh
+        if wh.code and wh.code.upper() in upper:
+            return wh
+    return None
+
+
+def _ai_default_warehouse():
+    """默认仓：优先 is_default，其次"系统中只有一个 active 仓"时兜底。"""
+    active = Warehouse.query.filter_by(status='active').all()
+    for wh in active:
+        if wh.is_default:
+            return wh
+    return active[0] if len(active) == 1 else None
+
+
+def _ai_resolve_draft_warehouse(message='', explicit=None):
+    """AI 建单统一仓库解析（AGENTS §二 / 审计 P1）。
+
+    顺序：显式文本 > 指令中出现的仓库名/编码 > 默认仓 > 单仓兜底。
+    解析不到返回 None，由调用方拒绝建单（不再生成"无仓库"的不可完成草稿）。
+    """
+    return _ai_match_warehouse(explicit) or _ai_match_warehouse(message) or _ai_default_warehouse()
+
+
+def _ai_warehouse_error():
+    return '无法确定仓库：请在系统设置里配置默认仓库，或在指令中写明仓库（如：项目仓）。'
+
+
 def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
     allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
     if not allowed:
@@ -11370,6 +11410,9 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
         error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
         app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
         return None, error_msg
+    warehouse = _ai_resolve_draft_warehouse(message)
+    if warehouse is None:
+        return None, _ai_warehouse_error()
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
@@ -11393,6 +11436,7 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
             date=date.today(),
             business_type='领料单',
             purpose='AI助手生成草稿',
+            warehouse=warehouse.name,
             remark=(message or '')[:200],
             status='pending',
             operator_id=current_user.id,
@@ -11441,6 +11485,9 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
         return None, error_msg
     if '采购' in (message or '') and purchase_in_order_requires_order():
         return None, '采购入库必须关联采购订单，请从采购订单下推或选单生成。AI 可以先帮你查采购订单。'
+    warehouse = _ai_resolve_draft_warehouse(message)
+    if warehouse is None:
+        return None, _ai_warehouse_error()
     items = _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成产品入库单 A001 20 B002 5'
@@ -11464,6 +11511,7 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
             date=date.today(),
             business_type='产品入库',
             purpose='AI助手生成草稿',
+            warehouse=warehouse.name,
             remark=(message or '')[:200],
             status='pending',
             operator_id=current_user.id,
@@ -11543,7 +11591,13 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
 
     from_loc, to_loc = _ai_extract_transfer_locations(message)
     if not from_loc or not to_loc:
-        return None, '没有识别到调出/调入仓库。可以这样说：从A仓库转到B仓库 M001 100 M002 20'
+        return None, '没有识别到调出/调入仓库。可以这样说：从项目仓转到库存仓 M001 100 M002 20'
+    from_warehouse = _ai_match_warehouse(from_loc)
+    to_warehouse = _ai_match_warehouse(to_loc)
+    if from_warehouse is None or to_warehouse is None:
+        return None, f'未识别到调出/调入仓库（{from_loc} → {to_loc}），请使用系统里已启用的仓库名称或编码。'
+    if from_warehouse.id == to_warehouse.id:
+        return None, '调出仓库与调入仓库不能相同'
 
     items = _ai_parse_material_lines(message)
     if not items:
@@ -11570,8 +11624,10 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     order = TransferOrder(
         transfer_no=generate_order_no('TF'),
         date=date.today(),
-        from_location=from_loc,
-        to_location=to_loc,
+        from_warehouse=from_warehouse.name,
+        to_warehouse=to_warehouse.name,
+        from_location=from_warehouse.name,
+        to_location=to_warehouse.name,
         remark=(message or '')[:200],
         status='pending',
         operator_id=current_user.id,
@@ -11600,8 +11656,8 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
         'order_no': order.transfer_no,
         'url': url_for('transfer_detail', id=order.id),
         'items': [{'code': m.code, 'name': m.name, 'quantity': q} for m, q in items],
-        'from_location': from_loc,
-        'to_location': to_loc,
+        'from_location': from_warehouse.name,
+        'to_location': to_warehouse.name,
     }
     _ai_draft_idempotency().complete(
         slot.record,
@@ -11627,12 +11683,16 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
         app.logger.warning(f'文档任务 {document_job_id} 门禁校验失败: {gate_reasons}')
         return None, error_msg
 
+    warehouse = _ai_resolve_draft_warehouse(message)
+    if warehouse is None:
+        return None, _ai_warehouse_error()
+    warehouse_stock = get_warehouse_stock_quantities(warehouse)
     items = _ai_parse_material_lines(message)
-    # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以系统库存为准）
+    # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以仓库级账面为准）
     if not items:
         # 尝试仅按物料名称/编码匹配（不要求带数量）
         candidates = _ai_find_materials_from_message(message, limit=20)
-        items = [(m, normalize_stock_quantity(m.stock or 0)) for m in candidates]
+        items = [(m, normalize_stock_quantity(warehouse_stock.get(m.id, 0))) for m in candidates]
     if not items:
         return None, '没有识别到要盘点的物料。可以这样说：盘点 M001 M002 M003'
 
@@ -11654,6 +11714,7 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     order = InventoryCheck(
         check_no=generate_order_no('CK'),
         date=date.today(),
+        warehouse=warehouse.name,
         remark=(message or '')[:200],
         status='pending',
         operator_id=current_user.id,
@@ -11661,7 +11722,7 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     db.session.add(order)
     db.session.flush()
     for material, _ in items:
-        sys_stock = normalize_stock_quantity(material.stock or 0)
+        sys_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
         db.session.add(InventoryCheckItem(
             inventory_check_id=order.id,
             material_id=material.id,
@@ -11680,7 +11741,7 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     response = {
         'order_no': order.check_no,
         'url': url_for('check_detail', id=order.id),
-        'items': [{'code': m.code, 'name': m.name, 'system_stock': normalize_stock_quantity(m.stock or 0)} for m, _ in items],
+        'items': [{'code': m.code, 'name': m.name, 'system_stock': normalize_stock_quantity(warehouse_stock.get(m.id, 0))} for m, _ in items],
     }
     _ai_draft_idempotency().complete(
         slot.record,
@@ -11722,9 +11783,12 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
         adjustment_type = 'loss'
         type_label = '盘亏（默认）'
 
+    warehouse = _ai_resolve_draft_warehouse(message)
+    if warehouse is None:
+        return None, _ai_warehouse_error()
     items = _ai_parse_material_lines(message)
     if not items:
-        return None, '没有识别到物料和数量。可以这样说：报废 M001 5  /  盘盈 A002 10'
+        return None, '没有识别到物料和数量。可以这样说：报废 项目仓 M001 5  /  盘盈 库存仓 A002 10'
 
     business_key = _ai_draft_business_key_from_items(
         items,
@@ -11749,6 +11813,7 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
         date=date.today(),
         adjustment_type=adjustment_type,
         source_type='manual',
+        warehouse=warehouse.name,
         remark=(message or '')[:200],
         status='pending',
         operator_id=current_user.id,
@@ -11761,7 +11826,7 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
         db.session.add(AdjustmentOrderItem(
             adjustment_order_id=order.id,
             material_id=material.id,
-            location=material.spec or '',
+            location='',
             quantity=signed_qty,
             unit_id=material.unit_id,
             reason=(message or '')[:200],
