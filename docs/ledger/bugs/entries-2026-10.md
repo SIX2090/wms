@@ -257,6 +257,7 @@
 - **回归锁**：`tests/test_bug_2026_10_06_002_ai_tools_alert_status.py`（8 用例）。
 - **测试踩坑（勿删注释）**：① set_system_setting 不自动 commit，退出 app_context 事务回滚 → 必须双 commit；② Material(unit="个") 触发 backref 炸 `'str' object has no _sa_instance_state'`，须 unit_id + 预建 Unit；③ 跨 context 存 ORM 对象 DetachedInstanceError，存 id；④ Flask 外层 app_ctx 存活时 test_client/test_request_context 复用同一 g，login_user 写的 g._login_user 泄漏污染后续请求（测试脚本须 seed 后退出 ctx 再操作 client）。
 - **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-002 AI 库存工具补 danger 档 + value 接口 MaterialCategory 500`）。
+- **生效确认**：历史条目补登；原修复已合并（见 2026-10-06 CI 修复补记），生产生效以当时部署为准，本轮未重新复核。
 
 ## BUG-2026-10-06-003：AI v1 低库存报告与 v2 工具口径分叉（总账列 + max_stock 补货算法）
 - **现象**（深度检测遗留问题复核，用户拍板立即修复）：AI 对话关键词入口（"补货建议/低库存报告"/intent=analysis_low_stock，app.py:10064 `_ai_analysis_low_stock_report()`）与 v2 工具 `/api/ai/v2/tools/inventory/low-stock` 同数据不同结果：① v1 读 `Material.stock` 总账列且无 stock-truth 豁免（A11 违规：低库存判定属校验语境）；② v1 建议补货量按 `max_stock - stock` 计算，v2 按 safety_stock 口径，同一物料两入口给出不同补货数字；③ v1 排序只按 min_stock 差值，无两级告警概念。
@@ -265,6 +266,7 @@
 - **验证**：3 场景回归测试全绿——B1 v1/v2 同数据同结果（danger 档 M001 两边都报、库存数一致、M002 normal 两边都不报）/ B2 开关关闭不报 / B3 **两仓脏数据场景**（总账 stock=999 但 B仓流水仅 5 → 全仓汇总 5≤min_stock 应报 low；旧实现读总账列会误判 normal 漏报——本用例在修复前确实红）。存量防破坏：10-05-003/004 + 10-06-001/002 共 20 项全绿。
 - **回归锁**：`tests/test_bug_2026_10_06_003_v1_low_stock_report_scope.py`（3 用例）。
 - **推送与 CI**：待 push（atomic action：`fix(ai): BUG-2026-10-06-003 v1 低库存报告转调 v2 工具统一口径`）。
+- **生效确认**：历史条目补登；9cd1710 后 CI 于 5013764 全绿（见下方补记），生产生效以当时部署为准。
 
 ---
 ## 2026-10-06 CI 修复补记（晚间）
@@ -294,6 +296,7 @@ BUG-2026-10-06-003 修复（9cd1710）引发 CI 连锁红，三个根因全部�
   3. 新增 `_ai_vision_extracted_fallback_reply`：渲染单据类型/单号/供应商/明细（编码、名称、规格、数量、单位，上限 20 条）；空提取（无 items 且无单号）返回空串、保持原错误分支。
 - **验证**：tests/verify_bug_2026_10_07_004_vision_json_only.py 7 项静态契约全过；关联回归 62 passed（OCR/draft/chat endpoint/wechat share/document confirmation）；lint --staged 0 违规；app.py ast.parse 语法通过。
 - **关联**：修复脚本 tools/fix_bug_2026_10_07_004_vision_json_only.py（幂等）。
+- **生效确认**：历史条目补登；7 项静态契约与关联回归 62 passed，生产生效以当时部署为准。
 
 
 ### BUG-2026-09-22-001-F01: Robolectric SQLite 配置复发的子修复（2026-10-13）
@@ -757,3 +760,42 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归：tests/test_console_encoding_gbk.py 5 用例——gbk/utf-8 下两脚本均不崩溃且 rc=0；_glyph 在 gbk 降级、在 utf-8 保留符号。回退修复后 gbk 用例必红。
 - 状态：已修复（2026-10-18 本地验证：GBK/UTF-8 双跑 rc=0、真实钩子 HOOK_EXIT=0；待推送 CI 复核）。
 - 生效确认：**已确认（2026-10-18）**：WMS CI 39057235881（ad1e1789）9/9 job success，AI Verification 39057235935 / Perf 39057235869 同 SHA success；本机默认 cp936 控制台实跑 .githooks/pre-commit（含 staged JS）HOOK_EXIT=0，输出已降级为 [OK]。pre-commit 下次提交即读新脚本，无需重启服务。
+
+
+## 已修复：审计报告剩余问题整改（第二轮，2026-10-18）
+
+### BUG-2026-10-17-011: 审计剩余 AI / 安全 / 前端 / 质量项（子修复 F01–F09）
+
+- 背景：2026-10-18 审计报告 §4–§9 的 P1/P2 项，用户要求全面修复（仅排除 app.py 按域拆分 / A10 行数棘轮）。
+- 修复：
+  - F01 标签模板存储型 XSS：label_template_detail.html 改 tojson + JSON.parse（含 try/catch 回退），写入侧 _parse_label_layout 只接受合法 JSON 对象；2b06a115。
+  - F02 报表 AI 洞察未转义：report_dashboard.html 对行内容/错误/提示统一 escapeHtml；b238a6ad。
+  - F03 AI 5 类草稿仓库层：_ai_match_warehouse/_ai_resolve_draft_warehouse，入/出/调拨/盘点/调整全部写 warehouse；盘点 system_stock 改仓库级 get_warehouse_stock_quantities；无仓库拒绝建单；1b870eda。
+  - F04 幂等 processing 租约：默认 600s（WMS_AI_DRAFT_LEASE_SECONDS），超时自动接管；64dc6bb4。
+  - F05 人工确认门禁接线：OCR 落库写 low_confidence_fields（confidence=0 视为未知），门禁先读风险标记、缺失任务拒绝、异常 fail-closed；9f33205d。
+  - F06 低置信度阈值单一来源：ai/documents/constants.py = 0.80，app/acceptance 全部引用；86e2345b。
+  - F07 lint 覆盖：A2 支持 blueprint 且不再豁免 app/ai，A13 标题放宽到 ##–####；2c4c22d6。
+  - F08 CI 覆盖：verify_ai_cross_user_isolation 并入 core，verifier 补默认仓夹具；3e44010b。
+  - F09 AI 对话限流：chat/stream 与 warehouse_assistant 每用户 20 次/分钟（进程内滑动窗口）；09572ed4。
+- 回归：新增 test_label_layout_script_encoding（真实渲染 + node 执行）、test_label_layout_validation、test_report_ai_insights_escaping、test_ai_draft_warehouse、test_ai_draft_idempotency_lease、test_ai_document_gate_wiring、test_audit_low_confidence_threshold、test_audit_lint_a2_blueprints、test_ai_rate_guard。
+- 状态：已修复（本地验证；待推送 CI 复核）。
+- 生效确认：待确认；模板改动需重启 WMS 生效（R3），其余为下次调用读新代码。
+
+### BUG-2026-10-17-012: 批量入口 / 初始化 / 运行现场项（子修复 F01–F05）
+
+- 修复：
+  - F01 批量完成/反提交回写来源采购订单状态（与单张一致）；034ceaae。
+  - F02 批量反提交补 _source_has_active_push 守卫，避免下游已领料时单据卡死；034ceaae。
+  - F03 批量完成出库对领料/其他/采购退货校验仓库停用；0 成功返回 error 契约；034ceaae。
+  - F04 业务数据初始化改为"先删③流水再归零①"，关键表删除失败即中止；1a133f3d。
+  - F05 启动备份防抖（默认 600s）+ 完整性校验 + sidecar 清理 + 保留数可配；311ff643；pytest 日志隔离 14a55e64。
+- 回归：test_audit_batch_entry_guards、test_audit_init_business_data_order、test_audit_startup_backup_debounce。
+- 状态：已修复（本地验证；待推送 CI 复核）。
+- 生效确认：待确认；启动备份/日志为下次启动生效，批量与初始化为下次调用生效。
+
+### 本轮未纳入（明确记录，不假装已修）
+
+- app.py 按域拆分 / A10 行数棘轮：用户明确排除（风险高）。
+- 模板内联原生写 fetch 130 处、A8 pydantic 279 处书面豁免：属大规模机械改造，需要逐页回归与独立排期；本轮未动，计入 Phase 2 路线图。
+- 一物多码 4 组合并、库位账 2 行残留、价格/成本维度：涉及生产数据或产品决策，只出方案不擅动。
+- verify_ai_all --level full 仍剩 2 个脚本本地失败（photo_document_flow / stage3_agents 的补货 Agent），未纳入 CI；已开始把跨用户隔离等通过的脚本并入 core。
