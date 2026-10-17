@@ -12,6 +12,11 @@ conftest.py 先于一切测试模块导入，在此固定内存库环境，
 from __future__ import annotations
 
 import os
+import tempfile
+
+# 审计 §3.3：app 导入期日志默认写 app/logs/app.log，测试会把生产日志淹没。
+# 测试进程改用临时日志文件；显式设置了 LOG_FILE 的环境保持不变。
+os.environ.setdefault("LOG_FILE", os.path.join(tempfile.gettempdir(), "wms_pytest_app.log"))
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
