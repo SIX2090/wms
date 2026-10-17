@@ -94,7 +94,7 @@
     /**
      * 统一请求入口
      */
-    function request(method, url, options) {
+    function request(method, url, options, raw) {
         options = options || {};
         var data = options.data;
         var query = options.query;
@@ -151,6 +151,9 @@
             return response.json();
         })
         .then(function(res) {
+            // BUG-2026-10-17-014-F06：raw 模式返回完整响应（含 status/page/total_pages），
+            // 供需要分页元数据的调用方使用；默认模式仍自动解包 data。
+            if (raw) return res;
             // 业务状态判断
             if (res && res.status === 'success') {
                 return res.data !== undefined ? res.data : res;
@@ -171,6 +174,15 @@
     var api = {
         get: function(url, options) {
             return request('GET', url, options);
+        },
+        // 返回完整响应体（不解包 data），用于需要分页元数据的场景
+        getRaw: function(url, options) {
+            return request('GET', url, options, true);
+        },
+        postRaw: function(url, data, options) {
+            options = options || {};
+            options.data = data;
+            return request('POST', url, options, true);
         },
         post: function(url, data, options) {
             options = options || {};

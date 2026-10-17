@@ -42,7 +42,7 @@
         invalidate();
         if (!state.target) return;
         var seq = state.previewSeq, source = state.source, target = state.target;
-        WMS.api.post('/material/merge_preview', {source_code: source.code, target_code: target.code, manual_review: true})
+        WMS.api.postRaw('/material/merge_preview', {source_code: source.code, target_code: target.code, manual_review: true})
             .then(function (response) {
                 if (seq !== state.previewSeq) return;
                 if (!response || response.status !== 'success') {
@@ -99,7 +99,7 @@
         node('mergePageInfo').textContent = '正在查询…';
         node('mergeCandidates').replaceChildren();
         var query = new URLSearchParams({kw: node('mergeSearch').value.trim(), page: String(page), source_id: String(state.source.id)});
-        WMS.api.get('/material/merge_candidates?' + query.toString()).then(function (response) {
+        WMS.api.getRaw('/material/merge_candidates?' + query.toString()).then(function (response) {
             if (seq !== state.searchSeq) return;
             if (!response || response.status !== 'success') throw new Error(response && response.msg || '查询失败');
             state.page = response.page;
@@ -125,7 +125,7 @@
         if (state.busy || !state.preview || !node('mergeHumanConfirmed').checked) return;
         var source = state.source, target = state.target;
         state.busy = true; sync(); error('');
-        WMS.api.post('/material/' + source.id + '/merge', {target_code: target.code,
+        WMS.api.postRaw('/material/' + source.id + '/merge', {target_code: target.code,
             keep_alias: true, confirm: true, identity_confirmed: true}).then(function (response) {
                 if (!response || response.status !== 'success') throw new Error(response && response.msg || '合并失败');
                 showToast(response.msg || '合并成功', 'success');
