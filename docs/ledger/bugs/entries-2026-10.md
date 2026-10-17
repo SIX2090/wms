@@ -723,3 +723,23 @@ F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推�
 F08/A10专项验收：原基线30 passed（5.79秒）；新增45项随相邻97 passed（11.87秒）通过；最后回注原routes/template/infra三文件，19项关键验证14 failed / 5 passed（3.88秒），还原后97通过。原E9校验迁移前app.py导致基线失败，现指向真实路由并新增AST确认排序保护实际被用，未弱化旧断言。旧服务模板上下文也可渲染旧目录并提示重启，避免统一重启前新模板报错；新校验/删除按钮不发给旧后端。隔离真实浏览器来源/组合筛选、排序、校验好坏、新备份显示、CSRF和来源请求及实际下载哈希验证通过，无JS错误；原生确认被IAB阻塞后使用隔离受控模拟，删除仅记录，真正删除只在临时文件pytest验证。只读目录元数据：当前命令环境每日6/手动11/维护10，最近每日2026-10-17 02:00，配置30天，无SQLite内容打开或写库。完整测试/CI待验；生产需重启 WMS 服务生效，不执行生产删除/恢复或重启。
 
 F08独立验证：隔离临时文件库、源码副本及随机端口中原完整冒烟121/121通过，测试服务已关闭；Windows只适配解释器/临时根和日志，未改冒烟断言。最初初始化路径断言发现testing配置强制内存而非期望文件库，初始化中止；改为显式生产配置指向已核对的临时文件再初始化成功，无业务代码/断言放宽。原58独立AI脚本58/58通过（1 worker，167.35秒），全程临时库/上传/日志/备份目录，自动后台备份仅在验证夹具关闭；实际开启/调度/保留逻辑另有原调度器测试与浏览器开启场景覆盖。最终暂存0违规，完整测试及CI待验。
+
+
+## 已修复：AUDIT-FULL-20261016 遗留 A11–A18 运维项收口
+
+### BUG-2026-10-17-009: 审计遗留 8 项运维/文档缺陷（A11/A12/A13/A15/A16/A17/A18；A14 已闭环）
+
+- 任务：AUDIT-FULL-20261016-001-F09；基线 350cfd40（WMS CI / AI Verification / Android / Perf 最近 main 运行均 success）。
+- 根因：2026-10-16 全仓审计登记 A11–A18 后未排期修复，属"已登记未修"存量；其中 A10 已由 F08 完成代码（BUG-2026-10-17-008）。A14 已于 3c64f4c3 闭环，故本批子修复编号跳过 F04。
+- 修复（8 个原子提交，均 main 分支）：
+  - F01 / A11 health_check.ps1：同时探测 app/logs/app.log 与扁平 logs/app.log，取最近写入者；补 UTF-8 BOM，否则 Windows PowerShell 5.1 按 ANSI 解码中文导致 6 个 parse error（实测）。75956e3a
+  - F02 / A12 app/wms.bat、app/wms.cmd：改调仓库根 install.bat，先校验存在再调用，保留 CRLF 与退出码透传。068b93bd
+  - F03 / A13 tools/clone_wms_main.ps1：新增 Invoke-Git 包装，逐步检查 $LASTEXITCODE，失败即 throw；末尾核对本地 HEAD 与 origin/main 一致后才打印成功。af599d5b
+  - F05 / A15 app/auto_update.py：backup_database() 返回 bool，失败（含完整性校验失败）时跳过本次 pull。836018d5
+  - F06 / A16 app/config.py：新增 _env_int，非法/空/越界回退默认；BACKUP_RETENTION_DAYS 与 WMS_REMEMBER_LOGIN_DAYS 改用。21b288ad
+  - F07 / A17 README.md：三账恒等式按库位开关分档（开启：①=Σ②=Σ③；关闭：①=Σ③），并回指 INVENTORY_TRUTH.md。5853b3f3
+  - F08 / A18 scripts/deep_audit_lib.py + 8 个 deep_audit_mod + scripts/audit/scan_all_menus.py + start_qa_server.py + tools/fix_bug_2026_10_07_004_vision_json_only.py：去掉 /Coze/Drive 与 /workspace 硬编码，改 Path(__file__) 相对根。1d5f0989
+- 回归锁：新增 tests/test_audit_health_check_log_path.py（4）、test_audit_entry_points.py（3）、test_audit_clone_script.py（4，含 Windows 行为用例）、test_audit_auto_update_backup_gate.py（4）、test_audit_config_env_parsing.py（11，子进程隔离）、test_audit_readme_inventory_identity.py（2）、test_audit_scripts_paths.py（3）。每条均设计为"回退修复后必红"。
+- 验证：受影响 + 相邻测试见本轮提交前本地结果；scripts/lint_wms_rules.py 0 违规；health_check.ps1 在 Windows PowerShell 5.1 实测可解析并输出（应用日志项 PASS：C:/wms/app/logs/app.log）。
+- 状态：已修复（代码/本地验证完成，待推送后 CI 复核）。
+- 生效确认：待确认；health_check、app 旧入口、clone 脚本、auto_update 均为"下次调用读新文件"；README 即时生效；生产需重启 WMS 服务仅当更新器在运行期被业务进程调用。本轮未对生产执行安装、更新、删除、恢复或服务启停。
