@@ -693,5 +693,5 @@ F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推�
 - **回归**：新增 `tests/test_check_ci_green_output_encoding.py` 4 用例——①cp936 放行路径不崩且输出 `[OK]`；②cp936 阻断路径不崩且输出 `[FAIL]`/`[BLOCKED]`；③UTF-8 仍输出 emoji（防止过度降级）；④`can_encode` 对不可编码/未知编码返回 False 不抛异常。用 `TextIOWrapper` 替换 `sys.stdout`、桩掉 `latest_run`，不联网。
 - **回退验证**：把 `check_ci_green.py` 换回 HEAD 版本后 **3 failed / 1 passed**——两条 cp936 用例以 `UnicodeEncodeError: 'gbk' codec can't encode character '\u2705' / '\u274c'`（现场原样复现）失败，`can_encode` 契约用例因符号缺失报 `AttributeError`；恢复修复后 **4 passed**，未删改任何既有断言。
 - **同类点已排查**：`scripts/` 下其余脚本按 emoji 字形 grep 复核，本脚本是唯一在**门禁必需路径**上直接打印 emoji 的；其余脚本的 emoji 只出现在非门禁用途的说明文案里，不属 §三 强制命令链。
-- **状态**：已修复（本地提交，尚未推送——本机暂无推送凭证）。
-- **生效确认**：**待确认**——推送后在不设 `PYTHONIOENCODING` 的 Windows 控制台复跑 `python scripts/check_ci_green.py`，确认 rc=0、三工作流全绿且输出为 `[OK]` 标记；Linux CI 侧应仍为 emoji。
+- **状态**：已修复；提交 8bde424，已推送 main（本地/远程 SHA 一致）。
+- **生效确认**：**已确认（2026-10-17 23:00）**——①推送 8bde424 后 `WMS CI` #1612 / `WMS AI Verification` #1907 均 success 且指向该提交（`Android APK Build` #830 为该工作流 main 最近一次运行，本次未触发 Android 构建）；②本地在不设 `PYTHONIOENCODING` 的 cp936 控制台复跑 `python scripts/check_ci_green.py`，rc=0、三工作流全绿、状态列输出为 `[OK]`（ASCII 降级生效，无 traceback）。
