@@ -2454,50 +2454,52 @@ def register_in_order_routes(app):
                     db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
                 ).order_by(Warehouse.id.asc()).first()
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
-            for item in order.items:
-                quantity = normalize_stock_quantity(item.quantity or 0)
+            # BUG-2026-10-17-013-F01：同一物料同单多行时，必须按物料合计校验，
+            # 否则每行都拿扣减前快照判"够不够"，多行合计可把单仓扣成负账（审计 I2）。
+            required_by_material = {}
+            material_by_id = {}
+            for _item in order.items:
+                required_by_material[_item.material_id] = (
+                    required_by_material.get(_item.material_id, 0)
+                    + normalize_stock_quantity(_item.quantity or 0))
+                material_by_id[_item.material_id] = _item.material
+            for material_id, quantity in required_by_material.items():
+                material = material_by_id.get(material_id)
                 if not allow_negative_stock():
                     if wh_obj is not None:
-                        current_stock = warehouse_stock.get(item.material_id, 0)
+                        current_stock = warehouse_stock.get(material_id, 0)
                         # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
-                        # 全部为历史未归属流水（location 为空）时回退全局口径，
-                        # 避免“明明有库存却拒绝反提交”（与 update_completed_in_order、
-                        # batch_revert_in_order 同一兜底）。
-                        if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(item.material_id):
+                        # 全部为历史未归属流水（location 为空）时回退全局口径。
+                        if not is_stock_sufficient(current_stock, quantity) and _material_stock_unattributed(material_id):
                             # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
-                            current_stock = item.material.stock if item.material else 0
-                        # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
-                        # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
-                        # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
+                            current_stock = material.stock if material else 0
+                        # BUG-2026-08-18-002-fix：仓库级不足但全局充足且存在未归属流水时，
+                        # 把本单关联流水修正到本单仓库后放行。
                         if not is_stock_sufficient(current_stock, quantity):
                             # stock-truth:reason=BUG-2026-08-18-002-fix：全局充足且存在未归属流水时修正流水归属后放行，全局总账仅作兜底判据
-                            global_stock = item.material.stock if item.material else 0
+                            global_stock = material.stock if material else 0
                             if is_stock_sufficient(global_stock, quantity):
                                 unattributed = StockTransaction.query.filter(
-                                    StockTransaction.material_id == item.material_id,
+                                    StockTransaction.material_id == material_id,
                                     db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
                                 ).count()
                                 if unattributed > 0:
                                     StockTransaction.query.filter_by(
                                         reference_type='in_order', reference_id=order.id,
-                                        material_id=item.material_id,
+                                        material_id=material_id,
                                     ).filter(
                                         db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
                                     ).update({'location': order.warehouse.strip()}, synchronize_session=False)
                                     current_stock = global_stock
                     else:
-                        # BUG-2026-08-17-002：老数据无仓库/仓库解析失败时，仓库级取数
-                        # 不可用（warehouse_stock={} 会恒判库存不足），回退到全局
-                        # Material.stock 口径——与 batch_revert_in_order、deduct_stock
-                        # 实际回退口径一致，避免“有库存却拒绝反提交”。
                         # stock-truth:reason=老数据无仓库/仓库解析失败时回退全局总账（BUG-2026-08-17-002 登记的兼容兜底，与 deduct_stock 口径一致）
-                        current_stock = item.material.stock if item.material else 0
+                        current_stock = material.stock if material else 0
                     if not is_stock_sufficient(current_stock, quantity):
                         # 已加锁（BEGIN IMMEDIATE），错误出口必须先 rollback 释放写锁
                         db.session.rollback()
                         return jsonify({
                             'status': 'error',
-                            'msg': f'物料 {item.material.code if item.material else "-"} 库存不足，不能反提交'
+                            'msg': f'物料 {material.code if material else "-"} 库存不足，不能反提交'
                         })
 
             affected_purchase_order_ids = set()
@@ -2975,40 +2977,42 @@ def register_in_order_routes(app):
                 ).order_by(Warehouse.id.asc()).first()
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             stock_insufficient = False
-            for item in order.items:
-                quantity = normalize_stock_quantity(item.quantity or 0)
+            # BUG-2026-10-17-013-F01：按物料合计校验，避免多行同物料各拿一次快照
+            # 逐行通过、合计却超过单仓库存（审计 I2）。
+            required_by_material = {}
+            material_by_id = {}
+            for _item in order.items:
+                required_by_material[_item.material_id] = (
+                    required_by_material.get(_item.material_id, 0)
+                    + normalize_stock_quantity(_item.quantity or 0))
+                material_by_id[_item.material_id] = _item.material
+            for material_id, quantity in required_by_material.items():
+                material = material_by_id.get(material_id)
                 if wh_obj is not None:
-                    stock = normalize_stock_quantity(warehouse_stock.get(item.material_id, 0))
-                    # BUG-2026-08-18-002：仓库级聚合查不到该物料且其库存
-                    # 全部为历史未归属流水（location 为空）时回退全局口径，
-                    # 避免“明明有库存却被批量反提交跳过”（与 revert_in_order、
-                    # update_completed_in_order 同一兜底）。
-                    if not is_stock_sufficient(stock, quantity) and item.material and _material_stock_unattributed(item.material_id):
-                        # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
-                        stock = normalize_stock_quantity(item.material.stock or 0)
-                    # BUG-2026-08-18-002-fix：仓库级不足但全局充足时，检查该物料
-                    # 是否有未归属流水（location 为空），如果有则把本单关联的未归属
-                    # 流水修正到本单仓库，然后允许反提交。不碰其他仓库的已归属库存。
-                    if not is_stock_sufficient(stock, quantity) and item.material:
-                        # stock-truth:reason=BUG-2026-08-18-002-fix：全局充足且存在未归属流水时修正流水归属后放行，全局总账仅作兜底判据
-                        global_stock = normalize_stock_quantity(item.material.stock or 0)
+                    stock = normalize_stock_quantity(warehouse_stock.get(material_id, 0))
+                    # stock-truth:reason=仓库级聚合查不到且库存全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 登记的兼容兜底）
+                    if not is_stock_sufficient(stock, quantity) and material and _material_stock_unattributed(material_id):
+                        stock = normalize_stock_quantity(material.stock or 0)  # stock-truth:reason=仓库级查不到且全部为历史未归属流水时回退全局总账（BUG-2026-08-18-002 兼容兜底）
+                    # stock-truth:reason=BUG-2026-08-18-002-fix：全局充足且存在未归属流水时修正流水归属后放行，全局总账仅作兜底判据
+                    if not is_stock_sufficient(stock, quantity) and material:
+                        global_stock = normalize_stock_quantity(material.stock or 0)  # stock-truth:reason=BUG-2026-08-18-002-fix：仅作未归属流水兜底判据，不放宽仓库级口径
                         if is_stock_sufficient(global_stock, quantity):
                             unattributed = StockTransaction.query.filter(
-                                StockTransaction.material_id == item.material_id,
+                                StockTransaction.material_id == material_id,
                                 db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
                             ).count()
                             if unattributed > 0:
                                 StockTransaction.query.filter_by(
                                     reference_type='in_order', reference_id=order.id,
-                                    material_id=item.material_id,
+                                    material_id=material_id,
                                 ).filter(
                                     db.or_(StockTransaction.location.is_(None), StockTransaction.location == '')
                                 ).update({'location': order.warehouse.strip()}, synchronize_session=False)
                                 stock = global_stock
                 else:
                     # stock-truth:reason=仓库解析失败时回退全局总账（与 BUG-2026-08-17-002 同一兜底，避免有库存却被批量反提交跳过）
-                    stock = normalize_stock_quantity(item.material.stock if item.material else 0)
-                if item.material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
+                    stock = normalize_stock_quantity(material.stock if material else 0)
+                if material and not allow_negative_stock() and not is_stock_sufficient(stock, quantity):
                     skipped.append(f'{order.order_no}(库存不足)')
                     stock_insufficient = True
                     break

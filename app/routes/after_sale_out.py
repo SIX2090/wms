@@ -425,10 +425,16 @@ def register_after_sale_out_routes(app):
                 db.or_(Warehouse.name == wh_name, Warehouse.code == wh_name)
             ).order_by(Warehouse.id.asc()).first() if wh_name else None
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
+            # BUG-2026-10-17-013-F01：按物料合计校验，避免多行同物料逐行通过、
+            # 合计超过单仓库存（审计 I2）。
+            required_by_material = {}
             for item in order.items:
-                material = db.session.get(Material, item.material_id)
+                required_by_material[item.material_id] = (
+                    required_by_material.get(item.material_id, 0)
+                    + normalize_stock_quantity(item.quantity or 0))
+            for material_id, quantity in required_by_material.items():
+                material = db.session.get(Material, material_id)
                 if material:
-                    quantity = normalize_stock_quantity(item.quantity or 0)
                     if warehouse_stock is not None:
                         current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
                         if (not is_stock_sufficient(current_stock, quantity)
