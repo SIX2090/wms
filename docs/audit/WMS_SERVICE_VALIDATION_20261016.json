@@ -1,0 +1,62 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F03",
+  "bug": "BUG-2026-10-16-003",
+  "audit": [
+    "A03",
+    "A08"
+  ],
+  "baseline": {
+    "passed": 11,
+    "log": "app/logs/audit_fix_service_baseline.log",
+    "existing_failure": "verify_infra_fixes.py E9 backup_page排序源扫描失败；本项未改该检查或备份页"
+  },
+  "regression": {
+    "passed": 39,
+    "log": "app/logs/audit_fix_service_final_scope.log",
+    "windows_only_cases": 5,
+    "notes": "Windows停止适配层4项使用假Get-Process/Get-CimInstance，假Kill仅写临时标记；另1项只读查询真实进程列表，不执行真实停止"
+  },
+  "adjacent": {
+    "passed": 63,
+    "log": "app/logs/audit_fix_service_final_adjacent.log"
+  },
+  "rollback": {
+    "first_failed": 8,
+    "first_passed": 22,
+    "log": "app/logs/audit_fix_service_rollback.log",
+    "final_status": "通过回退验证：旧入口误返回0等行为断言失败，无AttributeError",
+    "final_failed": 8,
+    "final_passed": 31,
+    "final_log": "app/logs/audit_fix_service_final_rollback.log"
+  },
+  "gates": {
+    "normal_lint": "0违规",
+    "full_ratchet": "通过，A9=213/217，无新增违规",
+    "existing_bugs": "通过",
+    "initial_full_gate": "A9=219>217，已通过对应测试命名修复；无豁免/放宽基线"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_fix_service_serial_full.log",
+    "first_run": "因A9关联检查未通过中止，日志audit_fix_service_serial_full_round1.log",
+    "passed": 3835,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1048.5,
+    "notes": "业务代码完整复跑通过；仅测试新注入点兼容旧源码的raising=False调整不改变修复版断言和行为，最终39项与相邻63项复核通过"
+  },
+  "line_endings": "四个批处理保留原始CRLF；git diff检查按cr-at-eol识别Windows行尾，不改仓库配置",
+  "production": "仅系统元数据只读查询；PID5604相对路径实例会被拒绝自动停止。重启仍受审批限制，未执行停止。",
+  "ci": "待提交",
+  "pre_push_ci_incident": {
+    "date": "2026-10-17",
+    "run": 38970169759,
+    "sha": "217ac3bdb3ede4ee66e0299af33b57706ece367b",
+    "initial": "Android unit-test PendingQueueRebuildProtectionTest plantRawDatabase SQLITE_BUSY；build/lint success",
+    "action": "只原样rerun-failed-jobs一次，未改源码/断言/SQLiteMode",
+    "result": "第二次success，三个必查工作流全绿",
+    "status": "存量偶发I/O观察项，参考BUG-2026-09-22-001-F01；不宣称根治",
+    "log": "app/logs/android_schedule_38970169759_unit.log"
+  }
+}

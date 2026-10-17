@@ -193,12 +193,17 @@ if not exist "%PYTHON_EXE%" (
 call :log "[1/8] Python resolved: %PYTHON_EXE%"
 
 call :log "[2/8] Stopping old WMS process..."
-if exist "%INSTALL_DIR%\stop_wms_offline.bat" (
-  call "%INSTALL_DIR%\stop_wms_offline.bat" >nul 2>nul
-) else if exist "%INSTALL_DIR%\stop_wms.bat" (
-  call "%INSTALL_DIR%\stop_wms.bat" >nul 2>nul
-) else (
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $ids = @(Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess); foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue } } catch {}" >nul 2>nul
+REM Use packaged identity verifier, never an old target stop script or port-only kill.
+if not exist "%APP_SRC%\service_control.py" (
+  call :logerr "Missing safe process verifier. Installation stopped before file copy."
+  pause
+  exit /b 1
+)
+"%PYTHON_EXE%" "%APP_SRC%\service_control.py" stop --app-dir "%RUN_DIR%"
+if errorlevel 1 (
+  call :logerr "Cannot confirm old WMS identity. Stop the verified instance manually, then retry."
+  pause
+  exit /b 1
 )
 
 call :log "[3/8] Copying WMS files..."

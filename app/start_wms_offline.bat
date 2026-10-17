@@ -79,5 +79,5 @@ echo [Auto-Fix] Checking database columns...
 "%PYTHON_CMD%" "fix_db_columns.py"
 echo.
 
-"%PYTHON_CMD%" "run_server.py"
+"%PYTHON_CMD%" "%~dp0run_server.py"
 pause
