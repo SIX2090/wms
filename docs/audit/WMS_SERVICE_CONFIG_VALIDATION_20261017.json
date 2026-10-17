@@ -117,7 +117,7 @@
       }
     }
   ],
-  "status": "second_attempt_local_passed_pending_push_CI",
+  "status": "F07A_code_CI_passed_F07B_pending",
   "rollback_baseline": {
     "commit": "32c8a63bc1d91c0b6dd960a34bc2325f9804df11",
     "WMS CI": 39014434853,
@@ -139,5 +139,12 @@
     "log": "app/logs/audit_startup_v2_ai_core.log",
     "scope": "OS临时目录Git同源副本覆盖当前修复，独立临时数据库/上传/日志；原58脚本及断言未改"
   },
-  "startup_contract": "BAT调用纯配置/只读库预检后直接运行绝对路径run_server.py；不生成可执行环境文件；仅固定模式/Cookie枚举和有效端口跨CMD边界"
+  "startup_contract": "BAT调用纯配置/只读库预检后直接运行绝对路径run_server.py；不生成可执行环境文件；仅固定模式/Cookie枚举和有效端口跨CMD边界",
+  "commit": "ac18ca29b401a50bde6ea958af47337cc4f1d74d",
+  "ci": {
+    "WMS CI": 39016625017,
+    "WMS AI Verification": 39016625002,
+    "WMS Perf Baseline": 39016625025,
+    "result": "success"
+  }
 }

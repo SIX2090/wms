@@ -153,6 +153,7 @@
 | AUDIT-FULL-20261016-001-F05 | ai | completions-2026-10.md |
 | AUDIT-FULL-20261016-001-F06 | ai | completions-2026-10.md |
 | MATERIAL-MERGE-HUMAN-001 | ai | completions-2026-10.md |
+| AUDIT-FULL-20261016-001-F07A | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
