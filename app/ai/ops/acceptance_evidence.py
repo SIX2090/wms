@@ -5,7 +5,7 @@
 台账 13.2 节验收要求：
 1. 四项绝对指标（越权成功/重复草稿/自动提交/低置信度未确认建单）连续七天每日为 0。
 2. 质量指标（分类/表头/行召回/物料/修正/采用/拦截）按天采集并汇总。
-3. 口径修正：草稿采用率反查业务单据状态；低置信度未确认读取确认状态（临时用 confidence<0.85）。
+3. 口径修正：草稿采用率反查业务单据状态；低置信度未确认读取确认状态（阈值统一走 ai.documents.constants.LOW_CONFIDENCE_THRESHOLD）。
 4. 验收证据包：七天每日快照+汇总+灰度矩阵+样本清单+回滚记录+go/no-go 结论。
 5. 所有指标保存分子、分母、时间窗口和筛选条件，支持从原始记录复算。
 6. 管理员签字 go/no-go；任一绝对指标非 0 必须 no-go 并建立子修复项。
@@ -53,7 +53,7 @@ SAMPLE_CORRECTION = 'correction'
 ALL_SAMPLE_TYPES = (SAMPLE_FAILURE, SAMPLE_FALLBACK, SAMPLE_DUPLICATE, SAMPLE_CORRECTION)
 
 # 低置信度阈值（与 AI-R08 一致，待 R08-F01 完成后切换为 confirmation_status 口径）
-LOW_CONFIDENCE_THRESHOLD = 0.85
+from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
 
 
 # ===== dataclass =====

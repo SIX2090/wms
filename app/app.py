@@ -17199,12 +17199,11 @@ def _ai_r17_acceptance_counts(window_hours=168):
         counts['auto_submit'] = 0
     try:
         # 低置信度未确认建单：草稿已创建但其行项存在低置信度字段
-        # AIDocumentItem.confidence < 0.85 表示低置信度（与 document_confirmation 阈值一致）
-        # 草稿状态 draft_created 且存在低置信度行项即视为未确认建单风险
+        from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
         low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
             AIDocumentItem.created_at >= cutoff,
             AIDocumentItem.confidence.isnot(None),
-            AIDocumentItem.confidence < 0.85,
+            AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= cutoff,
@@ -17255,11 +17254,12 @@ def _ai_f02_query_daily_counts(target_date):
         app.logger.warning(f'AI-R17-F02 自动提交单日计数异常: {exc}')
         counts['auto_submit'] = 0
     try:
+        from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
         low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
             AIDocumentItem.created_at >= day_start,
             AIDocumentItem.created_at < day_end,
             AIDocumentItem.confidence.isnot(None),
-            AIDocumentItem.confidence < 0.85,
+            AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= day_start,

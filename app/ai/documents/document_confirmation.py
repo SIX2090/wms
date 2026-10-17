@@ -37,7 +37,7 @@ from typing import Any, Callable, Optional
 # ---- 阈值（可配置）----
 
 # 低置信度阈值：低于此值的字段必须人工确认（验收：低置信度字段不能静默通过）
-LOW_CONFIDENCE_THRESHOLD = 0.80
+from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD  # noqa: F401  （统一阈值，勿在此重复定义）
 
 # 重复风险相似度阈值：高于此值才视为重复命中
 DUPLICATE_SIMILARITY_THRESHOLD = 0.85
