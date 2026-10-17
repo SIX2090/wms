@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
+chcp 65001 >nul
 set "PYTHONUTF8=1"
 
 REM ============================================================
@@ -10,7 +11,7 @@ REM What it does:
 REM   1. Clone/update WMS code to C:\wms
 REM   2. Install portable Python 3.11 (does not modify system PATH)
 REM   3. Use nssm to install a Windows service with auto-start and log rotation
-REM   4. start_wms_auto.bat pulls latest GitHub main on run_server.py trigger
+REM   4. Start only after explicit security mode and initialized database checks.
 REM
 REM Run this batch file as administrator.
 REM ============================================================
@@ -37,6 +38,28 @@ if errorlevel 1 (
     echo [ERROR] Administrator privileges are required.
     echo        Please right-click and choose "Run as administrator".
     pause
+    exit /b 1
+)
+
+REM Repair task: AUDIT-FULL-20261016-001-F07A. New-service deployment only.
+if not defined WMS_DEPLOYMENT_MODE set "WMS_DEPLOYMENT_MODE=https"
+if /I not "%WMS_DEPLOYMENT_MODE%"=="https" if /I not "%WMS_DEPLOYMENT_MODE%"=="trusted-http" (
+    echo [ERROR] Set WMS_DEPLOYMENT_MODE=https or trusted-http explicitly.
+    exit /b 1
+)
+sc.exe query "%SERVICE_NAME%" >nul 2>&1
+set "SERVICE_QUERY_RC=%ERRORLEVEL%"
+if "%SERVICE_QUERY_RC%"=="0" (
+    echo [ERROR] Existing service is preserved. Use the documented maintenance procedure.
+    exit /b 1
+)
+if not "%SERVICE_QUERY_RC%"=="1060" (
+    echo [ERROR] Could not confirm absence of the service. No deployment was performed.
+    exit /b 1
+)
+powershell -NoProfile -Command "$ErrorActionPreference='Stop'; try { $wmsPort=8080; if ($env:WMS_PORT) { $wmsPort=[int]$env:WMS_PORT }; if ($wmsPort -lt 1 -or $wmsPort -gt 65535) { exit 2 }; $owners=@(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq $wmsPort); if ($owners.Count) { exit 1 }; exit 0 } catch { exit 2 }"
+if errorlevel 1 (
+    echo [ERROR] Port is occupied or could not be checked. Existing processes/files were not changed.
     exit /b 1
 )
 
@@ -128,10 +151,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Verify mode in the same interpreter before service registration. Never import the app here.
+"%INSTALL_DIR%\python\python.exe" "%INSTALL_DIR%\app\service_launcher.py" --check-idle --check-database
+if errorlevel 1 (
+    echo [ERROR] Configuration/database preflight failed. No service was installed or started.
+    echo         First initialize a fresh installation using the offline installer, or migrate a verified business database.
+    exit /b 1
+)
+
 REM ---- Step 4: install Windows service ----
 echo [4/4] Installing Windows service...
 
 set "NSSM_EXE=%NSSM_DIR%\win64\nssm.exe"
+if not exist "%NSSM_EXE%" if exist "%NSSM_DIR%\nssm-2.24\win64\nssm.exe" set "NSSM_EXE=%NSSM_DIR%\nssm-2.24\win64\nssm.exe"
 if not exist "%NSSM_EXE%" (
     echo        nssm not found, downloading...
     set "NSSM_ZIP=%INSTALL_DIR%\runtime\nssm-2.24.zip"
@@ -147,7 +179,10 @@ if not exist "%NSSM_EXE%" (
         exit /b 1
     )
     powershell -NoProfile -Command "Expand-Archive -LiteralPath '!NSSM_ZIP!' -DestinationPath '%NSSM_DIR%' -Force"
+    if errorlevel 1 exit /b 1
 )
+
+if not exist "%NSSM_EXE%" if exist "%NSSM_DIR%\nssm-2.24\win64\nssm.exe" set "NSSM_EXE=%NSSM_DIR%\nssm-2.24\win64\nssm.exe"
 
 if not exist "%NSSM_EXE%" (
     echo [ERROR] nssm.exe not found: %NSSM_EXE%
@@ -156,37 +191,49 @@ if not exist "%NSSM_EXE%" (
     exit /b 1
 )
 
-REM Remove existing service if present
+REM Refuse a service that appeared after the initial preflight; never remove an existing service.
 "%NSSM_EXE%" status %SERVICE_NAME% >nul 2>&1
 if not errorlevel 1 (
-    echo        Existing service found, stopping and removing...
-    "%NSSM_EXE%" stop %SERVICE_NAME% >nul 2>&1
-    "%NSSM_EXE%" remove %SERVICE_NAME% confirm >nul 2>&1
-    timeout /t 2 /nobreak >nul
+    echo [ERROR] Service already exists. Registration stopped; it was not stopped or removed.
+    exit /b 1
 )
 
-REM Install service
+REM Install the new service. Each failure remains nonzero and preserves the scene.
 "%NSSM_EXE%" install %SERVICE_NAME% "%INSTALL_DIR%\app\start_wms_auto.bat"
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppDirectory "%INSTALL_DIR%\app"
+if errorlevel 1 goto :service_setup_failed
+"%NSSM_EXE%" set %SERVICE_NAME% AppEnvironmentExtra "WMS_DEPLOYMENT_MODE=%WMS_DEPLOYMENT_MODE%" "WMS_SKIP_AUTO_UPDATE=1"
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppStdout "%INSTALL_DIR%\app\logs\service_stdout.log"
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppStderr "%INSTALL_DIR%\app\logs\service_stderr.log"
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppRotateFiles 1
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppRotateBytes 10485760
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% Start SERVICE_AUTO_START
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppExit Default Restart
+if errorlevel 1 goto :service_setup_failed
+"%NSSM_EXE%" set %SERVICE_NAME% AppExit 2 Exit
+if errorlevel 1 goto :service_setup_failed
 "%NSSM_EXE%" set %SERVICE_NAME% AppRestartDelay 5000
+if errorlevel 1 goto :service_setup_failed
 
 REM ── 手机 App 语音指令（/mobile/api/asr）依赖腾讯云 ASR 密钥 ──
 REM 未配置时 App 端会一直报"语音识别服务异常"。把下面一行的值替换为
 REM 腾讯云 CAM 密钥后取消注释（或部署后用 nssm set 补配并 nssm restart）：
-REM "%NSSM_EXE%" set %SERVICE_NAME% AppEnvironmentExtra TENCENTCLOUD_SECRET_ID=在此填SecretId TENCENTCLOUD_SECRET_KEY=在此填SecretKey TENCENTCLOUD_REGION=ap-guangzhou
+REM "%NSSM_EXE%" set %SERVICE_NAME% AppEnvironmentExtra WMS_DEPLOYMENT_MODE=%WMS_DEPLOYMENT_MODE% WMS_SKIP_AUTO_UPDATE=1 TENCENTCLOUD_SECRET_ID=在此填SecretId TENCENTCLOUD_SECRET_KEY=在此填SecretKey TENCENTCLOUD_REGION=ap-guangzhou
 if "%TENCENTCLOUD_SECRET_ID%"=="" (
     echo [WARN] TENCENTCLOUD_SECRET_ID 未设置，手机 App 语音指令功能将不可用。
-    echo        配置方法: nssm set %SERVICE_NAME% AppEnvironmentExtra TENCENTCLOUD_SECRET_ID=xxx TENCENTCLOUD_SECRET_KEY=yyy
+    echo        配置方法: nssm set %SERVICE_NAME% AppEnvironmentExtra WMS_DEPLOYMENT_MODE=%WMS_DEPLOYMENT_MODE% WMS_SKIP_AUTO_UPDATE=1 TENCENTCLOUD_SECRET_ID=xxx TENCENTCLOUD_SECRET_KEY=yyy
 )
 
 echo        Starting service...
 "%NSSM_EXE%" start %SERVICE_NAME%
+if errorlevel 1 goto :service_setup_failed
 timeout /t 5 /nobreak >nul
 
 echo.
@@ -195,7 +242,9 @@ echo [INFO] Service status:
 "%NSSM_EXE%" status %SERVICE_NAME%
 echo.
 echo [INFO] Health check:
-powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/login' -TimeoutSec 10 -UseBasicParsing; Write-Host ('HTTP ' + $r.StatusCode) } catch { Write-Host $_.Exception.Message }"
+"%INSTALL_DIR%\python\python.exe" "%INSTALL_DIR%\app\service_launcher.py" --health
+if errorlevel 1 goto :service_setup_failed
+
 echo.
 echo ============================================================
 echo.
@@ -216,12 +265,10 @@ echo Access URLs:
 echo   local: http://127.0.0.1:8080/login
 echo   public: configure Nginx for https://gd2026.top/login
 echo.
-echo Auto-update notes (AI-DEPLOY-F01-FIX-02):
-echo   start_wms_auto.bat sets WMS_NO_DB_TOUCH=1; run_server.py trigger start pulls latest GitHub code.
-echo   Use nssm restart WMS to force the service to fetch GitHub main branch updates.
-echo   If Git credential issues occur, configure git credential helper or use PAT in .git-credentials.
-echo   log: %INSTALL_DIR%\app\logs\auto_update.log
-echo   manual update: %INSTALL_DIR%\update_from_github.bat
+echo Service update notes:
+echo   Startup code updates are disabled for supervised services.
+echo   Existing services are never stopped, removed or reconfigured by this deployment script.
+echo   Follow docs\SERVICE_DEPLOYMENT.md for security mode and maintenance.
 echo.
 echo Next steps:
 echo   1. Configure Nginx reverse proxy HTTPS to 127.0.0.1:8080
@@ -232,3 +279,8 @@ echo ============================================================
 echo.
 pause
 exit /b 0
+
+:service_setup_failed
+echo [ERROR] Service deployment did not complete. Keep existing files, database and configuration.
+echo         The new service may be partially registered; inspect status and logs before manual repair.
+exit /b 1
