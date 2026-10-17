@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping
@@ -30,6 +31,20 @@ DRAFT_STATUS_PROCESSING = 'processing'
 DRAFT_STATUS_COMPLETED = 'completed'
 DRAFT_STATUS_FAILED = 'failed'
 DRAFT_STATUS_REPLAYED = 'replayed'
+
+# BUG-2026-10-17-011-F04：processing 槽位是"租约"而不是永久锁。
+# 旧实现只写 processing 不设超时，进程崩溃/被 kill 后同一业务键永久返回
+# "正在处理中"，用户只能改库。默认 600 秒，可用 WMS_AI_DRAFT_LEASE_SECONDS 调整。
+DEFAULT_PROCESSING_LEASE_SECONDS = 600
+
+
+def _processing_lease_seconds() -> int:
+    raw = (os.environ.get('WMS_AI_DRAFT_LEASE_SECONDS') or '').strip()
+    try:
+        value = int(raw) if raw else DEFAULT_PROCESSING_LEASE_SECONDS
+    except ValueError:
+        value = DEFAULT_PROCESSING_LEASE_SECONDS
+    return max(30, min(value, 7 * 24 * 3600))
 
 
 def compute_draft_idempotency_key(
@@ -134,11 +149,23 @@ class AIDraftIdempotencyService:
                     conflict_reason='completed draft replayed',
                 )
             if existing.status == DRAFT_STATUS_PROCESSING:
-                return DraftIdempotencySlot(
-                    acquired=False,
-                    record=existing,
-                    conflict_reason='该草稿请求正在处理中，请勿重复提交',
-                )
+                lease = _processing_lease_seconds()
+                started = existing.updated_at or existing.created_at
+                age = (datetime.now() - started).total_seconds() if started else lease
+                if age < lease:
+                    return DraftIdempotencySlot(
+                        acquired=False,
+                        record=existing,
+                        conflict_reason='该草稿请求正在处理中，请勿重复提交',
+                    )
+                logger.warning('草稿幂等槽位 processing 已超时 %ss（租约 %ss），自动接管重试: key=%s',
+                               int(age), lease, key)
+                existing.status = DRAFT_STATUS_PROCESSING
+                existing.error_message = '上次处理超时，自动接管重试'
+                existing.ai_tool_call_id = ai_tool_call_id or existing.ai_tool_call_id
+                existing.updated_at = datetime.now()
+                self.db.session.commit()
+                return DraftIdempotencySlot(acquired=True, record=existing)
             # failed -> 允许重试，复用原记录；清除上次错误以进入新一轮处理
             existing.status = DRAFT_STATUS_PROCESSING
             existing.error_message = None
