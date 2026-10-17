@@ -705,5 +705,5 @@ F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推�
 - **回归**：`tests/test_f28_pre_push_ci_gate.py` 增 2 条——①静态契约：钩子必须含 `-c "import sys"` 执行校验；②行为验证（POSIX）：PATH 首位放恒失败 9009 的假 `python3`、其后放可用的假 `python`，钩子必须跳过坏的并放行（rc=0、无 PRE-PUSH BLOCKED）。Windows 本地无 MSYS 可执行位，行为用例按 skipif 交给 Linux CI，Windows 由静态契约 + 本机实测覆盖。
 - **回退验证**：把 `.githooks/pre-push` 换回 HEAD 版本后静态契约为 **1 failed**（`assert '-c "import sys"' in ...`），恢复修复后 **3 passed / 1 skipped**；未删改任何既有断言。本机实测：同一条 push 在修复前被误拦，修复后钩子正确读到真实门禁状态（当时 CI 正在跑，钩子如实报 `[WAIT]` 并阻断，属预期）。
 - **同类点已排查**：`.githooks/` 下仅 pre-commit / pre-push 两个会探测解释器；pre-commit 已有执行校验，pre-push 本次补齐。`scripts/` 下的包装脚本不依赖 `command -v` 判定。
-- **状态**：已修复（本地提交，待推送）。
-- **生效确认**：**待确认**——推送后在 Windows 本机直接 `git push`（不改 PATH、不设 `WMS_SKIP_CI_GATE`），确认钩子读到真实门禁状态而非误报；并核对本次提交的三工作流结果。
+- **状态**：已修复；提交 2cbedd4，已推送 main（本地/远程 SHA 一致）。
+- **生效确认**：**已确认（2026-10-17 23:43）**——①推送 2cbedd4 后 `WMS CI` #1614 / `WMS AI Verification` #1909 均 success 且指向该提交（`Android APK Build` #830 为该工作流 main 最近一次运行，本次未触发 Android 构建）；②本机实测：修复前同一条 push 被误拦，修复后钩子如实读到门禁状态（CI 运行期间报 `[WAIT]` 阻断、转绿后放行），push 成功。
