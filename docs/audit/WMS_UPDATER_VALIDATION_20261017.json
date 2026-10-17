@@ -1,0 +1,52 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F04",
+  "bug": "BUG-2026-10-17-001",
+  "audit": [
+    "A04",
+    "A05"
+  ],
+  "baseline": {
+    "passed": 95,
+    "log": "app/logs/audit_fix_updater_baseline.log"
+  },
+  "regression": {
+    "tests": 35,
+    "includes": "两项Windows实际cmd入口/临时venv；临时Git main与本地bare origin；服务与依赖安装模拟；适配器PID/HTTP/解释器校验"
+  },
+  "adjacent": {
+    "passed": 140,
+    "seconds": 129.49,
+    "log": "app/logs/audit_fix_updater_final_adjacent.log"
+  },
+  "rollback": {
+    "failed": 3,
+    "deselected": 24,
+    "scope": "恢复旧批处理，保留未调用的新控制器；只执行入口三项回归",
+    "reason": "旧fetch失败前已调用模拟停止入口；旧startup失败实际exit0；旧入口未传播控制器结果",
+    "log": "app/logs/audit_fix_updater_rollback.log"
+  },
+  "gates": {
+    "normal_lint": "0违规",
+    "full_ratchet": "通过，无新增违规",
+    "existing_bugs": "通过"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_fix_updater_serial_full.log",
+    "passed": 3870,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1166.74
+  },
+  "limits": [
+    "不自动升级共享Python依赖；检测依赖变化/缺失/冲突在停服前拒绝",
+    "只允许完全干净的main；Git回退--keep保留或拒绝覆盖用户改动",
+    "恢复失败明确非零，不把回退成功等同于更新成功",
+    "不自动恢复业务数据库；生产更新器/停止未执行"
+  ],
+  "test_fixture_notes": "临时仓库补齐真实仓库已有__pycache__忽略；Windows环境变量按实际序列化键校验，保留业务断言。最终140项全部通过。",
+  "ci": "待业务提交后验证",
+  "production": "旧PID5604及F02人工统一重启待办仍保留，不执行自动重启绕过审批",
+  "deployment_scope": "当前普通进程Git部署；NSSM服务托管协同列入A09启动入口专项，不执行生产更新试验"
+}

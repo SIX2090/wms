@@ -7,6 +7,8 @@
 
 单人使用的中文 WMS：物料登记、出入库、盘点、打印、报表，配合 AI 单据识别（照片/截图 → 草稿）与 Android 扫码 App。AI 只创建和检查草稿，完成、审核、作废、删除等高风险操作必须由人工执行（详见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)）。
 
+Git 部署的一键代码更新使用根目录 `update_from_github.bat`；预检失败不停止服务，启动失败返回非零并报告旧代码/服务恢复结果。依赖升级需要独立维护，详见[一键更新操作说明](docs/UPDATE_FROM_GITHUB.md)。
+
 ## ⚠️ Code Review SLA（开发者必读）
 
 > **所有改动只能直推 main，且必须先过本地 L1 + L2 两道关，再等 CI 三工作流转绿。**
