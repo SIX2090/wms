@@ -37,6 +37,9 @@ class TestBug20260907010:
         with app_module.app.app_context():
             db.drop_all()
             db.create_all()
+            # BUG-2026-10-17-014-F04：价格维度默认关闭会隐藏价格分析卡；
+            # 本用例只验证“缺失清单被移除”，需显式开启价格维度。
+            app_module.set_system_setting('price_dimension_enabled', '1')
             from werkzeug.security import generate_password_hash
             db.session.add(User(username="admin",
                                 password_hash=generate_password_hash("admin"),
