@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     WMS 部署后健康检查脚本
 .DESCRIPTION
@@ -111,8 +111,22 @@ if (Test-Path $dbPath) {
 }
 
 # 7. 应用日志生成
-$logPath = Join-Path $InstallDir "logs\app.log"
-if (Test-Path $logPath) {
+# AUDIT-FULL-20261016-001-F09：app/config.py 的 LOG_FILE 锚定在 app/logs/app.log
+# （仓库布局与便携包一致），历史文档/部署按扁平 logs/app.log 排查，导致误报"日志不存在"。
+# 这里同时探测两种布局，取最近写入的那个；都不存在才判失败。
+$logCandidates = @(
+    (Join-Path $InstallDir "app\logs\app.log"),
+    (Join-Path $InstallDir "logs\app.log")
+)
+$logPath = $null
+foreach ($candidate in $logCandidates) {
+    if (Test-Path $candidate) {
+        if ($null -eq $logPath -or (Get-Item $candidate).LastWriteTime -gt (Get-Item $logPath).LastWriteTime) {
+            $logPath = $candidate
+        }
+    }
+}
+if ($null -ne $logPath) {
     $logSize = (Get-Item $logPath).Length
     if ($logSize -gt 0) {
         Add-Check "应用日志" "PASS" "日志文件存在且非空: $logPath ($([math]::Round($logSize/1KB, 1)) KB)"
@@ -120,7 +134,7 @@ if (Test-Path $logPath) {
         Add-Check "应用日志" "WARN" "日志文件存在但为空: $logPath"
     }
 } else {
-    Add-Check "应用日志" "FAIL" "日志文件不存在: $logPath"
+    Add-Check "应用日志" "FAIL" "日志文件不存在: $($logCandidates -join ' / ')"
 }
 
 # 8. SECRET_KEY 持久化
