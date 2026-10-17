@@ -854,6 +854,8 @@ AI 盘点取总账（§4.2）、serialize_material 给前端全局库存（B11�
 
 工具：`scripts/merge_duplicate_materials.py`（dry-run 默认、--apply 需 --yes、自动备份）、`scripts/data_repairs.py`（--apply-fk / --apply-location-reconcile）。
 
+> CI 证据（2026-10-18）：A 组代码推送 308a1deb 全绿（WMS CI 39074701642、AI 39074701733、Perf 39074701755）；首轮 94ccc296 只因行号漂移与价格分页用例未开维度而红，修复提交 308a1deb 已记录（门禁例外推送）。
+
 **仍未做**：模板 fetch 130+/pydantic 279 的机械迁移（棘轮已设，Phase 2）；AI HTTPS 的服务端证书（部署侧）。
 
 **报告完。**
