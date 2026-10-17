@@ -74,6 +74,8 @@ class TestBug20260907016:
         with app_module.app.app_context():
             db.drop_all()
             db.create_all()
+            # BUG-2026-10-17-014-F04：价格维度默认关闭，本用例验证分页实现，需显式开启。
+            app_module.set_system_setting('price_dimension_enabled', '1')
             from werkzeug.security import generate_password_hash
             self.wh_a = Warehouse(code="WHA", name="仓库A", is_default=True, status="active")
             self.wh_b = Warehouse(code="WHB", name="仓库B", is_default=False, status="active")
