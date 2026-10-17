@@ -300,12 +300,12 @@ def test_package_completeness_check_shared():
 
 # 依据：install.bat / install_e_wms.bat 确定性语义（安装前备份 inventory.db）
 def test_backup_inventory_db_before_install_shared():
-    """基线：两脚本必须在安装前备份 instance\\inventory.db 到 backups 目录。"""
+    """保留备份路径/命名与文件复制契约；config.py用copy，数据库用在线API。"""
     for path in (INSTALL_BAT, INSTALL_E_WMS_BAT):
         text = _read_bat(path)
         assert 'before_offline_install_' in text, f"{path.name} 必须命名备份文件"
         assert 'backups\\' in text, f"{path.name} 必须备份到 backups 目录"
-        assert 'copy /Y' in text, f"{path.name} 必须用 copy /Y 覆盖备份"
+        assert 'copy /Y' in text, f"{path.name} 必须保留 copy /Y 文件快照（配置留底）"
 
 
 # 依据：install.bat / install_e_wms.bat 确定性语义（创建 logs/backups/instance 目录）

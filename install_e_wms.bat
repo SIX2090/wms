@@ -47,25 +47,15 @@ if "%CONSOLE_OK%"=="1" echo [%date% %time%] [ERROR] %~1 1>&2
 echo [%date% %time%] [ERROR] %~1>>"%INSTALL_LOG%"
 goto :eof
 
-REM ==================== rollback functions (AI-SEC-F01) ====================
+REM ==================== fatal installation endpoint (AI-SEC-F01) ====================
 :do_rollback
-call :log "===== start rollback ====="
-if defined COPIED_FILES (
-  if not defined IN_PLACE_INSTALL (
-    if exist "%INSTALL_DIR%\app.py" (
-      rd /s /q "%INSTALL_DIR%" >nul 2>nul
-      call :log "cleaned install directory: %INSTALL_DIR%"
-    )
-  )
-)
-if exist "%USERPROFILE%\Desktop\WMS.lnk" (
-  del /q "%USERPROFILE%\Desktop\WMS.lnk" >nul 2>nul
-  call :log "deleted desktop shortcut"
-)
-call :log "===== rollback completed ====="
-call :logerr "deployment failed, rolled back. log: %INSTALL_LOG%"
+REM Repair task: AUDIT-FULL-20261016-001-F05. Preserve the entire failure scene.
+call :log "===== installation stopped; existing data retained ====="
+call :log "No automatic directory or desktop shortcut cleanup."
+call :logerr "Deployment incomplete. Program files or dependencies may have changed; no complete rollback was performed."
+call :logerr "Keep the install directory and shortcuts. Review log before repair: %INSTALL_LOG%"
 pause
-goto :eof
+exit /b 1
 
 :main
 REM banner shown only when console is writable (Tencent Cloud RDP "cannot write to device")
@@ -99,13 +89,9 @@ if not exist "%WHEELHOUSE%" (
 REM === create log directory (AI-SEC-F01, BUG-2026-07-31-002: some RDP sessions fail PowerShell stdout) ===
 if not exist "%RUN_DIR%\logs" mkdir "%RUN_DIR%\logs"
 set "STAMP="
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set "DATETIME=%%I"
-if defined DATETIME set "STAMP=%DATETIME:~0,8%_%DATETIME:~8,6%"
-if not defined STAMP (
-  set "STAMP=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%"
-  set "STAMP=%STAMP: =0%"
-)
-if not defined STAMP set "STAMP=manual_%RANDOM%"
+REM Culture-independent and unique backup/log names; WMIC is absent on newer Windows.
+for /f "delims=" %%I in ('powershell -NoProfile -Command "(Get-Date -Format yyyyMMdd_HHmmss_fffffff) + '_' + [guid]::NewGuid().ToString('N').Substring(0,8)" 2^>nul') do set "STAMP=%%I"
+if not defined STAMP set "STAMP=manual_%RANDOM%_%RANDOM%"
 set "INSTALL_LOG=%RUN_DIR%\logs\install_%STAMP%.log"
 call :log "WMS offline installer (E:\wms) started"
 call :log "INSTALL_DIR=%INSTALL_DIR%  RUN_DIR=%RUN_DIR%"
@@ -176,8 +162,7 @@ if not defined PYTHON_EXE (
     call :logerr "Python installer failed."
     if "%CONSOLE_OK%"=="1" echo Try right-clicking install_e_wms.bat and choose "Run as administrator".
     set "ROLLBACK_NEEDED=1"
-    call :do_rollback
-    exit /b 1
+    goto :do_rollback
   )
   set "PYTHON_EXE=%PYTHON_DIR%\python.exe"
 )
@@ -214,9 +199,34 @@ if defined IN_PLACE_INSTALL (
   if not exist "%INSTALL_DIR%\backups" mkdir "%INSTALL_DIR%\backups"
 )
 if not exist "%RUN_DIR%\backups" mkdir "%RUN_DIR%\backups"
+REM Preserve customized program configuration before overwriting program files.
+if exist "%RUN_DIR%\config.py" (
+  copy /Y "%RUN_DIR%\config.py" "%RUN_DIR%\backups\before_offline_install_%STAMP%_config.py" >nul
+  if errorlevel 1 (
+    call :logerr "Could not preserve existing config.py. Installation stopped before copy."
+    goto :do_rollback
+  )
+)
 if exist "%RUN_DIR%\instance\inventory.db" (
-  copy /Y "%RUN_DIR%\instance\inventory.db" "%RUN_DIR%\backups\before_offline_install_%STAMP%_inventory.db" >nul
-  call :log "Backed up existing inventory.db"
+  if not exist "%PKG_DIR%\scripts\restore_backup.py" (
+    call :logerr "Missing read-only database validator. Use a complete source installation package."
+    goto :do_rollback
+  )
+  if not exist "%PKG_DIR%\scripts\online_backup.py" (
+    call :logerr "Missing consistent backup tool. Existing database was not changed."
+    goto :do_rollback
+  )
+  "%PYTHON_EXE%" "%PKG_DIR%\scripts\restore_backup.py" "%RUN_DIR%\instance\inventory.db" --validate-only
+  if errorlevel 1 (
+    call :logerr "Existing database validation failed. It is preserved; manual maintenance is required."
+    goto :do_rollback
+  )
+  "%PYTHON_EXE%" "%PKG_DIR%\scripts\online_backup.py" "%RUN_DIR%\instance\inventory.db" "%RUN_DIR%\backups\before_offline_install_%STAMP%_inventory.db"
+  if errorlevel 1 (
+    call :logerr "Consistent database backup failed. Installation stopped before file copy."
+    goto :do_rollback
+  )
+  call :log "Consistent existing database backup completed."
 )
 if not defined IN_PLACE_INSTALL if exist "%APP_SRC%\instance\inventory.db" (
   call :logerr "Package contains a business database and will not install."
@@ -224,13 +234,12 @@ if not defined IN_PLACE_INSTALL if exist "%APP_SRC%\instance\inventory.db" (
   exit /b 1
 )
 if not defined IN_PLACE_INSTALL (
-  robocopy "%APP_SRC%" "%INSTALL_DIR%" /E /XD __pycache__ /XF *.pyc >nul
+  robocopy "%APP_SRC%" "%INSTALL_DIR%" /E /XD __pycache__ instance backups logs uploads .git /XF *.pyc *.flag .env .env.* *.db *.db-* *.sqlite *.sqlite-* *.sqlite3 *.sqlite3-* *.pem *.key *.pfx *.p12 *.jks *.keystore >nul
   if !ERRORLEVEL! GEQ 8 (
     call :logerr "File copy failed."
     set "ROLLBACK_NEEDED=1"
     set "COPIED_FILES=1"
-    call :do_rollback
-    exit /b 1
+    goto :do_rollback
   )
   set "COPIED_FILES=1"
   call :log "File copy completed."
@@ -244,41 +253,50 @@ call :log "[4/8] Installing dependencies into portable Python..."
 cd /d "%RUN_DIR%" || (
   call :logerr "Cannot enter RUN_DIR."
   set "ROLLBACK_NEEDED=1"
-  call :do_rollback
-  exit /b 1
+  goto :do_rollback
 )
 call :log "[5/8] Installing dependencies from local wheelhouse..."
 "%PYTHON_EXE%" -m pip install --no-index --find-links "%WHEELHOUSE%" --upgrade pip setuptools wheel
 if errorlevel 1 (
   call :logerr "Offline pip bootstrap failed."
   set "ROLLBACK_NEEDED=1"
-  call :do_rollback
-  exit /b 1
+  goto :do_rollback
 )
 "%PYTHON_EXE%" -m pip install --no-index --find-links "%WHEELHOUSE%" -r "%RUN_DIR%\requirements.txt"
 if errorlevel 1 (
   call :logerr "Offline dependency installation failed."
   set "ROLLBACK_NEEDED=1"
   set "DEPS_INSTALLED=1"
-  call :do_rollback
-  exit /b 1
+  goto :do_rollback
 )
 set "DEPS_INSTALLED=1"
 call :log "Dependencies installed."
 
-call :log "[6/8] Creating empty database and default admin account..."
-set "WMS_ALLOW_AUTO_SECRET_KEY=1"
-set "WMS_INIT_SAMPLE_DATA=0"
-"%PYTHON_EXE%" -c "from app import app, initialize_database; ctx=app.app_context(); ctx.push(); initialize_database(); ctx.pop()"
-if errorlevel 1 (
-  call :logerr "Empty database initialization failed."
-  set "ROLLBACK_NEEDED=1"
+call :log "[6/8] Checking existing database or initializing a fresh installation..."
+if exist "%RUN_DIR%\instance\inventory.db" (
+  if not exist "%PKG_DIR%\scripts\restore_backup.py" (
+    call :logerr "Existing database needs the read-only validator. No initialization was attempted."
+    goto :do_rollback
+  )
+  "%PYTHON_EXE%" "%PKG_DIR%\scripts\restore_backup.py" "%RUN_DIR%\instance\inventory.db" --validate-only
+  if errorlevel 1 (
+    call :logerr "Existing database is invalid or incomplete. Kept unchanged; no initialization was attempted."
+    goto :do_rollback
+  )
+  call :log "Existing business database retained. Initialization skipped."
+) else (
+  set "WMS_ALLOW_AUTO_SECRET_KEY=1"
+  set "WMS_INIT_SAMPLE_DATA=0"
+  "%PYTHON_EXE%" -c "from app import app, initialize_database; ctx=app.app_context(); ctx.push(); initialize_database(); ctx.pop()"
+  if errorlevel 1 (
+    call :logerr "Empty database initialization failed."
+    set "ROLLBACK_NEEDED=1"
+    set "DB_INITIALIZED=1"
+    goto :do_rollback
+  )
   set "DB_INITIALIZED=1"
-  call :do_rollback
-  exit /b 1
+  call :log "Database initialized."
 )
-set "DB_INITIALIZED=1"
-call :log "Database initialized."
 call :log "[7/8] Checking startup scripts..."
 if defined IN_PLACE_INSTALL (
   set "START_SCRIPT=%PKG_DIR%\start_wms_offline.bat"
@@ -309,7 +327,12 @@ if errorlevel 1 (
 )
 
 REM === write installation marker flag (AI-SEC-F01) ===
-echo installed > "%RUN_DIR%\.installed.flag"
+set "WMS_INSTALL_MARKER=%RUN_DIR%\.installed.flag"
+"%PYTHON_EXE%" -c "import os; from pathlib import Path; Path(os.environ['WMS_INSTALL_MARKER']).write_text('installed\n', encoding='ascii')"
+if errorlevel 1 (
+  call :logerr "Installation marker could not be written. Installation is incomplete."
+  goto :do_rollback
+)
 call :log "Installation flag written."
 
 if "%CONSOLE_OK%"=="1" (

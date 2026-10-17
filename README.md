@@ -9,6 +9,8 @@
 
 Git 部署的一键代码更新使用根目录 `update_from_github.bat`；预检失败不停止服务，启动失败返回非零并报告旧代码/服务恢复结果。依赖升级需要独立维护，详见[一键更新操作说明](docs/UPDATE_FROM_GITHUB.md)。
 
+覆盖安装失败会保留已有业务目录和快捷方式，已有数据库只读校验后跳过初始化；处理方式见[安装失败数据保留说明](docs/INSTALLATION_FAILURE_RECOVERY.md)。
+
 ## ⚠️ Code Review SLA（开发者必读）
 
 > **所有改动只能直推 main，且必须先过本地 L1 + L2 两道关，再等 CI 三工作流转绿。**

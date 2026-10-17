@@ -1,0 +1,54 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F05",
+  "bug": "BUG-2026-10-17-002",
+  "audit": [
+    "A06"
+  ],
+  "baseline": {
+    "passed": 76,
+    "log": "app/logs/audit_fix_install_baseline.log"
+  },
+  "regression": {
+    "tests": 30,
+    "windows_native_fragment_cases": 24,
+    "scope": "两份安装脚本临时目录片段；真实robocopy/SQLite/WAL在线备份；假应用初始化标记，无真实账号初始化"
+  },
+  "adjacent": {
+    "passed": 150,
+    "seconds": 21.85,
+    "log": "app/logs/audit_fix_install_final_adjacent.log"
+  },
+  "rollback": {
+    "failed": 25,
+    "passed": 5,
+    "seconds": 9.86,
+    "log": "app/logs/audit_fix_install_final_rollback.log",
+    "scope": "文件备份后还原两份原BAT与restore_backup.py，运行全部30项回归，再恢复修复源码"
+  },
+  "gates": {
+    "normal_lint": "0违规",
+    "full_ratchet": "通过",
+    "existing_bugs": "通过"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_fix_install_serial_full.log",
+    "passed": 3900,
+    "skipped": 90,
+    "warnings": 1282,
+    "seconds": 1164.58
+  },
+  "diagnostics": [
+    "早期回调失败路径可能返回0，改为统一fatal goto后验证通过",
+    "标记echo重定向失败没有可靠errorlevel，改为外部Python写入并验证非零",
+    "保留既有测试全部逻辑断言，仅更新描述"
+  ],
+  "limits": [
+    "不执行完整生产安装、系统依赖安装、COM快捷方式阶段",
+    "只在OS临时目录内执行受边界断言约束的旧删除片段",
+    "失败后程序或共享依赖可能部分改变，保留现场，不声称完整回滚",
+    "A09继续验证真实首次初始化安全配置及NSSM托管启动协同",
+    "生产旧服务保持运行；F02待人工统一重启，不绕过自动审批"
+  ]
+}

@@ -124,7 +124,16 @@ def main(argv: list[str]) -> int:
     parser.add_argument('backup', help='备份文件路径')
     parser.add_argument('--db', default=DEFAULT_DB, help='目标WMS库路径')
     parser.add_argument('--yes', action='store_true', help='仅跳过人工确认，不跳过安全检查')
+    parser.add_argument('--validate-only', action='store_true', help='只读校验输入库，不恢复、迁移或初始化')
     args = parser.parse_args(argv)
+    # Repair task: AUDIT-FULL-20261016-001-F05；安装已有库时复用校验，绝不进入恢复链。
+    if args.validate_only:
+        candidate = Path(args.backup).resolve()
+        if not candidate.is_file() or not _integrity_ok(candidate) or _schema_error(candidate):
+            print('[validate] 不是完整的WMS数据库，保留原文件，请人工检查。', file=sys.stderr)
+            return 2
+        print('[validate] WMS数据库只读校验通过，未恢复、迁移或初始化。')
+        return 0
     backup, target = Path(args.backup).resolve(), Path(args.db).resolve()
     if not backup.is_file() or backup == target or (target.exists() and os.path.samefile(backup, target)):
         print('[restore] 备份不存在或与目标为同一文件，拒绝恢复。', file=sys.stderr)
