@@ -917,6 +917,10 @@ def register_batch_import_routes(app):
                         preview_rows.append(outcome)
                         continue
 
+                    # BUG-2026-10-17-015-F05（审计 I6）：每个导入行一个 SAVEPOINT。
+                    # `_apply_opening_stock_balance` 是「①总账→③流水→②库位账」多步写入，
+                    # 中途 ValueError 时旧代码只记录跳过、不回滚，导致"报跳过但已落账"。
+                    row_savepoint = db.session.begin_nested()
                     doc = _ensure_batch_doc()
                     # 只在本批单据内查找同 (物料,仓库) 行：跨单据允许重复，
                     # 若不带 doc_id 过滤会命中别的单据的行，导致改错单/库存错算。
@@ -934,7 +938,12 @@ def register_batch_import_routes(app):
                     if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                         imported += 1
                     preview_rows.append(outcome)
+                    row_savepoint.commit()
                 except ValueError as ve:
+                    try:
+                        row_savepoint.rollback()
+                    except Exception:  # noqa: BLE001 保存点可能已随外层回滚失效
+                        pass
                     errors.append(f'第 {row_no} 行：{ve}')
                     skipped += 1
                     outcome.update(action='skip', reason=str(ve))
