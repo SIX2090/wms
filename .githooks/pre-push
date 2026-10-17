@@ -86,12 +86,21 @@ fi
 if [ "${WMS_SKIP_CI_GATE:-0}" = "1" ]; then
     echo "⚠️  WMS_SKIP_CI_GATE=1：已跳过 CI 全绿门禁（风险自负）。" >&2
 else
+    # BUG-2026-10-17-007：Windows 上 `python3` 常是 Microsoft Store 的 0 字节别名，
+    # `command -v` 能找到它，但执行即失败（退出码 9009）。原逻辑据此判定"门禁未通过"，
+    # 于是一台本该能正常推送的 Windows 机器上**所有 push 都被误拦**。
+    # 改为像 pre-commit 一样做真实执行验证：解释器必须能跑起 `import sys` 才采用。
     CI_PY=""
     for cand in python3 python py; do
-        if command -v "${cand}" >/dev/null 2>&1; then CI_PY="${cand}"; break; fi
+        if command -v "${cand}" >/dev/null 2>&1 && "${cand}" -c "import sys" >/dev/null 2>&1; then
+            CI_PY="${cand}"
+            break
+        fi
     done
     if [ -z "${CI_PY}" ]; then
-        echo "❌ PRE-PUSH BLOCKED: 找不到 python，无法执行 CI 全绿门禁。" >&2
+        echo "❌ PRE-PUSH BLOCKED: 找不到可用的 python，无法执行 CI 全绿门禁。" >&2
+        echo "   若 python3 指向 Microsoft Store 的 0 字节别名，请关闭该执行别名或安装 Python 3，" >&2
+        echo "   并把真实解释器加入 PATH（本仓库要求能执行 python -c \"import sys\"）。" >&2
         echo "   逃生舱：WMS_SKIP_CI_GATE=1 git push ...（风险自负）" >&2
         exit 1
     fi

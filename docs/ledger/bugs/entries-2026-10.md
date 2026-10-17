@@ -695,3 +695,15 @@ F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推�
 - **同类点已排查**：`scripts/` 下其余脚本按 emoji 字形 grep 复核，本脚本是唯一在**门禁必需路径**上直接打印 emoji 的；其余脚本的 emoji 只出现在非门禁用途的说明文案里，不属 §三 强制命令链。
 - **状态**：已修复；提交 8bde424，已推送 main（本地/远程 SHA 一致）。
 - **生效确认**：**已确认（2026-10-17 23:00）**——①推送 8bde424 后 `WMS CI` #1612 / `WMS AI Verification` #1907 均 success 且指向该提交（`Android APK Build` #830 为该工作流 main 最近一次运行，本次未触发 Android 构建）；②本地在不设 `PYTHONIOENCODING` 的 cp936 控制台复跑 `python scripts/check_ci_green.py`，rc=0、三工作流全绿、状态列输出为 `[OK]`（ASCII 降级生效，无 traceback）。
+
+### BUG-2026-10-17-007: pre-push 钩子把 Store 的 python3 别名当可用解释器，Windows 上所有 push 被误拦
+
+- **发现方式**：2026-10-17 推送 BUG-2026-10-17-006 的提交时，`git push` 被 pre-push 拦下并提示「CI 门禁未通过（main 最近一次运行非全绿）」；但同一时刻手动执行 `python scripts/check_ci_green.py` 返回 rc=0、三工作流全绿。定位到钩子的解释器探测逻辑。
+- **根因**：`.githooks/pre-push` 用 `command -v python3` 选解释器，只判断"能不能找到"，不判断"能不能跑"。Windows 默认 PATH 里 `python3.exe` 是 Microsoft Store 的 0 字节执行别名：能找到、执行返回 9009。于是 `! "python3" scripts/check_ci_green.py --quiet` 恒为真，钩子把"解释器坏了"误判成"CI 非绿"，**阻断这台机器上的一切 push**（含纯文档提交）。同仓的 `.githooks/pre-commit` 早在 AI-MOB-APK-001（2026-08-29）就改成"真实执行验证"，pre-push 没同步，属同根因的漏改消费点（R6）。
+- **危害**：Windows 生产机上 §三 的"atomic action 必须推送"无法执行；开发者只能被迫用 `WMS_SKIP_CI_GATE=1` 绕过，等于把真正的红绿门禁一起关掉——比没有门禁更危险（绕过会被当成常态）。
+- **修复**：探测循环加真实执行校验 `"$cand" -c "import sys"`（与 pre-commit 一致），坏解释器跳过并在 `python3 → python → py` 中继续找；找不到可用解释器时补上"Store 执行别名"排查指引，逃生舱说明保持不变。
+- **回归**：`tests/test_f28_pre_push_ci_gate.py` 增 2 条——①静态契约：钩子必须含 `-c "import sys"` 执行校验；②行为验证（POSIX）：PATH 首位放恒失败 9009 的假 `python3`、其后放可用的假 `python`，钩子必须跳过坏的并放行（rc=0、无 PRE-PUSH BLOCKED）。Windows 本地无 MSYS 可执行位，行为用例按 skipif 交给 Linux CI，Windows 由静态契约 + 本机实测覆盖。
+- **回退验证**：把 `.githooks/pre-push` 换回 HEAD 版本后静态契约为 **1 failed**（`assert '-c "import sys"' in ...`），恢复修复后 **3 passed / 1 skipped**；未删改任何既有断言。本机实测：同一条 push 在修复前被误拦，修复后钩子正确读到真实门禁状态（当时 CI 正在跑，钩子如实报 `[WAIT]` 并阻断，属预期）。
+- **同类点已排查**：`.githooks/` 下仅 pre-commit / pre-push 两个会探测解释器；pre-commit 已有执行校验，pre-push 本次补齐。`scripts/` 下的包装脚本不依赖 `command -v` 判定。
+- **状态**：已修复（本地提交，待推送）。
+- **生效确认**：**待确认**——推送后在 Windows 本机直接 `git push`（不改 PATH、不设 `WMS_SKIP_CI_GATE`），确认钩子读到真实门禁状态而非误报；并核对本次提交的三工作流结果。
