@@ -47,8 +47,21 @@
     "notes": "业务代码完整复跑通过；仅测试新注入点兼容旧源码的raising=False调整不改变修复版断言和行为，最终39项与相邻63项复核通过"
   },
   "line_endings": "四个批处理保留原始CRLF；git diff检查按cr-at-eol识别Windows行尾，不改仓库配置",
-  "production": "仅系统元数据只读查询；PID5604相对路径实例会被拒绝自动停止。重启仍受审批限制，未执行停止。",
-  "ci": "待提交",
+  "production": "启停工具下次调用读取新文件；真实Windows元数据只读及假进程适配层通过，未执行生产停止。PID5604相对命令实例按设计拒绝自动停止，需人工确认后统一重启。F02生产app.py仍待重启，不宣称已启用。",
+  "ci": {
+    "WMS CI": {
+      "run": 38984459556,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 38984460077,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 38984459548,
+      "result": "success"
+    }
+  },
   "pre_push_ci_incident": {
     "date": "2026-10-17",
     "run": 38970169759,
@@ -58,5 +71,6 @@
     "result": "第二次success，三个必查工作流全绿",
     "status": "存量偶发I/O观察项，参考BUG-2026-09-22-001-F01；不宣称根治",
     "log": "app/logs/android_schedule_38970169759_unit.log"
-  }
+  },
+  "commit": "369eeea8c0cf0ba8122a37ebb307df02a9808020"
 }
