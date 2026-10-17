@@ -60,6 +60,7 @@ class Services:
 
     def current_pid(self):
         snapshot = service_control.process_snapshot(self.port)
+        service_control.assert_unmanaged(snapshot, self.app_dir)
         owners = set(snapshot['listeners'])
         if not owners:
             return None

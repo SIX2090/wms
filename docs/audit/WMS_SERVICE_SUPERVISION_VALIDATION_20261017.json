@@ -1,0 +1,102 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F07B",
+  "bug": "BUG-2026-10-17-005",
+  "audit": [
+    "A09"
+  ],
+  "status": "local_passed_pending_push_CI",
+  "baseline": {
+    "passed": 119,
+    "seconds": 137.29,
+    "log": "app/logs/audit_supervision_baseline.log"
+  },
+  "before_fix": {
+    "failed": 17,
+    "passed": 3,
+    "seconds": 5.19,
+    "log": "app/logs/audit_supervision_before_fix.log"
+  },
+  "iterations": [
+    {
+      "passed": 137,
+      "failed": 2,
+      "seconds": 153.9,
+      "log": "app/logs/audit_supervision_adjacent_initial.log",
+      "cause": "独立复制工具缺新增PS文件；既有部署健康命令契约改变",
+      "resolution": "PS辅助函数嵌回service_control单文件，指定服务名改由显式环境传入，旧断言保持"
+    },
+    {
+      "passed": 141,
+      "failed": 0,
+      "seconds": 169.39,
+      "log": "app/logs/audit_supervision_adjacent_v2.log"
+    },
+    {
+      "passed": 179,
+      "failed": 1,
+      "seconds": 262.13,
+      "log": "app/logs/audit_supervision_adjacent_final.log",
+      "cause": "本机低可用内存并发检查时进程元数据查询20秒超时，更新器拒绝继续",
+      "resolution": "快照一次读取全进程并按PID索引，避免逐祖先重复CIM；保留20秒门禁，友好中文超时；后续重检查串行"
+    }
+  ],
+  "latest_adjacent": {
+    "passed": 181,
+    "seconds": 180.07,
+    "log": "app/logs/audit_supervision_adjacent_optimized.log"
+  },
+  "scope": [
+    "运行服务父链，包括最终持句柄停止前复核",
+    "已注册但停止的NSSM目录绑定、目录别名和父PID复用",
+    "普通stop/restart/install停止/更新入口共用拒绝保护",
+    "云部署健康必须属于指定服务，旧健康命令契约保持",
+    "只读取Application/AppDirectory/AppParameters，不读取服务环境；只返回目录，不返回参数原文"
+  ],
+  "limits": [
+    "不执行真实Windows服务注册/启动/停止/重启",
+    "不创建/修改账号密码，不操作生产数据库",
+    "服务维护仍由人工统一安排，不提供自动托管更新器",
+    "禁止先停NSSM再运行普通更新器；仍拒绝已停止服务绑定",
+    "生产PID5604和人工统一重启待办保留"
+  ],
+  "rollback": {
+    "failed": 12,
+    "passed": 2,
+    "deselected": 18,
+    "seconds": 5.59,
+    "log": "app/logs/audit_supervision_rollback.log",
+    "scope": "备份法回注四个原业务文件；14项真实维护/健康/原生假停止/超时关键验证；随后逐字节恢复修复，新增32项重新通过"
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_supervision_serial_full.log",
+    "passed": 4015,
+    "skipped": 90,
+    "warnings": 1307,
+    "seconds": 1246.49
+  },
+  "ci": {
+    "status": "pending"
+  },
+  "regression": {
+    "passed": 32,
+    "seconds": 15.21,
+    "log": "app/logs/audit_supervision_restored.log"
+  },
+  "independent_ai_core": {
+    "status": "passed",
+    "workers": 1,
+    "scripts": 58,
+    "log": "app/logs/audit_supervision_ai_core.log",
+    "scope": "临时Git源码副本+临时数据库/日志/上传；同58脚本不排除，4GB主机低内存改串行",
+    "passed": 58,
+    "failed": 0,
+    "seconds_sum": 190.55
+  },
+  "gates": {
+    "staged_lint": "0违规",
+    "full_ratchet": "最终源码通过，A9=213，无新增违规",
+    "existing_bugs": "通过"
+  }
+}

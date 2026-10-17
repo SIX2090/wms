@@ -49,6 +49,7 @@ def main(argv=None):
     parser.add_argument('--check-idle', action='store_true', help='检查配置及端口空闲，不启动应用')
     parser.add_argument('--check-database', action='store_true', help='只读验证已初始化的SQLite业务库')
     parser.add_argument('--health', action='store_true', help='核对本目录监听进程身份及登录页')
+    parser.add_argument('--service-name', default=os.environ.get('WMS_HEALTH_SERVICE_NAME'), help='健康检查还须属于指定Windows服务')
     parser.add_argument('--batch-config', action='store_true', help='预检成功后输出固定的模式/Cookie标志/端口，供BAT直接启动服务')
     args = parser.parse_args(argv)
     try:
@@ -72,7 +73,7 @@ def main(argv=None):
             if valid.returncode:
                 raise ValueError('业务库只读校验失败，保留原库，拒绝启动。')
         if args.health:
-            return check_service_health(env)
+            return check_service_health(env, args.service_name)
         if args.batch_config:
             # Only enumerated values and the validated integer port may cross the CMD boundary.
             flags = [(yes if env[key].strip().lower() in {'1', 'true', 'yes'} else no)
@@ -91,14 +92,16 @@ def main(argv=None):
         return 2
 
 
-def check_service_health(env):
+def check_service_health(env, service_name=None):
     """Require the listener to be this installation's real run_server process."""
     from service_control import process_snapshot, is_target_process
     port = int(env['WMS_PORT'])
     for _ in range(10):
         snapshot = process_snapshot(port)
         owners = set(snapshot['listeners'])
-        matches = [row for row in snapshot['processes'] if row['pid'] in owners and is_target_process(row, APP_DIR)]
+        matches = [row for row in snapshot['processes'] if row['pid'] in owners and is_target_process(row, APP_DIR)
+                   and (not service_name or service_name.casefold() in
+                        {name.casefold() for name in row.get('supervisors', [])})]
         if len(matches) == 1 and owners == {matches[0]['pid']}:
             try:
                 with urllib.request.urlopen(f'http://127.0.0.1:{port}/login', timeout=3) as response:

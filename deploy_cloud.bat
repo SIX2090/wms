@@ -242,6 +242,7 @@ echo [INFO] Service status:
 "%NSSM_EXE%" status %SERVICE_NAME%
 echo.
 echo [INFO] Health check:
+set "WMS_HEALTH_SERVICE_NAME=%SERVICE_NAME%"
 "%INSTALL_DIR%\python\python.exe" "%INSTALL_DIR%\app\service_launcher.py" --health
 if errorlevel 1 goto :service_setup_failed
 
