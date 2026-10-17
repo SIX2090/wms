@@ -10,7 +10,7 @@
     <div>
         <span class="section-kicker">采购报表</span>
         <h3>把采购报表放回采购管理模块</h3>
-        <p class="text-muted mb-0">现有系统已经具备采购申请、采购单、采购入库和供应商资料；本轮已补齐采购执行、供应商、物料和价格分析类核心报表。</p>
+        <p class="text-muted mb-0">现有系统已经具备采购申请、采购单、采购入库和供应商资料；本轮已补齐采购执行、供应商、物料等核心报表。</p>
     </div>
     <a href="{{ url_for('report_view', report_type='in_detail') }}" class="btn btn-primary">
         <i class="bi bi-box-arrow-in-down"></i> 查看采购入库明细
@@ -24,6 +24,7 @@
     </div>
     <div class="row g-3">
         {% for item in available_reports %}
+        {% if price_dimension_enabled or '价格分析' not in item.title %}
         <div class="col-md-6 col-xl-3">
             <a class="purchase-report-card" href="{{ item.url }}">
                 <span class="report-icon"><i class="bi {{ item.icon }}"></i></span>
@@ -31,6 +32,7 @@
                 <span>{{ item.description }}</span>
             </a>
         </div>
+        {% endif %}
         {% endfor %}
     </div>
 </section>

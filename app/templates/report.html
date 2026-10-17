@@ -25,6 +25,7 @@
 
 <div class="row g-4">
     {% for card in report_cards %}
+    {% if price_dimension_enabled or card.report_type != 'purchase_price_analysis' %}
     <div class="col-md-6 col-xl-4">
         <div class="card h-100 report-card border-0 shadow-sm accent-{{ card.accent }}">
             <div class="card-body d-flex flex-column">
@@ -55,6 +56,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
     {% endfor %}
 </div>
 
@@ -78,7 +80,7 @@
             </div>
             <div class="col-md-3">
                 <h6>数据仪表盘</h6>
-                <p class="text-muted small mb-0">适合查看月度趋势、分类分布和库存金额等汇总指标。</p>
+                <p class="text-muted small mb-0">适合查看月度趋势、分类分布等汇总指标。</p>
             </div>
         </div>
     </div>

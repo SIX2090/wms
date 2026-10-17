@@ -20,6 +20,8 @@ wms.app.config['WTF_CSRF_ENABLED'] = False
 
 @pytest.fixture(autouse=True)
 def _ctx():
+    # 注意：不能在 yield 外层常驻 app context——Flask 会复用该 context，
+    # g._system_setting_cache 会跨请求残留，导致「改设置后请求仍读旧值」的假失败。
     with wms.app.app_context():
         db.drop_all()
         db.create_all()
@@ -27,7 +29,8 @@ def _ctx():
         db.session.add(User(username='admin', password_hash=generate_password_hash('admin'),
                             role='admin', must_change_password=False))
         db.session.commit()
-        yield
+    yield
+    with wms.app.app_context():
         db.session.remove()
 
 
@@ -66,3 +69,14 @@ def test_price_report_routes_available_when_enabled():
     c = _client()
     assert c.get('/sales/price_analysis').status_code == 200
     assert c.get('/report/view/purchase_price_analysis').status_code == 200
+
+
+def test_report_center_hides_price_cards_when_disabled():
+    _set(False)
+    c = _client()
+    assert '价格分析' not in c.get('/report').get_data(as_text=True)
+    assert '价格分析' not in c.get('/purchase_report').get_data(as_text=True)
+    _set(True)
+    with wms.app.app_context():
+        assert wms.price_dimension_enabled() is True
+    assert '价格分析' in c.get('/report').get_data(as_text=True)
