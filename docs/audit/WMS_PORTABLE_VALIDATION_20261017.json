@@ -47,5 +47,20 @@
     "排除业务库/上传/备份/日志/环境/已知密钥后缀；不是通用敏感文本内容扫描器",
     "原生Windows测试仅真实准备/复制前缀，不下载/安装依赖/构建EXE/启动应用",
     "未执行生产打包/目录删除/账号密码操作；F02统一人工重启待办仍保留"
-  ]
+  ],
+  "commit": "71ff441a9cfd43ab41a44f7303978546b85b6ccd",
+  "ci": {
+    "WMS CI": {
+      "run": 39006756857,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 39006756853,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 39006756838,
+      "result": "success"
+    }
+  }
 }
