@@ -816,3 +816,31 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 状态：已修复（2026-10-18）：a10cbc74；WMS CI 39072330430、AI Verification 39072330438、Perf 39072330444 均 success。
   过程记录：df7832a1 首轮 CI 仅 2 个 INVENTORY_TRUTH 行号引用因 app.py 变长漂移而红；修复提交用 WMS_SKIP_CI_GATE=1 推送（唯一失败即该提交修复项），随后 a10cbc74 全绿。
 - 生效确认：**CI 已确认（2026-10-18）**；旧委外端点/限流/门禁为下次调用生效，脚本无生产副作用，未对生产执行数据写入。
+
+### BUG-2026-10-17-014: 生产数据整改（一物多码 / FK / 库位账）+ 价格维度下线（F01–F05）
+
+- 授权：用户 2026-10-18 明确「A 组 5 项先做」，含数据写入授权；执行前整库备份。
+- 备份：app/backups/manual_pre_audit_ops_20261018_060422.db（4,915,200B，quick_check ok）；
+  合并前二次备份 app/backups/manual_merge_20261018_060435.db；合并报告 app/backups/merge_report_20261018.json（均被 .gitignore 忽略）。
+- F01 一物多码合并（4 组，loser→keeper）：
+  - 301065(1104) → 40021(1197)；40022(1198) → 40027(1203)；
+  - 108032(328) → 108034(330)；115021(1305) → 115022(1306)。
+  - 全部库存为 0；引用重挂：stock_transaction 2+2+2、in_order_item 1+1、out_order_item 1+1；
+  - 物料 1301 → 1297；uq_material_dedupe_key 唯一索引已建（表达式与 app 常量一致）。
+  - 工具：scripts/merge_duplicate_materials.py（默认 dry-run，--apply 需 --yes，自动备份）。
+- F02 FK：ai_cleanup_log 19 行 executed_by=0 → 1（admin）；PRAGMA foreign_key_check = 0。
+- F03 库位账：
+  - 物料 615/仓1：库位 5、流水 0 → 删除残行（txn=0 规则）；
+  - 物料 727/仓2：库位 1、流水 0.4 → 对齐为 0.4；
+  - location_vs_txn 差异 0；①=Σ③ 差异 0。工具扩展：data_repairs.py --apply-location-reconcile --yes。
+- F04 价格维度（用户拍板「先下线资金类列/报表」）：
+  - 新增 system_setting price_dimension_enabled（默认 0）与 price_dimension_enabled()；
+  - 关闭时下线：仪表盘「库存金额」卡、采购价格分析表、销售价格分析（页面/导出/API 400）、对应导航与按钮；
+  - 物料档案的「单价」字段保留（主数据字段，非资金报表）；开启方式：设置 price_dimension_enabled=1。
+- F05 AI HTTPS：目标端点 81.71.29.219:7863 当前 http/https 均连接被拒（无法现场验证 TLS），
+  未改生产地址；新增 WMS_AI_REQUIRE_HTTPS=1 硬门禁（明文远程端点直接拒绝调用）+ 原 CRITICAL 告警。
+  结论：需服务端先提供 TLS（nginx/caddy/vLLM 证书），属部署阻塞项。
+- 验证：新增 4 个测试文件（merge 工具 2、data_repairs 3、price flag 3、HTTPS enforce 1）全过；
+  数据不变量：fk=0、dup=0、stock_vs_txn=0、location_vs_txn=0。
+- 状态：数据整改已执行（2026-10-18）；代码改动待推送 CI 复核。
+- 生效确认：数据侧已用 SQL 复核（备份可回滚）；价格维度/HTTPS 门禁为下次重启或下次调用生效。

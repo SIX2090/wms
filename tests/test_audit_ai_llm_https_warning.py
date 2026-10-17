@@ -3,6 +3,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / 'app'
 if str(APP) not in sys.path:
@@ -26,3 +28,10 @@ def test_warning_is_wired_in_endpoint_builder():
     source = (APP / 'app.py').read_text(encoding='utf-8')
     assert '[SECURITY] AI LLM endpoint uses plaintext HTTP' in source
     assert 'def _ai_llm_url_is_plaintext_remote(' in source
+
+
+def test_require_https_env_blocks_plaintext(monkeypatch):
+    monkeypatch.setenv('WMS_AI_REQUIRE_HTTPS', '1')
+    with pytest.raises(RuntimeError):
+        wms._ai_llm_endpoint({'ai_llm_base_url': 'http://203.0.113.1:7863/v1'})
+    assert wms._ai_llm_endpoint({'ai_llm_base_url': 'https://api.example.com/v1'}).endswith('/chat/completions')

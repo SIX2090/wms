@@ -26,7 +26,7 @@ import io
 import json
 import os
 
-from flask import abort, jsonify, render_template, request, send_file, url_for
+from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -213,10 +213,14 @@ def register_report_routes(app):
     @login_required
     def report_view(report_type):
         from app import (Supplier, _get_report_definition, get_active_warehouses,
-                         get_default_warehouse)
+                         get_default_warehouse, price_dimension_enabled)
         definition = _get_report_definition(report_type)
         if definition is None:
             abort(404)
+        # BUG-2026-10-17-014-F04（审计 §3.6）：价格维度关闭时资金类报表下线。
+        if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
+            flash('价格维度未启用，采购价格分析已下线；如需启用请把系统设置 price_dimension_enabled 设为 1。', 'warning')
+            return redirect(url_for('report_dashboard'))
         suppliers = Supplier.query.all()
         # BUG-2026-08-02-014：报表筛选器加仓库下拉框，传 warehouses / default_warehouse 给模板
         return render_template(
@@ -241,6 +245,9 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type)
         if definition is None:
             return jsonify({'status': 'error', 'msg': 'Unsupported report type'}), 400
+        from app import price_dimension_enabled
+        if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
+            return jsonify({'status': 'error', 'msg': '价格维度未启用，采购价格分析已下线'}), 400
 
         try:
             filters = _build_report_filters()

@@ -29,7 +29,7 @@ BUG_IDS_BASELINE = 490
 STATUS_DIST_BASELINE = {'fixed': 315, 'unknown': 141, 'deferred': 19, 'false_positive': 1}
 # Explicitly verify new registrations while preserving the exact pre-split snapshot.
 POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed', 'BUG-2026-10-15-001': 'fixed',
-                   'BUG-2026-10-16-001': 'fixed', 'BUG-2026-10-16-002': 'fixed', 'BUG-2026-10-16-003': 'fixed', 'BUG-2026-10-17-001': 'fixed', 'BUG-2026-10-17-002': 'fixed', 'BUG-2026-10-17-003': 'fixed', 'BUG-2026-10-17-004': 'fixed', 'BUG-2026-10-17-005': 'fixed', 'BUG-2026-10-17-006': 'fixed', 'BUG-2026-10-17-007': 'fixed', 'BUG-2026-10-17-008': 'fixed', 'BUG-2026-10-17-009': 'fixed', 'BUG-2026-10-17-010': 'fixed', 'BUG-2026-10-17-011': 'fixed', 'BUG-2026-10-17-012': 'fixed', 'BUG-2026-10-17-013': 'fixed'}
+                   'BUG-2026-10-16-001': 'fixed', 'BUG-2026-10-16-002': 'fixed', 'BUG-2026-10-16-003': 'fixed', 'BUG-2026-10-17-001': 'fixed', 'BUG-2026-10-17-002': 'fixed', 'BUG-2026-10-17-003': 'fixed', 'BUG-2026-10-17-004': 'fixed', 'BUG-2026-10-17-005': 'fixed', 'BUG-2026-10-17-006': 'fixed', 'BUG-2026-10-17-007': 'fixed', 'BUG-2026-10-17-008': 'fixed', 'BUG-2026-10-17-009': 'fixed', 'BUG-2026-10-17-010': 'fixed', 'BUG-2026-10-17-011': 'fixed', 'BUG-2026-10-17-012': 'fixed', 'BUG-2026-10-17-013': 'fixed', 'BUG-2026-10-17-014': 'fixed'}
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 

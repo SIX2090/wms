@@ -1,7 +1,7 @@
 # WMS 全面审计报告
 
 **审计日期**：2026-10-18 　**审计基线**：main @ 0f8442b3（2026-10-17）　**版本**：2026.09.1
-**当前状态（2026-10-18）**：第一批 A10–A18 中 8 项 + CP936 门禁共 9 项已闭环（`046ca9f2`，四条工作流全绿）；第二批按用户要求修复 §4–§9 的 P1/P2 共 14 项（§16.2，排除 app.py 拆分）；第三批继续深化 P1/P2 共 7 项（§16.3）。审计结论本身（§3–§9）保持**审计时点**事实，不回写。
+**当前状态（2026-10-18）**：第一批 A10–A18 中 8 项 + CP936 门禁共 9 项已闭环（`046ca9f2`，四条工作流全绿）；第二批按用户要求修复 §4–§9 的 P1/P2 共 14 项（§16.2，排除 app.py 拆分）；第三批继续深化 P1/P2 共 7 项（§16.3）；第四批按用户授权执行 A 组数据整改 5 项（§16.4）。审计结论本身（§3–§9）保持**审计时点**事实，不回写。
 **审计方式**：静态代码审计 + 生产 SQLite 只读核对 + Git/GitHub 元数据核对。审计阶段未运行 pytest/服务/脚本（原因见 §1.3）；**整改阶段**在放宽权限后实际运行了 pytest、lint、pre-commit 钩子与 PowerShell 健康检查（见 §16、§16.1）。
 **报告构成**：本文件为总报告；分册（含逐条证据）见 docs/audit/2026-10-18/：backend-flow.md、inventory.md、security.md、ai-quality.md；原定的 frontend.md 因执行中断未产出，前端部分由本报告 §8 补审。
 
@@ -841,6 +841,21 @@ AI 盘点取总账（§4.2）、serialize_material 给前端全局库存（B11�
 
 > CI 证据（2026-10-18）：第三批 a10cbc74 全绿——WMS CI 39072330430、AI Verification 39072330438、Perf 39072330444。首轮 df7832a1 仅 2 处 INVENTORY_TRUTH 行号漂移（新增代码导致 app.py 变长），已在 a10cbc74 修复；该修复提交因门禁阻塞使用 WMS_SKIP_CI_GATE=1 推送，属“红在待修项本身”的例外并已记录。
 
-**第三批后仍未做**：一物多码 4 组合并（需人工确认生产数据；工具已就绪：先 `python scripts/data_repairs.py --db <生产库>` 只读复核，再走页面合并）；模板 fetch 130+/pydantic 279 的机械迁移（已设棘轮，留 Phase 2）。
+### 16.4 A 组数据整改与价格维度下线（2026-10-18，用户授权执行）
+
+| 项 | 执行结果 | 证据 |
+|---|---|---|
+| 整库备份 | `app/backups/manual_pre_audit_ops_20261018_060422.db`（4,915,200B） | quick_check=ok；合并前另有 manual_merge_20261018_060435.db |
+| 一物多码合并 4 组 | 301065→40021、40022→40027、108032→108034、115021→115022；物料 1301→1297 | 引用重挂 txn/in/out 明细共 8 行；`uq_material_dedupe_key` 已建 |
+| FK 脏值 | ai_cleanup_log 19 行 executed_by 0→1（admin） | `PRAGMA foreign_key_check` = 0 |
+| 库位账残行 | 615/仓1 删除（流水 0）；727/仓2 对齐为 0.4 | location_vs_txn=0，①=Σ③=0 |
+| 价格维度（拍板“先下线”） | 新设置 price_dimension_enabled（默认 0）；下线仪表盘库存金额、采购/销售价格分析页、API 与导航 | 4 个回归用例 |
+| AI HTTPS | 81.71.29.219:7863 的 http/https 当前均连接被拒，无法现场切 TLS；未改生产地址，新增 WMS_AI_REQUIRE_HTTPS=1 硬门禁 | 部署阻塞：需服务端先提供证书 |
+
+工具：`scripts/merge_duplicate_materials.py`（dry-run 默认、--apply 需 --yes、自动备份）、`scripts/data_repairs.py`（--apply-fk / --apply-location-reconcile）。
+
+**仍未做**：模板 fetch 130+/pydantic 279 的机械迁移（棘轮已设，Phase 2）；AI HTTPS 的服务端证书（部署侧）。
+
+**报告完。**
 
 **报告完。**

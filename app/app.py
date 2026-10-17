@@ -4411,6 +4411,19 @@ def get_grouped_system_settings():
         })
     return grouped
 
+def price_dimension_enabled():
+    """价格/成本维度是否启用（审计 §3.6，默认关闭）。
+
+    生产 price/amount 全为 0，资金类报表展示恒 0 会误导决策；默认下线，
+    由 system_setting.price_dimension_enabled='1' 显式开启。
+    """
+    try:
+        return (get_system_setting('price_dimension_enabled', '0') or '0').strip().lower() in (
+            '1', 'true', 'yes', 'on')
+    except Exception:
+        return False
+
+
 @app.context_processor
 def inject_query_helpers():
     def url_with_query(**updates):
@@ -4427,6 +4440,7 @@ def inject_query_helpers():
         'url_with_query': url_with_query,
         'inventory_alert_enabled': inventory_alert_enabled(),
         'location_management_enabled': location_management_enabled(),
+        'price_dimension_enabled': price_dimension_enabled(),
         'material_code_editable': material_code_editable(),
         # WMS-AI-DEGRADE-001：AI 浮窗「本地规则模式」标识（大模型未配置/不可用时为 False）
         'ai_llm_active': _ai_llm_configured(),
@@ -12974,6 +12988,9 @@ def _ai_llm_endpoint(overrides=None):
     endpoint = normalized if normalized.endswith('/chat/completions') else normalized + '/chat/completions'
     # BUG-2026-10-17-013-F03（审计 §6.6）：不改生产配置（避免直接打断 AI 能力），
     # 但每次运行首次使用明文 HTTP 时必须留下 CRITICAL 证据，操作者可据此切 HTTPS。
+    if _ai_llm_url_is_plaintext_remote(endpoint) and (os.environ.get('WMS_AI_REQUIRE_HTTPS') or '').strip().lower() in ('1', 'true', 'yes'):
+        raise RuntimeError(
+            'AI 端点要求 HTTPS（WMS_AI_REQUIRE_HTTPS=1），当前为明文 HTTP：%s' % endpoint)
     if _ai_llm_url_is_plaintext_remote(endpoint) and not _ai_llm_plaintext_warned:
         _ai_llm_plaintext_warned = True
         try:

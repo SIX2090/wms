@@ -2081,7 +2081,11 @@ def register_sales_routes(app):
     @login_required
     def sales_price_analysis():
         from app import (Customer, SalesOrder, Warehouse, _sales_report_filters_context,
-                         _sales_report_orders, round_to_2_decimals)
+                         _sales_report_orders, price_dimension_enabled, round_to_2_decimals)
+        # BUG-2026-10-17-014-F04（审计 §3.6）：价格维度默认关闭，资金类报表下线。
+        if not price_dimension_enabled():
+            flash('价格维度未启用，销售价格分析已下线；如需启用请把系统设置 price_dimension_enabled 设为 1。', 'warning')
+            return redirect(url_for('sales_report'))
         aggregates = {}
         for order in _sales_report_orders():
             customer_id = order.customer_id
@@ -2125,7 +2129,10 @@ def register_sales_routes(app):
     def export_sales_price_analysis():
         import io
         from openpyxl import Workbook
-        from app import _sales_report_orders, round_to_2_decimals
+        from app import _sales_report_orders, price_dimension_enabled, round_to_2_decimals
+        if not price_dimension_enabled():
+            flash('价格维度未启用，销售价格分析导出已下线。', 'warning')
+            return redirect(url_for('sales_report'))
         rows = []
         for order in _sales_report_orders():
             for item in order.items:

@@ -2421,7 +2421,9 @@
                             <a class="flyout-link" href="/report/view/purchase_order_execution"><i class="bi bi-bag-check"></i> 采购订单执行统计表</a>
                             <a class="flyout-link" href="/report/view/supplier_purchase_summary"><i class="bi bi-building"></i> 供应商采购汇总表</a>
                             <a class="flyout-link" href="/report/view/material_purchase_summary"><i class="bi bi-box"></i> 物料采购汇总表</a>
+                            {% if price_dimension_enabled %}
                             <a class="flyout-link" href="/report/view/purchase_price_analysis"><i class="bi bi-currency-yen"></i> 采购价格分析表</a>
+                            {% endif %}
                             <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-box-arrow-in-down"></i> 全部入库明细报表</a>
                         </div>
                         <div class="flyout-col">
@@ -2455,7 +2457,9 @@
                             <a class="flyout-link" href="/customer"><i class="bi bi-person-vcard"></i> 客户管理</a>
                             <a class="flyout-link" href="/sales/report"><i class="bi bi-bar-chart-line"></i> 销售报表</a>
                             <a class="flyout-link" href="/sales/execution_report"><i class="bi bi-list-check"></i> 销售订单执行</a>
+                            {% if price_dimension_enabled %}
                             <a class="flyout-link" href="/sales/price_analysis"><i class="bi bi-tags"></i> 销售价格分析</a>
+                            {% endif %}
                             <a class="flyout-link" href="/sales/reconciliation"><i class="bi bi-clipboard2-check"></i> 销售对账</a>
                         </div>
                         <div class="flyout-col">
