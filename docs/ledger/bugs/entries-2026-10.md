@@ -851,6 +851,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - F02 库存查询无效仓库：`/stock_query?warehouse_id=不存在` 旧行为静默显示全 0（像“该仓没货”），改为 400「仓库不存在或已删除」；回归用例 1 条。
 - F03 批量上限：`in_order/batch_complete` 的 `select_all` 原来会把整表 pending 一次载入，现与显式 ids 对齐（>500 拒绝）；`batch_revert` 补 ids>100 与 select_all>500 上限；回归用例 2 条。
 - F04 删除死精度设置：`quantity/price/amount_decimal_places()` 全仓零调用，仅设置页展示，改了不生效；删除 3 个设置项与 3 个函数；回归用例 1 条。
+- F05（审计 I6）期初 Excel 导入逐行 SAVEPOINT：`_apply_opening_stock_balance` 多步写入中途 ValueError 时回滚该行，不再"报跳过但已落账"；相关 262 项回归通过。
 - 复核：物料初始库存仓库链路已在 BUG-2026-08-16-003 闭环（opening 流水+库位账+默认仓），本批次复核通过，未重复改动。
 - 状态：已修复（2026-10-18，本地）；CI 待推送复核（当前 GitHub 网络不通，本地提交 afc5496f）。
 - 生效确认：待确认；下次重启/下次调用生效。
