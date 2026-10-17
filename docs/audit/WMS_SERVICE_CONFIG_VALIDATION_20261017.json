@@ -11,30 +11,32 @@
     "log": "app/logs/audit_startup_baseline.log"
   },
   "regression": {
-    "tests": 37,
-    "scope": "真实config子进程/临时SQLite校验、Windows原生BAT与生成的标记型服务/SC/PowerShell替身；无真实NSSM操作"
+    "tests": 40,
+    "passed": 40,
+    "seconds": 9.86,
+    "log": "app/logs/audit_startup_v2_new_final.log",
+    "scope": "保留首轮全部用例与旧专项断言，追加BAT直接启动契约、固定枚举输出和无配置拒绝测试"
   },
   "rollback": {
-    "failed": 15,
-    "passed": 22,
-    "seconds": 8.7,
-    "scope": "新Python配置器保留；文件备份法还原原auto/deploy/install两份BAT并运行37项，再恢复源码",
-    "log": "app/logs/audit_startup_final_rollback.log"
+    "failed": 16,
+    "passed": 24,
+    "seconds": 10.23,
+    "log": "app/logs/audit_startup_v2_rollback_original.log",
+    "scope": "文件备份法恢复原四BAT，40项运行后恢复修复文件"
   },
   "adjacent": {
-    "passed": 158,
-    "seconds": 27.23,
-    "log": "app/logs/audit_startup_final_adjacent.log"
+    "passed": 161,
+    "seconds": 47.34,
+    "log": "app/logs/audit_startup_v2_adjacent.log"
   },
   "full_suite": {
     "status": "passed",
     "command": "python -m pytest tests/ -q",
-    "log": "app/logs/audit_startup_serial_full.log",
-    "passed": 3980,
+    "log": "app/logs/audit_startup_v2_serial_full.log",
+    "passed": 3983,
     "skipped": 90,
     "warnings": 1307,
-    "seconds": 1205.89,
-    "scope": "首轮代码本地结果，不代表当前修复已完成；业务代码已按R8回滚"
+    "seconds": 1219.42
   },
   "limits": [
     "不执行生产部署/安装/停止/重启/注册服务",
@@ -50,14 +52,92 @@
     "full_ratchet": "通过，A9=213，无新增违规",
     "existing_bugs": "通过"
   },
-  "diagnostic": "首轮全量规则A9=215因测试名需精确匹配，重命名两项现有测试、参数/断言/运行源码未变；对应14项重跑通过，最终A9=213。完整测试继续运行同一业务源码，无测试排除/断言放宽。",
-  "status": "first_attempt_reverted_CI_rejected",
-  "attempt_commit": "e54fe1f693373ce7a44a92ff18a4982eed18dac0",
-  "ci_failure": {
-    "run": 39013948082,
-    "job": 117342056803,
-    "script": "verify_startup_auto_update.py",
-    "reason": "旧专项硬性要求BAT直接启动run_server.py，未覆盖新配置器链路",
-    "log": "app/logs/audit_startup_failed_ai_core.log"
-  }
+  "attempts": [
+    {
+      "task": "AUDIT-FULL-20261016-001-F07A",
+      "bug": "BUG-2026-10-17-005",
+      "audit": [
+        "A09"
+      ],
+      "phase": "启动配置与新服务部署；托管维护F07B待执行",
+      "baseline": {
+        "passed": 111,
+        "seconds": 18.67,
+        "log": "app/logs/audit_startup_baseline.log"
+      },
+      "regression": {
+        "tests": 37,
+        "scope": "真实config子进程/临时SQLite校验、Windows原生BAT与生成的标记型服务/SC/PowerShell替身；无真实NSSM操作"
+      },
+      "rollback": {
+        "failed": 15,
+        "passed": 22,
+        "seconds": 8.7,
+        "scope": "新Python配置器保留；文件备份法还原原auto/deploy/install两份BAT并运行37项，再恢复源码",
+        "log": "app/logs/audit_startup_final_rollback.log"
+      },
+      "adjacent": {
+        "passed": 158,
+        "seconds": 27.23,
+        "log": "app/logs/audit_startup_final_adjacent.log"
+      },
+      "full_suite": {
+        "status": "passed",
+        "command": "python -m pytest tests/ -q",
+        "log": "app/logs/audit_startup_serial_full.log",
+        "passed": 3980,
+        "skipped": 90,
+        "warnings": 1307,
+        "seconds": 1205.89,
+        "scope": "首轮代码本地结果，不代表当前修复已完成；业务代码已按R8回滚"
+      },
+      "limits": [
+        "不执行生产部署/安装/停止/重启/注册服务",
+        "不初始化真实数据库/创建用户/修改密码；测试初始化函数只写标记",
+        "云部署只新建服务，既有服务/端口占用拒绝；运行依赖、数据库和服务账户配置须事先准备",
+        "默认HTTPS或明确可信HTTP，显式禁止值不覆盖；服务启动拉取关闭",
+        "NSSM托管停止/维护保护另按F07B，A09整体仍待完成",
+        "原生产PID5604和人工统一重启待办保留，审批拦截不绕过"
+      ],
+      "gates": {
+        "normal_lint": "0违规",
+        "staged_lint": "0违规",
+        "full_ratchet": "通过，A9=213，无新增违规",
+        "existing_bugs": "通过"
+      },
+      "diagnostic": "首轮全量规则A9=215因测试名需精确匹配，重命名两项现有测试、参数/断言/运行源码未变；对应14项重跑通过，最终A9=213。完整测试继续运行同一业务源码，无测试排除/断言放宽。",
+      "status": "first_attempt_reverted_CI_rejected",
+      "attempt_commit": "e54fe1f693373ce7a44a92ff18a4982eed18dac0",
+      "ci_failure": {
+        "run": 39013948082,
+        "job": 117342056803,
+        "script": "verify_startup_auto_update.py",
+        "reason": "旧专项硬性要求BAT直接启动run_server.py，未覆盖新配置器链路",
+        "log": "app/logs/audit_startup_failed_ai_core.log"
+      }
+    }
+  ],
+  "status": "second_attempt_local_passed_pending_push_CI",
+  "rollback_baseline": {
+    "commit": "32c8a63bc1d91c0b6dd960a34bc2325f9804df11",
+    "WMS CI": 39014434853,
+    "WMS AI Verification": 39014434818,
+    "WMS Perf Baseline": 39014434809,
+    "result": "success"
+  },
+  "rejected_attempt_regression": {
+    "failed": 1,
+    "deselected": 39,
+    "seconds": 0.99,
+    "log": "app/logs/audit_startup_v2_rollback_failed_attempt.log",
+    "scope": "回注首轮被CI拒绝的BAT包装启动方式，直接启动契约测试失败；随后恢复第二轮源码"
+  },
+  "independent_ai_core": {
+    "scripts": 58,
+    "passed": 58,
+    "failed": 0,
+    "log": "app/logs/audit_startup_v2_ai_core.log",
+    "scope": "OS临时目录Git同源副本覆盖当前修复，独立临时数据库/上传/日志；原58脚本及断言未改"
+  },
+  "startup_contract": "BAT调用纯配置/只读库预检后直接运行绝对路径run_server.py；不生成可执行环境文件；仅固定模式/Cookie枚举和有效端口跨CMD边界"
 }
