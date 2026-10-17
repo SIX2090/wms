@@ -7,6 +7,7 @@ from ai.handlers import handle_chat_stream, handle_draft_check, handle_warehouse
 from ai.history import clear_history
 from ai.idempotency import ai_idempotent_request
 from ai.policies import require_ai_role
+from ai.rate_guard import allow as rate_allow
 from ai.tools.registry import list_ai_tools_for_role
 from ai.audit import (
     create_conversation,
@@ -72,6 +73,16 @@ def tools():
     })
 
 
+def _rate_limited_response(endpoint):
+    """AI 对话端点每分钟上限（审计 Q8）；超限返回 429，不消耗 LLM 配额。"""
+    ok, retry_after = rate_allow('%s:%s' % (endpoint, getattr(current_user, 'id', 'anon')))
+    if ok:
+        return None
+    return jsonify({'status': 'error',
+                    'msg': '请求过于频繁，请 %d 秒后重试' % retry_after,
+                    'retry_after': retry_after}), 429
+
+
 @ai_bp.post('/chat/clear')
 @login_required
 def chat_clear():
@@ -118,6 +129,9 @@ def draft_check():
 @ai_idempotent_request
 def warehouse_assistant():
     """Handle the main AI assistant request."""
+    limited = _rate_limited_response('warehouse_assistant')
+    if limited is not None:
+        return limited
     payload = request.get_json(silent=True) or {}
     return handle_warehouse_assistant(payload)
 
@@ -128,6 +142,9 @@ def warehouse_assistant():
 @ai_idempotent_request
 def chat_stream():
     """Handle the SSE AI chat request."""
+    limited = _rate_limited_response('chat_stream')
+    if limited is not None:
+        return limited
     payload = request.get_json(silent=True) or {}
     return handle_chat_stream(payload)
 
