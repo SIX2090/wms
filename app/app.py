@@ -4155,44 +4155,9 @@ SYSTEM_SETTING_GROUPS = [
             },
         ],
     },
-    {
-        'key': 'precision',
-        'title': '数据精度',
-        'icon': 'bi-123',
-        'description': '统一数量、单价、金额等小数位显示和计算基础。',
-        'settings': [
-            {
-                'key': 'quantity_decimal_places',
-                'label': '数量小数位',
-                'type': 'int',
-                'default': '3',
-                'min': 0,
-                'max': 8,
-                'unit': '位',
-                'remark': '用于物料数量、出入库数量和盘点数量的精度控制。',
-            },
-            {
-                'key': 'price_decimal_places',
-                'label': '单价小数位',
-                'type': 'int',
-                'default': '4',
-                'min': 0,
-                'max': 8,
-                'unit': '位',
-                'remark': '用于采购价、出入库单价等单价字段精度控制。',
-            },
-            {
-                'key': 'amount_decimal_places',
-                'label': '金额小数位',
-                'type': 'int',
-                'default': '2',
-                'min': 0,
-                'max': 8,
-                'unit': '位',
-                'remark': '用于单据金额、报表金额等金额字段精度控制。',
-            },
-        ],
-    },
+    # BUG-2026-10-17-015-F04（审计 §5.4 B7）：原「数据精度」三个设置项只出现在
+    # 设置页，quantity/price/amount_decimal_places() 全仓零调用——改了不生效的
+    # 假开关，已删除。真实舍入口径仍由 round_to_2_decimals 家族统一控制。
     {
         'key': 'security',
         'title': '登录安全',
@@ -4377,14 +4342,6 @@ def import_max_rows():
 def export_max_rows():
     return get_system_setting_int('export_max_rows', 5000)
 
-def quantity_decimal_places():
-    return get_system_setting_int('quantity_decimal_places', 3)
-
-def price_decimal_places():
-    return get_system_setting_int('price_decimal_places', 4)
-
-def amount_decimal_places():
-    return get_system_setting_int('amount_decimal_places', 2)
 
 def get_grouped_system_settings():
     grouped = []
@@ -7522,6 +7479,9 @@ def _alert_status_for(stock, min_stock, reorder_point):
     """
     if not inventory_alert_enabled():
         return 'disabled'
+    # BUG-2026-10-17-015-F01：stock 可能为 None（SQL 投影/新物料未初始化），
+    # 直接比较会 TypeError 500；按 0 处理并与"未设阈值→disabled"互补。
+    stock = stock or 0
     min_stock = min_stock or 0
     safety_stock = max(reorder_point or 0, min_stock)
     if min_stock <= 0 and safety_stock <= 0:

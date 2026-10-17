@@ -2734,6 +2734,12 @@ def register_in_order_routes(app):
             query = InOrder.query
             if status_filter:
                 query = query.filter(InOrder.status == status_filter)
+            # BUG-2026-10-17-015-F03：select_all 无上限会把整表 pending 单据一次性
+            # 载入并逐张加锁，内存/锁竞争不可控；与显式 ids 的 100 条上限对齐。
+            total = query.count()
+            if total > 500:
+                return jsonify({'status': 'error',
+                                'msg': f'筛选结果 {total} 条，超过单次批量 500 条上限，请加筛选条件后分批处理'}), 400
             orders = query.options(joinedload(InOrder.items)).all()
         else:
             ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -2933,11 +2939,18 @@ def register_in_order_routes(app):
         select_all = payload.get('select_all', False)
 
         if select_all:
-            orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.status == 'completed').all()
+            query = InOrder.query.filter(InOrder.status == 'completed')
+            total = query.count()
+            if total > 500:
+                return jsonify({'status': 'error',
+                                'msg': f'筛选结果 {total} 条，超过单次批量 500 条上限，请加筛选条件后分批处理'}), 400
+            orders = query.options(joinedload(InOrder.items)).all()
         else:
             ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
             if not ids:
                 return api_error('请选择要反审的入库单')
+            if len(ids) > 100:
+                return jsonify({'status': 'error', 'msg': '单次批量操作不能超过 100 条，请分批处理'}), 400
             orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
 
         reverted = 0

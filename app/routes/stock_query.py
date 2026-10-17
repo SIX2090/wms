@@ -92,6 +92,11 @@ def register_stock_query_routes(app):
         # 与 api_query_search 的 get_warehouse_stock_quantities 口径保持一致。
         # P1-5：全部仓库模式逐仓汇总，口径同为仓库级②/③，不回退全局 Material.stock。
         warehouse = Warehouse.query.get(warehouse_id) if (warehouse_id and warehouse_id > 0) else None
+        # BUG-2026-10-17-015-F02：指定了不存在的 warehouse_id 时旧逻辑静默
+        # 回退为空库存表（页面全 0），看起来像"该仓没货"而不是"仓库无效"。
+        if not all_warehouses_mode and warehouse_id and warehouse_id > 0 and warehouse is None:
+            from app import api_error
+            return api_error('仓库不存在或已删除，请重新选择仓库', 400)
         if all_warehouses_mode:
             warehouse_stock_map = get_all_warehouses_stock_quantities()
         elif warehouse:
