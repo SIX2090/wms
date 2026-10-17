@@ -28,6 +28,9 @@
             <button class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" onclick="toolbarDelete()" disabled title="删除选中物料">
                 <i class="bi bi-trash"></i> 删除
             </button>
+            <button class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" onclick="toolbarMerge()" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
+                <i class="bi bi-arrow-left-right"></i> 合并物料
+            </button>
             <div class="vr"></div>
             <div class="position-relative">
                 <button class="btn btn-outline-secondary btn-sm" id="toolbarColumnBtn" onclick="toggleMaterialColumnSettings()" title="设置显示/隐藏列">
@@ -278,6 +281,29 @@
     </div>
 </div>
     </section>
+</div>
+
+<!-- MATERIAL-MERGE-HUMAN-001：选择和判断由人工完成，不自动推荐合并。 -->
+<div class="modal fade" id="materialMergeModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="materialMergeTitle" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="materialMergeTitle">人工合并物料档案</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body">
+            <p class="alert alert-warning">合并会改写历史单据的物料指向、累加库存，并删除被合并档案。旧编码保留为别名。请先做好备份，由人工确认是否同一种物料。</p>
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><strong id="mergeDirection"></strong><button type="button" class="btn btn-outline-secondary btn-sm" id="mergeSwapBtn" disabled>交换保留方向</button></div>
+            <label class="form-label" for="mergeSearch">选择保留物料：按编码、名称、规格或品牌搜索（包含停用档案）</label>
+            <div class="input-group mb-2"><input id="mergeSearch" class="form-control" placeholder="输入关键词后回车或点击搜索" autocomplete="off"><button id="mergeSearchBtn" type="button" class="btn btn-outline-primary">搜索</button></div>
+            <div class="table-responsive" style="max-height:240px;overflow:auto"><table class="table table-sm table-hover"><thead class="sticky-top bg-body"><tr><th>编码</th><th>名称</th><th>规格</th><th>品牌</th><th>单位</th><th>状态</th><th>选择</th></tr></thead><tbody id="mergeCandidates"></tbody></table></div>
+            <div class="d-flex align-items-center gap-2 mb-3"><button type="button" id="mergePrevBtn" class="btn btn-sm btn-outline-secondary" disabled>上一页</button><span id="mergePageInfo" class="small text-muted"></span><button type="button" id="mergeNextBtn" class="btn btn-sm btn-outline-secondary" disabled>下一页</button></div>
+            <div id="mergeError" class="alert alert-danger" role="alert" hidden></div>
+            <div id="mergePreview" hidden>
+                <h6>核对档案与影响</h6><div class="table-responsive"><table class="table table-bordered table-sm"><thead><tr><th>字段</th><th>被合并（档案删除）</th><th>保留（库存及引用转入）</th></tr></thead><tbody id="mergeComparison"></tbody></table></div>
+                <p id="mergeDifferences" class="text-warning"></p><p id="mergeImpact"></p>
+                <p class="small text-muted">保留方的名称、规格、品牌和启停状态保持原值；差异仅作提示，是否同一物料由你判断。</p>
+                <label class="form-check"><input class="form-check-input" type="checkbox" id="mergeHumanConfirmed"><span class="form-check-label">我已核对两份档案，人工确认是同一种物料，并确认当前合并方向及历史单据、库存影响。</span></label>
+            </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button type="button" id="mergeExecuteBtn" class="btn btn-danger" disabled>确认合并</button></div>
+    </div></div>
 </div>
 
 <div class="modal fade" id="materialImageModal" tabindex="-1">
@@ -1216,6 +1242,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material_merge.js') }}"></script>
 <script>
 const quickSelectData = {
     category: [
@@ -1459,6 +1486,8 @@ function updateToolbarButtons() {
     document.getElementById('toolbarRemotePrintBtn').disabled = !hasSelection;
     document.getElementById('toolbarFindImageBtn').disabled = !hasSelection;
     document.getElementById('toolbarDeleteBtn').disabled = !hasSelection;
+    var mergeCount = document.querySelectorAll('#materialTable .check-item:checked').length;
+    document.getElementById('toolbarMergeBtn').disabled = mergeCount < 1 || mergeCount > 2;
 }
 
 function initToolbarActions() {
@@ -1539,61 +1568,16 @@ function toggleMaterialStatus(id, status) {
     });
 }
 
-// 2026-09-25：物料合并 —— **一个物料只保留一个物料编号**。
-// 与停用的区别：停用后档案和编号还在库里，仍是一物两码；合并会把单据/流水/
-// 库位账全部改指、库存累加，并删除被并掉的档案，不可逆。
-// 所以强制两步：先预览影响面，再带 confirm 执行，绝不许一键合并。
+// MATERIAL-MERGE-HUMAN-001：行按钮固定被合并方；工具栏支持选1或2条，再人工核对方向。
 function mergeMaterialInto(id, sourceCode) {
-    var head = '把物料 ' + sourceCode + ' 合并到哪个物料编码？\n\n'
-        + '合并后：' + sourceCode + ' 的入库单、出库单、流水、期初、库位账全部改指到目标物料，'
-        + '库存累加，' + sourceCode + ' 这个档案会被删除（旧编码转为别名，扫码仍能找到）。\n\n'
-        + '⚠ 历史单据上的物料编号会变成目标编号，不可撤销，请先备份数据库。\n\n'
-        + '请输入保留下来的物料编码：';
-    var targetCode = window.prompt(head);
-    if (!targetCode) return;
-    targetCode = String(targetCode).trim();
-    if (!targetCode) return;
-    if (targetCode === sourceCode) { window.alert('不能合并到自己'); return; }
-
-    WMS.api.post('/material/merge_preview',
-                 {source_code: sourceCode, target_code: targetCode})
-        .then(function (r) {
-            if (!r || r.status !== 'success') {
-                window.alert((r && r.msg) || '预览失败');
-                return null;
-            }
-            var d = r.data || {};
-            var lines = [
-                '保留：' + d.target.code + ' ' + d.target.name,
-                '合并：' + d.source.code + ' ' + d.source.name,
-                '',
-                '库存：' + d.target.stock + ' + ' + d.source.stock + ' = ' + d.stock_after,
-                '影响行数：' + d.total_rows
-            ];
-            var t = d.tables || {}, k;
-            for (k in t) {
-                if (Object.prototype.hasOwnProperty.call(t, k)) {
-                    lines.push('  · ' + k + '：' + t[k] + ' 行');
-                }
-            }
-            lines.push('');
-            lines.push('历史单据上的编号将变为 ' + d.target.code + '，不可撤销。确定执行吗？');
-            if (!window.confirm(lines.join('\n'))) return null;
-            return WMS.api.post('/material/' + id + '/merge',
-                                {target_code: targetCode, keep_alias: true, confirm: true});
-        })
-        .then(function (r) {
-            if (!r) return;
-            if (r.status === 'success') {
-                window.alert(r.msg);
-                window.location.reload();
-            } else {
-                window.alert((r && r.msg) || '合并失败');
-            }
-        })
-        .catch(function (e) {
-            window.alert('合并失败：' + (e && e.message ? e.message : e));
-        });
+    WMS.MaterialMerge.open({id: Number(id), code: sourceCode});
+}
+function toolbarMerge() {
+    var selected = Array.from(document.querySelectorAll('#materialTable .check-item:checked')).map(function (node) {
+        return {id: Number(node.value), code: node.closest('tr').querySelector('[data-column-key="code"]').textContent.trim()};
+    });
+    if (selected.length < 1 || selected.length > 2) return;
+    WMS.MaterialMerge.open(selected[0], selected[1] || null);
 }
 
 // ==================== 列设置（显示/隐藏字段） ====================

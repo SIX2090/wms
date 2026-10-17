@@ -1,0 +1,70 @@
+{
+  "task": "MATERIAL-MERGE-HUMAN-001",
+  "bug": "BUG-2026-10-17-004",
+  "baseline": {
+    "passed": 64,
+    "seconds": 17.56,
+    "log": "app/logs/material_human_merge_baseline.log"
+  },
+  "regression": {
+    "tests": 13
+  },
+  "rollback": {
+    "failed": 10,
+    "passed": 3,
+    "seconds": 7.22,
+    "log": "app/logs/material_human_merge_rollback.log",
+    "scope": "文件备份后恢复原app.py/material路由/模板，再运行新增用例，恢复修复；没有缺失属性/方法误报"
+  },
+  "adjacent": {
+    "passed": 99,
+    "seconds": 45.04,
+    "log": "app/logs/material_human_merge_adjacent.log"
+  },
+  "smoke": {
+    "passed": 121,
+    "failed": 0,
+    "log": "app/logs/material_human_merge_smoke.log",
+    "scope": "独立临时SQLite，非生产；测试服务自行关闭"
+  },
+  "browser": {
+    "status": "passed",
+    "scope": "真实模板模态框/工具栏函数及material_merge.js；本地HTTP模拟API，无数据库",
+    "cases": [
+      "行按钮打开选择器",
+      "分页与编码搜索",
+      "选择保留物料及名称差异提示",
+      "未勾选不能执行",
+      "人工勾选后可执行",
+      "交换方向重置确认",
+      "双选工具栏进入并核对方向",
+      "取消不发送执行请求",
+      "模拟提交一次且source2/target102059/confirm/identity_confirmed均正确",
+      "无浏览器JS错误"
+    ],
+    "driver": "内置浏览器CUA Playwright接口；系统未提供npx，未安装系统工具",
+    "cancel_merge_requests": 0,
+    "confirmed_merge_requests": 1
+  },
+  "full_suite": {
+    "status": "passed",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/material_human_merge_serial_full.log",
+    "passed": 3943,
+    "skipped": 90,
+    "warnings": 1307,
+    "seconds": 1202.62
+  },
+  "limits": [
+    "未执行任何生产合并/删除/库存写入/密码操作",
+    "属性差异由人工确认；单位不同拒绝直接累加，需另行核对数量换算",
+    "新建档案判重保持原规则；旧直接内部调用未人工确认的差异保护保留",
+    "模板改动生产需重启 WMS 服务生效；原5604旧服务继续，自动审批重启拦截不绕过"
+  ],
+  "gates": {
+    "normal_lint": "0违规",
+    "staged_lint": "0违规",
+    "full_ratchet": "通过，无新增违规",
+    "existing_bugs": "通过"
+  }
+}

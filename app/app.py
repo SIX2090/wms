@@ -9079,24 +9079,25 @@ MATERIAL_MERGE_REF_TABLES = (
 MATERIAL_MERGE_QUANTITY_TABLES = ('location_inventory',)
 
 
-def _material_merge_check_pair(target_id, source_id):
-    """合并前的共同校验：存在性 + 判重键必须一致。返回 (target, source)。"""
+def _material_merge_check_pair(target_id, source_id, identity_confirmed=False):
+    """合并前校验：存在性/单位；属性差异由人工确认。返回 (target, source)。"""
     target = db.session.get(Material, target_id)
     source = db.session.get(Material, source_id)
     if not target or not source:
         raise ValueError('物料不存在')
     if target.id == source.id:
         raise ValueError('不能把物料合并到它自己')
+    if target.unit_id != source.unit_id:
+        raise ValueError('库存单位不一致，不能直接累加数量；需先核对换算及历史数量后另行处理。')
     _k = _material_dedupe_key
-    if (_k(source.name), _k(source.spec), _k(source.brand)) != (
+    if not identity_confirmed and (_k(source.name), _k(source.spec), _k(source.brand)) != (
             _k(target.name), _k(target.spec), _k(target.brand)):
         raise ValueError(
-            '两个物料的名称/规格/品牌不一致（比较时忽略空格与大小写），不能合并。'
-            '如确为同一物料，请先把其中一个的名称、规格、品牌改成一致再合并。')
+            '两个物料的名称/规格/品牌不一致，需要人工确认是否同一物料。'
+            '请在合并窗口核对差异并勾选人工确认，不必先修改档案。')
     return target, source
 
-
-def material_merge_preview(target_id, source_id):
+def material_merge_preview(target_id, source_id, allow_identity_difference=False):
     """合并前的影响面统计（**只读**）：把影响摆出来，UI 上做二次确认。
 
     合并会改写历史单据的物料指向（单据上显示的编号会变成保留的那一个），
@@ -9105,7 +9106,7 @@ def material_merge_preview(target_id, source_id):
     from sqlalchemy import func as sa_func
     from sqlalchemy import select as sa_select
 
-    target, source = _material_merge_check_pair(target_id, source_id)
+    target, source = _material_merge_check_pair(target_id, source_id, allow_identity_difference)
     tables = {}
     for name in tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES):
         tbl = db.metadata.tables.get(name)
@@ -9120,24 +9121,23 @@ def material_merge_preview(target_id, source_id):
     return {
         'target': {'id': target.id, 'code': target.code, 'name': target.name,
                    'spec': target.spec or '', 'brand': target.brand or '',
-                   'stock': float(target.stock or 0)},
+                   'stock': float(target.stock or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
         'source': {'id': source.id, 'code': source.code, 'name': source.name,
                    'spec': source.spec or '', 'brand': source.brand or '',
-                   'stock': float(source.stock or 0)},
+                   'stock': float(source.stock or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
         'stock_after': float(target.stock or 0) + float(source.stock or 0),
         'tables': tables,
         'total_rows': sum(tables.values()),
     }
 
-
-def merge_material_duplicates(target_id, source_id, keep_alias=True):
+def merge_material_duplicates(target_id, source_id, keep_alias=True, identity_confirmed=False):
     """把 source 物料合并进 target 物料 —— **一个物料只保留一个物料编号**。
 
     为什么不是「停用」：停用后档案与编号仍在库里，仍是一物两码。业务口径要求
     重复的两个编码必须合成一个（2026-09-25）。
 
     步骤：
-      1. 校验判重键一致 —— 绝不允许多少有点像就把两个物料并成一个
+      1. MATERIAL-MERGE-HUMAN-001：属性差异须人工确认，系统不判断是否同物料
       2. MATERIAL_MERGE_REF_TABLES 全部改指（21 张明细/流水表）
       3. location_inventory 按（仓库 + 库位）合并数量，不留同键两行
       4. 库存累加：① 总账 = target.stock + source.stock
@@ -9153,7 +9153,7 @@ def merge_material_duplicates(target_id, source_id, keep_alias=True):
     # （BUG-2026-09-06-003；`from app.services.xxx import` 会 ModuleNotFoundError）
     from services.warehouse_stock_service import verify_material_three_ledgers
 
-    target, source = _material_merge_check_pair(target_id, source_id)
+    target, source = _material_merge_check_pair(target_id, source_id, identity_confirmed)
     stats = {'tables': {}, 'stock_before': float(target.stock or 0),
              'stock_source': float(source.stock or 0), 'alias': None}
 

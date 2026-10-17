@@ -777,6 +777,30 @@ def register_material_routes(app):
         return jsonify({'status': 'success', 'msg': f'已{_label}物料 {material.code}',
                         'new_status': new_status})
 
+    @app.route('/material/merge_candidates')
+    @require_role('warehouse')
+    @login_required
+    def material_merge_candidates():
+        """MATERIAL-MERGE-HUMAN-001: 人工搜索候选；包含停用档案，不判定可合并性。"""
+        from app import Material
+        from sqlalchemy import or_
+
+        page = max(1, request.args.get('page', 1, type=int))
+        keyword = (request.args.get('kw') or '').strip()[:200]
+        query = Material.query.options(joinedload(Material.unit))
+        source_id = request.args.get('source_id', type=int)
+        if source_id:
+            query = query.filter(Material.id != source_id)
+        if keyword:
+            query = query.filter(or_(*(column.contains(keyword, autoescape=True)
+                                      for column in (Material.code, Material.name, Material.spec, Material.brand))))
+        rows = query.order_by(Material.code, Material.id).paginate(page=page, per_page=20, error_out=False)
+        return jsonify(status='success', data=[{
+            'id': row.id, 'code': row.code, 'name': row.name, 'spec': row.spec or '',
+            'brand': row.brand or '', 'unit': row.unit.name if row.unit else '',
+            'status': row.status or 'active',
+        } for row in rows.items], page=rows.page, page_size=20, total=rows.total, total_pages=rows.pages)
+
     @app.route('/material/merge_preview', methods=['GET', 'POST'])
     @require_role('warehouse')
     @login_required
@@ -793,6 +817,7 @@ def register_material_routes(app):
         class MergePreviewRequest(BaseModel):
             source_code: str = Field(..., description='被合并掉的物料编码')
             target_code: str = Field(..., description='保留下来的物料编码')
+            manual_review: bool = Field(False, description='人工合并窗口查看差异，不代表执行合并')
 
         if request.method == 'POST':
             payload = request.get_json(silent=True) or dict(request.form)
@@ -814,7 +839,7 @@ def register_material_routes(app):
         if not target:
             return jsonify({'status': 'error', 'msg': f'找不到物料编码 {target_code}'}), 404
         try:
-            data = _preview(target.id, source.id)
+            data = _preview(target.id, source.id, allow_identity_difference=req.manual_review)
         except ValueError as exc:
             return jsonify({'status': 'error', 'msg': str(exc)}), 400
         return jsonify({'status': 'success', 'data': data})
@@ -839,6 +864,7 @@ def register_material_routes(app):
             target_code: str = Field(..., description='保留下来的物料编码')
             keep_alias: bool = Field(True, description='是否把被并掉的编码转为物料别名')
             confirm: bool = Field(False, description='已看过预览并确认合并')
+            identity_confirmed: bool = Field(False, description='人工判定两份档案属于同一物料')
 
         source = Material.query.get(id)
         if not source:
@@ -856,12 +882,14 @@ def register_material_routes(app):
         # 强制两步：先预览拿到影响面，再带 confirm=1 执行。避免一键误并。
         if not req.confirm:
             try:
-                data = _preview(target.id, source.id)
+                data = _preview(target.id, source.id, allow_identity_difference=req.identity_confirmed)
             except ValueError as exc:
                 return jsonify({'status': 'error', 'msg': str(exc)}), 400
             return jsonify({'status': 'preview', 'msg': '请先确认合并影响', 'data': data})
         try:
-            stats = _merge(target.id, source.id, keep_alias=req.keep_alias)
+            stats = _merge(target.id, source.id, keep_alias=req.keep_alias, identity_confirmed=req.identity_confirmed)
+            if stats.get('ledger_regressed'):
+                raise ValueError('合并后库存校验不通过，已撤销本次合并，请核对库存。')
             db.session.commit()
         except ValueError as exc:
             db.session.rollback()
@@ -870,18 +898,6 @@ def register_material_routes(app):
             db.session.rollback()
             app.logger.exception('合并物料失败')
             return jsonify({'status': 'error', 'msg': f'合并失败：{str(exc)}'}), 500
-        # 只有「合并前两边都对、合并后不对」才判定为合并把账搞歪 —— 那必须亮红。
-        # 合并前本来就对不上的（存量脏数据）如实提示，但不回滚：否则重复编号
-        # 永远清不掉。
-        if stats.get('ledger_regressed'):
-            _detail = stats.get('ledger_detail') or {}
-            return jsonify({
-                'status': 'error',
-                'msg': ('合并已写入，但三账恒等式校验不成立，请立即核对：'
-                        f"①总账={_detail.get('one')} ②库位账={_detail.get('two')} "
-                        f"③流水Σ={_detail.get('three')}"),
-                'data': stats,
-            }), 500
         log_audit('merge', 'material', target.id,
                   f'合并物料：{stats.get("source_code")} → {target.code}',
                   old_data={'source_id': stats.get('source_id'),

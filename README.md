@@ -487,3 +487,5 @@ python3 scripts/check_hooks_installed.py
 3. commit message 关联 BUG ID：`fix: BUG-2026-09-29-NNN xxx`
 4. 加回归测试，且回退修复后新测试必须失败（回归锁自证，R8）
 5. 全量 + 相邻模块回归通过、lint 0 违规、CI 三工作流转绿后，改状态为"已修复"
+
+物料档案的人工选择与合并操作见 [物料合并说明](docs/MATERIAL_MERGE_GUIDE.md)。
