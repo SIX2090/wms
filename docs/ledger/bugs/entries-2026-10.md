@@ -756,4 +756,4 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：两脚本新增 _configure_stdio()（stdout/stderr errors=replace 兜底）与 _glyph(unicode, ascii)（编码不支持时降级 [OK]/[FAIL]/[WARN]，box 线降级 '-'）；main() 首行调用。脚本保持自包含，因为 golden 测试会把 lint_wms_rules.py 单独复制到临时仓库。
 - 回归：tests/test_console_encoding_gbk.py 5 用例——gbk/utf-8 下两脚本均不崩溃且 rc=0；_glyph 在 gbk 降级、在 utf-8 保留符号。回退修复后 gbk 用例必红。
 - 状态：已修复（2026-10-18 本地验证：GBK/UTF-8 双跑 rc=0、真实钩子 HOOK_EXIT=0；待推送 CI 复核）。
-- 生效确认：待确认；pre-commit 下次提交即读新脚本，无需重启服务；CI 复核后补记。
+- 生效确认：**已确认（2026-10-18）**：WMS CI 39057235881（ad1e1789）9/9 job success，AI Verification 39057235935 / Perf 39057235869 同 SHA success；本机默认 cp936 控制台实跑 .githooks/pre-commit（含 staged JS）HOOK_EXIT=0，输出已降级为 [OK]。pre-commit 下次提交即读新脚本，无需重启服务。
