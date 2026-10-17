@@ -46,7 +46,21 @@
     "不自动恢复业务数据库；生产更新器/停止未执行"
   ],
   "test_fixture_notes": "临时仓库补齐真实仓库已有__pycache__忽略；Windows环境变量按实际序列化键校验，保留业务断言。最终140项全部通过。",
-  "ci": "待业务提交后验证",
+  "ci": {
+    "WMS CI": {
+      "run": 38988448736,
+      "result": "success"
+    },
+    "WMS AI Verification": {
+      "run": 38988448698,
+      "result": "success"
+    },
+    "WMS Perf Baseline": {
+      "run": 38988448706,
+      "result": "success"
+    }
+  },
   "production": "旧PID5604及F02人工统一重启待办仍保留，不执行自动重启绕过审批",
-  "deployment_scope": "当前普通进程Git部署；NSSM服务托管协同列入A09启动入口专项，不执行生产更新试验"
+  "deployment_scope": "当前普通进程Git部署；NSSM服务托管协同列入A09启动入口专项，不执行生产更新试验",
+  "commit": "b33ceebf19708c21fedca7180b61868b51059125"
 }
