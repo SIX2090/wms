@@ -8,6 +8,35 @@ from flask_login import login_required
 from utils import require_role
 
 
+def _parse_label_layout(raw):
+    """把表单/JSON 里的 layout 解析为 dict；非法 JSON 或非对象抛 ValueError。
+
+    BUG-2026-10-17-011（审计 §6.2 存储型 XSS 的写入侧）：新增模板原先把
+    request.form 里的 layout 原样落库，既可能是非法 JSON（设计器打开即报错），
+    也可能是任意字符串（配合模板 |safe 输出形成存储型 XSS）。这里统一解析并
+    只接受对象；列表旧格式包成 {'cells': [...]}，与 _normalize_label_template_layout 对齐。
+    """
+    import json
+
+    if raw is None:
+        return {}
+    if isinstance(raw, (dict, list)):
+        data = raw
+    else:
+        text = str(raw).strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except ValueError as exc:
+            raise ValueError('布局数据不是合法 JSON') from exc
+    if isinstance(data, list):
+        data = {'cells': data}
+    if not isinstance(data, dict):
+        raise ValueError('布局数据必须为对象')
+    return data
+
+
 # no-test:reason=路由注册辅助函数，能力由 label_barcode_* 各路由测试覆盖
 def register_label_barcode_routes(app):
     @app.route('/label_template')
@@ -67,7 +96,12 @@ def register_label_barcode_routes(app):
             cols = parse_int_value(request.form.get('cols'), 5, minimum=1, maximum=100)
             rows = parse_int_value(request.form.get('rows'), 6, minimum=1, maximum=100)
             is_default = request.form.get('is_default') == 'on'
-            layout = request.form.get('layout', '{}')
+            try:
+                layout = _parse_label_layout(request.form.get('layout', '{}'))
+            except ValueError as exc:
+                return api_error(str(exc))
+            import json as _json
+            layout = _json.dumps(layout, ensure_ascii=False)
 
             if not name:
                 return api_error('请输入模板名称')

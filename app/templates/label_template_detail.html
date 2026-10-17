@@ -517,7 +517,11 @@ body {
 
     <script>
         // 布局数据存储
-        let layoutData = {{ template.layout | default('{}') | safe }};
+        // 安全渲染：tojson 会转义脚本结束标签等字符；历史非法 JSON 回退为空布局，页面仍可编辑
+        let layoutData = (function () {
+            try { return JSON.parse({{ (template.layout or '{}') | tojson }}); }
+            catch (e) { return {}; }
+        })();
         let currentCell = null;
         
         // 字段映射
