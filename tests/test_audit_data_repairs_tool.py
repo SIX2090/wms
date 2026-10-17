@@ -62,3 +62,21 @@ def test_apply_fk_requires_yes_and_then_fixes(tmp_path):
     assert applied.returncode in (0, 1)
     value = sqlite3.connect(str(db)).execute('SELECT executed_by FROM ai_cleanup_log').fetchone()[0]
     assert value == 1
+
+
+def test_apply_location_reconcile_aligns_or_deletes(tmp_path):
+    db = tmp_path / 'db.sqlite'
+    _make_db(db)
+    conn = sqlite3.connect(str(db))
+    conn.executescript("""
+        DELETE FROM location_inventory;
+        INSERT INTO location_inventory VALUES (1, 1, 1, 'WH1', 9);
+        INSERT INTO location_inventory VALUES (2, 2, 1, 'WH1', 3);
+        INSERT INTO stock_transaction VALUES (2, 2, 1, 0);
+    """)
+    conn.commit()
+    result = _run(db, '--apply-location-reconcile', '--yes', '--json')
+    assert result.returncode in (0, 1), result.stderr
+    conn = sqlite3.connect(str(db))
+    rows = conn.execute('SELECT material_id, quantity FROM location_inventory ORDER BY material_id').fetchall()
+    assert rows == [(1, 5.0)], rows

@@ -14,6 +14,7 @@
   python scripts/data_repairs.py --db app/instance/inventory.db            # 只读报告
   python scripts/data_repairs.py --db app/instance/inventory.db --json
   python scripts/data_repairs.py --db app/instance/inventory.db --apply-fk --yes
+  python scripts/data_repairs.py --db app/instance/inventory.db --apply-location-reconcile --yes
 """
 from __future__ import annotations
 
@@ -86,6 +87,35 @@ def fix_ai_cleanup(conn):
     return cur.rowcount, f'已回填 executed_by={executor}'
 
 
+def fix_location_reconcile(conn):
+    """把库位账按同仓流水净额对齐（审计 §3.7）。
+
+    规则（保守）：txn 净额为 0 → 删除该物料该仓的全部库位残行；
+    txn 净额 > 0 → 把差额补到数量最大的一行，使 Σ库位账 = 流水净额。
+    返回 (影响组数, 说明)。
+    """
+    rows = conn.execute(
+        'SELECT l.material_id, l.warehouse_id, SUM(l.quantity) loc, '
+        'COALESCE((SELECT SUM(quantity) FROM stock_transaction t '
+        'WHERE t.material_id=l.material_id AND t.warehouse_id=l.warehouse_id),0) txn '
+        'FROM location_inventory l GROUP BY l.material_id,l.warehouse_id '
+        'HAVING ABS(SUM(l.quantity)-txn) > 0.01').fetchall()
+    for row in rows:
+        mid, wid, txn = row['material_id'], row['warehouse_id'], row['txn']
+        if txn <= 0:
+            conn.execute('DELETE FROM location_inventory WHERE material_id=? AND warehouse_id=?',
+                         (mid, wid))
+        else:
+            first = conn.execute(
+                'SELECT id, quantity FROM location_inventory WHERE material_id=? AND warehouse_id=? '
+                'ORDER BY quantity DESC, id ASC LIMIT 1', (mid, wid)).fetchone()
+            delta = txn - (row['loc'] or 0)
+            conn.execute('UPDATE location_inventory SET quantity=? WHERE id=?',
+                         ((first['quantity'] or 0) + delta, first['id']))
+    conn.commit()
+    return len(rows), f'已对齐 {len(rows)} 组库位账'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description='WMS 审计数据修复（默认只读）')
     parser.add_argument('--db', required=True)
@@ -93,16 +123,29 @@ def main(argv=None):
     parser.add_argument('--apply-fk', action='store_true',
                         help='把 ai_cleanup_log 的非法 executed_by 回填为最小 user.id')
     parser.add_argument('--yes', action='store_true', help='确认执行写入')
+    parser.add_argument('--apply-location-reconcile', action='store_true',
+                        help='按同仓流水净额对齐库位账（txn=0 删除残行）')
     args = parser.parse_args(argv)
     try:
-        conn = _connect(args.db, readonly=not (args.apply_fk and args.yes))
+        needs_write = (args.apply_fk or args.apply_location_reconcile) and args.yes
+        conn = _connect(args.db, readonly=not needs_write)
         report = collect(conn)
         applied = None
+        if args.apply_location_reconcile:
+            if not args.yes:
+                print('拒绝写入：--apply-location-reconcile 需要同时提供 --yes', file=sys.stderr)
+                return 2
+            applied_loc = fix_location_reconcile(conn)
+            report = collect(conn)
+        else:
+            applied_loc = None
         if args.apply_fk:
             if not args.yes:
                 print('拒绝写入：--apply-fk 需要同时提供 --yes', file=sys.stderr)
                 return 2
             applied = fix_ai_cleanup(conn)
+        if applied_loc:
+            applied = (applied, applied_loc)
         conn.close()
     except (sqlite3.Error, OSError) as exc:
         print(f'读取失败：{exc}', file=sys.stderr)
