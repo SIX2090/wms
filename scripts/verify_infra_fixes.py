@@ -6,13 +6,14 @@
 - E6: restart.py 端口与登录路径不再硬编码，提取为常量+环境变量 WMS_PORT / WMS_LOGIN_PATH
 - E7: .githooks/pre-push 不再允许删除远程 main 分支，任何分支删除均被阻止
 - E8: .github/workflows/verify.yml push 触发分支仅 main，移除 feature/* 和 ai/*
-- E9: app.py backup_page 排序键支持 None 字段，避免 datetime/int/str 混合比较抛 TypeError
+- E9: routes/backup.py backup_page 排序键支持 None 字段，避免 datetime/int/str 混合比较抛 TypeError
 
 退出码 0=通过，1=失败。
 """
 from __future__ import annotations
 
 import re
+import ast
 import sys
 from pathlib import Path
 
@@ -76,14 +77,21 @@ def main() -> int:
     if 'feature/*' in yml or "'ai/*'" in yml or '"ai/*"' in yml:
         failures.append('E8: verify.yml 仍包含 feature/* 或 ai/* 触发分支')
 
-    # ── E9: app.py backup_page 排序键 ──
-    app_py = read(ROOT / 'app' / 'app.py')
+    # Repair task: AUDIT-FULL-20261016-001-F08. Follow the actual migrated route.
+    # ── E9: routes/backup.py backup_page 排序键 ──
+    app_py = read(ROOT / 'app' / 'routes' / 'backup.py')
     # 必须包含 None 字段类型一致默认值
     if '_SORT_DEFAULTS' not in app_py or '_backup_sort_key' not in app_py:
-        failures.append('E9: app.py backup_page 缺少 _SORT_DEFAULTS / _backup_sort_key 防御性排序键')
+        failures.append('E9: routes/backup.py backup_page 缺少 _SORT_DEFAULTS / _backup_sort_key 防御性排序键')
     # 旧形式 `item.get(sort_by) or ''` 不应再出现
     if re.search(r'backups\.sort\([^)]*item\.get\(sort_by\)\s*or\s*\'\'', app_py):
-        failures.append('E9: app.py backup_page 仍使用 item.get(sort_by) or \'\' 排序键')
+        failures.append('E9: routes/backup.py backup_page 仍使用 item.get(sort_by) or \'\' 排序键')
+    calls = [node for node in ast.walk(ast.parse(app_py)) if isinstance(node, ast.Call)]
+    if not any(isinstance(call.func, ast.Attribute) and isinstance(call.func.value, ast.Name)
+               and call.func.value.id == 'backups' and call.func.attr == 'sort'
+               and any(keyword.arg == 'key' and isinstance(keyword.value, ast.Name)
+                       and keyword.value.id == '_backup_sort_key' for keyword in call.keywords) for call in calls):
+        failures.append('E9: backup_page 没有实际使用防御性排序函数')
 
     if failures:
         print('FAIL INFRA-FIXES:')

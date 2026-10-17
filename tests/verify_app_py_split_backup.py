@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +47,14 @@ BACKUP_ENDPOINTS = [
     "delete_backup",
     "restore_backup",
 ]
+
+
+@pytest.fixture(autouse=True)
+def isolate_registered_backup_sources(tmp_path, monkeypatch):
+    # New sources must not make these legacy tests enumerate production backups.
+    import backup_catalog
+    monkeypatch.setenv('WMS_BACKUP_DIR', str(tmp_path / 'daily'))
+    monkeypatch.setattr(backup_catalog, 'UPDATE_BACKUP_DIR', tmp_path / 'update')
 
 
 def _reset_db():

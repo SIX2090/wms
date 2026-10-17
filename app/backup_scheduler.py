@@ -80,14 +80,20 @@ def run_daily_backup(app) -> Path:
     return dest
 
 
-def _cleanup_expired(backup_dir: Path) -> int:
-    """清理超过 BACKUP_RETENTION_DAYS 天的自动备份（只动 auto_daily_*.db）。"""
+def get_retention_days() -> int:
+    """Repair task: AUDIT-FULL-20261016-001-F08; one policy for cleanup and display."""
     retention_raw = (os.environ.get('BACKUP_RETENTION_DAYS') or '30').strip()
     try:
         retention_days = max(1, int(retention_raw))
     except ValueError:
         logger.warning('BACKUP_RETENTION_DAYS=%r 非法，回退 30', retention_raw)
         retention_days = 30
+    return retention_days
+
+
+def _cleanup_expired(backup_dir: Path) -> int:
+    """清理超过 BACKUP_RETENTION_DAYS 天的自动备份（只动 auto_daily_*.db）。"""
+    retention_days = get_retention_days()
     cutoff = time.time() - retention_days * 86400
     removed = 0
     for f in backup_dir.glob(f'{AUTO_BACKUP_PREFIX}*.db'):

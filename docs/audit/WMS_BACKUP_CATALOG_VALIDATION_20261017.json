@@ -1,0 +1,150 @@
+{
+  "task": "AUDIT-FULL-20261016-001-F08",
+  "bug": "BUG-2026-10-17-008",
+  "audit": [
+    "A10"
+  ],
+  "status": "local_targeted_passed_pending_full_CI",
+  "baseline": {
+    "passed": 30,
+    "seconds": 5.79,
+    "log": "app/logs/audit_backup_catalog_baseline.log"
+  },
+  "legacy_infra_baseline": {
+    "status": "failed",
+    "reason": "E9 scans migrated app.py instead of routes/backup.py",
+    "log": "app/logs/audit_backup_infra_baseline.log"
+  },
+  "old_route_first_regression": {
+    "failed": 13,
+    "passed": 19,
+    "seconds": 5.04,
+    "log": "app/logs/audit_backup_catalog_before_route_fix.log",
+    "scope": "new pure catalogue retained, old routes loaded"
+  },
+  "first_adjacent": {
+    "passed": 61,
+    "failed": 1,
+    "seconds": 21.36,
+    "reason": "new permission test omitted actual frontend XHR header; strict403 assertion kept, header and separate HTML302 refusal added",
+    "log": "app/logs/audit_backup_catalog_adjacent_initial.log"
+  },
+  "regression": {
+    "tests": 45,
+    "scope": "new cases included in final97, including old-running-backend template fallback"
+  },
+  "adjacent": {
+    "passed": 97,
+    "seconds": 12.13,
+    "log": "app/logs/audit_backup_catalog_model_scope_final.log"
+  },
+  "rollback": {
+    "failed": 14,
+    "passed": 5,
+    "deselected": 26,
+    "seconds": 3.88,
+    "log": "app/logs/audit_backup_catalog_final_rollback.log",
+    "scope": "backup original routes/template/verifier, restore original3files; pure catalogue and unchanged retention policy getter retained; all repaired bytes restored and97 passed"
+  },
+  "browser": {
+    "fixture": "temporary clone, in-memory account DB, temporary business/backup files",
+    "initial_native_dialog": "IAB CDP blocked; temporary tab19 closed and own fixture restarted; no production access",
+    "confirmation": "controlled checkbox simulates confirm in fixture only; real app retains window.confirm",
+    "cancelled_requests": {
+      "create": 0,
+      "delete": 0
+    },
+    "accepted_trace": {
+      "create": 1,
+      "delete": [
+        {
+          "source": "daily",
+          "filename": "auto_daily_synthetic_inventory.db",
+          "csrf_present": true
+        }
+      ],
+      "verify": [
+        {
+          "source": "daily",
+          "filename": "auto_daily_synthetic_inventory.db"
+        },
+        {
+          "source": "daily",
+          "filename": "auto_daily_corrupt_inventory.db"
+        }
+      ]
+    },
+    "download_sha256": "c66ca76c90c593a8fa610d07b063c4318e042685af191aac2bf0ad7644ddd40b",
+    "daily_source_sha256": "c66ca76c90c593a8fa610d07b063c4318e042685af191aac2bf0ad7644ddd40b",
+    "source_filters": [
+      "all:4 then5 after create",
+      "daily:2",
+      "daily+synthetic:1",
+      "update:1",
+      "clear:all"
+    ],
+    "sorting": "size ascending/descending preserved daily filter and embedded",
+    "create_navigation": "clears old source/search; newest manual snapshot visible first; embedded retained",
+    "columns": "number52/file477/source170/date155/size95/check90/actions175 at1280 viewport; same resizing helper retained",
+    "verification": "good passes; corrupt fails; no writes/restores",
+    "javascript_errors": [],
+    "production_operations": []
+  },
+  "readonly_real_metadata": {
+    "scope": "current command environment; pure catalog module only, no application import or SQLite file open",
+    "checked_at": "2026-10-17T22:54:17.753764",
+    "counts": {
+      "daily": 6,
+      "manual": 11,
+      "update": 10
+    },
+    "latest_daily": "2026-10-17T02:00:00.221068",
+    "settings": {
+      "enabled": true,
+      "time": "02:00",
+      "retention_days": 30
+    },
+    "warnings": [],
+    "database_operations": []
+  },
+  "gates": {
+    "node_syntax": "passed",
+    "source_encoding": "passed",
+    "infra_verifier": "passed; actual route plus used-sort-function AST check; no old assertion weakened",
+    "staged_lint": "最终0违规",
+    "full_ratchet": "最终通过，A8=61/A9=213，无新增违规",
+    "existing_bugs": "通过"
+  },
+  "independent_ai_core": {
+    "status": "passed",
+    "workers": 1,
+    "log": "app/logs/audit_backup_catalog_ai_core.log",
+    "scope": "same58 scripts isolated temporary clone/databases/log/upload/backup directories; background auto backup disabled only in verification fixture",
+    "scripts": 58,
+    "passed": 58,
+    "failed": 0,
+    "seconds_sum": 167.35
+  },
+  "business_smoke": {
+    "passed": 121,
+    "total": 121,
+    "failed": 0,
+    "log": "app/logs/audit_backup_catalog_smoke.log",
+    "scope": "unmodified full_smoke_test.py via original wrapper; Windows interpreter/temp root, port and log adapter; only explicitly initialized temporary database"
+  },
+  "full_suite": {
+    "status": "running",
+    "command": "python -m pytest tests/ -q",
+    "log": "app/logs/audit_backup_catalog_serial_full.log"
+  },
+  "limits": [
+    "生产需重启 WMS 服务生效，旧服务模板上下文仍可显示旧目录并提示重启，新动作不发到旧接口",
+    "不执行生产备份删除/恢复、业务库写入或账号操作",
+    "固定目录键，不接收任意下载路径；同名文件按原文件名及来源匹配，链接和业务库拒绝",
+    "列表仅文件元数据，校验显式只读SQLite物理完整性，不能替代停机和WMS结构校验",
+    "保留原每日30天、最少1天和仅auto_daily清理语义，不自动清理手动/更新快照",
+    "UI原生confirm被IAB测试接口阻塞后用隔离确认模拟验证；真正删除仅临时文件pytest覆盖，浏览器删除仅记录请求"
+  ],
+  "smoke_harness_diagnostic": "First initialization used testing config, which forces memory DB; actual-engine path assertion refused before initialize_database. Retried with explicit production config pointing to verified temporary file; no business source or assertion relaxed.",
+  "model_scope_diagnostic": "Full scan initially counted A8=62 because module-level Pydantic model was not recognized near the route; kept exact model fields/validation, moved class inside route following project convention, no exemption. Targeted97 passed12.13s, finalA8=61."
+}

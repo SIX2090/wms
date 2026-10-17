@@ -491,3 +491,5 @@ python3 scripts/check_hooks_installed.py
 物料档案的人工选择与合并操作见 [物料合并说明](docs/MATERIAL_MERGE_GUIDE.md)。
 
 自动启动与新建Windows服务的配置及边界见 [服务部署说明](docs/SERVICE_DEPLOYMENT.md)。
+
+备份管理可统一查看手动、每日自动和更新前备份，来源/保留策略与校验操作见 [备份管理说明](docs/BACKUP_MANAGEMENT.md)。

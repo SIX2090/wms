@@ -1,133 +1,72 @@
 {% extends "base.html" %}
 {% from '_list_macros.html' import sort_th %}
 {% block title %}数据备份{% endblock %}
-
 {% block content %}
-<div class="page-header">
-    <h2><i class="bi bi-database"></i> 数据备份</h2>
+{% set catalog_ready = sources is defined and backup_settings is defined %}
+<div class="page-header"><h2><i class="bi bi-database"></i> 数据备份</h2></div>
+<div class="row g-3">
+ <div class="col-md-6"><div class="card h-100">
+  <div class="card-header"><h5 class="mb-0">手动备份</h5></div>
+  <div class="card-body">
+   <p>备份当前数据库，保留一份可下载的一致性快照。</p>
+   <button type="button" class="btn btn-primary" data-backup-action="create"><i class="bi bi-download"></i> 立即备份</button>
+   <p class="text-muted small mt-3 mb-0">线上页面恢复已禁用。恢复数据库须停机、保留当前库并由人工确认。</p>
+  </div>
+ </div></div>
+ <div class="col-md-6"><div class="card h-100">
+  <div class="card-header"><h5 class="mb-0">自动备份设置</h5></div>
+  <div class="card-body">
+   {% if catalog_ready %}
+   <p class="mb-2">配置{{ '已启用' if backup_settings.enabled else '未启用' }} · 计划每日 {{ backup_settings.time }}</p>
+   <p class="mb-2">保留最近 {{ backup_settings.retention_days }} 天，仅自动清理每日备份；手动及更新前备份不自动清理。</p>
+   <p class="small text-muted mb-0">执行情况以备份记录和服务日志为准。</p>
+   {% else %}<p class="text-muted mb-0">需重启 WMS 服务后显示自动备份计划与保留策略。</p>{% endif %}
+  </div>
+ </div></div>
 </div>
-
-<div class="row">
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">备份数据库</h5>
-            </div>
-            <div class="card-body">
-                <p>将当前 SQLite 数据库创建为一致性备份文件</p>
-                <button class="btn btn-primary" onclick="backupDatabase()">
-                    <i class="bi bi-download"></i> 立即备份
-                </button>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header">
-                <h5 class="mb-0">恢复数据库</h5>
-            </div>
-            <div class="card-body">
-                <p class="text-muted mb-0">线上页面恢复已禁用。需要恢复数据库时，必须停机、备份当前库、人工确认后再执行。</p>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="card mt-4">
-    <div class="card-header">
-        <h5 class="mb-0">备份历史</h5>
-    </div>
-    <div class="card-body">
-        <form method="get" class="row g-2 align-items-end mb-3">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if request.args.get('embedded') == '1' %}
-            <input type="hidden" name="embedded" value="1">
-            {% endif %}
-            <div class="col-md-10">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索备份文件名" value="{{ filters.search }}">
-            </div>
-            <div class="col-md-2 d-flex gap-2">
-                <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
-                {% if filters.search %}
-                <a href="/backup{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
-                {% endif %}
-            </div>
-        </form>
-        <div class="table-responsive">
-            <table class="table table-bordered table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th>序号</th>
-                        {{ sort_th('文件名', 'filename', sort_by, sort_order) }}
-                        {{ sort_th('备份时间', 'created_at', sort_by, sort_order) }}
-                        {{ sort_th('文件大小', 'size_bytes', sort_by, sort_order) }}
-                        <th>操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for backup in backups %}
-                    <tr>
-                        <td>{{ loop.index }}</td>
-                        <td>{{ backup.filename }}</td>
-                        <td>{{ backup.created_at.strftime('%Y-%m-%d %H:%M') if backup.created_at else '-' }}</td>
-                        <td>{{ backup.size }}</td>
-                        <td>
-                            <a href="{{ backup.url }}" class="btn btn-sm btn-outline-primary">下载</a>
-                            <button class="btn btn-sm btn-outline-danger" onclick="deleteBackup('{{ backup.filename }}')">删除</button>
-                        </td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="5" class="text-center text-muted">暂无备份记录</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+{% if catalog_ready %}
+<details class="mt-3 small"><summary>备份保存位置</summary>
+ {% for key, source in sources.items() %}<div class="mt-1"><strong>{{ source.label }}：</strong><span class="text-break">{{ source.directory }}</span></div>{% endfor %}
+</details>
+{% else %}<div class="alert alert-info mt-3 mb-0">备份管理新版需重启 WMS 服务后启用；当前仅显示旧目录记录，可继续创建和下载备份。</div>{% endif %}
+{% for warning in warnings %}<div class="alert alert-warning mt-3 mb-0" role="alert">{{ warning }}</div>{% endfor %}
+<div class="card mt-3">
+ <div class="card-header"><h5 class="mb-0">备份历史 <small class="text-muted">{{ backups|length }} 份</small></h5></div>
+ <div class="card-body">
+  <form method="get" class="row g-2 align-items-end mb-3">
+   {% if request.args.get('embedded') == '1' %}<input type="hidden" name="embedded" value="1">{% endif %}
+   <div class="col-md-6">
+    <label class="form-label small text-muted mb-1" for="backup-search">文件名</label>
+    <input id="backup-search" type="text" name="search" class="form-control form-control-sm" placeholder="搜索备份文件名" value="{{ filters.search }}">
+   </div>
+   <div class="col-md-4">
+    <label class="form-label small text-muted mb-1" for="backup-source">备份来源</label>
+    <select id="backup-source" name="source" class="form-select form-select-sm" {% if not catalog_ready %}disabled{% endif %}><option value="">{{ '全部来源' if catalog_ready else '服务待更新' }}</option>
+     {% if catalog_ready %}
+     {% for key, source in sources.items() %}<option value="{{ key }}" {% if filters.source == key %}selected{% endif %}>{{ source.label }}</option>{% endfor %}{% endif %}
+    </select>
+   </div>
+   <div class="col-md-2 d-flex gap-2">
+    <button type="submit" class="btn btn-primary btn-sm flex-fill">查询</button>
+    {% if filters.search or filters.source %}<a href="{{ url_for('backup_page', embedded=1) if request.args.get('embedded') == '1' else url_for('backup_page') }}" class="btn btn-outline-secondary btn-sm">清除</a>{% endif %}
+   </div>
+  </form>
+  <div class="table-responsive"><table id="backup-history-table" data-disable-auto-resize="true" class="table table-bordered table-hover mb-0" style="min-width:900px"><colgroup><col style="width:48px"><col><col style="width:170px"><col style="width:155px"><col style="width:95px"><col style="width:90px"><col style="width:175px"></colgroup>
+   <thead><tr><th class="row-num">序号</th>{{ sort_th('文件名', 'filename', sort_by, sort_order) }}<th>来源 / 保留策略</th>{{ sort_th('备份时间', 'created_at', sort_by, sort_order) }}{{ sort_th('文件大小', 'size_bytes', sort_by, sort_order) }}<th>完整性</th><th class="action-col">操作</th></tr></thead>
+   <tbody>{% for backup in backups %}<tr>
+    <td>{{ loop.index }}</td><td class="text-break">{{ backup.filename or '-' }}</td>
+    <td>{{ backup.source_label|default('旧目录记录') }}<small class="d-block text-muted">{{ backup.retention|default('策略待服务更新后加载') }}</small></td>
+    <td class="text-nowrap">{{ backup.created_at.strftime('%Y-%m-%d %H:%M') if backup.created_at else '-' }}</td><td class="text-nowrap">{{ backup.size or '-' }}</td>
+    <td><span class="badge bg-secondary" data-backup-check-status>{{ '待复核' if catalog_ready else '待更新' }}</span></td>
+    <td class="text-nowrap">
+     <a href="{{ backup.url }}" class="btn btn-sm btn-outline-primary">下载</a>
+     {% if catalog_ready %}<button type="button" class="btn btn-sm btn-outline-secondary" data-backup-action="verify" data-verify-url="{{ backup.verify_url }}">校验</button>
+     <button type="button" class="btn btn-sm btn-outline-danger" data-backup-action="delete" data-backup-filename="{{ backup.filename }}" data-backup-source="{{ backup.source }}">删除</button>{% endif %}
+    </td>
+   </tr>{% else %}<tr><td colspan="7" class="text-center text-muted">当前条件下暂无备份记录</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if catalog_ready %}<p class="small text-muted mt-2 mb-0">点击“校验”进行本次 SQLite 完整性复核，不会恢复或修改当前数据库。</p>{% endif %}
+ </div>
 </div>
 {% endblock %}
-
-{% block extra_js %}
-<script>
-function getCsrfToken() {
-    const node = document.querySelector('meta[name="csrf-token"]');
-    return node && node.content ? node.content : '';
-}
-
-function backupDatabase() {
-    if (!confirm('确认备份数据库？')) return;
-    fetch('/backup/create', {
-        method: 'POST',
-        headers: {'X-CSRFToken': getCsrfToken()}
-    }).then(res => res.json()).then(res => {
-        if (res.status === 'success') {
-            alert('备份成功！');
-            location.reload();
-        } else {
-            alert('备份失败：' + (res.msg || '未知错误'));
-        }
-    }).catch(err => {
-        alert('备份请求失败：' + err.message);
-    });
-}
-
-function deleteBackup(filename) {
-    if (!confirm('确认删除该备份？')) return;
-    const formData = new FormData();
-    formData.append('filename', filename);
-    fetch('/backup/delete', {
-        method: 'POST',
-        body: formData,
-        headers: {'X-CSRFToken': getCsrfToken()}
-    }).then(res => res.json()).then(res => {
-        if (res.status === 'success') {
-            location.reload();
-        } else {
-            alert('删除失败：' + (res.msg || '未知错误'));
-        }
-    }).catch(err => {
-        alert('删除请求失败：' + err.message);
-    });
-}
-</script>
-{% endblock %}
+{% block extra_js %}<script src="{{ url_for('static', filename='js/backup.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>{% endblock %}
