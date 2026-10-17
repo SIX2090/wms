@@ -94,7 +94,8 @@ AI 只能创建和检查草稿。完成、审核、作废、删除以及库存�
 
 库存三份数据的权威关系、派生方向与写入归属铁律见 [`INVENTORY_TRUTH.md`](./INVENTORY_TRUTH.md)，要点：
 
-- **总账** `material.stock`（全局合计，仅展示/估值）、**库位账** `location_inventory`（仓库级真相）、**流水账** `stock_transaction`（append-only 事实来源），恒等式 **总账 = Σ库位账 = Σ流水账**。
+- **总账** `material.stock`（全局合计，仅展示/估值）、**库位账** `location_inventory`（仓库级真相）、**流水账** `stock_transaction`（append-only 事实来源）。
+  恒等式**按库位开关分两档**（[INVENTORY_TRUTH.md](./INVENTORY_TRUTH.md) §1 为准）：**开启库位管理时** 总账 = Σ库位账 = Σ流水账；**关闭库位管理时**（当前默认）库位账不落账、可能留有历史残留，只要求 **总账 = Σ流水账**，不得把残留的库位账差异当成坏账。
 - 业务校验必须用仓库级 `get_warehouse_stock_quantities()`，**禁止**裸用全局 `material.stock`（lint 规则 A11 + CI 全量硬门禁强制，防"A 仓掩护 B 仓"串仓）。
 - 库存写入收敛到 `apply_stock_delta` / `apply_transfer_pair` / `apply_opening_balance` 三个入口。
 
