@@ -48,6 +48,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # gitleaks 需要 before..after 的完整提交对象；浅克隆下 before 缺失会让
+          # gitleaks-action 以 "Unexpected exit code [1]" 失败（2026-10-18 实测两次）。
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -131,10 +135,28 @@ jobs:
       # 任何新引入的密钥泄露将使 CI 失败。若未来出现误报需豁免，应在
       # .gitleaks.toml 里登记具体规则/路径并注明理由，不得整体退回
       # continue-on-error（与下方 pip-audit 的收紧口径一致）。
+      # 2026-10-18：gitleaks-action@v2 在本次推送里连续两次以 "Unexpected exit code [1]"
+      # 失败（未打印任何命中，本地同版本二进制对同一提交区间/全目录扫描均 0 命中），
+      # 而其内部日志在无 admin 权限时不可见。改为**固定版本二进制 + 显式提交区间**：
+      #   - 版本钉死，避免 action 浮动升级带来的行为漂移；
+      #   - 区间取 event.before..github.sha；schedule/manual 无 before 时退回全历史；
+      #   - 失败原因会直接出现在本步骤日志里，可诊断。
       - name: "Security scan - gitleaks (BUG-2026-08-16-018 阻塞门禁)"
-        uses: gitleaks/gitleaks-action@v2
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          set -euo pipefail
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks version
+          BASE="${{ github.event.before }}"
+          if [ -z "${BASE:-}" ] || ! git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            echo "::warning::base commit ${BASE:-<empty>} unavailable (schedule/manual); scanning full history"
+            /tmp/gitleaks git --config .gitleaks.toml --redact --verbose
+          else
+            /tmp/gitleaks git --config .gitleaks.toml --redact --verbose --log-opts "${BASE}..${{ github.sha }}"
+          fi
 
       # BUG-2026-08-16-018：依赖漏洞扫描（pip-audit）。
       # BUG-2026-08-24-001：按"先可见、人工判真后收紧"既定意图，已完成依赖升级
