@@ -173,8 +173,12 @@ def find_python() -> str | None:
     return sys.executable
 
 
-def backup_database() -> None:
-    """更新前备份 instance/inventory.db 到 backups/。
+def backup_database() -> bool:
+    """更新前备份 instance/inventory.db 到 backups/，返回是否可安全更新。
+
+    AUDIT-FULL-20261016-001-F09-F05（原 A15）：旧实现失败只写一条警告，
+    main() 无条件继续 pull —— 磁盘满/权限/完整性校验失败时会在"没有可用备份"
+    的前提下改代码。现在失败返回 False，由调用方跳过本次更新。
 
     F1.2（审计 §5.2 / P0-1）：shutil.copy2 直接拷贝**运行中**的 SQLite 文件，
     可能拷到 WAL 未 checkpoint 的中间态，产出不可恢复的撕裂备份。
@@ -187,7 +191,8 @@ def backup_database() -> None:
 
     db = APP_DIR / "instance" / "inventory.db"
     if not db.exists():
-        return
+        # 没有业务库（首启/便携空包）时无需备份，不阻断更新。
+        return True
     backup_dir = ROOT_DIR / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -212,8 +217,10 @@ def backup_database() -> None:
         finally:
             check_conn.close()
         log(f"数据库已备份(在线一致性快照): {dest}")
+        return True
     except (OSError, sqlite3.Error) as e:
         log(f"[警告] 数据库备份失败: {e}")
+        return False
 
 
 def pip_install(python_exe: str) -> None:
@@ -427,7 +434,9 @@ def main() -> int:
         if code_u == 0 and untracked.strip():
             log("（另有未跟踪文件，已忽略，不单独拦截 pull）")
 
-    backup_database()
+    if not backup_database():
+        log("[警告] 更新前备份失败，已跳过本次代码更新（当前版本继续运行）。")
+        return 0
     pre_sha = resolve_sha("HEAD") or ""
     code, out, err = run_git("pull", "--ff-only", REMOTE, BRANCH)
     if code != 0:
