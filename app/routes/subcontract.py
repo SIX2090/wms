@@ -1257,7 +1257,7 @@ def register_subcontract_routes(app):
                 get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0) or 0
             )
             if not allow_negative_stock() and not is_stock_sufficient(current_stock, required_quantity):
-                return api_error(f'?? {material_code} ????????????{current_stock:.2f}????{required_quantity:.2f}')
+                return api_error(f'物料 {material_code} 库存不足：当前库存 {current_stock:.2f}，需要 {required_quantity:.2f}')
             
             item = SubcontractIssueItem(
                 issue_id=id,
@@ -1337,7 +1337,7 @@ def register_subcontract_routes(app):
                         db.session.rollback()
                         return jsonify({
                             'status': 'error',
-                            'msg': f'?? {material.code} ????????????{current_stock:.2f}????{required_quantity:.2f}'
+                            'msg': f'物料 {material.code} 库存不足：当前库存 {current_stock:.2f}，需要 {required_quantity:.2f}'
                         })
 
             # 扣减库存（P2-3 收敛：经单点入口，原子扣减与库位同步由入口内部完成，

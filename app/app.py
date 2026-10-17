@@ -7672,7 +7672,12 @@ def index():
 @require_role('production')
 @login_required
 def api_subcontract_quick_issue():
-    """Issue subcontract materials quickly."""
+    """Issue subcontract materials quickly.
+
+    DEPRECATED（审计 §5.4）：新入口 /subcontract/<id>/issue 为正式实现，本端点保留
+    仅为旧 APK/脚本兼容（模板与 Android 已零引用）。已补写锁 + 10 秒内相同明细的
+    重放去重，避免网络重试导致重复发料；新代码不得再调用本端点。
+    """
     if current_user.role not in ['admin', 'production']:
         return api_error('当前账号没有权限执行发料')
 
@@ -7733,6 +7738,30 @@ def api_subcontract_quick_issue():
 
     if not validated_items:
         return api_error('发料明细无效，请检查数量后重试')
+
+    # BUG-2026-10-17-013-F02：加写锁后复核状态，并把"同一委外单+同一明细 10 秒内"
+    # 的重复提交视为重放（返回已创建发料单），避免网络重试重复扣料（审计 §5.4）。
+    locked, lock_ok = _acquire_order_write_lock(
+        SubcontractOrder, order_id, ('pending', 'processing', 'completed'))
+    if not lock_ok or locked is None:
+        return api_error('委外单状态已变化或已被删除，请刷新后重试')
+    order = locked
+    signature = tuple(sorted((material.id, round(quantity, 4)) for material, quantity in validated_items))
+    now = datetime.now()
+    recent_issues = (SubcontractIssue.query
+                     .filter_by(subcontract_order_id=order_id, warehouse=warehouse, status='completed')
+                     .order_by(SubcontractIssue.id.desc()).limit(5).all())
+    for existing_issue in recent_issues:
+        if not existing_issue.created_at or (now - existing_issue.created_at).total_seconds() > 10:
+            continue
+        rows = SubcontractIssueItem.query.filter_by(issue_id=existing_issue.id).all()
+        row_signature = tuple(sorted((row.material_id, round(row.quantity or 0, 4)) for row in rows))
+        if row_signature == signature:
+            return jsonify({'status': 'success',
+                            'msg': '重复提交已忽略，返回已创建的发料单',
+                            'issue_id': existing_issue.id,
+                            'issue_no': existing_issue.issue_no,
+                            'replayed': True})
 
     # 创建发料单时显式设置 status='completed'，与 quick_issue_subcontract 对齐，
     # 否则 status 默认 'pending' 但库存已扣，会导致单据卡在 pending 无法后续完成
@@ -12919,16 +12948,41 @@ def _ai_llm_max_tokens(overrides=None):
     # 默认 300 会导致 content 截断为空、AI 静默降级本地规则；默认提至 1500（仍可设置页下调）。
     return get_system_setting_int('ai_llm_max_tokens', int(app.config.get('WMS_LLM_MAX_TOKENS') or 1500))
 
+def _ai_llm_url_is_plaintext_remote(url):
+    """True 表示 AI 端点是公网明文 HTTP：API Key、库存/单据数据、图片都会裸奔。"""
+    from urllib.parse import urlparse
+    parsed = urlparse((url or '').strip())
+    if parsed.scheme == 'https':
+        return False
+    if parsed.scheme != 'http':
+        return False
+    host = (parsed.hostname or '').lower()
+    return host not in ('127.0.0.1', 'localhost', '::1')
+
+
+_ai_llm_plaintext_warned = False
+
+
 def _ai_llm_endpoint(overrides=None):
+    global _ai_llm_plaintext_warned
     override = _ai_override_value(overrides, 'ai_llm_base_url')
     base_url = override or get_system_setting(
         'ai_llm_base_url',
         app.config.get('WMS_LLM_BASE_URL') or 'https://api.openai.com/v1/chat/completions',
     ).strip()
     normalized = base_url.rstrip('/')
-    if normalized.endswith('/chat/completions'):
-        return normalized
-    return normalized + '/chat/completions'
+    endpoint = normalized if normalized.endswith('/chat/completions') else normalized + '/chat/completions'
+    # BUG-2026-10-17-013-F03（审计 §6.6）：不改生产配置（避免直接打断 AI 能力），
+    # 但每次运行首次使用明文 HTTP 时必须留下 CRITICAL 证据，操作者可据此切 HTTPS。
+    if _ai_llm_url_is_plaintext_remote(endpoint) and not _ai_llm_plaintext_warned:
+        _ai_llm_plaintext_warned = True
+        try:
+            app.logger.critical(
+                '[SECURITY] AI LLM endpoint uses plaintext HTTP: %s —— API Key、单据数据与图片'
+                '会以明文经过网络。请改为 HTTPS 或 127.0.0.1 本地代理（审计 §6.6）。', endpoint)
+        except Exception:
+            pass
+    return endpoint
 
 def _ai_llm_headers(overrides=None):
     return {
@@ -16316,7 +16370,7 @@ def _ai_sf_query_partial_stalled():
         return 0, []
 
 def _ai_sf_query_short_stock():
-    """AI-SALES-F02 ??????????????????"""
+    """AI-SALES-F02 查询缺货（待发货数量 > 仓库库存）的销售订单行。"""
     try:
         records = (db.session.query(SalesOrderItem, Material, SalesOrder)
                    .join(Material, SalesOrderItem.material_id == Material.id)
@@ -16348,15 +16402,15 @@ def _ai_sf_query_short_stock():
                 if len(items) < 5:
                     shortage = pending_qty - stock_val
                     items.append({'id': item.id, 'title': f'{order.order_no or ""} - {material.code or ""}',
-                                  'subtitle': material.name or '????',
-                                  'detail': f'?? {warehouse.name}??? {pending_qty} ?? {stock_val}?? {shortage}',
+                                  'subtitle': material.name or '未命名物料',
+                                  'detail': f'仓库 {warehouse.name}：待发 {pending_qty}，库存 {stock_val}，缺口 {shortage}',
                                   'jump_url': f'/sales_order/detail/{order.id}',
                                   'metric_scope': 'SalesOrderItem.pending_quantity > warehouse stock; count is full result set',
                                   'extra': {'quantity': quantity, 'shipped': shipped, 'stock': stock_val,
                                             'shortage': shortage, 'warehouse_id': warehouse.id}})
         return count, items
     except Exception as exc:  # noqa: BLE001
-        app.logger.warning(f'?????????: {exc}')
+        app.logger.warning(f'查询缺货销售行失败: {exc}')
         return 0, []
 
 def _ai_sf_query_customer_urgency():
@@ -16452,7 +16506,7 @@ def _ai_sf_query_merge_candidates():
         return 0, []
 
 def _ai_sf_query_customer_followup_list():
-    """AI-SALES-F02 ?????????????????????"""
+    """AI-SALES-F02 客户催发货清单：按客户汇总待发/逾期/缺货订单，供人工跟进。"""
     try:
         from datetime import date as _date
         today = _date.today()
@@ -16494,13 +16548,13 @@ def _ai_sf_query_customer_followup_list():
         for cid, info in customer_map.items():
             pending, overdue, short = info['pending_count'], info['overdue_count'], info['short_stock_count']
             if overdue > 0:
-                suggestion = f'{info["customer_name"]} ? {overdue} ??????????????'
+                suggestion = f'{info["customer_name"]}：{overdue} 张订单逾期未发货，请优先催办。'
             elif short > 0:
-                suggestion = f'{info["customer_name"]} ? {short} ???????????????'
+                suggestion = f'{info["customer_name"]}：{short} 行待发货缺库存，建议先补货再发货。'
             elif pending > 0:
-                suggestion = f'{info["customer_name"]} ? {pending} ???????????????'
+                suggestion = f'{info["customer_name"]}：{pending} 张订单待发货，可提醒仓库安排出库。'
             else:
-                suggestion = f'{info["customer_name"]} ????????'
+                suggestion = f'{info["customer_name"]}：暂无需跟催的订单。'
             result.append({'customer_id': cid, 'customer_name': info['customer_name'],
                            'pending_count': pending, 'overdue_count': overdue,
                            'short_stock_count': short, 'followup_suggestion': suggestion,
@@ -16509,7 +16563,7 @@ def _ai_sf_query_customer_followup_list():
         result.sort(key=lambda x: (-(x['overdue_count'] + x['short_stock_count']), x['customer_name']))
         return result[:20]
     except Exception as exc:  # noqa: BLE001
-        app.logger.warning(f'??????????: {exc}')
+        app.logger.warning(f'生成客户催发货建议失败: {exc}')
         return []
 
 def _ai_kv_query_all_versions():
@@ -17797,13 +17851,13 @@ def _ai_check_draft(module_key, order):
     if module_key == 'out_order':
         warehouse, warehouse_error = validate_inventory_warehouse(getattr(order, 'warehouse', None))
         if not warehouse:
-            issues.append(warehouse_error or '??????????????')
+            issues.append(warehouse_error or '出库单未指定有效仓库')
     elif module_key == 'transfer':
         warehouse, warehouse_error = validate_inventory_warehouse(
             getattr(order, 'from_warehouse', None) or getattr(order, 'from_location', None),
         )
         if not warehouse:
-            issues.append(warehouse_error or '??????????????')
+            issues.append(warehouse_error or '调拨单未指定有效调出仓库')
     warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     seen = set()
     for item in items:
@@ -17811,14 +17865,14 @@ def _ai_check_draft(module_key, order):
         qty = round_to_2_decimals(getattr(item, 'quantity', 0) or 0)
         code = material.code if material else str(getattr(item, 'material_id', ''))
         if qty <= 0:
-            issues.append(f'{code} ?????? 0?')
+            issues.append(f'{code} 数量必须大于 0。')
         if material and material.id in seen:
-            issues.append(f'{code} ??????????????')
+            issues.append(f'{code} 在明细中重复出现，请合并。')
         if material:
             seen.add(material.id)
         if module_key in ('out_order', 'transfer') and material and qty > warehouse_stock.get(material.id, 0) and not allow_negative_stock():
             current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
-            issues.append(f'{code} ?????? {qty}??? {current_stock}?')
+            issues.append(f'{code} 待出 {qty}，仓库库存仅 {current_stock}，库存不足。')
     if module_key == 'in_order':
         if is_purchase_in_order(order) and purchase_in_order_requires_order() and not getattr(order, 'source_purchase_order_id', None):
             issues.append('采购入库要求关联采购订单，当前草稿没有来源采购订单。')
