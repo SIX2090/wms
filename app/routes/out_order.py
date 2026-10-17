@@ -1396,7 +1396,7 @@ def register_out_order_routes(app):
     def batch_complete_out_order():
         from app import (OutOrder, Warehouse, _acquire_order_write_lock,
                          _check_out_order_anomalies, allow_negative_stock,
-                         api_error, get_default_warehouse,
+                         api_error, assert_warehouse_active, get_default_warehouse,
                          get_warehouse_stock_quantities, is_future_date,
                          is_stock_sufficient, location_management_enabled,
                          log_operation, normalize_stock_quantity,
@@ -1461,6 +1461,14 @@ def register_out_order_routes(app):
                     skipped.append(f'{order.order_no}({wh_err or "仓库无效"})')
                     db.session.rollback()
                     continue
+            else:
+                # BUG-2026-10-17-012-F03：领料/其他出库/采购退货同样要拒绝已停用仓库，
+                # 与单张 complete_out_order 口径一致（审计 §5.3）。
+                wh_ok, wh_err = assert_warehouse_active(order.warehouse, allow_empty=False)
+                if not wh_ok:
+                    skipped.append(f'{order.order_no}({wh_err or "仓库已停用"})')
+                    db.session.rollback()
+                    continue
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():
                 skipped.append(f'{order.order_no}(未填写库位)')
@@ -1520,6 +1528,12 @@ def register_out_order_routes(app):
         msg = f'批量审核完成，共审核 {completed} 张领料单'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        # BUG-2026-10-17-012-F03：与 in_order 的 BUG-2026-09-23-004 同口径——
+        # 一张都没成功不是成功，必须返回 error 契约，否则前端绿色弹窗 + reload。
+        if completed == 0:
+            if not orders:
+                return jsonify({'status': 'error', 'msg': '未找到符合条件的领料单', 'completed': 0}), 400
+            return jsonify({'status': 'error', 'msg': msg, 'skipped': skipped, 'completed': 0}), 400
         return jsonify({'status': 'success', 'msg': msg, 'completed': completed})
 
     @app.route('/out_order/<int:id>/preview_template')

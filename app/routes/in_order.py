@@ -2713,11 +2713,12 @@ def register_in_order_routes(app):
     @login_required
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, InOrderItem, WechatShareConfig, _acquire_order_write_lock,
-                         _check_in_order_anomalies, _wechat_share_order,
-                         api_error, assert_warehouse_active, get_default_warehouse,
-                         is_future_date, location_management_enabled,
-                         sales_return_remaining_check,
+        from app import (InOrder, InOrderItem, PurchaseOrder, WechatShareConfig,
+                         _acquire_order_write_lock, _check_in_order_anomalies,
+                         _wechat_share_order, api_error, assert_warehouse_active,
+                         get_default_warehouse, is_future_date,
+                         location_management_enabled, sales_return_remaining_check,
+                         update_purchase_order_status,
                          validate_purchase_in_order_source,
                          validate_purchase_receive_quantity)
         # P2-3 收敛：批量完成与 complete_in_order 共用同一写入入口。
@@ -2852,6 +2853,16 @@ def register_in_order_routes(app):
                             raise ValueError(err or '库存增加失败')
                 order.status = 'completed'
                 order.total_amount = sum((item.amount or 0) for item in order.items)
+                # BUG-2026-10-17-012-F01：批量完成必须与单张一致地回写来源采购订单状态，
+                # 否则采购执行报表/待办长期停留在旧状态（审计 §5.1）。
+                affected_pos = {
+                    item.source_purchase_order_item.purchase_order
+                    for item in order.items
+                    if item.source_purchase_order_item
+                    and item.source_purchase_order_item.purchase_order
+                }
+                for po in affected_pos:
+                    update_purchase_order_status(po)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
                 db.session.commit()
                 completed += 1
@@ -2907,11 +2918,12 @@ def register_in_order_routes(app):
     @login_required
     def batch_revert_in_order():
         from sqlalchemy.orm import joinedload, selectinload
-        from app import (InOrder, StockTransaction, Warehouse, _acquire_order_write_lock, _material_stock_unattributed,
-                         allow_negative_stock,
-                         api_error, get_warehouse_stock_quantities, is_stock_sufficient,
-                         normalize_stock_quantity,
-                         recalculate_order_total)
+        from app import (InOrder, PurchaseOrder, StockTransaction, Warehouse,
+                         _acquire_order_write_lock, _material_stock_unattributed,
+                         _source_has_active_push, allow_negative_stock, api_error,
+                         get_warehouse_stock_quantities, is_stock_sufficient,
+                         normalize_stock_quantity, recalculate_order_total,
+                         update_purchase_order_status)
         # P2-3 收敛：批量反审与 revert_in_order 共用同一写入入口。
         from services.warehouse_stock_service import apply_stock_delta
         payload = request.get_json(silent=True) or {}
@@ -2933,6 +2945,11 @@ def register_in_order_routes(app):
             order_id = order.id
             if order.status != 'completed':
                 skipped.append(order.order_no)
+                continue
+            # BUG-2026-10-17-012-F02：批量反审必须与单张一致，存在有效下推单据时拒绝，
+            # 否则会把自动下推领料单的入库单拉回 pending，之后再也无法完成（审计 §5.2）。
+            if _source_has_active_push(order_id):
+                skipped.append(f'{order.order_no}(存在下游单据)')
                 continue
             # 重新加锁并校验状态，避免并发批量/单据反审请求重复回退同一张入库单
             # （重复反审会重复扣减库存）
@@ -3015,6 +3032,15 @@ def register_in_order_routes(app):
                             raise ValueError(error_msg or '库存回退失败')
                 order.status = 'pending'
                 recalculate_order_total(order)
+                # BUG-2026-10-17-012-F01：反审同样要回写来源采购订单状态。
+                affected_pos = {
+                    item.source_purchase_order_item.purchase_order
+                    for item in order.items
+                    if item.source_purchase_order_item
+                    and item.source_purchase_order_item.purchase_order
+                }
+                for po in affected_pos:
+                    update_purchase_order_status(po)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
                 db.session.commit()
                 reverted += 1
