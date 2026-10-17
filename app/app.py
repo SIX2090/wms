@@ -14394,6 +14394,22 @@ def _ai_document_generated_type(doc_type):
         return 'purchase_request'
     return doc_type or ''
 
+def _ai_low_confidence_field_names(rows, threshold=0.80):
+    """从 OCR 行里挑出低置信度字段名（供门禁判断是否已人工确认）。
+
+    BUG-2026-10-17-011-F05：AIDocumentJob.low_confidence_fields 此前全仓没有写入点，
+    门禁读到的永远是默认 '[]'，等于不设防。confidence=0 视为"未提供"而不是低置信，
+    避免未配 LLM 的本地规则链路把所有草稿都判成风险。
+    """
+    names = set()
+    for row in rows or []:
+        item = (row or {}).get('item') or {}
+        confidence = _ai_ocr_confidence(item.get('confidence'))
+        if 0 < confidence < threshold:
+            names.update(('material_id', 'quantity'))
+    return sorted(names)
+
+
 def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message='', image_path=None):
     if not has_request_context() or not current_user.is_authenticated:
         return None
@@ -14468,6 +14484,9 @@ def _ai_record_document_job(extracted, source, status, context=None, matched=Non
             match_reason=str(row.get('meta') or '')[:300],
         ))
         line_no += 1
+    # BUG-2026-10-17-011-F05：把低置信度字段写回 job，供 _ai_check_draft_creation_gate 判定
+    low_names = _ai_low_confidence_field_names(list(matched or []) + list(unmatched or []))
+    job.low_confidence_fields = json.dumps(low_names) if low_names else '[]'
     db.session.commit()
     return job
 
@@ -14993,14 +15012,27 @@ def _ai_check_draft_creation_gate(document_job_id):
         if not document_job_id:
             return True, []
 
+        # BUG-2026-10-17-011-F05：先读 job 风险标记再判断"有无确认记录"。
+        # 旧实现遇到没有确认记录就直接放行，导致低置信度草稿可绕过人工确认。
+        job = AIDocumentJob.query.get(document_job_id)
+        if not job:
+            return False, ['文档任务不存在，禁止创建草稿']
+
+        import json as _json
+        duplicate_risk = bool(getattr(job, 'duplicate_risk', False))
+        low_confidence_fields_raw = getattr(job, 'low_confidence_fields', None) or '[]'
+        try:
+            low_confidence_fields = _json.loads(low_confidence_fields_raw) if isinstance(low_confidence_fields_raw, str) else []
+        except Exception:
+            low_confidence_fields = []
+        material_ambiguity = bool(getattr(job, 'material_ambiguity', False))
+        specification_conflict = bool(getattr(job, 'specification_conflict', False))
+        high_risk_material = bool(getattr(job, 'high_risk_material', False))
+
         # 查询该 job 的所有字段确认记录
         confirmations = AIDocumentFieldConfirmation.query.filter_by(
             job_id=document_job_id
         ).all()
-
-        if not confirmations:
-            # 没有确认记录，允许创建（兼容旧流程）
-            return True, []
 
         # 构造 FieldConfirmationRecord 列表
         field_records = []
@@ -15024,23 +15056,6 @@ def _ai_check_draft_creation_gate(document_job_id):
             )
             field_records.append(record)
 
-        # 查询 job 的风险标记（从 AIDocumentJob 的 status 或额外字段推断）
-        job = AIDocumentJob.query.get(document_job_id)
-        if not job:
-            return True, []
-
-        # AI-R08-F01: 直接从 job 风险标记字段读取
-        import json as _json
-        duplicate_risk = bool(getattr(job, 'duplicate_risk', False))
-        low_confidence_fields_raw = getattr(job, 'low_confidence_fields', None) or '[]'
-        try:
-            low_confidence_fields = _json.loads(low_confidence_fields_raw) if isinstance(low_confidence_fields_raw, str) else []
-        except Exception:
-            low_confidence_fields = []
-        material_ambiguity = bool(getattr(job, 'material_ambiguity', False))
-        specification_conflict = bool(getattr(job, 'specification_conflict', False))
-        high_risk_material = bool(getattr(job, 'high_risk_material', False))
-
         # 调用纯逻辑校验
         is_allowed, reasons = validate_draft_creation_allowed(
             field_records=field_records,
@@ -15052,8 +15067,10 @@ def _ai_check_draft_creation_gate(document_job_id):
         )
         return is_allowed, reasons
     except Exception as e:
-        app.logger.error(f'门禁校验失败: {e}')
-        return True, []  # 校验失败时降级允许创建
+        # BUG-2026-10-17-011-F05：门禁必须 fail-closed——校验自身异常时拒绝建单，
+        # 而不是把"无法判定"当成"允许"。
+        app.logger.error(f'门禁校验失败（已拒绝建单）: {e}')
+        return False, ['门禁校验异常，请重试或联系管理员']
 
 # AI_TASK: AI-R08-F02 确认台人工确认后生成入库/出库等单据草稿；
 # inbound_business_type 承载确认台入库类型选择（其他入库/采购入库等）
