@@ -73,6 +73,30 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+
+# BUG-2026-10-17-010：中文 Windows 控制台（cp936/GBK）无法编码 ✓/✗/✘/⚠ 等符号，
+# print 直接抛 UnicodeEncodeError。pre-commit 只看退出码，脚本崩溃＝"发现违规"，
+# 于是**所有提交被拒**。修法同 BUG-2026-10-17-006（check_ci_green）：
+#   _configure_stdio() 兜底 errors=replace；_glyph() 在编码不支持时降级 ASCII。
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+def _glyph(unicode_text: str, ascii_text: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        unicode_text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return ascii_text
+    return unicode_text
+
 # ---------------------------------------------------------------------------
 # 仓库根与路径常量
 # ---------------------------------------------------------------------------
@@ -237,6 +261,10 @@ def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
+            # BUG-2026-10-17-010：git 输出为 UTF-8；cp936 控制台下 text=True 会用
+            # 本地编码解码，中文路径/内容直接让读取线程抛 UnicodeDecodeError。
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         # ⚠️ 必须逐行反转义：core.quotePath=true 时非 ASCII 文件名在这里也是
@@ -253,6 +281,8 @@ def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode == 0 and result.stdout:
@@ -1742,6 +1772,8 @@ def get_staged_files(repo_root: Path) -> List[Path]:
             cwd=str(repo_root),
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
     except (FileNotFoundError, OSError):
@@ -1802,7 +1834,7 @@ def format_report(
         if not v:
             if verbose:
                 lines.append(
-                    f"[{rid.upper()}] ✓ 通过  ({rule.description})  "
+                    f"[{rid.upper()}] {_glyph('✓', '[OK]')} 通过  ({rule.description})  "
                     f"扫描 {files_scanned.get(rid, 0)} 个文件"
                 )
             continue
@@ -2055,26 +2087,26 @@ def check_full_scan_baseline(
                 f"  [{rid.upper()}] {current} 处 < 允许 {effective} 处"
                 f"（已消除 {effective - current} 处，建议收紧基线）"
             )
-    print("─" * 64)
+    print(_glyph("─", "-") * 64)
     print("全量棘轮门禁（--full-gate）：存量违规只减不增")
     if policy:
         print(
             f"  季度棘轮：建立于 {policy[0].isoformat()}，每季 -{pct}%，"
             f"已过 {quarters} 个季度"
         )
-    print("─" * 64)
+    print(_glyph("─", "-") * 64)
     if improvements:
         print("存量下降（正向）：")
         print("\n".join(improvements))
     if regressions:
-        print("✗ 新增违规（阻塞）：")
+        print(_glyph("✗", "[FAIL]") + " 新增违规（阻塞）：")
         print("\n".join(regressions))
         print("")
         print(f"新增了规则违规。请修掉上面的{sum(1 for _ in regressions)}条规则下的新增项。")
         print("如确有必要放宽，必须人工复核后用下面命令显式更新基线：")
         print("  python3 scripts/lint_wms_rules.py --full --update-full-baseline")
         return 1
-    print("✓ 通过：无新增违规")
+    print(_glyph("✓", "[OK]") + " 通过：无新增违规")
     if improvements:
         print(f"提示：{len(improvements)} 条规则存量已下降，可将基线收紧为当前值。")
     return 0
@@ -2084,12 +2116,13 @@ def list_rules() -> int:
     print("WMS 防 BUG 规则清单：")
     for rid in RULE_DISPLAY_ORDER:
         r = RULES[rid]
-        marker = "✓" if r.enabled else "✗"
+        marker = _glyph("✓", "[OK]") if r.enabled else _glyph("✗", "[OFF]")
         print(f"  [{rid.upper()}] {marker} {r.description}")
     return 0
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    _configure_stdio()
     args = parse_args(argv)
     repo_root: Path = args.repo_root.resolve()
 
@@ -2120,7 +2153,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         for w in wanted:
             if w not in RULES:
                 print(
-                    f"✗ 未知规则：{w}（可用：{','.join(RULE_DISPLAY_ORDER)}）",
+                    f"{_glyph('✗', '[FAIL]')} 未知规则：{w}（可用：{','.join(RULE_DISPLAY_ORDER)}）",
                     file=sys.stderr,
                 )
                 return 2
@@ -2153,7 +2186,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.update_full_baseline:
         counts = {rid: len(v) for rid, v in results.items() if rid in _FULL_GATE_RULES}
         write_full_scan_baseline(repo_root, counts)
-        print(f"✓ 已更新 {_FULL_BASELINE_REL}：{counts}")
+        print(f"{_glyph('✓', '[OK]')} 已更新 {_FULL_BASELINE_REL}：{counts}")
         return 0
 
     # --full-gate：棘轮门禁 —— 存量违规数不得增加，任何新增违规亮红。

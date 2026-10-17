@@ -759,11 +759,13 @@ AI 盘点取总账（§4.2）、serialize_material 给前端全局库存（B11�
 | A17 README 库存口径 | 5853b3f3（F09-F07） | 三账恒等式按库位开关分档并回指权威文档 | 新增 2 用例 | 已修 |
 | A18 旧环境审计脚本 | 1d5f0989（F09-F08） | 12 个脚本改 Path(__file__) 相对根 | 新增 3 用例；12 文件 py_compile 通过 | 已修 |
 
+| pre-commit 编码 | 本条提交（BUG-2026-10-17-010） | lint_wms_rules / lint_no_raw_post_fetch 增加 _configure_stdio + _glyph，GBK 下不再因 ⚠/✓/✗ 崩溃 | test_console_encoding_gbk 5 passed；真实钩子 HOOK_EXIT=0（默认 cp936） | 已修 |
 | CI 门禁 | e935ce17 | gitleaks-action@v2 黑盒失败（本地同版本对同一区间 0 命中），改为固定版本 8.30.1 二进制 + 显式 before..after 区间（schedule/manual 退回全历史） | WMS CI 39055291813 全绿（10/10 job） | 已修 |
 
 说明：
 - 每个修复都是独立 atomic commit，可单独 revert；均新增“回退后必红”的回归测试。
 - 过程中 a76e30a5 与 a8894fad 两次 WMS CI 红，均定位在 gitleaks 步骤（不是代码回归）：本地用同版本 8.30.1 对同一提交区间与全目录扫描均 0 命中。修复见上表最后一行。
+- 整改过程中新发现并同批修复第 13 项：cp936 控制台下 pre-commit 因打印 ⚠ 崩溃、把脚本异常误判为“发现违规”而拒绝所有提交（BUG-2026-10-17-010）。它与 BUG-2026-10-17-006/007 同根因，现已让两个 lint 脚本按输出流编码降级。
 - 由于红门禁会阻断“修复 CI 本身”的推送，两次推送使用了仓库文档化的逃生舱 WMS_SKIP_CI_GATE=1，并在推送后立即以 e935ce17 的四条工作流全绿补证；这不是常态做法。
 - A14 已在 2026-10-16 由 3c64f4c3 闭环，本批不重复。
 - 生产生效边界：备份页（模板）需要重启 WMS 生效（R3）；其余脚本为“下次调用读新文件”。

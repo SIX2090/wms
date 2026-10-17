@@ -743,3 +743,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 验证：受影响 + 相邻测试见本轮提交前本地结果；scripts/lint_wms_rules.py 0 违规；health_check.ps1 在 Windows PowerShell 5.1 实测可解析并输出（应用日志项 PASS：C:/wms/app/logs/app.log）。
 - 状态：已修复（2026-10-18）：75956e3a/068b93bd/af599d5b/836018d5/21b288ad/5853b3f3/1d5f0989 推送 main；WMS CI 39055291813 / AI 39055291911 / Perf 39055291820 于 e935ce17 全绿（含新增 7 个测试文件）。
 - 生效确认：**CI 已确认（2026-10-18）**；生产侧仍待确认——health_check、app 旧入口、clone 脚本、auto_update 均为"下次调用读新文件"；README 即时生效；生产需重启 WMS 服务的仅限备份页模板（见 BUG-2026-10-17-008）。本轮未对生产执行安装、更新、删除、恢复或服务启停。
+
+
+## 已修复：pre-commit 门禁脚本在 cp936 控制台崩溃
+
+### BUG-2026-10-17-010: lint 脚本打印 ⚠/✓/✗ 在 GBK 控制台抛 UnicodeEncodeError，提交被误拒
+
+- 发现方式：2026-10-18 修复 A10–A18 提交时，本机默认控制台执行 pre-commit，在 scripts/lint_no_raw_post_fetch.py:397 打印 ⚠ 抛 UnicodeEncodeError（'gbk' codec can't encode character '\u26a0'）；钩子只看退出码，把"脚本崩溃"当成"发现裸调 fetch"拒绝提交。临时以 PYTHONIOENCODING=utf-8 绕过。
+- 根因：脚本直接 print emoji/符号，Windows 控制台/管道默认 cp936，GBK 无 ⚠（U+26A0）。与 BUG-2026-10-17-006（check_ci_green）/007（pre-push）同一根因；既有修复只覆盖了这两处，未覆盖 lint 家族。
+- 同类点已排查：pre-commit 调用的两个 Python 脚本（lint_wms_rules.py、lint_no_raw_post_fetch.py）本轮齐修；check_ci_green.py 已于 8bde424c 修复；pre-push 解释器探测已于 2cbedd4 修复。
+- 同根因第二消费点：三处 `git diff` 子进程原先 text=True 用本地编码解码，cp936 下中文路径/内容会让读取线程抛 UnicodeDecodeError；已补 encoding='utf-8', errors='replace'。
+- 修复：两脚本新增 _configure_stdio()（stdout/stderr errors=replace 兜底）与 _glyph(unicode, ascii)（编码不支持时降级 [OK]/[FAIL]/[WARN]，box 线降级 '-'）；main() 首行调用。脚本保持自包含，因为 golden 测试会把 lint_wms_rules.py 单独复制到临时仓库。
+- 回归：tests/test_console_encoding_gbk.py 5 用例——gbk/utf-8 下两脚本均不崩溃且 rc=0；_glyph 在 gbk 降级、在 utf-8 保留符号。回退修复后 gbk 用例必红。
+- 状态：已修复（2026-10-18 本地验证：GBK/UTF-8 双跑 rc=0、真实钩子 HOOK_EXIT=0；待推送 CI 复核）。
+- 生效确认：待确认；pre-commit 下次提交即读新脚本，无需重启服务；CI 复核后补记。

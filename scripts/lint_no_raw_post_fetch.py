@@ -54,6 +54,32 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
+
+# BUG-2026-10-17-010：中文 Windows 控制台（cp936/GBK）无法编码 ⚠/✓/✗，print 直接抛
+# UnicodeEncodeError。pre-commit 以退出码判断结果，脚本崩溃会被误判成"发现违规"，
+# 于是**任何提交都被拒**（实测：lint_no_raw_post_fetch.py:397 打印 ⚠ 崩溃）。
+# 与 BUG-2026-10-17-006（check_ci_green）同一根因。修法：
+#   _configure_stdio() —— stdout/stderr errors=replace 兜底，极端字符变 '?' 但不崩；
+#   _glyph()          —— 编码不支持时主动降级为 ASCII 标记，输出仍可读。
+def _configure_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
+def _glyph(unicode_text: str, ascii_text: str) -> str:
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        unicode_text.encode(encoding)
+    except (UnicodeEncodeError, LookupError):
+        return ascii_text
+    return unicode_text
+
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
@@ -380,12 +406,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 
 
 def main(argv: List[str] | None = None) -> int:
+    _configure_stdio()
     args = parse_args(sys.argv[1:] if argv is None else argv)
     repo_root: Path = args.repo_root.resolve()
 
     if not args.check:
         # 当前只支持 --check 模式，保留扩展位
-        print("✗ 当前仅支持 --check 模式", file=sys.stderr)
+        print(_glyph("✗", "[FAIL]") + " 当前仅支持 --check 模式", file=sys.stderr)
         return 2
 
     violations = scan_repo(repo_root)
@@ -393,7 +420,7 @@ def main(argv: List[str] | None = None) -> int:
 
     if tpl_violations:
         # F3.7 观察期：模板违规 warn 模式（摸清存量后转 --templates-strict 棘轮）
-        tag = "✗" if args.templates_strict else "⚠"
+        tag = _glyph("✗", "[FAIL]") if args.templates_strict else _glyph("⚠", "[WARN]")
         print(f"{tag} app/templates/ 内联 <script> 裸调非 GET fetch "
               f"{len(tpl_violations)} 处"
               + ("" if args.templates_strict else "（warn 模式观察期，不计入退出码）"))
@@ -403,13 +430,13 @@ def main(argv: List[str] | None = None) -> int:
             print(f"  ... 其余 {len(tpl_violations) - 50} 处省略")
 
     if not violations:
-        print("✓ 未发现裸调非 GET fetch（app/static/js/ 扫描通过）")
+        print(_glyph("✓", "[OK]") + " 未发现裸调非 GET fetch（app/static/js/ 扫描通过）")
         if args.templates_strict and tpl_violations:
             print(f"发现 {len(tpl_violations)} 处模板违规（strict 模式）")
             return 1
         return 0
 
-    print("✗ 禁止裸调非 GET fetch！请改用 WMS.api.post/put/delete(url, data)"
+    print(_glyph("✗", "[FAIL]") + " 禁止裸调非 GET fetch！请改用 WMS.api.post/put/delete(url, data)"
           "（app/static/js/api.js 统一封装，自带 CSRF）")
     for ln, snippet, rel in violations:
         print(f"{rel}:{ln}  ->  {snippet}")
