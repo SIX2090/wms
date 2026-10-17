@@ -8144,15 +8144,15 @@ def _revert_completed_to_pending():
     return reverted_count
 
 def _zero_all_material_stock():
-    """把所有物料的 stock 设为 0，语义等价于「回退所有已完成单据的库存变动」。"""
+    """把所有物料的 stock 设为 0；失败必须抛出，不能静默留下 ①≠③。"""
     try:
         return Material.query.update({Material.stock: 0}, synchronize_session=False)
     except Exception as exc:
-        app.logger.warning('zero stock failed: %s', exc)
-        return 0
+        app.logger.error('zero stock failed: %s', exc)
+        raise RuntimeError(f'物料总账归零失败: {exc}') from exc
 
 def _bulk_delete_model(model_cls):
-    """单表全量删除，返回删除条数。"""
+    """单表全量删除，返回删除条数（失败只告警，供非关键表使用）。"""
     try:
         count = model_cls.query.delete(synchronize_session=False)
         return count
@@ -8160,6 +8160,15 @@ def _bulk_delete_model(model_cls):
         app.logger.warning('delete %s failed: %s', model_cls.__name__, exc)
         db.session.rollback()
         return 0
+
+
+def _bulk_delete_model_required(model_cls, label):
+    """关键账务表删除：失败立即回滚并中止初始化，绝不允许"①已归零、③还在"。"""
+    try:
+        return model_cls.query.delete(synchronize_session=False)
+    except Exception as exc:
+        db.session.rollback()
+        raise RuntimeError(f'清理 {label} 失败，已中止初始化: {exc}') from exc
 
 def _init_business_data_keep_users_and_settings(include_master_data=False):
     """执行核心清理逻辑。
@@ -8193,21 +8202,28 @@ def _init_business_data_keep_users_and_settings(include_master_data=False):
     # 1. 已完成单据先变 pending
     deleted['reverted_to_pending'] = _revert_completed_to_pending()
 
-    # 2. 库存归零
-    deleted['zeroed_materials'] = _zero_all_material_stock()
+    # 2. 先删库存账（流水/库位/期初），成功后才归零总账。
+    # BUG-2026-10-17-012-F04：旧顺序是"先归零①再删③"，且删除失败被 _bulk_delete_model
+    # 吞掉仍报成功——一旦删表失败就留下 ①=0 / ③≠0 的永久账实分裂（审计 §4.4）。
+    try:
+        for label, model_cls in INIT_INVENTORY_TABLES:
+            deleted['inventory'] += _bulk_delete_model_required(model_cls, label)
+        db.session.commit()
+    except RuntimeError:
+        db.session.rollback()
+        raise
 
-    # 3. 业务单据主表（先主表后明细，避免外键报错）
+    # 3. 库存归零（此时 ③ 已确认清空；失败同样中止）
+    deleted['zeroed_materials'] = _zero_all_material_stock()
+    db.session.commit()
+
+    # 4. 业务单据主表（先主表后明细，避免外键报错）
     # 明细表在主表之前先删，但有外键反向引用时需要按依赖顺序
     for label, model_cls in INIT_BUSINESS_ITEM_TABLES:
         deleted['business_items'] += _bulk_delete_model(model_cls)
     db.session.commit()
     for label, model_cls in INIT_BUSINESS_TABLES:
         deleted['business'] += _bulk_delete_model(model_cls)
-    db.session.commit()
-
-    # 4. 库存/流水
-    for label, model_cls in INIT_INVENTORY_TABLES:
-        deleted['inventory'] += _bulk_delete_model(model_cls)
     db.session.commit()
 
     # 5. 日志
