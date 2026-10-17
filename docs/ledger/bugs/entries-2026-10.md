@@ -799,3 +799,19 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 模板内联原生写 fetch 130 处、A8 pydantic 279 处书面豁免：属大规模机械改造，需要逐页回归与独立排期；本轮未动，计入 Phase 2 路线图。
 - 一物多码 4 组合并、库位账 2 行残留、价格/成本维度：涉及生产数据或产品决策，只出方案不擅动。
 - verify_ai_all --level full 仍剩 2 个脚本本地失败（photo_document_flow / stage3_agents 的补货 Agent），未纳入 CI；已开始把跨用户隔离等通过的脚本并入 core。
+
+
+### BUG-2026-10-17-013: 审计剩余 P1/P2 深化（子修复 F01–F07，2026-10-18）
+
+- 背景：第二轮整改后按「4 个 P1 → 小型 P2 → 机械迁移棘轮」继续；破坏性数据操作不执行。
+- 修复：
+  - F01 多行同物料反提交/售后/批量反审：改为按物料合计校验（审计 I2），避免两行 8+8 对单仓 10 逐行通过后扣成负账；de097844。
+  - F02 旧 /api/subcontract/quick_issue：加订单写锁 + 10 秒内相同明细重放去重，docstring 标记 DEPRECATED（正式入口 /subcontract/<id>/issue）；b16c08e3。
+  - F03 AI 大模型端点明文 HTTP：首次使用时 CRITICAL 告警（不改生产配置，避免直接打断 AI），审计 §6.6；b16c08e3。
+  - F04 scripts/data_repairs.py：默认只读报告 FK/一物多码/三账差异，--apply-fk 需 --yes；不导入 app；f5aefcdb。
+  - F05 增长棘轮：模板原生写 fetch ≤157、pydantic 豁免 ≤279，只许减；287f1f36。
+  - F06 16 处 4 连问号乱码文案全部修复 + 回归守卫；b16c08e3。
+  - F07 /print_queue/jobs：CSRF 豁免只服务 Bearer，Web 会话分支强制校验 token（审计 S3）；a827fa2f。
+- 回归：test_audit_multiline_stock_aggregation（2）、test_audit_legacy_quick_issue_replay（1）、test_audit_ai_llm_https_warning（2）、test_audit_no_mojibake（1）、test_audit_data_repairs_tool（2）、test_audit_growth_ratchets（2）、test_audit_print_queue_csrf（2）。
+- 状态：已修复（本地验证；待推送 CI 复核）。
+- 生效确认：待确认；旧委外端点/限流/门禁为下次调用生效，脚本无生产副作用。
