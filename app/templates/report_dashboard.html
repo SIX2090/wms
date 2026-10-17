@@ -335,17 +335,18 @@ function requestAiInsights() {
             var html = '<div class="d-flex flex-column gap-3">';
             lines.forEach(function(line, idx) {
                 var icon = ['📈', '📦', '💡', '⚠️', '✅'][idx % 5];
-                html += '<div class="d-flex gap-2"><div class="flex-shrink-0 fs-5">' + icon + '</div><div class="text-muted" style="line-height:1.6">' + line.replace(/^\d+[.、]\s*/, '') + '</div></div>';
+                // BUG-2026-10-17-011-F02：LLM 输出视为不可信文本，必须转义后再拼 HTML
+                html += '<div class="d-flex gap-2"><div class="flex-shrink-0 fs-5">' + icon + '</div><div class="text-muted" style="line-height:1.6">' + escapeHtml(line.replace(/^\d+[.、]\s*/, '')) + '</div></div>';
             });
             html += '</div>';
             content.innerHTML = html;
         } else {
-            content.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + (res.msg || '生成失败') + '</div>';
+            content.innerHTML = '<div class="alert alert-warning mb-0"><i class="bi bi-exclamation-triangle-fill me-2"></i>' + escapeHtml(res.msg || '生成失败') + '</div>';
         }
     })
     .catch(function(err) {
         if (btn) btn.disabled = false;
-        content.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + err.message + '</div>';
+        content.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err.message || '未知错误') + '</div>';
     });
 }
 </script>
