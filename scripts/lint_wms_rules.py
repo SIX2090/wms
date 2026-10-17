@@ -602,13 +602,16 @@ class RuleA2PostRouteCsrf(Rule):
     description = "Python POST 路由必须 @login_required 或 @csrf.exempt"
     enabled = True
     scan_paths = ("app",)
-    exclude_paths = ("app/ai",)  # AI 模块不需要此规则
+    # BUG-2026-10-17-011-F07：原实现整体豁免 app/ai，且只认 @app.route，
+    # 导致 74 个 AI 文件与 24 条 blueprint 路由脱管。现在全量覆盖，
+    # 同时识别 @bp.post/@bp.put/@bp.delete/@bp.patch 写法。
+    exclude_paths = ()
     extensions = (".py",)
 
-    # 匹配 ``@app.route('...', methods=[..., 'POST', ...])``
     _ROUTE_POST = re.compile(
-        r"@app\.route\(\s*['\"]([^'\"]+)['\"]\s*,\s*methods\s*=\s*\[[^\]]*['\"]POST['\"]",
-        re.IGNORECASE,
+        r"@\w+\.route\(\s*['\"](?P<path1>[^'\"]+)['\"][^)]{0,300}?methods\s*=\s*\[[^\]]*['\"](?:POST|PUT|DELETE|PATCH)['\"]"
+        r"|@\w+\.(?:post|put|delete|patch)\(\s*['\"](?P<path2>[^'\"]+)['\"]",
+        re.IGNORECASE | re.DOTALL,
     )
 
     # 已知豁免：登录前的端点、webhook 等
@@ -645,7 +648,7 @@ class RuleA2PostRouteCsrf(Rule):
             stripped = strip_py_comments(text)
             lines = stripped.split("\n")
             for m in self._ROUTE_POST.finditer(stripped):
-                path = m.group(1)
+                path = m.group("path1") or m.group("path2")
                 if any(path.startswith(p) for p in self.KNOWN_EXEMPT_PATHS):
                     continue
                 ln = line_number_at(text, m.start())
@@ -1621,8 +1624,9 @@ class RuleA13BaselineEffectConfirmation(Rule):
     exclude_paths = ()
     extensions = (".md",)
 
+    # BUG-2026-10-17-011-F07：原实现只认 ### 标题，台账里 12/74 条用 ## 绕过。
     _ENTRY_HEAD = re.compile(
-        r"^###\s+(?:BUG|WECOM|INV|PUR|SALES|SYS|AUDIT)-")
+        r"^#{2,4}\s+(?:BUG|WECOM|INV|PUR|SALES|SYS|AUDIT)-")
 
     _LEDGER_TARGETS = ("WMS_BUG_BASELINE.md", "docs/ledger/bugs/")
 
@@ -1644,10 +1648,10 @@ class RuleA13BaselineEffectConfirmation(Rule):
                     continue
                 if not self._ENTRY_HEAD.match(lines[ln - 1]):
                     continue
-                # 条目块：条目头至下一个同级标题（### ）或文件尾
+                # 条目块：条目头至下一个任何级别标题（##/###/####）或文件尾。
                 block_end = len(lines)
                 for j in range(ln, len(lines)):
-                    if lines[j].startswith("### "):
+                    if re.match(r"^#{2,4}\s", lines[j]):
                         block_end = j
                         break
                 block = "\n".join(lines[ln - 1:block_end])
