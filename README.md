@@ -489,5 +489,3 @@ python3 scripts/check_hooks_installed.py
 5. 全量 + 相邻模块回归通过、lint 0 违规、CI 三工作流转绿后，改状态为"已修复"
 
 物料档案的人工选择与合并操作见 [物料合并说明](docs/MATERIAL_MERGE_GUIDE.md)。
-
-自动启动与新建Windows服务的配置及边界见 [服务部署说明](docs/SERVICE_DEPLOYMENT.md)。

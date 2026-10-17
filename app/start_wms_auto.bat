@@ -1,6 +1,5 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
-chcp 65001 >nul
 cd /d "%~dp0" || exit /b 1
 for %%I in ("%~dp0..") do set "APP_ROOT=%%~fI"
 set "FLASK_ENV=production"
@@ -29,7 +28,5 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 
-REM Repair task: AUDIT-FULL-20261016-001-F07A. Explicit HTTPS/trusted HTTP configuration.
-echo [%date% %time%] Starting configured WMS service...
-"%PYTHON_CMD%" "%~dp0service_launcher.py"
-exit /b %ERRORLEVEL%
+echo [%date% %time%] Starting WMS service (auto-update via run_server.py trigger)...
+"%PYTHON_CMD%" "%~dp0run_server.py"

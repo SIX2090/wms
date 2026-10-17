@@ -282,8 +282,6 @@ if exist "%RUN_DIR%\instance\inventory.db" (
 ) else (
   set "WMS_ALLOW_AUTO_SECRET_KEY=1"
   set "WMS_INIT_SAMPLE_DATA=0"
-  REM Offline installer explicitly targets trusted HTTP; respect an explicit opt-out/HTTPS.
-  if not defined WMS_ALLOW_INSECURE_COOKIE if /I not "%SESSION_COOKIE_SECURE%"=="true" if /I not "%SESSION_COOKIE_SECURE%"=="1" if /I not "%SESSION_COOKIE_SECURE%"=="yes" set "WMS_ALLOW_INSECURE_COOKIE=1"
   "%PYTHON_EXE%" -c "from app import app, initialize_database; ctx=app.app_context(); ctx.push(); initialize_database(); ctx.pop()"
   if errorlevel 1 (
     call :logerr "Empty database initialization failed."

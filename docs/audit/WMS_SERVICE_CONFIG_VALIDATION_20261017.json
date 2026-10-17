@@ -33,7 +33,8 @@
     "passed": 3980,
     "skipped": 90,
     "warnings": 1307,
-    "seconds": 1205.89
+    "seconds": 1205.89,
+    "scope": "首轮代码本地结果，不代表当前修复已完成；业务代码已按R8回滚"
   },
   "limits": [
     "不执行生产部署/安装/停止/重启/注册服务",
@@ -49,5 +50,14 @@
     "full_ratchet": "通过，A9=213，无新增违规",
     "existing_bugs": "通过"
   },
-  "diagnostic": "首轮全量规则A9=215因测试名需精确匹配，重命名两项现有测试、参数/断言/运行源码未变；对应14项重跑通过，最终A9=213。完整测试继续运行同一业务源码，无测试排除/断言放宽。"
+  "diagnostic": "首轮全量规则A9=215因测试名需精确匹配，重命名两项现有测试、参数/断言/运行源码未变；对应14项重跑通过，最终A9=213。完整测试继续运行同一业务源码，无测试排除/断言放宽。",
+  "status": "first_attempt_reverted_CI_rejected",
+  "attempt_commit": "e54fe1f693373ce7a44a92ff18a4982eed18dac0",
+  "ci_failure": {
+    "run": 39013948082,
+    "job": 117342056803,
+    "script": "verify_startup_auto_update.py",
+    "reason": "旧专项硬性要求BAT直接启动run_server.py，未覆盖新配置器链路",
+    "log": "app/logs/audit_startup_failed_ai_core.log"
+  }
 }
