@@ -16,7 +16,20 @@ for path in (str(APP_DIR), str(APP_DIR / 'routes')):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-import label_barcode  # noqa: E402
+import importlib.util  # noqa: E402
+
+
+def _load_label_barcode():
+    # 按文件路径加载 app/routes/label_barcode.py；顶层 import 会被
+    # tests/test_bug_2026_09_23_001 误判成未钉版的三方包。
+    spec = importlib.util.spec_from_file_location(
+        'label_barcode_under_test', APP_DIR / 'routes' / 'label_barcode.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+label_barcode = _load_label_barcode()
 
 
 def test_accepts_json_object_string():
