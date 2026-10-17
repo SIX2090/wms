@@ -716,7 +716,7 @@ F07B/A09闭环（2026-10-17）：47d4c3f0bac09f330ed0502b5d2fd867eef805e7已推�
 - 根因：页面/下载/删除仅使用app.BACKUP_DIR，调度器get_backup_dir默认C:\wms_backups；更新前备份又在根backups，来源没有统一注册。
 - 同类点已排查：F1.2调度器已接入、F02只读边界与F04更新快照，不能重复开发备份调度；全仓backup域/调度/自动及人工更新路径和历史台账。既有verify_infra_fixes E9仍扫描迁移前app.py，原样基线失败，须把验证指向实际路由并保留/强化排序断言。
 - 修复方向：固定来源键，不接受任意目录；统一元数据/筛选/安全路径解析，显式只读完整性校验，显示计划及保留策略；保留现有调度与30天语义，不移动或恢复生产库。
-- 状态：已修复（2026-10-18 本地验证：test_audit_backup_catalog 45 passed、backup_scheduler+audit 合计 59 passed、verify_app_py_split_backup EXIT=0、lint 0 违规；提交见 git log；待推送 CI 复核）。
+- 状态：已修复（2026-10-18）：f7a0d257 推送 main；WMS CI 39055291813 / AI 39055291911 / Perf 39055291820 于 e935ce17 全绿；本地 45 专项 + 相邻 59 passed、verify_app_py_split_backup EXIT=0、lint 0 违规。
 - 生效确认：待确认；生产需重启 WMS 服务生效（模板改动，R3）；重启后打开 /backup 应看到「每日自动备份 / 手动·历史 / 更新·维护」三类来源与保留策略，并可用只读完整性校验；本轮未对生产备份执行删除/恢复。
 
 
@@ -741,5 +741,5 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
   - F08 / A18 scripts/deep_audit_lib.py + 8 个 deep_audit_mod + scripts/audit/scan_all_menus.py + start_qa_server.py + tools/fix_bug_2026_10_07_004_vision_json_only.py：去掉 /Coze/Drive 与 /workspace 硬编码，改 Path(__file__) 相对根。1d5f0989
 - 回归锁：新增 tests/test_audit_health_check_log_path.py（4）、test_audit_entry_points.py（3）、test_audit_clone_script.py（4，含 Windows 行为用例）、test_audit_auto_update_backup_gate.py（4）、test_audit_config_env_parsing.py（11，子进程隔离）、test_audit_readme_inventory_identity.py（2）、test_audit_scripts_paths.py（3）。每条均设计为"回退修复后必红"。
 - 验证：受影响 + 相邻测试见本轮提交前本地结果；scripts/lint_wms_rules.py 0 违规；health_check.ps1 在 Windows PowerShell 5.1 实测可解析并输出（应用日志项 PASS：C:/wms/app/logs/app.log）。
-- 状态：已修复（代码/本地验证完成，待推送后 CI 复核）。
-- 生效确认：待确认；health_check、app 旧入口、clone 脚本、auto_update 均为"下次调用读新文件"；README 即时生效；生产需重启 WMS 服务仅当更新器在运行期被业务进程调用。本轮未对生产执行安装、更新、删除、恢复或服务启停。
+- 状态：已修复（2026-10-18）：75956e3a/068b93bd/af599d5b/836018d5/21b288ad/5853b3f3/1d5f0989 推送 main；WMS CI 39055291813 / AI 39055291911 / Perf 39055291820 于 e935ce17 全绿（含新增 7 个测试文件）。
+- 生效确认：**CI 已确认（2026-10-18）**；生产侧仍待确认——health_check、app 旧入口、clone 脚本、auto_update 均为"下次调用读新文件"；README 即时生效；生产需重启 WMS 服务的仅限备份页模板（见 BUG-2026-10-17-008）。本轮未对生产执行安装、更新、删除、恢复或服务启停。
