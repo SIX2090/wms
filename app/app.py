@@ -3378,8 +3378,28 @@ guarded_drop_all._wms_original_drop_all = _original_drop_all
 # 在 db.init_app 之后导入 AI 模型,确保 db 已初始化
 from ai.models import AIConversation, AIMessage, AIFeedback, AIConfirmation
 
+def _startup_backup_interval_seconds():
+    try:
+        return max(0, int(os.environ.get('WMS_STARTUP_BACKUP_MIN_INTERVAL_SECONDS', '600')))
+    except (TypeError, ValueError):
+        return 600
+
+
+def _remove_backup_with_sidecars(path):
+    """删除备份文件及其 -wal/-shm/-journal 旁文件（只删 .db 会留下孤儿 sidecar）。"""
+    for candidate in (path, Path(str(path) + '-wal'), Path(str(path) + '-shm'),
+                      Path(str(path) + '-journal')):
+        try:
+            if candidate.exists():
+                candidate.unlink()
+        except OSError as exc:
+            app.logger.warning('Failed to remove startup backup file %s: %s', candidate, exc)
+
+
 def backup_sqlite_on_startup():
     if app.config.get('TESTING'):
+        return
+    if (os.environ.get('WMS_SKIP_STARTUP_BACKUP') or '').strip().lower() in ('1', 'true', 'yes'):
         return
     uri = app.config.get('SQLALCHEMY_DATABASE_URI') or ''
     prefix = 'sqlite:///'
@@ -3390,20 +3410,44 @@ def backup_sqlite_on_startup():
         return
     backup_dir = Path(app.config.get('BACKUP_FOLDER') or Path(__file__).resolve().parent / 'backups')
     backup_dir.mkdir(parents=True, exist_ok=True)
+    # BUG-2026-10-17-012-F05：启动备份必须防抖。2026-10-17 实测 37 秒内
+    # 启动了 10 次、每次都全库复制，把此前正常快照全部挤出保留窗口。
+    interval = _startup_backup_interval_seconds()
+    existing = sorted(backup_dir.glob('auto_startup_*.db'),
+                      key=lambda path: path.stat().st_mtime, reverse=True)
+    if existing and interval:
+        age = datetime.now().timestamp() - existing[0].stat().st_mtime
+        if age < interval:
+            app.logger.info('Startup database backup skipped: latest is %.0fs old (< %ss)',
+                            age, interval)
+            return
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_path = backup_dir / f'auto_startup_{timestamp}.db'
     try:
         with sqlite3.connect(str(db_path)) as src_conn, sqlite3.connect(str(backup_path)) as dst_conn:
             src_conn.backup(dst_conn)
-        backups = sorted(backup_dir.glob('auto_startup_*.db'), key=lambda path: path.stat().st_mtime, reverse=True)
-        for old_backup in backups[10:]:
-            try:
-                old_backup.unlink()
-            except OSError:
-                app.logger.warning('Failed to remove old startup backup: %s', old_backup)
+        check_conn = sqlite3.connect(str(backup_path))
+        try:
+            result = check_conn.execute('PRAGMA quick_check').fetchone()
+            if not result or result[0] != 'ok':
+                raise OSError(f'启动备份完整性校验失败: {result[0] if result else "no result"}')
+        finally:
+            check_conn.close()
+        try:
+            keep = max(1, int(os.environ.get('WMS_STARTUP_BACKUP_KEEP', '10')))
+        except (TypeError, ValueError):
+            keep = 10
+        backups = sorted(backup_dir.glob('auto_startup_*.db'),
+                         key=lambda path: path.stat().st_mtime, reverse=True)
+        for old_backup in backups[keep:]:
+            _remove_backup_with_sidecars(old_backup)
         app.logger.info('Startup database backup created: %s', backup_path.name)
     except Exception:
         app.logger.exception('Startup database backup failed')
+        try:
+            _remove_backup_with_sidecars(backup_path)
+        except Exception:
+            pass
 
 with app.app_context():
     backup_sqlite_on_startup()
