@@ -141,7 +141,7 @@ def register_after_sale_out_routes(app):
         from app import (Customer, Material, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse,
                          location_management_enabled, serialize_customer,
-                         serialize_material, serialize_unit)
+                         serialize_material_with_stock, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
@@ -152,7 +152,8 @@ def register_after_sale_out_routes(app):
                               'after_sale_out_add.html',
                               page_title='新增售后出库单',
                               order=None,
-                              materials=[serialize_material(material) for material in materials],
+                              materials=[serialize_material_with_stock(material, get_default_warehouse())
+                                         for material in materials],
                               units=[serialize_unit(unit) for unit in units],
                               customers=[serialize_customer(customer) for customer in customers],
                               warehouses=get_active_warehouses(),
