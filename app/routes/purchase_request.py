@@ -369,7 +369,7 @@ def register_purchase_request_routes(app):
     def purchase_request_add_page():
         from datetime import datetime
         from sqlalchemy.orm import joinedload
-        from app import (Material, Supplier, Unit, generate_order_no, serialize_material,
+        from app import (Material, Supplier, Unit, generate_order_no, serialize_material_without_stock,
                          serialize_supplier, serialize_unit)
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
@@ -380,7 +380,7 @@ def register_purchase_request_routes(app):
                               'purchase_request_add.html',
                               page_title='新增采购申请单',
                               order=None,
-                              materials=[serialize_material(material) for material in materials],
+                              materials=[serialize_material_without_stock(material) for material in materials],
                               units=[serialize_unit(unit) for unit in units],
                               suppliers=[serialize_supplier(supplier) for supplier in suppliers],
                               request_id=None, request_no=request_no, request_date=request_date,
@@ -392,7 +392,7 @@ def register_purchase_request_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Material, PurchaseRequest, PurchaseRequestItem, Supplier, Unit,
-                         serialize_material, serialize_supplier, serialize_unit)
+                         serialize_material_without_stock, serialize_supplier, serialize_unit)
         request_order = PurchaseRequest.query.options(
             joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.material).joinedload(Material.unit),
             joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.unit),
@@ -425,7 +425,7 @@ def register_purchase_request_routes(app):
             'purchase_request_add.html',
             page_title='编辑采购申请单',
             order=request_order,
-            materials=[serialize_material(material) for material in materials],
+            materials=[serialize_material_without_stock(material) for material in materials],
             units=[serialize_unit(unit) for unit in units],
             suppliers=[serialize_supplier(supplier) for supplier in suppliers],
             request_id=request_order.id,

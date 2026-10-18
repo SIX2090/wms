@@ -5591,6 +5591,18 @@ def serialize_material_with_stock(material, warehouse):
     return data
 
 
+def serialize_material_without_stock(material):
+    """无单据仓库上下文的选料页（采购申请/采购单）：不展示库存（用户 2026-10-18 拍板）。
+
+    这些页面没有"单据仓库"，展示全局合计会误导（多仓下 A 仓做单看到 A+B+C+D），
+    因此直接从序列化结果移除 stock 字段，由人工判断数量，避免前端放行超量。
+    """
+    from utils import serialize_material
+    data = serialize_material(material)
+    data.pop('stock', None)
+    return data
+
+
 def _material_stock_unattributed(material_id):
     """物料库存是否全部为无法归属到具体仓库的历史遗留数据。
 

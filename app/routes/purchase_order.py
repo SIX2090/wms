@@ -378,7 +378,7 @@ def register_purchase_order_routes(app):
     def purchase_order_add_page():
         from datetime import datetime
         from sqlalchemy.orm import joinedload
-        from app import (Material, Supplier, generate_order_no, serialize_material,
+        from app import (Material, Supplier, generate_order_no, serialize_material_without_stock,
                          serialize_supplier)
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc(), Material.id.asc()).all()
         suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
@@ -391,7 +391,7 @@ def register_purchase_order_routes(app):
             order_no=order_no,
             order_date=order_date,
             expected_date='',
-            materials=[serialize_material(material) for material in materials],
+            materials=[serialize_material_without_stock(material) for material in materials],
             suppliers=[serialize_supplier(supplier) for supplier in suppliers],
             page_title='新增采购订单',
         )
@@ -402,7 +402,7 @@ def register_purchase_order_routes(app):
         from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import (Material, PurchaseOrder, PurchaseOrderItem, Supplier,
-                         serialize_material, serialize_supplier)
+                         serialize_material_without_stock, serialize_supplier)
         order = PurchaseOrder.query.options(
             joinedload(PurchaseOrder.supplier),
             joinedload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
@@ -419,7 +419,7 @@ def register_purchase_order_routes(app):
             order_no=order.order_no,
             order_date=order.date.strftime('%Y-%m-%d') if order.date else datetime.now().strftime('%Y-%m-%d'),
             expected_date=order.expected_date.strftime('%Y-%m-%d') if order.expected_date else '',
-            materials=[serialize_material(material) for material in materials],
+            materials=[serialize_material_without_stock(material) for material in materials],
             suppliers=[serialize_supplier(supplier) for supplier in suppliers],
             page_title='编辑采购单',
         )

@@ -39,3 +39,16 @@ def test_serialize_material_with_stock():
         assert wms.serialize_material_with_stock(mat, wh_a)['stock'] == 5
         assert wms.serialize_material_with_stock(mat, None)['stock'] == 999
         db.session.remove()
+
+
+def test_serialize_material_without_stock():
+    with wms.app.app_context():
+        db.drop_all(); db.create_all()
+        from app import MaterialCategory, Unit
+        db.session.add_all([Unit(code='PCS2', name='个'),
+                            MaterialCategory(code='C3', name='默认3')])
+        db.session.flush()
+        mat = Material(code='M2', name='料2', category_id=2, unit_id=2, stock=88)
+        db.session.add(mat); db.session.commit()
+        data = wms.serialize_material_without_stock(mat)
+        assert 'stock' not in data, '无仓库上下文页面不得展示库存'
