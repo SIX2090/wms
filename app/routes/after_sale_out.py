@@ -168,7 +168,9 @@ def register_after_sale_out_routes(app):
         from datetime import date
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, Customer,
                          Material, Unit, get_active_warehouses, get_default_warehouse,
-                         serialize_customer, serialize_material, serialize_unit)
+                         get_warehouse_stock_quantities, serialize_customer,
+                         serialize_material_with_stock, serialize_unit,
+                         validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
         order = AfterSaleOutOrder.query.options(
             joinedload(AfterSaleOutOrder.items).joinedload(AfterSaleOutOrderItem.material).joinedload(Material.unit)
@@ -179,6 +181,10 @@ def register_after_sale_out_routes(app):
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
+        # BUG-2026-10-17-015-F07：编辑页同样按单据仓库口径展示库存，
+        # 否则 A 仓单据显示全局合计，前端放行超量、提交才被后端拒绝。
+        edit_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse or '')
+        edit_stock_map = get_warehouse_stock_quantities(edit_warehouse) if edit_warehouse else {}
         initial_items = []
         for item in order.items:
             material = item.material
@@ -187,7 +193,8 @@ def register_after_sale_out_routes(app):
                 'material_name': material.name if material else '',
                 'spec': material.spec if material else '',
                 'unit_name': material.unit.name if material and material.unit else '',
-                'stock': float(material.stock or 0) if material else 0,
+                'stock': (float(edit_stock_map.get(material.id, 0) or 0) if material and edit_warehouse
+                          else (float(material.stock or 0) if material else 0)),
                 'quantity': float(item.quantity or 0),
                 'price': float(item.price or 0),
                 'remark': item.remark or '',
@@ -196,7 +203,8 @@ def register_after_sale_out_routes(app):
             'after_sale_out_add.html',
             page_title='编辑售后出库单',
             order=order,
-            materials=[serialize_material(material) for material in materials],
+            materials=[serialize_material_with_stock(material, edit_warehouse)
+                       for material in materials],
             units=[serialize_unit(unit) for unit in units],
             customers=[serialize_customer(customer) for customer in customers],
             warehouses=get_active_warehouses(),
