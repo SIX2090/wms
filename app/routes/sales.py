@@ -515,8 +515,8 @@ def register_sales_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Customer, Employee, Material, generate_sales_order_no,
-                         get_active_warehouses, serialize_material)
-        return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
+                         get_active_warehouses, serialize_material_without_stock)
+        return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material_without_stock(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/sales/add', methods=['POST'])

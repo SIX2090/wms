@@ -103,10 +103,12 @@ def register_adjustment_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Material, Unit, generate_order_no, get_active_warehouses,
-                         get_default_warehouse, location_management_enabled, serialize_material)
+                         get_default_warehouse, location_management_enabled,
+                         serialize_material_without_stock)
         adjustment_no = generate_order_no('ADJ')
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
-        materials_json = [serialize_material(m) for m in materials]
+        # BUG-2026-10-17-015-F07：新增调整单尚未选仓，按用户决定不展示库存。
+        materials_json = [serialize_material_without_stock(m) for m in materials]
         units = Unit.query.order_by(Unit.name.asc()).all()
         units_json = [{'id': u.id, 'name': u.name} for u in units]
         # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库
@@ -136,14 +138,17 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, Unit,
                          _serialize_adjustment_item_for_form, get_active_warehouses,
-                         get_default_warehouse, location_management_enabled, serialize_material)
+                         get_default_warehouse, location_management_enabled,
+                         serialize_material_with_stock, validate_inventory_warehouse)
         adjustment = AdjustmentOrder.query.options(
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit)
         ).get_or_404(id)
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
-        materials_json = [serialize_material(m) for m in materials]
+        # BUG-2026-10-17-015-F07：编辑页按调整单仓库口径展示库存。
+        adj_warehouse, _wh_err = validate_inventory_warehouse(adjustment.warehouse or '')
+        materials_json = [serialize_material_with_stock(m, adj_warehouse) for m in materials]
         units = Unit.query.order_by(Unit.name.asc()).all()
         units_json = [{'id': u.id, 'name': u.name} for u in units]
         # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库

@@ -91,7 +91,8 @@ def register_subcontract_routes(app):
         from app import (Material, SubcontractIssue, SubcontractIssueItem,
                          SubcontractOrder, SubcontractItem, SubcontractReceive,
                          SubcontractReceiveItem, Supplier, Unit,
-                         get_recent_operation_logs, serialize_material)
+                         get_recent_operation_logs, serialize_material_with_stock,
+                         validate_inventory_warehouse)
         # F2.16：详情页预加载，消除 order.items / issue_orders / receive_orders
         # 三重懒加载 N+1（对齐同文件 print_subcontract 的 .options 写法）。
         order = SubcontractOrder.query.options(
@@ -107,10 +108,13 @@ def register_subcontract_routes(app):
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
+        # BUG-2026-10-17-015-F07：委外详情页库存按委外单仓库口径展示。
+        sub_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse or '')
+        materials=[serialize_material_with_stock(material, sub_warehouse) for material in materials]
         return render_template(
             'subcontract_detail.html',
             order=order,
-            materials=[serialize_material(material) for material in materials],
+            materials=materials,
             units=units,
             suppliers=suppliers,
             operation_logs=get_recent_operation_logs('subcontract', id),
