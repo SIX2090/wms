@@ -3281,7 +3281,7 @@ def register_native_api_routes(app):
             # 历史无仓库归属行（"看得见的空洞"）：不允许手机端改，
             # 避免在仓库归属未知时改动总账（warehouse_id 是唯一归属依据）。
             return api_json_error('该期初记录未归属仓库，请在 PC 端先补齐仓库', 400)
-        material = Material.query.get(opening.material_id)
+        material = db.session.get(Material, opening.material_id)
         if not material:
             return api_json_error('物料不存在，无法调整', 400)
 

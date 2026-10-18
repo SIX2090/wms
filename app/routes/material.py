@@ -128,12 +128,15 @@ def register_material_routes(app):
     @app.route('/material/api/list')
     @login_required
     def material_api_list():
-        """物料列表API - 支持分页"""
+        """物料列表API - 支持分页，按需加载关联数据优化性能"""
         from app import Material
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 100, type=int)
         # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
         per_page = max(1, min(per_page, 500))  # 限制最大每页数量
+        
+        # 性能优化：仅需基础字段时不 JOIN 关联表
+        include_relations = request.args.get('include_relations', '0') in ('1', 'true', 'yes')
 
         # 2026-09-25：下拉数据源默认排除停用物料（历史单据要显示时传 include_inactive=1）
         from app import material_selectable_filter
@@ -142,6 +145,15 @@ def register_material_routes(app):
         _q = Material.query
         if _sf is not None:
             _q = _q.filter(_sf)
+        
+        # 按需加载关联数据，避免不必要的 JOIN
+        if include_relations:
+            _q = _q.options(
+                joinedload(Material.category),
+                joinedload(Material.unit),
+                joinedload(Material.supplier)
+            )
+        
         pagination = _q.paginate(page=page, per_page=per_page, error_out=False)
         return jsonify({
             'materials': [{
@@ -749,7 +761,7 @@ def register_material_routes(app):
         class SetMaterialStatusRequest(BaseModel):
             status: str = Field(..., description='目标状态：active / inactive')
 
-        material = Material.query.get(id)
+        material = db.session.get(Material, id)
         if not material:
             return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
         # 同时接受 JSON body、表单与 query（列表页按钮走 form，脚本可能走 query）
@@ -869,7 +881,7 @@ def register_material_routes(app):
             confirm: bool = Field(False, description='已看过预览并确认合并')
             identity_confirmed: bool = Field(False, description='人工判定两份档案属于同一物料')
 
-        source = Material.query.get(id)
+        source = db.session.get(Material, id)
         if not source:
             return jsonify({'status': 'error', 'msg': '物料不存在'}), 404
         payload = request.get_json(silent=True) or dict(request.form) or {}

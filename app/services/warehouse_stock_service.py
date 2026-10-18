@@ -72,10 +72,10 @@ def verify_material_three_ledgers(material) -> tuple[bool, dict]:
     （入口内部 expire 过 Material.stock，直接读实例会拿到旧值）。
     """
     from app import (LocationInventory, Material, StockTransaction,
-                     location_management_enabled)
+                     location_management_enabled, db)
 
     mid = getattr(material, 'id', material)
-    mat = Material.query.get(mid)
+    mat = db.session.get(Material, mid)
     one = float(mat.stock or 0) if mat else 0.0
     three = float(sum((r.quantity or 0)
                       for r in StockTransaction.query.filter_by(material_id=mid).all()))

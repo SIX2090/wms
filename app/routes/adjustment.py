@@ -357,7 +357,7 @@ def register_adjustment_routes(app):
                     material_id = item_data.get('material_id')
                     if material_id:
                         try:
-                            material = Material.query.get(int(material_id))
+                            material = db.session.get(Material, int(material_id))
                         except (TypeError, ValueError):
                             material = None
                     material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
