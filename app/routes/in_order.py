@@ -890,7 +890,8 @@ def register_in_order_routes(app):
         from datetime import date, datetime
         from sqlalchemy.orm import joinedload
         from app import (Customer, Material, Supplier, Unit, generate_order_no,
-                         get_active_warehouses, get_default_warehouse, location_management_enabled,
+                         get_active_warehouses, get_default_warehouse,
+                         get_warehouse_stock_quantities, location_management_enabled,
                          serialize_customer, serialize_material_with_stock, serialize_supplier,
                          serialize_unit, validate_inventory_warehouse)
         from app import InOrder, InOrderItem
@@ -946,9 +947,10 @@ def register_in_order_routes(app):
         stock_warehouse = default_warehouse
         if order is not None and (order.warehouse or '').strip():
             stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
+        stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         order_date = datetime.now().strftime('%Y-%m-%d')
         return render_template('in_order_add.html',
-                             materials=[serialize_material_with_stock(material, stock_warehouse)
+                             materials=[serialize_material_with_stock(material, stock_warehouse, stock_map)
                                         for material in materials],
                              units=[serialize_unit(unit) for unit in units],
                              suppliers=[serialize_customer(p) if (is_other_in or is_sales_return) else serialize_supplier(p) for p in parties],

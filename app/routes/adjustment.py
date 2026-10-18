@@ -138,8 +138,9 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, Unit,
                          _serialize_adjustment_item_for_form, get_active_warehouses,
-                         get_default_warehouse, location_management_enabled,
-                         serialize_material_with_stock, validate_inventory_warehouse)
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         location_management_enabled, serialize_material_with_stock,
+                         validate_inventory_warehouse)
         adjustment = AdjustmentOrder.query.options(
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
@@ -148,7 +149,8 @@ def register_adjustment_routes(app):
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
         # BUG-2026-10-17-015-F07：编辑页按调整单仓库口径展示库存。
         adj_warehouse, _wh_err = validate_inventory_warehouse(adjustment.warehouse or '')
-        materials_json = [serialize_material_with_stock(m, adj_warehouse) for m in materials]
+        adj_stock_map = get_warehouse_stock_quantities(adj_warehouse) if adj_warehouse else None
+        materials_json = [serialize_material_with_stock(m, adj_warehouse, adj_stock_map) for m in materials]
         units = Unit.query.order_by(Unit.name.asc()).all()
         units_json = [{'id': u.id, 'name': u.name} for u in units]
         # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库

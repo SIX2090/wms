@@ -506,8 +506,8 @@ def register_out_order_routes(app):
         from datetime import date, datetime
         from app import (Customer, Department, Material, OutOrder, OutOrderItem, Unit,
                          generate_order_no, get_active_warehouses,
-                         get_default_warehouse, location_management_enabled,
-                         purchase_return_requires_order,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         location_management_enabled, purchase_return_requires_order,
                          serialize_customer, serialize_material_with_stock, serialize_unit,
                          validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
@@ -538,8 +538,9 @@ def register_out_order_routes(app):
         stock_warehouse = get_default_warehouse()
         if order is not None and (order.warehouse or '').strip():
             stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
+        stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         return render_template('out_order_add.html',
-                             materials=[serialize_material_with_stock(material, stock_warehouse)
+                             materials=[serialize_material_with_stock(material, stock_warehouse, stock_map)
                                         for material in materials],
                              units=[serialize_unit(unit) for unit in units],
                              customers=[serialize_customer(customer) for customer in customers],

@@ -5578,16 +5578,21 @@ def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
             committed[material_id] = quantity
     return committed
 
-def serialize_material_with_stock(material, warehouse):
+def serialize_material_with_stock(material, warehouse, stock_map=None):
     """单据页物料序列化：stock 改为单据仓库口径（审计 B11/A11）。
 
     旧 serialize_material 给的是全局 Material.stock，多仓下前端看到合计库存、
     会放行超量，提交时才被仓库级校验拒绝。warehouse=None 时保持全局口径。
+
+    stock_map 必须由调用方**只算一次**传进来（1300 物料逐条重算会导致单据页
+    16 秒级卡死，2026-10-18 实测 out_order/add 16015ms）；不传时才自己查。
     """
     from utils import serialize_material
     data = serialize_material(material)
-    if warehouse is not None:
-        data['stock'] = float(get_warehouse_stock_quantities(warehouse).get(material.id, 0) or 0)
+    if stock_map is None and warehouse is not None:
+        stock_map = get_warehouse_stock_quantities(warehouse)
+    if stock_map is not None:
+        data['stock'] = float(stock_map.get(material.id, 0) or 0)
     return data
 
 

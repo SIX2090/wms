@@ -140,19 +140,21 @@ def register_after_sale_out_routes(app):
         from datetime import datetime
         from app import (Customer, Material, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse,
-                         location_management_enabled, serialize_customer,
-                         serialize_material_with_stock, serialize_unit)
+                         get_warehouse_stock_quantities, location_management_enabled,
+                         serialize_customer, serialize_material_with_stock, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
         order_no = generate_order_no('ASO')
         order_date = datetime.now().strftime('%Y-%m-%d')
+        as_add_wh = get_default_warehouse()
+        as_add_stock_map = get_warehouse_stock_quantities(as_add_wh) if as_add_wh else None
         return render_template(
                               'after_sale_out_add.html',
                               page_title='新增售后出库单',
                               order=None,
-                              materials=[serialize_material_with_stock(material, get_default_warehouse())
+                              materials=[serialize_material_with_stock(material, as_add_wh, as_add_stock_map)
                                          for material in materials],
                               units=[serialize_unit(unit) for unit in units],
                               customers=[serialize_customer(customer) for customer in customers],
@@ -203,7 +205,7 @@ def register_after_sale_out_routes(app):
             'after_sale_out_add.html',
             page_title='编辑售后出库单',
             order=order,
-            materials=[serialize_material_with_stock(material, edit_warehouse)
+            materials=[serialize_material_with_stock(material, edit_warehouse, edit_stock_map)
                        for material in materials],
             units=[serialize_unit(unit) for unit in units],
             customers=[serialize_customer(customer) for customer in customers],
