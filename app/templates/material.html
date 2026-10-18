@@ -211,7 +211,11 @@
         <div class="text-center py-5 my-3 text-muted" id="materialEmptyState">
             <i class="bi bi-cloud-slash" style="font-size:3rem;color:#9CA3AF;"></i>
             <p class="mt-3 mb-2">暂无物料数据</p>
+            {% if request.args.get('search') %}
+            <p class="small">搜索关键词：「{{ request.args.get('search') }}」；如果确认有该物料，请点上方「清除」后重试（全角/半角数字已自动兼容）。</p>
+            {% else %}
             <p class="small">请先在右上角「批量导入」或通过弹窗添加物料</p>
+            {% endif %}
             <button type="button" class="btn btn-primary btn-sm mt-2" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-circle"></i> 新增物料
             </button>

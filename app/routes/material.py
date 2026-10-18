@@ -63,7 +63,10 @@ def register_material_routes(app):
         # per_page 必须有下限保护，传入 0 或负数会让 paginate 抛 ValueError 导致接口 500
         per_page = max(1, per_page)
         per_page = per_page if per_page in [10, 20, 50, 100, 200] else 20
-        search = request.args.get('search', '').strip()
+        # BUG-2026-10-17-016：中文输入法下搜索常带全角数字/字母（１２１００１），
+        # LIKE 匹配不到半角编码；NFKC 归一化后再查，避免"明明有物料搜不到"。
+        import unicodedata
+        search = unicodedata.normalize('NFKC', request.args.get('search', '') or '').strip()
         category_id = request.args.get('category_id', type=int) or 0
         stock_filter = (request.args.get('stock_filter') or '').strip()
         if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
@@ -1158,7 +1161,8 @@ def register_material_routes(app):
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存'])
         ws.append(headers)
-        search = request.args.get('search', '').strip()
+        import unicodedata
+        search = unicodedata.normalize('NFKC', request.args.get('search', '') or '').strip()
         stock_filter = (request.args.get('stock_filter') or '').strip()
         if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
             stock_filter = ''
