@@ -508,7 +508,8 @@ def register_out_order_routes(app):
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, location_management_enabled,
                          purchase_return_requires_order,
-                         serialize_customer, serialize_material, serialize_unit)
+                         serialize_customer, serialize_material_with_stock, serialize_unit,
+                         validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
         units = Unit.query.all()
@@ -533,8 +534,13 @@ def register_out_order_routes(app):
         order_no = order.order_no if order else generate_order_no(
             'OO' if is_other_out else ('SO' if is_sale_order else ('PR' if is_purchase_return else 'OUT')))
         order_date = order.date.strftime('%Y-%m-%d') if order and order.date else datetime.now().strftime('%Y-%m-%d')
+        # BUG-2026-10-17-015-F07：单据页库存按单据仓库口径；新增页用默认仓。
+        stock_warehouse = get_default_warehouse()
+        if order is not None and (order.warehouse or '').strip():
+            stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
         return render_template('out_order_add.html',
-                             materials=[serialize_material(material) for material in materials],
+                             materials=[serialize_material_with_stock(material, stock_warehouse)
+                                        for material in materials],
                              units=[serialize_unit(unit) for unit in units],
                              customers=[serialize_customer(customer) for customer in customers],
                              departments=departments,

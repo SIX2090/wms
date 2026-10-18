@@ -891,7 +891,8 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import joinedload
         from app import (Customer, Material, Supplier, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse, location_management_enabled,
-                         serialize_customer, serialize_material, serialize_supplier, serialize_unit)
+                         serialize_customer, serialize_material_with_stock, serialize_supplier,
+                         serialize_unit, validate_inventory_warehouse)
         from app import InOrder, InOrderItem
         # P2 物料选择改服务端搜索：首屏不再把全部物料内联进页面（物料上万时
         # 首屏 HTML 体积与解析耗时随物料数线性增长）。只内联「初始缓存」：
@@ -941,9 +942,14 @@ def register_in_order_routes(app):
         parties = Customer.query.order_by(Customer.code.asc()).all() if (is_other_in or is_sales_return) else Supplier.query.all()
         warehouses = get_active_warehouses()
         default_warehouse = get_default_warehouse()
+        # BUG-2026-10-17-015-F07：单据页库存按单据仓库口径；新增页用默认仓。
+        stock_warehouse = default_warehouse
+        if order is not None and (order.warehouse or '').strip():
+            stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
         order_date = datetime.now().strftime('%Y-%m-%d')
         return render_template('in_order_add.html',
-                             materials=[serialize_material(material) for material in materials],
+                             materials=[serialize_material_with_stock(material, stock_warehouse)
+                                        for material in materials],
                              units=[serialize_unit(unit) for unit in units],
                              suppliers=[serialize_customer(p) if (is_other_in or is_sales_return) else serialize_supplier(p) for p in parties],
                              warehouses=warehouses,
