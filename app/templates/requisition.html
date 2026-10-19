@@ -168,7 +168,15 @@
                                             title="编辑" target="_blank" rel="noopener">
                                         <i class="bi bi-pencil-square"></i><span class="d-none d-xl-inline">修改</span>
                                     </a>
-                                    <button class="btn btn-outline-success complete-btn" data-id="{{ requisition.id }}" title="完成工单领料">
+                                    {# UI-REQUISITION-CONTINUE-001-F01：完成时可按表头带参开新单，连续录单提效 #}
+                                    <button class="btn btn-outline-success complete-btn"
+                                            data-id="{{ requisition.id }}"
+                                            data-warehouse="{{ requisition.warehouse or '' }}"
+                                            data-bom-id="{{ requisition.bom_id or '' }}"
+                                            data-production-order="{{ requisition.production_order or '' }}"
+                                            data-picker="{{ requisition.picker or '' }}"
+                                            data-purpose="{{ requisition.purpose or '' }}"
+                                            title="完成工单领料">
                                         <i class="bi bi-check-circle"></i><span class="d-none d-xl-inline">完成</span>
                                     </button>
                                     <button class="btn btn-outline-danger delete-btn" data-id="{{ requisition.id }}" title="删除">
@@ -408,17 +416,45 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
     });
 });
 
+// UI-REQUISITION-CONTINUE-001-F01：完成领料后可「完成并新增」，
+// 直接把本单表头（仓库/BOM/工单/领料人/用途）带到新单，省掉重复录入。
+function buildRequisitionContinueUrl(button) {
+    const data = (button && button.dataset) || {};
+    const params = new URLSearchParams();
+    const carried = {
+        warehouse: data.warehouse,
+        bom_id: data.bomId,
+        production_order: data.productionOrder,
+        picker: data.picker,
+        purpose: data.purpose
+    };
+    Object.keys(carried).forEach(function(key) {
+        const value = carried[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') {
+            params.append(key, String(value));
+        }
+    });
+    const query = params.toString();
+    return query ? requisitionUrls.add + '?' + query : requisitionUrls.add;
+}
+
 document.querySelectorAll('.complete-btn').forEach(function(button) {
     button.addEventListener('click', function() {
         const id = this.dataset.id;
-        showConfirm('确认完成工单领料？完成后库存将减少。', {title: '完成工单领料'}).then(function(confirmed) {
-            if (!confirmed) return;
-            fetch(urlWithId(requisitionUrls.complete, id), {method: 'POST'})
-            .then(response => response.json())
+        const continueUrl = buildRequisitionContinueUrl(this);
+        showConfirm('确认完成工单领料？完成后库存将减少。', {
+            title: '完成工单领料',
+            okText: '完成并新增',
+            cancelText: '取消'
+        }).then(function(result) {
+            if (!result) return;
+            WMS.api.post(urlWithId(requisitionUrls.complete, id))
             .then(data => {
                 if (data.status === 'success') {
                     showToast(data.msg || '操作成功', 'success');
-                    setTimeout(() => location.reload(), 500);
+                    setTimeout(() => {
+                        window.location.href = continueUrl;
+                    }, 500);
                 } else {
                     showToast(data.msg || '操作失败', 'danger');
                 }

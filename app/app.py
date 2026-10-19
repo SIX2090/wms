@@ -26804,6 +26804,27 @@ def _render_bom_form(bom=None):
 
 def _render_requisition_form(requisition=None):
     boms = BOM.query.order_by(BOM.bom_no.asc()).all()
+    # UI-REQUISITION-CONTINUE-001-F01（2026-10-19）：连续录单——完成领料后可
+    # 「完成并新增」，列表页把本单表头作为 query 参数带到新建页，这里白名单
+    # 回填，避免操作员重复选仓库/填工单。仅在新建（requisition is None）时生效，
+    # 编辑/查看既有单据一律以数据库记录为准，不受 query 参数影响。
+    prefill = {
+        'warehouse_id': '',
+        'bom_id': '',
+        'production_order': '',
+        'purpose': '',
+        'picker': '',
+        'warehouse': '',
+        'remark': '',
+    }
+    if requisition is None:
+        prefill['warehouse_id'] = _clean_int(request.args.get('warehouse_id')) or ''
+        prefill['bom_id'] = _clean_int(request.args.get('bom_id')) or ''
+        prefill['production_order'] = (request.args.get('production_order') or '').strip()[:50]
+        prefill['purpose'] = (request.args.get('purpose') or '').strip()[:200]
+        prefill['picker'] = (request.args.get('picker') or '').strip()[:50]
+        prefill['warehouse'] = (request.args.get('warehouse') or '').strip()[:100]
+        prefill['remark'] = (request.args.get('remark') or '').strip()[:500]
     return render_template(
         'document_table_form.html',
         doc_type='requisition',
@@ -26820,13 +26841,14 @@ def _render_requisition_form(requisition=None):
         order_no_label='工单领料单号',
         date_value=(requisition.date if requisition and requisition.date else date.today()).strftime('%Y-%m-%d'),
         header={
-            'bom_id': requisition.bom_id if requisition else '',
-            'production_order': requisition.production_order if requisition else '',
-            'purpose': requisition.purpose if requisition else '',
-            'picker': requisition.picker if requisition else '',
+            'bom_id': requisition.bom_id if requisition else prefill['bom_id'],
+            'production_order': requisition.production_order if requisition else prefill['production_order'],
+            'purpose': requisition.purpose if requisition else prefill['purpose'],
+            'picker': requisition.picker if requisition else prefill['picker'],
             # BUG-2026-08-05-008：工单领料单表头带仓库字段
-            'warehouse': requisition.warehouse if requisition else '',
-            'remark': requisition.remark if requisition else '',
+            'warehouse': requisition.warehouse if requisition else prefill['warehouse'],
+            'warehouse_id': '' if requisition else prefill['warehouse_id'],
+            'remark': requisition.remark if requisition else prefill['remark'],
         },
         materials=_document_materials_json(),
         units=_document_units_json(),

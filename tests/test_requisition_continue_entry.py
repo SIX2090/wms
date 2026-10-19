@@ -10,10 +10,11 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@pytest.mark.parametrize('carry', [False, True])
 @pytest.mark.parametrize('doc_type', ['requisition', 'transfer', 'check'])
 @pytest.mark.parametrize('status', ['success', 'error', 'confirm', 'network_error'])
 @pytest.mark.parametrize('mode', ['save', 'save_complete', 'complete', 'force'])
-def test_requisition_completion_navigation(doc_type, status, mode):
+def test_requisition_completion_navigation(doc_type, status, mode, carry):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required for browser callback execution')
@@ -21,10 +22,11 @@ def test_requisition_completion_navigation(doc_type, status, mode):
     submit = 'function submitForm(completeAfterSave) {' + source.split('function submitForm(completeAfterSave) {', 1)[1].split('\nfunction escapeHtmlText', 1)[0]
     run = 'function runComplete(actionUrl, force, orderId) {' + source.split('function runComplete(actionUrl, force, orderId) {', 1)[1].split('\nfunction showCompleteConfirm', 1)[0]
     complete = 'function completeDocument() {' + source.split('function completeDocument() {', 1)[1].split('\nfunction revertDocument', 1)[0]
-    script = '''
+    script = 'const carry=' + json.dumps(carry) + ';\n' + '''
 let confirmed = 0, calls = [];
 const window = {location: {href: 'original'}};
 const fields = {'order_id': {value:'7'}, 'order_no': {value:'REQ7'}, 'date': {value:'2026-10-15'}};
+if (carry) Object.assign(fields, {warehouse_id:{value:'2'}, production_order:{value:'工单 & 1'}, picker:{value:'张三'}, purpose:{value:'生产'}, bom_id:{value:'9'}});
 const document = {querySelector(s) {return fields[s.match(/name="([^"]+)"/)[1]];}};
 const readonly = false, saveUrl = '/save', completeUrl = '/complete/0', detailUrl = '/detail';
 function collectItems() {return {items:[{code:'M1',quantity:1}], invalidRows:[]};}
@@ -48,7 +50,13 @@ function csrfFetch(url, options) {
         assert actual['url'] == '/detail/7'
         assert len(actual['calls']) == 1
     elif status == 'success':
-        assert actual['url'] == ('/requisition/add' if doc_type == 'requisition' else '/detail/7')
+        if carry and doc_type == 'requisition':
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(actual['url'])
+            assert parsed.path == '/requisition/add'
+            assert parse_qs(parsed.query) == {'warehouse_id':['2'], 'production_order':['工单 & 1'], 'picker':['张三'], 'purpose':['生产'], 'bom_id':['9']}
+        else:
+            assert actual['url'] == ('/requisition/add' if doc_type == 'requisition' else '/detail/7')
     elif status == 'error':
         assert actual['url'] == '/detail/7'
     else:

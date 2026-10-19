@@ -770,8 +770,16 @@ function runComplete(actionUrl, force, orderId) {
             if (done.status === 'success') {
                 showToast(done.msg || '操作成功', 'success');
                 setTimeout(() => {
-                    window.location.href = docType === 'requisition' ? '/requisition/add' :
-                        detailUrl + '/' + (orderId || '');
+                    if (docType === 'requisition') {
+                        const params = new URLSearchParams();
+                        ['warehouse_id', 'bom_id', 'production_order', 'picker', 'purpose'].forEach(name => {
+                            const value = document.querySelector('[name="' + name + '"]')?.value || '';
+                            if (value.trim()) params.set(name, value);
+                        });
+                        window.location.href = '/requisition/add' + (params.size ? '?' + params.toString() : '');
+                    } else {
+                        window.location.href = detailUrl + '/' + (orderId || '');
+                    }
                 }, 700);
                 return;
             }
