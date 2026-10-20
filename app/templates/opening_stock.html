@@ -915,10 +915,7 @@ function renderMaterialMenuItems(matches, index) {
 
 function showMaterialMenu(input, index) {
     activeCodeInput = {input, index};
-    const rect = input.getBoundingClientRect();
-    materialMenu.style.left = `${rect.left}px`;
-    materialMenu.style.top = `${rect.bottom + 4}px`;
-    materialMenu.style.width = `${Math.max(rect.width, 520)}px`;
+    WMS.positionDropdown(input, materialMenu, {minWidth: 520, gap: 4});
     materialMenu.hidden = false;
     const kw = String(input.value || '').trim();
     if (!kw) {

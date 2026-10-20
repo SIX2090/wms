@@ -978,9 +978,7 @@ function renderMaterialDropdown(row, filtered, notice) {
     activeIndex = Array.from(document.querySelectorAll('#materialTableBody tr')).indexOf(row);
 
     const input = row.querySelector('.material-code');
-    const rect = input.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 5) + 'px';
-    dropdown.style.left = rect.left + 'px';
+    WMS.positionDropdown(input, dropdown);
 }
 
 function showDropdown(row, showAll = false) {

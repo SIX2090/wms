@@ -467,9 +467,7 @@ function showDropdown(row, showAll = false) {
         });
     });
 
-    const rect = input.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + 5) + 'px';
-    dropdown.style.left = rect.left + 'px';
+    WMS.positionDropdown(input, dropdown);
     dropdown.style.display = 'block';
     activeDropdown = dropdown;
 }

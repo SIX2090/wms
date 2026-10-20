@@ -942,10 +942,7 @@ function renderMaterialQuickDropdown(results) {
     if (!dropdown) return;
     var input = activeMaterialInput || document.getElementById('code');
     if (input && input.closest('tr.new-item-row')) {
-        var rect = input.getBoundingClientRect();
-        dropdown.style.width = Math.max(rect.width, 420) + 'px';
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.top = (rect.bottom + 3) + 'px';
+        WMS.positionDropdown(input, dropdown, {minWidth: 420, gap: 3});
     }
     if (!results.length) {
         dropdown.innerHTML = '<div class="material-quick-item material-quick-empty">无匹配物料</div>';

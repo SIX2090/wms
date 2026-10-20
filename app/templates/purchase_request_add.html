@@ -699,9 +699,7 @@ function renderMaterialDropdown(row, filtered, notice) {
         dropdown.style.display = 'block';
         activeMaterialDropdown = dropdown;
         activeMaterialIndex = -1;
-        const rectEmpty = input.getBoundingClientRect();
-        dropdown.style.top = (rectEmpty.bottom + window.scrollY) + 'px';
-        dropdown.style.left = rectEmpty.left + 'px';
+        WMS.positionDropdown(input, dropdown);
         return;
     }
 
@@ -716,9 +714,7 @@ function renderMaterialDropdown(row, filtered, notice) {
         </div>
     `).join('');
 
-    const rect = input.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
-    dropdown.style.left = rect.left + 'px';
+    WMS.positionDropdown(input, dropdown);
     dropdown.style.display = 'block';
     activeMaterialDropdown = dropdown;
     activeMaterialIndex = 0;
@@ -899,9 +895,7 @@ function showSupplierDropdown(row, showAll = false) {
         `).join('');
     }
 
-    const rect = input.getBoundingClientRect();
-    dropdown.style.top = (rect.bottom + window.scrollY) + 'px';
-    dropdown.style.left = rect.left + 'px';
+    WMS.positionDropdown(input, dropdown);
     dropdown.style.display = 'block';
 }
 

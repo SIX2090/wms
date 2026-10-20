@@ -711,9 +711,7 @@ textarea.form-control {
         dropdown.style.display = 'block';
         activeDropdown = dropdown;
 
-        var rect = input.getBoundingClientRect();
-        dropdown.style.top = (rect.bottom + 5) + 'px';
-        dropdown.style.left = rect.left + 'px';
+        WMS.positionDropdown(input, dropdown);
     }
 
     function selectMaterial(row, code) {

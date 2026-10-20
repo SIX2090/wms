@@ -167,6 +167,7 @@
 | AUDIT-FULL-20261020-001-F08 | ai | completions-2026-10.md |
 | UI-PURCHASE-ONE-ACTION-001 | ai | completions-2026-10.md |
 | UI-REQUISITION-ONE-ACTION-001 | ai | completions-2026-10.md |
+| UI-MATERIAL-DROPDOWN-VIEWPORT-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -393,6 +394,7 @@
 | BUG-2026-10-20-006 | bugs | entries-2026-10.md |
 | BUG-2026-10-20-007 | bugs | entries-2026-10.md |
 | BUG-2026-10-20-008 | bugs | entries-2026-10.md |
+| BUG-2026-10-20-009 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
