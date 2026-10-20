@@ -192,3 +192,5 @@ A02 的后端测试自己填写 picker，漏掉真实 JS 没发送字段；A06 �
 
 - 最终完整验证：设置 `PYTHONIOENCODING=utf-8`、`PYTHONUTF8=1` 后运行 `python -m pytest tests/ -q -p no:pylama -n 2 --dist loadfile --tb=short`，**4340 passed / 91 skipped，0 failed / 0 errors（696.48秒）**。未修改既有测试断言。初轮默认GBK结果22 failed/16 errors中，两处文档行号及台账历史引用已修正；暂存区解析及既有34项失败在UTF-8模式下一并通过，属于测试进程解码问题，不修改生产环境。
 - 规则验证：普通A1–A14、A11全量、存量棘轮、前端请求规则与 `verify_wms_bugs.py` 通过；GitHub工作流验收以本批统一推送后的main提交检查为准。
+
+- 推送及CI验收：代码提交 `a03212419512b89822137be4b49d2466b7ed97f6` 与台账提交统一推送到main，验证提交 `2779d115deee6cd0ebc091504e2fba2a1bfc4aef` 本地/远端一致；WMS CI #1657（39390090974）、WMS AI Verification（39390090985）、WMS Perf Baseline（39390091040）全部success，Android最近#833 success（本批未修改Android）。8项审计代码整改完成；生产重启及AI网关401凭证对齐仍待处理。
