@@ -4,7 +4,7 @@
 
 ## 结论
 
-本轮确认 **8 项待处理问题：1 项 P1、7 项 P2**，另登记测试覆盖不足和领料入口范围两项观察。7 项缺陷有隔离运行证据，1 项为生产配置与源码共同确认的部署风险。未发现 P0；这不等于全部接口不存在严重漏洞。
+审计时确认 **8 项问题：1 项 P1、7 项 P2**，另登记测试覆盖不足和领料入口范围两项观察。7 项缺陷有隔离运行证据，1 项为生产配置与源码共同确认的部署风险。未发现 P0；这不等于全部接口不存在严重漏洞。
 
 生产库存现状较好：只读核验 1,317 个物料、4 个仓库、3,918 条流水，总账与流水差异、负库存、重复物料、外键违规均为 0，SQLite `quick_check=ok`。当前主要风险在录入、导入、报表和安全入口的一致性，而非已经核实的账务失衡。
 
@@ -150,6 +150,23 @@ A02 的后端测试自己填写 picker，漏掉真实 JS 没发送字段；A06 �
 1. A01 导入仓库：先阻断显式仓库被静默丢弃；随后修 A02 表单字段、A03 统计口径。
 2. A04/A05：对会话写请求补 CSRF、统一登录限流；保持合法 Bearer 客户端可用。
 3. A06：补全仓库改名消费点及行为测试；A07 在启用库位前完成；A08 与网关部署协同。
-4. 每项先登记/关联既有 BUG，再独立修复、测试、缺陷回注、提交推送与 CI 验证。当前报告是审计交付，不表示任何一项已修。
+4. 每项先登记/关联既有 BUG，再独立修复、测试、缺陷回注、提交推送与 CI 验证。原始审计证据保留；后续整改状态见下方闭环记录。
 
 复现命令：`python docs/audit/reproduce_wms_audit_20261020.py`。生产只读命令：`python scripts/data_repairs.py --db C:/wms/app/instance/inventory.db --json`；`python scripts/verify_inventory_identity.py --db sqlite:///C:/wms/app/instance/inventory.db --json`。
+
+
+## 首批整改闭环（2026-10-20）
+
+本批按确认顺序完成 A01–A03 的代码整改，A04–A08 仍待处理。原始复现JSON保留审计时点证据，不将其当作修复后输出。
+
+| 发现 | 修复结果 | main 提交 | CI |
+|---|---|---|---|
+| A01 | 工单领料导入尊重仓库ID/名称/编码；无有效默认仓、无效/停用仓、同单冲突明确拒绝；模板补仓库/库位列 | `7ddca86ec45e49f8d1516c33cdab9cefca94c3f2` | [WMS CI #1653](https://github.com/SIX2090/wms/actions/runs/39377575562)、[AI #1948](https://github.com/SIX2090/wms/actions/runs/39377575298) success |
+| A02 | 真实表单保存领料人，支持填写、修改和主动清空 | `ab3f4541ad02ed71d0b93457222a258aab41ce0e` | [WMS CI #1654](https://github.com/SIX2090/wms/actions/runs/39379499461)、[AI #1949](https://github.com/SIX2090/wms/actions/runs/39379499280) success |
+| A03 | 裸统计默认只计已完成；列表打印保留筛选和排序、显示状态，只导出命中明细并取完整结果 | `0ca68811970ec10c11655240233f19b2056fb462` | [WMS CI #1655](https://github.com/SIX2090/wms/actions/runs/39383082852)、[AI #1950](https://github.com/SIX2090/wms/actions/runs/39383082813) success |
+
+- 三项均有旧代码回注失败证据、专项及相邻回归、隔离文件库121/121冒烟、规则0违规和既有BUG检查通过。Android最近运行#833为success；本批路径未触发新的Android构建，不声称重新构建APK。
+- 最终完整本地测试：`python -m pytest tests/ -q -p no:pylama -n 2 --dist loadfile --tb=short`，**4258 passed / 91 skipped / 18 failed / 16 errors**；34项失败ID与修前基线逐项一致，**0新增**。这是Windows本地结果，不能写成全量全绿；GitHub主CI另有success实证。
+- 报表组合回归暴露既有TESTING全局配置冲突：去掉本次新增测试仍同样9项失败；分进程执行原测试通过。本次未为适配环境放宽历史断言。
+- 生产生效确认：**待确认，生产需重启 WMS 服务生效，浏览器Ctrl+F5刷新**。本批未执行生产服务启停、生产单据提交/删除或库存写入。完成后连续新建仍是已有工单领料入口；普通领料入口范围观察S01保留。
+- 台账：`AUDIT-FULL-20261020-001-F01/F02/F03`，详见 `docs/ledger/ai/completions-2026-10.md`；无新增AI路由、工具、模型、特性开关或数据库迁移。
