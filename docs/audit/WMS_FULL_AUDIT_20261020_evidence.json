@@ -1,0 +1,120 @@
+{
+  "audit_date": "2026-10-20",
+  "timezone": "Asia/Shanghai",
+  "head": "97128a4133f89a47a405a3cc3b8a41f5f7005769",
+  "isolated_proofs": {
+    "picker": {
+      "ui_value": "张三",
+      "payload_has_picker": false,
+      "saved_picker": "",
+      "http": 200,
+      "response": {
+        "id": 1,
+        "msg": "保存成功",
+        "order_no": "AUD-REQ",
+        "status": "success"
+      }
+    },
+    "import_warehouse": {
+      "specified": "仓库B",
+      "saved": "仓库A",
+      "http": 200
+    },
+    "report_filter": {
+      "http": 200,
+      "pending_in_completed_filter": true,
+      "rows": 1
+    },
+    "csrf_session_scan": {
+      "http": 200,
+      "status": "success",
+      "stock_after_no_csrf": 22.0
+    },
+    "api_login_rate": {
+      "requests": 65,
+      "status_counts": {
+        "401": 65
+      }
+    },
+    "opening_location_change": {
+      "line_location": "L-B",
+      "delta": 0.0,
+      "location_rows": [
+        {
+          "location": "L-A",
+          "quantity": 10.0
+        }
+      ]
+    },
+    "warehouse_rename": {
+      "http": 200,
+      "warehouse_name": "仓库A新名",
+      "check_warehouse": "仓库A",
+      "adjustment_warehouse": "仓库A"
+    }
+  },
+  "data_repairs_readonly": {
+    "counts": {
+      "fk_violations": 0,
+      "ai_cleanup_bad_executor": 0,
+      "duplicate_materials": 0,
+      "stock_vs_txn": 0,
+      "location_vs_txn": 0
+    },
+    "applied": null,
+    "report": {
+      "fk_violations": [],
+      "ai_cleanup_bad_executor": [],
+      "duplicate_materials": [],
+      "stock_vs_txn": [],
+      "location_vs_txn": []
+    }
+  },
+  "inventory_identity_readonly": {
+    "materials": 1317,
+    "materials_with_location_rows": 1,
+    "mismatch_ledger_vs_location": 0,
+    "mismatch_ledger_vs_txn": 0,
+    "findings": [],
+    "mismatch_wh_location_vs_txn": 0,
+    "warehouse_findings": [],
+    "unattributed_materials": 0,
+    "unattributed": [],
+    "drift_hard": 0,
+    "drift_waived": 0,
+    "drift_hard_findings": [],
+    "drift_waived_findings": [],
+    "wh_gate_location_management_enabled": false
+  },
+  "production": {
+    "quick_check": "ok",
+    "material": 1317,
+    "warehouse": 4,
+    "in_order": 635,
+    "out_order": 624,
+    "production_requisition": 0,
+    "stock_transaction": 3918,
+    "user": 2,
+    "negative_materials": 0,
+    "negative_warehouse_balances": 0,
+    "out_order_business_types": [
+      {
+        "business_type": "领料单",
+        "count": 624
+      }
+    ],
+    "ai_base_url_scheme": "http"
+  },
+  "boundaries": [
+    "Production SQLite opened mode=ro/query_only; no production business writes",
+    "Behavior probes only sqlite:///:memory:",
+    "No production credential changes, service restart, merge, restore or outbound model request",
+    "No fresh full pytest or full Android runtime audit"
+  ],
+  "targeted_tests": {
+    "passed": 112,
+    "warnings": 5,
+    "seconds": 76.49,
+    "new_full_suite_run": false
+  }
+}
