@@ -722,7 +722,7 @@ function collectHeader() {
     if (docType === 'bom') return {product_code:get('product_code'), product_name:get('product_name'), version:get('version'), status:get('status'), remark:get('remark')};
     // BUG-2026-08-05-008：工单领料单表头带仓库字段
     // P1-6（2026-09-25）：warehouse → warehouse_id，后端按 ID 优先解析
-    if (docType === 'requisition') return {bom_id:get('bom_id'), production_order:get('production_order'), purpose:get('purpose'), warehouse_id:get('warehouse_id'), remark:get('remark')};
+    if (docType === 'requisition') return {bom_id:get('bom_id'), production_order:get('production_order'), purpose:get('purpose'), picker:get('picker'), warehouse_id:get('warehouse_id'), remark:get('remark')};
     // BUG-2026-08-02-014：盘点单表头带仓库字段
     // P1-6（2026-09-25）：warehouse → warehouse_id
     if (docType === 'check') return {warehouse_id:get('warehouse_id'), remark:get('remark')};

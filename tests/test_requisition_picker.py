@@ -11,7 +11,13 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import shutil
+import subprocess
+from html.parser import HTMLParser
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -110,3 +116,72 @@ class TestRequisitionPicker:
             req = db.session.get(ProductionRequisition, data["id"])
             assert req is not None
             assert req.picker == "王五"
+
+    @pytest.mark.parametrize('existing_picker, typed_picker', [
+        (None, '张三'), ('王五', '李四'), ('王五', ''),
+    ])
+    def test_actual_form_header_roundtrip(self, existing_picker, typed_picker):
+        """BUG-2026-10-20-002: execute rendered JS before posting its real header."""
+        node = shutil.which('node')
+        if not node:
+            pytest.skip('Node.js required for the real form header callback')
+        client, _ = self._setup()
+        order_id = None
+        if existing_picker is not None:
+            response = client.post('/requisition/save_table', json={
+                'order_no': 'REQ-PICKER-EDIT',
+                'header': {'warehouse': '默认仓', 'picker': existing_picker},
+                'items': [{'code': 'M001', 'quantity': 5}],
+            })
+            assert response.get_json()['status'] == 'success', response.get_json()
+            order_id = response.get_json()['id']
+        response = client.get(f'/requisition/{order_id}' if order_id else '/requisition/add')
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+
+        class Fields(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.values = {}
+                self.select = None
+
+            def handle_starttag(self, tag, attrs):
+                attributes = dict(attrs)
+                if tag == 'input' and attributes.get('name'):
+                    self.values[attributes['name']] = attributes.get('value', '')
+                if tag == 'select':
+                    self.select = attributes.get('name')
+                if tag == 'option' and self.select and 'selected' in attributes:
+                    self.values[self.select] = attributes.get('value', '')
+
+            def handle_endtag(self, tag):
+                if tag == 'select':
+                    self.select = None
+
+        fields = Fields()
+        fields.feed(html)
+        assert 'picker' in fields.values
+        fields.values['picker'] = typed_picker
+        function = 'function collectHeader() {' + html.split('function collectHeader() {', 1)[1].split(
+            '\nfunction submitForm', 1)[0]
+        script = 'const docType="requisition"; const fields=' + json.dumps(fields.values) + ';'
+        script += '''const document={querySelector(s){
+            const name=s.match(/name="([^"]+)"/)[1];
+            return name in fields ? {value:fields[name]} : null;
+        }};'''
+        script += function + '\nprocess.stdout.write(JSON.stringify(collectHeader()));'
+        output = subprocess.run([node, '-e', script], text=True, encoding='utf-8',
+                                capture_output=True, check=True)
+        header = json.loads(output.stdout)
+        assert header.get('picker') == typed_picker
+        response = client.post('/requisition/save_table', json={
+            'order_id': order_id, 'order_no': fields.values['order_no'],
+            'date': fields.values['date'], 'header': header,
+            'items': [{'code': 'M001', 'quantity': 5}],
+        })
+        data = response.get_json()
+        assert data['status'] == 'success', data
+        with app_module.app.app_context():
+            assert db.session.get(ProductionRequisition, data['id']).picker == typed_picker
+        html = client.get(f"/requisition/{data['id']}").get_data(as_text=True)
+        assert f'name="picker" value="{typed_picker}"' in html
