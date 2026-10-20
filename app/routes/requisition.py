@@ -879,6 +879,7 @@ def register_requisition_routes(app):
                          _get_excel_cell, _get_excel_number, _import_result,
                          _order_no_from_row, _parse_excel_date,
                          _read_import_sheet, api_error, get_default_warehouse,
+                         location_management_enabled, validate_inventory_warehouse,
                          validate_excel_extension,
                          validate_excel_size)
         file = request.files.get('file')
@@ -890,12 +891,14 @@ def register_requisition_routes(app):
         _size_ok, _size_msg = validate_excel_size(file)
         if not _size_ok:
             return api_error(_size_msg)
-        # BUG-2026-08-05-008：导入的工单领料单自动带入默认仓库
+        # BUG-2026-10-20-001：显式仓库优先，缺省才带有效默认仓；只生成草稿。
         _default_wh = get_default_warehouse()
-        import_default_warehouse = _default_wh.name if _default_wh else None
         aliases = {
             'order_no': ['单据编号', '工单领料单号', '订单编号'],
             'date': ['日期'],
+            'warehouse': ['仓库', '仓库名称', '仓库编码'],
+            'warehouse_id': ['仓库ID', 'warehouse_id'],
+            'location': ['库位', '库位名称'],
             'production_order': ['工单', '生产令'],
             'purpose': ['用途'],
             'bom_no': ['BOM编号', 'bom'],
@@ -908,6 +911,12 @@ def register_requisition_routes(app):
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
+            # 「仓库ID」不能被通用「仓库」子串匹配误当成名称列。
+            warehouse_columns = [idx for idx, label in enumerate(header_row)
+                                 if '仓库' in str(label) and 'id' not in str(label).lower()]
+            col_map.pop('warehouse', None)
+            if warehouse_columns:
+                col_map['warehouse'] = warehouse_columns[0]
             required = {'material_code', 'quantity'}
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（物料编码、数量）。检测到的表头：{", ".join(header_row)}')
@@ -926,11 +935,27 @@ def register_requisition_routes(app):
                     continue
                 order_no = _order_no_from_row(row, col_map, 'order_no', 'REQ')
                 order = orders_by_no.get(order_no)
+                if not order and ProductionRequisition.query.filter_by(req_no=order_no).first():
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：工单领料单号 {order_no} 已存在')
+                    continue
+                raw_warehouse = _get_excel_cell(row, col_map, 'warehouse')
+                raw_warehouse_id = _get_excel_cell(row, col_map, 'warehouse_id')
+                if not raw_warehouse and not raw_warehouse_id:
+                    raw_warehouse = order.warehouse if order else (_default_wh.name if _default_wh else '')
+                warehouse, warehouse_error = validate_inventory_warehouse(raw_warehouse, raw_warehouse_id)
+                location = _get_excel_cell(row, col_map, 'location') or (order.location if order else '')
+                error = warehouse_error
+                if not error and order and order.warehouse != warehouse.name:
+                    error = f'同一工单领料单 {order_no} 的仓库必须一致'
+                if not error and location_management_enabled() and not location:
+                    error = '库位管理已启用，请填写库位'
+                if not error and order and (order.location or '') != location:
+                    error = f'同一工单领料单 {order_no} 的库位必须一致'
+                if error:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：{error}，本次导入未保存')
                 if not order:
-                    if ProductionRequisition.query.filter_by(req_no=order_no).first():
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：工单领料单号 {order_no} 已存在')
-                        continue
                     bom_no = _get_excel_cell(row, col_map, 'bom_no')
                     bom = BOM.query.filter_by(bom_no=bom_no).first() if bom_no else None
                     order = ProductionRequisition(
@@ -939,7 +964,8 @@ def register_requisition_routes(app):
                         production_order=_get_excel_cell(row, col_map, 'production_order'),
                         purpose=_get_excel_cell(row, col_map, 'purpose'),
                         bom_id=bom.id if bom else None,
-                        warehouse=import_default_warehouse,
+                        warehouse=warehouse.name,
+                        location=location,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         operator_id=current_user.id,
