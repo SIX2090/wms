@@ -7095,6 +7095,10 @@ def web_or_api_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if current_user.is_authenticated:
+            from session_csrf import validate_session_write
+            error = validate_session_write()
+            if error is not None:
+                return error
             return f(*args, **kwargs)
         if get_bearer_user():
             return f(*args, **kwargs)
@@ -7117,6 +7121,10 @@ def web_or_api_role_required(*roles):
                 return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
             if user.role != 'admin' and user.role not in allowed:
                 return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
+            from session_csrf import validate_session_write
+            error = validate_session_write()
+            if error is not None:
+                return error
             return f(*args, **kwargs)
         return decorated_function
     return decorator
@@ -8391,6 +8399,9 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
     quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
     doc_date = doc_date or getattr(opening, 'date', None) or date.today()
     location = (location or getattr(opening, 'location', '') or '').strip()
+
+    if opening is not None and location != (opening.location or '').strip():
+        raise ValueError('期初库存编辑不能更换库位，请通过库存调拨调整库位')
 
     if opening is None:
         opening = OpeningStock(
@@ -12074,7 +12085,11 @@ def _ai_vision_status_response(message, context=None):
     vision_enabled = _ai_llm_vision_enabled()
     ready = configured and vision_enabled
     model = _ai_llm_model()
-    endpoint = _ai_llm_endpoint()
+    try:
+        endpoint = _ai_llm_endpoint()
+    except RuntimeError:
+        endpoint = '外部端点未配置 HTTPS，已暂停外部 AI 调用'
+        ready = False
     timeout = _ai_llm_timeout_seconds()
 
     cards = [
@@ -12976,19 +12991,18 @@ def _ai_llm_endpoint(overrides=None):
     ).strip()
     normalized = base_url.rstrip('/')
     endpoint = normalized if normalized.endswith('/chat/completions') else normalized + '/chat/completions'
-    # BUG-2026-10-17-013-F03（审计 §6.6）：不改生产配置（避免直接打断 AI 能力），
-    # 但每次运行首次使用明文 HTTP 时必须留下 CRITICAL 证据，操作者可据此切 HTTPS。
-    if _ai_llm_url_is_plaintext_remote(endpoint) and (os.environ.get('WMS_AI_REQUIRE_HTTPS') or '').strip().lower() in ('1', 'true', 'yes'):
-        raise RuntimeError(
-            'AI 端点要求 HTTPS（WMS_AI_REQUIRE_HTTPS=1），当前为明文 HTTP：%s' % endpoint)
+    # A08：拒绝发送明文凭证，不能通过环境变量关闭；保留首次告警。
     if _ai_llm_url_is_plaintext_remote(endpoint) and not _ai_llm_plaintext_warned:
         _ai_llm_plaintext_warned = True
         try:
             app.logger.critical(
                 '[SECURITY] AI LLM endpoint uses plaintext HTTP: %s —— API Key、单据数据与图片'
-                '会以明文经过网络。请改为 HTTPS 或 127.0.0.1 本地代理（审计 §6.6）。', endpoint)
+                '已阻止发送。请改为 HTTPS 或 127.0.0.1 本地代理（审计 §6.6）。', '[redacted]')
         except Exception:
             pass
+    if _ai_llm_url_is_plaintext_remote(endpoint):
+        raise RuntimeError(
+            'AI 外部端点必须使用 HTTPS，请配置有效证书的网关；当前可继续人工录入')
     return endpoint
 
 def _ai_llm_headers(overrides=None):
@@ -13481,6 +13495,8 @@ def _asr_call_tokenhub(audio_bytes, voice_format='wav'):
     endpoint = _asr_tokenhub_endpoint()
     if not endpoint:
         return None, '未配置大模型接口地址，语音识别不可用'
+    if _ai_llm_url_is_plaintext_remote(endpoint):
+        return None, '语音识别外部端点必须使用 HTTPS，请配置有效证书的网关'
     try:
         b64 = base64.b64encode(audio_bytes).decode('ascii')
     except Exception:

@@ -557,24 +557,19 @@ def register_print_queue_routes(app):
         与 native_api 各移动写接口 @csrf.exempt 一致）。
         """
         from app import PrintJob, app as _app, get_bearer_user
-        user = current_user if current_user.is_authenticated else get_bearer_user()
+        # 显式 Authorization 必须校验令牌，失败不回落 Cookie 会话。
+        bearer_channel = bool(request.headers.get('Authorization'))
+        user = get_bearer_user() if bearer_channel else (
+            current_user if current_user.is_authenticated else None)
         if user is None:
             return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
         # BUG-2026-10-17-013-F07（审计 S3）：@csrf.exempt 只应服务 Bearer 客户端；
         # Web 会话分支必须自带 CSRF token，否则第三方站点可借登录态塞打印任务。
         # 测试环境关闭 WTF_CSRF_ENABLED 时跳过，避免存量用例需要构造 token。
-        if (_app.config.get('WTF_CSRF_ENABLED', True)
-                and current_user.is_authenticated
-                and not request.headers.get('Authorization')):
-            from flask_wtf.csrf import ValidationError, validate_csrf
-            token = (request.headers.get('X-CSRFToken')
-                     or (request.get_json(silent=True) or {}).get('csrf_token')
-                     or request.form.get('csrf_token'))
-            try:
-                validate_csrf(token)
-            except (ValidationError, TypeError):
-                return jsonify({'status': 'error', 'success': False,
-                                'msg': 'CSRF 校验失败，请刷新页面后重试'}), 400
+        from session_csrf import validate_session_write
+        error = None if bearer_channel else validate_session_write()
+        if error is not None:
+            return error
         if user.role != 'admin' and user.role != 'warehouse':
             return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
         try:

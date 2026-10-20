@@ -224,6 +224,9 @@ def call_llm(
     """
     if not config.configured:
         return None
+    if not config.safe_endpoint:
+        logger.error('AI 外部端点必须使用 HTTPS，请配置有效证书的网关')
+        return None
 
     breaker = get_breaker(mode)
     if not breaker.allow_request():

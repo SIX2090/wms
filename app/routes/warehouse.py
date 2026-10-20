@@ -109,6 +109,11 @@ def register_warehouse_routes(app):
         from app import (AfterSaleOutOrder, InOrder, OutOrder, ProductionRequisition,
                          SalesOrder, SubcontractOrder, TransferOrder,
                          Warehouse, api_error)
+        from models.documents import (
+            InventoryCheck, InventoryCheckScan, AdjustmentOrder,
+            SubcontractIssue, SubcontractReceive,
+        )
+        from sqlalchemy import case, or_
         warehouse = db.session.get(Warehouse, id)
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '仓库不存在'}), 404
@@ -137,6 +142,15 @@ def register_warehouse_routes(app):
             return api_error('状态仅支持 active/inactive')
 
         old_name = warehouse.name or ''
+        old_code = warehouse.code or ''
+        if (old_name, old_code) != (name, code):
+            aliases = {value for value in (old_name, old_code, name, code) if value}
+            ambiguous = Warehouse.query.filter(
+                Warehouse.id != id,
+                or_(Warehouse.name.in_(aliases), Warehouse.code.in_(aliases)),
+            ).first()
+            if ambiguous:
+                return api_error('仓库名称与编码存在跨仓重名，无法安全同步历史单据，请先核对仓库档案')
         warehouse.code = code
         warehouse.name = name
         warehouse.type = request.form.get('type', '').strip() or None
@@ -145,10 +159,14 @@ def register_warehouse_routes(app):
         warehouse.remark = request.form.get('remark', '').strip() or None
 
         try:
-            # W2：仓库改名时同步所有单据表冗余的仓库文本字段（仅命中旧名称的行，
-            # 存编号/库位的行不受影响），避免改名后按新名称查不到历史单据。
-            # 与库存报表/明细的名称+编号任一匹配口径互补。
+            # A06：名称和编码在同一事务内同步全部单据仓库列，不改真实库位。
+            # case 单次映射避免新名称恰为旧编码时被二次替换。
+            replacements = {}
             if old_name and old_name != name:
+                replacements[old_name] = name
+            if old_code and old_code != code and old_code not in replacements:
+                replacements[old_code] = code
+            if replacements:
                 # 采购订单（PurchaseOrder）本身不记录仓库，不参与同步
                 for model, column in [
                     (InOrder, InOrder.warehouse),
@@ -157,17 +175,18 @@ def register_warehouse_routes(app):
                     (ProductionRequisition, ProductionRequisition.warehouse),
                     (AfterSaleOutOrder, AfterSaleOutOrder.warehouse),
                     (SalesOrder, SalesOrder.warehouse),
+                    (InventoryCheck, InventoryCheck.warehouse),
+                    (InventoryCheckScan, InventoryCheckScan.warehouse),
+                    (AdjustmentOrder, AdjustmentOrder.warehouse),
+                    (SubcontractIssue, SubcontractIssue.warehouse),
+                    (SubcontractReceive, SubcontractReceive.warehouse),
+                    (TransferOrder, TransferOrder.from_warehouse),
+                    (TransferOrder, TransferOrder.to_warehouse),
                 ]:
-                    model.query.filter(column == old_name).update(
-                        {column: name}, synchronize_session=False
+                    model.query.filter(column.in_(replacements)).update(
+                        {column: case(replacements, value=column, else_=column)},
+                        synchronize_session=False
                     )
-                # 调拨单的 from/to 仓库字段同样同步
-                TransferOrder.query.filter(TransferOrder.from_warehouse == old_name).update(
-                    {TransferOrder.from_warehouse: name}, synchronize_session=False
-                )
-                TransferOrder.query.filter(TransferOrder.to_warehouse == old_name).update(
-                    {TransferOrder.to_warehouse: name}, synchronize_session=False
-                )
             db.session.commit()
         except Exception as e:
             db.session.rollback()

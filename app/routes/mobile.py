@@ -73,6 +73,10 @@ def _web_or_api_required(f):
     def decorated_function(*args, **kwargs):
         from app import get_bearer_user
         if current_user.is_authenticated:
+            from session_csrf import validate_session_write
+            error = validate_session_write()
+            if error is not None:
+                return error
             return f(*args, **kwargs)
         if get_bearer_user():
             return f(*args, **kwargs)
@@ -101,6 +105,10 @@ def _web_or_api_role_required(*roles):
                 return jsonify({'status': 'error', 'success': False, 'msg': '未登录或 Bearer Token 无效'}), 401
             if user.role != 'admin' and user.role not in allowed:
                 return jsonify({'status': 'error', 'success': False, 'msg': '当前账号没有权限执行该操作'}), 403
+            from session_csrf import validate_session_write
+            error = validate_session_write()
+            if error is not None:
+                return error
             return f(*args, **kwargs)
         return decorated_function
     return decorator

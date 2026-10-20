@@ -903,11 +903,16 @@ def register_native_api_routes(app):
         import secrets
         from werkzeug.security import check_password_hash
         from app import (ApiToken, User, add_login_log, api_json_error,
-                         api_json_success, get_request_ip)
+                         api_json_success, get_request_ip, LOGIN_IP_RATE_LIMIT_PER_MINUTE)
+        from rate_limit import is_rate_limited, record_failure
         # BUG-2026-08-11-001: WMS_NO_DB_TOUCH=1 时 auto_migrate_database 和
         # db.create_all 均被跳过，老数据库可能缺 user 登录安全列 / api_token 表 /
         # login_log 表，导致 /api/login 抛 OperationalError → 500 → nginx 502。
         # 在此兜底补建缺失的表/列，确保登录功能正常。
+        request_ip = get_request_ip()
+        rate_key = f'login_fail:{request_ip}'
+        if is_rate_limited(rate_key, LOGIN_IP_RATE_LIMIT_PER_MINUTE, 60):
+            return api_json_error('尝试过于频繁，请稍后再试', 429)
         _ensure_login_schema()
         try:
             payload = request.get_json(silent=True) or {}
@@ -921,6 +926,7 @@ def register_native_api_routes(app):
 
             user = User.query.filter_by(username=username).first()
             if not user:
+                record_failure(rate_key, 60)
                 add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
                 try:
                     db.session.commit()
@@ -939,6 +945,7 @@ def register_native_api_routes(app):
                     db.session.rollback()
                 return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
             if not check_password_hash(user.password_hash, password):
+                record_failure(rate_key, 60)
                 user.increment_failed_count(request_ip)
                 add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
                 try:

@@ -341,6 +341,7 @@ def register_opening_stock_routes(app):
             _apply_opening_stock_balance,
             _opening_stock_compat_doc,
             _opening_stock_normalize_items,
+            _parse_opening_stock_date,
             _reverse_opening_stock_line,
             app,
             date,
