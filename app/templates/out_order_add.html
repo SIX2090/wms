@@ -452,12 +452,18 @@ textarea.form-control {
     </div>
     {% else %}
     <div class="d-flex gap-2 flex-wrap">
+        {% if not is_sale_order and not is_purchase_return %}
+        <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" onclick="submitForm(false, true)">
+            <i class="bi bi-check-circle"></i> 保存并完成领料
+        </button>
+        {% else %}
         <button type="button" class="btn btn-primary" onclick="submitForm()">
             <i class="bi bi-save"></i> 保存
         </button>
         <button type="button" class="btn btn-success" onclick="submitForm(true)">
             <i class="bi bi-plus-square"></i> 保存并新增
         </button>
+        {% endif %}
         <a href="{{ return_list_url or '/out_order' }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
@@ -1214,7 +1220,9 @@ function showImportTemplateHint() {
     showToast('当前支持粘贴导入：物料编码、数量、单价（从 Excel 复制后点击「导入」粘贴）', 'info', 3600);
 }
 
-function submitForm(saveAndNew = false) {
+let outOrderSubmitting = false;
+function submitForm(saveAndNew = false, completeAfterSave = false) {
+    if (outOrderSubmitting) return;
     const rows = document.querySelectorAll('#materialTableBody tr');
     
     // ==================== 必填项检查 ====================
@@ -1327,32 +1335,39 @@ function submitForm(saveAndNew = false) {
         data.source_in_order_id = sourceInOrderId;
     }
     
-    fetch('/out_order/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            const orderIdInput = document.querySelector('[name="order_id"]');
-            const orderNoInput = document.querySelector('[name="order_no"]');
-            if (orderIdInput) {
-                orderIdInput.value = data.id;
+    outOrderSubmitting = true;
+    const buttons = Array.from(document.querySelectorAll('button[onclick*="submitForm"], [data-wms-save-complete-proxy]'));
+    const disabledStates = buttons.map(button => button.disabled);
+    buttons.forEach(button => { button.disabled = true; });
+    let savedOrderId = null;
+    return WMS.api.postRaw('/out_order/add', data)
+        .then(saved => {
+            if (saved.status !== 'success') throw new Error(saved.msg || '保存失败');
+            savedOrderId = saved.id;
+            document.querySelector('[name="order_id"]').value = saved.id;
+            if (saved.order_no) document.querySelector('[name="order_no"]').value = saved.order_no;
+            if (!completeAfterSave) {
+                showToast('草稿保存成功', 'success');
+                window.location.href = saveAndNew ? returnAddUrl : `/out_order/${saved.id}`;
+                return;
             }
-            if (orderNoInput && data.order_no) {
-                orderNoInput.value = data.order_no;
+            return WMS.api.postRaw(`/out_order/${saved.id}/complete`, {}).then(done => {
+                if (done.status === 'success') showToast('保存并完成领料成功', 'success');
+                else showToast('单据已保存，请在详情页核对：' + (done.msg || '完成失败'), 'warning');
+                // 异常确认保留在详情页，绝不自动 force 完成。
+                window.location.href = `/out_order/${saved.id}`;
+            });
+        })
+        .catch(error => {
+            showToast(savedOrderId ? '单据已保存，完成结果需在详情页核对' : '保存失败：' + error.message, 'danger');
+            if (savedOrderId) window.location.href = `/out_order/${savedOrderId}`;
+        })
+        .finally(() => {
+            if (!savedOrderId) {
+                outOrderSubmitting = false;
+                buttons.forEach((button, i) => { button.disabled = disabledStates[i]; });
             }
-
-            alert('草稿保存成功');
-            window.location.href = saveAndNew ? returnAddUrl : `/out_order/${data.id}`;
-        } else {
-            alert('保存失败：' + data.msg);
-        }
-    })
-    .catch(error => {
-        alert('保存失败：' + error.message);
-    });
+        });
 }
 
 document.addEventListener('click', function(e) {

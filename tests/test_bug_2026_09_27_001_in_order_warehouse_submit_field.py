@@ -118,7 +118,7 @@ def _payload_harness() -> dict:
     field_var = m_field.group(2)
 
     # ③ 抓取提交端点
-    m_url = re.search(r"fetch\(\s*'(/in_order/add)'", src)
+    m_url = re.search(r"WMS\.api\.postRaw\(\s*'(/in_order/add)'", src)
     url = m_url.group(1) if m_url else ""
 
     parts = [

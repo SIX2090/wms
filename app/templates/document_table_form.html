@@ -4,6 +4,7 @@
 
 {% block extra_css %}
 <style>
+body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !important; }
 .doc-page { background:#fff; min-height:calc(100vh - 80px); }
 .doc-header { background:#fff; padding:12px 16px; border-bottom:1px solid #d9d9d9; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; }
 .doc-header h2 { font-size:15px; font-weight:600; color:#333; margin:0; display:flex; align-items:center; gap:6px; }
@@ -55,12 +56,16 @@
         </h2>
         <div class="d-flex gap-2 flex-wrap">
             {% if can_save %}
+            {% if doc_type == 'requisition' and complete_url %}
+            <button type="button" class="btn btn-success btn-sm" data-wms-save-complete="requisition" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成领料</button>
+            {% else %}
             <button type="button" class="btn btn-primary btn-sm" onclick="submitForm(false)"><i class="bi bi-save"></i> 保存</button>
             {% if complete_url %}
             <button type="button" class="btn btn-success btn-sm" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成</button>
             {% endif %}
             {% endif %}
-            {% if can_complete %}
+            {% endif %}
+            {% if can_complete and not (doc_type == 'requisition' and can_save and complete_url) %}
             <button type="button" class="btn btn-success btn-sm" onclick="completeDocument()"><i class="bi bi-check-circle"></i> {{ complete_label }}</button>
             {% endif %}
             {% if can_revert %}
@@ -729,7 +734,7 @@ function collectHeader() {
     return {remark:get('remark')};
 }
 function submitForm(completeAfterSave) {
-    if (readonly) return;
+    if (readonly || submitForm.pending) return;
     const result = collectItems();
     if (result.invalidRows.length) { showToast(result.invalidRows[0], 'danger', 3600); return; }
     if (!result.items.length) { showToast('请至少填写一条明细', 'warning'); return; }
@@ -740,7 +745,8 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
-    csrfFetch(saveUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
+    submitForm.pending = true;
+    return csrfFetch(saveUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
         .then(r => r.json())
         .then(res => {
             if (res.status !== 'success') throw new Error(res.msg || '保存失败');
@@ -753,7 +759,8 @@ function submitForm(completeAfterSave) {
             const actionUrl = completeUrl.replace(/\/0(?=\/|$)/, '/' + res.id);
             return runComplete(actionUrl, false, res.id);
         })
-        .catch(err => showToast(err.message || '保存失败', 'danger', 3600));
+        .catch(err => showToast(err.message || '保存失败', 'danger', 3600))
+        .finally(() => { if (!submitForm.completed) submitForm.pending = false; });
 }
 function escapeHtmlText(s){
     return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function(c){
@@ -768,6 +775,7 @@ function runComplete(actionUrl, force, orderId) {
         .then(r => r.json())
         .then(done => {
             if (done.status === 'success') {
+                submitForm.completed = true;
                 showToast(done.msg || '操作成功', 'success');
                 setTimeout(() => {
                     if (docType === 'requisition') {

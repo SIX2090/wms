@@ -507,18 +507,26 @@ textarea.form-control {
     </div>
     {% else %}
     <div class="d-flex gap-2">
+        {% if business_type == '采购入库' %}
+        <button type="button" class="btn btn-success" data-wms-save-complete="1" onclick="submitForm(false, true)" title="保存单据并完成入库，成功后继续新增采购入库单">
+            <i class="bi bi-check-circle"></i> 保存并完成入库
+        </button>
+        {% else %}
         <button type="button" class="btn btn-primary" onclick="submitForm(false, false)">
             <i class="bi bi-save"></i> 保存草稿
         </button>
         <button type="button" class="btn btn-success" onclick="submitForm(false, true)">
             <i class="bi bi-check-circle"></i> 完成入库
         </button>
+        {% endif %}
         <a href="{{ return_list_url or '/in_order' }}" class="btn btn-secondary">
             <i class="bi bi-x-lg"></i> 取消
         </a>
+        {% if business_type != '采购入库' %}
         <button type="button" class="btn btn-outline-primary" onclick="submitForm(true, false)">
             <i class="bi bi-plus-square"></i> 保存并新增
         </button>
+        {% endif %}
     </div>
     {% endif %}
 </div>
@@ -699,6 +707,7 @@ let activeDropdown = null;
 let activeIndex = -1;
 const purchaseOrderSelectableMap = new Map();
 let purchaseOrderSearchSeq = 0;
+let inOrderSubmitting = false;
 
 function formatStock(value) {
     const stock = parseFloat(value);
@@ -1454,6 +1463,7 @@ function markRowError(row, selector) {
 }
 
 function submitForm(saveAndNew = false, completeAfterSave = false) {
+    if (inOrderSubmitting) return;
     const rows = Array.from(document.querySelectorAll('#materialTableBody tr'));
     clearInOrderValidation();
 
@@ -1546,33 +1556,32 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         items: items
     };
 
-    fetch('/in_order/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(res => res.json())
+    inOrderSubmitting = true;
+    const submitButtons = Array.from(document.querySelectorAll('button[onclick*="submitForm"], [data-wms-save-complete-proxy]'));
+    const disabledStates = submitButtons.map(button => button.disabled);
+    submitButtons.forEach(button => { button.disabled = true; });
+    let savedOrderId = null;
+    return WMS.api.postRaw('/in_order/add', data)
     .then(data => {
         if (data.status !== 'success') {
-            alert('保存失败：' + (data.msg || '未知错误'));
+            showToast('保存失败：' + (data.msg || '未知错误'), 'danger');
             return;
         }
 
+        savedOrderId = data.id;
         const orderIdInput = document.querySelector('[name="order_id"]');
         const orderNoInput = document.querySelector('[name="order_no"]');
         if (orderIdInput) orderIdInput.value = data.id;
         if (orderNoInput && data.order_no) orderNoInput.value = data.order_no;
 
         if (!completeAfterSave) {
-            if (window.showToast) window.showToast('草稿保存成功', 'success');
-            else alert('草稿保存成功');
+            showToast('草稿保存成功', 'success');
             if (typeof clearDraft === 'function') clearDraft();
             window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
             return;
         }
 
-        return fetch(`/in_order/${data.id}/complete`, { method: 'POST' })
-            .then(res => res.json())
+        return WMS.api.postRaw(`/in_order/${data.id}/complete`, {})
             .then(completeRes => {
                 if (completeRes.status === 'success') {
                     showToast('完成入库成功，库存已更新', 'success');
@@ -1586,7 +1595,19 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             });
     })
     .catch(error => {
-        alert('保存失败：' + error.message);
+        if (savedOrderId) {
+            showToast('单据已保存，完成结果暂未确认，请在详情页核对状态：' + error.message, 'warning');
+            window.location.href = `/in_order/${savedOrderId}`;
+        } else {
+            showToast('保存失败：' + error.message, 'danger');
+        }
+    })
+    .finally(() => {
+        // 已取得单号后跳转核对，禁止在导航前再次保存/完成同一单据。
+        if (!savedOrderId) {
+            inOrderSubmitting = false;
+            submitButtons.forEach((button, index) => { button.disabled = disabledStates[index]; });
+        }
     });
 }
 
