@@ -342,92 +342,121 @@ def register_report_routes(app):
     @login_required
     def report_inout_print():
         from openpyxl import Workbook
-        from sqlalchemy.orm import selectinload
-        from app import InOrder, OutOrder, InOrderItem, OutOrderItem, api_error, db, resolve_request_warehouse
-        # BUG-2026-08-12-005：旧版导出必须按仓库过滤（AGENTS.md 仓库必填）：
-        # 显式 warehouse_id/code/name 校验，缺省时带入默认仓库，无默认仓库 400
+        from sqlalchemy.orm import joinedload
+        from app import (InOrder, OutOrder, InOrderItem, OutOrderItem, api_error, db,
+                         resolve_request_warehouse, parse_date_value,
+                         _warehouse_document_match_clause, _apply_status_date_filters,
+                         _apply_in_order_search, _apply_out_order_search,
+                         _apply_order_partner_text_filter,
+                         _apply_header_or_item_contract_filters)
+        # BUG-2026-10-20-003：默认统计只计已完成；显式 document_type 是列表打印，
+        # 允许按当前状态筛选（未筛状态则全状态），并逐行展示状态，避免把草稿当实绩。
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
             return api_error(wh_err, 400)
-        warehouse_name = warehouse.name or ''
-        warehouse_code = warehouse.code or ''
-        # BUG-2026-08-18-004：单据 warehouse 字段可能存仓库名或编号（历史数据不统一），
-        # 按任一匹配，避免"有入库记录但报表/导出查不出"。
-        _wh_clause = db.or_(
-            InOrder.warehouse == warehouse_name,
-            InOrder.warehouse == warehouse_code,
-        )
-        _wh_clause_out = db.or_(
-            OutOrder.warehouse == warehouse_name,
-            OutOrder.warehouse == warehouse_code,
-        )
-        start_date = request.args.get('start_date')
-        end_date = request.args.get('end_date')
-
+        document_type = (request.args.get('document_type') or '').strip()
+        if document_type not in ('', 'in_order', 'out_order'):
+            return api_error('单据类型不正确', 400)
+        status = (request.args.get('status') or '').strip()
+        if status not in ('', 'pending', 'completed'):
+            return api_error('单据状态不正确', 400)
+        if not document_type and not status:
+            status = 'completed'
+        start_raw = request.args.get('start_date') or request.args.get('date_start')
+        end_raw = request.args.get('end_date') or request.args.get('date_end')
+        start_date, end_date = parse_date_value(start_raw), parse_date_value(end_raw)
+        if (start_raw and not start_date) or (end_raw and not end_date):
+            return api_error('日期格式不正确', 400)
+        if start_date and end_date and start_date > end_date:
+            return api_error('开始日期不能晚于结束日期', 400)
+        search = (request.args.get('search') or '').strip()
+        contract_no = (request.args.get('contract_no') or '').strip()
+        project_name = (request.args.get('project_name') or '').strip()
         wb = Workbook()
-
-        # 入库单sheet
-        ws_in = wb.active
-        ws_in.title = '入库统计'
-        ws_in.append(['单据编号', '日期', '供应商', '合同编号', '工程名称', '物料编码', '物料名称', '数量', '金额'])
-        in_query = InOrder.query.filter(_wh_clause)
-        if start_date:
-            in_query = in_query.filter(InOrder.date >= start_date)
-        if end_date:
-            in_query = in_query.filter(InOrder.date <= end_date)
-        # BUG-2026-09-30-004：N+1 修复——items/supplier 逐单懒加载 + material 逐行懒加载，
-        # 5000 单触发 ~1.5 万次查询（基线 15.57s/45.3MB）。selectinload 批量预加载
-        # 后查询数与单数解耦（每 500 单一批）。
-        in_query = in_query.options(
-            selectinload(InOrder.items).selectinload(InOrderItem.material),
-            selectinload(InOrder.supplier),
-        )
-        for order in in_query.order_by(InOrder.date.desc()).all():
-            for item in order.items:
-                ws_in.append([
+        for kind, model, item_model, fk, title, partner_title in (
+            ('in_order', InOrder, InOrderItem, 'in_order_id', '入库统计', '供应商'),
+            ('out_order', OutOrder, OutOrderItem, 'out_order_id', '领料统计', '领料部门'),
+        ):
+            ws = wb.active if kind == 'in_order' else wb.create_sheet(title)
+            ws.title = title
+            # 既有九列与 sheet 名不变，状态追加末尾，避免旧消费方列号漂移。
+            ws.append(['单据编号', '日期', partner_title, '合同编号', '工程名称',
+                       '物料编码', '物料名称', '数量', '金额', '状态'])
+            if document_type and document_type != kind:
+                continue
+            # 明细级查询必须直接输出筛中的行，不能整单筛选后再循环全部 items。
+            query = db.session.query(model, item_model).outerjoin(
+                item_model, getattr(item_model, fk) == model.id).options(
+                    joinedload(item_model.material))
+            query = query.filter(_warehouse_document_match_clause(model.warehouse, warehouse))
+            query = _apply_status_date_filters(query, model, status, start_date, end_date)
+            if kind == 'in_order':
+                query = query.options(joinedload(InOrder.supplier))
+                supplier_id = request.args.get('supplier_id', type=int) or 0
+                if supplier_id:
+                    query = query.filter(InOrder.supplier_id == supplier_id)
+                else:
+                    query = _apply_order_partner_text_filter(
+                        query, InOrder, request.args.get('supplier_name') or '')
+                query = _apply_in_order_search(query, search)
+                aliases = {'purchase_in': '采购入库', 'product_in': '产品入库',
+                           'other_in': '其他入库', 'sales_return': '销售退货入库'}
+                allowed_types = ('采购入库', '产品入库', '其他入库', '销售退货入库')
+                allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type',
+                                 'purpose', 'status', 'created_at', 'total_amount'}
+            else:
+                query = query.options(joinedload(OutOrder.department))
+                query = _apply_out_order_search(query, search)
+                aliases = {'requisition': '领料单', 'other_out': '其他出库',
+                           'sale': '销售出库', 'sales': '销售出库',
+                           'purchase_return': '采购退货出库', 'return_out': '采购退货出库'}
+                allowed_types = ('领料单', '其他出库', '销售出库', '采购退货出库')
+                allowed_sorts = {'order_no', 'date', 'department_id', 'customer',
+                                 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
+            raw_type = (request.args.get('type') or '').strip()
+            if kind == 'out_order':
+                raw_type = raw_type.lower()
+            business_type = aliases.get(raw_type, (request.args.get('business_type') or '').strip())
+            if business_type in allowed_types:
+                query = query.filter(model.business_type == business_type)
+            elif document_type == 'out_order':
+                # 与领料明细列表默认范围相同；裸统计仍包含各类已完成出库。
+                query = query.filter(db.or_(OutOrder.business_type == '领料单',
+                                            OutOrder.business_type.is_(None)))
+            query = _apply_header_or_item_contract_filters(
+                query, model, item_model, fk, contract_no_filter=contract_no,
+                project_name_filter=project_name, item_level=True)
+            default_sort = 'created_at' if document_type else 'date'
+            sort_by = request.args.get('sort', default_sort)
+            if sort_by not in allowed_sorts:
+                sort_by = default_sort
+            sort_col = (db.func.coalesce(item_model.amount, model.total_amount)
+                        if sort_by == 'total_amount' else getattr(model, sort_by))
+            ascending = request.args.get('order') == 'asc'
+            query = query.order_by(sort_col.asc() if ascending else sort_col.desc())
+            # 全集导出：不消费 page/per_page；关联一次预加载，保持查询数与行数解耦。
+            for order, item in query.all():
+                if item is None and not document_type:
+                    continue
+                if kind == 'in_order':
+                    partner = order.supplier.name if order.supplier else ''
+                else:
+                    partner = order.department.name if order.department else (order.customer or '')
+                ws.append([
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
-                    order.supplier.name if order.supplier else '',
-                    order.contract_no or '',
-                    order.project_name or '',
-                    item.material.code if item.material else '',
-                    item.material.name if item.material else '',
-                    item.quantity or 0,
-                    item.amount or 0
+                    partner,
+                    item.contract_no if item and item.contract_no is not None else (order.contract_no or ''),
+                    item.project_name if item and item.project_name is not None else (order.project_name or ''),
+                    item.material.code if item and item.material else '',
+                    item.material.name if item and item.material else '',
+                    (item.quantity or 0) if item else 0,
+                    (item.amount or 0) if item else 0,
+                    {'pending': '待完成', 'completed': '已完成'}.get(order.status, order.status or ''),
                 ])
-        
-        # 领料单sheet
-        ws_out = wb.create_sheet('领料统计')
-        ws_out.append(['单据编号', '日期', '领料部门', '合同编号', '工程名称', '物料编码', '物料名称', '数量', '金额'])
-        out_query = OutOrder.query.filter(_wh_clause_out)
-        if start_date:
-            out_query = out_query.filter(OutOrder.date >= start_date)
-        if end_date:
-            out_query = out_query.filter(OutOrder.date <= end_date)
-        # BUG-2026-09-30-004：N+1 修复，同入库侧
-        out_query = out_query.options(
-            selectinload(OutOrder.items).selectinload(OutOrderItem.material),
-        )
-        for order in out_query.order_by(OutOrder.date.desc()).all():
-            for item in order.items:
-                ws_out.append([
-                    order.order_no,
-                    order.date.strftime('%Y-%m-%d') if order.date else '',
-                    order.customer or '',
-                    order.contract_no or '',
-                    order.project_name or '',
-                    item.material.code if item.material else '',
-                    item.material.name if item.material else '',
-                    item.quantity or 0,
-                    item.amount or 0
-                ])
-        
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
-        # FIX-2026-10-11：补 Excel MIME 类型——BytesIO 无文件名可猜，
-        # Flask 回退 application/octet-stream，财务导出测试断言
-        # content_type 含 application/vnd 失败（同文件 report_stock_print 已带）
         return send_file(
             output, download_name='inout_report.xlsx', as_attachment=True,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

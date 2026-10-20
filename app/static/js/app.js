@@ -1900,13 +1900,8 @@ function preserveEmbeddedUrl(url) {
     return isEmbedded ? withEmbeddedParam(url) : url;
 }
 
-// BUG-2026-09-23-005：报表打印 URL 构造——只映射报表端点**真正支持**的参数。
-// 背景：/report/inout/print 只认 warehouse_id / start_date / end_date，
-// 而列表页表单里的日期参数名是 date_start / date_end（不同名），
-// 且列表页还有 status / search / supplier_id / contract_no / project_name 等
-// 报表完全不认的参数。直接套用 buildCurrentFilteredUrl() 会把一堆被忽略的
-// 参数塞进 URL——地址栏脏、且会让用户误以为筛选生效了。
-// 故此处做白名单映射：只带报表支持的 3 个参数，其余一律丢弃。
+// BUG-2026-09-23-005 / BUG-2026-10-20-003：日期改名映射保留。
+// 裸报表调用保留三参数契约；带 document_type 的单据列表打印支持完整筛选。
 var WMS_REPORT_PRINT_PARAM_MAP = [
     { from: 'warehouse_id', to: 'warehouse_id' },
     { from: 'date_start', to: 'start_date' },
@@ -1922,6 +1917,19 @@ function buildReportPrintUrl(baseUrl) {
         if (value === null || value === '') return;
         url.searchParams.set(pair.to, value);
     });
+    if (['in_order', 'out_order'].indexOf(url.searchParams.get('document_type')) !== -1) {
+        ['status', 'search', 'supplier_id', 'supplier_name', 'contract_no',
+         'project_name', 'business_type', 'type', 'sort', 'order'].forEach(function(key) {
+            var value = currentParams.get(key);
+            if (value !== null && value !== '') url.searchParams.set(key, value);
+        });
+        if (window.location.pathname === '/other_in_order') url.searchParams.set('type', 'other_in');
+        if (window.location.pathname === '/other_out_order' &&
+            ['requisition', 'other_out', 'sale', 'sales', 'purchase_return', 'return_out']
+                .indexOf((currentParams.get('type') || '').toLowerCase()) === -1) {
+            url.searchParams.set('type', 'other_out');
+        }
+    }
     // 保留 baseUrl 自带的查询参数，但不把当前页面的无关参数带出去
     url.searchParams.delete('embedded');
     return url.pathname + url.search;
@@ -2064,9 +2072,13 @@ function printCurrent(module) {
         return;
     }
     if (module.printListUrl) {
-        // BUG-2026-09-23-005：列表页打印原先直接打开 printListUrl，当前筛选条件
-        // 全部丢失（用户以为打的是"筛选后的结果"，实际是全量报表）。
-        // 改走 buildReportPrintUrl() 白名单映射，只带报表真正支持的参数。
+        // BUG-2026-10-20-003：显式区分列表清单与已发生统计，不丢当前筛选。
+        if (module.key === 'in_order' || module.key === 'out_order') {
+            var listPrint = new URL(module.printListUrl, window.location.origin);
+            listPrint.searchParams.set('document_type', module.key);
+            window.open(buildReportPrintUrl(listPrint.pathname + listPrint.search), '_blank');
+            return;
+        }
         window.open(buildReportPrintUrl(module.printListUrl), '_blank');
         return;
     }
