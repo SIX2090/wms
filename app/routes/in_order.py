@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import math
+from uuid import uuid4
 
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -1850,7 +1851,7 @@ def register_in_order_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (DocumentPushLine, InOrder, InOrderItem, OutOrder, OutOrderItem,
                          PurchaseOrder, PurchaseOrderItem, WechatShareConfig,
-                         _acquire_order_write_lock, _check_in_order_anomalies,
+                         _acquire_order_write_lock, _check_in_order_anomalies, _source_has_active_push,
                          _wechat_share_order, api_error,
                          assert_warehouse_active,
                          generate_order_no, get_default_warehouse, is_future_date,
@@ -1967,11 +1968,11 @@ def register_in_order_routes(app):
                 if order.business_type != '采购入库':
                     db.session.rollback()
                     return api_error('仅采购入库单可以自动下推领料单')
-                request_id = f'auto-requisition-{order.id}'
-                if DocumentPushLine.query.filter_by(
-                    source_document_type='purchase_in_order', source_document_id=order.id,
-                    request_id=request_id,
-                ).first():
+                # Released history is retained after downstream deletion. It is not
+                # an active allocation, even when SQLite reuses the source/item IDs.
+                # The order write lock and pending-state check prevent double posting.
+                request_id = f'auto-requisition-{order.id}-{uuid4().hex}'
+                if _source_has_active_push(order.id):
                     db.session.rollback()
                     return api_error('自动下推领料单已处理，不能重复操作')
                 auto_requisition = OutOrder(

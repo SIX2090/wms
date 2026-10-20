@@ -126,3 +126,71 @@ class TestAutoPushRequisition:
             assert len(push_lines) == 1
             assert push_lines[0].pushed_quantity == order.items[0].quantity
             assert material.stock == 0
+
+    def test_released_history_allows_recompletion_and_reused_document_id(self):
+        order_id = _create_purchase_in_order(self.client, self.supplier_id, True)
+        for rebuild in (False, True, False):
+            body = self.client.post(f"/in_order/{order_id}/complete?force=1").get_json()
+            assert body["status"] == "success", body
+            target_id = body["auto_requisition_id"]
+            # A duplicate completion must not post stock or create another target.
+            duplicate = self.client.post(f"/in_order/{order_id}/complete?force=1").get_json()
+            assert duplicate["status"] == "error"
+            with app_module.app.app_context():
+                assert OutOrder.query.count() == 1
+                assert DocumentPushLine.query.filter_by(status="active").count() == 1
+                assert db.session.query(Material.stock).filter_by(code="AUTO_MAT").scalar() == 0
+            # Exercise the actual operator workflow, preserving released history.
+            for url in (f"/out_order/{target_id}/revert", f"/out_order/{target_id}/delete",
+                        f"/in_order/{order_id}/revert"):
+                result = self.client.post(url).get_json()
+                assert result["status"] == "success", (url, result)
+            if rebuild:
+                assert self.client.post(f"/in_order/{order_id}/delete").get_json()["status"] == "success"
+                new_id = _create_purchase_in_order(self.client, self.supplier_id, True)
+                assert new_id == order_id  # SQLite reuses the last deleted row ID.
+        with app_module.app.app_context():
+            history = DocumentPushLine.query.all()
+            assert len(history) == 3
+            assert all(line.status == "released" for line in history)
+            assert len({line.request_id for line in history}) == 3
+
+    def test_legacy_released_request_does_not_block_new_completion(self):
+        order_id = _create_purchase_in_order(self.client, self.supplier_id, True)
+        with app_module.app.app_context():
+            order = db.session.get(InOrder, order_id)
+            db.session.add(DocumentPushLine(
+                source_document_type="purchase_in_order", source_document_id=order_id,
+                source_document_no=order.order_no, source_item_id=order.items[0].id,
+                target_document_type="requisition", target_document_id=999,
+                target_document_no="DELETED", pushed_quantity=5, status="released",
+                request_id=f"auto-requisition-{order_id}", created_by=1,
+            ))
+            db.session.commit()
+        body = self.client.post(f"/in_order/{order_id}/complete?force=1").get_json()
+        assert body["status"] == "success", body
+        with app_module.app.app_context():
+            assert DocumentPushLine.query.count() == 2
+            assert DocumentPushLine.query.filter_by(status="released").count() == 1
+            assert DocumentPushLine.query.filter_by(status="active").count() == 1
+
+    def test_active_allocation_blocks_completion_even_with_different_request_id(self):
+        order_id = _create_purchase_in_order(self.client, self.supplier_id, True)
+        with app_module.app.app_context():
+            order = db.session.get(InOrder, order_id)
+            db.session.add(DocumentPushLine(
+                source_document_type="purchase_in_order", source_document_id=order_id,
+                source_document_no=order.order_no, source_item_id=order.items[0].id,
+                target_document_type="requisition", target_document_id=999,
+                target_document_no="ACTIVE", pushed_quantity=5, status="active",
+                request_id="another-valid-request", created_by=1,
+            ))
+            db.session.commit()
+        body = self.client.post(f"/in_order/{order_id}/complete?force=1").get_json()
+        assert body["status"] == "error", body
+        with app_module.app.app_context():
+            from app import StockTransaction
+            assert db.session.get(InOrder, order_id).status == "pending"
+            assert OutOrder.query.count() == 0
+            assert StockTransaction.query.count() == 0
+            assert db.session.query(Material.stock).filter_by(code="AUTO_MAT").scalar() == 0
