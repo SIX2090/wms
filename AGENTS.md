@@ -2,6 +2,7 @@
 
 > 本文件是 AI 代理处理本仓库时必须遵守的最高优先级规则，与 [`DEVELOPMENT_RULES.md`](./DEVELOPMENT_RULES.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md)、[`WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md`](./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md) 配套使用。
 > 修改本文件本身属于独立 atomic action（1 commit + 1 push）；新增/修订规则必须注明日期。
+> 2026-10-21 校订：同步生产启动、文档维护、CI 查询失败处理、A13 分片范围及 Git 同步安全要求；业务铁律和 main 分支策略不变。
 
 ## 目录
 
@@ -13,9 +14,9 @@
 5. [AI 开发台账](#五ai-开发台账)
 6. [防 BUG 规则 A1–A14](#六防-bug-规则a1a142026-07-31-新增)
 7. [反复 BUG 模式清单与强制防护 R1–R8](#七反复-bug-模式清单与强制防护r1r82026-08-28-新增)
-8. [受限网络环境的 GitHub 推送与拉取](#八受限网络环境的-github-推送与拉取2026-08-23-新增2026-08-26-修订2026-09-30-修订)
-   - [8.0 通道实测与决策表（含"建议不要用"清单）](#80-通道实测与决策表2026-09-30-新增)
-   - [8.1 推送通道决策：PAT 直通 → MCP 端点 → API 重放](#81-推送通道决策pat-直通--mcp-端点--api-重放)
+8. [受限网络环境的 GitHub 推送与拉取](#git-network)
+   - [8.0 通道探测与本机事实](#git-probe)
+   - [8.1 推送通道与安全同步](#git-push)
 
 ## 〇、环境画像与已拍板决策（2026-10-03 新增）
 
@@ -27,9 +28,11 @@
 |---|---|---|
 | 用户规模 | **单人使用** | §一 中审计追溯/双岗制衡类要求降级为可选；下方"已拍板决策"两项据此成立 |
 | 仓库数 | **4 个** | R2 多仓边界规则处于**活跃防御**状态（历史 20+ 条同类 BUG）；[`INVENTORY_TRUTH.md`](./INVENTORY_TRUTH.md) §3.3a 单仓短路分支**未激活**——增减仓库时必须重读本条并验证库存连续性 |
-| 库位管理 | **未开启**（代码默认 `'0'`，`app/app.py:4227`） | §二 适用**规则一**（仅仓库必填）；开启后切换到规则二，需评估存量单据与库存账的库位维度回填 |
+| 库位管理 | **未开启**（代码默认 `'0'`，见 `app/app.py` 的 `location_management_enabled()`） | §二 适用**规则一**（仅仓库必填）；开启前由 `find_location_ledger_mismatches()` 校验，仍需核对存量账务，不得自动回填 |
 | 部署形态 | Windows 实机生产部署（见 §8.0.4） | R3 模板改动"生产需重启生效"提示适用 |
 | WMS 服务启动 | **`C:\wms\start_wms_offline.bat`**（标准启动脚本） | 使用 `app\instance\inventory.db` 作为生产数据库；自动设置 `WMS_NO_DB_TOUCH=1` 保护数据库；服务运行在 `http://127.0.0.1:8080` |
+
+> **2026-10-21 生产核验补充**：当前常驻实例由 `WMS-Warehouse` 计划任务以 SYSTEM/Session 0 拉起本地 `run_wms_task.bat`；标准手工入口仍是上述脚本。重启前核对实际进程、端口、解释器和托管方式，沿用实际部署入口，不得另起第二实例。生产 Python 3.11 的 Pillow 已升级为 13.0.0。此处为日期快照，后续须现场核验。`WMS_NO_DB_TOUCH=1` 禁用启动升级/初始化，不表示数据库只读或所有运行期写入均禁用。
 
 ### 已知设计取舍（经用户拍板，AI 不得重复报告为问题）
 
@@ -56,7 +59,7 @@
 | 销售订单 SalesOrder | draft / confirmed | — | — | 另有 shipment_status：pending/partial/shipped |
 | 委外订单 Subcontract | pending / processing / completed | — | — | 发料/收料单为 pending/completed |
 
-> 本表以 `app/models/documents.py` 的 status 列注释为唯一权威来源；模型变更时必须同步回填本表。
+> 本表的状态取值以 `app/models/documents.py` 为依据；反提交、删除等操作能力还须核对对应路由及测试（2026-10-21 修订）。模型或操作能力变更时同步回填，不能只凭列注释断言接口行为。
 
 ## 一、业务操作铁律（AI 行为边界）
 
@@ -114,6 +117,8 @@
   #    https://github.com/SIX2090/wms/actions
   ```
 
+  **查询失败处理（2026-10-21新增）**：HTTP403限流、认证失败或网络异常仅表示本次未能核实，不等同工作流已经失败，仍不得视为放行。可通过已连接的GitHub工具或Actions页面逐一核对三个工作流在main的最近一次运行，记录运行链接、SHA、状态及结论，必须全部completed/success。列表分页时必须找到全部三项，不得用旧绿记录替代较新的失败或运行中记录。仅在已满足上述全绿前置条件、而本地pre-push因同一查询故障无法复核时，可为该次push临时设置钩子已有的 `WMS_SKIP_CI_GATE=1`，并记录替代证据；禁止借此跳过未核实或实际非绿的门禁。
+
   为什么是硬性规则：
   - 本仓库 CI 是**唯一能在沙箱之外做真实编译**的环节（本地无 Android SDK，`Android APK Build` 是 APK 能否构建成功的唯一证据）；本地那 50 多个 "Android 测试" 全是**源码字符串正则**，抓不到运行时/编译期问题。CI 红着干活 = 在无编译证据的前提下改代码。
   - `main` 上留红色 = 后面所有人（含 AI）的基线都是坏的，"新引入的失败"与"存量失败"混在一起无法区分，回归测试的说服力归零。
@@ -140,9 +145,16 @@
 - **推送验证**：汇报任何 atomic action 完成前，必须读取实际 `git push` 输出（`` To <url> ... -> main ``）并确认 origin/main 出现非空新 SHA。push 失败（网络、non-fast-forward、认证）则该 action 不算完成——rebase/pull、修复、重推后再汇报。
 - **完成标准**：一个 atomic action 只有本地 `git log -1` 与 `git log origin/main -1` 显示相同新 SHA 才算完成。仅本地提交不算完成。
 
+### 文档维护边界（2026-10-21 新增）
+
+- 修 BUG 必须更新对应月度 BUG 台账及必要索引，记录根因、修复、回归和生效确认；不要求每次都修改 README。
+- 使用方式、启动/安装命令、配置、接口约定、功能入口或项目事实发生变化时，更新 README 或对应专题文档；README 提供入口，具体证据放台账/专项记录，避免复制全部历史。
+- 修改代理规则时更新 AGENTS，并注明日期；不得用改文档的方式掩盖代码未满足的业务要求。
+- 代码修改按既有模块、相邻和全量验证规则执行；纯文档修订核对引用、命令、链接和对应契约测试，并验收推送后的 CI。验证必须使用隔离数据库；默认连接生产地址的冒烟脚本可能登录、创建或修改数据，禁止未授权对生产运行。
+
 ## 四、分支与前端约束
 
-- **分支策略（硬性规则，无例外）**：AI/TRAE 必须直接在 `main` 分支工作。严格禁止创建、切换到或推送任何新分支——包括 `feature/*`、`fix/*`、`chore/*` 或任何 `trae/*` worktree 分支。所有 commit 和 push 必须指向 `main`。本地 pre-push 钩子 `.githooks/pre-push` 在客户端强制执行（**允许删除非 `main` 远程分支**——如 `trae/*` 残留分支可按需清理；仅 `main` 禁止删除，防止误删丢失全部历史；除 `main` 外禁止创建、切换或推送任何新分支）。注意：在 GitHub 侧强制分支保护需要私有仓库的 GitHub Pro；免费私有仓库只有本地钩子 + CI 两层强制。
+- **分支策略（硬性规则，无例外）**：AI/TRAE 必须直接在 `main` 分支工作。严格禁止创建、切换到或推送任何新分支——包括 `feature/*`、`fix/*`、`chore/*` 或任何 `trae/*` worktree 分支。所有 commit 和 push 必须指向 `main`。本地 `.githooks/pre-push` 检查分支及CI门禁。规则允许按需清理非 `main` 残留远程分支，禁止删除 `main`；实际删除前仍须核对目标及钩子行为。**2026-10-21修订**：仓库当前公开，不再套用“免费私有仓库无服务端保护”的旧结论；GitHub规则集、分支保护及绕过权限以现场只读核验为准，不把存在保护等同强制PR或强制CI。
 - **业务 JS 禁止原生非 GET `fetch`**：`app/static/js/*.js` 中所有非 GET 请求必须走 `WMS.api.get/post/put/delete(url, data)`（定义于 `app/static/js/api.js`）。业务代码中**禁止**直接使用 `fetch()` 或全局 `csrfFetch` 包装——统一推荐口径是 `WMS.api.*`，pre-commit 钩子提示与本条一致（F3.7 已消除历史上钩子提示 `csrfFetch` 的矛盾）。本地 pre-commit 钩子 `.githooks/pre-commit` 先运行 `scripts/lint_wms_rules.py`（A1-A14），再运行 `scripts/lint_no_raw_post_fetch.py`；两者会拒绝白名单之外包含 `fetch(url, { method: 'POST'|'PUT'|'DELETE'|'PATCH' })` 的提交。F3.7（2026-10-12）起 `lint_no_raw_post_fetch.py` 同时扫描 `app/templates/` 内联 `<script>`，**暂为 warn 模式**（只打印不计退出码；存量实测 166 处，观察 3 周后定棘轮基线转 `--templates-strict`）。白名单文件（base.html 全局 fetch 拦截器、`app/static/js/api.js`、`app/static/js/app.js`）可使用原生 `fetch`，因为它们就是统一层。每次克隆后执行一次 `bash .githooks/install-hooks.sh` 启用钩子（等同于 `git config core.hooksPath .githooks`）。
 
 ## 五、AI 开发台账
@@ -178,7 +190,7 @@
 | **A10** | **新增** `app/app.py` 禁止新增 `@app.route` 路由，强制走 `app/routes/` 模块 | app.py 重新膨胀 |
 | **A11** | **新增** 禁止裸用 `material.stock`（总账）做库存校验，必须用仓库级 `get_warehouse_stock_quantities()`（双模式：pre-commit 查新增行 + CI `--full-a11` 全量硬门禁，2026-09-20 起） | 多仓库口径串仓 / 同根因反复 BUG |
 | **A12** | 测试文件模块顶层禁止裸 app context `.push()`/`.pop()`（R7 机械化） | 全量 pytest 顺序依赖假失败 |
-| **A13** | `WMS_BUG_BASELINE.md` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 |
+| **A13** | `WMS_BUG_BASELINE.md` 及 `docs/ledger/bugs/` **新增** BUG 条目必须含「生效确认」字段（R3 机械化） | 修复→生效无确认回路 |
 | **A14** | `scripts/` 下**新增** app 引用的脚本必须显式放行生产硬门禁（R6 机械化） | 生产硬门禁漏排查消费点 → CI 变红 |
 
 > A8/A9/A10/A11/A13/A14 是"新增代码生效"规则：仅对 `git diff --cached` 的新增行强制，存量代码不会一次性报几百条违规。其中 **A11 自 2026-09-20 起为双模式**：pre-commit 维持新增行生效，`WMS CI` 追加 `python3 scripts/lint_wms_rules.py --rule a11 --full-a11` 全量硬门禁（P0-1 存量清零后启用，违规即红）。详见 [DEVELOPMENT_RULES.md §六](./DEVELOPMENT_RULES.md)。
@@ -225,7 +237,7 @@
 
 - 凡改动 `app/templates/*.html`（Jinja 模板），commit message 与 BUG 台账记录**必须注明「生产需重启 WMS 服务生效」**（生产模式模板有缓存）。
 
-> **R3 的机械化防护（2026-09-20 新增，双件）**：①启动自检——服务启动日志/控制台第一行输出 `wms vX.Y.Z (<git短SHA>) config-check: …`，初始化后输出 `db-check: migrate=…`（`app/startup_check.py`，核对"跑的是哪份代码、什么配置"）；②**A13 规则**（`scripts/lint_wms_rules.py`）——`WMS_BUG_BASELINE.md` 新增 BUG 条目（`### BUG-…` 等标题）必须含「生效确认」字段（确认人/时间/核对方式，允许「待确认」占位），否则 pre-commit 拦截。
+> **R3的机械化防护（2026-09-20新增，2026-10-21校订）**：①启动日志包含 `wms vX.Y.Z (<git短SHA>) config-check: …` 及 `db-check: migrate=…`（`app/startup_check.py`），不保证是控制台第一行；核对代码、配置和schema-check，不能仅凭 `migrate=ok` 断言执行过迁移。②A13扫描 `WMS_BUG_BASELINE.md` 及 `docs/ledger/bugs/` 新增条目，必须含「生效确认」（确认人/时间/核对方式，允许「待确认」占位），否则pre-commit拦截。
 
 ### R4 打印/写库链路必须降级兜底（实证：锁相关 17 条）
 
@@ -282,226 +294,74 @@
   （测试用 `ROOT / "xxx.bat"` **拼接路径**，文件名不以完整字面量出现）→ CI 单测红灯才暴露。
 - 详见 [DEVELOPMENT_RULES.md §七 R8](./DEVELOPMENT_RULES.md)。
 
-## 八、受限网络环境的 GitHub 推送与拉取（2026-08-23 新增，2026-08-26 修订，2026-09-30 修订）
+<a id="git-network"></a>
+## 八、受限网络环境的 GitHub 推送与拉取（2026-10-21 修订）
 
-> **2026-09-30 修订摘要**：本机环境（Windows 实机，非沙箱）实测证明**常规 git 直连 `github.com` 完全可用**，§8.2 原"必须走代理前缀浅克隆"的结论已过时。本次修订新增 [§8.0 通道实测与决策表](#80-通道实测与决策表2026-09-30-新增)（成功/失败方法全记录 + 建议不要用清单），并把 §8.2 首选通道改为**直连浅克隆**。原代理通道保留作为降级路径，但标注"建议不要用"。
+本节区分当前操作规范与历史网络实测。2026-09-30曾验证直连可用、部分代理失败；2026-10-21本机普通 `git push origin main` 成功。网络、凭据和连接器会变化，每次按实际证据判断。
 
-### 8.0 通道实测与决策表（2026-09-30 新增）
+<a id="git-probe"></a>
+### 8.0 通道探测与本机事实
 
-> 来源：2026-09-30 在 Windows 实机（非沙箱）上对 `SIX2090/wms` 的完整拉取实测，成功克隆到 `a5d27af`，1492 文件，耗时 2m17s。
-> **环境前提会随时间和网络变化，用前必须重新探测**；但判别方法（见 §8.0.2）是稳定的。
+#### 8.0.1 先用Git验证Git通道
 
-#### 8.0.1 实测结果总表
+在已有仓库内优先使用 `git ls-remote origin refs/heads/main`；需要新克隆时使用：
 
-| 通道 | 用途 | 实测结果 | 结论 |
-|---|---|---|---|
-| **github.com 直连 git**<br>`git ls-remote` / `git clone --depth 1` | 拉取 | ✅ **成功**，2m17s，约 52KB/s，HEAD `a5d27af` 与网页端一致 | **首选** |
-| **codeload.github.com**<br>tarball 下载 | 拉取（无 git 历史） | ✅ 成功，6.08MB / 4m03s，1577 条目 | **备选**（见 §8.0.3） |
-| **api.github.com 直连** | 校验 HEAD / 推送 | ✅ `HTTP 200`，无需 DoH 解析、无需写 `/etc/hosts` | **可用** |
-| **ghproxy.net 代理前缀浅克隆** | 拉取 | ❌ **连续 3 次失败**（5m14s / 8m04s / 1m44s），均在 ~4MB 处 `early EOF` + `curl 18 transfer closed` | **建议不要用** |
-| **gitclone.com** | 拉取 | ❌ `curl (35) CRYPT_E_REVOCATION_OFFLINE`（吊销服务器不可达） | **建议不要用** |
-| **github.com（curl 探测）** | 探测 | ❌ `curl (52) Empty reply from server` → `000` | **误判，见 §8.0.2** |
-
-> **"建议不要用"清单（2026-09-30 实证）**：`ghproxy.net` 代理前缀浅克隆、`gitclone.com`、以及**用 `curl` 判定 git 通道可用性**。
-> 历史记录（2026-08-23）曾实测 `ghproxy.net` ✅，本次 3/3 全部失败——代理可用性随时间漂移，这正是必须重新探测的原因；但在直连可用的前提下，**不应再把代理作为首选**。
-
-#### 8.0.2 判别方法纠正（关键，防止反复踩坑）
-
-**禁止用 `curl` 判定 git 通道是否可用。** `curl https://github.com` 返回 `000` / `Empty reply from server` **不代表 git 不可用**——2026-09-30 实测中 curl 报 `000`，但同一时刻 `git ls-remote` 正常返回 `a5d27af35e241f0a2f6d9218f38591796d8b5cf5`，且直连浅克隆成功。
-
-**正确判别命令（廉价、只读、秒级）**：
-
-```bash
-timeout 45 git ls-remote https://github.com/SIX2090/wms.git main
-# 返回 "<SHA>	refs/heads/main" 且退出码 0 → 直连可用，直接 git clone，不要再折腾代理
-# 报 gnutls_handshake / SSL_ERROR_SYSCALL / 超时 → 直连不可用，才降级到 §8.2 代理路径
+```powershell
+git ls-remote https://github.com/SIX2090/wms.git refs/heads/main
 ```
 
-决策顺序：**① `git ls-remote` 直连探测 → ② 通就直连浅克隆 → ③ 不通才走代理/API 通道**。跳过第 ① 步直接上代理，是本条修订要杜绝的做法。
+返回SHA和refs/heads/main且退出0，才说明该次读取成功；读取成功不证明具备推送权限。不要用浏览器首页或curl的HTTP状态推断Git协议可用性，也不要为探测读取/输出凭证。
 
-#### 8.0.3 备选方案：codeload tarball（无 git 历史时的兜底）
+#### 8.0.2 直连优先，代理必须重新验证
 
-当 git 协议彻底不可用、但 `codeload.github.com` 可达时，可用 tarball 拿代码（**该方法不含 `.git`，无法直接满足 §8.2 验证标准，仅作最后兜底**）：
+直连可用就直连；失败再检查认证、网络或使用已连接的GitHub工具。ghproxy.net、gitclone.com的历史成功/失败均不是当前可用性保证。代理首页HTTP200不能证明可克隆，更不能证明可推送。不要反复盲试已失败代理，不要默认修改hosts或全局Git配置。
 
-```bash
-# 1. 取准确的 main HEAD SHA（api.github.com 直连可用）
-curl -sS -m 20 https://api.github.com/repos/SIX2090/wms/commits/main | grep -m1 '"sha"'
-# 2. 直接下载该 SHA 的 tarball（实测 6.08MB）
-curl -sS -L -o wms_src.tar.gz "https://codeload.github.com/SIX2090/wms/tar.gz/<SHA>"
-# 3. 校验完整性（两步都必须过，否则重下）
-gzip -t wms_src.tar.gz && tar -tzf wms_src.tar.gz > /dev/null && echo OK
-# 4. 解压
-tar -xzf wms_src.tar.gz && mv wms-<SHA> wms
+#### 8.0.3 ZIP/tarball仅作源码参考
+
+下载包不含Git历史，不能当成已与main同步的工作区。不得为“对齐”自行创建伪基线提交再覆盖远端。需要提交时取得真实仓库历史，或经已授权的GitHub工具基于远端main创建准确变更；拿不到可靠历史/完整文件集合就停止写入，保留现场。
+
+#### 8.0.4 本机环境与凭据事实
+
+- 仓库当前公开；公开读取无需PAT，匿名API可能限流。
+- WMS运行在Windows，常驻实例和标准手工入口见§〇；不要套用Linux命令到PowerShell。
+- gh CLI、历史codebuddy脚本和旧MCP本地端点不保证存在。优先使用当前可发现的连接器及其公开工具，不提取或复用连接器内部token。
+- 已有Git凭据可用时直接 `git push origin main`，不得因旧文档写着“无凭据”而要求用户重新提供PAT。
+
+<a id="git-push"></a>
+### 8.1 推送通道：已有Git凭据 → 已连接工具 → 经核验的API操作
+
+#### 8.1.1 首选普通Git推送
+
+```powershell
+git push origin main
 ```
 
-> 用 tarball 兜底时：需自行 `git init -b main` + 提交基线 + `git remote add origin https://github.com/SIX2090/wms.git`，并**在汇报中明确说明本地 HEAD 与上游 HEAD 不一致**（内容一致，SHA 不同）。后续推送走 §8.1 API 通道（以远程 HEAD 为 parent，不依赖本地历史对齐）。
+读取实际输出并核对本地HEAD、origin/main及实际远端main；新SHA必须一致。Everything up-to-date只能说明本次没有新增推送内容，不能当作新改动已发布。禁止force push、创建新分支或删除main。
 
-#### 8.0.4 其他环境事实勘误（2026-09-30）
+凭据只能经安全的凭据管理器、环境注入或连接器使用。不得要求用户把PAT发到聊天，不得将token拼进命令行URL、remote、Git配置、仓库文件、日志或提交信息。避免从credential helper或连接器提取明文token用于诊断。确需新凭据时引导用户在本机安全配置，禁止打印秘密。
 
-| 项目 | AGENTS.md 原文 | 2026-09-30 实测 |
-|---|---|---|
-| 仓库可见性 | §8.1 提及"免费私有仓库" | **`visibility: public`**（公开仓库，读取无需 token） |
-| 凭证脚本 | `~/.codebuddy/skills/github-connector/scripts/get_token.sh` | 本机**该路径不存在**；且无 `gh` CLI。需凭证时改用 GitHub 连接器或用户提供的 PAT |
-| api.github.com | 需 DoH 解析 + 写 `/etc/hosts` | **域名直连即 200**，无需任何 hosts 改动 |
+#### 8.1.2 已连接的GitHub工具
 
-### 8.1 推送（通道决策：PAT 直通 → MCP 端点 → API 重放）
+普通Git不可用时先检查当前连接器是否支持所需写入。沿用main、远端当前parent和本次准确文件集合；不得从旧环境变量猜测私有MCP地址。多文件变更按atomic action一次提交，不把无关内容或本地秘密打包上传。若API生成不同SHA，必须按§8.1.4保留本地工作并对齐真实远端历史。
 
-> 适用场景：向 `main` 推送 atomic action，且本机没有可直接复用的 git 写凭证。
-> **2026-09-30 修订**：实测确认 **PAT 直通 `git push` 在本环境完全可用**（TLS 可通），故推送首选由"API 通道重放"改为 **PAT 直通 push**。原 API 四步重放保留为无 PAT 时的兜底，另新增 **MCP 本地端点通道**（无需 PAT 即可推送）。
+#### 8.1.3 Git Data API仅作受控兜底
 
-**凭证获取（2026-09-30 实测）**：
+仅在已有工具能力和授权足够时使用：上传准确blobs、以远端当前tree为base构建新tree、以当前main为parent创建commit、非强制更新main ref。禁止从部分文件生成残缺tree；推送前核对新增/修改/删除集合及完整文件清单。更新期间main已前进就重新读取、合并并验证，不强行覆盖。
 
-| 来源 | 实测 | 说明 |
-|---|---|---|
-| **用户直接提供 PAT**（`ghp_` / `github_pat_` 前缀） | ✅ **唯一实测有效**，`GET /user` 返回 200，`git push` 认证通过 | 首选。由用户在对话中给出。若要免重复输入，可存本机 `~/.git-credentials`，但属**明文存盘**，须用户明确同意 |
-| `~/.codebuddy/skills/github-connector/scripts/get_token.sh` | ❌ **本机路径不存在** | 2026-08-23/26 曾有效，当前环境已无此脚本；不要假设它还在 |
-| GitHub 连接器 / GitHub MCP server | ⚠️ 其 Bearer token 对 `api.github.com` 直连返回 **401** | 该 token 只对 WorkBuddy 的 MCP 代理有效，**不能**当 PAT 用；但 MCP 工具本身可推送（见 §8.1.2） |
-| `gh` CLI | ❌ 本机未安装 | — |
-| Windows 凭据管理器 | ❌ 无 github 条目 | `credential.helper=helper-selector` 存在但无凭证，裸 push 报 `could not read Username` |
+#### 8.1.4 安全同步与完成标准
 
-> 2026-08-26 实测**不可用**的凭证/通道（不要再试）：
-> - `git-credential-helper`（向 `git.auth-proxy.local` 查询）→ 404「git credentials not found in space labels」
-> - SSH over 443 → 本环境无部署公钥
-> - ghproxy.net / gitclone.com 代理前缀 **push** → 代理只对 github.com 域名供凭证，push 会卡在 `could not read Username`；**代理只能用于拉取，不能用于推送**
+1. 推送前检查 `git status --short`、diff及远端main，保留用户未提交和未跟踪文件。
+2. 推送后fetch并核对远端parent/tree及变更集合；API/MCP产生不同SHA时先保存必要的本地提交和工作文件，再制定非破坏性的对齐步骤。
+3. 禁止把 `git reset --hard origin/main`、删除目录或git stash当作例行对齐手段；没有备份及明确授权不得丢弃本地内容。
+4. 本地与origin/main新SHA一致才满足§三完成标准；API写入没有git push输出时记录API返回及反查证据，不伪造push结果。
+5. 后续CI必须按§三重新验收；本地测试通过不代替远端实际运行。
 
-**通道探测（按序尝试，以实测为准）**：
+### 8.2 克隆与拉取
 
-1. **PAT 直通 push（首选，2026-09-30 实测可用）**——见 §8.1.1
-2. 无 PAT → **MCP 本地端点通道**（2026-09-30 实证成功，提交 `fe3e86f`）——见 §8.1.2
-3. 均不可用（如 `github.com` TLS 被拦）→ API 四步重放——见 §8.1.3
-
-#### 8.1.1 首选：PAT 直通 push（2026-09-30 实测通过）
-
-```bash
-TOKEN='<用户提供的 PAT>'
-git push "https://oauth2:${TOKEN}@github.com/SIX2090/wms.git" main 2>&1 \
-  | sed -E 's#oauth2:[^@]*@#oauth2:***@#g'   # 输出脱敏，防止 token 进日志
+```powershell
+git clone --depth 1 --branch main https://github.com/SIX2090/wms.git wms
 ```
 
-**凭证安全红线（硬性）**：
+目标目录已有内容时先停止并核对，不自动删除或覆盖。现有工作区先看状态和历史，再按需要 `git fetch origin main`；本地无分叉且工作区允许时才快进合并。需要更多历史时按需加深fetch，不默认给URL加代理前缀。
 
-- token **只在同一条 Bash 命令内以 shell 变量传入**，禁止写入仓库文件、脚本、`.git/config`、`git remote set-url`。
-- 若临时用 `git remote set-url` 塞过 token，**推送后立即改回无 token 的 URL**。
-- 输出必须脱敏；禁止把 token 回显到对话、日志或 commit message。
-- 禁止把 PAT 写进 AGENTS.md 或任何会被提交的文件——本文档只记录用法，不记录值。
-- 该 PAT 若曾在对话中明文出现，提醒用户到 GitHub → Settings → Developer settings → Personal access tokens **撤销轮换**。
-
-> 实测：`git push` 返回 `Everything up-to-date`（退出码 0）= 认证通过且无待推送内容；
-> 返回 `-> main` 且带新 SHA = 推送成功。**必须读取实际输出确认，不得凭假设报完成**（§三推送验证）。
-
-#### 8.1.2 降级：MCP 本地端点通道（无 PAT 时，2026-09-30 实证）
-
-GitHub MCP server 在本机以 **本地 HTTP 端点** 形式运行（`http://127.0.0.1:<port>/<id>/mcp`，地址见环境变量 `CODEBUDDY_MCP_CONFIG` 的 `mcpServers.github.url`）。用脚本走 MCP JSON-RPC 即可推送，**无需 PAT**，且文件内容可直接从磁盘读取（避免手工转义大文件）：
-
-```python
-# 握手：POST initialize（带 Authorization 头）→ 取响应头 Mcp-Session-Id
-# 通知：POST notifications/initialized（带同一 Session-Id）
-# 调用：POST tools/call  name=push_files
-#       arguments={owner, repo, branch:"main", message, files:[{path, content}]}
-```
-
-- 该通道 2026-09-30 实证成功，产出提交 `fe3e86f`（AGENTS.md +105/-9）。
-- 推送后 MCP 返回的 `object.sha` 即远程新 HEAD；**仍需按 §8.1.4 反查确认**。
-- 脚本不要放进仓库（避免 A14 门禁与凭证泄漏），放在工作区根目录即可。
-
-#### 8.1.3 兜底：API 四步重放（Git Data API，等效一次 git push）
-
-> 该方法 2026-08-23 实际验证通过（提交 `f09e8215` / `f2709a8b` / `81a682a8`），2026-08-26 再次实测通过（提交 `39ee99c254a8` / `7fbae2ecdad1`）。仅当 §8.1.1 / §8.1.2 都不可用时使用。
-
-**步骤**：
-
-1. **打通 api.github.com**：`github.com` 被拦不代表 `api.github.com` 被拦，须分别实测。
-   **2026-09-30 实测：域名直连即返回 200，无需 DoH 解析、无需写 `/etc/hosts`**（见 §8.0.4）。
-   仅当直连返回 000 时才走 IP：用 DoH 解析真实 IP（如 `https://dns.alidns.com/resolve?name=api.github.com&type=A`），
-   写入 `/etc/hosts`（2026-08-26 实测可用：`20.205.243.168 api.github.com`）。
-2. **认证**：token 仅通过请求头 `Authorization: Bearer <TOKEN>` 使用；禁止写入仓库文件、脚本持久化或输出到日志；推送完成后若曾把 token 写进 `git remote set-url`，必须立即改回无 token 的 URL。
-3. **四步重放**（全部走 `https://api.github.com`）：
-
-   | 步骤 | API | 作用 |
-   |---|---|---|
-   | ① | `POST /repos/SIX2090/wms/git/blobs` | 上传文件内容（base64）→ blob SHA |
-   | ② | `POST /repos/SIX2090/wms/git/trees` | `base_tree` = 远程 main HEAD 的 tree + 变更文件列表 → 新 tree SHA |
-   | ③ | `POST /repos/SIX2090/wms/git/commits` | 新 tree + `parents=[当前HEAD]` + 提交信息 → 新 commit SHA |
-   | ④ | `PATCH /repos/SIX2090/wms/git/refs/heads/main` | 把 main 指针移到新 commit |
-
-4. **本地提交照常**：沙箱本地仍按常规 `git commit` 保持历史可续作。远程 commit SHA 与本地不同（时间戳/committer 信息差异）但内容一致，属预期，不算失败。
-
-#### 8.1.4 验证与完成标准（三条通道通用，对接 §三推送验证）
-
-1. **反查远程 HEAD**：`GET /repos/SIX2090/wms/commits/main` 确认 HEAD SHA 已更新、
-   `parents` 为推送前的 SHA、`files` 变更列表与预期一致。
-   （2026-09-30 实证：`fe3e86f` ← parent `a5d27af`，`AGENTS.md +105/-9`。）
-2. **本地对齐（API/MCP 通道必做）**：这两条通道产生的远程 SHA 与本地不同，
-   必须 `git fetch --depth 1 origin main` + `git reset --hard origin/main` 让本地与 origin/main 同 SHA，
-   才算满足 §三「本地 `git log -1` 与 `git log origin/main -1` 相同」的完成标准。
-   > 直连 fetch 有**间歇性** `schannel: failed to receive handshake` / SSL 错误，
-   > **重试 1–2 次即可成功**，不要因此判定通道不可用（2026-09-30 实证：第 1 次失败、第 2 次成功）。
-3. **PAT 直通 push** 天然满足本地=远程，无需第 2 步；但仍须读取实际 `git push` 输出确认（`-> main` + 新 SHA）。
-4. 多文件改动：一次 commit 传入全部变更文件；禁止逐文件各建一个 commit。
-
-### 8.2 拉取（浅克隆通道）
-
-> 适用场景：AI 代理运行在沙箱/受限网络，`github.com` 的 git 协议（HTTPS TLS）被网络层拦截，常规 `git clone` 直接失败（报 `gnutls_handshake() failed: The TLS connection was non-properly terminated` 或 `SSL_ERROR_SYSCALL`）。该方法 2026-08-23 实际验证通过（克隆到 `11cea47`，1171 个文件，约 26MB，工作树完整）。
->
-> **2026-09-30 修订**：**先读 [§8.0 通道实测与决策表](#80-通道实测与决策表2026-09-30-新增)**。本环境已实测直连可用，**代理前缀不再是首选**。开工顺序必须是「`git ls-remote` 探测 → 直连浅克隆 → 失败才走代理」，禁止跳过探测直接套代理。
-
-**通道探测（按序尝试，以实测为准）**：
-
-1. **`git ls-remote` 直连探测（必做第一步，2026-09-30 新增）**：
-
-   ```bash
-   timeout 45 git ls-remote https://github.com/SIX2090/wms.git main
-   ```
-
-   返回 `<SHA>	refs/heads/main` 且退出码 0 → **直连可用，走下面的「首选：直连浅克隆」，不要碰代理**。
-
-2. 直连探测失败 → 才考虑镜像/代理。历史实测（2026-08-23）：`ghproxy.net` ✅、`gitclone.com` ✅；`ghproxy.com`、`mirror.ghproxy.com`、`kgithub.com`、`github.com.cnpmjs.org` ❌ 均被拦。
-   **2026-09-30 复测：`ghproxy.net` ❌ 3/3 失败、`gitclone.com` ❌——代理可用性随时间漂移，必须重新探测，且探测结果以"能否真的克隆成功"为准，不能以代理首页 200 为准**（本次 `ghproxy.net` 首页返回 `200`，但克隆 3 次全部在 ~4MB 处中断）。
-3. 代理判别命令仅作**粗筛**：`curl -sS -m 15 -o /dev/null -w "%{http_code}" https://<host>` 返回 `200` 才可作代理前缀。**禁止用 curl 判定 `github.com` 本身是否可用**（§8.0.2）。
-
-**首选：直连浅克隆（2026-09-30 实测成功，2m17s）**：
-
-```bash
-git config --global http.version HTTP/1.1      # 强制 HTTP/1.1，避开 HTTP/2 流被中间设备掐断
-git config --global http.postBuffer 524288000  # 500MB 发送缓冲
-git config --global core.compression 0         # 关闭传输压缩，减少中断概率
-git clone --depth 1 https://github.com/SIX2090/wms.git wms
-```
-
-> 上述三条 git config 在直连场景同样建议保留（本次实测即在该配置下成功）。
-
-**降级：代理前缀浅克隆（建议不要用，仅当直连探测失败时）**：
-
-> **2026-09-30 实测 `ghproxy.net` 连续 3 次失败**：均在下载 ~4MB 时中断，报
-> `error: RPC failed; curl 18 transfer closed with outstanding read data remaining` +
-> `fetch-pack: unexpected disconnect while reading sideband packet` + `fatal: early EOF` +
-> `fatal: fetch-pack: invalid index-pack output`。
-> **结论：代理首页返回 `200` 不代表能克隆成功；本环境直连可用时，不建议走代理。**
-
-```bash
-git clone --depth 1 "https://ghproxy.net/https://github.com/SIX2090/wms.git" wms
-# 备选代理（2026-08-23 曾可用，2026-09-30 实测失败）：
-# git clone --depth 1 https://gitclone.com/github.com/SIX2090/wms.git wms
-```
-
-**浅克隆后的补全（按需）**：
-
-- `git log` 只有 1 条提交属预期（`--depth 1` 只取最新快照），工作树完整、`git status` 干净即可正常开发。
-- 需要完整历史时：`git fetch --unshallow`（URL 同样套代理前缀，且可能需多次重试）。
-- 后续更新代码：`git pull --depth 1`。
-
-**验证与完成标准**：
-
-- 克隆后必须验证：`git status` 工作树干净；`git log --oneline -1` 与 GitHub 网页端 main HEAD 一致。
-  2026-09-30 实证：直连克隆后 `git log --oneline -1` = `a5d27af`，与 `api.github.com` 反查的 main HEAD `a5d27af35e241f0a2f6d9218f38591796d8b5cf5` 一致，工作树干净，1492 文件。
-- **判断是否"挂起"（2026-09-30 修订）**：不要只看"有无输出"，要**采样 pack 文件实际增长**：
-
-  ```bash
-  du -sh wms; ls -la wms/.git/objects/pack/   # 间隔 30s 采样两次
-  # 有增长 → 只是慢，继续等；停止增长或超过 10 分钟 → 判定挂起
-  ```
-
-- 判定代理挂起后**不要再盲目重试同一代理**（本次 ghproxy.net 重试 3 次全败）。应先 `rm -rf wms` 清理，然后按 §8.0.1 决策：
-  ① 先回 **`git ls-remote` 直连探测**——很多时候直连其实是通的，只是从没试过；
-  ② 直连不通 → 换 `gitclone.com`（若其可用性复测通过）；
-  ③ 全部不通 → 走 §8.0.3 codeload tarball 兜底（注意该方法无 git 历史，须按 §8.0.3 说明汇报 SHA 差异）。
+不要常规设置全局http.postBuffer、core.compression或协议版本来“加速”；只有实证对应网络问题时才做可回退、限定范围的调整。判断传输是否停滞可观察pack增长及进程状态；失败后保留现场，更换已验证通道，不直接递归删除工作区。
