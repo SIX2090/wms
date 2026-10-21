@@ -233,11 +233,7 @@ function showAddModal() {
 function submitAdd() {
     var form = document.getElementById('addForm');
     var formData = new FormData(form);
-    fetch('/employee/add', {
-        method: 'POST',
-        body: formData
-    })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/employee/add', formData)
     .then(function(data) {
         if (data.status === 'success') {
             notifyMasterDataChanged('employee_updated');
@@ -251,8 +247,7 @@ function submitAdd() {
 }
 
 function editEmployee(id) {
-    fetch('/employee/' + id)
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/employee/' + id)
     .then(function(data) {
         if (data.status === 'success') {
             var e = data.employee;
@@ -275,11 +270,7 @@ function submitEdit() {
     var form = document.getElementById('editForm');
     var formData = new FormData(form);
     var id = formData.get('id');
-    fetch('/employee/' + id + '/edit', {
-        method: 'POST',
-        body: formData
-    })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/employee/' + id + '/edit', formData)
     .then(function(data) {
         if (data.status === 'success') {
             notifyMasterDataChanged('employee_updated');
@@ -292,14 +283,9 @@ function submitEdit() {
     .catch(function(err){ showToast('编辑失败：' + err.message, 'danger', 3600); });
 }
 
-function deleteEmployee(id) {
-    if (!confirm('确定要删除这个员工吗？')) return;
-    fetch('/employee/delete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: [id]})
-    })
-    .then(function(r){ return r.json(); })
+async function deleteEmployee(id) {
+    if (!(await showConfirm('确定要删除这个员工吗？'))) return;
+    WMS.api.postRaw('/employee/delete', {ids: [id]}, {headers: {'Content-Type': 'application/json'}})
     .then(function(data) {
         if (data.status === 'success') {
             notifyMasterDataChanged('employee_updated');
@@ -312,19 +298,14 @@ function deleteEmployee(id) {
     .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
 }
 
-function batchDelete() {
+async function batchDelete() {
     var ids = Array.from(document.querySelectorAll('.check-item:checked')).map(function(el){ return el.value; });
     if (!ids.length) {
         showToast('请先勾选要删除的员工', 'warning', 2400);
         return;
     }
-    if (!confirm('确定要删除选中的 ' + ids.length + ' 条员工吗？')) return;
-    fetch('/employee/delete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: ids})
-    })
-    .then(function(r){ return r.json(); })
+    if (!(await showConfirm('确定要删除选中的 ' + ids.length + ' 条员工吗？'))) return;
+    WMS.api.postRaw('/employee/delete', {ids: ids}, {headers: {'Content-Type': 'application/json'}})
     .then(function(data) {
         if (data.status === 'success') {
             notifyMasterDataChanged('employee_updated');
@@ -350,12 +331,7 @@ function submitImport() {
     var formData = new FormData(form);
     var result = document.querySelector('#importModal .import-result');
     result.innerHTML = '<span class="text-muted">导入中...</span>';
-    fetch('/employee/import', {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/employee/import', formData, {headers: { 'X-Requested-With': 'XMLHttpRequest' }})
     .then(function(data) {
         if (data.status === 'success') {
             result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + data.msg + '</div>';

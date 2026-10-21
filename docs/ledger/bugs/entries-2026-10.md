@@ -1104,3 +1104,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 - 首轮回滚：6190f528的WMS CI39578173144失败，具体为两组截取函数运行的工具栏夹具漏加载escapeHtml，30 failed/1479 passed/13 skipped，全部为ReferenceError，未放宽断言。按R8立即本地revert，保留本地恢复补丁；通过GitHub连接器以父6190f528和已绿312b4e6f的原树创建回滚63b7a7345ebb3f763faa256fc5dc08a52550af7c，使用expected_sha及force=false快进更新main；本地fetch/rebase对齐。回滚树与312b4e6f相同，WMS CI39579135660、AI验证39579135725均success。
 - 重做验证：两组工具栏/续单夹具加载生产app.js的真实escapeHtml函数，不替换为宽松stub，原有全部断言保留；重做运行82 passed，加入原有相邻与BOM导航后222 passed。新40项回归及其回退验证保持原结果。重做推送前最新三门禁为上述回滚CI及Android39503220864，均completed/success；同一匿名403查询故障时仅本次临时使用已有WMS_SKIP_CI_GATE。
+
+
+### BUG-2026-10-21-012: 基础资料页绕过统一请求和确认提示
+
+- 状态：代码已修复，待推送及CI验收。
+- 根因/危害：分类、客户、部门、员工、单位、仓库、供应商七页共33处原生fetch自行解析JSON，HTTP错误和会话过期处理脱离统一API；部分提示及删除/默认仓库确认仍使用原生弹窗，体验与错误处理不一致。
+- 修复：26处POST及7处GET迁入WMS.api.postRaw/getRaw，保留完整响应、FormData及JSON载荷、原URL与自定义请求头；移除重复response.json解析，提示使用showToast，五处确认使用异步showConfirm，取消不发请求。未改后端权限、数据校验、库存或单据状态。
+- 同类点已排查：沿用BUG-2026-10-21-007统一请求基础设施；全查上述七页新增、编辑、导入、单删、批删及默认仓库操作，不宣称其他业务页裸fetch已清零。
+- 回归：修前相邻28 passed；新增64项实际页面处理器结合生产api.js运行，覆盖成功、HTTP400结构化错误、CSRF、multipart归属、JSON载荷和取消确认。旧代码及文件备份回退均64 failed/21 skipped，恢复64 passed/21 skipped（表单无额外确认的21种组合不适用）。最终相邻178 passed/21 skipped；隔离文件库冒烟119/119。
+- 浏览器验收：127.0.0.1:9081独立内存库新增AUD-FRONT-012成功，取消删除后记录保留，编辑GET回填并保存成功；确认框截图output/playwright/master-data-confirm.png。HTTP失败及取消不请求由运行时测试覆盖，未删除生产数据或更改账号。
+- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 推送前门禁：Android39503220864（d2437fd9）、AI39580034023及WMS CI39580033935（f31f80f5）均completed/success；同一匿名API403时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
+
+- 全量验证记录（012）：tests/执行23分27秒，4636 passed/112 skipped/1 failed；唯一失败是测试启动后新增012台账导致已导入POST_SPLIT_BUGS快照与读取时台账不同步，未修改基线或放宽断言。最终源文件固定后整组台账10项复跑通过（联合本批74 passed/21 skipped）；verify_wms_bugs通过，规则0违规。最终提交CI再次核对全量结果。

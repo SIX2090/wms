@@ -218,19 +218,15 @@ document.addEventListener('DOMContentLoaded', function() {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("add_supplier") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("add_supplier") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('supplier_updated');
                     location.reload();
                 }
-                else alert(res.msg);
+                else showToast(res.msg, 'danger');
             })
-            .catch(function(err){ alert('保存失败: ' + err.message); });
+            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
         });
     }
 
@@ -241,11 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             var id = this.querySelector('[name="id"]').value;
             var formData = new FormData(this);
-            fetch('/supplier/' + id + '/edit', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/supplier/' + id + '/edit', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('supplier_updated');
@@ -262,8 +254,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // M-01：行级编辑 - 拉取供应商详情并填充表单
 function editSupplier(id) {
-    fetch('/supplier/' + id)
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/supplier/' + id)
     .then(function(res) {
         if (res.status === 'success') {
             var s = res.supplier;
@@ -328,22 +319,17 @@ document.addEventListener('DOMContentLoaded', function() {
     importForm.addEventListener('submit', function(e) {
         e.preventDefault();
         var formData = new FormData(this);
-        fetch(this.action, {
-            method: 'POST',
-            headers: {'X-Requested-With': 'XMLHttpRequest'},
-            body: formData
-        })
-        .then(function(r){ return r.json(); })
+        WMS.api.postRaw(this.action, formData, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
         .then(function(res) {
             if (res.status === 'success') {
                 notifyMasterDataChanged('supplier_updated');
-                alert(res.msg || '导入成功');
-                location.reload();
+                showToast(res.msg || '导入成功', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
             } else {
-                alert(res.msg || '导入失败');
+                showToast(res.msg || '导入失败', 'danger');
             }
         })
-        .catch(function(err){ alert('导入失败: ' + err.message); });
+        .catch(function(err){ showToast('导入失败: ' + err.message, 'danger'); });
     });
 });
 </script>

@@ -238,12 +238,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var original = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
-            fetch('/department/import', {
-                method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/department/import', formData, {headers: { 'X-Requested-With': 'XMLHttpRequest' }})
             .then(function(res) {
                 btn.disabled = false;
                 btn.innerHTML = original;
@@ -268,11 +263,7 @@ function submitAdd() {
     const form = document.getElementById('addForm');
     const formData = new FormData(form);
 
-    fetch('/department/add', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/department/add', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('department_updated');
@@ -286,8 +277,7 @@ function submitAdd() {
 }
 
 function editDepartment(id) {
-    fetch('/department/' + id)
-    .then(res => res.json())
+    WMS.api.getRaw('/department/' + id)
     .then(data => {
         if (data.status === 'success') {
             const d = data.department;
@@ -310,11 +300,7 @@ function submitEdit() {
     const formData = new FormData(form);
     const id = formData.get('id');
 
-    fetch('/department/' + id + '/edit', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/department/' + id + '/edit', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('department_updated');
@@ -327,13 +313,10 @@ function submitEdit() {
     .catch(err => showToast('编辑失败：' + err.message, 'danger', 3600));
 }
 
-function deleteDepartment(id) {
-    if (!confirm('确定要删除这个部门吗？')) return;
+async function deleteDepartment(id) {
+    if (!(await showConfirm('确定要删除这个部门吗？'))) return;
 
-    fetch('/department/' + id + '/delete', {
-        method: 'POST'
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/department/' + id + '/delete')
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('department_updated');

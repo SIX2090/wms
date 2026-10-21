@@ -271,26 +271,21 @@ document.addEventListener('DOMContentLoaded', function() {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("add_category") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("add_category") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('category_updated');
                     location.reload();
                 }
-                else alert(res.msg);
+                else showToast(res.msg, 'danger');
             })
-            .catch(function(err){ alert('保存失败: ' + err.message); });
+            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
         });
     }
 
     // 编辑分类
     window.editCategory = function(id) {
-        fetch('/category/' + id)
-            .then(function(r){ return r.json(); })
+        WMS.api.getRaw('/category/' + id)
             .then(function(res) {
                 if (res.status === 'success') {
                     var cat = res.category;
@@ -305,10 +300,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     var editModal = new bootstrap.Modal(document.getElementById('editModal'));
                     editModal.show();
                 } else {
-                    alert(res.msg);
+                    showToast(res.msg, 'danger');
                 }
             })
-            .catch(function(err){ alert('获取数据失败: ' + err.message); });
+            .catch(function(err){ showToast('获取数据失败: ' + err.message, 'danger'); });
     };
 
     var editForm = document.getElementById('editForm');
@@ -317,19 +312,15 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             var id = document.getElementById('editId').value;
             var formData = new FormData(this);
-            fetch('/category/edit/' + id, {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/category/edit/' + id, formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('category_updated');
                     location.reload();
                 }
-                else alert(res.msg);
+                else showToast(res.msg, 'danger');
             })
-            .catch(function(err){ alert('保存失败: ' + err.message); });
+            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
         });
     }
 
@@ -339,21 +330,17 @@ document.addEventListener('DOMContentLoaded', function() {
         importForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("import_category") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("import_category") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('category_updated');
-                    alert(res.msg);
-                    location.reload();
+                    showToast(res.msg || '导入成功', 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
                 } else {
-                    alert(res.msg);
+                    showToast(res.msg, 'danger');
                 }
             })
-            .catch(function(err){ alert('导入失败: ' + err.message); });
+            .catch(function(err){ showToast('导入失败: ' + err.message, 'danger'); });
         });
     }
 });

@@ -278,12 +278,7 @@ document.addEventListener('DOMContentLoaded', function() {
             var original = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
-            fetch('/warehouse/import', {
-                method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/warehouse/import', formData, {headers: { 'X-Requested-With': 'XMLHttpRequest' }})
             .then(function(res) {
                 btn.disabled = false;
                 btn.innerHTML = original;
@@ -308,11 +303,7 @@ function submitAdd() {
     const form = document.getElementById('addForm');
     const formData = new FormData(form);
 
-    fetch('/warehouse/add', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/warehouse/add', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('warehouse_updated');
@@ -326,8 +317,7 @@ function submitAdd() {
 }
 
 function editWarehouse(id) {
-    fetch('/warehouse/' + id)
-    .then(res => res.json())
+    WMS.api.getRaw('/warehouse/' + id)
     .then(data => {
         if (data.status === 'success') {
             const w = data.warehouse;
@@ -352,11 +342,7 @@ function submitEdit() {
     const formData = new FormData(form);
     const id = formData.get('id');
 
-    fetch('/warehouse/' + id + '/edit', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/warehouse/' + id + '/edit', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('warehouse_updated');
@@ -369,13 +355,10 @@ function submitEdit() {
     .catch(err => showToast('编辑失败：' + err.message, 'danger', 3600));
 }
 
-function deleteWarehouse(id) {
-    if (!confirm('确定要删除这个仓库吗？')) return;
+async function deleteWarehouse(id) {
+    if (!(await showConfirm('确定要删除这个仓库吗？'))) return;
 
-    fetch('/warehouse/' + id + '/delete', {
-        method: 'POST'
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/warehouse/' + id + '/delete')
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('warehouse_updated');
@@ -389,13 +372,9 @@ function deleteWarehouse(id) {
 }
 
 // M-03：设为默认仓
-function setDefaultWarehouse(id) {
-    if (!confirm('确定将此仓库设为默认仓吗？同一时间仅一个默认仓。')) return;
-    fetch('/warehouse/' + id + '/set_default', {
-        method: 'POST',
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(res => res.json())
+async function setDefaultWarehouse(id) {
+    if (!(await showConfirm('确定将此仓库设为默认仓吗？同一时间仅一个默认仓。'))) return;
+    WMS.api.postRaw('/warehouse/' + id + '/set_default', undefined, {headers: { 'X-Requested-With': 'XMLHttpRequest' }})
     .then(data => {
         if (data.status === 'success') {
             showToast(data.msg || '设置成功', 'success');

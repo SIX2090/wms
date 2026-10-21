@@ -144,11 +144,7 @@ document.addEventListener('DOMContentLoaded', function() {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("unit.add_unit") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("unit.add_unit") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('unit_updated');
@@ -167,21 +163,17 @@ document.addEventListener('DOMContentLoaded', function() {
         importForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("import_unit") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("import_unit") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('unit_updated');
-                    alert(res.msg);
-                    location.reload();
+                    showToast(res.msg || '导入成功', 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
                 } else {
-                    alert(res.msg);
+                    showToast(res.msg, 'danger');
                 }
             })
-            .catch(function(err){ alert('导入失败: ' + err.message); });
+            .catch(function(err){ showToast('导入失败: ' + err.message, 'danger'); });
         });
     }
 
@@ -192,11 +184,7 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             var id = this.querySelector('[name="id"]').value;
             var formData = new FormData(this);
-            fetch('/unit/' + id + '/edit', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/unit/' + id + '/edit', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('unit_updated');
@@ -213,8 +201,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // M-01：行级编辑 - 拉取单位详情并填充表单
 function editUnit(id) {
-    fetch('/unit/' + id)
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/unit/' + id)
     .then(function(res) {
         if (res.status === 'success') {
             var u = res.unit;

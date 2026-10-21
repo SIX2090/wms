@@ -201,11 +201,7 @@ document.addEventListener('DOMContentLoaded', function() {
     addForm.addEventListener('submit', function(e) {
         e.preventDefault();
         var formData = new FormData(this);
-        fetch('{{ url_for("add_customer") }}', {
-            method: 'POST',
-            body: formData
-        })
-        .then(function(r){ return r.json(); })
+        WMS.api.postRaw('{{ url_for("add_customer") }}', formData)
         .then(function(res) {
             if (res.status === 'success') {
                 notifyMasterDataChanged('customer_updated');
@@ -224,11 +220,7 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             var id = this.querySelector('[name="id"]').value;
             var formData = new FormData(this);
-            fetch('/customer/' + id + '/edit', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('/customer/' + id + '/edit', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     notifyMasterDataChanged('customer_updated');
@@ -245,8 +237,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // M-01：行级编辑 - 拉取客户详情并填充表单
 function editCustomer(id) {
-    fetch('/customer/' + id)
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/customer/' + id)
     .then(function(res) {
         if (res.status === 'success') {
             var c = res.customer;
@@ -312,12 +303,7 @@ document.addEventListener('DOMContentLoaded', function() {
     importForm.addEventListener('submit', function(e) {
         e.preventDefault();
         var formData = new FormData(this);
-        fetch(this.action, {
-            method: 'POST',
-            headers: {'X-Requested-With': 'XMLHttpRequest'},
-            body: formData
-        })
-        .then(function(r){ return r.json(); })
+        WMS.api.postRaw(this.action, formData, {headers: {'X-Requested-With': 'XMLHttpRequest'}})
         .then(function(res) {
             if (res.status === 'success') {
                 notifyMasterDataChanged('customer_updated');
