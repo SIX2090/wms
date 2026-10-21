@@ -62,14 +62,16 @@ function confirmDialog(message, options) {
     const okBtn = document.getElementById('cbConfirmOk');
     const cancelBtn = document.getElementById('cbConfirmCancel');
 
-    if (!overlay || !titleNode || !messageNode || !okBtn || !cancelBtn) {
-        return Promise.resolve(window.confirm(message));
+    if (!overlay || !titleNode || !messageNode || !okBtn || !cancelBtn ||
+            (options.input && !document.getElementById('cbPromptInput'))) {
+        return Promise.resolve(options.input ? window.prompt(message, options.defaultValue || '') : window.confirm(message));
     }
 
     return new Promise(function(resolve) {
         confirmQueue.push({
             message: message,
             options: options,
+            previousFocus: options.returnFocus || (activeConfirm ? activeConfirm.previousFocus : document.activeElement),
             resolve: resolve
         });
         showNextConfirm();
@@ -89,7 +91,7 @@ function showNextConfirm() {
 
     if (!overlay || !titleNode || !messageNode || !okBtn || !cancelBtn) {
         const next = confirmQueue.shift();
-        next.resolve(window.confirm(next.message));
+        next.resolve(next.options.input ? window.prompt(next.message, next.options.defaultValue || '') : window.confirm(next.message));
         showNextConfirm();
         return;
     }
@@ -101,20 +103,79 @@ function showNextConfirm() {
     messageNode.textContent = message;
     okBtn.textContent = options.okText || '确认';
     cancelBtn.textContent = options.cancelText || '取消';
+    const field = document.getElementById('cbPromptField');
+    const input = document.getElementById('cbPromptInput');
+    if (field) field.hidden = !options.input;
+    if (input) input.value = options.defaultValue == null ? '' : String(options.defaultValue);
     overlay.classList.add('show');
+    overlay.setAttribute('aria-hidden', 'false');
     confirmResolver = activeConfirm.resolve;
+    // Default to cancellation for destructive confirmations; prompts focus their input.
+    (options.input && input ? input : cancelBtn).focus();
 }
 
 function resolveConfirm(result) {
+    if (!activeConfirm) return;
+    const current = activeConfirm;
     const overlay = document.getElementById('cbConfirmOverlay');
-    if (overlay) overlay.classList.remove('show');
+    const input = document.getElementById('cbPromptInput');
+    const value = current.options.input ? (result ? input.value : null) : result;
+    if (overlay) {
+        overlay.classList.remove('show');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
     if (confirmResolver) {
-        confirmResolver(result);
+        confirmResolver(value);
         confirmResolver = null;
     }
     activeConfirm = null;
-    setTimeout(showNextConfirm, 0);
+    // Allow action promises to restore disabled buttons before returning focus.
+    setTimeout(function() {
+        showNextConfirm();
+        if (!activeConfirm && current.previousFocus && current.previousFocus.isConnected) current.previousFocus.focus();
+    }, 0);
 }
+
+function promptDialog(message, options) {
+    return confirmDialog(message, Object.assign({}, options, {input: true}));
+}
+
+function initDialogEvents() {
+    const overlay = document.getElementById('cbConfirmOverlay');
+    if (!overlay || overlay.dataset.dialogBound) return;
+    overlay.dataset.dialogBound = '1';
+    document.getElementById('cbConfirmOk').addEventListener('click', function() { resolveConfirm(true); });
+    document.getElementById('cbConfirmCancel').addEventListener('click', function() { resolveConfirm(false); });
+    overlay.addEventListener('click', function(event) {
+        if (event.target === overlay) resolveConfirm(false);
+    });
+    document.addEventListener('keydown', function(event) {
+        if (!activeConfirm) return;
+        // Capture before page shortcuts, so Esc cannot navigate away behind the dialog.
+        event.stopImmediatePropagation();
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            resolveConfirm(false);
+        } else if (event.key === 'Enter' && !event.isComposing && activeConfirm.options.input &&
+                document.activeElement === document.getElementById('cbPromptInput')) {
+            event.preventDefault();
+            resolveConfirm(true);
+        } else if (event.key === 'Tab') {
+            const controls = activeConfirm.options.input ?
+                [document.getElementById('cbPromptInput'), document.getElementById('cbConfirmCancel'), document.getElementById('cbConfirmOk')] :
+                [document.getElementById('cbConfirmCancel'), document.getElementById('cbConfirmOk')];
+            const index = controls.indexOf(document.activeElement);
+            if (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0)) {
+                event.preventDefault();
+                controls[event.shiftKey ? controls.length - 1 : 0].focus();
+            }
+        }
+    }, true);
+}
+
+window.WMS = window.WMS || {};
+window.WMS.confirm = confirmDialog;
+window.WMS.prompt = promptDialog;
 
 // 兼容旧接口
 function showToast(message, type, duration) {
@@ -3346,18 +3407,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }, true);
     }
 
-    // 确认框事件绑定
-    document.getElementById('cbConfirmOk')?.addEventListener('click', function() {
-        resolveConfirm(true);
-    });
-    document.getElementById('cbConfirmCancel')?.addEventListener('click', function() {
-        resolveConfirm(false);
-    });
-    document.getElementById('cbConfirmOverlay')?.addEventListener('click', function(event) {
-        if (event.target.id === 'cbConfirmOverlay') {
-            resolveConfirm(false);
-        }
-    });
+    // 确认及输入框共用事件和键盘边界
+    initDialogEvents();
 
     // 嵌入页面链接处理
     if (isWmsEmbeddedPage()) {

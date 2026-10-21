@@ -30,7 +30,7 @@
         <button class="btn btn-success" onclick="approveOrder({{ order.id }})">
             <i class="bi bi-check"></i> 审批通过
         </button>
-        <button class="btn btn-danger" onclick="rejectOrder({{ order.id }})">
+        <button class="btn btn-danger" data-document-action="rejectOrder" onclick="rejectOrder({{ order.id }})">
             <i class="bi bi-x"></i> 驳回
         </button>
         {% elif order.status == 'approved' %}
@@ -328,23 +328,21 @@ function approveOrder(id) {
 }
 
 function rejectOrder(id) {
-    const remark = prompt('请输入驳回原因：');
-    if (remark === null) return;
-    csrfFetch(`/purchase_request/${id}/reject`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showToast('采购申请已驳回，正在刷新详情…', 'success');
-            setTimeout(function(){ location.reload(); }, 650);
-        } else {
-            showToast('操作失败：' + data.msg, 'danger', 3600);
-        }
-    })
-    .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    const returnFocus = document.querySelector('button[data-document-action="rejectOrder"]');
+    return WMS.runDocumentAction('rejectOrder', async function() {
+        const remark = await WMS.prompt('请输入驳回原因：', { title: '驳回采购申请', okText: '确认驳回', returnFocus: returnFocus });
+        if (remark === null) return;
+        return WMS.api.postRaw(`/purchase_request/${id}/reject`, { remark: remark })
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('采购申请已驳回，正在刷新详情…', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast('操作失败：' + data.msg, 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    });
 }
 
 function revertOrder(id) {

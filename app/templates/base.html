@@ -2818,12 +2818,15 @@
 
     <div class="cb-toast-stack" id="cbToastStack"></div>
 
-    <div class="cb-confirm-overlay" id="cbConfirmOverlay">
-        <div class="cb-confirm-dialog">
+    <div class="cb-confirm-overlay" id="cbConfirmOverlay" aria-hidden="true">
+        <div class="cb-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="cbConfirmTitle" aria-describedby="cbConfirmMessage">
             <div class="cb-confirm-header">
                 <h5 id="cbConfirmTitle">请确认操作</h5>
             </div>
             <div class="cb-confirm-body" id="cbConfirmMessage">确定继续吗？</div>
+            <div id="cbPromptField" class="px-3 pb-3" hidden>
+                <input type="text" class="form-control" id="cbPromptInput" aria-labelledby="cbConfirmMessage" autocomplete="off">
+            </div>
             <div class="cb-confirm-actions">
                 <button type="button" class="btn btn-outline-secondary" id="cbConfirmCancel">取消</button>
                 <button type="button" class="btn btn-primary" id="cbConfirmOk">确认</button>
