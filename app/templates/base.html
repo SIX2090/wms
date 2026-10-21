@@ -2390,7 +2390,9 @@
                     <div class="flyout-grid-3col">
                         <div class="flyout-col">
                             <div class="flyout-col-title">单据</div>
+                            {% if current_user.role in ['admin', 'purchase'] %}
                             <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
+                            {% endif %}
                             <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购订单</a>
                             <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
                             {# 采购退货出库：此前无菜单入口、只能靠手敲 URL，本条补上直达新增页 #}
@@ -2532,11 +2534,6 @@
                     <i class="bi bi-graph-up"></i> 报表中心
                 </a>
             </li>
-            <li class="nav-item">
-                <a class="nav-link" href="/batch_import">
-                    <i class="bi bi-cloud-upload"></i> 批量导入
-                </a>
-            </li>
             {% endif %}
             {% if current_user.role == 'finance' %}
             {# AI-WMS-FINANCE-ROLE：财务只读导航——只给报表/单据列表/查询入口，
@@ -2660,11 +2657,13 @@
                     <i class="bi bi-box-arrow-up"></i> 售后出库
                 </a>
             </li>
+            {% if current_user.role in ['admin', 'purchase'] %}
             <li class="nav-item">
                 <a class="nav-link" href="/purchase_request/add">
                     <i class="bi bi-cart-plus"></i> 采购申请
                 </a>
             </li>
+            {% endif %}
             <li class="nav-item">
                 <a class="nav-link" href="/ai/purchase_workbench">
                     <i class="bi bi-easel"></i> 采购工作台
@@ -2736,11 +2735,13 @@
                     <i class="bi bi-graph-up"></i> 报表中心
                 </a>
             </li>
+            {% if current_user.role in ['admin', 'warehouse', 'purchase', 'production'] %}
             <li class="nav-item">
                 <a class="nav-link" href="/batch_import">
                     <i class="bi bi-cloud-upload"></i> 批量导入
                 </a>
             </li>
+            {% endif %}
             {% endif %}
             {% if current_user.role in ['admin', 'warehouse', 'production'] %}
             <li class="nav-item">
@@ -2823,7 +2824,8 @@
         </div>
     </div>
 
-    {% if current_user.is_authenticated %}
+    {# 修复子项 AI-C01-FIX-ROLE-UI-001：提交与CI验收前保持待验收。 #}
+    {% if current_user.is_authenticated and current_user.role in ['admin', 'warehouse', 'purchase', 'production', 'sales'] %}
     {% if current_user.role in ['admin', 'warehouse'] %}
     <a href="/print_alerts" class="print-alert-bell no-print {% if print_alert_unread_count %}has-unread{% endif %}" title="打印告警" aria-label="打印告警">
         <i class="bi bi-bell"></i>
@@ -2874,28 +2876,37 @@
                     <button type="button" class="ai-suggestion" data-role="all" data-prompt="为什么 A001 库存不对">解释异常</button>
                     
                     <!-- 仓库角色专属 -->
+                    {% if current_user.role in ['admin', 'warehouse'] %}
                     <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="识别送货单图片并生成采购入库单草稿" data-ai-upload="delivery-note">送货单入库</button>
                     <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="表格生成领料单&#10;仓库：A仓&#10;物料编码&#9;物料名称&#9;规格&#9;数量&#9;单位&#10;A001&#9;示例物料&#9;规格A&#9;10&#9;个">表格转单</button>
                     <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="微信内容生成领料单 A001 20 B002 5">微信成领料</button>
                     <button type="button" class="ai-suggestion" data-role="warehouse" data-prompt="仓库异常工作台">异常工作台</button>
+                    {% endif %}
                     
                     <!-- 采购角色专属 -->
+                    {% if current_user.role in ['admin', 'purchase'] %}
                     <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="采购工作台">采购工作台</button>
                     <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="根据低库存生成采购申请草稿">补货请购</button>
                     <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="供应商采购画像">供应商画像</button>
                     <button type="button" class="ai-suggestion" data-role="purchase" data-prompt="生成催供应商跟进话术">催交话术</button>
+                    {% endif %}
 
                     <!-- 销售角色专属（AI-SALES-F02） -->
+                    {% if current_user.role in ['admin', 'sales'] %}
                     <button type="button" class="ai-suggestion" data-role="sales" data-prompt="销售工作台">销售工作台</button>
                     <button type="button" class="ai-suggestion" data-role="sales" data-prompt="从已确认销售订单生成出库草稿">生成出库草稿</button>
                     <button type="button" class="ai-suggestion" data-role="sales" data-prompt="客户履约画像">客户画像</button>
                     <button type="button" class="ai-suggestion" data-role="sales" data-prompt="生成催客户发货话术">催发货话术</button>
+                    {% endif %}
                     
                     <!-- 生产角色专属 -->
+                    {% if current_user.role in ['admin', 'production'] %}
                     <button type="button" class="ai-suggestion" data-role="production" data-prompt="客户发货 A001 20 B002 5">微信成销售出库</button>
                     <button type="button" class="ai-suggestion" data-role="production" data-prompt="GPT识别微信：华南客户今天发 A001 两箱，B003 15个，备注加急">GPT识别微信</button>
+                    {% endif %}
                     
                     <!-- 管理员专属 -->
+                    {% if current_user.role == 'admin' %}
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料AI体检">基础体检</button>
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料修复清单">修复清单</button>
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="基础资料导入助手">导入助手</button>
@@ -2903,6 +2914,7 @@
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="系统管理修复清单">系统清单</button>
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="权限账号助手">权限助手</button>
                     <button type="button" class="ai-suggestion" data-role="admin" data-prompt="操作日志审计">日志审计</button>
+                    {% endif %}
                     
                     <!-- 通用功能 -->
                     <button type="button" class="ai-suggestion" data-role="all" data-prompt="仓库管理软件改进建议">软件建议</button>
@@ -2934,7 +2946,7 @@
     <!-- 主应用 JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/quick-select.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" charset="utf-8"></script>
-    {% if current_user.is_authenticated %}
+    {% if current_user.is_authenticated and current_user.role in ['admin', 'warehouse', 'purchase', 'production', 'sales'] %}
     <script>
     (function() {
         const button = document.getElementById('aiAssistantButton');

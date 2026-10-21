@@ -1,27 +1,30 @@
 {% extends "base.html" %}
 {% block title %}采购申请管理{% endblock %}
+{% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-cart-plus"></i> 采购申请单管理</h2>
-        {% if current_user.role in ['admin', 'purchase', 'warehouse'] %}
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+            {% if current_user.role in ['admin', 'purchase'] %}
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDelete()"><i class="bi bi-trash"></i> 删除已选</button>
             <a href="/export/template/purchase_request" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
             <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('purchaseRequestImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
+            {% endif %}
             <a href="/purchase_request/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
+            {% if current_user.role in ['admin', 'purchase'] %}
             <a href="/purchase_request/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购申请</a>
             <form id="purchaseRequestImportForm" action="/purchase_request/import" method="post" enctype="multipart/form-data" class="d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="file" id="purchaseRequestImportFile" name="file" accept=".xlsx,.xls" onchange="submitPurchaseRequestImport()">
             </form>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 </div>
 
@@ -144,6 +147,7 @@
                         <a href="{{ url_for('purchase_request_detail', id=order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" target="_blank" rel="noopener">
                             <i class="bi bi-eye"></i>
                         </a>
+                        {% if current_user.role in ['admin', 'purchase'] %}
                         {% if order.status == 'pending' %}
                         <button class="btn btn-sm btn-outline-success" onclick="approveOrder({{ order.id }})" title="审批">
                             <i class="bi bi-check"></i>
@@ -169,6 +173,7 @@
                         <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})" title="反审">
                             <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
+                        {% endif %}
                         {% endif %}
                     </td>
                 </tr>

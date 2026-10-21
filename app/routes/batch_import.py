@@ -636,6 +636,7 @@ def register_batch_import_routes(app):
         return redirect(url_for('batch_import_page'))
 
     @app.route('/batch_import')
+    @require_role('warehouse', 'purchase', 'production')
     @login_required
     def batch_import_page():
         _module_type = request.args.get('type', '').strip().lower() or None
