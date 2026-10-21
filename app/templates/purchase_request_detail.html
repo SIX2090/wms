@@ -39,7 +39,7 @@
             <i class="bi bi-arrow-counterclockwise"></i> 反审
         </button>
         {% endif %}
-        <button class="btn btn-success" onclick="completeOrder({{ order.id }})">
+        <button data-document-action="completeOrder" class="btn btn-success" onclick="completeOrder({{ order.id }})">
             <i class="bi bi-check-double"></i> 完成
         </button>
         {% elif order.status == 'completed' and not related_purchase_orders %}
@@ -390,22 +390,20 @@ function revertOrder(id) {
 }
 
 function completeOrder(id) {
-    showConfirm('确认完成此采购申请单？', { title: '完成采购申请' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch(`/purchase_request/${id}/complete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast('采购申请已完成，正在刷新详情…', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast('操作失败：' + data.msg, 'danger', 3600);
-            }
-        })
-        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    return WMS.runDocumentAction('completeOrder', function() {
+        return showConfirm('确认完成此采购申请单？', { title: '完成采购申请' }).then(function(confirmed) {
+            if (!confirmed) return;
+            return WMS.api.postRaw(`/purchase_request/${id}/complete`, {})
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('采购申请已完成，正在刷新详情…', 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
+                } else {
+                    showToast('操作失败：' + data.msg, 'danger', 3600);
+                }
+            })
+            .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+        });
     });
 }
 

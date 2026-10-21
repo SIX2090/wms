@@ -25,9 +25,10 @@ def test_completion_navigation(page, kind, status):
         function = source.split('function completeOrder(id, force) {', 1)[1].split('\nfunction showAnomalyWarning', 1)[0]
         function = function.replace("{{ (order.business_type or '采购入库')|tojson }}", json.dumps(kind))
         action = 'function completeOrder(id, force) {' + function + '\ncompleteOrder(7, false);'
+    helper = (ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8')
     script = '''
 let cleared = 0, reloaded = 0, warned = 0;
-const window = {location: {href: 'original'}};
+const window = {location: {href: 'original'}, document: {querySelectorAll() {return [];}}};
 const location = {reload() {reloaded++;}};
 function clearDraft() {cleared++;}
 function showToast() {}
@@ -39,7 +40,7 @@ function csrfFetch() {return Promise.resolve({json: () => Promise.resolve(respon
 const data = {id: 7};
 const saveAndNew = false;
 const returnAddUrl = '/in_order/add?type=product';
-''' + f'const businessType = {json.dumps(kind)}; const response = {json.dumps(dict(status=status, anomalies=[]))};\n' + action + '''
+''' + f'const businessType = {json.dumps(kind)}; const response = {json.dumps(dict(status=status, anomalies=[]))};\n' + helper + '\nconst WMS = window.WMS; WMS.api = {postRaw: () => Promise.resolve(response)};\n' + action + '''
 setImmediate(() => process.stdout.write(JSON.stringify({url: window.location.href, cleared, reloaded, warned})));
 '''
     result = subprocess.run([node, '-e', script], text=True, encoding='utf-8', capture_output=True, check=True)

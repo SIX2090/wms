@@ -110,7 +110,7 @@
                             <i class="bi bi-printer"></i>
                         </a>
                         {% if order.status == 'pending' %}
-                        <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
+                        <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
                             <i class="bi bi-check"></i>
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})" title="删除">
@@ -198,20 +198,18 @@ function toggleAll() {
 }
 
 function completeOrder(id) {
-    showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
-        if (!ok) return;
-        fetch(`/after_sale_out/${id}/complete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast('操作成功', 'success');
-                location.reload();
-            } else {
-                showToast('操作失败：' + data.msg, 'danger');
-            }
+    return WMS.runDocumentAction('completeOrder', function() {
+        return showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
+            if (!ok) return;
+            return WMS.api.postRaw(`/after_sale_out/${id}/complete`, {})
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('操作成功', 'success');
+                    location.reload();
+                } else {
+                    showToast('操作失败：' + data.msg, 'danger');
+                }
+            });
         });
     });
 }

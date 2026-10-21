@@ -114,7 +114,7 @@
                                 <button class="btn btn-info btn-sm" onclick="showDetail('{{ receive.id }}')">详情</button>
                                 <a class="btn btn-outline-primary btn-sm" href="{{ url_for('print_subcontract_receive', id=receive.id) }}" target="_blank">打印</a>
                                 {% if receive.status == 'pending' %}
-                                <button class="btn btn-success btn-sm" onclick="completeReceive('{{ receive.id }}')">完成</button>
+                                <button data-document-action="completeReceive" class="btn btn-success btn-sm" onclick="completeReceive('{{ receive.id }}')">完成</button>
                                 {% elif receive.status == 'completed' %}
                                 <button class="btn btn-warning btn-sm" onclick="revertReceive('{{ receive.id }}')">反提交</button>
                                 {% endif %}
@@ -450,14 +450,18 @@ function showDetail(id) {
 
 // 完成入库
 function completeReceive(id) {
-    if (!confirm('确定要完成此入库吗？')) return;
-    $.post('/subcontract/receive/' + id + '/complete', function(data) {
-        if (data.status === 'success') {
-            alert('操作成功');
-            location.reload();
-        } else {
-            alert('操作失败: ' + data.msg);
-        }
+    return WMS.runDocumentAction('completeReceive', function() {
+        return showConfirm('确定要完成此入库吗？').then(function(confirmed) {
+            if (!confirmed) return;
+            return WMS.api.postRaw('/subcontract/receive/' + id + '/complete', {}).then(function(data) {
+                if (data.status === 'success') {
+                    showToast('操作成功', 'success');
+                    location.reload();
+                } else {
+                    showToast('操作失败：' + data.msg, 'danger');
+                }
+            });
+        });
     });
 }
 

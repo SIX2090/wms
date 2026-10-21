@@ -32,7 +32,7 @@
         <a href="{{ url_for('after_sale_out_edit_page', id=order.id) }}" class="btn btn-outline-secondary">
             <i class="bi bi-pencil-square"></i> 编辑
         </a>
-        <button class="btn btn-success" onclick="completeOrder({{ order.id }})">
+        <button data-document-action="completeOrder" class="btn btn-success" onclick="completeOrder({{ order.id }})">
             <i class="bi bi-check"></i> 完成出库
         </button>
         {% if current_user.role in ['admin', 'warehouse'] %}
@@ -185,20 +185,18 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function completeOrder(id) {
-    showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
-        if (!ok) return;
-        fetch(`/after_sale_out/${id}/complete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast('操作成功', 'success');
-                location.reload();
-            } else {
-                showToast('操作失败：' + data.msg, 'danger');
-            }
+    return WMS.runDocumentAction('completeOrder', function() {
+        return showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
+            if (!ok) return;
+            return WMS.api.postRaw(`/after_sale_out/${id}/complete`, {})
+            .then(data => {
+                if (data.status === 'success') {
+                    showToast('操作成功', 'success');
+                    location.reload();
+                } else {
+                    showToast('操作失败：' + data.msg, 'danger');
+                }
+            });
         });
     });
 }

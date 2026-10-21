@@ -166,7 +166,7 @@
                         <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})" title="反审">
                             <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
+                        <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
                             <i class="bi bi-check-double"></i>
                         </button>
                         {% elif order.status == 'completed' %}
@@ -362,22 +362,20 @@ async function revertOrder(id) {
 }
 
 async function completeOrder(id) {
-    const confirmed = await showConfirm('确认完成此采购申请单？', { title: '完成采购申请' });
-    if (!confirmed) return;
-    csrfFetch(`/purchase_request/${id}/complete`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showToast('采购申请已完成，正在刷新列表…', 'success');
-            setTimeout(function(){ location.reload(); }, 650);
-        } else {
-            showToast('操作失败：' + data.msg, 'danger', 3600);
-        }
-    })
-    .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    return WMS.runDocumentAction('completeOrder', async function() {
+        const confirmed = await showConfirm('确认完成此采购申请单？', { title: '完成采购申请' });
+        if (!confirmed) return;
+        return WMS.api.postRaw(`/purchase_request/${id}/complete`, {})
+        .then(data => {
+            if (data.status === 'success') {
+                showToast('采购申请已完成，正在刷新列表…', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast('操作失败：' + data.msg, 'danger', 3600);
+            }
+        })
+        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+    });
 }
 
 async function deleteOrder(id) {

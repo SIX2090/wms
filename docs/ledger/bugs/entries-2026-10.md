@@ -1032,3 +1032,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 重做验证：八角色普通/embedded页面及相邻137 passed；BOM双导航断言原样通过；verify_ai_ledger_consistency、verify_ai_warehouse_workbench_page、verify_ai_purchase_workbench_page均退出0。代码备份回退及恢复再次验证，不降低既有断言。
 - 本次推送门禁：连接器现场核实main最近Android https://github.com/SIX2090/wms/actions/runs/39503220864 （d2437fd9）、AI验证 https://github.com/SIX2090/wms/actions/runs/39544348329 与WMS CI https://github.com/SIX2090/wms/actions/runs/39544348270 （25a1dc3285e1e6e5c71e721186b56971eac4bf01）均completed/success；若pre-push同样HTTP403，仅本次临时设置既有WMS_SKIP_CI_GATE。
 - 生效确认：待确认；生产需重启 WMS 服务生效；仅内存库测试，未更改生产账号、业务单据或库存。
+
+
+### BUG-2026-10-21-007: 单据完成请求期间可重复点击且按钮缺少忙碌状态
+
+- 状态：本地已修复，推送CI及生产生效待确认。
+- 根因/危害：独立完成处理器在确认及请求链期间没有前端重入保护；慢网络下可多次发请求，依靠后端状态/写锁拒绝重复操作，干扰录单与错误提示。
+- 修复：新增共用WMS.runDocumentAction，确认及完整请求链期间锁定对应按钮并设置aria-busy，重复调用复用当前Promise；取消、失败或预警后恢复原disabled/aria状态，保留原已禁用状态。覆盖入/出库详情、售后列表/详情、采购申请列表/详情、委外发料/收料和调整单两段式保存完成；请求统一复用WMS.api.postRaw，保留预警/force和续单分支，不改后端库存/状态与人工确认。
+- 同类点已排查：既有UI-REQUISITION-ONE-ACTION-001及采购收货单动作已有保存链保护；共用表单和入/出库新增继续沿用现有保存锁。本次覆盖全部独立completeOrder及委外completeIssue/completeReceive，调整表单保存和完成一并防重；旧disabled归档模板不启用。
+- 回归：修前相关模块66 passed；新增36项真实处理器及共用脚本执行，文件备份完整回退27 failed/9 passed。恢复后覆盖确认仅一次、挂起请求仅一次、失败后可重试、原禁用态保留、预警后force查询、调整保存完成串联；原采购续单18项断言保留，只为实际共用脚本及统一API补接测试夹具；仓库提交字段回归保留原断言，仅定位实际WMS.api.postRaw调用。
+- 最终验证：完成/续单/仓库字段/委外表单/候选框/粘贴等相邻194 passed；权限/台账/导航及忙碌保护97 passed；隔离HTTP冒烟121/121，规则0违规，业务JS无裸非GET fetch。
+- 推送门禁替代证据：连接器确认main最近Android https://github.com/SIX2090/wms/actions/runs/39503220864 （d2437fd9）、AI验证 https://github.com/SIX2090/wms/actions/runs/39545484358 和WMS CI https://github.com/SIX2090/wms/actions/runs/39545484498 （09e66d7c905d8ade33e214f967829c8874d73e11）均completed/success；如pre-push仍同一匿名HTTP403，仅本次临时使用WMS_SKIP_CI_GATE。
+- 生效确认：待确认；生产需重启 WMS 服务生效；只运行隔离测试，不提交生产单据、不修改库存或账号。

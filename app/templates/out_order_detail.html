@@ -160,7 +160,7 @@
                 <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
                     <i class="bi bi-pencil-square"></i> 编辑单据
                 </button>
-                <button class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
+                <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
                     <i class="bi bi-check-circle"></i> 完成领料
                 </button>
                 <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})">
@@ -651,7 +651,7 @@ MAT003,20,10.00"></textarea>
         </div>
         <div class="anomaly-modal-footer">
             <button class="btn btn-secondary" onclick="closeAnomalyModal()">取消</button>
-            <button class="btn btn-warning" onclick="forceCompleteOrder()">确认提交</button>
+            <button data-document-action="completeOrder" class="btn btn-warning" onclick="forceCompleteOrder()">确认提交</button>
         </div>
     </div>
 </div>
@@ -1329,23 +1329,24 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
 
 // ==================== 完成领料 ====================
 function completeOrder(id, force) {
-    _showConfirm('确认完成领料？完成后库存将减少。', {title: '完成领料'}).then(function(confirmed) {
-        if (!confirmed) return;
-        var url = '/out_order/' + id + '/complete';
-        if (force) {
-            url += '?force=true';
-        }
-        csrfFetch(url)
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.status === 'warning') {
-                showAnomalyWarning(res.anomalies, id);
-            } else if (res.status === 'success') {
-                _showToast(res.msg || '领料完成', 'success');
-                setTimeout(function() { location.reload(); }, 600);
-            } else {
-                _showToast(res.msg || '操作失败', 'danger');
+    return WMS.runDocumentAction('completeOrder', function() {
+        return _showConfirm('确认完成领料？完成后库存将减少。', {title: '完成领料'}).then(function(confirmed) {
+            if (!confirmed) return;
+            var url = '/out_order/' + id + '/complete';
+            if (force) {
+                url += '?force=true';
             }
+            return WMS.api.postRaw(url, {})
+            .then(function(res) {
+                if (res.status === 'warning') {
+                    showAnomalyWarning(res.anomalies, id);
+                } else if (res.status === 'success') {
+                    _showToast(res.msg || '领料完成', 'success');
+                    setTimeout(function() { location.reload(); }, 600);
+                } else {
+                    _showToast(res.msg || '操作失败', 'danger');
+                }
+            });
         });
     });
 }
