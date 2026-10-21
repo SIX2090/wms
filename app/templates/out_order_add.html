@@ -1172,10 +1172,6 @@ function handleOtherOrderToolbar(action, ev) {
         showToast('单据保存后可在单据详情页使用「智能分享」生成图片；定时自动分享请到 系统管理 → 微信分享 配置', 'info');
         return;
     }
-    if (action === 'nav-first' || action === 'nav-prev' || action === 'nav-next' || action === 'nav-last') {
-        showToast('请先保存单据，再到列表页进行上/下张导航', 'info');
-        return;
-    }
 }
 window.handleOtherOrderToolbar = handleOtherOrderToolbar;
 
