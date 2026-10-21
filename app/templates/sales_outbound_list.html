@@ -75,7 +75,7 @@
                 <tbody>
                     {% for order in pagination.items %}
                     <tr>
-                        <td><input type="checkbox" class="sales-outbound-check check-item" value="{{ order.id }}" {% if order.status != 'pending' %}disabled{% endif %}></td>
+                        <td><input type="checkbox" class="sales-outbound-check check-item" value="{{ order.id }}" {% if order.status != 'pending' %}disabled title="已完成单据不能批量完成或删除"{% endif %}></td>
                         <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
                         <td><a href="{{ url_for('out_order_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.order_no }}</a></td>
                         <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>

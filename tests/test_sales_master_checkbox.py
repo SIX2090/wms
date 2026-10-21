@@ -4,8 +4,10 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from jinja2 import Environment
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -39,3 +41,16 @@ assert.equal(rows[2].checked,false);
     result = subprocess.run([node, '-e', script, payload], capture_output=True,
                             text=True, encoding='utf-8', timeout=30)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('status', ['pending', 'completed'])
+def test_sales_outbound_disabled_checkbox_explains_reason(status):
+    source = (ROOT / 'app/templates/sales_outbound_list.html').read_text(encoding='utf-8')
+    control = re.search(r'<input[^>]*class="sales-outbound-check check-item"[^>]*>', source).group()
+    rendered = Environment().from_string(control).render(order=SimpleNamespace(id=1, status=status))
+    if status == 'pending':
+        assert 'disabled' not in rendered
+    else:
+        assert 'disabled' in rendered
+        title = re.search(r'title="([^"]+)"', rendered)
+        assert title and '已完成' in title.group(1)
