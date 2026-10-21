@@ -375,7 +375,9 @@ function findMaterialByCode(code) {
     if (!normalized) return null;
     return materials.find(m => String(m.code || '').toLowerCase() === normalized) || null;
 }
-
+function escapeHtml(value) {
+    return String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 function unitOptions(selectedId) {
     let html = '<option value="">-</option>';
     units.forEach(function(unit) {

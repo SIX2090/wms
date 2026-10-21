@@ -416,7 +416,9 @@ document.addEventListener('DOMContentLoaded', function() {
         var timer = null;
         var cache = {};
 
-
+        function escapeHtml(v) {
+            return String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
 
         function hideDropdown() {
             if (activeDropdown) { activeDropdown.style.display = 'none'; activeDropdown = null; }

@@ -664,9 +664,30 @@ MAT003,20,10.00"></textarea>
 var _showConfirm = window.showConfirm || (window.parent && window.parent.showConfirm) || function(msg) { return window.confirm(msg) ? Promise.resolve(true) : Promise.resolve(false); };
 var _showToast = window.showToast || (window.parent && window.parent.showToast) || function(msg) { alert(msg); };
 
+function getCsrfToken() {
+    var tokenNode = document.querySelector('meta[name="csrf-token"]');
+    if (tokenNode && tokenNode.content) return tokenNode.content;
+    try {
+        tokenNode = window.parent && window.parent.document
+            ? window.parent.document.querySelector('meta[name="csrf-token"]')
+            : null;
+        return tokenNode && tokenNode.content ? tokenNode.content : '';
+    } catch (e) {
+        return '';
+    }
+}
 
-
-
+function csrfFetch(url, options) {
+    options = Object.assign({method: 'POST'}, options || {});
+    var headers = new Headers(options.headers || {});
+    var token = getCsrfToken();
+    if (token && !headers.has('X-CSRFToken')) {
+        headers.set('X-CSRFToken', token);
+    }
+    options.headers = headers;
+    options.credentials = options.credentials || 'same-origin';
+    return fetch(url, options);
+}
 
 function formatStock(value) {
     var stock = parseFloat(value);
@@ -1569,7 +1590,12 @@ function showAiAnomalyAnalysis() {
     });
 }
 
-
+function escapeHtml(text) {
+    if (!text) return '';
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 // ==================== 显示批量粘贴模态框 ====================
 function showBatchPasteModal() {

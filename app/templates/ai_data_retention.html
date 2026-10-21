@@ -109,7 +109,9 @@
 </div>
 
 <script>
-
+function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 document.addEventListener('DOMContentLoaded', function() {
     const configForm = document.getElementById('retentionConfigForm');
     const previewBtn = document.getElementById('previewBtn');

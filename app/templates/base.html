@@ -119,14 +119,7 @@
         var meta = document.querySelector('meta[name="csrf-token"]');
         if (meta && meta.content) return meta.content;
         var hidden = document.querySelector('input[name="csrf_token"]');
-        if (hidden && hidden.value) return hidden.value;
-        try {
-            var parentMeta = window.parent && window.parent.document
-                ? window.parent.document.querySelector('meta[name="csrf-token"]') : null;
-            return parentMeta && parentMeta.content ? parentMeta.content : '';
-        } catch (error) {
-            return '';
-        }
+        return hidden ? hidden.value : '';
     }
     function csrfFetch(url, options) {
         options = Object.assign({method: 'POST'}, options || {});
@@ -3039,7 +3032,14 @@
             input.disabled = isSending;
         }
 
-
+        function escapeHtml(text) {
+            return String(text || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function renderMarkdown(text) {
             if (!text) return '';

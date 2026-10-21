@@ -345,7 +345,9 @@ const customers = {{ customers|tojson }};
 const initialItems = {{ initial_items|default([])|tojson }};
 let activeDropdown = null;
 
-
+function escapeHtml(value) {
+    return String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 
 function addNewRow(insertBeforeRow = null, data = {}) {
     const tbody = document.getElementById('materialTableBody');
