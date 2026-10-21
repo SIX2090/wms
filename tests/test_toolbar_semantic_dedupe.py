@@ -47,7 +47,7 @@ function isWmsListPage() {return data.isList !== false;}
 function isFormPage() {return !!data.isForm;}
 function createDocumentNavigationGroup() {return null;}
 function saveCurrentPage() {}
-const code = ['pageHasOwnButton','trimWmsActionbarDividers','pageHasOwnListAction','insertGlobalActionBar']
+const code = ['escapeHtml','pageHasOwnButton','trimWmsActionbarDividers','pageHasOwnListAction','insertGlobalActionBar']
     .map(n=>extract(n,n==='pageHasOwnListAction')).join('\n');
 eval(code);
 insertGlobalActionBar();

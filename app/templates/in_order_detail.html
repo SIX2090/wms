@@ -746,30 +746,9 @@ MAT003,20,10.00"></textarea>
 
 {% block extra_js %}
 <script>
-function getCsrfToken() {
-    var tokenNode = document.querySelector('meta[name="csrf-token"]');
-    if (tokenNode && tokenNode.content) return tokenNode.content;
-    try {
-        tokenNode = window.parent && window.parent.document
-            ? window.parent.document.querySelector('meta[name="csrf-token"]')
-            : null;
-        return tokenNode && tokenNode.content ? tokenNode.content : '';
-    } catch (e) {
-        return '';
-    }
-}
 
-function csrfFetch(url, options) {
-    options = Object.assign({method: 'POST'}, options || {});
-    var headers = new Headers(options.headers || {});
-    var token = getCsrfToken();
-    if (token && !headers.has('X-CSRFToken')) {
-        headers.set('X-CSRFToken', token);
-    }
-    options.headers = headers;
-    options.credentials = options.credentials || 'same-origin';
-    return fetch(url, options);
-}
+
+
 
 function formatStock(value) {
     const stock = parseFloat(value);
@@ -816,11 +795,7 @@ let materialQuickResults = [];
 let materialQuickActiveIndex = -1;
 let activeMaterialInput = null;
 
-function escapeHtml(value) {
-    return String(value || '').replace(/[&<>"']/g, function(ch) {
-        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[ch];
-    });
-}
+
 
 function getMaterialQuickDropdown() {
     return activeMaterialInput

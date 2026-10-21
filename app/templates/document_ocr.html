@@ -137,15 +137,7 @@
 let currentFile = null;
 
 // HTML 转义工具：所有来自后端/AI 的字符串字段必须经此处理后再插入 innerHTML
-function escapeHtml(value) {
-    if (value === null || value === undefined) return '';
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+
 
 // 安全 URL 校验：仅允许 http/https/相对路径，拒绝 javascript:/data: 等危险协议
 function safeUrl(url) {

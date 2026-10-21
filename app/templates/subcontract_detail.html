@@ -528,9 +528,7 @@
 <script>
 const subcontractMaterials = {{ materials|tojson }};
 
-function escapeHtml(value) {
-    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+
 
 function getMaterialUnit(material) {
     if (!material || !material.unit) return '';

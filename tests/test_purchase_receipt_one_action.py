@@ -121,6 +121,8 @@ main().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 @pytest.mark.parametrize('marker', ['1', 'requisition'])
 def test_global_toolbar_keeps_tools_and_routes_save(combined, marker):
     source = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
+    helper_start = source.index('function escapeHtml(')
+    helper = source[helper_start:source.index('\n}\n', helper_start) + 2]
     function = 'function insertGlobalActionBar() {' + source.split('function insertGlobalActionBar() {', 1)[1].split('// DOM加载完成后初始化', 1)[0]
     script = r'''
 const assert=require('assert');
@@ -157,6 +159,6 @@ assert(rendered.children.some(x=>x.navigation),'document navigation must remain'
 const save=buttons.find(x=>x.title===(combined?(MARKER==='requisition'?'保存并完成领料':'保存并完成入库'):'保存'));
 assert(save);save.click();
 assert.equal(clicked,combined?1:0);assert.equal(saved,combined?0:1);
-'''.replace('MARKER', json.dumps(marker)).replace('COMBINED', json.dumps(combined)).replace('FUNCTION', function)
+'''.replace('MARKER', json.dumps(marker)).replace('COMBINED', json.dumps(combined)).replace('FUNCTION', helper + '\n' + function)
     result = subprocess.run([node_binary(), '-e', script], capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == 0, result.stderr

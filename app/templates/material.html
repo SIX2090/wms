@@ -1372,9 +1372,7 @@ function commitQuickSelects(form) {
     });
 }
 
-function escapeHtml(value) {
-    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
+
 
 function initQuickSelects() {
     document.querySelectorAll('.quick-select').forEach(function(root) {
@@ -1444,31 +1442,9 @@ window.WmsRefreshDropdowns = function() {
     refreshQuickSelectData();
 };
 
-function getCsrfToken() {
-    var tokenNode = document.querySelector('meta[name="csrf-token"]');
-    if (tokenNode && tokenNode.content) return tokenNode.content;
-    try {
-        tokenNode = window.parent && window.parent.document
-            ? window.parent.document.querySelector('meta[name="csrf-token"]')
-            : null;
-        return tokenNode && tokenNode.content ? tokenNode.content : '';
-    } catch (e) {
-        return '';
-    }
-}
 
-function csrfFetch(url, options) {
-    options = options || {};
-    var headers = new Headers(options.headers || {});
-    var method = (options.method || 'GET').toUpperCase();
-    var token = getCsrfToken();
-    if (token && !/^(GET|HEAD|OPTIONS|TRACE)$/.test(method) && !headers.has('X-CSRFToken')) {
-        headers.set('X-CSRFToken', token);
-    }
-    options.headers = headers;
-    options.credentials = options.credentials || 'same-origin';
-    return fetch(url, options);
-}
+
+
 
 function setInputValueIfExists(id, value) {
     var node = document.getElementById(id);

@@ -3,28 +3,7 @@ let confirmResolver = null;
 let confirmQueue = [];
 let activeConfirm = null;
 
-// CSRF helpers (与 base.html 保持一致；这里仅作为未引入 base.html 时的回退)
-if (typeof getCsrfToken !== 'function') {
-    function getCsrfToken() {
-        var meta = document.querySelector('meta[name="csrf-token"]');
-        if (meta && meta.content) return meta.content;
-        var hidden = document.querySelector('input[name="csrf_token"]');
-        return hidden ? hidden.value : '';
-    }
-}
-if (typeof csrfFetch !== 'function') {
-    function csrfFetch(url, options) {
-        options = Object.assign({method: 'POST'}, options || {});
-        var headers = new Headers(options.headers || {});
-        var token = getCsrfToken();
-        if (token && !headers.has('X-CSRFToken')) {
-            headers.set('X-CSRFToken', token);
-        }
-        options.headers = headers;
-        options.credentials = options.credentials || 'same-origin';
-        return fetch(url, options);
-    }
-}
+// CSRF helpers are provided by the base shell before this script loads.
 
 // Toast 图标映射
 function getToastIcon(type) {
@@ -1391,7 +1370,7 @@ function setupDetailTable(config) {
         columns.filter(function(column) { return !column.excluded; }).forEach(function(column) {
             const option = document.createElement('label');
             option.className = 'cb-column-option';
-            option.innerHTML = '<input type="checkbox" class="form-check-input" data-column-key="' + column.key + '"><span>' + column.label + '</span>';
+            option.innerHTML = '<input type="checkbox" class="form-check-input" data-column-key="' + escapeHtml(column.key) + '"><span>' + escapeHtml(column.label) + '</span>';
             const checkbox = option.querySelector('input');
             checkbox.checked = (state.hiddenColumns || []).indexOf(column.key) === -1;
             checkbox.addEventListener('change', function() {
@@ -2584,7 +2563,7 @@ function createDocumentNavigationGroup(module, isListPage) {
         btn.type = 'button';
         btn.className = 'btn btn-sm cb-doc-nav-btn';
         btn.title = item.title;
-        btn.innerHTML = '<span class="cb-doc-nav-icon"><i class="bi ' + item.icon + '"></i></span><span class="cb-doc-nav-label">' + item.label + '</span>';
+        btn.innerHTML = '<span class="cb-doc-nav-icon"><i class="bi ' + escapeHtml(item.icon) + '"></i></span><span class="cb-doc-nav-label">' + escapeHtml(item.label) + '</span>';
         btn.addEventListener('click', item.action);
         group.appendChild(btn);
     });
@@ -3334,7 +3313,7 @@ function insertGlobalActionBar() {
             btn.setAttribute('data-wms-save-complete-proxy', '1');
         }
         btn.title = actionLabel;
-        btn.innerHTML = '<i class="bi ' + item.icon + '"></i><span class="cb-actionbar-label">' + actionLabel + '</span>';
+        btn.innerHTML = '<i class="bi ' + escapeHtml(item.icon) + '"></i><span class="cb-actionbar-label">' + escapeHtml(actionLabel) + '</span>';
         btn.addEventListener('click', item.action);
         if (item.key === 'save' && !isFormPage()) btn.classList.add('disabled');
         if (item.key === 'delete' && !module.deleteUrl && !module.detailDeleteUrl) btn.classList.add('disabled');
@@ -3739,7 +3718,7 @@ function getRecentVisits() {
             var row = document.createElement('tr');
             row.dataset.key = key;
             row.hidden = !!keyword && (column.defaultLabel + ' ' + label).toLowerCase().indexOf(keyword) === -1;
-            row.innerHTML = '<td>' + (index + 1) + '</td><td>' + column.defaultLabel + '</td><td><input type="text" maxlength="30"></td><td><input type="checkbox"' + (column.locked ? ' disabled title="系统必显字段"' : '') + '></td>';
+            row.innerHTML = '<td>' + (index + 1) + '</td><td>' + escapeHtml(column.defaultLabel) + '</td><td><input type="text" maxlength="30"></td><td><input type="checkbox"' + (column.locked ? ' disabled title="系统必显字段"' : '') + '></td>';
             row.querySelector('input[type=text]').value = label;
             row.querySelector('input[type=text]').addEventListener('input', function() { controller.state.labels[key] = this.value.trim() || column.defaultLabel; });
             var checkbox = row.querySelector('input[type=checkbox]');
