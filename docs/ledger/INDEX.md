@@ -420,6 +420,7 @@
 | 已修复并纳入回归 | bugs | entries-2026-10.md |
 | BUG-2026-10-21-017 | bugs | entries-2026-10.md |
 | BUG-2026-10-21-018 | bugs | entries-2026-10.md |
+| 2026-10-21 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
