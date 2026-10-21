@@ -990,39 +990,40 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-003: 共用分页条数选择器未绑定且旧参数覆盖当前选择
 
-- 状态：已修复并推送main，提交`3aab2686`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39541602595)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39541602491)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`3aab2686`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39541602595)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39541602491)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：pager宏遗漏per-page-select，八页条数选择无反应；统一绑定器先写新per_page再合并base_kwargs，七页保留的旧per_page会覆盖新值。
 - 修复：共用宏接入既有绑定器，筛选合并后再设置新条数并回到第一页；删除无调用的bindPagerSelect，保留原页面路径、仓库/关键词/合同/排序和embedded参数。
 - 同类点已排查：历史BUG-F02-07及BUG-2026-09-23-004；盘点、调拨、调整、工单领料、委外订单/发料/收料及库存查询共八页；销售订单/销售出库使用独立监听，其他per_page_select共用绑定器亦保留。
 - 回归：修前相邻75 passed/86 skipped；新增16项真实模板渲染加Node监听执行，旧代码16 failed；文件备份回退后16 failed，恢复后及相邻检查通过。相邻最终91 passed/86 skipped；全量4405 passed/91 skipped，唯一失败为收集期旧台账快照未含本次新增ID，补登记映射后台账10项通过，既有断言保留；隔离库HTTP冒烟121/121、规则0违规、既有BUG检查通过。
+- 生产生效记录推送门禁（2026-10-21）：本地匿名API仍403，连接器逐一核实main最新Android运行[39503220864](https://github.com/SIX2090/wms/actions/runs/39503220864)（d2437fd9）、AI验证[39547834820](https://github.com/SIX2090/wms/actions/runs/39547834820)及WMS CI[39547834782](https://github.com/SIX2090/wms/actions/runs/39547834782)（baf08eed）均completed/success。若pre-push仍同一查询故障，仅此次临时使用已有WMS_SKIP_CI_GATE=1，推送后再验收新CI。
 - CI门禁替代证据：匿名API限流403；连接器核实main最近Android运行39503220864（d2437fd9）、AI验证39526472526及WMS CI39526472527（517ed188）均completed/success；仅该次push如复核仍同样失败，按AGENTS§三临时使用既有WMS_SKIP_CI_GATE。
-- 生效确认：待确认；生产需重启 WMS 服务生效；本次不启停生产、不修改生产数据库或账号。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
 
 
 ### BUG-2026-10-21-004: 销售订单全选残留已删除的行内处理器
 
-- 状态：已修复并推送main，提交`cd4aecba`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39542161428)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39542161747)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`cd4aecba`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39542161428)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39542161747)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：SM-P6-03-3已将全选迁移到bindListActions，表头仍调用已删除的toggleAllSalesOrders，点击抛ReferenceError。
 - 修复：移除重复onclick，沿用统一change监听，全选/取消只影响当前页可操作行。
 - 同类点已排查：采购订单、采购申请、售后出库和销售选单的toggleAll均有定义；销售出库列表使用既有统一监听，无同类残留。
 - 回归：修前销售相邻10 passed；新增两项执行实际onclick及统一绑定器，旧代码及备份回退均2 failed；恢复后验证勾选/取消与禁用行不受影响。
-- 生效确认：待确认；生产需重启 WMS 服务生效；不修改生产单据、库存或账号。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
 
 
 ### BUG-2026-10-21-005: 其他出入库未实现翻单按钮呈可用且查找默认方向错误
 
-- 状态：已修复并推送main，提交`8dec8d76`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39542552756)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39542549692)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`8dec8d76`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39542552756)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39542549692)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：共用工具栏按order_id启用翻单按钮，两个页面的处理器却永远只提示返回列表；查找链接在未传地址时始终指入库列表。
 - 修复：四个尚未实现的翻单按钮恒禁用并提示通过查找单据返回列表，删除两页不可达提示分支；默认列表按入/出方向选择，显式列表及其筛选条件优先保留。不新增跨业务类型导航逻辑。
 - 同类点已排查：历史BUG-2026-09-23-005为全局栏列表导航误触，本次只处理其他出入库专用工具栏；既有全局真实导航、查找浮层及其CSS完整保留。
 - 回归：修前相邻37 passed；新增6项模板渲染，新建/编辑两方向旧代码及备份回退均4 failed/2 passed；恢复后相邻43 passed。
-- 生效确认：待确认；生产需重启 WMS 服务生效；不操作生产数据或账号。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
 
 
 ### BUG-2026-10-21-006: 操作入口及AI建议未按后端角色权限筛选
 
 - 关联任务：AI-C01-FIX-ROLE-UI-001（已完成AI-C01的界面修复子项）。
-- 状态：已修复并推送main，提交`09e66d7c`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39545484498)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39545484358)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`09e66d7c`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39545484498)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39545484358)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：批量导入GET仅登录校验且卡片全量显示；采购申请列表/详情/侧边栏和明细选中下推按钮遗漏角色门控；助手data-role仅声明未过滤；旧隐藏导航亦残留viewer导入入口。
 - 修复：导入GET只对admin/warehouse/purchase/production开放，12张卡片逐一与各自POST角色对齐；采购申请所有写入口限admin/purchase，保留查询/打印与执行进度；AI入口沿用AI_USE_ROLES，建议按通用/本角色筛选，admin保留30项；保留旧隐藏导航及动态查找、导航CSS，只移除其viewer导入入口。
 - 同类点已排查：BUG-2026-08-16-013及AI-WMS-FINANCE-ROLE是既有后端防线，本次只对齐UI；导入12个消费点、采购申请列表/详情/侧栏/下推区、AI按钮与初始化脚本均已核对。未增加AI路由/工具/模型/开关/迁移，不修改后端既有角色写权限和人工确认边界。
@@ -1031,27 +1032,27 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 重新修复：旧导航整块保留，仅清理无权导入入口；AI子项待验收时用普通任务引用，完成提交/CI后再补完成表与正式标记；新增BOM及三项AI验证进入相邻检查。观察项#11按R8保留，后续清理需单独明确导航契约。
 - 重做验证：八角色普通/embedded页面及相邻137 passed；BOM双导航断言原样通过；verify_ai_ledger_consistency、verify_ai_warehouse_workbench_page、verify_ai_purchase_workbench_page均退出0。代码备份回退及恢复再次验证，不降低既有断言。
 - 本次推送门禁：连接器现场核实main最近Android https://github.com/SIX2090/wms/actions/runs/39503220864 （d2437fd9）、AI验证 https://github.com/SIX2090/wms/actions/runs/39544348329 与WMS CI https://github.com/SIX2090/wms/actions/runs/39544348270 （25a1dc3285e1e6e5c71e721186b56971eac4bf01）均completed/success；若pre-push同样HTTP403，仅本次临时设置既有WMS_SKIP_CI_GATE。
-- 生效确认：待确认；生产需重启 WMS 服务生效；仅内存库测试，未更改生产账号、业务单据或库存。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
 
 
 ### BUG-2026-10-21-007: 单据完成请求期间可重复点击且按钮缺少忙碌状态
 
-- 状态：已修复并推送main，提交`d065a67a`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39546805324)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39546805346)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`d065a67a`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39546805324)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39546805346)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：独立完成处理器在确认及请求链期间没有前端重入保护；慢网络下可多次发请求，依靠后端状态/写锁拒绝重复操作，干扰录单与错误提示。
 - 修复：新增共用WMS.runDocumentAction，确认及完整请求链期间锁定对应按钮并设置aria-busy，重复调用复用当前Promise；取消、失败或预警后恢复原disabled/aria状态，保留原已禁用状态。覆盖入/出库详情、售后列表/详情、采购申请列表/详情、委外发料/收料和调整单两段式保存完成；请求统一复用WMS.api.postRaw，保留预警/force和续单分支，不改后端库存/状态与人工确认。
 - 同类点已排查：既有UI-REQUISITION-ONE-ACTION-001及采购收货单动作已有保存链保护；共用表单和入/出库新增继续沿用现有保存锁。本次覆盖全部独立completeOrder及委外completeIssue/completeReceive，调整表单保存和完成一并防重；旧disabled归档模板不启用。
 - 回归：修前相关模块66 passed；新增36项真实处理器及共用脚本执行，文件备份完整回退27 failed/9 passed。恢复后覆盖确认仅一次、挂起请求仅一次、失败后可重试、原禁用态保留、预警后force查询、调整保存完成串联；原采购续单18项断言保留，只为实际共用脚本及统一API补接测试夹具；仓库提交字段回归保留原断言，仅定位实际WMS.api.postRaw调用。
 - 最终验证：完成/续单/仓库字段/委外表单/候选框/粘贴等相邻194 passed；权限/台账/导航及忙碌保护97 passed；隔离HTTP冒烟121/121，规则0违规，业务JS无裸非GET fetch。
 - 推送门禁替代证据：连接器确认main最近Android https://github.com/SIX2090/wms/actions/runs/39503220864 （d2437fd9）、AI验证 https://github.com/SIX2090/wms/actions/runs/39545484358 和WMS CI https://github.com/SIX2090/wms/actions/runs/39545484498 （09e66d7c905d8ade33e214f967829c8874d73e11）均completed/success；如pre-push仍同一匿名HTTP403，仅本次临时使用WMS_SKIP_CI_GATE。
-- 生效确认：待确认；生产需重启 WMS 服务生效；只运行隔离测试，不提交生产单据、不修改库存或账号。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
 
 
 ### BUG-2026-10-21-008: 销售出库列表禁用复选框缺少原因说明
 
-- 状态：已修复并推送main，提交`19d4332f`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39547269912)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39547269724)均completed/success；生产生效待重启确认。
+- 状态：已修复并推送main，提交`19d4332f`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39547269912)、[AI验证](https://github.com/SIX2090/wms/actions/runs/39547269724)均completed/success；2026-10-21 13:31生产已重启加载修复版本，部署验证见生效确认。
 - 根因/危害：销售出库完成态复选框已禁用，却无title解释，与领料出库列表不一致，用户无法判断不能勾选的原因。
 - 修复：为已完成单据加“已完成单据不能批量完成或删除”提示，保留原pending状态门控及选择逻辑。
 - 同类点已排查：出库列表已有禁用原因提示；销售订单统一全选监听跳过disabled行，本次不变更权限或操作范围。
 - 回归：修前全选2项通过；新增草稿/完成态模板渲染验证，旧代码及备份回退均1 failed/3 passed，草稿仍可勾选，完成态保持禁用且有提示。
 - 最终验证：选择/销售/分页/忙碌保护相邻66 passed，台账及提示14 passed，规则0违规；推送前连接器核实最近AI验证39546805346及WMS CI39546805324（d065a67a4298524e7687352e85947a745e0e55ae）、Android39503220864（d2437fd9）均completed/success。如本地门禁仍同一HTTP403，仅该次临时使用既有WMS_SKIP_CI_GATE。
-- 生效确认：待确认；生产需重启 WMS 服务生效；不操作生产单据、库存或账号。
+- 生效确认：2026-10-21 13:31（北京时间），Codex按用户“继续上面的任务”沿用既有WMS-Warehouse计划任务重启；旧PID16900停止后确认端口空闲，新PID1680（Python311/Session0）独占127.0.0.1:8080；启动日志13:31:26确认加载`baf08ee`（含本项修复），CSRF开启。任务LastTaskResult=0；本机及公网https://gd2026.top/login均HTTP200，共用document-action.js返回200且包含runDocumentAction。生产需重启 WMS 服务生效，本次已完成；功能行为以此前隔离回归及绿色CI为证，生产仅核对进程、启动版本和GET响应，未执行生产业务写操作或更改账号密码。
