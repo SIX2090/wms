@@ -4,6 +4,27 @@
  */
 
 class ExcelImportExport {
+    static loadXlsx() {
+        if (window.XLSX) return Promise.resolve(window.XLSX);
+        if (!ExcelImportExport.xlsxPromise) {
+            const script = document.createElement('script');
+            script.src = ExcelImportExport.xlsxUrl;
+            ExcelImportExport.xlsxPromise = new Promise((resolve, reject) => {
+                script.onload = () => {
+                    if (window.XLSX) resolve(window.XLSX);
+                    else reject(new Error('Excel组件未正确初始化，请重试'));
+                };
+                script.onerror = () => reject(new Error('Excel组件加载失败，请检查网络后重试'));
+                document.head.appendChild(script);
+            }).catch(error => {
+                script.remove();
+                ExcelImportExport.xlsxPromise = null;
+                throw error;
+            });
+        }
+        return ExcelImportExport.xlsxPromise;
+    }
+
     constructor(options = {}) {
         this.options = {
             tableId: options.tableId || 'itemTable',
@@ -172,21 +193,32 @@ class ExcelImportExport {
         document.getElementById('confirmImportBtn').disabled = true;
     }
 
-    handleFileSelect(event) {
+    async handleFileSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
 
         // 保存原始文件对象，供 confirmImport 上传给后端（后端接口接收文件而非 JSON）
         this.selectedFile = file;
+        this.previewData = null;
+        document.getElementById('confirmImportBtn').disabled = true;
+        let xlsx;
+        try {
+            xlsx = await ExcelImportExport.loadXlsx();
+        } catch (error) {
+            this.showToast(error.message, 'danger');
+            return;
+        }
+        if (this.selectedFile !== file) return;
 
         // 使用SheetJS读取Excel
         const reader = new FileReader();
         reader.onload = (e) => {
+            if (this.selectedFile !== file) return;
             try {
                 const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
+                const workbook = xlsx.read(data, { type: 'array' });
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+                const jsonData = xlsx.utils.sheet_to_json(firstSheet);
 
                 if (jsonData.length === 0) {
                     this.showToast('Excel文件为空', 'warning');
@@ -200,6 +232,7 @@ class ExcelImportExport {
                 this.showToast('读取Excel文件失败：' + error.message, 'danger');
             }
         };
+        reader.onerror = () => this.showToast('读取Excel文件失败，请重新选择文件', 'danger');
         reader.readAsArrayBuffer(file);
     }
 
@@ -304,11 +337,11 @@ class ExcelImportExport {
             window.open(this.options.exportUrl, '_blank');
         } else {
             // 使用客户端导出
-            this.clientExport();
+            return this.clientExport();
         }
     }
 
-    clientExport() {
+    async clientExport() {
         const table = document.getElementById(this.options.tableId);
         if (!table) {
             this.showToast('未找到表格', 'warning');
@@ -355,16 +388,20 @@ class ExcelImportExport {
             return;
         }
 
-        // 创建工作簿
-        const ws = XLSX.utils.json_to_sheet(data);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '明细');
+        try {
+            const xlsx = await ExcelImportExport.loadXlsx();
+            const ws = xlsx.utils.json_to_sheet(data);
+            const wb = xlsx.utils.book_new();
+            xlsx.utils.book_append_sheet(wb, ws, '明细');
 
-        // 下载
-        const fileName = `${this.options.fileName}_${this.formatDate(new Date())}.xlsx`;
-        XLSX.writeFile(wb, fileName);
+            // 下载
+            const fileName = `${this.options.fileName}_${this.formatDate(new Date())}.xlsx`;
+            xlsx.writeFile(wb, fileName);
 
-        this.showToast('导出成功', 'success');
+            this.showToast('导出成功', 'success');
+        } catch (error) {
+            this.showToast('导出失败：' + error.message, 'danger');
+        }
     }
 
     downloadTemplate() {
@@ -372,23 +409,27 @@ class ExcelImportExport {
             window.open(this.options.templateUrl, '_blank');
         } else {
             // 生成模板
-            this.generateTemplate();
+            return this.generateTemplate();
         }
     }
 
-    generateTemplate() {
+    async generateTemplate() {
         const headers = this.options.columns.map(col => col.label);
         const example = {};
         this.options.columns.forEach(col => {
             example[col.label] = col.example || '';
         });
 
-        const ws = XLSX.utils.json_to_sheet([example]);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, '模板');
-
-        XLSX.writeFile(wb, `${this.options.fileName}_导入模板.xlsx`);
-        this.showToast('模板下载成功', 'success');
+        try {
+            const xlsx = await ExcelImportExport.loadXlsx();
+            const ws = xlsx.utils.json_to_sheet([example]);
+            const wb = xlsx.utils.book_new();
+            xlsx.utils.book_append_sheet(wb, ws, '模板');
+            xlsx.writeFile(wb, `${this.options.fileName}_导入模板.xlsx`);
+            this.showToast('模板下载成功', 'success');
+        } catch (error) {
+            this.showToast('模板下载失败：' + error.message, 'danger');
+        }
     }
 
     formatDate(date) {
@@ -410,4 +451,8 @@ class ExcelImportExport {
 }
 
 // 导出到全局
+const excelComponentUrl = new URL(document.currentScript.src, document.baseURI);
+const excelLibraryUrl = new URL('xlsx.full.min.js', excelComponentUrl);
+excelLibraryUrl.search = excelComponentUrl.search;
+ExcelImportExport.xlsxUrl = excelLibraryUrl.href;
 window.ExcelImportExport = ExcelImportExport;
