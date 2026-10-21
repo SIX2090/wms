@@ -1220,7 +1220,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     // ==================== 必填项检查 ====================
     const date = document.querySelector('[name="date"]').value;
     if (!date) {
-        alert('请填写日期');
+        showToast('请填写日期', 'danger');
         document.querySelector('[name="date"]').focus();
         return;
     }
@@ -1230,12 +1230,12 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     const customer = customerInput ? customerInput.value.trim() : '';
     if (isSaleOrder || isPurchaseReturn) {
         if (!customer) {
-            alert(isPurchaseReturn ? '请选择退货供应商' : '请输入客户名称');
+            showToast(isPurchaseReturn ? '请选择退货供应商' : '请输入客户名称', 'danger');
             if (customerInput) customerInput.focus();
             return;
         }
     } else if (!isOtherOut && !departmentId) {
-            alert('请选择部门');
+            showToast('请选择部门', 'danger');
             document.querySelector('[name="department_id"]').focus();
             return;
     }
@@ -1246,13 +1246,14 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     const sourceInOrderNo = sourceInOrderNoInput ? sourceInOrderNoInput.value.trim() : '';
     const sourceInOrderId = sourceInOrderIdInput ? sourceInOrderIdInput.value.trim() : '';
     if (isPurchaseReturn && purchaseReturnRequiresOrder && !sourceInOrderNo && !sourceInOrderId) {
-        alert('请填写来源采购入库单号（如需免关联，请在系统设置关闭「采购退货必须关联订单」）');
+        showToast('请填写来源采购入库单号（如需免关联，请在系统设置关闭「采购退货必须关联订单」）', 'danger');
         if (sourceInOrderNoInput) sourceInOrderNoInput.focus();
         return;
     }
     
     const items = [];
     let emptyQtyCount = 0;
+    let firstInvalidQuantity = null;
     let largeQtyCount = 0;
     
     for (const row of rows) {
@@ -1264,6 +1265,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         
         if (!qty || qty <= 0) {
             emptyQtyCount++;
+            if (!firstInvalidQuantity) firstInvalidQuantity = row.querySelector('.material-qty');
             row.querySelector('.material-qty').style.borderColor = '#ff4d4f';
         } else {
             row.querySelector('.material-qty').style.borderColor = '';
@@ -1278,25 +1280,29 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     }
     
     if (emptyQtyCount > 0) {
-        alert('有 ' + emptyQtyCount + ' 行物料数量未填写或无效，请检查标红的行');
+        showToast('有 ' + emptyQtyCount + ' 行物料数量未填写或无效，请检查标红的行', 'danger');
+        firstInvalidQuantity?.focus?.();
         return;
     }
     
     if (items.length === 0) {
-        alert('请至少添加一条物料');
+        showToast('请至少添加一条物料', 'danger');
+        document.querySelector('#materialTableBody .material-code')?.focus?.();
         return;
     }
 
     const warehouseValue = document.querySelector('[name="warehouse_id"]').value.trim();
     if (!warehouseValue) {
-        alert('仓库不能为空，请选择仓库');
+        showToast('仓库不能为空，请选择仓库', 'danger');
+        document.querySelector('[name="warehouse_id"]')?.focus?.();
         return;
     }
     // 库位管理启用时库位为必填（AGENTS.md 规则二）
     const locationInput = document.querySelector('[name="location"]');
     const locationValue = locationInput ? locationInput.value.trim() : '';
     if (locationInput && !locationValue) {
-        alert('库位不能为空，请输入库位');
+        showToast('库位不能为空，请输入库位', 'danger');
+        locationInput.focus();
         return;
     }
 
@@ -1843,7 +1849,8 @@ function batchUpdateField() {
     const rows = Array.from(document.querySelectorAll('#materialTableBody tr'))
         .filter(row => (row.querySelector('.material-code')?.value || '').trim());
     if (rows.length === 0) {
-        alert('请先录入至少一条物料明细');
+        showToast('请先录入至少一条物料明细', 'danger');
+        document.querySelector('#materialTableBody .material-code')?.focus?.();
         return;
     }
 
@@ -1852,13 +1859,14 @@ function batchUpdateField() {
         ? Array.from(warehouseSelect.options).filter(option => option.value)
         : [];
     if (warehouseOptions.length === 0) {
-        alert('没有可用仓库，请先维护仓库档案');
+        showToast('没有可用仓库，请先维护仓库档案', 'danger');
+        warehouseSelect?.focus?.();
         return;
     }
 
     const modal = document.createElement('div');
     modal.id = 'batchUpdateModal';
-    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:19000;display:flex;align-items:center;justify-content:center;';
     modal.innerHTML = `
         <div style="background:white;border-radius:8px;padding:24px;width:440px;max-width:90%;">
             <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">批量修改</h5>
@@ -1942,7 +1950,8 @@ function applyBatchUpdate() {
     if (field === 'warehouse') {
         const warehouseTarget = document.getElementById('batchUpdateWarehouse');
         if (!warehouseTarget.value) {
-            alert('请选择仓库');
+            showToast('请选择仓库', 'danger');
+            warehouseTarget.focus();
             return;
         }
         const warehouseSelect = document.querySelector('[name="warehouse_id"]');
@@ -1953,27 +1962,29 @@ function applyBatchUpdate() {
     }
 
     if (field !== 'price' && field !== 'quantity') {
-        alert('无效选择');
+        showToast('无效选择', 'danger');
+        document.getElementById('batchUpdateField').focus();
         return;
     }
     // 关键修复：非数字输入必须被拒绝，不能把 NaN 写进明细。
     if (raw === '') {
-        alert('请输入新值');
+        showToast('请输入新值', 'danger');
+        valueInput.focus();
         return;
     }
     const num = Number(raw);
     if (!Number.isFinite(num)) {
-        alert('请输入有效的数字');
+        showToast('请输入有效的数字', 'danger');
         valueInput.focus();
         return;
     }
     if (field === 'quantity' && num <= 0) {
-        alert('数量必须大于 0');
+        showToast('数量必须大于 0', 'danger');
         valueInput.focus();
         return;
     }
     if (field === 'price' && num < 0) {
-        alert('单价不能小于 0');
+        showToast('单价不能小于 0', 'danger');
         valueInput.focus();
         return;
     }
