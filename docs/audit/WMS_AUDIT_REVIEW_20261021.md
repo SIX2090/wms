@@ -61,3 +61,13 @@ Pillow钉版从12.3.0升至13.0.0；参考[官方版本说明](https://pillow.re
 - 普通A1–A14为0违规；A11全量、存量棘轮及verify_wms_bugs通过。CI验收待推送后的实际结果。
 - 文档提交5323a6ba因遗漏新增台账的契约登记，已按R8以b2cff989回滚；修正状态分类与新增记录校验后d0c8b816重新提交推送，52项台账/行号测试通过。历史状态分布基线不变。
 - 冒烟服务已退出，仅旧生产run_server进程仍在；临时目录wms-pillow-smoke-8de1p_pd的清理先遇文件占用，后被自动审批阻止，保留临时目录。测试成功不等于清理成功。
+
+
+## CI验收（2026-10-21）
+
+依赖修复提交 `802d585101f6b9fdc41302443086f7d5493bdfbb` 已推送main，本地与origin/main一致。
+[WMS CI #1668](https://github.com/SIX2090/wms/actions/runs/39521469908) 和
+[AI Verification #1963](https://github.com/SIX2090/wms/actions/runs/39521469565) 均success。
+Android最近#834在d2437fd9为success，本轮未改Android；`python scripts/check_ci_green.py`退出0，三工作流全绿。远端完整单测、安全扫描、回归和冒烟通过；没有把本地那次含失败的执行改写成全绿。
+
+本轮完成：报告事实纠正、审计索引、备份隔离恢复实证、Pillow修复及CI恢复。未闭环：本地云凭证迁移/轮换（BUG-2026-10-21-001）、生产依赖安装及重启生效、季度路由迁移。原始未跟踪报告文件保留未修改、未纳入提交。
