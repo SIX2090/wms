@@ -1081,25 +1081,25 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-010: 五个详情页未使用Excel时仍预加载完整SheetJS
 
-- 状态：已修复并推送`312b4e6f825deeb9d5a290e8295038a88fbe748e`；WMS CI39576199650及AI验证39576199599均completed/success，生产生效待本任务最终重启。
+- 状态：已修复并发布，代码提交`312b4e6f`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39576199650)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39576199599)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：入库、出库、售后出库、采购申请及委外详情固定引用944,515字节xlsx.full.min.js，即使只查看单据也需加载和解析；服务器导出及服务器模板下载并不依赖此库。公网有长期缓存，不把文件大小等同每次页面网络流量。
 - 同类点已排查：五个活跃详情页均通过唯一ExcelImportExport组件使用SheetJS；四个_disabled_unused_20260506归档模板不启用、不修改。历史台账的报表数据库N+1懒加载属于不同根因，既有Excel导出/完整行数契约保留。
 - 修复：移除五页预加载标签，共用组件按需加载同目录库并保留部署前缀及STATIC_VERSION参数；每个页面共用一次Promise，已存在XLSX直接复用，加载失败或未初始化清理脚本后允许重试。只在导入文件预览、客户端导出及客户端模板生成时等待依赖，服务器导出/模板保持直接打开URL。文件连续切换时旧选择及旧读取结果不能覆盖新预览；失败时保持确认导入禁用。
 - 回归：修前相邻94 passed；新增5个模板及12个真实组件运行用例，共17项，原代码17 failed；文件备份回退组件后12 failed/5 passed，恢复后17 passed。覆盖无预载、缓存、并发只加载一次、失败重试、未初始化、服务器分支、导入预览及选文件竞态、客户端导出、模板生成，并实际加载仓库SheetJS进行xlsx写入和读取。最终相邻111 passed；五个隔离HTTP详情均200且无预载；隔离SQLite文件库HTTP冒烟119/119，未减少既有断言。
 - 浏览器实证：隔离详情打开时xlsx资源请求0；点击导出后请求1，下载真实xlsx并用openpyxl读取确认AUD-M001行；再打开导入预览同一文件显示1条数据，xlsx请求仍为1。只做隔离预览与下载，未执行生产导入或单据完成。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。未改变库存业务逻辑、权限、生产单据、账号或密码。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 
 - 本批推送门禁：匿名API403限流；连接器逐一核实main最新Android39503220864（d2437fd9）、AI验证39560308607和WMS CI39560308533（5fc8d7d7）均completed/success。只对此次同一查询故障临时使用既有WMS_SKIP_CI_GATE=1；后续仍验收新SHA的CI。
 
 
 ### BUG-2026-10-21-011: 前端转义和CSRF工具重复及栏目动态HTML缺少统一编码
 
-- 状态：代码已修复，待提交和CI验收；本次前端工程优化第二批。
+- 状态：已修复并发布，代码提交`f31f80f5`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39580033935)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39580034023)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/影响：普通页面重复定义escapeHtml，个别DOM版本只编码文本不处理属性引号，行为不一致；CSRF包装重复覆盖，独立维护易遗漏嵌入页取token。app.js四处栏目/导航HTML直接拼接字段名、键值、图标或标题，特殊文字可能被解析为HTML。导航来源当前是本地常量，不将其报告为已证实可利用的远程XSS。
 - 修复：18个普通模板共19处escapeHtml定义删除，统一复用已有app.js全局编码器；独立打印模板编辑器不加载app.js，保留其自包含文本编码器。五页局部getCsrfToken/csrfFetch及app.js备用副本移除，只保留基础模板的全局CSRF包装；统一保留meta、隐藏字段、父页面token回退、跨域异常降级、显式CSRF头和原始body/Response行为。四处动态HTML统一调用已有escapeHtml编码属性和文字。
 - 同类点已排查：全站顶层活跃模板和app.js的7份csrfFetch归一为1份；21处escapeHtml定义减少至2处（公共实现及独立编辑器）。保留旧隐藏导航、动态cb-doc-nav/cb-doc-search样式和已有权限边界，不移除有效功能。未增加AI路由、工具、模型、开关、迁移或修改人工确认。
 - 验证：修前相关模块72 passed；新增40项验证普通模板共用工具、唯一CSRF定义、四处真实HTML拼接对特殊文字的解析结果、五种token来源及显式请求参数保留。原代码27 failed/13 passed；文件备份回退27 failed/13 passed；恢复后40 passed，最终相邻177 passed。隔离浏览器用包含img/onerror及引号的栏目名打开栏目设置，完整显示为普通文字，无图片/事件注入、无控制台错误。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。仅隔离环境测试，未操作生产库存、单据、账号或密码。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 本批推送门禁：最新main的Android39503220864（d2437fd9）、AI验证39576199599及WMS CI39576199650（312b4e6f）均completed/success；若本地pre-push同一匿名403，仅本次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 首轮回滚：6190f528的WMS CI39578173144失败，具体为两组截取函数运行的工具栏夹具漏加载escapeHtml，30 failed/1479 passed/13 skipped，全部为ReferenceError，未放宽断言。按R8立即本地revert，保留本地恢复补丁；通过GitHub连接器以父6190f528和已绿312b4e6f的原树创建回滚63b7a7345ebb3f763faa256fc5dc08a52550af7c，使用expected_sha及force=false快进更新main；本地fetch/rebase对齐。回滚树与312b4e6f相同，WMS CI39579135660、AI验证39579135725均success。
@@ -1108,13 +1108,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-012: 基础资料页绕过统一请求和确认提示
 
-- 状态：代码已修复，待推送及CI验收。
+- 状态：已修复并发布，代码提交`fa948c43`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39585479172)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39585479095)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：分类、客户、部门、员工、单位、仓库、供应商七页共33处原生fetch自行解析JSON，HTTP错误和会话过期处理脱离统一API；部分提示及删除/默认仓库确认仍使用原生弹窗，体验与错误处理不一致。
 - 修复：26处POST及7处GET迁入WMS.api.postRaw/getRaw，保留完整响应、FormData及JSON载荷、原URL与自定义请求头；移除重复response.json解析，提示使用showToast，五处确认使用异步showConfirm，取消不发请求。未改后端权限、数据校验、库存或单据状态。
 - 同类点已排查：沿用BUG-2026-10-21-007统一请求基础设施；全查上述七页新增、编辑、导入、单删、批删及默认仓库操作，不宣称其他业务页裸fetch已清零。
 - 回归：修前相邻28 passed；新增64项实际页面处理器结合生产api.js运行，覆盖成功、HTTP400结构化错误、CSRF、multipart归属、JSON载荷和取消确认。旧代码及文件备份回退均64 failed/21 skipped，恢复64 passed/21 skipped（表单无额外确认的21种组合不适用）。最终相邻178 passed/21 skipped；隔离文件库冒烟119/119。
 - 浏览器验收：127.0.0.1:9081独立内存库新增AUD-FRONT-012成功，取消删除后记录保留，编辑GET回填并保存成功；确认框截图output/playwright/master-data-confirm.png。HTTP失败及取消不请求由运行时测试覆盖，未删除生产数据或更改账号。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 推送前门禁：Android39503220864（d2437fd9）、AI39580034023及WMS CI39580033935（f31f80f5）均completed/success；同一匿名API403时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 全量验证记录（012）：tests/执行23分27秒，4636 passed/112 skipped/1 failed；唯一失败是测试启动后新增012台账导致已导入POST_SPLIT_BUGS快照与读取时台账不同步，未修改基线或放宽断言。最终源文件固定后整组台账10项复跑通过（联合本批74 passed/21 skipped）；verify_wms_bugs通过，规则0违规。最终提交CI再次核对全量结果。
@@ -1122,13 +1122,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-013: 公共确认框缺少键盘焦点边界且采购驳回使用原生输入框
 
-- 状态：代码已修复，待推送和CI验收。
+- 状态：已修复并发布，代码提交`78f066bd`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39587154102)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39587154189)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：公共确认队列只有鼠标处理，无Esc取消/Tab焦点循环/关闭归还焦点；采购申请驳回仍使用原生prompt，异步替换后若不锁定可重复打开并提交。
 - 修复：原确认队列增加WMS.confirm/WMS.prompt，单行输入与确认共用组件、取消返回null并保留空字符串语义；内容只用textContent/value，兼容缓存旧壳无输入框时的原生兜底。增加dialog/aria关联、默认取消焦点、Esc取消、Tab循环、输入框Enter确认及中文输入组合态保护，捕获阶段隔离页面快捷键，队列关闭后归还原焦点。采购驳回复用WMS.runDocumentAction锁及统一API，取消不请求，失败恢复按钮。
 - 同类点已排查：关联007请求忙碌保护；检查公共队列全部消费页及驳回处理器，保留showConfirm旧入口，不改权限、审批后端或业务状态；其他原生弹窗逐页迁移未在本条宣称清零。
 - 回归：修前完成/采购续单相邻51 passed；新增14项生产队列/键盘事件/实际驳回处理器运行验证，旧代码及文件备份回退14 failed，恢复14 passed。相邻195 passed/21 skipped（新增焦点延后用例后专项14 passed），原断言保留。
 - 浏览器验收：9081内存库打开AUD-PR驳回框，按钮禁用、输入框聚焦；Esc关闭且按钮恢复、焦点回到rejectOrder按钮，采购申请仍待审批；截图output/playwright/purchase-reject-dialog.png。未在生产执行驳回或其他业务写操作。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 推送前门禁：Android39503220864（d2437fd9）、WMS CI39585479172及AI39585479095（fa948c43）均completed/success；同一匿名403查询故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 最终相邻验证（013）：206 passed/21 skipped，隔离9082文件库重启加载新壳后冒烟119/119，规则0违规；新增14项回退全部失败，最终代码恢复后全过。
@@ -1136,13 +1136,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-014: 单据新增页重复样式及拆分资产未纳入缓存版本
 
-- 状态：代码已修复，待推送及CI验收。
+- 状态：已修复并发布，代码提交`ae458182`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39588488982)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39588488892)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：采购入库和销售订单新增页重复474行CSS，页面响应反复传输；现有静态版本仅遍历JS根目录及custom.css，抽取独立CSS或pages子目录资产后若不扩展监控，后续修复可能留在浏览器旧缓存。
 - 修复：两页共用static/css/document-form.css，原样保留公共规则与加载位置，入库数量spinner差异仍在本页；版本生成递归追踪业务JS/CSS并保持xlsx第三方库排除和既有核心资产顺序。无业务脚本、表单字段、请求或后端库存逻辑变更。
 - 同类点已排查：关联AI-WMS-FILTER-004静态版本修复，检查CSS及未来pages子目录，未删除动态使用的cb-doc-nav/search样式；其他单据样式差异保留，不以相似度直接合并。
 - 回归：修前相邻13 passed；新增7项覆盖共享引用/原规则规范化SHA256完全一致、数量差异保留、CSS和嵌套JS/CSS新增/修改/删除版本变化及xlsx排除。旧代码及文件备份回退均6 failed/1 passed，恢复专项相邻37 passed。
 - 浏览器验收：9081内存库记录两页拆分前后页面头、表格、表头、单元格及数量输入框的矩形、字体、边框、间距、背景、appearance，JSON逐项完全一致；入库数量仍textfield。截图output/playwright/document-form-shared-styles.png，原始比较数据保留在output/playwright。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 推送前门禁：Android39503220864（d2437fd9）、AI39587154189及WMS CI39587154102（78f066bd）均completed/success；同一匿名403故障时仅本次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 最终相邻验证（014）：90 passed，规则0违规；共享CSS无相对资源URL或Jinja表达式，原规则规范化SHA256不变；隔离9082文件库重启后冒烟119/119。
@@ -1150,25 +1150,37 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-21-015: 基础资料脚本内联无法独立缓存
 
-- 状态：代码已修复，待推送及CI验收。
+- 状态：已修复并发布，代码提交`fa1da477`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39589796914)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39589797106)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：部门、员工、仓库三个页面共380行脚本内联在HTML响应中，无法独立缓存和执行JS lint；三页现有实现不含Jinja表达式，可在不改变数据注入和行为的前提下拆分。
 - 修复：原样移入static/js/pages/department.js、employee.js、warehouse.js，模板在原位置加载带STATIC_VERSION的普通script，保留全局onclick函数及DOMContentLoaded监听顺序；复用014递归资产版本追踪。未改业务函数内容或新增配置全局变量。
 - 同类点已排查：其他四个基础资料页含动态端点或多段脚本，留待逐页处理，避免把模板表达式直接搬入JS；现有单据页和AI页面亦不在本条宣称全部拆分。
 - 回归：原功能64 passed/21 skipped；新增三项引用仅一次、无重复内联、文件无Jinja及脚本内容SHA256保持拆分前完全一致检查，旧模板及文件备份回退3 failed，恢复后结合实际外链脚本和生产api.js运行，专项相邻74 passed/21 skipped。原传输和取消操作断言全部保留，仅更新夹具按真实script顺序加载外链文件。
 - 浏览器验收：9081内存库部门页实际加载/pages/department.js，新增AUD-ASSET-015成功、列表回显正确、无控制台错误；截图output/playwright/master-data-page-assets.png。生产数据和账号未动。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 推送前门禁：Android39503220864（d2437fd9）、AI39588488892及WMS CI39588488982（ae458182）均completed/success；同一匿名403查询故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
 
 
 ### BUG-2026-10-21-016: 五个单据页残留无对应控件的合同表头脚本
 
-- 状态：代码已修复，待推送及CI验收。
+- 状态：已修复并发布，代码提交`e819df90`；[WMS CI](https://github.com/SIX2090/wms/actions/runs/39591304154)和[AI验证](https://github.com/SIX2090/wms/actions/runs/39591304496)均completed/success，生产已加载包含该修复的`e819df9`。
 - 根因/危害：入库、出库、采购订单新增、销售订单新增/编辑页各有约97行旧合同表头搜索IIFE，读取contractSearch/contractDropdown等不存在的控件后提前return；每页反复传输不能执行的代码，混淆现用逐行合同维护。
 - 修复：只移除五段旧IIFE约485行；保留逐行line-contract-no/line-project-name、全局ContractAutocomplete、向下填充和出库页同一script中的有效领料人搜索。未改接口或合同数据。
 - 同类点已排查：全仓检索上述四个旧ID只出现在这五段读取代码，无HTML或动态创建来源；拆出旧IIFE按实际缺失控件执行，五页均fetch=0/events=0。未按整个script标签盲删出库页的领料人选择器。
 - 回归：修前相关20 passed/5 failed（新增清理断言），新增6项覆盖五页清理及现用行字段保留、真实领料人搜索/选中；备份回退5 failed/1 passed，恢复25 passed。结合合同自动补全、键盘、多合同不合并及采购/销售导出字段相邻61 passed，原有断言全部保留。
 - 浏览器验收：9081内存库新增测试员工AUD-PICK-016，出库新增页输入“回归”得到“回归领料人”，点击后回填成功、无控制台错误；未保存/完成出库单。截图output/playwright/outbound-picker-preserved.png。
-- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-21 19:26–19:28（北京时间），Codex按既有WMS-Warehouse计划任务发布，新PID3356（Python311/Session0）独占8080，启动日志确认加载e819df9；生产需重启 WMS 服务生效，本次已完成。具体只读验收见文末发布记录。
 - 推送前门禁：Android39503220864（d2437fd9）、AI39589797106及WMS CI39589796914（fa1da477）均completed/success；同一匿名403故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 最终验证（016）：相邻145 passed/21 skipped，规则0违规、verify_wms_bugs通过；9082隔离文件库重启后冒烟119/119；旧表头四个ID全仓模板/JS残留为0。
+
+
+## 前端工程修复发布验收与复评核对（2026-10-21 晚）
+
+- 发布：发布时代码main与origin/main均为e819df90d883e854cf0c32825e4a60896213b251。原生产PID13936的解释器、命令、启动时间与服务归属重新核对后停止，确认8080释放，再沿用C:\wms\run_wms_task.bat计划任务启动；未创建第二实例、未改启动配置。新PID3356，Python311/Session0；19:26:22启动日志显示e819df9、CSRF开启、db-check migrate=ok。入口显式WMS_NO_DB_TOUCH=1，此db-check仅作启动检查证据，不宣称执行数据库迁移。
+- 生产GET验收：127.0.0.1:8080/login与https://gd2026.top/login均200且有登录表单；app.js、excel-import-export.js、三个pages脚本和document-form.css均200，响应字节与磁盘一致。Task LastTaskResult=0。未提交/审核/完成/反提交/删除生产单据，未改生产库存、账号或密码。
+- 最终验证：本轮全部新回归结合相邻模块307 passed/21 skipped，隔离文件库冒烟119/119；规则0违规、历史BUG验证通过。最终代码WMS CI39591304154、AI39591304496及最新Android39503220864均completed/success。首次本地全量的台账快照同步失败及复跑结果已在012记录，后续所有提交均由完整CI重新验收。
+- 015补充：三个外链脚本均HTTP200且字节与磁盘一致；员工新增框正常、仓库编辑回填Audit A。9082隔离库重启后冒烟119/119，实际认证页面缓存版本同时包含公共CSS及新页面JS时间戳；相邻134 passed/21 skipped。首次手工缓存验证误用旧测试库默认密码而断言失败，改用该隔离库既有测试凭据后验证通过，未更改密码。
+- 第二轮复评校正：AI建议按钮已由base.html的Jinja按admin/warehouse/purchase/sales/production分组输出，无AI使用权限的角色整个面板不渲染；data-role是保留元数据，缺少JS属性读取不表示未门控。已有test_toolbar_role_visibility.py覆盖八角色及单据状态。所列category/customer/department/employee/unit/warehouse/supplier七页及其外链脚本原生fetch为0。cb-doc-nav与cb-doc-search在app.js中动态生成，相关样式保留。公共确认/输入框的Esc、Tab、焦点恢复与驳回取消边界已在013完成，不能列为“本轮未涉及”。
+- 后续工程范围：物料及手机扫码等其他业务页仍有原生请求；原生alert/兼容fallback和调试输出需区分普通壳、独立打印编辑页后逐页迁移；其余单据样式有实际差异，公共行操作及大量混合Jinja的脚本尚未整体拆分；移动端卡片化和全部图标可访问性不在本轮完成范围。按R8保留复杂业务实现，先建立逐页回归再改，不按相似度或审计计数直接替换；这些工程债不计入本轮已完成项。
+
+- 复评再验证：test_toolbar_role_visibility.py重新执行48 passed，覆盖八角色下AI建议分组、无AI权限角色整面板隐藏、导入导航和采购审批操作状态；证实复评所谓“AI建议角色过滤未实现”为误判，未重复增加前端过滤。台账契约10 passed。
