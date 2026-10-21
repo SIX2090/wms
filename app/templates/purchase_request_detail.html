@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 
 {% block title %}采购申请单详情{% endblock %}
-{% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
@@ -17,8 +16,7 @@
         <a href="{{ url_for('print_purchase_request', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
             <i class="bi bi-printer"></i> 打印
         </a>
-        {% if current_user.role in ['admin', 'purchase'] %}
-        {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+        {% if order.status in ['approved', 'completed'] %}
         <button class="btn btn-primary" onclick="createPurchaseOrder({{ order.id }})">
             <i class="bi bi-arrow-right-square"></i> 生成采购单
         </button>
@@ -46,7 +44,6 @@
         <button class="btn btn-warning" onclick="revertOrder({{ order.id }})">
             <i class="bi bi-arrow-counterclockwise"></i> 反审
         </button>
-        {% endif %}
         {% endif %}
     </div>
 </div>
@@ -172,7 +169,7 @@
                     <span><i class="bi bi-list-ul"></i> 物料明细</span>
                     <span class="badge bg-primary">{{ valid_items|length }} 项</span>
                 </div>
-                {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+                {% if order.status in ['approved', 'completed'] %}
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span id="pushSelectionSummary" class="text-muted small">已选 0 行</span>
                     <button type="button" class="btn btn-sm btn-primary" onclick="createPurchaseOrder({{ order.id }}, true)">
@@ -185,7 +182,7 @@
                 <table class="table order-table mb-0" id="itemTable">
                     <thead>
                         <tr>
-                            {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+                            {% if order.status in ['approved', 'completed'] %}
                             <th width="40"><input type="checkbox" id="selectAllPushItems" onchange="togglePushItemSelection(this.checked)"></th>
                             {% endif %}
                             <th>序号</th>
@@ -198,7 +195,7 @@
                             <th class="text-end">已下推</th>
                             <th class="text-end">已入库</th>
                             <th class="text-end">未下推</th>
-                            {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+                            {% if order.status in ['approved', 'completed'] %}
                             <th class="text-end">本次下推</th>
                             {% endif %}
                             <th>执行状态</th>
@@ -213,7 +210,7 @@
                         {% set exec = item_execution.get(item.id, {}) %}
                         {% set remaining_to_order = exec.get('remaining_to_order', item.quantity or 0) %}
                         <tr>
-                            {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+                            {% if order.status in ['approved', 'completed'] %}
                             <td>
                                 <input type="checkbox" class="push-item-check" data-item-id="{{ item.id }}" {% if remaining_to_order <= 0 %}disabled{% endif %} onchange="updatePushSelectionSummary()">
                             </td>
@@ -228,7 +225,7 @@
                             <td class="text-end" data-ordered-quantity="{{ '%.2f'|format(exec.get('ordered_quantity', 0)) }}">{{ "%.2f"|format(exec.get('ordered_quantity', 0)) }}</td>
                             <td class="text-end" data-received-quantity="{{ '%.2f'|format(exec.get('received_quantity', 0)) }}">{{ "%.2f"|format(exec.get('received_quantity', 0)) }}</td>
                             <td class="text-end" data-remaining-to-order="{{ '%.2f'|format(remaining_to_order) }}">{{ "%.2f"|format(remaining_to_order) }}</td>
-                            {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
+                            {% if order.status in ['approved', 'completed'] %}
                             <td>
                                 <input type="number" class="form-control form-control-sm text-end push-item-qty" data-item-id="{{ item.id }}" min="0" max="{{ '%.2f'|format(remaining_to_order) }}" step="0.01" value="{{ '%.2f'|format(remaining_to_order) }}" {% if remaining_to_order <= 0 %}readonly{% endif %} oninput="updatePushSelectionSummary()">
                             </td>
@@ -264,12 +261,12 @@
                             <td>{{ item.supplier.name if item.supplier else (item.supplier_name or '-') }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 18 if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) else 15 }}" class="text-center text-muted">暂无明细</td></tr>
+                        <tr><td colspan="{{ 18 if order.status in ['approved', 'completed'] else 15 }}" class="text-center text-muted">暂无明细</td></tr>
                         {% endfor %}
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td colspan="{{ 16 if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) else 13 }}" class="text-end"><strong>合计：</strong></td>
+                            <td colspan="{{ 16 if order.status in ['approved', 'completed'] else 13 }}" class="text-end"><strong>合计：</strong></td>
                             <td><strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</strong></td>
                             <td></td>
                         </tr>

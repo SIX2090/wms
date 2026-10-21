@@ -20,9 +20,7 @@
     {% endif %}
 </div>
 
-{% if current_user.role in ['admin', 'warehouse'] %}
 <div class="row">
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'material' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入物料</h5></div>
@@ -41,13 +39,9 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
-{% if current_user.role in ['admin', 'purchase', 'warehouse'] %}
 <div class="row mt-3">
-    {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'in_order' or module_type == 'inbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入采购入库单</h5></div>
@@ -66,13 +60,9 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
-{% if current_user.role in ['admin', 'purchase', 'warehouse'] %}
 <div class="row mt-3">
-    {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'out_order' or module_type == 'outbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入领料单</h5></div>
@@ -91,8 +81,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'category' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入物料分类</h5></div>
@@ -111,8 +99,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'opening_stock' %}batch-card-highlight{% endif %}" id="opening-stock-import-card">
             <div class="card-header"><h5 class="mb-0">导入期初库存</h5></div>
@@ -142,13 +128,9 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
-{% if current_user.role in ['admin', 'warehouse'] %}
 <div class="row mt-3">
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'unit' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入计量单位</h5></div>
@@ -167,8 +149,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'supplier' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入供应商</h5></div>
@@ -187,13 +167,9 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
-{% if current_user.role in ['admin', 'production', 'warehouse'] %}
 <div class="row mt-3">
-    {% if current_user.role in ['admin'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'employee' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入员工</h5></div>
@@ -212,8 +188,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'production'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'bom' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入BOM</h5></div>
@@ -232,8 +206,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'warehouse' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入仓库</h5></div>
@@ -252,13 +224,9 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
-{% if current_user.role in ['admin', 'warehouse'] %}
 <div class="row mt-3">
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'department' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入部门</h5></div>
@@ -277,8 +245,6 @@
             </div>
         </div>
     </div>
-    {% endif %}
-    {% if current_user.role in ['admin', 'warehouse'] %}
     <div class="col-md-6">
         <div class="card {% if module_type == 'customer' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入客户</h5></div>
@@ -297,9 +263,7 @@
             </div>
         </div>
     </div>
-    {% endif %}
 </div>
-{% endif %}
 
 <div class="card mt-4">
     <div class="card-header"><h5 class="mb-0">导入说明</h5></div>
