@@ -39,7 +39,8 @@ reportlab==4.4.10
 
 # Barcode
 qrcode==8.2
-Pillow==12.3.0
+# BUG-2026-10-21-002: pip-audit reports 8 CVEs in 12.3.0; fixed in 13.0.0.
+Pillow==13.0.0
 python-barcode==0.16.1
 
 # Logging

@@ -399,6 +399,8 @@
 | BUG-2026-10-20-010 | bugs | entries-2026-10.md |
 | 新发现待处理 | bugs | entries-2026-10.md |
 | BUG-2026-10-21-001 | bugs | entries-2026-10.md |
+| 已修复代码待发布验收 | bugs | entries-2026-10.md |
+| BUG-2026-10-21-002 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
