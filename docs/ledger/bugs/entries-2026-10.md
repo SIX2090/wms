@@ -1146,3 +1146,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 推送前门禁：Android39503220864（d2437fd9）、AI39587154189及WMS CI39587154102（78f066bd）均completed/success；同一匿名403故障时仅本次临时使用已有WMS_SKIP_CI_GATE=1。
 
 - 最终相邻验证（014）：90 passed，规则0违规；共享CSS无相对资源URL或Jinja表达式，原规则规范化SHA256不变；隔离9082文件库重启后冒烟119/119。
+
+
+### BUG-2026-10-21-015: 基础资料脚本内联无法独立缓存
+
+- 状态：代码已修复，待推送及CI验收。
+- 根因/危害：部门、员工、仓库三个页面共380行脚本内联在HTML响应中，无法独立缓存和执行JS lint；三页现有实现不含Jinja表达式，可在不改变数据注入和行为的前提下拆分。
+- 修复：原样移入static/js/pages/department.js、employee.js、warehouse.js，模板在原位置加载带STATIC_VERSION的普通script，保留全局onclick函数及DOMContentLoaded监听顺序；复用014递归资产版本追踪。未改业务函数内容或新增配置全局变量。
+- 同类点已排查：其他四个基础资料页含动态端点或多段脚本，留待逐页处理，避免把模板表达式直接搬入JS；现有单据页和AI页面亦不在本条宣称全部拆分。
+- 回归：原功能64 passed/21 skipped；新增三项引用仅一次、无重复内联、文件无Jinja及脚本内容SHA256保持拆分前完全一致检查，旧模板及文件备份回退3 failed，恢复后结合实际外链脚本和生产api.js运行，专项相邻74 passed/21 skipped。原传输和取消操作断言全部保留，仅更新夹具按真实script顺序加载外链文件。
+- 浏览器验收：9081内存库部门页实际加载/pages/department.js，新增AUD-ASSET-015成功、列表回显正确、无控制台错误；截图output/playwright/master-data-page-assets.png。生产数据和账号未动。
+- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 推送前门禁：Android39503220864（d2437fd9）、AI39588488892及WMS CI39588488982（ae458182）均completed/success；同一匿名403查询故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。

@@ -1,5 +1,6 @@
 """Run real master-data page listeners through the production API transport."""
 import json
+import hashlib
 import re
 import shutil
 import subprocess
@@ -14,6 +15,28 @@ PAGES = "category customer department employee unit warehouse supplier".split()
 
 def page_source(page):
     return (ROOT / f"app/templates/{page}.html").read_text(encoding="utf-8")
+
+
+def page_scripts(page):
+    chunks = []
+    for match in re.finditer(r'<script([^>]*)>(.*?)</script>', page_source(page), re.S):
+        asset = re.search(r"filename=['\"]([^'\"]+)", match.group(1))
+        chunks.append((ROOT / 'app/static' / asset.group(1)).read_text(encoding='utf-8') if asset else match.group(2))
+    return '\n'.join(chunks)
+
+
+@pytest.mark.parametrize('page,digest', [
+    ('department', 'dea92120a8b20f64132141a1e258a65d9bf6db27e66fb6776e2bcc8bae984ad8'),
+    ('employee', 'a28500149b8ba51d879dbc3a6be7109c06bb52638f02e5f308836e3faa24cf54'),
+    ('warehouse', '261ac6fcf8a44c05893e5531662cb55a5900de03d99515270b14d2e5a66b0f3c')])
+def test_page_assets_preserve_script_and_load_once(page, digest):
+    source = page_source(page)
+    assert source.count(f"filename='js/pages/{page}.js'") == 1
+    assert "?v={{ config.get('STATIC_VERSION', '1.0.0') }}" in source
+    assert not any(body.strip() for body in re.findall(r'<script[^>]*>(.*?)</script>', source, re.S))
+    asset = (ROOT / f'app/static/js/pages/{page}.js').read_text(encoding='utf-8')
+    assert '{{' not in asset and '{%' not in asset
+    assert hashlib.sha256(asset.strip().encode()).hexdigest() == digest
 
 
 class Controls(HTMLParser):
@@ -38,7 +61,7 @@ class Controls(HTMLParser):
 @pytest.mark.parametrize("page", PAGES)
 def test_master_data_has_one_transport_and_prompt_style(page):
     text = page_source(page)
-    scripts = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", text, re.S))
+    scripts = page_scripts(page)
     assert not re.search(r"(?<![\w.])fetch\s*\(", scripts)
     assert not re.search(r"(?<![\w.])(?:alert|confirm)\s*\(", scripts)
     assert "WMS.api.postRaw(" in scripts
@@ -57,7 +80,7 @@ def test_master_data_transport_runtime(page, action, scenario):
     if not node:
         pytest.skip("Node.js required")
     text = page_source(page); controls = Controls(text)
-    scripts = "\n".join(re.findall(r"<script[^>]*>(.*?)</script>", text, re.S))
+    scripts = page_scripts(page)
     payload = {"page": page, "action": action, "scenario": scenario, "nodes": controls.nodes, "forms": controls.forms, "source": scripts, "api": (ROOT / "app/static/js/api.js").read_text(encoding="utf-8")}
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);
