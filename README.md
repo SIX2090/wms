@@ -1,67 +1,48 @@
 # WMS 仓库管理系统
 
-> 最近更新：2026-09-29 —— 全面校对并同步 9 月进展：CI 三工作流全绿门禁、防 BUG 规则扩至 A1–A14、打印模板设计中心/在线编辑器、手机端离线队列与语音能力、库存三账口径收敛。历史数字均已按当日仓库实测重新核对。
-> 当前重点：基于 Flask 的单人 WMS，面向低压成套电气设备企业，重点是拍照识别 + AI 物料治理 + 出入库草稿生成 + 移动端扫码作业。
+> 最近校订：2026-10-21。核对启动、备份路径、环境变量、验证方式及文档分工；具体版本、测试与生产生效记录以当前代码和对应证据为准。
+> 当前重点：基于 Flask 的单人 WMS，登记物料出入库，优先改善界面和录单效率；支持拍照识别、草稿生成及移动扫码。
 
 ## 系统定位
 
-单人使用的中文 WMS：物料登记、出入库、盘点、打印、报表，配合 AI 单据识别（照片/截图 → 草稿）与 Android 扫码 App。AI 只创建和检查草稿，完成、审核、作废、删除等高风险操作必须由人工执行（详见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)）。
+单人使用的中文 WMS：物料登记、出入库、盘点、打印、报表，配合 AI 单据识别（照片/截图 → 草稿）与 Android 扫码 App。AI 默认只创建和检查草稿，完成、审核、作废、删除等高风险操作须由人工执行或获得用户对具体操作的明确授权（详见 [`AI_PERMISSION_MATRIX.md`](./AI_PERMISSION_MATRIX.md)）。
 
 Git 部署的一键代码更新使用根目录 `update_from_github.bat`；预检失败不停止服务，启动失败返回非零并报告旧代码/服务恢复结果。依赖升级需要独立维护，详见[一键更新操作说明](docs/UPDATE_FROM_GITHUB.md)。
 
 覆盖安装失败会保留已有业务目录和快捷方式，已有数据库只读校验后跳过初始化；处理方式见[安装失败数据保留说明](docs/INSTALLATION_FAILURE_RECOVERY.md)。
 
-## ⚠️ Code Review SLA（开发者必读）
+## 开发与发布规则
 
-> **所有改动只能直推 main，且必须先过本地 L1 + L2 两道关，再等 CI 三工作流转绿。**
+以 [AGENTS.md](AGENTS.md) 和 [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) 为准，以下仅作入口说明：
 
-本仓库使用 GitHub 免费版 + **公开仓库**（2026-09 已由私有转公开，见 `WMS_BUG_BASELINE.md` BUG-2026-07-31-002 三次验证记录）。main 分支已启用服务端保护（强制线性历史 / 禁止 force push / 禁止删除分支），但**刻意未启用** Require PR 与强制 status checks，直接 push 仍可进 main。同时按 [AGENTS.md](./AGENTS.md) 的硬规则，**禁止在 GitHub 上创建任何新分支**（包括 `feature/*` / `fix/*` / `chore/*`）。这意味着：
+1. 所有修改直接在 main 工作，按 atomic action 独立提交和推送；禁止新建工作分支。
+2. 开工前确认 main 上 `Android APK Build`、`WMS AI Verification`、`WMS CI` 的最近一次运行全部成功。运行中、失败或尚未核实均不放行；异常时按 AGENTS 的查询失败处理规则取得实际证据。
+3. 代码修改先查既有能力、BUG台账和相关测试；遵守A1–A14及R1–R8，按受影响范围执行模块、相邻及全量回归。模板/路由变更须用隔离库做HTTP冒烟。
+4. 每个atomic action推送后核对实际远端SHA并验收CI。代码已推送、测试通过、生产已部署是三种不同状态，不得混报。
+5. 纯文档修订核对事实、命令、链接及对应契约测试；修改AGENTS本身单独commit/push，并注明规则修订日期。
 
-- 没有 PR review 流程，所有 review 都在 commit 之前人工完成
-- 没有任何"合并前最后一道闸门"，错代码一旦 push 就是 main 历史
-- 服务端保护层（L4）"摆设"——不能依赖 GitHub Web UI 勾选的强制规则
-
-### 流程强制
-
-1. **开工前置条件——CI 全绿门禁**：开始任何任务前，确认三个工作流在 `main` 上最近一次运行全部为绿色（`python3 scripts/check_ci_green.py`，全绿退出码 0）。任一非绿**不得开工**，必须先修红。
-2. 改动前先读 [DEVELOPMENT_RULES.md](./DEVELOPMENT_RULES.md) 和本文件底部的"防 BUG 14 条规则"
-3. 提交前必须跑 `make check`（lint + BUG 静态回归 + pytest），全部通过
-4. 改完模板或路由后跑 `make smoke`（121 项冒烟），全部通过
-5. commit message 关联 BUG ID（若有）：`fix: BUG-2026-09-29-NNN 简述`
-6. push 之前再人工 review 一次自己的 diff（`git diff origin/main`）
-
-### 三层防御
-
-| 层级 | 触发时机 | 拦截什么 |
-|---|---|---|
-| L1 本地 pre-commit | `git commit` | 防 BUG 14 条规则（A1–A14）+ 裸 fetch 拦截 |
-| L2 本地 pre-push | `git push` | 拒绝非 main 分支推送 + 禁删远程 main |
-| L3 GitHub Actions CI | push / 每日 02:30 定时 | 三工作流：121 项冒烟 + BUG 静态回归 + pytest 全量 + A1–A14 全量门禁 + AI 子系统验证 + Android APK 构建 |
-
-L1 + L2 是合入 main 之前的**唯一**拦截机会。`git commit --no-verify` 和 `git push --no-verify` 等于主动缴械，强烈不推荐。
-
-### 启用本地钩子（每个 clone 必做一次）
+每次克隆后启用钩子：
 
 ```bash
 bash .githooks/install-hooks.sh
+python scripts/check_hooks_installed.py
 ```
 
-### CI 全绿门禁（2026-09-18 起）
+Windows未配置bash命令时可调用Git for Windows的bash，或使用等效配置 `git config core.hooksPath .githooks` 后验证。安装脚本还会检查钩子可执行权限。
 
-开工前必须确认下列三个工作流在 `main` 最近一次运行全为 `success`：
+| 层级 | 实际作用 |
+|---|---|
+| pre-commit | 涉及app/scripts代码时检查A1–A14及非GET原生fetch；按规则区分新增行、白名单和豁免 |
+| pre-push | 检查main分支策略和CI全绿门禁；API工具写入不会经过本地钩子，仍须满足相同规则 |
+| GitHub Actions | 普通lint、A11全量、A8/A9/A10/A13/A14存量棘轮、安全扫描、隔离测试、业务冒烟及AI/Android验证 |
 
-| 工作流 | 文件 | 跑什么 |
-|---|---|---|
-| `Android APK Build` | `.github/workflows/android-build.yml` | Release APK 构建（本仓库唯一真实 Android 编译证据）+ Lint + 单测 |
-| `WMS AI Verification` | `.github/workflows/verify.yml` | 静态规程检查 + AI 子系统 core 验证 |
-| `WMS CI` | `.github/workflows/ci.yml` | A1–A14 全量门禁 + gitleaks + pytest（4 并发分片）+ 74 项静态回归 + 121 项冒烟 |
+CI入口：
 
-```bash
-# 一键检查：全绿退出码 0；任一非绿退出码 1 并列出失败项
-python3 scripts/check_ci_green.py
+```powershell
+python scripts/check_ci_green.py
 ```
 
-三个工作流每日 02:30（北京时间）定时触发，用于发现依赖变更、上游镜像失效等时间性故障。CI 总耗时已从 20 分钟优化至约 4–6 分钟（CI-PERF-2026-09-17 / 2026-09-24 并行化拆分）。
+匿名API可能限流；HTTP403不等于工作流失败，也不能当作已通过。可用连接器/Actions页面核实最新运行。三个必需工作流有每日定时触发，Android还受push路径过滤；并非每次文档提交都新建Android构建。具体触发、并行分片和结果以 `.github/workflows/` 为准。GitHub分支保护与规则集以现场核验为准，不根据旧的免费/私有仓库结论推断当前保护。
 
 ## 主要功能
 
@@ -73,22 +54,22 @@ python3 scripts/check_ci_green.py
 - 库内业务：调拨单、调整单、库存扣减和库存增加流水。
 - 采购业务：采购申请、采购订单、采购到货执行跟踪。
 - 生产与外协：BOM、生产领料、外协发料、外协收货、外协进度。
-- 单据效率：明细字段设置、复制行、合同/工程/仓库向下填充，合同编号和工程名称按明细行保存。
+- 单据效率：明细字段设置、复制行、合同/工程/仓库向下填充，合同编号和工程名称按明细行保存；采购入库、领料支持人工点击“保存并完成”。
 - 单据下推：采购入库和其他入库可按明细及数量下推领料单、其他出库单或售后出库草稿。
 - 数据导入导出：Excel 批量导入、导出（openpyxl）和前端表格处理。
 - 标签条码：物料标签模板、批量标签打印（`app/routes/label.py`、`label_barcode.py`）。
-- 打印体系：全 Excel 模板化打印；统一打印模板设计中心 + 在线编辑器 v2（类 Excel，PRINT-TEMPLATE-F01~F06）；10 种单据内置模板注册表；打印队列与重试、多工作站多打印机定向路由（`/print_routing`）、内置/独立 Windows 打印代理无人值守出纸、打印失败/滞留/离线告警与微信推送（详见 `app/routes/print_queue.py`、`print_template_center.py`、`print_template_editor.py`、`app/local_print_agent.py`、`tools/print_agent/`）。
+- 打印体系：全 Excel 模板化打印；统一打印模板设计中心 + 在线编辑器 v2（类 Excel，PRINT-TEMPLATE-F01~F06）；单据内置模板注册表；打印队列与重试、多工作站多打印机定向路由（`/print_routing`）、内置/独立 Windows 打印代理无人值守出纸、打印失败/滞留/离线告警与微信推送（详见 `app/routes/print_queue.py`、`print_template_center.py`、`print_template_editor.py`、`app/local_print_agent.py`、`tools/print_agent/`）。
 - 移动端 APP：Android 原生 APP（Kotlin + Jetpack Compose，`app/android-native-wms/`，包名 `com.factory.wms`）扫码入库/出库/盘点，提交即自动触发打印任务；未提交清单落盘 DataStore（杀进程不丢）；断网离线作业队列暂存、联网补传；崩溃自动上报；库存日报/出入库明细/库存台账只读报表；语音指令（可集成 sherpa-onnx 离线中文识别，见 [SHERPA_INTEGRATION.md](./SHERPA_INTEGRATION.md)）。APK 由 CI 构建发布，CI 出包是 Android 端唯一编译验收依据。
 - 移动端接口：移动扫码、物料查询、扫码提交、拍照识别物料（`app/routes/mobile.py`、`native_api.py`）。
 - 客供登记：其他入库明细可勾选客供并选择客户；不做库存所有权隔离，客供行禁止直接下推普通出库（后端 409 硬拦截）。
-- AI 单据助手：上传照片或截图后识别明细、匹配已有物料、人工确认新物料编码，并生成入库或出库草稿（LLM vision 通道，OpenAI 兼容 endpoint，带熔断器；104 个脱敏 golden 样本见 `samples/ai_documents/`）。
+- AI 单据助手：上传照片或截图后识别明细、匹配已有物料、人工确认新物料编码，并生成入库或出库草稿（LLM vision 通道，OpenAI 兼容 endpoint，带熔断器；脱敏 golden 样本见 `samples/ai_documents/`）。
 - AI 物料治理：中文归一化、名称+规格加权、别名命中、低置信度二次确认（详见 `app/ai/documents/material_governance.py`）。
 - AI 工作台：采购到货跟进、销售跟进、仓库巡查、补货建议、业务质量仪表盘（详见 `app/ai/agents/`、`app/ai/ops/`）。
-- AI 灰度发布：四档灰度模式、白名单即时生效、降级保留证据（详见 `app/ai/ops/rollout_control.py`）。
-- 安全：Flask-WTF CSRF 保护、生产 Cookie 硬门禁（`SESSION_COOKIE_SECURE` 强制）、客户端每 25 分钟自动刷新令牌、`/api/csrf_refresh` 端点、AI 路由权限交集 + 高风险硬拦截。
+- AI 灰度发布：灰度模式、白名单即时生效、降级保留证据（详见 `app/ai/ops/rollout_control.py`）。
+- 安全：Flask-WTF CSRF 保护、生产 Cookie 硬门禁（安全Cookie或受信HTTP场景显式放行）、客户端每 25 分钟自动刷新令牌、`/api/csrf_refresh` 端点、AI 路由权限交集 + 高风险硬拦截。
 - 前端统一 HTTP 层：`app/static/js/api.js` 封装 `WMS.api.get/post/put/delete`，自动注入 CSRF、统一错误处理；业务 JS 禁止原生非 GET `fetch`（pre-commit 强制）。
 
-AI 只能创建和检查草稿。完成、审核、作废、删除以及库存变动必须由操作人员在业务页面手工执行。
+AI默认只创建和检查草稿；完成、审核、作废、删除及库存变动须人工操作或获得用户对具体操作的明确授权，详见AGENTS与权限矩阵。
 
 ## 库存数据口径（三账恒等式）
 
@@ -97,11 +78,11 @@ AI 只能创建和检查草稿。完成、审核、作废、删除以及库存�
 - **总账** `material.stock`（全局合计，仅展示/估值）、**库位账** `location_inventory`（仓库级真相）、**流水账** `stock_transaction`（append-only 事实来源）。
   恒等式**按库位开关分两档**（[INVENTORY_TRUTH.md](./INVENTORY_TRUTH.md) §1 为准）：**开启库位管理时** 总账 = Σ库位账 = Σ流水账；**关闭库位管理时**（当前默认）库位账不落账、可能留有历史残留，只要求 **总账 = Σ流水账**，不得把残留的库位账差异当成坏账。
 - 业务校验必须用仓库级 `get_warehouse_stock_quantities()`，**禁止**裸用全局 `material.stock`（lint 规则 A11 + CI 全量硬门禁强制，防"A 仓掩护 B 仓"串仓）。
-- 库存写入收敛到 `apply_stock_delta` / `apply_transfer_pair` / `apply_opening_balance` 三个入口。
+- 库存写入优先通过 `apply_stock_delta` / `apply_transfer_pair` / `apply_opening_balance`；历史未收敛点及例外见INVENTORY_TRUTH，不把“收敛目标”写成所有旧调用已迁移。
 
 ## 技术栈
 
-- Python 3.11（版本号随发布递增，当前 `2026.09.1`，见 `app/version.py`；启动自检横幅 `wms v版本 (git短SHA)`）
+- Python 3.11；应用版本独立记录于 `app/version.py`，启动日志包含 `wms v版本 (git短SHA)`，不是Python版本号
 - Flask 3.1 + Flask-SQLAlchemy 3.0 + SQLAlchemy 2.0（F3.1 起迁移机制唯一：启动期 auto_migrate_database() 幂等补列；Alembic/Flask-Migrate 已废弃）
 - Flask-WTF（CSRF 保护）、Flask-Login、pydantic v2（新增路由输入校验，A8 强制）
 - APScheduler（定时任务）、waitress（生产 WSGI）
@@ -117,52 +98,42 @@ app/requirements.txt          # 运行依赖
 app/requirements-test.txt    # 测试依赖（pytest / pytest-xdist / PyYAML / bs4，CI 同源）
 ```
 
-## 快速启动
+## 启动与更新
 
-### Git 工作区恢复
+### 已有Windows生产部署
 
-不要使用 GitHub 的 `Download ZIP`，ZIP 不包含 `.git` 历史。临时电脑重启后可执行：
+先核对8080监听、实际解释器和托管方式；服务已运行时不要重复启动。标准手工入口：
+
+```bat
+C:\wms\start_wms_offline.bat
+```
+
+2026-10-21核验的当前常驻实例由 `WMS-Warehouse` 计划任务通过本地 `run_wms_task.bat` 以SYSTEM运行；重启沿用实际托管方式，不能把手工窗口实例当作常驻实例。自动启动/服务模式见 [服务部署说明](docs/SERVICE_DEPLOYMENT.md)。
+
+标准离线脚本设置生产环境及 `WMS_NO_DB_TOUCH=1`，禁止启动升级/初始化；这不是数据库只读模式。首次安装需按下方安装流程准备数据库，不能承诺每次启动都会自动迁移。现有库更新、依赖安装和生产重启均须独立维护并核验，不能直接对运行中的生产解释器执行全量pip升级。
+
+访问：`http://127.0.0.1:8080/login`。有Nginx时还须核对实际公网入口；本地HTTP200不能代替公网验证。
+
+初次创建管理员时用户名为admin，密码优先取 `WMS_BOOTSTRAP_PASSWORD`，未设置时使用admin并警告；已有账号不会因安装/启动而重置密码，系统不随机生成密码。代理修改密码须事先获得用户对具体操作的授权。
+
+### Git工作区恢复
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\clone_wms_main.ps1
 ```
 
-脚本只使用 `main`，目标目录存在普通文件时会停止并提示人工备份，不会删除文件。
+脚本仅使用main，目标目录已有普通文件时停止；GitHub Download ZIP不含Git历史，不能当作已同步工作区。更新代码使用根目录 `update_from_github.bat`，详见 [更新操作说明](docs/UPDATE_FROM_GITHUB.md)。
 
-进入应用目录：
+### 开发与测试依赖
 
-```bat
-cd /d C:\wms\app
+在独立开发环境安装，勿套用到正在运行的生产解释器：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r app/requirements-test.txt
 ```
 
-安装依赖：
-
-```bat
-python -m pip install -r requirements.txt
-```
-
-启动系统：
-
-```bat
-python run_server.py
-```
-
-> 首次启动会自动迁移表结构（`auto_migrate_database`），过程约 10-30 秒，请勿中断。启动第一行输出自检横幅（跑的是哪份代码、什么配置），见 `app/startup_check.py`。
-
-访问地址：
-
-```text
-http://127.0.0.1:8080/login
-```
-
-默认管理员账号：
-
-```text
-用户名：admin
-初始密码：优先使用 `WMS_BOOTSTRAP_PASSWORD`；未设置且首次创建管理员时为 `admin`
-```
-
-如果设置了 `WMS_BOOTSTRAP_PASSWORD`，系统首次创建管理员时会使用该环境变量。安装和启动不会重置已有管理员密码。系统不会自动生成随机密码（密码透明原则）。
+该清单引用生产钉版依赖，CI同源使用。后续开发/测试命令中的python使用该虚拟环境解释器；不要另行裸装最新版pytest或全量升级生产依赖。
 
 ## Windows 离线安装
 
@@ -207,113 +178,95 @@ py scripts/verify_offline_wheelhouse.py
 
 | 脚本 | 用途 |
 |---|---|
-| `install_e_wms.bat` | 企业内网定制版（含内网代理、域账号集成） |
+| `install_e_wms.bat` | 另一套源码安装入口；执行前核对目标目录、权限及随包运行时，不据脚本名推断域账号集成 |
 | `install_portable_python.bat` | 便携 Python 解释器版（不依赖系统 Python） |
 | `deploy_cloud.bat` | 腾讯云 Windows 服务器部署（nssm 注册 Windows 服务自启） |
 
-## 重要数据
+## 重要数据与备份
 
-业务数据库和运行期文件不要提交到 Git，也不要在部署更新时覆盖：
-
-```text
-app/instance/inventory.db
-app/backups/
-app/logs/
-app/static/uploads/
-```
-
-如果迁移服务器或重装系统，至少先备份：
+源码部署在C:\wms时，至少保护以下实际路径：
 
 ```text
-C:\wms\instance\inventory.db
-C:\wms\backups
-C:\wms\static\uploads
+C:\wms\app\instance\inventory.db
+C:\wms\app\instance\secret_key
+C:\wms\app\instance\wechat_helper_token
+C:\wms\app\static\uploads\
+C:\wms\app\backups\
+C:\wms\backups\
+C:\wms_backups\
 ```
+
+数据库实际位置受 `DATABASE_URL` 影响，上传目录受 `UPLOAD_FOLDER` 影响；扁平安装包布局也可能不同。迁移前按运行配置核验，不能套用旧的 `C:\wms\instance` 或 `C:\wms\static` 路径遗漏生产数据。环境配置和本机凭证需单独保护，不上传Git。
+
+手动/历史备份、每日自动备份、更新前备份位置及保留策略不同；每日自动备份默认在 `C:\wms_backups`，由 `WMS_BACKUP_DIR` 覆盖。详见 [备份管理说明](docs/BACKUP_MANAGEMENT.md)。活库使用SQLite backup API取得一致快照，不能只复制.db忽略WAL；完整性通过也不能代替恢复演练。生产恢复必须明确授权，测试恢复显式指定隔离目标，禁止使用默认生产路径做演练。
 
 ## 配置说明
 
-常用环境变量：
+变量名以 `app/config.py`、`app/run_server.py` 及对应模块实际读取为准：
 
-```text
-SECRET_KEY                  Flask 会话密钥
-DEV_SECRET_KEY              开发环境密钥
-WMS_BOOTSTRAP_PASSWORD      初始化管理员密码
-WMS_DATABASE_URI / DATABASE_URL   数据库地址，默认 sqlite:///inventory.db
-SQLALCHEMY_ECHO             是否打印 SQL，true/false
-WECHAT_HELPER_TOKEN         微信助手访问令牌
-WMS_WECHAT_HELPER_PORT      微信助手本地端口，默认 8765
-WMS_BASE_URL                WMS 主服务地址
-WMS_SKIP_AUTO_UPDATE        跳过 auto_update.py，默认 0
-WMS_SKIP_DB_UPGRADE         跳过启动时自动迁移，默认 0
-WMS_PORT                    HTTP 端口，默认 8080
-WMS_THREADS                 Waitress 并发线程数，默认 16
-WMS_LOCAL_PRINT_AGENT       是否随服务启动内置本机打印代理，默认 1
-WMS_LOCAL_PRINT_BASE_URL    内置打印代理回连地址，默认 http://127.0.0.1
-```
+| 环境变量 | 用途 |
+|---|---|
+| `SECRET_KEY` / `DEV_SECRET_KEY` | 会话密钥；按部署环境使用，不能输出秘密 |
+| `WMS_BOOTSTRAP_PASSWORD` | 仅首次创建管理员时使用，不重置已有密码 |
+| `DATABASE_URL` | SQLAlchemy数据库地址；默认sqlite:///inventory.db按应用instance目录解析 |
+| `UPLOAD_FOLDER` / `LOG_FILE` | 上传目录和日志文件；默认锚定应用目录 |
+| `WMS_NO_DB_TOUCH` / `WMS_SKIP_STARTUP_DB_UPGRADE` | 禁止启动数据库升级/初始化；不是禁止所有业务写入；还须核对 `WMS_NO_DB_TOUCH.flag` 标记文件 |
+| `SESSION_COOKIE_SECURE` / `WMS_ALLOW_INSECURE_COOKIE` | 生产安全Cookie或受信HTTP显式放行；后者不是默认安全配置 |
+| `WMS_SKIP_AUTO_UPDATE` | 跳过启动前自动更新 |
+| `WMS_PORT` / `WMS_HOST` | 监听端口和地址；端口默认8080 |
+| `WMS_THREADS` | 覆盖Waitress线程数；未设置时按CPU数量自适应，每核4线程，最少4、最多16 |
+| `WMS_LOCAL_PRINT_AGENT` | 是否启动内置打印代理，默认开启 |
+| `WMS_LOCAL_PRINT_BASE_URL` | 打印代理回连地址，默认本机当前启动端口 |
+| `AUTO_BACKUP_ENABLED` / `AUTO_BACKUP_TIME` | 每日备份开关及时间，默认开启、02:00 |
+| `WMS_BACKUP_DIR` / `BACKUP_RETENTION_DAYS` | 每日备份位置与保留天数，默认C:\wms_backups、30天 |
+| `WECHAT_HELPER_TOKEN` / `WMS_WECHAT_HELPER_PORT` | 微信助手令牌与本机端口，默认端口8765 |
 
-生产环境应显式设置 `SECRET_KEY` 和相关访问令牌，不要使用弱默认值。生产 Cookie 硬门禁：非本地部署未启用安全 Cookie 时服务拒绝启动（`WMS_ALLOW_INSECURE_COOKIE` 仅限本地调试，scripts/ 下引用 app 的脚本必须显式放行，A14 门禁）。
+`WMS_DATABASE_URI` 和 `WMS_SKIP_DB_UPGRADE` 不是上述数据库配置与启动保护的有效替代名称。生产禁止关闭CSRF；安全Cookie和显式HTTP放行由生产配置硬校验。标准离线启动使用本机HTTP放行，HTTPS部署按 [服务部署说明](docs/SERVICE_DEPLOYMENT.md) 配置，不能一律写成“仅本地调试”。
 
-SQLite 连接已内置 PRAGMA：`journal_mode=WAL` + `synchronous=NORMAL` + `busy_timeout=30s`（PERF-2026-08-23-001）。`NORMAL` 是 WAL 官方推荐组合：commit 不逐次强制刷盘，慢盘写性能提升 5~50 倍；代价是掉电丢最后数百毫秒事务（有幂等键 + 单据重推兜底）。仍感到写操作卡顿时，优先检查杀毒软件实时扫描白名单与磁盘（建议 SSD）。
+生产会话密钥须按当前部署要求显式配置或使用已明确放行的文件持久化方式；不重生成已有secret_key。SQLite连接使用WAL、synchronous=NORMAL、busy_timeout；这些连接设置不能代替一致性备份与恢复验证，不承诺固定性能倍数或固定掉电丢失时间。
 
 ## 项目结构
 
 ```text
-SIX2090/wms
-├── app/                          应用主目录
-│   ├── app.py                    Flask 主程序（3.4 万行，A10：禁止新增 @app.route）
-│   ├── config.py                 配置
-│   ├── run_server.py             生产启动入口（waitress）
-│   ├── startup_check.py          启动自检横幅（版本 + git SHA + 配置 + 迁移核对）
-│   ├── version.py                版本号（日期基 semver，当前 2026.09.1）
-│   ├── requirements.txt          运行依赖（全钉版）
-│   ├── requirements-test.txt     测试依赖（CI 同源钉版）
-│   ├── models/                   SQLAlchemy 模型（core / inventory / master_data / ai / documents / print / wechat）
-│   ├── routes/                   业务路由（46 个业务模块：物料/出入库/盘点/调拨/采购/销售/报表/打印×5/移动端×2/AI 反馈/审批/备份等）
-│   ├── services/                 仓库级库存口径服务（warehouse_stock_service / warehouse_scope）
-│   ├── ai/                       AI 子系统（71 个 .py：agents / analysis / documents / ops / tools、routes.py、v2_routes.py、orchestrator.py、providers）
-│   ├── android-native-wms/       Android 客户端（Kotlin + Compose，102 个 .kt，独立 Gradle 工程）
-│   ├── templates/                页面模板（135 个 .html）
-│   ├── static/                   前端静态资源（js/ 6 个业务文件 + cdn/ 三方库）
-│   ├── local_print_agent.py      内置打印代理
-│   ├── wechat_helper.py          微信助手
-│   ├── notifications.py          定时通知（APScheduler）
-│   ├── instance/                 本地数据库目录，不提交
-│   ├── logs/                     运行日志，不提交
-│   └── backups/                  数据备份，不提交
-├── scripts/                      检查、验证和质量工具（189 个 .py）
-│   ├── lint_wms_rules.py         A1–A14 防 BUG 静态规则（+ --full / --full-a11 全量门禁模式）
-│   ├── lint_no_raw_post_fetch.py 业务 JS 裸调非 GET fetch 拦截
-│   ├── check_ci_green.py         CI 全绿门禁检查器（三工作流）
-│   ├── verify_wms_bugs.py        BUG 静态回归（74 项检查）
-│   ├── run_smoke_in_ci.py        CI 冒烟（自动启停服务）
-│   ├── full_smoke_test.py        121 项冒烟（本地手工，需启动服务）
-│   ├── verify_ai_all.py          AI 子系统全量验证（core/smoke/full 三档，进程池并发）
-│   ├── monthly_bug_review.py     月度 BUG 复盘
-│   └── check_hooks_installed.py  验证 git hooks 是否启用
-├── tests/                        pytest 测试套件（442 个 test_*.py，2026-10-12 实测）
-├── samples/ai_documents/         AI 文档识别 golden 样本（104 个脱敏样本）
-├── tools/                        安装和维护工具（便携包构建 / clone 恢复 / 打印代理 / 管理员密码重置）
-├── .githooks/                    git 钩子（pre-commit / pre-push / install-hooks.sh）
-├── .github/workflows/            CI：ci.yml / verify.yml / android-build.yml / perf.yml
-├── build_portable_dist.bat       生成 dist\WMS 便携包
-├── install.bat                   离线安装入口
-├── wms.bat                       快速启动入口
-└── README.md                     项目说明
+app/
+  app.py                    主应用及待分批拆出的历史逻辑；禁止新增路由
+  config.py                 运行配置
+  run_server.py             Waitress生产入口
+  startup_check.py          版本、Git SHA、配置与数据库启动检查
+  version.py                应用版本
+  requirements*.txt         运行/测试钉版依赖
+  models/                   业务模型
+  routes/                   业务路由
+  services/                 仓库级库存与业务服务
+  ai/                       AI识别、工具及助手
+  android-native-wms/       Android客户端独立Gradle工程
+  templates/  static/       页面与静态资源
+  instance/  logs/  backups/ 本地运行数据，不提交
+scripts/                    检查、验证与维护工具
+tests/                      pytest及独立verify回归
+samples/ai_documents/       脱敏golden样本
+tools/                      安装、便携包及打印代理工具
+docs/ledger/                BUG/AI月度台账及索引
+docs/audit/                 审计、复核与整改证据
+.githooks/                  本地Git钩子
+.github/workflows/          CI配置
 ```
 
-## 质量基线（截至 2026-09-29）
+目录和测试数量持续变化，不在README维护易过时的行数、文件数或通过总数。
 
-| 指标 | 数值 | 验证方式 |
-|---|---|---|
-| pytest 全量 | 2984 passed / 87 skipped / 0 failed（**历史快照，2026-09-29**） | 快照口径 `pytest tests/ -q -n 4 --dist loadfile`。**注意：本行仅为基线快照，不代表当前状态；每次改动后必须以 CI 三工作流全绿为准，不得引用本行跳过 CI 检查** |
-| 防 BUG lint（A1–A14） | 0 违规 | `python3 scripts/lint_wms_rules.py`（含 A11/A8/A9/A10/A13/A14 CI 全量模式） |
-| BUG 静态回归 | 74 项全 PASS | `python3 scripts/verify_wms_bugs.py` |
-| 业务冒烟 | 121 项 | `python3 scripts/full_smoke_test.py`（需启动服务） |
-| CI 工作流 | 三工作流全绿 | `python3 scripts/check_ci_green.py` |
-| BUG 台账 | 462 条已核验条目 | [WMS_BUG_BASELINE.md](./WMS_BUG_BASELINE.md) |
-| AI 开发台账 | 约 170 条任务，主线 AI-R01~R17 全部完成 | [WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md](./WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md) |
+## 质量验证与记录
 
-> 数字随开发滚动，以各台账与 CI 实际运行结果为准；本表仅作健康度快照。
+| 内容 | 当前依据 |
+|---|---|
+| 本地代码规则 | `python scripts/lint_wms_rules.py`；普通模式不等于存量已清零 |
+| A11全量库存口径 | `python scripts/lint_wms_rules.py --rule a11 --full-a11` |
+| 存量棘轮门禁 | `python scripts/lint_wms_rules.py --full --full-gate`；不是只运行--full |
+| 已修BUG静态回归 | `python scripts/verify_wms_bugs.py`，数量以实际输出为准 |
+| 全量测试/冒烟/编译 | 当前提交的CI与隔离环境实际结果，不能引用历史绿记录代替 |
+| BUG和AI任务状态 | 月度分片及 `docs/ledger/INDEX.md`；查询 `python scripts/query_ledger.py --task <ID>` |
+| 审计及整改关系 | [审计索引](docs/audit/INDEX.md)；原始发现须连同后续修复记录阅读 |
+
+历史基线仅用于追溯，不证明当前提交或生产服务健康。Pillow13.0.0生产升级与重启的2026-10-21生效证据见 [复核记录](docs/audit/WMS_AUDIT_REVIEW_20261021.md)。后续版本仍需实际核验。
 
 ## 部署说明
 
@@ -370,7 +323,7 @@ python3 scripts/lint_wms_rules.py
 
 # CI 全量模式（A11 全量 + A8/A9/A10/A13/A14 棘轮）
 python3 scripts/lint_wms_rules.py --rule a11 --full-a11
-python3 scripts/lint_wms_rules.py --full
+python3 scripts/lint_wms_rules.py --full --full-gate
 
 # 验证 git hooks 是否启用
 python3 scripts/check_hooks_installed.py
@@ -382,19 +335,28 @@ python3 scripts/check_hooks_installed.py
 # 提交前一键：lint + BUG 回归 + pytest
 make check
 
-# 本地全量回归请复刻 CI 参数（串行跑法存在跨文件环境污染，不可作判据）
-pytest tests/ -q -n 4 --dist loadfile
+# 本地全量；CI另按文件分片，参数以工作流为准
+python -m pytest tests/ -q -p no:pylama -n 4 --dist loadfile
 
 # AI 子系统全量验证（smoke / core / full 三档）
 python3 scripts/verify_ai_all.py --level core
 python3 scripts/verify_ai_all.py --level full
 
-# 业务冒烟（本地手工启动服务）
-python3 scripts/full_smoke_test.py
+# 业务冒烟：先启动隔离测试库服务，显式指定它的端口
+python scripts/full_smoke_test.py --base-url http://127.0.0.1:18080
 
-# 业务冒烟（CI 友好版：自动启停服务）
-python3 scripts/run_smoke_in_ci.py
+# Linux/CI包装器：同样先配置隔离数据库，自动启停不等于自动隔离
+python scripts/run_smoke_in_ci.py
 ```
+
+`make check`当前封装lint、静态回归和串行pytest；与CI的分片并行参数不同。串行/并行失败都需定位，不能笼统宣称串行结果无效。Windows测试进程使用UTF-8：
+
+```powershell
+$env:PYTHONUTF8="1"
+$env:PYTHONIOENCODING="utf-8"
+```
+
+冒烟脚本会尝试登录并可能创建/修改数据。禁止将上述冒烟默认指向正在使用的生产8080；测试服务须有独立数据库、端口和日志，并关闭打印代理及自动备份等外部副作用。不要把 `run_smoke_in_ci.py` 直接当生产巡检命令。
 
 ### 月度质量复盘
 
@@ -420,35 +382,9 @@ secret_key
 wechat_helper_token
 ```
 
-## 本地开发钩子（防 CSRF 回归 + A1–A14 + 分支强制）
+## 本地开发钩子
 
-仓库自带一组 git 钩子，位于 `.githooks/`：
-
-| 钩子 | 触发时机 | 作用 |
-|---|---|---|
-| `pre-commit` | `git commit` | 跑 A1–A14 防 BUG 规则 + 裸调非 GET fetch 检查，违规直接拒绝 |
-| `pre-push` | `git push` | 强制 push 只能发生在 `main`（禁止任何新分支；禁止删除远程 main，允许清理残留的 traes/* 等非 main 分支） |
-
-### 首次克隆后必须启用钩子
-
-```bash
-bash .githooks/install-hooks.sh
-```
-
-脚本等价于 `git config core.hooksPath .githooks`。验证启用是否成功：
-
-```bash
-python3 scripts/check_hooks_installed.py
-```
-
-### 启用后的运行流程
-
-1. `git commit` → pre-commit 跑 A1–A14 + 裸调 fetch，违规直接拒绝
-2. `git push` → pre-push 检查分支策略，禁止非 main 分支
-3. 推送触发 GitHub Actions 三工作流，转绿才算这个 atomic action 完成
-4. 下一轮开工前再次确认三工作流全绿（CI 全绿门禁）
-
-**跳过钩子（紧急情况，不推荐）：** `git commit --no-verify` —— 会绕过所有检查，务必只在已知冲突、明确原因时使用。
+钩子位于 `.githooks/`，启用和检查步骤见前部“开发与发布规则”。pre-commit按实际扫描范围检查规则；pre-push检查分支和CI。不要用 `--no-verify` 代替验证。推送后验收三个必需工作流的最新结论，Android是否产生新运行由路径过滤和定时触发决定。
 
 ## 开发规范
 
@@ -474,7 +410,7 @@ python3 scripts/check_hooks_installed.py
 | A10 | app/app.py 禁止新增 @app.route，强制走 app/routes/ 模块 |
 | A11 | 禁止裸用 material.stock（总账）做库存校验，必须用仓库级 get_warehouse_stock_quantities()（CI 全量硬门禁） |
 | A12 | 测试文件模块顶层禁止裸 app context .push()/.pop() |
-| A13 | WMS_BUG_BASELINE.md 新增 BUG 条目必须含「生效确认」字段 |
+| A13 | WMS_BUG_BASELINE.md及docs/ledger/bugs/新增BUG条目必须含「生效确认」字段 |
 | A14 | scripts/ 下新增 app 引用脚本必须显式放行生产硬门禁 |
 
 > A8/A9/A10/A13/A14 仅对 git staged 新增行强制；A11 双模式：pre-commit 查新增行 + CI `--full-a11` 全量。业务 JS 的非 GET 请求必须走 `WMS.api.post/put/delete`（`app/static/js/api.js`），白名单外裸调 `fetch` 会被 pre-commit 拦截。
@@ -483,11 +419,15 @@ python3 scripts/check_hooks_installed.py
 
 ### 修复 BUG 流程
 
-1. 在 BUG 台账分片 `docs/ledger/bugs/entries-<当月>.md` 登记（`### BUG-YYYY-MM-DD-NNN: <标题>`，含「生效确认」字段；查询用 `python scripts/query_ledger.py --task <ID>`）
-2. 登记前先 grep 台账查同根因历史（R6），同模式复发必须一并修复所有同类消费点
+1. 登记前先检索台账查同根因历史（R6），运行受影响模块基线；同模式复发必须排查所有同类消费点。
+2. 在BUG台账分片 `docs/ledger/bugs/entries-<当月>.md` 登记（`### BUG-YYYY-MM-DD-NNN: <标题>`，含「生效确认」）；查询 `python scripts/query_ledger.py --task <ID>`，新增记录后按需要重建索引。
 3. commit message 关联 BUG ID：`fix: BUG-2026-09-29-NNN xxx`
 4. 加回归测试，且回退修复后新测试必须失败（回归锁自证，R8）
 5. 全量 + 相邻模块回归通过、lint 0 违规、CI 三工作流转绿后，改状态为"已修复"
+
+### 什么时候更新README或AGENTS
+
+每次修BUG更新BUG台账、回归和生效确认；只有使用步骤、配置、安装启动、功能入口或项目事实变化时才更新README/对应专题文档。代理规则变更写AGENTS并注明日期，AGENTS单独提交。无需把每条修复都复制进README。
 
 物料档案的人工选择与合并操作见 [物料合并说明](docs/MATERIAL_MERGE_GUIDE.md)。
 
