@@ -2824,7 +2824,7 @@
         </div>
     </div>
 
-    {# 修复子项 AI-C01-FIX-ROLE-UI-001：提交与CI验收前保持待验收。 #}
+    {# AI_TASK: AI-C01-FIX-ROLE-UI-001 #}
     {% if current_user.is_authenticated and current_user.role in ['admin', 'warehouse', 'purchase', 'production', 'sales'] %}
     {% if current_user.role in ['admin', 'warehouse'] %}
     <a href="/print_alerts" class="print-alert-bell no-print {% if print_alert_unread_count %}has-unread{% endif %}" title="打印告警" aria-label="打印告警">

@@ -119,3 +119,5 @@
 | UI-MATERIAL-DROPDOWN-VIEWPORT-001 | 2026-10-20 | `8fe5f2b5` | BUG-2026-10-20-009；共享候选框视口定位，12个单据模板修复底部遮挡及裁切 | 基线34通过；旧版19失败；修后专项和相邻53通过；浏览器第30行最后候选可见并可回车选择；最终全量4387通过/91跳过；冒烟119/119；规则lint0违规；既有BUG检查通过 | 已推送；WMS CI #1661 / AI #1956全绿 | 生产需重启 WMS 服务生效；隔离预览验证，未修改生产库存 |
 
 | INBOUND-AUTO-PUSH-RELEASE-001 | 2026-10-20 | `1bd0bc1d` | BUG-2026-10-20-010；修复释放下推后入库重做 | 基线13通过；旧代码2失败；修后及相邻22通过 | 全量4356通过/91跳过；34项编码异常修正运行环境后全通过；BUG检查通过；冒烟119/119；已推送，CI #1662 / AI #1957全绿 | 生效确认：生产19:28已启动新进程，晚于代码修改；本地/公网200；原单草稿未动，业务由用户确认 |
+
+| AI-C01-FIX-ROLE-UI-001 | 2026-10-21 | `09e66d7c905d8ade33e214f967829c8874d73e11` | base.html助手入口/建议角色渲染，AI_PERMISSION_MATRIX.md；相关导入/采购申请UI见BUG-2026-10-21-006 | pytest tests/test_toolbar_role_visibility.py、tests/test_bom_navigation.py及相邻137项；verify_ai_ledger_consistency.py、verify_ai_warehouse_workbench_page.py、verify_ai_purchase_workbench_page.py | 通过；旧代码回退37失败/11通过，恢复含导航/台账61通过，隔离冒烟121/121；首轮6e7ea6f7已回滚25a1dc32，未放宽断言；重做WMS CI39545484498、AI验证39545484358均success；后续19d4332f的CI39547269912、AI39547269724亦success；最终相关141项通过，AI台账39个标记/116个完成记录一致 | 生产需重启 WMS 服务生效；保留旧导航契约，未改变AI路由/工具/模型/开关/迁移、后端权限和人工确认，未操作生产数据 |

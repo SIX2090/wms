@@ -169,6 +169,7 @@
 | UI-REQUISITION-ONE-ACTION-001 | ai | completions-2026-10.md |
 | UI-MATERIAL-DROPDOWN-VIEWPORT-001 | ai | completions-2026-10.md |
 | INBOUND-AUTO-PUSH-RELEASE-001 | ai | completions-2026-10.md |
+| AI-C01-FIX-ROLE-UI-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
