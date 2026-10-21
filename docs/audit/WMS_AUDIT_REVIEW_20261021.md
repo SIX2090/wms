@@ -71,3 +71,16 @@ Pillow钉版从12.3.0升至13.0.0；参考[官方版本说明](https://pillow.re
 Android最近#834在d2437fd9为success，本轮未改Android；`python scripts/check_ci_green.py`退出0，三工作流全绿。远端完整单测、安全扫描、回归和冒烟通过；没有把本地那次含失败的执行改写成全绿。
 
 本轮完成：报告事实纠正、审计索引、备份隔离恢复实证、Pillow修复及CI恢复。未闭环：本地云凭证迁移/轮换（BUG-2026-10-21-001）、生产依赖安装及重启生效、季度路由迁移。原始未跟踪报告文件保留未修改、未纳入提交。
+
+## 生产Pillow部署生效（2026-10-21）
+
+用户随后明确授权“生产Pillow升级并重启，只修这个”。本次仅部署既有依赖修复，不执行云凭证迁移或路由拆分。
+
+- 生产进程原PID15308，解释器为 `C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe`，升级前Pillow12.3.0；升级前本地和公网登录均HTTP200。
+- 在 `C:\wms_backups\pillow_deploy_20261021` 准备13.0.0/12.3.0 wheel和SQLite backup API一致性备份 `before_inventory.db`（5,251,072字节）。生产安装只指定Pillow，使用本地wheel、无网络、无依赖联动升级。
+- 停服期间暂时禁用WMS-Warehouse自愈任务防止抢先启动，完成后恢复并触发同一任务。首次Stop-Process抛PowerShell内部异常，原进程未退出、依赖未改变；重新核验PID/解释器/启动时间/8080归属并持进程句柄后成功完成升级重启。
+- 新进程PID16900于08:53启动，Session0，由原任务托管；启动日志代码27d54e9，CSRF开启、文件密钥、数据库启动迁移禁用。任务LastTaskResult=0，自愈调度恢复。
+- 实际生产解释器Pillow13.0.0、PNG生成/读取通过，pip check返回No broken requirements found；该解释器下照片、标签、条码和打印相关隔离测试29 passed。
+- 重启后 `http://127.0.0.1:8080/login` 与 `https://gd2026.top/login` 均HTTP200。material、stock_transaction、location_inventory、in_order及明细、out_order及明细、user八表行内容摘要全部与升级前一致；quick_check=ok。
+
+生产Pillow升级与重启已生效。云凭证迁移和路由拆分按用户最新指示不执行；没有修改业务数据、账号密码或Nginx服务。
