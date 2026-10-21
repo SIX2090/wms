@@ -1158,3 +1158,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 浏览器验收：9081内存库部门页实际加载/pages/department.js，新增AUD-ASSET-015成功、列表回显正确、无控制台错误；截图output/playwright/master-data-page-assets.png。生产数据和账号未动。
 - 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
 - 推送前门禁：Android39503220864（d2437fd9）、AI39588488892及WMS CI39588488982（ae458182）均completed/success；同一匿名403查询故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
+
+
+### BUG-2026-10-21-016: 五个单据页残留无对应控件的合同表头脚本
+
+- 状态：代码已修复，待推送及CI验收。
+- 根因/危害：入库、出库、采购订单新增、销售订单新增/编辑页各有约97行旧合同表头搜索IIFE，读取contractSearch/contractDropdown等不存在的控件后提前return；每页反复传输不能执行的代码，混淆现用逐行合同维护。
+- 修复：只移除五段旧IIFE约485行；保留逐行line-contract-no/line-project-name、全局ContractAutocomplete、向下填充和出库页同一script中的有效领料人搜索。未改接口或合同数据。
+- 同类点已排查：全仓检索上述四个旧ID只出现在这五段读取代码，无HTML或动态创建来源；拆出旧IIFE按实际缺失控件执行，五页均fetch=0/events=0。未按整个script标签盲删出库页的领料人选择器。
+- 回归：修前相关20 passed/5 failed（新增清理断言），新增6项覆盖五页清理及现用行字段保留、真实领料人搜索/选中；备份回退5 failed/1 passed，恢复25 passed。结合合同自动补全、键盘、多合同不合并及采购/销售导出字段相邻61 passed，原有断言全部保留。
+- 浏览器验收：9081内存库新增测试员工AUD-PICK-016，出库新增页输入“回归”得到“回归领料人”，点击后回填成功、无控制台错误；未保存/完成出库单。截图output/playwright/outbound-picker-preserved.png。
+- 生效确认：待最终生产重启；生产需重启 WMS 服务生效。
+- 推送前门禁：Android39503220864（d2437fd9）、AI39589797106及WMS CI39589796914（fa1da477）均completed/success；同一匿名403故障时仅该次临时使用已有WMS_SKIP_CI_GATE=1。
+
+- 最终验证（016）：相邻145 passed/21 skipped，规则0违规、verify_wms_bugs通过；9082隔离文件库重启后冒烟119/119；旧表头四个ID全仓模板/JS残留为0。

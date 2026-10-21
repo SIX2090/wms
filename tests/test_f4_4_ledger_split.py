@@ -54,7 +54,8 @@ POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed', 'BUG-2026-10-15-001': 'fixed',
                    'BUG-2026-10-21-012': 'fixed',
                    'BUG-2026-10-21-013': 'fixed',
                    'BUG-2026-10-21-014': 'fixed',
-                   'BUG-2026-10-21-015': 'fixed'}
+                   'BUG-2026-10-21-015': 'fixed',
+                   'BUG-2026-10-21-016': 'fixed'}
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 
