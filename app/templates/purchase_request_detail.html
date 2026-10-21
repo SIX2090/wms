@@ -284,30 +284,9 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/excel-import-export.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
-function getCsrfToken() {
-    var tokenNode = document.querySelector('meta[name="csrf-token"]');
-    if (tokenNode && tokenNode.content) return tokenNode.content;
-    try {
-        tokenNode = window.parent && window.parent.document
-            ? window.parent.document.querySelector('meta[name="csrf-token"]')
-            : null;
-        return tokenNode && tokenNode.content ? tokenNode.content : '';
-    } catch (e) {
-        return '';
-    }
-}
 
-function csrfFetch(url, options) {
-    options = Object.assign({method: 'POST'}, options || {});
-    var headers = new Headers(options.headers || {});
-    var token = getCsrfToken();
-    if (token && !headers.has('X-CSRFToken')) {
-        headers.set('X-CSRFToken', token);
-    }
-    options.headers = headers;
-    options.credentials = options.credentials || 'same-origin';
-    return fetch(url, options);
-}
+
+
 
 // 初始化Excel导入导出
 document.addEventListener('DOMContentLoaded', function() {

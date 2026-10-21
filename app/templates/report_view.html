@@ -500,14 +500,7 @@ function formatValue(value, type) {
     return String(value);
 }
 
-function escapeHtml(value) {
-    return String(value)
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-}
+
 
 function renderSummary(summary) {
     document.getElementById('summaryCount').textContent = formatValue(summary.count || 0, summaryTypes.count);

@@ -386,11 +386,7 @@ const pwdInput = document.getElementById('initAdminPassword');
 const phraseInput = document.getElementById('initConfirmPhrase');
 const confirmBtn = document.getElementById('confirmInitBtn');
 
-function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, ch => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
-    }[ch]));
-}
+
 
 function renderPreviewTable(stats) {
     const groups = [
