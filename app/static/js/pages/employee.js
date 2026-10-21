@@ -112,14 +112,14 @@ function submitImport() {
     WMS.api.postRaw('/employee/import', formData, {headers: { 'X-Requested-With': 'XMLHttpRequest' }})
     .then(function(data) {
         if (data.status === 'success') {
-            result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + data.msg + '</div>';
+            result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + escapeHtml(data.msg) + '</div>';
             setTimeout(function(){ location.reload(); }, 1200);
         } else {
-            result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> ' + (data.msg || '导入失败') + '</div>';
+            result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> ' + escapeHtml(data.msg || '导入失败') + '</div>';
         }
     })
     .catch(function(err){
-        result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> 请求失败：' + err.message + '</div>';
+        result.innerHTML = '<div class="alert alert-danger py-1 mb-0"><i class="bi bi-x-circle"></i> 请求失败：' + escapeHtml(err.message) + '</div>';
     });
 }
 

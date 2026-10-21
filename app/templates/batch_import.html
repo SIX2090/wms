@@ -359,22 +359,31 @@ document.querySelectorAll('.import-form').forEach(function(form) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
             if (res && res.status === 'success') {
-                var html = '<div class="alert alert-success py-1 mb-1"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
+                var html = '<div class="alert alert-success py-1 mb-1"><i class="bi bi-check-circle"></i> ' + escapeHtml(res.msg) + '</div>';
                 if (res.warnings) {
-                    html += '<div class="alert alert-warning py-1 mb-1"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
+                    html += '<div class="alert alert-warning py-1 mb-1"><i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(res.warnings) + '</div>';
                 }
                 // ARCH-OS-DOC-01：整批导入会生成一张期初库存单据，直接给入口，
                 // 用户点进去就能改日期/看明细，不用再去列表里翻是哪张。
                 // BUG-2026-08-25-002：记录级链接须新开标签页，保留导入结果页便于对照
                 // （与其余 36 个模板的记录级链接口径一致，避免同规则在此处漂移）。
-                if (res.detail_url) {
-                    html += '<a class="btn btn-sm btn-outline-primary mt-1" href="' + res.detail_url + '" target="_blank" rel="noopener">'
-                        + '<i class="bi bi-file-earmark-text"></i> 查看单据 ' + (res.doc_no || '') + '（可改日期）</a>';
+                var detailUrl = '';
+                if (typeof res.detail_url === 'string' && res.detail_url) {
+                    try {
+                        var candidate = new URL(res.detail_url, window.location.origin);
+                        if (candidate.origin === window.location.origin && /^(http:|https:)$/.test(candidate.protocol)) {
+                            detailUrl = candidate.pathname + candidate.search + candidate.hash;
+                        }
+                    } catch (ignore) { /* Invalid document links are omitted; messages remain visible. */ }
+                }
+                if (detailUrl) {
+                    html += '<a class="btn btn-sm btn-outline-primary mt-1" href="' + escapeHtml(detailUrl) + '" target="_blank" rel="noopener">'
+                        + '<i class="bi bi-file-earmark-text"></i> 查看单据 ' + escapeHtml(res.doc_no || '') + '（可改日期）</a>';
                 }
                 if (res.errors && res.errors.length) {
                     html += '<div class="alert alert-warning py-1 mb-1 mt-1">'
                         + res.errors.map(function(x) {
-                            return '<div>' + String(x).replace(/[<>&]/g, '') + '</div>';
+                            return '<div>' + escapeHtml(x) + '</div>';
                         }).join('') + '</div>';
                 }
                 resultDiv.innerHTML = html;
@@ -384,13 +393,13 @@ document.querySelectorAll('.import-form').forEach(function(form) {
                 }
             } else {
                 var errMsg = (res && res.msg) ? res.msg : '未知错误';
-                resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + errMsg + '</div>';
+                resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + escapeHtml(errMsg) + '</div>';
             }
         }).catch(function(err) {
             btn.disabled = false;
             btn.innerHTML = originalHtml;
             var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
-            resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + msg + '</div>';
+            resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + escapeHtml(msg) + '</div>';
         });
     });
 });

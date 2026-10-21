@@ -1747,15 +1747,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.textContent = '导入';
                 resultDiv.style.display = 'block';
                 if (res && res.status === 'success') {
-                    var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + res.msg + '</div>';
+                    var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + escapeHtml(res.msg) + '</div>';
                     if (res.warnings) {
-                        html += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + res.warnings + '</div>';
+                        html += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(res.warnings) + '</div>';
                     }
                     resultDiv.innerHTML = html;
                     setTimeout(function() { location.reload(); }, 2000);
                 } else {
                     var errMsg = (res && res.msg) ? res.msg : '未知错误';
-                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + errMsg + '</div>';
+                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + escapeHtml(errMsg) + '</div>';
                 }
             })
             .catch(function(err) {
@@ -1763,7 +1763,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 btn.textContent = '导入';
                 resultDiv.style.display = 'block';
                 var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
-                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + msg + '</div>';
+                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + escapeHtml(msg) + '</div>';
             });
         });
     }

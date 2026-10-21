@@ -27,7 +27,7 @@ def page_scripts(page):
 
 @pytest.mark.parametrize('page,digest', [
     ('department', 'dea92120a8b20f64132141a1e258a65d9bf6db27e66fb6776e2bcc8bae984ad8'),
-    ('employee', 'a28500149b8ba51d879dbc3a6be7109c06bb52638f02e5f308836e3faa24cf54'),
+    ('employee', 'a8dd15a487a45faef4191086596e055c285abbbb3b40b76b4f09d8e2d38d0b45'),
     ('warehouse', '261ac6fcf8a44c05893e5531662cb55a5900de03d99515270b14d2e5a66b0f3c')])
 def test_page_assets_preserve_script_and_load_once(page, digest):
     source = page_source(page)
@@ -81,7 +81,10 @@ def test_master_data_transport_runtime(page, action, scenario):
         pytest.skip("Node.js required")
     text = page_source(page); controls = Controls(text)
     scripts = page_scripts(page)
-    payload = {"page": page, "action": action, "scenario": scenario, "nodes": controls.nodes, "forms": controls.forms, "source": scripts, "api": (ROOT / "app/static/js/api.js").read_text(encoding="utf-8")}
+    app_source = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
+    helper_start = app_source.index('function escapeHtml(')
+    helper = app_source[helper_start:app_source.index('\n}', helper_start) + 2]
+    payload = {"helper": helper, "page": page, "action": action, "scenario": scenario, "nodes": controls.nodes, "forms": controls.forms, "source": scripts, "api": (ROOT / "app/static/js/api.js").read_text(encoding="utf-8")}
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);
 let ready=[],requests=[],messages=[],nativeAlerts=0,nativeConfirms=0,reloads=0,confirmCalls=0;
@@ -97,7 +100,7 @@ const ctx={document,FormData,Headers,URLSearchParams,Promise,console,location:{s
  alert(){nativeAlerts++;},confirm(){nativeConfirms++;return p.scenario!=='cancel';},CustomEvent:class{},dispatchEvent(){},addEventListener(){},localStorage:{setItem(){}},
  bootstrap:{Modal:class{show(){} hide(){} static getInstance(){return {hide(){}};}}},
  fetch:(url,options={})=>{requests.push({url,options});const failed=p.scenario==='failure';return Promise.resolve({ok:!failed,status:failed?400:200,json:()=>Promise.resolve({status:failed?'error':'success',msg:failed?'fixture failure':'fixture success',category:{id:7,code:'C',name:'cat'},supplier:{id:7},customer:{id:7},unit:{id:7},employee:{id:7},department:{id:7},warehouse:{id:7}})});}};
-ctx.window=ctx;ctx.parent=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);ready.forEach(fn=>fn());
+ctx.window=ctx;ctx.parent=ctx;vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);ready.forEach(fn=>fn());
 const flush=()=>new Promise(r=>setImmediate(r));
 (async()=>{
  const id=p.action==='import'?(p.page==='customer'?'importCustomerForm':p.page==='supplier'?'importSupplierForm':'importForm'):p.action==='add'?'addForm':'editForm';
