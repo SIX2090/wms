@@ -306,6 +306,7 @@
     var locationInput = document.getElementById('locationInput');
     var targetInput = document.getElementById('targetInput');
     var remarkInput = document.getElementById('remarkInput');
+    var scanAreaInput = document.getElementById('scanAreaInput');
     // FEATURE-2026-09-05-004：行级差异原因（盘点模式）
     var scanReasonInput = document.getElementById('scanReasonInput');
     var historyWrap = document.getElementById('scanHistory');
@@ -886,6 +887,7 @@
 
     scanForm.addEventListener('submit', function(event) {
         event.preventDefault();
+        var originalDisabled = submitBtn.disabled;
         var ensureMaterial = selectedMaterial ? Promise.resolve(selectedMaterial) : lookupMaterial();
         ensureMaterial.then(function(material) {
             if (!material) return;
@@ -943,7 +945,7 @@
                 submitBtn.disabled = false;
                 return;
             }
-            fetch('/mobile/api/scan_submit', {
+            return fetch('/mobile/api/scan_submit', {
                 method: 'POST',
                 headers: csrfHeaders({'Content-Type': 'application/json'}),
                 credentials: 'same-origin',
@@ -977,6 +979,9 @@
                 .finally(function() {
                     submitBtn.disabled = false;
                 });
+        }).catch(function(error) {
+            setStatus((error && (error.msg || error.message)) || '提交失败', 'error');
+            submitBtn.disabled = originalDisabled;
         });
     });
 

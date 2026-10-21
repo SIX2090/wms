@@ -45,8 +45,10 @@ def _client():
 
 class TestMobileAppDownloadFallback:
 
-    def test_no_apk_no_config_returns_guide_page(self):
+    def test_no_apk_no_config_returns_guide_page(self, tmp_path, monkeypatch):
         """T1：无 APK 无配置 → 200 说明页，不再裸 404。"""
+        monkeypatch.setattr(app_module, 'ANDROID_APK_PATHS', (str(tmp_path / 'missing.apk'),))
+        monkeypatch.delenv('WMS_ANDROID_APK_URL', raising=False)
         with app_module.app.test_request_context():
             resp = _client().get("/mobile/app")
             assert resp.status_code == 200, \
