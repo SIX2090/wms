@@ -786,7 +786,7 @@ body {
         }
         
         // 保存布局
-        // BUG-F02-03 修复：增加 response.ok 校验 + 保存中 disabled 防双击 + console.error 详细错误
+        // 统一 API 处理 HTTP/会话错误；保留保存中禁用与失败后恢复，允许重试。
         let _savingLayout = false;
         async function saveLayout() {
             if (_savingLayout) return;
@@ -806,26 +806,14 @@ body {
                     marginLeft: parseInt(document.getElementById('marginLeft').value) || 0
                 };
                 const payload = { layout: { ...layoutData, ...margins } };
-                const resp = await fetch(`/label_template/{{ template.id }}/save_layout`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-                    body: JSON.stringify(payload)
-                });
-                let data = {};
-                try { data = await resp.json(); } catch (parseErr) {
-                    console.error('BUG-F02-03: 后端返回非 JSON', resp.status, resp.statusText, await resp.text());
-                    showToast('保存失败：服务器返回 ' + resp.status + ' ' + resp.statusText, 'danger');
-                    return;
-                }
-                if (resp.ok && data.status === 'success') {
+                const data = await WMS.api.postRaw(`/label_template/{{ template.id }}/save_layout`, payload);
+                if (data.status === 'success') {
                     showToast('布局保存成功！', 'success');
                 } else {
-                    console.error('BUG-F02-03: 保存失败', resp.status, data);
-                    showToast('保存失败：' + (data.msg || ('HTTP ' + resp.status)), 'danger');
+                    showToast('保存失败：' + (data.msg || '操作失败'), 'danger');
                 }
-            } catch (networkErr) {
-                console.error('BUG-F02-03: 网络错误', networkErr);
-                showToast('保存失败：' + networkErr.message, 'danger');
+            } catch (err) {
+                showToast('保存失败：' + (err.message || '请求异常，请重试'), 'danger');
             } finally {
                 _savingLayout = false;
                 if (saveBtn) {

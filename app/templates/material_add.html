@@ -135,10 +135,7 @@ const suppliers = {{ suppliers|tojson }};
 document.getElementById('addMaterialForm').addEventListener('submit', function(e) {
     e.preventDefault();
     const formData = new FormData(this);
-    fetch('/material/add', {
-        method: 'POST',
-        body: formData
-    }).then(res => res.json()).then(res => {
+    WMS.api.postRaw('/material/add', formData).then(res => {
         if (res.status === 'success') {
             alert('物料添加成功！'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             window.location.href = '/material';
@@ -352,10 +349,7 @@ function showAddUnitModal() {
     document.getElementById('addUnitForm').addEventListener('submit', function(e) {
         e.preventDefault();
         const formData = new FormData(this);
-        fetch('/unit/add', {
-            method: 'POST',
-            body: formData
-        }).then(res => res.json()).then(res => {
+        WMS.api.postRaw('/unit/add', formData).then(res => {
             if (res.status === 'success') {
                 showToast('单位添加成功！', 'success');
                 // 添加到单位列表

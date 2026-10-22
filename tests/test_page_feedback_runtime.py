@@ -56,14 +56,15 @@ def test_page_feedback_behavior(page, name, mode):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    payload = dict(page=page, name=name, mode=mode, source=function(page, name))
+    payload = dict(page=page, name=name, mode=mode, source=function(page, name),
+                   api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);
 const messages=[],events=[],calls=[],timers=[],elements=[];
 const marker='<img src=x onerror="throw 1"> & fixture';
 const fields=new Proxy({}, {get:(o,k)=>o[k]||(o[k]={value:p.mode==='guard'?'':'1',checked:true,style:{},classList:{add(){},remove(){}}})});
 const doc={getElementById:id=>p.name==='showInOrderValidation'?null:fields[id],createElement:()=>{const e={style:{},remove(){events.push('remove');}};Object.defineProperty(e,'innerHTML',{set(){throw Error('unsafe HTML');}});return e;},body:{appendChild:e=>elements.push(e)}};
-const response={json:()=>Promise.resolve({status:'error',msg:marker})};
+const response={ok:true,status:200,json:()=>Promise.resolve({status:'error',msg:marker})};
 function transport(url,opts){calls.push({url,opts});return p.mode==='network'?Promise.reject(Error(marker)):Promise.resolve(response);}
 const ctx={document:doc,JSON,parseInt,selectedMaterialId:7,getFilters:()=>({}),FormData:class {append(){}},
   showToast:(m,t)=>messages.push({m,t}),alert:m=>events.push(['alert',m]),confirm:()=>p.mode!=='cancel',prompt:()=> 'manual reason',
@@ -71,7 +72,11 @@ const ctx={document:doc,JSON,parseInt,selectedMaterialId:7,getFilters:()=>({}),F
   fetch:transport,csrfFetch:transport,setTimeout:(fn,ms)=>timers.push(fn),
   WMS:{api:{post:(url,data)=>{calls.push({url,data});return Promise.resolve({token:'fixture-token',msg:'ok'});}}},
   $:()=>({length:1,val:()=> '7',show(){},hide(){},closest(){throw Error('must not delete last row');}})};
-ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.source,ctx);
+ctx.window=ctx;vm.createContext(ctx);
+if(p.page==='label_template'){
+  ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});vm.runInContext(p.api,ctx);
+}
+vm.runInContext(p.source,ctx);
 (async()=>{
   let args=[1];if(p.name==='showInOrderValidation')args=[[{message:marker}]];
   if(p.mode==='literal')args=[marker,'danger'];

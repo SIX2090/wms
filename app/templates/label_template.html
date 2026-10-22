@@ -171,8 +171,7 @@ document.addEventListener('DOMContentLoaded', function() {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
             var formData = new FormData(this);
-            fetch('{{ url_for("add_label_template") }}', {method:'POST', body: formData})
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("add_label_template") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') location.reload();
                 else showToast(res.msg || '创建失败', 'danger');
@@ -185,22 +184,20 @@ document.addEventListener('DOMContentLoaded', function() {
 // 删除模板
 function deleteTemplate(id) {
     if (!confirm('确定要删除此模板吗？')) return;
-    fetch('{{ url_for("delete_label_template", id=0) }}'.replace('/0/', '/'+id+'/'), {method:'POST'})
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('{{ url_for("delete_label_template", id=0) }}'.replace('/0/', '/'+id+'/'))
     .then(function(res) {
         if (res.status === 'success') location.reload();
-        else showToast('删除失败', 'danger');
+        else showToast(res.msg || '删除失败', 'danger');
     })
     .catch(function(err){ showToast('删除失败：'+err.message, 'danger'); });
 }
 
 // 设为默认
 function setDefault(id) {
-    fetch('{{ url_for("set_default_template", id=0) }}'.replace('/0/', '/'+id+'/'), {method:'POST'})
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('{{ url_for("set_default_template", id=0) }}'.replace('/0/', '/'+id+'/'))
     .then(function(res) {
         if (res.status === 'success') location.reload();
-        else showToast('设置失败', 'danger');
+        else showToast(res.msg || '设置失败', 'danger');
     })
     .catch(function(err){ showToast('设置失败：'+err.message, 'danger'); });
 }

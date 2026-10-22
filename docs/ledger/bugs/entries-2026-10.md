@@ -1277,3 +1277,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 8aa5f066首次普通push被匿名API限流403阻断，未当作CI失败。使用已连接GitHub工具逐一核对上述Android记录，以及6e049f8f的CI39704867094/AI39704867102均completed/success后，依AGENTS §三查询故障例外仅对本次push临时设置WMS_SKIP_CI_GATE=1，finally清除；实际push输出6e049f8f..8aa5f066 main -> main，远端新SHA一致。
 - 本轮未新增AI能力，AI-R15-FIX-UI-FEEDBACK-001只涉及现有页面反馈。verify_ai_all --level full --jobs 2已执行，70脚本68通过；photo_document_flow因测试物料为空失败，stage3_agents的安全库存说明文字断言失败。将18模板全部备份并回退6e049f8f后，单独执行这两脚本仍相同失败，再finally恢复原字节，确认属存量验收脚本问题；未放宽断言或扩展修改库存/AI业务。其余68脚本含verify_wms_bugs通过，CI core验证全绿。该AI子项保留待验收，不将存量失败误报为全量通过。
 - 仅重启生产一次加载8aa5f066，随后只补台账；未对生产执行登录POST、保存、完成、审批、删除、发消息或账号修改。未修改既有测试规则，后续减少重复全量的分级方案需单独修订DEVELOPMENT_RULES/AGENTS后实施。
+
+### BUG-2026-10-22-005: 物料新增及标签页遗留POST未使用统一请求层
+
+- 状态：本地已修复，待分项提交CI及生产生效确认。
+- 根因/危害：物料新增2个、标签列表3个、标签布局1个POST仍各自处理CSRF/HTTP响应；布局JSON解码失败后再次读取text会掩盖原错误，部分业务失败丢失服务端原因。
+- 修复：6处统一WMS.api.postRaw，保留FormData、完整status、布局payload、删除人工确认、成功人工关闭结果与跳转；HTTP非JSON错误可靠展示状态，布局按钮失败后恢复并可重试。category/customer/unit/supplier复核已完成迁移，不重复改动。
+- 同类点已排查：关联BUG-2026-10-21-012/017及BUG-2026-10-22-003/004，检查上述8页请求消费；print_routing令牌提示保留人工查看/复制，不做直接toast后刷新。
+- 回归：相邻基线33 passed；新增42项实际回调结合生产api.js执行，覆盖success/业务拒绝/HTTP JSON/非JSON503/401/419/断网、FormData/CSRF/按钮恢复与重试。三个模板字节备份回退HEAD后42 failed，finally恢复后专项及相邻96 passed；日志output/playwright/http_pages_20261022/。
+- 组合验收：549文件完整覆盖，首次5121 passed/112 skipped/5个夹具失败；其中旧label反馈夹具缺实际postRaw、旧栏目结构夹具缺document事件接口。分别补齐真实api.js加载和DOM接口后，原断言全部保留，失败项及相邻91 passed；台账/库存文档定位契约32 passed，规则0违规。未重启整套pytest，完整覆盖后只补失败及相邻；不能将首轮描述为直接全绿。
+- 最终检查：verify_wms_bugs通过，显式9082隔离库冒烟119/119。其他未提交模块的AI仓库守卫仍在补验收夹具，不混入本项提交。
+- 生效确认：待确认；生产需重启 WMS 服务生效。验证仅用Node及隔离库，不改生产物料、标签、单据、库存或账号。
