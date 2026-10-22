@@ -1434,10 +1434,11 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-019: 微信强制发送入口误导及下推失败重试可能重复建草稿
 
-- 状态：已修复，待CI及生产生效验收。
+- 状态：已修复并发布。
 - 根因/危害：微信“重新生成今日图片”实际会再次投递且绕过当日去重，普通/强制执行缺人工发送确认及忙锁；run/resend业务拒绝仍刷新，success信封不等于实际发送成功。入库下推每次点击新request_id，首请求已提交但响应丢失、剩余数量足够时，人工重试可能再建草稿。两页5个活跃旧POST，已有CSRF/部分确认与异常处理，不能误报全链缺保护。
 - 修复：两页5旧POST统一WMS.api.postRaw。微信写操作统一确认/请求/人工关闭结果/成功刷新互斥，失败和取消恢复，保留save完整FormData、run force=1、resend无body及clear状态字段；普通/强制执行明确人工发送确认，force按钮改为重新生成并再次发送，业务拒绝不刷新；run skipped单独反馈不误报发送，处理完成明确须看分享记录，resend补实际log_status标签而不把success信封当投递成功。入库下推使用不含request_id的完整payload JSON作Map key，失败保留每个内容对应编号，A→B→A也复用A，筛选不改变内容编号；载荷及UUID构建放入try，异常可见且恢复，不自动重发，成功保持锁至原导航。密码/库存/下推后台及发送算法不变；README注明发送语义与页面内保护边界，刷新或关闭页面后不保证编号继续保留，结果不确定须先查草稿。
 - 同类点已排查：关联BUG-2026-10-22-011至018及既有自动下推有效关联修复；后台重放按actor/source/request_id且不比较payload，前端不可拿同一ID发送修改后的内容。全仓create_in_order_push前端仅此页，自动下推有独立有效关联闸，不属于手工重试根因；微信两种run均真实投递，重发success仍可log_status failed/pending，均核对对应路由语义。无新后台或生产动作，不在生产发送微信、改分享配置或创建下推草稿。
 - 回归：微信基线17 passed，新增58真实DOM及生产api.js回调通过，与旧反馈26合并84 passed；旧模板回退58 failed，finally字节一致恢复后6模块及相邻101 passed（3既有SQLAlchemy warning，24.48秒）。旧test_page_feedback_runtime仅wechat加载真实helper/API及空buttons NodeList，保留全部原断言，其他页夹具不变。下推基线14 passed、新50通过，旧模板回退49 failed/1空选对照passed，finally字节一致恢复后模块及相邻64 passed（8既有弃用warning，13.73秒）；丢响应及A/B/A核心锁不依赖请求头断言，使用模拟重放端证明同内容只创建一次，覆盖三目标、原字段、数量/顺序、筛选、null/非JSON/HTTP/401419/network及UUID/构造异常恢复。新增合计108，不重复计入相邻或旧对照。日志wechat_share_transport_019/、in-push-20261022/。不用stash、不放宽旧断言，不在生产发送或写业务。
 - 组合验收：台账/README及库存定位契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119（脚本仅GET微信配置页，无发送/下推POST），PID17980身份核对后已关闭；日志frontend-019-*.log。交叉只读审核两页无阻塞，不新增AI能力/模型/工具/权限/开关/迁移，后台不变；全站回归交本次代码提交CI，不重复本地全站。开工基线4d995946三CI已全绿，等待上一批CI期间仅只读准备，本批写入在闭环后解锁。
-- 生效确认：待确认；生产需重启 WMS 服务生效。当前生产版本500b6d1，不改真实单据、库存、接收人、分享配置或账号密码。
+- 发布闭环：代码a9cedd6f1737770ff322636ac5718f58eb999cde已推送main，读取push输出并核对HEAD/origin相同；WMS CI39772308163（原完整全量任务及冒烟）、AI39772308158、性能39772308072均completed/success。Android最近main39682360398 success，Git祖先和Android工程/构建工作流未变证明通过。匿名pre-push查询403后，连接器核实同一基线4d995946最新三工作流全绿并记录frontend-019-push-gate-evidence.json，才单次临时使用已有查询跳过开关；发布目标再次逐项核实并记录frontend-019-deploy-gate-evidence.json，未把403当工作流失败或自动放行。收尾仅台账走轻量CI，不重复业务全量。
+- 生效确认：2026-10-22 19:44代理核验，生产需重启 WMS 服务生效；核对原PID14556的解释器/命令/Session0/创建时间、8080唯一listener、目标main及无混合修改，沿原WMS-Warehouse任务单次重启，现PID17092/Session0，8080单实例、LastTaskResult=0；19:44:05启动日志版本a9cedd6、production/CSRF on、db-check migrate=ok（仅结构核验，不声称迁移）。本机/公网登录GET200且含CSRF，WMS_NO_DB_TOUCH=1保留；收尾仅台账不再次重启。只发布页面代码，无真实微信发送、分享配置/接收人修改或生产下推草稿，不改真实单据、仓库、库存、账号或密码。编号复用限当前页面，刷新/关闭后的不确定结果仍须人工先查单。
