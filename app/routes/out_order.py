@@ -1832,3 +1832,128 @@ def register_out_order_routes(app):
         wb.save(output)
         output.seek(0)
         return send_file(output, download_name=f'out_order_{order.order_no}.xlsx', as_attachment=True)
+
+    @app.route('/out_order/<int:id>/batch_add_items', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def batch_add_out_order_items(id):
+        """Atomically append pasted rows to an ordinary outbound draft."""
+        import math
+        from pydantic import BaseModel, Field, ValidationError, field_validator
+        from app import (Material, OutOrder, OutOrderItem, _acquire_order_write_lock,
+                         get_default_warehouse, location_management_enabled,
+                         log_operation, recalculate_order_total,
+                         resolve_item_contract, round_to_2_decimals,
+                         validate_inventory_warehouse)
+
+        class BatchPasteRequest(BaseModel):
+            content: str = Field(min_length=1, max_length=100000, strict=True)
+
+            @field_validator('content')
+            @classmethod
+            def validate_content(cls, value):
+                count = sum(bool(line.strip()) for line in value.splitlines())
+                if not 1 <= count <= 500:
+                    raise ValueError('请输入1至500行物料')
+                return value
+
+        class PasteRow(BaseModel):
+            quantity: float = Field(gt=0, allow_inf_nan=False)
+            price: float = Field(ge=0, allow_inf_nan=False)
+
+        try:
+            payload = BatchPasteRequest.model_validate(request.get_json(silent=True))
+        except ValidationError:
+            return jsonify({'status': 'error', 'msg':
+                            '请提交JSON物料文本：1至500行，总长度不超过100000字符'}), 400
+
+        order = OutOrder.query.get_or_404(id)
+        if order.status != 'pending':
+            return jsonify({'status': 'error', 'msg': '只有草稿状态的出库单可以添加明细'}), 400
+        try:
+            order, locked = _acquire_order_write_lock(OutOrder, id, 'pending')
+            if not locked:
+                return jsonify({'status': 'error', 'msg': '单据状态已变更或正在处理，请刷新后重试'}), 409
+            if (order.business_type == '采购退货出库' or order.source_in_order_id
+                    or any(item.source_in_order_item_id for item in order.items)):
+                raise ValueError('采购退货出库单的明细必须关联来源采购入库行，请使用编辑页维护退货明细')
+            if (order.business_type == '销售出库' or order.source_sales_order_id
+                    or any(item.source_sales_order_item_id for item in order.items)):
+                raise ValueError('销售来源出库明细必须保留来源销售订单行，请使用整单编辑页维护明细')
+            if order.business_type not in (None, '', '领料单', '生产出库', '其他出库'):
+                raise ValueError('当前出库类型不支持粘贴添加，请使用整单编辑页维护明细')
+            warehouse_name = (order.warehouse or '').strip()
+            if not warehouse_name:
+                default_warehouse = get_default_warehouse()
+                warehouse_name = default_warehouse.name if default_warehouse else ''
+            warehouse, warehouse_error = validate_inventory_warehouse(warehouse_name)
+            if warehouse_error:
+                raise ValueError(warehouse_error)
+            if location_management_enabled() and not (order.location or '').strip():
+                raise ValueError('库位管理已启用，请先编辑单据选择库位')
+
+            parsed = []
+            for line_no, line in enumerate(payload.content.splitlines(), 1):
+                if not line.strip():
+                    continue
+                parts = [part.strip() for part in line.split('\t' if '\t' in line else ',')]
+                if len(parts) not in (2, 3) or not parts[0]:
+                    raise ValueError(f'第{line_no}行格式不正确：请使用编码,数量,单价（可选）')
+                parsed.append((line_no, parts))
+            materials = {material.code: material for material in Material.query.filter(
+                Material.code.in_({parts[0] for _, parts in parsed})).all()}
+            prepared = []
+            contract_id, contract_no, project_name = resolve_item_contract(order)
+            for line_no, parts in parsed:
+                material = materials.get(parts[0])
+                if material is None:
+                    raise ValueError(f'第{line_no}行物料不存在：{parts[0]}')
+                raw_price = parts[2] if len(parts) == 3 and parts[2] else (material.price or 0)
+                try:
+                    values = PasteRow.model_validate({'quantity': parts[1], 'price': raw_price})
+                except ValidationError:
+                    raise ValueError(f'第{line_no}行数量必须为有限正数，单价必须为有限非负数') from None
+                try:
+                    quantity = round_to_2_decimals(values.quantity)
+                    price = round_to_2_decimals(values.price)
+                    product = quantity * price
+                    amount = round_to_2_decimals(product)
+                except ArithmeticError:
+                    raise ValueError(f'第{line_no}行数量、单价或金额超出有效精度范围') from None
+                if (quantity <= 0 or not math.isfinite(product)
+                        or (values.price >= 1 and price == 0) or (product >= 1 and amount == 0)):
+                    raise ValueError(f'第{line_no}行数量、单价或金额超出有效精度范围')
+                prepared.append(dict(
+                    material_id=material.id, quantity=quantity,
+                    price=price, amount=amount, contract_id=contract_id,
+                    contract_no=contract_no, project_name=project_name))
+            # A batch can overflow the existing total precision even when every
+            # individual line fits. Include old lines before touching the session.
+            total = sum((item.amount or 0) for item in order.items) + sum(row['amount'] for row in prepared)
+            try:
+                rounded_total = round_to_2_decimals(total)
+            except ArithmeticError:
+                raise ValueError('单据合计金额超出有效精度范围，请减少数量或单价') from None
+            if not math.isfinite(total) or (abs(total) >= 1 and rounded_total == 0):
+                raise ValueError('单据合计金额超出有效精度范围，请减少数量或单价')
+            # Validation above creates no persisted rows. Add all rows and normalize
+            # a historical blank warehouse only in the same successful transaction.
+            db.session.add_all([OutOrderItem(out_order=order, **row) for row in prepared])
+            order.warehouse = warehouse.name
+            db.session.flush()
+            recalculate_order_total(order)
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(exc)}), 400
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('出库单批量粘贴失败，order_id=%s', id)
+            return jsonify({'status': 'error', 'msg': '批量添加失败，未保存任何明细，请稍后重试'}), 500
+        # log_operation commits independently; never commit a partial batch via it.
+        try:
+            log_operation('批量添加出库明细', f'出库单 {order.order_no} 新增 {len(prepared)} 行', 'out_order', id)
+        except Exception:
+            app.logger.exception('出库粘贴已保存，操作日志写入失败，order_id=%s', id)
+        return jsonify({'status': 'success', 'msg': f'成功添加 {len(prepared)} 行明细',
+                        'added': len(prepared)})

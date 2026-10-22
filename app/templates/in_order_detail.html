@@ -992,11 +992,7 @@ function deleteDetailMaterialRow(row) {
     if (!id) return;
     showConfirm('确定要删除该物料吗？', {title: '删除明细'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/in_order/{{ order.id }}/delete_item/' + id)
-        .then(function(r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
+        WMS.api.postRaw('/in_order/{{ order.id }}/delete_item/' + id)
         .then(function(res) {
             if (res.status === 'success') {
                 showToast('删除成功', 'success');
@@ -1027,12 +1023,12 @@ function saveInlineMaterialRow(btn) {
         return;
     }
     btn.disabled = true;
-    csrfFetch('/in_order/{{ order.id }}/item/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price + '&remark=' + encodeURIComponent(remark)
-    })
-    .then(r => r.json())
+    const itemData = new FormData();
+    itemData.append('material_code', code);
+    itemData.append('quantity', qty);
+    itemData.append('price', price);
+    itemData.append('remark', remark);
+    WMS.api.postRaw('/in_order/{{ order.id }}/item/add', itemData)
     .then(res => {
         if (res.status === 'success') {
             showToast('添加成功', 'success');
@@ -1239,11 +1235,10 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
         let completed = 0;
         let failed = 0;
         ids.forEach(id => {
-            csrfFetch('/in_order/{{ order.id }}/delete_item/' + id)
-            .then(r => r.json())
+            WMS.api.postRaw('/in_order/{{ order.id }}/delete_item/' + id)
             .then(res => {
                 completed++;
-                if (res.status !== 'success') failed++;
+                if (!res || res.status !== 'success') failed++;
                 if (completed === ids.length) {
                     if (failed === 0) {
                         showToast('删除成功', 'success');
@@ -1275,12 +1270,7 @@ function saveHeader() {
         showToast('请选择入库日期', 'warning');
         return;
     }
-    csrfFetch('/in_order/{{ order.id }}/update', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/in_order/{{ order.id }}/update', data)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '保存成功', 'success');
@@ -1360,8 +1350,7 @@ function forceCompleteOrder() {
 function revertOrder(id) {
     showConfirm('确认反提交？反提交后库存将减少。', {title: '反提交入库单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/in_order/' + id + '/revert')
-        .then(r => r.json())
+        WMS.api.postRaw('/in_order/' + id + '/revert')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功，单据已回到草稿，可继续编辑', 'success');
@@ -1369,7 +1358,8 @@ function revertOrder(id) {
             } else {
                 showToast(res.msg || '操作失败', 'danger');
             }
-        });
+        })
+        .catch(function(err) { showToast('操作失败：' + err.message, 'danger'); });
     });
 }
 
@@ -1392,15 +1382,7 @@ function deleteOrder(id) {
 function copyOrder(id) {
     showConfirm('确定复制该入库单吗？系统会生成一张新的入库草稿，不会直接增加库存。', {title: '复制入库单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/in_order/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(function(r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
+        WMS.api.postRaw('/in_order/' + id + '/copy', {})
         .then(function(res) {
             if (res.status === 'success') {
                 showToast(res.msg || '复制成功', 'success');
@@ -1418,11 +1400,7 @@ function copyOrder(id) {
 }
 
 function doDeleteIn(id, showToastFn) {
-    csrfFetch('/in_order/' + id + '/delete')
-    .then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.json();
-    })
+    WMS.api.postRaw('/in_order/' + id + '/delete')
     .then(function(res) {
         if (res.status === 'success') {
             if (showToastFn) showToastFn('删除成功', 'success');
@@ -1465,11 +1443,7 @@ function printLabel(materialId) {
 function convertToOutOrder(inOrderId) {
     showConfirm('确认将此入库单转为领料单？', {title: '转为领料单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/in_order/' + inOrderId + '/convert_to_out_order')
-        .then(function(r) {
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            return r.json();
-        })
+        WMS.api.postRaw('/in_order/' + inOrderId + '/convert_to_out_order')
         .then(function(res) {
             if (res.status === 'success') {
                 var oid = res.out_order_id;
@@ -1510,12 +1484,7 @@ function processBatchPaste() {
         showToast('请输入物料信息', 'warning');
         return;
     }
-    csrfFetch('/in_order/{{ order.id }}/batch_add_items', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({content: content})
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/in_order/{{ order.id }}/batch_add_items', {content: content})
     .then(res => {
         if (res.status === 'success') {
             showToast('批量添加成功', 'success');
@@ -1523,7 +1492,8 @@ function processBatchPaste() {
         } else {
             showToast(res.msg || '添加失败', 'danger');
         }
-    });
+    })
+    .catch(function(err) { showToast('添加失败：' + err.message, 'danger'); });
 }
 
 // ==================== 添加物料 ====================
@@ -1541,12 +1511,11 @@ function addItem() {
         return;
     }
     
-    csrfFetch('/in_order/{{ order.id }}/item/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price
-    })
-    .then(r => r.json())
+    const itemData = new FormData();
+    itemData.append('material_code', code);
+    itemData.append('quantity', qty);
+    itemData.append('price', price);
+    WMS.api.postRaw('/in_order/{{ order.id }}/item/add', itemData)
     .then(res => {
         if (res.status === 'success') {
             showToast('添加成功', 'success');
@@ -1554,7 +1523,8 @@ function addItem() {
         } else {
             showToast(res.msg || '添加失败', 'danger');
         }
-    });
+    })
+    .catch(function(err) { showToast('添加失败：' + err.message, 'danger'); });
 }
 
 // ==================== 删除明细 ====================
@@ -1563,11 +1533,7 @@ document.querySelectorAll('.toolbar-btn-danger[data-id]').forEach(btn => {
         const id = this.dataset.id;
         showConfirm('确定要删除该物料吗？', {title: '删除物料'}).then(function(confirmed) {
             if (!confirmed) return;
-            csrfFetch('/in_order/{{ order.id }}/delete_item/' + id)
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
+            WMS.api.postRaw('/in_order/{{ order.id }}/delete_item/' + id)
             .then(function(res) {
                 if (res.status === 'success') {
                     showToast('删除成功', 'success');
@@ -1646,10 +1612,7 @@ document.addEventListener('DOMContentLoaded', function() {
         enableCopyPaste: true,
         onSave: function(itemId, field, newValue, formData) {
             // 使用默认保存方法
-            return csrfFetch('/in_order/item/update', {
-                method: 'POST',
-                body: formData
-            }).then(r => r.json());
+            return WMS.api.postRaw('/in_order/item/update', formData);
         },
         onError: function(err) {
             console.error('保存失败:', err);
