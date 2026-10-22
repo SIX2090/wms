@@ -143,36 +143,46 @@
     });
 
     let submitting = false;
+    // 失败可能只丢失响应；同一内容重试必须使用同一编号，避免重复创建草稿。
+    // 映射仅在当前页面内保留，切换内容后再切回也复用原编号。
+    const requestIds = new Map();
     document.getElementById('createDraft').addEventListener('click', async function () {
         if (submitting) return;
-        const items = Array.from(document.querySelectorAll('.line-check:checked')).map(check => ({
-            source_item_id: Number(check.dataset.itemId),
-            quantity: check.closest('tr').querySelector('.line-quantity').value
-        }));
-        if (!items.length) { showToast('请至少选择一条可下推明细', 'warning'); return; }
-        const payload = {
-            target_type: targetType.value,
-            request_id: (crypto.randomUUID ? crypto.randomUUID() : Date.now() + '-' + Math.random()),
-            purpose: document.getElementById('purpose').value.trim(),
-            department_id: document.getElementById('departmentId').value,
-            picker: document.getElementById('picker').value.trim(),
-            customer_id: document.getElementById('customerId').value,
-            reason: document.getElementById('reason').value.trim(),
-            items: items
-        };
         submitting = true;
         this.disabled = true;
         try {
-            const response = await fetch('{{ url_for("create_in_order_push", id=order.id) }}', {
-                method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token() }}'},
-                body: JSON.stringify(payload)
-            });
-            const result = await response.json();
-            if (!response.ok || result.status !== 'success') throw new Error(result.msg || '创建失败');
+            const items = Array.from(document.querySelectorAll('.line-check:checked')).map(check => ({
+                source_item_id: Number(check.dataset.itemId),
+                quantity: check.closest('tr').querySelector('.line-quantity').value
+            }));
+            if (!items.length) {
+                submitting = false;
+                this.disabled = false;
+                showToast('请至少选择一条可下推明细', 'warning');
+                return;
+            }
+            const payload = {
+                target_type: targetType.value,
+                purpose: document.getElementById('purpose').value.trim(),
+                department_id: document.getElementById('departmentId').value,
+                picker: document.getElementById('picker').value.trim(),
+                customer_id: document.getElementById('customerId').value,
+                reason: document.getElementById('reason').value.trim(),
+                items: items
+            };
+            const contentKey = JSON.stringify(payload);
+            if (!requestIds.has(contentKey)) {
+                const requestId = window.crypto && typeof window.crypto.randomUUID === 'function'
+                    ? window.crypto.randomUUID() : Date.now() + '-' + Math.random();
+                requestIds.set(contentKey, requestId);
+            }
+            payload.request_id = requestIds.get(contentKey);
+            const result = await WMS.api.postRaw('{{ url_for("create_in_order_push", id=order.id) }}', payload);
+            if (!result || result.status !== 'success') throw new Error((result && result.msg) || '创建失败');
             showToast(result.msg, 'success');
             window.location.href = result.url;
         } catch (error) {
-            showToast(error.message || '下推失败', 'danger');
+            showToast((error && error.message) || '下推失败', 'danger');
             submitting = false;
             this.disabled = false;
         }

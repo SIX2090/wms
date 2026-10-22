@@ -58,6 +58,8 @@ def test_page_feedback_behavior(page, name, mode):
         pytest.skip('Node.js required')
     payload = dict(page=page, name=name, mode=mode, source=function(page, name),
                    api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
+    if page == 'wechat_share':
+        payload['source'] = 'let wechatShareWriteBusy = false;\n' + function(page, 'writeWechatShare') + '\n' + payload['source']
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);
 const messages=[],events=[],calls=[],timers=[],elements=[];
@@ -73,8 +75,10 @@ const ctx={document:doc,JSON,parseInt,selectedMaterialId:7,getFilters:()=>({}),F
   WMS:{api:{post:(url,data)=>{calls.push({url,data});return Promise.resolve({token:'fixture-token',msg:'ok'});}}},
   $:()=>({length:1,val:()=> '7',show(){},hide(){},closest(){throw Error('must not delete last row');}})};
 ctx.window=ctx;vm.createContext(ctx);
-if(p.page==='label_template'||p.page==='approval'){
-  ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});vm.runInContext(p.api,ctx);
+if(p.page==='label_template'||p.page==='approval'||p.page==='wechat_share'){
+  ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});
+  if(p.page==='wechat_share')doc.querySelectorAll=()=>[];
+  vm.runInContext(p.api,ctx);
 }
 vm.runInContext(p.source,ctx);
 (async()=>{

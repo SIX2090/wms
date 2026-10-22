@@ -1431,3 +1431,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 组合验收：台账/库存定位及README契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119，PID5044身份核对后已关闭；日志frontend-018-*.log。交叉只读复核三页字段/权限/确认及状态无阻塞；后台未变，不新增AI能力/模型/工具/权限/开关/迁移，全站回归交本次代码提交CI、不重复本地全站。不对生产账号执行新增、编辑、禁用、重置或改密。
 - 发布闭环：代码500b6d109abc0df346640ce72645b12e5234a049已正常推送main，读取push输出且HEAD/origin一致；WMS CI39770306136（完整全量分片/冒烟）、AI39770306138均completed/success。Android最近main39682360398 success，已用本地Git证明为目标祖先且Android工程/构建工作流未变。发布查询遇匿名403，连接器逐项核实最新三工作流完整SHA/状态/链接并记录frontend-018-ci-alternate-evidence.json，git ls-remote再次核对目标main；未将限流误报失败或绿灯。收尾只改台账，走已验收的文档轻量路径。
 - 生效确认：2026-10-22 19:29代理核验，生产需重启 WMS 服务生效；核对PID4316的解释器/命令/Session0/创建时间、8080唯一listener、main目标及无混合代码写入，沿WMS-Warehouse原任务单次重启，现PID14556/Session0，8080单实例、LastTaskResult=0。启动日志19:29:21版本500b6d1、production/CSRF on、db-check migrate=ok（仅结构核验，不声称执行迁移）；本机/公网登录GET200且含CSRF。WMS_NO_DB_TOUCH=1保留，收尾不再次重启。本批只发布页面代码，未在生产创建/编辑/禁用/重置/改密任何账号，不改仓库、库存或真实密码；所有账号回归仅隔离夹具和模拟网络。
+
+### BUG-2026-10-22-019: 微信强制发送入口误导及下推失败重试可能重复建草稿
+
+- 状态：已修复，待CI及生产生效验收。
+- 根因/危害：微信“重新生成今日图片”实际会再次投递且绕过当日去重，普通/强制执行缺人工发送确认及忙锁；run/resend业务拒绝仍刷新，success信封不等于实际发送成功。入库下推每次点击新request_id，首请求已提交但响应丢失、剩余数量足够时，人工重试可能再建草稿。两页5个活跃旧POST，已有CSRF/部分确认与异常处理，不能误报全链缺保护。
+- 修复：两页5旧POST统一WMS.api.postRaw。微信写操作统一确认/请求/人工关闭结果/成功刷新互斥，失败和取消恢复，保留save完整FormData、run force=1、resend无body及clear状态字段；普通/强制执行明确人工发送确认，force按钮改为重新生成并再次发送，业务拒绝不刷新；run skipped单独反馈不误报发送，处理完成明确须看分享记录，resend补实际log_status标签而不把success信封当投递成功。入库下推使用不含request_id的完整payload JSON作Map key，失败保留每个内容对应编号，A→B→A也复用A，筛选不改变内容编号；载荷及UUID构建放入try，异常可见且恢复，不自动重发，成功保持锁至原导航。密码/库存/下推后台及发送算法不变；README注明发送语义与页面内保护边界，刷新或关闭页面后不保证编号继续保留，结果不确定须先查草稿。
+- 同类点已排查：关联BUG-2026-10-22-011至018及既有自动下推有效关联修复；后台重放按actor/source/request_id且不比较payload，前端不可拿同一ID发送修改后的内容。全仓create_in_order_push前端仅此页，自动下推有独立有效关联闸，不属于手工重试根因；微信两种run均真实投递，重发success仍可log_status failed/pending，均核对对应路由语义。无新后台或生产动作，不在生产发送微信、改分享配置或创建下推草稿。
+- 回归：微信基线17 passed，新增58真实DOM及生产api.js回调通过，与旧反馈26合并84 passed；旧模板回退58 failed，finally字节一致恢复后6模块及相邻101 passed（3既有SQLAlchemy warning，24.48秒）。旧test_page_feedback_runtime仅wechat加载真实helper/API及空buttons NodeList，保留全部原断言，其他页夹具不变。下推基线14 passed、新50通过，旧模板回退49 failed/1空选对照passed，finally字节一致恢复后模块及相邻64 passed（8既有弃用warning，13.73秒）；丢响应及A/B/A核心锁不依赖请求头断言，使用模拟重放端证明同内容只创建一次，覆盖三目标、原字段、数量/顺序、筛选、null/非JSON/HTTP/401419/network及UUID/构造异常恢复。新增合计108，不重复计入相邻或旧对照。日志wechat_share_transport_019/、in-push-20261022/。不用stash、不放宽旧断言，不在生产发送或写业务。
+- 组合验收：台账/README及库存定位契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119（脚本仅GET微信配置页，无发送/下推POST），PID17980身份核对后已关闭；日志frontend-019-*.log。交叉只读审核两页无阻塞，不新增AI能力/模型/工具/权限/开关/迁移，后台不变；全站回归交本次代码提交CI，不重复本地全站。开工基线4d995946三CI已全绿，等待上一批CI期间仅只读准备，本批写入在闭环后解锁。
+- 生效确认：待确认；生产需重启 WMS 服务生效。当前生产版本500b6d1，不改真实单据、库存、接收人、分享配置或账号密码。

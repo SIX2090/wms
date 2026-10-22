@@ -61,10 +61,11 @@ python scripts/check_ci_green.py
 - 采购业务：采购申请、采购订单、采购到货执行跟踪。
 - 生产与外协：BOM、生产领料、外协发料、外协收货、外协进度。
 - 单据效率：明细字段设置、复制行、合同/工程/仓库向下填充，合同编号和工程名称按明细行保存；采购入库、领料支持人工点击“保存并完成”。
-- 单据下推：采购入库和其他入库可按明细及数量下推领料单、其他出库单或售后出库草稿。
+- 单据下推：采购入库和其他入库可按明细及数量下推领料单、其他出库单或售后出库草稿。同一页面内，相同内容失败后手动重试复用请求编号；刷新或关闭页面后不保留。若结果不确定，先核对目标草稿再决定是否重试。
 - 数据导入导出：Excel 批量导入、导出（openpyxl）和前端表格处理。
 - 期初库存导入统一进入[批量导入页](http://127.0.0.1:8080/batch_import?type=opening_stock)：先预检，再人工确认整份文件；换文件或取消后须重新预检。预览最多展示前 500 行，确认数量以整份文件的可导入总数为准。导入中禁止重复点击；若网络中断导致结果不确定，先核对期初单据再决定是否重试，重复导入会累加数量。
 - 标签条码：物料标签模板、批量标签打印（`app/routes/label.py`、`label_barcode.py`）。
+- 微信报表分享：手动执行前确认发送；“重新生成并再次发送”会再次投递已分享的报表。结果以分享日志的实际发送状态为准，执行完成不代表全部发送成功。
 - 打印体系：全 Excel 模板化打印；统一打印模板设计中心 + 在线编辑器 v2（类 Excel，PRINT-TEMPLATE-F01~F06）；单据内置模板注册表；打印队列与重试、多工作站多打印机定向路由（`/print_routing`）、内置/独立 Windows 打印代理无人值守出纸、打印失败/滞留/离线告警与微信推送（详见 `app/routes/print_queue.py`、`print_template_center.py`、`print_template_editor.py`、`app/local_print_agent.py`、`tools/print_agent/`）。
 - 移动端 APP：Android 原生 APP（Kotlin + Jetpack Compose，`app/android-native-wms/`，包名 `com.factory.wms`）扫码入库/出库/盘点，提交即自动触发打印任务；未提交清单落盘 DataStore（杀进程不丢）；断网离线作业队列暂存、联网补传；崩溃自动上报；库存日报/出入库明细/库存台账只读报表；语音指令（可集成 sherpa-onnx 离线中文识别，见 [SHERPA_INTEGRATION.md](./SHERPA_INTEGRATION.md)）。APK 由 CI 构建发布，CI 出包是 Android 端唯一编译验收依据。
 - 移动端接口：移动扫码、物料查询、扫码提交、拍照识别物料（`app/routes/mobile.py`、`native_api.py`）。

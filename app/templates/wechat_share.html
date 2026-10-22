@@ -41,7 +41,7 @@
 {% block content %}
 <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h2 class="mb-0"><i class="bi bi-wechat"></i> 微信分享</h2>
-    <button type="button" class="btn btn-primary" onclick="runWechatShareNow(false)">
+    <button data-wechat-write type="button" class="btn btn-primary" onclick="runWechatShareNow(false)">
         <i class="bi bi-send"></i> 立即分享今日入库单
     </button>
 </div>
@@ -149,11 +149,11 @@
                         </div>
                     </div>
                     <div class="mt-3 d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-primary" onclick="saveWechatShareConfig()">
+                        <button data-wechat-write type="button" class="btn btn-primary" onclick="saveWechatShareConfig()">
                             <i class="bi bi-check2"></i> 保存设置
                         </button>
-                        <button type="button" class="btn btn-outline-secondary" onclick="runWechatShareNow(true)">
-                            <i class="bi bi-arrow-repeat"></i> 重新生成今日图片
+                        <button data-wechat-write type="button" class="btn btn-outline-secondary" onclick="runWechatShareNow(true)">
+                            <i class="bi bi-arrow-repeat"></i> 重新生成并再次发送今日入库单
                         </button>
                     </div>
                 </form>
@@ -291,7 +291,7 @@
             <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">清除</a>
             {% endif %}
             {% if log_counts.failed > 0 %}
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
             {% endif %}
         </form>
     </div>
@@ -341,7 +341,7 @@
                         </td>
                         <td>
                             {% if log.module_key == 'in_order' and log.image_path %}
-                            <button type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})">
+                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})">
                                 <i class="bi bi-send"></i> 重发
                             </button>
                             {% else %}
@@ -365,65 +365,78 @@ document.getElementById('autoSend').addEventListener('change', function () {
     document.getElementById('autoSendRiskHint').style.display = this.checked ? '' : 'none';
 });
 
+// A single lock covers confirmation, delivery and the human-readable result.
+let wechatShareWriteBusy = false;
+async function writeWechatShare(url, payload, options) {
+    if (wechatShareWriteBusy) return;
+    wechatShareWriteBusy = true;
+    const buttons = Array.from(document.querySelectorAll('button[data-wechat-write]'));
+    const disabled = buttons.map(button => button.disabled);
+    let refreshing = false;
+    buttons.forEach(button => { button.disabled = true; });
+    try {
+        if (options.confirmation && !confirm(options.confirmation)) return;
+        const res = await WMS.api.postRaw(url, payload);
+        if (options.kind === 'run' && res && res.status === 'skipped') {
+            alert(res.msg || '本次未执行分享，请检查分享开关和配置'); // allow-alert: 人工关闭执行结果，避免误报已发送
+            return;
+        }
+        if (!res || res.status !== 'success') {
+            showToast((res && res.msg) || options.failure, 'danger');
+            return;
+        }
+        let message = res.msg || options.success;
+        if (options.kind === 'run') {
+            message += '\n处理完成不代表全部发送成功，请核对下方分享记录。';
+        } else if (options.kind === 'resend') {
+            const labels = { sent: '已发送', pending: '待发送', failed: '发送失败', skipped: '已跳过' };
+            message += '\n发送状态：' + (labels[res.log_status] || '未知，请核对分享记录');
+        }
+        alert(message); // allow-alert: 刷新前保留人工关闭，发送结果和错误原因必须可阅读
+        refreshing = true;
+        location.reload();
+    } catch (err) {
+        showToast(options.failure + '：' + ((err && err.message) || '请稍后重试'), 'danger');
+    } finally {
+        if (!refreshing) {
+            wechatShareWriteBusy = false;
+            buttons.forEach((button, index) => { button.disabled = disabled[index]; });
+        }
+    }
+}
+
 function saveWechatShareConfig() {
     const form = document.getElementById('wechatShareForm');
-    const formData = new FormData(form);
-    fetch('/wechat_share/save', {
-        method: 'POST',
-        body: formData
-    }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '保存成功' : '保存失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-        if (res.status === 'success') {
-            location.reload();
-        }
-    }).catch(err => {
-        showToast('保存失败：' + err.message, 'danger');
+    return writeWechatShare('/wechat_share/save', new FormData(form), {
+        failure: '保存失败', success: '保存成功'
     });
 }
 
 function runWechatShareNow(force) {
     const formData = new FormData();
-    if (force) {
-        formData.append('force', '1');
-    }
-    fetch('/wechat_share/run_now', {
-        method: 'POST',
-        body: formData
-    }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已执行' : '执行失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-        location.reload();
-    }).catch(err => {
-        showToast('执行失败：' + err.message, 'danger');
+    if (force) formData.append('force', '1');
+    return writeWechatShare('/wechat_share/run_now', formData, {
+        kind: 'run', failure: '执行失败', success: '分享请求已处理',
+        confirmation: force
+            ? '确认重新生成并再次发送今日入库单？此操作会绕过已分享记录的去重，可能向微信或企业微信重复发送消息。'
+            : '确认立即分享今日已完成入库单？此操作会向已配置的微信或企业微信目标发送消息。'
     });
 }
 
 function resendWechatShareLog(logId) {
-    if (!confirm('确认重新发送这条微信分享记录？')) return;
-    fetch('/wechat_share/log/' + logId + '/resend', {
-        method: 'POST'
-    }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已重发' : '重发失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-        location.reload();
-    }).catch(err => {
-        showToast('重发失败：' + err.message, 'danger');
+    return writeWechatShare('/wechat_share/log/' + logId + '/resend', undefined, {
+        kind: 'resend', confirmation: '确认重新发送这条微信分享记录？',
+        failure: '重发失败', success: '重发请求已处理'
     });
 }
 
 function clearWechatShareLogs(status) {
     const label = status === 'failed' ? '失败' : '跳过';
-    if (!confirm('确认清理所有' + label + '分享记录？图片文件不会删除。')) return;
     const formData = new FormData();
     formData.append('status', status);
-    fetch('/wechat_share/logs/clear', {
-        method: 'POST',
-        body: formData
-    }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已清理' : '清理失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-        if (res.status === 'success') {
-            location.reload();
-        }
-    }).catch(err => {
-        showToast('清理失败：' + err.message, 'danger');
+    return writeWechatShare('/wechat_share/logs/clear', formData, {
+        confirmation: '确认清理所有' + label + '分享记录？图片文件不会删除。',
+        failure: '清理失败', success: '已清理'
     });
 }
 </script>
