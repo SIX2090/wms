@@ -134,12 +134,12 @@ document.addEventListener('DOMContentLoaded', function() {
             });
             const result = await resp.json();
             if (result.status === 'success') {
-                alert('配置已保存');
+                showToast('配置已保存', 'success');
             } else {
-                alert('保存失败：' + (result.msg || '未知错误'));
+                showToast('保存失败：' + (result.msg || '未知错误'), 'danger');
             }
         } catch (err) {
-            alert('请求失败：' + err.message);
+            showToast('请求失败：' + err.message, 'danger');
         }
     });
 
@@ -191,10 +191,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 previewResult.classList.remove('d-none');
                 executeBtn.disabled = false;
             } else {
-                alert('预览失败：' + (result.msg || '未知错误'));
+                showToast('预览失败：' + (result.msg || '未知错误'), 'danger');
             }
         } catch (err) {
-            alert('请求失败：' + err.message);
+            showToast('请求失败：' + err.message, 'danger');
         } finally {
             previewBtn.disabled = false;
             previewBtn.textContent = '预览清理范围';
@@ -223,15 +223,15 @@ document.addEventListener('DOMContentLoaded', function() {
             
             if (result.status === 'success') {
                 const exec = result.execution;
-                alert(`清理完成\n删除：${exec.deleted_count}\n保护：${exec.protected_count}\n豁免：${exec.exempt_count}\n保留：${exec.kept_count}\n失败：${exec.failed_count}`);
+                showToast(`清理完成\n删除：${exec.deleted_count}\n保护：${exec.protected_count}\n豁免：${exec.exempt_count}\n保留：${exec.kept_count}\n失败：${exec.failed_count}`, 'success');
                 previewResult.classList.add('d-none');
                 executeBtn.disabled = true;
                 loadLogs();
             } else {
-                alert('执行失败：' + (result.msg || '未知错误'));
+                showToast('执行失败：' + (result.msg || '未知错误'), 'danger');
             }
         } catch (err) {
-            alert('请求失败：' + err.message);
+            showToast('请求失败：' + err.message, 'danger');
         } finally {
             executeBtn.disabled = false;
             executeBtn.textContent = '执行清理（需二次确认）';

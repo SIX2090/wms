@@ -224,7 +224,7 @@ function generateForecast() {
     .then(data => {
         $('#loadingArea').hide();
         if (data.status === 'error') {
-            alert(data.msg || '生成失败');
+            showToast(data.msg || '生成失败', 'danger');
             return;
         }
         forecastData = data.forecasts || [];
@@ -232,7 +232,7 @@ function generateForecast() {
     })
     .catch(err => {
         $('#loadingArea').hide();
-        alert('请求失败：' + err.message);
+        showToast('请求失败：' + err.message, 'danger');
     });
 }
 
@@ -303,7 +303,7 @@ function filterTable() {
 
 function exportForecast() {
     if (!forecastData || forecastData.length === 0) {
-        alert('暂无数据可导出');
+        showToast('暂无数据可导出', 'danger');
         return;
     }
     

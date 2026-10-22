@@ -310,14 +310,14 @@ function generateRecommendation() {
     .then(data => {
         $('#loadingArea').hide();
         if (data.status === 'error') {
-            alert(data.msg || '生成失败');
+            showToast(data.msg || '生成失败', 'danger');
             return;
         }
         renderResult(data);
     })
     .catch(err => {
         $('#loadingArea').hide();
-        alert('请求失败：' + err.message);
+        showToast('请求失败：' + err.message, 'danger');
     });
 }
 

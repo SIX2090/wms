@@ -814,18 +814,18 @@ body {
                 let data = {};
                 try { data = await resp.json(); } catch (parseErr) {
                     console.error('BUG-F02-03: 后端返回非 JSON', resp.status, resp.statusText, await resp.text());
-                    alert('保存失败：服务器返回 ' + resp.status + ' ' + resp.statusText);
+                    showToast('保存失败：服务器返回 ' + resp.status + ' ' + resp.statusText, 'danger');
                     return;
                 }
                 if (resp.ok && data.status === 'success') {
-                    alert('布局保存成功！');
+                    showToast('布局保存成功！', 'success');
                 } else {
                     console.error('BUG-F02-03: 保存失败', resp.status, data);
-                    alert('保存失败：' + (data.msg || ('HTTP ' + resp.status)));
+                    showToast('保存失败：' + (data.msg || ('HTTP ' + resp.status)), 'danger');
                 }
             } catch (networkErr) {
                 console.error('BUG-F02-03: 网络错误', networkErr);
-                alert('保存失败：' + networkErr.message);
+                showToast('保存失败：' + networkErr.message, 'danger');
             } finally {
                 _savingLayout = false;
                 if (saveBtn) {

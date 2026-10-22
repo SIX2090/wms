@@ -376,12 +376,12 @@ function addWs() {
         name: document.getElementById('wsName').value,
         warehouse_id: document.getElementById('wsWarehouse').value || null,
     };
-    if (!data.code || !data.name) { alert('请填写工作站编码和名称'); return; }
+    if (!data.code || !data.name) { showToast('请填写工作站编码和名称', 'warning'); return; }
     WMS.api.post('/print_routing/workstations', data).then(function (res) {
         if (typeof showToast === 'function') { showToast(res.msg); }
         if (res.token) {
             navigator.clipboard && navigator.clipboard.writeText(res.token);
-            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.json）：\n\n' + res.token);
+            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.json）：\n\n' + res.token); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         }
         location.reload();
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
@@ -409,7 +409,7 @@ function saveWs() {
 function resetToken(wsId) {
     if (!confirm('重置令牌后，该工作站正在使用的打印代理将立即失联，需要更新代理配置。确定重置？')) return;
     WMS.api.post('/print_routing/workstations/' + wsId + '/reset_token', {}).then(function (res) {
-        alert('新令牌（请更新打印代理配置）：\n\n' + res.token);
+        alert('新令牌（请更新打印代理配置）：\n\n' + res.token); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         location.reload();
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '重置失败', 'danger'); } });
 }
@@ -546,7 +546,7 @@ function saveRule() {
         enabled: document.getElementById('ruleEnabled').checked,
     };
     if (!data.name || !data.workstation_id || !data.printer_id) {
-        alert('请填写规则名称并选择工作站和打印机'); return;
+        showToast('请填写规则名称并选择工作站和打印机', 'warning'); return;
     }
     var ruleId = document.getElementById('ruleEditId').value;
     var url = ruleId ? '/print_routing/rules/' + ruleId + '/edit' : '/print_routing/rules';

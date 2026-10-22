@@ -954,7 +954,7 @@ function showInOrderValidation(errors) {
     const panel = document.getElementById('inOrderValidationPanel');
     const list = document.getElementById('inOrderValidationList');
     if (!panel || !list) {
-        alert(errors.map(error => error.message).join('\n'));
+        showToast(errors.map(error => error.message).join('\n'), 'danger');
         return;
     }
     list.innerHTML = errors.map((error, index) => {

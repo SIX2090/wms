@@ -372,12 +372,12 @@ function saveWechatShareConfig() {
         method: 'POST',
         body: formData
     }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '保存成功' : '保存失败'));
+        alert(res.msg || (res.status === 'success' ? '保存成功' : '保存失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         if (res.status === 'success') {
             location.reload();
         }
     }).catch(err => {
-        alert('保存失败：' + err.message);
+        showToast('保存失败：' + err.message, 'danger');
     });
 }
 
@@ -390,10 +390,10 @@ function runWechatShareNow(force) {
         method: 'POST',
         body: formData
     }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已执行' : '执行失败'));
+        alert(res.msg || (res.status === 'success' ? '已执行' : '执行失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         location.reload();
     }).catch(err => {
-        alert('执行失败：' + err.message);
+        showToast('执行失败：' + err.message, 'danger');
     });
 }
 
@@ -402,10 +402,10 @@ function resendWechatShareLog(logId) {
     fetch('/wechat_share/log/' + logId + '/resend', {
         method: 'POST'
     }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已重发' : '重发失败'));
+        alert(res.msg || (res.status === 'success' ? '已重发' : '重发失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         location.reload();
     }).catch(err => {
-        alert('重发失败：' + err.message);
+        showToast('重发失败：' + err.message, 'danger');
     });
 }
 
@@ -418,12 +418,12 @@ function clearWechatShareLogs(status) {
         method: 'POST',
         body: formData
     }).then(res => res.json()).then(res => {
-        alert(res.msg || (res.status === 'success' ? '已清理' : '清理失败'));
+        alert(res.msg || (res.status === 'success' ? '已清理' : '清理失败')); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         if (res.status === 'success') {
             location.reload();
         }
     }).catch(err => {
-        alert('清理失败：' + err.message);
+        showToast('清理失败：' + err.message, 'danger');
     });
 }
 </script>

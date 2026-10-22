@@ -560,6 +560,16 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
         const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
         const csrfHeaders = { 'X-CSRFToken': csrfToken };
 
+        // 轻量 toast 提示（本页为独立页，未加载 app.js 的全局 showToast）
+        function showToast(message, type) {
+            const colors = { success: '#28a745', danger: '#dc3545', warning: '#ffc107', info: '#17a2b8' };
+            const el = document.createElement('div');
+            el.textContent = message;
+            el.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px 18px;border-radius:6px;color:#fff;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,.2);white-space:pre-line;background:' + (colors[type] || colors.info);
+            document.body.appendChild(el);
+            setTimeout(function() { el.remove(); }, 3000);
+        }
+
         // 文件拖拽处理
         function handleDragOver(e) {
             e.preventDefault();
@@ -592,7 +602,7 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
 
         function handleFile(file) {
             if (!file.name.match(/\.(xlsx)$/i)) {
-                alert('请选择 .xlsx 格式的Excel模板（不支持 .xls）');
+                showToast('请选择 .xlsx 格式的Excel模板（不支持 .xls）', 'danger');
                 return;
             }
             
@@ -626,7 +636,7 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
             const formData = new FormData(this);
             
             if (!formData.get('excel_file')) {
-                alert('请选择Excel模板文件');
+                showToast('请选择Excel模板文件', 'danger');
                 return;
             }
             
@@ -643,13 +653,13 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
                 
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('模板添加成功！');
+                    alert('模板添加成功！'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    alert('添加失败：' + result.msg);
+                    showToast('添加失败：' + result.msg, 'danger');
                 }
             } catch (error) {
-                alert('网络错误：' + error.message);
+                showToast('网络错误：' + error.message, 'danger');
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerHTML = '<i class="bi bi-save"></i> 保存模板';
@@ -672,13 +682,13 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
 
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('模板已启用，入库单模板打印将使用该模板');
+                    alert('模板已启用，入库单模板打印将使用该模板'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    alert('启用失败：' + (result.msg || '操作失败'));
+                    showToast('启用失败：' + (result.msg || '操作失败'), 'danger');
                 }
             } catch (error) {
-                alert('网络错误：' + error.message);
+                showToast('网络错误：' + error.message, 'danger');
             }
         }
 
@@ -693,13 +703,13 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
                 
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('已设为默认模板');
+                    alert('已设为默认模板'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    alert('操作失败');
+                    showToast('操作失败', 'danger');
                 }
             } catch (error) {
-                alert('网络错误：' + error.message);
+                showToast('网络错误：' + error.message, 'danger');
             }
         }
 
@@ -714,13 +724,13 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
                 
                 const result = await response.json();
                 if (result.status === 'success') {
-                    alert('模板删除成功');
+                    alert('模板删除成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    alert('删除失败');
+                    showToast('删除失败', 'danger');
                 }
             } catch (error) {
-                alert('网络错误：' + error.message);
+                showToast('网络错误：' + error.message, 'danger');
             }
         }
         

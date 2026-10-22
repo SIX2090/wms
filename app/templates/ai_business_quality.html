@@ -210,10 +210,10 @@ async function loadSnapshot() {
             document.getElementById('footerInfo').textContent = 
                 `生成时间：${data.snapshot.generated_at}。样本数：${data.snapshot.sample_count}。指标来自 AIFieldFeedback、AIDraftIdempotency 和业务单据表。`;
         } else {
-            alert('加载失败：' + (data.msg || '未知错误'));
+            showToast('加载失败：' + (data.msg || '未知错误'), 'danger');
         }
     } catch (e) {
-        alert('请求失败：' + e.message);
+        showToast('请求失败：' + e.message, 'danger');
     }
 }
 
@@ -431,10 +431,10 @@ async function loadVersionComparison() {
         if (data.status === 'ok') {
             renderVersionComparison(data.comparison);
         } else {
-            alert('对比失败：' + (data.msg || '未知错误'));
+            showToast('对比失败：' + (data.msg || '未知错误'), 'danger');
         }
     } catch (e) {
-        alert('请求失败：' + e.message);
+        showToast('请求失败：' + e.message, 'danger');
     }
 }
 

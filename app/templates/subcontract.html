@@ -246,7 +246,7 @@ if (batchDeleteBtn) {
 batchDeleteBtn.addEventListener('click', function() {
     var checkedItems = document.querySelectorAll('.itemCheck:checked');
     if (checkedItems.length === 0) {
-        alert('请选择要删除的委外加工单');
+        showToast('请选择要删除的委外加工单', 'danger');
         return;
     }
     
@@ -266,10 +266,10 @@ batchDeleteBtn.addEventListener('click', function() {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                alert('删除成功');
+                alert('删除成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                 location.reload();
             } else {
-                alert('删除失败: ' + data.msg);
+                showToast('删除失败: ' + data.msg, 'danger');
             }
         });
     }
@@ -287,10 +287,10 @@ document.getElementById('submitAdd').addEventListener('click', function() {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            alert('新增成功');
+            alert('新增成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             location.reload();
         } else {
-            alert('新增失败: ' + data.msg);
+            showToast('新增失败: ' + data.msg, 'danger');
         }
     });
 });
@@ -308,10 +308,10 @@ deleteButtons.forEach(function(button) {
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    alert('删除成功');
+                    alert('删除成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    alert('删除失败: ' + data.msg);
+                    showToast('删除失败: ' + data.msg, 'danger');
                 }
             });
         }
@@ -327,10 +327,10 @@ revertButtons.forEach(function(button) {
         .then(response => response.json())
         .then(data => {
             if (data.status === 'success') {
-                alert(data.msg || '反提交成功');
+                alert(data.msg || '反提交成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                 location.reload();
             } else {
-                alert('反提交失败: ' + data.msg);
+                showToast('反提交失败: ' + data.msg, 'danger');
             }
         });
     });
@@ -340,7 +340,7 @@ revertButtons.forEach(function(button) {
 function batchAction(action) {
     var checkedItems = document.querySelectorAll('.itemCheck:checked');
     if (checkedItems.length === 0) {
-        alert('请选择要操作的记录');
+        showToast('请选择要操作的记录', 'danger');
         return;
     }
     
@@ -367,10 +367,10 @@ function batchAction(action) {
     .then(response => response.json())
     .then(data => {
         if (data.status === 'success') {
-            alert('操作成功，共处理 ' + data.count + ' 条记录');
+            alert('操作成功，共处理 ' + data.count + ' 条记录'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             location.reload();
         } else {
-            alert('操作失败: ' + data.msg);
+            showToast('操作失败: ' + data.msg, 'danger');
         }
     });
 }
@@ -388,13 +388,13 @@ function submitDocumentImport(formId, fileId) {
     .then(function(res) { return res.json(); })
     .then(function(data) {
         if (data.status === 'success') {
-            alert(data.msg || '导入成功');
+            alert(data.msg || '导入成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             setTimeout(function(){ location.reload(); }, 900);
         } else {
-            alert('导入失败: ' + (data.msg || '未知错误'));
+            showToast('导入失败: ' + (data.msg || '未知错误'), 'danger');
         }
     })
-    .catch(function(error) { alert('导入失败: ' + error.message); })
+    .catch(function(error) { showToast('导入失败: ' + error.message, 'danger'); })
     .finally(function() { fileInput.value = ''; });
 }
 </script>

@@ -175,7 +175,7 @@ function approveItem(id) {
         if (res.status === 'success') {
             location.reload();
         } else {
-            alert(res.msg || '操作失败');
+            showToast(res.msg || '操作失败', 'danger');
         }
     });
 }
@@ -191,7 +191,7 @@ function rejectItem(id) {
         if (res.status === 'success') {
             location.reload();
         } else {
-            alert(res.msg || '操作失败');
+            showToast(res.msg || '操作失败', 'danger');
         }
     });
 }

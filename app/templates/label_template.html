@@ -175,9 +175,9 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(function(r){ return r.json(); })
             .then(function(res) {
                 if (res.status === 'success') location.reload();
-                else alert(res.msg || '创建失败');
+                else showToast(res.msg || '创建失败', 'danger');
             })
-            .catch(function(err){ alert('创建失败：'+err.message); });
+            .catch(function(err){ showToast('创建失败：'+err.message, 'danger'); });
         });
     }
 });
@@ -189,9 +189,9 @@ function deleteTemplate(id) {
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success') location.reload();
-        else alert('删除失败');
+        else showToast('删除失败', 'danger');
     })
-    .catch(function(err){ alert('删除失败：'+err.message); });
+    .catch(function(err){ showToast('删除失败：'+err.message, 'danger'); });
 }
 
 // 设为默认
@@ -200,9 +200,9 @@ function setDefault(id) {
     .then(function(r){ return r.json(); })
     .then(function(res) {
         if (res.status === 'success') location.reload();
-        else alert('设置失败');
+        else showToast('设置失败', 'danger');
     })
-    .catch(function(err){ alert('设置失败：'+err.message); });
+    .catch(function(err){ showToast('设置失败：'+err.message, 'danger'); });
 }
 </script>
 {% endblock %}

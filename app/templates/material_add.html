@@ -140,13 +140,13 @@ document.getElementById('addMaterialForm').addEventListener('submit', function(e
         body: formData
     }).then(res => res.json()).then(res => {
         if (res.status === 'success') {
-            alert('物料添加成功！');
+            alert('物料添加成功！'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             window.location.href = '/material';
         } else {
-            alert('添加失败：' + (res.msg || '未知错误'));
+            showToast('添加失败：' + (res.msg || '未知错误'), 'danger');
         }
     }).catch(err => {
-        alert('请求失败：' + err.message);
+        showToast('请求失败：' + err.message, 'danger');
     });
 });
 
@@ -357,7 +357,7 @@ function showAddUnitModal() {
             body: formData
         }).then(res => res.json()).then(res => {
             if (res.status === 'success') {
-                alert('单位添加成功！');
+                showToast('单位添加成功！', 'success');
                 // 添加到单位列表
                 units.push({ id: res.id, name: res.name, code: formData.get('code') });
                 // 设置为当前选中
@@ -366,10 +366,10 @@ function showAddUnitModal() {
                 // 关闭弹窗
                 document.getElementById('addUnitModal').remove();
             } else {
-                alert('添加失败：' + (res.msg || '未知错误'));
+                showToast('添加失败：' + (res.msg || '未知错误'), 'danger');
             }
         }).catch(err => {
-            alert('请求失败：' + err.message);
+            showToast('请求失败：' + err.message, 'danger');
         });
     });
 }

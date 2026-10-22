@@ -310,7 +310,7 @@ function removeItemRow(btn) {
     if ($('#itemTableBody tr').length > 1) {
         $(btn).closest('tr').remove();
     } else {
-        alert('至少保留一行');
+        showToast('至少保留一行', 'warning');
     }
 }
 
@@ -403,7 +403,7 @@ $('#selectAll').click(function() {
 $('#submitAdd').click(function() {
     $('#itemTableBody .material-input').trigger('input');
     if (!$('#issueWarehouse').val()) {
-        alert('请选择仓库');
+        showToast('请选择仓库', 'danger');
         return;
     }
     var formData = new FormData($('#addForm')[0]);
@@ -416,10 +416,10 @@ $('#submitAdd').click(function() {
         contentType: false,
         success: function(data) {
             if (data.status === 'success') {
-                alert('新增成功');
+                alert('新增成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                 location.reload();
             } else {
-                alert('新增失败: ' + data.msg);
+                showToast('新增失败: ' + data.msg, 'danger');
             }
         }
     });
@@ -454,10 +454,10 @@ function revertIssue(id) {
     if (!confirm('确认反提交该委外发料单？反提交后库存将恢复。')) return;
     $.post('/subcontract/issue/' + id + '/revert', function(data) {
         if (data.status === 'success') {
-            alert(data.msg || '反提交成功');
+            alert(data.msg || '反提交成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             location.reload();
         } else {
-            alert('反提交失败: ' + data.msg);
+            showToast('反提交失败: ' + data.msg, 'danger');
         }
     });
 }
@@ -467,10 +467,10 @@ function deleteIssue(id) {
     if (!confirm('确定要删除此发料单吗？库存将恢复。')) return;
     $.post('/subcontract/issue/delete/' + id, function(data) {
         if (data.status === 'success') {
-            alert('删除成功');
+            alert('删除成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             location.reload();
         } else {
-            alert('删除失败: ' + data.msg);
+            showToast('删除失败: ' + data.msg, 'danger');
         }
     });
 }
@@ -479,7 +479,7 @@ function deleteIssue(id) {
 $('#batchDeleteBtn').click(function() {
     var checked = $('.itemCheck:checked');
     if (checked.length === 0) {
-        alert('请选择要删除的记录');
+        showToast('请选择要删除的记录', 'danger');
         return;
     }
     if (!confirm('确定要删除选中的 ' + checked.length + ' 条记录吗？')) return;
@@ -487,7 +487,7 @@ $('#batchDeleteBtn').click(function() {
     checked.each(function() {
         $.post('/subcontract/issue/delete/' + $(this).val(), function(data) {});
     });
-    alert('删除完成');
+    alert('删除完成'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
     location.reload();
 });
 
@@ -504,13 +504,13 @@ function submitDocumentImport(formId, fileId) {
     .then(function(res) { return res.json(); })
     .then(function(data) {
         if (data.status === 'success') {
-            alert(data.msg || '导入成功');
+            alert(data.msg || '导入成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
             setTimeout(function(){ location.reload(); }, 900);
         } else {
-            alert('导入失败: ' + (data.msg || '未知错误'));
+            showToast('导入失败: ' + (data.msg || '未知错误'), 'danger');
         }
     })
-    .catch(function(error) { alert('导入失败: ' + error.message); })
+    .catch(function(error) { showToast('导入失败: ' + error.message, 'danger'); })
     .finally(function() { fileInput.value = ''; });
 }
 </script>

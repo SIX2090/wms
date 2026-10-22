@@ -1357,7 +1357,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             });
         })
         .catch(error => {
-            showToast(savedOrderId ? '单据已保存，完成结果需在详情页核对' : '保存失败：' + error.message, 'danger');
+            showToast(savedOrderId ? '单据已保存，完成结果需在详情页核对' : '保存失败：' + error.message, savedOrderId ? 'warning' : 'danger');
             if (savedOrderId) window.location.href = `/out_order/${savedOrderId}`;
         })
         .finally(() => {
