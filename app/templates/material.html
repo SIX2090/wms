@@ -1426,8 +1426,7 @@ function initQuickSelects() {
 
 function refreshQuickSelectData(types) {
     (types || Object.keys(quickSelectApiByType)).forEach(function(type) {
-        fetch(quickSelectApiByType[type])
-            .then(function(r) { return r.json(); })
+        WMS.api.getRaw(quickSelectApiByType[type])
             .then(function(list) {
                 if (Array.isArray(list)) {
                     quickSelectData[type].length = 0;
@@ -1537,14 +1536,14 @@ function toggleMaterialStatus(id, status) {
         ? '停用后：新建单据不能再选到这个物料；\n已录入的历史单据、库存数量、台账与报表都不受影响。'
         : '启用后：新建单据可以重新选到这个物料。';
     if (!confirm('确定' + label + '这个物料吗？\n\n' + tip)) return;
-    WMS.api.post('/material/' + id + '/set_status', {status: status}).then(function (r) {
+    WMS.api.postRaw('/material/' + id + '/set_status', {status: status}).then(function (r) {
         if (r && r.status === 'success') {
             window.location.reload();
         } else {
-            alert((r && r.msg) || label + '失败');
+            showToast((r && r.msg) || label + '失败', 'danger');
         }
     }).catch(function (e) {
-        alert(label + '失败：' + (e && e.message ? e.message : e));
+        showToast(label + '失败：' + (e && e.message ? e.message : e), 'danger');
     });
 }
 
@@ -1717,31 +1716,8 @@ document.addEventListener('DOMContentLoaded', function() {
             resultDiv.style.display = 'none';
             resultDiv.innerHTML = '';
             var formData = new FormData(this);
-            // BUG-2026-08-04-004: 之前用 csrfFetch().then(r => r.json())，
-            // 当后端返回 4xx/5xx 非 JSON（如 CSRF 重定向 HTML）时，r.json() 抛错，
-            // catch 只能看到 "请求失败：Unexpected token..." 丢失真实原因。
-            // 改为先检查 response.ok，再解析 JSON，非 JSON 时给出友好提示。
-            csrfFetch(this.action, {
-                method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(function(r) {
-                // 非 2xx：尝试解析 JSON 错误体，失败则用 HTTP 状态码构造原因
-                if (!r.ok) {
-                    return r.json().catch(function() {
-                        var hint = r.status === 0 ? '网络连接失败' : ('HTTP ' + r.status);
-                        if (r.status === 403 || r.status === 302) {
-                            hint = '会话已过期或权限不足，请刷新页面后重试';
-                        }
-                        throw { message: '导入失败：' + hint, status: r.status };
-                    }).then(function(err) {
-                        var msg = (err && err.msg) ? err.msg : ('HTTP ' + r.status);
-                        throw { message: '导入失败：' + msg, status: r.status, data: err };
-                    });
-                }
-                return r.json();
-            })
+            // The shared API preserves structured errors and non-JSON HTTP status.
+            WMS.api.postRaw(this.action, formData)
             .then(function(res) {
                 btn.disabled = false;
                 btn.textContent = '导入';
@@ -1821,11 +1797,7 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             commitQuickSelects(this);
             var formData = new FormData(this);
-            csrfFetch('{{ url_for("add_material") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(function(r){ return r.json(); })
+            WMS.api.postRaw('{{ url_for("add_material") }}', formData)
             .then(function(res) {
                 if (res.status === 'success') {
                     // 广播通知其他页面刷新物料列表
@@ -1847,8 +1819,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 编辑物料 - 打开编辑弹窗
     window.editMaterial = function(id) {
-        fetch('/material/' + id)
-            .then(function(r){ return r.json(); })
+        WMS.api.getRaw('/material/' + id)
             .then(function(res) {
                 if (res.status === 'success') {
                     var mat = res.material;
@@ -1886,8 +1857,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 编辑物料 - 加载物料档案图片（手机/电脑统一的多图）
     window.loadEditMaterialImages = function(id) {
-        fetch('/mobile/api/material_archive/' + id + '/images')
-            .then(function(r){ return r.json(); })
+        WMS.api.getRaw('/mobile/api/material_archive/' + id + '/images')
             .then(function(res) {
                 var grid = document.getElementById('editMaterialImageGrid');
                 if (!grid) return;
@@ -1911,7 +1881,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
                 grid.innerHTML = html;
             })
-            .catch(function(){ /* 忽略加载失败 */ });
+            .catch(function(err){
+                var grid = document.getElementById('editMaterialImageGrid');
+                if (grid) grid.textContent = '图片加载失败：' + err.message;
+            });
     };
 
     // 编辑物料 - 删除一张档案图片
@@ -1992,8 +1965,7 @@ document.addEventListener('DOMContentLoaded', function() {
         queryEl.textContent = '';
         modal.show();
 
-        fetch('/material/' + id + '/image_candidates')
-            .then(function(r){ return r.json(); })
+        WMS.api.getRaw('/material/' + id + '/image_candidates')
             .then(function(res) {
                 if (res.status !== 'success') {
                     statusEl.textContent = res.msg || '找图失败';
@@ -2031,12 +2003,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     btn.addEventListener('click', function() {
                         btn.disabled = true;
                         btn.textContent = '保存中...';
-                        csrfFetch('/material/' + id + '/image_select', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({image_url: candidate.image_url})
-                        })
-                        .then(function(r){ return r.json(); })
+                        WMS.api.postRaw('/material/' + id + '/image_select', {image_url: candidate.image_url})
                         .then(function(saveRes) {
                             if (saveRes.status === 'success') {
                                 showToast('图片已保存', 'success', 2200);
@@ -2070,17 +2037,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // 修复空分类/单位
     window.fixEmptyFields = function() {
         if (!confirm('将把所有空分类设为"默认分类"，空单位设为"个"，确定修复吗？')) return;
-        csrfFetch('{{ url_for("fix_empty_fields") }}', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(function(r){ return r.json(); })
+        WMS.api.postRaw('{{ url_for("fix_empty_fields") }}', {})
         .then(function(res) {
-            alert(res.msg);
-            location.reload();
+            showToast(res.msg || '修复完成', res.status === 'success' ? 'success' : 'danger');
+            if (res.status === 'success') location.reload();
         })
-        .catch(function(err){ alert('修复失败: ' + err.message); });
+        .catch(function(err){ showToast('修复失败: ' + err.message, 'danger'); });
     };
 
     // 删除全部物料入口已禁用，后端也会拒绝请求。
@@ -2108,11 +2070,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     confirmOverlay.classList.remove('show');
                 }
 
-                csrfFetch('/material/edit/' + id, {
-                    method: 'POST',
-                    body: formData
-                })
-                .then(function(r){ return r.json(); })
+                WMS.api.postRaw('/material/edit/' + id, formData)
                 .then(function(res) {
                     if (res.status === 'success') {
                         // 先关闭编辑弹窗
@@ -3190,8 +3148,7 @@ function saveAsTemplate() {
     dbData.append('rows', currentTemplate.rows);
     dbData.append('layout', JSON.stringify(templateData));
 
-    csrfFetch('/label_template/add', { method: 'POST', body: dbData })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/label_template/add', dbData)
     .then(function(res) {
         if (res.status === 'success') {
             try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
@@ -3214,12 +3171,7 @@ function updateExistingTemplate() {
         cols: currentTemplate.cols,
         rows: currentTemplate.rows
     };
-    csrfFetch('/label_template/' + currentTemplateId + '/save_layout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-    })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/label_template/' + currentTemplateId + '/save_layout', payload)
     .then(function(res) {
         if (res.status === 'success') {
             try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
@@ -3239,8 +3191,7 @@ function setDefaultTemplate() {
         __notify('请先选择要设为默认的模板', 'warning');
         return;
     }
-    csrfFetch('/label_template/' + currentTemplateId + '/set_default', { method: 'POST' })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/label_template/' + currentTemplateId + '/set_default', null)
     .then(function(res) {
         if (res.status === 'success') {
             loadTemplateList();
@@ -3257,8 +3208,7 @@ function loadTemplateList() {
     var select = document.getElementById('templateSelect');
     select.innerHTML = '<option value="">-- 加载中... --</option>';
 
-    fetch('/label_template/api/list')
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/label_template/api/list')
     .then(function(res) {
         if (res.status !== 'success' || !res.templates || res.templates.length === 0) {
             select.innerHTML = '<option value="">-- 无模板 --</option>';
@@ -3282,7 +3232,7 @@ function loadTemplateList() {
         }
     })
     .catch(function(err){
-        console.error('加载模板列表失败:', err);
+        __notify('加载模板列表失败：' + err.message, 'danger');
         select.innerHTML = '<option value="">-- 加载失败 --</option>';
     });
 }
@@ -3298,8 +3248,7 @@ function switchTemplateById(templateId) {
     var nameInput = document.getElementById('templateNameInput');
     if (!templateId) { nameInput.value = ''; currentTemplateId = null; return; }
 
-    fetch('/label_template/api/' + templateId + '/detail')
-    .then(function(r){ return r.json(); })
+    WMS.api.getRaw('/label_template/api/' + templateId + '/detail')
     .then(function(res) {
         if (res.status === 'success' && res.template) {
             nameInput.value = res.template.name;
@@ -3307,7 +3256,7 @@ function switchTemplateById(templateId) {
             loadTemplateToEditor(res.template);
         }
     })
-    .catch(function(err){ console.error('加载模板失败:', err); });
+    .catch(function(err){ __notify('加载模板失败：' + err.message, 'danger'); });
 }
 
 // 加载模板到编辑器
@@ -3436,8 +3385,7 @@ function deleteTemplate() {
 
     if (!confirm('确定要删除该模板吗？')) return;
 
-    csrfFetch('/label_template/' + templateId + '/delete', { method: 'POST' })
-    .then(function(r){ return r.json(); })
+    WMS.api.postRaw('/label_template/' + templateId + '/delete', null)
     .then(function(res) {
         if (res.status === 'success') {
             // 删除的是当前编辑模板时，清空当前编辑状态

@@ -119,7 +119,8 @@
             method: method,
             credentials: 'same-origin',
             headers: headers,
-            body: body
+            body: body,
+            signal: options.signal
         })
         .then(function(response) {
             // 401/419: 会话过期

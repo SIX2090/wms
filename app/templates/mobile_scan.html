@@ -325,24 +325,6 @@
     var batchSubmitBtn = document.getElementById('batchSubmitBtn');
     var batchQueue = [];
 
-    function csrfHeaders(headers) {
-        var result = headers || {};
-        var tokenNode = document.querySelector('meta[name="csrf-token"]');
-        if (tokenNode && tokenNode.content) {
-            result['X-CSRFToken'] = tokenNode.content;
-        }
-        return result;
-    }
-
-    // 统一处理 401/419 会话过期：提示并跳转登录，返回错误对象供调用方 throw
-    function sessionExpiredError(response) {
-        if (response.status !== 401 && response.status !== 419) return null;
-        if (window.confirm('登录已过期或会话失效，请重新登录。点击确定跳转到登录页面。')) {
-            window.location.href = '/login';
-        }
-        return { status: response.status, msg: '登录已过期，请重新登录' };
-    }
-
     function newRequestId() {
         if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
         return 'mobile-' + Date.now() + '-' + Math.random().toString(16).slice(2);
@@ -429,17 +411,8 @@
         var lookupWh = warehouseInput ? (warehouseInput.value || '').trim() : '';
         var lookupUrl = '/mobile/api/material_lookup?code=' + encodeURIComponent(code)
             + (lookupWh ? '&warehouse=' + encodeURIComponent(lookupWh) : '');
-        return fetch(lookupUrl, {
-            credentials: 'same-origin'
-        })
-            .then(function(response) {
-                var sessErr = sessionExpiredError(response);
-                if (sessErr) throw sessErr;
-                return response.json().then(function(data) {
-                    if (!response.ok && data.status !== 'multiple') throw data;
-                    return data;
-                });
-            })
+        return WMS.api.getRaw(lookupUrl)
+
             .then(function(data) {
                 if (data.status === 'multiple') {
                     selectedMaterial = null;
@@ -493,7 +466,7 @@
 
     function startBarcodeScanner() {
         if (!barcodeScanner || !barcodeVideo) return;
-        
+
         // Check if ZXing library is available
         if (typeof ZXing === 'undefined' || !ZXing.BrowserMultiFormatReader) {
             setStatus('扫码库加载失败，请刷新页面重试', 'error');
@@ -600,20 +573,9 @@
             btn.addEventListener('click', function() {
                 btn.disabled = true;
                 setStatus('正在撤销盘点 ' + (undo.checkNo || '') + ' ...', '');
-                fetch('/mobile/api/check_scan/' + undo.checkId + '/void', {
-                    method: 'POST',
-                    headers: csrfHeaders(),
-                    credentials: 'same-origin'
-                })
-                    .then(function(response) {
-                        var sessErr = sessionExpiredError(response);
-                        if (sessErr) throw sessErr;
-                        return response.json().then(function(data) {
-                            if (!response.ok || data.status !== 'success') throw data;
-                            return data;
-                        });
-                    })
+                WMS.api.postRaw('/mobile/api/check_scan/' + undo.checkId + '/void', null)
                     .then(function(data) {
+                        if (data.status !== 'success') throw data;
                         btn.innerHTML = '<i class="bi bi-check2"></i> 已撤销';
                         setStatus(data.msg || '已撤销本次盘点', 'success');
                         // FEATURE-2026-09-05-003：撤销后同步刷新进度与待盘清单
@@ -665,24 +627,13 @@
         });
 
         setStatus('正在提交' + lines.length + '条明细，生成待确认草稿...', '');
-        fetch('/mobile/api/scan_batch_draft', {
-            method: 'POST',
-            headers: csrfHeaders({'Content-Type': 'application/json'}),
-            credentials: 'same-origin',
-            body: JSON.stringify({
-                mode: mode,
-                lines: lines,
-                warehouse: warehouseInput ? warehouseInput.value : '',
-                remark: remarkInput ? remarkInput.value : ''
-            })
-        }).then(function(response) {
-            var sessErr = sessionExpiredError(response);
-            if (sessErr) throw sessErr;
-            return response.json().then(function(data) {
-                if (!response.ok || data.status !== 'success') throw data;
-                return data;
-            });
+        WMS.api.postRaw('/mobile/api/scan_batch_draft', {
+            mode: mode,
+            lines: lines,
+            warehouse: warehouseInput ? warehouseInput.value : '',
+            remark: remarkInput ? remarkInput.value : ''
         }).then(function(data) {
+            if (data.status !== 'success') throw data;
             batchQueue = [];
             renderBatchQueue();
             setStatus((data.msg || '已生成待确认草稿') + '，请到「待确认」页确认后正式入库/出库', 'success');
@@ -729,24 +680,12 @@
         }
         printLabelBtn.disabled = true;
         setStatus('已发送打印任务...', '');
-        fetch('/print_queue/jobs', {
-            method: 'POST',
-            headers: csrfHeaders({'Content-Type': 'application/json'}),
-            credentials: 'same-origin',
-            body: JSON.stringify({
-                job_type: 'label',
-                target_ids: String(selectedMaterial.id)
-            })
+        WMS.api.postRaw('/print_queue/jobs', {
+            job_type: 'label',
+            target_ids: String(selectedMaterial.id)
         })
-            .then(function(response) {
-                var sessErr = sessionExpiredError(response);
-                if (sessErr) throw sessErr;
-                return response.json().then(function(data) {
-                    if (!response.ok || data.status !== 'success') throw data;
-                    return data;
-                });
-            })
             .then(function(data) {
+                if (data.status !== 'success') throw data;
                 setStatus(data.msg || '打印任务已发送，桌面工作站将自动打印', 'success');
             })
             .catch(function(error) {
@@ -770,15 +709,8 @@
         checkOrderSelect.innerHTML = '';
         checkOrderSelect.disabled = true;
         if (checkOrderTip) checkOrderTip.classList.add('d-none');
-        fetch('/mobile/api/check_orders?warehouse=' + encodeURIComponent(wh), {
-            headers: {'X-Requested-With': 'XMLHttpRequest'},
-            credentials: 'same-origin'
-        })
-            .then(function (response) {
-                var sessErr = sessionExpiredError(response);
-                if (sessErr) throw sessErr;
-                return response.json();
-            })
+        WMS.api.getRaw('/mobile/api/check_orders?warehouse=' + encodeURIComponent(wh))
+
             .then(function (data) {
                 checkOrderSelect.innerHTML = '';
                 var orders = (data && data.data && data.data.orders) || [];
@@ -847,15 +779,8 @@
             checkProgressBox.classList.add('d-none');
             return;
         }
-        fetch('/mobile/api/check_orders/' + encodeURIComponent(cid) + '/items', {
-            headers: {'X-Requested-With': 'XMLHttpRequest'},
-            credentials: 'same-origin'
-        })
-            .then(function (response) {
-                var sessErr = sessionExpiredError(response);
-                if (sessErr) throw sessErr;
-                return response.json();
-            })
+        WMS.api.getRaw('/mobile/api/check_orders/' + encodeURIComponent(cid) + '/items')
+
             .then(function (data) {
                 var d = data && data.data;
                 if (!d) return;
@@ -945,21 +870,9 @@
                 submitBtn.disabled = false;
                 return;
             }
-            return fetch('/mobile/api/scan_submit', {
-                method: 'POST',
-                headers: csrfHeaders({'Content-Type': 'application/json'}),
-                credentials: 'same-origin',
-                body: JSON.stringify(payload)
-            })
-                .then(function(response) {
-                    var sessErr = sessionExpiredError(response);
-                    if (sessErr) throw sessErr;
-                    return response.json().then(function(data) {
-                        if (!response.ok || data.status !== 'success') throw data;
-                        return data;
-                    });
-                })
+            return WMS.api.postRaw('/mobile/api/scan_submit', payload)
                 .then(function(data) {
+                    if (data.status !== 'success') throw data;
                     var returnedMaterial = data.data && data.data.material ? data.data.material : material;
                     renderMaterial(returnedMaterial);
                     setStatus(data.msg || '操作成功', 'success');
@@ -1000,7 +913,7 @@
         cameraFileInput.addEventListener('change', function(e) {
             var file = e.target.files && e.target.files[0];
             if (!file) return;
-            
+
             // 显示图片预览
             var reader = new FileReader();
             reader.onload = function(e) {
@@ -1014,7 +927,7 @@
                 setStatus('图片读取失败，请重新选择', 'error');
             };
             reader.readAsDataURL(file);
-            
+
             recognizeMaterialImage(file);
             cameraFileInput.value = '';
         });
@@ -1037,22 +950,9 @@
         var controller = new AbortController();
         var timeoutId = setTimeout(function() { controller.abort(); }, 60000);
 
-        fetch('/mobile/api/recognize_material', {
-            method: 'POST',
-            headers: csrfHeaders(),
-            credentials: 'same-origin',
-            body: formData,
-            signal: controller.signal
-        })
-        .then(function(response) {
-            var sessErr = sessionExpiredError(response);
-            if (sessErr) throw sessErr;
-            return response.json().then(function(data) {
-                if (!response.ok || data.status !== 'success') throw data;
-                return data;
-            });
-        })
+        WMS.api.postRaw('/mobile/api/recognize_material', formData, {signal: controller.signal})
         .then(function(data) {
+            if (data.status !== 'success') throw data;
             recognizeLoading.hidden = true;
             setStatus('识别完成', 'success');
             if (data.matches && data.matches.length > 0) {
@@ -1096,21 +996,6 @@
     var refreshBtn = document.getElementById('confirmRefreshBtn');
     var confirmWarehouseSelect = document.getElementById('confirmWarehouseSelect');
 
-    function tokenHeader() {
-        var headers = {};
-        var tokenNode = document.querySelector('meta[name="csrf-token"]');
-        if (tokenNode && tokenNode.content) headers['X-CSRFToken'] = tokenNode.content;
-        return headers;
-    }
-
-    function sessionRedirect(response) {
-        if (response.status === 401 || response.status === 419) {
-            window.location.href = '/login';
-            return true;
-        }
-        return false;
-    }
-
     function showTip(html) {
         listEl.innerHTML = html;
     }
@@ -1131,11 +1016,7 @@
         // 仓库必填：按选中的仓库查询待确认草稿（AGENTS.md 仓库必填）
         var qs = '&page=' + page + '&warehouse=' + encodeURIComponent(confirmWarehouseSelect ? confirmWarehouseSelect.value : '');
         var url = kind === 'in' ? '/api/mobile/in_order/list?status=pending' : '/api/mobile/out_order/list?status=pending';
-        return fetch(url + qs, {credentials: 'same-origin'})
-            .then(function(r) {
-                if (sessionRedirect(r)) throw new Error('login');
-                return r.json();
-            });
+        return WMS.api.getRaw(url + qs);
     }
 
     function loadPending() {
@@ -1292,25 +1173,15 @@
         if (!window.confirm('确认该' + label + '草稿？将立即更新库存并发送打印任务。')) return;
         btn.disabled = true;
         btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 确认中...';
-        fetch('/mobile/api/scan_draft_confirm/' + id, {
-            method: 'POST',
-            headers: tokenHeader(),
-            credentials: 'same-origin',
-            body: JSON.stringify({order_type: type})
-        }).then(function(response) {
-            if (sessionRedirect(response)) throw new Error('login');
-            return response.json().then(function(data) {
-                if (!response.ok || data.status !== 'success') throw data;
-                return data;
-            });
-        }).then(function(data) {
+        WMS.api.postRaw('/mobile/api/scan_draft_confirm/' + id, {order_type: type}).then(function(data) {
+            if (data.status !== 'success') throw data;
             if (window.showToast) window.showToast((data.msg || '确认成功') + '，请到桌面打印工作站查看打印结果', 'success');
             loadPending();
         }).catch(function(error) {
             btn.disabled = false;
             btn.innerHTML = '<i class="bi bi-check2-circle"></i> 确认' + label + '并打印';
             if (error && error.message === 'login') return;
-            if (window.showToast) window.showToast((error && error.msg) || '确认失败，请重试', 'danger');
+            if (window.showToast) window.showToast((error && (error.msg || error.message)) || '确认失败，请重试', 'danger');
         });
     }
 
