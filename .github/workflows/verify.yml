@@ -18,6 +18,7 @@ on:
   # CI-GREEN-GATE-2026-09-18：每日定时跑一次（AGENTS.md §三 CI 全绿门禁）。
   # UTC 18:30 = 北京时间 02:30，与另外两个工作流同一时刻——三条并行触发，
   # 早上看板就是当天的新鲜结果。cron 只对默认分支 main 生效。
+  workflow_dispatch:
   schedule:
     - cron: '30 18 * * *'
 
@@ -29,10 +30,37 @@ on:
 #   2. 把互不依赖的校验组拆成并行 job，让静态类检查与 AI 主体检查同时跑。
 # 任一 job 失败独立亮红，**不减少任何校验项**（A12 精神：只加强不削弱）。
 jobs:
+  # BUG-2026-10-22-016: unknown changes and non-push events keep full validation.
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+      mode: ${{ steps.scope.outputs.mode }}
+      reason: ${{ steps.scope.outputs.reason }}
+    steps:
+      - name: Checkout full history for trusted comparison
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup classifier Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Classify changes with exact successful base verification
+        id: scope
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_change_scope.py --event-file "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+
   # ==========================================================================
   # Job 1：源码与静态规程检查（快，~30s）
   # ==========================================================================
   static-checks:
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -81,6 +109,8 @@ jobs:
   # verify_wms_bugs.py（后者属 FULL_EXTRA_SCRIPTS，只在 --level full 时跑）、
   # verify_production_readiness.py。三者在两个 job 间**零重叠**。
   ai-core:
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -106,3 +136,49 @@ jobs:
         env:
           VERIFY_AI_WORKERS: '4'
         run: python3 scripts/verify_ai_all.py --level core
+
+  docs-checks:
+    needs: changes
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: AI ledger consistency remains strict
+        env:
+          AI_LEDGER_ENFORCE: strict
+        run: python scripts/verify_ai_ledger_consistency.py
+      - name: Source encoding contract
+        run: python scripts/verify_source_encoding.py
+
+  # The selected branch must finish successfully; skipped/cancelled is never green.
+  gate:
+    if: ${{ always() }}
+    needs: ["changes", "docs-checks", "static-checks", "ai-core"]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful classification and selected checks
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          needs = json.loads(os.environ['NEEDS_JSON'])
+          if needs.get('changes', {}).get('result') != 'success':
+              raise SystemExit('Change classification did not succeed')
+          docs_only = (os.environ['EVENT_NAME'] == 'push' and os.environ['REF_NAME'] == 'refs/heads/main'
+                       and needs['changes'].get('outputs', {}).get('docs_only') == 'true')
+          required = ['docs-checks'] if docs_only else ['static-checks', 'ai-core']
+          failed = {name: needs.get(name, {}).get('result', 'missing')
+                    for name in required if needs.get(name, {}).get('result') != 'success'}
+          if failed:
+              raise SystemExit('Required checks did not succeed: ' + json.dumps(failed, sort_keys=True))
+          print(('docs' if docs_only else 'full') + ': all required checks succeeded')
+          PY

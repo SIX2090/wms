@@ -1397,3 +1397,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 组合验收：台账/库存定位/README契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119（服务已关闭），日志round-015-{ledger,rules,bug-check,smoke}.log。只读交叉复核API未消费响应正文、下载/打印和独立页版本化加载无阻塞；R6筛查其余活跃模板未确认同类仅凭HTTP ok误刷新的消费点，候选均为GET或已有业务状态校验。
 - 发布闭环：代码acdef2c871c8d6ad077aee1c161fcf84ebf4726e已正常推送main，读取push输出并核对HEAD/origin相同；WMS CI39746109489及AI39746109309均completed/success，Android最近main39682360398 success（本批未改Android）。未绕过门禁。
 - 生效确认：2026-10-22 16:19代理核验，生产需重启 WMS 服务生效；核对原PID16668/解释器/完整命令/启动ticks与任务入口后沿WMS-Warehouse单次重启，现PID1096/Session0、8080单实例、LastTaskResult=0；启动版本acdef2c、production/CSRF on，本机/公网登录GET200含CSRF，api.js GET200且SHA256字节与磁盘一致。WMS_NO_DB_TOUCH=1保留，db-check migrate=ok仅结构核验，不声称迁移；收尾仅台账不再次重启。业务验证只用Node及隔离数据库，不在生产创建、完成、审批、反提交、删除测试单据，不改仓库、库存、打印机配置、账号或密码。
+
+### BUG-2026-10-22-016: 纯台账反复触发全套CI且旧绿未绑定目标提交
+
+- 状态：已修复，待CI及规则同步验收。
+- 根因/危害：CI与AI每次main push都跑全套，功能提交验收后补台账又重复全量；门禁只检查各工作流最近success，没有要求WMS CI/AI匹配目标SHA，不能明确证明当前基线已验收。旧“开任何任务前不得有pending”把只读准备也串行化；生产与开发共用目录，直接放开跨批写代码会把未提交文件混入发布。
+- 修复：白名单README、docs/ledger和docs/audit Markdown只有在main push、完整Git差异且紧邻base的CI/AI最近记录均成功时才走docs分支；未知、失败、排队或无证据一律全量。required工作流仍触发，明确聚合所选docs或full分支，原全量步骤/分片和每日定时保留；perf仍为告警观测。SHA门禁绑定远端main基线，发布可显式指定完整SHA，Android旧绿须证明祖先关系及工程/构建工作流无变化。403/网络标未核实并阻断，不误作已确认红灯；保留连接器替代证据流程。DEVELOPMENT_RULES、README及docs/CI_VALIDATION_POLICY.md更新验证边界，AGENTS按硬规则另作独立atomic action同步，只放开只读准备、不开放混合发布写入。
+- 同类点已排查：关联既有CI门禁、F2.8 pre-push、F3.16并发取消与2026-09-24性能契约，核对三个main门禁和可选性能工作流、主规则/开发规范/README、GitHub API参数与钩子实际stdin。Android已有路径触发不重复开发；不使用paths-ignore使required工作流消失，不允许仅改规则文本绕过代码要求。
+- 回归：旧门禁基线16 passed/3 Windows条件skip，新增46通过，旧checker/hook回退40 failed/6 passed，finally恢复后6模块97 passed/4 skipped；真实Git Bash执行覆盖远端SHA、CRLF和无更新，编译检查通过。旧工作流相关58 passed/4 skipped，新增62通过，旧workflow回退59 failed/3原fulljob快照passed，恢复后120 passed/4 skipped；12个原fulljob payload保持，perf advisory失败仅告警。classifier基线14 passed/1 skipped，初80通过，删除新脚本反证5 failed/75 errors并字节恢复，7模块220 passed/3 skipped；终审再补未知身份拒绝、分页去重和main suffix合法形态12锁，最终92通过，独立回退8 failed/4 passed，finally恢复后三个必要新模块合计200 passed（包含92/62/46，不重复相加）。交叉只读审查无剩余阻塞。日志ci_gate_target_sha_016/、ci-docs-mode-20261022/、ci-scope-016-*.log。不用stash、不弱化旧业务断言；旧并行结构测试改为仅依赖changes且彼此不串联，原步骤/分片断言保留。
+- 组合验收：轻量docs的--noconftest三模块34 passed，严格AI台账41标记/118完成一致，源码编码通过、规则default 0违规/full-gate 0新增、既有BUG检查通过；日志ci-policy-016-*.log。未跑本地重复全站，配置改动由本次CI原全量实证，再用真实文档收尾提交验证轻量路线。
+- 生效确认：待确认；本项仅CI/开发规则与测试，不改WMS业务代码、生产服务、数据库、打印机、仓库、库存或账号，不需重启WMS。当前生产业务版本仍acdef2c；台账轻量生效必须核验工作流实际选择与结果，不能仅凭本地YAML检查宣称完成。

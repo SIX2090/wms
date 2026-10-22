@@ -39,7 +39,8 @@ def _run(monkeypatch, encoding: str, conclusion: str = "success"):
             "status": "completed",
             "conclusion": conclusion,
             "run_number": 42,
-            "head_sha": "0123456789abcdef0123",
+            "head_branch": "main",
+            "head_sha": "0123456789abcdef0123456789abcdef01234567",
             "created_at": "2026-10-17T00:00:00Z",
             "html_url": "https://example.invalid/run/42",
         }
@@ -48,6 +49,7 @@ def _run(monkeypatch, encoding: str, conclusion: str = "success"):
     monkeypatch.setattr(sys, "argv", ["check_ci_green.py"])
     monkeypatch.setattr(gate, "resolve_token", lambda: None)
     monkeypatch.setattr(gate, "latest_run", fake_latest_run)
+    monkeypatch.setattr(gate, "resolve_target_sha", lambda token: "0123456789abcdef0123456789abcdef01234567")
 
     rc = gate.main()
     stream.flush()

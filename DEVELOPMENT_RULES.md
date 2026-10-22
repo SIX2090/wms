@@ -2,7 +2,7 @@
 
 > 目的：减少 BUG 数量，提升代码质量，让"加功能"不再"天天几十个 BUG"
 > 适用范围：所有在 WMS 仓库 `SIX2090/wms` 工作的开发者
-> 最后更新：2026-09-20（v5：新增 R8 修 BUG 净收益原则；A1–A14 / R1–R8 与 AGENTS.md 对齐）
+> 最后更新：2026-10-22（CI 文档分级验证及目标 SHA 门禁；A1–A14 / R1–R8 保持）
 > 配套文件：[`AGENTS.md`](./AGENTS.md)（规则速查与流程）、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md)（BUG 台账）
 
 ---
@@ -33,7 +33,7 @@
 
 - [ ] 跑过 `python3 scripts/lint_wms_rules.py`，全部通过
 - [ ] 跑过 `python3 scripts/verify_wms_bugs.py`，无 FAIL
-- [ ] 跑过 `pytest tests/ -q`，全过
+- [ ] 本地跑过受影响模块全量及相邻回归；代码提交的全站 `pytest tests/` 由对应提交的 CI 执行通过，避免本地与 CI 对同一批重复全站运行
 - [ ] 如果动了模板或路由，跑过 `python3 scripts/full_smoke_test.py`
 - [ ] 改动 `app/templates/*.html` 时，commit message 已注明「生产需重启 WMS 服务生效」（R3）
 
@@ -126,7 +126,7 @@
 | `scripts/lint_wms_rules.py` | 14 条防 BUG 规则（A1–A14） | ✅ pre-commit |
 | `scripts/lint_no_raw_post_fetch.py` | 裸调 fetch 检查 | ✅ pre-commit |
 | `scripts/verify_wms_bugs.py` | 140 项静态回归 | ✅ pre-commit |
-| `pytest tests/` | 约 2000 项测试全绿（2026-09-19 复核 1998 passed/85 skipped；规模持续增长，以实跑为准；历史基线 945） | ✅ pre-commit |
+| `pytest tests/` | 代码提交由 CI 执行全站回归；本地执行模块全量及相邻回归，规模以实跑为准 | ✅ 代码发布前 CI；本地不重复全站 |
 | `scripts/verify_remote_sync.py` | 推送后本地/远端 tree blob 级同步校验（API 推送防漏推） | ✅ 每次 api_push.py 自动执行 |
 
 **CI-ENV-2026-09-11 环境固化**：测试依赖统一由 `app/requirements-test.txt` 钉版
@@ -144,6 +144,15 @@ pre-commit 钩子位置：`.githooks/pre-commit`
 
 跳过钩子（紧急情况）：`git commit --no-verify`（**不推荐，会绕过所有检查**）
 不要主动 `git config --unset core.hooksPath`（绕过检查，等于把责任全推给 CI）
+
+### 5.1 分级验证与目标提交（2026-10-22）
+
+- `README.md`、`docs/ledger/` 和 `docs/audit/` 下的 Markdown 是文档轻量检查白名单。只有 main push 的改动全部属于该白名单、Git 历史完整且上一个提交的 WMS CI / WMS AI Verification 最近运行均已成功，才允许复用其业务代码验证结论；当前提交仍须通过文档契约、台账一致性、规则及 gitleaks 凭据泄漏检查。
+- 代码、依赖、测试、脚本、工作流、AGENTS 或本规则文件变化均执行全量 CI；定时、手动、PR、未知事件、无法核实基线或改动范围同样全量。首阶段不对普通页面启用选择性 CI，以免遗漏共享代码影响。
+- 所需工作流保持触发，由明确的聚合检查验收所选分支；被取消、失败、未运行或意外跳过的必需任务不得当作成功。Android 继续沿用已有路径触发与每日构建；性能工作流保留原告警用途，不升级为业务发布硬门禁。
+- `check_ci_green.py --target-sha <完整40位SHA>` 核验目标 main 提交，WMS CI / AI 不得用较旧成功记录替代。未传参数时核实实时远端 main，pre-push 使用远端待更新基线 SHA，不使用本地尚未推送的新 SHA。Android 旧构建只有在已验证祖先关系、对象完整及工程/构建工作流无变化时才可复用。
+- 实际失败先修复；CI 排队或运行中可以先做只读复核、任务拆分与用例设计，不提交、推送或发布新 action。生产仍直接使用本工作目录，不能一边发布上批一边写下一批代码，以免未提交文件混入运行实例。
+- 查询失败表示未核实，不是已确认红灯，也不放行写入。沿用 AGENTS 的连接器替代证据程序，不提取内部凭据。详见[CI 分级验证操作说明](docs/CI_VALIDATION_POLICY.md)。AGENTS 的对应条文按独立 atomic action 更新。
 
 ---
 

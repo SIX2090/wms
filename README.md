@@ -19,6 +19,8 @@ Git 部署的一键代码更新使用根目录 `update_from_github.bat`；预检
 
 以 [AGENTS.md](AGENTS.md) 和 [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) 为准，以下仅作入口说明：
 
+CI 对经过验证基线上的白名单文档改动执行轻量检查；代码、规则及未知范围仍跑全量。推送核验远端基线，发布核验目标 SHA，具体边界和命令见[CI 分级验证操作说明](docs/CI_VALIDATION_POLICY.md)。
+
 1. 所有修改直接在 main 工作，按 atomic action 独立提交和推送；禁止新建工作分支。
 2. 开工前确认 main 上 `Android APK Build`、`WMS AI Verification`、`WMS CI` 的最近一次运行全部成功。运行中、失败或尚未核实均不放行；异常时按 AGENTS 的查询失败处理规则取得实际证据。
 3. 代码修改先查既有能力、BUG台账和相关测试；遵守A1–A14及R1–R8，按受影响范围执行模块、相邻及全量回归。模板/路由变更须用隔离库做HTTP冒烟。

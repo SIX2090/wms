@@ -231,7 +231,7 @@ def test_t6_ci_has_four_shards_and_independent_smoke():
                 seen.add(idx)
     assert seen == {0, 1, 2, 3}, f"分片序号未覆盖 0..3：{seen}"
     # smoke 不得依赖 verify 分片
-    assert "needs" not in jobs["smoke"], "smoke 依赖了别的 job，就不能并行"
+    assert jobs["smoke"].get("needs") == "changes", "smoke 只能依赖分类，不得串在 verify 分片后"
 
 
 def test_t6b_ci_keeps_lint_and_unit_tests():
@@ -339,8 +339,12 @@ def test_t7b_ai_verify_jobs_are_parallel():
     jobs = data["jobs"]
     assert "ai-core" in jobs, "缺少 ai-core job"
     assert "static-checks" in jobs, "缺少 static-checks job"
-    for j, cfg in jobs.items():
-        assert "needs" not in cfg, f"{j} 声明了 needs —— 拆并行后又变回串行"
+    for j in ("static-checks", "ai-core"):
+        assert jobs[j].get("needs") == "changes", f"{j} 只能依赖分类，fulljobs 必须彼此并行"
+    assert jobs["changes"].get("needs") is None, "分类不得依赖待分类的校验"
+    assert jobs["docs-checks"].get("needs") == "changes"
+    assert set(jobs["gate"]["needs"]) == {"changes", "docs-checks", "static-checks", "ai-core"}
+    assert jobs["gate"]["if"] == "${{ always() }}", "最终门禁必须汇总失败或跳过的分支"
     # ai-core 必须真跑 --level core
     core_cmds = " ".join(s.get("run", "") for s in jobs["ai-core"]["steps"])
     assert "--level core" in core_cmds, "ai-core job 没跑 --level core"

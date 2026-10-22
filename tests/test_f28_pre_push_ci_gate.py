@@ -58,7 +58,7 @@ def test_pre_push_skips_broken_python3_alias(tmp_path):
     env.pop("WMS_SKIP_CI_GATE", None)
 
     proc = subprocess.run(
-        [bash, str(HOOK)], input="", capture_output=True, text=True,
+        [bash, str(HOOK)], input="refs/heads/main " + "a" * 40 + " refs/heads/main " + "b" * 40 + "\n", capture_output=True, text=True,
         cwd=str(ROOT), env=env, timeout=120,
     )
     assert proc.returncode == 0, proc.stderr

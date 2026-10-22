@@ -28,7 +28,34 @@ on:
     - cron: '45 18 * * *'
 
 jobs:
+  # BUG-2026-10-22-016: unknown changes and non-push events keep full validation.
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+      mode: ${{ steps.scope.outputs.mode }}
+      reason: ${{ steps.scope.outputs.reason }}
+    steps:
+      - name: Checkout full history for trusted comparison
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup classifier Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Classify changes with exact successful base verification
+        id: scope
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/ci_change_scope.py --event-file "$GITHUB_EVENT_PATH" --github-output "$GITHUB_OUTPUT"
+
   perf:
+    needs: changes
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || needs.changes.outputs.docs_only != 'true' }}
     runs-on: ubuntu-24.04
     # 阈值告警而非硬门禁（P2-1 验收口径）：装置性失败/回归不使本工作流变红，
     # 回归以 ::warning:: 注解形式出现在 summary 与文件 diff 上。
@@ -71,3 +98,43 @@ jobs:
           path: /tmp/perf_current.json
           if-no-files-found: ignore
           retention-days: 30
+
+  docs-skip:
+    needs: changes
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Record documentation-only performance decision
+        run: echo "Documentation-only change; performance baseline remains enabled for full and scheduled runs."
+
+  # The selected branch must finish successfully; skipped/cancelled is never green.
+  # Preserve advisory perf failures explicitly; missing/skipped/cancelled still fail aggregation.
+  gate:
+    if: ${{ always() }}
+    needs: ["changes", "docs-skip", "perf"]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful classification and selected checks
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          needs = json.loads(os.environ['NEEDS_JSON'])
+          if needs.get('changes', {}).get('result') != 'success':
+              raise SystemExit('Change classification did not succeed')
+          docs_only = (os.environ['EVENT_NAME'] == 'push' and os.environ['REF_NAME'] == 'refs/heads/main'
+                       and needs['changes'].get('outputs', {}).get('docs_only') == 'true')
+          required = ['docs-skip'] if docs_only else ['perf']
+          if not docs_only and needs.get('perf', {}).get('result') == 'failure':
+              print('::warning::Performance baseline failed; advisory-only behavior is preserved')
+              required = []
+          failed = {name: needs.get(name, {}).get('result', 'missing')
+                    for name in required if needs.get(name, {}).get('result') != 'success'}
+          if failed:
+              raise SystemExit('Required checks did not succeed: ' + json.dumps(failed, sort_keys=True))
+          print(('docs' if docs_only else 'full') + ': all required checks succeeded')
+          PY

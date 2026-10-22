@@ -24,8 +24,11 @@ abort() {
 }
 
 blocked=0
+CI_BASELINE_SHA=""
 
 while read -r local_ref local_sha remote_ref remote_sha; do
+    # Accept Windows CRLF pipes while validating the same full commit ID.
+    remote_sha="${remote_sha%$'\r'}"
     # Skip empty lines (defensive)
     [ -z "${local_ref}${remote_ref}" ] && continue
 
@@ -66,6 +69,21 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         blocked=1
         continue
     fi
+    # The pre-push protocol supplies the *remote* ref before this push.
+    # Local SHA is untested code and must never be used as the baseline gate.
+    if [ "${remote_ref}" = "refs/heads/main" ]; then
+        if [[ ! "${remote_sha}" =~ ^[0-9a-fA-F]{40}$ ]] || [ "${remote_sha}" = "0000000000000000000000000000000000000000" ]; then
+            echo "❌ PRE-PUSH BLOCKED: 远端main基线SHA缺失或非法，无法核实CI目标。" >&2
+            blocked=1
+            continue
+        fi
+        if [ -n "${CI_BASELINE_SHA}" ] && [ "${CI_BASELINE_SHA}" != "${remote_sha}" ]; then
+            echo "❌ PRE-PUSH BLOCKED: 多条main更新的远端基线不一致。" >&2
+            blocked=1
+            continue
+        fi
+        CI_BASELINE_SHA="${remote_sha}"
+    fi
 done
 
 if [ "${blocked}" -ne 0 ]; then
@@ -76,15 +94,20 @@ if [ "${blocked}" -ne 0 ]; then
     exit 1
 fi
 
+# No refs are being written: allow a no-op push without network CI checks.
+if [ -z "${CI_BASELINE_SHA}" ]; then
+    exit 0
+fi
+
 # ---------------------------------------------------------------------------
-# F2.8：CI 全绿门禁（AGENTS.md §三）—— main 最近一次运行非全绿则阻断 push。
+# F2.8：CI 全绿门禁（AGENTS.md §三）—— 远端待更新基线的最新运行未证实全绿则阻断 push。
 #
 # 门禁检查三个工作流：WMS CI / WMS AI Verification / Android APK Build。
-# 逃生舱：WMS_SKIP_CI_GATE=1 可临时跳过（风险自负，仅在确知要强行推送时使用）。
+# WMS_SKIP_CI_GATE=1仅用于已核实同一SHA全绿并记录替代证据、而脚本查询故障的单次push。
 # 说明：本 hook 仅拦截本地 git push；走 GitHub API（MCP push_files）的推送不经过它。
 # ---------------------------------------------------------------------------
 if [ "${WMS_SKIP_CI_GATE:-0}" = "1" ]; then
-    echo "⚠️  WMS_SKIP_CI_GATE=1：已跳过 CI 全绿门禁（风险自负）。" >&2
+    echo "⚠️  WMS_SKIP_CI_GATE=1：本次使用已记录的同一基线SHA全绿替代证据；未核实不得使用此开关。" >&2
 else
     # BUG-2026-10-17-007：Windows 上 `python3` 常是 Microsoft Store 的 0 字节别名，
     # `command -v` 能找到它，但执行即失败（退出码 9009）。原逻辑据此判定"门禁未通过"，
@@ -101,14 +124,14 @@ else
         echo "❌ PRE-PUSH BLOCKED: 找不到可用的 python，无法执行 CI 全绿门禁。" >&2
         echo "   若 python3 指向 Microsoft Store 的 0 字节别名，请关闭该执行别名或安装 Python 3，" >&2
         echo "   并把真实解释器加入 PATH（本仓库要求能执行 python -c \"import sys\"）。" >&2
-        echo "   逃生舱：WMS_SKIP_CI_GATE=1 git push ...（风险自负）" >&2
+        echo "   查询故障且同一SHA已全部核实并记录替代证据时，才可单次WMS_SKIP_CI_GATE=1" >&2
         exit 1
     fi
-    if ! "${CI_PY}" scripts/check_ci_green.py --quiet; then
+    if ! "${CI_PY}" scripts/check_ci_green.py --quiet --target-sha "${CI_BASELINE_SHA}"; then
         echo "" >&2
-        echo "❌ PRE-PUSH BLOCKED: CI 门禁未通过（main 最近一次运行非全绿）。" >&2
-        echo "   请先修绿 WMS CI / WMS AI Verification / Android APK Build。" >&2
-        echo "   逃生舱：WMS_SKIP_CI_GATE=1 git push ...（风险自负）" >&2
+        echo "❌ PRE-PUSH BLOCKED: CI 门禁未通过（远端基线 ${CI_BASELINE_SHA} 未确认全绿）。" >&2
+        echo "   运行中请等结果，实际失败先修绿，查询故障请通过已连接GitHub工具核实同一SHA。" >&2
+        echo "   查询故障且同一SHA已全部核实并记录替代证据时，才可单次WMS_SKIP_CI_GATE=1" >&2
         exit 1
     fi
 fi

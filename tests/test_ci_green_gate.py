@@ -83,7 +83,7 @@ def test_t3_checker_is_stdlib_only():
     src = _read(CHECKER)
     imports = set(re.findall(r'^\s*(?:import|from)\s+([A-Za-z_][\w.]*)', src, re.M))
     # 只允许标准库（顶层模块名）
-    allowed = {'argparse', 'json', 'os', 'sys', 'urllib', 're', 'typing', '__future__'}
+    allowed = {'argparse', 'json', 'os', 'sys', 'urllib', 're', 'typing', '__future__', 'pathlib', 'subprocess'}
     bad = {m for m in imports if m.split('.')[0] not in allowed}
     assert not bad, f'check_ci_green.py 引入了非标准库依赖：{sorted(bad)}'
 
@@ -245,7 +245,7 @@ def test_t11_endpoint_reachable_shape():
                   env=env, timeout=180, cwd=REPO)
     payload = json.loads(proc.stdout)
     # 关键：不能出现"三个工作流全部 HTTP 404"这种端点写错的特征
-    all_404 = all(r['detail'] == 'HTTP 404' for r in payload['results'])
+    all_404 = all('HTTP 404' in r['detail'] for r in payload['results'])
     assert not all_404, \
         f'三个工作流全部 404 —— workflow-runs 端点写法有误：{[r["file"] for r in payload["results"]]}'
     # state 必须是四态之一，不允许出现解析异常
