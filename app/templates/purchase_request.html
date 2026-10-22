@@ -247,12 +247,7 @@ function submitPurchaseRequestImport() {
     const fileInput = document.getElementById('purchaseRequestImportFile');
     if (!fileInput.files.length) return;
     const formData = new FormData(form);
-    fetch('/purchase_request/import', {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/purchase_request/import', formData)
     .then(data => {
         if (data.status === 'success') {
             showToast(data.msg || '导入成功', 'success', 3600);
@@ -285,17 +280,13 @@ document.addEventListener('DOMContentLoaded', function() {
 async function approveOrder(id) {
     const confirmed = await showConfirm('确认审批通过此采购申请单？', { title: '审批通过采购申请' });
     if (!confirmed) return;
-    csrfFetch(`/purchase_request/${id}/approve`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
+    WMS.api.postRaw(`/purchase_request/${id}/approve`)
     .then(data => {
         if (data.status === 'success') {
             showToast('采购申请已审批通过，正在刷新列表…', 'success');
             setTimeout(function(){ location.reload(); }, 650);
         } else {
-            showToast('操作失败：' + data.msg, 'danger', 3600);
+            showToast('操作失败：' + (data.msg || '服务器返回无效结果'), 'danger', 3600);
         }
     })
     .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
@@ -304,18 +295,13 @@ async function approveOrder(id) {
 function rejectOrder(id) {
     const remark = prompt('请输入驳回原因：');
     if (remark === null) return;
-    csrfFetch(`/purchase_request/${id}/reject`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => res.json())
+    WMS.api.postRaw(`/purchase_request/${id}/reject`, { remark: remark })
     .then(data => {
         if (data.status === 'success') {
             showToast('采购申请已驳回，正在刷新列表…', 'success');
             setTimeout(function(){ location.reload(); }, 650);
         } else {
-            showToast('操作失败：' + data.msg, 'danger', 3600);
+            showToast('操作失败：' + (data.msg || '服务器返回无效结果'), 'danger', 3600);
         }
     })
     .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
@@ -324,17 +310,13 @@ function rejectOrder(id) {
 async function revertOrder(id) {
     const confirmed = await showConfirm('确认反审此采购申请单？反审后单据将退回待审批状态。', { title: '反审采购申请' });
     if (!confirmed) return;
-    csrfFetch(`/purchase_request/${id}/revert`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
+    WMS.api.postRaw(`/purchase_request/${id}/revert`)
     .then(data => {
         if (data.status === 'success') {
             showToast(data.msg || '反审成功，正在刷新列表…', 'success');
             setTimeout(function(){ location.reload(); }, 650);
         } else {
-            showToast('反审失败：' + data.msg, 'danger', 3600);
+            showToast('反审失败：' + (data.msg || '服务器返回无效结果'), 'danger', 3600);
         }
     })
     .catch(err => showToast('反审失败：' + err.message, 'danger', 3600));
@@ -360,17 +342,13 @@ async function completeOrder(id) {
 async function deleteOrder(id) {
     const confirmed = await showConfirm('确认删除此采购申请单？', { title: '删除采购申请' });
     if (!confirmed) return;
-    csrfFetch(`/purchase_request/${id}/delete`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    })
-    .then(res => res.json())
+    WMS.api.postRaw(`/purchase_request/${id}/delete`)
     .then(data => {
         if (data.status === 'success') {
             showToast('采购申请已删除，正在刷新列表…', 'success');
             setTimeout(function(){ location.reload(); }, 650);
         } else {
-            showToast('删除失败：' + data.msg, 'danger', 3600);
+            showToast('删除失败：' + (data.msg || '服务器返回无效结果'), 'danger', 3600);
         }
     })
     .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
@@ -386,18 +364,14 @@ async function batchDelete() {
     if (!confirmed) return;
     const ids = Array.from(checked).map(cb => cb.value);
     const results = await Promise.all(ids.map(function(id) {
-        return csrfFetch(`/purchase_request/${id}/delete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        return WMS.api.postRaw(`/purchase_request/${id}/delete`)
         .catch(error => ({status: 'error', msg: error.message}));
     }));
 
-    const successCount = results.filter(item => item.status === 'success').length;
+    const successCount = results.filter(item => item && item.status === 'success').length;
     const failedMessages = results
-        .filter(item => item.status !== 'success')
-        .map(item => item.msg || '删除失败');
+        .filter(item => !item || item.status !== 'success')
+        .map(item => (item && item.msg) || '删除失败');
 
     if (successCount > 0 && failedMessages.length === 0) {
         showToast(`已删除 ${successCount} 条采购申请，正在刷新列表…`, 'success');

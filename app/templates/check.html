@@ -250,10 +250,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const confirmed = await showConfirm('确认删除该盘点单？', { title: '删除盘点单' });
             if(!confirmed) return;
             
-            fetch('/check/'+id+'/delete', {
-                method: 'POST'
-            })
-            .then(response => response.json())
+            WMS.api.postRaw('/check/'+id+'/delete')
             .then(res => {
                 if(res.status == 'success') {
                     showToast('盘点单已删除，正在刷新列表…', 'success');
@@ -276,10 +273,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const confirmed = await showConfirm('确认反提交该盘点单？未提交的库存调整草稿会一并删除。', { title: '反提交盘点单' });
             if(!confirmed) return;
 
-            fetch('/check/'+id+'/revert', {
-                method: 'POST'
-            })
-            .then(response => response.json())
+            WMS.api.postRaw('/check/'+id+'/revert')
             .then(res => {
                 if(res.status == 'success') {
                     showToast(res.msg || '反提交成功', 'success');
@@ -306,14 +300,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const confirmed = await showConfirm('确认删除选中的 '+ids.length+' 个盘点单？', { title: '批量删除盘点单' });
             if(!confirmed) return;
             
-            fetch('/check/batch_delete', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'ids=' + JSON.stringify(ids)
-            })
-            .then(response => response.json())
+            WMS.api.postRaw('/check/batch_delete', {ids: ids})
             .then(res => {
                 if(res.status == 'success'){
                     showToast(res.msg || '盘点单删除成功，正在刷新列表…', 'success');
@@ -336,10 +323,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const confirmed = await showConfirm('确认复制该盘点单？', { title: '复制盘点单' });
             if(!confirmed) return;
             
-            fetch('/check/'+id+'/copy', {
-                method: 'POST'
-            })
-            .then(response => response.json())
+            WMS.api.postRaw('/check/'+id+'/copy')
             .then(res => {
                 if(res.status == 'success'){
                     showToast('盘点单已复制，正在刷新列表…', 'success');
@@ -392,11 +376,7 @@ document.addEventListener('DOMContentLoaded', function() {
             e.preventDefault();
             const formData = new FormData(this);
             
-            fetch('{{ url_for("add_check") }}', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
+            WMS.api.postRaw('{{ url_for("add_check") }}', formData)
             .then(res => {
                 if (res.status === 'success'){
                     const addModal = bootstrap.Modal.getInstance(document.getElementById('addModal'));
@@ -421,14 +401,9 @@ document.addEventListener('DOMContentLoaded', function() {
             let id = document.getElementById('editId').value;
             let remark = document.getElementById('editRemark').value;
             
-            fetch('/check/'+id+'/update', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'remark=' + encodeURIComponent(remark)
-            })
-            .then(response => response.json())
+            const formData = new FormData();
+            formData.append('remark', remark);
+            WMS.api.postRaw('/check/'+id+'/update', formData)
             .then(res => {
                 if(res.status == 'success'){
                     const editModal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
@@ -451,12 +426,7 @@ function submitDocumentImport(formId, fileId) {
     const fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     const formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(response => response.json())
+    WMS.api.postRaw(form.action, formData)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '导入成功', 'success', 3600);

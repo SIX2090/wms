@@ -1363,3 +1363,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生效确认：2026-10-22 13:58代理核验，生产需重启 WMS 服务生效；已沿WMS-Warehouse入口单次重启，停止前核对原PID12484/解释器/命令/启动ticks，现PID6040/Session0、8080单实例，LastTaskResult=0；13:58:24日志版本6cf9843、production/CSRF on，本地/公网登录GET200且有CSRF字段。新批量地址只读GET405验证已注册（自定义错误页不保留Allow头，未将其误作API要求），未在生产调用业务POST。WMS_NO_DB_TOUCH=1保留，db-check migrate=ok仅结构核验，不声称执行迁移；收尾仅台账，不再重启。未修改生产单据、库存、仓库配置、账号或密码。
 
 - 组合验收：verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119；AI台账一致性通过（41代码标记/118完成记录），未改AI能力/工具/模型/权限/开关/迁移。全量规则0违规；提交钩子0违规，CI全站回归已成功。日志detail-012-bug-check.log、detail-012-smoke.log、in_detail_transport_012/、out-detail-transport-20261022/、out-batch-*.log。
+
+### BUG-2026-10-22-013: 采购申请批删空响应中断汇总及盘点、委外列表请求反馈不一致
+
+- 状态：已修复，待发布验收。
+- 根因/危害：采购申请可见批删入口的Promise.all结果对null直接取status，导致汇总抛错；四页25处旧非GET调用（含两段无入口的委外旧绑定）散落在fetch/csrfFetch/jQuery，HTTP异常和会话失效处理不统一，委外部分链缺catch。base拦截器已有CSRF保护，不把旧调用误报为必然400。
+- 修复：盘点7处、采购申请6处、委外发料/收料10处统一WMS.api.postRaw，保留完整status、FormData字段和人工确认；采购申请null安全汇总保留部分成功刷新/全失败不刷新、驳回取消及原因原值。删除委外两段无DOM按钮的batchDeleteBtn旧绑定及其中2处请求，不新增按钮，真实公共工具栏仍走原批删端点。委外物料加载校验数组并显示中文失败；该接口仅前1000条辅助缓存，无分页元数据，保留data-ks搜索及后端按编码解析，不冒充全量。
+- 同类点已排查：关联BUG-2026-10-22-011/012；追踪实际DOM和app.js公共deleteCurrent，确认委外两页及售后列表的局部旧批删代码没有按钮入口，不能把死处理器当作线上故障。售后本批不改；已统一的完成接口保留，GET、后端、权限和库存算法不变。
+- 回归：盘点基线22 passed，新增76 passed，旧模板回退70 failed/6取消空选passed，finally恢复后模块及相邻128 passed。采购申请基线62 passed，新增79 passed，旧模板回退72 failed/7取消空选passed；单独回退null保护3 failed，finally恢复后模块及相邻141 passed。委外基线35 passed，新增112 passed，旧模板回退86 failed/26 passed（原已统一的完成及取消/空输入），finally字节恢复后模块、库位及表单相邻175 passed。新增合计267项，日志check_list_transport_013/、purchase-request-list-20261022/、subcontract-stock-013-*.log；所有回退采用独占文件字节备份，不用stash。交叉只读复核协议和真实入口，无阻塞问题。
+- 组合验收：台账/库存文档定位32 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119（服务PID3424已关闭）。全站回归交本次推送CI，不重复本地全站运行；日志list-013-{ledger,rules,bug-check,smoke}.log。本批不新增AI能力或变更AI权限、模型、工具、开关、迁移。
+- 生效确认：待确认；生产需重启 WMS 服务生效。测试仅Node真实回调/生产api.js及隔离数据库，生产不做审批、完成、反提交或删除测试，不改业务记录、库存、仓库配置、账号或密码。
