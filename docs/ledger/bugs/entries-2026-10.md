@@ -1378,10 +1378,11 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-014: 售后复制成功误报失败、采购详情门控及关单取消失效
 
-- 状态：已修复，待发布验收。
+- 状态：已修复并发布。
 - 根因/危害：售后详情复制成功回调参数是data却读取res.msg，必抛ReferenceError并中断导航；采购详情顶部仅admin/warehouse可见，与copy/close/reopen/delete限purchase的后端错位，purchase缺按钮、warehouse点后403，下推卡片也漏角色门控；关单原因prompt的null被||空串吞掉，取消仍可继续关单。五页另有21处旧非GET调用，含工单领料两段/售后列表一段不可达旧处理器，不把它们当现用按钮故障；base已有CSRF保护。
 - 修复：售后复制变量与三条链中文异常反馈；采购详情顶部及下推按钮对齐既有后端角色和状态，非admin/purchase页面使用既有body_class opt-out禁用全局写操作栏，warehouse保留本页合法收货/打印；关单原因取消即退出，空串/空白原因原值保留。18处真实请求统一WMS.api.postRaw（采购5/合同5/领料2/售后6），保留完整响应、FormData/JSON协议、人工确认、主资料广播、导入错误展示与刷新/导航时机。3处不可达旧请求随处理器清理，不增加按钮或改公共工具栏端点，领料旧弹窗HTML/其他配置保留。后端、库存、账号权限不变。
 - 同类点已排查：关联BUG-2026-10-21-009及BUG-2026-10-22-011/012/013，核对采购详情顶部及下推区、售后列表/详情、合同和领料真实DOM入口与路由，避免把无按钮handler造为测试入口。原完成/继续领料链和GET保留。
 - 回归：采购详情基线47 passed；最终新增116项（60实际JS+生产api.js、56真实模板Jinja七角色×四状态×普通/embedded矩阵），旧模板76例回退61 failed/15 passed，独立prompt回退1 failed、独立全局栏opt-out回退16 failed，finally字节恢复。组合168 passed后扩展矩阵56 passed，两者重叠32，合并唯一覆盖192（116新例+76模块相邻），未误加成224。合同/领料基线35 passed，新增87 passed，旧模板回退71 failed/16 passed，恢复后12模块及相邻160 passed；表单、通知、继续领料字段及公共入口交叉只读核对无阻塞。售后基线60 passed、新增70 passed，复制变量独立回退3 failed、旧模板回退63 failed/7 passed，恢复后全售后及出库/委外/忙碌相邻153 passed；两原完成函数文本保持。新增合计273项，日志purchase-detail-014-*.log、contract_requisition_transport_014/、after-sale-transport-20261022/；所有回退均备份并finally恢复，不使用stash、不弱化旧断言。
 - 组合验收：台账/库存定位32 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119，服务已关闭；日志round-014-{ledger,rules,bug-check,smoke}.log。R6扫描132活跃顶层模板的252个then(data/res)块并人工核作用域，未确认其他同根变量误用，base嵌套JSON局部变量合法。不重复本地全站运行，完整回归交本批推送CI；无AI能力/权限/模型/工具/开关/迁移变更。
-- 生效确认：待确认；生产需重启 WMS 服务生效。所有业务测试仅隔离数据库，生产不做测试单据创建、完成、审批、反提交、删除，不改库存、仓库配置、用户或密码。
+- 发布闭环：代码bcbbf55dc93eb04bc5b0eefaef1088f346689804已推送main，读取push输出并核对HEAD/origin一致；WMS CI39737499162及AI39737499260均completed/success，Android最近main39682360398 success（本轮未改Android）。匿名pre-push查询403后，连接器核实三工作流最近main全绿，才仅该次push临时使用已有查询跳过开关；证据round-014-ci-gate-evidence.log。
+- 生效确认：2026-10-22 15:04代理核验，生产需重启 WMS 服务生效；核对原PID17788/解释器/完整命令/启动ticks及WMS-Warehouse任务入口后单次重启，现PID16668/Session0、8080单实例、LastTaskResult=0；启动版本bcbbf55、production/CSRF on，本机及公网登录GET200含CSRF。db-check migrate=ok仅结构核验，不声称执行迁移，WMS_NO_DB_TOUCH=1保留；收尾仅台账，不再重启。所有业务测试仅隔离数据库，生产不做测试单据创建、完成、审批、反提交、删除，不改库存、仓库配置、用户或密码。本轮解决明确问题和五页迁移，其他前端工程债未宣称全部清零。
