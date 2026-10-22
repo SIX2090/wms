@@ -45,10 +45,10 @@
             </button>
 
             <!-- 批量 / 导入导出：一排全铺开（用户偏好全摊开，不用下拉） -->
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？', true)" title="批量打印选中的入库单">
-                批量打印
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？')" title="暂限选择1张入库单打印，多单合并打印暂未支持">
+                打印已选（单张）
             </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？', true)" title="批量导出选中的入库单">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？')" title="批量导出选中的入库单">
                 批量导出
             </button>
             <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-secondary btn-sm" title="导出当前筛选结果">
@@ -529,20 +529,44 @@ function batchInOrderAction(url, emptyMessage, confirmMessage) {
         showToast(emptyMessage, 'warning');
         return;
     }
+    const isPrint = url === '/in_order/batch_print';
+    if (isPrint && ids.length !== 1) {
+        showToast('打印已选暂限1张，请只选择一张入库单；多单合并打印暂未支持', 'warning', 5000);
+        return;
+    }
     if (ids.length > 100) {
         showToast('单次批量操作不能超过 100 条，请分批处理', 'warning', 5000);
         return;
     }
     showConfirm(confirmMessage, {title: '批量处理入库单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(function(res) { return res.json(); })
+        if (url === '/in_order/batch_export') {
+            WMS.api.postResponse(url, {ids: ids})
+            .then(function(response) {
+                const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+                if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') &&
+                        !contentType.includes('application/octet-stream')) {
+                    return response.json().catch(function() { return {}; }).then(function(data) {
+                        throw new Error((data && data.msg) || '导出失败：服务器未返回Excel文件');
+                    });
+                }
+                const filename = filenameFromDisposition(response.headers.get('Content-Disposition'), '入库单批量导出.xlsx');
+                return response.blob().then(function(blob) {
+                    downloadBlob(blob, filename, contentType);
+                    showToast('导出成功', 'success');
+                });
+            })
+            .catch(function(error) { showToast('导出失败：' + error.message, 'danger', 5000); });
+            return;
+        }
+        WMS.api.postRaw(url, {ids: ids})
         .then(function(data) {
             if (data.status === 'success') {
+                if (isPrint) {
+                    if (data.redirect) window.location.href = data.redirect;
+                    else showToast('打印失败：服务器未返回打印地址', 'danger', 5000);
+                    return;
+                }
                 showToast(data.msg || '操作成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
             } else {
@@ -558,12 +582,7 @@ function submitDocumentImport(formId, fileId) {
     var fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     var formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(res) { return res.json(); })
+    WMS.api.postRaw(form.action, formData)
     .then(function(data) {
         if (data.status === 'success') {
             showToast(data.msg || '导入成功', 'success', 3600);
@@ -579,12 +598,7 @@ function submitDocumentImport(formId, fileId) {
 function copyInOrder(id) {
     showConfirm('确定复制该入库单吗？系统会生成一张新的入库草稿，不会直接增加库存。', {title: '复制入库单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/in_order/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(function(res) { return res.json(); })
+        WMS.api.postRaw('/in_order/' + id + '/copy', {})
         .then(function(data) {
             if (data.status === 'success') {
                 showToast(data.msg || '复制成功', 'success');

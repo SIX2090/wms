@@ -149,6 +149,8 @@
                     };
                 });
             }
+            // 下载调用方需要响应头和未消费的二进制正文；仍先执行统一HTTP/会话检查。
+            if (raw === 'response') return response;
             return response.json();
         })
         .then(function(res) {
@@ -184,6 +186,12 @@
             options = options || {};
             options.data = data;
             return request('POST', url, options, true);
+        },
+        // 返回未消费的成功Response；调用方须核对Content-Type并处理业务错误正文。
+        postResponse: function(url, data, options) {
+            options = options || {};
+            options.data = data;
+            return request('POST', url, options, 'response');
         },
         post: function(url, data, options) {
             options = options || {};

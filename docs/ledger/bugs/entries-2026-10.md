@@ -1386,3 +1386,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 组合验收：台账/库存定位32 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119，服务已关闭；日志round-014-{ledger,rules,bug-check,smoke}.log。R6扫描132活跃顶层模板的252个then(data/res)块并人工核作用域，未确认其他同根变量误用，base嵌套JSON局部变量合法。不重复本地全站运行，完整回归交本批推送CI；无AI能力/权限/模型/工具/开关/迁移变更。
 - 发布闭环：代码bcbbf55dc93eb04bc5b0eefaef1088f346689804已推送main，读取push输出并核对HEAD/origin一致；WMS CI39737499162及AI39737499260均completed/success，Android最近main39682360398 success（本轮未改Android）。匿名pre-push查询403后，连接器核实三工作流最近main全绿，才仅该次push临时使用已有查询跳过开关；证据round-014-ci-gate-evidence.log。
 - 生效确认：2026-10-22 15:04代理核验，生产需重启 WMS 服务生效；核对原PID17788/解释器/完整命令/启动ticks及WMS-Warehouse任务入口后单次重启，现PID16668/Session0、8080单实例、LastTaskResult=0；启动版本bcbbf55、production/CSRF on，本机及公网登录GET200含CSRF。db-check migrate=ok仅结构核验，不声称执行迁移，WMS_NO_DB_TOUCH=1保留；收尾仅台账，不再重启。所有业务测试仅隔离数据库，生产不做测试单据创建、完成、审批、反提交、删除，不改库存、仓库配置、用户或密码。本轮解决明确问题和五页迁移，其他前端工程债未宣称全部清零。
+
+### BUG-2026-10-22-015: 入库批量导出误解析JSON及打印模板、审批错误反馈缺失
+
+- 状态：已修复，待发布验收。
+- 根因/危害：入库列表批量导出实际返回xlsx却调用json，必报解析失败；原批量打印只toast/刷新而不消费redirect，后端也仅返回首张。打印中心仅r.ok即刷新，业务拒绝/登录HTML200被误作成功，其他失败无提示；审批两链无catch。独立入出库打印模板页自行处理HTTP，部分失败丢服务端原因，空name File对象能绕过无文件检查；这些独立页不加载base，原有csrfHeaders确实带token，不能误报必400。
+- 修复：统一JSON请求为WMS.api.postRaw，独立模板页在业务脚本前加载本地版本化api.js。统一层新增postResponse共用CSRF/同源凭据/HTTP及401419闸，成功返回未消费Response；入库导出核对xlsx MIME并使用既有文件名/Blob下载工具，JSON业务错误和HTML不下载。打印入口明确「打印已选（单张）」、多选提示不请求、单选消费原redirect；多单合并打印仍未实现，不把首张冒充全量。中心/审批及模板页补业务判定、中文错误、按钮/文件重试，保留人工确认和原成功提示时机。出库无入口copyOutOrder死函数清理，不造按钮。README及docs/INBOUND_LIST_EXPORT_PRINT.md说明使用和限制；后台、打印内容、库存/账号权限不变。
+- 同类点已排查：关联BUG-2026-10-22-011/012/013/014及既有入库页面审计回归；追踪六页实际DOM、公共工具栏和响应协议，不能以旧调用计数代替故障数量。18旧调用含1死请求；入库公共批操作函数拆JSON/下载协议，新增分支不重复算旧调用。
+- 回归：统一请求层基线297 passed/21 skipped，新36 passed；旧API字节备份回退24 failed/12原JSON模式passed，finally恢复后333 passed/21 skipped。打印模板基线25 passed，新73 passed，旧模板回退69 failed/4取消passed，finally恢复后全打印模板及内置Excel相邻170 passed。打印中心/审批基线36 passed、新50 passed（含2个不依赖请求头断言的业务拒绝误刷新锁），旧模板回退46 failed/4取消空原因passed，恢复后模块及相邻89 passed；既有反馈测试只扩approval真实api加载条件，未改断言。入出列表基线38 passed，新152项，旧模板回退128 failed/24取消空值passed，finally字节恢复；真实downloadBlob/文件名辅助函数执行、字节匹配并openpyxl读回Excel，单张/多选打印、无效MIME、JSON/HTML200拒绝下载均覆盖，模块及指定页面审计/工具栏/批量完成边界等8模块相邻230 passed（4 warnings/39.34s，退出0；原始正常输出在agent工具会话40047，未伪造落盘日志）。新增合计311项；日志response-015-*.log、order-print-template-015-*.log、print-approval-transport-20261022/、in_out_list_transport_015/。不使用stash、不弱化既有断言；全站测试交推送CI，不重复本地全站。
+- 组合验收：台账/库存定位/README契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119（服务已关闭），日志round-015-{ledger,rules,bug-check,smoke}.log。只读交叉复核API未消费响应正文、下载/打印和独立页版本化加载无阻塞；R6筛查其余活跃模板未确认同类仅凭HTTP ok误刷新的消费点，候选均为GET或已有业务状态校验。
+- 生效确认：待确认；生产需重启 WMS 服务生效。业务验证只用Node及隔离数据库，不在生产创建、完成、审批、反提交、删除测试单据，不改仓库、库存、打印机配置、账号或密码。

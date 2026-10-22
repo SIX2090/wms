@@ -398,12 +398,7 @@ function batchOutOrderAction(url, emptyMessage, confirmMessage) {
     }
     showConfirm(confirmMessage, {title: '批量处理领料单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(url, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(function(res) { return res.json(); })
+        WMS.api.postRaw(url, {ids: ids})
         .then(function(data) {
             if (data.status === 'success') {
                 showToast(data.msg || '操作成功', 'success');
@@ -419,8 +414,7 @@ function batchOutOrderAction(url, emptyMessage, confirmMessage) {
 function singleOutOrderAction(url, confirmMessage) {
     showConfirm(confirmMessage, {title: '处理领料单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(url, {method: 'POST'})
-        .then(function(res) { return res.json(); })
+        WMS.api.postRaw(url)
         .then(function(data) {
             if (data.status === 'success') {
                 showToast(data.msg || '操作成功', 'success');
@@ -433,42 +427,12 @@ function singleOutOrderAction(url, confirmMessage) {
     });
 }
 
-function copyOutOrder(id) {
-    showConfirm('确定复制该出库/领料单吗？系统会生成一张新的草稿，不会直接扣减库存。', {title: '复制出库单'}).then(function(confirmed) {
-        if (!confirmed) return;
-        fetch('/out_order/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            if (data.status === 'success') {
-                showToast(data.msg || '复制成功', 'success');
-                setTimeout(function() {
-                    window.location.href = data.redirect_url || ('/out_order/' + data.id);
-                }, 500);
-            } else {
-                showToast(data.msg || '复制失败', 'danger', 5000);
-            }
-        })
-        .catch(function(error) {
-            showToast('复制失败：' + error.message, 'danger', 5000);
-        });
-    });
-}
-
 function submitDocumentImport(formId, fileId) {
     var form = document.getElementById(formId);
     var fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     var formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(res) { return res.json(); })
+    WMS.api.postRaw(form.action, formData)
     .then(function(data) {
         if (data.status === 'success') {
             showToast(data.msg || '导入成功', 'success', 3600);

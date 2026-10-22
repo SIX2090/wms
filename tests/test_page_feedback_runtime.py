@@ -73,7 +73,7 @@ const ctx={document:doc,JSON,parseInt,selectedMaterialId:7,getFilters:()=>({}),F
   WMS:{api:{post:(url,data)=>{calls.push({url,data});return Promise.resolve({token:'fixture-token',msg:'ok'});}}},
   $:()=>({length:1,val:()=> '7',show(){},hide(){},closest(){throw Error('must not delete last row');}})};
 ctx.window=ctx;vm.createContext(ctx);
-if(p.page==='label_template'){
+if(p.page==='label_template'||p.page==='approval'){
   ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});vm.runInContext(p.api,ctx);
 }
 vm.runInContext(p.source,ctx);

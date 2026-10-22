@@ -63,6 +63,7 @@ POST_SPLIT_BUGS = {'BUG-2026-10-14-001': 'fixed', 'BUG-2026-10-15-001': 'fixed',
                    'BUG-2026-10-22-003': 'fixed', 'BUG-2026-10-22-004': 'fixed', 'BUG-2026-10-22-005': 'fixed', 'BUG-2026-10-22-006': 'fixed', 'BUG-2026-10-22-007': 'fixed', 'BUG-2026-10-22-008': 'fixed', 'BUG-2026-10-22-010': 'fixed', 'BUG-2026-10-22-009': 'fixed', 'BUG-2026-10-22-011': 'fixed', 'BUG-2026-10-22-012': 'fixed'}
 POST_SPLIT_BUGS['BUG-2026-10-22-013'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-22-014'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-22-015'] = 'fixed'
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 

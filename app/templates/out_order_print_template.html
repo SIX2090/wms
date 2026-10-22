@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>领料单打印模板管理</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
@@ -427,9 +428,6 @@ G12: 领料：（起点对齐"单价"列，G:I 合并留签字空间）</code></
     </div>
 
     <script>
-        const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
-        const csrfHeaders = { 'X-CSRFToken': csrfToken };
-
         // 轻量 toast 提示（本页为独立页，未加载 app.js 的全局 showToast）
         function showToast(message, type) {
             const colors = { success: '#28a745', danger: '#dc3545', warning: '#ffc107', info: '#17a2b8' };
@@ -505,34 +503,31 @@ G12: 领料：（起点对齐"单价"列，G:I 合并留签字空间）</code></
             
             const formData = new FormData(this);
             
-            if (!formData.get('excel_file')) {
+            const excelFile = formData.get('excel_file');
+            if (!excelFile || !excelFile.name) {
                 showToast('请选择Excel模板文件', 'danger');
                 return;
             }
             
             const submitBtn = this.querySelector('button[type="submit"]');
+            const originalHtml = submitBtn.innerHTML;
+            const originalDisabled = submitBtn.disabled;
             submitBtn.disabled = true;
             submitBtn.innerHTML = '<i class="bi bi-hourglass"></i> 保存中...';
             
             try {
-                const response = await fetch('/out_order_print_template/add', {
-                    method: 'POST',
-                    headers: csrfHeaders,
-                    body: formData
-                });
-                
-                const result = await response.json();
-                if (result.status === 'success') {
+                const result = await WMS.api.postRaw('/out_order_print_template/add', formData);
+                if (result && result.status === 'success') {
                     alert('模板添加成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    showToast(result.msg || '添加失败', 'danger');
+                    showToast((result && result.msg) || '添加失败', 'danger');
                 }
             } catch (error) {
-                showToast('网络错误：' + error.message, 'danger');
+                showToast('请求失败：' + error.message, 'danger');
             } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerHTML = '<i class="bi bi-save"></i> 保存模板';
+                submitBtn.disabled = originalDisabled;
+                submitBtn.innerHTML = originalHtml;
             }
         });
 
@@ -541,20 +536,15 @@ G12: 领料：（起点对齐"单价"列，G:I 合并留签字空间）</code></
             if (!confirm('确定要设为默认模板吗？')) return;
             
             try {
-                const response = await fetch(`/out_order_print_template/${templateId}/set_default`, {
-                    method: 'POST',
-                    headers: csrfHeaders
-                });
-                
-                const result = await response.json();
-                if (result.status === 'success') {
+                const result = await WMS.api.postRaw(`/out_order_print_template/${templateId}/set_default`);
+                if (result && result.status === 'success') {
                     alert('已设为默认模板'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    showToast('设置失败', 'danger');
+                    showToast((result && result.msg) || '设置失败', 'danger');
                 }
             } catch (error) {
-                showToast('网络错误：' + error.message, 'danger');
+                showToast('请求失败：' + error.message, 'danger');
             }
         }
 
@@ -563,20 +553,15 @@ G12: 领料：（起点对齐"单价"列，G:I 合并留签字空间）</code></
             if (!confirm('确定要删除这个模板吗？')) return;
             
             try {
-                const response = await fetch(`/out_order_print_template/${templateId}/delete`, {
-                    method: 'POST',
-                    headers: csrfHeaders
-                });
-                
-                const result = await response.json();
-                if (result.status === 'success') {
+                const result = await WMS.api.postRaw(`/out_order_print_template/${templateId}/delete`);
+                if (result && result.status === 'success') {
                     alert('模板删除成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
                     location.reload();
                 } else {
-                    showToast('删除失败', 'danger');
+                    showToast((result && result.msg) || '删除失败', 'danger');
                 }
             } catch (error) {
-                showToast('网络错误：' + error.message, 'danger');
+                showToast('请求失败：' + error.message, 'danger');
             }
         }
 

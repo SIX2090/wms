@@ -13,6 +13,8 @@ Git 部署的一键代码更新使用根目录 `update_from_github.bat`；预检
 
 普通领料、其他出库草稿详情支持整批粘贴物料，全部校验通过后一次保存；格式、权限和来源限制见[出库草稿批量粘贴说明](docs/OUTBOUND_BATCH_PASTE.md)。
 
+入库列表的「批量导出」下载所选单据的 Excel；「打印已选（单张）」当前限选一张，多张合并打印暂未支持，见[入库列表导出与打印说明](docs/INBOUND_LIST_EXPORT_PRINT.md)。
+
 ## 开发与发布规则
 
 以 [AGENTS.md](AGENTS.md) 和 [DEVELOPMENT_RULES.md](DEVELOPMENT_RULES.md) 为准，以下仅作入口说明：

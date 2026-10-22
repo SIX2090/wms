@@ -66,7 +66,31 @@ document.querySelectorAll('[data-code-source]').forEach(function (selectEl) {
     selectEl.addEventListener('change', function () { refreshCodeList(selectEl); });
     refreshCodeList(selectEl);
 });
-async function setDefault(id){const r=await fetch('/print_templates/'+id+'/set_default',{method:'POST',headers:{'X-CSRFToken':document.querySelector('input[name=csrf_token]').value}});if(r.ok)location.reload();}
-async function removeTemplate(id){if(!confirm('确定删除该模板？'))return;const r=await fetch('/print_templates/'+id+'/delete',{method:'POST',headers:{'X-CSRFToken':document.querySelector('input[name=csrf_token]').value}});if(r.ok)location.reload();}
+async function setDefault(id) {
+    try {
+        const result = await WMS.api.postRaw('/print_templates/' + id + '/set_default');
+        if (result && result.status === 'success') {
+            location.reload();
+        } else {
+            showToast((result && result.msg) || '设置默认模板失败', 'danger');
+        }
+    } catch (error) {
+        showToast('设置默认模板失败：' + error.message, 'danger');
+    }
+}
+
+async function removeTemplate(id) {
+    if (!confirm('确定删除该模板？')) return;
+    try {
+        const result = await WMS.api.postRaw('/print_templates/' + id + '/delete');
+        if (result && result.status === 'success') {
+            location.reload();
+        } else {
+            showToast((result && result.msg) || '删除模板失败', 'danger');
+        }
+    } catch (error) {
+        showToast('删除模板失败：' + error.message, 'danger');
+    }
+}
 </script>
 {% endblock %}

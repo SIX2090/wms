@@ -168,32 +168,25 @@
 <script>
 function approveItem(id) {
     if (!confirm('确认通过该申请？')) return;
-    fetch(`/approval/${id}/approve`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-    }).then(res => res.json()).then(res => {
-        if (res.status === 'success') {
+    return WMS.api.postRaw(`/approval/${id}/approve`).then(res => {
+        if (res && res.status === 'success') {
             location.reload();
         } else {
-            showToast(res.msg || '操作失败', 'danger');
+            showToast((res && res.msg) || '操作失败', 'danger');
         }
-    });
+    }).catch(error => showToast('操作失败：' + error.message, 'danger'));
 }
 
 function rejectItem(id) {
     const reason = prompt('请输入驳回原因：');
     if (!reason) return;
-    fetch(`/approval/${id}/reject`, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({remark: reason})
-    }).then(res => res.json()).then(res => {
-        if (res.status === 'success') {
+    return WMS.api.postRaw(`/approval/${id}/reject`, {remark: reason}).then(res => {
+        if (res && res.status === 'success') {
             location.reload();
         } else {
-            showToast(res.msg || '操作失败', 'danger');
+            showToast((res && res.msg) || '操作失败', 'danger');
         }
-    });
+    }).catch(error => showToast('操作失败：' + error.message, 'danger'));
 }
 </script>
 {% endblock %}
