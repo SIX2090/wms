@@ -1412,10 +1412,11 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-017: 期初预检换文件竞态、重复确认及预警写按钮权限错位
 
-- 状态：已修复，待CI及生产生效验收。
+- 状态：已修复并发布。
 - 根因/危害：期初预检进行中隐藏preview，文件change仅在preview可见时重置，旧A回包能恢复确认并实际上传新B；真实确认按钮不是submit，原链仅禁用隐藏submit，重复点击可多次生成期初单并合并累加。预检失败消息直接拼HTML；预警写按钮对所有角色可见，后端仅admin/warehouse有权操作，两页共4个活跃旧POST。
 - 修复范围：批量导入2个POST统一WMS.api.postRaw；File对象身份与请求代次双校验，换文件/取消/重预检立即失效，旧成功/失败回包不恢复状态；确认和submit双守卫，每form忙锁覆盖预览实际按钮、文件及预检，先捕获FormData再禁file，失败finally恢复且不自动重发。预检错误消息转义；确认资格和数量改用后端整文件imported/skipped，预览截断明确仍处理全文件，前500行都坏但后续合法仍可确认，零可导入无确认。全局导入helper仅期初跳集中预检页，保留embedded与其他模块原行为，堵住新增/详情入口绕过。预警两旧POST入口统一postRaw helper，admin/warehouse才渲染2个阈值字段及2写按钮，确认至成功700ms刷新期间互斥，取消/失败恢复。README记录入口、截断范围及网络结果不确定时先核对单据再人工决定重试；不改变导入后台、库存算法或账号权限。
 - 同类点已排查：关联BUG-2026-10-21-017的预检失败转义遗漏及BUG-2026-10-22-011至015的请求迁移；核对真实DOM、两段式dry_run与正式导入、FormData、预警后端角色及公共工具栏，不把已有CSRF/catch误报为普遍缺失。全局helper在期初新增/详情确实可绕过，已收口；alert不匹配全局模块，无需虚构第二写入口。后端rows[:500]仅预览，imported为全集；保留逐行部分成功/每次新单/跨单据累加口径，不把已有量误作覆盖。
 - 回归：导入基线84 passed，新40项真实整段JS及生产api.js通过；旧模板回退39 failed/1空文件对照passed，仅撤销错误转义单独3 failed/37 deselected，均finally字节恢复，模块及相邻187 passed（64既有SQLAlchemy弃用warning，39.67秒）。预警基线21 passed、新32通过（8角色真实Jinja及24真实DOM/API场景），旧模板回退28 failed/4 passed，finally恢复后8模块65 passed。全局导入基线17 passed、新21通过，旧源码回退12 failed/9 passed，finally字节恢复后模块相邻42 passed；覆盖add/detail/line/list及普通/URL和body embedded，其他模块原弹窗成功/空文件/网络行为不变。新增合计93项，不把相邻重叠或原有对照重复计入。日志batch-import-20261022/、alert_transport_017/、opening-import-route-*.log。未使用stash、未放宽旧断言；全站测试交本次推送CI，不重复本地全站。
 - 组合验收：台账/README及库存定位契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119，服务PID13756已核对身份并关闭；日志frontend-017-*.log。只读交叉review无阻塞，后端、库存写入/仓库归属算法未改，既有预检多仓与导入相邻回归保留。不新增AI能力或改变AI模型/工具/权限/开关/迁移。不在生产执行导入或修改预警值。
-- 生效确认：待确认；生产需重启 WMS 服务生效。当前生产业务版本acdef2c，未在生产创建、修改、完成或删除测试单据，不改仓库、库存或账号密码。
+- 发布闭环：代码21f81e20ea32b50e55fcba97ba75cb5b578b1ef6已正常推送main，读取实际push输出且HEAD/origin一致；WMS CI39762486353（原全量任务及冒烟）、AI39762486062、性能39762486036均completed/success。目标SHA门禁通过，Android最近main39682360398 success且祖先及工程/构建工作流未变证明通过。未绕过CI门禁；收尾台账按BUG-2026-10-22-016轻量规则验收，不重复本地全站。
+- 生效确认：2026-10-22 18:25代理核验，生产需重启 WMS 服务生效；核对原PID1096的解释器/命令/Session0/创建时间、8080唯一listener及WMS-Warehouse任务入口后单次实际重启。首次Stop-Process报对象错误，现场复查仍原PID且登录200，未误报已停；复核身份后CIM Terminate返回0，沿原计划任务拉起新PID4316/Session0，8080单实例、LastTaskResult=0。日志18:25:24版本21f81e2、production/CSRF on、db-check migrate=ok（仅结构核验，不声称迁移），WMS_NO_DB_TOUCH=1保留。本机登录GET200含CSRF，公网首次TLS EOF后独立重试GET200含CSRF；app.js GET下载与磁盘SHA256字节一致。收尾仅台账，不再次重启；所有业务测试在隔离数据库，不在生产创建、修改、完成或删除测试单据，不改仓库、库存、预警阈值或账号密码。网络丢响应后的人工重试仍须先查单，不把前端防连点声称为服务端幂等。
