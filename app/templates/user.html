@@ -120,11 +120,11 @@
                             <i class="bi bi-slash-circle"></i> 禁用
                         </button>
                         {% elif user_status in ['disabled', 'inactive'] %}
-                        <button class="btn btn-sm btn-outline-success" onclick='toggleUserStatus({{ user.id }}, {{ user.username|tojson }}, "normal")'>
+                        <button class="btn btn-sm btn-outline-success" onclick='toggleUserStatus({{ user.id }}, {{ user.username|tojson }}, "normal", this)'>
                             <i class="bi bi-check-circle"></i> 启用
                         </button>
                         {% else %}
-                        <button class="btn btn-sm btn-outline-secondary" onclick='toggleUserStatus({{ user.id }}, {{ user.username|tojson }}, "disabled")'>
+                        <button class="btn btn-sm btn-outline-secondary" onclick='toggleUserStatus({{ user.id }}, {{ user.username|tojson }}, "disabled", this)'>
                             <i class="bi bi-slash-circle"></i> 禁用
                         </button>
                         {% endif %}
@@ -249,22 +249,48 @@
 document.addEventListener('DOMContentLoaded', function() {
     initCheckAll('userTable');
 
+    // User writes remain human initiated; lock confirmation, request and refresh.
+    var userWriteBusy = false;
+    async function runUserWrite(button, url, payload, options) {
+        if (userWriteBusy) return;
+        userWriteBusy = true;
+        var originalDisabled = button && button.disabled;
+        var succeeded = false;
+        if (button) button.disabled = true;
+        try {
+            if (options.confirmation) {
+                var confirmed = await showConfirm(options.confirmation, { title: options.title });
+                if (!confirmed) return;
+            }
+            var res = await WMS.api.postRaw(url, payload);
+            if (res && res.status === 'success') {
+                succeeded = true;
+                if (options.immediate) location.reload();
+                else {
+                    showToast(res.msg || options.success, 'success');
+                    setTimeout(function() { location.reload(); }, 650);
+                }
+            } else {
+                showToast((res && res.msg) || options.failure, 'danger', 3600);
+            }
+        } catch (err) {
+            showToast(options.failure + '：' + ((err && err.message) || '请稍后重试'), 'danger', 3600);
+        } finally {
+            if (!succeeded) {
+                userWriteBusy = false;
+                if (button) button.disabled = originalDisabled;
+            }
+        }
+    }
+
     // 新增用户
     var addForm = document.getElementById('addForm');
     if (addForm) {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            var formData = new FormData(this);
-            csrfFetch('{{ url_for("add_user") }}', { method: 'POST', body: formData })
-            .then(function(r){ return r.json(); })
-            .then(function(res) {
-                if (res.status === 'success') {
-                    showToast('用户已创建，正在刷新列表…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                }
-                else showToast(res.msg || '保存失败', 'danger', 3600);
-            })
-            .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
+            return runUserWrite(this.querySelector('button[type="submit"]'), '{{ url_for("add_user") }}', new FormData(this), {
+                success: '用户已创建，正在刷新列表…', failure: '保存失败'
+            });
         });
     }
 
@@ -279,10 +305,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (editForm) editForm.addEventListener('submit', function(e) {
         e.preventDefault();
         var id = document.getElementById('editUserId').value;
-        csrfFetch('/user/' + id + '/edit', {method: 'POST', body: new FormData(editForm)})
-            .then(function(r){ return r.json(); })
-            .then(function(res){ if (res.status === 'success') location.reload(); else showToast(res.msg || '用户编辑失败', 'danger'); })
-            .catch(function(){ showToast('用户编辑失败', 'danger'); });
+        return runUserWrite(editForm.querySelector('button[type="submit"]'), '/user/' + id + '/edit', new FormData(editForm), {
+            immediate: true, failure: '用户编辑失败'
+        });
     });
 
     // 重置密码
@@ -291,6 +316,8 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('resetUsername').value = username;
         var group = document.getElementById('resetBootstrapGroup');
         var bInput = document.getElementById('resetBootstrapPwd');
+        document.querySelector('#resetForm input[name="new_password"]').value = '';
+        bInput.value = '';
         if (isAdmin) {
             group.style.display = '';
             bInput.required = true;
@@ -303,30 +330,16 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // 禁用/启用用户
-    window.toggleUserStatus = async function(userId, username, status) {
+    window.toggleUserStatus = async function(userId, username, status, button) {
         var isEnable = status === 'normal';
         var actionText = isEnable ? '启用' : '禁用';
         var message = isEnable
             ? '确定要启用用户“' + username + '”吗？'
             : '确定要禁用用户“' + username + '”吗？禁用后该账号不能登录。';
-        var confirmed = await showConfirm(message, { title: actionText + '确认' });
-        if (!confirmed) return;
-
-        csrfFetch('{{ url_for("update_user_status") }}', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId, status: status })
-        })
-        .then(function(r){ return r.json(); })
-        .then(function(res) {
-            if (res.status === 'success') {
-                showToast(res.msg || ('用户已' + actionText), 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast(res.msg || (actionText + '失败'), 'danger', 3600);
-            }
-        })
-        .catch(function(err){ showToast(actionText + '失败：' + err.message, 'danger', 3600); });
+        return runUserWrite(button, '{{ url_for("update_user_status") }}', { user_id: userId, status: status }, {
+            confirmation: message, title: actionText + '确认',
+            success: '用户已' + actionText, failure: actionText + '失败'
+        });
     };
 
     // 重置密码表单提交
@@ -334,17 +347,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (resetForm) {
         resetForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            var formData = new FormData(this);
-            csrfFetch('{{ url_for("reset_user_password") }}', { method: 'POST', body: formData })
-            .then(function(r){ return r.json(); })
-            .then(function(res) {
-                if (res.status === 'success') {
-                    showToast('密码已重置，正在刷新列表…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                }
-                else showToast(res.msg || '重置失败', 'danger', 3600);
-            })
-            .catch(function(err){ showToast('重置失败：' + err.message, 'danger', 3600); });
+            return runUserWrite(this.querySelector('button[type="submit"]'), '{{ url_for("reset_user_password") }}', new FormData(this), {
+                success: '密码已重置，正在刷新列表…', failure: '重置失败'
+            });
         });
     }
 });
