@@ -1344,9 +1344,10 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-011: 采购、调整调拨与委外页面遗留请求及异常反馈不一致
 
-- 状态：本地已修复，待推送CI及生产生效确认。
+- 状态：已修复并发布。
 - 根因/危害：六个活跃页面仍有33处非GET调用分散在fetch/csrfFetch/jQuery；委外多条链缺catch，断网或非JSON响应只产生未处理拒绝；调拨部分jQuery错误分支与统一会话处理脱节。真实运行还发现委外发料/收料的局部location字符串遮蔽浏览器location，成功后reload抛异常。现有base拦截器能补CSRF，不能因此把所有存量调用都误报为必然400。
 - 修复：统一走WMS.api.postRaw并保留status完整响应：采购订单/采购申请新增5处、调整/调拨列表12处、委外列表/详情16处。补中文异常反馈，委外两处局部变量改locationValue以恢复成功刷新；表单和原URL编码字段仍用FormData供request.form读取，批删JSON ids经后端核对；人工确认、成功结果人工关闭、延迟刷新、复制重定向、文件清空及失败后重试均保留。GET搜索、后端接口、库存算法及权限不变。
 - 同类点已排查：关联BUG-2026-10-21-012/017及BUG-2026-10-22-003/004/005；三个agent按互不重叠页面逐项检查原fetch/csrfFetch和jQuery.ajax/post，排除disabled归档模板；已统一的采购申请详情等不重复迁移。跨组只读复核确认调拨FormData与后端request.form、批删JSON与data.ids消费一致。
 - 回归：采购组基线24 passed，新增42项真实回调结合api.js；旧源码回退36 failed/6 passed（取消/空选不发请求），恢复后专项及相邻80 passed。库存列表基线28 passed，新增98项整段脚本及api.js运行；旧源码回退86 failed/12 passed（取消/空选），finally字节恢复后模块及相邻170 passed。委外基线29 passed，新增138项：旧模板129 failed/9取消项通过，单独恢复location命名而保留postRaw时发料/收料成功2例均失败，finally字节恢复后专项及相邻167 passed。规则0违规、verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119（服务PID5844已关闭）；本轮仅一次本地全量，553文件两片互不重叠并覆盖全集，5417 passed/112 skipped/0 failed（2653+2764通过）；不重复全量。日志output/playwright/frontend-next-20261022-full-part*.log，专项及回退日志purchase_transport_011/、stock-list-012-*.log、subcontract-transport-20261022/。全部回退使用独占文件备份，不用stash；不删弱化旧断言。
-- 生效确认：待确认；生产需重启 WMS 服务生效。验证只用Node/隔离数据库，生产不提交、审批、完成、删除测试单据，不改业务记录、库存、仓库配置或账号。
+- 发布闭环：代码c8ac6d9a432bddbdaa2a2eb5c39aa0a72920780d已推送main且HEAD/origin一致；WMS CI39720042675、AI验证39720042620、性能39720042648均completed/success，Android最近main39682360398成功（本批未改Android）。匿名pre-push查询403时，先通过连接器复核最新三工作流全绿，再仅该次push临时启用已有查询跳过开关，未绕过未知或非绿CI；证据frontend-next-ci-gate-evidence.log。
+- 生效确认：2026-10-22 12:07代理核验，生产需重启 WMS 服务生效；已沿核对后的WMS-Warehouse入口单次重启，先核对原PID1588/解释器/命令/启动ticks后停止，再启动新PID12484/Session0，8080单实例，LastTaskResult=0；12:07:12启动日志版本c8ac6d9、production/CSRF on，本机及公网登录GET200且有CSRF字段。db-check migrate=ok为结构核验，不声称执行迁移；WMS_NO_DB_TOUCH=1保留。收尾仅更新发布台账，不再重启。验证只用Node/隔离数据库，生产不提交、审批、完成、删除测试单据，不改业务记录、库存、仓库配置或账号。
