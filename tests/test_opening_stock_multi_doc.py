@@ -36,6 +36,7 @@ import re
 import sys
 from datetime import date
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -500,26 +501,26 @@ class TestOpeningStockFrontendWiring:
     APP_JS = ROOT / "app" / "static" / "js" / "app.js"
 
     def test_template_injects_document_context(self):
-        html = self.TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(self.TEMPLATE)
         assert "window.__OPENING_DOC__" in html
         assert "const OPENING_DOC = window.__OPENING_DOC__ || null;" in html
 
     def test_template_has_real_navigation_buttons(self):
-        html = self.TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(self.TEMPLATE)
         for target in ("first", "prev", "next", "last"):
             assert f"navigateOpeningDoc('{target}')" in html, target
         assert "function navigateOpeningDoc(" in html
         assert "/api/document_navigation/opening_stock" in html
 
     def test_template_saves_through_document_endpoint(self):
-        html = self.TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(self.TEMPLATE)
         assert "WMS.api.post('/opening_stock/save'" in html
         assert "if (OPENING_DOC) payload.doc_id = OPENING_DOC.id;" in html
         # 不应再直接打 batch_save（那会永远新建兼容单，编辑失效）
         assert "WMS.api.post('/opening_stock/batch_save'" not in html
 
     def test_template_has_delete_current_doc(self):
-        html = self.TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(self.TEMPLATE)
         assert "function deleteCurrentDoc()" in html
         assert "/delete" in html
 

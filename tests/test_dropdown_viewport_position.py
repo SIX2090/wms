@@ -3,6 +3,7 @@ import json
 import shutil
 import subprocess
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 import pytest
 
@@ -44,7 +45,7 @@ if(scenario==='menu_scroll'){rect={left:50,right:250,top:40,bottom:68,width:200}
 
 @pytest.mark.parametrize('template', ['in_order_add.html','out_order_add.html','document_table_form.html','after_sale_out_add.html','adjustment_add.html','purchase_order_add.html','purchase_request_add.html','sales_order_add.html','sales_order_edit.html','in_order_detail.html','out_order_detail.html','opening_stock.html'])
 def test_material_picker_uses_shared_placement(template):
-    source=(ROOT/'app/templates'/template).read_text(encoding='utf-8')
+    source=page_source(ROOT/'app/templates'/template) if template == 'opening_stock.html' else (ROOT/'app/templates'/template).read_text(encoding='utf-8')
     assert 'WMS.positionDropdown(' in source
 
 

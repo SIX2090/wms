@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 import pytest
 
@@ -36,7 +37,7 @@ def test_csrf_has_one_canonical_implementation():
     assert dict(definitions)["base.html"] == 1
     assert "function escapeHtml" in (ROOT / "app/static/js/app.js").read_text(encoding="utf-8")
     # The standalone editor has no app shell and retains its local encoder.
-    assert "function escapeHtml" in (ROOT / "app/templates/print_template_editor.html").read_text(encoding="utf-8")
+    assert "function escapeHtml" in page_source(ROOT / "app/templates/print_template_editor.html")
 
 
 class Markup(HTMLParser):

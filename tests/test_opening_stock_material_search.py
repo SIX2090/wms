@@ -26,6 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source, page_html_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -94,7 +95,7 @@ class TestOpeningStockMaterialSearch:
         for url in ("/opening_stock/add",):
             resp = self.client.get(url)
             assert resp.status_code == 200
-            html = resp.get_data(as_text=True)
+            html = page_html_source(resp.get_data(as_text=True))
             assert "const materialData" not in html, f"{url} 仍内嵌 materialData 整库物料"
             assert "materialCache" in html, f"{url} 缺少物料缓存结构"
         # 路由源码不再为渲染查询全部物料（剥掉注释再断言，避免注释里的说明文字误判）
@@ -109,7 +110,7 @@ class TestOpeningStockMaterialSearch:
     def test_t2_lookup_returns_payload_and_missing(self):
         resp = self.client.post("/opening_stock/materials/lookup",
                                 json={"codes": ["M001", " m002 ", "NOPE"]})
-        assert resp.status_code == 200, resp.get_data(as_text=True)
+        assert resp.status_code == 200, page_html_source(resp.get_data(as_text=True))
         body = resp.get_json()
         assert body["status"] == "success"
         items = body["data"]["items"]
@@ -161,7 +162,7 @@ class TestOpeningStockMaterialSearch:
     # ---- T5 模板静态契约 ----
 
     def test_t5_template_static_contract(self):
-        src = TEMPLATE.read_text(encoding="utf-8")
+        src = page_source(TEMPLATE)
         # 联想走服务端搜索，不再前端全量 filter（注释里提到 materialData 字样不算，
         # 断言实际代码用法：声明与属性访问都不存在）
         assert "/api/material/search?keyword=" in src, "联想未接服务端搜索"

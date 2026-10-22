@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -303,7 +304,7 @@ class TestOpeningStockBatchDeleteFrontend:
     """前端静态断言：勾选列 / 全选 / 批量删除按钮与端点接线齐全。"""
 
     def test_t8_checkbox_column_and_handler_wired(self):
-        html = TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(TEMPLATE)
         # 表头全选框 + 每行勾选框
         assert 'id="openingCheckAll"' in html, "表头应有全选框 #openingCheckAll"
         assert "opening-row-check" in html, "每行应有勾选框 class=opening-row-check"

@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -206,7 +207,7 @@ class TestOpeningStockDocList:
             assert col in html, col
 
     def test_t7b_editor_template_detached(self):
-        html = EDITOR_TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(EDITOR_TEMPLATE)
         # 编辑器不再放全量删除入口与台账面板
         assert "deleteAllOpeningStock" not in html
         assert "查询已建账期初库存" not in html

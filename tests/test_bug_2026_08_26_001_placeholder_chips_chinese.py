@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
-TPL = (
+TPL = page_source(
     Path(__file__).resolve().parent.parent
     / "app" / "templates" / "print_template_editor.html"
-).read_text(encoding="utf-8")
+)
 
 PLACEHOLDER_ENTRY = re.compile(
     r"\{\s*label:\s*'([^']+)',\s*value:\s*'(\{[^']+\})'\s*\}"

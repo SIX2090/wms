@@ -21,6 +21,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 import pytest
 
@@ -162,7 +163,7 @@ def test_excel_import_missing_warehouse_skipped(client):
 
 def test_frontend_buttons_point_to_real_capability():
     """前端"导入导出模板"指向模板下载、粘贴导入改 modal、不再用 prompt。"""
-    src = (APP_DIR / "templates" / "opening_stock.html").read_text(encoding="utf-8")
+    src = page_source((APP_DIR / "templates" / "opening_stock.html"))
     assert "/opening_stock/import/template" in src, "模板按钮应指向模板下载路由"
     assert "pasteImportModal" in src, "粘贴导入应使用多行 modal"
     assert "prompt(" not in src, "粘贴导入不应再用 prompt() 单行输入"
@@ -263,7 +264,7 @@ def test_excel_import_honours_date(client):
 
 def test_frontend_date_wiring():
     """前端日期链路：表头日期输入有 id 并被 saveDocument/粘贴导入读取。"""
-    src = (APP_DIR / "templates" / "opening_stock.html").read_text(encoding="utf-8")
+    src = page_source((APP_DIR / "templates" / "opening_stock.html"))
     assert 'id="headerDocDate"' in src, "表头日期输入应具备 id 供 JS 读取"
     assert "getHeaderDocDate" in src, "应定义 getHeaderDocDate() 读取表头日期"
     assert "item.date = headerDate" in src, "saveDocument 应把表头日期注入明细行"

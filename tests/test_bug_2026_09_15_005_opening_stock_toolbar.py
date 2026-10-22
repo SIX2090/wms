@@ -42,6 +42,7 @@ T9. 既有能力不受影响：新增/保存/批量导入/打印/导出/导入�
 from __future__ import annotations
 
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 OPENING_STOCK = ROOT / "app" / "templates" / "opening_stock.html"
@@ -49,7 +50,7 @@ OPENING_STOCK = ROOT / "app" / "templates" / "opening_stock.html"
 
 def _read() -> str:
     assert OPENING_STOCK.exists(), f"模板缺失：{OPENING_STOCK}"
-    return OPENING_STOCK.read_text(encoding="utf-8")
+    return page_source(OPENING_STOCK)
 
 
 class TestOpeningStockTopToolbar:

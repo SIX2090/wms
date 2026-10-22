@@ -47,6 +47,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 import pytest
 
@@ -58,7 +59,7 @@ NODE = shutil.which("node")
 
 
 def _template_src() -> str:
-    return TEMPLATE.read_text(encoding="utf-8")
+    return page_source(TEMPLATE)
 
 
 def _extract_function(src: str, name: str) -> str:

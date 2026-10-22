@@ -26,6 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -164,7 +165,7 @@ class TestOpeningStockLocationColumn:
     # ---- T5 静态契约 ----
 
     def test_t5_template_static_contract(self):
-        src = EDITOR_TEMPLATE.read_text(encoding="utf-8")
+        src = page_source(EDITOR_TEMPLATE)
         # collectItems 必须携带 location（否则填了也传不到后端）
         collect = re.search(r"function collectItems\(\).*?\n}", src, flags=re.DOTALL)
         assert collect and "location:" in collect.group(0), "collectItems 未携带 location"

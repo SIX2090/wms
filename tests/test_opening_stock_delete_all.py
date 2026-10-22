@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -261,7 +262,7 @@ class TestOpeningStockDeleteAllFrontend:
     """前端静态断言：按钮/函数/端点接线齐全（防回归为死按钮）。"""
 
     def test_t7_toolbar_button_and_handler_wired(self):
-        html = TEMPLATE.read_text(encoding="utf-8")
+        html = page_source(TEMPLATE)
         assert "删除全部" in html, "工具栏应有「删除全部」按钮"
         assert "function deleteAllOpeningStock()" in html, "应定义 deleteAllOpeningStock()"
         assert 'onclick="deleteAllOpeningStock()"' in html, "按钮应绑定 deleteAllOpeningStock()"

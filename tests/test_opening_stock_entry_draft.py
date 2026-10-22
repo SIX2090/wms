@@ -27,6 +27,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from tests.frontend_page_source import page_source, page_html_source
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -56,7 +57,7 @@ TEMPLATE = APP_DIR / "templates" / "opening_stock.html"
 
 
 def _template_src() -> str:
-    return TEMPLATE.read_text(encoding="utf-8")
+    return page_source(TEMPLATE)
 
 
 class TestOpeningStockDraftTemplate:
@@ -282,7 +283,7 @@ class TestOpeningStockDraftRendered:
     def _add_page(self):
         resp = self.client.get("/opening_stock/add")
         assert resp.status_code == 200, resp.status_code
-        return resp.get_data(as_text=True)
+        return page_html_source(resp.get_data(as_text=True))
 
     def _edit_page(self):
         resp = self.client.post("/opening_stock/save", json={
@@ -290,11 +291,11 @@ class TestOpeningStockDraftRendered:
             "items": [{"material_id": self.m1.id, "warehouse_id": self.wh1.id,
                        "quantity": 100, "price": 1.0}],
         })
-        assert resp.status_code == 200, resp.get_data(as_text=True)
+        assert resp.status_code == 200, page_html_source(resp.get_data(as_text=True))
         doc_id = resp.get_json()["doc_id"]
         resp = self.client.get("/opening_stock/%d" % doc_id)
         assert resp.status_code == 200, resp.status_code
-        return doc_id, resp.get_data(as_text=True)
+        return doc_id, page_html_source(resp.get_data(as_text=True))
 
     def test_t13_add_page_renders_draft_scope_new(self):
         html = self._add_page()

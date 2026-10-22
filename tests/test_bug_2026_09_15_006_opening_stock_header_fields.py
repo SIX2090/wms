@@ -26,6 +26,7 @@ T5. 不误删：日期、单据仓库、备注输入框、表头日期链路仍�
 from __future__ import annotations
 
 from pathlib import Path
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "app" / "templates" / "opening_stock.html"
@@ -34,7 +35,7 @@ ROUTE = ROOT / "app" / "routes" / "opening_stock.py"
 
 def _read(p: Path) -> str:
     assert p.exists(), f"文件缺失：{p}"
-    return p.read_text(encoding="utf-8")
+    return page_source(p) if p == TEMPLATE else p.read_text(encoding="utf-8")
 
 
 class TestDecorativeFieldsRemoved:

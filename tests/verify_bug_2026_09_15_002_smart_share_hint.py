@@ -25,8 +25,11 @@ T5. 全模板扫描：无任何模板把智能分享入口指到"列表页"（�
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from tests.frontend_page_source import page_source
 TEMPLATES_DIR = ROOT / "app" / "templates"
 
 IN_ORDER_ADD = TEMPLATES_DIR / "in_order_add.html"
@@ -40,7 +43,7 @@ OPENING_STOCK_IRRELEVANT = "期初库存已接入库存台账和仓库月报表"
 
 def _read(p: Path) -> str:
     assert p.exists(), f"模板缺失：{p}"
-    return p.read_text(encoding="utf-8")
+    return page_source(p) if p == OPENING_STOCK else p.read_text(encoding="utf-8")
 
 
 class TestSmartShareHint:
