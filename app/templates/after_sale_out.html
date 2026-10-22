@@ -217,11 +217,7 @@ function completeOrder(id) {
 function revertOrder(id) {
     showConfirm('确认反提交该售后出库单？反提交后库存将恢复。').then(function(ok) {
         if (!ok) return;
-        fetch(`/after_sale_out/${id}/revert`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        return WMS.api.postRaw(`/after_sale_out/${id}/revert`)
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '反提交成功', 'success');
@@ -230,50 +226,22 @@ function revertOrder(id) {
                 showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
             }
         });
-    });
+    }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
 }
 
 function deleteOrder(id) {
     showConfirm('确认删除此售后出库单？').then(function(ok) {
         if (!ok) return;
-        fetch(`/after_sale_out/${id}/delete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        return WMS.api.postRaw(`/after_sale_out/${id}/delete`)
         .then(data => {
             if (data.status === 'success') {
                 showToast('删除成功', 'success');
                 location.reload();
             } else {
-                showToast('删除失败：' + data.msg, 'danger');
+                showToast('删除失败：' + (data.msg || '未知错误'), 'danger');
             }
         });
-    });
-}
-
-function batchDelete() {
-    const checked = document.querySelectorAll('.order-check:checked');
-    if (checked.length === 0) {
-        showToast('请选择要删除的单据', 'warning');
-        return;
-    }
-    showConfirm(`确认删除选中的 ${checked.length} 条记录？`).then(function(ok) {
-        if (!ok) return;
-        const ids = Array.from(checked).map(cb => cb.value);
-        let completed = 0;
-        ids.forEach(id => {
-            fetch(`/after_sale_out/${id}/delete`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'}
-            }).finally(() => {
-                completed++;
-                if (completed === ids.length) {
-                    location.reload();
-                }
-            });
-        });
-    });
+    }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
 }
 
 function printAfterSaleOutList() {
@@ -296,12 +264,7 @@ function submitDocumentImport(formId, fileId) {
     var fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     var formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(res) { return res.json(); })
+    WMS.api.postRaw(form.action, formData)
     .then(function(data) {
         if (data.status === 'success') {
             showToast(data.msg || '导入成功', 'success', 3600);

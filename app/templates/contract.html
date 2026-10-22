@@ -326,12 +326,7 @@ function submitImport() {
     var formData = new FormData(form);
     var result = document.querySelector('#importModal .import-result');
     result.innerHTML = '<span class="text-muted">导入中...</span>';
-    fetch('/contract/import', {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/contract/import', formData)
     .then(data => {
         if (data.status === 'success') {
             result.innerHTML = '<div class="alert alert-success py-1 mb-0"><i class="bi bi-check-circle"></i> ' + escapeHtml(data.msg) + '</div>';
@@ -348,11 +343,7 @@ function submitImport() {
 function submitAdd() {
     const form = document.getElementById('addForm');
     const formData = new FormData(form);
-    fetch('/contract/add', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/contract/add', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('contract_updated');
@@ -389,11 +380,7 @@ function submitEdit() {
     const form = document.getElementById('editForm');
     const formData = new FormData(form);
     const id = formData.get('id');
-    fetch('/contract/' + id + '/edit', {
-        method: 'POST',
-        body: formData
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/contract/' + id + '/edit', formData)
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('contract_updated');
@@ -408,10 +395,7 @@ function submitEdit() {
 
 function deleteContract(id) {
     if (!confirm('确定要删除这个合同吗？若已被业务单据引用将无法删除。')) return;
-    fetch('/contract/' + id + '/delete', {
-        method: 'POST'
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/contract/' + id + '/delete')
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('contract_updated');
@@ -431,12 +415,7 @@ function batchDelete() {
         return;
     }
     if (!confirm('确定要删除选中的 ' + ids.length + ' 个合同吗？')) return;
-    fetch('/contract/delete', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ids: ids})
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/contract/delete', {ids: ids})
     .then(data => {
         if (data.status === 'success') {
             notifyMasterDataChanged('contract_updated');

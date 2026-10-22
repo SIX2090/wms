@@ -203,11 +203,7 @@ function completeOrder(id) {
 function revertOrder(id) {
     showConfirm('确认反提交该售后出库单？反提交后库存将恢复。').then(function(ok) {
         if (!ok) return;
-        fetch(`/after_sale_out/${id}/revert`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        return WMS.api.postRaw(`/after_sale_out/${id}/revert`)
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '反提交成功', 'success');
@@ -216,21 +212,17 @@ function revertOrder(id) {
                 showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
             }
         });
-    });
+    }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
 }
 
 // 复制单据
 function copyOrder(id) {
     showConfirm('确定要复制该售后出库单吗？系统会生成一张新的售后出库草稿。', {title: '复制售后出库单'}).then(function(ok) {
         if (!ok) return;
-        fetch(`/after_sale_out/${id}/copy`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        WMS.api.postRaw(`/after_sale_out/${id}/copy`)
         .then(data => {
             if (data.status === 'success') {
-                showToast(res.msg || '复制成功', 'success');
+                showToast(data.msg || '复制成功', 'success');
                 if (data.redirect_url) {
                     setTimeout(function() { location.href = data.redirect_url; }, 600);
                 } else {
@@ -249,11 +241,7 @@ function copyOrder(id) {
 function deleteOrder(id) {
     showConfirm('确定要删除该售后出库单吗？此操作不可恢复。', {title: '删除售后出库单'}).then(function(ok) {
         if (!ok) return;
-        fetch(`/after_sale_out/${id}/delete`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        WMS.api.postRaw(`/after_sale_out/${id}/delete`)
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '删除成功', 'success');

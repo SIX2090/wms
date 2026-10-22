@@ -343,37 +343,6 @@ document.querySelectorAll('.edit-order-btn').forEach(function(button) {
     });
 });
 
-orderForm?.addEventListener('submit', function(event) {
-    event.preventDefault();
-    const mode = orderForm.dataset.mode || 'add';
-    const orderId = document.getElementById('order_id').value;
-    const url = mode === 'edit' ? urlWithId(requisitionUrls.update, orderId) : requisitionUrls.add;
-    const formData = new FormData(orderForm);
-    orderSubmitBtn.disabled = true;
-
-    fetch(url, {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showToast(data.msg || '保存成功', 'success');
-            if (mode === 'add' && data.id) {
-                setTimeout(() => window.location.href = urlWithId(requisitionUrls.detail, data.id), 500);
-            } else {
-                setTimeout(() => location.reload(), 500);
-            }
-        } else {
-            showToast(data.msg || '保存失败', 'danger');
-        }
-    })
-    .catch(error => showToast('保存失败：' + error.message, 'danger'))
-    .finally(() => {
-        orderSubmitBtn.disabled = false;
-    });
-});
-
 document.getElementById('selectAll')?.addEventListener('change', function() {
     document.querySelectorAll('.itemCheck:not(:disabled)').forEach(checkbox => {
         checkbox.checked = this.checked;
@@ -385,34 +354,6 @@ document.querySelectorAll('.itemCheck:not(:disabled)').forEach(function(checkbox
         const selectable = document.querySelectorAll('.itemCheck:not(:disabled)');
         const checked = document.querySelectorAll('.itemCheck:not(:disabled):checked');
         document.getElementById('selectAll').checked = selectable.length > 0 && selectable.length === checked.length;
-    });
-});
-
-document.getElementById('batchDeleteBtn')?.addEventListener('click', function() {
-    const checkedItems = document.querySelectorAll('.itemCheck:not(:disabled):checked');
-    if (!checkedItems.length) {
-        showToast('请选择要删除的草稿工单领料单', 'warning');
-        return;
-    }
-
-    showConfirm('确定要删除选中的 ' + checkedItems.length + ' 个工单领料单吗？', {title: '批量删除'}).then(function(confirmed) {
-        if (!confirmed) return;
-        const ids = Array.from(checkedItems).map(item => item.value);
-        fetch(requisitionUrls.batchDelete, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '删除成功', 'success');
-                setTimeout(() => location.reload(), 500);
-            } else {
-                showToast(data.msg || '删除失败', 'danger');
-            }
-        })
-        .catch(error => showToast('删除失败：' + error.message, 'danger'));
     });
 });
 
@@ -469,8 +410,7 @@ document.querySelectorAll('.revert-btn').forEach(function(button) {
         const id = this.dataset.id;
         showConfirm('确认反提交？反提交后库存将恢复。', {title: '反提交工单领料单'}).then(function(confirmed) {
             if (!confirmed) return;
-            fetch(urlWithId(requisitionUrls.revert, id), {method: 'POST'})
-            .then(response => response.json())
+            WMS.api.postRaw(urlWithId(requisitionUrls.revert, id))
             .then(data => {
                 if (data.status === 'success') {
                     showToast(data.msg || '反提交成功', 'success');
@@ -489,8 +429,7 @@ document.querySelectorAll('.delete-btn').forEach(function(button) {
         const id = this.dataset.id;
         showConfirm('确定要删除该工单领料单吗？此操作不可恢复。', {title: '删除工单领料单'}).then(function(confirmed) {
             if (!confirmed) return;
-            fetch(urlWithId(requisitionUrls.delete, id), {method: 'POST'})
-            .then(response => response.json())
+            WMS.api.postRaw(urlWithId(requisitionUrls.delete, id))
             .then(data => {
                 if (data.status === 'success') {
                     showToast(data.msg || '删除成功', 'success');

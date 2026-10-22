@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import '_list_macros.html' as ui %}
 {% block title %}采购单详情{% endblock %}
+{% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
@@ -32,12 +33,13 @@
                     <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
                 </div>
             </div>
-            {% if current_user.role in ['admin', 'warehouse'] %}
+            {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
                 <a href="/purchase_order" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
                 <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-printer"></i> 打印
                 </a>
+                {% if current_user.role in ['admin', 'purchase'] %}
                 <button class="btn btn-sm btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制
                 </button>
@@ -49,14 +51,17 @@
                     <i class="bi bi-trash"></i> 删除
                 </button>
                 {% endif %}
+                {% endif %}
                 {% if order.status in ['pending', 'partial'] %}
                 <button class="btn btn-sm btn-primary" onclick="createInOrder({{ order.id }})">
                     <i class="bi bi-box-arrow-in-down"></i> 生成采购入库单
                 </button>
+                {% if current_user.role in ['admin', 'purchase'] %}
                 <button class="btn btn-sm btn-outline-danger" onclick="closePurchaseOrder({{ order.id }})">
                     <i class="bi bi-stop-circle"></i> 关闭
                 </button>
-                {% elif order.status == 'closed' %}
+                {% endif %}
+                {% elif order.status == 'closed' and current_user.role in ['admin', 'purchase'] %}
                 <button class="btn btn-sm btn-outline-primary" onclick="reopenPurchaseOrder({{ order.id }})">
                     <i class="bi bi-arrow-counterclockwise"></i> 重新打开
                 </button>
@@ -183,7 +188,7 @@
     </div>
 </div>
 
-{% if order.status in ['pending', 'partial'] %}
+{% if order.status in ['pending', 'partial'] and current_user.role in ['admin', 'warehouse', 'purchase'] %}
 <div class="order-info-card mb-3">
     <div class="card-header-custom"><i class="bi bi-box-arrow-in-down"></i> 下推入库</div>
     <div class="card-body-custom">
@@ -368,20 +373,15 @@ function createInOrder(id) {
     }
     showConfirm('确认由此采购单生成采购入库单？', { title: '生成采购入库单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(`/purchase_order/${id}/create_in_order`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ warehouse: warehouse, remark: remark, items: items })
-        })
-        .then(res => res.json())
+        WMS.api.postRaw(`/purchase_order/${id}/create_in_order`, { warehouse: warehouse, remark: remark, items: items })
         .then(data => {
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
                 showToast(data.msg || '采购入库单生成成功', 'success');
                 setTimeout(function() {
                     window.location.href = data.redirect_url || ('/in_order/' + data.id);
                 }, 500);
             } else {
-                showToast('生成失败：' + data.msg, 'danger', 3600);
+                showToast('生成失败：' + ((data && data.msg) || '未知错误'), 'danger', 3600);
             }
         })
         .catch(err => showToast('生成失败：' + err.message, 'danger', 3600));
@@ -396,21 +396,17 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function closePurchaseOrder(id) {
-    const reason = prompt('请输入关闭原因（可选）：') || '';
+    const reason = prompt('请输入关闭原因（可选）：');
+    if (reason === null) return;
     showConfirm('确认关闭此采购单？关闭后不能继续入库。', { title: '关闭采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(`/purchase_order/${id}/close`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ reason: reason })
-        })
-        .then(res => res.json())
+        WMS.api.postRaw(`/purchase_order/${id}/close`, { reason: reason })
         .then(data => {
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
                 showToast(data.msg || '采购单已关闭', 'success');
                 setTimeout(function() { location.reload(); }, 500);
             } else {
-                showToast('关闭失败：' + data.msg, 'danger', 3600);
+                showToast('关闭失败：' + ((data && data.msg) || '未知错误'), 'danger', 3600);
             }
         })
         .catch(err => showToast('关闭失败：' + err.message, 'danger', 3600));
@@ -420,17 +416,13 @@ function closePurchaseOrder(id) {
 function reopenPurchaseOrder(id) {
     showConfirm('确认重新打开此采购单？', { title: '重新打开采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch(`/purchase_order/${id}/reopen`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
+        WMS.api.postRaw(`/purchase_order/${id}/reopen`)
         .then(data => {
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
                 showToast(data.msg || '采购单已重新打开', 'success');
                 setTimeout(function() { location.reload(); }, 500);
             } else {
-                showToast('重新打开失败：' + data.msg, 'danger', 3600);
+                showToast('重新打开失败：' + ((data && data.msg) || '未知错误'), 'danger', 3600);
             }
         })
         .catch(err => showToast('重新打开失败：' + err.message, 'danger', 3600));
@@ -440,18 +432,13 @@ function reopenPurchaseOrder(id) {
 function deletePurchaseOrder(id) {
     showConfirm('确定删除该采购单吗？此操作不可恢复。', { title: '删除采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/purchase_order/' + id + '/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
+        WMS.api.postRaw('/purchase_order/' + id + '/delete', {})
         .then(data => {
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
                 showToast(data.msg || '删除成功', 'success');
                 setTimeout(function() { window.location.href = '/purchase_order'; }, 500);
             } else {
-                showToast(data.msg || '删除失败', 'danger', 3600);
+                showToast((data && data.msg) || '删除失败', 'danger', 3600);
             }
         })
         .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
@@ -461,20 +448,15 @@ function deletePurchaseOrder(id) {
 function copyPurchaseOrder(id) {
     showConfirm('确定复制该采购单吗？系统会生成一张新的未入库采购单。', { title: '复制采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/purchase_order/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
+        WMS.api.postRaw('/purchase_order/' + id + '/copy', {})
         .then(data => {
-            if (data.status === 'success') {
+            if (data && data.status === 'success') {
                 showToast(data.msg || '复制成功', 'success');
                 setTimeout(function() {
                     window.location.href = data.redirect_url || ('/purchase_order/' + data.id + '/edit');
                 }, 500);
             } else {
-                showToast(data.msg || '复制失败', 'danger', 3600);
+                showToast((data && data.msg) || '复制失败', 'danger', 3600);
             }
         })
         .catch(err => showToast('复制失败：' + err.message, 'danger', 3600));
