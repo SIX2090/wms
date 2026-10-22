@@ -15217,7 +15217,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         doc_type = 'sales_out_order'
     if doc_type not in AI_DOC_TYPE_LABELS:
         return None, '单据类型无效'
-    # AI_TASK: AI-R08-F01 服务端门禁校验
+    # AI_TASK: AI-R08-F01 服务端门禁校验；AI_TASK: AI-R08-F02-FIX-WAREHOUSE-001 仓库修复归属
     gate_allowed, gate_reasons = _ai_check_draft_creation_gate(document_job_id)
     if not gate_allowed:
         error_msg = '门禁校验失败，禁止创建草稿：' + '; '.join(gate_reasons)
