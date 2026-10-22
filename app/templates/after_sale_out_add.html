@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set can_edit_after_sale_out = current_user.role in ['admin', 'warehouse'] %}
+{% block body_class %}{% if not can_edit_after_sale_out %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block title %}{{ page_title or '新增售后出库单' }}{% endblock %}
 
@@ -196,9 +198,11 @@
 <div class="page-header d-flex justify-content-between align-items-center">
     <h2><i class="bi bi-box-arrow-up"></i> {{ page_title or '新增售后出库单' }}</h2>
     <div class="d-flex gap-2 flex-wrap">
+        {% if can_edit_after_sale_out %}
         <button type="button" class="btn btn-primary" onclick="submitForm()">
             <i class="bi bi-save"></i> 保存
         </button>
+        {% endif %}
         <a href="/after_sale_out" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
@@ -208,6 +212,7 @@
 <div class="card">
     <div class="card-body">
         <form id="addForm">
+            <fieldset id="afterSaleOutFields" class="border-0 p-0 m-0" style="min-width:0" {% if not can_edit_after_sale_out %}disabled{% endif %}>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id or '' }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
@@ -332,6 +337,7 @@
                 </table>
             </div>
 
+            </fieldset>
         </form>
     </div>
 </div>
@@ -645,7 +651,10 @@ function focusAfterSaleOutError(error) {
     }
 }
 
-function submitForm() {
+const canEditAfterSaleOut = {{ can_edit_after_sale_out|tojson }};
+let afterSaleOutSaveBusy = false;
+async function submitForm() {
+    if (!canEditAfterSaleOut || afterSaleOutSaveBusy) return;
     // P1-2：一次性收集全部缺失/非法项并高亮，而不是逐条 showToast 后立刻 return
     const rowResult = collectAfterSaleOutRows();
     const errors = collectAfterSaleOutErrors(rowResult.items).concat(rowResult.errors);
@@ -653,7 +662,9 @@ function submitForm() {
     if (errors.length) return;
     const items = rowResult.items;
 
+    const locationInput = document.querySelector('[name="location"]');
     const data = {
+        location: locationInput ? locationInput.value : '',
         order_id: document.querySelector('[name="order_id"]').value,
         order_no: document.querySelector('[name="order_no"]').value,
         date: document.querySelector('[name="date"]').value,
@@ -669,23 +680,28 @@ function submitForm() {
         items: items
     };
 
-    fetch('/after_sale_out/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
+    afterSaleOutSaveBusy = true;
+    const buttons = Array.from(document.querySelectorAll('button[onclick="submitForm()"]'));
+    const disabled = buttons.map(button => button.disabled);
+    buttons.forEach(button => { button.disabled = true; });
+    let succeeded = false;
+    try {
+        const result = await WMS.api.postRaw('/after_sale_out/add', data);
+        if (result && result.status === 'success') {
+            succeeded = true;
             showToast('保存成功', 'success');
-            setTimeout(function() { window.location.href = `/after_sale_out/${data.id}`; }, 400);
+            setTimeout(function() { window.location.href = `/after_sale_out/${result.id}`; }, 400);
         } else {
-            showToast('保存失败：' + data.msg, 'danger');
+            showToast('保存失败：' + ((result && result.msg) || '服务器响应无效，请重试'), 'danger');
         }
-    })
-    .catch(error => {
-        showToast('保存失败：' + error.message, 'danger');
-    });
+    } catch (error) {
+        showToast('保存失败：' + ((error && error.message) || '请稍后重试'), 'danger');
+    } finally {
+        if (!succeeded) {
+            afterSaleOutSaveBusy = false;
+            buttons.forEach((button, index) => { button.disabled = disabled[index]; });
+        }
+    }
 }
 
 document.addEventListener('click', function(e) {

@@ -1,6 +1,11 @@
 {% extends "base.html" %}
+{% set document_role_allowed = current_user.role in (['admin', 'production'] if doc_type in ['bom', 'requisition'] else ['admin', 'warehouse']) %}
+{% set readonly = readonly or not document_role_allowed %}
+{% set can_save = can_save and document_role_allowed %}
+{% set can_complete = can_complete and document_role_allowed %}
+{% set can_revert = can_revert and document_role_allowed %}
 {% block title %}{{ page_title }}{% endblock %}
-{% block body_class %}{% if doc_type == 'bom' and readonly %}wms-no-global-actionbar{% endif %}{% endblock %}
+{% block body_class %}{% if not document_role_allowed or (doc_type == 'bom' and readonly) %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -349,6 +354,7 @@ const completeUrl = {{ complete_url|tojson }};
 const revertUrl = {{ (revert_url or '')|tojson }};
 const detailUrl = {{ detail_url|tojson }};
 const readonly = {{ readonly|tojson }};
+const documentRoleAllowed = {{ document_role_allowed|tojson }};
 // INV-BATCH-001-D：盘点单（=批次）既有单据展示行级盘点归属列（盘点人/时间）
 const hasCountedByCol = {{ (doc_type == 'check' and order_id)|tojson }};
 const checkLocationRequired = {{ (doc_type == 'check' and location_management_enabled|default(false))|tojson }};
@@ -729,8 +735,21 @@ function collectHeader() {
     if (docType === 'check') return {warehouse_id:get('warehouse_id'), remark:get('remark')};
     return {remark:get('remark')};
 }
+function beginDocumentAction() {
+    if (submitForm.pending || submitForm.completed) return false;
+    submitForm.pending = true;
+    beginDocumentAction.buttons = Array.from(document.querySelectorAll('.doc-header button, #forceCompleteBtn')).map(button => ({button, disabled: button.disabled}));
+    beginDocumentAction.buttons.forEach(entry => { entry.button.disabled = true; });
+    return true;
+}
+function endDocumentAction() {
+    if (submitForm.completed) return;
+    submitForm.pending = false;
+    (beginDocumentAction.buttons || []).forEach(entry => { entry.button.disabled = entry.disabled; });
+    beginDocumentAction.buttons = [];
+}
 function submitForm(completeAfterSave) {
-    if (readonly || submitForm.pending) return;
+    if (readonly || !documentRoleAllowed || submitForm.pending || submitForm.completed) return;
     const result = collectItems();
     if (result.invalidRows.length) { showToast(result.invalidRows[0], 'danger', 3600); return; }
     if (!result.items.length) { showToast('请至少填写一条明细', 'warning'); return; }
@@ -741,22 +760,23 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
-    submitForm.pending = true;
-    return csrfFetch(saveUrl, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})
-        .then(r => r.json())
+    if (!beginDocumentAction()) return;
+    return WMS.api.postRaw(saveUrl, data)
         .then(res => {
-            if (res.status !== 'success') throw new Error(res.msg || '保存失败');
+            if (!res || res.status !== 'success') throw new Error((res && res.msg) || '保存失败');
             document.querySelector('[name="order_id"]').value = res.id;
             if (!completeAfterSave || !completeUrl) {
+                submitForm.completed = true;
                 showToast('保存成功', 'success');
                 setTimeout(() => { window.location.href = detailUrl + '/' + res.id; }, 500);
                 return;
             }
             const actionUrl = completeUrl.replace(/\/0(?=\/|$)/, '/' + res.id);
+            endDocumentAction();
             return runComplete(actionUrl, false, res.id);
         })
-        .catch(err => showToast(err.message || '保存失败', 'danger', 3600))
-        .finally(() => { if (!submitForm.completed) submitForm.pending = false; });
+        .catch(err => showToast((err && err.message) || '保存失败', 'danger', 3600))
+        .finally(endDocumentAction);
 }
 function escapeHtmlText(s){
     return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function(c){
@@ -766,10 +786,10 @@ function escapeHtmlText(s){
 // BUG-2026-09-06-001/002：完成前风险二次确认。后端返回 status='confirm'
 // 时不直接完成，列出风险明细由人工判断；点「仍要完成」带 force=1 重发。
 function runComplete(actionUrl, force, orderId) {
-    return csrfFetch(actionUrl, {method:'POST', headers:{'Content-Type':'application/json'},
-                                 body: JSON.stringify({force: !!force})})
-        .then(r => r.json())
+    if (!documentRoleAllowed || readonly || !beginDocumentAction()) return Promise.resolve();
+    return WMS.api.postRaw(actionUrl, {force: !!force})
         .then(done => {
+            if (!done) throw new Error('服务器返回无效数据');
             if (done.status === 'success') {
                 submitForm.completed = true;
                 showToast(done.msg || '操作成功', 'success');
@@ -791,9 +811,12 @@ function runComplete(actionUrl, force, orderId) {
                 showCompleteConfirm(done, actionUrl, orderId);
                 return;
             }
+            submitForm.completed = true;
             showToast('单据已保存但完成失败：' + (done.msg || '未知错误'), 'danger', 4200);
             setTimeout(() => { window.location.href = detailUrl + '/' + (orderId || ''); }, 700);
-        });
+        })
+        .catch(err => showToast('单据已保存但完成失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 4200))
+        .finally(endDocumentAction);
 }
 function showCompleteConfirm(payload, actionUrl, orderId) {
     const samples = Array.isArray(payload.samples) ? payload.samples : [];
@@ -832,23 +855,26 @@ function showCompleteConfirm(payload, actionUrl, orderId) {
     };
 }
 function completeDocument() {
+    if (readonly || !documentRoleAllowed || submitForm.pending || submitForm.completed) return;
     if (!confirm('确认完成该单据？')) return;
     submitForm(true);
 }
 function revertDocument() {
-    if (!revertUrl) return;
+    if (!documentRoleAllowed || !revertUrl || submitForm.pending || submitForm.completed) return;
     if (!confirm('确认反提交该单据？反提交后库存将恢复。')) return;
-    csrfFetch(revertUrl, {method: 'POST'})
-    .then(r => r.json())
+    if (!beginDocumentAction()) return;
+    return WMS.api.postRaw(revertUrl)
     .then(res => {
-        if (res.status === 'success') {
+        if (res && res.status === 'success') {
+            submitForm.completed = true;
             showToast(res.msg || '反提交成功', 'success');
             setTimeout(function(){ location.reload(); }, 650);
         } else {
-            showToast(res.msg || '反提交失败', 'danger', 4200);
+            showToast((res && res.msg) || '反提交失败', 'danger', 4200);
         }
     })
-    .catch(err => showToast('反提交失败：' + err.message, 'danger', 4200));
+    .catch(err => showToast('反提交失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 4200))
+    .finally(endDocumentAction);
 }
 function showPasteModal() {
     const modal = document.createElement('div');

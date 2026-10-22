@@ -21,13 +21,17 @@ def test_requisition_completion_navigation(doc_type, status, mode, carry):
     source = (ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     submit = 'function submitForm(completeAfterSave) {' + source.split('function submitForm(completeAfterSave) {', 1)[1].split('\nfunction escapeHtmlText', 1)[0]
     run = 'function runComplete(actionUrl, force, orderId) {' + source.split('function runComplete(actionUrl, force, orderId) {', 1)[1].split('\nfunction showCompleteConfirm', 1)[0]
+    helpers = source[source.index('function beginDocumentAction()'):source.index('function submitForm(')]
+    api = (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')
     complete = 'function completeDocument() {' + source.split('function completeDocument() {', 1)[1].split('\nfunction revertDocument', 1)[0]
     script = 'const carry=' + json.dumps(carry) + ';\n' + '''
 let confirmed = 0, calls = [];
 const window = {location: {href: 'original'}};
 const fields = {'order_id': {value:'7'}, 'order_no': {value:'REQ7'}, 'date': {value:'2026-10-15'}};
 if (carry) Object.assign(fields, {warehouse_id:{value:'2'}, production_order:{value:'工单 & 1'}, picker:{value:'张三'}, purpose:{value:'生产'}, bom_id:{value:'9'}});
-const document = {querySelector(s) {return fields[s.match(/name="([^"]+)"/)[1]];}};
+const document = {querySelector(s) {if(s.startsWith('meta'))return {content:'fixture-token'};return fields[s.match(/name="([^"]+)"/)[1]];},querySelectorAll(){return [];}};
+const documentRoleAllowed = true;
+class FormData {}
 const readonly = false, saveUrl = '/save', completeUrl = '/complete/0', detailUrl = '/detail';
 function collectItems() {return {items:[{code:'M1',quantity:1}], invalidRows:[]};}
 function collectHeader() {return {};}
@@ -35,13 +39,13 @@ function showToast() {}
 function confirm() {return true;}
 function setTimeout(fn) {fn();}
 function showCompleteConfirm() {confirmed++;}
-function csrfFetch(url, options) {
+function fetch(url, options) {
     calls.push({url, body:JSON.parse(options.body)});
-    if (url === '/save') return Promise.resolve({json:() => Promise.resolve({status:'success',id:7})});
+    if (url === '/save') return Promise.resolve({ok:true,status:200,json:() => Promise.resolve({status:'success',id:7})});
     if (status === 'network_error') return Promise.reject(new Error('network'));
-    return Promise.resolve({json:() => Promise.resolve({status})});
+    return Promise.resolve({ok:true,status:200,json:() => Promise.resolve({status})});
 }
-''' + f'const docType={json.dumps(doc_type)}, status={json.dumps(status)};\n' + submit + run + complete
+''' + api + '\nconst WMS=window.WMS;\n' + helpers + f'const docType={json.dumps(doc_type)}, status={json.dumps(status)};\n' + submit + run + complete
     script += {'save':'submitForm(false);', 'save_complete':'submitForm(true);', 'complete':'completeDocument();', 'force':"runComplete('/complete/7',true,7).catch(() => {});"}[mode]
     script += '\nsetImmediate(() => process.stdout.write(JSON.stringify({url:window.location.href, confirmed, calls})));'
     result = subprocess.run([node, '-e', script], text=True, encoding='utf-8', capture_output=True, check=True)

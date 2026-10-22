@@ -146,7 +146,7 @@ def test_aso_t11_submit_collects_all_before_fetch():
     c1 = body.find("collectAfterSaleOutRows(")
     c2 = body.find("collectAfterSaleOutErrors(")
     s = body.find("showAfterSaleOutValidation(")
-    f = body.find("fetch('/after_sale_out/add'")
+    f = body.find("WMS.api.postRaw('/after_sale_out/add'")
     assert c1 != -1 and c2 != -1, "submitForm 未收集校验错误"
     assert s != -1, "submitForm 未展示校验错误"
     assert f != -1, "submitForm 未发起保存请求"

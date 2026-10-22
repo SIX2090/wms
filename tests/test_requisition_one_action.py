@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import shutil
 import subprocess
 
@@ -26,7 +27,8 @@ def node_binary():
 def test_work_order_single_button(existing):
     source=(ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     header=source.split('{% block content %}',1)[1].split('<div class="doc-body">',1)[0]
-    rendered=Template(header).render(doc_type='requisition',can_save=True,can_complete=existing,complete_url='/complete/0')
+    declarations=source.split('{% block title %}',1)[0].split('\n',1)[1]
+    rendered=Template(declarations+header).render(current_user=SimpleNamespace(role='production'),readonly=False,doc_type='requisition',can_save=True,can_complete=existing,complete_url='/complete/0')
     assert rendered.count('保存并完成领料') == 1
     assert 'submitForm(false)' not in rendered
     assert 'completeDocument()' not in rendered
@@ -123,21 +125,28 @@ def test_work_order_blocks_duplicate_save_until_navigation():
     source=(ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     submit='function submitForm(completeAfterSave) {'+source.split('function submitForm(completeAfterSave) {',1)[1].split('\nfunction escapeHtmlText',1)[0]
     run='function runComplete(actionUrl, force, orderId) {'+source.split('function runComplete(actionUrl, force, orderId) {',1)[1].split('\nfunction showCompleteConfirm',1)[0]
+    helpers=source[source.index('function beginDocumentAction()'):source.index('function submitForm(')]
+    api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')
     script=r"""
 const assert=require('assert');
+const documentRoleAllowed=true;
+class FormData {}
 const readonly=false,saveUrl='/save',completeUrl='/complete/0',detailUrl='/detail',docType='requisition';
-const document={querySelector(){return {value:'1'};}};
+const document={querySelector(){return {value:'1'};},querySelectorAll(){return [];}};
 const window={location:{href:'original'}};
 function collectItems(){return {items:[{code:'M',quantity:1}],invalidRows:[]};}
 function collectHeader(){return {};}
 function showToast(){}
 function setTimeout(){}
 let calls=[],release;
-function csrfFetch(url){
+function fetch(url){
  calls.push(url);
- if(url==='/save')return new Promise(resolve=>{release=()=>resolve({json:()=>Promise.resolve({status:'success',id:7})});});
- return Promise.resolve({json:()=>Promise.resolve({status:'success'})});
+ if(url==='/save')return new Promise(resolve=>{release=()=>resolve({ok:true,status:200,json:()=>Promise.resolve({status:'success',id:7})});});
+ return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({status:'success'})});
 }
+API
+const WMS=window.WMS;
+HELPERS
 SUBMIT
 RUN
 async function check(){
@@ -147,6 +156,6 @@ async function check(){
  submitForm(true);assert.equal(calls.length,2,'navigation delay must not allow another save');
 }
 check().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
-""".replace('SUBMIT',submit).replace('RUN',run)
+""".replace('API',api).replace('HELPERS',helpers).replace('SUBMIT',submit).replace('RUN',run)
     result=subprocess.run([node_binary(),'-e',script],capture_output=True,text=True,encoding='utf-8')
     assert result.returncode==0,result.stderr
