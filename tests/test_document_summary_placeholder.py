@@ -30,7 +30,7 @@ function element() {
         addEventListener() {}, querySelectorAll() {return [];},
         querySelector() {return {addEventListener() {}};}};
 }
-const document = {createElement: element, getElementById() {return null;}, body: element()};
+const document = {createElement: element, getElementById() {return null;}, addEventListener() {}, body: element()};
 if (scenario === 'settings') {
     const code = extract('    function ensureModal() {', '\n    function renderRows(');
     const host = eval('(' + code.trim() + ')')();

@@ -2188,7 +2188,7 @@ function showImportModalForModule(module) {
     var html = '' +
         '<div class="modal fade" id="cbGlobalImportModal" tabindex="-1">' +
         '<div class="modal-dialog"><div class="modal-content">' +
-        '<div class="modal-header"><h5 class="modal-title"><i class="bi bi-upload"></i> 导入</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>' +
+        '<div class="modal-header"><h5 class="modal-title"><i class="bi bi-upload"></i> 导入</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>' +
         '<div class="modal-body"><input type="file" class="form-control" id="cbGlobalImportFile" accept=".xlsx,.xls"><div class="form-text mt-2">建议先下载导入模板，按模板格式填写后导入。</div></div>' +
         '<div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button type="button" class="btn btn-primary" id="cbGlobalImportSubmit">导入</button></div>' +
         '</div></div></div>';
@@ -2536,7 +2536,7 @@ function showDocumentSearchModal(module) {
         '<div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">' +
         '<div class="modal-header">' +
             '<h5 class="modal-title"><i class="bi bi-search-heart"></i> 查找单据</h5>' +
-            '<button type="button" class="btn-close" data-bs-dismiss="modal"></button>' +
+            '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>' +
         '</div>' +
         '<div class="modal-body">' +
         '<div class="cb-doc-search-input-wrap">' +
@@ -3598,6 +3598,20 @@ function getRecentVisits() {
 (function() {
     'use strict';
     var activeController = null;
+    var fieldSettingsReturnFocus = null;
+
+    function closeFieldSettings(host) {
+        host.hidden = true;
+        activeController = null;
+        if (fieldSettingsReturnFocus && fieldSettingsReturnFocus.isConnected) fieldSettingsReturnFocus.focus();
+        fieldSettingsReturnFocus = null;
+    }
+
+    function fieldSettingsControls(host) {
+        return Array.from(host.querySelectorAll('button,input,select,textarea,a[href],[tabindex]')).filter(function(control) {
+            return !control.disabled && control.tabIndex >= 0 && control.getClientRects().length > 0;
+        });
+    }
 
     function storageKey(table) {
         return 'wms:field-settings:v3:' + location.pathname + ':' + (table.id || 'document-grid');
@@ -3703,6 +3717,13 @@ function getRecentVisits() {
         applyState(controller);
     }
 
+    function refreshSavedFieldSettings(controller) {
+        // The modal edits a separate working copy. Observe the saved configuration,
+        // rather than restoring the stale state captured when the table was initialized.
+        controller.state = readState(controller.table, controller.columns);
+        applyState(controller);
+    }
+
     function findGrid(button) {
         var scope = button.closest('form,.card,.content-card,.main-content') || document;
         var tables = Array.from(scope.querySelectorAll('table')).filter(prepareTable);
@@ -3719,19 +3740,39 @@ function getRecentVisits() {
         host.innerHTML = '<section class="wms-field-settings" role="dialog" aria-modal="true" aria-labelledby="wmsFieldSettingsTitle">' +
             '<header class="wms-field-settings__title"><span id="wmsFieldSettingsTitle">栏目设置</span><button type="button" class="wms-field-settings__icon-btn" data-fs-close aria-label="关闭">&times;</button></header>' +
             '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab" data-fs-tab="header">表头</button><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button><button type="button" class="wms-field-settings__tab" data-fs-tab="footer">表尾</button></nav>' +
-            '<div class="wms-field-settings__tools"><input class="wms-field-settings__search" data-fs-search placeholder="请输入字段名称"><button class="wms-field-settings__btn" type="button" data-fs-locate>定位</button></div>' +
+            '<div class="wms-field-settings__tools"><input class="wms-field-settings__search" data-fs-search aria-label="搜索字段名称" placeholder="请输入字段名称"><button class="wms-field-settings__btn" type="button" data-fs-locate>定位</button></div>' +
             '<div class="wms-field-settings__content">' +
             '<div class="wms-field-settings__panel" data-fs-panel="header" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表头字段设置功能开发中...</div></div>' +
             '<div class="wms-field-settings__panel" data-fs-panel="detail"><div class="wms-field-settings__table-wrap"><table class="wms-field-settings__table"><thead><tr><th style="width:52px">序号</th><th>字段名称</th><th>显示名称</th><th style="width:66px">显示</th></tr></thead><tbody data-fs-body></tbody></table><div class="wms-field-settings__empty" data-fs-empty hidden>当前区域暂无可设置字段</div></div>' +
-            '<div class="wms-field-settings__move"><button type="button" data-fs-move="top" title="置顶">⇈</button><button type="button" data-fs-move="up" title="上移">↑</button><button type="button" data-fs-move="down" title="下移">↓</button><button type="button" data-fs-move="bottom" title="置底">⇊</button></div></div>' +
+            '<div class="wms-field-settings__move"><button type="button" data-fs-move="top" title="置顶" aria-label="字段置顶">⇈</button><button type="button" data-fs-move="up" title="上移" aria-label="字段上移">↑</button><button type="button" data-fs-move="down" title="下移" aria-label="字段下移">↓</button><button type="button" data-fs-move="bottom" title="置底" aria-label="字段置底">⇊</button></div></div>' +
             '<div class="wms-field-settings__panel" data-fs-panel="footer" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表尾字段设置功能开发中...</div></div>' +
             '</div>' +
             '<div class="wms-field-settings__hint">调整内容将保存在当前浏览器，并应用于当前单据页面。</div>' +
             '<footer class="wms-field-settings__footer"><button type="button" class="wms-field-settings__btn" data-fs-reset>恢复默认</button><div class="wms-field-settings__footer-right"><button type="button" class="wms-field-settings__btn primary" data-fs-ok>确定</button><button type="button" class="wms-field-settings__btn" data-fs-close>取消</button></div></footer></section>';
         document.body.appendChild(host);
-        host.querySelectorAll('[data-fs-close]').forEach(function(btn) { btn.addEventListener('click', function() { host.hidden = true; }); });
-        host.addEventListener('click', function(e) { if (e.target === host) host.hidden = true; });
-        host.querySelector('[data-fs-ok]').addEventListener('click', function() { if (activeController) save(activeController); host.hidden = true; });
+        host.querySelectorAll('[data-fs-close]').forEach(function(btn) { btn.addEventListener('click', function() { closeFieldSettings(host); }); });
+        host.addEventListener('click', function(e) { if (e.target === host) closeFieldSettings(host); });
+        host.querySelector('[data-fs-ok]').addEventListener('click', function() { if (activeController) save(activeController); closeFieldSettings(host); });
+        document.addEventListener('keydown', function(event) {
+            if (host.hidden || (typeof activeConfirm !== 'undefined' && activeConfirm)) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                closeFieldSettings(host);
+            } else if (event.key === 'Tab') {
+                var controls = fieldSettingsControls(host);
+                var index = controls.indexOf(document.activeElement);
+                if (controls.length && (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0))) {
+                    event.preventDefault();
+                    controls[event.shiftKey ? controls.length - 1 : 0].focus();
+                }
+            }
+        }, true);
+        document.addEventListener('focusin', function(event) {
+            if (!host.hidden && !host.contains(event.target) && !(typeof activeConfirm !== 'undefined' && activeConfirm)) {
+                host.querySelector('[data-fs-search]').focus();
+            }
+        });
         host.querySelector('[data-fs-reset]').addEventListener('click', function() {
             if (!activeController) return;
             activeController.state = { order: activeController.columns.map(function(c) { return c.key; }), hidden: [], labels: {} };
@@ -3770,12 +3811,17 @@ function getRecentVisits() {
             row.dataset.key = key;
             row.hidden = !!keyword && (column.defaultLabel + ' ' + label).toLowerCase().indexOf(keyword) === -1;
             row.innerHTML = '<td>' + (index + 1) + '</td><td>' + escapeHtml(column.defaultLabel) + '</td><td><input type="text" maxlength="30"></td><td><input type="checkbox"' + (column.locked ? ' disabled title="系统必显字段"' : '') + '></td>';
+            Array.from(row.cells).forEach(function(cell, cellIndex) { cell.dataset.fsLabel = ['序号', '字段名称', '显示名称', '显示'][cellIndex]; });
+            row.querySelector('input[type=text]').setAttribute('aria-label', (column.defaultLabel || '选择列') + '显示名称');
             row.querySelector('input[type=text]').value = label;
             row.querySelector('input[type=text]').addEventListener('input', function() { controller.state.labels[key] = this.value.trim() || column.defaultLabel; });
             var checkbox = row.querySelector('input[type=checkbox]');
+            checkbox.setAttribute('aria-label', '显示' + (column.defaultLabel || '选择列'));
             checkbox.checked = controller.state.hidden.indexOf(key) === -1;
             checkbox.addEventListener('change', function() { controller.state.hidden = this.checked ? controller.state.hidden.filter(function(item) { return item !== key; }) : controller.state.hidden.concat(key).filter(function(item, i, arr) { return arr.indexOf(item) === i; }); });
-            row.addEventListener('click', function(e) { if (e.target.tagName !== 'INPUT') { tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('selected'); }); row.classList.add('selected'); } });
+            function selectRow() { tbody.querySelectorAll('tr').forEach(function(r) { r.classList.remove('selected'); }); row.classList.add('selected'); }
+            row.addEventListener('click', selectRow);
+            row.addEventListener('focusin', selectRow);
             tbody.appendChild(row);
         });
     }
@@ -3800,10 +3846,15 @@ function getRecentVisits() {
         var columns = columnsOf(table);
         activeController = { table: table, columns: columns, state: readState(table, columns) };
         var modal = ensureModal();
+        // Keep focus inside an enclosing Bootstrap modal's own focus boundary.
+        var dialogParent = button.closest('.modal.show') || document.body;
+        if (modal.parentElement !== dialogParent) dialogParent.appendChild(modal);
         modal.querySelector('[data-fs-search]').value = '';
         modal.querySelector('[data-fs-tab="detail"]').click();
         renderRows(modal, activeController);
+        if (modal.hidden) fieldSettingsReturnFocus = button;
         modal.hidden = false;
+        modal.querySelector('[data-fs-search]').focus();
     }
 
     function initializeTables() {
@@ -3813,7 +3864,7 @@ function getRecentVisits() {
             var columns = columnsOf(table);
             var controller = { table: table, columns: columns, state: readState(table, columns) };
             applyState(controller);
-            new MutationObserver(function() { applyState(controller); }).observe(table.tBodies[0] || table, { childList: true, subtree: true });
+            new MutationObserver(function() { refreshSavedFieldSettings(controller); }).observe(table.tBodies[0] || table, { childList: true, subtree: true });
         });
     }
 
