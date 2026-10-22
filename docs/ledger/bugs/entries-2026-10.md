@@ -1354,11 +1354,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-012: 入出库详情遗留请求、批删空响应计数及出库粘贴缺路由
 
-- 状态：本地已修复，待推送CI全量及生产生效确认。
+- 状态：已修复并发布。
 - 根因/危害：入库12处、出库11处非GET仍走csrfFetch，异常反馈各自处理；反提交/粘贴/添加等链缺catch。两页批删在completed++后对null响应取status，再进catch二次计数，导致提前或遗漏最终刷新。出库可见粘贴按钮调用/out_order/<id>/batch_add_items，但路由从未注册，原功能必404；旧审计“0死链”不能替代当前路由核验。
 - 修复范围：23调用统一WMS.api.postRaw，保留完整status、JSON/FormData字段、人工确认/取消、表头迭代器转换、两套明细入口、ExcelTable错误恢复及父标签/跨域导航；批删空响应只记一次完成，保留部分成功后的原刷新策略。补出库粘贴草稿端点，整批校验同事务保存，不在前端逐条POST；采购退货/销售来源模式继续要求整单编辑维护来源，不增加库存完成或审批权限。只支持普通领料/其他出库草稿及兼容旧类型；来源头/行均校验。Pydantic校验JSON文本1—500非空行/100000字符、逗号或tab两三列、有限正数量和非负单价；逐行及含旧明细合计精度校验完成才构造ORM行，同事务写入并重算合计，保留原状态和库存流水。销售/采购退货及无权限角色按钮disabled并指引来源维护；格式与限制见docs/OUTBOUND_BATCH_PASTE.md，README已补入口。
 - 同类点已排查：关联BUG-2026-10-22-005/011、[10月5日表头FormData回归锁](../../../tests/test_bug_2026_10_05_001_out_order_edit_header_formdata.py)、BUG-2026-09-22-007采购退货来源闸；逐项映射两页23调用及后端协议，GET搜索/AI分析和已统一的完成/force链不改。活跃模板同根双计数仅两详情页，均已修；售后列表finally单点计数不属于此根因，归档模板不改。所有测试使用隔离数据库，生产无测试业务操作。
 - 回归：入库基线66 passed，新127项实际回调结合api.js/ExcelTable.saveCell，旧模板回退115 failed/12取消空值passed，finally恢复；专项及相邻初次218 passed/5夹具编码error，后者仅7项模块以UTF8环境重跑全过，合计覆盖223项，未改断言。出库基线61 passed，新增最终121项（105传输/计数、16生产Jinja实际渲染角色×类型门控）；旧103例回退92 failed/11取消空值passed，guard单独回退2 failed，按钮门控单独回退12 failed/4 allowed passed，finally恢复后模块相邻196 passed。后台基线15 passed，新64项真实隔离路由回归全过，旧源码回退64项全部失败（404），finally恢复后原模块和仓库/库存服务等相邻103 passed；覆盖整批拒绝/DB异常回滚、源头及明细保护、三仓/历史空仓、库位/角色/CSRF、数量价与含旧行合计精度、pending及三账不变。初轮新增用例的客户FK、登录g缓存和CSRF签名夹具问题已修正，未放宽断言。台账/库存定位/README契约34 passed；新台账旧二级标题ID引用改用回归锁文件链接定位以保持既有月度统计断言，未改统计基线。规则/历史BUG与隔离冒烟结果见下。全站回归交由本次推送CI执行，避免同一批本地/CI重复全站运行；本地受影响模块全量和相邻回归仍执行。
-- 生效确认：待确认；生产需重启 WMS 服务生效。未修改生产单据、库存、仓库配置、账号或密码。
+- 发布闭环：代码6cf984338c3416bc2c42931a81e0077d3bf05508已推送main并核对HEAD/origin相同；WMS CI39730764625（含全站单测/回归/冒烟）、AI39730764705、性能39730764771均completed/success。Android最近main39682360398 success（本批无Android修改）。匿名pre-push查询403后，连接器逐项确认最新三工作流全绿，才仅对该次push临时使用已有跳过查询开关；证据detail-012-ci-gate-evidence.log。
+- 生效确认：2026-10-22 13:58代理核验，生产需重启 WMS 服务生效；已沿WMS-Warehouse入口单次重启，停止前核对原PID12484/解释器/命令/启动ticks，现PID6040/Session0、8080单实例，LastTaskResult=0；13:58:24日志版本6cf9843、production/CSRF on，本地/公网登录GET200且有CSRF字段。新批量地址只读GET405验证已注册（自定义错误页不保留Allow头，未将其误作API要求），未在生产调用业务POST。WMS_NO_DB_TOUCH=1保留，db-check migrate=ok仅结构核验，不声称执行迁移；收尾仅台账，不再重启。未修改生产单据、库存、仓库配置、账号或密码。
 
-- 组合验收：verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119；AI台账一致性通过（41代码标记/118完成记录），未改AI能力/工具/模型/权限/开关/迁移。全量规则0违规；CI全站回归待推送后记录，提交钩子结果随提交核实。日志detail-012-bug-check.log、detail-012-smoke.log、in_detail_transport_012/、out-detail-transport-20261022/、out-batch-*.log。
+- 组合验收：verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119；AI台账一致性通过（41代码标记/118完成记录），未改AI能力/工具/模型/权限/开关/迁移。全量规则0违规；提交钩子0违规，CI全站回归已成功。日志detail-012-bug-check.log、detail-012-smoke.log、in_detail_transport_012/、out-detail-transport-20261022/、out-batch-*.log。
