@@ -1445,11 +1445,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-22-020: 公共单据动作状态与售后保存库位载荷缺口
 
-- 状态：已修复，待CI及生产生效验收。
+- 状态：已修复并发布；遗留子项U1未修。
 - 根因/危害：公共单据模板3旧POST只解析JSON不验证HTTP，“仍要完成”独立runComplete无catch/互斥；保存已有pending锁但成功导航前可提前释放，反提交也可重复派发。调拨/盘点/领料写按钮只按单据状态，未对齐后台角色，BOM已有门控需保持。售后保存漏JSON.location，启用库位时用户已填写仍被后端拒绝，且无提交忙锁/HTTP闸及null防护。共两活跃模板4旧POST；不将已有CSRF或部分锁误报为全无。
 - 修复：公共模板3POST统一WMS.api.postRaw并保留success/confirm信封；保存/完成/force/反提交共享请求锁，成功导航期持续锁定，独立runComplete内部catch覆盖人工force失败，失败恢复且不自动重发。保留风险二次人工确认、force布尔、保存回填order_id、领料完成后继续新增及携带字段。四类权限按现有后台收口：BOM/领料admin+production、调拨/盘点admin+warehouse；无权限只读并禁全局写工具栏，授权已完成单反提交仍保留。售后1POST统一postRaw，补可选DOM.location原值（关闭时空串），保留新增/编辑及来源/头行字段；同步锁至400ms导航，失败恢复/null安全；admin/warehouse保留原全局栏与保存，其他角色禁编辑/隐藏保存及全局写栏。后台库存/认证算法不改。
 - 同类点已排查：关联BUG-2026-10-22-011至019及[历史库位必填消费点遗漏](history-2026-08.md)；按真实DOM/路由核对，不把采购选单无调用旧函数当活跃故障，in_order_add及其采购测试本批不动。入/出库新增已有location载荷，领料列表旧弹窗及委外收料用完整FormData；盘点传行级area，调拨from_location/to_location实际为仓库名称，不能误补库位。保存回填order_id后重试为更新，不误报必然新建。
 - 遗留子项U1（未修）：公共领料表单缺库位DOM、header及渲染上下文支持，后台开启管理时会要求location，属于独立完整入口能力缺口，不能把本次售后漏字段修复声称已覆盖。2026-10-22以SQLite URI mode=ro及query_only只查生产location_management_enabled，现场值为0；当前未启用，不擅改app.py/后台或自动回填。开启前须单独补齐领料整链及开关/多仓回归。采购无调用旧函数及旧测试契约亦留后续独立清理。
 - 回归：公共表单基线112 passed，新增120 passed（64实际Jinja角色/状态、56真实DOM+生产API），旧模板回退91 failed/29原对照passed；仅撤内部force catch保持迁移/互斥时，HTTP非JSON/200HTML/null/断网4例全失败，finally字节一致恢复。最终模块及相邻293 passed（21既有SQLAlchemy warning，44.82秒）；保留全部原96导航矩阵和字段/零价断言，旧2fixture仅接生产API/helper、HTTP响应元数据与合法production角色上下文，未删断言。售后基线34 passed，新57通过（16Jinja、40实际新增编辑/库位/请求、1真实全局栏）；与原17校验74 passed，旧模板回退53 failed/4原校验拦截passed，finally恢复后8模块及相邻115 passed（23既有warning，30.33秒）。旧静态校验仅请求锚点fetch等价改postRaw，收集/展示/return顺序断言保留。新增合计177，不重复计算相邻与原对照；日志shared-document-20261022/、after_sale_entry_transport_020/。不用stash、不放宽原业务断言，不在生产保存、完成或反提交单据。
 - 组合验收：台账/库存定位契约34 passed，规则0违规、verify_wms_bugs通过，显式TEMP隔离库9082冒烟119/119，PID3884核对身份后关闭；日志frontend-020-*.log。两页交叉只读复核无阻塞，无AI能力/模型/工具/权限/开关/迁移变更，全站回归交本次代码提交CI，不重复本地全站。
-- 生效确认：待确认；生产需重启 WMS 服务生效。当前生产业务版本a9cedd6，不改真实单据、仓库、库存、账号或密码。
+- 发布闭环：代码d4a23ae098c2f87a0d6915640d177e4877f7a6a5已正常推送main，读取实际push输出且HEAD/origin相同；WMS CI39777016981（全部原全量任务及冒烟）、AI39777017027均completed/success。Android最近main39682360398 success，列表首100项没有Android后继续翻第二页找到最新记录，Git祖先及Android工程/构建工作流未变证明通过。发布时匿名查询403，连接器逐项核实同一目标最新记录，证据frontend-020-ci-alternate-evidence.json；不把限流当红灯或自动放行。收尾只改台账走轻量CI。
+- 生效确认：2026-10-22 20:20代理核验，生产需重启 WMS 服务生效；核对原PID17092的解释器/命令/Session0/创建时间、8080单实例、目标main及无混合修改后，沿原WMS-Warehouse任务单次重启。现PID11752/Session0，8080唯一listener、LastTaskResult=0；20:20:56启动日志版本d4a23ae、production/CSRF on、db-check migrate=ok（仅结构核验，不声称执行迁移）。本机/公网登录GET200含CSRF，WMS_NO_DB_TOUCH=1保留，收尾不再重启。业务回归全部隔离，不在生产保存/完成/强制完成/反提交单据，不改真实库存、仓库、库位开关、账号或密码；生产仅曾只读核对库位开关。
