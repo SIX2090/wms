@@ -31,9 +31,12 @@ def main() -> int:
             wms.db.create_all()
             admin = wms.User(username='admin', password_hash=generate_password_hash('TestAdmin@2026'), role='admin', status='normal')
             unit = wms.Unit(code='PCS', name='个')
-            wms.db.session.add_all([admin, unit])
+            warehouse = wms.Warehouse(code='PHOTO-DEFAULT', name='照片测试默认仓', status='active', is_default=True)
+            other_warehouse = wms.Warehouse(code='PHOTO-OTHER', name='照片测试其他仓', status='active', is_default=False)
+            wms.db.session.add_all([admin, unit, warehouse, other_warehouse])
             wms.db.session.commit()
             unit_id = unit.id
+            warehouse_name = warehouse.name
 
         token = 'TEST-PHOTO-CONFIRM'
         payload = {
@@ -72,8 +75,10 @@ def main() -> int:
                     failures.append('confirmed material was not created safely with zero stock')
                 if not order or order.status != 'pending' or len(order.items) != 1:
                     failures.append('outbound draft was not created')
-                elif order.items[0].material_id != material.id or order.items[0].quantity != 5:
+                elif not material or order.items[0].material_id != material.id or order.items[0].quantity != 5:
                     failures.append('outbound draft line does not reference the new material')
+                if order and order.warehouse != warehouse_name:
+                    failures.append('outbound draft did not use the configured default warehouse')
 
             inbound_token = 'TEST-PHOTO-INBOUND'
             inbound_payload = {
@@ -97,6 +102,8 @@ def main() -> int:
                 copper_id = copper.id if copper else None
                 if not inbound_order or inbound_order.status != 'pending' or inbound_order.business_type != '采购入库':
                     failures.append('photo inbound was not saved as a manual purchase receipt draft')
+                elif inbound_order.warehouse != warehouse_name or len(inbound_order.items) != 1 or inbound_order.items[0].quantity != 2:
+                    failures.append('photo inbound warehouse or full draft quantity was not preserved')
                 if not copper or copper.stock != 0:
                     failures.append('new inbound material changed stock before manual completion')
 
@@ -120,7 +127,9 @@ def main() -> int:
                 copper = wms.db.session.get(wms.Material, copper_id)
                 if not other_order or other_order.status != 'pending' or other_order.business_type != '其他入库':
                     failures.append('photo inbound was not saved as an other-inbound draft')
-                if copper.stock != 0:
+                elif other_order.warehouse != warehouse_name or len(other_order.items) != 1 or other_order.items[0].quantity != 1:
+                    failures.append('other-inbound warehouse or full draft quantity was not preserved')
+                if copper is None or copper.stock != 0:
                     failures.append('other-inbound draft changed stock before manual completion')
 
         app_source = (ROOT / 'app' / 'app.py').read_text(encoding='utf-8')

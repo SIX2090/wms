@@ -202,7 +202,12 @@ def test_replenishment():
         assert 'A001' in explanation
         assert '轴承' in explanation
         assert '当前库存：10' in explanation
-        assert '安全库存：100' in explanation
+        # min_stock is the minimum-stock threshold, distinct from safety_stock.
+        assert '最低库存：100' in explanation
+        assert '安全库存：100' not in explanation
+        assert '未到货采购：20' in explanation
+        assert '待审批请购：10' in explanation
+        assert '缺口：60' in explanation
         assert '建议补货：60' in explanation
 
         print("  PASS: 补货解释生成正确")

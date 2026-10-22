@@ -103,10 +103,13 @@ def test_confirm_flow() -> None:
             )
             unit = wms.Unit(code='M', name='米')
             cat = wms.MaterialCategory(code='100', name='电线')
-            wms.db.session.add_all([admin, unit, cat])
+            warehouse = wms.Warehouse(code='CAT-DEFAULT', name='分类测试默认仓', status='active', is_default=True)
+            other_warehouse = wms.Warehouse(code='CAT-OTHER', name='分类测试副仓', status='active', is_default=False)
+            wms.db.session.add_all([admin, unit, cat, warehouse, other_warehouse])
             wms.db.session.commit()
             unit_id = unit.id
             cat_id = cat.id
+            warehouse_name = warehouse.name
 
             payload = {
                 'document_type': 'in_order',
@@ -173,6 +176,9 @@ def test_confirm_flow() -> None:
                     failures.append(f'material not saved with category/zero stock: {mat}')
                 if mat and mat.spec != '2.5平方':
                     failures.append(f'spec not saved: {mat.spec}')
+                order = wms.InOrder.query.order_by(wms.InOrder.id.desc()).first()
+                if not order or order.status != 'pending' or order.warehouse != warehouse_name or len(order.items) != 1 or order.items[0].quantity != 10:
+                    failures.append('confirmation did not preserve the default warehouse and complete draft quantity')
     finally:
         try:
             os.remove(db_path)
