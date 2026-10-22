@@ -158,9 +158,9 @@ function showUnitDropdown(list) {
         return;
     }
     unitDropdown.innerHTML = list.map(u =>
-        '<div class="dropdown-item" data-id="' + u.id + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
-        '<span style="font-weight:bold;">' + u.name + '</span>' +
-        (u.code ? ' <span style="color:#999;">(' + u.code + ')</span>' : '') +
+        '<div class="dropdown-item" data-id="' + escapeHtml(u.id) + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+        '<span style="font-weight:bold;">' + escapeHtml(u.name) + '</span>' +
+        (u.code ? ' <span style="color:#999;">(' + escapeHtml(u.code) + ')</span>' : '') +
         '</div>'
     ).join('');
     unitDropdown.style.display = 'block';
@@ -238,10 +238,10 @@ function showSupplierDropdown(list) {
         return;
     }
     supplierDropdown.innerHTML = list.map(s =>
-        '<div class="dropdown-item" data-id="' + s.id + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
-        '<span style="font-weight:bold;">' + s.name + '</span>' +
-        (s.contact ? ' <span style="color:#999;">| ' + s.contact + '</span>' : '') +
-        (s.phone ? ' <span style="color:#999;">| ' + s.phone + '</span>' : '') +
+        '<div class="dropdown-item" data-id="' + escapeHtml(s.id) + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+        '<span style="font-weight:bold;">' + escapeHtml(s.name) + '</span>' +
+        (s.contact ? ' <span style="color:#999;">| ' + escapeHtml(s.contact) + '</span>' : '') +
+        (s.phone ? ' <span style="color:#999;">| ' + escapeHtml(s.phone) + '</span>' : '') +
         '</div>'
     ).join('');
     supplierDropdown.style.display = 'block';
