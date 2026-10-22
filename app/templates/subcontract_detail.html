@@ -794,12 +794,10 @@ function saveInlineProductRow(row) {
         row.querySelector('.inline-product-qty').focus();
         return;
     }
-    fetch('/subcontract/{{ order.id }}/item/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + encodeURIComponent(qty)
-    })
-    .then(r => r.json())
+    const formData = new FormData();
+    formData.append('material_code', code);
+    formData.append('quantity', qty);
+    WMS.api.postRaw('/subcontract/{{ order.id }}/item/add', formData)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '添加成功', 'success');
@@ -807,7 +805,7 @@ function saveInlineProductRow(row) {
         } else {
             showToast(res.msg || '添加失败', 'danger');
         }
-    });
+    }).catch(function(error) { showToast('添加失败：' + error.message, 'danger'); });
 }
 
 function readProductRowData(row) {
@@ -878,12 +876,10 @@ function addProductItem() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    fetch('/subcontract/{{ order.id }}/item/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + encodeURIComponent(qty)
-    })
-    .then(r => r.json())
+    const formData = new FormData();
+    formData.append('material_code', code);
+    formData.append('quantity', qty);
+    WMS.api.postRaw('/subcontract/{{ order.id }}/item/add', formData)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '添加成功', 'success');
@@ -891,7 +887,7 @@ function addProductItem() {
         } else {
             showToast(res.msg || '添加失败', 'danger');
         }
-    });
+    }).catch(function(error) { showToast('添加失败：' + error.message, 'danger'); });
 }
 
 document.querySelectorAll('.delProductBtn').forEach(function(btn) {
@@ -899,8 +895,7 @@ document.querySelectorAll('.delProductBtn').forEach(function(btn) {
         const itemId = this.dataset.id;
         showConfirm('确定要删除该产品明细吗？', {title: '删除委外产品'}).then(function(confirmed) {
             if (!confirmed) return;
-            csrfFetch('/subcontract/{{ order.id }}/item/' + itemId + '/delete', {method: 'POST'})
-            .then(r => r.json())
+            WMS.api.postRaw('/subcontract/{{ order.id }}/item/' + itemId + '/delete')
             .then(res => {
                 if (res.status === 'success') {
                     showToast('删除成功', 'success');
@@ -923,7 +918,7 @@ function confirmIssue() {
     const code = document.getElementById('issueCode').value.trim();
     const qty = parseFloat(document.getElementById('issueQty').value);
     const locationInput = document.getElementById('issueLocation');
-    const location = locationInput ? locationInput.value.trim() : '';
+    const locationValue = locationInput ? locationInput.value.trim() : '';
 
     if (!code) {
         showToast('请输入物料编码', 'warning');
@@ -933,17 +928,16 @@ function confirmIssue() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    if (locationInput && !location) {
+    if (locationInput && !locationValue) {
         showToast('请输入库位', 'warning');
         return;
     }
 
-    fetch('/subcontract/{{ order.id }}/issue', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&location=' + encodeURIComponent(location)
-    })
-    .then(r => r.json())
+    const formData = new FormData();
+    formData.append('material_code', code);
+    formData.append('quantity', qty);
+    formData.append('location', locationValue);
+    WMS.api.postRaw('/subcontract/{{ order.id }}/issue', formData)
     .then(res => {
         if (res.status === 'success') {
             showToast('发料成功', 'success');
@@ -951,7 +945,7 @@ function confirmIssue() {
         } else {
             showToast(res.msg || '发料失败', 'danger');
         }
-    });
+    }).catch(function(error) { showToast('发料失败：' + error.message, 'danger'); });
 }
 
 // 收货
@@ -965,7 +959,7 @@ function confirmReceive() {
     const qty = parseFloat(document.getElementById('receiveQty').value);
     const price = parseFloat(document.getElementById('receivePrice').value) || 0;
     const locationInput = document.getElementById('receiveLocation');
-    const location = locationInput ? locationInput.value.trim() : '';
+    const locationValue = locationInput ? locationInput.value.trim() : '';
 
     if (!code) {
         showToast('请输入产品编码', 'warning');
@@ -975,17 +969,17 @@ function confirmReceive() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    if (locationInput && !location) {
+    if (locationInput && !locationValue) {
         showToast('请输入库位', 'warning');
         return;
     }
 
-    fetch('/subcontract/{{ order.id }}/receive', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: 'material_code=' + encodeURIComponent(code) + '&quantity=' + qty + '&price=' + price + '&location=' + encodeURIComponent(location)
-    })
-    .then(r => r.json())
+    const formData = new FormData();
+    formData.append('material_code', code);
+    formData.append('quantity', qty);
+    formData.append('price', price);
+    formData.append('location', locationValue);
+    WMS.api.postRaw('/subcontract/{{ order.id }}/receive', formData)
     .then(res => {
         if (res.status === 'success') {
             showToast('收货成功', 'success');
@@ -993,15 +987,14 @@ function confirmReceive() {
         } else {
             showToast(res.msg || '收货失败', 'danger');
         }
-    });
+    }).catch(function(error) { showToast('收货失败：' + error.message, 'danger'); });
 }
 
 // 删除单据
 function deleteOrder(id) {
     showConfirm('确定要删除该委外单吗？此操作不可恢复。', {title: '删除委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/subcontract/' + id + '/delete', {method: 'POST'})
-        .then(r => r.json())
+        WMS.api.postRaw('/subcontract/' + id + '/delete')
         .then(res => {
             if (res.status === 'success') {
                 showToast('删除成功', 'success');
@@ -1017,8 +1010,7 @@ function deleteOrder(id) {
 function copyOrder(id) {
     showConfirm('确定要复制该委外单吗？系统会生成一张新的委外单草稿。', {title: '复制委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/subcontract/' + id + '/copy', {method: 'POST', headers: {'Content-Type': 'application/json'}})
-        .then(r => r.json())
+        WMS.api.postRaw('/subcontract/' + id + '/copy')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '复制成功', 'success');
@@ -1038,8 +1030,7 @@ function copyOrder(id) {
 function submitOrder(id) {
     showConfirm('确认提交该委外单？提交后单据将进入加工中。', {title: '提交委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/subcontract/' + id + '/submit', {method: 'POST', headers: {'Content-Type': 'application/json'}})
-        .then(r => r.json())
+        WMS.api.postRaw('/subcontract/' + id + '/submit')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '提交成功', 'success');
@@ -1055,8 +1046,7 @@ function submitOrder(id) {
 function revertToPending(id) {
     showConfirm('确认反提交该委外单？反提交后单据将回到待处理状态。', {title: '反提交委外单'}).then(function(confirmed) {
         if (!confirmed) return;
-        csrfFetch('/subcontract/' + id + '/revert_to_pending', {method: 'POST', headers: {'Content-Type': 'application/json'}})
-        .then(r => r.json())
+        WMS.api.postRaw('/subcontract/' + id + '/revert_to_pending')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功', 'success');
@@ -1078,12 +1068,7 @@ function saveHeaderEdit(id) {
         phone: document.getElementById('editPhone').value,
         remark: document.getElementById('editRemark').value,
     };
-    fetch('/subcontract/' + id + '/edit', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/subcontract/' + id + '/edit', payload)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '保存成功', 'success');

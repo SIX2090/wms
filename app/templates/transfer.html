@@ -239,34 +239,28 @@ $(document).ready(function() {
     // 新建调拨单
     $('#addForm').submit(function(e) {
         e.preventDefault();
-        $.ajax({
-            url: '/transfer/add',
-            type: 'POST',
-            data: $(this).serialize(),
-            success: function(res) {
-                if (res.status === 'success') {
-                    location.reload();
-                } else {
-                    showToast(res.msg || '操作失败', 'danger');
-                }
-            },
-            error: function() {
-                showToast('请求失败', 'danger');
+        WMS.api.postRaw('/transfer/add', new FormData(this))
+        .then(function(res) {
+            if (res.status === 'success') {
+                location.reload();
+            } else {
+                showToast(res.msg || '操作失败', 'danger');
             }
-        });
+        })
+        .catch(function(err) { showToast('请求失败：' + err.message, 'danger'); });
     });
 
     // 删除
     $('.delBtn').click(function() {
         if (!confirm('确定要删除该调拨单吗？')) return;
         var id = $(this).data('id');
-        $.post('/transfer/' + id + '/delete', function(res) {
+        WMS.api.postRaw('/transfer/' + id + '/delete').then(function(res) {
             if (res.status === 'success') {
                 location.reload();
             } else {
                 showToast(res.msg || '操作失败', 'danger');
             }
-        });
+        }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 3600); });
     });
 
     // 修改
@@ -282,23 +276,17 @@ $(document).ready(function() {
     $('#editForm').submit(function(e) {
         e.preventDefault();
         var id = $('#editId').val();
-        $.ajax({
-            url: '/transfer/' + id + '/update',
-            type: 'POST',
-            data: $(this).serialize(),
-            success: function(res) {
-                if (res.status === 'success') {
-                    bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-                    showToast('调拨单已更新，正在刷新列表…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                } else {
-                    showToast(res.msg || '修改失败', 'danger', 3600);
-                }
-            },
-            error: function() {
-                showToast('请求失败', 'danger', 3600);
+        WMS.api.postRaw('/transfer/' + id + '/update', new FormData(this))
+        .then(function(res) {
+            if (res.status === 'success') {
+                bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+                showToast('调拨单已更新，正在刷新列表…', 'success');
+                setTimeout(function(){ location.reload(); }, 650);
+            } else {
+                showToast(res.msg || '修改失败', 'danger', 3600);
             }
-        });
+        })
+        .catch(function(err) { showToast('请求失败：' + err.message, 'danger', 3600); });
     });
 
     // 复制
@@ -306,8 +294,7 @@ $(document).ready(function() {
         var id = $(this).data('id');
         const confirmed = await showConfirm('确认复制该调拨单？', { title: '复制调拨单' });
         if (!confirmed) return;
-        fetch('/transfer/' + id + '/copy', { method: 'POST' })
-        .then(response => response.json())
+        WMS.api.postRaw('/transfer/' + id + '/copy')
         .then(res => {
             if (res.status === 'success') {
                 showToast('调拨单已复制，正在刷新列表…', 'success');
@@ -325,14 +312,14 @@ $(document).ready(function() {
     $('.revertBtn').click(function() {
         var id = $(this).data('id');
         if (!confirm('确认反提交该调拨单？反提交后库存将恢复到调拨前。')) return;
-        $.post('/transfer/' + id + '/revert', function(res) {
+        WMS.api.postRaw('/transfer/' + id + '/revert').then(function(res) {
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
             } else {
                 showToast(res.msg || '反提交失败', 'danger', 3600);
             }
-        });
+        }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 3600); });
     });
 
     $('#batchDeleteBtn').click(function() {
@@ -345,13 +332,13 @@ $(document).ready(function() {
             return;
         }
         if (!confirm('确定要删除选中的 ' + ids.length + ' 条记录吗？')) return;
-        $.post('/transfer/batch_delete', {ids: ids}, function(res) {
+        WMS.api.postRaw('/transfer/batch_delete', {ids: ids}).then(function(res) {
             if (res.status === 'success') {
                 location.reload();
             } else {
                 showToast(res.msg || '操作失败', 'danger');
             }
-        });
+        }).catch(function(err) { showToast('删除失败：' + err.message, 'danger', 3600); });
     });
 });
 
@@ -360,12 +347,7 @@ function submitDocumentImport(formId, fileId) {
     var fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     var formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(response) { return response.json(); })
+    WMS.api.postRaw(form.action, formData)
     .then(function(res) {
         if (res.status === 'success') {
             showToast(res.msg || '导入成功', 'success', 3600);

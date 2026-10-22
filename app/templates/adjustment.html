@@ -191,8 +191,7 @@ document.querySelectorAll('.completeBtn').forEach(function(btn) {
         const id = this.dataset.id;
         const confirmed = await showConfirm('确认完成该库存调整单？完成后会立即变更库存。', {title: '完成库存调整'});
         if (!confirmed) return;
-        fetch('/adjustment/' + id + '/complete', {method: 'POST'})
-        .then(r => r.json())
+        WMS.api.postRaw('/adjustment/' + id + '/complete')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '调整完成', 'success');
@@ -210,8 +209,7 @@ document.querySelectorAll('.delBtn').forEach(function(btn) {
         const id = this.dataset.id;
         const confirmed = await showConfirm('确认删除该库存调整单？', {title: '删除库存调整单'});
         if (!confirmed) return;
-        fetch('/adjustment/' + id + '/delete', {method: 'POST'})
-        .then(r => r.json())
+        WMS.api.postRaw('/adjustment/' + id + '/delete')
         .then(res => {
             if (res.status === 'success') {
                 showToast('删除成功', 'success');
@@ -229,8 +227,7 @@ document.querySelectorAll('.revertBtn').forEach(function(btn) {
         const id = this.dataset.id;
         const confirmed = await showConfirm('确认反提交该库存调整单？反提交后库存将恢复。', {title: '反提交库存调整'});
         if (!confirmed) return;
-        fetch('/adjustment/' + id + '/revert', {method: 'POST'})
-        .then(r => r.json())
+        WMS.api.postRaw('/adjustment/' + id + '/revert')
         .then(res => {
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功', 'success');
@@ -251,12 +248,7 @@ function batchAdjustmentDelete() {
     }
     showConfirm('确认删除选中的库存调整单？只能删除草稿单据。', {title: '批量删除库存调整单'}).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/adjustment/batch_delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(function(r) { return r.json(); })
+        WMS.api.postRaw('/adjustment/batch_delete', {ids: ids})
         .then(function(res) {
             if (res.status === 'success') {
                 showToast(res.msg || '删除成功', 'success');
@@ -274,12 +266,7 @@ function submitDocumentImport(formId, fileId) {
     const fileInput = document.getElementById(fileId);
     if (!fileInput.files.length) return;
     const formData = new FormData(form);
-    fetch(form.action, {
-        method: 'POST',
-        body: formData,
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(function(r) { return r.json(); })
+    WMS.api.postRaw(form.action, formData)
     .then(function(res) {
         if (res.status === 'success') {
             showToast(res.msg || '导入成功', 'success', 3600);

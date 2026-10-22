@@ -1007,12 +1007,7 @@ function submitForm() {
         return;
     }
 
-    fetch('/purchase_request/add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/purchase_request/add', payload)
     .then(data => {
         if (data.status === 'success') {
             showToast('采购申请保存成功', 'success');

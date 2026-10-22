@@ -247,11 +247,7 @@ function submitImportForm() {
     const file = document.getElementById('importFile').files[0];
     if (!file) return;
     const data = new FormData(form);
-    fetch('/purchase_order/import', {
-        method: 'POST',
-        body: data
-    })
-    .then(res => res.json())
+    WMS.api.postRaw('/purchase_order/import', data)
     .then(data => {
         if (data.status === 'success') {
             showToast(data.msg || '导入成功', 'success', 3600);
@@ -283,12 +279,7 @@ function selectedPurchaseOrderIds() {
 function deletePurchaseOrder(id) {
     showConfirm('确定删除该采购单吗？此操作不可恢复。', { title: '删除采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/purchase_order/' + id + '/delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
+        WMS.api.postRaw('/purchase_order/' + id + '/delete', {})
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '删除成功', 'success');
@@ -304,12 +295,7 @@ function deletePurchaseOrder(id) {
 function copyPurchaseOrder(id) {
     showConfirm('确定复制该采购单吗？系统会生成一张新的未入库采购单。', { title: '复制采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/purchase_order/' + id + '/copy', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({})
-        })
-        .then(res => res.json())
+        WMS.api.postRaw('/purchase_order/' + id + '/copy', {})
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '复制成功', 'success');
@@ -332,12 +318,7 @@ function batchDeletePurchaseOrders() {
     }
     showConfirm('确定删除选中的 ' + ids.length + ' 张采购单吗？只有未入库且无下游入库单的采购单可以删除。', { title: '批量删除采购单' }).then(function(confirmed) {
         if (!confirmed) return;
-        fetch('/purchase_order/batch_delete', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ids: ids})
-        })
-        .then(res => res.json())
+        WMS.api.postRaw('/purchase_order/batch_delete', {ids: ids})
         .then(data => {
             if (data.status === 'success') {
                 showToast(data.msg || '删除成功', 'success');
