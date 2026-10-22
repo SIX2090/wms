@@ -119,6 +119,7 @@
                 <label class="form-label small text-muted mb-1">批量范围</label>
                 <div class="form-control form-control-sm bg-light" id="selectedAlertCount">已选择 0 个物料</div>
             </div>
+            {% if current_user.role in ['admin', 'warehouse'] %}
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">最低库存</label>
                 <input type="number" class="form-control form-control-sm" id="batchMinStock" min="0" step="0.01" placeholder="不改可留空">
@@ -127,13 +128,16 @@
                 <label class="form-label small text-muted mb-1">安全库存</label>
                 <input type="number" class="form-control form-control-sm" id="batchSafetyStock" min="0" step="0.01" placeholder="不改可留空">
             </div>
+            {% endif %}
             <div class="col-md-5 d-flex gap-2 flex-wrap">
+                {% if current_user.role in ['admin', 'warehouse'] %}
                 <button type="button" class="btn btn-warning btn-sm" id="batchUpdateAlertBtn">
                     <i class="bi bi-sliders"></i> 批量设置预警值
                 </button>
                 <button type="button" class="btn btn-outline-danger btn-sm" id="disableAlertBtn">
                     <i class="bi bi-bell-slash"></i> 取消所选预警
                 </button>
+                {% endif %}
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="clearAlertSelectionBtn">取消选择</button>
             </div>
         </div>
@@ -235,6 +239,38 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Keep one human-confirmed update in flight, including the refresh delay.
+    var alertActionBusy = false;
+    async function updateAlertThresholds(button, payload, confirmation, title, fallback) {
+        if (alertActionBusy) return;
+        alertActionBusy = true;
+        var originalHtml = button.innerHTML;
+        var originalDisabled = button.disabled;
+        var succeeded = false;
+        button.disabled = true;
+        try {
+            var confirmed = await showConfirm(confirmation, { title: title });
+            if (!confirmed) return;
+            button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中';
+            var res = await WMS.api.postRaw('/alert/batch_update_thresholds', payload);
+            if (res && res.status === 'success') {
+                succeeded = true;
+                showToast(res.msg || fallback, 'success');
+                setTimeout(function() { location.reload(); }, 700);
+            } else {
+                showToast((res && res.msg) || '操作失败，请重试', 'danger', 4200);
+            }
+        } catch (err) {
+            showToast('操作失败：' + (err && err.message || '请稍后重试'), 'danger', 4200);
+        } finally {
+            if (!succeeded) {
+                alertActionBusy = false;
+                button.disabled = originalDisabled;
+                button.innerHTML = originalHtml;
+            }
+        }
+    }
+
     var batchBtn = document.getElementById('batchUpdateAlertBtn');
     if (batchBtn) {
         batchBtn.addEventListener('click', async function() {
@@ -257,36 +293,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 showToast('安全库存不能低于最低库存', 'warning');
                 return;
             }
-            var confirmed = await showConfirm('确定更新选中的 ' + ids.length + ' 个物料预警值吗？', { title: '批量设置预警值' });
-            if (!confirmed) return;
-
-            batchBtn.disabled = true;
-            batchBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>设置中';
-            csrfFetch('/alert/batch_update_thresholds', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    ids: ids,
-                    min_stock: minStock,
-                    safety_stock: safetyStock
-                })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(res) {
-                if (res.status === 'success') {
-                    showToast(res.msg || '设置成功', 'success');
-                    setTimeout(function() { location.reload(); }, 700);
-                } else {
-                    showToast(res.msg || '设置失败', 'danger', 4200);
-                }
-            })
-            .catch(function(err) {
-                showToast('设置失败：' + err.message, 'danger', 4200);
-            })
-            .finally(function() {
-                batchBtn.disabled = false;
-                batchBtn.innerHTML = '<i class="bi bi-sliders"></i> 批量设置预警值';
-            });
+            return updateAlertThresholds(batchBtn, {
+                ids: ids,
+                min_stock: minStock,
+                safety_stock: safetyStock
+            }, '确定更新选中的 ' + ids.length + ' 个物料预警值吗？', '批量设置预警值', '设置成功');
         });
     }
 
@@ -298,35 +309,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 showToast('请先勾选要取消预警的物料', 'warning');
                 return;
             }
-            var confirmed = await showConfirm('确定取消选中的 ' + ids.length + ' 个物料库存预警吗？', { title: '取消库存预警' });
-            if (!confirmed) return;
-
-            disableBtn.disabled = true;
-            disableBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中';
-            csrfFetch('/alert/batch_update_thresholds', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    ids: ids,
-                    action: 'disable'
-                })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(res) {
-                if (res.status === 'success') {
-                    showToast(res.msg || '已取消预警', 'success');
-                    setTimeout(function() { location.reload(); }, 700);
-                } else {
-                    showToast(res.msg || '取消失败', 'danger', 4200);
-                }
-            })
-            .catch(function(err) {
-                showToast('取消失败：' + err.message, 'danger', 4200);
-            })
-            .finally(function() {
-                disableBtn.disabled = false;
-                disableBtn.innerHTML = '<i class="bi bi-bell-slash"></i> 取消所选预警';
-            });
+            return updateAlertThresholds(disableBtn, {
+                ids: ids,
+                action: 'disable'
+            }, '确定取消选中的 ' + ids.length + ' 个物料库存预警吗？', '取消库存预警', '已取消预警');
         });
     }
 });

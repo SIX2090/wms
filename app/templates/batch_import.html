@@ -323,7 +323,8 @@ document.querySelectorAll('.import-form').forEach(function(form) {
         e.preventDefault();
         // P1-B：期初库存导入走两段式，必须先在预检结果上确认，不允许直接提交。
         // 未确认时点"确认导入"应被拦截（按钮是 d-none 的，此处为兜底防护）。
-        if (form.id === 'openingStockImportForm' && !openingStockPrechecked) {
+        if (form.dataset.importBusy === 'true') return;
+        if (form.id === 'openingStockImportForm' && !hasCurrentOpeningStockPrecheck()) {
             return;
         }
         var btn = form.querySelector('button[type="submit"]');
@@ -334,30 +335,9 @@ document.querySelectorAll('.import-form').forEach(function(form) {
         btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 导入中...';
         resultDiv.innerHTML = '';
         var formData = new FormData(form);
-        // BUG-2026-08-04-004: 之前直接 fetch().then(r => r.json())，
-        // 4xx/5xx 非 JSON 响应时 r.json() 抛错，丢失真实原因。
-        // 改为先检查 response.ok，并从 JSON 错误体提取 msg，否则用 HTTP 状态码提示。
-        fetch(url, {
-            method: 'POST',
-            body: formData,
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        }).then(function(r) {
-            if (!r.ok) {
-                return r.json().catch(function() {
-                    var hint = r.status === 0 ? '网络连接失败' : ('HTTP ' + r.status);
-                    if (r.status === 403 || r.status === 302) {
-                        hint = '会话已过期或权限不足，请刷新页面后重试';
-                    }
-                    throw { message: '导入失败：' + hint, status: r.status };
-                }).then(function(err) {
-                    var msg = (err && err.msg) ? err.msg : ('HTTP ' + r.status);
-                    throw { message: '导入失败：' + msg, status: r.status, data: err };
-                });
-            }
-            return r.json();
-        }).then(function(res) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
+        form.dataset.importBusy = 'true';
+        if (form.id === 'openingStockImportForm') setOpeningStockImportBusy(true);
+        WMS.api.postRaw(url, formData).then(function(res) {
             if (res && res.status === 'success') {
                 var html = '<div class="alert alert-success py-1 mb-1"><i class="bi bi-check-circle"></i> ' + escapeHtml(res.msg) + '</div>';
                 if (res.warnings) {
@@ -396,10 +376,13 @@ document.querySelectorAll('.import-form').forEach(function(form) {
                 resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + escapeHtml(errMsg) + '</div>';
             }
         }).catch(function(err) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
             var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
             resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1"><i class="bi bi-x-circle"></i> ' + escapeHtml(msg) + '</div>';
+        }).finally(function() {
+            form.dataset.importBusy = '';
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            if (form.id === 'openingStockImportForm') setOpeningStockImportBusy(false);
         });
     });
 });
@@ -408,11 +391,34 @@ document.querySelectorAll('.import-form').forEach(function(form) {
 // 第一段：预检（dry_run，不写任何库存），展示逐行"将导入/将跳过 + 原因"；
 // 第二段：用户看清后点「确认导入」才真正落库。
 var openingStockPrechecked = false;
+var openingStockPrecheckedFile = null;
+var openingStockPrecheckVersion = 0;
+
+function openingStockFile() {
+    var form = openingStockEl('openingStockImportForm');
+    var input = form && form.querySelector('input[type="file"]');
+    return input && input.files && input.files[0];
+}
+
+function hasCurrentOpeningStockPrecheck() {
+    return openingStockPrechecked && openingStockPrecheckedFile === openingStockFile();
+}
+
+function setOpeningStockImportBusy(busy) {
+    var form = openingStockEl('openingStockImportForm');
+    var input = form.querySelector('input[type="file"]');
+    if (input) input.disabled = busy;
+    openingStockEl('openingStockPrecheckBtn').disabled = busy;
+    var preview = openingStockEl('openingStockPreview');
+    preview.querySelectorAll('button').forEach(function(button) { button.disabled = busy; });
+}
 
 function openingStockEl(id) { return document.getElementById(id); }
 
 function resetOpeningStockImport() {
     openingStockPrechecked = false;
+    openingStockPrecheckedFile = null;
+    openingStockPrecheckVersion += 1;
     var preview = openingStockEl('openingStockPreview');
     if (preview) { preview.classList.add('d-none'); preview.innerHTML = ''; }
     var confirmBtn = openingStockEl('openingStockConfirmBtn');
@@ -420,11 +426,16 @@ function resetOpeningStockImport() {
     var preBtn = openingStockEl('openingStockPrecheckBtn');
     if (confirmBtn) confirmBtn.classList.add('d-none');
     if (cancelBtn) cancelBtn.classList.add('d-none');
-    if (preBtn) { preBtn.classList.remove('d-none'); preBtn.disabled = false; }
+    if (preBtn) {
+        preBtn.classList.remove('d-none');
+        preBtn.disabled = false;
+        preBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> 预检（不导入）';
+    }
 }
 
 function cancelOpeningStockPrecheck() {
     var form = openingStockEl('openingStockImportForm');
+    if (form && form.dataset.importBusy === 'true') return;
     var resultDiv = form ? form.parentElement.querySelector('.import-result') : null;
     if (resultDiv) resultDiv.innerHTML = '';
     resetOpeningStockImport();
@@ -433,6 +444,7 @@ function cancelOpeningStockPrecheck() {
 function precheckOpeningStock() {
     var form = openingStockEl('openingStockImportForm');
     if (!form) return;
+    if (form.dataset.importBusy === 'true') return;
     var fileInput = form.querySelector('input[type="file"]');
     var resultDiv = form.parentElement.querySelector('.import-result');
     var preview = openingStockEl('openingStockPreview');
@@ -443,13 +455,9 @@ function precheckOpeningStock() {
         return;
     }
 
-    // 换文件后必须重新预检，防止"预检 A 文件、导入 B 文件"
-    openingStockPrechecked = false;
-    openingStockEl('openingStockConfirmBtn').classList.add('d-none');
-    openingStockEl('openingStockCancelBtn').classList.add('d-none');
-    preview.classList.add('d-none');
-    preview.innerHTML = '';
-
+    var checkedFile = fileInput.files[0];
+    resetOpeningStockImport();
+    var requestVersion = openingStockPrecheckVersion;
     preBtn.disabled = true;
     preBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 预检中...';
     resultDiv.innerHTML = '';
@@ -457,33 +465,23 @@ function precheckOpeningStock() {
     var formData = new FormData(form);
     formData.set('dry_run', 'true');
 
-    fetch(form.dataset.url, {
-        method: 'POST',
-        body: formData,
-        headers: { 'X-Requested-With': 'XMLHttpRequest' }
-    }).then(function(r) {
-        if (!r.ok) {
-            return r.json().catch(function() {
-                throw { message: '预检失败：HTTP ' + r.status };
-            }).then(function(err) {
-                throw { message: '预检失败：' + ((err && err.msg) || ('HTTP ' + r.status)) };
-            });
-        }
-        return r.json();
-    }).then(function(res) {
+    WMS.api.postRaw(form.dataset.url, formData).then(function(res) {
+        if (requestVersion !== openingStockPrecheckVersion || checkedFile !== openingStockFile()) return;
         preBtn.disabled = false;
         preBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> 重新预检';
         if (!res || res.status !== 'success') {
             resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1">'
-                + ((res && res.msg) || '预检失败') + '</div>';
+                + escapeHtml((res && res.msg) || '预检失败') + '</div>';
             return;
         }
         renderOpeningStockPreview(res, resultDiv, preview);
+        openingStockPrecheckedFile = checkedFile;
     }).catch(function(err) {
+        if (requestVersion !== openingStockPrecheckVersion || checkedFile !== openingStockFile()) return;
         preBtn.disabled = false;
         preBtn.innerHTML = '<i class="bi bi-clipboard-check"></i> 预检（不导入）';
         resultDiv.innerHTML = '<div class="alert alert-danger py-1 mb-1">'
-            + ((err && err.message) || '预检请求失败') + '</div>';
+            + escapeHtml((err && err.message) || '预检请求失败') + '</div>';
     });
 }
 
@@ -496,14 +494,19 @@ function renderOpeningStockPreview(res, resultDiv, preview) {
     var rows = res.rows || [];
     var ok = rows.filter(function(r) { return r.action === 'import'; });
     var bad = rows.filter(function(r) { return r.action !== 'import'; });
+    // 预览最多500行，确认和总计必须使用后端整文件统计。
+    var importableCount = typeof res.imported === 'number' && Number.isFinite(res.imported)
+        && res.imported >= 0 ? res.imported : ok.length;
+    var skippedCount = typeof res.skipped === 'number' && Number.isFinite(res.skipped)
+        && res.skipped >= 0 ? res.skipped : bad.length;
 
     var head = '<div class="alert alert-info py-2 mb-2">'
         + '<i class="bi bi-info-circle"></i> <strong>预检结果（尚未导入任何数据）</strong>：'
-        + '可导入 <strong>' + ok.length + '</strong> 行'
+        + '可导入 <strong>' + importableCount + '</strong> 行'
         + '（新增 ' + (res.fresh_count || 0) + ' 行'
         + (res.overwrite_count ? '，<span class="text-warning">并入已有期初 ' + res.overwrite_count + ' 行</span>' : '')
         + '）'
-        + (bad.length ? '，有问题 <strong class="text-danger">' + bad.length + '</strong> 行' : '')
+        + (skippedCount ? '，有问题 <strong class="text-danger">' + skippedCount + '</strong> 行' : '')
         + '</div>';
 
     if (res.overwrite_count) {
@@ -543,13 +546,13 @@ function renderOpeningStockPreview(res, resultDiv, preview) {
     });
     tbl += '</tbody></table></div>';
     if (res.truncated) {
-        tbl += '<div class="text-muted small">仅显示前 500 行（共 ' + res.total_rows + ' 行）</div>';
+        tbl += '<div class="text-muted small">仅显示前 500 行（共 ' + res.total_rows + ' 行）；确认导入将处理整个文件。</div>';
     }
 
     var foot = '';
-    if (ok.length) {
+    if (importableCount > 0) {
         foot = '<div class="mt-2"><button class="btn btn-primary btn-sm" type="button" onclick="confirmOpeningStockImport()">'
-            + '<i class="bi bi-check2-circle"></i> 确认导入这 ' + ok.length + ' 行</button>'
+            + '<i class="bi bi-check2-circle"></i> 确认导入这 ' + importableCount + ' 行</button>'
             + '<button class="btn btn-outline-secondary btn-sm ms-1" type="button" onclick="cancelOpeningStockPrecheck()">取消</button>'
             + '</div>';
     } else {
@@ -559,7 +562,7 @@ function renderOpeningStockPreview(res, resultDiv, preview) {
     preview.innerHTML = head + tbl + foot;
     preview.classList.remove('d-none');
     resultDiv.innerHTML = '';
-    openingStockPrechecked = true;
+    openingStockPrechecked = importableCount > 0;
     // 预检表内已有确认按钮，隐藏表单上的重复按钮避免混淆
     openingStockEl('openingStockConfirmBtn').classList.add('d-none');
     openingStockEl('openingStockCancelBtn').classList.add('d-none');
@@ -569,7 +572,12 @@ function renderOpeningStockPreview(res, resultDiv, preview) {
 function confirmOpeningStockImport() {
     var form = openingStockEl('openingStockImportForm');
     if (!form) return;
-    openingStockPrechecked = true;
+    if (form.dataset.importBusy === 'true') return;
+    if (!hasCurrentOpeningStockPrecheck()) {
+        resetOpeningStockImport();
+        form.parentElement.querySelector('.import-result').textContent = '文件已更换，请重新预检';
+        return;
+    }
     if (typeof form.requestSubmit === 'function') {
         form.requestSubmit();
     } else {
@@ -583,7 +591,7 @@ document.addEventListener('change', function(e) {
         && e.target.type === 'file') {
         var preview = openingStockEl('openingStockPreview');
         var resultDiv = openingStockEl('openingStockImportForm').parentElement.querySelector('.import-result');
-        if (preview && !preview.classList.contains('d-none')) {
+        if (preview) {
             resetOpeningStockImport();
             if (resultDiv) resultDiv.innerHTML = '<div class="alert alert-warning py-1 mb-1">文件已更换，请重新预检</div>';
         }

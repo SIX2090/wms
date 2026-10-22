@@ -2179,6 +2179,11 @@ function downloadFallbackTemplate(module) {
 }
 
 function showImportModalForModule(module) {
+    // Opening stock writes inventory: use the reviewed two-stage import flow.
+    if (module.key === 'opening_stock' || module.importUrl === '/opening_stock/import') {
+        openUrl(preserveEmbeddedUrl('/batch_import?type=opening_stock'));
+        return;
+    }
     if (!module.importUrl) {
         showToast('当前模块暂未配置导入接口', 'warning');
         return;
