@@ -3386,7 +3386,8 @@ function insertGlobalActionBar() {
         // 页面显式声明合并动作时，顶部只替换保存入口，其余工具及翻页保持。
         var primarySave = item.key === 'save' && document.querySelector('button[data-wms-save-complete]');
         if (primarySave) {
-            actionLabel = primarySave.getAttribute('data-wms-save-complete') === 'requisition' ? '保存并完成领料' : '保存并完成入库';
+            actionLabel = primarySave.getAttribute('data-wms-save-complete-label') ||
+                (primarySave.getAttribute('data-wms-save-complete') === 'requisition' ? '保存并完成领料' : '保存并完成入库');
             item.action = function() { primarySave.click(); };
             btn.setAttribute('data-wms-save-complete-proxy', '1');
         }

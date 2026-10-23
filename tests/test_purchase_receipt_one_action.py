@@ -117,9 +117,8 @@ main().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize('combined', [True, False])
-@pytest.mark.parametrize('marker', ['1', 'requisition'])
-def test_global_toolbar_keeps_tools_and_routes_save(combined, marker):
+@pytest.mark.parametrize('combined,marker,label', [(True,'1',None),(True,'requisition',None),(False,'1',None),(False,'requisition',None),(True,'requisition','保存完成并新增领料单')])
+def test_global_toolbar_keeps_tools_and_routes_save(combined, marker, label):
     source = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
     helper_start = source.index('function escapeHtml(')
     helper = source[helper_start:source.index('\n}\n', helper_start) + 2]
@@ -128,7 +127,7 @@ def test_global_toolbar_keeps_tools_and_routes_save(combined, marker):
 const assert=require('assert');
 const combined=COMBINED;
 let clicked=0,saved=0,rendered;
-const primary={getAttribute(){return MARKER;},click(){clicked++;}};
+const primary={getAttribute(name){return name==='data-wms-save-complete'?MARKER:name==='data-wms-save-complete-label'?LABEL:null;},click(){clicked++;}};
 const module={printTemplateUrl:'/templates',deleteUrl:'/delete'};
 const document={
  getElementById(){return null;},
@@ -156,9 +155,9 @@ const buttons=rendered.children.filter(x=>x.tag==='button');
 for(const title of ['新增','打印设置','打印','导入','导出','导入导出模板','智能分享'])
  assert(buttons.some(x=>x.title===title),title+' must remain');
 assert(rendered.children.some(x=>x.navigation),'document navigation must remain');
-const save=buttons.find(x=>x.title===(combined?(MARKER==='requisition'?'保存并完成领料':'保存并完成入库'):'保存'));
+const save=buttons.find(x=>x.title===(combined?(LABEL||(MARKER==='requisition'?'保存并完成领料':'保存并完成入库')):'保存'));
 assert(save);save.click();
 assert.equal(clicked,combined?1:0);assert.equal(saved,combined?0:1);
-'''.replace('MARKER', json.dumps(marker)).replace('COMBINED', json.dumps(combined)).replace('FUNCTION', helper + '\n' + function)
+'''.replace('MARKER', json.dumps(marker)).replace('LABEL', json.dumps(label)).replace('COMBINED', json.dumps(combined)).replace('FUNCTION', helper + '\n' + function)
     result = subprocess.run([node_binary(), '-e', script], capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == 0, result.stderr

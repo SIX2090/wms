@@ -453,8 +453,8 @@ textarea.form-control {
     {% else %}
     <div class="d-flex gap-2 flex-wrap">
         {% if not is_sale_order and not is_purchase_return %}
-        <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" onclick="submitForm(false, true)">
-            <i class="bi bi-check-circle"></i> 保存并完成领料
+        <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" data-wms-save-complete-label="保存完成并新增领料单" onclick="submitForm(false, true)">
+            <i class="bi bi-check-circle"></i> 保存完成并新增领料单
         </button>
         {% else %}
         <button type="button" class="btn btn-primary" onclick="submitForm()">
@@ -475,7 +475,7 @@ textarea.form-control {
     <div class="card-body">
         <form id="addForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <input type="hidden" name="order_id" value="{{ order_id }}">
+            <input type="hidden" name="order_id" value="{{ order_id or '' }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
             
             <div class="row mb-3">
@@ -1350,8 +1350,14 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
                 return;
             }
             return WMS.api.postRaw(`/out_order/${saved.id}/complete`, {}).then(done => {
-                if (done.status === 'success') showToast('保存并完成领料成功', 'success');
-                else showToast('单据已保存，请在详情页核对：' + (done.msg || '完成失败'), 'warning');
+                if (done.status === 'success') {
+                    showToast('保存并完成领料成功', 'success');
+                    if (!isSaleOrder && !isOtherOut && !isPurchaseReturn && data.business_type === '领料单') {
+                        window.location.href = typeof preserveEmbeddedUrl === 'function'
+                            ? preserveEmbeddedUrl(returnAddUrl) : returnAddUrl;
+                        return;
+                    }
+                } else showToast('单据已保存，请在详情页核对：' + (done.msg || '完成失败'), 'warning');
                 // 异常确认保留在详情页，绝不自动 force 完成。
                 window.location.href = `/out_order/${saved.id}`;
             });

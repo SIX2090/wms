@@ -1549,3 +1549,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 组合验收：第三agent只读终审核心协议/生命周期通过，Root发现并收口先禁字段再空名focus的顺序回归，空名先校验再取锁；删除末模板的内部草稿恢复绕过仅限内部标志，外部写中仍禁止。规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed，显式TEMP隔离库9082冒烟119/119且工具前台服务已关闭。日志frontend-20261023-007-{baseline,rules,bug-check,ledger,smoke}.log。无新AI能力/模型/工具/权限/开关/迁移；本地不重复全站pytest，交目标代码CI，不在生产保存、删除或设默认模板。
 - 发布闭环：代码60b3603e36b8db3e6400b6a91897b17c9e9ee09c已正常推送main，读取实际push输出且HEAD/origin新SHA一致；WMS CI39906820513完整单测/回归/静态/冒烟及AI39906820505均completed/success，最新main匹配目标。Android39860469109成功并通过目标祖先/Android工程与工作流未变证明复用，严格check_ci_green目标门禁退出0（frontend-20261023-007-code-ci.log）。未跳过门禁，收尾只本台账走文档轻量检查。
 - 生效确认：2026-10-23 13:41代理核验，生产需重启 WMS 服务生效；核对原PID16808完整命令/解释器/Session0/精确创建时间、原WMS-Warehouse入口、8080单实例、main目标及tracked工作区无混合写入后，CIM Terminate返回0，沿原计划任务单次重启。现PID12112/Session0、8080唯一listener、LastTaskResult=0；13:41:56启动日志版本60b3603、production/CSRF on，db-check migrate=ok仅结构核验不声称迁移，WMS_NO_DB_TOUCH=1保留。本机与公网登录GET200含CSRF；UI及写操作回归只用隔离数据库与模拟网络，未在生产保存/删除/设默认模板，不改真实物料、库存、账号密码或打印机配置，不调用实体打印机。收尾只台账不再次重启。
+
+### BUG-2026-10-23-008: 普通领料保存完成后未进入新的领料单
+
+- 状态：已修复，本地验证通过，待目标CI与生产生效确认。
+- 需求/根因：用户明确要求截图普通领料单的保存完成操作继续新增；当前out_order_add保存和完成均成功后仍固定跳详情，原单确已完成，缺的是下一张录入导航，并非完成接口或库存失败。顶部代理硬编码旧caption，不能只改页面按钮。新GET的hidden order_id原渲染None字符串，需准确显示为空新单。
+- 修复范围：仅out_order_add.html及app.js顶部代理。按钮显示「保存完成并新增领料单」；保存和完成均success、页面与实际提交业务均为普通领料时，跳既有returnAddUrl并保留embedded。新GET沿用既有新单号/当天日期/空白明细，不携带旧ID、旧明细或旧查询。完成异常、需人工确认及不确定结果仍详情核对，不自动force；保存失败留当前录入。既有提交锁保持至导航。hidden新单ID转为空串、编辑原ID保留；顶部可选caption优先、无该属性保持原逻辑。不改后台、库存算法或其它业务流程。
+- 同类点已排查：核对截图的/out_order/add与独立工单/requisition链，后者已有连续新增能力，不重复开发；核对页面按钮、顶部primarySave.click代理、new/edit GET及实际business_type可切其它业务的条件，不能只凭requisition marker放行。关联既有单一保存完成入口及001生产工单连续录入，保留其原业务边界。
+- 开工基线：mainac9d7d8d2b8bdd336f0f08427a59e888c7490df2，check_ci_green --json退出0；WMS CI39907290814、AI39907290774目标匹配且completed/success，Android39860469109成功并通过祖先/Android工程与构建工作流未变证明，钩子已启用。
+- 回归：修前四模块57 passed（8.00秒）：requisition_one_action、purchase_receipt_one_action、toolbar_semantic_dedupe、out_order_add_toolbar_remove_recent_template。新增11项真实submit/生产api.js/顶部代理与隔离实际GET通过，含普通/embedded连续新建、失败详情核对不force、重复点击、其它业务分流及新号/今天/空ID/空edit_items（DOM仍初始化30空行）；顶部可选label额外1例。最终五模块69 passed（11新+57原+1caption，9.81秒）。按用户明确新行为调整普通领料成功导航/按钮预期，保留原失败、重复提交及工单/采购入口断言；顶部旧mock改按实际属性名返回值，不削弱断言。
+- 回退验证：VM只注入tracked HEAD旧submit，普通及embedded两success核心都已实际保存并完成成功，直接因旧/out_order/7不等于新/out_order/add而失败；两产品逐字节未动、不用stash，无缺helper或头断言提前失败。初轮10项因meta查询顺序夹具缺token失败已修正并弃作证据；真实GET初轮None字符串失败由产品改空串解决，保留空值断言。日志out-complete-continue-20261023/{new,vm-rollback,final-adjacent}.log。
+- 组合验收：第三agent只读终审普通领料条件、顶部代理、锁及失败分流通过，hidden空值窄修由隔离GET回归核验。规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed；显式TEMP隔离库9082冒烟119/119且工具前台服务已关闭，日志frontend-20261023-008-{baseline,rules,bug-check,ledger,smoke}.log。不新增AI能力或改AI模型/权限/工具/开关/迁移；本地不重复全站pytest，交目标代码CI。
+- 生效确认：待确认；生产需重启 WMS 服务生效。测试仅模拟保存/完成及隔离数据库，不替用户实际完成截图中的生产单据，不改生产库存、账号、密码或打印机配置。

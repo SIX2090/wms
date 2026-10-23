@@ -38,7 +38,7 @@ def test_work_order_single_button(existing):
 def test_normal_requisition_single_button():
     header=SOURCE.read_text(encoding='utf-8').split('{% block content %}',1)[1].split('<div class="card">',1)[0]
     rendered=Template(header).render(is_other_out=False,is_sale_order=False,is_purchase_return=False)
-    assert '保存并完成领料' in rendered
+    assert '保存完成并新增领料单' in rendered
     assert '保存并新增' not in rendered
 
 
@@ -108,7 +108,7 @@ async function main(){
    assert.equal(calls.length,2);
    assert.equal(calls[1].url,'/out_order/7/complete');
    assert.equal(fields.order_id.value,7);
-   if(['success','double_click'].includes(scenario))assert.equal(window.location.href,'/out_order/7');
+   if(['success','double_click'].includes(scenario))assert.equal(window.location.href,'/out_order/add');
    else assert.equal(window.location.href,'/out_order/7','saved draft must remain reachable without duplicate save');
  }
  if(scenario==='save_error'||scenario==='save_network')assert.equal(outOrderSubmitting,false);
