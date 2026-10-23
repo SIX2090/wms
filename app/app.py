@@ -26831,6 +26831,7 @@ def _render_requisition_form(requisition=None):
         'purpose': '',
         'picker': '',
         'warehouse': '',
+        'location': '',
         'remark': '',
     }
     if requisition is None:
@@ -26840,6 +26841,7 @@ def _render_requisition_form(requisition=None):
         prefill['purpose'] = (request.args.get('purpose') or '').strip()[:200]
         prefill['picker'] = (request.args.get('picker') or '').strip()[:50]
         prefill['warehouse'] = (request.args.get('warehouse') or '').strip()[:100]
+        prefill['location'] = (request.args.get('location') or '').strip()[:100]
         prefill['remark'] = (request.args.get('remark') or '').strip()[:500]
     return render_template(
         'document_table_form.html',
@@ -26864,12 +26866,14 @@ def _render_requisition_form(requisition=None):
             # BUG-2026-08-05-008：工单领料单表头带仓库字段
             'warehouse': requisition.warehouse if requisition else prefill['warehouse'],
             'warehouse_id': '' if requisition else prefill['warehouse_id'],
+            'location': requisition.location if requisition else prefill['location'],
             'remark': requisition.remark if requisition else prefill['remark'],
         },
         materials=_document_materials_json(),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),
+        location_management_enabled=location_management_enabled(),
         boms=boms,
         existing_items=[_material_line_data(item) for item in (requisition.items if requisition else [])],
         can_complete=bool(requisition and requisition.status == 'pending'),
@@ -26879,10 +26883,6 @@ def _render_requisition_form(requisition=None):
         revert_label='反提交',
         revert_url=url_for('revert_requisition', id=requisition.id if requisition else 0),
     )
-
-
-
-
 
 
 

@@ -31,6 +31,7 @@ const fields = {'order_id': {value:'7'}, 'order_no': {value:'REQ7'}, 'date': {va
 if (carry) Object.assign(fields, {warehouse_id:{value:'2'}, production_order:{value:'工单 & 1'}, picker:{value:'张三'}, purpose:{value:'生产'}, bom_id:{value:'9'}});
 const document = {querySelector(s) {if(s.startsWith('meta'))return {content:'fixture-token'};return fields[s.match(/name="([^"]+)"/)[1]];},querySelectorAll(){return [];}};
 const documentRoleAllowed = true;
+const requisitionLocationRequired = false;
 class FormData {}
 const readonly = false, saveUrl = '/save', completeUrl = '/complete/0', detailUrl = '/detail';
 function collectItems() {return {items:[{code:'M1',quantity:1}], invalidRows:[]};}

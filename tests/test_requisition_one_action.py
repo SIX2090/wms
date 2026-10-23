@@ -130,6 +130,7 @@ def test_work_order_blocks_duplicate_save_until_navigation():
     script=r"""
 const assert=require('assert');
 const documentRoleAllowed=true;
+const requisitionLocationRequired=false;
 class FormData {}
 const readonly=false,saveUrl='/save',completeUrl='/complete/0',detailUrl='/detail',docType='requisition';
 const document={querySelector(){return {value:'1'};},querySelectorAll(){return [];}};

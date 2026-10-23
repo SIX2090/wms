@@ -170,6 +170,16 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                         </select>
                     </div>
                 </div>
+                {% if location_management_enabled|default(false) %}
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label" for="requisitionLocation">库位 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="location" id="requisitionLocation" value="{{ header.location or '' }}" maxlength="100" placeholder="请输入库位" required {% if readonly %}readonly{% endif %}>
+                    </div>
+                </div>
+                {% else %}
+                <input type="hidden" name="location" id="requisitionLocation" value="{{ header.location or '' }}">
+                {% endif %}
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">关联BOM</label>
@@ -357,6 +367,7 @@ const readonly = {{ readonly|tojson }};
 const documentRoleAllowed = {{ document_role_allowed|tojson }};
 // INV-BATCH-001-D：盘点单（=批次）既有单据展示行级盘点归属列（盘点人/时间）
 const hasCountedByCol = {{ (doc_type == 'check' and order_id)|tojson }};
+const requisitionLocationRequired = {{ (doc_type == 'requisition' and location_management_enabled|default(false))|tojson }};
 const checkLocationRequired = {{ (doc_type == 'check' and location_management_enabled|default(false))|tojson }};
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
@@ -729,7 +740,7 @@ function collectHeader() {
     if (docType === 'bom') return {product_code:get('product_code'), product_name:get('product_name'), version:get('version'), status:get('status'), remark:get('remark')};
     // BUG-2026-08-05-008：工单领料单表头带仓库字段
     // P1-6（2026-09-25）：warehouse → warehouse_id，后端按 ID 优先解析
-    if (docType === 'requisition') return {bom_id:get('bom_id'), production_order:get('production_order'), purpose:get('purpose'), picker:get('picker'), warehouse_id:get('warehouse_id'), remark:get('remark')};
+    if (docType === 'requisition') return {bom_id:get('bom_id'), production_order:get('production_order'), purpose:get('purpose'), picker:get('picker'), warehouse_id:get('warehouse_id'), location:get('location'), remark:get('remark')};
     // BUG-2026-08-02-014：盘点单表头带仓库字段
     // P1-6（2026-09-25）：warehouse → warehouse_id
     if (docType === 'check') return {warehouse_id:get('warehouse_id'), remark:get('remark')};
@@ -750,6 +761,11 @@ function endDocumentAction() {
 }
 function submitForm(completeAfterSave) {
     if (readonly || !documentRoleAllowed || submitForm.pending || submitForm.completed) return;
+    if (requisitionLocationRequired && !document.querySelector('[name="location"]')?.value.trim()) {
+        showToast('库位管理已启用，请填写库位', 'warning');
+        document.querySelector('[name="location"]')?.focus();
+        return;
+    }
     const result = collectItems();
     if (result.invalidRows.length) { showToast(result.invalidRows[0], 'danger', 3600); return; }
     if (!result.items.length) { showToast('请至少填写一条明细', 'warning'); return; }
@@ -796,7 +812,7 @@ function runComplete(actionUrl, force, orderId) {
                 setTimeout(() => {
                     if (docType === 'requisition') {
                         const params = new URLSearchParams();
-                        ['warehouse_id', 'bom_id', 'production_order', 'picker', 'purpose'].forEach(name => {
+                        ['warehouse_id', 'location', 'bom_id', 'production_order', 'picker', 'purpose'].forEach(name => {
                             const value = document.querySelector('[name="' + name + '"]')?.value || '';
                             if (value.trim()) params.set(name, value);
                         });
@@ -1002,6 +1018,17 @@ function refreshUnits() {
         }
     }).catch(function() {});
 }
+function bindRequisitionLocationWarehouse() {
+    if (docType !== 'requisition' || readonly) return;
+    const warehouse = document.querySelector('[name="warehouse_id"]');
+    const locationInput = document.querySelector('[name="location"]');
+    if (!warehouse || !locationInput) return;
+    let previousWarehouse = warehouse.value;
+    warehouse.addEventListener('change', function() {
+        if (warehouse.value !== previousWarehouse) locationInput.value = '';
+        previousWarehouse = warehouse.value;
+    });
+}
 function refreshWarehouses() {
     // BUG-2026-08-02-014：盘点单仓库下拉也要随仓库主数据更新
     // BUG-2026-08-05-008：工单领料单仓库下拉同样联动
@@ -1032,11 +1059,13 @@ function refreshWarehouses() {
                 html += '<option value="' + escapeHtml(String(w.id || '')) + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
             });
             select.innerHTML = html;
+            if (docType === 'requisition' && select.value !== current) select.dispatchEvent(new Event('change'));
         }
     }).catch(function() {});
 }
 document.addEventListener('click', function(e) { if (activeDropdown && !e.target.closest('.material-input')) hideDropdown(); });
 document.addEventListener('DOMContentLoaded', function() {
+    bindRequisitionLocationWarehouse();
     existingItems.forEach(item => createRow(item));
     while (document.getElementById('docTableBody').rows.length < Math.max(minRowCount, existingItems.length)) createRow(null);
     renumberRows();

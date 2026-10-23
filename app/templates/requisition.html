@@ -172,6 +172,7 @@
                                     <button class="btn btn-outline-success complete-btn"
                                             data-id="{{ requisition.id }}"
                                             data-warehouse="{{ requisition.warehouse or '' }}"
+                                            data-location="{{ requisition.location or '' }}"
                                             data-bom-id="{{ requisition.bom_id or '' }}"
                                             data-production-order="{{ requisition.production_order or '' }}"
                                             data-picker="{{ requisition.picker or '' }}"
@@ -364,6 +365,7 @@ function buildRequisitionContinueUrl(button) {
     const params = new URLSearchParams();
     const carried = {
         warehouse: data.warehouse,
+        location: data.location,
         bom_id: data.bomId,
         production_order: data.productionOrder,
         picker: data.picker,
