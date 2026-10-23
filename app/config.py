@@ -146,9 +146,10 @@ class ProductionConfig(Config):
         # F2.7 / S9：CSP 从宽松白名单起步（全站大量内联脚本/样式 + 本地托管 CDN 资源，
         # 模板无外部 http(s) 外链）。object-src/base-uri/frame-ancestors 先行收紧，
         # script/style 暂保留 unsafe-inline 以不破坏既有页面；后续可逐步收敛。
+        # 2026-10-23：本地业务及第三方脚本无字符串代码生成依赖，移除 unsafe-eval。
         'Content-Security-Policy': (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+            "script-src 'self' 'unsafe-inline'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; "
             "font-src 'self' data:; "

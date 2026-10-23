@@ -172,6 +172,7 @@
 | AI-C01-FIX-ROLE-UI-001 | ai | completions-2026-10.md |
 | AI-R08-F02-FIX-WAREHOUSE-001 | ai | completions-2026-10.md |
 | AI-R15-FIX-UI-FEEDBACK-001 | ai | completions-2026-10.md |
+| AI-R15-FIX-TEXT-EVENT-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -457,6 +458,7 @@
 | BUG-2026-10-23-012 | bugs | entries-2026-10.md |
 | BUG-2026-10-23-013 | bugs | entries-2026-10.md |
 | BUG-2026-10-23-014 | bugs | entries-2026-10.md |
+| BUG-2026-10-23-015 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

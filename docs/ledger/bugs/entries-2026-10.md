@@ -1632,3 +1632,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 开工基线：d73f9fbbe96d690f378b24883c3b287677ef227e，WMS CI39943299522、AI39943299471准确匹配且success，Android39860469109祖先及保护路径证明不变。质量/看板两专项修前16项通过，完整verify_ai_all.py --level full --jobs 1修前70/70通过（272.87秒，wms-xss-baseline-20261023.log）。
 - 回归：新增9项执行实际页面渲染函数/搜索事件和公共escapeHtml，覆盖O'Reilly、脚本闭合载荷、HTML标签/双引号/中文，验证属性解码后数据完整、零事件属性/注入节点、下钻原参、选料原id/code/name及重复渲染替换旧选项；推荐结果三处均只作为文本显示。新代码9 passed。备份两模板后恢复HEAD，新锁7 failed/2 passed，finally恢复字节、不用stash；日志wms-ai-text-rollback-9iblcrb_/rollback.log。修后完整verify_ai_all.py --level full --jobs 2为70/70通过（sum275.50秒，wms-xss-fixed-20261023.log，含verify_wms_bugs）；组合7模块89 passed，规则0违规，严格AI台账检查通过。真实浏览器用两页面实际函数和本地jQuery处理模拟载荷，选料/详情点击原参完整、注入图片节点0、探针始终0、控制台错误0；仅隔离夹具不代表生产已修复。新隔离库18080冒烟121/121且自建进程4152已停止（wms-shell-qa-_o56_f1d/smoke.log）。目标CI在验收记录补充。
 - 生效确认：待确认；不在生产插入恶意物料/模型文字，不开库位管理，不调用真实推荐/保存/提交/删除接口，测试只用模拟数据和隔离库。
+
+
+### BUG-2026-10-23-015: 生产CSP无依赖却继续放行字符串动态代码执行
+
+- 状态：代码已修复，目标CI及统一生产生效待验收。
+- 根因/危害：ProductionConfig.SECURITY_HEADERS保留script-src unsafe-eval；它与现有内联脚本所需unsafe-inline并非同一依赖。全量本地JS（含第三方）和模板检索未发现eval、Function构造或字符串定时器调用，继续放行会无谓削弱脚本策略。
+- 修复范围：仅移除script-src中的unsafe-eval，保留当前self/unsafe-inline以及object-src/base-uri/frame-ancestors等限制。新增前端资源与CSP说明并由README链接，说明加载/缓存事实与仍存unsafe-inline的限制，不声称已消除所有XSS。关联014已独立修复数据进事件脚本，不把CSP收紧当作其替代。需要重启 WMS 服务生效。
+- 同类点已排查：全仓CSP实际配置仅该处，无其他nginx配置重复覆盖此指令；静态资源含本地第三方均扫描。014子修复AI-R15-FIX-TEXT-EVENT-001在cd36abf6推送及CI39944914326/AI39944914371成功后才标记代码闭环，生产仍待本轮统一重启，不新增AI功能、模型、工具、权限、开关或迁移。
+- 开工基线：cd36abf6a62e083088eb31dc10ba9060843d9499，WMS CI39944914326、AI39944914371准确匹配且success，Android39860469109祖先与保护路径证明保持。四安全/Excel/图表模块修前39 passed。
+- 回归：新增3项验证生产默认CSP、真实Flask响应头及全浏览器源码无字符串编译依赖；六模块51 passed。备份config.py再恢复HEAD，新锁2 failed/1静态扫描对照passed，finally恢复修复，不用stash，日志wms-csp-rollback-i8prll64/rollback.log。真实浏览器以当前ProductionConfig CSP加载实际本地依赖，eval和Function两种字符串编译均被拒绝；jQuery中文文本、Bootstrap弹窗初始化、Flatpickr日期、ZXing初始化（不请求摄像头）、SheetJS中文xlsx写入后读取、Chart实际绘制七项全部PASS。夹具在18081，仅模拟数据无业务请求。相邻与台账/README/库存定位/样式/刷新共46 passed，严格AI台账/源码编码及规则0违规、verify_wms_bugs全部通过。AI子任务标记完成时严格检查检出两模板漏归属标记，已补Jinja注释AI_TASK，不改变功能或放宽检查。新隔离库18080冒烟121/121，自建进程10312已停止（wms-shell-qa-5v3tz9az/smoke.log）。目标CI和统一生产验收在后续记录补充。
+- 生效确认：待确认；发布前只读核对生产PID7196（17:12:42创建、Python311/Session0）、WMS-Warehouse既有run_wms_task.bat、8080唯一监听及登录GET200，当前响应头确仍含unsafe-eval。待目标CI全绿后统一发布，不把测试夹具生效当成生产生效。

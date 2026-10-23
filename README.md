@@ -309,6 +309,7 @@ http://127.0.0.1:8080
 | `WMS_QUALITY_REPORT.md` | BUG 质量月报（类型分布、模块分布、Top 根因），保留最新一期；历史各期在 `docs/archive/WMS_QUALITY_REPORT_YYYY-MM.md` |
 | `WMS_STABILITY_BASELINE.md` | 发布门禁覆盖的 10 条关键链路 |
 | `DEVELOPMENT_RULES.md` | 开发规范：加功能 checklist、修复 BUG 流程、CI/pre-commit 门禁、防 BUG 规则详解 |
+| [前端资源与 CSP](docs/FRONTEND_ASSETS.md) | 公共样式缓存、图表按需加载、默认脚本安全策略及验证入口 |
 | `SHERPA_INTEGRATION.md` | Android 端 sherpa-onnx 离线中文语音识别集成说明 |
 | `docs/archive/` | 已结束的 BUG、巡检、专项审计报告与已完成计划快照（含 SYSTEM_TEST_*、SALES_MANAGEMENT_*、AI-MOB-OFFLINE-01），仅供追溯 |
 | `上线部署说明.md` | 腾讯云 Windows 部署和数据保护说明 |
