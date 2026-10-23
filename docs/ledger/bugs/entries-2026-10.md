@@ -1470,7 +1470,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-002: 销售录单及采购申请详情HTTP状态与成功导航期间忙锁缺口
 
-- 状态：已修复，待提交CI及生产生效验收。
+- 状态：已修复并发布。
 - 根因/危害：五活跃页面及公共导入入口共八处旧csrfFetch POST未统一HTTP失败判定，错误HTTP携带success信封可误作成功；销售新增/编辑403被误报登录过期，null解引用产生技术错误。原链已有CSRF与部分catch，不能误报普遍无保护。销售保存、导入及选择出库缺请求/成功导航期互斥，采购申请审批/反审/生成采购单无锁，已有驳回/完成按独立key锁且650ms刷新前已释放，允许交叉操作或重复派发。
 - 同类点已排查：关联BUG-2026-10-22-011至020及BUG-2026-10-23-001；核对sales_order_add/edit/list、sales_outbound_selection及purchase_request_detail实际DOM、JSON/FormData与对应路由。旧记录对采购申请详情“已统一”的描述只涵盖部分链，本次仍有三处旧POST，不能据概括跳过。公共列表委托、GET搜索、已统一驳回/完成请求不重复迁移；库存、来源数量、角色及人工确认策略保持。追加核对发现app.js公共导入在销售新增/详情仍可用，同根入口一并纳入；其所有模块消费共用修复，期初最前分支继续跳预检页，不能绕过。
 - 修复：八处旧POST统一WMS.api.postRaw，保留整单采购无body、选行采购JSON原字符串ID/数量、销售保存原表头/行JSON及零价/税率、两类导入FormData文件和统一XHR。销售DOM保存/保存并新增/全局保存共享锁，含库存警告3000ms和原跳转；导入保留900ms刷新，选单只成功且有redirect才导航，失败反馈后可人工重试。采购详情六个实际按钮共五动作复用现有runDocumentAction同一通道，原确认/原因prompt/returnFocus及500/650ms导航不变，已统一两请求只补null保护与共享锁。公共导入跨重开及跨模块维持在途锁，成功hide/800ms锁，失败恢复原disabled；先捕获FormData再禁file，期初跳预检分支原样。后端/库存/权限不变，不把页面防连点称为后台幂等，结果不确定仍须先核对单据。
@@ -1478,5 +1478,5 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 公共导入回归：基线30 passed，新22与原opening21联测43 passed；旧函数反证20 failed/2无file对照passed，预置忠实旧csrfFetch→fetch，首例已真实发请求后在submit.disabled断言失败，非缺helper伪红，finally函数逐字节恢复。最终四模块及相邻79 passed；旧opening21场景/断言均保留，仅补生产API、DOM token/disabled及Response元数据。覆盖sales/material实际配置、同/异模块在途重开、成功800ms与失败恢复、FormData构造异常及期初embedded分流。采购详情基线111 passed，新40通过；授权两旧fixture50 passed，保留取消/失败恢复、原因原值、焦点及其余页面原断言，并加导航前保持锁断言。装载生产base真实旧CSRF helper/Headers、旧onclick/旧action key后仅回退6核心例，3例实际重复2请求而非1、3例HTTP失败success包被误作成功，6 failed/34 deselected，不是缺helper或DOM伪红；finally产品字节恢复，最终模块及相邻151 passed。新增共138例（39+37+40+22），不叠加相邻重复计数；日志sales_entry_transport/、sales-transport-*.log、global_import_transport/、frontend-20261023-002-http-success-lock.log。全站回归交目标提交CI，本地不重复跑全站。
 - 组合验收：显式TEMP隔离库9082冒烟119/119，受工具管理前台服务会话已Ctrl-C关闭，未用默认生产地址。规则0违规、verify_wms_bugs通过、文档契约最终34 passed；初次登记open与月度fixed分区统计不一致，完成验证后按实际修复状态登记fixed，未更改统计基线/放宽断言。证据frontend-20261023-002-{rules,bug-check,ledger-final,smoke}.log；不新增AI能力或改变AI模型/工具/权限/开关/迁移，不改库存与单据写入算法。
 - 开工基线：main c0d5f4a4c3683775041c9780cbc564412bb40c88目标门禁exit0，WMS CI39878528880、AI39878528802均completed/success，Android39860469109成功且祖先/工程与构建工作流未变证明通过；写入前已核实。
-- 发布闭环：待提交、推送及目标CI验收。
-- 生效确认：待确认；生产需重启 WMS 服务生效。测试仅隔离数据库/模拟网络，不在生产保存、导入、审批、生成出库或采购单，不改真实单据、库存、账号、密码或开关配置。
+- 发布闭环：代码1ca45e4f26ea2f501032da1c28b1ed57f9821578已推送main，读取实际push输出且HEAD/origin一致；WMS CI39881016601原完整单测/回归分片、规则、安全扫描和冒烟通过，AI39881016612、性能39881016499均completed/success。Android最近main39860469109成功，Git祖先/Android工程及构建工作流未变证明通过；未把旧绿直接当目标证据。匿名pre-push与发布查询403，连接器逐项核对最新三工作流的完整SHA/状态/链接并记录frontend-20261023-002-{push,deploy}-gate-evidence.json，才仅该次push临时使用已有查询跳过开关；未跳过未核实/非绿门禁。收尾仅台账，按已验收文档轻量规则验收，不重复业务全量。
+- 生效确认：2026-10-23 09:01代理核验，生产需重启 WMS 服务生效；核对原PID16080完整命令/解释器/Session0/创建时间、8080单实例、main目标与tracked工作区无混合代码后，CIM Terminate返回0，沿原WMS-Warehouse计划任务单次重启。现PID14972/Session0，8080唯一listener、LastTaskResult=0；09:01:02日志版本1ca45e4、production/CSRF on、db-check migrate=ok（仅结构核验，不声称迁移）。本机/公网登录GET200均含CSRF，实际GET app.js与磁盘SHA256相同，WMS_NO_DB_TOUCH=1保留。收尾只台账不再次重启。所有业务测试只在隔离数据库/模拟网络，不在生产保存、导入、审批、完成、反审或生成出库/采购单，不改真实库存、账号密码或开关配置。
