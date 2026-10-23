@@ -45,6 +45,7 @@
     let selecting = false, editCtx = null, editSnapshot = null;
     let clip = null;              // 内部剪贴板
     let previewCtx = null;
+    let saveInFlight = false;
     const pageCfg = { size: 'A4', orient: 'portrait', w: 210, h: 297, mt: 12, mb: 12, ml: 12, mr: 12, scale: 100 };
     const PAPER = { A4: [210, 297], A5: [148, 210], B5: [176, 250] };
 
@@ -828,16 +829,34 @@
         return count ? payload : null;
     }
     function onSave() {
-        exitEdit();
-        const payload = sheets.map(buildSheetPayload).filter(Boolean);
-        if (!payload.length) return toast('没有需要保存的改动', 'warning');
-        WMS.api.post(BASE_URL, { sheets: payload }).then(function(res) {
-            sheets.forEach(sh => { sh.orig = structuredClone(sh.S); });
+        if (saveInFlight) return;
+        if (!S || !sheets.length) return toast('模板尚未加载完成，请加载成功后再保存', 'warning');
+        let payload, submitted;
+        try {
+            exitEdit();
+            payload = sheets.map(buildSheetPayload).filter(Boolean);
+            if (!payload.length) return toast('没有需要保存的改动', 'warning');
+            submitted = sheets.map(sh => ({ sheet: sh, state: structuredClone(sh.S) }));
+        } catch (err) {
+            return toast(escapeHtml(err.message || '保存失败'), 'error');
+        }
+        saveInFlight = true;
+        const saveButton = document.getElementById('btnSave');
+        const wasDisabled = saveButton.disabled;
+        saveButton.disabled = true;
+        return Promise.resolve().then(() => WMS.api.post(BASE_URL, { sheets: payload })).then(function(res) {
+            // Only the submitted snapshot reached the server. Later edits stay dirty.
+            submitted.forEach(saved => { saved.sheet.orig = saved.state; });
             refreshDirty();
-            document.getElementById('statusInfo').textContent = '已保存 ' + new Date().toLocaleTimeString();
-            toast(escapeHtml(res.msg || '模板已更新'));
+            const hasNewChanges = anyDirty();
+            document.getElementById('statusInfo').textContent =
+                (hasNewChanges ? '本次修改已保存，仍有未保存的修改 · ' : '已保存 ') + new Date().toLocaleTimeString();
+            toast(escapeHtml(hasNewChanges ? '本次修改已保存，仍有未保存的修改' : (res.msg || '模板已更新')));
         }).catch(function(err) {
             toast(escapeHtml(err.message || '保存失败'), 'error');
+        }).finally(function() {
+            saveInFlight = false;
+            saveButton.disabled = wasDisabled;
         });
     }
     document.getElementById('btnSave').onclick = onSave;
