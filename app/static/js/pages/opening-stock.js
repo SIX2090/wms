@@ -38,6 +38,7 @@ function warehouseOptionsHtml(selectedId) {
 }
 
 function renderRows() {
+    closeMaterialMenu();
     if (rows.length === 0) {
         gridBody.innerHTML = `<tr><td colspan="${GRID_COLSPAN}" class="text-center text-muted" style="padding:18px;">暂无明细，请点击"添加物料"开始录入</td></tr>`;
         syncCheckAllState();
@@ -589,6 +590,14 @@ function deleteCurrentDoc() {
 let materialSearchSeq = 0;
 let materialSearchTimer = null;
 
+function closeMaterialMenu() {
+    materialSearchSeq++;
+    if (materialSearchTimer) clearTimeout(materialSearchTimer);
+    materialSearchTimer = null;
+    activeCodeInput = null;
+    materialMenu.hidden = true;
+}
+
 function renderMaterialMenuItems(matches, index) {
     materialMenu.innerHTML = matches.length ? matches.map(item => `
         <div class="material-menu-item" onclick="selectMaterial(${index}, ${item.id})">
@@ -602,6 +611,9 @@ function renderMaterialMenuItems(matches, index) {
 }
 
 function showMaterialMenu(input, index) {
+    const seq = ++materialSearchSeq;
+    if (materialSearchTimer) clearTimeout(materialSearchTimer);
+    materialSearchTimer = null;
     activeCodeInput = {input, index};
     WMS.positionDropdown(input, materialMenu, {minWidth: 520, gap: 4});
     materialMenu.hidden = false;
@@ -612,18 +624,22 @@ function showMaterialMenu(input, index) {
         return;
     }
     materialMenu.innerHTML = '<div class="material-menu-item">搜索中…</div>';
-    const seq = ++materialSearchSeq;
-    if (materialSearchTimer) clearTimeout(materialSearchTimer);
+    const isCurrent = () => seq === materialSearchSeq && activeCodeInput &&
+        activeCodeInput.input === input && activeCodeInput.index === index &&
+        input.isConnected !== false && String(input.value || '').trim() === kw;
     materialSearchTimer = setTimeout(function() {
+        if (!isCurrent()) return;
+        // 模糊联想仅显示服务端返回的前 100 个候选，不作为全量档案。
         WMS.api.get('/api/material/search?keyword=' + encodeURIComponent(kw))
             .then(function(data) {
-                if (seq !== materialSearchSeq) return;  // 已有更新的输入，丢弃旧结果
-                const items = (data && data.data) || [];
+                if (!isCurrent()) return;
+                if (!Array.isArray(data)) throw new Error('物料搜索响应格式无效');
+                const items = data;
                 items.forEach(cacheMaterial);
                 renderMaterialMenuItems(items, index);
             })
             .catch(function() {
-                if (seq !== materialSearchSeq) return;
+                if (!isCurrent()) return;
                 materialMenu.innerHTML = '<div class="material-menu-item">搜索失败，请重试</div>';
             });
     }, 200);
@@ -641,7 +657,7 @@ function selectMaterial(index, materialId) {
         unit: material.unit || '',
         price: rows[index].price || material.price || 0,
     };
-    materialMenu.hidden = true;
+    closeMaterialMenu();
     renderRows();
     // P1-D：选中物料是用户意图 → 落草稿
     scheduleDraftSave();
@@ -741,6 +757,7 @@ function saveDocument() {
 }
 
 function showPasteModal() {
+    invalidatePasteLookup();
     document.getElementById('pasteImportText').value = '';
     document.getElementById('pasteImportFeedback').textContent = '';
     // FIX-OS-DATE-001: 默认沿用表头日期，避免导入时丢失用户选择的建账日期
@@ -879,8 +896,53 @@ function extractPasteCodes(text) {
     return codes;
 }
 
-// 粘贴导入：解析后并入当前单据（与手工保存同一 /opening_stock/save 路径）
+let pasteLookupGeneration = 0;
+let pasteLookupPending = false;
+const PASTE_CONTEXT_FIELDS = ['pasteImportText', 'pasteDocDate', 'headerDocDate', 'headerWarehouse', 'headerRemark'];
+
+function pasteLookupContext() {
+    return PASTE_CONTEXT_FIELDS.map(id => document.getElementById(id)?.value || '');
+}
+
+function invalidatePasteLookup() {
+    pasteLookupGeneration++;
+    if (pasteLookupPending) {
+        const feedback = document.getElementById('pasteImportFeedback');
+        feedback.textContent = '录入内容已变更或解析已取消，请重新确认导入';
+        feedback.className = 'form-text text-warning';
+    }
+    pasteLookupPending = false;
+}
+
+// 仅预热物料缓存，不保存库存。超过单次 500 编码时串行取全，任何失败均停止。
+function ensurePasteMaterialsLoaded(codes, lookupUrl, isCurrent) {
+    const seen = new Set();
+    const pending = codes.map(code => String(code || '').trim()).filter(code => {
+        const key = code.toLowerCase();
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return !findMaterialByCode(code);
+    });
+    function loadBatch(offset) {
+        if (!isCurrent()) return Promise.resolve(false);
+        if (offset >= pending.length) return Promise.resolve(true);
+        return WMS.api.post(lookupUrl, { codes: pending.slice(offset, offset + 500) }).then(data => {
+            if (!isCurrent()) return false;
+            if (!data || !Array.isArray(data.items) || data.items.some(item =>
+                !item || item.id == null || typeof item.code !== 'string')) {
+                throw new Error('物料解析响应格式无效');
+            }
+            data.items.forEach(cacheMaterial);
+            return loadBatch(offset + 500);
+        });
+    }
+    return Promise.resolve().then(() => loadBatch(0));
+}
+
+// 粘贴导入：预热完成且用户上下文仍一致时才进入原保存流程。
 function confirmPasteImport() {
+    const generation = ++pasteLookupGeneration;
+    pasteLookupPending = false;
     const text = document.getElementById('pasteImportText').value;
     const feedback = document.getElementById('pasteImportFeedback');
     if (!text.trim()) {
@@ -888,25 +950,33 @@ function confirmPasteImport() {
         feedback.className = 'form-text text-warning';
         return;
     }
-    // BUG-2026-09-16-012：先把未缓存的编码批量预热（一次请求），再同步解析。
-    // 缓存已覆盖时直接解析，零额外请求。
-    const pendingCodes = extractPasteCodes(text).filter(code => !findMaterialByCode(code));
-    if (pendingCodes.length) {
-        feedback.textContent = '正在解析物料编码…';
-        feedback.className = 'form-text text-muted';
-        WMS.api.post('/opening_stock/materials/lookup', { codes: pendingCodes.slice(0, 500) })
-            .then(function(data) {
-                const items = (data && data.data && data.data.items) || [];
-                items.forEach(cacheMaterial);
+    const context = pasteLookupContext();
+    const isCurrent = () => generation === pasteLookupGeneration &&
+        context.every((value, i) => value === pasteLookupContext()[i]);
+    const lookupUrl = '/opening_stock/materials/lookup';
+    pasteLookupPending = true;
+    feedback.textContent = '正在解析物料编码…';
+    feedback.className = 'form-text text-muted';
+    return ensurePasteMaterialsLoaded(extractPasteCodes(text), lookupUrl, isCurrent)
+        .then(ready => {
+            if (!isCurrent()) {
+                if (generation === pasteLookupGeneration) invalidatePasteLookup();
+                return;
+            }
+            if (ready) {
+                pasteLookupPending = false;
                 doPasteImport(text, feedback);
-            })
-            .catch(function(err) {
-                feedback.textContent = '物料解析失败：' + (err && err.message ? err.message : '未知错误');
-                feedback.className = 'form-text text-danger';
-            });
-        return;
-    }
-    doPasteImport(text, feedback);
+            }
+        }).catch(err => {
+            if (!isCurrent()) {
+                if (generation === pasteLookupGeneration) invalidatePasteLookup();
+                return;
+            }
+            feedback.textContent = '物料解析失败：' + (err && err.message ? err.message : '未知错误');
+            feedback.className = 'form-text text-danger';
+        }).finally(() => {
+            if (generation === pasteLookupGeneration) pasteLookupPending = false;
+        });
 }
 
 function doPasteImport(text, feedback) {
@@ -1094,11 +1164,19 @@ function renderSummary() {
 
 document.addEventListener('click', event => {
     if (!event.target.closest('#materialMenu') && !event.target.closest('.code-cell')) {
-        materialMenu.hidden = true;
+        closeMaterialMenu();
     }
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    PASTE_CONTEXT_FIELDS.forEach(function(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', invalidatePasteLookup);
+        el.addEventListener('change', invalidatePasteLookup);
+    });
+    const pasteModal = document.getElementById('pasteImportModal');
+    if (pasteModal) pasteModal.addEventListener('hide.bs.modal', invalidatePasteLookup);
     // 首次渲染前先把勾选态对齐到已有行数，否则编辑已有单据时
     // selectedFlags 为空数组、syncCheckAllState 读到 undefined 会误判全选态
     syncSelectedFlags(rows.length);
