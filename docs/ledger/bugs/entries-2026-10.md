@@ -1484,7 +1484,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-003: 销售公共列表及详情请求HTTP误成功与跨动作忙锁缺口
 
-- 状态：已修复，待CI及生产生效验收。
+- 状态：已修复，CI已通过，待004一并发布。
 - 根因/危害：base.bindListActions单笔/批量两处csrfFetch、sales_order_detail两处csrfPost共四个旧请求消费点只读JSON而不执行HTTP成功闸；非2xx携success信封可误提示成功/刷新/导航。公共列表及详情无覆盖人工确认→请求→成功刷新/导航的互斥，可重复或交叉派发。原CSRF、catch及后台角色/状态守卫确实存在，不误报为全无保护。
 - 同类点已排查：关联BUG-2026-10-23-002与BUG-2026-10-22-011至020。全仓bindListActions真实消费者仅销售订单列表和销售出库列表，区别于普通出库列表；公共修复覆盖两者，保留字符串/对象端点、selectedIds/runOne/runBatch返回接口、ID编码、全选跳过disabled及原定制复制回调。销售详情整单下推原行为是刷新详情，按数量下推才使用result.url跳转；不能误改为redirect_url。销售删除后台目前固定msg，原按msg判断可用，本批不把文本耦合误报为删除必坏。批量真实路由通常success带计数/跳过说明，完整失败返回error/400；通用partial兼容不代表这两路实际返回partial。
 - 修复：四个旧POST消费点统一WMS.api.postRaw，保持无body/JSON原协议，非2xx不能靠success正文误放行，null/业务拒绝及网络异常显示失败。公共列表binding级互斥在确认前生效，表内单笔/跨行/工具栏批量共用，取消失败恢复各按钮原disabled；成功保持至原600ms刷新，自定义复制回调仍500ms跳edit；同步throw/异步reject反馈并解锁，完整信封传给原回调。保留partial兼容、URL编码、全选跳过禁用、公开返回对象。详情五个写入口复用现有runDocumentAction，保留400ms延迟、whole刷新/selected result.url/删除原列表跳转；惰性访问WMS以适配content脚本早于base底部API加载。AI GET、数量前端规则、后台over_quantity/库存/权限不改。
@@ -1492,5 +1492,19 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 详情回归：基线60 passed，新56通过（32实际写操作JS及生产API、24实际Jinja角色状态）；脚本按真实顺序先执行content再加载API/helper，避免预加载掩盖依赖。旧模板仅10核心反证全failed/46 deselected，5成功例实际重复2请求而非1，5个HTTP500携success包误toast/误删除导航；真实base csrfPost/Headers运行，不依赖新增attr才发请求，finally字节一致恢复。最终7模块及相邻130 passed（8既有SQLAlchemy warning）。新增合计93，不重复叠加相邻；未改任何旧测试或弱化断言。
 - 组合验收：第三agent只读终审两消费者协议、回调/互斥/导航及加载顺序，无阻塞，未为并行新增重复桥接测试。显式TEMP隔离库9082冒烟119/119，工具管理前台服务会话已Ctrl-C退出；规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed。日志shared_list_transport/、sales-detail-20261023/及frontend-20261023-003-*.log；不新增AI能力或改变AI模型/工具/权限/开关/迁移。不重复本地全站，完整回归由代码提交CI执行。
 - 开工基线：main971f1e5ad59b4a1ae6aba5f362575978ffef3d7c，check_ci_green目标门禁exit0；WMS CI39881691938、AI39881691919均completed/success，Android39860469109成功并通过祖先/工程与构建工作流未变证明。启用仓库钩子后开工。
-- 发布闭环：待提交、推送及目标CI验收。
+- 发布闭环：代码45185716c41166d724c498bfb44e6dab7a2fad44已正常推送main并核对HEAD/origin一致；WMS CI39883675099完整单测/回归/冒烟及AI39883675105 completed/success，Android39860469109成功且复用证明通过。等待期间只读发现004会话提示组合问题，004写入在003严格目标门禁exit0后解锁；003暂不单独重启，待004目标全绿后共同发布，避免两次生产重启。
 - 生效确认：待确认；生产需重启 WMS 服务生效。所有业务测试只用隔离库/模拟网络，不在生产确认、删除、完成、反提交、取消订单或生成出库草稿；不改真实库存、账号密码或开关配置。
+
+
+### BUG-2026-10-23-004: fetch拦截器与统一API会话过期重复提示
+
+- 状态：已修复，待CI及生产生效验收。
+- 根因/危害：base全局fetch拦截器使用window.__wmsSessionExpiredShown，api.js使用私有sessionExpiredShown；在继承base的页面，单次401/419由两层分别提示登录。003等待CI期间只读实测真实base首IIFE+api.js单次401 postRaw产生2次confirm及2个5000ms复位timer。此为既有统一层问题，新迁移入口也会受影响，不能只测脱离base的API而遗漏组合行为。
+- 同类点已排查：检索台账及全仓sessionExpiredShown，仅两层持有独立标志，非各业务页单独弹窗；统一API同时用于不加载base的独立页面，修复不能直接删除其会话处理。所有JSON/raw/Response请求共用同入口，不改HTTP拒绝、CSRF、凭据及人工确认跳登录规则。
+- 修复：仅api.js删除私有标记，handleSessionExpired读/置true/5秒复位均复用global.__wmsSessionExpiredShown，不初始化覆盖base或先前请求已设置的true。保留独立API工作、401/419 SESSION_EXPIRED拒绝、接受人工跳/login/取消5秒后可再次提示；不改base拦截器或API其它传输逻辑。
+- 回归：修前API36+base拦截器8共44 passed；新12项真实base首IIFE与生产API组合及独立加载通过，覆盖401/419、raw/post/postRaw/postResponse同tick并发、接受/取消复位、先API后base、已提示true不覆盖；会话响应不消费JSON。仅旧api字节回退4个真实组合核心全failed/8 deselected，均直接2次confirm!=1，无缺依赖伪红；finally API精确字节恢复，base未回退。最终4模块及相邻284 passed（39.80秒）；日志session-expiry-20261023/。
+- 验证边界：此action仅API JS与测试/台账，不改模板或路由，沿用003模板批次119/119隔离HTTP冒烟；会话拒绝由真实拦截器组合及API相邻回归验证，不在本地重复全站pytest或第二遍全站HTTP冒烟。提交前规则与历史BUG检查及目标提交全量CI仍执行；没有新增AI能力/权限/模型/工具/开关/迁移。
+- 组合验收：规则0违规、verify_wms_bugs通过、台账契约10 passed；日志frontend-20261023-004-{rules,bug-check,ledger}.log。未放宽既有断言或修改其它API分支。
+- 开工基线：003代码45185716c41166d724c498bfb44e6dab7a2fad44的WMS CI39883675099、AI39883675105已completed/success，Android39860469109成功并通过祖先/路径未变证明，check_ci_green目标exit0后才解锁写入。先前等待期间仅只读复核，未写004业务代码。003尚未生产发布，待004目标全绿后一起单次重启。
+- 发布闭环：待提交、推送及目标CI验收。
+- 生效确认：待确认；不在生产触发会话过期或实际登录/改密，只用模拟网络验证401/419；不改真实账号、密码、业务记录或开关配置。

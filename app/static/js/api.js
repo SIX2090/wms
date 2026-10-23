@@ -80,14 +80,13 @@
     /**
      * 统一错误处理：401/419 会话过期
      */
-    var sessionExpiredShown = false;
     function handleSessionExpired() {
-        if (sessionExpiredShown) return;
-        sessionExpiredShown = true;
+        if (global.__wmsSessionExpiredShown) return;
+        global.__wmsSessionExpiredShown = true;
         if (global.confirm('登录已过期或会话失效，请重新登录。点击确定跳转到登录页面。')) {
             global.location.href = '/login';
         } else {
-            setTimeout(function() { sessionExpiredShown = false; }, 5000);
+            setTimeout(function() { global.__wmsSessionExpiredShown = false; }, 5000);
         }
     }
 
