@@ -24,14 +24,14 @@ PROGRAM = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);
 const requests=[],events=[],handlers={},toasts=[],timers=[];
 const modal={};
-const fields={cbGlobalImportModal:modal,cbGlobalImportFile:{files:p.mode==='no-file'?[]:[{name:'fixture.xlsx'}]},cbGlobalImportSubmit:{addEventListener:(event,fn)=>handlers[event]=fn}};
-const doc={body:{classList:{contains:name=>name==='embedded-page'&&p.embedded==='body'},insertAdjacentHTML:(position,html)=>{events.push('modal-html');assert.ok(html.includes('cbGlobalImportFile'));}},getElementById:id=>{if(id==='cbGlobalImportModal'&&!events.includes('modal-html'))return null;return fields[id];}};
+const fields={cbGlobalImportModal:modal,cbGlobalImportFile:{disabled:false,files:p.mode==='no-file'?[]:[{name:'fixture.xlsx'}]},cbGlobalImportSubmit:{disabled:false,addEventListener:(event,fn)=>handlers[event]=fn}};
+const doc={querySelector:()=>({content:'fixture-csrf'}),body:{classList:{contains:name=>name==='embedded-page'&&p.embedded==='body'},insertAdjacentHTML:(position,html)=>{events.push('modal-html');assert.ok(html.includes('cbGlobalImportFile'));}},getElementById:id=>{if(id==='cbGlobalImportModal'&&!events.includes('modal-html'))return null;return fields[id];}};
 class FormData { constructor(){this.values=[];} append(k,v){this.values.push([k,v]);} }
 const ctx={URL,URLSearchParams,document:doc,FormData,showToast:(msg,type)=>toasts.push({msg,type}),setTimeout:fn=>timers.push(fn),
 bootstrap:{Modal:class{show(){events.push('modal-show');}hide(){events.push('modal-hide');}}},
-csrfFetch:(url,options)=>{requests.push({url,options});return p.mode==='network'?Promise.reject(Error('offline-fixture')):Promise.resolve({json:()=>Promise.resolve({status:'success',msg:'imported-fixture'})});}};
+fetch:(url,options)=>{requests.push({url,options});return p.mode==='network'?Promise.reject(Error('offline-fixture')):Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({status:'success',msg:'imported-fixture'})});}};
 ctx.window=ctx;ctx.location={pathname:p.path,search:p.embedded==='query'?'?embedded=1':'',origin:'http://fixture.invalid',href:'original',reload:()=>events.push('reload')};ctx.open=()=>events.push('new-window');
-vm.createContext(ctx);vm.runInContext(p.source,ctx);
+vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);
 (async()=>{
   const module=ctx.getWmsActionModule();assert.ok(module,'real path must match a real configured module');
   ctx.showImportModalForModule(module);
@@ -63,7 +63,7 @@ vm.createContext(ctx);vm.runInContext(p.source,ctx);
 def run(path, embedded='none', mode='success'):
     node=shutil.which('node')
     if not node:pytest.skip('Node.js required')
-    payload=dict(source=source(),path=path,embedded=embedded,mode=mode)
+    payload=dict(source=source(),path=path,embedded=embedded,mode=mode,api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
     result=subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM,json.dumps(payload)],capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
 

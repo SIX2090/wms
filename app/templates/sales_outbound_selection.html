@@ -154,7 +154,7 @@
         <div class="sub">按客户和发货仓库选择已确认销售订单的待发货明细，生成销售出库草稿。</div>
     </div>
     <div class="d-flex gap-2">
-        <button type="button" class="btn btn-success btn-sm" onclick="createSelectedOutbound()">
+        <button id="createSelectedOutboundBtn" type="button" class="btn btn-success btn-sm" onclick="createSelectedOutbound()">
             <i class="bi bi-box-arrow-up"></i> 生成出库草稿
         </button>
         <a class="btn btn-secondary btn-sm" href="{{ url_for('sales_order_list') }}">
@@ -327,7 +327,8 @@ function updateSummary() {
     document.getElementById('footerCount').textContent = String(rows.length);
     document.getElementById('footerQty').textContent = fmt(qty);
 }
-function createSelectedOutbound() {
+async function createSelectedOutbound() {
+    if (createSelectedOutbound.pending) return;
     showValidation([]);
     const rows = Array.from(document.querySelectorAll('.select-row:checked'));
     if (!rows.length) {
@@ -351,24 +352,30 @@ function createSelectedOutbound() {
         items.push({ sales_order_item_id: Number(input.dataset.id), quantity: value });
     }
     document.getElementById('entryStatus').textContent = '正在生成出库草稿...';
-    csrfFetch('{{ url_for("create_sales_outbound_from_selection") }}', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: items })
-    }).then(function(r) { return r.json(); }).then(function(data) {
-        if (data.status === 'success') {
-            window.location.href = data.redirect_url;
-        } else {
-            const msg = data.msg || '生成失败';
-            showValidation([msg]);
-            document.getElementById('entryStatus').textContent = msg;
-            if (typeof showToast === 'function') showToast(msg, 'danger');
+    const button = document.getElementById('createSelectedOutboundBtn');
+    const wasDisabled = button && button.disabled;
+    createSelectedOutbound.pending = true;
+    if (button) button.disabled = true;
+    let navigating = false;
+    try {
+        const data = await WMS.api.postRaw('{{ url_for("create_sales_outbound_from_selection") }}', { items: items });
+        if (!data || data.status !== 'success') throw new Error((data && data.msg) || '生成失败');
+        if (typeof data.redirect_url !== 'string' || !data.redirect_url) {
+            throw new Error('服务器未返回出库单地址，请刷新页面核对');
         }
-    }).catch(function() {
-        showValidation(['生成失败，请稍后重试']);
-        document.getElementById('entryStatus').textContent = '生成失败，请稍后重试';
-        if (typeof showToast === 'function') showToast('生成失败，请稍后重试', 'danger');
-    });
+        navigating = true;
+        window.location.href = data.redirect_url;
+    } catch (error) {
+        const msg = '生成失败：' + ((error && error.message) || '请求失败，请稍后重试');
+        showValidation([msg]);
+        document.getElementById('entryStatus').textContent = msg;
+        if (typeof showToast === 'function') showToast(msg, 'danger');
+    } finally {
+        if (!navigating) {
+            createSelectedOutbound.pending = false;
+            if (button) button.disabled = wasDisabled;
+        }
+    }
 }
 ['customerFilter', 'warehouseFilter', 'salespersonFilter'].forEach(function(id) {
     document.getElementById(id).addEventListener('change', loadSelectable);

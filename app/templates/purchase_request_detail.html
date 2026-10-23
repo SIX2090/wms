@@ -19,7 +19,7 @@
         </a>
         {% if current_user.role in ['admin', 'purchase'] %}
         {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
-        <button class="btn btn-primary" onclick="createPurchaseOrder({{ order.id }})">
+        <button class="btn btn-primary" data-document-action="purchaseRequestDetail" data-purchase-request-action="createPurchaseOrder" onclick="createPurchaseOrder({{ order.id }})">
             <i class="bi bi-arrow-right-square"></i> 生成采购单
         </button>
         {% endif %}
@@ -27,23 +27,23 @@
         <a href="{{ url_for('purchase_request_edit_page', id=order.id) }}" class="btn btn-outline-secondary">
             <i class="bi bi-pencil-square"></i> 编辑
         </a>
-        <button class="btn btn-success" onclick="approveOrder({{ order.id }})">
+        <button class="btn btn-success" data-document-action="purchaseRequestDetail" data-purchase-request-action="approveOrder" onclick="approveOrder({{ order.id }})">
             <i class="bi bi-check"></i> 审批通过
         </button>
-        <button class="btn btn-danger" data-document-action="rejectOrder" onclick="rejectOrder({{ order.id }})">
+        <button class="btn btn-danger" data-document-action="purchaseRequestDetail" data-purchase-request-action="rejectOrder" onclick="rejectOrder({{ order.id }})">
             <i class="bi bi-x"></i> 驳回
         </button>
         {% elif order.status == 'approved' %}
         {% if not related_purchase_orders %}
-        <button class="btn btn-warning" onclick="revertOrder({{ order.id }})">
+        <button class="btn btn-warning" data-document-action="purchaseRequestDetail" data-purchase-request-action="revertOrder" onclick="revertOrder({{ order.id }})">
             <i class="bi bi-arrow-counterclockwise"></i> 反审
         </button>
         {% endif %}
-        <button data-document-action="completeOrder" class="btn btn-success" onclick="completeOrder({{ order.id }})">
+        <button class="btn btn-success" data-document-action="purchaseRequestDetail" data-purchase-request-action="completeOrder" onclick="completeOrder({{ order.id }})">
             <i class="bi bi-check-double"></i> 完成
         </button>
         {% elif order.status == 'completed' and not related_purchase_orders %}
-        <button class="btn btn-warning" onclick="revertOrder({{ order.id }})">
+        <button class="btn btn-warning" data-document-action="purchaseRequestDetail" data-purchase-request-action="revertOrder" onclick="revertOrder({{ order.id }})">
             <i class="bi bi-arrow-counterclockwise"></i> 反审
         </button>
         {% endif %}
@@ -175,7 +175,7 @@
                 {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
                 <div class="d-flex align-items-center gap-2 flex-wrap">
                     <span id="pushSelectionSummary" class="text-muted small">已选 0 行</span>
-                    <button type="button" class="btn btn-sm btn-primary" onclick="createPurchaseOrder({{ order.id }}, true)">
+                    <button type="button" class="btn btn-sm btn-primary" data-document-action="purchaseRequestDetail" data-purchase-request-action="createPurchaseOrder" onclick="createPurchaseOrder({{ order.id }}, true)">
                         <i class="bi bi-arrow-right-square"></i> 选中下推采购单
                     </button>
                 </div>
@@ -307,78 +307,74 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function runPurchaseRequestAction(action) {
+    return WMS.runDocumentAction('purchaseRequestDetail', action);
+}
+
+function waitForPurchaseRequestNavigation(callback, delay) {
+    return new Promise(function(resolve, reject) {
+        setTimeout(function() {
+            try { callback(); resolve(); } catch (error) { reject(error); }
+        }, delay);
+    });
+}
+
 function approveOrder(id) {
-    showConfirm('确认审批通过此采购申请单？', { title: '审批通过采购申请' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch(`/purchase_request/${id}/approve`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
+    return runPurchaseRequestAction(function() {
+        return showConfirm('确认审批通过此采购申请单？', { title: '审批通过采购申请' }).then(function(confirmed) {
+            if (!confirmed) return;
+            return WMS.api.postRaw(`/purchase_request/${id}/approve`)
+            .then(data => {
+                if (!data || data.status !== 'success') throw new Error((data && data.msg) || '操作失败');
                 showToast('采购申请已审批通过，正在刷新详情…', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast('操作失败：' + data.msg, 'danger', 3600);
-            }
-        })
-        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+                return waitForPurchaseRequestNavigation(function(){ location.reload(); }, 650);
+            })
+            .catch(err => showToast('操作失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 3600));
+        });
     });
 }
 
 function rejectOrder(id) {
-    const returnFocus = document.querySelector('button[data-document-action="rejectOrder"]');
-    return WMS.runDocumentAction('rejectOrder', async function() {
+    const returnFocus = document.querySelector('button[data-purchase-request-action="rejectOrder"]');
+    return runPurchaseRequestAction(async function() {
         const remark = await WMS.prompt('请输入驳回原因：', { title: '驳回采购申请', okText: '确认驳回', returnFocus: returnFocus });
         if (remark === null) return;
         return WMS.api.postRaw(`/purchase_request/${id}/reject`, { remark: remark })
         .then(data => {
-            if (data.status === 'success') {
-                showToast('采购申请已驳回，正在刷新详情…', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast('操作失败：' + data.msg, 'danger', 3600);
-            }
+            if (!data || data.status !== 'success') throw new Error((data && data.msg) || '操作失败');
+            showToast('采购申请已驳回，正在刷新详情…', 'success');
+            return waitForPurchaseRequestNavigation(function(){ location.reload(); }, 650);
         })
-        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+        .catch(err => showToast('操作失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 3600));
     });
 }
 
 function revertOrder(id) {
-    showConfirm('确认反审此采购申请单？反审后单据将退回待审批状态。', { title: '反审采购申请' }).then(function(confirmed) {
-        if (!confirmed) return;
-        csrfFetch(`/purchase_request/${id}/revert`, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
+    return runPurchaseRequestAction(function() {
+        return showConfirm('确认反审此采购申请单？反审后单据将退回待审批状态。', { title: '反审采购申请' }).then(function(confirmed) {
+            if (!confirmed) return;
+            return WMS.api.postRaw(`/purchase_request/${id}/revert`)
+            .then(data => {
+                if (!data || data.status !== 'success') throw new Error((data && data.msg) || '反审失败');
                 showToast(data.msg || '反审成功，正在刷新详情…', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast('反审失败：' + data.msg, 'danger', 3600);
-            }
-        })
-        .catch(err => showToast('反审失败：' + err.message, 'danger', 3600));
+                return waitForPurchaseRequestNavigation(function(){ location.reload(); }, 650);
+            })
+            .catch(err => showToast('反审失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 3600));
+        });
     });
 }
 
 function completeOrder(id) {
-    return WMS.runDocumentAction('completeOrder', function() {
+    return runPurchaseRequestAction(function() {
         return showConfirm('确认完成此采购申请单？', { title: '完成采购申请' }).then(function(confirmed) {
             if (!confirmed) return;
             return WMS.api.postRaw(`/purchase_request/${id}/complete`, {})
             .then(data => {
-                if (data.status === 'success') {
-                    showToast('采购申请已完成，正在刷新详情…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                } else {
-                    showToast('操作失败：' + data.msg, 'danger', 3600);
-                }
+                if (!data || data.status !== 'success') throw new Error((data && data.msg) || '操作失败');
+                showToast('采购申请已完成，正在刷新详情…', 'success');
+                return waitForPurchaseRequestNavigation(function(){ location.reload(); }, 650);
             })
-            .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+            .catch(err => showToast('操作失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 3600));
         });
     });
 }
@@ -437,33 +433,24 @@ function collectSelectedPushItems() {
 }
 
 function createPurchaseOrder(id, selectedOnly) {
-    let selectedItems = null;
-    if (selectedOnly) {
-        selectedItems = collectSelectedPushItems();
-        if (!selectedItems) return;
-    }
-    showConfirm('确认由此采购申请生成采购单？', { title: '生成采购单' }).then(function(confirmed) {
-        if (!confirmed) return;
-        const options = {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'}
-        };
+    return runPurchaseRequestAction(function() {
+        let selectedItems = null;
         if (selectedOnly) {
-            options.body = JSON.stringify({ items: selectedItems });
+            selectedItems = collectSelectedPushItems();
+            if (!selectedItems) return;
         }
-        csrfFetch(`/purchase_request/${id}/create_purchase_order`, options)
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
+        return showConfirm('确认由此采购申请生成采购单？', { title: '生成采购单' }).then(function(confirmed) {
+            if (!confirmed) return;
+            return WMS.api.postRaw(`/purchase_request/${id}/create_purchase_order`, selectedOnly ? { items: selectedItems } : undefined)
+            .then(data => {
+                if (!data || data.status !== 'success') throw new Error((data && data.msg) || '生成失败');
                 showToast(data.msg || '采购单生成成功', 'success');
-                setTimeout(function() {
+                return waitForPurchaseRequestNavigation(function() {
                     window.location.href = data.redirect_url || ('/purchase_order/' + data.id);
                 }, 500);
-            } else {
-                showToast('生成失败：' + data.msg, 'danger', 3600);
-            }
-        })
-        .catch(err => showToast('生成失败：' + err.message, 'danger', 3600));
+            })
+            .catch(err => showToast('生成失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 3600));
+        });
     });
 }
 

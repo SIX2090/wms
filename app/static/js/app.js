@@ -2188,6 +2188,7 @@ function showImportModalForModule(module) {
         showToast('当前模块暂未配置导入接口', 'warning');
         return;
     }
+    if (showImportModalForModule.busy) return;
     var old = document.getElementById('cbGlobalImportModal');
     if (old) old.remove();
     var html = '' +
@@ -2200,30 +2201,41 @@ function showImportModalForModule(module) {
     document.body.insertAdjacentHTML('beforeend', html);
     var modalEl = document.getElementById('cbGlobalImportModal');
     var modal = new bootstrap.Modal(modalEl);
-    document.getElementById('cbGlobalImportSubmit').addEventListener('click', function() {
+    document.getElementById('cbGlobalImportSubmit').addEventListener('click', async function() {
+        if (showImportModalForModule.busy) return;
         var fileInput = document.getElementById('cbGlobalImportFile');
         if (!fileInput.files.length) {
             showToast('请选择导入文件', 'warning');
             return;
         }
-        var formData = new FormData();
-        formData.append('file', fileInput.files[0]);
-        csrfFetch(module.importUrl, {
-            method: 'POST',
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            body: formData
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.status === 'success') {
+        var submitButton = document.getElementById('cbGlobalImportSubmit');
+        var disabled = submitButton.disabled;
+        var fileDisabled = fileInput.disabled;
+        var succeeded = false;
+        showImportModalForModule.busy = true;
+        submitButton.disabled = true;
+        try {
+            var formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            fileInput.disabled = true;
+            var res = await WMS.api.postRaw(module.importUrl, formData);
+            if (res && res.status === 'success') {
                 showToast(res.msg || '导入成功', 'success');
                 modal.hide();
                 setTimeout(function() { location.reload(); }, 800);
+                succeeded = true;
             } else {
-                showToast(res.msg || '导入失败', 'danger', 4200);
+                showToast((res && res.msg) || '导入失败', 'danger', 4200);
             }
-        })
-        .catch(function(err) { showToast('导入失败：' + err.message, 'danger', 4200); });
+        } catch (err) {
+            showToast('导入失败：' + ((err && err.message) || '请稍后重试'), 'danger', 4200);
+        } finally {
+            if (!succeeded) {
+                showImportModalForModule.busy = false;
+                submitButton.disabled = disabled;
+                fileInput.disabled = fileDisabled;
+            }
+        }
     });
     modal.show();
 }

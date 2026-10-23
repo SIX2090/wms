@@ -12,7 +12,7 @@
                 <i class="bi bi-trash"></i> 删除已选
             </button>
             <a href="/sales/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
+            <button id="salesImportButton" type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
             <a href="/sales/export?status={{ filters.status }}&customer_id={{ filters.customer_id }}&salesperson_id={{ filters.salesperson_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}" class="btn btn-outline-primary btn-sm">
@@ -305,28 +305,38 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function submitImportForm() {
+async function submitImportForm() {
+    if (submitImportForm.pending) return;
     const form = document.getElementById('importForm');
-    const file = document.getElementById('importFile').files[0];
-    if (!file) return;
+    const fileInput = document.getElementById('importFile');
+    if (!form || !fileInput || !fileInput.files[0]) return;
     const data = new FormData(form);
-    csrfFetch('/sales/import', {
-        method: 'POST',
-        body: data
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showToast(data.msg || '导入成功', 'success', 3600);
+    const button = document.getElementById('salesImportButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    submitImportForm.pending = true;
+    fileInput.disabled = true;
+    if (button) button.disabled = true;
+    let refreshing = false;
+    try {
+        const result = await WMS.api.postRaw('/sales/import', data);
+        if (result && result.status === 'success') {
+            refreshing = true;
+            showToast(result.msg || '导入成功', 'success', 3600);
             setTimeout(() => location.reload(), 900);
         } else {
-            showToast(data.msg || '导入失败', 'danger', 5000);
+            showToast((result && result.msg) || '导入失败', 'danger', 5000);
         }
-    })
-    .catch(error => showToast('导入失败：' + error.message, 'danger', 5000))
-    .finally(() => {
-        document.getElementById('importFile').value = '';
-    });
+    } catch (error) {
+        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
+    } finally {
+        fileInput.value = '';
+        if (!refreshing) {
+            submitImportForm.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
+        }
+    }
 }
 
 // SM-P6-03-3: toggleAllSalesOrders / selectedSalesOrderIds / deleteSalesOrder / copySalesOrder /

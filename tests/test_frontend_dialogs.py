@@ -58,15 +58,18 @@ def test_rejection_keeps_manual_boundary_and_request_lock(scenario):
         pytest.skip('Node.js required')
     template = (ROOT / 'app/templates/purchase_request_detail.html').read_text(encoding='utf-8')
     handler = _function(template, 'rejectOrder')
+    page_helpers = '\n'.join(_function(template, key) for key in ('runPurchaseRequestAction', 'waitForPurchaseRequestNavigation'))
     helper = (ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8')
     script = r'''
-const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);let requests=[],prompts=0,toasts=[],reloads=0,release;
+const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);let requests=[],prompts=0,toasts=[],reloads=0,release,timers=[];
 const button={disabled:false,attrs:{},getAttribute(k){return this.attrs[k]??null;},setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}};
-const ctx={document:{querySelector:()=>button,querySelectorAll:()=>[button]},Promise,showToast:m=>toasts.push(m),setTimeout:f=>f(),location:{reload(){reloads++;}},WMS:{prompt:(message,options)=>{prompts++;assert.equal(options.returnFocus,button);return Promise.resolve(p.scenario==='cancel'?null:'<literal> reason');},api:{postRaw:(url,data)=>{requests.push({url,data});return p.scenario==='pending'?new Promise(r=>release=r):p.scenario==='failure'?Promise.reject({message:'fixture error'}):Promise.resolve({status:'success'});}}}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.handler,ctx);
+const ctx={document:{querySelector:()=>button,querySelectorAll:()=>[button]},Promise,showToast:m=>toasts.push(m),setTimeout:f=>timers.push(f),location:{reload(){reloads++;}},WMS:{prompt:(message,options)=>{prompts++;assert.equal(options.returnFocus,button);return Promise.resolve(p.scenario==='cancel'?null:'<literal> reason');},api:{postRaw:(url,data)=>{requests.push({url,data});return p.scenario==='pending'?new Promise(r=>release=r):p.scenario==='failure'?Promise.reject({message:'fixture error'}):Promise.resolve({status:'success'});}}}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.page_helpers,ctx);vm.runInContext(p.handler,ctx);
 (async()=>{const a=ctx.rejectOrder(7),b=ctx.rejectOrder(7);assert.equal(a,b);await new Promise(r=>setImmediate(r));assert.equal(prompts,1);assert.equal(requests.length,p.scenario==='cancel'?0:1);
 if(requests.length){assert.equal(requests[0].url,'/purchase_request/7/reject');assert.equal(requests[0].data.remark,'<literal> reason');}
-if(p.scenario==='pending'){assert(button.disabled);assert.equal(button.attrs['aria-busy'],'true');release({status:'success'});}await a;assert.equal(button.disabled,false);assert.equal(reloads,['success','pending'].includes(p.scenario)?1:0);if(p.scenario==='failure')assert(toasts.some(x=>x.includes('fixture error')));
+if(p.scenario==='pending'){assert(button.disabled);assert.equal(button.attrs['aria-busy'],'true');release({status:'success'});}
+if(['success','pending'].includes(p.scenario)){await new Promise(r=>setImmediate(r));assert.equal(timers.length,1);assert.equal(button.disabled,true);assert.equal(ctx.rejectOrder(7),a);assert.equal(prompts,1);timers.shift()();}
+await a;assert.equal(button.disabled,false);assert.equal(reloads,['success','pending'].includes(p.scenario)?1:0);if(p.scenario==='failure')assert(toasts.some(x=>x.includes('fixture error')));
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
-    result = subprocess.run([node, '-e', script, json.dumps(dict(handler=handler, helper=helper, scenario=scenario))], capture_output=True, text=True, encoding='utf-8', timeout=20)
+    result = subprocess.run([node, '-e', script, json.dumps(dict(handler=handler, helper=helper, page_helpers=page_helpers, scenario=scenario))], capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr

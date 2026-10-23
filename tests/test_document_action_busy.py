@@ -37,11 +37,13 @@ def test_completion_busy_state(page, name, scenario):
     payload = dict(function=re.sub(r'\{\{.*?\}\}', '0', _function(source, name)),
         submit=_function(source, 'submitForm') if page == 'adjustment_add' else '',
         helper=helper.read_text(encoding='utf-8') if helper.exists() else '',
-        bound='data-document-action="'+name+'"' in source, name=name, scenario=scenario,
+        bound=('data-document-action="purchaseRequestDetail"' in source if page == 'purchase_request_detail' else 'data-document-action="'+name+'"' in source),
+        page_helpers=('\n'.join(_function(source,key) for key in ('runPurchaseRequestAction','waitForPurchaseRequestNavigation')) if page == 'purchase_request_detail' else ''),
+        detail=page == 'purchase_request_detail', name=name, scenario=scenario,
         supports_force=page in ['in_order_detail', 'out_order_detail'], adjustment=page == 'adjustment_add')
     script = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
-const p=JSON.parse(process.argv[1]);let requests=[],releases=[],confirms=0,errors=[];
+const p=JSON.parse(process.argv[1]);let requests=[],releases=[],confirms=0,errors=[],timers=[];
 const button=(disabled=false)=>({disabled,attrs:{},getAttribute(k){return this.attrs[k]??null;},setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}});
 const buttons=[button(),button(),button(true)];
 const fields={date:{value:'2026-10-21'},warehouse_id:{value:'2'},order_id:{value:''},
@@ -56,11 +58,12 @@ const ctx={document,Promise,confirm,showConfirm:()=>Promise.resolve(confirm()),_
   showToast:(msg)=>errors.push(msg),_showToast:(msg)=>errors.push(msg),alert:()=>{},
   csrfFetch:url=>request(url,false),fetch:url=>request(url,false),
   $:{post:(url,callback)=>request(url,true).then(callback)},
-  setTimeout:()=>{},location:{reload:()=>{}},showAnomalyWarning:()=>{},readonly:false,
+  setTimeout:(fn,delay)=>{if(p.detail)timers.push({fn,delay});},location:{reload:()=>{}},showAnomalyWarning:()=>{},readonly:false,
   collectItems:()=>({invalidRows:[],items:[{material_id:1,quantity:2}]})};
 ctx.window=ctx;ctx.WMS={api:{postRaw:url=>request(url,true)}};
-vm.createContext(ctx);if(p.helper)vm.runInContext(p.helper,ctx);if(p.submit)vm.runInContext(p.submit,ctx);vm.runInContext(p.function,ctx);
+vm.createContext(ctx);if(p.helper)vm.runInContext(p.helper,ctx);if(p.page_helpers)vm.runInContext(p.page_helpers,ctx);if(p.submit)vm.runInContext(p.submit,ctx);vm.runInContext(p.function,ctx);
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
+async function driveDetailNavigation(){if(!p.detail||p.scenario!=='pending')return;await flush();assert.equal(timers.length,1);assert.equal(buttons[0].disabled,true);const before=requests.length;ctx[p.name](7);await flush();assert.equal(requests.length,before,'navigation delay must keep the page write lock');timers.shift().fn();await flush();}
 (async()=>{
   const first=ctx[p.name](7,false);const second=ctx[p.name](7,false);await flush();
   if(p.scenario==='cancel') {await Promise.all([first,second]);assert.equal(requests.length,0);}
@@ -68,7 +71,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
     assert.equal(requests.length,1,'a second click must not send another completion request');
     assert.equal(confirms,1,'do not queue another confirmation');
     assert.equal(buttons[0].disabled,true);assert.equal(buttons[0].getAttribute('aria-busy'),'true');
-    releases[0]();await Promise.all([first,second]);await flush();
+    releases[0]();await driveDetailNavigation();await Promise.all([first,second]);await flush();
   }
   assert.equal(buttons[0].disabled,false);assert.equal(buttons[1].disabled,false);
   assert.equal(buttons[2].disabled,true,'keep pre-existing disabled state');
@@ -78,7 +81,7 @@ const flush=()=>new Promise(resolve=>setImmediate(resolve));
   const retry=ctx[p.name](7,force);await flush();
   if(p.scenario!=='cancel'){assert.equal(requests.length,before+1);releases.at(-1)();}
   if(force)assert(requests.at(-1).endsWith('?force=true'));
-  await retry;await flush();
+  await driveDetailNavigation();await retry;await flush();
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});
 '''
     result = subprocess.run([node, '-e', script, json.dumps(payload)], capture_output=True,
