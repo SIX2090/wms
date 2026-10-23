@@ -70,6 +70,7 @@ python scripts/check_ci_green.py
 - 期初库存导入统一进入[批量导入页](http://127.0.0.1:8080/batch_import?type=opening_stock)：先预检，再人工确认整份文件；换文件或取消后须重新预检。预览最多展示前 500 行，确认数量以整份文件的可导入总数为准。导入中禁止重复点击；若网络中断导致结果不确定，先核对期初单据再决定是否重试，重复导入会累加数量。
 - 标签条码：物料标签模板、批量标签打印（`app/routes/label.py`、`label_barcode.py`）。
 - 批量标签须等当前模板预览就绪再打印；切换模板时以最后选择为准，加载失败可重试或明确选择默认90×50模板。入库明细标签的Excel下载按预览中的实际物料生成；不沿用入库明细ID作为物料ID。免登录代理打印沿用90×50文字标签，自定义模板及Excel下载须先登录。
+- 物料页标签设计器须等所选模板加载完成再保存；保存、设默认和删除进行中会暂停其它设计操作。保存更新当前模板的版式及尺寸，修改名称请用「另存为」；更新后继续编辑原模板，新建后选中刚创建的模板。
 - 微信报表分享：手动执行前确认发送；“重新生成并再次发送”会再次投递已分享的报表。结果以分享日志的实际发送状态为准，执行完成不代表全部发送成功。
 - 打印体系：全 Excel 模板化打印；统一打印模板设计中心 + 在线编辑器 v2（类 Excel，PRINT-TEMPLATE-F01~F06）；单据内置模板注册表；打印队列与重试、多工作站多打印机定向路由（`/print_routing`）、内置/独立 Windows 打印代理无人值守出纸、打印失败/滞留/离线告警与微信推送（详见 `app/routes/print_queue.py`、`print_template_center.py`、`print_template_editor.py`、`app/local_print_agent.py`、`tools/print_agent/`）。
 - 移动端 APP：Android 原生 APP（Kotlin + Jetpack Compose，`app/android-native-wms/`，包名 `com.factory.wms`）扫码入库/出库/盘点，提交即自动触发打印任务；未提交清单落盘 DataStore（杀进程不丢）；断网离线作业队列暂存、联网补传；崩溃自动上报；库存日报/出入库明细/库存台账只读报表；语音指令（可集成 sherpa-onnx 离线中文识别，见 [SHERPA_INTEGRATION.md](./SHERPA_INTEGRATION.md)）。APK 由 CI 构建发布，CI 出包是 Android 端唯一编译验收依据。
