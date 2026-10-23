@@ -208,7 +208,7 @@
     <div class="card-header py-2" style="background:#fef2f2;">
         <div>
             <div class="settings-title text-danger"><i class="bi bi-exclamation-triangle-fill"></i> 初始化业务数据</div>
-            <div class="settings-desc mt-1">一键清空全部业务数据：单据/明细/期初/库存/流水/日志/AI/主数据/系统参数。仅保留 <strong>User 账号（账号+密码哈希）</strong>，方便重新启用 WMS。</div>
+            <div class="settings-desc mt-1">清空业务单据、库存、流水及相关日志，系统参数重置为默认值。<strong>用户账号与密码保留</strong>，主数据是否清空由下方勾选决定。</div>
         </div>
         <button type="button" class="btn btn-outline-danger btn-sm" id="openInitModalBtn">
             <i class="bi bi-arrow-counterclockwise"></i> 打开初始化向导
@@ -216,11 +216,11 @@
     </div>
     <div class="card-body">
         <div class="alert alert-warning small mb-0">
-            <strong>硬规则</strong>：执行前会先调用 <code>revert_*</code> 把所有 <code>completed</code> 单据变 <code>pending</code>，再批量删除草稿，库存数据自动归零。
+            <strong>操作前先备份</strong>：初始化会清空业务单据和库存，无法在本页撤销；请先创建并核对数据备份。
             <br>
             <strong>三重门禁</strong>：仅 <code>admin</code> 角色 + 输入当前管理员密码 + 输入确认短语 <code>初始化业务数据</code>。
             <br>
-            <strong>不可逆</strong>：操作写入 <code>OperationAudit</code> 审计（preview/done/failed）后连同历史审计一并清空。
+            <strong>审计记录</strong>：本次初始化审计保留；历史审计会尝试导出后清理，导出可能失败，请以执行结果为准。
         </div>
     </div>
 </div>
@@ -235,7 +235,7 @@
             </div>
             <div class="modal-body">
                 <div class="alert alert-danger small">
-                    即将清空 <strong>所有</strong> 业务数据，仅保留 <code>User</code> 表的账号与密码哈希。操作不可逆，请先到 <a href="/backup" target="_blank" class="alert-link">数据备份</a> 创建备份。
+                    即将清空业务数据，<strong>用户账号与密码保留，系统参数重置为默认值</strong>，主数据按下方勾选处理，本次初始化审计保留。操作不可逆，请先到 <a href="/backup" target="_blank" class="alert-link">数据备份</a> 创建备份。
                 </div>
 
                 <h6 class="text-muted">① 预览将清理的记录数</h6>
@@ -283,95 +283,64 @@
 
 {% block extra_js %}
 <script>
+let settingsWriteBusy = false;
+async function performSettingsRequest(button, url, buildData, options) {
+    if (settingsWriteBusy) return;
+    settingsWriteBusy = true;
+    const originalDisabled = button.disabled;
+    const originalHtml = button.innerHTML;
+    let refreshing = false;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>处理中';
+    updateConfirmBtnState();
+    try {
+        const data = await WMS.api.postRaw(url, buildData());
+        if (data && data.status === 'success') {
+            showToast(data.msg || options.success, 'success');
+            if (options.refreshDelay) {
+                setTimeout(() => location.reload(), options.refreshDelay);
+                refreshing = true;
+            }
+        } else {
+            showToast((data && data.msg) || options.failure, 'danger');
+        }
+    } catch (error) {
+        showToast(options.failure + '：' + ((error && error.message) || '请稍后重试'), 'danger');
+    } finally {
+        if (!refreshing) {
+            settingsWriteBusy = false;
+            button.disabled = originalDisabled;
+            button.innerHTML = originalHtml;
+            updateConfirmBtnState();
+            if (initPreviewReady && initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+        }
+    }
+}
+
 document.getElementById('systemSettingsForm').addEventListener('submit', function(event) {
     event.preventDefault();
     const form = event.currentTarget;
-    const btn = document.getElementById('saveSettingsBtn');
-    const data = new FormData(form);
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>保存中';
-
-    csrfFetch('/system_settings/save', {
-        method: 'POST',
-        body: data
-    })
-    .then(res => res.json())
-    .then(data => {
-        if (data.status === 'success') {
-            showToast(data.msg || '保存成功', 'success');
-            setTimeout(() => location.reload(), 500);
-        } else {
-            showToast(data.msg || '保存失败', 'danger');
-        }
-    })
-    .catch(error => {
-        showToast('保存失败：' + error.message, 'danger');
-    })
-    .finally(() => {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-save"></i> 保存参数';
-    });
+    return performSettingsRequest(document.getElementById('saveSettingsBtn'), '/system_settings/save',
+        () => new FormData(form), { failure: '保存失败', success: '保存成功', refreshDelay: 500 });
 });
 
 const testAiLlmBtn = document.getElementById('testAiLlmBtn');
 if (testAiLlmBtn) {
     testAiLlmBtn.addEventListener('click', function() {
-        const btn = testAiLlmBtn;
-        const originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>测试中';
-
-        csrfFetch('/system_settings/test_ai_llm', {
-            method: 'POST',
-            body: new FormData(document.getElementById('systemSettingsForm'))
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showToast(data.msg || '连接成功', 'success');
-                } else {
-                    showToast(data.msg || '连接失败', 'danger');
-                }
-            })
-            .catch(error => {
-                showToast('连接失败：' + error.message, 'danger');
-            })
-            .finally(() => {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            });
+        return performSettingsRequest(testAiLlmBtn, '/system_settings/test_ai_llm',
+            () => new FormData(document.getElementById('systemSettingsForm')),
+            { failure: '连接失败', success: '连接成功' });
     });
 }
 
 const testAiVisionBtn = document.getElementById('testAiVisionBtn');
 if (testAiVisionBtn) {
     testAiVisionBtn.addEventListener('click', function() {
-        const btn = testAiVisionBtn;
-        const originalHtml = btn.innerHTML;
-        const formData = new FormData(document.getElementById('systemSettingsForm'));
-        formData.set('test_type', 'vision');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>测试中';
-
-        csrfFetch('/system_settings/test_ai_llm', {
-            method: 'POST',
-            body: formData
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'success') {
-                    showToast(data.msg || '图片识别连接成功', 'success');
-                } else {
-                    showToast(data.msg || '图片识别连接失败', 'danger');
-                }
-            })
-            .catch(error => {
-                showToast('图片识别连接失败：' + error.message, 'danger');
-            })
-            .finally(() => {
-                btn.disabled = false;
-                btn.innerHTML = originalHtml;
-            });
+        return performSettingsRequest(testAiVisionBtn, '/system_settings/test_ai_llm', () => {
+            const data = new FormData(document.getElementById('systemSettingsForm'));
+            data.set('test_type', 'vision');
+            return data;
+        }, { failure: '图片识别连接失败', success: '图片识别连接成功' });
     });
 }
 
@@ -385,6 +354,9 @@ const errorArea = document.getElementById('initErrorArea');
 const pwdInput = document.getElementById('initAdminPassword');
 const phraseInput = document.getElementById('initConfirmPhrase');
 const confirmBtn = document.getElementById('confirmInitBtn');
+let initPreviewReady = false;
+let initPreviewLoading = false;
+let initPreviewStats = null;
 
 
 
@@ -402,10 +374,12 @@ function renderPreviewTable(stats) {
     for (const g of groups) {
         const items = stats[g.key] || [];
         const groupTotal = items.reduce((acc, it) => acc + (it.count || 0), 0);
-        total += groupTotal;
+        const includeMaster = document.getElementById('initIncludeMasterData');
+        const keepMaster = g.key === 'master' && includeMaster && !includeMaster.checked;
+        if (!keepMaster) total += groupTotal;
         html += `<div class="col-12"><div class="d-flex justify-content-between border-bottom py-1">
-            <span class="text-muted">${escapeHtml(g.title)}</span>
-            <span><strong>${groupTotal}</strong> 条 <span class="text-muted">(${items.length} 张表)</span></span>
+            <span class="text-muted">${escapeHtml(g.title)}${keepMaster ? '（保留）' : ''}</span>
+            <span>${keepMaster ? '保留 ' : ''}<strong>${groupTotal}</strong> 条 <span class="text-muted">(${items.length} 张表)</span></span>
         </div></div>`;
         for (const it of items) {
             html += `<div class="col-6"><div class="d-flex justify-content-between small">
@@ -420,27 +394,38 @@ function renderPreviewTable(stats) {
         <span class="fw-bold text-danger">${total} 条</span>
     </div>`;
     html += `<div class="small text-muted mt-2">
-        保留 User 共 <strong>${stats.user_count}</strong> 个账号（其中 admin 自身不会被删除）。
+        保留 <strong>${stats.user_count}</strong> 个用户账号及其密码，系统参数重置为默认值，本次初始化审计保留。
     </div>`;
     return html;
 }
 
 async function loadInitPreview() {
+    if (settingsWriteBusy || initPreviewLoading) return;
+    initPreviewLoading = true;
+    initPreviewReady = false;
+    initPreviewStats = null;
+    updateConfirmBtnState();
     previewArea.innerHTML = '<div class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-1"></span>加载中…</div>';
     try {
-        const res = await csrfFetch('/system_settings/init_business_data/preview', { method: 'GET' });
-        const data = await res.json();
-        if (!res.ok || data.status !== 'success') {
-            throw new Error(data.msg || '预览失败');
+        const data = await WMS.api.getRaw('/system_settings/init_business_data/preview');
+        if (!data || data.status !== 'success' || !data.data || typeof data.data !== 'object') {
+            throw new Error((data && data.msg) || '预览失败');
         }
-        previewArea.innerHTML = renderPreviewTable(data.data);
+        initPreviewStats = data.data;
+        previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+        initPreviewReady = true;
     } catch (err) {
-        previewArea.innerHTML = `<div class="text-danger text-center py-3">${escapeHtml(err.message)}</div>`;
+        initPreviewStats = null;
+        previewArea.innerHTML = `<div class="text-danger text-center py-3">${escapeHtml((err && err.message) || '预览失败')}</div>`;
+    } finally {
+        initPreviewLoading = false;
+        updateConfirmBtnState();
     }
 }
 
 function updateConfirmBtnState() {
-    const ok = (pwdInput.value || '').length > 0 && phraseInput.value === INIT_CONFIRM_PHRASE_FRONT;
+    const ok = !settingsWriteBusy && !initPreviewLoading && initPreviewReady
+        && (pwdInput.value || '').length > 0 && phraseInput.value === INIT_CONFIRM_PHRASE_FRONT;
     confirmBtn.disabled = !ok;
     if (phraseInput.value && phraseInput.value !== INIT_CONFIRM_PHRASE_FRONT) {
         phraseInput.classList.add('is-invalid');
@@ -451,6 +436,13 @@ function updateConfirmBtnState() {
 
 if (openInitBtn && initModalEl) {
     openInitBtn.addEventListener('click', function() {
+        if (settingsWriteBusy) return;
+        pwdInput.value = '';
+        phraseInput.value = '';
+        initPreviewReady = false;
+        errorArea.textContent = '';
+        errorArea.classList.add('d-none');
+        updateConfirmBtnState();
         if (window.bootstrap && window.bootstrap.Modal) {
             new window.bootstrap.Modal(initModalEl).show();
         } else if (typeof $ !== 'undefined' && $.fn.modal) {
@@ -458,14 +450,19 @@ if (openInitBtn && initModalEl) {
         }
         loadInitPreview();
     });
-    initModalEl.addEventListener('shown.bs.modal', loadInitPreview);
 }
 
 [pwdInput, phraseInput].forEach(el => el && el.addEventListener('input', updateConfirmBtnState));
+const includeMasterCheckbox = document.getElementById('initIncludeMasterData');
+if (includeMasterCheckbox) includeMasterCheckbox.addEventListener('change', function() {
+    if (!settingsWriteBusy && initPreviewReady && initPreviewStats) {
+        previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+    }
+});
 
 if (confirmBtn) {
     confirmBtn.addEventListener('click', async function() {
-        if (confirmBtn.disabled) return;
+        if (settingsWriteBusy || !initPreviewReady || initPreviewLoading || confirmBtn.disabled) return;
         const pwd = pwdInput.value;
         const phrase = phraseInput.value;
         if (phrase !== INIT_CONFIRM_PHRASE_FRONT) {
@@ -478,35 +475,34 @@ if (confirmBtn) {
             errorArea.classList.remove('d-none');
             return;
         }
-        if (!window.confirm('最后确认：执行后将清空全部业务数据（仅保留 User 账号与密码），是否继续？')) {
-            return;
-        }
-        errorArea.classList.add('d-none');
-        confirmBtn.disabled = true;
-        confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>初始化中…';
+        settingsWriteBusy = true;
+        updateConfirmBtnState();
+        const originalHtml = confirmBtn.innerHTML;
+        let refreshing = false;
         try {
+            if (!window.confirm('最后确认：执行后将清空业务数据、系统参数重置为默认值，主数据按勾选处理；用户账号密码及本次初始化审计保留。请确认已备份，是否继续？')) return;
+            errorArea.classList.add('d-none');
+            confirmBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>初始化中…';
             const fd = new FormData();
             fd.append('admin_password', pwd);
             fd.append('confirm_phrase', phrase);
-            // SYS-AUDIT-009：从前端 checkbox 读取，而非硬编码 '1'
             const includeMaster = document.getElementById('initIncludeMasterData');
             fd.append('include_master_data', includeMaster && includeMaster.checked ? '1' : '0');
-            const res = await csrfFetch('/system_settings/init_business_data/execute', {
-                method: 'POST',
-                body: fd,
-            });
-            const data = await res.json();
-            if (!res.ok || data.status !== 'success') {
-                throw new Error(data.msg || '初始化失败');
-            }
-            showToast('初始化完成，即将刷新页面', 'success');
+            const data = await WMS.api.postRaw('/system_settings/init_business_data/execute', fd);
+            if (!data || data.status !== 'success') throw new Error((data && data.msg) || '初始化失败');
+            showToast(data.msg || '初始化完成，即将刷新页面', 'success');
             setTimeout(() => location.reload(), 1500);
+            refreshing = true;
         } catch (err) {
-            errorArea.textContent = err.message;
+            errorArea.textContent = ((err && err.message) || '初始化失败') + '；请先核对执行结果，再决定是否重新确认。';
             errorArea.classList.remove('d-none');
-            confirmBtn.disabled = false;
-            confirmBtn.innerHTML = '<i class="bi bi-trash3-fill"></i> 确认初始化';
-            updateConfirmBtnState();
+        } finally {
+            if (!refreshing) {
+                settingsWriteBusy = false;
+                confirmBtn.innerHTML = originalHtml;
+                updateConfirmBtnState();
+                if (initPreviewReady && initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+            }
         }
     });
 }
