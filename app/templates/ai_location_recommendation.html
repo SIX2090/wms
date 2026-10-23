@@ -257,16 +257,32 @@ $('#materialSearch').on('input', function() {
         (m.spec && m.spec.toLowerCase().includes(query))
     ).slice(0, 20);
     
+    dropdown.empty();
     if (filtered.length === 0) {
         dropdown.html('<div class="material-option text-muted">未找到匹配物料</div>');
     } else {
-        dropdown.html(filtered.map(m => 
-            `<div class="material-option" onclick="selectMaterial(${m.id}, '${m.code}', '${m.name}')">
-                <span class="dropdown-code">${m.code}</span>
-                <span class="dropdown-name">${m.name}</span>
-                ${m.spec ? `<span class="dropdown-spec">${m.spec}</span>` : ''}
-            </div>`
-        ).join(''));
+        filtered.forEach(m => {
+            const option = document.createElement('div');
+            option.className = 'material-option';
+            const code = document.createElement('span');
+            code.className = 'dropdown-code';
+            code.textContent = m.code;
+            option.appendChild(code);
+            const name = document.createElement('span');
+            name.className = 'dropdown-name';
+            name.textContent = m.name;
+            option.appendChild(name);
+            if (m.spec) {
+                const spec = document.createElement('span');
+                spec.className = 'dropdown-spec';
+                spec.textContent = m.spec;
+                option.appendChild(spec);
+            }
+            option.addEventListener('click', function() {
+                selectMaterial(m.id, m.code, m.name);
+            });
+            dropdown.append(option);
+        });
     }
     dropdown.addClass('show');
 });
@@ -329,7 +345,7 @@ function renderResult(data) {
     
     const levelClass = data.turnover.level === '高' ? 'turnover-high' : 
                        data.turnover.level === '中' ? 'turnover-medium' : 'turnover-low';
-    $('#statLevel').html(`<span class="turnover-tag ${levelClass}">${data.turnover.level}</span>`);
+    $('#statLevel').html(`<span class="turnover-tag ${levelClass}">${escapeHtml(data.turnover.level)}</span>`);
     $('#turnoverDesc').text(data.turnover.description);
     
     // 当前库位
@@ -337,7 +353,7 @@ function renderResult(data) {
     if (currentLocs.length > 0) {
         $('#currentLocations').html(
             currentLocs.map(loc => 
-                `<span class="location-pill">${loc.location}：${loc.quantity}${data.material.unit}</span>`
+                `<span class="location-pill">${escapeHtml(loc.location)}：${escapeHtml(loc.quantity)}${escapeHtml(data.material.unit)}</span>`
             ).join('')
         );
         $('#currentLocationCard').show();
@@ -357,13 +373,13 @@ function renderResult(data) {
                 <div class="recommend-card">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
-                            <strong class="fs-5">${idx + 1}. ${rec.location}</strong>
-                            <span class="score-badge ${scoreClass} ms-2">${rec.score}分</span>
+                            <strong class="fs-5">${idx + 1}. ${escapeHtml(rec.location)}</strong>
+                            <span class="score-badge ${scoreClass} ms-2">${escapeHtml(rec.score)}分</span>
                         </div>
                     </div>
                     <div class="mt-2 text-muted small">
-                        当前存放 <strong>${rec.material_count}</strong> 种物料，
-                        总库存 <strong>${rec.total_qty}</strong>
+                        当前存放 <strong>${escapeHtml(rec.material_count)}</strong> 种物料，
+                        总库存 <strong>${escapeHtml(rec.total_qty)}</strong>
                     </div>
                 </div>`;
             }).join('')

@@ -1621,3 +1621,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 开工基线：84c4f5371abf0b7ad7824170aaf66b34f270e82c，WMS CI39942386376、AI39942386400精确匹配且success，Android39860469109祖先和保护路径证明保持。四受影响/相邻模块修前56 passed。
 - 回归：新增9项（6个UTF8注释位置契约覆盖7处、3种真实CSRF刷新IIFE运行时）验证成功token更新、禁用/失败保留token、失败告警、请求凭据/header、25分钟间隔、单飞、防后台触发、finally解锁及可见性重试。五模块65 passed。备份两产品文件后恢复HEAD，新增测试8 failed/1 passed，finally恢复修复，不用stash，日志wms-hygiene-rollback-ki4tcrtq/rollback.log；说明原失败告警对照继续通过。台账/README/库存定位契约34 passed，规则0违规；新隔离库18080冒烟121/121，已停止自建进程8344，证据wms-shell-qa-p0gpfzrb/smoke.log。目标CI在验收记录补充。
 - 生效确认：待确认；未主动重启生产服务，全部写入测试只使用隔离库或模拟网络。
+
+
+### BUG-2026-10-23-014: AI页面把文字拼入点击脚本及库位推荐HTML
+
+- 状态：代码已修复，完整AI/浏览器/目标CI及生产生效待验收；AI子修复ID为AI-R15-FIX-TEXT-EVENT-001。
+- 根因/危害：质量看板低质量分组详情将escapeHtml后的字符串拼入onclick，HTML属性实体解码后单引号重新成为JS语法；真实renderLowQualitySamples产出+HTMLParser按浏览器解码+Node执行事件属性，测试值x');globalThis.__wmsProbe=1;//确实使探针变1。库位推荐搜索同样将物料编码/名称拼入onclick且将名称/规格作为HTML；推荐结果还直接插入库位名称和单位。含引号的正常文字可导致选择/下钻失败，恶意文字可成为DOM/脚本；不声称生产已遭利用。
+- 修复范围：质量详情按钮改type=button、转义data属性和addEventListener；物料选项以DOM/textContent构建，点击闭包传原id/code/name；推荐结果的级别、库位、单位和数值文本经公共escapeHtml。原人工选料、只读下钻、20条候选上限、指标/推荐算法、权限、模型和所有业务写接口不变。生产需重启 WMS 服务生效。
+- 同类点已排查：全仓检索模板字符串内事件属性，文本拼进事件脚本的两处均修复；期初库存剩余事件插值为本地行下标/数值ID，采购选择行仅data-item-id，不按相同根因改写。库位推荐同页结果渲染也一并检查修复。关联历史标签/AI反馈转义修复和既有AI-R15-F01/WMS-AI-GATE-001，不重复开发能力；新增子ID查重无等价项。
+- 开工基线：d73f9fbbe96d690f378b24883c3b287677ef227e，WMS CI39943299522、AI39943299471准确匹配且success，Android39860469109祖先及保护路径证明不变。质量/看板两专项修前16项通过，完整verify_ai_all.py --level full --jobs 1修前70/70通过（272.87秒，wms-xss-baseline-20261023.log）。
+- 回归：新增9项执行实际页面渲染函数/搜索事件和公共escapeHtml，覆盖O'Reilly、脚本闭合载荷、HTML标签/双引号/中文，验证属性解码后数据完整、零事件属性/注入节点、下钻原参、选料原id/code/name及重复渲染替换旧选项；推荐结果三处均只作为文本显示。新代码9 passed。备份两模板后恢复HEAD，新锁7 failed/2 passed，finally恢复字节、不用stash；日志wms-ai-text-rollback-9iblcrb_/rollback.log。修后完整verify_ai_all.py --level full --jobs 2为70/70通过（sum275.50秒，wms-xss-fixed-20261023.log，含verify_wms_bugs）；组合7模块89 passed，规则0违规，严格AI台账检查通过。真实浏览器用两页面实际函数和本地jQuery处理模拟载荷，选料/详情点击原参完整、注入图片节点0、探针始终0、控制台错误0；仅隔离夹具不代表生产已修复。新隔离库18080冒烟121/121且自建进程4152已停止（wms-shell-qa-_o56_f1d/smoke.log）。目标CI在验收记录补充。
+- 生效确认：待确认；不在生产插入恶意物料/模型文字，不开库位管理，不调用真实推荐/保存/提交/删除接口，测试只用模拟数据和隔离库。

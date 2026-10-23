@@ -318,12 +318,17 @@ function renderLowQualitySamples(snapshot) {
                     <td class="text-end">${(metrics.line_recall * 100).toFixed(1)}%</td>
                     <td class="text-end">${(metrics.material_match_rate * 100).toFixed(1)}%</td>
                     <td class="text-end">${(metrics.human_correction_rate * 100).toFixed(1)}%</td>
-                    <td><button class="btn btn-sm btn-outline-primary" onclick="showSampleDetail('${escapeHtml(dim)}', '${escapeHtml(value)}')">详情</button></td>
+                    <td><button type="button" class="btn btn-sm btn-outline-primary" data-quality-detail data-dimension="${escapeHtml(dim)}" data-value="${escapeHtml(value)}">详情</button></td>
                 </tr>`;
             }
         }
     }
     tbody.innerHTML = html || '<tr><td colspan="12" class="text-center text-muted py-3">暂无低质量样本</td></tr>';
+    tbody.querySelectorAll('button[data-quality-detail]').forEach(button => {
+        button.addEventListener('click', function() {
+            showSampleDetail(button.dataset.dimension, button.dataset.value);
+        });
+    });
 }
 
 // 显示样本详情
