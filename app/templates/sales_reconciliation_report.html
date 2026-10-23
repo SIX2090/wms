@@ -145,6 +145,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='cdn/chart.umd-4.4.1.min.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     var chartData = {{ chart_data|tojson|safe }};
