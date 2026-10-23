@@ -1591,55 +1591,60 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-011: 公共布局无条件加载图表库且仪表盘重复引入
 
-- 状态：代码已修复，目标 CI 验收及生产生效待确认。
+- 状态：已修复并发布。
 - 根因/危害：base.html 在 head 全局同步加载 Chart.js，普通录单/列表也下载和解析图表库；report_dashboard 的 extra_js 又引入同一文件，重复执行库初始化。sales_reconciliation_report 隐式依赖公共布局，直接删除全局引用会使对账图表消失。
 - 修复范围：移除公共布局 Chart.js 引用，对账页在自身 extra_js 中显式先加载本地库再初始化；仪表盘保留原有 stats 条件加载，未选仓库时不加载。不改报表数据、库存、请求接口或 AI 洞察行为。生产需重启 WMS 服务生效。
 - 同类点已排查：全仓检索 Chart/chart.umd，实际消费者仅报表仪表盘和销售对账页；ZXing 已是扫码页加载、xlsx 已有组件动态加载，不按原报告误批处理。模板扫描统计不等同浏览器性能测量，本批不宣称首屏耗时改善百分比。
 - 开工基线：main a833fe6577b8877c8a9b4b6d673842ae842d0276；check_ci_green.py --json 退出0，WMS CI39926710502、AI39926710537精确匹配且success，Android39860469109成功并通过祖先/保护路径未变证明。Git绝对路径bash已启用hooks。四受影响/相邻模块修前20 passed（1既有SQLAlchemy警告）。
 - 回归：新增4项验证公共布局不带图表库、两图表页各加载一次且先加载后初始化、无仓库仪表盘不加载；Node执行实际Jinja渲染脚本，图表构造器替身分别收到4/2个不同canvas，避免仅用字符串判断图表仍在。六模块64 passed（1既有警告）。备份两个模板后git checkout恢复旧版，新增用例确实2 failed/2 passed，再finally逐字节恢复修复，不用stash（临时日志wms-chart-rollback-2t684dl1/rollback.log）。隔离临时SQLite+18080服务冒烟121/121，通过后已停止自建进程2900，未访问生产写接口；证据wms-frontend-011-l8anc6mj/smoke.log。
-- 生效确认：待确认。尚未重启生产服务，不把本地/CI通过等同生产已生效；代码提交及目标CI信息在后续验收记录补充。
+- 生效确认：2026-10-23 19:29代理核验。沿WMS-Warehouse原入口统一重启，PID8352/Session0，启动版本7c25740；本机/公网登录GET200含CSRF，生产CSP已移除unsafe-eval，静态shell.css与磁盘SHA256一致。仅共享版本/HTTP与静态资源在生产只读核验，交互回归和恶意载荷均只在隔离库/夹具中执行。统一备份及实例详情见BUG-2026-10-23-015。
 - CI遗漏与回滚：首次代码1a31bd4a575d7b8d84628abc3a1d24a3bf8961a5的WMS CI39940144515单测分片2因本条漏登记POST_SPLIT_BUGS而失败（fixed316对历史315），其余业务/图表测试通过。按R8完整revert为80a0628270c7488ae3208432ec519e6abee2fb24，tree与开工基线完全一致；仅此纠错回滚因远端红灯无法通过普通pre-push而用git push --no-verify推送，未使用WMS_SKIP_CI_GATE，不用于新功能放行。回滚WMS CI39940697431、AI39940697458准确匹配且success后才重新写入。本次补登记本条的明确fixed状态，保留历史315/141/19/1基线及全部原断言；同时执行完整台账/README/库存定位契约34项。
 
+- 发布闭环：代码38f790884d9eff32b6358de9cd89896f339765d5已实际push到main且本地/origin/live远端一致；WMS CI[运行39941406700](https://github.com/SIX2090/wms/actions/runs/39941406700)、AI[运行39941406733](https://github.com/SIX2090/wms/actions/runs/39941406733)均准确匹配并completed/success。对应受影响与相邻回归及代码提交全站CI通过。统一部署目标7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0同样全绿；逐页找到最新Android39860469109成功记录，并核实祖先关系、Git对象及Android工程/工作流无差异，未用任意旧绿替代。匿名403时沿用同一基线连接器替代证据和单次WMS_SKIP_CI_GATE=1，finally清除；各次push-gate.json与最终deployment-gate.json保留在本轮临时证据目录。
 
 ### BUG-2026-10-23-012: 公共布局重复内联约54KB静态样式且无法独立缓存
 
-- 状态：代码已修复，目标CI及生产生效待确认。
+- 状态：已修复并发布。
 - 根因/危害：base.html包含1849行、54248字节的静态CSS，每次HTML响应均重复下发，布局文件还混杂助手/打印提示/侧栏/录单栏样式。现有custom.css不是这段样式的替代品，直接合并会改变级联位置。
 - 修复范围：将唯一静态style块原样迁出app/static/css/shell.css，在原位置以STATIC_VERSION引用；不改变任何选择器、声明值、顺序、优先级或业务脚本。base.html从4003降至2153行。独立文件沿用已有静态资源年度缓存/ETag及全目录mtime版本策略。生产需重启 WMS 服务生效。
 - 同类点已排查：该CSS没有Jinja表达式和url()相对资源；其余业务模板样式不混改。原嵌入页浮动按钮、采购弹窗/批量编辑与toast层级断言改为读取模板实际加载的本地CSS，全部原断言保留；新增完整样式声明顺序SHA256快照04b9a0c0f13a44ec6336fa374a107c1f56a03596c709a60aad0291d9fe4bad23，新增shell.css的新增/更新/删除版本验证。不把399个!important或颜色数量本身当成已复现业务BUG。
 - 开工基线：38f790884d9eff32b6358de9cd89896f339765d5；WMS CI39941406700、AI39941406733精确匹配且success，Android39860469109仍为祖先且保护路径未变。011首次台账遗漏已先完整回滚再修复，无跨批写入。受影响/相邻模块修前86 passed。
 - 回归：新增3项覆盖加载顺序/版本引用、全部原CSS声明哈希、真实静态GET字节/类型/年度缓存/ETag/304；加入版本测试后七模块90 passed。新用例先在旧版3 failed；再备份模板和CSS、恢复旧模板并移除本批新CSS，3项均有效失败，finally恢复全部字节，不用stash，证据wms-shell-rollback-acq_m70p/rollback.log。真实浏览器重载隔离服务后，对账嵌入页body/main/sidebar/toast/AI按钮/打印铃铛六处计算样式（display、定位、层级、边距、宽度、字体、背景）与迁出前逐项完全一致，shell.css仅加载一次且无脚本错误；新隔离库18080冒烟121/121，证据wms-shell-qa-65j5v0mb/smoke.log。另六相邻/台账模块90 passed，规则0违规；目标CI在验收记录补充。
-- 生效确认：待确认；未重启生产，不将测试服务的效果当成生产已生效。原生产库、单据、账号及服务进程不操作。
+- 生效确认：2026-10-23 19:29代理核验。沿WMS-Warehouse原入口统一重启，PID8352/Session0，启动版本7c25740；本机/公网登录GET200含CSRF，生产CSP已移除unsafe-eval，静态shell.css与磁盘SHA256一致。仅共享版本/HTTP与静态资源在生产只读核验，交互回归和恶意载荷均只在隔离库/夹具中执行。统一备份及实例详情见BUG-2026-10-23-015。
 
+- 发布闭环：代码84c4f5371abf0b7ad7824170aaf66b34f270e82c已实际push到main且本地/origin/live远端一致；WMS CI[运行39942386376](https://github.com/SIX2090/wms/actions/runs/39942386376)、AI[运行39942386400](https://github.com/SIX2090/wms/actions/runs/39942386400)均准确匹配并completed/success。对应受影响与相邻回归及代码提交全站CI通过。统一部署目标7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0同样全绿；逐页找到最新Android39860469109成功记录，并核实祖先关系、Git对象及Android工程/工作流无差异，未用任意旧绿替代。匿名403时沿用同一基线连接器替代证据和单次WMS_SKIP_CI_GATE=1，finally清除；各次push-gate.json与最终deployment-gate.json保留在本轮临时证据目录。
 
 ### BUG-2026-10-23-013: 公共布局保留乱码注释及CSRF例行调试输出
 
-- 状态：代码已修复，目标CI及生产生效待确认。
+- 状态：已修复并发布。
 - 根因/危害：旧编码转换留下七处不可读注释（四处样式、三处触摸/缩放说明）；例行CSRF刷新成功/显式禁用仍输出console.log，污染业务页面控制台。原报告把注释示例和反馈降级日志混计，不将所有console.log一律视为调试残留。
 - 修复范围：仅恢复base.html与shell.css七处中文注释，删除两条例行调试输出及随之空置的禁用分支；保留刷新失败console.warn、原25分钟定时器、可见性触发、请求参数、token更新及finally解锁。物料刷新/ExcelTable的反馈降级日志仍有明确用途，不在本批删除。生产需重启 WMS 服务生效。
 - 同类点已排查：检索全部自有模板/JS的console.log，api.js命中是文档示例，ExcelTable为allow-console降级输出；录单的notifyMaterialRefresh也是showToast缺失时的反馈降级。七处乱码原位修正，没有对整文件执行转码。CSS声明顺序快照仍通过，不改变当前禁止缩放的行为。
 - 开工基线：84c4f5371abf0b7ad7824170aaf66b34f270e82c，WMS CI39942386376、AI39942386400精确匹配且success，Android39860469109祖先和保护路径证明保持。四受影响/相邻模块修前56 passed。
 - 回归：新增9项（6个UTF8注释位置契约覆盖7处、3种真实CSRF刷新IIFE运行时）验证成功token更新、禁用/失败保留token、失败告警、请求凭据/header、25分钟间隔、单飞、防后台触发、finally解锁及可见性重试。五模块65 passed。备份两产品文件后恢复HEAD，新增测试8 failed/1 passed，finally恢复修复，不用stash，日志wms-hygiene-rollback-ki4tcrtq/rollback.log；说明原失败告警对照继续通过。台账/README/库存定位契约34 passed，规则0违规；新隔离库18080冒烟121/121，已停止自建进程8344，证据wms-shell-qa-p0gpfzrb/smoke.log。目标CI在验收记录补充。
-- 生效确认：待确认；未主动重启生产服务，全部写入测试只使用隔离库或模拟网络。
+- 生效确认：2026-10-23 19:29代理核验。沿WMS-Warehouse原入口统一重启，PID8352/Session0，启动版本7c25740；本机/公网登录GET200含CSRF，生产CSP已移除unsafe-eval，静态shell.css与磁盘SHA256一致。仅共享版本/HTTP与静态资源在生产只读核验，交互回归和恶意载荷均只在隔离库/夹具中执行。统一备份及实例详情见BUG-2026-10-23-015。
 
+- 发布闭环：代码d73f9fbbe96d690f378b24883c3b287677ef227e已实际push到main且本地/origin/live远端一致；WMS CI[运行39943299522](https://github.com/SIX2090/wms/actions/runs/39943299522)、AI[运行39943299471](https://github.com/SIX2090/wms/actions/runs/39943299471)均准确匹配并completed/success。对应受影响与相邻回归及代码提交全站CI通过。统一部署目标7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0同样全绿；逐页找到最新Android39860469109成功记录，并核实祖先关系、Git对象及Android工程/工作流无差异，未用任意旧绿替代。匿名403时沿用同一基线连接器替代证据和单次WMS_SKIP_CI_GATE=1，finally清除；各次push-gate.json与最终deployment-gate.json保留在本轮临时证据目录。
 
 ### BUG-2026-10-23-014: AI页面把文字拼入点击脚本及库位推荐HTML
 
-- 状态：代码已修复，完整AI/浏览器/目标CI及生产生效待验收；AI子修复ID为AI-R15-FIX-TEXT-EVENT-001。
+- 状态：已修复并发布。
 - 根因/危害：质量看板低质量分组详情将escapeHtml后的字符串拼入onclick，HTML属性实体解码后单引号重新成为JS语法；真实renderLowQualitySamples产出+HTMLParser按浏览器解码+Node执行事件属性，测试值x');globalThis.__wmsProbe=1;//确实使探针变1。库位推荐搜索同样将物料编码/名称拼入onclick且将名称/规格作为HTML；推荐结果还直接插入库位名称和单位。含引号的正常文字可导致选择/下钻失败，恶意文字可成为DOM/脚本；不声称生产已遭利用。
 - 修复范围：质量详情按钮改type=button、转义data属性和addEventListener；物料选项以DOM/textContent构建，点击闭包传原id/code/name；推荐结果的级别、库位、单位和数值文本经公共escapeHtml。原人工选料、只读下钻、20条候选上限、指标/推荐算法、权限、模型和所有业务写接口不变。生产需重启 WMS 服务生效。
 - 同类点已排查：全仓检索模板字符串内事件属性，文本拼进事件脚本的两处均修复；期初库存剩余事件插值为本地行下标/数值ID，采购选择行仅data-item-id，不按相同根因改写。库位推荐同页结果渲染也一并检查修复。关联历史标签/AI反馈转义修复和既有AI-R15-F01/WMS-AI-GATE-001，不重复开发能力；新增子ID查重无等价项。
 - 开工基线：d73f9fbbe96d690f378b24883c3b287677ef227e，WMS CI39943299522、AI39943299471准确匹配且success，Android39860469109祖先及保护路径证明不变。质量/看板两专项修前16项通过，完整verify_ai_all.py --level full --jobs 1修前70/70通过（272.87秒，wms-xss-baseline-20261023.log）。
 - 回归：新增9项执行实际页面渲染函数/搜索事件和公共escapeHtml，覆盖O'Reilly、脚本闭合载荷、HTML标签/双引号/中文，验证属性解码后数据完整、零事件属性/注入节点、下钻原参、选料原id/code/name及重复渲染替换旧选项；推荐结果三处均只作为文本显示。新代码9 passed。备份两模板后恢复HEAD，新锁7 failed/2 passed，finally恢复字节、不用stash；日志wms-ai-text-rollback-9iblcrb_/rollback.log。修后完整verify_ai_all.py --level full --jobs 2为70/70通过（sum275.50秒，wms-xss-fixed-20261023.log，含verify_wms_bugs）；组合7模块89 passed，规则0违规，严格AI台账检查通过。真实浏览器用两页面实际函数和本地jQuery处理模拟载荷，选料/详情点击原参完整、注入图片节点0、探针始终0、控制台错误0；仅隔离夹具不代表生产已修复。新隔离库18080冒烟121/121且自建进程4152已停止（wms-shell-qa-_o56_f1d/smoke.log）。目标CI在验收记录补充。
-- 生效确认：待确认；不在生产插入恶意物料/模型文字，不开库位管理，不调用真实推荐/保存/提交/删除接口，测试只用模拟数据和隔离库。
+- 生效确认：2026-10-23 19:29代理核验。沿WMS-Warehouse原入口统一重启，PID8352/Session0，启动版本7c25740；本机/公网登录GET200含CSRF，生产CSP已移除unsafe-eval，静态shell.css与磁盘SHA256一致。仅共享版本/HTTP与静态资源在生产只读核验，交互回归和恶意载荷均只在隔离库/夹具中执行。统一备份及实例详情见BUG-2026-10-23-015。
 
+- 发布闭环：代码cd36abf6a62e083088eb31dc10ba9060843d9499已实际push到main且本地/origin/live远端一致；WMS CI[运行39944914326](https://github.com/SIX2090/wms/actions/runs/39944914326)、AI[运行39944914371](https://github.com/SIX2090/wms/actions/runs/39944914371)均准确匹配并completed/success。对应受影响与相邻回归及代码提交全站CI通过。统一部署目标7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0同样全绿；逐页找到最新Android39860469109成功记录，并核实祖先关系、Git对象及Android工程/工作流无差异，未用任意旧绿替代。匿名403时沿用同一基线连接器替代证据和单次WMS_SKIP_CI_GATE=1，finally清除；各次push-gate.json与最终deployment-gate.json保留在本轮临时证据目录。
 
 ### BUG-2026-10-23-015: 生产CSP无依赖却继续放行字符串动态代码执行
 
-- 状态：代码已修复，目标CI及统一生产生效待验收。
+- 状态：已修复并发布。
 - 根因/危害：ProductionConfig.SECURITY_HEADERS保留script-src unsafe-eval；它与现有内联脚本所需unsafe-inline并非同一依赖。全量本地JS（含第三方）和模板检索未发现eval、Function构造或字符串定时器调用，继续放行会无谓削弱脚本策略。
 - 修复范围：仅移除script-src中的unsafe-eval，保留当前self/unsafe-inline以及object-src/base-uri/frame-ancestors等限制。新增前端资源与CSP说明并由README链接，说明加载/缓存事实与仍存unsafe-inline的限制，不声称已消除所有XSS。关联014已独立修复数据进事件脚本，不把CSP收紧当作其替代。需要重启 WMS 服务生效。
 - 同类点已排查：全仓CSP实际配置仅该处，无其他nginx配置重复覆盖此指令；静态资源含本地第三方均扫描。014子修复AI-R15-FIX-TEXT-EVENT-001在cd36abf6推送及CI39944914326/AI39944914371成功后才标记代码闭环，生产仍待本轮统一重启，不新增AI功能、模型、工具、权限、开关或迁移。
 - 开工基线：cd36abf6a62e083088eb31dc10ba9060843d9499，WMS CI39944914326、AI39944914371准确匹配且success，Android39860469109祖先与保护路径证明保持。四安全/Excel/图表模块修前39 passed。
 - 回归：新增3项验证生产默认CSP、真实Flask响应头及全浏览器源码无字符串编译依赖；六模块51 passed。备份config.py再恢复HEAD，新锁2 failed/1静态扫描对照passed，finally恢复修复，不用stash，日志wms-csp-rollback-i8prll64/rollback.log。真实浏览器以当前ProductionConfig CSP加载实际本地依赖，eval和Function两种字符串编译均被拒绝；jQuery中文文本、Bootstrap弹窗初始化、Flatpickr日期、ZXing初始化（不请求摄像头）、SheetJS中文xlsx写入后读取、Chart实际绘制七项全部PASS。夹具在18081，仅模拟数据无业务请求。相邻与台账/README/库存定位/样式/刷新共46 passed，严格AI台账/源码编码及规则0违规、verify_wms_bugs全部通过。AI子任务标记完成时严格检查检出两模板漏归属标记，已补Jinja注释AI_TASK，不改变功能或放宽检查。新隔离库18080冒烟121/121，自建进程10312已停止（wms-shell-qa-5v3tz9az/smoke.log）。目标CI和统一生产验收在后续记录补充。
-- 生效确认：待确认；发布前只读核对生产PID7196（17:12:42创建、Python311/Session0）、WMS-Warehouse既有run_wms_task.bat、8080唯一监听及登录GET200，当前响应头确仍含unsafe-eval。待目标CI全绿后统一发布，不把测试夹具生效当成生产生效。
+- 生效确认：2026-10-23 19:29代理核验。发布前再次确认目标SHA及tracked工作区干净、PID7196精确创建时间/完整命令/Python311/Session0、8080唯一监听、原run_wms_task.bat入口及WMS_NO_DB_TOUCH=1。用online_backup.py对生产库mode=ro在线一致性备份至backups/before_frontend_20261023_7c25740a.db，integrity_check=ok，备份SHA256为6a04cd7afb7dad5c50bdbeac048c42fa9165cb4c42b8654ac1b59ac58138f466。CIM Terminate返回0，沿原计划任务启动一次；新PID8352，19:29:44.252456+08:00创建，同解释器/命令/Session0，8080单实例，LastTaskResult=0。19:29:47日志版本7c25740、production、CSRF on；db-check migrate=ok仅结构检查，不声称执行迁移。只读本机和https://gd2026.top/login均200含CSRF且CSP不含unsafe-eval；实际服务shell.css的SHA256为2e340f68c3d58fd012bd0650db74c6979027f26d788bae185c7c8ecec9aa4462，与磁盘一致，text/css及年度缓存正确。production-check.json保留本轮临时证据。无生产单据/库存/账号/密码修改，未开库位、未触发实体打印。临时18080/18081服务和浏览器验收页均关闭。收尾仅文档记录，运行时代码仍为此已验收版本，不再次重启。
+- 发布闭环：代码7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0已实际push到main且本地/origin/live远端一致；WMS CI[运行39945887710](https://github.com/SIX2090/wms/actions/runs/39945887710)、AI[运行39945887770](https://github.com/SIX2090/wms/actions/runs/39945887770)均准确匹配并completed/success。对应受影响与相邻回归及代码提交全站CI通过。统一部署目标7c25740a58f2ca5cf5622bdac1cd0b92026a5bb0同样全绿；逐页找到最新Android39860469109成功记录，并核实祖先关系、Git对象及Android工程/工作流无差异，未用任意旧绿替代。匿名403时沿用同一基线连接器替代证据和单次WMS_SKIP_CI_GATE=1，finally清除；各次push-gate.json与最终deployment-gate.json保留在本轮临时证据目录。
