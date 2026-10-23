@@ -125,7 +125,7 @@
         </form>
     </div>
     <table class="d-none" aria-hidden="true"><thead><tr><th>物料</th></tr></thead><tbody><tr><td>空</td></tr></tbody></table>
-    <div class="labels-container" id="labelsContainer" style="display:none;">
+    <div class="labels-container" id="labelsContainer" data-wms-print-state="empty" style="display:none;">
     </div>
     <script>
     var MATERIALS = [];
@@ -143,26 +143,50 @@
             <select class="form-select form-select-sm" id="templateSelect" style="width:200px;">
                 <option value="">-- 加载中 --</option>
             </select>
+            <button type="button" class="btn btn-secondary" onclick="loadTemplates()">重试模板</button>
             <label style="font-size:13px;color:#666;">Excel模板:</label>
             <select class="form-select form-select-sm" id="excelTemplateSelect" style="width:170px;">
                 <option value="">默认Excel模板</option>
             </select>
-            <button class="btn btn-secondary" onclick="downloadExcelLabels()">⬇ 下载Excel标签</button>
+            <button class="btn btn-secondary" id="downloadExcelLabelsBtn" onclick="downloadExcelLabels()">⬇ 下载Excel标签</button>
             <a href="/print_templates?target_type=label" class="btn btn-secondary" target="_blank" title="在模板中心在线设计 Excel 标签模板">设计Excel模板</a>
             <a href="/material" class="btn btn-secondary"><i class="bi bi-arrow-left"></i> 返回物料列表</a>
-            <button class="btn btn-primary" onclick="window.print()">▶ 开始打印</button>
+            <button class="btn btn-primary" onclick="printLabels()">▶ 开始打印</button>
             <button class="btn btn-secondary" onclick="window.close()">✕ 关闭</button>
         </div>
         <span class="info" id="sizeInfo" style="color:#1890ff;"></span>
+        <span class="info" id="templateStatus" role="status" aria-live="polite"></span>
+        <span class="info" id="excelTemplateStatus" role="status" aria-live="polite"></span>
+        <span class="info" id="wmsAutoprintStatus" role="status" aria-live="polite"></span>
     </div>
 
-    <div class="labels-container" id="labelsContainer">
+    <div class="labels-container" id="labelsContainer" data-wms-print-state="loading">
     </div>
 
+    <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <script>
     var MATERIALS = {{ materials_data | tojson }};
     var container = document.getElementById('labelsContainer');
+    var anonymousPrintMode = {{ (current_user is defined and not current_user.is_authenticated and (request.args.get('ptoken') or '') != '') | tojson }};
     var templateCache = {};
+    var templateLoadVersion = 0;
+    var excelLoadVersion = 0;
+    function setLoadingStatus(id, message, failed) {
+        var node = document.getElementById(id);
+        node.textContent = message;
+        node.style.color = failed ? '#dc3545' : '#666';
+    }
+    function setPrintState(state) {
+        container.setAttribute('data-wms-print-state', state);
+    }
+    function printLabels() {
+        if (container.getAttribute('data-wms-print-state') !== 'ready') {
+            setLoadingStatus('templateStatus', '标签尚未就绪，请等待加载完成；加载失败时请重试或明确选择默认90×50mm标签。', true);
+            return false;
+        }
+        window.print();
+        return true;
+    }
 
     function getFieldValue(mat, field) {
         switch(field) {
@@ -185,93 +209,121 @@
     }
 
     function loadTemplates() {
-        fetch('/label_template/api/list')
-            .then(function(r){ return r.json(); })
-            .then(function(res){
-                if (res.status !== 'success' || !res.templates || res.templates.length === 0) {
-                    document.getElementById('templateSelect').innerHTML = '<option value="">-- 无模板 --</option>';
-                    renderLabels(null);
-                    return;
-                }
-                var select = document.getElementById('templateSelect');
-                select.innerHTML = '<option value="">-- 选择模板 --</option>';
-                res.templates.forEach(function(t){
-                    var opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
-                    select.appendChild(opt);
-                });
-                // 物料标签默认打印模板优先 90×50mm；其次默认模板；再退回第一个模板。
-                var preferred = res.templates.find(function(t){ return t.width == 90 && t.height == 50; })
-                    || res.templates.find(function(t){ return t.is_default; })
-                    || res.templates[0];
-                if (preferred) {
-                    select.value = preferred.id;
-                    switchTemplate(preferred.id);
-                }
-            })
-            .catch(function(err){
-                console.error('加载模板列表失败:', err);
-                document.getElementById('templateSelect').innerHTML = '<option value="">-- 加载失败 --</option>';
-                renderLabels(null);
+        var version = ++templateLoadVersion;
+        var select = document.getElementById('templateSelect');
+        if (anonymousPrintMode) {
+            select.innerHTML = '<option value="">默认90×50mm文字标签</option>';
+            renderLabels(null);
+            setLoadingStatus('templateStatus', '免登录打印使用默认文字标签；自定义模板需登录。', false);
+            return;
+        }
+        setPrintState('loading');
+        container.innerHTML = '';
+        document.getElementById('sizeInfo').textContent = '';
+        setLoadingStatus('templateStatus', '正在加载标签模板…', false);
+        return WMS.api.getRaw('/label_template/api/list').then(function(res) {
+            if (version !== templateLoadVersion) return;
+            if (!res || res.status !== 'success' || !Array.isArray(res.templates)) {
+                throw new Error((res && res.msg) || '服务器返回的模板列表无效');
+            }
+            select.innerHTML = '<option value="">默认90×50mm标签</option>';
+            res.templates.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
+                select.appendChild(opt);
             });
+            var preferred = res.templates.find(function(t) { return t.width == 90 && t.height == 50; })
+                || res.templates.find(function(t) { return t.is_default; }) || res.templates[0];
+            if (preferred) {
+                select.value = preferred.id;
+                return switchTemplate(preferred.id);
+            }
+            renderLabels(null);
+            setLoadingStatus('templateStatus', '暂无标签模板，使用默认90×50mm标签。', false);
+        }).catch(function(err) {
+            if (version !== templateLoadVersion) return;
+            select.innerHTML = '<option value="__load_error__" selected disabled>-- 标签模板加载失败 --</option><option value="">默认90×50mm标签</option>';
+            renderLabels(null);
+            setPrintState('error');
+            setLoadingStatus('templateStatus', '标签模板列表加载失败：' + ((err && err.message) || '请重试') + '。当前仅显示默认预览，请重试或明确选择默认90×50mm标签后打印。', true);
+        });
     }
 
     function switchTemplate(templateId) {
-        if (!templateId) return;
-        container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="spinner-border text-primary"></div><p>加载模板中...</p></div>';
-
-        if (templateCache[templateId]) {
-            renderFromDbTemplate(templateCache[templateId]);
+        if (anonymousPrintMode) templateId = '';
+        var version = ++templateLoadVersion;
+        if (!templateId) {
+            renderLabels(null);
+            setLoadingStatus('templateStatus', '已选择默认90×50mm标签。', false);
             return;
         }
-
-        fetch('/label_template/api/' + templateId + '/detail')
-            .then(function(r){ return r.json(); })
-            .then(function(res){
-                if (res.status === 'success' && res.template) {
-                    templateCache[templateId] = res.template;
-                    renderFromDbTemplate(res.template);
-                } else {
-                    container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">加载模板失败</div>';
-                }
-            })
-            .catch(function(err){
-                console.error('加载模板详情失败:', err);
-                container.innerHTML = '<div style="text-align:center;padding:40px;color:red;">网络错误，请刷新重试</div>';
-            });
+        setPrintState('loading');
+        document.getElementById('sizeInfo').textContent = '';
+        container.innerHTML = '<div style="text-align:center;padding:40px;"><div class="spinner-border text-primary"></div><p>加载模板中...</p></div>';
+        setLoadingStatus('templateStatus', '正在加载标签模板…', false);
+        if (templateCache[templateId]) {
+            renderFromDbTemplate(templateCache[templateId]);
+            setLoadingStatus('templateStatus', '标签模板已加载。', false);
+            return;
+        }
+        return WMS.api.getRaw('/label_template/api/' + templateId + '/detail').then(function(res) {
+            if (version !== templateLoadVersion) return;
+            if (!res || res.status !== 'success' || !res.template || typeof res.template !== 'object') {
+                throw new Error((res && res.msg) || '服务器返回的模板详情无效');
+            }
+            templateCache[templateId] = res.template;
+            renderFromDbTemplate(res.template);
+            setLoadingStatus('templateStatus', '标签模板已加载。', false);
+        }).catch(function(err) {
+            if (version !== templateLoadVersion) return;
+            container.innerHTML = '';
+            setPrintState('error');
+            setLoadingStatus('templateStatus', '标签模板加载失败：' + ((err && err.message) || '请重试') + '。请重新选择模板或重试。', true);
+        });
     }
 
-    document.getElementById('templateSelect').addEventListener('change', function(){
+    document.getElementById('templateSelect').addEventListener('change', function() {
         switchTemplate(this.value);
     });
 
-    // PRINT-TEMPLATE-F04 A3：Excel 标签模板（模板中心在线设计）下拉与下载
+    // Excel dropdown failures keep the existing default download available.
     function loadExcelTemplates() {
-        fetch('/doc_print_templates/material_label.json')
-            .then(function(r){ return r.json(); })
-            .then(function(res){
-                if (res.status !== 'success' || !res.templates) return;
-                var select = document.getElementById('excelTemplateSelect');
-                select.innerHTML = '<option value="">默认Excel模板</option>';
-                res.templates.forEach(function(t){
-                    var opt = document.createElement('option');
-                    opt.value = t.id;
-                    opt.textContent = t.name + (t.is_default ? '（默认）' : '');
-                    select.appendChild(opt);
-                });
-            })
-            .catch(function(err){
-                console.error('加载Excel模板列表失败:', err);
+        var version = ++excelLoadVersion;
+        var select = document.getElementById('excelTemplateSelect');
+        if (anonymousPrintMode) {
+            select.disabled = true;
+            document.getElementById('downloadExcelLabelsBtn').disabled = true;
+            setLoadingStatus('excelTemplateStatus', '免登录打印不提供Excel下载，请登录后使用。', false);
+            return;
+        }
+        setLoadingStatus('excelTemplateStatus', '正在加载Excel模板…', false);
+        return WMS.api.getRaw('/doc_print_templates/material_label.json').then(function(res) {
+            if (version !== excelLoadVersion) return;
+            if (!res || res.status !== 'success' || !Array.isArray(res.templates)) {
+                throw new Error((res && res.msg) || '服务器返回的Excel模板列表无效');
+            }
+            select.innerHTML = '<option value="">默认Excel模板</option>';
+            res.templates.forEach(function(t) {
+                var opt = document.createElement('option');
+                opt.value = t.id;
+                opt.textContent = t.name + (t.is_default ? '（默认）' : '');
+                select.appendChild(opt);
             });
+            setLoadingStatus('excelTemplateStatus', res.templates.length ? 'Excel模板已加载。' : '暂无自定义Excel模板，使用默认模板。', false);
+        }).catch(function(err) {
+            if (version !== excelLoadVersion) return;
+            select.innerHTML = '<option value="">默认Excel模板</option>';
+            setLoadingStatus('excelTemplateStatus', 'Excel模板加载失败：' + ((err && err.message) || '请重试') + '。仍可下载默认Excel标签。', true);
+        });
     }
 
     function downloadExcelLabels() {
-        var params = new URLSearchParams(window.location.search);
-        var ids = params.get('ids') || '';
-        if (!ids) {
-            ids = MATERIALS.map(function(m){ return m.id; }).join(',');
+        if (anonymousPrintMode) {
+            setLoadingStatus('excelTemplateStatus', 'Excel标签下载需登录，请登录后使用。', true);
+            return;
         }
+        var ids = MATERIALS.map(function(m) { return m.id; }).join(',');
         var url = '/label/batch_print_excel?ids=' + encodeURIComponent(ids);
         var tid = document.getElementById('excelTemplateSelect').value;
         if (tid) url += '&template_id=' + encodeURIComponent(tid);
@@ -424,6 +476,7 @@
             card.appendChild(table);
             container.appendChild(card);
         });
+        setPrintState(MATERIALS.length ? 'ready' : 'empty');
     }
 
     function renderLabels(tmpl) {
@@ -441,13 +494,27 @@
             card.style.height = H + 'mm';
             var inner = document.createElement('div');
             inner.className = 'label-simple';
-            inner.innerHTML =
-                '<div class="label-simple-name">' + (mat.name || '') + '</div>' +
-                '<div class="label-simple-row"><span>编码: ' + (mat.code||'') + '</span><span>规格: ' + (mat.spec||'-') + '</span></div>' +
-                '<div class="label-simple-row"><span>单位: ' + (mat.unit_name||'-') + '</span><span>库存: ' + (mat.stock||'0') + '</span></div>';
+            var name = document.createElement('div');
+            name.className = 'label-simple-name';
+            name.textContent = mat.name || '';
+            inner.appendChild(name);
+            function addInfoRow(left, right) {
+                var row = document.createElement('div');
+                row.className = 'label-simple-row';
+                var leftSpan = document.createElement('span');
+                leftSpan.textContent = left;
+                var rightSpan = document.createElement('span');
+                rightSpan.textContent = right;
+                row.appendChild(leftSpan);
+                row.appendChild(rightSpan);
+                inner.appendChild(row);
+            }
+            addInfoRow('编码: ' + (mat.code || ''), '规格: ' + (mat.spec || '-'));
+            addInfoRow('单位: ' + (mat.unit_name || '-'), '库存: ' + (mat.stock || '0'));
             card.appendChild(inner);
             container.appendChild(card);
         });
+        setPrintState(MATERIALS.length ? 'ready' : 'empty');
     }
 
     window.addEventListener('DOMContentLoaded', loadTemplates);

@@ -1521,3 +1521,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 组合验收：第三agent只读协议及最终窄补丁审查通过；规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed。显式TEMP隔离库9082冒烟119/119含system_settings GET200，工具前台服务已关闭；终审补丁仅缓存重绘，由新增核心锁覆盖，不重复全站冒烟。日志frontend-20261023-005-{rules,bug-check,ledger,smoke}.log。本地不重复全站pytest，交目标CI；不新增AI能力或改AI权限/模型/工具/开关/迁移，不调用生产保存、连接测试或初始化。
 - 发布闭环：代码a242a9067d5671d1d4ad2dab8ad4d3a422a8a470已推送main，读取实际push输出并核对HEAD/origin一致；WMS CI39891610350完整单测/回归/静态/冒烟及AI39891610341均completed/success，最新main SHA匹配目标。Android39860469109 success，经本地祖先与Android工程/构建工作流未变证明复用。匿名pre-push查询403后，连接器核实同一2c696915基线三工作流全绿并记录frontend-20261023-005-push-gate-evidence.json，才仅该次push临时使用已有查询跳过开关；目标发布再次核实并留deploy-gate-evidence.json，不把未知、排队或失败当绿。收尾仅本台账走文档轻量检查。
 - 生效确认：2026-10-23 10:55代理核验，生产需重启 WMS 服务生效；核对原PID7980完整命令/解释器/Session0/精确创建时间及任务入口、8080单实例、目标main与tracked工作区无混合写入，CIM Terminate返回0，沿原WMS-Warehouse任务单次重启。现PID13436/Session0、8080唯一listener、LastTaskResult=0；10:55:26启动日志版本a242a90、production/CSRF on，本机及公网登录GET200含CSRF。db-check migrate=ok仅结构核验，不声称迁移；WMS_NO_DB_TOUCH=1保留。真实页面交互由隔离Jinja/JS与HTTP验证，生产未实际登录测试系统设置、保存配置、调用外部连接测试或初始化，未清理业务数据、修改账号密码或库存。收尾只台账不再次重启。
+
+### BUG-2026-10-23-006: 批量标签打印模板竞态及入库标签Excel物料来源错位
+
+- 状态：已修复，本地验证通过，待目标CI与生产生效确认。
+- 根因/危害：独立批量标签页切换A/B模板没有请求代次，A晚到可覆盖当前B的内容与物理尺寸，切空仍保留旧模板；三GET缺统一HTTP/空响应处理，失败只写控制台或静默回退。入库明细标签入口也复用此页，URL ids为InOrderItem，下载Excel却当Material ids使用，可能下载错误物料。默认标签fallback直接拼innerHTML，物料字段未按纯文本展示。共享自动打印只判断容器有children，spinner/错误提示也会误就绪，15秒后还强制打印；手动按钮也未检查模板就绪。
+- 修复范围：仅批量标签模板及共享自动打印的可选标签就绪分支。独立页本地版本化api.js+三GET getRaw，最新选择/缓存/空选一致，保留90×50优先、再默认、再首个与原字段/布局/条码渲染；主数据fallback改DOM/textContent。Excel以实际MATERIALS物料集合构造ids，保留template_id编码与下载入口。标记标签loading/ready/error/empty，仅ready允许手动/自动打印，实际出纸回调再次检查选择；错误/超时不强印，无标记页面原自动打印份数/时序/关闭行为保留。未知模板失败的默认仅预览，需重试或人工明确选择默认再打印；不改变后端权限、打印队列或实体设备设置。
+- 同类点已排查：核对物料批量与入库明细两个真实入口、HTML模板列表/详情、Excel列表和下载路由、共享autoprint消费者；查阅9月标签字段/行高/布局/IDs历史与既有请求、预览竞态治理。入库新增页旧createInOrderFromPurchaseOrderSelection无实际DOM入口，未当线上写操作改造。物料内嵌标签设计器的独立编辑/保存状态存在另外的切换候选，已定位loadTemplateList/switchTemplateById/loadTemplateToEditor，留后续独立复核，不在本次打印页修复中宣称完成。
+- 代理兼容边界：只读确认ptoken仅授权绑定物料集合的打印视图，不建立登录session；模板/图片API仍需登录，旧HTML代理实际依赖失败后的90×50文字fallback。本批不放宽API或伪造登录，匿名且已有ptoken的已授权页明确走原文字fallback，跳过需登录GET并按ready打印，Excel禁用并提示登录；只注入布尔模式，不把token写入JS配置或日志。登录页面仍正常选择配置模板。自定义模板/条码图片的免登录细粒度授权属于后续独立能力，不在本批宣称已实现。
+- 打印验证边界：本批ready表示当前模板DOM已完成，保留既有条码/二维码加载及onerror降级，不新增图片load等待；不以JS打印计数冒充真实纸张、图片完整出纸或实体打印机验收。
+- 开工基线：main8ddea9a95fff3da9737e917aecfe221065f5ed98，check_ci_green --json退出0；WMS CI39892367448、AI39892367454目标匹配且completed/success，Android39860469109 success并通过祖先/保护路径未变证明，仓库钩子已启用。
+- 回归：修前六标签模块34 passed（15.18秒），共享打印队列/代理两模块50 passed（23.21秒，26既有warning），共84旧例。新增31真实Jinja/全段JS/生产api.js/DOM树渲染通过，覆盖优先级、晚成功/失败/cache/空选、三GET异常反馈、物料字段字面显示、Excel实际物料与编码、自动loading/error/15s/400ms重新切换、手动及匿名ptoken模式。最终九模块115 passed（31新+84原，31.61秒，26既有SQLAlchemy warning），无旧断言修改。
+- 回退验证：修前真实DOM先复现B70mm被晚到A40mm覆盖，1 failed/22 deselected。随后VM注入真实旧Jinja脚本六核心，实际内容/尺寸、三GET HTTP失败误接受、fallback字面丢失、入库行ID误作物料ID均失败；仅替换旧共享helper并保留新标签页面，四例在实际错误调用window.print处失败（loading子节点、400ms切换、error、timeout），无marker旧两份/关闭正对照通过，共10有效失败及1通过。两产品文件全程字节核验未回退、不使用stash，不靠缺新helper或请求头提前失败证明；日志batch-label-loading-20261023/{old-race,new,vm-rollback,final-adjacent}.log。
+- 组合验收：第三agent只读终审两产品协议、匿名边界及就绪流程无阻塞。规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed，显式TEMP隔离库9082 HTTP冒烟119/119且已关闭工具前台服务；日志frontend-20261023-006-{baseline,autoprint-baseline,rules,bug-check,ledger,smoke}.log。不新增AI能力/模型/工具/权限/开关/迁移；本地不重复全站pytest，交本次代码CI。
+- 生效确认：待确认；生产需重启 WMS 服务生效。验证仅模拟网络/打印计数和隔离数据库，不实际打印、下载生产标签或修改业务记录、库存、账号、密码和打印机配置。
