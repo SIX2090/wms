@@ -1610,3 +1610,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 开工基线：38f790884d9eff32b6358de9cd89896f339765d5；WMS CI39941406700、AI39941406733精确匹配且success，Android39860469109仍为祖先且保护路径未变。011首次台账遗漏已先完整回滚再修复，无跨批写入。受影响/相邻模块修前86 passed。
 - 回归：新增3项覆盖加载顺序/版本引用、全部原CSS声明哈希、真实静态GET字节/类型/年度缓存/ETag/304；加入版本测试后七模块90 passed。新用例先在旧版3 failed；再备份模板和CSS、恢复旧模板并移除本批新CSS，3项均有效失败，finally恢复全部字节，不用stash，证据wms-shell-rollback-acq_m70p/rollback.log。真实浏览器重载隔离服务后，对账嵌入页body/main/sidebar/toast/AI按钮/打印铃铛六处计算样式（display、定位、层级、边距、宽度、字体、背景）与迁出前逐项完全一致，shell.css仅加载一次且无脚本错误；新隔离库18080冒烟121/121，证据wms-shell-qa-65j5v0mb/smoke.log。另六相邻/台账模块90 passed，规则0违规；目标CI在验收记录补充。
 - 生效确认：待确认；未重启生产，不将测试服务的效果当成生产已生效。原生产库、单据、账号及服务进程不操作。
+
+
+### BUG-2026-10-23-013: 公共布局保留乱码注释及CSRF例行调试输出
+
+- 状态：代码已修复，目标CI及生产生效待确认。
+- 根因/危害：旧编码转换留下七处不可读注释（四处样式、三处触摸/缩放说明）；例行CSRF刷新成功/显式禁用仍输出console.log，污染业务页面控制台。原报告把注释示例和反馈降级日志混计，不将所有console.log一律视为调试残留。
+- 修复范围：仅恢复base.html与shell.css七处中文注释，删除两条例行调试输出及随之空置的禁用分支；保留刷新失败console.warn、原25分钟定时器、可见性触发、请求参数、token更新及finally解锁。物料刷新/ExcelTable的反馈降级日志仍有明确用途，不在本批删除。生产需重启 WMS 服务生效。
+- 同类点已排查：检索全部自有模板/JS的console.log，api.js命中是文档示例，ExcelTable为allow-console降级输出；录单的notifyMaterialRefresh也是showToast缺失时的反馈降级。七处乱码原位修正，没有对整文件执行转码。CSS声明顺序快照仍通过，不改变当前禁止缩放的行为。
+- 开工基线：84c4f5371abf0b7ad7824170aaf66b34f270e82c，WMS CI39942386376、AI39942386400精确匹配且success，Android39860469109祖先和保护路径证明保持。四受影响/相邻模块修前56 passed。
+- 回归：新增9项（6个UTF8注释位置契约覆盖7处、3种真实CSRF刷新IIFE运行时）验证成功token更新、禁用/失败保留token、失败告警、请求凭据/header、25分钟间隔、单飞、防后台触发、finally解锁及可见性重试。五模块65 passed。备份两产品文件后恢复HEAD，新增测试8 failed/1 passed，finally恢复修复，不用stash，日志wms-hygiene-rollback-ki4tcrtq/rollback.log；说明原失败告警对照继续通过。台账/README/库存定位契约34 passed，规则0违规；新隔离库18080冒烟121/121，已停止自建进程8344，证据wms-shell-qa-p0gpfzrb/smoke.log。目标CI在验收记录补充。
+- 生效确认：待确认；未主动重启生产服务，全部写入测试只使用隔离库或模拟网络。

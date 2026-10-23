@@ -124,7 +124,7 @@
         .module-flyout .flyout-link.menu-multi-open::after {
             content: none;
         }
-        /* 濮斿绠＄悊瀛愯彍鍗?- 鐣呮嵎閫?T+ 椋庢牸妯悜灞曞紑 */
+        /* 侧边栏子菜单：T+ 风格横向展开 */
         .sidebar .submenu-toggle {
             cursor: pointer;
             display: flex;
@@ -1200,10 +1200,10 @@
             margin-bottom: 0;
         }
         .table th {
-            /* 鏍峰紡鐢?custom.css 缁熶竴绠＄悊 */
+            /* 样式由 custom.css 统一管理 */
         }
         .table td {
-            /* 鏍峰紡鐢?custom.css 缁熶竴绠＄悊 */
+            /* 样式由 custom.css 统一管理 */
         }
         .badge-status {
             padding: 4px 8px;
@@ -1287,7 +1287,7 @@
         .cb-col-resize-active * {
             user-select: none !important;
         }
-        /* 鎿嶄綔鎸夐挳琛?*/
+        /* 操作按钮栏 */
 
         .cb-toast-stack {
             position: fixed;

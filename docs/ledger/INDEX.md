@@ -455,6 +455,7 @@
 | BUG-2026-10-23-010 | bugs | entries-2026-10.md |
 | BUG-2026-10-23-011 | bugs | entries-2026-10.md |
 | BUG-2026-10-23-012 | bugs | entries-2026-10.md |
+| BUG-2026-10-23-013 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
