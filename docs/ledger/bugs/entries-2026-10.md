@@ -1458,12 +1458,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-001: 生产领料主表单缺库位入口及继续新增丢失库位
 
-- 状态：已修复，待提交CI及生产生效验收。
+- 状态：已修复并发布。
 - 根因/危害：BUG-2026-10-22-020遗留U1；后台保存与完成已有库位必填校验，但公共领料表单缺DOM、collectHeader及渲染上下文，开启管理后无法从主入口正常填写；表单和列表继续新增都未携带库位，普通编辑亦可能将历史值清空。不能把已有列表旧弹窗或售后漏字段修复当成主表单已支持。
 - 修复：仅领料新增启用时required/maxlength=100库位输入及关闭时hidden历史原值；保存载荷补location，启用时空值在发请求前反馈。切换仓库实际值才清空旧库位，初始化/同仓刷新保留原值，只读不绑定清空；仓库主资料刷新实际改选触发同样联动。服务端渲染传开关与原单值，新建query白名单接受trim后最多100字location，编辑/查看忽略query。两处人工完成成功后的继续新增携带库位，失败/取消不继续；现有角色、互斥、人工force、order_id及导航策略保留。不改后台校验、库存算法、schema或默认库位，不使用仓库地址充当库位。
 - 同类点已排查：检索月度/历史库位必填消费点及既有继续领料实现，延伸原入口而非另造功能；核对主表单、列表、save_table、complete及production_requisition别名。入出库等已有入口不重复改造，BOM/盘点/调拨头字段不变。2026-10-23再次以SQLite URI mode=ro/query_only只查生产location_management_enabled，仍为0，未开启或回填。采购旧无调用函数及其他工程债不宣称本批解决。
 - 回归：渲染基线14 passed，新20项真实Flask GET/Jinja通过；仅旧_render_requisition_form函数字节回退20 failed，finally恢复，最终4模块及相邻42 passed。整链基线32 passed，新6项真实HTML字段→Node collectHeader→Flask save/edit/complete通过；VM注入HEAD旧collectHeader反证4 failed/2原后端拒绝对照passed，finally仅恢复专属测试文件字节，产品不动；最终4模块38 passed。覆盖两仓同名库位与另一库位扣减隔离、开启时总账=库位全集=流水及仓库分项、缺库位零写入、关闭时历史空串及非空值回显保存、关闭时总账=流水。fixture传None经模型default实际落库空串，显式断言，不声称存在NULL存量。前端基线248 passed，新30项实际Jinja/整段JS及生产API通过；旧两模板回退30 failed，单独撤warehouse绑定4 failed/26 deselected，finally字节恢复；最终模块及相邻278 passed。原96导航矩阵及旧断言保留，两个抽函数fixture仅补新const=false。新增合计56项，不叠加相邻重复计数。所有测试仅隔离库，不在生产保存或完成测试单。
 - 基线CI：开工发现a1c3a160的Android日常运行39860469109初次失败，单测PendingQueueRebuildProtectionTest在重建前打开临时SQLite时SQLITE_IOERR_SHORT_READ。历史已有同模式偶发记录，未据单次错误改Android或放宽断言；仅重跑失败job120109554651一次，attempt2完成成功，新job120162056457日志80 PASSED、BUILD SUCCESSFUL。WMS CI39860513347及AI39860552246同SHA成功，目标门禁exit0后才解锁本批写入；不宣称SQLite根因已解决。证据output/playwright/frontend-021-baseline-gate.log。
-- 组合验收：台账/README/库存定位契约34 passed；渲染新增行导致引用漂移，清理函数后4个冗余空行保持既有库存文档引用准确，未更改断言或库存口径。verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119，服务已通过工具进程会话Ctrl-C结束且9082无listener。后台Start-Process启动遭自动审批拦截，改用受工具管理前台进程完成隔离冒烟，无绕过权限。最终规则检查见提交证据。日志requisition_location_u1/、requisition-location-20261023/、requisition-location-u1-*.log及frontend-20261023-001-{ledger,bug-check,smoke}.log。无AI能力/模型/工具/权限/开关/迁移变更，全站回归交推送CI，不重复本地全站。
-- 发布闭环：待本批代码提交推送及目标SHA的CI验收。
-- 生效确认：待确认；生产需重启 WMS 服务生效。生产库位管理保持关闭；不改真实单据、库存、仓库、库位开关、账号或密码。
+- 组合验收：台账/README/库存定位契约34 passed；渲染新增行导致引用漂移，清理函数后4个冗余空行保持既有库存文档引用准确，未更改断言或库存口径。verify_wms_bugs通过；显式TEMP隔离库9082冒烟119/119，服务已通过工具进程会话Ctrl-C结束且9082无listener。后台Start-Process启动遭自动审批拦截，改用受工具管理前台进程完成隔离冒烟，无绕过权限。最终规则0违规，提交钩子0违规。日志requisition_location_u1/、requisition-location-20261023/、requisition-location-u1-*.log及frontend-20261023-001-{ledger,bug-check,smoke}.log。无AI能力/模型/工具/权限/开关/迁移变更，全站回归交推送CI，不重复本地全站。
+- 发布闭环：代码520ca965f11734952c374d1ddb5c6e300c61cbaf已正常推送main，读取实际push输出且HEAD/origin相同；WMS CI39877975706全部原单测/回归分片、规则和冒烟成功，AI39877975724及性能39877975687均completed/success。严格目标SHA门禁exit0；Android最近main39860469109 attempt2成功，Git祖先和Android源码/构建工作流未变证明通过，未跳过门禁。Android偶发SQLite问题仅重跑恢复，未宣称根治。收尾仅此台账文档，按已验收轻量CI路径核对。
+- 生效确认：2026-10-23 08:29代理核验，生产需重启 WMS 服务生效；先核对11752进程完整命令/解释器/Session0/创建时间、8080单实例、main目标及tracked工作区无混合代码，CIM Terminate返回0后沿原WMS-Warehouse计划任务单次重启。现PID16080/Session0，8080唯一listener、LastTaskResult=0；08:29:42启动日志版本520ca96、production/CSRF on，db-check migrate=ok仅结构核验，不声称执行迁移。本机/公网登录GET200均含CSRF，WMS_NO_DB_TOUCH=1保留。生产库位管理保持关闭；未在生产创建、保存、完成或反提交测试单，不改真实库存、仓库、库位开关、账号或密码。收尾仅台账，不再次重启。
