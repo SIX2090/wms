@@ -1539,7 +1539,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-007: 物料标签设计器异步切换与保存目标脱节
 
-- 状态：已修复，本地验证通过，待目标CI与生产生效确认。
+- 状态：已修复并发布。
 - 根因/危害：物料页内嵌标签设计器的列表/详情无代次，晚到旧模板可覆盖新选择；选B加载期间仍保留A的currentTemplateId，保存可能写入A，空选未调用清ID分支。清空、撤销/草稿和关闭未作废在途读取；四写请求已经走postRaw，问题是缺逻辑互斥/null处理及成功刷新无条件切默认，不能误报为未带CSRF。加载渲染缺style可抛错，文字拼innerHTML、layout与顶层尺寸/行列缺省口径不一致，可能留下ID/名称/画布不一致状态。
 - 修复范围：仅material.html标签设计器区域。读取代次与加载/写互斥维持选择、名称、画布及目标一致；最新成功才能接管编辑，清空/草稿/撤销/关闭作废旧读，写入到成功刷新期间防重入。保留四POST的FormData/JSON/null及人工删除确认；更新/设默认按捕获ID回选，新增无返回ID按后端唯一名称定位，不盲跳默认；save_layout不负责重命名，名称变更须另存。单元格以DOM/textContent恢复、缺style兼容，布局几何优先layout再顶层再原默认，行列创建一致；不改后端权限、库存、账号或打印算法。
 - 同类点已排查：关联006明确留下的内嵌设计器候选；核对全仓switchTemplateById仅此消费者、独立标签详情无异步选单竞态。查阅旧格坐标/自定义尺寸保存契约，保留collect/reindex、自定义尺寸同步、行高/合并格、条码宽高、草稿及撤销历史；不扩展到整页物料操作或其它独立权限/工程债。
@@ -1547,4 +1547,5 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归：修前四模块245 passed（32.68秒）：cell_coords、custom_size_sync、material_mobile_api_transport及print_label_row_height。新增28项实际标签区域JS/生产api.js/DOM表格、dragDrop/canvas/collect链通过，覆盖A/B及列表晚包、加载禁保存、空选/clear/history/draft/hide失效、四写原载荷与跨刷新互斥、成功保ID/按新增唯一名回选、取消/失败人工重试、末模板删除草稿、空名启用字段聚焦、缺style/字面文本及几何。最终五模块273 passed（28新+245原，40.69秒），旧测试和fixtures均未改。
 - 回退验证：VM注入真实旧完整标签JS区域，六核心在实际A/B身份/画布覆盖、B加载仍保存A、空选旧ID、重复POST、文字丢失和缺style未正确渲染处失败；仅撤内部afterWrite转发单例在末模板删除未恢复草稿处失败，共7有效反证，无ReferenceError缺依赖伪红，两产品/测试回退时文件均未改字节，不用stash。初old-core.log误读到已修源码的3passed不计反证；有效日志material-label-editor-20261023/{vm-rollback,vm-draft-guard,final-adjacent}.log。
 - 组合验收：第三agent只读终审核心协议/生命周期通过，Root发现并收口先禁字段再空名focus的顺序回归，空名先校验再取锁；删除末模板的内部草稿恢复绕过仅限内部标志，外部写中仍禁止。规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed，显式TEMP隔离库9082冒烟119/119且工具前台服务已关闭。日志frontend-20261023-007-{baseline,rules,bug-check,ledger,smoke}.log。无新AI能力/模型/工具/权限/开关/迁移；本地不重复全站pytest，交目标代码CI，不在生产保存、删除或设默认模板。
-- 生效确认：待确认；生产需重启 WMS 服务生效。验证仅隔离数据库及模拟网络，不修改真实模板、物料、库存、账号密码或打印机配置，不调用实体打印机。
+- 发布闭环：代码60b3603e36b8db3e6400b6a91897b17c9e9ee09c已正常推送main，读取实际push输出且HEAD/origin新SHA一致；WMS CI39906820513完整单测/回归/静态/冒烟及AI39906820505均completed/success，最新main匹配目标。Android39860469109成功并通过目标祖先/Android工程与工作流未变证明复用，严格check_ci_green目标门禁退出0（frontend-20261023-007-code-ci.log）。未跳过门禁，收尾只本台账走文档轻量检查。
+- 生效确认：2026-10-23 13:41代理核验，生产需重启 WMS 服务生效；核对原PID16808完整命令/解释器/Session0/精确创建时间、原WMS-Warehouse入口、8080单实例、main目标及tracked工作区无混合写入后，CIM Terminate返回0，沿原计划任务单次重启。现PID12112/Session0、8080唯一listener、LastTaskResult=0；13:41:56启动日志版本60b3603、production/CSRF on，db-check migrate=ok仅结构核验不声称迁移，WMS_NO_DB_TOUCH=1保留。本机与公网登录GET200含CSRF；UI及写操作回归只用隔离数据库与模拟网络，未在生产保存/删除/设默认模板，不改真实物料、库存、账号密码或打印机配置，不调用实体打印机。收尾只台账不再次重启。
