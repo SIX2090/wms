@@ -1524,7 +1524,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-006: 批量标签打印模板竞态及入库标签Excel物料来源错位
 
-- 状态：已修复，本地验证通过，待目标CI与生产生效确认。
+- 状态：已修复并发布。
 - 根因/危害：独立批量标签页切换A/B模板没有请求代次，A晚到可覆盖当前B的内容与物理尺寸，切空仍保留旧模板；三GET缺统一HTTP/空响应处理，失败只写控制台或静默回退。入库明细标签入口也复用此页，URL ids为InOrderItem，下载Excel却当Material ids使用，可能下载错误物料。默认标签fallback直接拼innerHTML，物料字段未按纯文本展示。共享自动打印只判断容器有children，spinner/错误提示也会误就绪，15秒后还强制打印；手动按钮也未检查模板就绪。
 - 修复范围：仅批量标签模板及共享自动打印的可选标签就绪分支。独立页本地版本化api.js+三GET getRaw，最新选择/缓存/空选一致，保留90×50优先、再默认、再首个与原字段/布局/条码渲染；主数据fallback改DOM/textContent。Excel以实际MATERIALS物料集合构造ids，保留template_id编码与下载入口。标记标签loading/ready/error/empty，仅ready允许手动/自动打印，实际出纸回调再次检查选择；错误/超时不强印，无标记页面原自动打印份数/时序/关闭行为保留。未知模板失败的默认仅预览，需重试或人工明确选择默认再打印；不改变后端权限、打印队列或实体设备设置。
 - 同类点已排查：核对物料批量与入库明细两个真实入口、HTML模板列表/详情、Excel列表和下载路由、共享autoprint消费者；查阅9月标签字段/行高/布局/IDs历史与既有请求、预览竞态治理。入库新增页旧createInOrderFromPurchaseOrderSelection无实际DOM入口，未当线上写操作改造。物料内嵌标签设计器的独立编辑/保存状态存在另外的切换候选，已定位loadTemplateList/switchTemplateById/loadTemplateToEditor，留后续独立复核，不在本次打印页修复中宣称完成。
@@ -1534,4 +1534,5 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归：修前六标签模块34 passed（15.18秒），共享打印队列/代理两模块50 passed（23.21秒，26既有warning），共84旧例。新增31真实Jinja/全段JS/生产api.js/DOM树渲染通过，覆盖优先级、晚成功/失败/cache/空选、三GET异常反馈、物料字段字面显示、Excel实际物料与编码、自动loading/error/15s/400ms重新切换、手动及匿名ptoken模式。最终九模块115 passed（31新+84原，31.61秒，26既有SQLAlchemy warning），无旧断言修改。
 - 回退验证：修前真实DOM先复现B70mm被晚到A40mm覆盖，1 failed/22 deselected。随后VM注入真实旧Jinja脚本六核心，实际内容/尺寸、三GET HTTP失败误接受、fallback字面丢失、入库行ID误作物料ID均失败；仅替换旧共享helper并保留新标签页面，四例在实际错误调用window.print处失败（loading子节点、400ms切换、error、timeout），无marker旧两份/关闭正对照通过，共10有效失败及1通过。两产品文件全程字节核验未回退、不使用stash，不靠缺新helper或请求头提前失败证明；日志batch-label-loading-20261023/{old-race,new,vm-rollback,final-adjacent}.log。
 - 组合验收：第三agent只读终审两产品协议、匿名边界及就绪流程无阻塞。规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed，显式TEMP隔离库9082 HTTP冒烟119/119且已关闭工具前台服务；日志frontend-20261023-006-{baseline,autoprint-baseline,rules,bug-check,ledger,smoke}.log。不新增AI能力/模型/工具/权限/开关/迁移；本地不重复全站pytest，交本次代码CI。
-- 生效确认：待确认；生产需重启 WMS 服务生效。验证仅模拟网络/打印计数和隔离数据库，不实际打印、下载生产标签或修改业务记录、库存、账号、密码和打印机配置。
+- 发布闭环：代码161f1363e2eb991ebb5a8aabcb6c2f7629fda76f已正常推送main，读取实际push输出且HEAD/origin新SHA一致；WMS CI39895668774完整单测/回归/静态/冒烟与AI39895668761均completed/success，最新main SHA匹配目标。Android39860469109成功并经目标祖先/Android工程与工作流未变证明复用；check_ci_green --target-sha严格门禁退出0，证据frontend-20261023-006-deploy-gate.json。未跳过门禁；收尾只本台账走文档轻量检查。
+- 生效确认：2026-10-23 11:38代理核验，生产需重启 WMS 服务生效；核对原PID13436完整命令/解释器/Session0/精确启动时间、WMS-Warehouse入口、8080单实例、目标main及tracked工作区无混合写入后，CIM Terminate返回0，沿原计划任务单次重启。现PID16808/Session0、8080唯一listener、LastTaskResult=0；11:38:35启动日志版本161f136、production/CSRF on，db-check migrate=ok仅结构核验不声称迁移，WMS_NO_DB_TOUCH=1保留。本机/公网登录GET200含CSRF。所有标签、下载、复制份数及自动关闭验证仅模拟网络/打印计数和隔离数据库，未调用真实打印机、下载生产标签或修改业务记录、库存、账号密码、队列和打印机配置；收尾只台账不再次重启。
