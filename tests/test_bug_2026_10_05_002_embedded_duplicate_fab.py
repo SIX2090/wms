@@ -39,6 +39,7 @@ import re
 from pathlib import Path
 
 from tests.ledger_reader import bug_section_text, read_bug_baseline
+from tests.frontend_page_source import page_style_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASE_HTML = REPO_ROOT / "app" / "templates" / "base.html"
@@ -53,7 +54,7 @@ EMBED_HIDDEN_SELECTORS = [
 
 def _read(p: Path) -> str:
     assert p.exists(), f"文件不存在：{p}"
-    return p.read_text(encoding="utf-8")
+    return page_style_source(p)
 
 
 def _embedded_page_css_block(src: str) -> str:

@@ -112,6 +112,7 @@ def test_bulk_overlay_leaves_common_feedback_visible(page):
     body = function(source, 'batchUpdateField')
     assert 'alert(' not in body
     overlay = int(re.search(r'z-index:(\d+)', body).group(1))
-    base = (ROOT / 'app/templates/base.html').read_text(encoding='utf-8')
+    from tests.frontend_page_source import page_style_source
+    base = page_style_source(ROOT / 'app/templates/base.html')
     toast = int(re.search(r'\.cb-toast-stack\s*\{[^}]*z-index:\s*(\d+)', base).group(1))
     assert 1055 < overlay < toast
