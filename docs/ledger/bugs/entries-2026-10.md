@@ -1511,7 +1511,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-23-005: 系统设置重复请求及初始化预览、确认状态脱节
 
-- 状态：已修复，本地验证通过，待目标CI与生产生效确认。
+- 状态：已修复并发布。
 - 根因/危害：保存、文字/图片连接测试三条旧请求未统一校验HTTP，空响应直接取status；按钮禁用不构成逻辑互斥，保存刷新等待期已解锁。初始化原执行链已有HTTP校验，不能误报为全无保护；但密码/短语input事件能在执行中重新启用确认，预览未成功也可执行，打开弹窗与shown事件重复GET。预览始终把主数据计入将清理合计，与取消勾选时后端保留主数据不一致；说明未准确交代系统参数重置默认、本次审计保留。
 - 修复范围：仅系统设置模板及其回归/说明。四POST使用WMS.api.postRaw、预览GET使用getRaw，保留FormData、空密钥不覆盖、密码原值、精确短语、主数据勾选和最后人工确认。页面写请求共用忙锁，覆盖确认、进行中和原500/1500ms刷新等待；预览成功才放行，重开清旧密码/短语，单次加载、勾选仅重绘成功缓存，保留主数据不计将清理合计。失败显示中文反馈且不自动重发；初始化不确定结果提示先核对再重新确认。说明和README匹配既有后端行为，不改清理算法、权限、账号或密码。
 - 同类点已排查：关联003/004请求互斥及会话组合治理；检索SYS-AUDIT-001/008/009历史记录，保留默认设置恢复、脱敏错误及include_master_data字段，不重复实现后台能力。核对本页所有四写入口、唯一预览GET和真实DOM，连接测试有外部调用/日志副作用，验证必须模拟；预览GET本身只计数。
@@ -1519,4 +1519,5 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归：原模块基线15 passed；最终新增37项真实Jinja/整段业务JS、base首fetch拦截器、旧csrfFetch及生产api.js组合通过，含FormData原值/空密钥/vision、HTTP500携success、null/HTML/401/419/断网、互斥与500/1500ms等待、精确短语/取消/重开、失败人工重试、预览门控/晚回包、主数据缓存合计。必要修正后模块及相邻52 passed（37新+15原，13.77秒），不弱化旧断言。
 - 回退验证：独占文件字节备份并finally恢复后，仅撤初始化两忙锁guard、保留预览门控，核心1 failed，已真实发送execute后input错误解锁。旧整页初36 failed中存在Headers读取提前失败，未拿该结果证明HTTP行为；修正harness真实base拦截及new Headers读取后，VM注入旧脚本的save/text/vision三HTTP500场景均在实际发送请求后错误success断言失败。终审发现执行中改勾选后失败预览不同步，补execute finally按当前checkbox重绘缓存，VM仅撤该1行单例在预览计数断言失败。日志system_settings_transport/init_busy_revert.log及system-settings-20261023/{vm-rollback-fixed-harness,final-adjacent}.log；不用stash，无生产请求。
 - 组合验收：第三agent只读协议及最终窄补丁审查通过；规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed。显式TEMP隔离库9082冒烟119/119含system_settings GET200，工具前台服务已关闭；终审补丁仅缓存重绘，由新增核心锁覆盖，不重复全站冒烟。日志frontend-20261023-005-{rules,bug-check,ledger,smoke}.log。本地不重复全站pytest，交目标CI；不新增AI能力或改AI权限/模型/工具/开关/迁移，不调用生产保存、连接测试或初始化。
-- 生效确认：待确认；生产需重启 WMS 服务生效，须目标CI通过后沿既有WMS-Warehouse入口单次重启并核对版本。未清理生产数据、修改真实配置、账号、密码或库存。
+- 发布闭环：代码a242a9067d5671d1d4ad2dab8ad4d3a422a8a470已推送main，读取实际push输出并核对HEAD/origin一致；WMS CI39891610350完整单测/回归/静态/冒烟及AI39891610341均completed/success，最新main SHA匹配目标。Android39860469109 success，经本地祖先与Android工程/构建工作流未变证明复用。匿名pre-push查询403后，连接器核实同一2c696915基线三工作流全绿并记录frontend-20261023-005-push-gate-evidence.json，才仅该次push临时使用已有查询跳过开关；目标发布再次核实并留deploy-gate-evidence.json，不把未知、排队或失败当绿。收尾仅本台账走文档轻量检查。
+- 生效确认：2026-10-23 10:55代理核验，生产需重启 WMS 服务生效；核对原PID7980完整命令/解释器/Session0/精确创建时间及任务入口、8080单实例、目标main与tracked工作区无混合写入，CIM Terminate返回0，沿原WMS-Warehouse任务单次重启。现PID13436/Session0、8080唯一listener、LastTaskResult=0；10:55:26启动日志版本a242a90、production/CSRF on，本机及公网登录GET200含CSRF。db-check migrate=ok仅结构核验，不声称迁移；WMS_NO_DB_TOUCH=1保留。真实页面交互由隔离Jinja/JS与HTTP验证，生产未实际登录测试系统设置、保存配置、调用外部连接测试或初始化，未清理业务数据、修改账号密码或库存。收尾只台账不再次重启。
