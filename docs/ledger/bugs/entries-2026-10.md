@@ -1480,3 +1480,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 开工基线：main c0d5f4a4c3683775041c9780cbc564412bb40c88目标门禁exit0，WMS CI39878528880、AI39878528802均completed/success，Android39860469109成功且祖先/工程与构建工作流未变证明通过；写入前已核实。
 - 发布闭环：代码1ca45e4f26ea2f501032da1c28b1ed57f9821578已推送main，读取实际push输出且HEAD/origin一致；WMS CI39881016601原完整单测/回归分片、规则、安全扫描和冒烟通过，AI39881016612、性能39881016499均completed/success。Android最近main39860469109成功，Git祖先/Android工程及构建工作流未变证明通过；未把旧绿直接当目标证据。匿名pre-push与发布查询403，连接器逐项核对最新三工作流的完整SHA/状态/链接并记录frontend-20261023-002-{push,deploy}-gate-evidence.json，才仅该次push临时使用已有查询跳过开关；未跳过未核实/非绿门禁。收尾仅台账，按已验收文档轻量规则验收，不重复业务全量。
 - 生效确认：2026-10-23 09:01代理核验，生产需重启 WMS 服务生效；核对原PID16080完整命令/解释器/Session0/创建时间、8080单实例、main目标与tracked工作区无混合代码后，CIM Terminate返回0，沿原WMS-Warehouse计划任务单次重启。现PID14972/Session0，8080唯一listener、LastTaskResult=0；09:01:02日志版本1ca45e4、production/CSRF on、db-check migrate=ok（仅结构核验，不声称迁移）。本机/公网登录GET200均含CSRF，实际GET app.js与磁盘SHA256相同，WMS_NO_DB_TOUCH=1保留。收尾只台账不再次重启。所有业务测试只在隔离数据库/模拟网络，不在生产保存、导入、审批、完成、反审或生成出库/采购单，不改真实库存、账号密码或开关配置。
+
+
+### BUG-2026-10-23-003: 销售公共列表及详情请求HTTP误成功与跨动作忙锁缺口
+
+- 状态：已修复，待CI及生产生效验收。
+- 根因/危害：base.bindListActions单笔/批量两处csrfFetch、sales_order_detail两处csrfPost共四个旧请求消费点只读JSON而不执行HTTP成功闸；非2xx携success信封可误提示成功/刷新/导航。公共列表及详情无覆盖人工确认→请求→成功刷新/导航的互斥，可重复或交叉派发。原CSRF、catch及后台角色/状态守卫确实存在，不误报为全无保护。
+- 同类点已排查：关联BUG-2026-10-23-002与BUG-2026-10-22-011至020。全仓bindListActions真实消费者仅销售订单列表和销售出库列表，区别于普通出库列表；公共修复覆盖两者，保留字符串/对象端点、selectedIds/runOne/runBatch返回接口、ID编码、全选跳过disabled及原定制复制回调。销售详情整单下推原行为是刷新详情，按数量下推才使用result.url跳转；不能误改为redirect_url。销售删除后台目前固定msg，原按msg判断可用，本批不把文本耦合误报为删除必坏。批量真实路由通常success带计数/跳过说明，完整失败返回error/400；通用partial兼容不代表这两路实际返回partial。
+- 修复：四个旧POST消费点统一WMS.api.postRaw，保持无body/JSON原协议，非2xx不能靠success正文误放行，null/业务拒绝及网络异常显示失败。公共列表binding级互斥在确认前生效，表内单笔/跨行/工具栏批量共用，取消失败恢复各按钮原disabled；成功保持至原600ms刷新，自定义复制回调仍500ms跳edit；同步throw/异步reject反馈并解锁，完整信封传给原回调。保留partial兼容、URL编码、全选跳过禁用、公开返回对象。详情五个写入口复用现有runDocumentAction，保留400ms延迟、whole刷新/selected result.url/删除原列表跳转；惰性访问WMS以适配content脚本早于base底部API加载。AI GET、数量前端规则、后台over_quantity/库存/权限不改。
+- 公共列表回归：基线7 passed，新增37实际两消费者配置/DOM委托/生产API通过；旧真实CSRF helper可派发时回退36 failed/1原空选择对照passed，HTTP失败success正文专项绕过早期忙锁断言，实际请求后旧实现误成功；finally仅函数字节恢复，不覆盖base其它区域。最终6模块及相邻71 passed（3既有warning）；保留master禁用、无body/JSON ids/编码、batch partial600ms、真实复制回调500ms及同步throw/异步reject恢复。
+- 详情回归：基线60 passed，新56通过（32实际写操作JS及生产API、24实际Jinja角色状态）；脚本按真实顺序先执行content再加载API/helper，避免预加载掩盖依赖。旧模板仅10核心反证全failed/46 deselected，5成功例实际重复2请求而非1，5个HTTP500携success包误toast/误删除导航；真实base csrfPost/Headers运行，不依赖新增attr才发请求，finally字节一致恢复。最终7模块及相邻130 passed（8既有SQLAlchemy warning）。新增合计93，不重复叠加相邻；未改任何旧测试或弱化断言。
+- 组合验收：第三agent只读终审两消费者协议、回调/互斥/导航及加载顺序，无阻塞，未为并行新增重复桥接测试。显式TEMP隔离库9082冒烟119/119，工具管理前台服务会话已Ctrl-C退出；规则0违规、verify_wms_bugs通过、台账/库存定位/README契约34 passed。日志shared_list_transport/、sales-detail-20261023/及frontend-20261023-003-*.log；不新增AI能力或改变AI模型/工具/权限/开关/迁移。不重复本地全站，完整回归由代码提交CI执行。
+- 开工基线：main971f1e5ad59b4a1ae6aba5f362575978ffef3d7c，check_ci_green目标门禁exit0；WMS CI39881691938、AI39881691919均completed/success，Android39860469109成功并通过祖先/工程与构建工作流未变证明。启用仓库钩子后开工。
+- 发布闭环：待提交、推送及目标CI验收。
+- 生效确认：待确认；生产需重启 WMS 服务生效。所有业务测试只用隔离库/模拟网络，不在生产确认、删除、完成、反提交、取消订单或生成出库草稿；不改真实库存、账号密码或开关配置。

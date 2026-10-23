@@ -40,12 +40,12 @@
                 <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('sales_order_list') }}"><i class="bi bi-arrow-left"></i> 返回列表</a>
                 {% if order.status=='draft' %}
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_edit_page', id=order.id) }}"><i class="bi bi-pencil-square"></i> 修改订单</a>
-                <button class="btn btn-sm btn-primary" onclick="postAction('{{ url_for('confirm_sales_order', id=order.id) }}','确认销售订单？')">确认订单</button>
-                <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('delete_sales_order', id=order.id) }}','删除草稿销售订单？')">删除草稿</button>
+                <button class="btn btn-sm btn-primary" data-document-action="salesOrderDetail" onclick="postAction('{{ url_for('confirm_sales_order', id=order.id) }}','确认销售订单？')">确认订单</button>
+                <button class="btn btn-sm btn-outline-danger" data-document-action="salesOrderDetail" onclick="postAction('{{ url_for('delete_sales_order', id=order.id) }}','删除草稿销售订单？')">删除草稿</button>
                 {% elif order.status=='confirmed' and order.shipment_status != 'shipped' %}
-                <button class="btn btn-sm btn-success" onclick="createOutbound()"><i class="bi bi-box-arrow-up"></i> 生成销售出库草稿</button>
-                <button class="btn btn-sm btn-outline-success" onclick="createSelectedOutbound()"><i class="bi bi-check2-square"></i> 按选定数量下推</button>
-                <button class="btn btn-sm btn-outline-danger" onclick="postAction('{{ url_for('cancel_sales_order', id=order.id) }}','取消销售订单？')">取消订单</button>
+                <button class="btn btn-sm btn-success" data-document-action="salesOrderDetail" onclick="createOutbound()"><i class="bi bi-box-arrow-up"></i> 生成销售出库草稿</button>
+                <button class="btn btn-sm btn-outline-success" data-document-action="salesOrderDetail" onclick="createSelectedOutbound()"><i class="bi bi-check2-square"></i> 按选定数量下推</button>
+                <button class="btn btn-sm btn-outline-danger" data-document-action="salesOrderDetail" onclick="postAction('{{ url_for('cancel_sales_order', id=order.id) }}','取消销售订单？')">取消订单</button>
                 {% endif %}
             </div>
             {% endif %}
@@ -288,40 +288,52 @@
 
 </div>
 <script>
-// getCsrfToken / csrfPost / csrfFetch are defined globally in base.html (SM-P6-03-1).
-// Local re-declarations removed to avoid shadowing the global helpers.
+function runSalesDetailAction(action) {
+  return WMS.runDocumentAction('salesOrderDetail', action);
+}
+function waitForSalesDetailNavigation(callback) {
+  return new Promise(function(resolve, reject) {
+    setTimeout(function() {
+      try { callback(); resolve(); } catch (error) { reject(error); }
+    }, 400);
+  });
+}
 function postAction(url, msg) {
-  showConfirm(msg, { title: '销售订单操作' }).then(function(confirmed) {
-    if (!confirmed) return;
-    csrfPost(url).then(function(r) { return r.json(); }).then(function(d) {
-      if (d.status === 'success') {
-        if (d.msg && d.msg.indexOf('删除') >= 0) location.href = '{{ url_for('sales_order_list') }}';
-        else { showToast(d.msg || '操作成功', 'success'); setTimeout(function() { location.reload(); }, 400); }
-      } else {
-        showToast(d.msg || '操作失败', 'danger', 4000);
-      }
-    }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 4000); });
+  return runSalesDetailAction(function() {
+    return showConfirm(msg, { title: '销售订单操作' }).then(function(confirmed) {
+      if (!confirmed) return;
+      return WMS.api.postRaw(url).then(function(d) {
+        if (d && d.status === 'success') {
+          if (d.msg && d.msg.indexOf('删除') >= 0) location.href = '{{ url_for('sales_order_list') }}';
+          else {
+            showToast(d.msg || '操作成功', 'success');
+            return waitForSalesDetailNavigation(function() { location.reload(); });
+          }
+        } else {
+          showToast((d && d.msg) || '操作失败', 'danger', 4000);
+        }
+      }).catch(function(err) { showToast('操作失败：' + (err.message || '请稍后重试'), 'danger', 4000); });
+    });
   });
 }
 function createOutbound() {
-  postAction('{{ url_for('create_sales_outbound_draft', id=order.id) }}', '生成销售出库草稿？生成后仍需仓库人工完成出库。');
+  return postAction('{{ url_for('create_sales_outbound_draft', id=order.id) }}', '生成销售出库草稿？生成后仍需仓库人工完成出库。');
 }
 function createSelectedOutbound() {
-  const items = Array.from(document.querySelectorAll('.selected-outbound-quantity')).map(function(input) {
-    return {sales_order_item_id: Number(input.dataset.itemId), quantity: Number(input.value || 0)};
-  }).filter(function(row) { return row.quantity > 0; });
-  if (!items.length) { showToast('请先填写至少一条本次出库数量', 'warning', 3000); return; }
-  showConfirm('按选定数量生成销售出库草稿？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
-    if (!confirmed) return;
-    csrfPost('{{ url_for('create_sales_outbound_draft', id=order.id) }}', {
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({items: items})
-    }).then(function(r) { return r.json(); }).then(function(result) {
-      if (result.status === 'success') {
-        showToast(result.msg || '生成成功', 'success');
-        setTimeout(function() { window.location.href = result.url; }, 400);
-      } else { showToast(result.msg || '操作失败', 'danger', 4000); }
-    }).catch(function(err) { showToast('生成失败：' + err.message, 'danger', 4000); });
+  return runSalesDetailAction(function() {
+    const items = Array.from(document.querySelectorAll('.selected-outbound-quantity')).map(function(input) {
+      return {sales_order_item_id: Number(input.dataset.itemId), quantity: Number(input.value || 0)};
+    }).filter(function(row) { return row.quantity > 0; });
+    if (!items.length) { showToast('请先填写至少一条本次出库数量', 'warning', 3000); return; }
+    return showConfirm('按选定数量生成销售出库草稿？生成后仍需仓库人工完成出库。', { title: '生成出库草稿' }).then(function(confirmed) {
+      if (!confirmed) return;
+      return WMS.api.postRaw('{{ url_for('create_sales_outbound_draft', id=order.id) }}', {items: items}).then(function(result) {
+        if (result && result.status === 'success') {
+          showToast(result.msg || '生成成功', 'success');
+          return waitForSalesDetailNavigation(function() { window.location.href = result.url; });
+        } else { showToast((result && result.msg) || '操作失败', 'danger', 4000); }
+      }).catch(function(err) { showToast('生成失败：' + (err.message || '请稍后重试'), 'danger', 4000); });
+    });
   });
 }
 function showAiAnomalyAnalysis() {

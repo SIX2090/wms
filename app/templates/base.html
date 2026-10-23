@@ -176,8 +176,24 @@
             return Array.from($table.querySelectorAll(checkSel + ':checked')).map(function(cb) { return cb.value; }).filter(Boolean);
         }
 
-        function runOne(ep, id, extraMsg) {
-            if (!ep) return;
+        var busy = false;
+        var actionStates = [];
+        function beginAction() {
+            busy = true;
+            var buttons = Array.from($table.querySelectorAll('[data-action]'));
+            var toolbar = typeof opts.toolbar === 'string' ? document.querySelector(opts.toolbar) : opts.toolbar;
+            if (toolbar) buttons = buttons.concat(Array.from(toolbar.querySelectorAll('[data-batch-action]')));
+            actionStates = buttons.map(function(button) { return { button: button, disabled: button.disabled }; });
+            actionStates.forEach(function(state) { state.button.disabled = true; });
+        }
+        function releaseAction() {
+            busy = false;
+            actionStates.forEach(function(state) { state.button.disabled = state.disabled; });
+            actionStates = [];
+        }
+
+        async function runOne(ep, id, extraMsg) {
+            if (!ep || busy) return;
             var url = (typeof ep === 'string') ? ep : ep.url;
             var msg = (typeof ep === 'object' && ep.confirm) ? ep.confirm : (extraMsg || '确认执行该操作？');
             url = url.replace('{id}', encodeURIComponent(id));
@@ -189,35 +205,45 @@
                     showToast((d && d.msg) || '操作失败', 'danger', 3600);
                 }
             };
-            showConfirm(msg, { title: opts.title || '操作确认' }).then(function(ok) {
+            var completed = false;
+            try {
+                beginAction();
+                var ok = await showConfirm(msg, { title: opts.title || '操作确认' });
                 if (!ok) return;
-                csrfFetch(url, { method: 'POST' }).then(function(r) { return r.json(); }).then(cb).catch(function(err) {
-                    showToast('操作失败：' + err.message, 'danger', 3600);
-                });
-            });
+                var result = await WMS.api.postRaw(url);
+                await cb(result);
+                completed = !!(result && result.status === 'success');
+            } catch (err) {
+                showToast('操作失败：' + ((err && err.message) || '请稍后重试'), 'danger', 3600);
+            } finally {
+                if (!completed) releaseAction();
+            }
         }
 
-        function runBatch(ep) {
-            if (!ep) return;
+        async function runBatch(ep) {
+            if (!ep || busy) return;
             var ids = selectedIds();
             if (!ids.length) { showToast('请先选择要操作的记录', 'warning'); return; }
             var url = (typeof ep === 'string') ? ep : ep.url;
             var msg = (typeof ep === 'object' && ep.confirm) ? ep.confirm : ('确认对选中的 ' + ids.length + ' 条记录执行该操作？');
-            showConfirm(msg, { title: opts.title || '操作确认' }).then(function(ok) {
+            var completed = false;
+            try {
+                beginAction();
+                var ok = await showConfirm(msg, { title: opts.title || '操作确认' });
                 if (!ok) return;
-                csrfFetch(url, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ids: ids })
-                }).then(function(r) { return r.json(); }).then(function(d) {
-                    if (d && (d.status === 'success' || d.status === 'partial')) {
-                        showToast(d.msg || '操作成功', 'success', 2400);
-                        setTimeout(function() { window.location.reload(); }, 600);
-                    } else {
-                        showToast((d && d.msg) || '操作失败', 'danger', 3600);
-                    }
-                }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 3600); });
-            });
+                var d = await WMS.api.postRaw(url, { ids: ids });
+                if (d && (d.status === 'success' || d.status === 'partial')) {
+                    showToast(d.msg || '操作成功', 'success', 2400);
+                    setTimeout(function() { window.location.reload(); }, 600);
+                    completed = true;
+                } else {
+                    showToast((d && d.msg) || '操作失败', 'danger', 3600);
+                }
+            } catch (err) {
+                showToast('操作失败：' + ((err && err.message) || '请稍后重试'), 'danger', 3600);
+            } finally {
+                if (!completed) releaseAction();
+            }
         }
 
         // 2) data-action 委托：所有带 data-action 的元素（行内按钮）自动绑定
