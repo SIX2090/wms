@@ -1874,3 +1874,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 目标提交与CI：e8d070cc7cab354f5b9890e35466cf9fafc771e6已实际push（37ffeefb..e8d070cc main -> main），HEAD/origin/live main一致。[WMS CI40085082154](https://github.com/SIX2090/wms/actions/runs/40085082154)、[AI40085082174](https://github.com/SIX2090/wms/actions/runs/40085082174)精确匹配completed/success；Android40027751562成功且祖先/对象齐全/工程及工作流无变化证明通过，check_ci_green.py完整目标检查ok=true（target_ci.json）。本批推送未跳过门禁。
 - 生产发布：即时在线备份deploy_inventory.db完整性通过，SHA256为afb9ee28d1485cea84e546c8667a532141a5d3586aa9fe16cb0d5416ef46537b，保留旧模板回退包。核对旧PID2476完整身份、Python311/run_server.py/Session0、唯一8080监听、SYSTEM原任务入口及WMS_NO_DB_TOUCH=1后，避开计划触发窗口，仅终止原实例并启动原任务一次。新PID7536、2026-10-24T18:18:27.805327+08:00创建，解释器/命令/Session0一致，唯一监听、LastTaskResult=0；18:18:32启动日志e8d070c、production、CSRF on，db-check migrate=ok仅结构检查证据。
 - 只读验收：三个模板规范化文本与目标Git对象一致（activation_checks.json），本机及https://gd2026.top/login均GET200并含CSRF。八张核心业务/用户表完整行摘要前后一致，quick_check=ok；未在生产登录或运行写入冒烟、未改业务记录或密码。收尾仅更新月度台账，生产应用保持e8d070cc，无须再次重启；收尾提交自身CI单独验收。
+
+### BUG-2026-10-24-014: Ctrl+S 按 DOM 顺序误触发保存并完成或保存并新建
+
+- 状态：已修复，待目标CI及生产验收。
+- 根因/危害：公共键盘监听用submitForm、任意submit按钮和btn-save的首个匹配猜测保存动作；采购订单首先匹配保存并新建，采购入库及领料页面首先匹配保存并完成，可把普通保存意图变成库存完成操作；输入框内又完全忽略保存快捷键。
+- 同类点已排查：检索历史物料键盘操作、工具栏去重和确认框键盘隔离记录；全仓Ctrl+S监听只有公共app.js。覆盖采购申请/订单、销售订单新增/编辑、入出库、售后、调整、通用单据和其他出入库工具栏的现有普通保存。采购申请详情没有保存标记，非草稿编辑会重定向详情；编辑页角色显示与POST权限不一致属于既有独立问题，本批不改变权限或后端完成接口。
+- 修复：10个模板现有普通保存按钮声明data-wms-save；Ctrl/Cmd+S仅在当前主内容中点击可见、启用且不在弹窗/只读遮罩中的普通保存，排除完成按钮、已处理事件、输入法组合输入及按键重复。没有普通保存时中文提示使用页面按钮；不新增隐藏保存、不调用通用表单回退，不改鼠标操作和业务保存函数。README补充快捷键说明。生产需重启 WMS 服务生效。
+- 开工门禁：b06f6cadc800d2a62613e9dedeb3ae8e3cbe9529的WMS CI40085421431、AI40085421442精确匹配success；Android40027751562成功且祖先/对象齐全/保护路径无变化证明通过，check_ci_green.py ok=true，证据C:/wms_backups/keyboard_save_deploy_20261024/baseline_ci.json。
+- 回归：原受影响及相邻模块203 passed；新增38项执行真实模板按钮及app.js键盘处理器，覆盖普通保存、保存新建/完成排除、字段焦点、Mac快捷键、弹窗、隐藏/禁用/只读、输入法与重复按键。物理备份并回退11个业务文件后24 failed、14 passed，finally恢复补丁；修复后合计241 passed、64项既有警告。证据%TEMP%/wms-keyboard-baseline-tests.log、wms-keyboard-regression.log及wms-keyboard-rollback-h5zdzyq_/rollback.log。未使用stash、未弱化既有断言。
+- 生效确认：待目标CI、原计划任务重启与只读生产验证；生产需重启 WMS 服务生效。未对生产登录、提交单据或修改密码。
+- 提交前验证：15个既有模块及新增模块241 passed（64项既有SQLAlchemy Query.get弃用警告）、文档契约34 passed、隔离HTTP冒烟121/121且临时服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8及diff检查通过。提交前匿名查询HTTP403，经已连接GitHub核实最新main三工作流仍为上述成功记录，实时远端main仍b06f6cad；再次确认Android祖先、完整对象及保护路径差异为空。替代证据precommit_alternative.json。

@@ -199,7 +199,7 @@
     <h2><i class="bi bi-box-arrow-up"></i> {{ page_title or '新增售后出库单' }}</h2>
     <div class="d-flex gap-2 flex-wrap">
         {% if can_edit_after_sale_out %}
-        <button type="button" class="btn btn-primary" onclick="submitForm()">
+        <button type="button" class="btn btn-primary" data-wms-save onclick="submitForm()">
             <i class="bi bi-save"></i> 保存
         </button>
         {% endif %}

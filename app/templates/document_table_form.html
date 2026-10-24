@@ -64,7 +64,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% if doc_type == 'requisition' and complete_url %}
             <button type="button" class="btn btn-success btn-sm" data-wms-save-complete="requisition" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成领料</button>
             {% else %}
-            <button type="button" class="btn btn-primary btn-sm" onclick="submitForm(false)"><i class="bi bi-save"></i> 保存</button>
+            <button type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)"><i class="bi bi-save"></i> 保存</button>
             {% if complete_url %}
             <button type="button" class="btn btn-success btn-sm" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成</button>
             {% endif %}

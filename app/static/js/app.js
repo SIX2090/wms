@@ -3497,20 +3497,29 @@ document.addEventListener('DOMContentLoaded', function() {
 // 键盘快捷键管理
 function initKeyboardShortcuts() {
     document.addEventListener('keydown', function(e) {
-        // 忽略输入框内的快捷键
-        var tagName = (e.target && e.target.tagName) || '';
-        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+        // Only an explicitly declared ordinary save may handle Ctrl/Cmd+S.
+        // Never infer a save from submitForm, a generic submit button or a form:
+        // those may search, create another document, or complete inventory work.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && String(e.key).toLowerCase() === 's') {
+            if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
+            e.preventDefault();
+            if (e.repeat || (e.target && e.target.isContentEditable) ||
+                document.querySelector('.modal.show, .cb-confirm-overlay.show')) return;
+            var content = document.querySelector('.embedded-content');
+            var saveBtn = content && Array.from(content.querySelectorAll('button[data-wms-save]')).find(function(button) {
+                return !button.matches(':disabled') && button.getAttribute('aria-disabled') !== 'true' &&
+                    !button.hasAttribute('data-wms-save-complete') &&
+                    !button.closest('.modal, [role="dialog"], [hidden], [inert], [aria-hidden="true"], .readonly-mask') &&
+                    button.getClientRects().length > 0 && window.getComputedStyle(button).visibility === 'visible';
+            });
+            if (saveBtn) saveBtn.click();
+            else showToast('当前页面没有普通保存操作，请使用页面上的操作按钮', 'info', 2400);
             return;
         }
 
-        // Ctrl+S: 保存（阻止默认行为，触发提交）
-        if (e.ctrlKey && e.key === 's') {
-            e.preventDefault();
-            var saveBtn = document.querySelector('[onclick*="submitForm"], button[type="submit"], .btn-save');
-            if (saveBtn) {
-                saveBtn.click();
-                showToast('正在保存...', 'info', 1000);
-            }
+        // 忽略输入框内的快捷键
+        var tagName = (e.target && e.target.tagName) || '';
+        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
             return;
         }
 
