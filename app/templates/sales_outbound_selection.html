@@ -252,6 +252,7 @@
 
 <script>
 let selectable = new Map();
+let selectableQueryVersion = 0;
 function esc(value) {
     const el = document.createElement('span');
     el.textContent = value == null ? '' : String(value);
@@ -273,6 +274,7 @@ function showValidation(messages) {
     panel.classList.add('show');
 }
 function loadSelectable() {
+    const queryVersion = ++selectableQueryVersion;
     showValidation([]);
     const params = new URLSearchParams();
     [['customer_id','customerFilter'],['warehouse','warehouseFilter'],['salesperson_id','salespersonFilter'],['search','searchFilter']].forEach(function(pair) {
@@ -280,10 +282,20 @@ function loadSelectable() {
         if (v) params.set(pair[0], v);
     });
     const body = document.getElementById('itemsBody');
+    const filterFields = ['customerFilter', 'warehouseFilter', 'salespersonFilter', 'searchFilter'];
+    const context = filterFields.map(id => document.getElementById(id).value.trim()).join('\0');
+    const isCurrent = () => queryVersion === selectableQueryVersion && document.getElementById('itemsBody') === body &&
+        context === filterFields.map(id => document.getElementById(id).value.trim()).join('\0');
+    selectable.clear();
+    document.getElementById('selectAll').checked = false;
+    document.getElementById('entryStatus').textContent = '正在查询...';
     body.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">正在加载...</td></tr>';
-    fetch('{{ url_for("api_sales_order_selectable") }}?' + params.toString())
-        .then(function(r) { return r.json(); })
+    updateSummary();
+    return WMS.api.getRaw('{{ url_for("api_sales_order_selectable") }}?' + params.toString())
         .then(function(data) {
+            if (!isCurrent()) return;
+            if (!data || data.status !== 'success' || !Array.isArray(data.items)) throw new Error('查询结果格式错误');
+            document.getElementById('entryStatus').textContent = '';
             selectable = new Map((data.items || []).map(function(item) {
                 return [String(item.sales_order_item_id), item];
             }));
@@ -309,6 +321,7 @@ function loadSelectable() {
             updateSummary();
         })
         .catch(function() {
+            if (!isCurrent()) return;
             body.innerHTML = '<tr><td colspan="12" class="text-center text-danger py-4">查询失败，请稍后重试</td></tr>';
             document.getElementById('entryStatus').textContent = '查询失败，请稍后重试';
         });

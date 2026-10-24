@@ -1699,6 +1699,10 @@ function loadPurchaseOrderSelectable() {
     const params = new URLSearchParams();
     const keyword = (document.getElementById('purchaseOrderSelectSearch')?.value || '').trim();
     const supplierId = getCurrentSupplierId();
+    const sourceId = sourcePurchaseOrderId;
+    const isCurrent = () => seq === purchaseOrderSearchSeq && document.getElementById('purchaseOrderSelectBody') === body &&
+        (document.getElementById('purchaseOrderSelectSearch')?.value || '').trim() === keyword &&
+        getCurrentSupplierId() === supplierId && sourcePurchaseOrderId === sourceId;
     if (sourcePurchaseOrderId) params.set('purchase_order_id', sourcePurchaseOrderId);
     if (keyword) params.set('search', keyword);
     if (supplierId) params.set('supplier_id', supplierId);
@@ -1711,22 +1715,24 @@ function loadPurchaseOrderSelectable() {
         hint.textContent = supplierId ? '已按当前供应商过滤' : '未选供应商时可跨供应商查询，但生成入库单只能选择同一供应商';
     }
 
-    fetch('/api/purchase_order/selectable?' + params.toString())
-        .then(res => res.json())
+    purchaseOrderSelectableMap.clear();
+    updatePurchaseOrderSelectionSummary();
+    return WMS.api.getRaw('/api/purchase_order/selectable?' + params.toString())
         .then(data => {
-            if (seq !== purchaseOrderSearchSeq) return;
+            if (!isCurrent()) return;
             if (!data || data.status !== 'success') {
                 body.innerHTML = '<tr><td colspan="13" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml((data && data.msg) || '未知错误') + '</td></tr>';
                 updatePurchaseOrderSelectionSummary();
                 return;
             }
-            renderPurchaseOrderSelectableRows(data.items || []);
+            if (!Array.isArray(data.items)) throw new Error('查询结果格式错误');
+            renderPurchaseOrderSelectableRows(data.items);
             if (hint && data.total_pages > 1) {
                 hint.textContent += ' · 共 ' + data.total + ' 张候选，仅显示前150张，请输入单号、供应商或物料缩小范围';
             }
         })
         .catch(error => {
-            if (seq !== purchaseOrderSearchSeq) return;
+            if (!isCurrent()) return;
             body.innerHTML = '<tr><td colspan="13" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml(error.message) + '</td></tr>';
             updatePurchaseOrderSelectionSummary();
         });

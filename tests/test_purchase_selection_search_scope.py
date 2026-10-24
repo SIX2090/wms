@@ -91,21 +91,22 @@ def test_selector_requests_explicit_first_page_and_ignores_stale_search_results(
     function='function loadPurchaseOrderSelectable()'+source.split('function loadPurchaseOrderSelectable()',1)[1].split('\nfunction renderPurchaseOrderSelectableRows',1)[0]
     script=r'''
 const assert=require('node:assert/strict');let purchaseOrderSearchSeq=0,rendered=[];
+const purchaseOrderSelectableMap=new Map();const window={};
 const body={innerHTML:''},hint={textContent:''},search={value:'old'};
-const document={getElementById(id){return {purchaseOrderSelectBody:body,purchaseOrderSelectHint:hint,purchaseOrderSelectSearch:search}[id];}};
+const document={querySelector:()=>null,getElementById(id){return {purchaseOrderSelectBody:body,purchaseOrderSelectHint:hint,purchaseOrderSelectSearch:search}[id];}};
 const sourcePurchaseOrderId='';function getCurrentSupplierId(){return '';}
 function escapeHtml(v){return v;}function updatePurchaseOrderSelectionSummary(){}
 function renderPurchaseOrderSelectableRows(items){rendered=items;}
 const pending=[];
 function fetch(url){return new Promise(resolve=>pending.push({url,resolve}));}
-''' + function + r'''
+''' + (ROOT/'app/static/js/api.js').read_text(encoding='utf-8') + '\nconst WMS=window.WMS;\n' + function + r'''
 loadPurchaseOrderSelectable(); search.value='new'; loadPurchaseOrderSelectable();
 const params=new URL(pending[1].url,'http://localhost').searchParams;
 assert.equal(params.get('search'),'new');assert.equal(params.get('page'),'1');assert.equal(params.get('limit'),'150');
-pending[1].resolve({json:()=>Promise.resolve({status:'success',items:['new'],total:160,total_pages:2})});
+pending[1].resolve({ok:true,status:200,json:()=>Promise.resolve({status:'success',items:['new'],total:160,total_pages:2})});
 setImmediate(()=>{
  assert.deepEqual(rendered,['new']);assert.ok(hint.textContent.includes('160'));assert.ok(hint.textContent.includes('150'));
- pending[0].resolve({json:()=>Promise.resolve({status:'success',items:['old'],total:1,total_pages:1})});
+ pending[0].resolve({ok:true,status:200,json:()=>Promise.resolve({status:'success',items:['old'],total:1,total_pages:1})});
  setImmediate(()=>{assert.deepEqual(rendered,['new']);});
 });
 '''

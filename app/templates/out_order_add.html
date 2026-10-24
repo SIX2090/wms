@@ -1579,6 +1579,7 @@ function refreshWarehouses(options) {
 
 // ==================== P1-7 采购退货出库：来源采购入库单联想 ====================
 let sourceInOrderTimer = null;
+let sourceInOrderSearchSeq = 0;
 
 function showSourceInOrderDropdown(list) {
     const dropdown = document.getElementById('sourceInOrderDropdown');
@@ -1608,6 +1609,8 @@ function showSourceInOrderDropdown(list) {
 }
 
 function pickSourceInOrder(id, orderNo) {
+    ++sourceInOrderSearchSeq;
+    clearTimeout(sourceInOrderTimer);
     const input = document.getElementById('sourceInOrderNo');
     const hidden = document.getElementById('sourceInOrderId');
     const dropdown = document.getElementById('sourceInOrderDropdown');
@@ -1620,16 +1623,22 @@ function searchSourceInOrders() {
     const input = document.getElementById('sourceInOrderNo');
     const dropdown = document.getElementById('sourceInOrderDropdown');
     if (!input || !dropdown) return;
+    const seq = ++sourceInOrderSearchSeq;
+    dropdown.style.display = 'none';
     const keyword = (input.value || '').trim();
     const params = new URLSearchParams();
     if (keyword) params.set('search', keyword);
     const supplierInput = document.querySelector('[name="customer"]');
     const supplierName = supplierInput ? supplierInput.value.trim() : '';
+    const isCurrent = () => seq === sourceInOrderSearchSeq && document.getElementById('sourceInOrderNo') === input &&
+        document.getElementById('sourceInOrderDropdown') === dropdown && (input.value || '').trim() === keyword &&
+        (document.querySelector('[name="customer"]')?.value || '').trim() === supplierName;
+    // This autocomplete intentionally shows at most 30 matching source documents.
     params.set('limit', '30');
-    fetch('/api/purchase_in_order/selectable?' + params.toString())
-        .then(function(r){ return r.json(); })
+    return WMS.api.getRaw('/api/purchase_in_order/selectable?' + params.toString())
         .then(function(res) {
-            if (!res || res.status !== 'success') {
+            if (!isCurrent()) return;
+            if (!res || res.status !== 'success' || !Array.isArray(res.orders)) {
                 dropdown.style.display = 'none';
                 return;
             }
@@ -1644,7 +1653,7 @@ function searchSourceInOrders() {
             }
             showSourceInOrderDropdown(orders);
         })
-        .catch(function(){ dropdown.style.display = 'none'; });
+        .catch(function(){ if (isCurrent()) dropdown.style.display = 'none'; });
 }
 
 function setupSourceInOrderSearch() {
@@ -1654,16 +1663,26 @@ function setupSourceInOrderSearch() {
     if (!input || !dropdown) return;
     input.addEventListener('focus', function() { searchSourceInOrders(); });
     input.addEventListener('input', function() {
+        ++sourceInOrderSearchSeq;
+        dropdown.style.display = 'none';
         // 手工改动单号即视为解除既有 id 绑定（以文本为准，后端按单号解析）
         if (hidden) hidden.value = '';
         clearTimeout(sourceInOrderTimer);
         sourceInOrderTimer = setTimeout(searchSourceInOrders, 250);
     });
     input.addEventListener('keydown', function(event) {
-        if (event.key === 'Escape') dropdown.style.display = 'none';
+        if (event.key === 'Escape') {
+            ++sourceInOrderSearchSeq;
+            clearTimeout(sourceInOrderTimer);
+            dropdown.style.display = 'none';
+        }
     });
     document.addEventListener('click', function(event) {
-        if (!event.target.closest('#sourceInOrderWrap')) dropdown.style.display = 'none';
+        if (!event.target.closest('#sourceInOrderWrap')) {
+            ++sourceInOrderSearchSeq;
+            clearTimeout(sourceInOrderTimer);
+            dropdown.style.display = 'none';
+        }
     });
 }
 

@@ -1858,3 +1858,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 位置调整基线：04365c9e001ca1e1e1ad8c4f46dd75a20d619c35的CI40079971398、AI40079971357全绿；Android40027751562成功且祖先/保护路径/对象齐全证明成立。8个导航、登录、记住我、权限及表单相邻模块91 passed。按用户新要求更新原位置断言，保留全部退出功能断言；旧布局8 failed、4 passed，证据%TEMP%/wms-logout-order-red.log。生效确认：2026-10-24 18:06由Codex完成位置调整发布核验，现位于主菜单末尾、管理员的系统管理之后。
 - 位置调整验证：相关8模块91 passed，文档契约34 passed；备份模板并物理回退，新位置断言8 failed、4 passed，再恢复补丁；隔离HTTP冒烟121/121并停止自有18080服务，verify_wms_bugs、A1–A14、UTF-8与diff检查通过。证据C:/wms_backups/logout_order_deploy_20261024，未修改后端或业务数据。
 - 位置调整发布：2b5bea5fa9b97b050a20e11355ea1a75995e6196已实际push（04365c9e..2b5bea5f main -> main），HEAD/origin/live main一致；CI40084339599、AI40084339646精确匹配success，Android40027751562祖先/对象/保护路径证明通过。即时在线备份与旧模板回退包在C:/wms_backups/logout_order_deploy_20261024。核对旧PID12284身份、唯一8080监听、SYSTEM原任务及启动保护后重启一次，新PID2476（2026-10-24T18:06:31.618427+08:00），Python311/run_server.py/Session0正确，LastTaskResult=0；18:06:35日志版本2b5bea5、production、CSRF on。模板与目标Git一致，本机及公网login GET200且含CSRF，八张核心业务/用户表摘要前后一致、quick_check=ok。未登录生产或修改业务/密码。收尾仅台账，无须再次重启。
+
+
+### BUG-2026-10-24-013: 选单查询迟到响应覆盖当前筛选或重开已关闭的来源联想
+
+- 状态：已修复，本地验证通过，待CI与生产生效确认。
+- 根因/危害：销售出库选单loadSelectable未校验HTTP和响应封套、无请求代次保护，旧查询覆盖新筛选，失败响应可能显示为空列表；采购选单已有序号但缺HTTP/数组校验和当前弹窗、供应商、关键字上下文校验；采购退货来源入库联想没有失效机制，输入防抖期间、选定来源、Escape或点外部后，旧响应仍会重新打开候选，旧失败也会隐藏新结果。销售/采购加载新查询时旧已选统计未清空。
+- 同类点已排查：检索BUG-2026-10-24-004/005/007/008的异步查询/刷新历史及所有selectable接口前端消费点，三处分别为sales_outbound_selection、in_order_add采购选单和out_order_add采购退货来源联想。本批覆盖这三处，已有物料缓存、仓库/部门及公共单位刷新保护保持。采购选单原来前150张提示/显式分页不变；退货来源联想明确仅前30条，后端候选口径不改。
+- 修复：三处GET统一用WMS.api.getRaw处理HTTP、会话与业务失败，并验证列表形状；仅当前请求、当前输入/筛选以及仍有效DOM可更新页面。退货来源输入、选择、Escape和点击外部立即使请求失效并清理防抖；销售和采购开始查询即清理选择缓存/统计。保留原候选渲染、供应商优先排序、数量/价格、人工生成草稿及后端鉴权/库存规则。生产需重启 WMS 服务生效。
+- 修复前基线：9个选单/销售/采购退货/物料联想及相邻模块232 passed、27项既有SQLAlchemy弃用警告（%TEMP%/wms-selection-query-baseline.log）。新增42项用实际页面函数、渲染/事件和真实api.js，延迟响应覆盖HTTP错误、业务错误、HTML/空/错误结构、会话过期、网络失败、响应乱序、输入变化、DOM替换、加载统计和选定/关闭/防抖；旧实现27 failed、15 passed，初次修复42 passed。
+- 既有测试维护：采购选单原测试新增真实api.js和正确HTTP Response桩及缓存Map，保留原显式page/limit、查询参数、旧响应不得覆盖和150条提示的全部断言，未放宽业务断言。
+- 开工门禁：37ffeefb99391dc66d478c974e962b33feb8e58f的CI40084628649、AI40084628646均completed/success；最新Android40027751562为祖先，Git对象齐全且Android工程/工作流无差异。上一批CI等待时仅只读复核及基线测试，退出菜单调整生产与收尾CI通过后才写入本批。证据C:/wms_backups/selection_query_deploy_20261024。
+- 生效确认：待本批完整回归、目标CI、备份、原任务重启及只读生产核验；生产需重启 WMS 服务生效。
+- 最终回归：补齐仓库/供应商切换后新增48项全通过；备份三个模板→物理回退→新用例32 failed、16 passed→finally恢复（rollback.log），未使用stash。10个受影响/相邻模块280 passed、27项既有SQLAlchemy弃用警告（%TEMP%/wms-selection-query-final.log）；文档契约34 passed、隔离HTTP冒烟121/121并停止自有18080实例；verify_wms_bugs、A1–A14为0违规、UTF-8与diff检查通过。提交前check_ci_green.py完整基线SHA为ok=true（precommit_ci.json）。
