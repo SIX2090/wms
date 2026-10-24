@@ -364,6 +364,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
 const existingItems = {{ existing_items|tojson }};
@@ -841,20 +842,9 @@ function findEmptyRow() {
 }
 
 function refreshMaterials() {
-    fetch('/material/api/all')
-        .then(function(r) { return r.json(); })
-        .then(function(res) {
-            if (res.status === 'success' && Array.isArray(res.materials)) {
-                materials.length = 0;
-                res.materials.forEach(function(m) { materials.push(m); });
-                showToast('物料列表已刷新', 'success');
-            } else {
-                showToast(res.msg || '刷新失败', 'danger');
-            }
-        })
-        .catch(function(err) {
-            showToast('刷新失败：' + err.message, 'danger');
-        });
+    return WMS.materialCache.refresh(materials).then(function(applied) {
+        if (applied) showToast('物料列表已刷新', 'success');
+    }).catch(function(err) { showToast('刷新失败：' + err.message, 'danger'); });
 }
 
 document.addEventListener('click', function(e) {

@@ -356,6 +356,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const docType = {{ doc_type|tojson }};
@@ -997,13 +998,9 @@ function findEmptyRow() {
     return null;
 }
 function refreshMaterials() {
-    fetch('/material/api/all').then(r => r.json()).then(res => {
-        if (res.status === 'success' && Array.isArray(res.materials)) {
-            materials.length = 0;
-            res.materials.forEach(m => materials.push(m));
-            showToast('物料列表已刷新', 'success');
-        } else showToast(res.msg || '刷新失败', 'danger');
-    }).catch(err => showToast('刷新失败：' + err.message, 'danger'));
+    return WMS.materialCache.refresh(materials).then(function(applied) {
+        if (applied) showToast('物料列表已刷新', 'success');
+    }).catch(function(err) { showToast('刷新失败：' + err.message, 'danger'); });
 }
 function refreshUnits() {
     fetch('/api/units').then(r => r.json()).then(list => {
