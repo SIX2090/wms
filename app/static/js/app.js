@@ -249,7 +249,8 @@ function enableMultiOpenMenus() {
     const menuLinks = document.querySelectorAll('.sidebar a[href], .sidebar .dropdown-item[href]');
     menuLinks.forEach(function(link) {
         const href = link.getAttribute('href');
-        if (!href || href === '#' || href.startsWith('javascript:') || link.dataset.multiOpenReady === 'true') {
+        // Account actions targeting the whole window must not become workspace tabs.
+        if (!href || href === '#' || href.startsWith('javascript:') || link.getAttribute('target') === '_top' || link.dataset.multiOpenReady === 'true') {
             return;
         }
 

@@ -379,6 +379,13 @@
                     <i class="bi bi-person-circle"></i> 我的资料
                 </a>
             </li>
+            {% if current_user.is_authenticated %}
+            <li class="nav-item">
+                <a class="nav-link" href="{{ url_for('logout') }}" target="_top" title="退出当前用户：{{ current_user.username }}">
+                    <i class="bi bi-box-arrow-right"></i> 退出登录
+                </a>
+            </li>
+            {% endif %}
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" onclick="toggleModuleMenu(this)" aria-expanded="false">
                     <span class="module-title"><i class="bi bi-qr-code-scan"></i> 手机扫码</span>
