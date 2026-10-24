@@ -1838,14 +1838,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-012: 网页缺少退出当前账号入口
 
-- 状态：已修复，本地验证通过，待CI与生产生效确认。
+- 状态：已修复并生产生效（2026-10-24 16:55）。
 - 根因/危害：user_auth已有/logout路由并正确清除会话及记住我Cookie，但base公共导航无链接，用户无法从页面退出当前账号。直接添加普通侧栏链接又会被enableMultiOpenMenus改成内部标签页，留下旧的外层工作区。
 - 同类点已排查：核对AI-LOGIN-F02记住我退出清理历史、用户/认证路由和Android独立登出记录；后端能力已有且不重复实现。网页入口对所有登录角色开放，复用桌面/手机公共侧栏；Android已有自己的退出功能，本批不改APK或令牌撤销策略。
 - 修复：在「我的资料」下方增加「退出登录」入口，target=_top使其退出整个当前窗口；菜单多开初始化跳过明确要求_top的链接。复用既有/logout的session.clear→logout_user→登录页流程，未改密码、账号角色或后端鉴权。README补充电脑/手机入口及退出前保存提示。生产需重启 WMS 服务生效。
 - 回归设计：新增8种角色入口渲染、匿名不显示、真实菜单初始化不包装退出链接但保留普通多开行为，以及勾选/未勾选记住我两种真实Flask登录→点击实际渲染退出URL→Cookie清理→受保护页面回登录测试；仅内存数据库和临时账号。新测试修前11 failed、1 passed，初次修复与既有记住我测试17 passed。
 - 开工门禁：7933eba63e5e21094d23ca02705f8beca8d5454a的WMS CI40078418519、AI40078418529均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且保护路径无差异、对象齐全。匿名API限流后经已连接GitHub核实最新main三工作流，替代证据保存在C:/wms_backups/logout_entry_deploy_20261024/baseline_ci_alternative.json。
-- 生效确认：待确认；相关回归、隔离浏览器与冒烟、目标CI、原任务重启和生产只读核验后回填，生产需重启 WMS 服务生效。
+- 生效确认：2026-10-24 16:55由Codex核对目标CI、原任务重启、版本日志、服务响应与业务摘要后确认；生产需重启 WMS 服务生效，本次已完成。证据目录C:/wms_backups/logout_entry_deploy_20261024。
 
 - 基线与回退验证：原代码82个受影响/相邻模块2249 passed、21 skipped、3项既有SQLAlchemy弃用警告；备份base.html/app.js后物理回退，新测试11 failed、1 passed，再由finally恢复补丁，证据%TEMP%/wms-logout-rollback-5lp4ypjg。初次基线未结束提前应用补丁后已纠正，废弃该次结果，以上为重新执行完整旧代码基线。
 - 浏览器验收：独立18080服务与临时smoke.db完成121/121 HTTP冒烟；内置浏览器实际登录临时管理员，侧栏显示退出入口且不附加新开页面按钮，点击后整个窗口回/login，再访问/admin/console回/login?next=/admin/console；截图保存在C:/wms_backups/logout_entry_deploy_20261024。临时服务已停止，未在生产登录或操作账号。
 - 回归验收：83个受影响/相邻模块2261 passed、21 skipped、3项既有SQLAlchemy弃用警告（%TEMP%/wms-logout-final.log）；文档契约34 passed、隔离HTTP冒烟121/121；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8编码与git diff --check通过。未削弱既有断言。
+- 提交与CI：24b427c51e2bddba63c2714c23b6e74c6cf0cfe5已push（7933eba6..24b427c5 main -> main），HEAD/origin/live main一致。[WMS CI40079662746](https://github.com/SIX2090/wms/actions/runs/40079662746)、[AI40079662792](https://github.com/SIX2090/wms/actions/runs/40079662792)均精确匹配completed/success；最新Android40027751562为祖先，Git对象齐全且Android工程/工作流无差异。匿名API与pre-push均HTTP403，仅属查询故障；已连接GitHub核实同一实时远端基线最新三工作流及范围证明后，按规则单次WMS_SKIP_CI_GATE=1重推，finally清除。保存baseline_ci_alternative.json、target_ci_alternative.json与push.log。
+- 生产发布：在线备份deploy_inventory.db完整性通过，SHA256为61af927d6414327ca95b3fc67f3ea240a8d4882a44fb02cabbe9db354d2515f0，保留旧代码rollback_code.zip。核对旧PID12044完整创建时间、Python311解释器、run_server.py/Session0、唯一8080监听、SYSTEM任务入口与WMS_NO_DB_TOUCH=1后，避开计划触发窗口，仅终止原实例并启动原任务一次。新PID12284、2026-10-24T16:55:22.087837+08:00创建，解释器/命令/会话一致，LastTaskResult=0；16:55:25启动日志24b427c、production、CSRF on，db-check migrate=ok仅作结构检查证据。
+- 只读验收：本机与https://gd2026.top/login均GET200并含CSRF；两端实际返回app.js与提交文本一致，模板文件与目标Git对象一致。八张核心业务/用户表完整行摘要前后一致，quick_check=ok。未在生产登录或运行写入冒烟，未改业务记录及账号密码。截图为隔离测试环境。用户刷新整个页面即可加载新入口。
+- 收尾边界：本次只补月度BUG台账，生产应用保持24b427c，无须再重启；文档契约与收尾提交自身CI单独验收。若该次push仍遭同一匿名403，仅在同一实时基线全绿及Android范围证明成立后临时使用既有开关并清除。
