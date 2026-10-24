@@ -95,7 +95,7 @@ const document={querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:
  querySelectorAll:s=>s==='#docTableBody tr'?rows:s==='.doc-header button, #forceCompleteBtn'?[button]:[],
  getElementById:id=>id==='docTableBody'?{rows}:id==='totalQty'?total:null,addEventListener:(type,fn)=>callbacks[type]=fn};
 const ctx={document,FormData:class{},URLSearchParams,Event:class{constructor(type){this.type=type;}},showToast:(m,t)=>messages.push({m,t}),registerDetailRowActions(){},setTimeout:(fn,delay)=>timers.push({fn,delay}),location:{href:'/original'},fetch:(url,options)=>{if(url==='/warehouse/api/list')return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({warehouses:refresh})});sent.push({url,options,body:JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;
-vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.script,ctx);callbacks.DOMContentLoaded();
+vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.select_helper,ctx);vm.runInContext(p.script,ctx);callbacks.DOMContentLoaded();
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
 const finish=async(index,status='success')=>{pending[index].resolve({ok:true,status:200,json:()=>Promise.resolve({status,id:7,msg:'fixture'})});await settle();};
 const submit=()=>vm.runInContext('submitForm(true)',ctx);
@@ -147,7 +147,7 @@ def form_run(action,enabled=True,completed=False,location=LOCATION,role='product
     html=form(enabled,completed,role,location)
     script=re.search(r'<script>(.*?)</script>',html,re.S)
     assert script
-    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=script.group(1),helper=escape_helper(),api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
+    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=script.group(1),helper=escape_helper(),select_helper=(ROOT/'app/static/js/select-refresh.js').read_text(encoding='utf-8'),api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
 
 
 @pytest.mark.parametrize('enabled',[False,True])
