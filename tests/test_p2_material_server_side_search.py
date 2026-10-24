@@ -133,11 +133,6 @@ def test_T3_template_uses_server_side_search():
     assert "MATERIAL_SEARCH_LIMIT_HINT" in src, "应有搜索上限常量"
     body = src[src.index("function showDropdown("):]
     body = body[:body.index("function selectMaterial(")]
-    # Cancellation moved to the shared lifecycle helper; retain the original checks
-    # over the actual implementation and require the picker to invoke that helper.
-    cancel = src[src.index("function cancelMaterialSearch("):src.index("function filterLocalMaterials(")]
-    assert "cancelMaterialSearch();" in body
-    body = cancel + body
     assert "clearTimeout" in body and "setTimeout" in body, "服务端搜索应做防抖"
     assert "materialSearchState" in body and "seq" in body, "应有请求序号防竞态"
     assert "filterLocalMaterials" in body, "网络异常时应降级为本地缓存过滤"

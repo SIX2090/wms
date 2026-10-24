@@ -804,9 +804,6 @@ function getMaterialQuickDropdown() {
 }
 
 function hideMaterialQuickDropdown() {
-    ++materialLookupToken;
-    clearTimeout(materialLookupTimer);
-    materialLookupTimer = null;
     const dropdown = getMaterialQuickDropdown();
     if (dropdown) dropdown.style.display = 'none';
     materialQuickActiveIndex = -1;
@@ -863,16 +860,12 @@ function renderMaterialQuickDropdown(results) {
 }
 
 function lookupAddMaterial() {
-    clearTimeout(materialLookupTimer);
-    materialLookupTimer = null;
     const codeInput = activeMaterialInput || document.getElementById('code');
     if (!codeInput) return;
     activeMaterialInput = codeInput;
     const row = codeInput.closest('tr');
     const keyword = codeInput.value.trim();
     const token = ++materialLookupToken;
-    const current = () => token === materialLookupToken && activeMaterialInput === codeInput &&
-        codeInput.isConnected !== false && codeInput.value.trim() === keyword;
     if (!keyword) {
         materialQuickResults = [];
         hideMaterialQuickDropdown();
@@ -880,14 +873,11 @@ function lookupAddMaterial() {
         return;
     }
 
-    WMS.api.getRaw('/api/material/search?kw=' + encodeURIComponent(keyword))
+    fetch('/api/material/search?kw=' + encodeURIComponent(keyword), {credentials: 'same-origin'})
+        .then(r => r.json())
         .then(res => {
-            if (!current()) return;
-            if (!res || res.status !== 'success' || !Array.isArray(res.data) ||
-                res.data.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
-                throw new Error('物料搜索结果格式不正确');
-            }
-            materialQuickResults = res.data;
+            if (token !== materialLookupToken) return;
+            materialQuickResults = (res.status === 'success' && Array.isArray(res.data)) ? res.data : [];
             const exact = materialQuickResults.find(function(m) {
                 return String(m.code || '').toLowerCase() === keyword.toLowerCase();
             });
@@ -896,10 +886,10 @@ function lookupAddMaterial() {
             } else {
                 clearAddMaterialInfo(row);
             }
-            if (document.activeElement === codeInput) renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
+            renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
         })
         .catch(() => {
-            if (current()) {
+            if (token === materialLookupToken) {
                 materialQuickResults = [];
                 hideMaterialQuickDropdown();
                 clearAddMaterialInfo(row);
@@ -908,9 +898,6 @@ function lookupAddMaterial() {
 }
 
 function scheduleAddMaterialLookup() {
-    ++materialLookupToken;
-    const dropdown = getMaterialQuickDropdown();
-    if (dropdown) dropdown.style.display = 'none';
     clearTimeout(materialLookupTimer);
     materialLookupTimer = setTimeout(lookupAddMaterial, 250);
 }
