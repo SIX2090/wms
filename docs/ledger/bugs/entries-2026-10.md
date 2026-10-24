@@ -1781,3 +1781,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生产发布：保留before_inventory.db与旧两JS的rollback_assets.zip，发布即时mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为73bf033214d686b15fcdbc05a8523d982dfcf48a4ff803b377198f0622e60d33。即时核对原PID9616完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、原SYSTEM任务入口与WMS_NO_DB_TOUCH=1；避开下一计划触发窗口后仅终止该实例，再启动原任务一次。新PID11460，2026-10-24T13:49:58.622289+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。13:50:02启动日志为a1f634b、production、CSRF on；db-check migrate=ok仅结构检查，不声称迁移。
 - 只读验收：两个JS规范化文本逐文件匹配目标Git对象；本机和https://gd2026.top/login均GET200且含CSRF；app.js和select-refresh.js两端均200、JavaScript类型、年度缓存，分别SHA256为cb3ddac90d31cb64c69ac61bcffe69441096af38dbfa28e745e34e3c18b9cb19、0e6bc230d7c3dca7bb5e5f3d9e0f790ab3dc770aec8d92372cfb0b671a1fcfb3且匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟或创建业务记录，未改密码、依赖或服务入口。
 - 收尾门禁：仅月度BUG台账记录更新，应用文件保持已发布a1f634b1版本，无须再次重启；验收文档分级检查和该收尾提交自身CI。若同次pre-push仍因匿名API的403查询故障拒绝，以已核实的同一a1f634b1基线全绿及Android范围证明为替代，仅该次push临时WMS_SKIP_CI_GATE=1并finally清除；不跳过实际非绿或未核实状态。
+
+
+### BUG-2026-10-24-009: 公共单据单位刷新覆盖行选择并静默回退默认单位
+
+- 状态：已修复（本地验证通过，目标CI及生产生效待确认）。
+- 根因/危害：document_table_form.html的refreshUnits在unit_updated广播时用原生GET直接覆盖units并重填所有.unit-id，无请求代次、HTTP检查及readonly/disabled保护。较旧列表晚返回可移除刚新建并选中的单位，重填后select.value变空；collectItems随后用物料默认单位回退，改变操作员选择的实际保存载荷。只读单据及禁用行的历史显示也可能被广播改写。
+- 同类点已排查：检查BUG-2026-10-24-004/007/008与BUG-2026-08-25-001。此行单位重建入口只有一处，覆盖BOM、调拨、盘点和工单领料四模式；其它完整数组缓存及全局分类/单位/供应商select分别已有007/008治理。/api/units返回完整数组，不使用分页或物料封套。物料新增的本地新增后push没有本批的异步整表覆盖。不改collectItems、单位删除引用保护、库存/数量算法、权限或业务保存接口。
+- 修复：复用WMS.listCache.refresh的HTTP、数组/行/重复ID校验及最新请求保护，只在有效最新结果后更新行选项。readonly页不发请求；应用时跳过disabled和已脱离DOM字段，读取当时当前选择，若新列表暂缺该单位则原DOM选项回插，保留名称和ID，避免默认单位替换。新建行使用最新缓存；现有数组身份、自动静默策略及数量/价格不变。unitOptions的ID属性同步HTML转义，与既有名称转义一起保证安全文本渲染。生产需重启 WMS 服务生效。
+- 修复前基线：16个模板/list-cache直接消费模块533 passed、24项既有SQLAlchemy警告（%TEMP%/wms-unit-refresh-baseline.log）。新增84项真实refreshUnits/unitOptions/collectItems、原api.js及共享缓存的延迟请求回归，旧实现52 failed、32 passed；修复后与既有缓存/零价格测试合计179 passed。
+- 回归锁/物理回退：备份单模板→git checkout --单模板→执行新增84项→finally恢复；旧实现52 failed、32 passed。回退证据%TEMP%/wms-unit-refresh-rollback-iy44uyxp/rollback.log；恢复后84项全部通过。未使用stash或修改旧断言。
+- 回归/门禁：20个受影响/相邻模块全量756 passed、24项既有SQLAlchemy警告（%TEMP%/wms-unit-refresh-final.log），包括单位保存载荷、零价格、键盘/粘贴、完整物料缓存分页、仓库/部门刷新和领料库位联动。隔离HTTP冒烟121/121且自有18080服务已停止（%TEMP%/wms-unit-refresh-smoke.log）；A1–A14为0违规、JS实际运行、UTF-8编码及verify_wms_bugs均通过。提交前check_ci_green.py --target-sha完整基线 --json为ok=true，证据、在线备份及旧模板回退包在C:/wms_backups/unit_refresh_deploy_20261024。开工基线56d67971ecc43f841fd7e451cbdaf9652543eb7b的WMS CI40068086907、AI40068086878均completed/success；Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化。
+- 生效确认：待目标CI、备份及原WMS-Warehouse任务重启后只读核验；生产需重启 WMS 服务生效。沿用用户已授权的在线备份和原任务单次重启范围，不修改业务记录、密码、依赖或服务入口。

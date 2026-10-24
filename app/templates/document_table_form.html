@@ -397,7 +397,7 @@ function findMaterialByCode(code) {
 function unitOptions(selectedId) {
     let html = '<option value="">-</option>';
     units.forEach(function(unit) {
-        html += '<option value="' + unit.id + '"' + (String(selectedId || '') === String(unit.id) ? ' selected' : '') + '>' + escapeHtml(unit.name) + '</option>';
+        html += '<option value="' + escapeHtml(String(unit.id)) + '"' + (String(selectedId || '') === String(unit.id) ? ' selected' : '') + '>' + escapeHtml(unit.name) + '</option>';
     });
     return html;
 }
@@ -1003,17 +1003,23 @@ function refreshMaterials() {
     }).catch(function(err) { showToast('刷新失败：' + err.message, 'danger'); });
 }
 function refreshUnits() {
-    fetch('/api/units').then(r => r.json()).then(list => {
-        if (Array.isArray(list)) {
-            units.length = 0;
-            list.forEach(u => units.push(u));
-            document.querySelectorAll('.unit-id').forEach(select => {
-                const selected = select.value;
-                select.innerHTML = unitOptions(selected);
-                select.value = selected;
-            });
-        }
-    }).catch(function() {});
+    if (readonly) return Promise.resolve(false);
+    return WMS.listCache.refresh(units, '/api/units').then(function(applied) {
+        if (!applied) return false;
+        document.querySelectorAll('.unit-id').forEach(function(select) {
+            if (select.disabled || select.isConnected === false) return;
+            const selected = select.value;
+            const selectedOption = Array.from(select.options).find(option => option.value === selected);
+            select.innerHTML = unitOptions(selected);
+            // Keep the entered unit even when the refreshed master list omits it.
+            // Clearing it would make collectItems silently use the material default.
+            if (selected && selectedOption && !Array.from(select.options).some(option => option.value === selected)) {
+                select.appendChild(selectedOption);
+            }
+            select.value = selected;
+        });
+        return true;
+    }).catch(function() { return false; });
 }
 function bindRequisitionLocationWarehouse() {
     if (docType !== 'requisition' || readonly) return;
