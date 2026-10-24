@@ -17,6 +17,10 @@ def test_material_keyboard_navigation(template):
         pytest.skip('Node.js required to execute browser keyboard handlers')
     source = (ROOT / 'app/templates' / template).read_text(encoding='utf-8')
     handler = re.search(r'function handleKeydown\(event, row\) \{.*?(?=\nfunction )', source, re.S).group(0)
+    if 'function cancelMaterialSearch(' in source:
+        state = re.search(r'const materialSearchState = [^\n]+', source).group(0)
+        cancel = re.search(r'function cancelMaterialSearch\(\) \{.*?\n\}', source, re.S).group(0)
+        handler = state + '\n' + cancel + '\n' + handler
     harness = r'''
 const assert = require('node:assert/strict');
 const fs = require('node:fs');

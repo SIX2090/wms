@@ -80,7 +80,9 @@ def test_outbound_only_non_get_requests_migrated():
     source=(ROOT/'app/templates/out_order_detail.html').read_text(encoding='utf-8')
     assert 'csrfFetch(' not in source
     assert source.count('WMS.api.postRaw(')==12  # 11 migrated plus existing completion.
-    assert "fetch('/api/material/search?kw='" in source
+    # Material lookup now shares HTTP/session validation; the endpoint stays unchanged.
+    assert "WMS.api.getRaw('/api/material/search?kw='" in source
+    assert "fetch('/api/material/search?kw='" not in source
     assert "fetch('/api/ai/out_order/{{ order.id }}/anomaly_analysis'" in source
 
 

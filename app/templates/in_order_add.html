@@ -303,34 +303,6 @@ function clearMaterialFields(row) {
     if (expiryInput) expiryInput.value = '';
 }
 
-// 本地物料缓存未命中时自动补刷新：新建物料档案（本页点“刷新物料”按钮、
-// 或另一台电脑/标签页建立、或 BroadcastChannel 失效）后，无需重新打开本页
-// 即可匹配到新物料。带 400ms 防抖，避免输入过程中频繁拉全量。
-let autoRefreshMaterialsFromServerTimer = null;
-function autoRefreshMaterialsFromServer(row, codeInput) {
-    if (autoRefreshMaterialsFromServerTimer) {
-        clearTimeout(autoRefreshMaterialsFromServerTimer);
-    }
-    autoRefreshMaterialsFromServerTimer = setTimeout(function() {
-        autoRefreshMaterialsFromServerTimer = null;
-        const input = row.querySelector('.material-code');
-        if (!input) return;
-        const now = String(input.value || '').trim().toLowerCase();
-        const expected = String(codeInput || '').trim().toLowerCase();
-        if (!now || expected !== now) return; // 输入已变化，放弃
-        refreshMaterials({ silent: true }).then(function() {
-            const still = String(input.value || '').trim().toLowerCase();
-            if (still !== expected) return; // 刷新期间输入又变了
-            const material = findMaterialByCode(input.value);
-            if (material) {
-                fillMaterialFields(row, material);
-                calcAmount(row);
-                showDropdown(row);
-            }
-        });
-    }, 400);
-}
-
 function handleMaterialCodeInput(row) {
     const material = findMaterialByCode(row.querySelector('.material-code').value);
     if (material) {
@@ -338,8 +310,6 @@ function handleMaterialCodeInput(row) {
         calcAmount(row);
     } else {
         clearMaterialFields(row);
-        // 本地缓存没有该物料：可能刚新建档案还没拉取，自动补刷新一次
-        autoRefreshMaterialsFromServer(row, row.querySelector('.material-code').value);
     }
     showDropdown(row);
 }
@@ -462,6 +432,13 @@ const MATERIAL_SEARCH_LIMIT_HINT = 100;
 const MATERIAL_INITIAL_CACHE_SIZE = 300;
 const materialSearchState = { seq: 0, timer: null };
 
+function cancelMaterialSearch() {
+    ++materialSearchState.seq;
+    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    materialSearchState.timer = null;
+}
+
+
 function filterLocalMaterials(keyword, showAll) {
     const kw = String(keyword || '').toLowerCase().trim();
     return materials.filter(m =>
@@ -510,89 +487,79 @@ function showDropdown(row, showAll = false) {
     const input = row.querySelector('.material-code');
     const dropdown = row.querySelector('.material-dropdown');
     const keyword = input.value.trim();
+    // Invalidate on input/row change, before the new debounce timer fires.
+    cancelMaterialSearch();
+    const seq = materialSearchState.seq;
+    if (activeDropdown) activeDropdown.style.display = 'none';
+    dropdown.style.display = 'none';
+    activeDropdown = dropdown;
+    const current = () => seq === materialSearchState.seq && row.isConnected !== false &&
+        input.value.trim() === keyword;
 
-    if (activeDropdown && activeDropdown !== dropdown) {
-        activeDropdown.style.display = 'none';
-    }
-
-    // 空关键词时用本地缓存展示前若干条（避免无谓请求）
     if (!keyword && !showAll) {
         renderMaterialDropdown(row, filterLocalMaterials('', false));
         return;
     }
-
-    // 服务端搜索（带防抖 + 请求序号防竞态覆盖）
-    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    const missing = !findMaterialByCode(keyword);
+    // Bounded suggestions only: total and the existing notice explain truncation.
     materialSearchState.timer = setTimeout(function() {
-        const seq = ++materialSearchState.seq;
+        materialSearchState.timer = null;
+        if (!current()) return;
         const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT;
-        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(function(r){ return r.json(); })
-            .then(function(res) {
-                if (seq !== materialSearchState.seq) return; // 已有更新的搜索，丢弃旧响应
-                if (res && res.status === 'success' && Array.isArray(res.data)) {
-                    // 服务端命中的物料合并进本地缓存，供后续按编码精确匹配/选择使用
-                    res.data.forEach(function(m) {
-                        if (!m || !m.code) return;
-                        const existing = materials.find(x => x.code === m.code);
-                        if (existing) {
-                            Object.assign(existing, m);
-                        } else {
-                            materials.push(m);
-                        }
-                    });
-                    const notice = (res.total > res.data.length)
-                        ? '共 ' + res.total + ' 条匹配，仅显示前 ' + res.data.length + ' 条，请细化关键词'
-                        : '';
-                    renderMaterialDropdown(row, res.data, notice);
-                } else {
-                    renderMaterialDropdown(row, filterLocalMaterials(keyword, showAll));
-                }
-            })
-            .catch(function() {
-                if (seq !== materialSearchState.seq) return;
-                // 网络异常降级为本地缓存过滤，保证录入不中断
-                renderMaterialDropdown(row, filterLocalMaterials(keyword, showAll));
+        WMS.api.getRaw(url).then(function(res) {
+            if (!current()) return;
+            if (!res || res.status !== 'success' || !Array.isArray(res.data) ||
+                res.data.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
+                throw new Error('物料搜索结果格式不正确');
+            }
+            res.data.forEach(function(m) {
+                const existing = findMaterialByCode(m.code);
+                if (existing) Object.assign(existing, m);
+                else materials.push(m);
             });
+            // Reuse this result for exact-code entry, including items outside the initial cache.
+            const hit = missing && res.data.find(m => m.code.toLowerCase() === keyword.toLowerCase());
+            if (hit) {
+                fillMaterialFields(row, hit);
+                calcAmount(row);
+            }
+            const notice = res.total > res.data.length
+                ? '共 ' + res.total + ' 条匹配，仅显示前 ' + res.data.length + ' 条，请细化关键词' : '';
+            if (document.activeElement === input) renderMaterialDropdown(row, res.data, notice);
+        }).catch(function() {
+            if (current() && document.activeElement === input) renderMaterialDropdown(row, filterLocalMaterials(keyword, showAll));
+        });
     }, 220);
 }
 
 function selectMaterial(row, code) {
+    cancelMaterialSearch();
+    const seq = materialSearchState.seq;
+    const input = row.querySelector('.material-code');
+    const expected = input.value;
+    const current = () => seq === materialSearchState.seq && row.isConnected !== false && input.value === expected;
+    const finish = function(material) {
+        fillMaterialFields(row, material);
+        row.querySelector('.material-dropdown').style.display = 'none';
+        activeDropdown = null;
+        calcAmount(row);
+        row.querySelector('.material-qty').focus();
+        row.querySelector('.material-qty').select();
+    };
     const material = materials.find(m => m.code === code);
-    if (!material) {
-        // 服务端搜索命中的物料理论上已合并进缓存；若仍缺失（缓存被外部清空等），
-        // 回源一次再填充，避免点击下拉项无响应。
-        fetch('/api/material/search?kw=' + encodeURIComponent(code) + '&limit=1', {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        })
-            .then(function(r){ return r.json(); })
-            .then(function(res) {
-                const hit = (res && Array.isArray(res.data))
-                    ? res.data.find(m => m && m.code === code) : null;
-                if (hit) {
-                    materials.push(hit);
-                    fillMaterialFields(row, hit);
-                    calcAmount(row);
-                    row.querySelector('.material-qty').focus();
-                    row.querySelector('.material-qty').select();
-                }
-                row.querySelector('.material-dropdown').style.display = 'none';
-                activeDropdown = null;
-            })
-            .catch(function() {
-                row.querySelector('.material-dropdown').style.display = 'none';
-                activeDropdown = null;
-            });
-        return;
-    }
-
-    fillMaterialFields(row, material);
-    
-    row.querySelector('.material-dropdown').style.display = 'none';
-    activeDropdown = null;
-    calcAmount(row);
-    row.querySelector('.material-qty').focus();
-    row.querySelector('.material-qty').select();
+    if (material) { finish(material); return; }
+    // The selected candidate provides a canonical code: resolve exactly, not the first fuzzy hit.
+    return WMS.api.get('/material/api/by_codes?code=' + encodeURIComponent(code)).then(function(list) {
+        if (!current()) return;
+        if (!Array.isArray(list)) throw new Error('物料查询结果格式不正确');
+        const hit = list.find(m => m && m.code === code && typeof m.name === 'string');
+        if (hit) { materials.push(hit); finish(hit); }
+        else { row.querySelector('.material-dropdown').style.display = 'none'; activeDropdown = null; }
+    }).catch(function() {
+        if (!current()) return;
+        row.querySelector('.material-dropdown').style.display = 'none';
+        activeDropdown = null;
+    });
 }
 
 function handleKeydown(event, row) {
@@ -627,10 +594,12 @@ function handleKeydown(event, row) {
             selectMaterial(row, activeItem.dataset.code);
             return;
         }
+        cancelMaterialSearch();
         focusNextEditable(event.target);
         return;
     }
     if (event.key === 'Escape') {
+        cancelMaterialSearch();
         if (dropdown) dropdown.style.display = 'none';
         activeDropdown = null;
     }
@@ -1131,8 +1100,9 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
 }
 
 document.addEventListener('click', function(e) {
-    if (activeDropdown && !e.target.closest('.material-input')) {
-        activeDropdown.style.display = 'none';
+    if (!e.target.closest('.material-input')) {
+        cancelMaterialSearch();
+        if (activeDropdown) activeDropdown.style.display = 'none';
         activeDropdown = null;
     }
 });
@@ -1333,17 +1303,19 @@ function notifyMaterialRefresh(message, type, silent) {
 // P2：物料联想已改为服务端搜索，这里不再需要「全量物料」。
 // fetchMaterialsPage 只取一页（用于重建初始缓存 / 重置缓存）。
 function fetchMaterialsPage(page) {
-    return fetch('/material/api/all?page=' + page + '&per_page=' + MATERIAL_INITIAL_CACHE_SIZE)
-        .then(function(r){ return r.json(); })
+    return WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + MATERIAL_INITIAL_CACHE_SIZE)
         .then(function(res) {
-            if (res.status !== 'success' || !res.materials) {
+            if (!res || res.status !== 'success' || !Array.isArray(res.materials) ||
+                res.materials.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
                 throw new Error((res && res.msg) || '未知错误');
             }
             return res.materials;
         });
 }
 
+let materialRefreshSeq = 0;
 function refreshMaterials(options) {
+    const seq = ++materialRefreshSeq;
     const silent = !!(options && options.silent);
     const btn = document.querySelector('button[onclick="refreshMaterials()"]');
     if (btn) {
@@ -1353,8 +1325,9 @@ function refreshMaterials(options) {
     // P2：不再全量拉取——全量物料上万时这里会拖垮页面。
     // 只重置初始缓存；未命中的物料由输入时的服务端搜索按需拉取。
     // 已选中的行不受影响（其物料对象按编码合并保留）。
-    fetchMaterialsPage(1)
+    return fetchMaterialsPage(1)
         .then(function(page) {
+            if (seq !== materialRefreshSeq) return;
             const keep = new Map();
             materials.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
             page.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
@@ -1362,8 +1335,9 @@ function refreshMaterials(options) {
             keep.forEach(function(m){ materials.push(m); });
             notifyMaterialRefresh('物料缓存已重置，共 ' + materials.length + ' 条（输入关键词将实时搜索全部物料）', 'success', silent);
         })
-        .catch(function(err){ notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
+        .catch(function(err){ if (seq === materialRefreshSeq) notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
         .finally(function() {
+            if (seq !== materialRefreshSeq) return;
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新物料';

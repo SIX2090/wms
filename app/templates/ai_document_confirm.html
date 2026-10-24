@@ -369,7 +369,6 @@
     });
     if (!filter || !selects.length) return;
     const rowFilters = Array.from(document.querySelectorAll('.ai-row-filter'));
-    const fetcher = window.csrfFetch || fetch;
     const initialOptions = new Map();
     selects.forEach(function(select) {
         Array.from(select.options).forEach(function(option) {
@@ -429,37 +428,44 @@
     }
 
     let filterTimer = null;
-    function searchMaterials(keyword, callback) {
+    let filterSeq = 0;
+    function searchMaterials(keyword, callback, seq) {
         keyword = (keyword || '').trim();
+        if (seq === undefined) seq = ++filterSeq;
+        const current = () => seq === filterSeq && filter.isConnected !== false && filter.value.trim() === keyword;
         if (!keyword) {
             const items = Array.from(initialOptions.values()).slice(0, 100);
-            callback(items);
+            if (current()) callback(items);
             return;
         }
-        fetcher('/api/material/search?kw=' + encodeURIComponent(keyword), {credentials: 'same-origin'})
-            .then(function(res) { return res.json(); })
+        WMS.api.getRaw('/api/material/search?kw=' + encodeURIComponent(keyword))
             .then(function(data) {
-                callback(data && data.data ? data.data : []);
+                if (!current()) return;
+                callback(data && data.status === 'success' && Array.isArray(data.data) &&
+                    data.data.every(item => item && item.id != null && typeof item.code === 'string' && typeof item.name === 'string') ? data.data : []);
             })
             .catch(function() {
-                callback([]);
+                if (current()) callback([]);
             });
     }
 
     function applyFilter() {
+        const seq = ++filterSeq;
         const keyword = filter.value.trim();
         clearTimeout(filterTimer);
         filterTimer = setTimeout(function() {
+            if (seq !== filterSeq) return;
             searchMaterials(keyword, function(items) {
                 selects.forEach(function(select) {
-                    updateSelect(select, items);
+                    if (select.isConnected !== false) updateSelect(select, items);
                 });
-            });
+            }, seq);
         }, 180);
     }
     filter.addEventListener('input', applyFilter);
     rowFilters.forEach(function(btn) {
         btn.addEventListener('click', function() {
+            clearTimeout(filterTimer);
             const keyword = btn.getAttribute('data-keyword') || '';
             const row = btn.closest('tr');
             const select = row ? row.querySelector('.ai-material-select') : null;
@@ -470,6 +476,7 @@
                 return;
             }
             searchMaterials(keyword, function(items) {
+                if (select.isConnected === false) return;
                 updateSelect(select, items);
                 filter.focus();
             });
@@ -477,6 +484,8 @@
     });
     selects.forEach(function(select) {
         select.addEventListener('change', function() {
+            ++filterSeq;
+            clearTimeout(filterTimer);
             const row = select.closest('tr');
             const checkbox = row ? row.querySelector('.ai-use-row') : null;
             if (checkbox) checkbox.checked = !!select.value;
