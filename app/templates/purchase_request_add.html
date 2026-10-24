@@ -659,6 +659,7 @@ function bindMaterialInput(row) {
                 selectMaterialByDropdownItem(row, target);
             }
         } else if (e.key === 'Escape') {
+            cancelMaterialSearch();
             dropdown.style.display = 'none';
         }
     });
@@ -687,6 +688,13 @@ function bindMaterialInput(row) {
 // 前端 filter，物料档案在上万条时会首屏卡顿，且新建物料后本页刷不出来。
 const MATERIAL_SEARCH_LIMIT_HINT = 100;
 const materialSearchState = { seq: 0, timer: null };
+
+function cancelMaterialSearch() {
+    ++materialSearchState.seq;
+    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    materialSearchState.timer = null;
+}
+
 
 function renderMaterialDropdown(row, filtered, notice) {
     const input = row.querySelector('.material-code');
@@ -722,6 +730,15 @@ function renderMaterialDropdown(row, filtered, notice) {
 function showDropdown(row, showAll = false) {
     const input = row.querySelector('.material-code');
     const keyword = input.value.trim();
+    // Invalidate immediately, including empty input, before scheduling the next request.
+    const seq = ++materialSearchState.seq;
+    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    materialSearchState.timer = null;
+    const dropdown = row.querySelector('.material-dropdown');
+    if (activeMaterialDropdown) activeMaterialDropdown.style.display = 'none';
+    dropdown.style.display = 'none';
+    activeMaterialDropdown = dropdown;
+    const current = () => seq === materialSearchState.seq && row.isConnected !== false && input.value.trim() === keyword;
 
     // 空关键词：直接展示本地缓存前若干条，避免无谓请求
     if (!keyword) {
@@ -730,15 +747,15 @@ function showDropdown(row, showAll = false) {
     }
 
     // 服务端搜索（防抖 + 请求序号防竞态覆盖）
-    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
     materialSearchState.timer = setTimeout(function() {
-        const seq = ++materialSearchState.seq;
+        materialSearchState.timer = null;
+        if (!current()) return;
         const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT;
-        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(function(r) { return r.json(); })
+        WMS.api.getRaw(url)
             .then(function(res) {
-                if (seq !== materialSearchState.seq) return; // 已有更新的搜索，丢弃旧响应
-                if (res && res.status === 'success' && Array.isArray(res.data)) {
+                if (!current()) return;
+                if (res && res.status === 'success' && Array.isArray(res.data) &&
+                    res.data.every(m => m && typeof m.code === 'string' && typeof m.name === 'string')) {
                     // 服务端命中的物料合并进本地缓存，供后续按编码精确匹配/选择使用
                     res.data.forEach(function(m) {
                         if (!m || !m.code) return;
@@ -753,15 +770,15 @@ function showDropdown(row, showAll = false) {
                     const notice = (res.total > res.data.length)
                         ? '共 ' + res.total + ' 条匹配，仅显示前 ' + res.data.length + ' 条，请细化关键词'
                         : '';
-                    renderMaterialDropdown(row, res.data, notice);
+                    if (document.activeElement === input) renderMaterialDropdown(row, res.data, notice);
                 } else {
-                    renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
+                    if (document.activeElement === input) renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
                 }
             })
             .catch(function() {
-                if (seq !== materialSearchState.seq) return;
+                if (!current()) return;
                 // 网络异常降级为本地缓存过滤，保证录入不中断
-                renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
+                if (document.activeElement === input) renderMaterialDropdown(row, getMaterialMatches(keyword, showAll));
             });
     }, 220);
 }
@@ -776,34 +793,25 @@ function highlightMaterialDropdownItem(items) {
 }
 
 function selectMaterialByDropdownItem(row, item) {
+    cancelMaterialSearch();
+    const seq = materialSearchState.seq;
+    const input = row.querySelector('.material-code');
+    const expected = input.value;
+    const code = item.dataset.code || '';
     const material = materials.find(m =>
         String(m.id || '') === String(item.dataset.materialId || '') ||
-        String(m.code || '') === String(item.dataset.code || '')
+        String(m.code || '') === String(code)
     );
-    if (material) {
-        selectMaterial(row, material);
-    } else {
-        // 服务端搜索结果理论上已合并进缓存；若仍缺失（缓存被外部清空等），
-        // 回源一次再填充，避免点击下拉项无响应。
-        const code = item.dataset.code || '';
-        if (code) {
-            fetch('/api/material/search?kw=' + encodeURIComponent(code) + '&limit=1', {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-                .then(function(r) { return r.json(); })
-                .then(function(res) {
-                    const hit = (res && Array.isArray(res.data))
-                        ? res.data.find(m => m && m.code === code) : null;
-                    if (hit) {
-                        materials.push(hit);
-                        selectMaterial(row, hit);
-                    }
-                })
-                .catch(function() {});
-        }
-    }
-    const dropdown = row.querySelector('.material-dropdown');
-    dropdown.style.display = 'none';
+    row.querySelector('.material-dropdown').style.display = 'none';
+    if (material) { selectMaterial(row, material); return; }
+    if (!code) return;
+    // The picker supplies a canonical code; keep recovery independent of fuzzy result limits.
+    return WMS.api.get('/material/api/by_codes?code=' + encodeURIComponent(code)).then(function(list) {
+        if (seq !== materialSearchState.seq || row.isConnected === false || input.value !== expected) return;
+        if (!Array.isArray(list)) throw new Error('物料查询结果格式不正确');
+        const hit = list.find(m => m && m.code === code && typeof m.name === 'string');
+        if (hit) { materials.push(hit); selectMaterial(row, hit); }
+    }).catch(function() {});
 }
 
 // 物料对象归一化：本地初始化缓存里 unit 是对象 {id,name}，
@@ -819,6 +827,7 @@ function getMaterialUnitId(material) {
 }
 
 function selectMaterial(row, material) {
+    cancelMaterialSearch();
     row.querySelector('.material-code').value = material.code || '';
     row.querySelector('.material-code').dataset.materialId = material.id || '';
     row.querySelector('.material-name').value = material.name || '';
@@ -1068,6 +1077,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.material-input')) {
+            cancelMaterialSearch();
             document.querySelectorAll('.material-dropdown').forEach(d => d.style.display = 'none');
         }
         if (!e.target.closest('.supplier-input')) {
