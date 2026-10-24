@@ -1768,11 +1768,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-008: 公共主数据下拉刷新失败清空选择且误操作隐藏字段
 
-- 状态：已修复（本地验证通过，目标CI及生产生效待确认）。
+- 状态：已修复并生产生效（2026-10-24 13:50）。
 - 根因/危害：app.js的WmsRefreshDropdowns在DOMContentLoaded自动刷新分类/单位/供应商，网络失败被catch转换成空数组再清空选项，HTTP错误也没有状态检查；有效的当前选择因此丢失。选择器只按name匹配，会给物料新增、采购单等自定义搜索控件的同名隐藏ID输入框添加option子节点；禁用、已脱离DOM的字段和较新请求结果也未保护。
 - 同类点已排查：检查历史BUG-2026-10-24-004/007、BUG-2026-08-25-001及下拉/隐藏字段记录。公共原生select按category_id、unit_id、supplier_id三个名字统一修复，分类/单位/供应商接口均返回完整数组。物料页的WmsRefreshDropdowns覆盖为list-cache数组刷新，属于007且不改；原有仓库/部门封套及领料库位联动仍由select-refresh处理并回归。不修改库存、仓库归属、权限或单据保存逻辑。
 - 修复：公共刷新仅匹配select[name=...]，三个接口分别调用已有WMS.selectOptions.refresh，失败各自保留原选择/选项且不影响其余接口，保持原自动静默策略。共享组件增加无itemsKey时校验完整数组的分支，原封套契约不变；复用HTTP/会话检查、逐元素最新请求保护、应用时当前值、disabled/isConnected保护、文字转义及仅失去有效选择才派发一次冒泡change的既有能力。没有新增公共资源，也不再对隐藏输入框发起无效刷新。
 - 修复前基线：45个直接消费app.js或select-refresh.js的模块全量1447 passed、21 skipped、6项既有SQLAlchemy警告，日志%TEMP%/wms-global-select-baseline.log。新增60项真实公共函数/原api.js/共享组件/DOM延迟HTTP回归在旧实现48 failed、12 passed，初次修复后的新旧刷新测试合计142 passed。
 - 回归锁/物理回退：备份app.js与select-refresh.js→git checkout --两文件→执行新回归→finally恢复两文件；旧实现48 failed、12 passed。回退证据%TEMP%/wms-global-select-rollback-cx7q38uu/rollback.log；恢复后的最终60项全部通过。没有使用stash或修改旧断言。
 - 回归/门禁：48个模块全量与相邻回归1608 passed、21 skipped、6项既有警告（%TEMP%/wms-global-select-final.log）；覆盖旧仓库/部门刷新、领料库位联动和上一轮七种数组缓存场景。隔离HTTP冒烟121/121且自有18080服务已停止（%TEMP%/wms-global-select-smoke.log）。A1–A14为0违规、两个JS的node --check、UTF-8编码及verify_wms_bugs均通过。提交前check_ci_green.py --target-sha完整基线 --json为ok=true，证据、在线备份及旧两资源回退包保存于C:/wms_backups/global_select_deploy_20261024。开工基线2a7fccccf27c202a9a6d96c28527429be3162500的WMS CI40061588231、AI40061588214均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化。
-- 生效确认：待目标CI及生产只读核验；JS静态缓存版本在启动时计算，生产需重启 WMS 服务生效。沿用用户已授权的在线备份及原WMS-Warehouse任务单次重启，不修改业务记录、密码、依赖或服务入口。
+- 生效确认：2026-10-24 13:50由Codex核对目标CI、在线备份、原任务重启、静态资源和生产只读摘要后确认。JS静态缓存版本在启动时计算，生产需重启 WMS 服务生效，本次已完成。完整证据在C:/wms_backups/global_select_deploy_20261024。
+
+- 目标CI与推送：a1f634b1d68e39b2ef762f4a05ab6f7b386e105c已实际push（2a7fcccc..a1f634b1 main -> main），HEAD/origin/live main一致。[WMS CI40067400139](https://github.com/SIX2090/wms/actions/runs/40067400139)和[AI40067400130](https://github.com/SIX2090/wms/actions/runs/40067400130)准确匹配completed/success，全部单元/回归分片、静态检查、冒烟及gate成功；性能40067400143亦成功。最新Android40027751562在ec3a04b32d64b1f172ec5446adf5127400ac5a87成功，完整对象、目标祖先及工程/工作流无差异证明通过。匿名check_ci_green查询HTTP403限流仅属查询故障，发布与收尾前通过已连接GitHub最新main列表逐一核实；target_ci_alternative.json和closure_baseline_ci_alternative.json保存完整SHA、链接、状态及范围证明。
+- 生产发布：保留before_inventory.db与旧两JS的rollback_assets.zip，发布即时mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为73bf033214d686b15fcdbc05a8523d982dfcf48a4ff803b377198f0622e60d33。即时核对原PID9616完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、原SYSTEM任务入口与WMS_NO_DB_TOUCH=1；避开下一计划触发窗口后仅终止该实例，再启动原任务一次。新PID11460，2026-10-24T13:49:58.622289+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。13:50:02启动日志为a1f634b、production、CSRF on；db-check migrate=ok仅结构检查，不声称迁移。
+- 只读验收：两个JS规范化文本逐文件匹配目标Git对象；本机和https://gd2026.top/login均GET200且含CSRF；app.js和select-refresh.js两端均200、JavaScript类型、年度缓存，分别SHA256为cb3ddac90d31cb64c69ac61bcffe69441096af38dbfa28e745e34e3c18b9cb19、0e6bc230d7c3dca7bb5e5f3d9e0f790ab3dc770aec8d92372cfb0b671a1fcfb3且匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟或创建业务记录，未改密码、依赖或服务入口。
+- 收尾门禁：仅月度BUG台账记录更新，应用文件保持已发布a1f634b1版本，无须再次重启；验收文档分级检查和该收尾提交自身CI。若同次pre-push仍因匿名API的403查询故障拒绝，以已核实的同一a1f634b1基线全绿及Android范围证明为替代，仅该次push临时WMS_SKIP_CI_GATE=1并finally清除；不跳过实际非绿或未核实状态。
