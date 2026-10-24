@@ -1577,21 +1577,12 @@ function refreshWarehouses(options) {
     const silent = !!(options && options.silent);
     const select = document.querySelector('[name="warehouse_id"]');
     if (!select) return;
-    const current = select.value;
-    fetch('/warehouse/api/list')
-        .then(function(r){ return r.json(); })
-        .then(function(res) {
-            if (res && Array.isArray(res.warehouses)) {
-                let html = '<option value="">请选择仓库</option>';
-                res.warehouses.forEach(function(w) {
-                    const selected = String(current) === String(w.id) ? ' selected' : '';
-                    html += '<option value="' + escapeHtml(w.id) + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
-                });
-                select.innerHTML = html;
-                notifyMaterialRefresh('仓库列表已更新', 'success', silent);
-            }
-        })
-        .catch(function(err){ notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
+    return WMS.selectOptions.refresh({
+        url: '/warehouse/api/list', itemsKey: 'warehouses',
+        targets: [{select: select, placeholder: '请选择仓库'}]
+    }).then(function(updated) {
+        if (updated) notifyMaterialRefresh('仓库列表已更新', 'success', silent);
+    }).catch(function(err) { notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
 }
 
 // ==================== P1-7 采购退货出库：来源采购入库单联想 ====================
@@ -1688,21 +1679,12 @@ function refreshDepartments(options) {
     const silent = !!(options && options.silent);
     const select = document.querySelector('[name="department_id"]');
     if (!select || select.tagName !== 'SELECT') return;
-    const current = select.value;
-    fetch('/department/api/list')
-        .then(function(r){ return r.json(); })
-        .then(function(res) {
-            if (res && Array.isArray(res.departments)) {
-                let html = '<option value="">请选择</option>';
-                res.departments.forEach(function(d) {
-                    const selected = String(current) === String(d.id) ? ' selected' : '';
-                    html += '<option value="' + escapeHtml(d.id || '') + '"' + selected + '>' + escapeHtml(d.name || '') + '</option>';
-                });
-                select.innerHTML = html;
-                notifyMaterialRefresh('部门列表已更新', 'success', silent);
-            }
-        })
-        .catch(function(err){ notifyMaterialRefresh('部门刷新失败：' + err.message, 'danger', silent); });
+    return WMS.selectOptions.refresh({
+        url: '/department/api/list', itemsKey: 'departments',
+        targets: [{select: select, placeholder: '请选择'}]
+    }).then(function(updated) {
+        if (updated) notifyMaterialRefresh('部门列表已更新', 'success', silent);
+    }).catch(function(err) { notifyMaterialRefresh('部门刷新失败：' + err.message, 'danger', silent); });
 }
 
 // ==================== Excel粘贴导入 ====================

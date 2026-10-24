@@ -243,8 +243,11 @@ class TestSharedDocumentTableForm:
             # collectHeader 不再提交 warehouse 名称
             assert "warehouse_id:get('warehouse_id')" in html, html
             assert "warehouse:get('warehouse')" not in html, html
-            # 刷新下拉的 JS 用 ID 比对
-            assert 'String(current) === String(w.id)' in html, html
+            # Execute the rendered refresh function and its real shared asset.
+            # ID 2 must survive refresh; the warehouse name must not become its value.
+            assert '/static/js/select-refresh.js?v=' in html, html
+            from tests.test_select_refresh_runtime import run
+            run('document_table_form', 'requisition', 'selection', source=html)
 
     def test_check_add_form_uses_warehouse_id(self):
         with app_module.app.app_context():

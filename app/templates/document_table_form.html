@@ -1030,38 +1030,16 @@ function bindRequisitionLocationWarehouse() {
     });
 }
 function refreshWarehouses() {
-    // BUG-2026-08-02-014：盘点单仓库下拉也要随仓库主数据更新
-    // BUG-2026-08-05-008：工单领料单仓库下拉同样联动
-    if (docType !== 'transfer' && docType !== 'check' && docType !== 'requisition') return;
-    fetch('/warehouse/api/list').then(r => r.json()).then(res => {
-        if (!res || !Array.isArray(res.warehouses)) return;
-        if (docType === 'transfer') {
-            ['from_location', 'to_location'].forEach(function(name) {
-                const select = document.querySelector('[name="' + name + '"]');
-                if (!select) return;
-                const current = select.value;
-                const placeholder = name === 'from_location' ? '请选择调出仓库' : '请选择调入仓库';
-                let html = '<option value="">' + placeholder + '</option>';
-                res.warehouses.forEach(function(w) {
-                    const selected = String(current) === String(w.name) ? ' selected' : '';
-                    html += '<option value="' + escapeHtml(w.name || '') + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
-                });
-                select.innerHTML = html;
-            });
-        } else if (docType === 'check' || docType === 'requisition') {
-            // P1-6（2026-09-25）：跟随后端改为 warehouse_id，option value 用仓库 ID
-            const select = document.querySelector('[name="warehouse_id"]');
-            if (!select) return;
-            const current = select.value;
-            let html = '<option value="">请选择仓库</option>';
-            res.warehouses.forEach(function(w) {
-                const selected = String(current) === String(w.id) ? ' selected' : '';
-                html += '<option value="' + escapeHtml(String(w.id || '')) + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
-            });
-            select.innerHTML = html;
-            if (docType === 'requisition' && select.value !== current) select.dispatchEvent(new Event('change'));
-        }
-    }).catch(function() {});
+    // Transfer uses warehouse names; check/requisition use IDs. Keep both contracts.
+    if (readonly || !['transfer', 'check', 'requisition'].includes(docType)) return;
+    const targets = docType === 'transfer'
+        ? ['from_location', 'to_location'].map(function(name) {
+            return {select: document.querySelector('[name="' + name + '"]'), valueKey: 'name',
+                placeholder: name === 'from_location' ? '请选择调出仓库' : '请选择调入仓库'};
+        })
+        : [{select: document.querySelector('[name="warehouse_id"]'), placeholder: '请选择仓库'}];
+    return WMS.selectOptions.refresh({url: '/warehouse/api/list', itemsKey: 'warehouses', targets: targets})
+        .catch(function() {});
 }
 document.addEventListener('click', function(e) { if (activeDropdown && !e.target.closest('.material-input')) hideDropdown(); });
 document.addEventListener('DOMContentLoaded', function() {
