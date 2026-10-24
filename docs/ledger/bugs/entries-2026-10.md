@@ -1820,7 +1820,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-011: 标签打印选中集合混用数字与字符串导致错选
 
-- 状态：已修复，待目标CI及生产生效核验。
+- 状态：已修复并生产生效（2026-10-24 16:31）。
 - 根因/危害：print_label.html初始化和全选将dataset.materialId字符串放入Set，真实onchange传入Jinja输出的数字ID；取消勾选delete(number)无法删除字符串，打印选中仍包含取消的标签。全不选后重新勾选add(number)又无法被has(string)找到，造成漏打。初始化还忽略复选框当前checked，浏览器恢复未勾选状态时与内部集合不符。
 - 同类点已排查：检索全仓selectedMaterials/toggleMaterial以及历史标签选择/打印条目，问题状态集仅在该打印模板；print_batch_labels无此Set，上一轮preview仅GET选择无打印勾选集。实际入/出库打印自动流程与标签字段、行高、权限模块纳入相邻回归。三个复选框查询同步限定.label-item-wrapper，防止全选/全不选误改公共设置控件。
 - 修复：toggleMaterial入口把ID统一成String，与初始化/全选/打印检查一致；初始化尊重真实checked状态。保留原打印选中、打印全部、取消选择以及打印后恢复显示行为，无自动打印、数据写入或权限变更。生产需重启 WMS 服务生效。
@@ -1828,4 +1828,9 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁/物理回退：新测试旧实现7 failed、3 passed；修复后10 passed。备份模板→git checkout --模板→新测试→finally恢复，仍7 failed、3 passed，证据%TEMP%/wms-label-selection-rollback-gpdtj5nh/rollback.log。未使用stash或修改既有断言，未触发实体打印。
 - 开工门禁：f4df9079a199dd84f4d9a049d367871b17be0fee的WMS CI40077732602、AI40077732583均completed/success；最新Android40027751562为目标祖先且工程/工作流无差异，check_ci_green.py为ok=true。此前文档CI仍运行时仅只读排查和基线测试，转绿后才写入本批。在线备份和旧模板回退包位于C:/wms_backups/label_selection_deploy_20261024。
 - 回归验收：9个受影响/相邻模块89 passed、47项既有SQLAlchemy弃用警告（%TEMP%/wms-label-selection-final.log）；台账/文档契约34 passed；隔离HTTP冒烟121/121，已停止自有18080服务（wms-label-selection-smoke.log）。A1–A14为0违规、UTF-8编码及git diff --check通过。
-- 生效确认：待确认；目标CI、原任务重启和生产只读核验后回填，生产需重启 WMS 服务生效。
+- 生效确认：2026-10-24 16:31由Codex核对目标CI、在线备份、原任务重启及生产只读摘要后确认。生产需重启 WMS 服务生效，本次已完成；证据在C:/wms_backups/label_selection_deploy_20261024。
+
+- 目标CI与推送：d927e0ca0666c4576bf677fe79bc8a47708eadc6已实际push（f4df9079..d927e0ca main -> main），HEAD/origin/live main一致。[WMS CI40078058179](https://github.com/SIX2090/wms/actions/runs/40078058179)、[AI40078058139](https://github.com/SIX2090/wms/actions/runs/40078058139)精确匹配completed/success；最新Android40027751562为祖先、Git对象齐全且保护路径无变化。匿名API一度403限流，仅判为查询故障；通过已连接GitHub最新main列表逐一核实三个工作流，并保存target_ci_alternative.json、closure_baseline_ci_alternative.json完整SHA/链接/状态和Git范围证明。verify_wms_bugs全部通过。
+- 生产发布：即时在线备份deploy_inventory.db的integrity_check=ok，SHA256为c07a9e8df826ca0dae65a7638d80f98cdf57e85aa48c13e4b7ffb43462c1cfd8，保留开工备份及旧模板回退包。核对原PID2828完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、SYSTEM任务原入口及WMS_NO_DB_TOUCH=1；避开计划触发窗口后仅终止该实例并启动原任务一次。新PID12044，2026-10-24T16:31:11.232266+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。16:31:14日志为d927e0c、production、CSRF on；db-check migrate=ok只证明结构检查，不声称执行迁移。
+- 只读验收：模板规范化文本匹配发布Git对象，SHA256为b1f20ed22bb39a8d35ce8e65f999d196ae63a1f3dedfb60fc3c91e84dd23aa78；本机及https://gd2026.top/login均GET200且含CSRF。八张核心表前后完整行摘要一致，quick_check=ok。未在生产登录跑冒烟、改业务记录或密码，也未触发实体打印。
+- 收尾边界：只补月度BUG台账，应用保持已生效d927e0ca，无须再次重启；验收文档契约和收尾提交自身CI。如同次pre-push仍因匿名403无法核实，仅在以上同一远端基线全绿及Android范围证明成立时，按既有规则单次临时WMS_SKIP_CI_GATE=1并finally清除，不跳过实际非绿或未核实状态。
