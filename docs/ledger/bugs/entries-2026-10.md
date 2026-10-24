@@ -1747,3 +1747,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生产发布：沿用用户已明确授权的备份及原WMS-Warehouse任务重启流程。保留before_inventory.db及旧三模板rollback_templates.zip，发布即时再次mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为7df2ee4a1dd62995583c38106f60e16b1901e5ecc921c520da551c27b05b31fd。即时核对原PID9460完整创建时间、Python311路径、run_server.py/Session0、唯一8080监听及原SYSTEM任务入口、WMS_NO_DB_TOUCH=1，避开下一计划触发后仅终止该唯一实例，再启动原任务一次。新PID152，2026-10-24T11:35:15.936945+08:00创建，同解释器/命令/Session0、唯一8080监听、LastTaskResult=0。11:35:19启动日志为3e51e92、production、CSRF on；db-check migrate=ok仅结构校验，不声称执行迁移。
 - 只读验收：三个模板规范化文本逐文件匹配目标Git对象；本机和https://gd2026.top/login均GET200且含CSRF，material-cache.js两端均200、JavaScript类型、年度缓存，SHA256为66a53f641474843943882ce93c16b3780eaf256c3ff6ee6b35aa18ab55a1fa6c并准确匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。备份、回退包、模板/HTTP/进程/数据摘要及CI证据均在C:/wms_backups/material_cache_deploy_20261024。未在生产登录执行冒烟或生成业务记录，未改密码、依赖或服务入口。生产需重启 WMS 服务生效，本次已完成；收尾仅记录台账，应用代码不变，无须再次重启。
 - 收尾门禁：若同次pre-push仍因匿名API的403查询故障拒绝，以已核实的3e51e922全绿及Android范围证明为替代，仅该次push临时WMS_SKIP_CI_GATE=1并finally清除；不跳过实际非绿或未核实状态。
+
+
+### BUG-2026-10-24-007: 客户、供应商及物料主数据数组刷新被旧响应覆盖
+
+- 状态：已修复（本地验证通过，目标CI及生产生效待确认）。
+- 根因/危害：入库refreshSuppliers、出库与售后refreshCustomers，以及物料refreshQuickSelectData均在每次请求返回时直接清空并覆盖数组，没有请求代次。连续主数据广播后，较早快照晚返回可覆盖新建/改名记录；前三处原生GET还未校验HTTP状态，合法JSON的HTTP错误不能可靠进入失败路径。物料页虽用getRaw，但缺少记录/重复ID校验及请求代次。错误对象被静默忽略，操作员无法据此判断刷新是否成功。
+- 同类点已排查：查询BUG-2026-08-25-001、BUG-2026-10-23-010及本月异步刷新记录；完整数组缓存覆盖入库供应商/其他入库客户、出库客户、售后客户、物料分类/单位/供应商七种模式。四个相关API在native_api.py使用all()返回完整数组，不套用物料分页接口的封套。原生select元素生命周期与远端物料分页由既有各自实现处理，本批限定完整主数据数组缓存。
+- 修复：新增公共js/list-cache.js，按数组引用用WeakMap标记最新请求，使用WMS.api.getRaw的HTTP/会话检查并验证完整数组、每行id/name和重复ID，仅最新有效结果原地替换数组。任意失败保留旧缓存，过期成功/失败不覆盖、不误报；空列表合法清空，数组引用不变。保留入库partyField端点分流、原有静默刷新和现有选中字段，不新增数据写入。公共布局同步、带STATIC_VERSION加载；专题静态资源文档同步。
+- 修复前基线：81个直接引用五个模板的模块及master_data_frontend_api全量，1558 passed、21 skipped、15项既有SQLAlchemy警告，日志为%TEMP%/wms-party-baseline.log。新增旧代码回归88项中64 failed、24 passed，修复后88 passed；再追加三种缓存并行独立性共91 passed。
+- 回归锁/物理回退：按文件备份→git checkout --五模板→临时移除自有新增脚本→执行新增测试→finally恢复五模板与脚本；旧代码64 failed、24 passed，恢复后91 passed。证据%TEMP%/wms-party-rollback-8ti_enje/rollback.log。未使用stash，未改既有断言。
+- 回归/门禁：85个受影响及相邻模块全量1664 passed、21 skipped、15项既有警告（%TEMP%/wms-party-final.log）；隔离HTTP冒烟121/121且自有18080服务已停止（%TEMP%/wms-party-smoke.log）；A1–A14为0违规、node --check、UTF-8编码及verify_wms_bugs均通过，目标提交CI尚待验收。提交前check_ci_green.py --target-sha完整基线 --json再次ok=true，证据保存于C:/wms_backups/party_refresh_deploy_20261024。开工基线ced379e50e7388b318bb10eff8d1898f9b9d5992的WMS CI40059042554、AI40059042549均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先，完整对象且工程/工作流无差异。
+- 生效确认：待目标CI、备份及原WMS-Warehouse任务重启后只读核验；生产需重启 WMS 服务生效。沿用用户已明确授权的备份和原任务重启范围，不修改业务记录或密码。

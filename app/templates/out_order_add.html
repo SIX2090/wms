@@ -1555,16 +1555,14 @@ function filterCustomers(keyword) {
 
 function refreshCustomers(options) {
     const silent = !!(options && options.silent);
-    fetch('/api/customers')
-        .then(function(r){ return r.json(); })
-        .then(function(list) {
-            if (Array.isArray(list)) {
-                customers.length = 0;
-                list.forEach(function(c){ customers.push(c); });
+    return WMS.listCache.refresh(customers, '/api/customers')
+        .then(function(applied) {
+            if (applied) {
                 notifyMaterialRefresh('客户列表已更新，共 ' + customers.length + ' 条', 'success', silent);
             }
+            return applied;
         })
-        .catch(function(err){ notifyMaterialRefresh('客户刷新失败：' + err.message, 'danger', silent); });
+        .catch(function(err){ notifyMaterialRefresh('客户刷新失败：' + err.message, 'danger', silent); return false; });
 }
 
 function refreshWarehouses(options) {

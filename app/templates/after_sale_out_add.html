@@ -814,15 +814,8 @@ function setupCustomerSearch() {
 }
 
 function refreshCustomers() {
-    fetch('/api/customers')
-        .then(function(r){ return r.json(); })
-        .then(function(list) {
-            if (Array.isArray(list)) {
-                customers.length = 0;
-                list.forEach(function(c){ customers.push(c); });
-            }
-        })
-        .catch(function() {});
+    return WMS.listCache.refresh(customers, '/api/customers')
+        .catch(function() { return false; });
 }
 </script>
 {% endblock %}

@@ -1426,16 +1426,10 @@ function initQuickSelects() {
 }
 
 function refreshQuickSelectData(types) {
-    (types || Object.keys(quickSelectApiByType)).forEach(function(type) {
-        WMS.api.getRaw(quickSelectApiByType[type])
-            .then(function(list) {
-                if (Array.isArray(list)) {
-                    quickSelectData[type].length = 0;
-                    list.forEach(function(item) { quickSelectData[type].push(item); });
-                }
-            })
-            .catch(function() {});
-    });
+    return Promise.all((types || Object.keys(quickSelectApiByType)).map(function(type) {
+        return WMS.listCache.refresh(quickSelectData[type], quickSelectApiByType[type])
+            .catch(function() { return false; });
+    }));
 }
 
 window.WmsRefreshDropdowns = function() {
