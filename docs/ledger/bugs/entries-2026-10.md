@@ -1930,3 +1930,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：两页共同保存函数先校验和快照载荷，再锁定实际按钮/动态工具栏并阻止重入；成功保持锁至既有延迟导航，失败恢复原disabled/aria-busy。订单保存意图在请求前局部固定，保留供应商继续新增。无效响应编号明确提示先核对单据，不自动重发；原权限、后端和业务字段不变。生产需重启 WMS 服务生效。
 - 最终回归：25个受影响/相邻模块654 passed、71项既有SQLAlchemy警告。72项新运行时锁执行真实页面函数、真实api.js和saveCurrentPage，覆盖新增/编辑、首次动作意图、请求中/成功跳转等待、业务/HTTP/网络/HTML/空/无效编号、校验/序列化失败及手动重试。物理备份回退两模板后72 failed，finally按SHA256完整恢复（%TEMP%/wms-purchase-save-017-rollback-0qxkf9ot）；修复72 passed。既有transport仅补querySelectorAll桩，原断言保留。
 - 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8和diff检查通过。提交前完整基线check_ci_green.py为ok=true，证据purchase/precommit_ci.json；最终日志purchase/final.log。
+- 提交与CI：6c89077817b16195ba90d6248f896e2bdb67e08a已实际push（b25be876..6c890778 main -> main），HEAD/origin/live main一致；WMS CI40089491985和AI40089491982精确匹配completed/success，Android40027751562成功且祖先/对象/保护路径复用证明通过，check_ci_green.py目标ok=true。证据purchase/target_ci.json；生产与本轮其余批次统一验收。
+
+### BUG-2026-10-24-018: 独立标签编辑器未同步cells布局导致修改或删除保存后复原
+
+- 状态：已修复，待最终回归及生产验收。
+- 根因/危害：独立编辑器只显示坐标keyed格式，保留原cells数组；编辑和删除仅改变坐标项，保存后后端正规化以同坐标cells优先，旧字段重新出现。cells格式模板初次打开又可能画布为空，用户看到的内容与实际保存不一致。
+- 同类点已排查：核对BUG-2026-09-08-001、LABEL-FIX-2026-09-29-002及BUG-2026-10-23-007；独立编辑器与物料内嵌编辑器共用后端格式，但内嵌编辑器已有cells往返逻辑。修复限独立页面，不反转全局正规化优先级、不改标签打印后端或业务数据。
+- 开工门禁：6c89077817b16195ba90d6248f896e2bdb67e08a实时main三工作流目标检查ok=true；CI40089491985、AI40089491982精确匹配success，Android40027751562成功且复用证明通过。证据purchase/target_ci.json。
+- 修前基线：9个标签布局/编码/预览/编辑器/传输及路由模块171 passed、40项既有警告；跨016/017四产品及测试哈希未变，基线仍有效。证据%TEMP%/wms-label-dual-format-baseline-28rd9aii。
+- 生效确认：待回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未生产登录、真实打印或修改标签记录。
+- 修复：加载时将cells与坐标项归并为同一编辑来源，保持cells冲突优先；拖放、替换、删除与清空同步cells，保存与画布使用一致内容。保留边距、行高、未知元数据及未编辑样式，兼容px字号，静态文字走DOM/textContent；不改变既有请求互斥、失败反馈及后端格式规则。生产需重启 WMS 服务生效。
+- 最终回归：9个既有模块与22项新增真实页面JS/真实api.js/实际normalizer往返，共193 passed、40项既有警告。物理备份回退模板后18 failed、4个纯keyed或原有清空对照passed，finally字节恢复且SHA256一致；失败直接证实保存后旧字段残留，未用缺少helper制造伪红。证据%TEMP%/wms-label018-rollback-3wfmhxrm，label/final.log。未改旧测试断言。
+- 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停；verify_wms_bugs通过、A1–A14零违规、UTF-8及diff检查通过。提交前匿名查询HTTP403限流，经连接器遍历最新main运行两页核实CI40089491985/AI40089491982成功且目标精确匹配，Android40027751562成功；实时远端SHA不变，Android祖先、完整对象和保护路径无差异均重新核实。证据label/precommit_alternative.json，不把查询失败当CI失败。

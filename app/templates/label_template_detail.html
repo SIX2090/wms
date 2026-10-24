@@ -523,6 +523,34 @@ body {
             catch (e) { return {}; }
         })();
         let currentCell = null;
+
+        // Keep one editable coordinate map; cells and legacy keys share its values.
+        function syncLayoutCells() {
+            layoutData.cells = Object.entries(layoutData)
+                .filter(([key, cell]) => /^\d+-\d+$/.test(key) && cell && typeof cell === 'object' && !Array.isArray(cell))
+                .map(([key, cell]) => {
+                    const [row, col] = key.split('-').map(Number);
+                    cell.row = row;
+                    cell.col = col;
+                    if (cell.text == null && cell.field) cell.text = `[${cell.label || fieldLabels[cell.field] || cell.field}]`;
+                    return cell;
+                });
+        }
+
+        function prepareLayoutForEditing() {
+            const raw = Array.isArray(layoutData) ? { cells: layoutData } :
+                (layoutData && typeof layoutData === 'object' ? layoutData : {});
+            const next = { ...raw };
+            delete next.cells;
+            // Match the shared normalizer: list cells win coordinate conflicts.
+            (Array.isArray(raw.cells) ? raw.cells : []).forEach(cell => {
+                if (!cell || typeof cell !== 'object' || Array.isArray(cell)) return;
+                if (!/^\d+$/.test(String(cell.row)) || !/^\d+$/.test(String(cell.col))) return;
+                next[`${Number(cell.row)}-${Number(cell.col)}`] = { ...cell };
+            });
+            layoutData = next;
+            syncLayoutCells();
+        }
         
         // 字段映射
         const fieldLabels = {
@@ -590,6 +618,7 @@ body {
                         layoutData[cellKey] = {
                             field: field,
                             label: fieldLabels[field],
+                            text: `[${fieldLabels[field] || field}]`,
                             style: {
                                 fontSize: 12,
                                 fontFamily: 'Microsoft YaHei',
@@ -597,6 +626,7 @@ body {
                                 color: '#333333'
                             }
                         };
+                        syncLayoutCells();
                         
                         // 渲染单元格
                         renderCell(row, col, field, fieldLabels[field], layoutData[cellKey].style);
@@ -620,23 +650,35 @@ body {
         function renderCell(row, col, field, label, style) {
             const cell = document.getElementById(`cell-${row}-${col}`);
             if (!cell) return;
-            
-            let content = '';
-            const sampleValue = sampleData[field] || '';
+            const data = layoutData[`${row}-${col}`] || {};
+            style = style || {};
+            const aliases = { unit_name: 'unit', category_name: 'category', supplier_name: 'supplier' };
+            const sampleValue = sampleData[aliases[field] || field] ?? data.text ?? '';
+            let content;
             
             // 根据字段类型渲染内容
             if (field === 'barcode') {
-                content = `<img src="/api/barcode/${sampleValue}" alt="条码" class="barcode-img">`;
+                content = document.createElement('img');
+                content.src = '/api/barcode/' + encodeURIComponent(sampleValue);
+                content.alt = '条码';
+                content.className = 'barcode-img';
             } else if (field === 'qrcode') {
-                content = `<img src="/api/qrcode/${sampleValue}" alt="二维码" style="max-width:100%;max-height:60px;display:block;image-rendering:pixelated;">`;
+                content = document.createElement('img');
+                content.src = '/api/qrcode/' + encodeURIComponent(sampleValue);
+                content.alt = '二维码';
+                content.style.cssText = 'max-width:100%;max-height:60px;display:block;image-rendering:pixelated;';
             } else {
-                content = `<span class="cell-data">${sampleValue}</span>`;
+                content = document.createElement('span');
+                content.className = 'cell-data';
+                content.textContent = String(sampleValue);
+                content.style.fontSize = 'inherit';
+                content.style.color = 'inherit';
             }
             
             // 应用样式
             const cellStyle = {
                 'text-align': style.textAlign || 'center',
-                'font-size': (style.fontSize || 12) + 'px',
+                'font-size': (parseFloat(style.fontSize) || 12) + 'px',
                 'font-family': style.fontFamily || 'Microsoft YaHei',
                 'color': style.color || '#333333'
             };
@@ -646,16 +688,20 @@ body {
             cellContent.style.fontSize = cellStyle['font-size'];
             cellContent.style.fontFamily = cellStyle['font-family'];
             cellContent.style.color = cellStyle['color'];
-            cellContent.innerHTML = content;
+            cellContent.style.fontWeight = style.fontWeight || 'normal';
+            cellContent.style.verticalAlign = style.verticalAlign || 'middle';
+            cellContent.textContent = '';
+            cellContent.appendChild(content);
             
             // 显示删除按钮
-            cell.querySelector('.delete-cell').style.display = 'none';
+            cell.querySelector('.delete-cell').style.display = '';
         }
         
         // 删除单元格内容
         function removeCell(row, col) {
             const cellKey = `${row}-${col}`;
             delete layoutData[cellKey];
+            syncLayoutCells();
             
             const cell = document.getElementById(`cell-${row}-${col}`);
             if (cell) {
@@ -664,6 +710,10 @@ body {
                 cellContent.style.textAlign = 'center';
                 cellContent.style.fontSize = '12px';
                 cellContent.style.color = '#333333';
+                cellContent.style.fontWeight = 'normal';
+                cellContent.style.verticalAlign = 'middle';
+                cell.colSpan = 1;
+                cell.querySelector('.delete-cell').style.display = 'none';
             }
         }
         
@@ -676,7 +726,7 @@ body {
             currentCell = { row, col };
             const style = data.style || {};
             
-            document.getElementById('styleFontSize').value = style.fontSize || 12;
+            document.getElementById('styleFontSize').value = parseFloat(style.fontSize) || 12;
             document.getElementById('styleFontFamily').value = style.fontFamily || 'Microsoft YaHei';
             document.getElementById('styleColor').value = style.color || '#333333';
             
@@ -749,6 +799,7 @@ body {
             if (!data) return;
             
             const style = {
+                ...(data.style || {}),
                 fontSize: parseInt(document.getElementById('styleFontSize').value),
                 fontFamily: document.getElementById('styleFontFamily').value,
                 color: document.getElementById('styleColor').value,
@@ -777,7 +828,9 @@ body {
         function clearLayout() {
             if (!confirm('确定要清空所有布局吗？')) return;
             
-            layoutData = {};
+            // Clear cell content, retaining dimensions, row heights and metadata.
+            Object.keys(layoutData).filter(key => /^\d+-\d+$/.test(key)).forEach(key => delete layoutData[key]);
+            syncLayoutCells();
             for (let row = 0; row < {{ template.rows }}; row++) {
                 for (let col = 0; col < {{ template.cols }}; col++) {
                     removeCell(row, col);
@@ -830,6 +883,7 @@ body {
         
         // 加载已有布局
         function loadLayout() {
+            prepareLayoutForEditing();
             // 恢复边距
             if (layoutData.marginTop !== undefined) document.getElementById('marginTop').value = layoutData.marginTop;
             if (layoutData.marginRight !== undefined) document.getElementById('marginRight').value = layoutData.marginRight;
@@ -837,7 +891,7 @@ body {
             if (layoutData.marginLeft !== undefined) document.getElementById('marginLeft').value = layoutData.marginLeft;
             
             for (const [cellKey, data] of Object.entries(layoutData)) {
-                if (cellKey.startsWith('margin')) continue; // 跳过边距属性
+                if (!/^\d+-\d+$/.test(cellKey) || !data || typeof data !== 'object' || Array.isArray(data)) continue;
                 const [row, col] = cellKey.split('-');
                 renderCell(row, col, data.field, data.label, data.style || {});
                 // 恢复colSpan
