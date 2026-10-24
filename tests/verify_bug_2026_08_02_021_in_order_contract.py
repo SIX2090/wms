@@ -80,10 +80,13 @@ def test_T3_contract_autocomplete_focus_trigger():
     bind_match = re.search(r"function bind\(input\)\s*\{.*?input\.addEventListener\('focus'", js, re.DOTALL)
     assert bind_match is not None, "ContractAutocomplete.bind 未绑定 focus 事件"
     # triggerSearch 辅助函数被定义并被 focus 调用
-    assert "function triggerSearch(value)" in js, "未定义 triggerSearch 辅助函数"
-    # focus handler 调用 triggerSearch
+    assert "function triggerSearch(value, version)" in js, "未定义带查询代次的 triggerSearch 辅助函数"
+    # focus 经 search(false) 同步进入 triggerSearch；输入才使用防抖。
+    # 实际请求及回填另由 test_lookup_lifecycle_runtime 执行真实闭包验证。
     focus_block = js[bind_match.end():js.index("input.addEventListener('keydown'", bind_match.end())]
-    assert "triggerSearch" in focus_block, "focus 事件未调用 triggerSearch"
+    assert "search(false)" in focus_block, "focus 事件未同步启动搜索"
+    search_block = js[js.index('function search(delayed)', bind_match.start()):bind_match.end()]
+    assert 'else triggerSearch(value, version)' in search_block, "同步搜索未调用 triggerSearch"
 
 
 def test_T4_getContracts_unavailable_guard():

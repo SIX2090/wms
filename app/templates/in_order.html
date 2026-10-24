@@ -414,12 +414,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!input || !dropdown) return;
         var activeDropdown = null;
         var timer = null;
-        var cache = {};
+        var cache = Object.create(null);
+        var queryVersion = 0;
+        var queryActive = false;
 
 
 
         function hideDropdown() {
-            if (activeDropdown) { activeDropdown.style.display = 'none'; activeDropdown = null; }
+            clearTimeout(timer);
+            queryVersion++;
+            queryActive = false;
+            dropdown.style.display = 'none';
+            activeDropdown = null;
         }
 
         function showDropdown() {
@@ -449,40 +455,54 @@ document.addEventListener('DOMContentLoaded', function() {
             showDropdown();
         }
 
-        function query(kw) {
+        function isCurrent(kw, version) {
+            return queryActive && version === queryVersion && input.isConnected !== false && input.value.trim() === kw;
+        }
+
+        function query(kw, version) {
+            if (!isCurrent(kw, version)) return;
             if (cache[kw]) { render(cache[kw]); return; }
             dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载中...</div>';
             showDropdown();
-            fetch('/api/contracts?keyword=' + encodeURIComponent(kw), {
-                credentials: 'same-origin',
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            }).then(function(r) { return r.ok ? r.json() : null; }).then(function(j) {
-                var list = (j && j.status === 'success' && j.data && j.data.contracts) ? j.data.contracts : [];
+            WMS.api.getRaw('/api/contracts?keyword=' + encodeURIComponent(kw)).then(function(j) {
+                if (!isCurrent(kw, version)) return;
+                if (!(j && j.status === 'success' && j.data && Array.isArray(j.data.contracts) &&
+                    j.data.contracts.every(function(c) { return c && typeof c === 'object'; }))) {
+                    throw new Error('工程查询返回格式异常');
+                }
+                var list = j.data.contracts;
                 cache[kw] = list;
-                if (input.value.trim() === kw) render(list);
+                render(list);
             }).catch(function() {
-                if (input.value.trim() === kw) {
+                if (isCurrent(kw, version)) {
                     dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载失败</div>';
                     showDropdown();
                 }
             });
         }
 
-        input.addEventListener('input', function() {
-            var kw = input.value.trim();
-            if (!kw) { hideDropdown(); return; }
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(function() { query(kw); }, 200);
-        });
-        input.addEventListener('focus', function() {
+        function search(delayed) {
+            hideDropdown();
             var kw = input.value.trim();
             if (!kw) return;
-            if (timer) clearTimeout(timer);
-            query(kw);
+            queryActive = true;
+            var version = queryVersion;
+            if (cache[kw]) { render(cache[kw]); return; }
+            if (delayed) timer = setTimeout(function() { query(kw, version); }, 200);
+            else query(kw, version);
+        }
+
+        input.addEventListener('input', function() { search(true); });
+        input.addEventListener('focus', function() {
+            search(false);
         });
-        input.addEventListener('blur', function() { setTimeout(hideDropdown, 200); });
+        input.addEventListener('blur', hideDropdown);
+        document.addEventListener('click', function(ev) {
+            if (ev.target !== input && !dropdown.contains(ev.target)) hideDropdown();
+        });
         input.addEventListener('keydown', function(ev) {
             if (ev.key === 'Escape') { hideDropdown(); return; }
+            if (!activeDropdown) return;
             if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
                 ev.preventDefault();
                 var items = Array.from(dropdown.querySelectorAll('.pf-item[data-pn]'));

@@ -4097,6 +4097,9 @@ function getRecentVisits() {
     var ACTIVE_CLASS = 'wms-contract-dropdown';
     var ITEM_CLASS = 'wms-contract-dropdown-item';
     var currentDropdown = null;
+    var currentInput = null;
+    var searchVersion = 0;
+    var debounceTimer = null;
 
     function ensureStyles() {
         if (document.getElementById('wms-contract-autocomplete-style')) return;
@@ -4112,11 +4115,18 @@ function getRecentVisits() {
         document.head.appendChild(style);
     }
 
-    function closeDropdown() {
+    function removeDropdown() {
         if (currentDropdown) {
             currentDropdown.remove();
             currentDropdown = null;
         }
+    }
+
+    function closeDropdown() {
+        clearTimeout(debounceTimer);
+        searchVersion++;
+        currentInput = null;
+        removeDropdown();
     }
 
     function findRowInputs(input) {
@@ -4131,7 +4141,7 @@ function getRecentVisits() {
 
     function renderDropdown(input, contracts) {
         if (!input) return;
-        closeDropdown();
+        removeDropdown();
         if (!contracts || !contracts.length) return;
 
         var dropdown = document.createElement('div');
@@ -4207,51 +4217,59 @@ function getRecentVisits() {
         if (!global.WMS || !global.WMS.api || !global.WMS.api.getContracts) return;
         input.dataset.contractAutocompleteBound = '1';
 
-        var debounceTimer = null;
         var lastKeyword = '';
         var lastResults = null;
 
-        function triggerSearch(value) {
-            if (!value) return;
+        function isCurrent(value, version) {
+            return version === searchVersion && currentInput === input &&
+                input.isConnected !== false && input.value.trim() === value;
+        }
+
+        function triggerSearch(value, version) {
+            if (!value || !isCurrent(value, version)) return;
             global.WMS.api.getContracts(value)
                 .then(function(data) {
-                    var contracts = (data && data.contracts) ? data.contracts : (Array.isArray(data) ? data : []);
+                    if (!isCurrent(value, version)) return;
+                    var contracts = data && data.contracts;
+                    if (!Array.isArray(contracts) || !contracts.every(function(c) { return c && typeof c === 'object'; })) {
+                        throw new Error('合同查询返回格式异常');
+                    }
                     lastKeyword = value;
                     lastResults = contracts;
                     renderDropdown(input, contracts);
                 })
                 .catch(function() {
-                    // ignore network errors; dropdown will simply not show
+                    if (!isCurrent(value, version)) return;
+                    closeDropdown();
+                    showToast('合同查询失败，请重试', 'danger');
                 });
         }
 
-        input.addEventListener('input', function() {
-            clearTimeout(debounceTimer);
-            var value = input.value.trim();
-            if (!value) {
-                closeDropdown();
-                return;
-            }
-            if (value === lastKeyword && lastResults) {
-                renderDropdown(input, lastResults);
-                return;
-            }
-            debounceTimer = setTimeout(function() { triggerSearch(value); }, 200);
-        });
-
-        // 聚焦时也触发搜索：让用户点击/聚焦合同编号或工程名称单元格时能看到匹配项
-        // （即使已有值，也搜索该值展示对应的合同档案供快速选择/校对）
-        input.addEventListener('focus', function() {
+        function search(delayed) {
+            closeDropdown();
+            currentInput = input;
+            var version = searchVersion;
             var value = input.value.trim();
             if (!value) return;
             if (value === lastKeyword && lastResults) {
                 renderDropdown(input, lastResults);
                 return;
             }
-            triggerSearch(value);
+            if (delayed) debounceTimer = setTimeout(function() { triggerSearch(value, version); }, 200);
+            else triggerSearch(value, version);
+        }
+
+        input.addEventListener('input', function() { search(true); });
+
+        // 聚焦时也触发搜索：让用户点击/聚焦合同编号或工程名称单元格时能看到匹配项
+        // （即使已有值，也搜索该值展示对应的合同档案供快速选择/校对）
+        input.addEventListener('focus', function() {
+            search(false);
         });
 
         input.addEventListener('keydown', function(event) {
+            if (currentInput !== input) return;
+            if (event.key === 'Escape') { closeDropdown(); return; }
             if (!currentDropdown) return;
             if (event.key === 'ArrowDown') {
                 event.preventDefault();
@@ -4262,13 +4280,12 @@ function getRecentVisits() {
             } else if (event.key === 'Enter') {
                 event.preventDefault();
                 selectActive(input);
-            } else if (event.key === 'Escape') {
-                closeDropdown();
             }
         });
 
         input.addEventListener('blur', function() {
-            setTimeout(closeDropdown, 150);
+            // Candidate mousedown prevents blur; leaving the field cancels immediately.
+            if (currentInput === input) closeDropdown();
         });
     }
 
@@ -4290,7 +4307,7 @@ function getRecentVisits() {
     }
 
     document.addEventListener('click', function(event) {
-        if (currentDropdown && !currentDropdown.contains(event.target)) {
+        if (!currentDropdown || !currentDropdown.contains(event.target)) {
             var input = event.target.closest('.line-contract-no, .line-project-name');
             if (!input) closeDropdown();
         }

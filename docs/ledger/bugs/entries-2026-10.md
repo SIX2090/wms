@@ -1958,3 +1958,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 浏览器验收：CUA操作独立静态fixture，加载实际flatpickr、base初始化及真实消费函数，网络和非日期动作使用隔离桩。六入口×普通日期/闰日/空共18场景，旧码18失败，修复18通过；读取页面公开显示的原值、altInput、selectedDates和FormData/筛选载荷核对。截图date/browser-before.png、browser-after.png，完整结果JSON同目录。自有18080静态服务身份核对后停止，临时浏览器关闭，未生产登录或连接生产库。
 - 最终验证：55个受影响及相邻模块2017 passed、21 skipped（与修前既有跳过一致），四产品哈希全程不变。完整verify_ai_all.py --level full --jobs 1为70/70通过，包含既有BUG回归；严格AI台账及文档契约34项通过，两个JS语法、A1–A14零违规、UTF-8和diff检查通过。证据date/final.log、final_evidence.json和ai_full.log。
 - 提交前验收：隔离HTTP冒烟121/121，临时服务已停止。匿名限流持续，连接器重新逐页核实同一实时main基线的最新三工作流成功及完整SHA，Android复用证明通过；证据date/precommit_alternative.json。AI子任务仍标待验收，待目标CI和生产核验后登记完成。
+- 提交与CI：133a9ba6d942e85953e2ab348c79e91d17ed8c01已实际push（d77c6369..133a9ba6 main -> main），HEAD/origin/live main一致；WMS CI40091246311和AI40091246337精确匹配completed/success，Android40027751562成功且祖先、完整对象、保护路径无差异重新核实。pre-push匿名403，核实同一基线后仅本次重推使用WMS_SKIP_CI_GATE=1并finally清除。证据date/target_ci_alternative.json、push.log、push-retry.log；生产统一验收。
+
+### BUG-2026-10-24-020: 合同工程与领料人联想迟到响应覆盖当前输入或重新打开候选
+
+- 状态：已修复，待最终回归及生产验收。
+- 根因/危害：公共合同联想、入库列表工程筛选及领料人查询未完整校验请求代次、输入和当前候选所属控件；输入变化、关闭或跨行切换后旧响应仍可覆盖当前候选，失败响应还可能被当空结果缓存，影响重试。
+- 同类点已排查：核对BUG-2026-10-24-005/007/008/013等查询生命周期历史；本批覆盖公共ContractAutocomplete的五页消费点、in_order工程筛选及out_order_add领料人查询。保留已修复的物料/来源选单及其他联想，不改库存、后端权限或单据状态。
+- 开工门禁：133a9ba6d942e85953e2ab348c79e91d17ed8c01与实时main一致，最新WMS CI40091246311、AI40091246337精确匹配success；Android40027751562成功，祖先、完整对象及保护路径无变化证明通过。证据C:/wms_backups/frontend_six_20261024/date/target_ci_alternative.json。
+- 修前基线：58模块按代码、测试及依赖投影和原始文件哈希核对复用：019覆盖48、旧异步证据8、017采购1，补跑视口模块20 passed。所有冻结核验通过，未将重叠全套测试总数相加；证据async/baseline-reuse.json、baseline-modules.txt及viewport-baseline.log。
+- 生效确认：待修复回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未操作生产单据、库存或用户数据。
+- 修复：输入变化先取消防抖并使在途查询失效，返回时核对代次、输入值、DOM及合同候选所属行；选择、失焦、Escape和点击外部立即取消。成功列表验证数组与非空对象记录后才缓存，失败不污染缓存；当前失败给中文反馈，迟到失败不扰动新结果。工程及领料人GET统一走WMS.api.getRaw，合同保留已解封装getContracts；保持鼠标/键盘选中、合同工程配对填写和领料人空词主动查询。生产需重启 WMS 服务生效。
+- 回归锁：77项新用例执行真实IIFE及api.js，覆盖乱序、失败/非法结构、失败后重试、缓存切换、清空、关闭、脱离DOM、跨行、鼠标和键盘选择。三产品物理备份回退后54 failed、23个对照passed，finally恢复且三文件SHA256一致（async/rollback-proof.json）；修复版与既有页面运行回归83 passed。新增源码通过stdin送入Node，避免Windows命令长度限制。
+- 既有测试维护：dead_header运行fixture补真实api.js、HTTP/业务状态封套和clearTimeout；合同focus源码契约同步为focus→search(false)→triggerSearch(value,version)，仍要求聚焦同步发起查询，另由真实运行用例验证。未弱化保存、字段或请求断言。
+- 最终验证：61个受影响及相邻模块1987 passed、21项既有skipped、2项既有SQLAlchemy警告；77新增锁包含其中不重复计数，运行前后产品、测试及其余冻结依赖哈希无变化（async/final-evidence.json）。文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停、verify_wms_bugs通过、严格AI台账通过、A1–A14零违规、JS语法/UTF-8/diff检查通过。请求lint无违规，存量模板warn未增加。
+- 提交前门禁：匿名查询仍为HTTP403限流，经连接器分页核对最新main三工作流仍为上述成功记录，实时main仍133a9ba6；Android祖先、完整对象和保护路径无差异重新验证。证据async/precommit_alternative.json。

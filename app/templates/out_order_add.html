@@ -2018,14 +2018,38 @@ function applyBatchUpdate() {
     var pickerSearchBtn = document.getElementById('pickerSearchBtn');
     var pickerActiveIndex = -1;
     var pickerResults = [];
+    var pickerVersion = 0;
+    var pickerQueryActive = false;
+    var searchTimer = null;
 
     if (!pickerInput || !pickerDropdown) return;
 
+    function hidePickerDropdown() {
+        clearTimeout(searchTimer);
+        pickerVersion++;
+        pickerQueryActive = false;
+        pickerDropdown.style.display = 'none';
+        pickerActiveIndex = -1;
+        pickerResults = [];
+    }
+
+    function isCurrentPicker(keyword, version) {
+        return pickerQueryActive && pickerVersion === version && pickerInput.isConnected !== false &&
+            pickerInput.value.trim() === keyword;
+    }
+
     function showPickerDropdown(keyword) {
-        fetch('/employee/api/search?q=' + encodeURIComponent(keyword || ''))
-            .then(function(r) { return r.json(); })
+        hidePickerDropdown();
+        pickerQueryActive = true;
+        var version = pickerVersion;
+        WMS.api.getRaw('/employee/api/search?q=' + encodeURIComponent(keyword || ''))
             .then(function(res) {
-                var data = (res && res.data) ? res.data : [];
+                if (!isCurrentPicker(keyword, version)) return;
+                if (!(res && res.status === 'success' && Array.isArray(res.data) &&
+                    res.data.every(function(emp) { return emp && typeof emp === 'object'; }))) {
+                    throw new Error('员工查询返回格式异常');
+                }
+                var data = res.data;
                 pickerResults = data;
                 if (data.length === 0) {
                     pickerDropdown.style.display = 'none';
@@ -2039,6 +2063,7 @@ function applyBatchUpdate() {
                         '</div>';
                 }).join('');
                 pickerDropdown.querySelectorAll('.picker-dropdown-item').forEach(function(item) {
+                    item.addEventListener('mousedown', function(e) { e.preventDefault(); });
                     item.addEventListener('click', function() {
                         selectEmployee(parseInt(this.dataset.index));
                     });
@@ -2049,22 +2074,24 @@ function applyBatchUpdate() {
                 pickerDropdown.style.left = rect.left + 'px';
                 pickerActiveIndex = -1;
             })
-            .catch(function(err) { console.warn('员工搜索失败:', err); });
+            .catch(function() {
+                if (!isCurrentPicker(keyword, version)) return;
+                hidePickerDropdown();
+                showToast('员工查询失败，请重试', 'danger');
+            });
     }
 
     function selectEmployee(index) {
         var emp = pickerResults[index];
         if (!emp) return;
         pickerInput.value = emp.name;
-        pickerDropdown.style.display = 'none';
-        pickerActiveIndex = -1;
+        hidePickerDropdown();
     }
 
 
 
-    var searchTimer = null;
     pickerInput.addEventListener('input', function() {
-        clearTimeout(searchTimer);
+        hidePickerDropdown();
         var val = this.value.trim();
         if (val.length === 0) {
             pickerDropdown.style.display = 'none';
@@ -2074,10 +2101,12 @@ function applyBatchUpdate() {
     });
 
     pickerInput.addEventListener('focus', function() {
+        hidePickerDropdown();
         if (this.value.trim().length > 0) {
             showPickerDropdown(this.value.trim());
         }
     });
+    pickerInput.addEventListener('blur', hidePickerDropdown);
 
     pickerSearchBtn.addEventListener('click', function(e) {
         e.stopPropagation();
@@ -2085,6 +2114,8 @@ function applyBatchUpdate() {
     });
 
     pickerInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { hidePickerDropdown(); return; }
+        if (pickerDropdown.style.display !== 'block') return;
         var items = pickerDropdown.querySelectorAll('.picker-dropdown-item');
         if (e.key === 'ArrowDown') {
             e.preventDefault();
@@ -2099,16 +2130,12 @@ function applyBatchUpdate() {
                 e.preventDefault();
                 selectEmployee(pickerActiveIndex);
             }
-        } else if (e.key === 'Escape') {
-            pickerDropdown.style.display = 'none';
-            pickerActiveIndex = -1;
         }
     });
 
     document.addEventListener('click', function(e) {
         if (!e.target.closest('.picker-input')) {
-            pickerDropdown.style.display = 'none';
-            pickerActiveIndex = -1;
+            hidePickerDropdown();
         }
     });
 })();
