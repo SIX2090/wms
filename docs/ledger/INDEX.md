@@ -174,6 +174,7 @@
 | AI-R15-FIX-UI-FEEDBACK-001 | ai | completions-2026-10.md |
 | AI-R15-FIX-TEXT-EVENT-001 | ai | completions-2026-10.md |
 | AI-C01-FIX-WEB-TRANSPORT-001 | ai | completions-2026-10.md |
+| AI-UX-DOC-MATERIAL-SEARCH-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
