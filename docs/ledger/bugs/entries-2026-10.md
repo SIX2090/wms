@@ -1798,3 +1798,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生产发布：保留before_inventory.db和旧单模板rollback_templates.zip，发布即时mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为ef3cf39b8f5175287222f49bb36a7feb2c99e9505f2e740a63f271d70d665a78。即时核对原PID11460完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、原SYSTEM任务入口及WMS_NO_DB_TOUCH=1；避开下一计划触发窗口后仅终止该实例，再启动原任务一次。新PID11996，2026-10-24T15:16:51.560092+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。15:16:55启动日志为ee25dfc、production、CSRF on；db-check migrate=ok仅结构检查，不声称迁移。
 - 只读验收：共享模板规范化文本匹配目标Git对象，SHA256为0cdc2e734caa607ce1f14859562a1c4e86750e3e979921e5818f788d30550fa5；本机和https://gd2026.top/login均GET200且含CSRF；list-cache.js两端均200、JavaScript类型、年度缓存，SHA256为dc5bd13765293036db32fbf38c279a4a79e56921b8a9e55d7cbb11098adc75ab且匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟或创建业务记录，未改密码、依赖或服务入口。
 - 收尾边界：仅月度BUG台账记录更新，应用文件保持已发布ee25dfcd版本，无须再次重启；按文档分级验证并验收该收尾提交自身CI。查询故障仍须核实同一基线，不把未知、运行中或实际非绿视为放行。
+
+
+### BUG-2026-10-24-010: 标签预览忽略所选物料并遗漏设计器布局
+
+- 状态：已修复，待目标CI及生产生效核验。
+- 根因/危害：preview_label_template未读取material_id，label_preview.html两张标签写死TEST001/TEST002示例；下拉加载后自动显示首个物料却没有selected，选择任意物料后仍打印示例。预览仅识别旧行列键，设计器cells布局变成占位空格；页面正文还落在extra_css块并自行关闭head/打开body，破坏公共布局结构。
+- 同类点已排查：查阅BUG-2026-09-08-001、LABEL-FIX-2026-09-29-001/002/003及BUG-2026-10-23-006/007。预览入口为标签模板列表的preview_label_template；print_labels和print_batch_labels已有真实物料/布局读取，保留并纳入相邻回归。本轮修复单预览链，不更改实际批量打印入口、权限、库存口径或模板保存。
+- 修复：预览GET严格解析正数物料ID，找不到返回404、非法值返回400；选中物料显示一张真实标签并保持下拉选择，无选择明确标为使用示例数据且可切回。统一数据映射支持单位/分类/供应商别名、日期、零价格和缺失关系；条码及二维码用url_for编码真实物料编码。复用已有布局解析/归一逻辑，cells坐标优先，支持静态文字、合并列和按比例行高；无效历史布局降级为空网格。正文进入base的content块，打印隐藏物料选择面板。生产需重启 WMS 服务生效。
+- 修复前基线：20个标签/打印/权限等直接消费及相邻模块247 passed、12项既有SQLAlchemy警告，日志%TEMP%/wms-label-preview-baseline.log。新增26项最初在旧实现25 failed、1 passed；补齐布局边界、GET只读及选择切回运行测试后共34项通过。
+- 回归锁/物理回退：备份路由和模板→git checkout --两文件→新增34项测试→finally恢复；旧实现30 failed、4 passed，证据%TEMP%/wms-label-preview-rollback-qi6tz3p6/rollback.log。未使用stash、未放宽既有断言。新用例以真实Flask GET和真实Jinja渲染核验字段/布局/编码/选择/状态码/结构，Node执行真实切换函数；数据库为内存隔离库。
+- 开工门禁：6135f6d817f92e7323ffeac2ee364ab45fc9a0a4的WMS CI40073615902、AI40073615973均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化，check_ci_green.py为ok=true。在线备份before_inventory.db与旧路由/模板rollback_code.zip保存于C:/wms_backups/label_preview_deploy_20261024。
+- 回归验收：21个受影响/相邻模块281 passed、47项既有SQLAlchemy接口弃用警告（含新测试触发的35次）；台账/文档契约34 passed；隔离HTTP冒烟121/121，自有18080服务已停止。A1–A14为0违规、UTF-8编码检查通过。日志为%TEMP%/wms-label-preview-final.log、wms-label-preview-docs.log、wms-label-preview-smoke.log。
+- 生效确认：待确认；目标CI、沿原WMS-Warehouse任务重启及生产只读校验后回填，生产需重启 WMS 服务生效。

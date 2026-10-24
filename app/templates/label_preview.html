@@ -106,6 +106,7 @@
                 padding: 0;
             }
             
+            .material-info,
             .preview-header,
             .preview-header * {
                 display: none !important;
@@ -170,8 +171,11 @@
             font-size: 12px;
         }
     </style>
-</head>
-<body>
+{% endblock %}
+
+{% block title %}标签预览{% endblock %}
+
+{% block content %}
     <div class="preview-container">
         <div class="preview-header">
             <div>
@@ -191,94 +195,51 @@
         </div>
         
         <div class="labels-grid">
-            <!-- 示例标签 1 -->
+            {% for data in preview_data %}
             <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
                 <table class="label-table">
-                    {% set layout = template.layout | default('{}') | from_json %}
+                    {% set row_heights = layout.get('rowHeights', []) %}
+                    {% set total = namespace(height=0) %}
                     {% for row in range(template.rows) %}
-                    <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
+                    {% set total.height = total.height + (row_heights[row] if row < row_heights|length and row_heights[row] is number and row_heights[row] > 0 else 30) %}
+                    {% endfor %}
+                    {% for row in range(template.rows) %}
+                    {% set row_height = row_heights[row] if row < row_heights|length and row_heights[row] is number and row_heights[row] > 0 else 30 %}
+                    {% set skipped = namespace(cols=0) %}
+                    <tr style="height: {{ (template.height * 3.78 * row_height / total.height) | round(0) }}px;">
                         {% for col in range(template.cols) %}
-                        <td>
-                            {% set cell_key = row|string + '-' + col|string %}
-                            {% set cell_data = layout.get(cell_key) %}
-                            {% if cell_data %}
-                            {% set style = cell_data.style | default({}) %}
+                        {% if skipped.cols > 0 %}
+                        {% set skipped.cols = skipped.cols - 1 %}
+                        {% else %}
+                        {% set cell = layout.get(row|string + '-' + col|string, {}) %}
+                        {% set style = cell.get('style') or {} %}
+                        {% set span = cell.get('colSpan') or 1 %}
+                        {% set skipped.cols = span - 1 %}
+                        <td{% if span > 1 %} colspan="{{ span }}"{% endif %}>
                             <div class="cell-content" style="
                                 text-align: {{ style.get('textAlign', 'center') }};
                                 font-size: {{ style.get('fontSize', 12) }}px;
                                 font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
                                 color: {{ style.get('color', '#333333') }};
                             ">
-                                {% set sample_data = {
-                                    'code': 'TEST001',
-                                    'name': '示例物料',
-                                    'spec': '规格示例',
-                                    'unit': '个',
-                                    'stock': '100',
-                                    'category': '测试分类',
-                                    'supplier': '测试供应商'
-                                } %}
-                                {% if cell_data.field == 'barcode' %}
-                                <img src="/api/barcode/{{ sample_data.get('code', 'TEST001') }}" alt="条码" class="barcode-img">
+                                {% if cell.get('field') == 'barcode' %}
+                                <img src="{{ url_for('api_barcode_image', code=data.code) }}" alt="条码" class="barcode-img">
+                                {% elif cell.get('field') == 'qrcode' %}
+                                <img src="{{ url_for('api_qrcode_image', data=data.code, size=200) }}" alt="二维码" class="barcode-img">
+                                {% elif cell %}
+                                <span class="cell-value">{{ data.get(cell.get('field'), cell.get('text', '')) }}</span>
                                 {% else %}
-                                <span class="cell-value">{{ sample_data.get(cell_data.field, '') }}</span>
+                                <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
                                 {% endif %}
                             </div>
-                            {% else %}
-                            <div class="cell-content">
-                                <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
-                            </div>
-                            {% endif %}
                         </td>
+                        {% endif %}
                         {% endfor %}
                     </tr>
                     {% endfor %}
                 </table>
             </div>
-            
-            <!-- 示例标签 2 -->
-            <div class="label-sheet" style="width: {{ (template.width * 3.78) | round(0) }}px;">
-                <table class="label-table">
-                    {% set sample_data2 = {
-                        'code': 'TEST002',
-                        'name': '另一个物料',
-                        'spec': '另一规格',
-                        'unit': '箱',
-                        'stock': '50',
-                        'category': '其他分类',
-                        'supplier': '其他供应商'
-                    } %}
-                    {% for row in range(template.rows) %}
-                    <tr style="height: {{ (template.height * 3.78 / template.rows) | round(0) }}px;">
-                        {% for col in range(template.cols) %}
-                        <td>
-                            {% set cell_key = row|string + '-' + col|string %}
-                            {% set cell_data = layout.get(cell_key) %}
-                            {% if cell_data %}
-                            {% set style = cell_data.style | default({}) %}
-                            <div class="cell-content" style="
-                                text-align: {{ style.get('textAlign', 'center') }};
-                                font-size: {{ style.get('fontSize', 12) }}px;
-                                font-family: {{ style.get('fontFamily', 'Microsoft YaHei') }};
-                                color: {{ style.get('color', '#333333') }};
-                            ">
-                                {% if cell_data.field == 'barcode' %}
-                                <img src="/api/barcode/{{ sample_data2.get('code', 'TEST002') }}" alt="条码" class="barcode-img">
-                                {% else %}
-                                <span class="cell-value">{{ sample_data2.get(cell_data.field, '') }}</span>
-                                {% endif %}
-                            </div>
-                            {% else %}
-                            <div class="cell-content">
-                                <span style="color: #bfbfbf; font-size: 11px;">{{ row + 1 }}-{{ col + 1 }}</span>
-                            </div>
-                            {% endif %}
-                        </td>
-                        {% endfor %}
-                    </tr>
-                    {% endfor %}
-                </table>
-            </div>
+            {% endfor %}
         </div>
     </div>
     
@@ -287,13 +248,10 @@
         <div class="form-group">
             <label>选择物料</label>
             <select id="materialSelect" onchange="changeMaterial()">
-                {% if materials %}
+                <option value="" {% if not selected_material %}selected{% endif %}>使用示例数据</option>
                 {% for m in materials %}
-                <option value="{{ m.id }}">{{ m.code }} - {{ m.name }}</option>
+                <option value="{{ m.id }}" {% if selected_material and m.id == selected_material.id %}selected{% endif %}>{{ m.code }} - {{ m.name }}</option>
                 {% endfor %}
-                {% else %}
-                <option value="">使用示例数据</option>
-                {% endif %}
             </select>
         </div>
         <button class="btn btn-sm" onclick="refreshPreview()">刷新预览</button>
@@ -302,9 +260,8 @@
     <script>
         function changeMaterial() {
             const materialId = document.getElementById('materialSelect').value;
-            if (materialId) {
-                window.location.href = `/label_template/{{ template.id }}/preview?material_id=${materialId}`;
-            }
+            window.location.href = {{ url_for('preview_label_template', id=template.id) | tojson }}
+                + (materialId ? '?material_id=' + encodeURIComponent(materialId) : '');
         }
         
         function refreshPreview() {

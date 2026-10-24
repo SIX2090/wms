@@ -204,10 +204,52 @@ def register_label_barcode_routes(app):
     @app.route('/label_template/<int:id>/preview')
     @login_required
     def preview_label_template(id):
-        from app import LabelTemplate, Material, joinedload, render_template
+        from flask import abort
+        from app import (LabelTemplate, Material, joinedload, render_template, request,
+                         _normalize_label_template_layout, datetime)
         template = LabelTemplate.query.get_or_404(id)
-        materials = Material.query.options(joinedload(Material.unit)).all()
-        return render_template('label_preview.html', template=template, materials=materials)
+        materials = Material.query.options(
+            joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier)
+        ).all()
+        selected_material = None
+        raw_id = request.args.get('material_id', '').strip()
+        if raw_id:
+            material_id = request.args.get('material_id', type=int)
+            if material_id is None or material_id <= 0:
+                abort(400, description='请选择有效物料')
+            selected_material = next((m for m in materials if m.id == material_id), None)
+            if selected_material is None:
+                abort(404, description='所选物料不存在，请重新选择')
+        if selected_material is not None:
+            m = selected_material
+            preview_data = [{
+                'code': m.code, 'name': m.name, 'spec': m.spec or '',
+                'unit': m.unit.name if m.unit else '',
+                'category': m.category.name if m.category else '',
+                'supplier': m.supplier.name if m.supplier else '',
+                'stock': m.stock, 'price': m.price if m.price is not None else '',
+            }]
+        else:
+            preview_data = [
+                dict(code='TEST001', name='示例物料', spec='规格示例', unit='个', stock=100,
+                     category='测试分类', supplier='测试供应商', price=0),
+                dict(code='TEST002', name='另一个物料', spec='另一规格', unit='箱', stock=50,
+                     category='其他分类', supplier='其他供应商', price=0),
+            ]
+        for data in preview_data:
+            data.update(unit_name=data['unit'], category_name=data['category'],
+                        supplier_name=data['supplier'], date=datetime.now().strftime('%Y-%m-%d'))
+        try:
+            layout = _normalize_label_template_layout(_parse_label_layout(template.layout))
+        except ValueError:
+            layout = {}
+        # The shared normalizer gives cells precedence over legacy keyed coordinates.
+        for cell in layout.get('cells', []):
+            if isinstance(cell, dict):
+                layout['{}-{}'.format(cell.get('row'), cell.get('col'))] = cell
+        return render_template('label_preview.html', template=template, materials=materials,
+                               selected_material=selected_material, preview_data=preview_data,
+                               layout=layout)
 
     @app.route('/label_template/<int:id>/print')
     @require_role('admin', 'warehouse')  # LABEL-FIX-2026-09-29-003：与 label_template_detail 同口径，不留 @login_required 裸奔
