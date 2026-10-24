@@ -1392,12 +1392,21 @@ function refreshWarehouses(options) {
     const silent = !!(options && options.silent);
     const select = document.querySelector('[name="warehouse_id"]');
     if (!select) return;
-    return WMS.selectOptions.refresh({
-        url: '/warehouse/api/list', itemsKey: 'warehouses',
-        targets: [{select: select, placeholder: '请选择仓库'}]
-    }).then(function(updated) {
-        if (updated) notifyMaterialRefresh('仓库列表已更新', 'success', silent);
-    }).catch(function(err) { notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
+    const current = select.value;
+    fetch('/warehouse/api/list')
+        .then(function(r){ return r.json(); })
+        .then(function(res) {
+            if (res && Array.isArray(res.warehouses)) {
+                let html = '<option value="">请选择仓库</option>';
+                res.warehouses.forEach(function(w) {
+                    const selected = String(current) === String(w.id) ? ' selected' : '';
+                    html += '<option value="' + escapeHtml(w.id) + '"' + selected + '>' + escapeHtml(w.name || '') + '</option>';
+                });
+                select.innerHTML = html;
+                notifyMaterialRefresh('仓库列表已更新', 'success', silent);
+            }
+        })
+        .catch(function(err){ notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
 }
 
 // ==================== Excel粘贴导入 ====================
