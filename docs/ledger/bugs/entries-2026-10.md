@@ -1816,3 +1816,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生产发布：即时在线备份deploy_inventory.db的integrity_check=ok，SHA256为01ef5ee8d36ba2c500298786960f55f20961e682674229b88484b2fc433f3eec；旧路由/模板回退包与开工备份保留。核对原PID11996完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、SYSTEM任务原入口和WMS_NO_DB_TOUCH=1；避开计划触发窗口后仅终止该实例并启动原任务一次。新PID2828，2026-10-24T16:20:55.379873+08:00创建，同解释器/命令/Session0，唯一监听，LastTaskResult=0。16:20:58日志版本b73e9c4、production、CSRF on；db-check migrate=ok仅结构检查，不声称执行迁移。
 - 只读验收：路由与模板规范化文本逐文件匹配发布Git对象，SHA256分别b87bb86f499a31c5efd11d4531bdb723dac0584681ad5c6a300f735761ba9d9e、91391898d36de5c8a3f96a81aabf0ad77bbe0d379e92cb0e384e01a3da96b59b。本机及https://gd2026.top/login均GET200并含CSRF；八张核心表前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟、创建业务记录或触发实体打印；未改账号密码、依赖或服务入口。
 - 收尾边界：本次仅补月度BUG台账，应用文件仍为已生效b73e9c4d版本，无须再次重启；文档契约及收尾提交自身CI须通过后再汇报完成。
+
+
+### BUG-2026-10-24-011: 标签打印选中集合混用数字与字符串导致错选
+
+- 状态：已修复，待目标CI及生产生效核验。
+- 根因/危害：print_label.html初始化和全选将dataset.materialId字符串放入Set，真实onchange传入Jinja输出的数字ID；取消勾选delete(number)无法删除字符串，打印选中仍包含取消的标签。全不选后重新勾选add(number)又无法被has(string)找到，造成漏打。初始化还忽略复选框当前checked，浏览器恢复未勾选状态时与内部集合不符。
+- 同类点已排查：检索全仓selectedMaterials/toggleMaterial以及历史标签选择/打印条目，问题状态集仅在该打印模板；print_batch_labels无此Set，上一轮preview仅GET选择无打印勾选集。实际入/出库打印自动流程与标签字段、行高、权限模块纳入相邻回归。三个复选框查询同步限定.label-item-wrapper，防止全选/全不选误改公共设置控件。
+- 修复：toggleMaterial入口把ID统一成String，与初始化/全选/打印检查一致；初始化尊重真实checked状态。保留原打印选中、打印全部、取消选择以及打印后恢复显示行为，无自动打印、数据写入或权限变更。生产需重启 WMS 服务生效。
+- 修复前基线：8个受影响及相邻模块79 passed、47项既有SQLAlchemy弃用警告（%TEMP%/wms-label-selection-baseline.log）。新增10项用真实Jinja渲染的数字ID事件处理器和真实整段页面JS，记录window.print调用时实际可见标签集合，覆盖初始化/逐项取消/全取消/重选/全选后取消/反复切换/字符串ID兼容/浏览器恢复/无关复选框/无自动打印。
+- 回归锁/物理回退：新测试旧实现7 failed、3 passed；修复后10 passed。备份模板→git checkout --模板→新测试→finally恢复，仍7 failed、3 passed，证据%TEMP%/wms-label-selection-rollback-gpdtj5nh/rollback.log。未使用stash或修改既有断言，未触发实体打印。
+- 开工门禁：f4df9079a199dd84f4d9a049d367871b17be0fee的WMS CI40077732602、AI40077732583均completed/success；最新Android40027751562为目标祖先且工程/工作流无差异，check_ci_green.py为ok=true。此前文档CI仍运行时仅只读排查和基线测试，转绿后才写入本批。在线备份和旧模板回退包位于C:/wms_backups/label_selection_deploy_20261024。
+- 回归验收：9个受影响/相邻模块89 passed、47项既有SQLAlchemy弃用警告（%TEMP%/wms-label-selection-final.log）；台账/文档契约34 passed；隔离HTTP冒烟121/121，已停止自有18080服务（wms-label-selection-smoke.log）。A1–A14为0违规、UTF-8编码及git diff --check通过。
+- 生效确认：待确认；目标CI、原任务重启和生产只读核验后回填，生产需重启 WMS 服务生效。

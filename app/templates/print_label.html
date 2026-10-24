@@ -335,18 +335,20 @@
     <script>
         let selectedMaterials = new Set();
         
-        // 初始化选中所有物料
+        // 按当前复选框状态初始化，兼容浏览器恢复表单状态
         document.addEventListener('DOMContentLoaded', () => {
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const checkboxes = document.querySelectorAll('.label-item-wrapper input[type="checkbox"]');
             checkboxes.forEach(cb => {
                 const wrapper = cb.closest('.label-item-wrapper');
-                if (wrapper) {
+                if (wrapper && cb.checked) {
                     selectedMaterials.add(wrapper.dataset.materialId);
                 }
             });
         });
         
         function toggleMaterial(checkbox, materialId) {
+            // dataset IDs are strings; inline handlers pass numeric IDs.
+            materialId = String(materialId);
             if (checkbox.checked) {
                 selectedMaterials.add(materialId);
             } else {
@@ -355,7 +357,7 @@
         }
         
         function selectAll() {
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const checkboxes = document.querySelectorAll('.label-item-wrapper input[type="checkbox"]');
             checkboxes.forEach(cb => cb.checked = true);
             
             const wrappers = document.querySelectorAll('.label-item-wrapper');
@@ -365,7 +367,7 @@
         }
         
         function selectNone() {
-            const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+            const checkboxes = document.querySelectorAll('.label-item-wrapper input[type="checkbox"]');
             checkboxes.forEach(cb => cb.checked = false);
             
             selectedMaterials.clear();
