@@ -1802,7 +1802,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-010: 标签预览忽略所选物料并遗漏设计器布局
 
-- 状态：已修复，待目标CI及生产生效核验。
+- 状态：已修复并生产生效（2026-10-24 16:20）。
 - 根因/危害：preview_label_template未读取material_id，label_preview.html两张标签写死TEST001/TEST002示例；下拉加载后自动显示首个物料却没有selected，选择任意物料后仍打印示例。预览仅识别旧行列键，设计器cells布局变成占位空格；页面正文还落在extra_css块并自行关闭head/打开body，破坏公共布局结构。
 - 同类点已排查：查阅BUG-2026-09-08-001、LABEL-FIX-2026-09-29-001/002/003及BUG-2026-10-23-006/007。预览入口为标签模板列表的preview_label_template；print_labels和print_batch_labels已有真实物料/布局读取，保留并纳入相邻回归。本轮修复单预览链，不更改实际批量打印入口、权限、库存口径或模板保存。
 - 修复：预览GET严格解析正数物料ID，找不到返回404、非法值返回400；选中物料显示一张真实标签并保持下拉选择，无选择明确标为使用示例数据且可切回。统一数据映射支持单位/分类/供应商别名、日期、零价格和缺失关系；条码及二维码用url_for编码真实物料编码。复用已有布局解析/归一逻辑，cells坐标优先，支持静态文字、合并列和按比例行高；无效历史布局降级为空网格。正文进入base的content块，打印隐藏物料选择面板。生产需重启 WMS 服务生效。
@@ -1810,4 +1810,9 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁/物理回退：备份路由和模板→git checkout --两文件→新增34项测试→finally恢复；旧实现30 failed、4 passed，证据%TEMP%/wms-label-preview-rollback-qi6tz3p6/rollback.log。未使用stash、未放宽既有断言。新用例以真实Flask GET和真实Jinja渲染核验字段/布局/编码/选择/状态码/结构，Node执行真实切换函数；数据库为内存隔离库。
 - 开工门禁：6135f6d817f92e7323ffeac2ee364ab45fc9a0a4的WMS CI40073615902、AI40073615973均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化，check_ci_green.py为ok=true。在线备份before_inventory.db与旧路由/模板rollback_code.zip保存于C:/wms_backups/label_preview_deploy_20261024。
 - 回归验收：21个受影响/相邻模块281 passed、47项既有SQLAlchemy接口弃用警告（含新测试触发的35次）；台账/文档契约34 passed；隔离HTTP冒烟121/121，自有18080服务已停止。A1–A14为0违规、UTF-8编码检查通过。日志为%TEMP%/wms-label-preview-final.log、wms-label-preview-docs.log、wms-label-preview-smoke.log。
-- 生效确认：待确认；目标CI、沿原WMS-Warehouse任务重启及生产只读校验后回填，生产需重启 WMS 服务生效。
+- 生效确认：2026-10-24 16:20由Codex核验目标CI、在线备份、原任务重启和生产只读摘要后确认。生产需重启 WMS 服务生效，本次已完成；证据位于C:/wms_backups/label_preview_deploy_20261024。
+
+- 目标CI与推送：b73e9c4d8257ea746885cbf48b35971c0575e77d已实际push（6135f6d8..b73e9c4d main -> main），HEAD/origin/live main一致。[WMS CI40077396472](https://github.com/SIX2090/wms/actions/runs/40077396472)、[AI40077396520](https://github.com/SIX2090/wms/actions/runs/40077396520)精确匹配completed/success，性能40077396515亦成功。Android40027751562祖先、完整对象及保护路径无变化证明由check_ci_green.py核验通过。发布与收尾前完整目标检查均ok=true（target_ci.json、closure_baseline_ci.json）；verify_wms_bugs亦通过。
+- 生产发布：即时在线备份deploy_inventory.db的integrity_check=ok，SHA256为01ef5ee8d36ba2c500298786960f55f20961e682674229b88484b2fc433f3eec；旧路由/模板回退包与开工备份保留。核对原PID11996完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、SYSTEM任务原入口和WMS_NO_DB_TOUCH=1；避开计划触发窗口后仅终止该实例并启动原任务一次。新PID2828，2026-10-24T16:20:55.379873+08:00创建，同解释器/命令/Session0，唯一监听，LastTaskResult=0。16:20:58日志版本b73e9c4、production、CSRF on；db-check migrate=ok仅结构检查，不声称执行迁移。
+- 只读验收：路由与模板规范化文本逐文件匹配发布Git对象，SHA256分别b87bb86f499a31c5efd11d4531bdb723dac0584681ad5c6a300f735761ba9d9e、91391898d36de5c8a3f96a81aabf0ad77bbe0d379e92cb0e384e01a3da96b59b。本机及https://gd2026.top/login均GET200并含CSRF；八张核心表前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟、创建业务记录或触发实体打印；未改账号密码、依赖或服务入口。
+- 收尾边界：本次仅补月度BUG台账，应用文件仍为已生效b73e9c4d版本，无须再次重启；文档契约及收尾提交自身CI须通过后再汇报完成。
