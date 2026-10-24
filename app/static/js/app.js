@@ -1986,6 +1986,43 @@ function openAdd(module) {
     openUrl(module.addUrl || module.listUrl);
 }
 
+// BUG-2026-10-24-015: a toast is lost on navigation after a saved document fails to complete.
+function showDocumentCompletionIssue(detailUrl, result) {
+    var content = document.querySelector('.embedded-content') || document.body;
+    var panel = document.getElementById('wmsCompletionIssue');
+    if (!panel) {
+        panel = document.createElement('section');
+        panel.id = 'wmsCompletionIssue';
+        panel.className = 'alert alert-warning mt-3';
+        panel.setAttribute('role', 'alert');
+        panel.setAttribute('tabindex', '-1');
+        panel.style.scrollMarginTop = '80px';
+        content.insertBefore(panel, content.firstChild);
+    }
+    var status = result && result.status;
+    // A rejected request does not prove the document's current state (e.g. a repeat completion).
+    var rejected = status === 'error' || status === 'warning' || status === 'confirm' ||
+        (typeof status === 'number' && status >= 400 && status < 500 && status !== 408);
+    var heading = document.createElement('h5');
+    heading.textContent = rejected ? '单据已保存，本次完成请求未成功' : '单据已保存，完成结果待核对';
+    var reference = document.createElement('p');
+    var number = document.querySelector('[name="order_no"]');
+    reference.textContent = number && number.value ? '单据编号：' + number.value : '已保存的单据可通过下方链接查看。';
+    var reason = document.createElement('p');
+    reason.style.whiteSpace = 'pre-wrap';
+    var message = result && (result.message || result.msg);
+    reason.textContent = typeof message === 'string' && message ? message : '未收到有效完成结果，请先核对单据状态。';
+    var guidance = document.createElement('p');
+    guidance.textContent = '请打开已保存单据核对状态或修改后再完成；核对前请勿重复提交。';
+    var link = document.createElement('a');
+    link.className = 'btn btn-outline-primary';
+    link.href = preserveEmbeddedUrl(detailUrl);
+    link.textContent = '查看已保存单据';
+    panel.replaceChildren(heading, reference, reason, guidance, link);
+    panel.focus({ preventScroll: true });
+    panel.scrollIntoView({ block: 'start' });
+}
+
 function saveCurrentPage() {
     if (typeof window.submitForm === 'function') {
         try {

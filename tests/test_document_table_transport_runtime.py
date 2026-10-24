@@ -73,7 +73,7 @@ def test_actual_template_roles_match_existing_backend_and_preserve_print_view(do
 
 PROGRAM = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
-let pending=[],calls=[],messages=[],timers=[],modals={},forceButton=null,sessions=0,confirms=0;
+let pending=[],calls=[],messages=[],issues=[],timers=[],modals={},forceButton=null,sessions=0,confirms=0;
 const buttons=p.actions.map(action=>({action,disabled:false}));
 const fieldValues={order_id:'7',order_no:'FIXTURE-7',date:'2026-10-22',warehouse_id:'1',bom_id:'2',production_order:'工单 & 1',picker:'张三',purpose:'领料',remark:'备注',from_location:'W1',to_location:'W2',product_code:'P1',product_name:'产品',version:'V1',status:'active'};
 const fields=Object.fromEntries(Object.entries(fieldValues).map(([name,value])=>[name,{value}]));
@@ -86,6 +86,7 @@ const document={querySelector:selector=>selector.startsWith('meta')?{content:'fi
  createElement:()=>({id:'',style:{},innerHTML:'',remove(){delete modals[this.id];forceButton=null;}}),
  body:{appendChild(modal){modals[modal.id]=modal;forceButton={disabled:false,onclick:null};}}};
 const ctx={document,FormData:class{},URLSearchParams,showToast:(m,t)=>messages.push({m,t}),confirm:message=>{if(message.includes('登录')){sessions++;return false;}confirms++;return p.scenario!=='cancel';},setTimeout:(fn,delay)=>{timers.push({fn,delay});},location:{href:'/original',reload(){ctx.reloaded=true;}},fetch:(url,options)=>{calls.push({url,options,body:options.body===undefined?undefined:JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;
+ctx.showDocumentCompletionIssue=(url,result)=>issues.push({url,result});
 vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.script,ctx);
 const invoke=action=>vm.runInContext(action,ctx);
 const settle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setImmediate(r));};
@@ -110,10 +111,18 @@ function protocol(index,kind){const call=calls[index];assert.equal(call.options.
   const force=forceButton;force.onclick();force.onclick();await settle();assert.equal(calls.length,3);mutex();protocol(2,'force');index=2;kind='force';
  }
  await finish(index,p.scenario);
- assert(messages.length>0);
- if(p.scenario==='success'||(p.scenario==='business'&&['complete','force'].includes(p.mode))){
+ if(p.scenario==='success'){
+  assert(messages.length>0);assert.equal(issues.length,0);
   mutex();assert(buttons.every(b=>b.disabled));const timer=timers.find(t=>t.delay!==5000);assert(timer);timer.fn();if(p.mode==='revert'){assert(ctx.reloaded);assert.equal(timer.delay,650);}else if(p.doc==='requisition'&&p.scenario==='success'){assert(ctx.location.href.startsWith('/requisition/add?'));const query=new URLSearchParams(ctx.location.href.split('?')[1]);assert.equal(query.get('picker'),'张三');assert.equal(query.get('production_order'),'工单 & 1');}else assert.equal(ctx.location.href,'/'+p.doc+'/7');
+ }else if(['complete','force'].includes(p.mode)){
+  assert.equal(ctx.location.href,'/original');assert(!timers.some(t=>t.delay!==5000));
+  assert.equal(issues.length,1);assert.equal(issues[0].url,'/'+p.doc+'/7');
+  if(['business','http'].includes(p.scenario))assert.equal(issues[0].result.message||issues[0].result.msg,evil);
+  if(p.scenario==='network')assert.equal(issues[0].result.message,'网络失败');
+  mutex();assert(buttons.every(b=>b.disabled));
+  if(['unauthorized','expired'].includes(p.scenario))assert.equal(sessions,1);
  }else{
+  assert(messages.length>0);assert.equal(issues.length,0);
   assert.equal(ctx.location.href,'/original');assert(!timers.some(t=>t.delay!==5000));assert(buttons.every(b=>!b.disabled));assert.equal(vm.runInContext('submitForm.pending',ctx),false);assert(messages.some(m=>m.t==='danger'));if(['unauthorized','expired'].includes(p.scenario))assert.equal(sessions,1);
   const count=calls.length;invoke(p.mode==='force'?"runComplete('/check/7/complete',true,7)":initial);assert.equal(calls.length,count+1,'only a fresh manual action retries');await finish(count,'success');if(p.mode==='complete'){assert.equal(calls.length,count+2);await finish(count+1,'success');}
  }

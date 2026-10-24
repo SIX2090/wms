@@ -85,7 +85,7 @@ def test_rendered_location_is_required_only_when_enabled_and_preserves_historica
 
 FORM_PROGRAM=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
-let callbacks={},sent=[],pending=[],messages=[],timers=[],focused=0,refresh=[{id:1,name:'仓库A'},{id:2,name:'仓库B'}];
+let callbacks={},sent=[],pending=[],messages=[],issues=[],timers=[],focused=0,refresh=[{id:1,name:'仓库A'},{id:2,name:'仓库B'}];
 class Field {constructor(attrs={}){this.value=attrs.value||'';this.disabled='disabled' in attrs;this.readOnly='readonly' in attrs;this.handlers={};this.style={};this.textContent='';}addEventListener(type,handler){this.handlers[type]=handler;}dispatchEvent(event){if(this.handlers[event.type])this.handlers[event.type].call(this,event);}focus(){focused++;}set innerHTML(html){const options=[...html.matchAll(/<option value="([^"]*)"([^>]*)>/g)];this.value=(options.find(x=>x[2].includes('selected'))||options[0]||['',''])[1];}}
 const fields=Object.fromEntries(Object.entries(p.fields).map(([name,attrs])=>[name,new Field(attrs)]));
 const rowValues={'.material-code':'M1','.unit-id':'1','.line-qty':'2','.line-price':'0','.line-usage':'用途','.line-remark':'备注','.row-num':''};
@@ -95,6 +95,7 @@ const document={querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:
  querySelectorAll:s=>s==='#docTableBody tr'?rows:s==='.doc-header button, #forceCompleteBtn'?[button]:[],
  getElementById:id=>id==='docTableBody'?{rows}:id==='totalQty'?total:null,addEventListener:(type,fn)=>callbacks[type]=fn};
 const ctx={document,FormData:class{},URLSearchParams,Event:class{constructor(type){this.type=type;}},showToast:(m,t)=>messages.push({m,t}),registerDetailRowActions(){},setTimeout:(fn,delay)=>timers.push({fn,delay}),location:{href:'/original'},fetch:(url,options)=>{if(url==='/warehouse/api/list')return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({warehouses:refresh})});sent.push({url,options,body:JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;
+ctx.showDocumentCompletionIssue=(url,result)=>issues.push({url,result});
 vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.select_helper,ctx);vm.runInContext(p.script,ctx);callbacks.DOMContentLoaded();
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
 const finish=async(index,status='success')=>{pending[index].resolve({ok:true,status:200,json:()=>Promise.resolve({status,id:7,msg:'fixture'})});await settle();};
@@ -116,9 +117,9 @@ const submit=()=>vm.runInContext('submitForm(true)',ctx);
  }else {
   submit();assert.equal(sent.length,1);assert.equal(sent[0].body.header.location,p.location);assert.equal(sent[0].body.header.warehouse_id,'1');assert.equal(sent[0].body.items[0].price,0);assert.equal(sent[0].options.headers['X-CSRFToken'],'fixture-token');assert.equal(sent[0].options.headers['Content-Type'],'application/json');assert.equal(button.disabled,true);
   if(p.action==='save-error'){await finish(0,'error');assert.equal(sent.length,1);assert.equal(timers.length,0);assert.equal(ctx.location.href,'/original');assert.equal(button.disabled,false);}
-  else {await finish(0);assert.equal(sent.length,2);assert.deepEqual(sent[1].body,{force:false});await finish(1,p.action==='complete-error'?'error':'success');if(p.action==='complete-error'){assert(!messages.some(x=>x.t==='success'));}const timer=timers[0];assert(timer);timer.fn();}
+  else {await finish(0);assert.equal(sent.length,2);assert.deepEqual(sent[1].body,{force:false});await finish(1,p.action==='complete-error'?'error':'success');if(p.action==='complete-error'){assert(!messages.some(x=>x.t==='success'));assert.equal(timers.length,0);assert.equal(issues.length,1);assert.equal(issues[0].url,'/requisition/7');assert.equal(issues[0].result.msg,'fixture');assert.equal(button.disabled,true);submit();assert.equal(sent.length,2);}else{const timer=timers[0];assert(timer);timer.fn();}}
  }
- process.stdout.write(JSON.stringify({href:ctx.location.href,sent:sent.map(x=>x.body),messages}));
+ process.stdout.write(JSON.stringify({href:ctx.location.href,sent:sent.map(x=>x.body),messages,issues}));
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});
 '''
 
@@ -187,9 +188,10 @@ def test_save_error_never_completes_or_navigates():
     form_run('save-error')
 
 
-def test_complete_error_keeps_existing_saved_draft_navigation_without_continuing_new_document():
+def test_complete_error_keeps_saved_draft_reachable_without_losing_feedback():
     actual=form_run('complete-error')
-    assert actual['href']=='/requisition/7'
+    assert actual['href']=='/original'
+    assert actual['issues'][0]['url']=='/requisition/7'
 
 
 def list_html():

@@ -27,11 +27,12 @@ def test_completion_navigation(page, kind, status):
         action = 'function completeOrder(id, force) {' + function + '\ncompleteOrder(7, false);'
     helper = (ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8')
     script = '''
-let cleared = 0, reloaded = 0, warned = 0;
+let cleared = 0, reloaded = 0, warned = 0, issues = [];
 const window = {location: {href: 'original'}, document: {querySelectorAll() {return [];}}};
 const location = {reload() {reloaded++;}};
 function clearDraft() {cleared++;}
 function showToast() {}
+function showDocumentCompletionIssue(url,result) {issues.push({url,result});}
 function alert() {}
 function setTimeout(fn) {fn();}
 function showAnomalyWarning() {warned++;}
@@ -41,7 +42,7 @@ const data = {id: 7};
 const saveAndNew = false;
 const returnAddUrl = '/in_order/add?type=product';
 ''' + f'const businessType = {json.dumps(kind)}; const response = {json.dumps(dict(status=status, anomalies=[]))};\n' + helper + '\nconst WMS = window.WMS; WMS.api = {postRaw: () => Promise.resolve(response)};\n' + action + '''
-setImmediate(() => process.stdout.write(JSON.stringify({url: window.location.href, cleared, reloaded, warned})));
+setImmediate(() => process.stdout.write(JSON.stringify({url: window.location.href, cleared, reloaded, warned, issues})));
 '''
     result = subprocess.run([node, '-e', script], text=True, encoding='utf-8', capture_output=True, check=True)
     actual = json.loads(result.stdout)
@@ -49,8 +50,12 @@ setImmediate(() => process.stdout.write(JSON.stringify({url: window.location.hre
         assert actual['url'] == '/in_order/add'
         assert actual['cleared'] == (1 if page == 'add' else 0)
     elif page == 'add':
-        assert actual['url'] == '/in_order/7'
+        assert actual['url'] == ('/in_order/7' if status == 'success' else 'original')
         assert actual['cleared'] == (1 if status == 'success' else 0)
+        if status != 'success':
+            assert len(actual['issues']) == 1
+            assert actual['issues'][0]['url'] == '/in_order/7'
+            assert actual['issues'][0]['result']['status'] == status
     else:
         assert actual['url'] == 'original'
         assert actual['reloaded'] == (1 if status == 'success' else 0)

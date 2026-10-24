@@ -67,7 +67,8 @@ const document = {
  querySelectorAll(s){return s==='#materialTableBody tr' ? [row] : buttons;}
 };
 const window={location:{href:'original'}};
-const messages=[];const calls=[];let releaseSave;
+const messages=[];const calls=[];const issues=[];let releaseSave;
+function showDocumentCompletionIssue(url,result){issues.push({url,result});}
 const WMS={api:{postRaw(url,payload){
  calls.push({url,payload});
  if(url==='/out_order/add'){
@@ -109,7 +110,12 @@ async function main(){
    assert.equal(calls[1].url,'/out_order/7/complete');
    assert.equal(fields.order_id.value,7);
    if(['success','double_click'].includes(scenario))assert.equal(window.location.href,'/out_order/add');
-   else assert.equal(window.location.href,'/out_order/7','saved draft must remain reachable without duplicate save');
+   else {
+     assert.equal(window.location.href,'original','keep the completion problem visible');
+     assert.equal(issues.length,1);assert.equal(issues[0].url,'/out_order/7');
+     assert.equal(issues[0].result.message||issues[0].result.msg,scenario==='complete_network'?'network':'failed');
+     assert.equal(outOrderSubmitting,true);submitForm(false,true);assert.equal(calls.length,2);
+   }
  }
  if(scenario==='save_error'||scenario==='save_network')assert.equal(outOrderSubmitting,false);
 }

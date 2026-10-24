@@ -1351,21 +1351,23 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
                 return;
             }
             return WMS.api.postRaw(`/out_order/${saved.id}/complete`, {}).then(done => {
-                if (done.status === 'success') {
+                if (done && done.status === 'success') {
                     showToast('保存并完成领料成功', 'success');
                     if (!isSaleOrder && !isOtherOut && !isPurchaseReturn && data.business_type === '领料单') {
                         window.location.href = typeof preserveEmbeddedUrl === 'function'
                             ? preserveEmbeddedUrl(returnAddUrl) : returnAddUrl;
                         return;
                     }
-                } else showToast('单据已保存，请在详情页核对：' + (done.msg || '完成失败'), 'warning');
-                // 异常确认保留在详情页，绝不自动 force 完成。
-                window.location.href = `/out_order/${saved.id}`;
+                    window.location.href = `/out_order/${saved.id}`;
+                } else {
+                    // Keep the saved ID and write lock until the operator opens the recovery link.
+                    showDocumentCompletionIssue(`/out_order/${saved.id}`, done);
+                }
             });
         })
         .catch(error => {
-            showToast(savedOrderId ? '单据已保存，完成结果需在详情页核对' : '保存失败：' + error.message, savedOrderId ? 'warning' : 'danger');
-            if (savedOrderId) window.location.href = `/out_order/${savedOrderId}`;
+            if (savedOrderId) showDocumentCompletionIssue(`/out_order/${savedOrderId}`, error);
+            else showToast('保存失败：' + error.message, 'danger');
         })
         .finally(() => {
             if (!savedOrderId) {

@@ -30,7 +30,7 @@ def function(source,name):
 
 PROGRAM=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
-const calls=[],pending=[],messages=[];let bar;
+const calls=[],pending=[],messages=[],issues=[];let bar;
 const fields=Object.fromEntries(Object.entries({date:'2026-10-20',department_id:'3',picker:'fixture picker',warehouse_id:'2',business_type:p.kind==='normal'?'领料单':p.kind==='sale'?'销售出库':p.kind==='other'?'其他出库':'采购退货出库',order_id:'',order_no:'OUT-OLD-FIXTURE',remark:'old remarks',customer:'fixture customer'}).map(([name,value])=>[name,{value,focus(){}}]));
 const row={querySelector:s=>{const data={'.material-code':'M-OLD','.material-qty':'2.5','.material-price':'0','.line-contract-no':'old contract','.line-project-name':'old project','.material-remark':'old line'};return s in data?{value:data[s],style:{}}:null;}};
 function node(tag,attrs={}){return{tag,attrs,disabled:false,children:[],getAttribute:k=>attrs[k]??null,setAttribute(k,v){attrs[k]=v;},classList:{add(){},contains(){return false;}},appendChild(child){this.children.push(child);},addEventListener(type,fn){this[type]=fn;},click(){if(this.clickHandler)this.clickHandler();}};}
@@ -41,6 +41,7 @@ const ctx={document,Headers,FormData,URL,URLSearchParams,location:{origin:'http:
 vm.runInContext('const isSaleOrder='+JSON.stringify(p.kind==='sale')+',isOtherOut='+JSON.stringify(p.kind==='other')+',isPurchaseReturn='+JSON.stringify(p.kind==='return')+',purchaseReturnRequiresOrder=false,returnAddUrl="/out_order/add";let outOrderSubmitting=false;',ctx);
 vm.runInContext(p.helpers,ctx);vm.runInContext(p.submit,ctx);
 for(const button of buttons)button.clickHandler=()=>vm.runInContext(button.attrs.onclick,ctx);
+ctx.showDocumentCompletionIssue=(url,result)=>issues.push({url,result});
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
 function response(stage){const outcome=p.scenario;const status=outcome==='complete_http'&&stage==='complete'?500:200;const body=stage==='save'?{status:outcome==='save_error'?'error':'success',id:7,order_no:'OUT-7',msg:'fixture refusal'}:{status:outcome==='complete_error'?'error':outcome==='warning'?'warning':'success',msg:'fixture refusal'};return{ok:status===200,status,json:()=>Promise.resolve(body)};}
 (async()=>{
@@ -57,7 +58,7 @@ function response(stage){const outcome=p.scenario;const status=outcome==='comple
  if(p.scenario==='complete_network')pending[1].reject(Error('fixture offline'));else pending[1].resolve(response('complete'));await settle();
  const result=new URL(ctx.location.href,ctx.location.origin);
  if(p.scenario==='success'){assert.equal(result.pathname,'/out_order/add','completed ordinary requisition must open a fresh entry page');assert.equal(result.search,p.embedded?'?embedded=1':'');assert.equal(result.searchParams.get('order_id'),null);assert.equal(result.searchParams.get('date'),null);assert.equal(result.searchParams.get('items'),null);assert(messages.some(m=>m.type==='success'));}
- else{assert.equal(result.pathname,'/out_order/7','uncertain/failed completion remains on the saved detail');assert(!calls.some(c=>c.url.includes('force')));assert(messages.some(m=>m.type==='warning'));}
+ else{assert.equal(ctx.location.href,original,'keep the result visible until the operator opens the detail');assert.equal(issues.length,1);assert.equal(issues[0].url,'/out_order/7');assert.equal(issues[0].result.message||issues[0].result.msg,p.scenario==='complete_network'?'fixture offline':'fixture refusal');assert(!calls.some(c=>c.url.includes('force')));assert(buttons.every(b=>b.disabled));}
  click();await settle();assert.equal(calls.length,2,'navigation phase stays locked');
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});
 '''

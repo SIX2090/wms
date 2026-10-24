@@ -1887,3 +1887,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 提交前验证：15个既有模块及新增模块241 passed（64项既有SQLAlchemy Query.get弃用警告）、文档契约34 passed、隔离HTTP冒烟121/121且临时服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8及diff检查通过。提交前匿名查询HTTP403，经已连接GitHub核实最新main三工作流仍为上述成功记录，实时远端main仍b06f6cad；再次确认Android祖先、完整对象及保护路径差异为空。替代证据precommit_alternative.json。
 - 目标提交与CI：c94f9b6f0068a2d17f2b90b27ad3512dfc28b2ac已push（b06f6cad..c94f9b6f main -> main），HEAD/origin/live main一致。WMS CI40086115998与AI40086115980精确匹配completed/success；Android40027751562成功且祖先、完整对象和保护路径无变化证明通过。pre-push匿名403，经已连接GitHub核实同一基线最新运行后单次WMS_SKIP_CI_GATE=1重推并finally清除；证据precommit_alternative.json、target_ci_alternative.json和push.log。
 - 生产发布及生效确认：2026-10-24 18:34由Codex核对目标CI、在线备份和原任务重启后确认已生效。备份SHA256为03bf4d4b28f7030fb3a7b890e10571c504836cdd63bbed8eb71d8ad34a91f32f，旧代码rollback_code.zip保留。核对旧PID7536创建时间、Python311/run_server.py/Session0、唯一8080监听、SYSTEM原计划任务与启动保护后重启一次。新PID11652，2026-10-24T18:34:24.009086+08:00，解释器/命令/会话正确，LastTaskResult=0；18:34:27日志版本c94f9b6、production、CSRF on。11个应用文件与Git目标文本一致，公网app.js匹配；本机/公网login GET200含CSRF，八张核心业务/用户表完整行摘要前后一致。Python公网TLS曾短暂EOF，随后PowerShell独立请求成功。未生产登录、修改业务数据或密码。证据C:/wms_backups/keyboard_save_deploy_20261024。收尾仅台账，无须再重启。
+
+### BUG-2026-10-24-015: 保存后完成受阻的具体原因被吞掉或随跳转消失
+
+- 状态：已修复，待回归及生产验收。
+- 用户复核：用户确认OU26100217保存后未自动新增；生产只读查看为pending，18:18在线备份复制到独立临时数据库后运行真实库存校验，返回铜排仓物料1280需要16、可用3。未对真实单据执行完成、修改数量或调整库存。正常拦截不是库存算法缺陷；前端没有可靠说明完成受阻才是本批修复对象。
+- 根因/危害：out_order_add已取得草稿ID后丢弃HTTP错误中的具体message，以笼统toast立即跳详情；in_order_add保留message但立即导航导致toast消失；document_table_form完成业务错误700ms后跳详情，网络未知结果还会解锁重复完成。操作员只知道已保存，不知道未进入下一张的原因，可能重复录入。
+- 同类点已排查：核对BUG-2026-10-23-008领料完成继续新增，以及采购入库/工单领料合并动作、提交锁与人工确认历史；覆盖上述三个实际保存后完成消费点。同一根因统一一个共享纯DOM结果面板。既有API正确保留HTTP错误信息，无须修改API或后端。现有成功链路真实返回status=success，继续新增行为保持。
+- 修复：app.js共享面板持续显示单号、服务端具体原因和查看已保存单据入口，使用textContent、role=alert、聚焦/滚动可见，链接保留embedded。完成请求被拒显示本次请求未成功，网络/5xx/无有效结果显示待核对，不武断判定当前单据未完成。三页不再在失败后自动导航，保留已保存ID及提交锁；保存失败仍可重试，普通保存/完成成功导航、通用单据人工confirm/取消/明确force流程保持。README补充用户操作说明。生产需重启 WMS 服务生效。
+- 开工门禁：2a4382c1fc7f4db05da8cd8df63c12ded96fa84b与实时main一致；WMS CI40086529112、AI40086529114精确匹配success，Android40027751562成功且祖先/对象齐全/保护路径无变化证明通过。证据C:/wms_backups/completion_feedback_deploy_20261024/baseline_ci_alternative.json。
+- 修复前基线：63个相关模块926 passed、271项既有SQLAlchemy弃用警告；补充两个关键模块138 passed。新增实际页面函数/真实api.js/共享DOM反馈用例在旧代码63 failed、10 passed；保留原成功导航、请求数量、防重复、人工确认和不自动force断言，新要求以持久反馈/用户主动查看替代失败立即导航断言。
+- 浏览器修前复现：独立18080、内存数据库、纯测试账号及两个测试仓，QA-FAIL所选仓3、另一仓50，录16后点击顶部实际按钮即跳草稿详情，具体库存不足原因不可见。测试草稿仍pending、两仓总库存53未变；生产数据库与账号未用于浏览器测试。证据before.png、browser_final_state.json。
+- 生效确认：待相关回归、目标CI、原计划任务重启及生产只读核验；生产需重启 WMS 服务生效。真实OU26100217由用户人工核对与后续处理，本修复不完成或修改该单。
+- 浏览器修后验收：真实顶部按钮+真实HTTP后端，库存不足时页面持续显示已保存单号、需要16/可用3、查看详情链接并锁定保存；点击链接进入正确草稿且保留embedded。另一物料库存5录1，完成成功后自动打开OU26100003空白新单；独立内存DB最终仅两张测试单（第一张pending、第二张completed），不足物料总库存53未变，正常物料5降至4，无重复生成。截图after.png、success-new.png与browser_final_state.json；临时服务及浏览器已关闭。
+- 回归锁验证：73项新运行时用例全部通过；物理备份并恢复4个旧产品文件后63 failed、10 passed，均因持久反馈/不提前跳转断言失败而非缺helper；finally恢复且四文件SHA256一致，证据%TEMP%/wms-completion-feedback-physical-rollback.log与wms-feedback-rollback-w4thac_m。文档契约34 passed。
+- 最终本地验证：66个受影响及相邻模块1137 passed、271项既有SQLAlchemy警告（与基线一致），隔离HTTP冒烟121/121；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8编码、node语法与diff检查通过。日志及模块清单存入C:/wms_backups/completion_feedback_deploy_20261024。提交前重新核对最新三工作流、实时远端基线及Android复用证明。

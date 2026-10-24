@@ -1071,27 +1071,25 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
 
         return WMS.api.postRaw(`/in_order/${data.id}/complete`, {})
             .then(completeRes => {
-                if (completeRes.status === 'success') {
+                if (completeRes && completeRes.status === 'success') {
                     showToast('完成入库成功，库存已更新', 'success');
                     if (typeof clearDraft === 'function') clearDraft();
                     window.location.href = businessType === '采购入库' ? '/in_order/add' :
                         (saveAndNew ? returnAddUrl : `/in_order/${data.id}`);
                 } else {
-                    showToast('单据已保存，但完成入库失败：' + (completeRes.msg || '未知错误'), 'danger');
-                    window.location.href = `/in_order/${data.id}`;
+                    showDocumentCompletionIssue(`/in_order/${data.id}`, completeRes);
                 }
             });
     })
     .catch(error => {
         if (savedOrderId) {
-            showToast('单据已保存，完成结果暂未确认，请在详情页核对状态：' + error.message, 'warning');
-            window.location.href = `/in_order/${savedOrderId}`;
+            showDocumentCompletionIssue(`/in_order/${savedOrderId}`, error);
         } else {
             showToast('保存失败：' + error.message, 'danger');
         }
     })
     .finally(() => {
-        // 已取得单号后跳转核对，禁止在导航前再次保存/完成同一单据。
+        // 已取得单号后保持锁：成功导航，异常由用户打开结果面板中的详情链接核对。
         if (!savedOrderId) {
             inOrderSubmitting = false;
             submitButtons.forEach((button, index) => { button.disabled = disabledStates[index]; });

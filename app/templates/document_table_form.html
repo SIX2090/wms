@@ -782,6 +782,7 @@ function submitForm(completeAfterSave) {
         .then(res => {
             if (!res || res.status !== 'success') throw new Error((res && res.msg) || '保存失败');
             document.querySelector('[name="order_id"]').value = res.id;
+            if (res.order_no) document.querySelector('[name="order_no"]').value = res.order_no;
             if (!completeAfterSave || !completeUrl) {
                 submitForm.completed = true;
                 showToast('保存成功', 'success');
@@ -829,10 +830,13 @@ function runComplete(actionUrl, force, orderId) {
                 return;
             }
             submitForm.completed = true;
-            showToast('单据已保存但完成失败：' + (done.msg || '未知错误'), 'danger', 4200);
-            setTimeout(() => { window.location.href = detailUrl + '/' + (orderId || ''); }, 700);
+            showDocumentCompletionIssue(detailUrl + '/' + (orderId || ''), done);
         })
-        .catch(err => showToast('单据已保存但完成失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 4200))
+        .catch(err => {
+            // The completion may have committed before its response was lost; do not retry it here.
+            submitForm.completed = true;
+            showDocumentCompletionIssue(detailUrl + '/' + (orderId || ''), err);
+        })
         .finally(endDocumentAction);
 }
 function showCompleteConfirm(payload, actionUrl, orderId) {
