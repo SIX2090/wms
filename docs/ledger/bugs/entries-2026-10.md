@@ -1862,12 +1862,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-013: 选单查询迟到响应覆盖当前筛选或重开已关闭的来源联想
 
-- 状态：已修复，本地验证通过，待CI与生产生效确认。
+- 状态：已修复并生产生效（2026-10-24 18:18）。
 - 根因/危害：销售出库选单loadSelectable未校验HTTP和响应封套、无请求代次保护，旧查询覆盖新筛选，失败响应可能显示为空列表；采购选单已有序号但缺HTTP/数组校验和当前弹窗、供应商、关键字上下文校验；采购退货来源入库联想没有失效机制，输入防抖期间、选定来源、Escape或点外部后，旧响应仍会重新打开候选，旧失败也会隐藏新结果。销售/采购加载新查询时旧已选统计未清空。
 - 同类点已排查：检索BUG-2026-10-24-004/005/007/008的异步查询/刷新历史及所有selectable接口前端消费点，三处分别为sales_outbound_selection、in_order_add采购选单和out_order_add采购退货来源联想。本批覆盖这三处，已有物料缓存、仓库/部门及公共单位刷新保护保持。采购选单原来前150张提示/显式分页不变；退货来源联想明确仅前30条，后端候选口径不改。
 - 修复：三处GET统一用WMS.api.getRaw处理HTTP、会话与业务失败，并验证列表形状；仅当前请求、当前输入/筛选以及仍有效DOM可更新页面。退货来源输入、选择、Escape和点击外部立即使请求失效并清理防抖；销售和采购开始查询即清理选择缓存/统计。保留原候选渲染、供应商优先排序、数量/价格、人工生成草稿及后端鉴权/库存规则。生产需重启 WMS 服务生效。
 - 修复前基线：9个选单/销售/采购退货/物料联想及相邻模块232 passed、27项既有SQLAlchemy弃用警告（%TEMP%/wms-selection-query-baseline.log）。新增42项用实际页面函数、渲染/事件和真实api.js，延迟响应覆盖HTTP错误、业务错误、HTML/空/错误结构、会话过期、网络失败、响应乱序、输入变化、DOM替换、加载统计和选定/关闭/防抖；旧实现27 failed、15 passed，初次修复42 passed。
 - 既有测试维护：采购选单原测试新增真实api.js和正确HTTP Response桩及缓存Map，保留原显式page/limit、查询参数、旧响应不得覆盖和150条提示的全部断言，未放宽业务断言。
 - 开工门禁：37ffeefb99391dc66d478c974e962b33feb8e58f的CI40084628649、AI40084628646均completed/success；最新Android40027751562为祖先，Git对象齐全且Android工程/工作流无差异。上一批CI等待时仅只读复核及基线测试，退出菜单调整生产与收尾CI通过后才写入本批。证据C:/wms_backups/selection_query_deploy_20261024。
-- 生效确认：待本批完整回归、目标CI、备份、原任务重启及只读生产核验；生产需重启 WMS 服务生效。
+- 生效确认：2026-10-24 18:18由Codex核对目标CI、在线备份、原任务重启、版本日志、模板哈希和只读生产摘要后确认；生产需重启 WMS 服务生效，本次已完成。证据C:/wms_backups/selection_query_deploy_20261024。
 - 最终回归：补齐仓库/供应商切换后新增48项全通过；备份三个模板→物理回退→新用例32 failed、16 passed→finally恢复（rollback.log），未使用stash。10个受影响/相邻模块280 passed、27项既有SQLAlchemy弃用警告（%TEMP%/wms-selection-query-final.log）；文档契约34 passed、隔离HTTP冒烟121/121并停止自有18080实例；verify_wms_bugs、A1–A14为0违规、UTF-8与diff检查通过。提交前check_ci_green.py完整基线SHA为ok=true（precommit_ci.json）。
+- 目标提交与CI：e8d070cc7cab354f5b9890e35466cf9fafc771e6已实际push（37ffeefb..e8d070cc main -> main），HEAD/origin/live main一致。[WMS CI40085082154](https://github.com/SIX2090/wms/actions/runs/40085082154)、[AI40085082174](https://github.com/SIX2090/wms/actions/runs/40085082174)精确匹配completed/success；Android40027751562成功且祖先/对象齐全/工程及工作流无变化证明通过，check_ci_green.py完整目标检查ok=true（target_ci.json）。本批推送未跳过门禁。
+- 生产发布：即时在线备份deploy_inventory.db完整性通过，SHA256为afb9ee28d1485cea84e546c8667a532141a5d3586aa9fe16cb0d5416ef46537b，保留旧模板回退包。核对旧PID2476完整身份、Python311/run_server.py/Session0、唯一8080监听、SYSTEM原任务入口及WMS_NO_DB_TOUCH=1后，避开计划触发窗口，仅终止原实例并启动原任务一次。新PID7536、2026-10-24T18:18:27.805327+08:00创建，解释器/命令/Session0一致，唯一监听、LastTaskResult=0；18:18:32启动日志e8d070c、production、CSRF on，db-check migrate=ok仅结构检查证据。
+- 只读验收：三个模板规范化文本与目标Git对象一致（activation_checks.json），本机及https://gd2026.top/login均GET200并含CSRF。八张核心业务/用户表完整行摘要前后一致，quick_check=ok；未在生产登录或运行写入冒烟、未改业务记录或密码。收尾仅更新月度台账，生产应用保持e8d070cc，无须再次重启；收尾提交自身CI单独验收。
