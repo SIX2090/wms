@@ -1,6 +1,7 @@
 """PDF dependency security lock and real attachment parsing compatibility."""
 import ast
 import logging
+import re
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image, UnidentifiedImageError
 from pypdf import PdfReader, PdfWriter
+from pypdf.errors import LimitReachedError
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject, NumberObject
 from reportlab.pdfgen.canvas import Canvas
 
@@ -26,6 +28,48 @@ def test_dependency_pin_includes_all_five_reported_fixes():
     pins = [line.partition('==')[2] for line in (ROOT / 'app/requirements.txt').read_text(encoding='utf-8').splitlines() if line.startswith('pypdf==')]
     assert len(pins) == 1
     assert tuple(map(int, pins[0].split('.'))) >= (6, 21, 1)
+
+
+def test_dependency_pin_includes_october_24_security_fixes():
+    pins = [line.partition('==')[2] for line in (ROOT / 'app/requirements.txt').read_text(encoding='utf-8').splitlines() if line.startswith('pypdf==')]
+    assert len(pins) == 1
+    assert tuple(map(int, pins[0].split('.'))) >= (6, 21, 2)
+
+
+def test_repeated_missing_object_does_not_rescan_whole_pdf():
+    class CountedPdf(BytesIO):
+        full_reads = 0
+
+        def getbuffer(self):
+            self.full_reads += 1
+            return super().getbuffer()
+
+        def read(self, size=-1):
+            if size < 0:
+                self.full_reads += 1
+            return super().read(size)
+
+    document = CountedPdf()
+    writer = PdfWriter()
+    writer.add_blank_page(72, 72)
+    writer.write(document)
+    document.seek(0)
+    reader = PdfReader(document)
+    document.full_reads = 0
+    for _ in range(8):
+        assert reader.get_object(9999) is None
+    assert document.full_reads == 1
+
+
+def test_xref_size_exceeding_file_capacity_is_rejected():
+    document = BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(72, 72)
+    writer.write(document)
+    data, replacements = re.subn(rb'(xref\s+0\s+)\d+', rb'\g<1>1000', document.getvalue(), count=1)
+    assert replacements == 1
+    with pytest.raises(LimitReachedError, match='exceeds allowed limit'):
+        PdfReader(BytesIO(data))
 
 
 @pytest.mark.parametrize('image_format', ['JPEG', 'PNG'])
