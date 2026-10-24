@@ -228,6 +228,9 @@ def main() -> int:
     excel_table_js = read_text("app/static/js/excel-table.js")
     excel_import_js = read_text("app/static/js/excel-import-export.js")
     base_html = read_text("app/templates/base.html")
+    # Follow the actual script reference after moving the assistant out of Jinja.
+    if "filename='js/pages/ai-assistant.js'" in base_html:
+        base_html += '\n' + read_text('app/static/js/pages/ai-assistant.js')
 
     checks: list[tuple[str, bool, str]] = []
 

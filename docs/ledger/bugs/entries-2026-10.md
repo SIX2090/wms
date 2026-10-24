@@ -1671,3 +1671,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生效确认：2026-10-24 08:22用户授权后与001统一部署。PID12156、Python311/Session0、run_server.py命令及8080唯一监听准确，原WMS-Warehouse任务LastTaskResult=0。启动日志版本42218e9、production、CSRF开启，WMS_NO_DB_TOUCH=1；db-check migrate=ok仅表示结构校验，不声称执行迁移。只读本机和https://gd2026.top/login均HTTP200且含CSRF；本机/公网导航资源均200、JS类型、年度缓存，SHA256准确匹配517c7e85bf148e328afb0529e64a85c7ba503ce6fd17902960410c4b91f35d21。HTTP证据及一致性备份在C:/wms_backups/pypdf_deploy_20261024；未登录生产执行冒烟或生成业务记录。生产需重启 WMS 服务生效，本次已完成该重启。
 - 本地验收补充：相关与相邻11个模块135 passed；隔离HTTP冒烟121/121，临时服务9036已停止（wms-shell-qa-7mvt0m6_/smoke.log）。普通规则0违规，verify_wms_bugs全部通过；新资源与新测试均单独核对后纳入提交。
 - 代码验收：42218e9007f3e5f59795facfb8206f4b5a8301d6已实际git push（7f976544..42218e90 main -> main），HEAD/origin/live main一致；[WMS CI40044229758](https://github.com/SIX2090/wms/actions/runs/40044229758)及[AI40044229724](https://github.com/SIX2090/wms/actions/runs/40044229724)准确匹配并completed/success。发布前check_ci_green.py --target-sha完整SHA --json返回ok=true；最新Android40027751562在ec3a04b32d64b1f172ec5446adf5127400ac5a87成功，Git对象/祖先关系及Android工程和工作流无差异均通过证明。后续收尾仅记录台账，运行时代码与本次验收版本一致，无须再次重启。
+
+### BUG-2026-10-24-003: AI浮窗请求失败误报成功、断流静默结束及内联脚本无法缓存
+
+- 状态：已修复，待目标CI与生产生效验收；AI子任务AI-C01-FIX-WEB-TRANSPORT-001开发中。
+- 根因/危害：既有AI-C01浮窗内联脚本980行/46098字节，每页随HTML下发；6处请求绕过WMS.api。清空历史不检查HTTP/业务结果，500或业务拒绝也报告服务器已清空；反馈和非流式聊天可能消费HTTP错误中的success正文。SSE读取错误原已有catch解锁，但调用finalize会把部分回复当正常结束或只提示没有回复，并非完全没有错误捕获。
+- 修复：外置js/pages/ai-assistant.js并保持原角色条件、DOM/api.js/app.js后的同步加载与STATIC_VERSION。反馈/非流式聊天用postRaw保留业务封套，清空用post自动校验业务状态，历史用getRaw，流式用既有postResponse保留原始Response。读取Promise返回外层并传播异常，沿原错误展示与解锁路径处理；清空失败保留原本地上下文清空降级，并明确服务器未清空。未新增统一层API、AI能力/模型/工具/权限/开关/迁移，未改后端状态或人工确认边界。生产需重启 WMS 服务生效。
+- 同类点已排查：关联BUG-2026-10-23-014/015、BUG-2026-10-24-002及历史AI-FEEDBACK-LOOP-001；当前浮窗6个请求消费点全部迁移，相关端点在模板/静态JS仅此消费方。原全局fetch拦截器继续提供会话/CSRF兜底，未误报旧代码完全缺CSRF保护；其他模板请求有各自校验，本批不宣称全站内联与raw fetch已清零。既有验证器改为跟随真实外链读取内容，字段、权限、幂等、命名原断言全部保留。
+- 开工基线：026dad4bd31373e3c5bc430e93ab1aa2beed13a9的WMS CI40044919832及AI40044919674准确匹配success；最新Android40027751562祖先及受保护路径无差异证明通过。修前相关六模块87 passed（24项既有SQLAlchemy告警）。
+- 回归：新增35项执行真实浮窗IIFE、原全局fetch包装和api.js的延迟请求/DOM/SSE测试，覆盖成功、业务拒绝、HTTP503+success正文、HTML502、网络拒绝、401/419、分块UTF-8、无reader降级、JSON拒绝、历史恢复、嵌入隐藏、Markdown转义；首轮34项旧版15 failed/19对照passed，新增部分回复后断流用例后旧版16 failed/19对照passed；修后35 passed。另15项覆盖8角色渲染/加载顺序、真实静态缓存/ETag、无原生fetch/服务端插值及五个未改功能函数字节摘要。相关与相邻146 passed（24项同基线告警）。备份base并git checkout HEAD回退、临时移出新资源，合计28 failed/22 passed，finally恢复，不用stash；证据临时目录wms-ai-shell-20261024/rollback.log。五个函数renderMarkdown/renderCards/renderActions/prepareImageAttachment/sendAssistantMessage保持原字节；图片压缩、Markdown、卡片动作、人工确认与发送分流未重写。
+- 生效确认：待确认。生产仍运行上一轮版本42218e9；本次HTTP/AI测试仅使用模拟请求、内存库或独立服务，不在生产生成对话、反馈或业务单据。完整AI验证、源码编码、规则、隔离冒烟及目标CI验收后补记。
+
+- 最终本地验收：相关与相邻14个模块182 passed（24项同基线SQLAlchemy告警），完整AI验证70/70（sum=267.30s、jobs=2），普通规则0违规、源码编码检查及verify_wms_bugs通过；隔离HTTP冒烟121/121，临时服务11024已停止（wms-shell-qa-ckbm9n9v/smoke.log）。移出代码的历史空白行尾随空格同步清理，五个非传输函数摘要仍与原代码一致。

@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tests.frontend_page_source import page_source
 APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
@@ -38,7 +40,7 @@ def _app_py() -> str:
 
 
 def _base_html() -> str:
-    return _tpl("base.html")
+    return page_source(APP_DIR / "templates" / "base.html")
 
 
 def test_t1_smart_page_table_header_not_ai():

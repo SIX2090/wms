@@ -27,6 +27,8 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from tests.frontend_page_source import page_source
 APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
 os.chdir(APP_DIR)
@@ -181,7 +183,7 @@ def test_ai_feedback_review_page():
 
 def test_t5_frontend_payload_matches_endpoint():
     """T5: 前端 submitFeedback 字段与端点一致（防字段错配回归）。"""
-    base = (APP_DIR / "templates" / "base.html").read_text(encoding="utf-8", errors="ignore")
+    base = page_source(APP_DIR / "templates" / "base.html")
     m = re.search(r"function submitFeedback\(messageId, feedbackType\) \{.*?\n        \}", base, re.S)
     assert m, "submitFeedback 必须存在"
     body = m.group(0)
