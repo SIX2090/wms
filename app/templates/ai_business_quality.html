@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {# AI_TASK: AI-R15-FIX-TEXT-EVENT-001 #}
+{# 修复任务：AI-UX-DATE-SYNC-001 #}
 {% block title %}AI业务质量运营看板{% endblock %}
 
 {% block content %}
@@ -233,6 +234,7 @@ function getFilters() {
 // 清空筛选
 function clearFilters() {
     document.getElementById('filterForm').reset();
+    ['time_start', 'time_end'].forEach(id => setWmsDateInputValue(document.getElementById(id), ''));
     loadSnapshot();
 }
 

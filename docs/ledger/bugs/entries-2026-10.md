@@ -1943,3 +1943,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：加载时将cells与坐标项归并为同一编辑来源，保持cells冲突优先；拖放、替换、删除与清空同步cells，保存与画布使用一致内容。保留边距、行高、未知元数据及未编辑样式，兼容px字号，静态文字走DOM/textContent；不改变既有请求互斥、失败反馈及后端格式规则。生产需重启 WMS 服务生效。
 - 最终回归：9个既有模块与22项新增真实页面JS/真实api.js/实际normalizer往返，共193 passed、40项既有警告。物理备份回退模板后18 failed、4个纯keyed或原有清空对照passed，finally字节恢复且SHA256一致；失败直接证实保存后旧字段残留，未用缺少helper制造伪红。证据%TEMP%/wms-label018-rollback-3wfmhxrm，label/final.log。未改旧测试断言。
 - 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停；verify_wms_bugs通过、A1–A14零违规、UTF-8及diff检查通过。提交前匿名查询HTTP403限流，经连接器遍历最新main运行两页核实CI40089491985/AI40089491982成功且目标精确匹配，Android40027751562成功；实时远端SHA不变，Android祖先、完整对象和保护路径无差异均重新核实。证据label/precommit_alternative.json，不把查询失败当CI失败。
+- 提交与CI：d77c636994d00a5580c789a73f691c76afa81107已实际push并核对HEAD/origin/live main一致；WMS CI40090162134和AI40090162213精确匹配success，Android40027751562成功且祖先、完整对象与保护路径无差异证明重新核验。pre-push匿名403，在同一基线最新三工作流已核实后单次WMS_SKIP_CI_GATE=1重推并finally清除，保留push.log和push-retry.log。证据label/target_ci_alternative.json；生产统一验收。
+
+### BUG-2026-10-24-019: 程序回填和清空日期绕过控件导致显示与提交值不一致
+
+- 状态：已修复，待最终回归及生产验收。
+- 根因/危害：flatpickr创建可见altInput并维护selectedDates，页面直接写原input.value或只form.reset不会同步控件。物料有效期编辑/复制/关闭新增、期初草稿恢复/粘贴以及AI质量看板清空筛选可留下旧显示或旧状态，造成日期误判或旧条件继续查询。
+- 同类点已排查：核对BUG-2026-09-07-007-F01及所有程序日期赋值；覆盖三页面六入口。report_view已有setDate作为对照；AI验收页初始化早于控件、入库动态行未启用该插件，不改其初始化。AI页面对应既有AI-R15-F01子修复AI-UX-DATE-SYNC-001，查重无等价任务，不新增AI能力或改变人工确认/权限。
+- 开工门禁：d77c636994d00a5580c789a73f691c76afa81107实时main最新WMS CI40090162134、AI40090162213精确匹配success，Android40027751562成功且祖先/对象/保护路径无变化。证据label/target_ci_alternative.json。
+- 修前基线：原54模块1989 passed、21 skipped；四产品及54测试哈希一致。跨016/017复用47未变模块、4采购相关模块的654 passed证据，补3模块124 passed；018只影响三个全模板扫描的无变化断言输入，逐项比对一致。不能将重叠测试总数相加当独立覆盖。证据%TEMP%/wms-date-sync-baseline-1ombz79a、wms-date-sync-baseline-refresh-r5z3elgg。
+- 生效确认：待回归、浏览器验收、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未修改生产物料、期初单或其他业务记录。
+- 修复：共享setWmsDateInputValue通过插件setDate/clear同步原值、可见输入和选中日期，不额外触发change；无插件时保留普通value赋值。六入口使用该助手，草稿缺省日期仍不覆盖当前值，其他字段和请求保持。
+- 回归锁：28项新运行回归首次全通过；四产品物理备份回退后27 failed、1个草稿缺省日期对照passed，finally恢复并核对四文件SHA256一致。18个真实消费场景失败直接指向日期不一致，其余9个新助手边界旧码不存在；未仅以缺helper冒充业务复现。证据%TEMP%/wms-date019-rollback-9fbo7ymw。
+- 浏览器验收：CUA操作独立静态fixture，加载实际flatpickr、base初始化及真实消费函数，网络和非日期动作使用隔离桩。六入口×普通日期/闰日/空共18场景，旧码18失败，修复18通过；读取页面公开显示的原值、altInput、selectedDates和FormData/筛选载荷核对。截图date/browser-before.png、browser-after.png，完整结果JSON同目录。自有18080静态服务身份核对后停止，临时浏览器关闭，未生产登录或连接生产库。
+- 最终验证：55个受影响及相邻模块2017 passed、21 skipped（与修前既有跳过一致），四产品哈希全程不变。完整verify_ai_all.py --level full --jobs 1为70/70通过，包含既有BUG回归；严格AI台账及文档契约34项通过，两个JS语法、A1–A14零违规、UTF-8和diff检查通过。证据date/final.log、final_evidence.json和ai_full.log。
+- 提交前验收：隔离HTTP冒烟121/121，临时服务已停止。匿名限流持续，连接器重新逐页核实同一实时main基线的最新三工作流成功及完整SHA，Android复用证明通过；证据date/precommit_alternative.json。AI子任务仍标待验收，待目标CI和生产核验后登记完成。

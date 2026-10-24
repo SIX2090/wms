@@ -261,7 +261,9 @@ function restoreDraft() {
             const el = document.getElementById(id);
             if (el && value !== undefined && value !== null) el.value = value;
         };
-        setVal('headerDocDate', head.date);
+        if (head.date !== undefined && head.date !== null) {
+            setWmsDateInputValue(document.getElementById('headerDocDate'), head.date);
+        }
         setVal('headerWarehouse', head.warehouse_id);
         setVal('headerRemark', head.remark);
         hideDraftBanner();
@@ -761,7 +763,7 @@ function showPasteModal() {
     document.getElementById('pasteImportText').value = '';
     document.getElementById('pasteImportFeedback').textContent = '';
     // FIX-OS-DATE-001: 默认沿用表头日期，避免导入时丢失用户选择的建账日期
-    document.getElementById('pasteDocDate').value = getHeaderDocDate();
+    setWmsDateInputValue(document.getElementById('pasteDocDate'), getHeaderDocDate());
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('pasteImportModal'));
     modal.show();
 }

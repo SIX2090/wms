@@ -5,6 +5,18 @@ let activeConfirm = null;
 
 // CSRF helpers are provided by the base shell before this script loads.
 
+// Flatpickr keeps a visible field and calendar state beside its hidden form value.
+function setWmsDateInputValue(input, value) {
+    if (!input) return;
+    const date = value == null ? '' : String(value);
+    if (input._flatpickr) {
+        if (date) input._flatpickr.setDate(date, false, 'Y-m-d');
+        else input._flatpickr.clear(false);
+    } else {
+        input.value = date;
+    }
+}
+
 // Toast 图标映射
 function getToastIcon(type) {
     const icons = {

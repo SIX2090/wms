@@ -1783,6 +1783,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (addForm) {
         document.getElementById('addModal').addEventListener('hidden.bs.modal', function() {
             addForm.reset();
+            setWmsDateInputValue(document.getElementById('add_expiry_date'), '');
             ['add_category_id', 'add_unit_id', 'add_supplier_id'].forEach(function(id) { setQuickSelectValue(id, ''); });
             document.getElementById('addModalTitle').textContent = '新增物料';
             document.getElementById('copyHint').classList.add('d-none');
@@ -1833,7 +1834,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
                     setInputValueIfExists('edit_max_stock', mat.max_stock || 0);
                     setInputValueIfExists('edit_reorder_point', mat.reorder_point || 0);
-                    document.getElementById('edit_expiry_date').value = mat.expiry_date || '';
+                    setWmsDateInputValue(document.getElementById('edit_expiry_date'), mat.expiry_date || '');
                     setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
                     setInputValueIfExists('edit_remark', mat.remark || '');
                     
@@ -1940,7 +1941,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         setInputValueIfExists('add_max_stock', mat.max_stock || 0);
                         setInputValueIfExists('add_reorder_point', mat.reorder_point || 0);
                         setInputValueIfExists('add_alert_days', mat.alert_days || 30);
-                        document.getElementById('add_expiry_date').value = mat.expiry_date || '';
+                        setWmsDateInputValue(document.getElementById('add_expiry_date'), mat.expiry_date || '');
                         setInputValueIfExists('add_remark', mat.remark || '');
                         modal.show();
                     }, 150);
