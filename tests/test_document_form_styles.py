@@ -46,7 +46,7 @@ def version_function(tmp_path):
     return ns['_compute_static_version']
 
 
-@pytest.mark.parametrize('asset', ['css/document-form.css', 'js/pages/department.js', 'css/pages/material.css', 'css/shell.css'])
+@pytest.mark.parametrize('asset', ['css/document-form.css', 'js/pages/department.js', 'css/pages/material.css', 'css/shell.css', 'js/pages/shell-navigation.js'])
 def test_extracted_assets_change_version_on_add_update_remove(tmp_path, asset):
     compute = version_function(tmp_path)
     before = compute()

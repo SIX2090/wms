@@ -48,9 +48,9 @@ vm.runInNewContext(p.source,context);
     ('app/static/css/shell.css', '侧边栏子菜单：T+ 风格横向展开', 1),
     ('app/static/css/shell.css', '样式由 custom.css 统一管理', 2),
     ('app/static/css/shell.css', '操作按钮栏', 1),
-    ('app/templates/base.html', '// 禁止触摸多指缩放', 1),
-    ('app/templates/base.html', '// 禁止双击缩放', 1),
-    ('app/templates/base.html', '// 禁止滚轮缩放', 1),
+    ('app/static/js/pages/shell-navigation.js', '// 禁止触摸多指缩放', 1),
+    ('app/static/js/pages/shell-navigation.js', '// 禁止双击缩放', 1),
+    ('app/static/js/pages/shell-navigation.js', '// 禁止滚轮缩放', 1),
 ])
 def test_shell_comments_remain_readable_utf8(path, comment, count):
     source = (ROOT / path).read_text(encoding='utf-8')
