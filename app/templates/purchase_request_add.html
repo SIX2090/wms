@@ -995,37 +995,66 @@ function collectItems() {
 }
 
 function submitForm() {
-    const form = document.getElementById('addForm');
-    const formData = new FormData(form);
-
-    const payload = {
-        request_id: formData.get('request_id') || null,
-        request_no: formData.get('request_no'),
-        date: formData.get('date'),
-        applicant: formData.get('applicant'),
-        department: formData.get('department'),
-        urgency: formData.get('urgency'),
-        expected_date: formData.get('expected_date'),
-        reason: formData.get('reason'),
-        remark: formData.get('remark'),
-        items: collectItems()
-    };
-
-    if (!payload.items.length) {
-        showToast('请至少添加一条采购明细', 'warning');
-        return;
+    if (submitForm.pending) return;
+    let buttonStates = [];
+    let navigating = false;
+    function restoreSaveState() {
+        submitForm.pending = false;
+        buttonStates.forEach(function(state) {
+            state.button.disabled = state.disabled;
+            if (state.busy === null) state.button.removeAttribute('aria-busy');
+            else state.button.setAttribute('aria-busy', state.busy);
+        });
     }
+    try {
+        const form = document.getElementById('addForm');
+        const formData = new FormData(form);
 
-    WMS.api.postRaw('/purchase_request/add', payload)
-    .then(data => {
-        if (data.status === 'success') {
-            showToast('采购申请保存成功', 'success');
-            setTimeout(function() { window.location.href = `/purchase_request/${data.id}`; }, 600);
-        } else {
-            showToast(data.msg || '保存失败', 'danger', 3600);
+        const payload = {
+            request_id: formData.get('request_id') || null,
+            request_no: formData.get('request_no'),
+            date: formData.get('date'),
+            applicant: formData.get('applicant'),
+            department: formData.get('department'),
+            urgency: formData.get('urgency'),
+            expected_date: formData.get('expected_date'),
+            reason: formData.get('reason'),
+            remark: formData.get('remark'),
+            items: collectItems()
+        };
+
+        if (!payload.items.length) {
+            showToast('请至少添加一条采购明细', 'warning');
+            return;
         }
-    })
-    .catch(error => showToast('保存失败：' + error.message, 'danger', 3600));
+
+        buttonStates = Array.from(document.querySelectorAll('button[onclick^="submitForm("], #cbGlobalActionBar button[title="保存"]')).map(function(button) {
+            return { button: button, disabled: button.disabled, busy: button.getAttribute('aria-busy') };
+        });
+        submitForm.pending = true;
+        buttonStates.forEach(function(state) {
+            state.button.disabled = true;
+            state.button.setAttribute('aria-busy', 'true');
+        });
+        return WMS.api.postRaw('/purchase_request/add', payload)
+        .then(data => {
+            if (data && data.status === 'success') {
+                if (!/^[1-9]\d*$/.test(String(data.id)) || !Number.isSafeInteger(Number(data.id))) {
+                    throw new Error('服务器未返回有效采购申请编号，请先核对单据再决定是否重试');
+                }
+                showToast('采购申请保存成功', 'success');
+                setTimeout(function() { window.location.href = `/purchase_request/${data.id}`; }, 600);
+                navigating = true;
+            } else {
+                showToast((data && data.msg) || '保存失败', 'danger', 3600);
+            }
+        })
+        .catch(error => showToast('保存失败：' + ((error && error.message) || '请求失败'), 'danger', 3600))
+        .finally(function() { if (!navigating) restoreSaveState(); });
+    } catch (error) {
+        restoreSaveState();
+        showToast('保存失败：' + ((error && error.message) || '请求失败'), 'danger', 3600);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {

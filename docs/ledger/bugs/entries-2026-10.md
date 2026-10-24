@@ -1917,3 +1917,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生效确认：待最终回归、目标CI及本轮统一生产发布核验；生产需重启 WMS 服务生效。证据目录C:/wms_backups/frontend_six_20261024/subcontract。
 - 浏览器验收：独立内存DB的发料与收料实际页面，A001改输入螺栓均被阻止，明确选择B002/B001后分别只生成一张正确物料的草稿；无错误旧物料行。截图after-rejected.png、after-saved.png、after-receive.png，最终隔离状态browser_final_state.json。自有18080服务和浏览器均已关闭，未操作真实业务。文档契约34 passed、隔离HTTP冒烟121/121。
 - 最终验证：15模块463 passed、44项既有警告；77项新增回归包含真实模板资源加载、精确API隔离集成和静态资源ETag。物理备份两模板及新JS，回退后67 failed、10对照passed，finally恢复且SHA256一致（%TEMP%/wms-subcontract-selection-rollback-kunr96wu）。既有传输测试仅补DOM/FormData依赖及改stdin避免Windows命令长度限制，原业务断言保留。verify_wms_bugs通过、A1–A14为0违规、请求lint/UTF-8/语法及diff检查通过。
+- 提交与CI：b25be876b69b075cb9ff19871fe5ddf6f53a8397实际push并核对HEAD/origin/live main一致；WMS CI40088762175、AI40088762155精确匹配completed/success，Android40027751562成功且复用证明通过，完整目标检查ok=true（subcontract/target_ci.json）。生产与本轮其余批次统一验收。
+
+### BUG-2026-10-24-017: 采购录单重复保存与保存跳转意图被后续点击覆盖
+
+- 状态：已修复，待最终回归及生产验收。
+- 根因/危害：采购订单和采购申请submitForm没有请求互斥，连续点击以及成功后的延迟跳转窗口均能再次提交。采购订单又在回调读取全局saveAndNew标记，后续点击可改变首个保存请求的跳转意图。后端对订单编号重复会拒绝、采购申请草稿会更新，不能据此前端重复请求断言必然生成重复单据。
+- 同类点已排查：核对既有单据提交锁、Ctrl+S普通保存和BUG-2026-10-24-014/015；本批覆盖采购订单/申请新增和编辑、原按钮、动态工具栏及普通保存快捷键的共同函数入口。已保护的出入库及委外提交保持。
+- 开工门禁：b25be876b69b075cb9ff19871fe5ddf6f53a8397与实时main一致，WMS CI40088762175、AI40088762155精确匹配success，Android40027751562成功且祖先/完整对象/保护路径无差异。证据C:/wms_backups/frontend_six_20261024/subcontract/target_ci.json。
+- 修前基线：24个受影响及相邻模块582 passed、71项既有SQLAlchemy警告；旧产品及测试哈希核验无变化。证据C:/wms_backups/frontend_six_20261024/purchase/baseline.log。
+- 生效确认：待回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未对生产单据执行保存、完成或修改库存。
+- 修复：两页共同保存函数先校验和快照载荷，再锁定实际按钮/动态工具栏并阻止重入；成功保持锁至既有延迟导航，失败恢复原disabled/aria-busy。订单保存意图在请求前局部固定，保留供应商继续新增。无效响应编号明确提示先核对单据，不自动重发；原权限、后端和业务字段不变。生产需重启 WMS 服务生效。
+- 最终回归：25个受影响/相邻模块654 passed、71项既有SQLAlchemy警告。72项新运行时锁执行真实页面函数、真实api.js和saveCurrentPage，覆盖新增/编辑、首次动作意图、请求中/成功跳转等待、业务/HTTP/网络/HTML/空/无效编号、校验/序列化失败及手动重试。物理备份回退两模板后72 failed，finally按SHA256完整恢复（%TEMP%/wms-purchase-save-017-rollback-0qxkf9ot）；修复72 passed。既有transport仅补querySelectorAll桩，原断言保留。
+- 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8和diff检查通过。提交前完整基线check_ci_green.py为ok=true，证据purchase/precommit_ci.json；最终日志purchase/final.log。

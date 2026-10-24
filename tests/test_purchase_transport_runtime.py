@@ -30,7 +30,7 @@ const formFields={request_id:'stable-request',request_no:'PR-A',date:'2026-10-22
 const lines=[{material_id:'7',material_code:'M-7',material_name:'Fixture',unit_id:'2',quantity:'3',estimated_price:'4',supplier_id:'9',supplier_name:'Supplier'}];
 class FormData{constructor(form){this.owner=form.id;}get(k){return formFields[k];}}
 const file={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false};
-const ctx={FormData,Headers,document:{getElementById:id=>id==='importFile'?file:{id},querySelector:()=>({content:'fixture-csrf'})},
+const ctx={FormData,Headers,document:{getElementById:id=>id==='importFile'?file:{id},querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:()=>[]},
 collectItems:()=>p.scenario==='empty'?[]:lines,selectedPurchaseOrderIds:()=>p.scenario==='empty'?[]:['7','8'],showConfirm:()=>{confirmations++;return Promise.resolve(p.scenario!=='cancel');},confirm:()=>{expired++;return false;},
 showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},
 fetch:(u,o)=>{sent.push({u,o});const status=responseScenario==='http'?400:responseScenario==='html'?503:responseScenario==='expired401'?401:responseScenario==='expired419'?419:200;
