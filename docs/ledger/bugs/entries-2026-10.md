@@ -1785,11 +1785,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-009: 公共单据单位刷新覆盖行选择并静默回退默认单位
 
-- 状态：已修复（本地验证通过，目标CI及生产生效待确认）。
+- 状态：已修复并生产生效（2026-10-24 15:16）。
 - 根因/危害：document_table_form.html的refreshUnits在unit_updated广播时用原生GET直接覆盖units并重填所有.unit-id，无请求代次、HTTP检查及readonly/disabled保护。较旧列表晚返回可移除刚新建并选中的单位，重填后select.value变空；collectItems随后用物料默认单位回退，改变操作员选择的实际保存载荷。只读单据及禁用行的历史显示也可能被广播改写。
 - 同类点已排查：检查BUG-2026-10-24-004/007/008与BUG-2026-08-25-001。此行单位重建入口只有一处，覆盖BOM、调拨、盘点和工单领料四模式；其它完整数组缓存及全局分类/单位/供应商select分别已有007/008治理。/api/units返回完整数组，不使用分页或物料封套。物料新增的本地新增后push没有本批的异步整表覆盖。不改collectItems、单位删除引用保护、库存/数量算法、权限或业务保存接口。
 - 修复：复用WMS.listCache.refresh的HTTP、数组/行/重复ID校验及最新请求保护，只在有效最新结果后更新行选项。readonly页不发请求；应用时跳过disabled和已脱离DOM字段，读取当时当前选择，若新列表暂缺该单位则原DOM选项回插，保留名称和ID，避免默认单位替换。新建行使用最新缓存；现有数组身份、自动静默策略及数量/价格不变。unitOptions的ID属性同步HTML转义，与既有名称转义一起保证安全文本渲染。生产需重启 WMS 服务生效。
 - 修复前基线：16个模板/list-cache直接消费模块533 passed、24项既有SQLAlchemy警告（%TEMP%/wms-unit-refresh-baseline.log）。新增84项真实refreshUnits/unitOptions/collectItems、原api.js及共享缓存的延迟请求回归，旧实现52 failed、32 passed；修复后与既有缓存/零价格测试合计179 passed。
 - 回归锁/物理回退：备份单模板→git checkout --单模板→执行新增84项→finally恢复；旧实现52 failed、32 passed。回退证据%TEMP%/wms-unit-refresh-rollback-iy44uyxp/rollback.log；恢复后84项全部通过。未使用stash或修改旧断言。
 - 回归/门禁：20个受影响/相邻模块全量756 passed、24项既有SQLAlchemy警告（%TEMP%/wms-unit-refresh-final.log），包括单位保存载荷、零价格、键盘/粘贴、完整物料缓存分页、仓库/部门刷新和领料库位联动。隔离HTTP冒烟121/121且自有18080服务已停止（%TEMP%/wms-unit-refresh-smoke.log）；A1–A14为0违规、JS实际运行、UTF-8编码及verify_wms_bugs均通过。提交前check_ci_green.py --target-sha完整基线 --json为ok=true，证据、在线备份及旧模板回退包在C:/wms_backups/unit_refresh_deploy_20261024。开工基线56d67971ecc43f841fd7e451cbdaf9652543eb7b的WMS CI40068086907、AI40068086878均completed/success；Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化。
-- 生效确认：待目标CI、备份及原WMS-Warehouse任务重启后只读核验；生产需重启 WMS 服务生效。沿用用户已授权的在线备份和原任务单次重启范围，不修改业务记录、密码、依赖或服务入口。
+- 生效确认：2026-10-24 15:16由Codex核对目标CI、在线备份、原任务重启、模板/脚本及生产只读摘要后确认。生产需重启 WMS 服务生效，本次已完成；完整证据在C:/wms_backups/unit_refresh_deploy_20261024。
+
+- 目标CI与推送：ee25dfcdd8203fc17e03c8e46b5336cc30ae4989已实际push（56d67971..ee25dfcd main -> main），HEAD/origin/live main一致。[WMS CI40073215257](https://github.com/SIX2090/wms/actions/runs/40073215257)和[AI40073215231](https://github.com/SIX2090/wms/actions/runs/40073215231)准确匹配completed/success；公共REST jobs列表核对全部单元/回归分片、静态检查、冒烟及gate均成功。Android40027751562在ec3a04b32d64b1f172ec5446adf5127400ac5a87成功，完整对象、目标祖先及工程/工作流无差异证明通过。连接器一度出现传输错误，未据此判定CI失败或放行；改用公共REST与仓库检查脚本核实，发布/收尾前check_ci_green.py --target-sha完整目标 --json均ok=true（target_ci.json、closure_baseline_ci.json）。
+- 生产发布：保留before_inventory.db和旧单模板rollback_templates.zip，发布即时mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为ef3cf39b8f5175287222f49bb36a7feb2c99e9505f2e740a63f271d70d665a78。即时核对原PID11460完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、原SYSTEM任务入口及WMS_NO_DB_TOUCH=1；避开下一计划触发窗口后仅终止该实例，再启动原任务一次。新PID11996，2026-10-24T15:16:51.560092+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。15:16:55启动日志为ee25dfc、production、CSRF on；db-check migrate=ok仅结构检查，不声称迁移。
+- 只读验收：共享模板规范化文本匹配目标Git对象，SHA256为0cdc2e734caa607ce1f14859562a1c4e86750e3e979921e5818f788d30550fa5；本机和https://gd2026.top/login均GET200且含CSRF；list-cache.js两端均200、JavaScript类型、年度缓存，SHA256为dc5bd13765293036db32fbf38c279a4a79e56921b8a9e55d7cbb11098adc75ab且匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。未在生产登录执行冒烟或创建业务记录，未改密码、依赖或服务入口。
+- 收尾边界：仅月度BUG台账记录更新，应用文件保持已发布ee25dfcd版本，无须再次重启；按文档分级验证并验收该收尾提交自身CI。查询故障仍须核实同一基线，不把未知、运行中或实际非绿视为放行。
