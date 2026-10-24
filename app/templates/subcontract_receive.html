@@ -262,6 +262,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/subcontract-material-selection.js', v=STATIC_VERSION) }}"></script>
 <script>
 document.querySelectorAll('.sortable-header').forEach(function(th) {
     th.addEventListener('click', function() {
@@ -365,16 +366,7 @@ function bindMaterialInput(input) {
             return;
         }
         
-        var matches = materialsCache.filter(m => 
-            (m.code && m.code.toLowerCase().includes(keyword)) ||
-            (m.name && m.name.toLowerCase().includes(keyword)) ||
-            (m.spec && m.spec.toLowerCase().includes(keyword))
-        );
-        var exact = matches.find(m =>
-            (m.code && m.code.toLowerCase() === keyword) ||
-            (m.name && m.name.toLowerCase() === keyword)
-        );
-        var selected = exact || (matches.length === 1 ? matches[0] : null);
+        var selected = WMS.subcontractMaterialSelection.choose(materialsCache, keyword);
         
         if (selected) {
             $row.find('.material-id').val(selected.id);
@@ -385,7 +377,7 @@ function bindMaterialInput(input) {
             if (selected.price && (!$row.find('[name="price"]').val() || Number($row.find('[name="price"]').val()) === 0)) {
                 $row.find('[name="price"]').val(selected.price);
             }
-        } else if (matches.length === 0) {
+        } else {
             $row.find('.material-id').val('');
         }
     });
@@ -420,25 +412,23 @@ $('#subcontract_order_id').on('change', function() {
 });
 
 // 提交新增
-$('#submitAdd').click(function() {
-    $('#itemTableBody .material-input').trigger('input');
-    if (!$('#receiveWarehouse').val()) {
-        showToast('请选择仓库', 'danger');
-        return;
-    }
-    var formData = new FormData($('#addForm')[0]);
-    
-    WMS.api.postRaw('/subcontract/receive/add', formData)
-    .then(function(data) {
+var saveSubcontractDraft = WMS.subcontractMaterialSelection.createSaver({
+    form: document.getElementById('addForm'),
+    modal: document.getElementById('addModal'),
+    button: document.getElementById('submitAdd'),
+    warehouse: document.getElementById('receiveWarehouse'),
+    resolveInputs: function() { $('#itemTableBody .material-input').trigger('input'); },
+    url: '/subcontract/receive/add',
+    onResult: function(data) {
         if (data && data.status === 'success') {
             alert('新增成功'); // allow-alert: 刷新前保留人工关闭，避免结果一闪而过
             location.reload();
         } else {
             showToast('新增失败: ' + ((data && data.msg) || '未知错误'), 'danger');
         }
-    })
-    .catch(function(error) { showToast('新增失败：' + error.message, 'danger'); });
+    }
 });
+$('#submitAdd').click(saveSubcontractDraft);
 
 // 查看详情
 function showDetail(id) {

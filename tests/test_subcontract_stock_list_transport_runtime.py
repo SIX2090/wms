@@ -71,20 +71,21 @@ def run(page, action, scenario):
     source = (ROOT / f'app/templates/subcontract_{page}.html').read_text(encoding='utf-8')
     source = '\n'.join(re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', source))
     program = r'''
-const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);
+const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 let requests=[],messages=[],alerts=[],reloads=0,timers=[],handlers={},scenario=p.scenario;
 const file={files:scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx'};
-const form={id:'addForm',action:'/subcontract/'+p.page+'/import'};
+const form={id:'addForm',action:'/subcontract/'+p.page+'/import',addEventListener(){},querySelectorAll:()=>[]};
+const addModal={id:'addModal',addEventListener(){}},saveButton={disabled:false},warehouse={value:scenario==='empty'?'':'2'};
 
 const dataRows=[['warehouse_id','2'],['subcontract_order_id','9'],['material_id','3'],['material_id','4'],['material_code','M3'],['material_code','M4'],['quantity','2'],['quantity','3'],['unit_id','1'],['unit_id','1'],['item_remark','甲&乙'],['item_remark','中文']];
 if(p.page==='receive')dataRows.push(['scrap_quantity','0'],['scrap_quantity','1'],['price','2'],['price','3']);
-class FormData{constructor(f){this.form=f;this.rows=dataRows.slice();}get(k){return this.rows.find(x=>x[0]===k)?.[1]??null;}getAll(k){return this.rows.filter(x=>x[0]===k).map(x=>x[1]);}}
+class FormData{constructor(f){this.form=f;this.rows=dataRows.slice();}get(k){return this.rows.find(x=>x[0]===k)?.[1]??null;}getAll(k){return this.rows.filter(x=>x[0]===k).map(x=>x[1]);}entries(){return this.rows[Symbol.iterator]();}delete(k){this.rows=this.rows.filter(x=>x[0]!==k);}append(k,v){this.rows.push([k,String(v)]);}}
 function wrapper(arg){return{0:arg==='#addForm'?form:arg,length:1,
  click(f){handlers[arg]=f;},on(){return this;},find(){return this;},trigger(){return this;},each(){},
  prop(k,v){if(typeof arg==='object'){if(v===undefined)return arg[k];arg[k]=v;}return this;},
  val(){return typeof arg==='object'?arg.value:scenario==='empty'?'':'2';},html(){return this;},modal(){},append(){},remove(){},data(){return '2';}};}
 const document={querySelector:s=>s.includes('csrf-token')?{content:'fixture-csrf'}:null,querySelectorAll:()=>[],
- getElementById:id=>id==='file'?file:id==='form'?form:{id}};
+ getElementById:id=>id==='file'?file:['form','addForm'].includes(id)?form:id==='addModal'?addModal:id==='submitAdd'?saveButton:id.endsWith('Warehouse')?warehouse:{id}};
 const ctx={document,$:wrapper,FormData,Headers,Promise,URL,registerDetailRowActions(){},
  showToast:(m,t)=>messages.push({m,t}),alert(m){assert.equal(reloads,0);alerts.push(m);},
  confirm:()=>scenario!=='cancel',showConfirm:()=>Promise.resolve(scenario!=='cancel'),
@@ -97,7 +98,7 @@ const ctx={document,$:wrapper,FormData,Headers,Promise,URL,registerDetailRowActi
 function resolveResponse(kind,resolve){const status=kind==='http'?409:kind==='html'?502:kind==='unauthorized'?401:kind==='expired'?419:200;
 resolve({status,ok:status===200,json:()=>kind==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve(kind==='null'?null:kind==='shape'?{status:'success',data:{items:[]}}:['business','http'].includes(kind)?{status:'error',msg:'fixture reason'}:{status:'success',msg:'fixture ok',data:[{id:3,code:'M3',unit:{id:1}}]})});}
 function response(kind,material){if(kind==='network')return Promise.reject(Error('offline'));return new Promise(resolve=>resolveResponse(kind,resolve));}
-ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.actionHelper,ctx);vm.runInContext(p.script,ctx);
+ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.actionHelper,ctx);vm.runInContext(p.selectionHelper,ctx);vm.runInContext(p.script,ctx);
 const flush=()=>new Promise(r=>setImmediate(r));
 async function invoke(){
  if(p.action==='materials')return ctx.loadMaterials();
@@ -140,5 +141,5 @@ function verifyRequest(request){const headers=new Headers(request.options.header
     node = shutil.which('node')
     assert node, 'Node required for real page/runtime verification'
     env = dict(os.environ, NODE_OPTIONS='--max-old-space-size=64')
-    result = subprocess.run([node, '-e', program, json.dumps(dict(page=page, action=action, scenario=scenario, script=source, api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'), actionHelper=(ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8')))], capture_output=True, encoding='utf-8', env=env, timeout=15)
+    result = subprocess.run([node, '-e', program], input=json.dumps(dict(page=page, action=action, scenario=scenario, script=source, selectionHelper=(ROOT / 'app/static/js/subcontract-material-selection.js').read_text(encoding='utf-8'), api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'), actionHelper=(ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8'))), capture_output=True, encoding='utf-8', env=env, timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr

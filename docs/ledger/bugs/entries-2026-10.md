@@ -1905,3 +1905,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 提交与CI：92ade5103f31f7095b5fe7fd81a68181c6e6145b已实际push（2a4382c1..92ade510 main -> main），HEAD/origin/live main一致；[WMS CI40087609356](https://github.com/SIX2090/wms/actions/runs/40087609356)和[AI40087609357](https://github.com/SIX2090/wms/actions/runs/40087609357)精确匹配completed/success。最新Android40027751562成功且祖先、Git对象齐全、Android工程/工作流无变化证明通过。pre-push匿名HTTP403仅查询失败；已连接GitHub核实同一实时基线最新三工作流并保存替代证据后，单次使用WMS_SKIP_CI_GATE=1重推并finally清除。
 - 生产发布及生效确认：2026-10-24 18:56由Codex核验目标CI、在线备份、原WMS-Warehouse任务重启一次、版本日志及只读摘要后确认。备份deploy_inventory.db的SHA256为f61eb6ad7aa800b21bdca45d877212f6b58dee497a617518e5c315b0f8e05517，旧代码rollback_code.zip保留。核对旧PID11652创建时间、Python311/run_server.py/Session0、唯一8080监听、SYSTEM任务入口和启动保护后重启，新PID12012（2026-10-24T18:55:56.899242+08:00），LastTaskResult=0；18:56:05版本92ade51、production、CSRF on、启动迁移禁用。首次检查尚未监听，随后启动完成并确认唯一监听。四个产品文件与Git目标文本一致，公网app.js匹配，本机/公网login GET200且含CSRF；八张业务/用户表摘要前后一致、quick_check=ok。
 - 单据状态刷新：发布后只读查询OU26100217（ID692）已为completed，日志记录18:39:23完成，发生在本次18:55重启之前。此前pending及库存16/3结论属于排查时的历史状态，不代表当前仍待完成。代理未完成、修改该真实单据或调整库存；已向用户说明最新状态。生产未登录、未写入业务或密码。收尾仅台账，无须再次重启。
+
+### BUG-2026-10-24-016: 委外发料收料改选物料后旧ID残留导致错存
+
+- 状态：已修复，待回归及生产验收。
+- 根因/危害：两页物料输入仅在零匹配时清隐藏ID，多匹配仍保留旧ID；精确名称用find首项也会错误选择同名物料。后端优先ID解析，因此界面输入螺栓却可能保存旧轴承。未解析物料的原后端继续跳过，不能当作前端歧义兜底。
+- 同类点已排查：检索物料候选、隐藏ID清理及BUG-2026-10-22-013、2026-10-24-005/006历史；本次同分支仅subcontract_issue和subcontract_receive，公共quick-select选中后保存前仍经本页解析。覆盖两处，不修改后端库存、权限或详情片段HTML。
+- 修复：两页共享subcontract-material-selection.js，唯一精确编码优先、名称要求唯一、其余不明确输入立即清旧ID。保存前对未解析非空编码经既有精确GET接口分批核对，每批最多200；全部匹配才提交，失败不静默漏行。保留缓存外完整编码，包括被缓存内其他编码部分匹配的情况。增加提交互斥、表单快照/输入代次/行身份/弹窗关闭校验；核对期间发生变化须人工重存，成功持续锁至导航，失败恢复按钮。生产需重启 WMS 服务生效。
+- 开工门禁：93cbdf8bdafc655af111302921e1b7fa4789dbb3与实时main一致，CI40087920520、AI40087920447精确匹配success，Android40027751562成功且祖先、对象齐全、保护路径无变化证明成立。证据C:/wms_backups/frontend_six_20261024/baseline_ci.json。
+- 修前基线：14个完整受影响/相邻模块386 passed、44项既有SQLAlchemy警告。64项新运行时用例旧代码56 failed、8 passed；使用真实模板输入/保存函数和真实api.js。主代理在独立18080内存库真实浏览器输入A001再改螺栓，保存草稿详情仍显示A001轴承，最终隔离状态material_id=1，证据subcontract/before.png与browser_final_state.json；未生产登录或修改真实单据。
+- 生效确认：待最终回归、目标CI及本轮统一生产发布核验；生产需重启 WMS 服务生效。证据目录C:/wms_backups/frontend_six_20261024/subcontract。
+- 浏览器验收：独立内存DB的发料与收料实际页面，A001改输入螺栓均被阻止，明确选择B002/B001后分别只生成一张正确物料的草稿；无错误旧物料行。截图after-rejected.png、after-saved.png、after-receive.png，最终隔离状态browser_final_state.json。自有18080服务和浏览器均已关闭，未操作真实业务。文档契约34 passed、隔离HTTP冒烟121/121。
+- 最终验证：15模块463 passed、44项既有警告；77项新增回归包含真实模板资源加载、精确API隔离集成和静态资源ETag。物理备份两模板及新JS，回退后67 failed、10对照passed，finally恢复且SHA256一致（%TEMP%/wms-subcontract-selection-rollback-kunr96wu）。既有传输测试仅补DOM/FormData依赖及改stdin避免Windows命令长度限制，原业务断言保留。verify_wms_bugs通过、A1–A14为0违规、请求lint/UTF-8/语法及diff检查通过。
