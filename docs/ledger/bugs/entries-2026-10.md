@@ -1890,7 +1890,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-015: 保存后完成受阻的具体原因被吞掉或随跳转消失
 
-- 状态：已修复，待回归及生产验收。
+- 状态：已修复并生产生效（2026-10-24 18:56）。
 - 用户复核：用户确认OU26100217保存后未自动新增；生产只读查看为pending，18:18在线备份复制到独立临时数据库后运行真实库存校验，返回铜排仓物料1280需要16、可用3。未对真实单据执行完成、修改数量或调整库存。正常拦截不是库存算法缺陷；前端没有可靠说明完成受阻才是本批修复对象。
 - 根因/危害：out_order_add已取得草稿ID后丢弃HTTP错误中的具体message，以笼统toast立即跳详情；in_order_add保留message但立即导航导致toast消失；document_table_form完成业务错误700ms后跳详情，网络未知结果还会解锁重复完成。操作员只知道已保存，不知道未进入下一张的原因，可能重复录入。
 - 同类点已排查：核对BUG-2026-10-23-008领料完成继续新增，以及采购入库/工单领料合并动作、提交锁与人工确认历史；覆盖上述三个实际保存后完成消费点。同一根因统一一个共享纯DOM结果面板。既有API正确保留HTTP错误信息，无须修改API或后端。现有成功链路真实返回status=success，继续新增行为保持。
@@ -1902,3 +1902,6 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 浏览器修后验收：真实顶部按钮+真实HTTP后端，库存不足时页面持续显示已保存单号、需要16/可用3、查看详情链接并锁定保存；点击链接进入正确草稿且保留embedded。另一物料库存5录1，完成成功后自动打开OU26100003空白新单；独立内存DB最终仅两张测试单（第一张pending、第二张completed），不足物料总库存53未变，正常物料5降至4，无重复生成。截图after.png、success-new.png与browser_final_state.json；临时服务及浏览器已关闭。
 - 回归锁验证：73项新运行时用例全部通过；物理备份并恢复4个旧产品文件后63 failed、10 passed，均因持久反馈/不提前跳转断言失败而非缺helper；finally恢复且四文件SHA256一致，证据%TEMP%/wms-completion-feedback-physical-rollback.log与wms-feedback-rollback-w4thac_m。文档契约34 passed。
 - 最终本地验证：66个受影响及相邻模块1137 passed、271项既有SQLAlchemy警告（与基线一致），隔离HTTP冒烟121/121；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8编码、node语法与diff检查通过。日志及模块清单存入C:/wms_backups/completion_feedback_deploy_20261024。提交前重新核对最新三工作流、实时远端基线及Android复用证明。
+- 提交与CI：92ade5103f31f7095b5fe7fd81a68181c6e6145b已实际push（2a4382c1..92ade510 main -> main），HEAD/origin/live main一致；[WMS CI40087609356](https://github.com/SIX2090/wms/actions/runs/40087609356)和[AI40087609357](https://github.com/SIX2090/wms/actions/runs/40087609357)精确匹配completed/success。最新Android40027751562成功且祖先、Git对象齐全、Android工程/工作流无变化证明通过。pre-push匿名HTTP403仅查询失败；已连接GitHub核实同一实时基线最新三工作流并保存替代证据后，单次使用WMS_SKIP_CI_GATE=1重推并finally清除。
+- 生产发布及生效确认：2026-10-24 18:56由Codex核验目标CI、在线备份、原WMS-Warehouse任务重启一次、版本日志及只读摘要后确认。备份deploy_inventory.db的SHA256为f61eb6ad7aa800b21bdca45d877212f6b58dee497a617518e5c315b0f8e05517，旧代码rollback_code.zip保留。核对旧PID11652创建时间、Python311/run_server.py/Session0、唯一8080监听、SYSTEM任务入口和启动保护后重启，新PID12012（2026-10-24T18:55:56.899242+08:00），LastTaskResult=0；18:56:05版本92ade51、production、CSRF on、启动迁移禁用。首次检查尚未监听，随后启动完成并确认唯一监听。四个产品文件与Git目标文本一致，公网app.js匹配，本机/公网login GET200且含CSRF；八张业务/用户表摘要前后一致、quick_check=ok。
+- 单据状态刷新：发布后只读查询OU26100217（ID692）已为completed，日志记录18:39:23完成，发生在本次18:55重启之前。此前pending及库存16/3结论属于排查时的历史状态，不代表当前仍待完成。代理未完成、修改该真实单据或调整库存；已向用户说明最新状态。生产未登录、未写入业务或密码。收尾仅台账，无须再次重启。
