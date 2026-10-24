@@ -25,7 +25,13 @@ def test_every_role_has_top_level_logout(role):
     links=re.findall(r'<a\b[^>]*href="/logout"[^>]*>.*?</a>',html,re.S)
     assert len(links)==1
     assert '退出登录' in links[0] and 'target="_top"' in links[0]
-    assert html.index('/profile/edit') < html.index('href="/logout"') < html.index('手机扫码')
+    # User-requested menu order: logout is the final primary navigation item.
+    primary = html.split('<ul class="nav flex-column legacy-menu d-none">', 1)[0]
+    trailing = primary.split('href="/logout"', 1)[1]
+    assert '<li ' not in trailing
+    assert primary.index('手机扫码') < primary.index('href="/logout"')
+    if role == 'admin':
+        assert primary.index('系统管理') < primary.index('href="/logout"')
     assert '<操作员>' not in links[0]
 
 
