@@ -1764,3 +1764,15 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生产发布：保留before_inventory.db和旧五模板rollback_templates.zip，发布即时mode=ro在线一致性备份deploy_inventory.db，integrity_check=ok，SHA256为41682964241cc41d4213a36b2f544bda5bfd8fe9c2e32152c88b5aa013b1f689。即时核对原PID152完整创建时间、Python311解释器、run_server.py/Session0、唯一127.0.0.1:8080监听、原SYSTEM任务入口和WMS_NO_DB_TOUCH=1；避开下一计划触发窗口后仅终止该实例，再启动原任务一次。新PID9616，2026-10-24T12:13:30.794639+08:00创建，同解释器/命令/Session0、唯一监听、LastTaskResult=0。12:13:34启动日志为8adfe13、production、CSRF on；db-check migrate=ok是结构检查，不声称执行迁移。
 - 只读验收：五模板规范化文本逐文件匹配目标Git对象；本机和https://gd2026.top/login均GET200且含CSRF；list-cache.js两端均200、JavaScript类型、年度缓存，SHA256为dc5bd13765293036db32fbf38c279a4a79e56921b8a9e55d7cbb11098adc75ab且匹配磁盘。八张核心表（物料、库位账、流水、入/出库头及行、用户）前后完整行摘要一致，quick_check=ok。未在生产执行登录冒烟或生成业务记录，未改密码、依赖或服务入口。
 - 收尾边界：本次仅回填月度BUG台账的验证与生效证据；应用文件保持已发布8adfe130版本，无须再次重启。按白名单文档分级验证并验收该收尾提交自身的CI；如查询故障，遵循已核实同基线证据规则，不把未知或实际非绿视为放行。
+
+
+### BUG-2026-10-24-008: 公共主数据下拉刷新失败清空选择且误操作隐藏字段
+
+- 状态：已修复（本地验证通过，目标CI及生产生效待确认）。
+- 根因/危害：app.js的WmsRefreshDropdowns在DOMContentLoaded自动刷新分类/单位/供应商，网络失败被catch转换成空数组再清空选项，HTTP错误也没有状态检查；有效的当前选择因此丢失。选择器只按name匹配，会给物料新增、采购单等自定义搜索控件的同名隐藏ID输入框添加option子节点；禁用、已脱离DOM的字段和较新请求结果也未保护。
+- 同类点已排查：检查历史BUG-2026-10-24-004/007、BUG-2026-08-25-001及下拉/隐藏字段记录。公共原生select按category_id、unit_id、supplier_id三个名字统一修复，分类/单位/供应商接口均返回完整数组。物料页的WmsRefreshDropdowns覆盖为list-cache数组刷新，属于007且不改；原有仓库/部门封套及领料库位联动仍由select-refresh处理并回归。不修改库存、仓库归属、权限或单据保存逻辑。
+- 修复：公共刷新仅匹配select[name=...]，三个接口分别调用已有WMS.selectOptions.refresh，失败各自保留原选择/选项且不影响其余接口，保持原自动静默策略。共享组件增加无itemsKey时校验完整数组的分支，原封套契约不变；复用HTTP/会话检查、逐元素最新请求保护、应用时当前值、disabled/isConnected保护、文字转义及仅失去有效选择才派发一次冒泡change的既有能力。没有新增公共资源，也不再对隐藏输入框发起无效刷新。
+- 修复前基线：45个直接消费app.js或select-refresh.js的模块全量1447 passed、21 skipped、6项既有SQLAlchemy警告，日志%TEMP%/wms-global-select-baseline.log。新增60项真实公共函数/原api.js/共享组件/DOM延迟HTTP回归在旧实现48 failed、12 passed，初次修复后的新旧刷新测试合计142 passed。
+- 回归锁/物理回退：备份app.js与select-refresh.js→git checkout --两文件→执行新回归→finally恢复两文件；旧实现48 failed、12 passed。回退证据%TEMP%/wms-global-select-rollback-cx7q38uu/rollback.log；恢复后的最终60项全部通过。没有使用stash或修改旧断言。
+- 回归/门禁：48个模块全量与相邻回归1608 passed、21 skipped、6项既有警告（%TEMP%/wms-global-select-final.log）；覆盖旧仓库/部门刷新、领料库位联动和上一轮七种数组缓存场景。隔离HTTP冒烟121/121且自有18080服务已停止（%TEMP%/wms-global-select-smoke.log）。A1–A14为0违规、两个JS的node --check、UTF-8编码及verify_wms_bugs均通过。提交前check_ci_green.py --target-sha完整基线 --json为ok=true，证据、在线备份及旧两资源回退包保存于C:/wms_backups/global_select_deploy_20261024。开工基线2a7fccccf27c202a9a6d96c28527429be3162500的WMS CI40061588231、AI40061588214均completed/success；最新Android40027751562的ec3a04b32d64b1f172ec5446adf5127400ac5a87为祖先且工程/工作流无变化。
+- 生效确认：待目标CI及生产只读核验；JS静态缓存版本在启动时计算，生产需重启 WMS 服务生效。沿用用户已授权的在线备份及原WMS-Warehouse任务单次重启，不修改业务记录、密码、依赖或服务入口。

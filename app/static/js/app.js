@@ -607,37 +607,18 @@ window.WmsTabs = (function() {
 
 // 下拉框刷新
 window.WmsRefreshDropdowns = function(selectors) {
-    var catSelects = document.querySelectorAll('[name="category_id"]');
-    var unitSelects = document.querySelectorAll('[name="unit_id"]');
-    var supSelects = document.querySelectorAll('[name="supplier_id"]');
-    if (!catSelects.length && !unitSelects.length && !supSelects.length) return;
-    Promise.all([
-        fetch('/api/categories').then(function(r) { return r.json(); }).catch(function() { return []; }),
-        fetch('/api/units').then(function(r) { return r.json(); }).catch(function() { return []; }),
-        fetch('/api/suppliers').then(function(r) { return r.json(); }).catch(function() { return []; })
-    ]).then(function(results) {
-        var cats = results[0], units = results[1], sups = results[2];
-        // 使用 createElement + textContent 构建 option，避免直接 innerHTML 拼接
-        // 在分类/单位/供应商名包含 <、> 等字符时被解释为 HTML，造成下拉错乱或 XSS
-        function refillSelect(sel, items) {
-            var val = sel.value;
-            while (sel.firstChild) { sel.removeChild(sel.firstChild); }
-            var placeholder = document.createElement('option');
-            placeholder.value = '';
-            placeholder.textContent = '请选择';
-            sel.appendChild(placeholder);
-            items.forEach(function(item) {
-                var opt = document.createElement('option');
-                opt.value = item.id;
-                opt.textContent = item.name;
-                sel.appendChild(opt);
-            });
-            sel.value = val;
-        }
-        catSelects.forEach(function(sel) { refillSelect(sel, cats); });
-        unitSelects.forEach(function(sel) { refillSelect(sel, units); });
-        supSelects.forEach(function(sel) { refillSelect(sel, sups); });
-    });
+    return Promise.all([
+        {url: '/api/categories', selector: 'select[name="category_id"]'},
+        {url: '/api/units', selector: 'select[name="unit_id"]'},
+        {url: '/api/suppliers', selector: 'select[name="supplier_id"]'}
+    ].map(function(group) {
+        return WMS.selectOptions.refresh({
+            url: group.url,
+            targets: Array.from(document.querySelectorAll(group.selector)).map(function(select) {
+                return {select: select, placeholder: '请选择'};
+            })
+        }).catch(function() { return false; });
+    }));
 };
 
 // 可调整表格

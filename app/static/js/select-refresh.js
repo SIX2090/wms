@@ -17,10 +17,10 @@
 
         return global.WMS.api.getRaw(options.url).then(function(response) {
             if (!targets.some(current)) return false;
-            if (!response || (response.status !== undefined && response.status !== 'success') || !Array.isArray(response[options.itemsKey])) {
+            var items = options.itemsKey ? response && response[options.itemsKey] : response;
+            if (!response || (response.status !== undefined && response.status !== 'success') || !Array.isArray(items)) {
                 throw new Error((response && response.msg) || '刷新失败：列表数据格式不正确');
             }
-            var items = response[options.itemsKey];
             // Validate every target before mutating any dropdown.
             targets.forEach(function(target) {
                 var valueKey = target.valueKey || 'id';
