@@ -1651,21 +1651,23 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-001: pypdf新披露漏洞导致定时CI安全门禁失败
 
-- 状态：已修复，待目标CI验收；生产依赖尚未升级。
+- 状态：已修复并发布。
 - 根因/危害：main ec3a04b32d64b1f172ec5446adf5127400ac5a87的最新定时WMS CI40027767633中，pip-audit命中pypdf6.21.1的CVE-2026-115572、115585、115580，均要求6.21.2；其他单测、回归及121项冒烟通过。Android40027751562和AI40027786403同SHA成功。本次仅恢复现有CI失败，不夹带下一批前端代码。
 - 修复：唯一生产钉版升级pypdf6.21.2，测试清单继续通过-r复用；安全扫描仍阻塞，不加忽略项、不更改业务解析函数或权限。上游https://pypdf.readthedocs.io/en/stable/meta/CHANGELOG.html及py-pdf/pypdf的PR4239/4240确认交叉引用表大小限制和重复整文件读取修复。
 - 同类点已排查：关联BUG-2026-10-22-001及BUG-2026-10-21-002；全仓只有app/requirements.txt一个生效钉版，业务消费者仍为_ai_parse_pdf_bytes。历史漏洞记录保持历史版本；不对生产执行恶意文件测试。
 - 回归：修前PDF、附件和依赖闭包契约34 passed。新增三个锁：版本至少6.21.2、缺失对象重复读取只扫描全文件一次、xref声明超出文件容量时立即拒绝。旧版3 failed/8 passed；新版结合附件与依赖闭包37 passed。备份requirements后git checkout HEAD恢复旧钉版并使用旧隔离运行环境，3 failed/8 passed，finally恢复修复；未使用stash。证据在临时目录wms-pypdf-20261024。
-- 生效确认：待确认。当前只在临时venv安装6.21.2；生产Python311仍6.21.1，未升级依赖或重启服务，未修改业务数据库、单据、库存、账号或密码。目标提交与CI结果验收后补记。
+- 生效确认：2026-10-24用户明确授权部署并重启。先用online_backup.py对生产库mode=ro在线一致性备份至C:/wms_backups/pypdf_deploy_20261024/before_inventory.db，integrity_check=ok，SHA256为810d06792d7b40ab4bc11310e1089fa5f69edb03f7547f24744dd41db5464d32；旧6.21.1及新6.21.2官方wheel均保留该目录。核对PID8352创建时间/解释器/Session0/命令/8080唯一监听及原任务后停止该进程；生产Python311仅用本地wheel --no-index --no-deps升级6.21.2，pip check通过，沿WMS-Warehouse计划任务启动新PID12156（08:22:20.213123+08:00，Session0）。生产解释器下隔离PDF测试11 passed；8张核心表（物料、库位账、流水、入出库头/行、用户）前后数量与完整行摘要一致，quick_check=ok。未改生产业务记录、账号密码或云凭据。
 - 本地验收补充：PDF/附件/依赖契约及台账47 passed；隔离HTTP冒烟121/121，临时服务3772已停止。隔离pip-audit对冻结旧清单准确复现3项CVE，新清单No known vulnerabilities found；普通规则0违规，verify_wms_bugs全部通过。
+- 代码验收：7f9765440149a5d37bdbf9e7b5f067483c215edc的[WMS CI40043413616](https://github.com/SIX2090/wms/actions/runs/40043413616)及[AI40043413573](https://github.com/SIX2090/wms/actions/runs/40043413573)准确匹配并completed/success。普通push被既有真实依赖红灯拦截后，仅发布当前CI安全修复；按AGENTS§8.1.3使用已授权连接器上传5个准确blob，以当前main为base/parent、非force更新。远端与本地经验证的完整tree均e30db7e64f8992bc1e434e1e56a1279bef4e252e；保留原本地提交后以soft对齐真实远端，fetch后HEAD/origin/live main同SHA，后续git push显示Everything up-to-date。未伪造新push输出、未用WMS_SKIP_CI_GATE跳过真实红灯。
 
 ### BUG-2026-10-24-002: 公共导航初始化内联重复下发而无法独立缓存
 
-- 状态：已修复，待目标CI和生产生效验收。
+- 状态：已修复并发布。
 - 根因/影响：base.html的公共菜单、面包屑、日期占位与触控初始化共162行/6465字节不含Jinja数据，却每页随不缓存HTML重复下发；无法独立利用浏览器静态缓存。本次为前端审计剩余公共脚本缓存问题的分段整改，不宣称全部内联脚本或全局函数已清零。
 - 修复：该完整script内容逐字节移入app/static/js/pages/shell-navigation.js，原位置同步加载，使用已有STATIC_VERSION；不加async/defer、不改变菜单入口/初始化事件顺序/日期与触控行为。原脚本及新文件SHA256均为517c7e85bf148e328afb0529e64a85c7ba503ce6fd17902960410c4b91f35d21。生产需重启 WMS 服务生效。
 - 同类点已排查：关联BUG-2026-10-23-012公共CSS缓存提取；已存在pages目录和STATIC_VERSION机制，复用而不新增打包框架。公共CSRF/列表动作与AI助手留在原位置，本批不改请求协议、AI权限/能力或业务数据。原中文注释回归锁仅迁移到实际外置文件，断言内容/次数不变。
 - 开工基线：7f9765440149a5d37bdbf9e7b5f067483c215edc，WMS CI40043413616及AI40043413573准确匹配并success；最新Android40027751562在ec3a04b3成功，已核实祖先及受保护路径无差异。公共壳层、菜单、列表传输、会话失效及动作相邻修前103 passed。
 - 回归：新用例先在旧代码运行5 failed/5交互对照passed；修复后导航、中文注释、资源版本28 passed。备份base后git checkout HEAD回退并临时移出新资源，5 failed/5 passed，finally恢复，未使用stash。三角色Jinja真实模板输出由HTMLParser验证仅加载一次/带版本/原位置同步加载；Node执行实际脚本验证菜单点击/悬停/aria状态、外部和链接点击关闭、侧栏离开延迟、路径/查询/编辑页面包屑、首页和未匹配页隐藏、日期初始化和触控/滚轮行为。真实Flask静态响应验证字节、JS类型、年度缓存及ETag304；STATIC_VERSION新增/修改/移除用例增加该文件。node --check通过。
-- 生效确认：待确认。生产服务尚未为本提交重启，不将本地源码变更等同生产生效。生产单据/库存/账号/密码未操作；隔离回归及目标CI继续验收后补记。
+- 生效确认：2026-10-24 08:22用户授权后与001统一部署。PID12156、Python311/Session0、run_server.py命令及8080唯一监听准确，原WMS-Warehouse任务LastTaskResult=0。启动日志版本42218e9、production、CSRF开启，WMS_NO_DB_TOUCH=1；db-check migrate=ok仅表示结构校验，不声称执行迁移。只读本机和https://gd2026.top/login均HTTP200且含CSRF；本机/公网导航资源均200、JS类型、年度缓存，SHA256准确匹配517c7e85bf148e328afb0529e64a85c7ba503ce6fd17902960410c4b91f35d21。HTTP证据及一致性备份在C:/wms_backups/pypdf_deploy_20261024；未登录生产执行冒烟或生成业务记录。生产需重启 WMS 服务生效，本次已完成该重启。
 - 本地验收补充：相关与相邻11个模块135 passed；隔离HTTP冒烟121/121，临时服务9036已停止（wms-shell-qa-7mvt0m6_/smoke.log）。普通规则0违规，verify_wms_bugs全部通过；新资源与新测试均单独核对后纳入提交。
+- 代码验收：42218e9007f3e5f59795facfb8206f4b5a8301d6已实际git push（7f976544..42218e90 main -> main），HEAD/origin/live main一致；[WMS CI40044229758](https://github.com/SIX2090/wms/actions/runs/40044229758)及[AI40044229724](https://github.com/SIX2090/wms/actions/runs/40044229724)准确匹配并completed/success。发布前check_ci_green.py --target-sha完整SHA --json返回ok=true；最新Android40027751562在ec3a04b32d64b1f172ec5446adf5127400ac5a87成功，Git对象/祖先关系及Android工程和工作流无差异均通过证明。后续收尾仅记录台账，运行时代码与本次验收版本一致，无须再次重启。
