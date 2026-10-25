@@ -25,26 +25,20 @@ function submitAdd() {
 }
 
 function editEmployee(id) {
-    WMS.api.getRaw('/employee/' + id)
-    .then(function(data) {
-        if (data.status === 'success') {
-            var e = data.employee;
-            var form = document.getElementById('editForm');
-            form.querySelector('[name="id"]').value = e.id;
-            form.querySelector('[name="code"]').value = e.code;
-            form.querySelector('[name="name"]').value = e.name;
-            form.querySelector('[name="position"]').value = e.position;
-            form.querySelector('[name="phone"]').value = e.phone;
-            form.querySelector('[name="department_id"]').value = e.department_id || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
-        } else {
-            showToast(data.msg || '获取数据失败', 'danger', 3600);
-        }
-    })
-    .catch(function(err){ showToast('获取数据失败：' + err.message, 'danger', 3600); });
+    return loadWmsMasterEditor('employee', id, function(e) {
+        var form = document.getElementById('editForm');
+        form.querySelector('[name="id"]').value = e.id;
+        form.querySelector('[name="code"]').value = e.code;
+        form.querySelector('[name="name"]').value = e.name;
+        form.querySelector('[name="position"]').value = e.position;
+        form.querySelector('[name="phone"]').value = e.phone;
+        form.querySelector('[name="department_id"]').value = e.department_id || '';
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
 }
 
 function submitEdit() {
+    if (isWmsMasterEditPending()) return;
     var form = document.getElementById('editForm');
     var formData = new FormData(form);
     var id = formData.get('id');

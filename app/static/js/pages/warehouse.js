@@ -50,27 +50,21 @@ function submitAdd() {
 }
 
 function editWarehouse(id) {
-    WMS.api.getRaw('/warehouse/' + id)
-    .then(data => {
-        if (data.status === 'success') {
-            const w = data.warehouse;
-            const form = document.getElementById('editForm');
-            form.querySelector('[name="id"]').value = w.id;
-            form.querySelector('[name="code"]').value = w.code;
-            form.querySelector('[name="name"]').value = w.name;
-            form.querySelector('[name="type"]').value = w.type || '';
-            form.querySelector('[name="location"]').value = w.location || '';
-            form.querySelector('[name="status"]').value = w.status;
-            form.querySelector('[name="remark"]').value = w.remark || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
-        } else {
-            showToast(data.msg || '获取数据失败', 'danger', 3600);
-        }
-    })
-    .catch(err => showToast('获取数据失败：' + err.message, 'danger', 3600));
+    return loadWmsMasterEditor('warehouse', id, function(w) {
+        const form = document.getElementById('editForm');
+        form.querySelector('[name="id"]').value = w.id;
+        form.querySelector('[name="code"]').value = w.code;
+        form.querySelector('[name="name"]').value = w.name;
+        form.querySelector('[name="type"]').value = w.type || '';
+        form.querySelector('[name="location"]').value = w.location || '';
+        form.querySelector('[name="status"]').value = w.status;
+        form.querySelector('[name="remark"]').value = w.remark || '';
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
 }
 
 function submitEdit() {
+    if (isWmsMasterEditPending()) return;
     const form = document.getElementById('editForm');
     const formData = new FormData(form);
     const id = formData.get('id');

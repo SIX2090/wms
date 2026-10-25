@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.test_master_editor_lifecycle_runtime import shared_helpers, take
 
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / 'app/static/js/api.js'
@@ -111,12 +112,12 @@ class FormData{constructor(form){this.owner=form.id;}}
 const fields={edit_id:{value:'7'},edit_code:{value:'M1',getAttribute:()=> 'M1'},edit_name:{value:'Fixture',getAttribute:()=> 'Fixture'}};
 const ctx={document:{getElementById:id=>fields[id]||null,querySelector:()=>({content:'fixture-csrf'})},FormData,Headers,commitQuickSelects(){},showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),confirm:()=>true,location:{href:'original'},bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
 fetch:(u,o)=>{sent.push({u,o});return p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:!['http','html','expired'].includes(p.scenario),status:p.scenario==='http'?400:p.scenario==='html'?503:p.scenario==='expired'?401:200,json:()=>p.scenario==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve({status:['http','business'].includes(p.scenario)?'error':'success',msg:['http','business'].includes(p.scenario)?'fixture failure':'saved'})});}};
-ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext('var handler='+p.callback+';',ctx);
+ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.helper,ctx);vm.runInContext('var handler='+p.callback+';',ctx);
 (async()=>{ctx.handler.call({id:p.form},{preventDefault(){}});await new Promise(r=>setImmediate(r));assert.equal(sent.length,1);assert.equal(sent[0].u,p.form==='addForm'?'/material/add':'/material/edit/7');assert(sent[0].o.body instanceof FormData);assert.equal(sent[0].o.body.owner,p.form);const h=new Headers(sent[0].o.headers);assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert(!h.has('Content-Type'));
 if(p.scenario==='success'){assert(timers.length>0);assert(!messages.some(x=>x.t==='danger'));}
 else {assert.equal(timers.length,0,'failure must not refresh and discard input');assert.equal(hidden,0,'failure keeps edit modal open');assert(messages.some(x=>x.t==='danger'));const text=messages.map(x=>x.m).join(' ');if(['http','business'].includes(p.scenario))assert(text.includes('fixture failure'));else if(p.scenario==='network')assert(text.includes('offline'));else if(p.scenario==='html')assert(text.includes('503')&&!text.includes('HTML'));else assert(text.includes('登录已过期'));}
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
-''', dict(callback=callback, form=form_id, scenario=scenario, api=API.read_text(encoding='utf-8')))
+''', dict(callback=callback, form=form_id, scenario=scenario, helper=shared_helpers(), api=API.read_text(encoding='utf-8')))
 
 
 @pytest.mark.parametrize('scenario', ['http', 'html', 'network'])
@@ -124,11 +125,13 @@ def test_material_image_errors_are_visible_literal_text(scenario):
     source = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
     start = source.index('window.loadEditMaterialImages = function(id)')
     callback = source[source.index('function(id)', start):source.index('\n    };', start) + 6]
+    context = take(source, 'window.getEditMaterialContext = function(id)') if 'window.getEditMaterialContext = function(id)' in source else ''
     node_run(r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);const grid={innerHTML:'',textContent:''},literal='<img src=x onerror=alert(1)> A&B';
-const ctx={FormData:class{},document:{getElementById:()=>grid,querySelector:()=>null},fetch:()=>p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:false,status:p.scenario==='html'?503:400,json:()=>p.scenario==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve({msg:literal})})};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext('var handler='+p.callback+';',ctx);
+const modal={isConnected:true,_wmsMasterEditor:{version:1,pending:false,recordId:'7'}},input={isConnected:true,value:'7'};grid.isConnected=true;
+const ctx={FormData:class{},document:{getElementById:id=>id==='editModal'?modal:id==='edit_id'?input:grid,querySelector:()=>null},fetch:()=>p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:false,status:p.scenario==='html'?503:400,json:()=>p.scenario==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve({msg:literal})})};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.context,ctx);vm.runInContext('var handler='+p.callback+'; window.loadEditMaterialImages=handler;',ctx);
 (async()=>{ctx.handler(7);await new Promise(r=>setImmediate(r));assert(grid.textContent.startsWith('图片加载失败：'));assert.equal(grid.innerHTML,'','untrusted error text must never enter innerHTML');assert(grid.textContent.includes(p.scenario==='http'?literal:p.scenario==='html'?'503':'offline'));})().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
-''', dict(callback=callback, scenario=scenario, api=API.read_text(encoding='utf-8')))
+''', dict(callback=callback, context=context, scenario=scenario, api=API.read_text(encoding='utf-8')))
 
 
 @pytest.mark.parametrize('kind', ['in', 'out'])

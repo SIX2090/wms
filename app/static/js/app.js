@@ -17,6 +17,93 @@ function setWmsDateInputValue(input, value) {
     }
 }
 
+// Master-data editors share one record at a time, including delayed detail reads.
+function isWmsMasterEditPending() {
+    var modal = document.getElementById('editModal');
+    return !!(modal && modal._wmsMasterEditor && modal._wmsMasterEditor.pending);
+}
+
+function loadWmsMasterEditor(kind, id, applyRecord) {
+    var modal = document.getElementById('editModal');
+    var form = document.getElementById('editForm');
+    var recordId = Number(id);
+    if (!modal || !form || !modal.isConnected || !form.isConnected) return Promise.resolve(false);
+    if (!['customer', 'supplier', 'unit', 'contract', 'employee', 'warehouse', 'department', 'category', 'material'].includes(kind) ||
+            !Number.isSafeInteger(recordId) || recordId <= 0) {
+        showToast('获取数据失败：记录编号无效', 'danger', 3600);
+        return Promise.resolve(false);
+    }
+    var state = modal._wmsMasterEditor;
+    if (!state || state.form !== form) {
+        if (state && state.cancel) state.cancel();
+        state = { form: form, version: 0, pending: false, recordId: null, controls: null };
+        modal._wmsMasterEditor = state;
+        state.cancel = cancel;
+        modal.addEventListener('hide.bs.modal', cancel);
+        document.addEventListener('show.bs.modal', function(event) {
+            if (event.target && ['addModal', 'importModal'].includes(event.target.id)) cancel();
+        });
+        form.addEventListener('submit', function(event) {
+            if (state.pending && modal._wmsMasterEditor === state) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        }, true);
+    }
+    function restore() {
+        if (state.controls) {
+            state.controls.forEach(function(item) { item.node.disabled = item.disabled; });
+            state.controls = null;
+            if (state.ariaBusy === null) modal.removeAttribute('aria-busy');
+            else modal.setAttribute('aria-busy', state.ariaBusy);
+        }
+        state.pending = false;
+    }
+    function cancel() {
+        if (modal._wmsMasterEditor !== state) return;
+        state.version += 1;
+        state.recordId = null;
+        restore();
+    }
+    state.version += 1;
+    state.pending = true;
+    state.recordId = null;
+    var version = state.version;
+    if (!state.controls) {
+        state.ariaBusy = modal.getAttribute('aria-busy');
+        state.controls = Array.from(modal.querySelectorAll('input, select, textarea, button'))
+            .filter(function(node) { return node.getAttribute('data-bs-dismiss') !== 'modal'; })
+            .map(function(node) { return { node: node, disabled: node.disabled }; });
+        state.controls.forEach(function(item) { item.node.disabled = true; });
+        modal.setAttribute('aria-busy', 'true');
+    }
+    function current() {
+        return modal._wmsMasterEditor === state && state.version === version && modal.isConnected && form.isConnected &&
+            document.getElementById('editModal') === modal && document.getElementById('editForm') === form;
+    }
+    return WMS.api.getRaw('/' + kind + '/' + recordId).then(function(response) {
+        if (!current()) return false;
+        var record = response && response[kind];
+        if (!response || response.status !== 'success' || !record || typeof record !== 'object' || Array.isArray(record) ||
+                !['number', 'string'].includes(typeof record.id) || Number(record.id) !== recordId) {
+            throw new Error((response && response.msg) || '返回的记录无效，请重试');
+        }
+        restore();
+        state.recordId = String(recordId);
+        applyRecord(record);
+        return true;
+    }).catch(function(error) {
+        if (current()) {
+            restore();
+            state.recordId = null;
+            showToast('获取数据失败：' + ((error && error.message) || '请稍后重试'), 'danger', 3600);
+        }
+        return false;
+    }).finally(function() {
+        if (modal._wmsMasterEditor === state && state.version === version) restore();
+    });
+}
+
 // Toast 图标映射
 function getToastIcon(type) {
     const icons = {

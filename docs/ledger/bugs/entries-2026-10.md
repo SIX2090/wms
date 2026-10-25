@@ -2044,3 +2044,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：两处全局扫码监听各增加defaultPrevented提前返回；不再重复填价或安排聚焦。未消费扫码、候选选择和IME保护沿用原逻辑。生产需重启 WMS 服务生效。
 - 回归锁：20项真实页面注册的行级回调、handleKeydown/selectMaterial/fillMaterialFields及全局监听完整链路通过；涵盖候选开关、已有零价/手工价、正常扫码默认价、焦点定时器、IME与非Enter。旧码6 failed、14正对照passed；物理备份后checkout旧两模板再测仍6 failed/14 passed（真实单价断言），finally两产品按SHA256恢复，证据entry_keys/rollback-proof.json。
 - 最终验收：40个完整受影响及相邻模块720 passed、12项同基线警告，2产品/40测试/API及conftest哈希前后一致；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8及diff检查通过。证据entry_keys/final-evidence.json、quality.json、smoke.log。提交前再次核对同一5003a036远端基线最新三工作流全绿及Android复用证明（precommit_ci_alternative.json）。
+- 提交与CI：8401b99ca435cf2a67820a2c4e79bc618a72fac6实际正常push（5003a036..8401b99c main -> main），HEAD/origin/live main一致；WMS CI40181428730、AI40181428751精确匹配completed/success，Android40177478067成功且复用证明通过。证据entry_keys/target_ci.json及push.log；生产统一验收待执行。
+
+### BUG-2026-10-25-004: 基础资料编辑旧响应覆盖当前记录及物料图片串图
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：九个edit入口没有请求代次及弹窗生命周期校验。实际函数依次请求A/B，B先回填ID2后A迟到将ID改回1；关闭中的回包仍调用show。物料图片旧请求也可替换新记录的图片及删除ID，存在误改档案风险。
+- 同类点已排查：关联2026-10-24-005物料筛选及020合同/项目查询生命周期历史，既有搜索修复不覆盖编辑读取。当前customer/supplier/unit/contract/category/material/employee/warehouse/department九个实际编辑入口及物料图片读取全部纳入；已修保存传输、后端与权限不重做。
+- 开工门禁：实时main为8401b99ca435cf2a67820a2c4e79bc618a72fac6；WMS CI40181428730、AI40181428751精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（entry_keys/target_ci.json）。
+- 修前基线：27个完整受影响及相邻模块763 passed、107项既有skipped、20项既有警告。10产品/API/base/27测试共39输入从8d538943到当前均无Git差异且原始SHA256匹配，复用证明master_edit/baseline-reuse-003.json。真实api.js与九个编辑函数及图片乱序证据read-race-before.json；弹窗事件为隔离DOM/Bootstrap事件桩，不冒充真实浏览器验收。
+- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产档案、图片或库存。
+- 修复：app.js共享读取助手核对请求代次、当前DOM、响应记录ID及弹窗关闭/切换，统一GET HTTP/业务失败；禁用编辑控件但保留取消，九个保存入口同时拦截pending。物料图片及上传/删除回调绑定当前编辑上下文，切换详情清空旧File选择，旧回包不污染新物料。字段回填、日期控件和原权限/保存协议保持。生产需重启 WMS 服务生效。
+- 回归锁：188项实际helper/九编辑入口/API及图片场景通过，含旧请求先回不解新锁、关闭重开、新增导入、DOM替换、错ID/非法信封/HTTP失败、原disabled/取消/重试、旧上传删除回调及换单File清理。物理备份回退10产品后127 failed、61正对照passed；仅恢复新helper、撤九消费接线再测19项全部失败，两份日志ReferenceError均0。finally全部产品按SHA256恢复，证据master_edit/rollback-proof.json。
+- 完整模块：原27及新增共28模块943 passed、107既有skipped、20既有警告，40个产品/依赖/测试输入前后哈希稳定。物料GET移至共享helper，旧动态扫描少1表达式的8项传输参数例，由新188用例覆盖，原业务断言保留；四份既有夹具仅加载真实helper/新增DOM及更新3份外链字节快照。证据master_edit/final.log、final-evidence.json。
+- 真实浏览器验收：独立18080及内存库，真实单位页/原Bootstrap，实际点击A后B并延迟A；A回包后仍显示QA-B/QA单位B，关闭B后迟到A不重开。加载期间保存disabled且取消可用，切换新增后迟到A不打断新增弹窗。UI及截图证据master_edit/browser/ui-proof.json、after-race.png；请求除测试登录外全部GET，两测试单位保持不变。文件SQLite连接均被外部守卫在connect前拒绝，自有服务器与浏览器已关闭；未生产登录或改账号密码。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8/JS语法及diff检查通过。匿名CI查询HTTP403，经连接器重新核实8401b99c最新三工作流全绿及实时远端、Android复用证明，证据master_edit/precommit_ci_alternative.json；失败查询不冒充实际红灯或放行依据。

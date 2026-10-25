@@ -50,25 +50,19 @@ function submitAdd() {
 }
 
 function editDepartment(id) {
-    WMS.api.getRaw('/department/' + id)
-    .then(data => {
-        if (data.status === 'success') {
-            const d = data.department;
-            const form = document.getElementById('editForm');
-            form.querySelector('[name="id"]').value = d.id;
-            form.querySelector('[name="code"]').value = d.code;
-            form.querySelector('[name="name"]').value = d.name;
-            form.querySelector('[name="status"]').value = d.status;
-            form.querySelector('[name="remark"]').value = d.remark || '';
-            new bootstrap.Modal(document.getElementById('editModal')).show();
-        } else {
-            showToast(data.msg || '获取数据失败', 'danger', 3600);
-        }
-    })
-    .catch(err => showToast('获取数据失败：' + err.message, 'danger', 3600));
+    return loadWmsMasterEditor('department', id, function(d) {
+        const form = document.getElementById('editForm');
+        form.querySelector('[name="id"]').value = d.id;
+        form.querySelector('[name="code"]').value = d.code;
+        form.querySelector('[name="name"]').value = d.name;
+        form.querySelector('[name="status"]').value = d.status;
+        form.querySelector('[name="remark"]').value = d.remark || '';
+        new bootstrap.Modal(document.getElementById('editModal')).show();
+    });
 }
 
 function submitEdit() {
+    if (isWmsMasterEditPending()) return;
     const form = document.getElementById('editForm');
     const formData = new FormData(form);
     const id = formData.get('id');

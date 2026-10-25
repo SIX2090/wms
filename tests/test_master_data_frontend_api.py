@@ -8,6 +8,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from tests.test_master_editor_lifecycle_runtime import shared_helpers
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = "category customer department employee unit warehouse supplier".split()
@@ -26,9 +27,9 @@ def page_scripts(page):
 
 
 @pytest.mark.parametrize('page,digest', [
-    ('department', 'dea92120a8b20f64132141a1e258a65d9bf6db27e66fb6776e2bcc8bae984ad8'),
-    ('employee', 'a8dd15a487a45faef4191086596e055c285abbbb3b40b76b4f09d8e2d38d0b45'),
-    ('warehouse', '261ac6fcf8a44c05893e5531662cb55a5900de03d99515270b14d2e5a66b0f3c')])
+    ('department', '0e31466263ac1d8813e41c65c3f35d8fc73c7727fb88f69ef45b2568150b9c10'),
+    ('employee', 'fa7cd09d3bfc7ccd264a3889d3f533cb7631f55f00eff1b98fa48320e54f7b9d'),
+    ('warehouse', '61e97a7e5d65bf8918f015aae9a67dfb5d034b6fd345d1843d1126531efb9655')])
 def test_page_assets_preserve_script_and_load_once(page, digest):
     source = page_source(page)
     assert source.count(f"filename='js/pages/{page}.js'") == 1
@@ -84,6 +85,7 @@ def test_master_data_transport_runtime(page, action, scenario):
     app_source = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
     helper_start = app_source.index('function escapeHtml(')
     helper = app_source[helper_start:app_source.index('\n}', helper_start) + 2]
+    helper += '\n' + shared_helpers()
     payload = {"helper": helper, "page": page, "action": action, "scenario": scenario, "nodes": controls.nodes, "forms": controls.forms, "source": scripts, "api": (ROOT / "app/static/js/api.js").read_text(encoding="utf-8")}
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);

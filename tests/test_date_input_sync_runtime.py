@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.test_master_editor_lifecycle_runtime import shared_helpers
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -31,6 +32,7 @@ def sources():
     copy_start = material.index('window.copyMaterial = function(id) {')
     return {
         'helper': function(shared, 'setWmsDateInputValue') if 'function setWmsDateInputValue(' in shared else '',
+        'master_helper': shared_helpers(),
         'reset': material[reset_start:reset_end],
         'edit': material[edit_start:material.index('// 编辑物料 - 加载物料档案图片', edit_start)],
         'copy': material[copy_start:material.index('window.findMaterialImage =', copy_start)],
@@ -47,8 +49,8 @@ PROGRAM = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');
 const p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 const nodes={},events={},calls=[],timers=[];let fixtureDate=p.value,fixtureDraft;
-function node(id){return nodes[id]??=( {id,value:'',defaultValue:'',type:'text',disabled:false,
- setAttribute(){},classList:{add(){},remove(){}},addEventListener(n,f){events[id+':'+n]=f;},
+function node(id){return nodes[id]??=( {id,value:'',defaultValue:'',type:'text',disabled:false,isConnected:true,
+ setAttribute(){},getAttribute(){return null;},removeAttribute(){},querySelectorAll(){return [];},classList:{add(){},remove(){}},addEventListener(n,f){events[id+':'+n]=f;},
  reset(){for(const x of Object.values(nodes))if(x.form===id){x.value=x.defaultValue;x.alt.value=x.alt.defaultValue;}}} );}
 const chinese=v=>v?v.replace(/(\d{4})-(\d{2})-(\d{2})/,'$1年$2月$3日'):'';
 function date(id,form){const x=node(id);x.form=form;x.type='hidden';x.alt={value:'',defaultValue:''};
@@ -57,7 +59,7 @@ function date(id,form){const x=node(id);x.form=form;x.type='hidden';x.alt={value
  return x;}
 for(const[id,form]of [['add_expiry_date','addForm'],['edit_expiry_date','editForm'],['headerDocDate','headForm'],['pasteDocDate','pasteForm'],['time_start','filterForm'],['time_end','filterForm']])date(id,form);
 const boot={Modal:class{show(){}hide(){}}};boot.Modal.getInstance=()=>new boot.Modal();boot.Modal.getOrCreateInstance=()=>new boot.Modal();
-const ctx={console,document:{getElementById:node},bootstrap:boot,WMS:{api:{getRaw:()=>Promise.resolve({status:'success',material:{id:1,code:'M1',name:'物料',expiry_date:fixtureDate}}),post:()=>Promise.resolve({material:{id:1,expiry_date:fixtureDate}})}},
+const ctx={console,document:{getElementById:node,addEventListener(){}},bootstrap:boot,WMS:{api:{getRaw:()=>Promise.resolve({status:'success',material:{id:1,code:'M1',name:'物料',expiry_date:fixtureDate}}),post:()=>Promise.resolve({material:{id:1,expiry_date:fixtureDate}})}},
  setTimeout:fn=>timers.push(fn),setQuickSelectValue(){},loadEditMaterialImages(){},showToast(){},
  readDraft:()=>fixtureDraft,hideDraftBanner(){},syncSelectedFlags(){},renderRows(){},invalidatePasteLookup(){},
  loadSnapshot(){ctx.lastFilters=ctx.getFilters();},draftRestoring:false,rows:[],selectedFlags:[],addForm:node('addForm')};

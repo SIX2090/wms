@@ -9,6 +9,7 @@ import subprocess
 import pytest
 
 from tests.test_frontend_remaining_page_transport import callback
+from tests.test_master_editor_lifecycle_runtime import shared_helpers
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIONS = ['contract_import', 'contract_add', 'contract_edit', 'contract_delete', 'contract_batch', 'req_revert', 'req_delete', 'req_complete']
@@ -32,7 +33,7 @@ def test_contract_requisition_actions_preserve_payload_notifications_and_continu
     handler, name = action_source(action)
     app = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
     escape = re.search(r'function escapeHtml\(value\) \{.*?\n\}', app, re.S).group()
-    helpers = callback('contract', 'function notifyMasterDataChanged(') + '\n' + callback('requisition', 'function urlWithId(') + '\n' + callback('requisition', 'function buildRequisitionContinueUrl(')
+    helpers = shared_helpers() + '\n' + callback('contract', 'function notifyMasterDataChanged(') + '\n' + callback('requisition', 'function urlWithId(') + '\n' + callback('requisition', 'function buildRequisitionContinueUrl(')
     program = r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 let sent=[],messages=[],timers=[],reloads=0,channels=[],closed=0,confirms=0;let scenario=p.scenario;

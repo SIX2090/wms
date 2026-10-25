@@ -1815,53 +1815,72 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 编辑物料 - 打开编辑弹窗
     window.editMaterial = function(id) {
-        WMS.api.getRaw('/material/' + id)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    var mat = res.material;
-                    document.getElementById('edit_id').value = mat.id;
-                    document.getElementById('edit_code').value = mat.code;
-                    document.getElementById('edit_code').setAttribute('data-original', mat.code);
-                    document.getElementById('edit_name').value = mat.name;
-                    document.getElementById('edit_name').setAttribute('data-original', mat.name);
-                    setQuickSelectValue('edit_category_id', mat.category_id || '');
-                    setQuickSelectValue('edit_unit_id', mat.unit_id || '');
-                    setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
-                    document.getElementById('edit_spec').value = mat.spec || '';
-                    document.getElementById('edit_brand').value = mat.brand || '';
-                    document.getElementById('edit_purpose').value = mat.purpose || '';
-                    document.getElementById('edit_price').value = mat.price || 0;
-                    setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
-                    setInputValueIfExists('edit_max_stock', mat.max_stock || 0);
-                    setInputValueIfExists('edit_reorder_point', mat.reorder_point || 0);
-                    setWmsDateInputValue(document.getElementById('edit_expiry_date'), mat.expiry_date || '');
-                    setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
-                    setInputValueIfExists('edit_remark', mat.remark || '');
-                    
-                    // 统一多图：加载物料档案图片（手机/电脑共用 MaterialImage 表）
-                    loadEditMaterialImages(mat.id);
-                    
-                    // 显示编辑弹窗
-                    var editModal = new bootstrap.Modal(document.getElementById('editModal'));
-                    editModal.show();
-                } else {
-                    showToast(res.msg || '获取数据失败', 'danger', 3600);
-                }
-            })
-            .catch(function(err){ showToast('获取数据失败：' + err.message, 'danger', 3600); });
+        return loadWmsMasterEditor('material', id, function(mat) {
+            document.getElementById('edit_id').value = mat.id;
+            document.getElementById('edit_code').value = mat.code;
+            document.getElementById('edit_code').setAttribute('data-original', mat.code);
+            document.getElementById('edit_name').value = mat.name;
+            document.getElementById('edit_name').setAttribute('data-original', mat.name);
+            setQuickSelectValue('edit_category_id', mat.category_id || '');
+            setQuickSelectValue('edit_unit_id', mat.unit_id || '');
+            setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
+            document.getElementById('edit_spec').value = mat.spec || '';
+            document.getElementById('edit_brand').value = mat.brand || '';
+            document.getElementById('edit_purpose').value = mat.purpose || '';
+            document.getElementById('edit_price').value = mat.price || 0;
+            setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
+            setInputValueIfExists('edit_max_stock', mat.max_stock || 0);
+            setInputValueIfExists('edit_reorder_point', mat.reorder_point || 0);
+            setWmsDateInputValue(document.getElementById('edit_expiry_date'), mat.expiry_date || '');
+            setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
+            setInputValueIfExists('edit_remark', mat.remark || '');
+            var imageInput = document.getElementById('edit_image_upload');
+            if (imageInput) imageInput.value = '';
+
+            // 统一多图：加载物料档案图片（手机/电脑共用 MaterialImage 表）
+            loadEditMaterialImages(mat.id);
+
+            // 显示编辑弹窗
+            var editModal = new bootstrap.Modal(document.getElementById('editModal'));
+            editModal.show();
+        });
+    };
+
+    window.getEditMaterialContext = function(id) {
+        var modal = document.getElementById('editModal');
+        var input = document.getElementById('edit_id');
+        var state = modal && modal._wmsMasterEditor;
+        var version = state && state.version;
+        function current() {
+            return !!(state && !state.pending && state.recordId === String(id) && state.version === version &&
+                modal._wmsMasterEditor === state && modal.isConnected && input && input.isConnected &&
+                document.getElementById('editModal') === modal && document.getElementById('edit_id') === input &&
+                String(input.value) === String(id));
+        }
+        return current() ? { isCurrent: current } : null;
     };
 
     // 编辑物料 - 加载物料档案图片（手机/电脑统一的多图）
     window.loadEditMaterialImages = function(id) {
-        WMS.api.getRaw('/mobile/api/material_archive/' + id + '/images')
+        var context = getEditMaterialContext(id);
+        var grid = document.getElementById('editMaterialImageGrid');
+        if (!context || !grid || !grid.isConnected) return;
+        var version = (loadEditMaterialImages.version || 0) + 1;
+        loadEditMaterialImages.version = version;
+        function current() {
+            return context.isCurrent() && loadEditMaterialImages.version === version && grid.isConnected &&
+                document.getElementById('editMaterialImageGrid') === grid;
+        }
+        grid.textContent = '图片加载中…';
+        return WMS.api.getRaw('/mobile/api/material_archive/' + id + '/images')
             .then(function(res) {
-                var grid = document.getElementById('editMaterialImageGrid');
-                if (!grid) return;
-                if (res.status !== 'success') {
+                if (!current()) return;
+                if (!res || res.status !== 'success') {
                     grid.innerHTML = '<div class="text-muted small">图片加载失败</div>';
                     return;
                 }
                 var images = (res.data && res.data.images) || [];
+                if (!Array.isArray(images)) throw new Error('返回的图片数据无效，请重试');
                 if (!images.length) {
                     grid.innerHTML = '<div class="text-muted small">暂无图片</div>';
                     return;
@@ -1878,39 +1897,46 @@ document.addEventListener('DOMContentLoaded', function() {
                 grid.innerHTML = html;
             })
             .catch(function(err){
-                var grid = document.getElementById('editMaterialImageGrid');
-                if (grid) grid.textContent = '图片加载失败：' + err.message;
+                if (current()) grid.textContent = '图片加载失败：' + err.message;
             });
     };
 
     // 编辑物料 - 删除一张档案图片
     window.deleteEditMaterialImage = function(imageId) {
+        if (isWmsMasterEditPending()) return;
         if (!confirm('确定删除这张物料图片吗？')) return;
         var editId = document.getElementById('edit_id').value;
+        var context = getEditMaterialContext(editId);
+        if (!context) return;
         WMS.api.delete('/mobile/api/material_archive/images/' + imageId)
             .then(function(res) {
+                if (!context.isCurrent()) return;
                 showToast('图片已删除', 'success', 2000);
                 loadEditMaterialImages(editId);
             })
-            .catch(function(err){ showToast((err && (err.msg || err.message)) || '删除失败', 'danger', 3600); });
+            .catch(function(err){ if (context.isCurrent()) showToast((err && (err.msg || err.message)) || '删除失败', 'danger', 3600); });
     };
 
     // 编辑物料 - 上传一张档案图片（即时上传，调用移动端统一 upload 接口）
     window.uploadEditMaterialImage = function(input) {
         if (!input || !input.files || !input.files.length) return;
+        if (isWmsMasterEditPending()) return;
         var editId = document.getElementById('edit_id').value;
         if (!editId) { showToast('请先选择要编辑的物料', 'danger'); input.value = ''; return; }
+        var context = getEditMaterialContext(editId);
+        if (!context) return;
         var file = input.files[0];
         var formData = new FormData();
         formData.append('image', file);
         showToast('正在上传图片...', 'info', 1500);
         WMS.api.post('/mobile/api/material_archive/' + editId + '/images', formData)
             .then(function() {
+                if (!context.isCurrent()) return;
                 showToast('图片已上传', 'success', 2000);
                 input.value = '';
                 loadEditMaterialImages(editId);
             })
-            .catch(function(err){ showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; });
+            .catch(function(err){ if (context.isCurrent()) { showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; } });
     };
 
     window.copyMaterial = function(id) {
@@ -2051,6 +2077,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (editForm) {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            if (isWmsMasterEditPending()) return;
             commitQuickSelects(this);
             var formData = new FormData(this);
             var id = document.getElementById('edit_id').value;

@@ -285,31 +285,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 编辑分类
     window.editCategory = function(id) {
-        WMS.api.getRaw('/category/' + id)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    var cat = res.category;
-                    document.getElementById('editId').value = cat.id;
-                    document.getElementById('editCode').value = cat.code;
-                    document.getElementById('editName').value = cat.name;
-                    var parentSelect = document.getElementById('editParentId');
-                    parentSelect.value = cat.parent_id || '';
-                    Array.from(parentSelect.options).forEach(function(option) {
-                        option.disabled = option.value === String(cat.id);
-                    });
-                    var editModal = new bootstrap.Modal(document.getElementById('editModal'));
-                    editModal.show();
-                } else {
-                    showToast(res.msg, 'danger');
-                }
-            })
-            .catch(function(err){ showToast('获取数据失败: ' + err.message, 'danger'); });
+        return loadWmsMasterEditor('category', id, function(cat) {
+            document.getElementById('editId').value = cat.id;
+            document.getElementById('editCode').value = cat.code;
+            document.getElementById('editName').value = cat.name;
+            var parentSelect = document.getElementById('editParentId');
+            parentSelect.value = cat.parent_id || '';
+            Array.from(parentSelect.options).forEach(function(option) {
+                option.disabled = option.value === String(cat.id);
+            });
+            var editModal = new bootstrap.Modal(document.getElementById('editModal'));
+            editModal.show();
+        });
     };
 
     var editForm = document.getElementById('editForm');
     if (editForm) {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            if (isWmsMasterEditPending()) return;
             var id = document.getElementById('editId').value;
             var formData = new FormData(this);
             WMS.api.postRaw('/category/edit/' + id, formData)
