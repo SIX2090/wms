@@ -491,6 +491,7 @@
 | BUG-2026-10-25-005 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-006 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-007 | bugs | entries-2026-10.md |
+| BUG-2026-10-25-008 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

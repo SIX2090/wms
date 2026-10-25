@@ -2102,3 +2102,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：18项真实Jinja、完整批量页脚本/api.js/DOM、隔离GET及真实xlsx下载用例通过，覆盖0/0.0/Decimal0/字符串0/None/空串及正价，GET前后价格保持。物理备份并回退三产品后8 failed、10正对照passed，finally字节恢复及三SHA256一致；非缺helper反证。证据label_zero/physical-rollback-proof.json和new-green.log，既有测试断言保持。
 - 完整模块：原14及新增模块共193 passed，42项警告（基线40及新GET用例2项），29项产品/API/base/测试输入原始哈希前后一致。证据label_zero/final-result.json及final.log；实际HTTP请求仅为隔离Flask test_client GET，xlsx来自外部临时模板，不调用真实打印。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff检查通过；测试进程保留外部SQLite连接前守卫。连接器重新核实同一42c74d2d基线最新三工作流、实时远端及Android复用证明通过，证据label_zero/quality.json及precommit_ci_alternative.json。
+- 提交与CI：1ac42357f10999c96257d064ff7d116205364498实际正常push（42c74d2d..1ac42357 main -> main），HEAD/origin/live main一致；WMS CI40186882115、AI40186882046精确匹配completed/success，Android40177478067成功且复用证明通过（label_zero/target_ci.json）。生产统一验收待执行。
+
+### BUG-2026-10-25-008: 公共删除入口重复确认提交及HTTP错误误报成功
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：batchDelete、deleteItem、deleteCurrent缺确认/请求/导航期间共享互斥，重复或跨入口可发多次POST；公共JSON及逐个详情fallback仅读取JSON，HTTP500携success正文也被计作成功并刷新或跳转。
+- 同类点已排查：关联已修公共bindListActions、保存/导入及单据动作锁历史；核三个实际外层入口、postJsonForAction与postDetailDeletes内部transport。员工/采购申请/合同等局部同名函数不伪计为共享消费点，原人工确认、后台权限和已接受单人删除设计保持。
+- 开工门禁：实时main1ac42357f10999c96257d064ff7d116205364498；WMS CI40186882115、AI40186882046精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（label_zero/target_ci.json）。
+- 修前基线：12个完整受影响及相邻模块766 passed、21项既有skipped、64项既有警告；外部SQLite连接前守卫环境重跑，46输入前后哈希一致。007三标签产品变更未触及这46输入，guard-baseline-reuse-after007.json核对目标1ac42357仍全部匹配。证据common_delete/guard-baseline-*与before-probe.cjs。
+- 生效确认：待本地回归、目标CI及统一生产验收。删除请求只在隔离桩中执行，不操作生产单据或档案。
+- 修复：三个同页外层入口共享确认/请求/成功导航等待锁，内部transport不重复拿锁；先固定ID、URL及原列表目标。采用WMS.api.postRaw并检查结果信封，逐个详情保留无body POST及部分失败统计；原native/异步确认、600/650ms导航保持。取消/失败可人工重试，已删除成功但刷新跳转异常时明确提示已完成并手动核对，不误报删除失败。
+- 回归锁：96项执行真实公共函数、base fetch拦截/CSRF和api.js的运行用例通过；401/419原会话提示明确取消并验证仅一次，不禁止正常登录机制。以同一最新夹具物理回退app.js为43 failed/53正对照passed，finally恢复且SHA256一致（common_delete/physical-rollback.json）。涵盖跨入口锁、确认等待、快照、HTTP/业务/非法JSON、无body协议、partial、失败重试及导航反馈，非缺helper反证。
+- 完整模块：原12及新增模块共862 passed、21项既有skipped、64项既有警告，47项产品/依赖/测试原始哈希前后一致。Node语法及diff通过，旧测试/断言保持；证据common_delete/final-full.log及final-after.json。Python验证仅在外部QA bootstrap、固定非秘密测试凭据、外部上传/日志/备份及SQLite连接前守卫下运行。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。连接器再次核实同一1ac42357基线最新三工作流、实时远端及Android复用证明通过，证据common_delete/quality.json及precommit_ci_alternative.json。

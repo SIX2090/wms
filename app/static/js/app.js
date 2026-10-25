@@ -1612,6 +1612,39 @@ function initCheckAll(tableId) {
 }
 
 // 批量删除
+// A frame's single, batch and toolbar deletion entries share the entire user action.
+function runWmsDeleteAction(action, failureMessage) {
+    if (runWmsDeleteAction.pending) return Promise.resolve(false);
+    runWmsDeleteAction.pending = true;
+    var navigating = false;
+    function report(error) {
+        var message = error && error.name === 'SyntaxError'
+            ? '服务器返回的删除结果无效，请刷新核对后重试'
+            : (error && typeof error.message === 'string' && error.message) || '请刷新核对后重试';
+        showToast(failureMessage + '：' + message, 'danger', 3600);
+    }
+    function navigate(callback, delay) {
+        navigating = true;
+        function go() {
+            try {
+                callback();
+            } catch (error) {
+                navigating = false;
+                runWmsDeleteAction.pending = false;
+                showToast('删除已完成，但页面刷新/跳转失败，请手动刷新核对', 'danger', 3600);
+            }
+        }
+        if (delay) setTimeout(go, delay);
+        else go();
+    }
+    return Promise.resolve().then(function() {
+        return action(navigate);
+    }).catch(report).finally(function() {
+        // A successful action stays locked while the browser starts its navigation.
+        if (!navigating) runWmsDeleteAction.pending = false;
+    });
+}
+
 function batchDelete(url, tableId) {
     var checkedItems = document.querySelectorAll('#' + tableId + ' .check-item:checked');
     if (checkedItems.length === 0) {
@@ -1623,33 +1656,17 @@ function batchDelete(url, tableId) {
         }
         return;
     }
-    if (!confirm('确定要删除选中的 ' + checkedItems.length + ' 项吗？')) return;
-
     var ids = Array.from(checkedItems).map(function(item) { return item.value; });
-    csrfFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: ids })
-    })
-    .then(function(response) { return response.json(); })
-    .then(function(res) {
-        if (res.status === 'success') {
-            location.reload();
-        } else {
-            if (typeof window.showToast === 'function') {
-                window.showToast(res.msg || '操作失败', 'danger');
+    return runWmsDeleteAction(function(navigate) {
+        if (!confirm('确定要删除选中的 ' + ids.length + ' 项吗？')) return;
+        return postJsonForAction(url, { ids: ids }).then(function(res) {
+            if (res.status === 'success') {
+                navigate(function() { location.reload(); });
             } else {
-                alert(res.msg || '操作失败'); // allow-alert: 极端 fallback
+                showToast(res.msg || '操作失败', 'danger');
             }
-        }
-    })
-    .catch(function(error) {
-        if (typeof window.showToast === 'function') {
-            window.showToast('操作失败：' + error.message, 'danger');
-        } else {
-            alert('操作失败：' + error.message); // allow-alert: 极端 fallback
-        }
-    });
+        });
+    }, '操作失败');
 }
 
 function setupSortableHeaders() {
@@ -1673,25 +1690,17 @@ function setupSortableHeaders() {
 
 // 单个删除
 async function deleteItem(url, id) {
-    const confirmed = await showConfirm('确定要删除吗？', { title: '删除确认' });
-    if (!confirmed) return;
-    csrfFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [id] })
-    })
-    .then(function(response) { return response.json(); })
-    .then(function(res) {
+    return runWmsDeleteAction(async function(navigate) {
+        const confirmed = await showConfirm('确定要删除吗？', { title: '删除确认' });
+        if (!confirmed) return;
+        const res = await postJsonForAction(url, { ids: [id] });
         if (res.status === 'success') {
             showToast(res.msg || '删除成功', 'success');
-            setTimeout(function() { location.reload(); }, 600);
+            navigate(function() { location.reload(); }, 600);
         } else {
             showToast(res.msg || '删除失败', 'danger', 3600);
         }
-    })
-    .catch(function(error) {
-        showToast('删除失败：' + error.message, 'danger', 3600);
-    });
+    }, '删除失败');
 }
 
 const WMS_ACTION_MODULES = {
@@ -2167,18 +2176,27 @@ function getSelectedIds(module) {
 }
 
 function postJsonForAction(url, body) {
-    return csrfFetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body || {})
-    }).then(function(r) { return r.json(); });
+    return WMS.api.postRaw(url, body || {}).then(validateWmsDeleteResult);
+}
+
+function validateWmsDeleteResult(result) {
+    if (!result || typeof result !== 'object' || Array.isArray(result) || typeof result.status !== 'string') {
+        throw new Error('服务器返回的删除结果无效，请刷新核对后重试');
+    }
+    return result;
 }
 
 function postDetailDeletes(module, ids) {
     return Promise.all(ids.map(function(id) {
-        return csrfFetch(buildModuleUrl(module.detailDeleteUrl, id), { method: 'POST' })
-            .then(function(r) { return r.json(); })
-            .catch(function(err) { return { status: 'error', msg: err.message }; });
+        return Promise.resolve().then(function() {
+            return WMS.api.postRaw(buildModuleUrl(module.detailDeleteUrl, id));
+        }).then(validateWmsDeleteResult)
+            .catch(function(err) {
+                var message = err && err.name === 'SyntaxError'
+                    ? '服务器返回的删除结果无效，请刷新核对后重试'
+                    : (err && err.message) || '请刷新核对后重试';
+                return { status: 'error', msg: message };
+            });
     })).then(function(results) {
         var success = results.filter(function(item) { return item.status === 'success'; }).length;
         var failed = results.filter(function(item) { return item.status !== 'success'; });
@@ -2206,21 +2224,24 @@ async function deleteCurrent(module) {
         showToast('请选择要删除的记录', 'warning');
         return;
     }
-    var confirmed = await showConfirm('确定删除选中的 ' + ids.length + ' 条记录吗？', { title: '删除确认' });
-    if (!confirmed) return;
-    var deleteRequest = module.deleteUrl
-        ? postJsonForAction(module.deleteUrl, { ids: ids })
-        : postDetailDeletes(module, ids);
-    deleteRequest
-    .then(function(res) {
+    // Preserve the exact confirmed target even if the page changes its selection/module.
+    var target = { deleteUrl: module.deleteUrl, detailDeleteUrl: module.detailDeleteUrl };
+    var listUrl = module.listUrl || window.location.pathname;
+    return runWmsDeleteAction(async function(navigate) {
+        var confirmed = await showConfirm('确定删除选中的 ' + ids.length + ' 条记录吗？', { title: '删除确认' });
+        if (!confirmed) return;
+        // The local snapshot keeps the original helper protocol and selected IDs.
+        var module = target;
+        var res = await (module.deleteUrl
+            ? postJsonForAction(module.deleteUrl, { ids: ids })
+            : postDetailDeletes(module, ids));
         if (res.status === 'success' || res.status === 'partial') {
             showToast(res.msg || '删除成功', 'success');
-            setTimeout(function() { window.location.href = module.listUrl || window.location.pathname; }, 650);
+            navigate(function() { window.location.href = listUrl; }, 650);
         } else {
             showToast(res.msg || '删除失败', 'danger', 3600);
         }
-    })
-    .catch(function(err) { showToast('删除失败：' + err.message, 'danger', 3600); });
+    }, '删除失败');
 }
 
 function printCurrent(module) {
