@@ -525,9 +525,12 @@ function renderTable(columns, rows) {
     currentRows = rows;
 
     tableHeaderRow.innerHTML = '';
-    columns.forEach((column) => {
+    columns.forEach((column, index) => {
         const th = document.createElement('th');
         th.dataset.columnKey = column.field;
+        // BUG-2026-10-25-009: saved report preferences must not become schema defaults.
+        th.dataset.wmsDefaultColumnIndex = String(index);
+        th.dataset.defaultLabel = column.title;
         th.className = 'sortable-header';
         th.innerHTML = `${escapeHtml(column.title)} <span class="sort-marker">${currentSortField === column.field ? (currentSortOrder === 'asc' ? '↑' : '↓') : ''}</span>`;
         th.addEventListener('click', () => {

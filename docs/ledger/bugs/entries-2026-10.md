@@ -2116,3 +2116,19 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：96项执行真实公共函数、base fetch拦截/CSRF和api.js的运行用例通过；401/419原会话提示明确取消并验证仅一次，不禁止正常登录机制。以同一最新夹具物理回退app.js为43 failed/53正对照passed，finally恢复且SHA256一致（common_delete/physical-rollback.json）。涵盖跨入口锁、确认等待、快照、HTTP/业务/非法JSON、无body协议、partial、失败重试及导航反馈，非缺helper反证。
 - 完整模块：原12及新增模块共862 passed、21项既有skipped、64项既有警告，47项产品/依赖/测试原始哈希前后一致。Node语法及diff通过，旧测试/断言保持；证据common_delete/final-full.log及final-after.json。Python验证仅在外部QA bootstrap、固定非秘密测试凭据、外部上传/日志/备份及SQLite连接前守卫下运行。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。连接器再次核实同一1ac42357基线最新三工作流、实时远端及Android复用证明通过，证据common_delete/quality.json及precommit_ci_alternative.json。
+- 提交与CI：eb8970caf09ab31a600e4ca5a5abd83e65080d79实际push（1ac42357..eb8970ca main -> main），HEAD/origin/live main一致；WMS CI40188390232、AI40188390220精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（common_delete/target_ci.json，连接器分页1–2读取最近记录）。pre-push匿名403，经同一基线最新运行替代证据重新核实后，仅该次WMS_SKIP_CI_GATE=1重推且finally清除，push.log/push-retry.log/push_ci_alternative.json保留。生产统一验收待执行。
+
+### BUG-2026-10-25-009: 栏目恢复默认取消仍生效及多控制器默认顺序被偏好污染
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：公共reset立即删除存储并applyState，随后取消/Esc/遮罩也丢偏好；columnsOf按已重排列顺序捕获默认，报表applyReportFieldSettings还会先改列名。公共先初始化时污染动态控制器defaultOrder；动态先初始化且无独立orderKey时又忽略公共已存顺序。仅修reset按钮两行不能闭环。
+- 同类点已排查：关联checkbox标签、公共栏目观察器与动态拖拽顺序历史；核公共IIFE、报表动态表头、真实dynamic控制器及入/出库/采购/售后/调整/销售不同初始化顺序。保留observer跳过动态重排边界，复用原setOrder，不重写拖拽算法或扩大列宽/标签含义。
+- 开工门禁：实时main eb8970caf09ab31a600e4ca5a5abd83e65080d79；WMS CI40188390232、AI40188390220精确匹配success，Android40177478067成功且复用证明通过（common_delete/target_ci.json）。
+- 修前基线：35个完整受影响及相邻模块848 passed、77项既有警告，产品/依赖/测试及三个QA守卫前后哈希稳定，目标eb8970ca一致。证据field_reset/baseline/result.json；真实IIFE、报表及动态链探针、DESIGN_FROZEN.json记录同根因边界。
+- 浏览器修前证据：真实公共IIFE和报表函数夹具，经实际UI更名备注并置顶保存；reset/cancel丢名称且saved=null，reset/OK仍备注首列。field_reset/browser-before-cancel和browser-before-confirm的JSON/PNG；仅静态隔离数据，无业务请求，自有页面及18081服务已结束。
+- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。仅浏览器偏好逻辑，不操作生产记录。
+- 修复：首次接触表头时保留不可变默认位置/名称，报表生成表头也显式提供原始元数据；分离动态真实defaults与有效初始序，有效own key优先，缺失时只读公共偏好或当前DOM。公共reset只改草稿，取消/Esc/遮罩不存储、不应用；OK仅有明确reset/move意图才调用原setOrder并保宽，只改名/显隐不覆盖拖拽序。原生动态reset则显式保存真实默认own order、仍清原width，使重载不复活旧common偏好；observer仍跳过动态重排。生产需重启 WMS 服务生效。
+- 回归锁：43项运行回归执行真实公共IIFE、动态控制器及报表函数，覆盖两种初始化顺序、own/common优先、取消/确定、native reset及重载、宽度字节保持/原生清宽、名称/显隐、观察器新行和新列兼容。物理备份并回退两产品后35 failed/8正对照passed，finally两SHA256恢复一致，证据field_reset/rollback/proof.json。无旧测试或断言修改。
+- 完整模块：原35及新增模块共891 passed、77项既有警告，证据field_reset/final/pytest.log及前后哈希清单。Python仅用外部QA runtime/上传/备份/日志、固定测试凭据及生产SQLite连接前守卫。
+- 浏览器修后验收：同一真实公共组件/报表函数夹具，以实际UI预置自定义备注首列；reset/cancel后的DOM和可见已存JSON逐字节保持，reset/OK恢复日期首列/备注末列及原名称，reload结果相同。browser-proof.json、browser-after-cancel/confirm的JSON/PNG与最终两产品manifest匹配；仅静态GET，页面/18081服务已关闭，未读写生产浏览器偏好或业务数据。
+- 提交前验收：51项最终输入原始哈希前后稳定，FROZEN_FINAL.json及浏览器manifest匹配；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff通过。同一eb8970ca基线最新三工作流、实时远端及Android复用证明再次核实，证据field_reset/quality.json及precommit_ci_alternative.json。

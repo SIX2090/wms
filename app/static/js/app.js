@@ -721,6 +721,24 @@ window.WmsRefreshDropdowns = function(selectors) {
     }));
 };
 
+// BUG-2026-10-25-009: retain schema defaults before any saved order/name is applied.
+function rememberWmsColumnDefaults(table, headers) {
+    var nextIndex = headers.reduce(function(next, th) {
+        var value = th.dataset.wmsDefaultColumnIndex;
+        var index = Number(value);
+        return value !== undefined && value !== '' && Number.isInteger(index) && index >= 0 ? Math.max(next, index + 1) : next;
+    }, 0);
+    headers.forEach(function(th) {
+        var value = th.dataset.wmsDefaultColumnIndex;
+        if (value === undefined || value === '' || !Number.isInteger(Number(value)) || Number(value) < 0) {
+            th.dataset.wmsDefaultColumnIndex = String(nextIndex++);
+        }
+        if (th.dataset.defaultLabel === undefined) {
+            th.dataset.defaultLabel = Array.from(th.childNodes).filter(function(node) { return node.nodeType === 3; }).map(function(node) { return node.textContent; }).join('').trim();
+        }
+    });
+}
+
 // 可调整表格
 function setupResizableTable(config) {
     config = config || {};
@@ -754,6 +772,7 @@ function setupResizableTable(config) {
         th.dataset.columnKey = key;
         return { index: index, key: key, th: th, excluded: excludedColumns.has(key) };
     });
+    rememberWmsColumnDefaults(table, headerCells);
 
     const getColumnMinWidth = function(column) {
         const th = column && column.th;
@@ -1013,11 +1032,15 @@ function setupDynamicDetailColumnControls(config) {
     const lockedColumns = new Set(config.lockedColumns || []);
     const minWidths = config.minWidths || {};
     const defaultHeaderCells = Array.from(headerRow.children);
-    const defaultOrder = defaultHeaderCells.map(function(cell, index) {
+    const initialOrder = defaultHeaderCells.map(function(cell, index) {
         const key = cell.dataset.columnKey || 'column_' + index;
         cell.dataset.columnKey = key;
         return key;
     });
+    rememberWmsColumnDefaults(table, defaultHeaderCells);
+    const defaultOrder = defaultHeaderCells.slice().sort(function(a, b) {
+        return Number(a.dataset.wmsDefaultColumnIndex) - Number(b.dataset.wmsDefaultColumnIndex);
+    }).map(function(cell) { return cell.dataset.columnKey; });
     const initialWidths = {};
     defaultHeaderCells.forEach(function(cell) {
         initialWidths[cell.dataset.columnKey] = cell.style.width || '';
@@ -1031,6 +1054,11 @@ function setupDynamicDetailColumnControls(config) {
             return fallback;
         }
     };
+
+    // The page controller may initialize before or after the shared field dialog.
+    // Keep existing shared preferences when there is no independent drag order.
+    const sharedState = readJson('wms:field-settings:v3:' + window.location.pathname + ':' + (table.id || 'document-grid'), null);
+    const fallbackOrder = sharedState && Array.isArray(sharedState.order) ? sharedState.order : initialOrder;
 
     const getMinWidth = function(cellOrKey) {
         const key = typeof cellOrKey === 'string' ? cellOrKey : (cellOrKey && cellOrKey.dataset.columnKey);
@@ -1059,6 +1087,11 @@ function setupDynamicDetailColumnControls(config) {
         return defaultOrder.map(function(key) {
             return lockedColumns.has(key) ? key : movableQueue.shift();
         }).filter(Boolean);
+    };
+
+    const readOrder = function() {
+        const saved = readJson(orderKey, null);
+        return normalizeOrder(Array.isArray(saved) ? saved : fallbackOrder);
     };
 
     const getCurrentOrder = function() {
@@ -1135,7 +1168,7 @@ function setupDynamicDetailColumnControls(config) {
     };
 
     const applyOrder = function() {
-        const savedOrder = normalizeOrder(readJson(orderKey, defaultOrder));
+        const savedOrder = readOrder();
         reorderRow(headerRow, savedOrder);
         table.querySelectorAll('tbody tr, tfoot tr').forEach(function(row) {
             reorderRow(row, savedOrder);
@@ -1278,7 +1311,7 @@ function setupDynamicDetailColumnControls(config) {
     const tbody = table.querySelector('tbody');
     if (tbody && typeof MutationObserver === 'function') {
         const observer = new MutationObserver(function(mutations) {
-            const currentOrder = normalizeOrder(readJson(orderKey, defaultOrder));
+            const currentOrder = readOrder();
             mutations.forEach(function(mutation) {
                 if (mutation.type !== 'childList') return;
                 mutation.addedNodes.forEach(function(node) {
@@ -1296,7 +1329,7 @@ function setupDynamicDetailColumnControls(config) {
         observer.observe(tbody, { childList: true, subtree: true });
     }
 
-    return {
+    const controller = {
         applyOrder: applyOrder,
         applyWidths: applyWidths,
         setOrder: function(order) {
@@ -1304,11 +1337,14 @@ function setupDynamicDetailColumnControls(config) {
             applyOrder();
         },
         reset: function() {
-            localStorage.removeItem(orderKey);
+            // Persist explicit defaults so a reload cannot revive an older shared order.
+            saveOrder(defaultOrder);
             localStorage.removeItem(widthKey);
             applyOrder();
         }
     };
+    table._wmsDetailColumnController = controller;
+    return controller;
 }
 
 function autoSetupResizableTables() {
@@ -3824,6 +3860,7 @@ function getRecentVisits() {
 
     function columnsOf(table) {
         var headers = Array.from(table.querySelectorAll('thead th[data-column-key]'));
+        rememberWmsColumnDefaults(table, headers);
         return headers.map(function(th, index) {
             var key = th.dataset.columnKey;
             // BUG-2026-07-28-006 修复：checkbox 列（仅含 <input type="checkbox"> 无文本节点）
@@ -3835,8 +3872,8 @@ function getRecentVisits() {
             var rawText = Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim();
             var label = th.dataset.defaultLabel || rawText || (hasOnlyCheckbox ? '' : key);
             th.dataset.defaultLabel = label;
-            return { key: key, label: label, defaultLabel: label, defaultIndex: index, locked: ['row_no','material_code','quantity','contract_no','project_name','actions'].indexOf(key) !== -1 };
-        });
+            return { key: key, label: label, defaultLabel: label, defaultIndex: Number(th.dataset.wmsDefaultColumnIndex), locked: ['row_no','material_code','quantity','contract_no','project_name','actions'].indexOf(key) !== -1 };
+        }).sort(function(a, b) { return a.defaultIndex - b.defaultIndex; });
     }
 
     function readState(table, columns) {
@@ -3902,6 +3939,11 @@ function getRecentVisits() {
     }
 
     function save(controller) {
+        var dynamic = controller.table._wmsDetailColumnController;
+        if (controller.orderIntent && dynamic && typeof dynamic.setOrder === 'function') {
+            dynamic.setOrder(controller.state.order);
+            controller.state.order = Array.from(controller.table.querySelectorAll('thead th[data-column-key]')).map(function(th) { return th.dataset.columnKey; });
+        }
         localStorage.setItem(storageKey(controller.table), JSON.stringify(controller.state));
         applyState(controller);
     }
@@ -3909,6 +3951,7 @@ function getRecentVisits() {
     function refreshSavedFieldSettings(controller) {
         // The modal edits a separate working copy. Observe the saved configuration,
         // rather than restoring the stale state captured when the table was initialized.
+        if (controller.table.tHead) controller.columns = columnsOf(controller.table);
         controller.state = readState(controller.table, controller.columns);
         applyState(controller);
     }
@@ -3965,9 +4008,8 @@ function getRecentVisits() {
         host.querySelector('[data-fs-reset]').addEventListener('click', function() {
             if (!activeController) return;
             activeController.state = { order: activeController.columns.map(function(c) { return c.key; }), hidden: [], labels: {} };
-            localStorage.removeItem(storageKey(activeController.table));
+            activeController.orderIntent = true;
             renderRows(host, activeController);
-            applyState(activeController);
         });
         host.querySelectorAll('[data-fs-tab]').forEach(function(tab) { tab.addEventListener('click', function() {
             host.querySelectorAll('[data-fs-tab]').forEach(function(item) { item.classList.toggle('active', item === tab); });
@@ -4024,6 +4066,7 @@ function getRecentVisits() {
         var to = direction === 'top' ? 0 : direction === 'bottom' ? order.length - 1 : direction === 'up' ? Math.max(0, from - 1) : Math.min(order.length - 1, from + 1);
         if (from === to) return;
         order.splice(to, 0, order.splice(from, 1)[0]);
+        activeController.orderIntent = true;
         renderRows(modal, activeController);
         var next = modal.querySelector('[data-fs-body] tr[data-key="' + CSS.escape(selected.dataset.key) + '"]');
         if (next) next.classList.add('selected');
@@ -4033,7 +4076,10 @@ function getRecentVisits() {
         var table = findGrid(button);
         if (!table) { if (window.showToast) showToast('当前页面没有可设置的明细栏目', 'warning'); return; }
         var columns = columnsOf(table);
-        activeController = { table: table, columns: columns, state: readState(table, columns) };
+        activeController = { table: table, columns: columns, state: readState(table, columns), orderIntent: false };
+        if (table.dataset && table.dataset.dynamicDetailColumnsReady === 'true') {
+            activeController.state.order = Array.from(table.querySelectorAll('thead th[data-column-key]')).map(function(th) { return th.dataset.columnKey; });
+        }
         var modal = ensureModal();
         // Keep focus inside an enclosing Bootstrap modal's own focus boundary.
         var dialogParent = button.closest('.modal.show') || document.body;
