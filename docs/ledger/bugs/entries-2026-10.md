@@ -2134,9 +2134,11 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 提交前验收：51项最终输入原始哈希前后稳定，FROZEN_FINAL.json及浏览器manifest匹配；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff通过。同一eb8970ca基线最新三工作流、实时远端及Android复用证明再次核实，证据field_reset/quality.json及precommit_ci_alternative.json。
 - 提交与CI：2267c339a44ae2c20900d9239dc846c04dc21a33实际正常push（eb8970ca..2267c339 main -> main），HEAD/origin/live main一致；WMS CI40189447889、AI40189447877精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（field_reset/target_ci.json）。生产统一验收待执行。
 
+## （未修复；R8回滚待重做）
+
 ### BUG-2026-10-25-010: 需求预测旧响应覆盖新条件及分类和结果渲染失真
 
-- 状态：已修复（本地验证，待提交CI及生产生效，2026-10-25）。
+- 状态：已登记未修（R8撤回产品，待修测试夹具后重做；2026-10-25）。
 - AI子修复归属：AI-C13-FIX-FORECAST-LIFECYCLE-001；既有AI-C13需求预测前端修复，不新增AI能力。完成状态须在真实推送、目标CI及生效验收后登记，不提前写已完成。
 - 根因/危害：30天与7天请求乱序时旧结果覆盖新结果；刷新重建分类下拉丢选择，actionFilter仍为需补货却渲染全量。合法空数据响应无summary触发TypeError；旧POST仅读JSON可将HTTP500 success正文误作成功。分类option及表格把普通<>&引号文本拼作HTML，导致标签解析和选项值截断。
 - 同类点已排查：关联AI-R15前端反馈及BUG-2026-10-23-014文字/事件隔离、本轮异步查询/传输历史；该预测端点全仓仅此页一请求消费。summary和aiAnalysis已有text安全，不重复修改；本页分类及明细两个文字消费统一处理，不改预测算法、CSV导出、权限/模型/工具/开关或后端库存。
@@ -2147,3 +2149,4 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：请求代次与条件快照共同校验旧响应，重复生成只发一次；条件变化即时隐藏旧结果，旧finally不解锁新请求。统一postRaw校验HTTP及响应结构，兼容真实无物料分支的缺summary空态；分类重建保留原值，刷新沿用状态筛选。分类option及明细文字使用真实公共escapeHtml，保留普通尖括号/引号文字。生产需重启 WMS 服务生效。
 - 回归锁：新增25项整页运行测试，执行真实api.js及escapeHtml；真实隔离后端空响应流入整页验证。物理回退模板后24 failed/1正对照passed，finally SHA256恢复；乱序及文字用例分别以业务断言失败，不靠缺helper。原5及新增共6完整模块93 passed，旧测试不改。证据ai_pages/rollback-evidence.json、rollback-tests.log及模块回归日志。
 - 提交前验收：安全隔离verify_ai_all.py --level full --jobs 1完整70/70及严格台账通过，双memory配置、生产文件连接前拒绝、全网络零白名单、固定QA凭据及外部上传/日志/备份/临时目录；3helper及原full输入前后SHA稳定（full-evidence.json）。full后仅清模板319新增行尾空格，before/after及whitespace-only-evidence证明其余字节不变；最终6模块93 passed（final-after-whitespace.log/final-freeze.json）。首次diff检查查出该空格并修正，最终diff通过。文档34 passed、A1–A14零违规、非GET请求/编码/BUG回归通过，隔离HTTP121/121且自有服务停止。基线最新三CI及实时main/Android复用已再次证明，precommit_ci_alternative.json；无生产业务操作。
+- R8回滚：d6eab925实际已push，AI40190824722成功，但WMS CI40190824670的unit-tests-shard-1两项旧test_page_feedback_runtime失败：只摘generateForecast而漏加载新增辅助函数forecastContextKey。新增整页锁/安全70/70和93模块当时通过，但受影响范围漏纳旧摘取夹具，不能报告完成。原测试断言未削弱；根已git revert --no-commit撤回本组模板与新增测试，保留开发中任务和本BUG历史；回退后旧完整模块26 passed。根因实证ai_pages/ci-failure-evidence.json；用户已明确允许本次4文件R8回滚提交推送例外；仅此次临时越过实际红灯pre-push CI门禁，保留main分支检查且finally清除进程环境，不借查询403替代实际红灯。011中断基线只保留日志不计通过。生产未统一重启，本组生效确认仍待重做。
