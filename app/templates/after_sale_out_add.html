@@ -532,7 +532,7 @@ function copyRowAfter(row) {
         return;
     }
     const target = row.nextElementSibling ? insertRowBefore(row.nextElementSibling) : addNewRow();
-    ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit', 'material-stock', 'material-qty', 'material-price'].forEach(cls => {
+    ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit', 'material-stock', 'material-qty', 'material-price', 'material-remark'].forEach(cls => {
         target.querySelector('.' + cls).value = row.querySelector('.' + cls).value;
     });
     calcAmount(target);

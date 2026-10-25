@@ -1975,12 +1975,48 @@ document.addEventListener('DOMContentLoaded', function() {
             .catch(function(err){ showToast((err && (err.msg || err.message)) || '复制失败', 'danger', 3600); });
     };
 
+    var materialImageRequestGeneration = 0;
+    var materialImageContext = null;
+
+    function materialImageDomIsCurrent(context) {
+        return materialImageContext === context && context.generation === materialImageRequestGeneration
+            && context.modalEl.isConnected && context.statusEl.isConnected
+            && context.gridEl.isConnected && context.queryEl.isConnected
+            && document.getElementById('materialImageModal') === context.modalEl
+            && document.getElementById('materialImageStatus') === context.statusEl
+            && document.getElementById('materialImageGrid') === context.gridEl
+            && document.getElementById('materialImageQuery') === context.queryEl
+            && context.modalEl.dataset.materialImageId === context.materialId;
+    }
+
+    function materialImageIsCurrent(context) {
+        return context.active && materialImageDomIsCurrent(context);
+    }
+
     window.findMaterialImage = function(id) {
         var modalEl = document.getElementById('materialImageModal');
-        var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
         var statusEl = document.getElementById('materialImageStatus');
         var gridEl = document.getElementById('materialImageGrid');
         var queryEl = document.getElementById('materialImageQuery');
+        if (!modalEl || !statusEl || !gridEl || !queryEl) return;
+        var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+        var context = {
+            generation: ++materialImageRequestGeneration, materialId: String(id),
+            modalEl: modalEl, statusEl: statusEl, gridEl: gridEl, queryEl: queryEl,
+            active: true, saving: false, completed: false, buttons: []
+        };
+        materialImageContext = context;
+        modalEl.dataset.materialImageId = context.materialId;
+        if (!modalEl._materialImageLifecycleBound) {
+            modalEl._materialImageLifecycleBound = true;
+            ['hide.bs.modal', 'hidden.bs.modal'].forEach(function(eventName) {
+                modalEl.addEventListener(eventName, function() {
+                    if (materialImageContext && materialImageContext.modalEl === modalEl) {
+                        materialImageContext.active = false;
+                    }
+                });
+            });
+        }
         statusEl.textContent = '正在搜索候选图片...';
         statusEl.className = 'text-muted py-3';
         gridEl.innerHTML = '';
@@ -1989,6 +2025,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         WMS.api.getRaw('/material/' + id + '/image_candidates')
             .then(function(res) {
+                if (!materialImageIsCurrent(context)) return;
                 if (res.status !== 'success') {
                     statusEl.textContent = res.msg || '找图失败';
                     statusEl.className = 'text-danger py-3';
@@ -2022,23 +2059,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     btn.type = 'button';
                     btn.className = 'btn btn-sm btn-primary mt-2';
                     btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
+                    context.buttons.push(btn);
                     btn.addEventListener('click', function() {
-                        btn.disabled = true;
+                        if (!materialImageIsCurrent(context) || !btn.isConnected || context.saving || context.completed) return;
+                        context.saving = true;
+                        context.buttons.forEach(function(button) { button.disabled = true; });
                         btn.textContent = '保存中...';
                         WMS.api.postRaw('/material/' + id + '/image_select', {image_url: candidate.image_url})
                         .then(function(saveRes) {
+                            if (!materialImageIsCurrent(context) || !btn.isConnected) return;
                             if (saveRes.status === 'success') {
+                                context.completed = true;
                                 showToast('图片已保存', 'success', 2200);
                                 modal.hide();
-                                setTimeout(function(){ location.reload(); }, 300);
+                                setTimeout(function() {
+                                    if (context.completed && materialImageDomIsCurrent(context)) location.reload();
+                                }, 300);
                             } else {
-                                btn.disabled = false;
+                                context.saving = false;
+                                context.buttons.forEach(function(button) { button.disabled = false; });
                                 btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
                                 showToast(saveRes.msg || '保存失败', 'danger', 3600);
                             }
                         })
                         .catch(function(err) {
-                            btn.disabled = false;
+                            if (!materialImageIsCurrent(context) || !btn.isConnected) return;
+                            context.saving = false;
+                            context.buttons.forEach(function(button) { button.disabled = false; });
                             btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
                             showToast('保存失败：' + err.message, 'danger', 3600);
                         });
@@ -2051,6 +2098,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             })
             .catch(function(err) {
+                if (!materialImageIsCurrent(context)) return;
                 statusEl.textContent = '找图失败：' + err.message;
                 statusEl.className = 'text-danger py-3';
             });

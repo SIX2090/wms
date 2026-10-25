@@ -460,7 +460,7 @@
                     {% set source_item = item.source_purchase_order_item %}
                     {% set source_order = source_item.purchase_order if source_item and source_item.purchase_order else None %}
                     {% set source_exec = purchase_order_execution.get(source_order.id, {}).get(source_item.id, {}) if source_order and source_item else {} %}
-                    <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}">
+                    <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}" data-customer-supplied="{{ 'true' if item.is_customer_supplied else 'false' }}">
                         <td class="text-center" data-column-key="seq"><span class="row-num">{{ loop.index }}</span></td>
                         {% if order.status == 'pending' %}
                         <td data-column-key="chk"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
@@ -1041,6 +1041,11 @@ function saveInlineMaterialRow(btn) {
     itemData.append('quantity', qty);
     itemData.append('price', price);
     itemData.append('remark', remark);
+    const contextFields = {contract: 'contract_no', project: 'project_name', batch: 'batch_no', expiry: 'expiry_date'};
+    Object.keys(contextFields).forEach(function(field) {
+        const value = (row.querySelector('.material-' + field + '-field')?.value || '').trim();
+        if (value) itemData.append(contextFields[field], value);
+    });
     WMS.api.postRaw('/in_order/{{ order.id }}/item/add', itemData)
     .then(res => {
         if (res.status === 'success') {
@@ -1073,31 +1078,36 @@ function addInlineMaterialRow(beforeRow) {
     row.className = 'new-item-row';
     const nextIndex = tbody.querySelectorAll('tr:not(.new-item-row)').length + 1;
     row.innerHTML = `
-        <td class="text-center"><span class="row-num">${nextIndex}</span></td>
-        <td><input type="checkbox" disabled></td>
-        <td>
+        <td data-column-key="seq" class="text-center"><span class="row-num">${nextIndex}</span></td>
+        <td data-column-key="chk"><input type="checkbox" disabled></td>
+        <td data-column-key="colCode">
             <div class="material-quick-search">
                 <input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off">
                 <input type="hidden" class="material-id-field">
                 <div class="material-quick-dropdown" style="display:none;"></div>
             </div>
         </td>
-        <td><input class="form-control material-brand-field" readonly></td>
-        <td><input class="form-control material-name-field" readonly></td>
-        <td><input class="form-control material-spec-field" readonly></td>
-        <td><input class="form-control material-unit-field text-center" readonly></td>
-        <td><input class="form-control material-stock-field text-end" readonly></td>
-        <td><input class="form-control material-qty-field text-end" type="number" step="0.01" min="0"></td>
-        <td><span class="text-muted">手工录入</span></td>
-        <td class="text-end text-muted">-</td>
-        <td class="text-end text-muted">-</td>
-        <td class="text-end text-muted">-</td>
-        <td class="text-muted">-</td>
-        <td><input class="form-control material-price-field text-end" type="number" step="0.01" min="0"></td>
-        <td><input class="form-control material-amount-field text-end fw-bold text-danger" readonly></td>
-        <td><input class="form-control material-remark-field" type="text" maxlength="500"></td>
-        <td class="text-center text-muted">-</td>
-        <td class="text-center">
+        <td data-column-key="colBrand"><input class="form-control material-brand-field" readonly></td>
+        <td data-column-key="colName"><input class="form-control material-name-field" readonly></td>
+        <td data-column-key="colSpec"><input class="form-control material-spec-field" readonly></td>
+        {% if order.business_type == '其他入库' %}<td data-column-key="colCustomerSupplied" class="text-center text-muted">否</td>{% endif %}
+        <td data-column-key="colContractNo"><input class="form-control material-contract-field" type="text" maxlength="100"></td>
+        <td data-column-key="colProjectName"><input class="form-control material-project-field" type="text" maxlength="200"></td>
+        <td data-column-key="colUnit"><input class="form-control material-unit-field text-center" readonly></td>
+        <td data-column-key="colStock"><input class="form-control material-stock-field text-end" readonly></td>
+        <td data-column-key="colBatchNo"><input class="form-control material-batch-field" type="text" maxlength="50"></td>
+        <td data-column-key="colExpiryDate"><input class="form-control material-expiry-field" type="date"></td>
+        <td data-column-key="colQty"><input class="form-control material-qty-field text-end" type="number" step="0.01" min="0"></td>
+        <td data-column-key="colSourcePo"><span class="text-muted">手工录入</span></td>
+        <td data-column-key="colSourceQty" class="text-end text-muted">-</td>
+        <td data-column-key="colSourcePushed" class="text-end text-muted">-</td>
+        <td data-column-key="colSourceCompleted" class="text-end text-muted">-</td>
+        <td data-column-key="colSourceStatus" class="text-muted">-</td>
+        <td data-column-key="colPrice"><input class="form-control material-price-field text-end" type="number" step="0.01" min="0"></td>
+        <td data-column-key="colAmount"><input class="form-control material-amount-field text-end fw-bold text-danger" readonly></td>
+        <td data-column-key="colRemark"><input class="form-control material-remark-field" type="text" maxlength="500"></td>
+        <td data-column-key="label" class="text-center text-muted">-</td>
+        <td data-column-key="action" class="text-center">
             <button type="button" class="toolbar-btn toolbar-btn-icon toolbar-btn-success" onclick="saveInlineMaterialRow(this)" title="保存">
                 <i class="bi bi-check-lg"></i>
             </button>
@@ -1106,8 +1116,22 @@ function addInlineMaterialRow(beforeRow) {
             </button>
         </td>
     `;
+    // Column preferences can move and hide headers before a row is inserted.
+    const cellsByKey = new Map(Array.from(row.children).map(function(cell) {
+        return [cell.dataset.columnKey, cell];
+    }));
+    document.querySelectorAll('#itemTable thead th').forEach(function(th) {
+        const cell = cellsByKey.get(th.dataset.columnKey);
+        if (!cell) return;
+        row.appendChild(cell);
+        cell.classList.toggle('d-none', th.classList.contains('d-none'));
+        cell.classList.toggle('wms-field-column-hidden', th.classList.contains('wms-field-column-hidden'));
+        cell.style.display = th.style.display;
+    });
     if (beforeRow && beforeRow.parentNode === tbody) {
         tbody.insertBefore(row, beforeRow);
+    } else if (beforeRow === null) {
+        tbody.appendChild(row);
     } else {
         tbody.insertBefore(row, tbody.firstChild);
     }
@@ -1126,29 +1150,43 @@ function copyDetailMaterialRow(row) {
         addInlineMaterialRow();
         return;
     }
-    const target = addInlineMaterialRow(row.nextElementSibling);
-    const cells = row.children;
-    const code = row.classList.contains('new-item-row') ? row.querySelector('.material-code-field')?.value : cells[2]?.textContent;
-    const qty = row.classList.contains('new-item-row') ? row.querySelector('.material-qty-field')?.value : row.querySelector('[data-field="quantity"]')?.dataset.value;
-    const price = row.classList.contains('new-item-row') ? row.querySelector('.material-price-field')?.value : row.querySelector('[data-field="price"]')?.dataset.value;
-    target.querySelector('.material-code-field').value = (code || '').trim();
-    target.querySelector('.material-qty-field').value = qty || '';
-    target.querySelector('.material-price-field').value = price || '';
-    if (row.classList.contains('new-item-row')) {
-        target.querySelector('.material-brand-field').value = row.querySelector('.material-brand-field')?.value || '';
-        target.querySelector('.material-name-field').value = row.querySelector('.material-name-field')?.value || '';
-        target.querySelector('.material-spec-field').value = row.querySelector('.material-spec-field')?.value || '';
-        target.querySelector('.material-unit-field').value = row.querySelector('.material-unit-field')?.value || '';
-        target.querySelector('.material-stock-field').value = row.querySelector('.material-stock-field')?.value || '';
-        target.querySelector('.material-id-field').value = row.querySelector('.material-id-field')?.value || '';
-    } else {
-        target.querySelector('.material-brand-field').value = cells[3]?.textContent.trim() || '';
-        target.querySelector('.material-name-field').value = cells[4]?.textContent.trim() || '';
-        target.querySelector('.material-spec-field').value = cells[5]?.textContent.trim() || '';
-        target.querySelector('.material-unit-field').value = cells[6]?.textContent.trim() || '';
-        target.querySelector('.material-stock-field').value = cells[7]?.textContent.trim() || '';
-        target.querySelector('.material-id-field').value = row.dataset.materialId || '';
+    if (row.dataset.customerSupplied === 'true') {
+        showToast('客供明细请使用编辑页维护，不能在此复制', 'warning');
+        return;
     }
+    const target = addInlineMaterialRow(row.nextElementSibling);
+    if (!target) return;
+    const columns = {
+        code: 'colCode',
+        brand: 'colBrand',
+        name: 'colName',
+        spec: 'colSpec',
+        unit: 'colUnit',
+        stock: 'colStock',
+        qty: 'colQty',
+        price: 'colPrice',
+        remark: 'colRemark',
+        contract: 'colContractNo',
+        project: 'colProjectName',
+        batch: 'colBatchNo',
+        expiry: 'colExpiryDate'
+    };
+    Object.keys(columns).forEach(function(field) {
+        const input = target.querySelector('.material-' + field + '-field');
+        if (!input) return;
+        let value;
+        if (row.classList.contains('new-item-row')) {
+            value = row.querySelector('.material-' + field + '-field')?.value;
+        } else {
+            const cell = row.querySelector('[data-column-key="' + columns[field] + '"]');
+            value = cell?.dataset.value ?? cell?.textContent.trim();
+            if (['contract', 'project', 'batch', 'expiry'].includes(field) && value === '-') value = '';
+        }
+        input.value = value ?? '';
+    });
+
+    target.querySelector('.material-id-field').value = row.classList.contains('new-item-row')
+        ? (row.querySelector('.material-id-field')?.value || '') : (row.dataset.materialId || '');
     calcInlineRowAmount(target);
     target.querySelector('.material-qty-field').focus();
     target.querySelector('.material-qty-field').select();

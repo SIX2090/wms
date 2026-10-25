@@ -906,6 +906,8 @@ function rowData(row) {
         unit_name: row.querySelector('.material-unit').value,
         quantity: row.querySelector('.material-qty').value,
         price: row.querySelector('.material-price').value,
+        contract_no: row.querySelector('.line-contract-no')?.value || '',
+        project_name: row.querySelector('.line-project-name')?.value || '',
         remark: row.querySelector('.material-remark')?.value || ''
     };
 }

@@ -363,28 +363,62 @@ var WS_PRINTERS = {
 
 function copyToken(wsId) {
     var input = document.getElementById('token-' + wsId);
-    input.select();
-    navigator.clipboard.writeText(input.value).catch(function () {
-        document.execCommand('copy');
+    if (!input) return;
+    return copyRoutingText(input.value, input).then(function(copied) {
+        showToast(copied ? '令牌已复制' : '复制失败，请按 Ctrl+C 手动复制已选中的令牌', copied ? 'success' : 'danger');
     });
-    if (typeof showToast === 'function') { showToast('令牌已复制'); }
+}
+
+function copyRoutingText(text, input) {
+    function fallback() {
+        var target = input || document.createElement('textarea');
+        if (!input) {
+            target.value = text;
+            target.style.cssText = 'position:fixed;left:-9999px';
+            document.body.appendChild(target);
+        }
+        try {
+            target.focus();
+            target.select();
+            return document.execCommand('copy') === true;
+        } catch (error) {
+            return false;
+        } finally {
+            if (!input) document.body.removeChild(target);
+        }
+    }
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(function() { return true; }, fallback);
+        }
+    } catch (error) {
+        // 同步拒绝与异步拒绝均降级，复制失败不能影响已经创建的工作站。
+    }
+    return Promise.resolve(fallback());
 }
 
 function addWs() {
+    if (addWs.pending) return;
     var data = {
         code: document.getElementById('wsCode').value,
         name: document.getElementById('wsName').value,
         warehouse_id: document.getElementById('wsWarehouse').value || null,
     };
     if (!data.code || !data.name) { showToast('请填写工作站编码和名称', 'warning'); return; }
-    WMS.api.post('/print_routing/workstations', data).then(function (res) {
-        if (typeof showToast === 'function') { showToast(res.msg); }
-        if (res.token) {
-            navigator.clipboard && navigator.clipboard.writeText(res.token);
-            alert('工作站令牌已生成并复制（请粘贴到打印代理 agent_config.json）：\n\n' + res.token); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-        }
-        location.reload();
-    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
+    addWs.pending = true;
+    return WMS.api.post('/print_routing/workstations', data).then(function (res) {
+        if (typeof showToast === 'function') { showToast(res.msg || '工作站创建成功', 'success'); }
+        if (!res.token) { location.reload(); return; }
+        return copyRoutingText(res.token).then(function(copied) {
+            var message = copied ? '工作站令牌已生成并复制（请粘贴到打印代理 agent_config.json）：' : '工作站已创建，令牌复制失败，请手动复制以下令牌（无需重复创建工作站）：';
+            alert(message + '\n\n' + res.token); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
+            location.reload();
+        });
+    }).catch(function (e) {
+        if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); }
+    }).finally(function() {
+        addWs.pending = false;
+    });
 }
 
 function editWs(id, name, warehouseId) {
@@ -456,7 +490,7 @@ function loadKnownPrinters(wsId) {
     dl.innerHTML = '';
     hint.textContent = '正在读取该电脑已检测到的打印机…';
     WMS.api.get('/print_routing/workstations/' + wsId + '/printers/known').then(function (res) {
-        var names = (res.data && res.data.known_printers) || [];
+        var names = Array.isArray(res && res.known_printers) ? res.known_printers : [];
         names.forEach(function (n) {
             var opt = document.createElement('option');
             opt.value = n;

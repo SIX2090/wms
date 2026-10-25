@@ -1039,6 +1039,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         purpose: document.querySelector('[name="purpose"]').value.trim(),
         [partyField]: supplierId,
         warehouse_id: warehouseId,
+        location: location,
         auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
         remark: document.querySelector('[name="remark"]').value,
         items: items

@@ -23,7 +23,7 @@ def handler_for(action):
     if action in ['add', 'edit']:
         marker = action + "Form.addEventListener('submit'"
         return callback('check', 'function(e)', source.index(marker)).replace('/fixture/0/', '/check/add')
-    return callback('check', 'function submitDocumentImport(')
+    return callback('check', 'async function submitDocumentImport(')
 
 
 @pytest.mark.parametrize('action,scenario', CASES)
@@ -34,7 +34,8 @@ let sent=[],messages=[],timers=[],reloads=0,hidden=0,confirmed=0;let scenario=p.
 const fields={warehouse:'A',warehouse_id:'2',scope:'category',category_id:'4',remark:'新增备注 &+ 中',csrf_token:'form-csrf'};
 class FormData{constructor(form){this.fields=new Map(form?Object.entries(fields):[]);this.owner=form?.id;}append(k,v){this.fields.set(k,String(v));}entries(){return this.fields.entries();}}
 const file={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false};const form={id:p.action==='add'?'addForm':'importForm',action:'/check/import'};
-const elements={editId:{value:'7'},editRemark:{value:'修改 & + 中文 \n保留'},addModal:{},editModal:{},importForm:form,importFile:file};
+const importButton={disabled:false};
+const elements={checkImportFileButton:importButton,editId:{value:'7'},editRemark:{value:'修改 & + 中文 \n保留'},addModal:{},editModal:{},importForm:form,importFile:file};
 const ctx={FormData,Headers,document:{querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:()=>p.scenario==='empty'?[]:[{value:'7'},{value:'8'}],getElementById:id=>elements[id]},
 showConfirm:()=>{confirmed++;return Promise.resolve(p.scenario!=='cancel');},confirm:()=>false,showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
 fetch:(u,o)=>{sent.push({u,o});const status=scenario==='http'?400:scenario==='html'?503:scenario==='expired401'?401:scenario==='expired419'?419:200;
@@ -49,7 +50,7 @@ assert.equal(req.u,p.action==='add'?'/check/add':p.action==='import'?'/check/imp
 if(['add','edit','import'].includes(p.action)){assert(req.o.body instanceof FormData);assert(!h.has('Content-Type'));const sentFields=Object.fromEntries(req.o.body.entries());assert.deepEqual(sentFields,p.action==='edit'?{remark:elements.editRemark.value}:fields);}
 if(p.action==='batch')assert.deepEqual(JSON.parse(req.o.body),{ids:['7','8']},'backend accepts root JSON ids; never double encode');
 if(['delete','revert','batch','copy'].includes(p.action))assert.equal(confirmed,1);
-if(p.action==='import'){assert.equal(file.value,'','finally clears file on every outcome');assert.equal(file.disabled,false);}
+if(p.action==='import'){assert.equal(file.value,'','finally clears file on every outcome');if(p.scenario==='success'){assert.equal(file.disabled,true);assert.equal(importButton.disabled,true);assert.equal(ctx.handler.pending,true);}else{assert.equal(file.disabled,false);assert.equal(importButton.disabled,false);assert.equal(ctx.handler.pending,false);}}
 if(p.scenario==='success'){assert(messages.some(m=>m.t==='success'));assert.equal(hidden,['add','edit'].includes(p.action)?1:0);timers.forEach(fn=>fn());assert.equal(reloads,1);assert.equal(ctx.location.href,'original','copy retains list reload behavior');}
 else {assert(messages.some(m=>m.t==='danger'),'failure visible');assert.equal(reloads,0);assert.equal(ctx.location.href,'original');assert.equal(hidden,0,'failed modal remains open');
 if(['http','business'].includes(p.scenario))assert(messages.some(m=>m.m.includes('fixture explanation')));if(p.scenario==='html')assert(messages.some(m=>m.m.includes('503')));

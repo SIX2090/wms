@@ -134,6 +134,13 @@ const suppliers = {{ suppliers|tojson }};
 
 document.getElementById('addMaterialForm').addEventListener('submit', function(e) {
     e.preventDefault();
+    try {
+        resolveMaterialRelation(unitSearch, unitIdHidden, units, '单位');
+        resolveMaterialRelation(supplierSearch, supplierIdHidden, suppliers, '供应商');
+    } catch (error) {
+        showToast(error.message, 'warning');
+        return;
+    }
     const formData = new FormData(this);
     WMS.api.postRaw('/material/add', formData).then(res => {
         if (res.status === 'success') {
@@ -151,6 +158,24 @@ document.getElementById('addMaterialForm').addEventListener('submit', function(e
 const unitSearch = document.getElementById('unitSearch');
 const unitDropdown = document.getElementById('unitDropdown');
 const unitIdHidden = document.getElementById('unitIdHidden');
+
+function resolveMaterialRelation(input, hidden, list, label) {
+    const keyword = input.value.trim().toLowerCase();
+    if (!keyword) { hidden.value = ''; return; }
+    const exact = item => [item.name, item.code].some(value => String(value || '').toLowerCase() === keyword);
+    // 显式选择可消除同名歧义；文字与所选记录必须仍然一致。
+    const selected = list.find(item => String(item.id) === String(hidden.value) && exact(item));
+    if (selected) return;
+    hidden.value = '';
+    const byCode = list.filter(item => String(item.code || '').toLowerCase() === keyword);
+    const matches = byCode.length ? byCode : list.filter(item => String(item.name || '').toLowerCase() === keyword);
+    if (matches.length !== 1) {
+        input.focus();
+        throw new Error(label + (matches.length > 1 ? '存在同名记录，请从候选中明确选择' : '未匹配，请从候选中选择或先新增'));
+    }
+    input.value = matches[0].name;
+    hidden.value = String(matches[0].id);
+}
 
 function showUnitDropdown(list) {
     if (!list.length) {
@@ -179,6 +204,7 @@ function showUnitDropdown(list) {
 }
 
 unitSearch.addEventListener('input', function() {
+    unitIdHidden.value = '';
     const keyword = this.value.trim().toLowerCase();
     if (!keyword) {
         unitIdHidden.value = '';
@@ -194,13 +220,15 @@ unitSearch.addEventListener('input', function() {
 
 unitSearch.addEventListener('focus', function() {
     if (this.value.trim()) {
-        this.dispatchEvent(new Event('input'));
+        const keyword = this.value.trim().toLowerCase();
+        showUnitDropdown(units.filter(u => (u.name || '').toLowerCase().includes(keyword) || (u.code || '').toLowerCase().includes(keyword)));
     } else {
         showUnitDropdown(units);
     }
 });
 
 unitSearch.addEventListener('keydown', function(e) {
+    if (e.isComposing || e.keyCode === 229 || unitDropdown.style.display !== 'block') return;
     const items = unitDropdown.querySelectorAll('.dropdown-item');
     if (!items.length) return;
 
@@ -260,6 +288,7 @@ function showSupplierDropdown(list) {
 }
 
 supplierSearch.addEventListener('input', function() {
+    supplierIdHidden.value = '';
     const keyword = this.value.trim().toLowerCase();
     if (!keyword) {
         supplierIdHidden.value = '';
@@ -268,6 +297,7 @@ supplierSearch.addEventListener('input', function() {
     }
     const filtered = suppliers.filter(s =>
         (s.name || '').toLowerCase().includes(keyword) ||
+        (s.code || '').toLowerCase().includes(keyword) ||
         (s.contact || '').toLowerCase().includes(keyword) ||
         (s.phone || '').toLowerCase().includes(keyword)
     );
@@ -276,13 +306,15 @@ supplierSearch.addEventListener('input', function() {
 
 supplierSearch.addEventListener('focus', function() {
     if (this.value.trim()) {
-        this.dispatchEvent(new Event('input'));
+        const keyword = this.value.trim().toLowerCase();
+        showSupplierDropdown(suppliers.filter(s => (s.name || '').toLowerCase().includes(keyword) || (s.code || '').toLowerCase().includes(keyword) || (s.contact || '').toLowerCase().includes(keyword) || (s.phone || '').toLowerCase().includes(keyword)));
     } else {
         showSupplierDropdown(suppliers);
     }
 });
 
 supplierSearch.addEventListener('keydown', function(e) {
+    if (e.isComposing || e.keyCode === 229 || supplierDropdown.style.display !== 'block') return;
     const items = supplierDropdown.querySelectorAll('.dropdown-item');
     if (!items.length) return;
 

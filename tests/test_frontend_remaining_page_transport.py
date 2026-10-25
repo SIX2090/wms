@@ -38,12 +38,15 @@ def callback(page, marker, start_at=0):
 @pytest.mark.parametrize('action', ['material', 'unit', 'label_add', 'label_delete', 'label_default', 'layout'])
 @pytest.mark.parametrize('scenario', ['success', 'business', 'http', 'html', 'expired401', 'expired419', 'network'])
 def test_page_actions_preserve_payload_and_retry_after_failures(action, scenario):
+    dependencies = ''
     if action in ('material', 'unit'):
         form = 'addMaterialForm' if action == 'material' else 'addUnitForm'
         source = (ROOT / 'app/templates/material_add.html').read_text(encoding='utf-8')
         offset = source.index(f"getElementById('{form}').addEventListener('submit'")
         # Select the real listener, excluding unrelated page initialization.
         handler = callback('material_add', 'function(e)', offset)
+        if action == 'material':
+            dependencies = callback('material_add', 'function resolveMaterialRelation(')
     elif action == 'label_add':
         handler = callback('label_template', 'function(e)')
     elif action in ('label_delete', 'label_default'):
@@ -60,7 +63,12 @@ showToast:(m,t)=>messages.push({m,t}),alert:m=>messages.push({m,t:'manual'}),con
 location:{href:'original',reload(){reloads++;}},units:[],unitSearch:{value:''},unitIdHidden:{value:''},layoutData:{'0-0':{field:'code',label:'编号',style:{}}},_savingLayout:false,
 fetch:(url,options)=>{requests.push({url,options});const status=responseScenario==='http'?400:responseScenario==='html'?503:responseScenario==='expired401'?401:responseScenario==='expired419'?419:200;
 return responseScenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:status===200,status,json:()=>responseScenario==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve({status:['business','http'].includes(responseScenario)?'error':'success',msg:'fixture explanation',id:7,name:'个'})});}};
-ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext('var handler='+p.handler+';',ctx);
+ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);
+if(p.dependencies){
+ ctx.suppliers=[];ctx.supplierSearch={value:''};ctx.supplierIdHidden={value:''};
+ vm.runInContext(p.dependencies,ctx);
+}
+vm.runInContext('var handler='+p.handler+';',ctx);
 async function invoke(){const result=ctx.handler.call({id:'fixture-form'},{preventDefault(){}});await result;await new Promise(r=>setImmediate(r));}
 (async()=>{if(p.action==='label_delete'||p.action==='label_default'){ctx.run=()=>ctx.handler(7);await ctx.run();await new Promise(r=>setImmediate(r));}else await invoke();
 assert.equal(requests.length,1);const first=requests[0],headers=new Headers(first.options.headers);assert.equal(first.options.method,'POST');assert.equal(first.options.credentials,'same-origin');assert.equal(headers.get('X-CSRFToken'),'fixture-csrf');
@@ -79,5 +87,5 @@ if(p.scenario==='success'){
 '''
     node = shutil.which('node')
     assert node, 'Node is required for runtime transport verification'
-    result = subprocess.run([node, '-e', program, json.dumps(dict(action=action, scenario=scenario, handler=handler, api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')))], capture_output=True, text=True, encoding='utf-8', timeout=15)
+    result = subprocess.run([node, '-e', program, json.dumps(dict(action=action, scenario=scenario, handler=handler, dependencies=dependencies, api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')))], capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr

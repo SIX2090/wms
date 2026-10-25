@@ -10,7 +10,7 @@
             {% if current_user.role in ['admin', 'purchase'] %}
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDelete()"><i class="bi bi-trash"></i> 删除已选</button>
             <a href="/export/template/purchase_request" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('purchaseRequestImportFile').click()">
+            <button id="purchaseRequestImportFileButton" type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('purchaseRequestImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
             {% endif %}
@@ -242,22 +242,42 @@ function toggleAll() {
     document.querySelectorAll('.order-check').forEach(cb => cb.checked = checkAll.checked);
 }
 
-function submitPurchaseRequestImport() {
+async function submitPurchaseRequestImport() {
+    if (submitPurchaseRequestImport.pending) return;
     const form = document.getElementById('purchaseRequestImportForm');
     const fileInput = document.getElementById('purchaseRequestImportFile');
-    if (!fileInput.files.length) return;
-    const formData = new FormData(form);
-    WMS.api.postRaw('/purchase_request/import', formData)
-    .then(data => {
-        if (data.status === 'success') {
-            showToast(data.msg || '导入成功', 'success', 3600);
-            setTimeout(function(){ location.reload(); }, 900);
-        } else {
-            showToast(data.msg || '导入失败', 'danger', 5000);
+    if (!form || !fileInput || !fileInput.files.length) return;
+    const selectedFile = fileInput.files[0];
+    const button = document.getElementById('purchaseRequestImportFileButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    let refreshing = false;
+    submitPurchaseRequestImport.pending = true;
+    try {
+        // Capture the file before disabling its form control.
+        const formData = new FormData(form);
+        fileInput.disabled = true;
+        if (button) button.disabled = true;
+        await WMS.api.postRaw('/purchase_request/import', formData)
+        .then(data => {
+            if (data.status === 'success') {
+                refreshing = true;
+                showToast(data.msg || '导入成功', 'success', 3600);
+                setTimeout(function(){ location.reload(); }, 900);
+            } else {
+                showToast(data.msg || '导入失败', 'danger', 5000);
+            }
+        });
+    } catch (error) {
+        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
+    } finally {
+        if (fileInput.files[0] === selectedFile) fileInput.value = '';
+        if (!refreshing) {
+            submitPurchaseRequestImport.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
         }
-    })
-    .catch(error => showToast('导入失败：' + error.message, 'danger', 5000))
-    .finally(function() { fileInput.value = ''; });
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {

@@ -899,6 +899,8 @@ textarea.form-control {
             tax_rate: last.querySelector('.tax-rate').value,
             batch_no: last.querySelector('.batch-no').value,
             serial_no: last.querySelector('.serial-no').value,
+            contract_no: last.querySelector('.line-contract-no').value,
+            project_name: last.querySelector('.line-project-name').value,
             remark: last.querySelector('.line-remark').value
         });
     });
@@ -1044,6 +1046,8 @@ textarea.form-control {
                 tax_rate: item.tax_rate != null ? item.tax_rate : defaultTaxRate,
                 batch_no: item.batch_no || '',
                 serial_no: item.serial_no || '',
+                contract_no: item.contract_no || '',
+                project_name: item.project_name || '',
                 remark: item.remark || ''
             });
         });

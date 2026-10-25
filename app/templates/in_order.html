@@ -54,7 +54,7 @@
             <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-secondary btn-sm" title="导出当前筛选结果">
                 导出
             </a>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
+            <button id="inOrderImportFileButton" type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
                 导入
             </button>
             <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm" title="下载导入模板">
@@ -597,22 +597,42 @@ function batchInOrderAction(url, emptyMessage, confirmMessage) {
     });
 }
 
-function submitDocumentImport(formId, fileId) {
-    var form = document.getElementById(formId);
-    var fileInput = document.getElementById(fileId);
-    if (!fileInput.files.length) return;
-    var formData = new FormData(form);
-    WMS.api.postRaw(form.action, formData)
-    .then(function(data) {
-        if (data.status === 'success') {
-            showToast(data.msg || '导入成功', 'success', 3600);
-            setTimeout(function(){ location.reload(); }, 900);
-        } else {
-            showToast(data.msg || '导入失败', 'danger', 5000);
+async function submitDocumentImport(formId, fileId) {
+    if (submitDocumentImport.pending) return;
+    const form = document.getElementById(formId);
+    const fileInput = document.getElementById(fileId);
+    if (!form || !fileInput || !fileInput.files.length) return;
+    const selectedFile = fileInput.files[0];
+    const button = document.getElementById('inOrderImportFileButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    let refreshing = false;
+    submitDocumentImport.pending = true;
+    try {
+        // Capture the file before disabling its form control.
+        const formData = new FormData(form);
+        fileInput.disabled = true;
+        if (button) button.disabled = true;
+        await WMS.api.postRaw(form.action, formData)
+        .then(function(data) {
+            if (data.status === 'success') {
+                refreshing = true;
+                showToast(data.msg || '导入成功', 'success', 3600);
+                setTimeout(function(){ location.reload(); }, 900);
+            } else {
+                showToast(data.msg || '导入失败', 'danger', 5000);
+            }
+        });
+    } catch (error) {
+        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
+    } finally {
+        if (fileInput.files[0] === selectedFile) fileInput.value = '';
+        if (!refreshing) {
+            submitDocumentImport.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
         }
-    })
-    .catch(function(error) { showToast('导入失败：' + error.message, 'danger', 5000); })
-    .finally(function() { fileInput.value = ''; });
+    }
 }
 
 function copyInOrder(id) {

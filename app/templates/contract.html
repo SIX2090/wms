@@ -276,24 +276,44 @@ function copyCellValue(btn) {
     var text = btn.getAttribute('data-copy') || '';
     if (!text) return;
     var icon = btn.querySelector('i');
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(function() {
-            showCopied(btn, icon);
-        }).catch(function() {
-            fallbackCopy(text, btn, icon);
-        });
-    } else {
-        fallbackCopy(text, btn, icon);
+    // 清除上一次的成功状态，当前复制必须重新确认结果。
+    btn.classList.remove('copied');
+    icon.className = 'bi bi-clipboard';
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            return navigator.clipboard.writeText(text).then(function() {
+                showCopied(btn, icon);
+            }, function() {
+                fallbackCopy(text, btn, icon);
+            });
+        }
+    } catch (error) {
+        // 部分浏览器可能同步拒绝剪贴板访问，继续尝试兼容复制。
     }
+    fallbackCopy(text, btn, icon);
 }
 function fallbackCopy(text, btn, icon) {
     var ta = document.createElement('textarea');
+    var previousFocus = document.activeElement;
+    var copied = false;
     ta.value = text;
     ta.style.cssText = 'position:fixed;left:-9999px';
     document.body.appendChild(ta);
-    ta.select();
-    try { document.execCommand('copy'); showCopied(btn, icon); } catch(e) {}
-    document.body.removeChild(ta);
+    try {
+        ta.select();
+        copied = document.execCommand('copy') === true;
+    } catch (error) {
+        copied = false;
+    } finally {
+        document.body.removeChild(ta);
+        if (previousFocus && previousFocus.focus) previousFocus.focus();
+    }
+    if (copied) {
+        showCopied(btn, icon);
+    } else {
+        showToast('复制失败，请手动复制', 'danger');
+        window.prompt('复制失败，请手动复制以下内容：', text);
+    }
 }
 function showCopied(btn, icon) {
     btn.classList.add('copied');

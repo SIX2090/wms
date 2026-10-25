@@ -11,7 +11,7 @@
                 <i class="bi bi-trash"></i> 删除已选
             </button>
             <a href="/export/template/purchase_order" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
+            <button id="importFileButton" type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('importFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
             <a href="/purchase_order/export?status={{ filters.status }}&supplier_id={{ filters.supplier_id }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}" class="btn btn-outline-primary btn-sm">
@@ -242,24 +242,42 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function submitImportForm() {
+async function submitImportForm() {
+    if (submitImportForm.pending) return;
     const form = document.getElementById('importForm');
-    const file = document.getElementById('importFile').files[0];
-    if (!file) return;
-    const data = new FormData(form);
-    WMS.api.postRaw('/purchase_order/import', data)
-    .then(data => {
-        if (data.status === 'success') {
-            showToast(data.msg || '导入成功', 'success', 3600);
-            setTimeout(() => location.reload(), 900);
-        } else {
-            showToast(data.msg || '导入失败', 'danger', 5000);
+    const fileInput = document.getElementById('importFile');
+    if (!form || !fileInput || !fileInput.files.length) return;
+    const selectedFile = fileInput.files[0];
+    const button = document.getElementById('importFileButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    let refreshing = false;
+    submitImportForm.pending = true;
+    try {
+        // Capture the file before disabling its form control.
+        const formData = new FormData(form);
+        fileInput.disabled = true;
+        if (button) button.disabled = true;
+        await WMS.api.postRaw('/purchase_order/import', formData)
+        .then(data => {
+            if (data.status === 'success') {
+                refreshing = true;
+                showToast(data.msg || '导入成功', 'success', 3600);
+                setTimeout(() => location.reload(), 900);
+            } else {
+                showToast(data.msg || '导入失败', 'danger', 5000);
+            }
+        });
+    } catch (error) {
+        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
+    } finally {
+        if (fileInput.files[0] === selectedFile) fileInput.value = '';
+        if (!refreshing) {
+            submitImportForm.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
         }
-    })
-    .catch(error => showToast('导入失败：' + error.message, 'danger', 5000))
-    .finally(() => {
-        document.getElementById('importFile').value = '';
-    });
+    }
 }
 
 function toggleAllPurchaseOrders() {

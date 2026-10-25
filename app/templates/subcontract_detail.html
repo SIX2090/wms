@@ -703,19 +703,20 @@ function renumberProductRows() {
 
 function calcInlineProductAmount(row) {
     const qty = parseFloat(row.querySelector('.inline-product-qty')?.value || '0') || 0;
-    const price = parseFloat(row.querySelector('.inline-product-price')?.value || '0') || 0;
+    const priceRaw = row.querySelector('.inline-product-price')?.value || '';
+    const price = parseFloat(priceRaw || '0') || 0;
     const amount = row.querySelector('.inline-product-amount');
-    if (amount) amount.value = qty || price ? (qty * price).toFixed(2) : '';
+    if (amount) amount.value = priceRaw !== '' ? (qty * price).toFixed(2) : '';
 }
 
 function fillInlineProductMaterial(row, material) {
-    if (!row || !material) return;
+    if (!row) return;
     const code = row.querySelector('.inline-product-code');
-    code.value = material.code || '';
-    row.querySelector('.inline-product-name').value = material.name || '';
+    if (material) code.value = material.code || '';
+    row.querySelector('.inline-product-name').value = material ? (material.name || '') : '';
     row.querySelector('.inline-product-unit').value = getMaterialUnit(material) || '';
     const price = row.querySelector('.inline-product-price');
-    if (!price.value) price.value = material.price || '';
+    price.value = material && material.price != null ? material.price : '';
     calcInlineProductAmount(row);
 }
 
@@ -731,7 +732,7 @@ function addInlineProductRow(beforeRow, data) {
         '<td><input class="form-control form-control-sm inline-product-name" readonly value="' + escapeHtml(data && data.name) + '"></td>' +
         '<td><input class="form-control form-control-sm text-center inline-product-unit" readonly value="' + escapeHtml(data && data.unit) + '"></td>' +
         '<td><input type="number" class="form-control form-control-sm text-end inline-product-qty" min="0" step="0.01" value="' + escapeHtml(data && data.quantity || 1) + '"></td>' +
-        '<td><input type="number" class="form-control form-control-sm text-end inline-product-price" min="0" step="0.01" value="' + escapeHtml(data && data.price) + '"></td>' +
+        '<td><input type="number" class="form-control form-control-sm text-end inline-product-price" readonly title="单价按物料档案带出" min="0" step="0.01" value=""></td>' +
         '<td><input class="form-control form-control-sm text-end inline-product-amount" readonly></td>' +
         '<td class="text-center">' +
             '<button type="button" class="btn btn-sm btn-outline-success saveInlineProductBtn" title="保存"><i class="bi bi-check2"></i></button> ' +
@@ -743,7 +744,7 @@ function addInlineProductRow(beforeRow, data) {
         body.appendChild(row);
     }
     bindInlineProductRow(row);
-    calcInlineProductAmount(row);
+    fillInlineProductMaterial(row, findSubcontractMaterial(row.querySelector('.inline-product-code').value));
     renumberProductRows();
     row.querySelector('.inline-product-code').focus();
     return row;
@@ -753,19 +754,22 @@ function bindInlineProductRow(row) {
     const code = row.querySelector('.inline-product-code');
     const qty = row.querySelector('.inline-product-qty');
     const price = row.querySelector('.inline-product-price');
+    code.addEventListener('input', function() {
+        fillInlineProductMaterial(row, findSubcontractMaterial(this.value));
+    });
     code.addEventListener('change', function() {
         const material = findSubcontractMaterial(this.value);
-        if (material) fillInlineProductMaterial(row, material);
+        fillInlineProductMaterial(row, material);
     });
     code.addEventListener('blur', function() {
         const material = findSubcontractMaterial(this.value);
-        if (material) fillInlineProductMaterial(row, material);
+        fillInlineProductMaterial(row, material);
     });
     code.addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
             event.preventDefault();
             const material = findSubcontractMaterial(this.value);
-            if (material) fillInlineProductMaterial(row, material);
+            fillInlineProductMaterial(row, material);
             qty.focus();
             qty.select();
         }

@@ -14,7 +14,7 @@
                 <a href="/subcontract_issue/export?status={{ filters.status|urlencode }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
                     <i class="bi bi-download"></i> 导出
                 </a>
-                <button type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractIssueImportFile').click()">
+                <button id="subcontractIssueImportFileButton" type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractIssueImportFile').click()">
                     <i class="bi bi-upload"></i> 导入
                 </button>
                 <form id="subcontractIssueImportForm" action="/subcontract_issue/import" method="post" enctype="multipart/form-data" class="d-none">
@@ -466,22 +466,42 @@ function deleteIssue(id) {
 }
 
 
-function submitDocumentImport(formId, fileId) {
-    var form = document.getElementById(formId);
-    var fileInput = document.getElementById(fileId);
-    if (!fileInput.files.length) return;
-    var formData = new FormData(form);
-    WMS.api.postRaw(form.action, formData)
-    .then(function(data) {
-        if (data && data.status === 'success') {
-            alert(data.msg || '导入成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
-            setTimeout(function(){ location.reload(); }, 900);
-        } else {
-            showToast('导入失败: ' + ((data && data.msg) || '未知错误'), 'danger');
+async function submitDocumentImport(formId, fileId) {
+    if (submitDocumentImport.pending) return;
+    const form = document.getElementById(formId);
+    const fileInput = document.getElementById(fileId);
+    if (!form || !fileInput || !fileInput.files.length) return;
+    const selectedFile = fileInput.files[0];
+    const button = document.getElementById('subcontractIssueImportFileButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    let refreshing = false;
+    submitDocumentImport.pending = true;
+    try {
+        // Capture the file before disabling its form control.
+        const formData = new FormData(form);
+        fileInput.disabled = true;
+        if (button) button.disabled = true;
+        await WMS.api.postRaw(form.action, formData)
+        .then(function(data) {
+            if (data && data.status === 'success') {
+                refreshing = true;
+                alert(data.msg || '导入成功'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
+                setTimeout(function(){ location.reload(); }, 900);
+            } else {
+                showToast('导入失败: ' + ((data && data.msg) || '未知错误'), 'danger');
+            }
+        });
+    } catch (error) {
+        showToast('导入失败: ' + ((error && error.message) || '请求失败，请稍后重试'), 'danger');
+    } finally {
+        if (fileInput.files[0] === selectedFile) fileInput.value = '';
+        if (!refreshing) {
+            submitDocumentImport.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
         }
-    })
-    .catch(function(error) { showToast('导入失败: ' + error.message, 'danger'); })
-    .finally(function() { fileInput.value = ''; });
+    }
 }
 </script>
 {% endblock %}

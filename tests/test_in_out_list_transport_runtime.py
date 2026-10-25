@@ -41,16 +41,17 @@ def app_function(name):
 def test_list_actions_preserve_protocol_confirmation_navigation_and_real_download(action,scenario):
     page = 'in_order' if action.startswith('in_') else 'out_order'
     name = 'submitDocumentImport' if action.endswith('import') else 'copyInOrder' if action=='in_copy' else 'singleOutOrderAction' if 'single_' in action else 'batchInOrderAction' if page=='in_order' else 'batchOutOrderAction'
-    handler = callback(page,'function '+name+'(')
+    handler = callback(page,('async ' if action.endswith('import') else '')+'function '+name+'(')
     program = r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 let sent=[],messages=[],timers=[],reloads=0,confirms=0,downloads=[],revoked=[],created=[];let scenario=p.scenario;
 class FormData{constructor(form){this.owner=form.id;}}
 const file={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false};
+const importButton={disabled:false};
 const form={id:p.page==='in_order'?'inOrderImportForm':'outOrderImportForm',action:'/import/'+p.page};
 const values=p.scenario==='empty'?[]:p.scenario==='over_limit'?Array.from({length:101},(_,i)=>String(i+1)):p.action==='in_print'?(p.scenario==='multiple'?['7','8']:['7','7']):['7','7','8'];
 const bytes=Buffer.from(p.xlsx,'base64');const urlAPI={createObjectURL(blob){created.push(blob);return 'blob:fixture-'+created.length;},revokeObjectURL(u){revoked.push(u);}};
-const ctx={FormData,Headers,Blob,URL:urlAPI,document:{querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:s=>{assert.equal(s,'#'+(p.page==='in_order'?'inOrderTable':'outOrderTable')+' .check-item:checked');return values.map(value=>({value}));},getElementById:id=>id.endsWith('File')?file:form,
+const ctx={FormData,Headers,Blob,URL:urlAPI,document:{querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:s=>{assert.equal(s,'#'+(p.page==='in_order'?'inOrderTable':'outOrderTable')+' .check-item:checked');return values.map(value=>({value}));},getElementById:id=>id.endsWith('File')?file:id.endsWith('FileButton')?importButton:form,
 createElement:tag=>{assert.equal(tag,'a');return {href:'',download:'',click(){downloads.push({href:this.href,name:this.download});},remove(){}};},body:{appendChild(){}}},showToast:(m,t)=>messages.push({m,t}),showConfirm:()=>{confirms++;return Promise.resolve(p.scenario!=='cancel');},confirm:()=>false,setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},
 fetch:(u,o)=>{sent.push({u,o});const s=scenario;const status=s==='http'?400:s==='html'?503:s==='expired401'?401:s==='expired419'?419:200;const binary=p.action==='in_export'&&['success','fallback','octet'].includes(s);
 const body=s==='null'?null:s==='invalid_body'?'unexpected':{status:['business','http'].includes(s)?'error':s==='warning'?'warning':'success',msg:'fixture explanation',id:17,redirect_url:s==='fallback'?undefined:'/in_order/17?copied=1',redirect:s==='missing_redirect'?undefined:'/in_order/7/print',data:{mustPreserve:true}};
@@ -63,7 +64,7 @@ async function invoke(){if(p.action.endsWith('import'))ctx[p.name](form.id,p.pag
 if(['empty','cancel','over_limit','multiple'].includes(p.scenario)){assert.equal(sent.length,0);assert.equal(downloads.length,0);assert.equal(reloads,0);if(p.scenario!=='cancel'&&!p.action.endsWith('import'))assert(messages.some(m=>m.t==='warning'));if(p.scenario==='multiple')assert(messages.some(m=>m.m.includes('1张')));return;}
 assert.equal(sent.length,1);const req=sent[0],h=new Headers(req.o.headers);assert.equal(req.o.method,'POST');assert.equal(req.o.credentials,'same-origin');assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert.equal(h.get('X-Requested-With'),'XMLHttpRequest');
 assert.equal(req.u,p.action.endsWith('import')?form.action:p.action==='in_copy'?'/in_order/7/copy':actionUrl());
-if(p.action.endsWith('import')){assert(req.o.body instanceof FormData);assert.equal(req.o.body.owner,form.id);assert(!h.has('Content-Type'));assert.equal(file.value,'');assert.equal(file.disabled,false);}
+if(p.action.endsWith('import')){assert(req.o.body instanceof FormData);assert.equal(req.o.body.owner,form.id);assert(!h.has('Content-Type'));assert.equal(file.value,'');if(p.scenario==='success'){assert.equal(file.disabled,true);assert.equal(importButton.disabled,true);assert.equal(ctx[p.name].pending,true);}else{assert.equal(file.disabled,false);assert.equal(importButton.disabled,false);assert.equal(ctx[p.name].pending,false);}}
 else if(p.action==='in_copy')assert.deepEqual(JSON.parse(req.o.body),{});else if(p.action.includes('batch_')||p.action==='in_export'||p.action==='in_print')assert.deepEqual(JSON.parse(req.o.body),{ids:p.action==='in_print'?['7']:['7','8']},'dedupe detail rows and preserve ids without force');
 else assert.equal(req.o.body,undefined,'single operations keep empty request body');
 const ok=['success','fallback','octet'].includes(p.scenario);

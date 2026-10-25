@@ -32,7 +32,9 @@
     var FIRST_FETCH_LIMIT = 200;
 
     var pools = {};          // entity -> {t, data, remote}
-    var seq = 0;             // 请求序号，避免旧响应覆盖新结果
+    var seq = 0;             // 共享生命周期序号，关闭/换词/换输入框即失效
+    var searchOwner = null;
+    var cancelPendingSearch = null;
 
     /* ---------- 工具 ---------- */
 
@@ -44,11 +46,16 @@
 
     function debounce(fn, ms) {
         var timer = null;
-        return function () {
+        var delayed = function () {
             var self = this, args = arguments;
             if (timer) clearTimeout(timer);
-            timer = setTimeout(function () { fn.apply(self, args); }, ms);
+            timer = setTimeout(function () { timer = null; fn.apply(self, args); }, ms);
         };
+        delayed.cancel = function () {
+            if (timer) clearTimeout(timer);
+            timer = null;
+        };
+        return delayed;
     }
 
     function ajax(url, cb) {
@@ -235,6 +242,10 @@
     }
 
     function hideMenu() {
+        seq++;
+        if (cancelPendingSearch) cancelPendingSearch();
+        cancelPendingSearch = null;
+        searchOwner = null;
         if (menu) { menu.style.display = 'none'; menu._ksInput = null; }
     }
 
@@ -301,16 +312,21 @@
         input.classList.add('ks-input');
 
         var entity = input.getAttribute('data-ks');
-        var mySeq = 0;
         var composing = false;   // 中文输入法组合态：期间不触发搜索、不劫持按键
 
         var doSearch = function (showAll) {
+            if (composing || document.activeElement !== input || input.isConnected === false) return;
+            hideMenu();
+            searchOwner = input;
+            cancelPendingSearch = debounced.cancel;
             if (poolExpired(entity)) delete pools[entity];
+            var inputValue = input.value || '';
             var kw = showAll ? '' : (input.value || '').trim();
-            var ticket = ++mySeq;
+            var ticket = ++seq;
             getOptions(entity, kw, function (items) {
-                if (ticket !== mySeq) return;             // 丢弃过期响应
-                if (document.activeElement !== input && !showAll) return;
+                if (ticket !== seq || searchOwner !== input || composing) return;
+                if (document.activeElement !== input || input.isConnected === false) return;
+                if ((input.value || '') !== inputValue) return;
                 ensureMenu();
                 renderMenu(input, items, kw);
             });
@@ -318,17 +334,34 @@
 
         var debounced = debounce(function () { doSearch(false); }, DEBOUNCE_MS);
 
+        var invalidate = function () {
+            debounced.cancel();
+            if (searchOwner === input) hideMenu();
+        };
+
+        var scheduleSearch = function () {
+            hideMenu();
+            searchOwner = input;
+            cancelPendingSearch = debounced.cancel;
+            debounced();
+        };
+
         input.addEventListener('focus', function () { doSearch(false); });
         input.addEventListener('click', function () { if (!menuVisibleFor(input)) doSearch(false); });
-        input.addEventListener('compositionstart', function () { composing = true; });
+        input.addEventListener('compositionstart', function () {
+            composing = true;
+            invalidate();
+        });
         input.addEventListener('compositionend', function () {
             composing = false;
-            debounced();   // 拼音上屏后再按最终文本检索一次
+            scheduleSearch();   // 拼音上屏后再按最终文本检索一次
         });
         input.addEventListener('input', function () {
+            invalidate();
             if (composing) return;   // 组合态下按临时拼音串检索只会抖动候选
-            debounced();
+            scheduleSearch();
         });
+        input.addEventListener('change', invalidate);
 
         input.addEventListener('keydown', function (ev) {
             // IME 组合态（拼音上屏）的 Enter/方向键归输入法支配，组件不得拦截，
@@ -369,11 +402,8 @@
             }
         });
 
-        input.addEventListener('blur', function () {
-            setTimeout(function () {
-                if (menu && menu._ksInput === input) hideMenu();
-            }, 180);
-        });
+        // 候选 mousedown 已 preventDefault，可先提交；失焦立即撤销旧请求与防抖。
+        input.addEventListener('blur', invalidate);
     }
 
     function init() {
@@ -428,7 +458,6 @@
             }).observe(document.body, { childList: true, subtree: true });
         }
         document.addEventListener('click', function (ev) {
-            if (!menu || menu.style.display !== 'block') return;
             var t = ev.target;
             if (t === menu || menu.contains(t)) return;
             if (t && t.getAttribute && t.getAttribute('data-ks')) return;

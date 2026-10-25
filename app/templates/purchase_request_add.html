@@ -526,9 +526,9 @@ function materialSearchText(material) {
 function findMaterialQuickMatch(keyword) {
     const normalized = normalizeSearchValue(keyword);
     if (!normalized) return null;
-    return materials.find(m => String(m.code || '').toLowerCase() === normalized)
-        || materials.find(m => String(m.name || '').toLowerCase() === normalized)
-        || null;
+    const byCode = materials.filter(m => String(m.code || '').toLowerCase() === normalized);
+    const matches = byCode.length ? byCode : materials.filter(m => String(m.name || '').toLowerCase() === normalized);
+    return matches.length === 1 ? matches[0] : null;
 }
 
 function getMaterialMatches(keyword, showAll = false) {
@@ -612,6 +612,7 @@ function fillRowData(row, data) {
     const supplierIdInput = row.querySelector('.supplier-id');
     codeInput.value = data.material_code || data.code || '';
     codeInput.dataset.materialId = data.material_id || '';
+    codeInput.dataset.selectedMaterialCode = codeInput.value;
     row.querySelector('.material-name').value = data.material_name || data.name || '';
     row.querySelector('.spec').value = data.spec || '';
     unitInput.value = data.unit_name || data.unit || '';
@@ -628,6 +629,13 @@ function bindMaterialInput(row) {
     const dropdown = row.querySelector('.material-dropdown');
     input.addEventListener('input', function() {
         const keyword = this.value.trim();
+        // 输入一旦改变，旧物料身份和派生信息立即失效；数量、报价和手工供应商保留。
+        input.dataset.materialId = '';
+        input.dataset.selectedMaterialCode = '';
+        ['.material-name', '.spec', '.unit-name', '.material-stock'].forEach(function(selector) {
+            row.querySelector(selector).value = '';
+        });
+        row.querySelector('.unit-name').dataset.unitId = '';
         // 编码/名称完全相等才自动回填；否则只展示联想下拉，不打断用户继续输入。
         const material = findMaterialQuickMatch(keyword);
         if (material) {
@@ -830,6 +838,7 @@ function selectMaterial(row, material) {
     cancelMaterialSearch();
     row.querySelector('.material-code').value = material.code || '';
     row.querySelector('.material-code').dataset.materialId = material.id || '';
+    row.querySelector('.material-code').dataset.selectedMaterialCode = material.code || '';
     row.querySelector('.material-name').value = material.name || '';
     row.querySelector('.spec').value = material.spec || '';
     row.querySelector('.unit-name').value = getMaterialUnitName(material);
@@ -935,6 +944,7 @@ function copyRowAfter(row) {
     const targetCode = target.querySelector('.material-code');
     targetCode.value = sourceCode.value;
     targetCode.dataset.materialId = sourceCode.dataset.materialId || '';
+    targetCode.dataset.selectedMaterialCode = sourceCode.dataset.selectedMaterialCode || '';
     target.querySelector('.material-name').value = row.querySelector('.material-name').value;
     target.querySelector('.spec').value = row.querySelector('.spec').value;
     target.querySelector('.unit-name').value = row.querySelector('.unit-name').value;
@@ -973,8 +983,16 @@ function updateTotals() {
 }
 
 function collectItems() {
-    return Array.from(document.querySelectorAll('#materialTableBody tr')).map(function(row) {
+    return Array.from(document.querySelectorAll('#materialTableBody tr')).map(function(row, index) {
         const codeInput = row.querySelector('.material-code');
+        const code = codeInput.value.trim();
+        if (codeInput.dataset.materialId) {
+            if (code !== String(codeInput.dataset.selectedMaterialCode || '').trim()) {
+                throw new Error('第 ' + (index + 1) + ' 行物料文字已改变，请重新选择物料');
+            }
+        } else if (code) {
+            throw new Error('第 ' + (index + 1) + ' 行物料未明确选定，请从候选中选择物料');
+        }
         const unitInput = row.querySelector('.unit-name');
         const supplierIdInput = row.querySelector('.supplier-id');
         const supplierNameInput = row.querySelector('.supplier-name');

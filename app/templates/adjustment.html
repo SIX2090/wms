@@ -10,7 +10,7 @@
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
             <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchAdjustmentDelete()"><i class="bi bi-trash"></i> 删除已选</button>
             <a href="/export/template/adjustment" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('adjustmentImportFile').click()">
+            <button id="adjustmentImportFileButton" type="button" class="btn btn-outline-success btn-sm" onclick="document.getElementById('adjustmentImportFile').click()">
                 <i class="bi bi-upload"></i> 导入
             </button>
             <a href="/adjustment/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&adjustment_type={{ filters.adjustment_type }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-primary btn-sm">
@@ -261,22 +261,42 @@ function batchAdjustmentDelete() {
     });
 }
 
-function submitDocumentImport(formId, fileId) {
+async function submitDocumentImport(formId, fileId) {
+    if (submitDocumentImport.pending) return;
     const form = document.getElementById(formId);
     const fileInput = document.getElementById(fileId);
-    if (!fileInput.files.length) return;
-    const formData = new FormData(form);
-    WMS.api.postRaw(form.action, formData)
-    .then(function(res) {
-        if (res.status === 'success') {
-            showToast(res.msg || '导入成功', 'success', 3600);
-            setTimeout(function(){ location.reload(); }, 900);
-        } else {
-            showToast(res.msg || '导入失败', 'danger', 5000);
+    if (!form || !fileInput || !fileInput.files.length) return;
+    const selectedFile = fileInput.files[0];
+    const button = document.getElementById('adjustmentImportFileButton');
+    const wasDisabled = fileInput.disabled;
+    const buttonWasDisabled = button && button.disabled;
+    let refreshing = false;
+    submitDocumentImport.pending = true;
+    try {
+        // Capture the file before disabling its form control.
+        const formData = new FormData(form);
+        fileInput.disabled = true;
+        if (button) button.disabled = true;
+        await WMS.api.postRaw(form.action, formData)
+        .then(function(res) {
+            if (res.status === 'success') {
+                refreshing = true;
+                showToast(res.msg || '导入成功', 'success', 3600);
+                setTimeout(function(){ location.reload(); }, 900);
+            } else {
+                showToast(res.msg || '导入失败', 'danger', 5000);
+            }
+        });
+    } catch (error) {
+        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
+    } finally {
+        if (fileInput.files[0] === selectedFile) fileInput.value = '';
+        if (!refreshing) {
+            submitDocumentImport.pending = false;
+            fileInput.disabled = wasDisabled;
+            if (button) button.disabled = buttonWasDisabled;
         }
-    })
-    .catch(function(err) { showToast('导入失败：' + err.message, 'danger', 5000); })
-    .finally(function() { fileInput.value = ''; });
+    }
 }
 </script>
 {% endblock %}

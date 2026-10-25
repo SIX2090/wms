@@ -515,6 +515,12 @@ function formatValue(value, type) {
 
 
 function renderSummary(summary) {
+    if (!summary) {
+        ['summaryCount', 'summaryQuantity', 'summaryAmount'].forEach(id => {
+            document.getElementById(id).textContent = '—';
+        });
+        return;
+    }
     document.getElementById('summaryCount').textContent = formatValue(summary.count || 0, summaryTypes.count);
     document.getElementById('summaryQuantity').textContent = formatValue(summary.quantity || 0, summaryTypes.quantity);
     document.getElementById('summaryAmount').textContent = formatValue(summary.amount || 0, summaryTypes.amount);
@@ -763,6 +769,7 @@ async function loadData() {
         renderTruncation(result);
     } catch (error) {
         if (requestId !== reportRequestId) return;
+        renderSummary(null);
         tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">${escapeHtml(error.message || '报表查询失败')}</td></tr>`;
         tableHeaderRow.innerHTML = '<th>错误</th>';
         paginationNav.innerHTML = '';

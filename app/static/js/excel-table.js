@@ -488,28 +488,62 @@ class ExcelTable {
      * 复制粘贴支持
      */
     setupCopyPaste() {
-        this._on(this.table, 'keydown', (e) => {
+        this._on(this.table, 'keydown', async (e) => {
             if (this.isEditing) return;
 
-            // Ctrl+C 复制
+            // Ctrl+C 复制：成功提示必须等待写入确认。
             if (e.ctrlKey && e.key === 'c' && this.currentCell) {
                 e.preventDefault();
                 const value = this.currentCell.dataset.value || this.currentCell.textContent.replace(/[¥,]/g, '').trim();
-                navigator.clipboard.writeText(value);
-                this.showSuccess('已复制');
+                let copied = false;
+                try {
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        await navigator.clipboard.writeText(value);
+                        copied = true;
+                    }
+                } catch (error) {
+                    // 权限拒绝时尝试兼容复制；两种方式均失败则交由人工复制。
+                }
+                if (!copied) {
+                    const target = document.createElement('textarea');
+                    const previousFocus = document.activeElement;
+                    target.value = value;
+                    target.style.cssText = 'position:fixed;left:-9999px';
+                    document.body.appendChild(target);
+                    try {
+                        target.select();
+                        copied = document.execCommand('copy') === true;
+                    } catch (error) {
+                        copied = false;
+                    } finally {
+                        document.body.removeChild(target);
+                        if (previousFocus && previousFocus.focus) previousFocus.focus();
+                    }
+                }
+                if (copied) this.showSuccess('已复制');
+                else {
+                    this.showError('复制失败，请手动复制');
+                    window.prompt('复制失败，请手动复制以下内容：', value);
+                }
             }
 
-            // Ctrl+V 粘贴
+            // Ctrl+V 粘贴：异步返回期间换格或进入编辑时，丢弃过期结果。
             if (e.ctrlKey && e.key === 'v' && this.currentCell) {
                 e.preventDefault();
-                navigator.clipboard.readText().then(text => {
+                const cell = this.currentCell;
+                try {
+                    if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('clipboard unavailable');
+                    const text = await navigator.clipboard.readText();
+                    if (this.currentCell !== cell || this.isEditing) return;
                     const value = parseFloat(text);
                     if (!isNaN(value) && value >= 0) {
-                        this.startEdit(this.currentCell, value.toString());
+                        this.startEdit(cell, value.toString());
                     } else {
                         this.showError('粘贴内容无效');
                     }
-                });
+                } catch (error) {
+                    this.showError('无法读取剪贴板，请双击单元格后手动粘贴');
+                }
             }
         });
     }

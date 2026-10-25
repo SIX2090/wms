@@ -23,13 +23,13 @@ def test_purchase_request_list_transport_and_summary(action,scenario):
     node=shutil.which('node')
     assert node,'Node required for the production request transport regression'
     name={'import':'submitPurchaseRequestImport','approve':'approveOrder','reject':'rejectOrder','revert':'revertOrder','delete':'deleteOrder','batch':'batchDelete'}[action]
-    handler=callback('purchase_request',('async ' if action in ['approve','revert','delete','batch'] else '')+'function '+name+'(')
+    handler=callback('purchase_request',('async ' if action in ['import','approve','revert','delete','batch'] else '')+'function '+name+'(')
     program=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 let sent=[],messages=[],timers=[],reloads=0,confirms=0,prompts=0,expired=0,responseScenario=p.scenario;
-const upload={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx'},form={id:'purchaseRequestImportForm'};
+const upload={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false},importButton={disabled:false},form={id:'purchaseRequestImportForm'};
 class FormData{constructor(owner){this.owner=owner.id;this.rows=[['csrf_token','fixture-token'],['file','fixture.xlsx']];}}
-const ctx={FormData,Headers,Promise,console,document:{getElementById:id=>id==='purchaseRequestImportFile'?upload:form,querySelector:()=>({content:'fixture-token'}),querySelectorAll:()=>p.scenario==='empty'?[]:[{value:'7'},{value:'8'}]},
+const ctx={FormData,Headers,Promise,console,document:{getElementById:id=>id==='purchaseRequestImportFile'?upload:id==='purchaseRequestImportFileButton'?importButton:form,querySelector:()=>({content:'fixture-token'}),querySelectorAll:()=>p.scenario==='empty'?[]:[{value:'7'},{value:'8'}]},
 showConfirm:()=>{confirms++;return Promise.resolve(p.scenario!=='cancel');},prompt:()=>{prompts++;return p.scenario==='cancel'?null:p.scenario==='empty_prompt'?'':' <b>驳回&A</b> ';},confirm:()=>{expired++;return false;},
 showToast:(m,t,duration)=>messages.push({m,t,duration}),setTimeout:(fn,delay)=>timers.push({fn,delay}),location:{href:'original',reload(){reloads++;}},
 fetch:(url,options)=>{sent.push({url,options});let s=responseScenario;if(s.startsWith('mixed_'))s=sent.length%2===1?'success':s.slice(6);if(s==='reverse_null')s=sent.length%2===1?'null':'success';const status=s==='http'?409:s==='html'?503:s==='expired401'?401:s==='expired419'?419:200;
@@ -41,7 +41,7 @@ async function invoke(){await ctx.action(7);await new Promise(r=>setImmediate(r)
 if(['cancel','empty'].includes(p.scenario)){assert.equal(sent.length,0);assert.equal(reloads,0);if(p.action==='reject')assert.equal(prompts,1);else if(p.scenario==='cancel')assert.equal(confirms,1);return;}
 const count=p.action==='batch'?2:1;assert.equal(sent.length,count);
 for(const [i,{url,options}] of sent.entries()){assert.equal(url,p.action==='import'?'/purchase_request/import':'/purchase_request/'+(p.action==='batch'?7+i:7)+'/'+(p.action==='batch'?'delete':p.action));assert.equal(options.method,'POST');assert.equal(options.credentials,'same-origin');assert.equal(options.headers['X-CSRFToken'],'fixture-token');assert.equal(options.headers['X-Requested-With'],'XMLHttpRequest');
-if(p.action==='import'){assert(options.body instanceof FormData);assert.equal(options.body.owner,'purchaseRequestImportForm');assert.equal(options.headers['Content-Type'],undefined);assert.equal(upload.value,'');}
+if(p.action==='import'){assert(options.body instanceof FormData);assert.equal(options.body.owner,'purchaseRequestImportForm');assert.equal(options.headers['Content-Type'],undefined);assert.equal(upload.value,'');assert.equal(upload.disabled,p.scenario==='success','success stays locked until refresh; failure restores input');assert.equal(importButton.disabled,p.scenario==='success');assert.equal(!!ctx.action.pending,p.scenario==='success');}
 else if(p.action==='reject'){assert.deepEqual(JSON.parse(options.body),{remark:p.scenario==='empty_prompt'?'':' <b>驳回&A</b> '});assert.equal(options.headers['Content-Type'],'application/json');}
 else assert.equal(options.body,undefined);}
 if(p.action==='reject')assert.equal(prompts,1);else if(p.action!=='import')assert.equal(confirms,1);

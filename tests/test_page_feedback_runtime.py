@@ -66,6 +66,8 @@ def test_page_feedback_behavior(page, name, mode):
         payload['escape'] = shared[start:shared.index('\n}', start) + 2]
     if page == 'wechat_share':
         payload['source'] = 'let wechatShareWriteBusy = false;\n' + function(page, 'writeWechatShare') + '\n' + payload['source']
+    if page == 'print_routing' and name == 'addWs':
+        payload['source'] = function(page, 'copyRoutingText') + '\n' + payload['source']
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);
 const messages=[],events=[],calls=[],timers=[],elements=[];

@@ -603,7 +603,7 @@ window.WmsTabs = (function() {
             restored = null;
         }
         const savedTabs = Array.isArray(restored && restored.tabs) ? restored.tabs : [];
-        savedTabs.slice(0, 8).forEach(function(tab) {
+        savedTabs.slice(0, MAX_TABS).forEach(function(tab) {
             if (tab.url && tab.title) open(tab.url, tab.title);
         });
         const currentKey = makeKey(currentUrl);

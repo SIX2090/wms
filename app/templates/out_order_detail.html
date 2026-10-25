@@ -371,33 +371,33 @@
                 <tbody>
                     {% for item in order.items %}
                     <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}">
-                        <td class="text-center"><span class="row-num">{{ loop.index }}</span></td>
+                        <td data-column-key="row_no" class="text-center"><span class="row-num">{{ loop.index }}</span></td>
                         {% if order.status == 'pending' %}
-                        <td><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
+                        <td data-column-key="selection"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
-                        <td class="fw-medium">{{ item.material.code }}</td>
-                        <td>{{ item.material.brand or '-' }}</td>
-                        <td>{{ item.material.name }}</td>
-                        <td>{{ item.material.spec or '-' }}</td>
-                        <td>{{ item.contract_no or order.contract_no or '-' }}</td>
-                        <td>{{ item.project_name or order.project_name or '-' }}</td>
-                        <td class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
-                        <td class="text-end">{{ "%.2f"|format(item.material.stock or 0) }}</td>
-                        <td class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
-                        <td class="text-end editable-cell" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
-                        <td class="text-end fw-bold text-danger">¥{{ "%.2f"|format(item.amount) }}</td>
+                        <td data-column-key="material_code" class="fw-medium">{{ item.material.code }}</td>
+                        <td data-column-key="brand">{{ item.material.brand or '-' }}</td>
+                        <td data-column-key="material_name">{{ item.material.name }}</td>
+                        <td data-column-key="spec">{{ item.material.spec or '-' }}</td>
+                        <td data-column-key="contract_no">{{ item.contract_no or order.contract_no or '-' }}</td>
+                        <td data-column-key="project_name">{{ item.project_name or order.project_name or '-' }}</td>
+                        <td data-column-key="unit" class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                        <td data-column-key="stock" class="text-end">{{ "%.2f"|format(item.material.stock or 0) }}</td>
+                        <td data-column-key="quantity" class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
+                        <td data-column-key="price" class="text-end editable-cell" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
+                        <td data-column-key="amount" class="text-end fw-bold text-danger">¥{{ "%.2f"|format(item.amount) }}</td>
                         {% if order.status == 'pending' %}
-                        <td class="editable-cell" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
+                        <td data-column-key="remark" class="editable-cell" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
                         {% else %}
-                        <td>{{ item.remark or '' }}</td>
+                        <td data-column-key="remark">{{ item.remark or '' }}</td>
                         {% endif %}
-                        <td class="text-center">
+                        <td data-column-key="label" class="text-center">
                             <button class="toolbar-btn toolbar-btn-icon" onclick="printLabel({{ item.material_id }})" title="打印标签">
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </td>
                         {% if order.status == 'pending' %}
-                        <td class="text-center">
+                        <td data-column-key="actions" class="text-center">
                             <button class="toolbar-btn toolbar-btn-icon toolbar-btn-danger" data-id="{{ item.id }}" title="删除">
                                 <i class="bi bi-trash"></i>
                             </button>
@@ -723,20 +723,22 @@ function addInlineMaterialRow(beforeRow) {
     var row = document.createElement('tr');
     row.className = 'new-item-row';
     row.innerHTML = `
-        <td class="text-center"><span class="row-num"></span></td>
-        <td><input type="checkbox" disabled></td>
-        <td><div class="material-quick-search"><input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off"><div class="material-quick-dropdown" style="display:none;"></div></div></td>
-        <td><input class="form-control material-brand-field" readonly></td>
-        <td><input class="form-control material-name-field" readonly></td>
-        <td><input class="form-control material-spec-field" readonly></td>
-        <td><input class="form-control material-unit-field text-center" readonly></td>
-        <td><input class="form-control material-stock-field text-end" readonly></td>
-        <td><input class="form-control material-qty-field text-end" type="number" step="0.01" min="0"></td>
-        <td><input class="form-control material-price-field text-end" type="number" step="0.01" min="0"></td>
-        <td><input class="form-control material-amount-field text-end fw-bold text-danger" readonly></td>
-        <td><input class="form-control material-remark-field" type="text" maxlength="500"></td>
-        <td class="text-center text-muted">-</td>
-        <td class="text-center">
+        <td data-column-key="row_no" class="text-center"><span class="row-num"></span></td>
+        <td data-column-key="selection"><input type="checkbox" disabled></td>
+        <td data-column-key="material_code"><div class="material-quick-search"><input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off"><div class="material-quick-dropdown" style="display:none;"></div></div></td>
+        <td data-column-key="brand"><input class="form-control material-brand-field" readonly></td>
+        <td data-column-key="material_name"><input class="form-control material-name-field" readonly></td>
+        <td data-column-key="spec"><input class="form-control material-spec-field" readonly></td>
+        <td data-column-key="contract_no"><input class="form-control material-contract-field" type="text" maxlength="100"></td>
+        <td data-column-key="project_name"><input class="form-control material-project-field" type="text" maxlength="200"></td>
+        <td data-column-key="unit"><input class="form-control material-unit-field text-center" readonly></td>
+        <td data-column-key="stock"><input class="form-control material-stock-field text-end" readonly></td>
+        <td data-column-key="quantity"><input class="form-control material-qty-field text-end" type="number" step="0.01" min="0"></td>
+        <td data-column-key="price"><input class="form-control material-price-field text-end" type="number" step="0.01" min="0"></td>
+        <td data-column-key="amount"><input class="form-control material-amount-field text-end fw-bold text-danger" readonly></td>
+        <td data-column-key="remark"><input class="form-control material-remark-field" type="text" maxlength="500"></td>
+        <td data-column-key="label" class="text-center text-muted">-</td>
+        <td data-column-key="actions" class="text-center">
             <button type="button" class="toolbar-btn toolbar-btn-icon toolbar-btn-success" onclick="saveInlineMaterialRow(this)" title="保存">
                 <i class="bi bi-check-lg"></i>
             </button>
@@ -745,8 +747,22 @@ function addInlineMaterialRow(beforeRow) {
             </button>
         </td>
     `;
+    // Column preferences can move and hide headers before a row is inserted.
+    const cellsByKey = new Map(Array.from(row.children).map(function(cell) {
+        return [cell.dataset.columnKey, cell];
+    }));
+    document.querySelectorAll('#itemTable thead th').forEach(function(th) {
+        const cell = cellsByKey.get(th.dataset.columnKey);
+        if (!cell) return;
+        row.appendChild(cell);
+        cell.classList.toggle('d-none', th.classList.contains('d-none'));
+        cell.classList.toggle('wms-field-column-hidden', th.classList.contains('wms-field-column-hidden'));
+        cell.style.display = th.style.display;
+    });
     if (beforeRow && beforeRow.parentNode === tbody) {
         tbody.insertBefore(row, beforeRow);
+    } else if (beforeRow === null) {
+        tbody.appendChild(row);
     } else {
         tbody.insertBefore(row, tbody.firstChild);
     }
@@ -798,6 +814,11 @@ function saveInlineMaterialRow(btn) {
     formData.append('quantity', qty);
     formData.append('price', price);
     formData.append('remark', remark);
+    const contextFields = {contract: 'contract_no', project: 'project_name'};
+    Object.keys(contextFields).forEach(function(field) {
+        const value = (row.querySelector('.material-' + field + '-field')?.value || '').trim();
+        if (value) formData.append(contextFields[field], value);
+    });
     WMS.api.postRaw('/out_order/{{ order.id }}/item/add', formData)
     .then(function(res) {
         if (res.status === 'success') {
@@ -845,27 +866,34 @@ function copyDetailMaterialRow(row) {
         addInlineMaterialRow();
         return;
     }
-    var target = addInlineMaterialRow(row.nextElementSibling);
-    var cells = row.children;
-    var code = row.classList.contains('new-item-row') ? row.querySelector('.material-code-field')?.value : cells[2]?.textContent;
-    var qty = row.classList.contains('new-item-row') ? row.querySelector('.material-qty-field')?.value : row.querySelector('[data-field="quantity"]')?.dataset.value;
-    var price = row.classList.contains('new-item-row') ? row.querySelector('.material-price-field')?.value : row.querySelector('[data-field="price"]')?.dataset.value;
-    target.querySelector('.material-code-field').value = (code || '').trim();
-    target.querySelector('.material-qty-field').value = qty || '';
-    target.querySelector('.material-price-field').value = price || '';
-    if (row.classList.contains('new-item-row')) {
-        target.querySelector('.material-brand-field').value = row.querySelector('.material-brand-field')?.value || '';
-        target.querySelector('.material-name-field').value = row.querySelector('.material-name-field')?.value || '';
-        target.querySelector('.material-spec-field').value = row.querySelector('.material-spec-field')?.value || '';
-        target.querySelector('.material-unit-field').value = row.querySelector('.material-unit-field')?.value || '';
-        target.querySelector('.material-stock-field').value = row.querySelector('.material-stock-field')?.value || '';
-    } else {
-        target.querySelector('.material-brand-field').value = cells[3]?.textContent.trim() || '';
-        target.querySelector('.material-name-field').value = cells[4]?.textContent.trim() || '';
-        target.querySelector('.material-spec-field').value = cells[5]?.textContent.trim() || '';
-        target.querySelector('.material-unit-field').value = cells[6]?.textContent.trim() || '';
-        target.querySelector('.material-stock-field').value = cells[7]?.textContent.trim() || '';
-    }
+    const target = addInlineMaterialRow(row.nextElementSibling);
+    if (!target) return;
+    const columns = {
+        code: 'material_code',
+        brand: 'brand',
+        name: 'material_name',
+        spec: 'spec',
+        unit: 'unit',
+        stock: 'stock',
+        qty: 'quantity',
+        price: 'price',
+        remark: 'remark',
+        contract: 'contract_no',
+        project: 'project_name'
+    };
+    Object.keys(columns).forEach(function(field) {
+        const input = target.querySelector('.material-' + field + '-field');
+        if (!input) return;
+        let value;
+        if (row.classList.contains('new-item-row')) {
+            value = row.querySelector('.material-' + field + '-field')?.value;
+        } else {
+            const cell = row.querySelector('[data-column-key="' + columns[field] + '"]');
+            value = cell?.dataset.value ?? cell?.textContent.trim();
+            if (['contract', 'project'].includes(field) && value === '-') value = '';
+        }
+        input.value = value ?? '';
+    });
     calcInlineRowAmount(target);
     target.querySelector('.material-qty-field').focus();
     target.querySelector('.material-qty-field').select();

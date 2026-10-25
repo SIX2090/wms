@@ -41,16 +41,28 @@
     var status = document.getElementById('mobileConnectStatus');
     if (!button || !input) return;
     button.addEventListener('click', function() {
+        if (status) status.textContent = '';
         var done = function() {
             if (status) status.textContent = '服务器地址已复制';
         };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(input.value).then(done).catch(function() {});
+        var fallback = function() {
+            input.focus();
+            input.select();
+            var copied = false;
+            try { copied = document.execCommand('copy') === true; } catch (error) {}
+            if (copied) done();
+            else if (status) status.textContent = '复制失败，请长按或按 Ctrl+C 手动复制已选中的服务器地址';
+        };
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(input.value).then(done, fallback);
+            }
+        } catch (error) {
+            // 同步拒绝时仍可使用已选中的地址手动复制。
         }
-        input.focus();
-        input.select();
-        try { document.execCommand('copy'); done(); } catch (error) {}
+        fallback();
     });
+
 })();
 </script>
 <style>
