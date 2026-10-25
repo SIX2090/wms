@@ -29,9 +29,10 @@ function extract(name, optional = false) {
     throw Error('Unbalanced function ' + name);
 }
 function element(text = '', visible = true, inTable = false) {
-    return {innerText: text, textContent: text, title: '', children: [],
+    return {innerText: text, textContent: text, title: '', children: [], attrs: {},
         offsetParent: visible ? {} : null, classList: {add() {}, contains() {return false;}},
-        getAttribute(k) { return k === 'title' ? this.title : null; },
+        setAttribute(k, v) {this.attrs[k] = String(v);},
+        getAttribute(k) { return k === 'title' ? this.title : this.attrs[k] ?? null; },
         closest() {return inTable ? {} : null;}, contains(e) {return this === e || this.children.includes(e);},
         appendChild(e) {this.children.push(e);}, addEventListener() {}};
 }

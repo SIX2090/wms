@@ -79,7 +79,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% if order_id and doc_type in ['bom', 'requisition', 'transfer', 'check'] %}
             <a href="{{ detail_url }}/{{ order_id }}/print" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> 打印</a>
             {% endif %}
-            <a href="{{ list_url }}" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回列表</a>
+            <a data-wms-back href="{{ list_url }}" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回列表</a>
         </div>
     </div>
 

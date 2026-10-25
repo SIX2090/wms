@@ -1973,6 +1973,21 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 既有测试维护：dead_header运行fixture补真实api.js、HTTP/业务状态封套和clearTimeout；合同focus源码契约同步为focus→search(false)→triggerSearch(value,version)，仍要求聚焦同步发起查询，另由真实运行用例验证。未弱化保存、字段或请求断言。
 - 最终验证：61个受影响及相邻模块1987 passed、21项既有skipped、2项既有SQLAlchemy警告；77新增锁包含其中不重复计数，运行前后产品、测试及其余冻结依赖哈希无变化（async/final-evidence.json）。文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停、verify_wms_bugs通过、严格AI台账通过、A1–A14零违规、JS语法/UTF-8/diff检查通过。请求lint无违规，存量模板warn未增加。
 - 提交前门禁：匿名查询仍为HTTP403限流，经连接器分页核对最新main三工作流仍为上述成功记录，实时main仍133a9ba6；Android祖先、完整对象和保护路径无差异重新验证。证据async/precommit_alternative.json。
+- 提交与CI：762ec6790bdfcc11f69d5554ac8b06531b7ec520已实际push（133a9ba6..762ec679 main -> main），HEAD/origin/live main一致；WMS CI40092337163和AI40092337111精确匹配completed/success，Android40027751562成功且复用证明重新通过。pre-push匿名403，核对同一基线后单次WMS_SKIP_CI_GATE=1重推并finally清除，证据async/push.log、push-retry.log和target_ci_alternative.json。生产统一验收。
+
+### BUG-2026-10-24-021: 新增返回快捷键误选侧栏链接或关闭组件后继续跳页
+
+- 状态：已修复，待最终回归及生产验收。
+- 根因/危害：公共Ctrl+N/Escape按全页首个匹配链接猜测动作，真实侧栏先于主内容，能误进采购申请新增或工单领料列表；document阶段处理早于后注册的组件监听，关闭移动侧栏或候选后还可能继续导航。现有Ctrl+S已经使用显式普通保存标记，本批保留。
+- 同类点已排查：核对BUG-2026-10-24-014普通保存快捷键、确认框/字段设置键盘隔离及公共工具栏历史；覆盖公共快捷键与八个现有单据模板入口，不创建隐藏操作或扩展角色权限。
+- 开工门禁：762ec6790bdfcc11f69d5554ac8b06531b7ec520与实时main一致，最新WMS CI40092337163、AI40092337111精确匹配success；Android40027751562成功，祖先、完整对象和保护路径无变化重新证明。证据C:/wms_backups/frontend_six_20261024/async/target_ci_alternative.json。
+- 修前基线：最终61模块来源为020成功记录23、017成功记录7、未变消费点旧证据10、本次补测21（156 passed、12项既有警告）。动态文件名消费的receipt_toolbar_rows额外补测，不只按字面匹配复用；9产品及原58测试哈希前后一致。证据navigation/baseline-reuse.json、baseline-before.json、baseline-after.json及两份baseline日志。
+- 生效确认：待修复回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未操作真实单据或库存。
+- 修复：八模板既有新增/返回入口和动态工具栏新增按钮显式声明data-wms-new/back；只点击当前embedded-content中可见、启用且非弹窗/只读遮罩内的对应入口。Ctrl+S原处理保持；导航键在window冒泡阶段处理，尊重组件后注册的document监听、已阻止事件、输入控件/contenteditable、IME229、重复键与修饰键。window捕获阶段记住当次按键开始时的可见弹层/抽屉/移动侧栏/候选，组件关闭后同一Esc不继续跳页；隐藏候选不阻断。README补用户使用边界。生产需重启 WMS 服务生效。
+- 回归锁：157项新运行回归执行真实快捷键函数、真实base侧栏和捕获→document→window事件顺序，覆盖组件晚注册/关闭/打开、stopPropagation、按钮焦点下候选、隐藏禁用/只读入口、输入法与重复键。物理备份回退9产品文件后146 failed、11对照passed，finally恢复且SHA256全部一致（navigation/rollback-proof.json）。原Ctrl+S 38项继续通过。
+- 最终验证：62模块1484 passed、100项既有SQLAlchemy警告，产品冻结后完成；工具栏相邻原夹具缺原生setAttribute，补属性接口而不改原断言。文档契约34 passed、隔离HTTP冒烟121/121且自有服务停止、既有BUG检查通过、规则零违规、源码编码/JS语法/diff通过。恢复CI修复后再次核对9产品哈希及测试/README修改时间，仍匹配原成功证据（restored-after-ci-repair.json），不重复相加重叠用例数量。
+- 浏览器验收：独立静态夹具抽取真实函数和base侧栏，不发送业务请求。旧版Ctrl+N误选隐藏侧栏/purchase_request/add、候选Esc先误选/requisition再关闭；修复版只选当前/other_out_order/add及/other_out_order，Esc关闭候选或移动侧栏时无导航。截图navigation/browser-before.png、browser-after-candidate.png、browser-after-sidebar.png、browser-after-new.png；临时浏览器及18081静态服务已结束，未生产登录。
+- 恢复开工门禁：2026-10-25中断续作发现Android定时运行40132587829失败，单次重跑仍失败，021先完整备份撤下。用户授权仅CI修复例外；78c9b8d99b1a16ab417e5727f572fd2721362d41三工作流均成功后才恢复本批，最新CI40177478032、AI40177478041、Android40177478067精确匹配，实时main一致。证据android_ci_20261025/target_ci_alternative.json。
 
 ### BUG-2026-10-08-014-F01: 文件恢复测试沿用Robolectric内存日志默认值导致SQLite故障复发
 
@@ -1983,3 +1998,4 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归：修前3个相关静态守护模块27 passed，真实Android80项中1失败且重跑仍失败。修后相关模块及两个新增源码守护29 passed；物理备份并回退Kotlin后两个新守护失败、finally恢复且SHA256一致。这是源码配置守护，不冒充Android运行时或编译证明；完整Android新增81项及三工作流须CI真实验收。
 - 生效确认：待推送修复提交、Android编译/单测和三工作流精确目标全绿；仅测试夹具及回归守护变化，生产服务无需重启。证据C:/wms_backups/frontend_six_20261024/android_ci_20261025，官方依据https://raw.githubusercontent.com/robolectric/robolectric/robolectric-4.14.1/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSQLiteConnection.java。
 - 门禁例外授权：2026-10-25用户明确回复「允许本次CI修复例外」，允许在Android实际红灯基线上仅提交推送已展示的五个测试/台账文件。此处不伪称基线全绿；仅本次push临时使用WMS_SKIP_CI_GATE并finally清除，分支与原pre-commit规则继续执行，三工作流全绿前不恢复下一批业务写入。
+- 提交及CI生效确认：78c9b8d99b1a16ab417e5727f572fd2721362d41实际push（762ec679..78c9b8d9 main -> main），HEAD/origin/live一致。WMS CI40177478032、AI40177478041、Android40177478067均精确匹配completed/success；Android job121121206258日志81 PASSED、0 FAILED，新增持久化检查及原保单重建用例均通过，APK编译与lint通过。目标全绿后才按哈希恢复021修改；仅测试变化，不需要生产重启。本次配置与运行验证通过，不以一次成功保证未来所有SQLite环境故障均已消除。

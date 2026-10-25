@@ -481,6 +481,7 @@
 | BUG-2026-10-24-018 | bugs | entries-2026-10.md |
 | BUG-2026-10-24-019 | bugs | entries-2026-10.md |
 | BUG-2026-10-24-020 | bugs | entries-2026-10.md |
+| BUG-2026-10-24-021 | bugs | entries-2026-10.md |
 | BUG-2026-10-08-014-F01 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |

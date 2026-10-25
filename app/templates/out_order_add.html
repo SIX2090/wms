@@ -446,7 +446,7 @@ textarea.form-control {
     <h2><i class="bi bi-box-arrow-up"></i> {{ page_title or '新增领料单' }}</h2>
     {% if is_other_out %}
     <div class="d-flex gap-2">
-        <a href="{{ return_list_url or '/other_out_order' }}" class="btn btn-secondary">
+        <a data-wms-back href="{{ return_list_url or '/other_out_order' }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
@@ -464,7 +464,7 @@ textarea.form-control {
             <i class="bi bi-plus-square"></i> 保存并新增
         </button>
         {% endif %}
-        <a href="{{ return_list_url or '/out_order' }}" class="btn btn-secondary">
+        <a data-wms-back href="{{ return_list_url or '/out_order' }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>

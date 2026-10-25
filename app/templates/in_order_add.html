@@ -28,7 +28,7 @@
     <h2><i class="bi bi-box-arrow-in-down"></i> {{ page_title or '新增采购入库单' }}</h2>
     {% if is_other_in %}
     <div class="d-flex gap-2">
-        <a href="{{ return_list_url or '/other_in_order' }}" class="btn btn-secondary">
+        <a data-wms-back href="{{ return_list_url or '/other_in_order' }}" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
@@ -46,7 +46,7 @@
             <i class="bi bi-check-circle"></i> 完成入库
         </button>
         {% endif %}
-        <a href="{{ return_list_url or '/in_order' }}" class="btn btn-secondary">
+        <a data-wms-back href="{{ return_list_url or '/in_order' }}" class="btn btn-secondary">
             <i class="bi bi-x-lg"></i> 取消
         </a>
         {% if business_type != '采购入库' %}

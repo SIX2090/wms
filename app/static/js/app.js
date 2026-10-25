@@ -3413,6 +3413,7 @@ function insertGlobalActionBar() {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-sm';
+        if (item.key === 'add') btn.setAttribute('data-wms-new', '');
         var actionLabel = item.key === 'settings' && module.printTemplateUrl ? '打印设置' : item.label;
         // 页面显式声明合并动作时，顶部只替换保存入口，其余工具及翻页保持。
         var primarySave = item.key === 'save' && document.querySelector('button[data-wms-save-complete]');
@@ -3541,6 +3542,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 键盘快捷键
     initKeyboardShortcuts();
+    initNavigationShortcuts();
 });
 
 // 键盘快捷键管理
@@ -3566,29 +3568,50 @@ function initKeyboardShortcuts() {
             return;
         }
 
-        // 忽略输入框内的快捷键
-        var tagName = (e.target && e.target.tagName) || '';
-        if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
-            return;
-        }
+    });
+}
 
-        // Ctrl+N: 新增（跳转到新增页面）
-        if (e.ctrlKey && e.key === 'n') {
-            e.preventDefault();
-            var addBtn = document.querySelector('a[href*="/add"], .btn-add, [onclick*="addNewRow"]');
-            if (addBtn) {
-                addBtn.click();
-            }
-            return;
-        }
-
-        // Esc: 返回列表
-        if (e.key === 'Escape') {
-            var backBtn = document.querySelector('a[href*="返回列表"], .btn-back, a[href$="/in_order"], a[href$="/requisition"]');
-            if (backBtn && !document.querySelector('.modal.show')) {
-                backBtn.click();
-            }
-            return;
+// BUG-2026-10-24-021: navigation belongs to the current page, never hidden shell links.
+function initNavigationShortcuts() {
+    var occupiedEvents = new WeakSet();
+    function actionFor(event) {
+        if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === 'n') return 'new';
+        if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && event.key === 'Escape') return 'back';
+        return null;
+    }
+    function visible(element) {
+        return element && !element.closest('[hidden], [inert], [aria-hidden="true"]') &&
+            element.getClientRects().length > 0 && window.getComputedStyle(element).visibility === 'visible';
+    }
+    function componentOpen() {
+        if (document.body.classList.contains('mobile-sidebar-open') && visible(document.getElementById('appSidebar'))) return true;
+        return Array.from(document.querySelectorAll(
+            '.modal.show, .offcanvas.show, .offcanvas.showing, dialog[open], [role="dialog"], ' +
+            '.cb-confirm-overlay.show, .ai-assistant-panel.open, .wms-row-context-menu.show, ' +
+            '.module-menu.open .module-flyout, .dropdown-menu.show, .wms-contract-dropdown, .ks-menu, .cb-column-panel.show, ' +
+            '.picker-dropdown, .material-dropdown, .supplier-dropdown, #supplierDropdown, #customerDropdown, ' +
+            '#projectNameDropdown, #sourceInOrderDropdown, .flatpickr-calendar.open'
+        )).some(visible);
+    }
+    // Remember components before their own handlers close them, including handlers that do not preventDefault.
+    window.addEventListener('keydown', function(event) {
+        if (actionFor(event) && componentOpen()) occupiedEvents.add(event);
+    }, true);
+    // Window bubbling follows every document handler, even those registered later by page scripts.
+    window.addEventListener('keydown', function(event) {
+        var action = actionFor(event);
+        if (!action || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat) return;
+        var target = event.target;
+        if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+        if (occupiedEvents.has(event) || componentOpen()) return;
+        var content = document.querySelector('.embedded-content');
+        var button = content && Array.from(content.querySelectorAll('a[data-wms-' + action + '], button[data-wms-' + action + ']')).find(function(element) {
+            return visible(element) && !element.matches(':disabled') && element.getAttribute('aria-disabled') !== 'true' &&
+                !element.closest('.modal, [role="dialog"], .readonly-mask');
+        });
+        if (button) {
+            event.preventDefault();
+            button.click();
         }
     });
 }
