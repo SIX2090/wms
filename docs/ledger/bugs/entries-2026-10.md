@@ -2166,3 +2166,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 修复：每次进入含prompt取消推进共享入口代次；modal内部输入即时推进查询代次、清候选、冻结180ms关键词，成功/失败/点击同时核对入口、局部代次、关键词及原DOM身份/连接状态。hide与hidden均使本轮失效并取消timer；有效fallback仍打开首条。仅showDocumentSearchModal内修改，函数外原始字节SHA一致（product-scope-proof.json）。统一层全局网络/5xx及会话提示保持，不把旧局部失效描述成全局错误静默。
 - 最终验收：53新运行锁通过；物理仅回退app.js后31业务断言failed/22正对照passed，0缺helper/DOM错误，finally3文件原始SHA完全恢复（rollback/proof.json）。68完整模块2582 passed/21既有skipped，1323输入及6外部helpers前后SHA稳定、credential_file_events=[]、四连接前安全预检通过（final-regression/result.json）。root quality文档34、隔离HTTP121/121且自有服务停止、规则/请求/编码/BUG/diff全部通过。
 - 真实浏览器：静态隔离页使用15个真实函数、api/base及真实Bootstrap5.3，CUA实际输入轴承再螺母、先回螺母后旧轴承，候选仍IN-FIXTURE-22并正确选择URL含embedded=1；关闭后再返回两个晚包无候选/无导航。browser/after-proof.json、after-race.png、after-close.png与freeze产品manifest匹配；无WMS连接，页面与18081自有服务已关闭。提交前最新同一db1560d6三CI及Android证明再次核实（precommit_ci.json）。
+- 提交与CI：9771b84282083962bf4562358386b79121bfdb05实际正常push db1560d6..9771b842，HEAD/origin/live一致；WMS CI40194043677、AI40194043659精确completed/success，Android40177478067及祖先/完整对象/保护路径无差异证明通过（search/target_ci.json）。生产统一验收待最后一组。
+
+### BUG-2026-10-25-012: 库存查询打印忽略当前筛选和排序
+
+- 状态：已修复（待目标CI及生产生效，2026-10-25）。
+- 根因/危害：真实stockPrintBtn仅传warehouse_id；即使手工携带search/category_id/stock_filter/sort/order，report_stock_print的旧Excel及模板Excel分支仍各自查询所有物料，导出行集与列表筛选/排序不一致。
+- 同类点已排查：关联BUG-2026-08-12-005仓库级导出、R1分页与本轮报表快照问题；本组库存查询列表和旧/显式/默认模板Excel三种入口统一候选查询，打印取筛选全集而非当前页。保留既有_alert_status_for两级预警（low含danger、normal含disabled）、允许排序字段、resolve_request_warehouse和get_warehouse_stock_quantities；不改库存服务/总账/历史归属/app.py。
+- 开工门禁：main9771b84282083962bf4562358386b79121bfdb05；WMS CI40194043677、AI40194043659精确success，Android40177478067及复用证明通过（search/target_ci.json）。
+- 修前基线：25完整模块208 passed/88既有warning，202输入及helper/runner前后SHA一致，main/HEAD/origin严格9771b842，stock012-baseline-after011-target-proof.json valid=true。此前008刷新结果保留，当前使用011后的新证明。
+- 只读复现：4仓、61物料（58专用分类跨3页）、实际列表GET和两Excel分支含显式/默认模板，61场景旧码56业务断言failed/5正常对照passed/0 errors；实际href和模板change亦红，无缺新helper的伪红（report_print/stock012_candidate）。历史MA显式2+可解析NULL3=甲仓5，乙仓8；孤儿50保留未归属桶，global63与已归属13差50不当作库存BUG、不回填。
+- 生效确认：待实现、本地完整与多仓/历史/汇总=全集回归、物理回退、目标CI及统一生产验收；生产需重启 WMS 服务生效。真实Excel仅隔离数据，不连接生产登录或打印、不修改生产业务记录。
+- 修复：get_stock_query_filters规范化原有效参数，build_stock_material_query提取原搜索/分类、仓库级两级预警及IN补集和允许排序；页面继续原paginate，report两Excel输出共享同一筛选全集.all()。href仅从服务器有效条件urlencode生成，排除page/per_page/embedded等；原模板切换从baseHref构造URL已正确保留这些条件，无需重复改JS。仓库解析/读取helper、app.py、历史归属及原价格/金额字段公式均未改。生产需重启 WMS 服务生效。
+- 最终验收：新61真实GET/xlsx/模板change锁通过，三产品物理备份回退后56业务断言failed/5正对照passed，finally三原始SHA恢复（stock012_rollback/proof.json）。原25及新增共26完整模块269 passed/304 SQLAlchemy既有告警，200输入前后稳定、4 owned冻结文件匹配，无旧测试改动（stock012-final-result.json及stock012-final-freeze.json）。R1跨页58行打印全集逐行/顺序=列表三页合并；R2四仓隔离、历史NULL解析、孤儿50不回填、打印完整行数量与筛选全集逐行相等，非分页抽样；库存读取和金额原公式保持。新test便携ROOT、pytest tmp_path_factory、无全局chdir，static/config和数据库嵌套finally恢复，公共helper由同名实际契约测试覆盖A9。
+- 提交前验收：文档34 passed、隔离HTTP121/121并停止自有服务、A1–A14零违规、请求/编码/BUG/diff通过（stock012_quality/quality.json）；同一9771最新三CI及实时main/Android复用再次证明（stock012-precommit-ci.json）。未连接生产业务或真实打印；后续将以全批候选再做完整AI70及统一生产验收。

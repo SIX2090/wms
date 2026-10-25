@@ -14,7 +14,11 @@
                 <i class="bi bi-pencil-square"></i>
             </a>
             {% set print_disabled = not materials or all_warehouses_mode %}
-            <a id="stockPrintBtn" href="/report/stock/print{% if filters.warehouse_id and filters.warehouse_id != 0 %}?warehouse_id={{ filters.warehouse_id }}{% endif %}" target="_blank"
+            {% set print_params = {'warehouse_id': filters.warehouse_id, 'sort': sort_by, 'order': sort_order} %}
+            {% for key in ('search', 'category_id', 'stock_filter') if filters[key] %}
+            {% set _ = print_params.update({key: filters[key]}) %}
+            {% endfor %}
+            <a id="stockPrintBtn" href="/report/stock/print?{{ print_params|urlencode }}" target="_blank"
                class="btn btn-primary btn-sm {% if print_disabled %}disabled{% endif %}"
                {% if print_disabled %}aria-disabled="true" tabindex="-1"
                {% endif %}{% if not materials %}title="请先筛选出有数据的库存后再打印"

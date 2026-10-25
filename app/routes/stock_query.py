@@ -20,6 +20,76 @@ from flask_login import login_required
 from db import db
 
 
+def get_stock_query_filters(args):
+    """Normalize the existing inventory-list filters for both screen and print."""
+    from app import inventory_alert_enabled
+    sort_by = args.get('sort', 'code')
+    sort_order = args.get('order', 'asc')
+    allowed_sorts = {'code', 'name', 'spec', 'stock', 'min_stock', 'price', 'created_at', 'category_id', 'supplier_id'}
+    if sort_by not in allowed_sorts:
+        sort_by = 'code'
+    if sort_order not in ('asc', 'desc'):
+        sort_order = 'asc'
+    stock_filter = (args.get('stock_filter') or '').strip()
+    if stock_filter not in ('low', 'normal') or not inventory_alert_enabled():
+        stock_filter = ''
+    return {
+        'search': (args.get('search') or '').strip(),
+        'category_id': args.get('category_id', type=int) or '',
+        'stock_filter': stock_filter,
+        'sort': sort_by,
+        'order': sort_order,
+    }
+
+
+def build_stock_material_query(filters, warehouse_stock_map):
+    """Reuse list candidates/order; callers choose pagination or the full result."""
+    from sqlalchemy.orm import joinedload
+    from app import Material, Supplier, MaterialCategory, Unit, _alert_status_for
+
+    def _base_query(with_options):
+        q = Material.query
+        if with_options:
+            q = q.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
+        if filters['search']:
+            search_like = f"%{filters['search']}%"
+            q = q.filter(db.or_(
+                Material.code.like(search_like), Material.name.like(search_like),
+                Material.spec.like(search_like), Material.purpose.like(search_like),
+                Supplier.name.like(search_like), MaterialCategory.name.like(search_like),
+                Unit.name.like(search_like),
+            )).outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
+                MaterialCategory, Material.category_id == MaterialCategory.id
+            ).outerjoin(Unit, Material.unit_id == Unit.id)
+        if filters['category_id']:
+            q = q.filter(Material.category_id == filters['category_id'])
+        return q
+
+    query = _base_query(True)
+    if filters['stock_filter']:
+        # Preserve the warehouse helper's existing quantity and two-level alert
+        # rules. Normal includes disabled alerts; low includes low and danger.
+        candidates = _base_query(False).with_entities(
+            Material.id, Material.min_stock, Material.reorder_point).all()
+        if filters['stock_filter'] == 'low':
+            matched = [mid for mid, ms, rp in candidates
+                       if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
+                       in ('low', 'danger')]
+        else:
+            matched = [mid for mid, ms, rp in candidates
+                       if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
+                       not in ('low', 'danger')]
+        hit = set(matched)
+        miss = [mid for mid, _ms, _rp in candidates if mid not in hit]
+        # Keep the smaller IN/complement, avoiding SQLite parameter limits.
+        if len(matched) <= len(miss):
+            query = query.filter(Material.id.in_(matched))
+        else:
+            query = query.filter(Material.id.notin_(miss))
+    sort_col = getattr(Material, filters['sort'], Material.code)
+    return query.order_by(sort_col.asc() if filters['order'] == 'asc' else sort_col.desc())
+
+
 # no-test:reason=路由注册辅助函数，能力由 stock_query_* 各路由测试覆盖
 def register_stock_query_routes(app):
     # BUG-2026-07-29-006: 打印/导出路由 404 显式化
@@ -36,27 +106,18 @@ def register_stock_query_routes(app):
     @login_required
     def stock_query():
         """库存查询"""
-        from sqlalchemy.orm import joinedload
         from app import (
-            Material,
-            Supplier,
             MaterialCategory,
-            Unit,
             Warehouse,
             LocationInventory,
-            _alert_status_for,
             get_default_warehouse,
             get_active_warehouses,
             get_warehouse_stock_quantities,
             get_all_warehouses_stock_quantities,
-            inventory_alert_enabled,
             location_management_enabled,
         )
-        search = (request.args.get('search') or '').strip()
-        category_id = request.args.get('category_id', type=int)
-        stock_filter = (request.args.get('stock_filter') or '').strip()
-        sort_by = request.args.get('sort', 'code')
-        sort_order = request.args.get('order', 'asc')
+        filters = get_stock_query_filters(request.args)
+        sort_by, sort_order = filters['sort'], filters['order']
         # BUG-2026-08-02-018：库存查询仓库必填（AGENTS.md 规则），未指定时带入默认仓库。
         # P1-5（2026-09-25）：warehouse_id=0 为「全部仓库」哨兵值——逐仓汇总所有启用
         # 仓库，不回退全局 Material.stock。与 /alert 全局口径可能不同（页面上标注口径）。
@@ -67,15 +128,6 @@ def register_stock_query_routes(app):
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse_id = default_wh.id
-        allowed_sorts = {'code', 'name', 'spec', 'stock', 'min_stock', 'price', 'created_at', 'category_id', 'supplier_id'}
-        if sort_by not in allowed_sorts:
-            sort_by = 'code'
-        if sort_order not in ('asc', 'desc'):
-            sort_order = 'asc'
-        if stock_filter not in ('low', 'normal'):
-            stock_filter = ''
-        if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
-            stock_filter = ''
         # AI-WMS-FILTER-003：库存查询分页（默认每页 50 条，per_page 走白名单防滥用）
         page = request.args.get('page', 1, type=int)
         per_page = request.args.get('per_page', 50, type=int)
@@ -103,61 +155,7 @@ def register_stock_query_routes(app):
             warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
         # AGENTS.md：不指定仓库时不得返回数据（全部仓库=显式指定，允许返回）
         if warehouse_id or all_warehouses_mode:
-            def _base_query(with_options):
-                q = Material.query
-                if with_options:
-                    q = q.options(joinedload(Material.unit), joinedload(Material.category), joinedload(Material.supplier))
-                if search:
-                    search_like = f'%{search}%'
-                    q = q.filter(
-                        db.or_(
-                            Material.code.like(search_like),
-                            Material.name.like(search_like),
-                            Material.spec.like(search_like),
-                            Material.purpose.like(search_like),
-                            Supplier.name.like(search_like),
-                            MaterialCategory.name.like(search_like),
-                            Unit.name.like(search_like)
-                        )
-                    ).outerjoin(Supplier, Material.supplier_id == Supplier.id).outerjoin(
-                        MaterialCategory, Material.category_id == MaterialCategory.id
-                    ).outerjoin(Unit, Material.unit_id == Unit.id)
-                if category_id:
-                    q = q.filter(Material.category_id == category_id)
-                return q
-
-            query = _base_query(True)
-            # AI-WMS-FILTER-003：stock_filter(low/normal) 依赖仓库级库存口径，
-            # 而 get_warehouse_stock_quantities 在单仓场景还会回退全局 Material.stock，
-            # 无法翻译成等价 SQL 谓词。因此先按同一口径算出命中 id 集合，再交给 SQL
-            # 分页——保证总条数与页数准确，不会出现「过滤后仍按全量分页」的错。
-            if stock_filter:
-                # AI-CI-GREEN-005-F05：判定改用两级口径（low = <= 最低库存，
-                # danger = <= 安全库存），与 /alert、物料列表、手机端完全一致；
-                # 此前这里只比 min_stock，同一批物料在本页会少一整档。
-                candidates = _base_query(False).with_entities(
-                    Material.id, Material.min_stock, Material.reorder_point).all()
-                if stock_filter == 'low':
-                    matched = [mid for mid, ms, rp in candidates
-                               if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
-                               in ('low', 'danger')]
-                else:
-                    # 「正常」= 不需要预警。注意不能写成 == 'normal'：两个阈值都没设的
-                    # 物料状态是 disabled，它既不告警也不该从「正常」里消失——否则
-                    # low + normal != 全量，用户会以为物料丢了（test_filter_advanced
-                    # 的互补性断言就是守这条的）。
-                    matched = [mid for mid, ms, rp in candidates
-                               if _alert_status_for(warehouse_stock_map.get(mid) or 0, ms, rp)
-                               not in ('low', 'danger')]
-                hit = set(matched)
-                miss = [mid for mid, _ms, _rp in candidates if mid not in hit]
-                # 命中集与补集取较小的一侧，避免超长 IN 列表撞上 SQLite 变量上限
-                if len(matched) <= len(miss):
-                    query = query.filter(Material.id.in_(matched))
-                else:
-                    query = query.filter(Material.id.notin_(miss))
-            sort_col = getattr(Material, sort_by, Material.code)
-            query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc())
+            query = build_stock_material_query(filters, warehouse_stock_map)
             pagination = db.paginate(query, page=page, per_page=per_page, error_out=False)
             materials = pagination.items
             # 开启库位管理时，库位行只取当前所选仓库的（BUG-2026-08-16-007），
@@ -185,7 +183,7 @@ def register_stock_query_routes(app):
                         continue
                     location_map.setdefault(row.material_id, []).append(row)
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc()).all()
-        filters = {'search': search, 'category_id': category_id or '', 'stock_filter': stock_filter, 'warehouse_id': 0 if all_warehouses_mode else (warehouse_id or ''), 'per_page': per_page}
+        filters.update(warehouse_id=0 if all_warehouses_mode else (warehouse_id or ''), per_page=per_page)
         return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouse_stock_map=warehouse_stock_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(),
                                    all_warehouses_mode=all_warehouses_mode,
                                    pagination=pagination, page=page, per_page=per_page)

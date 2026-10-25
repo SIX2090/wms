@@ -470,15 +470,19 @@ def register_report_routes(app):
     @login_required
     def report_stock_print():
         from openpyxl import Workbook
-        from sqlalchemy.orm import joinedload
-        from app import (Material, api_error, get_warehouse_stock_quantities,
+        from app import (api_error, get_warehouse_stock_quantities,
                          inventory_alert_enabled, resolve_request_warehouse)
+        from routes.stock_query import build_stock_material_query, get_stock_query_filters
         # BUG-2026-08-12-005：库存导出必须输出仓库级库存，不得输出 Material.stock 跨仓总数；
         # 仓库解析规则与新版报表一致（显式参数校验 + 默认仓库回退，无默认 400）
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
             return api_error(wh_err, 400)
         quantities = get_warehouse_stock_quantities(warehouse)
+        filters = get_stock_query_filters(request.args)
+        # Printing consumes the same filtered candidates/order as the screen,
+        # without its page/per_page limit. Both Excel paths use this one list.
+        materials = build_stock_material_query(filters, quantities).all()
         # PRINT-TEMPLATE-F04 A6：库存查询列表接入 Excel 模板打印——
         # 显式 template_id 或存在默认模板记录时按模板渲染；否则回退原硬编码版式
         from doc_print_excel import (render_table_excel_print,
@@ -489,7 +493,7 @@ def register_report_routes(app):
         if has_template:
             from types import SimpleNamespace
             rows = []
-            for m in Material.query.options(joinedload(Material.unit)).all():
+            for m in materials:
                 stock = quantities.get(m.id, 0)
                 price = m.price or 0
                 rows.append(SimpleNamespace(
@@ -513,12 +517,6 @@ def register_report_routes(app):
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存', '库存状态'])
         ws.append(headers)
-        materials = Material.query.options(
-            joinedload(Material.unit),
-            # BUG-2026-09-30-006：m.category.name 逐物料懒加载（即使 NULL 也触发
-            # 查询），5000 物料 = 5000 次 N+1（基线 E1 2.68s 主因之一）
-            joinedload(Material.category),
-        ).all()
         status_map = {
             'low': '低于最低库存',
             'danger': '低于安全库存',
