@@ -2706,16 +2706,24 @@ function renderDocumentSearchResults(container, meta, data) {
 }
 
 function showDocumentSearchModal(module) {
+    // Every entry (including a cancelled prompt) supersedes prior search intents.
+    var entryGeneration = (showDocumentSearchModal.entryGeneration || 0) + 1;
+    showDocumentSearchModal.entryGeneration = entryGeneration;
+    function isCurrentEntry() {
+        return showDocumentSearchModal.entryGeneration === entryGeneration;
+    }
     if (!window.bootstrap) {
         var keyword = prompt('请输入单号、客户、供应商、用途、物料编码、物料名称或规格');
         if (keyword === null) return;
         fetchDocumentNavigation(module, keyword).then(function(data) {
+            if (!isCurrentEntry()) return;
             if (!data.list.length) {
                 showToast('未找到匹配单据', 'warning');
                 return;
             }
             openDocumentById(module, data.list[0].id, data.list[0]);
         }).catch(function(error) {
+            if (!isCurrentEntry()) return;
             showToast(error.message || '查找单据失败', 'danger', 3600);
         });
         return;
@@ -2748,29 +2756,78 @@ function showDocumentSearchModal(module) {
     var modal = new bootstrap.Modal(modalEl);
     var latestRows = [];
     var timer = null;
+    var alive = true;
+    var queryGeneration = 0;
+    var displayedGeneration = null;
+    var displayedKeyword = null;
 
-    function load(keyword) {
+    function isCurrentModal() {
+        return alive && isCurrentEntry() &&
+            modalEl.isConnected && input.isConnected && meta.isConnected && results.isConnected &&
+            document.getElementById('cbDocumentSearchModal') === modalEl &&
+            document.getElementById('cbDocumentSearchInput') === input &&
+            document.getElementById('cbDocumentSearchMeta') === meta &&
+            document.getElementById('cbDocumentSearchResults') === results;
+    }
+
+    function invalidateResults() {
+        queryGeneration += 1;
+        latestRows = [];
+        displayedGeneration = null;
+        displayedKeyword = null;
+        results.innerHTML = '';
+        return queryGeneration;
+    }
+
+    function isCurrentSearch(keyword, generation) {
+        return isCurrentModal() && queryGeneration === generation && input.value.trim() === keyword;
+    }
+
+    function load(keyword, generation) {
+        if (!isCurrentSearch(keyword, generation)) return;
         meta.textContent = '正在加载单据...';
         fetchDocumentNavigation(module, keyword)
         .then(function(data) {
+            if (!isCurrentSearch(keyword, generation)) return;
             latestRows = data.list || [];
             renderDocumentSearchResults(results, meta, data);
+            displayedGeneration = generation;
+            displayedKeyword = keyword;
         })
         .catch(function(error) {
+            if (!isCurrentSearch(keyword, generation)) return;
             latestRows = [];
+            displayedGeneration = null;
+            displayedKeyword = null;
             meta.textContent = error.message || '查找单据失败';
             results.innerHTML = '';
         });
     }
 
     input.addEventListener('input', function() {
+        if (!isCurrentModal()) return;
         clearTimeout(timer);
+        var generation = invalidateResults();
+        var keyword = input.value.trim();
+        meta.textContent = '正在加载单据...';
         timer = setTimeout(function() {
-            load(input.value.trim());
+            timer = null;
+            load(keyword, generation);
         }, 180);
     });
 
+    function cancelSearch() {
+        alive = false;
+        clearTimeout(timer);
+        timer = null;
+        invalidateResults();
+    }
+    modalEl.addEventListener('hide.bs.modal', cancelSearch);
+    modalEl.addEventListener('hidden.bs.modal', cancelSearch);
+
     results.addEventListener('click', function(event) {
+        if (!isCurrentModal() || displayedGeneration !== queryGeneration ||
+                displayedKeyword !== input.value.trim()) return;
         var rowEl = event.target.closest('.cb-doc-search-row');
         if (!rowEl) return;
         var row = latestRows.find(function(item) {
@@ -2783,11 +2840,12 @@ function showDocumentSearchModal(module) {
     });
 
     modalEl.addEventListener('shown.bs.modal', function() {
+        if (!isCurrentModal()) return;
         input.focus();
         input.select();
     });
     modal.show();
-    load('');
+    load('', queryGeneration);
 }
 
 function createDocumentNavigationGroup(module, isListPage) {
