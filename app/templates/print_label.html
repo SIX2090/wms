@@ -292,7 +292,7 @@
                                     {% elif cell_data.field == 'category_name' %}
                                     <span class="cell-value">{{ material.category.name if material.category else '' }}</span>
                                     {% elif cell_data.field == 'price' %}
-                                    <span class="cell-value">{{ material.price if material.price else '' }}</span>
+                                    <span class="cell-value">{{ material.price if material.price is not none else '' }}</span>
                                     {% elif cell_data.field == 'date' %}
                                     <span class="cell-value">{{ now.strftime('%Y-%m-%d') if now is defined and now else '' }}</span>
                                     {% elif cell_data.field == 'supplier_name' %}

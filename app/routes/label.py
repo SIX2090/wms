@@ -45,7 +45,7 @@ def register_label_routes(app):
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
                 'stock': str(m.stock) if m.stock else '0',
-                'price': str(m.price) if m.price else '',
+                'price': str(m.price) if m.price is not None else '',
                 'barcode': m.code or '',
                 'date': datetime.now().strftime('%Y-%m-%d'),
                 'supplier_name': m.supplier.name if m.supplier else ''
@@ -86,7 +86,7 @@ def register_label_routes(app):
                 'category_name': m.category.name if m.category else '',
                 'supplier_name': m.supplier.name if m.supplier else '',
                 'stock': str(m.stock) if m.stock else '0',
-                'price': str(m.price) if m.price else '',
+                'price': str(m.price) if m.price is not None else '',
                 'barcode': m.code or '',
             })
         result = render_label_excel_print(

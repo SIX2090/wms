@@ -2088,3 +2088,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：新增92项执行完整组件、实际api.js、base旧CSRF/全局拦截及真实生成弹窗HTML事件。物理回退旧产品为72 failed/20正对照passed；仅还原旧传输6 failed/2 HTTP业务失败对照passed，失败点为HTTP不得误成功；仅旧count或预览零值表达式各2 failed。finally恢复产品与测试哈希一致，证据excel_component/rollback-proof.json；既有测试及断言均未修改。
 - 完整模块：原10及新增模块共550 passed，23项产品/依赖/测试原始字节前后稳定，最终产品与新测试哈希和最新R8完全一致；前一版548记录仅作中间证据，不冒充最终验收。证据excel_component/final-proof.json及final.log。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。另增加仓库外本地SQLite连接前守卫，拒绝测试辅助启动代码的生产instance文件兜底连接，内存与外部临时库允许；带守卫再验verify_wms_bugs通过（bugs-guarded.log）。同一312cf133基线最新三工作流、实时远端及Android复用证明再次核实（precommit_ci_alternative.json）。
+- 提交与CI：42c74d2dba3d19e12a59d6d87f25ae9e916b9dc0实际正常push（312cf133..42c74d2d main -> main），HEAD/origin/live main一致；WMS CI40186115169、AI40186115164精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（excel_component/target_ci.json）。生产统一验收待执行。
+
+### BUG-2026-10-25-007: 普通及批量标签将合法零价格显示为空
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：普通标签Jinja、批量页getFieldValue及两个批量GET数据源以价格truthiness判空；实际零价普通标签为空，而preview显示0.0，批量MATERIALS价格为空且真实xlsx零价单元格为空，三输出与数据不一致。
+- 同类点已排查：关联零价录入/复制及本轮销售001、Excel预览006历史；扫描标签普通/preview/整页批量及两个数据生成消费点，共3产品4处。保留None、空串及正价原格式，不改其他数量、库存或实际打印流程。
+- 开工门禁：实时main42c74d2dba3d19e12a59d6d87f25ae9e916b9dc0；WMS CI40186115169、AI40186115164精确匹配success，Android40177478067成功且复用证明通过（excel_component/target_ci.json）。
+- 修前基线：14个完整受影响及相邻模块175 passed、40项既有警告；在新增外部SQLite连接前守卫环境重跑，28输入哈希前后稳定且目标42c74d2d一致，证据label_zero/baseline-after006-guard-*。真实隔离GET/HTML及xlsx证据label_zero/。
+- 生效确认：待本地回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未生产打印或修改物料价格。
+- 修复：普通Jinja和两个批量GET数据源按None判空，批量JS按null/undefined/空串判空，保留数值0、字符串0、浮点与Decimal零；None及空串仍为空，正价格式保持。仅3产品4处判断，不改变标签选择/分页/库存或实际打印。生产需重启 WMS 服务生效。
+- 回归锁：18项真实Jinja、完整批量页脚本/api.js/DOM、隔离GET及真实xlsx下载用例通过，覆盖0/0.0/Decimal0/字符串0/None/空串及正价，GET前后价格保持。物理备份并回退三产品后8 failed、10正对照passed，finally字节恢复及三SHA256一致；非缺helper反证。证据label_zero/physical-rollback-proof.json和new-green.log，既有测试断言保持。
+- 完整模块：原14及新增模块共193 passed，42项警告（基线40及新GET用例2项），29项产品/API/base/测试输入原始哈希前后一致。证据label_zero/final-result.json及final.log；实际HTTP请求仅为隔离Flask test_client GET，xlsx来自外部临时模板，不调用真实打印。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff检查通过；测试进程保留外部SQLite连接前守卫。连接器重新核实同一42c74d2d基线最新三工作流、实时远端及Android复用证明通过，证据label_zero/quality.json及precommit_ci_alternative.json。

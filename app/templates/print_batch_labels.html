@@ -199,7 +199,7 @@
             case 'category_name': return mat.category_name || '';
             case 'supplier':      return mat.supplier_name || '';
             case 'stock':         return mat.stock || '0';
-            case 'price':         return mat.price ? '¥' + mat.price : '';
+            case 'price':         return mat.price == null || mat.price === '' ? '' : '¥' + mat.price;
             case 'barcode':       return mat.barcode || mat.code || '';
             case 'qrcode':        return mat.code || '';
             case 'date':          return mat.date || '';
