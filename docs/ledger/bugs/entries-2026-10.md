@@ -1908,25 +1908,25 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-016: 委外发料收料改选物料后旧ID残留导致错存
 
-- 状态：已修复，待回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：两页物料输入仅在零匹配时清隐藏ID，多匹配仍保留旧ID；精确名称用find首项也会错误选择同名物料。后端优先ID解析，因此界面输入螺栓却可能保存旧轴承。未解析物料的原后端继续跳过，不能当作前端歧义兜底。
 - 同类点已排查：检索物料候选、隐藏ID清理及BUG-2026-10-22-013、2026-10-24-005/006历史；本次同分支仅subcontract_issue和subcontract_receive，公共quick-select选中后保存前仍经本页解析。覆盖两处，不修改后端库存、权限或详情片段HTML。
 - 修复：两页共享subcontract-material-selection.js，唯一精确编码优先、名称要求唯一、其余不明确输入立即清旧ID。保存前对未解析非空编码经既有精确GET接口分批核对，每批最多200；全部匹配才提交，失败不静默漏行。保留缓存外完整编码，包括被缓存内其他编码部分匹配的情况。增加提交互斥、表单快照/输入代次/行身份/弹窗关闭校验；核对期间发生变化须人工重存，成功持续锁至导航，失败恢复按钮。生产需重启 WMS 服务生效。
 - 开工门禁：93cbdf8bdafc655af111302921e1b7fa4789dbb3与实时main一致，CI40087920520、AI40087920447精确匹配success，Android40027751562成功且祖先、对象齐全、保护路径无变化证明成立。证据C:/wms_backups/frontend_six_20261024/baseline_ci.json。
 - 修前基线：14个完整受影响/相邻模块386 passed、44项既有SQLAlchemy警告。64项新运行时用例旧代码56 failed、8 passed；使用真实模板输入/保存函数和真实api.js。主代理在独立18080内存库真实浏览器输入A001再改螺栓，保存草稿详情仍显示A001轴承，最终隔离状态material_id=1，证据subcontract/before.png与browser_final_state.json；未生产登录或修改真实单据。
-- 生效确认：待最终回归、目标CI及本轮统一生产发布核验；生产需重启 WMS 服务生效。证据目录C:/wms_backups/frontend_six_20261024/subcontract。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 浏览器验收：独立内存DB的发料与收料实际页面，A001改输入螺栓均被阻止，明确选择B002/B001后分别只生成一张正确物料的草稿；无错误旧物料行。截图after-rejected.png、after-saved.png、after-receive.png，最终隔离状态browser_final_state.json。自有18080服务和浏览器均已关闭，未操作真实业务。文档契约34 passed、隔离HTTP冒烟121/121。
 - 最终验证：15模块463 passed、44项既有警告；77项新增回归包含真实模板资源加载、精确API隔离集成和静态资源ETag。物理备份两模板及新JS，回退后67 failed、10对照passed，finally恢复且SHA256一致（%TEMP%/wms-subcontract-selection-rollback-kunr96wu）。既有传输测试仅补DOM/FormData依赖及改stdin避免Windows命令长度限制，原业务断言保留。verify_wms_bugs通过、A1–A14为0违规、请求lint/UTF-8/语法及diff检查通过。
 - 提交与CI：b25be876b69b075cb9ff19871fe5ddf6f53a8397实际push并核对HEAD/origin/live main一致；WMS CI40088762175、AI40088762155精确匹配completed/success，Android40027751562成功且复用证明通过，完整目标检查ok=true（subcontract/target_ci.json）。生产与本轮其余批次统一验收。
 
 ### BUG-2026-10-24-017: 采购录单重复保存与保存跳转意图被后续点击覆盖
 
-- 状态：已修复，待最终回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：采购订单和采购申请submitForm没有请求互斥，连续点击以及成功后的延迟跳转窗口均能再次提交。采购订单又在回调读取全局saveAndNew标记，后续点击可改变首个保存请求的跳转意图。后端对订单编号重复会拒绝、采购申请草稿会更新，不能据此前端重复请求断言必然生成重复单据。
 - 同类点已排查：核对既有单据提交锁、Ctrl+S普通保存和BUG-2026-10-24-014/015；本批覆盖采购订单/申请新增和编辑、原按钮、动态工具栏及普通保存快捷键的共同函数入口。已保护的出入库及委外提交保持。
 - 开工门禁：b25be876b69b075cb9ff19871fe5ddf6f53a8397与实时main一致，WMS CI40088762175、AI40088762155精确匹配success，Android40027751562成功且祖先/完整对象/保护路径无差异。证据C:/wms_backups/frontend_six_20261024/subcontract/target_ci.json。
 - 修前基线：24个受影响及相邻模块582 passed、71项既有SQLAlchemy警告；旧产品及测试哈希核验无变化。证据C:/wms_backups/frontend_six_20261024/purchase/baseline.log。
-- 生效确认：待回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未对生产单据执行保存、完成或修改库存。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 修复：两页共同保存函数先校验和快照载荷，再锁定实际按钮/动态工具栏并阻止重入；成功保持锁至既有延迟导航，失败恢复原disabled/aria-busy。订单保存意图在请求前局部固定，保留供应商继续新增。无效响应编号明确提示先核对单据，不自动重发；原权限、后端和业务字段不变。生产需重启 WMS 服务生效。
 - 最终回归：25个受影响/相邻模块654 passed、71项既有SQLAlchemy警告。72项新运行时锁执行真实页面函数、真实api.js和saveCurrentPage，覆盖新增/编辑、首次动作意图、请求中/成功跳转等待、业务/HTTP/网络/HTML/空/无效编号、校验/序列化失败及手动重试。物理备份回退两模板后72 failed，finally按SHA256完整恢复（%TEMP%/wms-purchase-save-017-rollback-0qxkf9ot）；修复72 passed。既有transport仅补querySelectorAll桩，原断言保留。
 - 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、UTF-8和diff检查通过。提交前完整基线check_ci_green.py为ok=true，证据purchase/precommit_ci.json；最终日志purchase/final.log。
@@ -1934,12 +1934,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-018: 独立标签编辑器未同步cells布局导致修改或删除保存后复原
 
-- 状态：已修复，待最终回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：独立编辑器只显示坐标keyed格式，保留原cells数组；编辑和删除仅改变坐标项，保存后后端正规化以同坐标cells优先，旧字段重新出现。cells格式模板初次打开又可能画布为空，用户看到的内容与实际保存不一致。
 - 同类点已排查：核对BUG-2026-09-08-001、LABEL-FIX-2026-09-29-002及BUG-2026-10-23-007；独立编辑器与物料内嵌编辑器共用后端格式，但内嵌编辑器已有cells往返逻辑。修复限独立页面，不反转全局正规化优先级、不改标签打印后端或业务数据。
 - 开工门禁：6c89077817b16195ba90d6248f896e2bdb67e08a实时main三工作流目标检查ok=true；CI40089491985、AI40089491982精确匹配success，Android40027751562成功且复用证明通过。证据purchase/target_ci.json。
 - 修前基线：9个标签布局/编码/预览/编辑器/传输及路由模块171 passed、40项既有警告；跨016/017四产品及测试哈希未变，基线仍有效。证据%TEMP%/wms-label-dual-format-baseline-28rd9aii。
-- 生效确认：待回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未生产登录、真实打印或修改标签记录。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 修复：加载时将cells与坐标项归并为同一编辑来源，保持cells冲突优先；拖放、替换、删除与清空同步cells，保存与画布使用一致内容。保留边距、行高、未知元数据及未编辑样式，兼容px字号，静态文字走DOM/textContent；不改变既有请求互斥、失败反馈及后端格式规则。生产需重启 WMS 服务生效。
 - 最终回归：9个既有模块与22项新增真实页面JS/真实api.js/实际normalizer往返，共193 passed、40项既有警告。物理备份回退模板后18 failed、4个纯keyed或原有清空对照passed，finally字节恢复且SHA256一致；失败直接证实保存后旧字段残留，未用缺少helper制造伪红。证据%TEMP%/wms-label018-rollback-3wfmhxrm，label/final.log。未改旧测试断言。
 - 本地验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停；verify_wms_bugs通过、A1–A14零违规、UTF-8及diff检查通过。提交前匿名查询HTTP403限流，经连接器遍历最新main运行两页核实CI40089491985/AI40089491982成功且目标精确匹配，Android40027751562成功；实时远端SHA不变，Android祖先、完整对象和保护路径无差异均重新核实。证据label/precommit_alternative.json，不把查询失败当CI失败。
@@ -1947,12 +1947,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-019: 程序回填和清空日期绕过控件导致显示与提交值不一致
 
-- 状态：已修复，待最终回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：flatpickr创建可见altInput并维护selectedDates，页面直接写原input.value或只form.reset不会同步控件。物料有效期编辑/复制/关闭新增、期初草稿恢复/粘贴以及AI质量看板清空筛选可留下旧显示或旧状态，造成日期误判或旧条件继续查询。
 - 同类点已排查：核对BUG-2026-09-07-007-F01及所有程序日期赋值；覆盖三页面六入口。report_view已有setDate作为对照；AI验收页初始化早于控件、入库动态行未启用该插件，不改其初始化。AI页面对应既有AI-R15-F01子修复AI-UX-DATE-SYNC-001，查重无等价任务，不新增AI能力或改变人工确认/权限。
 - 开工门禁：d77c636994d00a5580c789a73f691c76afa81107实时main最新WMS CI40090162134、AI40090162213精确匹配success，Android40027751562成功且祖先/对象/保护路径无变化。证据label/target_ci_alternative.json。
 - 修前基线：原54模块1989 passed、21 skipped；四产品及54测试哈希一致。跨016/017复用47未变模块、4采购相关模块的654 passed证据，补3模块124 passed；018只影响三个全模板扫描的无变化断言输入，逐项比对一致。不能将重叠测试总数相加当独立覆盖。证据%TEMP%/wms-date-sync-baseline-1ombz79a、wms-date-sync-baseline-refresh-r5z3elgg。
-- 生效确认：待回归、浏览器验收、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未修改生产物料、期初单或其他业务记录。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 修复：共享setWmsDateInputValue通过插件setDate/clear同步原值、可见输入和选中日期，不额外触发change；无插件时保留普通value赋值。六入口使用该助手，草稿缺省日期仍不覆盖当前值，其他字段和请求保持。
 - 回归锁：28项新运行回归首次全通过；四产品物理备份回退后27 failed、1个草稿缺省日期对照passed，finally恢复并核对四文件SHA256一致。18个真实消费场景失败直接指向日期不一致，其余9个新助手边界旧码不存在；未仅以缺helper冒充业务复现。证据%TEMP%/wms-date019-rollback-9fbo7ymw。
 - 浏览器验收：CUA操作独立静态fixture，加载实际flatpickr、base初始化及真实消费函数，网络和非日期动作使用隔离桩。六入口×普通日期/闰日/空共18场景，旧码18失败，修复18通过；读取页面公开显示的原值、altInput、selectedDates和FormData/筛选载荷核对。截图date/browser-before.png、browser-after.png，完整结果JSON同目录。自有18080静态服务身份核对后停止，临时浏览器关闭，未生产登录或连接生产库。
@@ -1962,12 +1962,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-020: 合同工程与领料人联想迟到响应覆盖当前输入或重新打开候选
 
-- 状态：已修复，待最终回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：公共合同联想、入库列表工程筛选及领料人查询未完整校验请求代次、输入和当前候选所属控件；输入变化、关闭或跨行切换后旧响应仍可覆盖当前候选，失败响应还可能被当空结果缓存，影响重试。
 - 同类点已排查：核对BUG-2026-10-24-005/007/008/013等查询生命周期历史；本批覆盖公共ContractAutocomplete的五页消费点、in_order工程筛选及out_order_add领料人查询。保留已修复的物料/来源选单及其他联想，不改库存、后端权限或单据状态。
 - 开工门禁：133a9ba6d942e85953e2ab348c79e91d17ed8c01与实时main一致，最新WMS CI40091246311、AI40091246337精确匹配success；Android40027751562成功，祖先、完整对象及保护路径无变化证明通过。证据C:/wms_backups/frontend_six_20261024/date/target_ci_alternative.json。
 - 修前基线：58模块按代码、测试及依赖投影和原始文件哈希核对复用：019覆盖48、旧异步证据8、017采购1，补跑视口模块20 passed。所有冻结核验通过，未将重叠全套测试总数相加；证据async/baseline-reuse.json、baseline-modules.txt及viewport-baseline.log。
-- 生效确认：待修复回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未操作生产单据、库存或用户数据。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 修复：输入变化先取消防抖并使在途查询失效，返回时核对代次、输入值、DOM及合同候选所属行；选择、失焦、Escape和点击外部立即取消。成功列表验证数组与非空对象记录后才缓存，失败不污染缓存；当前失败给中文反馈，迟到失败不扰动新结果。工程及领料人GET统一走WMS.api.getRaw，合同保留已解封装getContracts；保持鼠标/键盘选中、合同工程配对填写和领料人空词主动查询。生产需重启 WMS 服务生效。
 - 回归锁：77项新用例执行真实IIFE及api.js，覆盖乱序、失败/非法结构、失败后重试、缓存切换、清空、关闭、脱离DOM、跨行、鼠标和键盘选择。三产品物理备份回退后54 failed、23个对照passed，finally恢复且三文件SHA256一致（async/rollback-proof.json）；修复版与既有页面运行回归83 passed。新增源码通过stdin送入Node，避免Windows命令长度限制。
 - 既有测试维护：dead_header运行fixture补真实api.js、HTTP/业务状态封套和clearTimeout；合同focus源码契约同步为focus→search(false)→triggerSearch(value,version)，仍要求聚焦同步发起查询，另由真实运行用例验证。未弱化保存、字段或请求断言。
@@ -1977,25 +1977,30 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-24-021: 新增返回快捷键误选侧栏链接或关闭组件后继续跳页
 
-- 状态：已修复，待最终回归及生产验收。
+- 状态：已修复并生产生效（2026-10-25 16:51）。
 - 根因/危害：公共Ctrl+N/Escape按全页首个匹配链接猜测动作，真实侧栏先于主内容，能误进采购申请新增或工单领料列表；document阶段处理早于后注册的组件监听，关闭移动侧栏或候选后还可能继续导航。现有Ctrl+S已经使用显式普通保存标记，本批保留。
 - 同类点已排查：核对BUG-2026-10-24-014普通保存快捷键、确认框/字段设置键盘隔离及公共工具栏历史；覆盖公共快捷键与八个现有单据模板入口，不创建隐藏操作或扩展角色权限。
 - 开工门禁：762ec6790bdfcc11f69d5554ac8b06531b7ec520与实时main一致，最新WMS CI40092337163、AI40092337111精确匹配success；Android40027751562成功，祖先、完整对象和保护路径无变化重新证明。证据C:/wms_backups/frontend_six_20261024/async/target_ci_alternative.json。
 - 修前基线：最终61模块来源为020成功记录23、017成功记录7、未变消费点旧证据10、本次补测21（156 passed、12项既有警告）。动态文件名消费的receipt_toolbar_rows额外补测，不只按字面匹配复用；9产品及原58测试哈希前后一致。证据navigation/baseline-reuse.json、baseline-before.json、baseline-after.json及两份baseline日志。
-- 生效确认：待修复回归、目标CI及本轮统一生产验收；生产需重启 WMS 服务生效。未操作真实单据或库存。
+- 生效确认：2026-10-25 16:51由Codex完成统一生产验收；生产需重启 WMS 服务生效，本次已通过原WMS-Warehouse任务重启。应用版本a6e4d9f、本机/公网login及静态资源核验通过，8张核心业务/用户表摘要未变；详见本页BUG-2026-10-24-021统一发布记录及C:/wms_backups/frontend_six_20261024。
 - 修复：八模板既有新增/返回入口和动态工具栏新增按钮显式声明data-wms-new/back；只点击当前embedded-content中可见、启用且非弹窗/只读遮罩内的对应入口。Ctrl+S原处理保持；导航键在window冒泡阶段处理，尊重组件后注册的document监听、已阻止事件、输入控件/contenteditable、IME229、重复键与修饰键。window捕获阶段记住当次按键开始时的可见弹层/抽屉/移动侧栏/候选，组件关闭后同一Esc不继续跳页；隐藏候选不阻断。README补用户使用边界。生产需重启 WMS 服务生效。
 - 回归锁：157项新运行回归执行真实快捷键函数、真实base侧栏和捕获→document→window事件顺序，覆盖组件晚注册/关闭/打开、stopPropagation、按钮焦点下候选、隐藏禁用/只读入口、输入法与重复键。物理备份回退9产品文件后146 failed、11对照passed，finally恢复且SHA256全部一致（navigation/rollback-proof.json）。原Ctrl+S 38项继续通过。
 - 最终验证：62模块1484 passed、100项既有SQLAlchemy警告，产品冻结后完成；工具栏相邻原夹具缺原生setAttribute，补属性接口而不改原断言。文档契约34 passed、隔离HTTP冒烟121/121且自有服务停止、既有BUG检查通过、规则零违规、源码编码/JS语法/diff通过。恢复CI修复后再次核对9产品哈希及测试/README修改时间，仍匹配原成功证据（restored-after-ci-repair.json），不重复相加重叠用例数量。
 - 浏览器验收：独立静态夹具抽取真实函数和base侧栏，不发送业务请求。旧版Ctrl+N误选隐藏侧栏/purchase_request/add、候选Esc先误选/requisition再关闭；修复版只选当前/other_out_order/add及/other_out_order，Esc关闭候选或移动侧栏时无导航。截图navigation/browser-before.png、browser-after-candidate.png、browser-after-sidebar.png、browser-after-new.png；临时浏览器及18081静态服务已结束，未生产登录。
 - 恢复开工门禁：2026-10-25中断续作发现Android定时运行40132587829失败，单次重跑仍失败，021先完整备份撤下。用户授权仅CI修复例外；78c9b8d99b1a16ab417e5727f572fd2721362d41三工作流均成功后才恢复本批，最新CI40177478032、AI40177478041、Android40177478067精确匹配，实时main一致。证据android_ci_20261025/target_ci_alternative.json。
 
+- 提交与CI：a6e4d9fd9f8b6e5cc354725762181d4d196e89d5实际push（78c9b8d9..a6e4d9fd main -> main），HEAD/origin/live main一致。WMS CI40177924371和AI40177924354精确匹配completed/success；Android40177478067成功，78c9b8d9为祖先、对象齐全且Android工程/工作流无变化。本批正常push通过门禁，未使用跳过开关；发布前匿名查询403后通过连接器重新核对同一目标和最新三工作流，保留navigation/target_ci_alternative.json。
+- 六批统一发布：2026-10-25 16:51确认BUG-016至021生效。在线一致性备份deploy_inventory.db完整性通过，SHA256为f0738c33e0319041c1085d95229a049285700d1c17d427bae6f2152252d6679e，保留发布前16原有文件及新JS不存在清单的rollback_code.zip。逐项核对17个应用文件与目标Git内容一致且回退覆盖完整，未发布不相关应用修改。
+- 原任务重启：核实旧PID12012创建时间2026-10-24T18:55:56.899242+08:00、Python311/run_server.py/Session0及唯一127.0.0.1:8080；原SYSTEM任务入口run_wms_task.bat包含WMS_NO_DB_TOUCH=1与监听防重复保护，避开计划触发窗口后仅终止原实例并启动原任务一次。新PID1540创建于2026-10-25T16:50:52.913805+08:00，解释器/命令/会话正确，唯一8080监听、LastTaskResult=0；16:51:00日志版本a6e4d9f、production及CSRF on。db-check migrate=ok仅作为结构检查结果，不推断执行过迁移。
+- 只读生产验收：17文件保持目标内容，本机/公网login GET200含CSRF；本机/公网app.js及公网新subcontract-material-selection.js字节哈希匹配。8张核心业务/用户表完整行摘要在重启前后完全一致，quick_check=ok；未生产登录、创建/完成测试单据、修改库存或密码。证据activation_checks.json、pre/post_restart_digest.json、pre/post_process.json、post_task.json。收尾仅更新台账及AI任务完成记录，无须再次重启。
+
 ### BUG-2026-10-08-014-F01: 文件恢复测试沿用Robolectric内存日志默认值导致SQLite故障复发
 
-- 状态：已修复，待Android真实编译与目标CI验收（2026-10-25）。
+- 状态：已修复并通过Android真实编译与目标CI验收（2026-10-25）。
 - 根因/危害：最新main 762ec679的Android定时运行40132587829在PendingQueueRebuildProtectionTest重建保单用例失败，首次SQLITE_BUSY，单独重跑失败job后仍SQLITE_IOERR_SHORT_READ。故障在真实临时文件重新打开阶段；Robolectric 4.14.1的ShadowSQLiteConnection默认同步OFF、日志MEMORY，官方源码要求文件同步场景显式配置持久化模式。历史偶发记录不能充当本次全绿证据。
 - 同类点已排查：关联BUG-2026-09-22-001及BUG-2026-10-08-014，全局LEGACY配置保持；本类两处Room回补测试及OfflineQueueStateMachineTest均使用inMemoryDatabaseBuilder。本类其余场景专门执行文件关闭/重开/重建，调整局限此类。前端021改动已逐文件备份到android_ci_20261025/held_frontend后从工作区撤下，不夹带发布。
 - 修复：在测试setUp取得Context/清理数据库之前，通过官方ShadowSQLiteConnection设置FULL同步及PERSIST日志；从初次打开即使用正确默认值，不在已打开连接上切换journal_mode。新增真实Android用例验证PRAGMA同步级别、持久日志、关闭重开后的队列备份。全部原保单、空库、坏库及恢复断言保留；生产AppDatabase与业务逻辑不变。
 - 回归：修前3个相关静态守护模块27 passed，真实Android80项中1失败且重跑仍失败。修后相关模块及两个新增源码守护29 passed；物理备份并回退Kotlin后两个新守护失败、finally恢复且SHA256一致。这是源码配置守护，不冒充Android运行时或编译证明；完整Android新增81项及三工作流须CI真实验收。
-- 生效确认：待推送修复提交、Android编译/单测和三工作流精确目标全绿；仅测试夹具及回归守护变化，生产服务无需重启。证据C:/wms_backups/frontend_six_20261024/android_ci_20261025，官方依据https://raw.githubusercontent.com/robolectric/robolectric/robolectric-4.14.1/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSQLiteConnection.java。
+- 生效确认：2026-10-25由Codex核对78c9b8d9的三工作流精确目标全绿，Android真实编译、lint及81项单测全部通过；仅测试夹具及回归守护变化，无须生产重启。证据C:/wms_backups/frontend_six_20261024/android_ci_20261025，官方依据https://raw.githubusercontent.com/robolectric/robolectric/robolectric-4.14.1/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSQLiteConnection.java。
 - 门禁例外授权：2026-10-25用户明确回复「允许本次CI修复例外」，允许在Android实际红灯基线上仅提交推送已展示的五个测试/台账文件。此处不伪称基线全绿；仅本次push临时使用WMS_SKIP_CI_GATE并finally清除，分支与原pre-commit规则继续执行，三工作流全绿前不恢复下一批业务写入。
 - 提交及CI生效确认：78c9b8d99b1a16ab417e5727f572fd2721362d41实际push（762ec679..78c9b8d9 main -> main），HEAD/origin/live一致。WMS CI40177478032、AI40177478041、Android40177478067均精确匹配completed/success；Android job121121206258日志81 PASSED、0 FAILED，新增持久化检查及原保单重建用例均通过，APK编译与lint通过。目标全绿后才按哈希恢复021修改；仅测试变化，不需要生产重启。本次配置与运行验证通过，不以一次成功保证未来所有SQLite环境故障均已消除。
