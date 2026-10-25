@@ -2031,3 +2031,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：38项新增实际页面addRow/collect/save/模板与真实api.js运行用例通过，包含原始行号、11类半行字段、空白预留、数值0、失败重试及成功锁；四项真实隔离后端POST验证200或400回滚、明细及库存保持。物理备份并回退两模板后31 failed、7正对照passed，finally产品及测试SHA256完整恢复，证据sales_blank/rollback-evidence.json。
 - 最终模块回归：原29模块及新增模块共463 passed、30项SQLAlchemy警告（原基线28项，新增隔离集成触发2项），001的20项零价回归保持通过，两个产品和全部30测试模块前后SHA256一致。证据sales_blank/final.log、final-modules.txt及final-evidence.json。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8/diff检查通过。连接器再次核实最新三工作流及同一远端8d538943基线全绿、Android复用证明通过，证据sales_blank/precommit_ci_alternative.json。
+- 提交与CI：5003a036e6371a169bc7cd0b60277cee34287b29实际正常push（8d538943..5003a036 main -> main），HEAD/origin/live main一致；WMS CI40180859791、AI40180859780精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过，证据sales_blank/target_ci.json及push-first.log。生产统一验收待执行。
+
+### BUG-2026-10-25-003: 入库领料新增页重复处理回车覆盖手工单价
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：物料行handleKeydown已处理Enter并preventDefault，document的setupScanAutoFill仍再执行forcePrice强制默认价。真实事件顺序中默认价99、手工价12.34在行处理后仍12.34，全局监听又变99.00并新增50ms聚焦定时器。
+- 同类点已排查：关联BUG-2026-09-22-004-F01物料键盘/输入法历史、复制行及扫码默认价场景；全仓仅in_order_add和out_order_add两处setupScanAutoFill，共用document_table_form无该重复监听。只处理已被消费事件，不改变未处理扫码的默认价逻辑。
+- 开工门禁：实时main为5003a036e6371a169bc7cd0b60277cee34287b29；WMS CI40180859791、AI40180859780精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（sales_blank/target_ci.json）。
+- 修前基线：39个受影响及相邻模块700 passed、12项既有警告；从8d538943到5003a036两产品/app.js/api.js/全部模块/conftest字节不变，相关keydown依赖无变化，可复用。证据C:/wms_backups/frontend_ten_20261025/entry_keys/baseline-reuse.json与audit-proof.json。
+- 生效确认：待完整回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据或库存。
+- 修复：两处全局扫码监听各增加defaultPrevented提前返回；不再重复填价或安排聚焦。未消费扫码、候选选择和IME保护沿用原逻辑。生产需重启 WMS 服务生效。
+- 回归锁：20项真实页面注册的行级回调、handleKeydown/selectMaterial/fillMaterialFields及全局监听完整链路通过；涵盖候选开关、已有零价/手工价、正常扫码默认价、焦点定时器、IME与非Enter。旧码6 failed、14正对照passed；物理备份后checkout旧两模板再测仍6 failed/14 passed（真实单价断言），finally两产品按SHA256恢复，证据entry_keys/rollback-proof.json。
+- 最终验收：40个完整受影响及相邻模块720 passed、12项同基线警告，2产品/40测试/API及conftest哈希前后一致；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8及diff检查通过。证据entry_keys/final-evidence.json、quality.json、smoke.log。提交前再次核对同一5003a036远端基线最新三工作流全绿及Android复用证明（precommit_ci_alternative.json）。

@@ -1818,6 +1818,7 @@ function findEmptyRow() {
 // ==================== 扫码自动填充 ====================
 function setupScanAutoFill() {
     document.addEventListener('keydown', function(e) {
+        if (e.defaultPrevented) return;
         if (e.isComposing || e.keyCode === 229) return;
         if (e.key === 'Enter' && e.target.classList.contains('material-code')) {
             const input = e.target;

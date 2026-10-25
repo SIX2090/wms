@@ -108,6 +108,7 @@ POST_SPLIT_BUGS['BUG-2026-10-24-021'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-08-014'] = 'fixed'  # monthly parser normalizes repair suffixes
 POST_SPLIT_BUGS['BUG-2026-10-25-001'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-25-002'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-25-003'] = 'fixed'
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 

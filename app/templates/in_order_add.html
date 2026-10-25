@@ -1895,6 +1895,7 @@ function createInOrderFromPurchaseOrderSelection() {
 // ==================== 扫码自动填充 ====================
 function setupScanAutoFill() {
     document.addEventListener('keydown', function(e) {
+        if (e.defaultPrevented) return;
         if (e.isComposing || e.keyCode === 229) return;
         // 扫码枪通常以Enter结尾，且输入速度很快
         if (e.key === 'Enter' && e.target.classList.contains('material-code')) {
