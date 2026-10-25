@@ -2073,3 +2073,18 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：30项真实打印handler、buildParams及renderPrintArea用例通过；物理备份并回退旧模板后23 failed、7个错误/缺仓库对照passed，finally恢复且SHA256一致（report_print/rollback-proof.json）。既有打印契约仅调整携快照的函数调用锚，分页、上限、打印CSS及window.print断言保留。
 - 完整模块：原22及新增模块共170 passed、34项既有警告，197个产品/依赖/测试输入前后SHA256一致。证据report_print/final005-result.json及final005.log。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14零违规、非GET请求/源码编码/diff检查通过。连接器核对同一2f4400b1基线最新三工作流及实时main、Android祖先/对象/保护路径证明通过，证据report_print/quality.json与precommit_ci_alternative.json。
+- 提交与CI：312cf13384be4d78fe91710f76cf74bc113c72b9实际正常push（2f4400b1..312cf133 main -> main），HEAD/origin/live main一致；WMS CI40184787000、AI40184787034精确匹配completed/success，Android40177478067成功且复用证明通过（report_print/target_ci.json）。生产统一验收待执行。
+- 浏览器补验：独立18081静态夹具执行Git旧版/当前实际打印函数，旧版改乙仓后打印为明细7/旧汇总100；当前为同次明细7/汇总7，等待期间改变条件仍保留请求快照。只有隔离GET桩，不调用真实打印或生产HTTP；截图browser-before.png、browser-after-summary.png，自有页面及服务已关闭。
+
+### BUG-2026-10-25-006: Excel导入读取跨弹窗污染预览及重复上传和结果误报
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：ExcelImportExport关闭重开不失效原FileReader回调，旧读取能重填新预览；上传在途及800ms刷新前缺跨重开互斥。旧csrfFetch只看JSON success，HTTP500也可误报成功，count=0又被预览条数覆盖；警告会被自动刷新吞掉，合法数值0在预览中显示空白。
+- 同类点已排查：关联BUG-2026-10-22期初预检及2026-10-23公共导入/传输锁历史，已修公共入口与本类是不同消费点；五个活跃详情页复用该唯一组件，其中入/出库详情配置导入接口，另三页保留客户端导出模板。仅修改此组件，不改后端、库存及权限。
+- 开工门禁：实时main为312cf13384be4d78fe91710f76cf74bc113c72b9；WMS CI40184787000、AI40184787034精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（report_print/target_ci.json）。
+- 修前基线：原10个完整受影响及相邻模块458 passed；004后复跑，22项产品/依赖/测试原始哈希匹配当前312cf133，证据excel_component/baseline-after004-proof.json和baseline-after005-readonly-reuse.json。真实完整类、api.js及旧CSRF读取/上传/HTTP/0预览探针已复现。
+- 生效确认：待本地完整回归、目标CI及统一生产验收。未对生产执行文件导入或写入业务数据。
+- 修复：文件选择/清空/弹窗关闭重开均使旧读取失效；上传快照保留原文件，锁覆盖在途、成功回调与800ms刷新。统一WMS.api.postRaw判HTTP和业务状态；count=0明确显示0条，警告及结果纯文本保留不自动刷新，预览仅null/undefined显示空。成功后先标记committed，后续页面/回调失败提示核对并保持禁止重复提交，显式新选文件才开始新操作；保留原clean成功先hide再callback，不因迟到回调自动重开。
+- 回归锁：新增92项执行完整组件、实际api.js、base旧CSRF/全局拦截及真实生成弹窗HTML事件。物理回退旧产品为72 failed/20正对照passed；仅还原旧传输6 failed/2 HTTP业务失败对照passed，失败点为HTTP不得误成功；仅旧count或预览零值表达式各2 failed。finally恢复产品与测试哈希一致，证据excel_component/rollback-proof.json；既有测试及断言均未修改。
+- 完整模块：原10及新增模块共550 passed，23项产品/依赖/测试原始字节前后稳定，最终产品与新测试哈希和最新R8完全一致；前一版548记录仅作中间证据，不冒充最终验收。证据excel_component/final-proof.json及final.log。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。另增加仓库外本地SQLite连接前守卫，拒绝测试辅助启动代码的生产instance文件兜底连接，内存与外部临时库允许；带守卫再验verify_wms_bugs通过（bugs-guarded.log）。同一312cf133基线最新三工作流、实时远端及Android复用证明再次核实（precommit_ci_alternative.json）。

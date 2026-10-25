@@ -26,6 +26,9 @@ class ExcelImportExport {
     }
 
     constructor(options = {}) {
+        this.fileRevision = 0;
+        this.importPending = false;
+        this.importCommitted = false;
         this.options = {
             tableId: options.tableId || 'itemTable',
             exportUrl: options.exportUrl || null,
@@ -154,6 +157,7 @@ class ExcelImportExport {
                                 <span class="badge bg-primary" id="previewCount">0</span> 条数据待导入
                             </div>
                         </div>
+                        <div id="excelImportResult" class="d-none" role="status" style="white-space: pre-wrap;"></div>
                     </div>
                     <div class="modal-footer">
                         <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -177,6 +181,9 @@ class ExcelImportExport {
         document.getElementById('confirmImportBtn').addEventListener('click', () => {
             this.confirmImport();
         });
+        document.getElementById('excelImportModal').addEventListener('hide.bs.modal', () => {
+            this.resetFileSelection();
+        });
     }
 
     getRequiredColumns() {
@@ -185,35 +192,55 @@ class ExcelImportExport {
     }
 
     showImportModal() {
+        this.resetFileSelection();
         const modal = new bootstrap.Modal(document.getElementById('excelImportModal'));
         modal.show();
-        // 重置
-        document.getElementById('excelFileInput').value = '';
-        document.getElementById('importPreview').classList.add('d-none');
-        document.getElementById('confirmImportBtn').disabled = true;
+    }
+
+    resetFileSelection(clearInput = true) {
+        this.fileRevision++;
+        this.selectedFile = null;
+        this.previewData = null;
+        const input = document.getElementById('excelFileInput');
+        if (input && clearInput) input.value = '';
+        const preview = document.getElementById('importPreview');
+        if (preview) preview.classList.add('d-none');
+        const btn = document.getElementById('confirmImportBtn');
+        if (btn) btn.disabled = true;
+    }
+
+    showImportResult(message, type = 'danger') {
+        const result = document.getElementById('excelImportResult');
+        if (!result) return;
+        result.textContent = message;
+        result.className = message ? 'alert alert-' + type + ' mt-3' : 'd-none';
     }
 
     async handleFileSelect(event) {
+        if (this.importPending) return;
         const file = event.target.files[0];
+        this.resetFileSelection(false);
+        this.importCommitted = false;
+        this.showImportResult('');
         if (!file) return;
 
         // 保存原始文件对象，供 confirmImport 上传给后端（后端接口接收文件而非 JSON）
         this.selectedFile = file;
-        this.previewData = null;
-        document.getElementById('confirmImportBtn').disabled = true;
+        const revision = this.fileRevision;
+        const isCurrent = () => this.fileRevision === revision && this.selectedFile === file;
         let xlsx;
         try {
             xlsx = await ExcelImportExport.loadXlsx();
         } catch (error) {
-            this.showToast(error.message, 'danger');
+            if (isCurrent()) this.showToast(error.message, 'danger');
             return;
         }
-        if (this.selectedFile !== file) return;
+        if (!isCurrent()) return;
 
         // 使用SheetJS读取Excel
         const reader = new FileReader();
         reader.onload = (e) => {
-            if (this.selectedFile !== file) return;
+            if (!isCurrent()) return;
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = xlsx.read(data, { type: 'array' });
@@ -232,8 +259,14 @@ class ExcelImportExport {
                 this.showToast('读取Excel文件失败：' + error.message, 'danger');
             }
         };
-        reader.onerror = () => this.showToast('读取Excel文件失败，请重新选择文件', 'danger');
-        reader.readAsArrayBuffer(file);
+        reader.onerror = () => {
+            if (isCurrent()) this.showToast('读取Excel文件失败，请重新选择文件', 'danger');
+        };
+        try {
+            reader.readAsArrayBuffer(file);
+        } catch (error) {
+            if (isCurrent()) this.showToast('读取Excel文件失败：' + error.message, 'danger');
+        }
     }
 
     showPreview(data) {
@@ -264,7 +297,7 @@ class ExcelImportExport {
             const tr = document.createElement('tr');
             headers.forEach(header => {
                 const td = document.createElement('td');
-                td.textContent = row[header] || '';
+                td.textContent = row[header] == null ? '' : row[header];
                 tr.appendChild(td);
             });
             tbody.appendChild(tr);
@@ -274,7 +307,8 @@ class ExcelImportExport {
         preview.classList.remove('d-none');
     }
 
-    confirmImport() {
+    async confirmImport() {
+        if (this.importPending || this.importCommitted) return;
         if (!this.previewData || this.previewData.length === 0) {
             this.showToast('没有可导入的数据', 'warning');
             return;
@@ -285,50 +319,78 @@ class ExcelImportExport {
             return;
         }
 
-        const btn = document.getElementById('confirmImportBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 导入中...';
-
         // 后端导入接口接收文件上传（request.files.get('file')），因此用 FormData 上传原始 Excel 文件，
         // 不能用 application/json 提交预览数据（否则后端拿不到 file 会报"请选择要导入的文件"）
-        const formData = new FormData();
-        if (this.selectedFile) {
-            formData.append('file', this.selectedFile);
-        } else {
+        if (!this.selectedFile) {
             this.showToast('未找到要导入的文件，请重新选择', 'danger');
-            btn.disabled = false;
-            btn.innerHTML = '确认导入';
             return;
         }
 
-        csrfFetch(this.options.importUrl, {
-            method: 'POST',
-            body: formData
-        })
-        .then(r => r.json())
-        .then(res => {
-            if (res.status === 'success') {
-                this.showToast(`成功导入 ${res.count || this.previewData.length} 条数据`, 'success');
+        const file = this.selectedFile;
+        const rowCount = this.previewData.length;
+        const btn = document.getElementById('confirmImportBtn');
+        const input = document.getElementById('excelFileInput');
+        const originalButton = { disabled: btn.disabled, html: btn.innerHTML };
+        const originalInputDisabled = input && input.disabled;
+        let failureResponse = null;
+        let committedResult = '';
+        let navigationPending = false;
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            this.importPending = true;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> 导入中...';
+            if (input) input.disabled = true;
+            this.showImportResult('正在导入 ' + file.name + '，请等待结果。', 'info');
+            const res = await WMS.api.postRaw(this.options.importUrl, formData);
+            if (!res || res.status !== 'success') {
+                failureResponse = res;
+                throw new Error(res && res.msg ? res.msg : '导入接口未返回成功结果，请先核对单据再决定是否重试');
+            }
+            // 服务端已确认写入。后续提示、回调或导航出错不得再次开放同一份文件提交。
+            this.importCommitted = true;
+            let message = res.msg || `成功导入 ${res.count == null ? rowCount : res.count} 条数据`;
+            if (res.msg && res.count != null && Number(res.count) === 0) {
+                message += '\n本次成功导入：0 条。';
+            }
+            const warnings = Array.isArray(res.warnings) ? res.warnings.join('\n') : String(res.warnings || '');
+            const review = (res.count != null && Number(res.count) === 0) || !!warnings;
+            committedResult = message + (warnings ? '\n' + warnings : '');
+            this.showImportResult(committedResult, review ? 'warning' : 'success');
+            this.showToast(message, review ? 'warning' : 'success');
+            if (!review) {
                 bootstrap.Modal.getInstance(document.getElementById('excelImportModal')).hide();
-                if (this.options.onImportSuccess) {
-                    this.options.onImportSuccess(res);
-                } else {
-                    setTimeout(() => location.reload(), 800);
-                }
+            }
+            if (this.options.onImportSuccess) {
+                await this.options.onImportSuccess(res);
+            } else if (!review) {
+                navigationPending = true;
+                setTimeout(() => location.reload(), 800);
+            }
+        } catch (error) {
+            if (this.importCommitted) {
+                const message = '导入已成功，后续页面处理失败。请核对结果后刷新页面，勿重复导入。';
+                this.showImportResult(committedResult + '\n' + message, 'warning');
+                this.showToast(message, 'warning');
             } else {
-                this.showToast('导入失败：' + (res.msg || '未知错误'), 'danger');
-                if (this.options.onImportError) {
-                    this.options.onImportError(res);
+                const message = '导入失败：' + (error.message || '请核对单据后重试');
+                this.showImportResult(message, 'danger');
+                this.showToast(message, 'danger');
+                if (failureResponse && this.options.onImportError) {
+                    try {
+                        await this.options.onImportError(failureResponse);
+                    } catch (callbackError) {
+                        this.showImportResult(message + '\n错误提示处理失败，请核对单据后重试。', 'danger');
+                    }
                 }
             }
-        })
-        .catch(err => {
-            this.showToast('导入失败：' + err.message, 'danger');
-        })
-        .finally(() => {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="bi bi-check"></i> 确认导入';
-        });
+        } finally {
+            this.importPending = navigationPending;
+            if (input && !navigationPending) input.disabled = originalInputDisabled;
+            btn.disabled = this.importCommitted || originalButton.disabled || !this.selectedFile || !this.previewData;
+            btn.innerHTML = this.importCommitted ? '<i class="bi bi-check"></i> 已导入，请核对结果' : originalButton.html;
+        }
     }
 
     exportToExcel() {
