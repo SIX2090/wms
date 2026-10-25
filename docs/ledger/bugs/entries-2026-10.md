@@ -2007,144 +2007,153 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ### BUG-2026-10-25-001: 销售订单编辑将已有零单价替换为物料默认价
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：sales_order_edit的fillRow将数值0误作未填写，打开已有零单价行即改用物料默认价；默认价125、数量2的真实页面函数复现为单价125.00、金额250。后端读取和保存本来支持0，本次不修改价格业务口径。
 - 同类点已排查：关联10月BOM零成本、粘贴零价格及复制行历史；核对销售新增/编辑/模板/复制/粘贴链路以及出入库、售后价格默认消费点。显式重新选物料的强制默认价与已有行初始化区分，本批修复已有销售价格被静默覆盖及对应输入初始化，保持新空行带默认价。
 - 开工门禁：b42098dc0dfbf9f2b4010dfdbed575b648b27171与实时远端main一致；WMS CI40178435471、AI40178435468精确匹配completed/success。Android40177478067成功，78c9b8d99b1a16ab417e5727f572fd2721362d41为祖先，Git对象齐全且Android工程/工作流无差异。匿名HTTP403仅查询失败，替代证据C:/wms_backups/frontend_ten_20261025/baseline_ci.json。
 - 修前基线：28个受影响及相邻模块405 passed、28项既有警告；真实页面addRow/fillRow/collect及后端解析证据存于sales_zero/audit-probe.json与baseline-evidence.json。
 - 修复：价格是否存在按null/undefined/空字符串判断，保留数值0和字符串0；已有行、复制、模板及粘贴遵循相同口径，新空行仍可采用物料默认价。生产需重启 WMS 服务生效。
-- 生效确认：待本地回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据、价格或库存。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 回归锁：20项真实addRow/fillRow/collect及复制/模板/粘贴/最近物料/新空行用例通过，覆盖0、字符串0、0.00、缺失/null/空值及正价和金额税额。物理备份后回退旧模板为7 failed、13正对照passed；finally恢复产品与测试且SHA256一致，证据sales_zero/rollback-evidence.json。
 - 最终模块回归：原28模块及新增模块共425 passed、28项既有SQLAlchemy警告，原业务断言保留；证据sales_zero/final.log和final-evidence.json。销售编辑空白预留行导致400另记002，不夹带本次价格修复。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8编码及diff检查通过。最新三工作流仍是开工成功记录，实时远端及Android复用证明再次核对通过，证据sales_zero/precommit_ci_alternative.json；未核实的查询失败不视作CI失败或成功。
 - 提交与CI：8d538943e014060d93f0e78be2ed7f69971c8634实际push（b42098dc..8d538943 main -> main），HEAD/origin/live main一致；WMS CI40179821572、AI40179821852精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过。pre-push匿名403，同基线连接器证据核实后单次WMS_SKIP_CI_GATE=1重推并finally清除。证据sales_zero/target_ci.json和push.log，生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-002: 销售明细空白预留行阻断编辑保存及新增半填行被静默丢弃
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：编辑页ensureBlankRows(15)的预留行全部进入collect载荷，一条有效明细加14条空行使真实后端返回400；新增页反而按编码过滤所有空码行，数量、零价、批次及合同备注已填的半行会悄悄漏掉。原始行号丢失会使操作者难以核对。
 - 同类点已排查：核对销售明细收集、既有粘贴校验和单据默认空行历史；本组统一两销售页的collect边界及全部调用（保存、校验、模板）。不泛化其他单据默认行语义，不修改后端校验、库存或权限。
 - 开工门禁：实时main为8d538943e014060d93f0e78be2ed7f69971c8634；WMS CI40179821572、AI40179821852精确匹配success，Android40177478067成功且复用证明通过（sales_zero/target_ci.json）。
 - 修前证据：隔离内存库GET真实草稿、执行实际页面addRow/ensureBlankRows/collect后POST15行返回400且原草稿不变，仅有效行对照返回200。实际新增页collect把有数量7、价格0及合同备注却无编码的第二行删除。证据C:/wms_backups/frontend_ten_20261025/sales_blank；修前29模块425 passed及相同范围哈希由001最终回归复用并再次核对。
-- 生效确认：待完整回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据或库存。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：两页collect仅忽略真正未填写行；编辑预留行的默认数量1及默认税率不视为录入，零价/改数量税率/批次等内容均保留。半填缺码或数值badInput行提示原始行号并聚焦物料编码，阻止保存；模板保存也捕获相同校验并保持原存储。合法行字段、顺序和零值及既有保存互斥保持。生产需重启 WMS 服务生效。
 - 回归锁：38项新增实际页面addRow/collect/save/模板与真实api.js运行用例通过，包含原始行号、11类半行字段、空白预留、数值0、失败重试及成功锁；四项真实隔离后端POST验证200或400回滚、明细及库存保持。物理备份并回退两模板后31 failed、7正对照passed，finally产品及测试SHA256完整恢复，证据sales_blank/rollback-evidence.json。
 - 最终模块回归：原29模块及新增模块共463 passed、30项SQLAlchemy警告（原基线28项，新增隔离集成触发2项），001的20项零价回归保持通过，两个产品和全部30测试模块前后SHA256一致。证据sales_blank/final.log、final-modules.txt及final-evidence.json。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8/diff检查通过。连接器再次核实最新三工作流及同一远端8d538943基线全绿、Android复用证明通过，证据sales_blank/precommit_ci_alternative.json。
 - 提交与CI：5003a036e6371a169bc7cd0b60277cee34287b29实际正常push（8d538943..5003a036 main -> main），HEAD/origin/live main一致；WMS CI40180859791、AI40180859780精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过，证据sales_blank/target_ci.json及push-first.log。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-003: 入库领料新增页重复处理回车覆盖手工单价
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：物料行handleKeydown已处理Enter并preventDefault，document的setupScanAutoFill仍再执行forcePrice强制默认价。真实事件顺序中默认价99、手工价12.34在行处理后仍12.34，全局监听又变99.00并新增50ms聚焦定时器。
 - 同类点已排查：关联BUG-2026-09-22-004-F01物料键盘/输入法历史、复制行及扫码默认价场景；全仓仅in_order_add和out_order_add两处setupScanAutoFill，共用document_table_form无该重复监听。只处理已被消费事件，不改变未处理扫码的默认价逻辑。
 - 开工门禁：实时main为5003a036e6371a169bc7cd0b60277cee34287b29；WMS CI40180859791、AI40180859780精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（sales_blank/target_ci.json）。
 - 修前基线：39个受影响及相邻模块700 passed、12项既有警告；从8d538943到5003a036两产品/app.js/api.js/全部模块/conftest字节不变，相关keydown依赖无变化，可复用。证据C:/wms_backups/frontend_ten_20261025/entry_keys/baseline-reuse.json与audit-proof.json。
-- 生效确认：待完整回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据或库存。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：两处全局扫码监听各增加defaultPrevented提前返回；不再重复填价或安排聚焦。未消费扫码、候选选择和IME保护沿用原逻辑。生产需重启 WMS 服务生效。
 - 回归锁：20项真实页面注册的行级回调、handleKeydown/selectMaterial/fillMaterialFields及全局监听完整链路通过；涵盖候选开关、已有零价/手工价、正常扫码默认价、焦点定时器、IME与非Enter。旧码6 failed、14正对照passed；物理备份后checkout旧两模板再测仍6 failed/14 passed（真实单价断言），finally两产品按SHA256恢复，证据entry_keys/rollback-proof.json。
 - 最终验收：40个完整受影响及相邻模块720 passed、12项同基线警告，2产品/40测试/API及conftest哈希前后一致；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8及diff检查通过。证据entry_keys/final-evidence.json、quality.json、smoke.log。提交前再次核对同一5003a036远端基线最新三工作流全绿及Android复用证明（precommit_ci_alternative.json）。
 - 提交与CI：8401b99ca435cf2a67820a2c4e79bc618a72fac6实际正常push（5003a036..8401b99c main -> main），HEAD/origin/live main一致；WMS CI40181428730、AI40181428751精确匹配completed/success，Android40177478067成功且复用证明通过。证据entry_keys/target_ci.json及push.log；生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-004: 基础资料编辑旧响应覆盖当前记录及物料图片串图
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：九个edit入口没有请求代次及弹窗生命周期校验。实际函数依次请求A/B，B先回填ID2后A迟到将ID改回1；关闭中的回包仍调用show。物料图片旧请求也可替换新记录的图片及删除ID，存在误改档案风险。
 - 同类点已排查：关联2026-10-24-005物料筛选及020合同/项目查询生命周期历史，既有搜索修复不覆盖编辑读取。当前customer/supplier/unit/contract/category/material/employee/warehouse/department九个实际编辑入口及物料图片读取全部纳入；已修保存传输、后端与权限不重做。
 - 开工门禁：实时main为8401b99ca435cf2a67820a2c4e79bc618a72fac6；WMS CI40181428730、AI40181428751精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（entry_keys/target_ci.json）。
 - 修前基线：27个完整受影响及相邻模块763 passed、107项既有skipped、20项既有警告。10产品/API/base/27测试共39输入从8d538943到当前均无Git差异且原始SHA256匹配，复用证明master_edit/baseline-reuse-003.json。真实api.js与九个编辑函数及图片乱序证据read-race-before.json；弹窗事件为隔离DOM/Bootstrap事件桩，不冒充真实浏览器验收。
-- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产档案、图片或库存。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：app.js共享读取助手核对请求代次、当前DOM、响应记录ID及弹窗关闭/切换，统一GET HTTP/业务失败；禁用编辑控件但保留取消，九个保存入口同时拦截pending。物料图片及上传/删除回调绑定当前编辑上下文，切换详情清空旧File选择，旧回包不污染新物料。字段回填、日期控件和原权限/保存协议保持。生产需重启 WMS 服务生效。
 - 回归锁：188项实际helper/九编辑入口/API及图片场景通过，含旧请求先回不解新锁、关闭重开、新增导入、DOM替换、错ID/非法信封/HTTP失败、原disabled/取消/重试、旧上传删除回调及换单File清理。物理备份回退10产品后127 failed、61正对照passed；仅恢复新helper、撤九消费接线再测19项全部失败，两份日志ReferenceError均0。finally全部产品按SHA256恢复，证据master_edit/rollback-proof.json。
 - 完整模块：原27及新增共28模块943 passed、107既有skipped、20既有警告，40个产品/依赖/测试输入前后哈希稳定。物料GET移至共享helper，旧动态扫描少1表达式的8项传输参数例，由新188用例覆盖，原业务断言保留；四份既有夹具仅加载真实helper/新增DOM及更新3份外链字节快照。证据master_edit/final.log、final-evidence.json。
 - 真实浏览器验收：独立18080及内存库，真实单位页/原Bootstrap，实际点击A后B并延迟A；A回包后仍显示QA-B/QA单位B，关闭B后迟到A不重开。加载期间保存disabled且取消可用，切换新增后迟到A不打断新增弹窗。UI及截图证据master_edit/browser/ui-proof.json、after-race.png；请求除测试登录外全部GET，两测试单位保持不变。文件SQLite连接均被外部守卫在connect前拒绝，自有服务器与浏览器已关闭；未生产登录或改账号密码。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8/JS语法及diff检查通过。匿名CI查询HTTP403，经连接器重新核实8401b99c最新三工作流全绿及实时远端、Android复用证明，证据master_edit/precommit_ci_alternative.json；失败查询不冒充实际红灯或放行依据。
 - 提交与CI：2f4400b1926942332ad260297f02a951f5f63228实际push（8401b99c..2f4400b1 main -> main），HEAD/origin/live main一致；WMS CI40183420093、AI40183420092精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过（master_edit/target_ci.json）。pre-push匿名403，经同基线最新运行替代证据核实后仅该次WMS_SKIP_CI_GATE=1重推并finally清除；push.log/push_ci_alternative.json保留。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-005: 报表打印明细与汇总取自不同筛选快照
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：report_view打印按当前表单重新请求全部明细，renderPrintArea却读取屏幕旧summaryCards。实际函数复现甲仓旧合计100，改乙仓未查询直接打印，输出乙仓及明细7却带旧合计100；条件文字也在await后重新读表单，缺少统一打印快照。
 - 同类点已排查：关联BUG-2026-09-07-008全量打印和报表仓库/汇总历史，本共享模板覆盖14类报表。修复当前打印的请求/元数据/汇总一致性，不修改库存计算；stock_query打印漏关键词等筛选为另一个前后端契约问题，隔离实证及独立方案已记录，另列012处理。
 - 开工门禁：实时main为2f4400b1926942332ad260297f02a951f5f63228；WMS CI40183420093、AI40183420092精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（master_edit/target_ci.json）。
 - 修前基线：22个完整受影响及相邻模块140 passed、34项既有警告；004后重跑并核211输入哈希稳定，当前目标复用证据report_print/baseline-after004-target-reuse.json。实际打印handler/render及独立库存打印只读证据C:/wms_backups/frontend_ten_20261025/report_print。
-- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。未生产打印或修改业务数据。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：开始打印时冻结请求参数及中文条件；第一页响应提供同次筛选的汇总、标签与类型，后续页只合并明细，不累加全集汇总。保持500行分页拉取及10000行上限，截断时明确汇总包含未打印行，屏幕原查询保持。生产需重启 WMS 服务生效。
 - 回归锁：30项真实打印handler、buildParams及renderPrintArea用例通过；物理备份并回退旧模板后23 failed、7个错误/缺仓库对照passed，finally恢复且SHA256一致（report_print/rollback-proof.json）。既有打印契约仅调整携快照的函数调用锚，分页、上限、打印CSS及window.print断言保留。
 - 完整模块：原22及新增模块共170 passed、34项既有警告，197个产品/依赖/测试输入前后SHA256一致。证据report_print/final005-result.json及final005.log。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14零违规、非GET请求/源码编码/diff检查通过。连接器核对同一2f4400b1基线最新三工作流及实时main、Android祖先/对象/保护路径证明通过，证据report_print/quality.json与precommit_ci_alternative.json。
 - 提交与CI：312cf13384be4d78fe91710f76cf74bc113c72b9实际正常push（2f4400b1..312cf133 main -> main），HEAD/origin/live main一致；WMS CI40184787000、AI40184787034精确匹配completed/success，Android40177478067成功且复用证明通过（report_print/target_ci.json）。生产统一验收待执行。
 - 浏览器补验：独立18081静态夹具执行Git旧版/当前实际打印函数，旧版改乙仓后打印为明细7/旧汇总100；当前为同次明细7/汇总7，等待期间改变条件仍保留请求快照。只有隔离GET桩，不调用真实打印或生产HTTP；截图browser-before.png、browser-after-summary.png，自有页面及服务已关闭。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-006: Excel导入读取跨弹窗污染预览及重复上传和结果误报
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：ExcelImportExport关闭重开不失效原FileReader回调，旧读取能重填新预览；上传在途及800ms刷新前缺跨重开互斥。旧csrfFetch只看JSON success，HTTP500也可误报成功，count=0又被预览条数覆盖；警告会被自动刷新吞掉，合法数值0在预览中显示空白。
 - 同类点已排查：关联BUG-2026-10-22期初预检及2026-10-23公共导入/传输锁历史，已修公共入口与本类是不同消费点；五个活跃详情页复用该唯一组件，其中入/出库详情配置导入接口，另三页保留客户端导出模板。仅修改此组件，不改后端、库存及权限。
 - 开工门禁：实时main为312cf13384be4d78fe91710f76cf74bc113c72b9；WMS CI40184787000、AI40184787034精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（report_print/target_ci.json）。
 - 修前基线：原10个完整受影响及相邻模块458 passed；004后复跑，22项产品/依赖/测试原始哈希匹配当前312cf133，证据excel_component/baseline-after004-proof.json和baseline-after005-readonly-reuse.json。真实完整类、api.js及旧CSRF读取/上传/HTTP/0预览探针已复现。
-- 生效确认：待本地完整回归、目标CI及统一生产验收。未对生产执行文件导入或写入业务数据。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：文件选择/清空/弹窗关闭重开均使旧读取失效；上传快照保留原文件，锁覆盖在途、成功回调与800ms刷新。统一WMS.api.postRaw判HTTP和业务状态；count=0明确显示0条，警告及结果纯文本保留不自动刷新，预览仅null/undefined显示空。成功后先标记committed，后续页面/回调失败提示核对并保持禁止重复提交，显式新选文件才开始新操作；保留原clean成功先hide再callback，不因迟到回调自动重开。
 - 回归锁：新增92项执行完整组件、实际api.js、base旧CSRF/全局拦截及真实生成弹窗HTML事件。物理回退旧产品为72 failed/20正对照passed；仅还原旧传输6 failed/2 HTTP业务失败对照passed，失败点为HTTP不得误成功；仅旧count或预览零值表达式各2 failed。finally恢复产品与测试哈希一致，证据excel_component/rollback-proof.json；既有测试及断言均未修改。
 - 完整模块：原10及新增模块共550 passed，23项产品/依赖/测试原始字节前后稳定，最终产品与新测试哈希和最新R8完全一致；前一版548记录仅作中间证据，不冒充最终验收。证据excel_component/final-proof.json及final.log。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。另增加仓库外本地SQLite连接前守卫，拒绝测试辅助启动代码的生产instance文件兜底连接，内存与外部临时库允许；带守卫再验verify_wms_bugs通过（bugs-guarded.log）。同一312cf133基线最新三工作流、实时远端及Android复用证明再次核实（precommit_ci_alternative.json）。
 - 提交与CI：42c74d2dba3d19e12a59d6d87f25ae9e916b9dc0实际正常push（312cf133..42c74d2d main -> main），HEAD/origin/live main一致；WMS CI40186115169、AI40186115164精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（excel_component/target_ci.json）。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-007: 普通及批量标签将合法零价格显示为空
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：普通标签Jinja、批量页getFieldValue及两个批量GET数据源以价格truthiness判空；实际零价普通标签为空，而preview显示0.0，批量MATERIALS价格为空且真实xlsx零价单元格为空，三输出与数据不一致。
 - 同类点已排查：关联零价录入/复制及本轮销售001、Excel预览006历史；扫描标签普通/preview/整页批量及两个数据生成消费点，共3产品4处。保留None、空串及正价原格式，不改其他数量、库存或实际打印流程。
 - 开工门禁：实时main42c74d2dba3d19e12a59d6d87f25ae9e916b9dc0；WMS CI40186115169、AI40186115164精确匹配success，Android40177478067成功且复用证明通过（excel_component/target_ci.json）。
 - 修前基线：14个完整受影响及相邻模块175 passed、40项既有警告；在新增外部SQLite连接前守卫环境重跑，28输入哈希前后稳定且目标42c74d2d一致，证据label_zero/baseline-after006-guard-*。真实隔离GET/HTML及xlsx证据label_zero/。
-- 生效确认：待本地回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未生产打印或修改物料价格。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：普通Jinja和两个批量GET数据源按None判空，批量JS按null/undefined/空串判空，保留数值0、字符串0、浮点与Decimal零；None及空串仍为空，正价格式保持。仅3产品4处判断，不改变标签选择/分页/库存或实际打印。生产需重启 WMS 服务生效。
 - 回归锁：18项真实Jinja、完整批量页脚本/api.js/DOM、隔离GET及真实xlsx下载用例通过，覆盖0/0.0/Decimal0/字符串0/None/空串及正价，GET前后价格保持。物理备份并回退三产品后8 failed、10正对照passed，finally字节恢复及三SHA256一致；非缺helper反证。证据label_zero/physical-rollback-proof.json和new-green.log，既有测试断言保持。
 - 完整模块：原14及新增模块共193 passed，42项警告（基线40及新GET用例2项），29项产品/API/base/测试输入原始哈希前后一致。证据label_zero/final-result.json及final.log；实际HTTP请求仅为隔离Flask test_client GET，xlsx来自外部临时模板，不调用真实打印。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff检查通过；测试进程保留外部SQLite连接前守卫。连接器重新核实同一42c74d2d基线最新三工作流、实时远端及Android复用证明通过，证据label_zero/quality.json及precommit_ci_alternative.json。
 - 提交与CI：1ac42357f10999c96257d064ff7d116205364498实际正常push（42c74d2d..1ac42357 main -> main），HEAD/origin/live main一致；WMS CI40186882115、AI40186882046精确匹配completed/success，Android40177478067成功且复用证明通过（label_zero/target_ci.json）。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-008: 公共删除入口重复确认提交及HTTP错误误报成功
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：batchDelete、deleteItem、deleteCurrent缺确认/请求/导航期间共享互斥，重复或跨入口可发多次POST；公共JSON及逐个详情fallback仅读取JSON，HTTP500携success正文也被计作成功并刷新或跳转。
 - 同类点已排查：关联已修公共bindListActions、保存/导入及单据动作锁历史；核三个实际外层入口、postJsonForAction与postDetailDeletes内部transport。员工/采购申请/合同等局部同名函数不伪计为共享消费点，原人工确认、后台权限和已接受单人删除设计保持。
 - 开工门禁：实时main1ac42357f10999c96257d064ff7d116205364498；WMS CI40186882115、AI40186882046精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（label_zero/target_ci.json）。
 - 修前基线：12个完整受影响及相邻模块766 passed、21项既有skipped、64项既有警告；外部SQLite连接前守卫环境重跑，46输入前后哈希一致。007三标签产品变更未触及这46输入，guard-baseline-reuse-after007.json核对目标1ac42357仍全部匹配。证据common_delete/guard-baseline-*与before-probe.cjs。
-- 生效确认：待本地回归、目标CI及统一生产验收。删除请求只在隔离桩中执行，不操作生产单据或档案。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：三个同页外层入口共享确认/请求/成功导航等待锁，内部transport不重复拿锁；先固定ID、URL及原列表目标。采用WMS.api.postRaw并检查结果信封，逐个详情保留无body POST及部分失败统计；原native/异步确认、600/650ms导航保持。取消/失败可人工重试，已删除成功但刷新跳转异常时明确提示已完成并手动核对，不误报删除失败。
 - 回归锁：96项执行真实公共函数、base fetch拦截/CSRF和api.js的运行用例通过；401/419原会话提示明确取消并验证仅一次，不禁止正常登录机制。以同一最新夹具物理回退app.js为43 failed/53正对照passed，finally恢复且SHA256一致（common_delete/physical-rollback.json）。涵盖跨入口锁、确认等待、快照、HTTP/业务/非法JSON、无body协议、partial、失败重试及导航反馈，非缺helper反证。
 - 完整模块：原12及新增模块共862 passed、21项既有skipped、64项既有警告，47项产品/依赖/测试原始哈希前后一致。Node语法及diff通过，旧测试/断言保持；证据common_delete/final-full.log及final-after.json。Python验证仅在外部QA bootstrap、固定非秘密测试凭据、外部上传/日志/备份及SQLite连接前守卫下运行。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/UTF-8/diff检查通过。连接器再次核实同一1ac42357基线最新三工作流、实时远端及Android复用证明通过，证据common_delete/quality.json及precommit_ci_alternative.json。
 - 提交与CI：eb8970caf09ab31a600e4ca5a5abd83e65080d79实际push（1ac42357..eb8970ca main -> main），HEAD/origin/live main一致；WMS CI40188390232、AI40188390220精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（common_delete/target_ci.json，连接器分页1–2读取最近记录）。pre-push匿名403，经同一基线最新运行替代证据重新核实后，仅该次WMS_SKIP_CI_GATE=1重推且finally清除，push.log/push-retry.log/push_ci_alternative.json保留。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-009: 栏目恢复默认取消仍生效及多控制器默认顺序被偏好污染
 
-- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：公共reset立即删除存储并applyState，随后取消/Esc/遮罩也丢偏好；columnsOf按已重排列顺序捕获默认，报表applyReportFieldSettings还会先改列名。公共先初始化时污染动态控制器defaultOrder；动态先初始化且无独立orderKey时又忽略公共已存顺序。仅修reset按钮两行不能闭环。
 - 同类点已排查：关联checkbox标签、公共栏目观察器与动态拖拽顺序历史；核公共IIFE、报表动态表头、真实dynamic控制器及入/出库/采购/售后/调整/销售不同初始化顺序。保留observer跳过动态重排边界，复用原setOrder，不重写拖拽算法或扩大列宽/标签含义。
 - 开工门禁：实时main eb8970caf09ab31a600e4ca5a5abd83e65080d79；WMS CI40188390232、AI40188390220精确匹配success，Android40177478067成功且复用证明通过（common_delete/target_ci.json）。
 - 修前基线：35个完整受影响及相邻模块848 passed、77项既有警告，产品/依赖/测试及三个QA守卫前后哈希稳定，目标eb8970ca一致。证据field_reset/baseline/result.json；真实IIFE、报表及动态链探针、DESIGN_FROZEN.json记录同根因边界。
 - 浏览器修前证据：真实公共IIFE和报表函数夹具，经实际UI更名备注并置顶保存；reset/cancel丢名称且saved=null，reset/OK仍备注首列。field_reset/browser-before-cancel和browser-before-confirm的JSON/PNG；仅静态隔离数据，无业务请求，自有页面及18081服务已结束。
-- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。仅浏览器偏好逻辑，不操作生产记录。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：首次接触表头时保留不可变默认位置/名称，报表生成表头也显式提供原始元数据；分离动态真实defaults与有效初始序，有效own key优先，缺失时只读公共偏好或当前DOM。公共reset只改草稿，取消/Esc/遮罩不存储、不应用；OK仅有明确reset/move意图才调用原setOrder并保宽，只改名/显隐不覆盖拖拽序。原生动态reset则显式保存真实默认own order、仍清原width，使重载不复活旧common偏好；observer仍跳过动态重排。生产需重启 WMS 服务生效。
 - 回归锁：43项运行回归执行真实公共IIFE、动态控制器及报表函数，覆盖两种初始化顺序、own/common优先、取消/确定、native reset及重载、宽度字节保持/原生清宽、名称/显隐、观察器新行和新列兼容。物理备份并回退两产品后35 failed/8正对照passed，finally两SHA256恢复一致，证据field_reset/rollback/proof.json。无旧测试或断言修改。
 - 完整模块：原35及新增模块共891 passed、77项既有警告，证据field_reset/final/pytest.log及前后哈希清单。Python仅用外部QA runtime/上传/备份/日志、固定测试凭据及生产SQLite连接前守卫。
 - 浏览器修后验收：同一真实公共组件/报表函数夹具，以实际UI预置自定义备注首列；reset/cancel后的DOM和可见已存JSON逐字节保持，reset/OK恢复日期首列/备注末列及原名称，reload结果相同。browser-proof.json、browser-after-cancel/confirm的JSON/PNG与最终两产品manifest匹配；仅静态GET，页面/18081服务已关闭，未读写生产浏览器偏好或业务数据。
 - 提交前验收：51项最终输入原始哈希前后稳定，FROZEN_FINAL.json及浏览器manifest匹配；文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs通过、A1–A14零违规、非GET请求/源码编码/diff通过。同一eb8970ca基线最新三工作流、实时远端及Android复用证明再次核实，证据field_reset/quality.json及precommit_ci_alternative.json。
 - 提交与CI：2267c339a44ae2c20900d9239dc846c04dc21a33实际正常push（eb8970ca..2267c339 main -> main），HEAD/origin/live main一致；WMS CI40189447889、AI40189447877精确匹配completed/success，Android40177478067成功且祖先/对象/保护路径证明通过（field_reset/target_ci.json）。生产统一验收待执行。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
-## （已修复；R8回滚后重做验证）
+## （已修复；R8回滚后重做完成）
 
 ### BUG-2026-10-25-010: 需求预测旧响应覆盖新条件及分类和结果渲染失真
 
-- 状态：已修复（R8回滚后重做验证中，待新目标CI及生产生效；2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - AI子修复归属：AI-C13-FIX-FORECAST-LIFECYCLE-001；既有AI-C13需求预测前端修复，不新增AI能力。完成状态须在真实推送、目标CI及生效验收后登记，不提前写已完成。
 - 根因/危害：30天与7天请求乱序时旧结果覆盖新结果；刷新重建分类下拉丢选择，actionFilter仍为需补货却渲染全量。合法空数据响应无summary触发TypeError；旧POST仅读JSON可将HTTP500 success正文误作成功。分类option及表格把普通<>&引号文本拼作HTML，导致标签解析和选项值截断。
 - 同类点已排查：关联AI-R15前端反馈及BUG-2026-10-23-014文字/事件隔离、本轮异步查询/传输历史；该预测端点全仓仅此页一请求消费。summary和aiAnalysis已有text安全，不重复修改；本页分类及明细两个文字消费统一处理，不改预测算法、CSV导出、权限/模型/工具/开关或后端库存。
 - 开工门禁：实时main2267c339a44ae2c20900d9239dc846c04dc21a33；WMS CI40189447889、AI40189447877精确匹配success，Android40177478067成功且复用证明通过（field_reset/target_ci.json）。
 - 修前基线：原5个完整受影响及相邻模块68 passed，严格AI台账通过；目标2267c339、产品/依赖/测试/台账及3QA helper哈希稳定，证据ai_pages/final-qa-baseline/baseline-evidence.json。整页/API乱序与渲染审计探针均已复现，render-audit-proof.json不冒称真实浏览器攻击执行。
-- 生效确认：待实现、本地回归、安全隔离AI全量、目标CI及统一生产验收；生产需重启 WMS 服务生效。测试全网络及生产8080连接前拒绝，不发真实LLM或生产业务请求。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 
 - 修复：请求代次与条件快照共同校验旧响应，重复生成只发一次；条件变化即时隐藏旧结果，旧finally不解锁新请求。统一postRaw校验HTTP及响应结构，兼容真实无物料分支的缺summary空态；分类重建保留原值，刷新沿用状态筛选。分类option及明细文字使用真实公共escapeHtml，保留普通尖括号/引号文字。生产需重启 WMS 服务生效。
 - 回归锁：新增25项整页运行测试，执行真实api.js及escapeHtml；真实隔离后端空响应流入整页验证。物理回退模板后24 failed/1正对照passed，finally SHA256恢复；乱序及文字用例分别以业务断言失败，不靠缺helper。原5及新增共6完整模块93 passed，旧测试不改。证据ai_pages/rollback-evidence.json、rollback-tests.log及模块回归日志。
@@ -2153,30 +2162,34 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回滚实证：a3741b6954dfbfc174a464a4825482fd6f2ab276实际push d6eab925..a3741b69，HEAD/origin/live一致；一次进程环境已finally清除。WMS CI40191551194、AI40191551173精确completed/success，Android40177478067及祖先/完整对象/保护路径无差异证明通过（rollback_target_ci.json）。新修前基线原5加漏纳旧feedback完整模块共94 passed、严格AI台账通过、全部输入及3helper稳定。旧摘取夹具对同一d6模板快照2 failed/24 passed，外部完整预测页夹具26 passed；全部旧CASES AST与旧assert行保留，增加实际请求/CSRF/失败状态断言，证据redo/red-green-evidence.json。获绿后才重新授权产品恢复，不在红灯基线写下一批。
 - 重做最终验收：产品模板及25新锁按d6 Git原blob恢复；仅增强旧预测场景夹具，加载真实完整inline、escapeHtml、api.js和jQuery生命周期依赖，26旧CASES/全部旧assert保留并新增一次POST、URL/body/CSRF、按钮及失败结果检查。7完整模块119 passed/30.39秒，严格AI台账通过；物理回退模板后25新锁24 failed/1对照passed且finally字节SHA恢复。full70未重复跑，full70-reuse-proof.json证明当前app/scripts/samples/requirements/权限矩阵/PLAN/AI分片相对d6投影无差异、与原full模板仅换行及末尾空白差异、70脚本及3helper SHA一致，复用此前真实70/70实证；修改测试所需编码/BUG/规则/文档均已刷新。redo/quality文档34、隔离HTTP121/121并停止自有服务、A1–A14/请求/编码/BUG/diff全部通过，最终产品/测试/PLAN freeze匹配。新提交仍须完整目标CI；生产需重启 WMS 服务生效。
 - 重做提交与CI：db1560d690227d01dd11577604438ea929a44ed3实际push a3741b69..db1560d6，HEAD/origin/live一致。首推匿名查询403，连接器新证据证明同一a374基线全绿后单次临时环境重推并finally清除（redo/prepush_retry_ci.json）；这不是实际失败门禁例外。WMS CI40192225964、AI40192225950精确completed/success，Android40177478067及祖先/完整对象/保护路径无差异证明通过（redo/target_ci.json）。生产统一验收仍待后续两组。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-011: 公共查找单据旧请求覆盖新条件或取消后仍打开旧单
 
-- 状态：已修复（待目标CI及生产生效，2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：标准弹窗没有请求/输入/生命周期代次，轴承旧回包覆盖螺母新结果，旧失败清空新成功；180ms防抖窗口旧候选仍可点，关闭不取消未发出的定时器。无Bootstrap的prompt分支也没有共享调用代次，两次查询乱序或第二次取消后旧回包仍打开旧单。
 - 同类点已排查：关联本轮主数据编辑、预测页及既有物料查询生命周期历史；本组核两种showDocumentSearchModal分支、换模块、关闭/重开/DOM替换及取消。只改该函数，独立fetchDocumentNavigation/navigateDocument/getDocumentNavigationApiUrl与翻单保持；原80条和total提示、GET及row.url优先/embedded保持。base全局网络/5xx/会话提示属于既有统一层，不宣称局部失效能抑制其兜底。
 - 开工门禁：实时main db1560d690227d01dd11577604438ea929a44ed3；WMS CI40192225964、AI40192225950精确success，Android40177478067及复用证明通过（ai_pages/redo/target_ci.json）。
 - 修前基线：67个完整旧消费及相邻模块2529 passed/21既有skipped/0 failed；原63计划补上forecast/common_delete/page_feedback和唯一间接CJS field_settings消费者，1321源码/测试/夹具及外部helpers前后SHA稳定，credential_file_events=[]（search/baseline-after010-redo/result.json）。此前d6基线因R8中断，只保留不计通过。
 - 只读复现：真实app.js完整函数、api.js及base全局fetch层，53外部候选31项业务断言红/22正常对照绿，0缺DOM或缺helper假失败；fallback两prompt先B后A导航22后11、取消仍开旧单等已复现。证据search/candidate-harness-evidence.json及fallback-proof.json。
-- 生效确认：待实现、本地回归、物理回退、目标CI及统一生产验收；静态脚本需用户刷新页面加载，不操作真实单据/库存/生产浏览器偏好。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：每次进入含prompt取消推进共享入口代次；modal内部输入即时推进查询代次、清候选、冻结180ms关键词，成功/失败/点击同时核对入口、局部代次、关键词及原DOM身份/连接状态。hide与hidden均使本轮失效并取消timer；有效fallback仍打开首条。仅showDocumentSearchModal内修改，函数外原始字节SHA一致（product-scope-proof.json）。统一层全局网络/5xx及会话提示保持，不把旧局部失效描述成全局错误静默。
 - 最终验收：53新运行锁通过；物理仅回退app.js后31业务断言failed/22正对照passed，0缺helper/DOM错误，finally3文件原始SHA完全恢复（rollback/proof.json）。68完整模块2582 passed/21既有skipped，1323输入及6外部helpers前后SHA稳定、credential_file_events=[]、四连接前安全预检通过（final-regression/result.json）。root quality文档34、隔离HTTP121/121且自有服务停止、规则/请求/编码/BUG/diff全部通过。
 - 真实浏览器：静态隔离页使用15个真实函数、api/base及真实Bootstrap5.3，CUA实际输入轴承再螺母、先回螺母后旧轴承，候选仍IN-FIXTURE-22并正确选择URL含embedded=1；关闭后再返回两个晚包无候选/无导航。browser/after-proof.json、after-race.png、after-close.png与freeze产品manifest匹配；无WMS连接，页面与18081自有服务已关闭。提交前最新同一db1560d6三CI及Android证明再次核实（precommit_ci.json）。
 - 提交与CI：9771b84282083962bf4562358386b79121bfdb05实际正常push db1560d6..9771b842，HEAD/origin/live一致；WMS CI40194043677、AI40194043659精确completed/success，Android40177478067及祖先/完整对象/保护路径无差异证明通过（search/target_ci.json）。生产统一验收待最后一组。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
 
 ### BUG-2026-10-25-012: 库存查询打印忽略当前筛选和排序
 
-- 状态：已修复（待目标CI及生产生效，2026-10-25）。
+- 状态：已修复，生产已生效（2026-10-25）。
 - 根因/危害：真实stockPrintBtn仅传warehouse_id；即使手工携带search/category_id/stock_filter/sort/order，report_stock_print的旧Excel及模板Excel分支仍各自查询所有物料，导出行集与列表筛选/排序不一致。
 - 同类点已排查：关联BUG-2026-08-12-005仓库级导出、R1分页与本轮报表快照问题；本组库存查询列表和旧/显式/默认模板Excel三种入口统一候选查询，打印取筛选全集而非当前页。保留既有_alert_status_for两级预警（low含danger、normal含disabled）、允许排序字段、resolve_request_warehouse和get_warehouse_stock_quantities；不改库存服务/总账/历史归属/app.py。
 - 开工门禁：main9771b84282083962bf4562358386b79121bfdb05；WMS CI40194043677、AI40194043659精确success，Android40177478067及复用证明通过（search/target_ci.json）。
 - 修前基线：25完整模块208 passed/88既有warning，202输入及helper/runner前后SHA一致，main/HEAD/origin严格9771b842，stock012-baseline-after011-target-proof.json valid=true。此前008刷新结果保留，当前使用011后的新证明。
 - 只读复现：4仓、61物料（58专用分类跨3页）、实际列表GET和两Excel分支含显式/默认模板，61场景旧码56业务断言failed/5正常对照passed/0 errors；实际href和模板change亦红，无缺新helper的伪红（report_print/stock012_candidate）。历史MA显式2+可解析NULL3=甲仓5，乙仓8；孤儿50保留未归属桶，global63与已归属13差50不当作库存BUG、不回填。
-- 生效确认：待实现、本地完整与多仓/历史/汇总=全集回归、物理回退、目标CI及统一生产验收；生产需重启 WMS 服务生效。真实Excel仅隔离数据，不连接生产登录或打印、不修改生产业务记录。
+- 生效确认：2026-10-25T21:04:39.954495+08:00，原WMS-Warehouse任务已重启本轮模板，PID13304/Session0、产品目标607b1d0bed3e5a73c52f19da10688ebf96adfb1c；本地及公网登录GET200/CSRF正常、静态资源原始SHA与Git产品身份一致、8张核心表摘要前后相同且quick_check=ok。生产需重启 WMS 服务生效，本轮已完成；已有浏览器需刷新加载。
 - 修复：get_stock_query_filters规范化原有效参数，build_stock_material_query提取原搜索/分类、仓库级两级预警及IN补集和允许排序；页面继续原paginate，report两Excel输出共享同一筛选全集.all()。href仅从服务器有效条件urlencode生成，排除page/per_page/embedded等；原模板切换从baseHref构造URL已正确保留这些条件，无需重复改JS。仓库解析/读取helper、app.py、历史归属及原价格/金额字段公式均未改。生产需重启 WMS 服务生效。
 - 最终验收：新61真实GET/xlsx/模板change锁通过，三产品物理备份回退后56业务断言failed/5正对照passed，finally三原始SHA恢复（stock012_rollback/proof.json）。原25及新增共26完整模块269 passed/304 SQLAlchemy既有告警，200输入前后稳定、4 owned冻结文件匹配，无旧测试改动（stock012-final-result.json及stock012-final-freeze.json）。R1跨页58行打印全集逐行/顺序=列表三页合并；R2四仓隔离、历史NULL解析、孤儿50不回填、打印完整行数量与筛选全集逐行相等，非分页抽样；库存读取和金额原公式保持。新test便携ROOT、pytest tmp_path_factory、无全局chdir，static/config和数据库嵌套finally恢复，公共helper由同名实际契约测试覆盖A9。
 - 提交前验收：文档34 passed、隔离HTTP121/121并停止自有服务、A1–A14零违规、请求/编码/BUG/diff通过（stock012_quality/quality.json）；同一9771最新三CI及实时main/Android复用再次证明（stock012-precommit-ci.json）。未连接生产业务或真实打印；后续将以全批候选再做完整AI70及统一生产验收。
+- 统一生产发布实证：目标WMS CI40195076695/AI40195076713成功且Android复用证明完整，发布候选安全完整AI70/70通过；在线一致性备份、旧/新Git代码包及manifest、进程/任务/端口/启动SHA/HTTP/资源/只读业务摘要证据保存在C:/wms_backups/frontend_ten_20261025/deployment。未执行生产业务POST、单据操作、真实打印或账号密码修改。
+- 最后一组提交与统一验收闭环：607b1d0bed3e5a73c52f19da10688ebf96adfb1c实际push 9771b842..607b1d0b，HEAD/origin/live一致；首推匿名查询403，连接器核实同一9771基线三CI全绿及Android复用后仅该次临时环境重推并finally清除（stock012-prepush-retry-ci.json），未绕过实际非绿。精确目标WMS CI40195076695、AI40195076713均completed/success。最终完整AI70/70、输入及清单SHA稳定（deployment/final-ai-full/evidence.json）。在线备份完整性通过并保留回退代码包；原任务单次重启后PID13304唯一监听8080，LastTaskResult=0，启动日志607b1d0与产品目标一致。日志migrate=ok仅记启动核验结果，不据此宣称执行过迁移。公网urllib曾遇TLS EOF，改用正常证书校验的Invoke-WebRequest取得登录和5脚本200及原始SHA证明（public-http.json）；本地实时HTTP和公网保存响应复核均通过。deployment/effective.json verified=true，8核心表摘要前后完全相同。此次收尾仅更新4份文档，产品代码不变，无需第二次重启。
