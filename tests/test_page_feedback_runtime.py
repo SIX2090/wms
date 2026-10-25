@@ -58,6 +58,12 @@ def test_page_feedback_behavior(page, name, mode):
         pytest.skip('Node.js required')
     payload = dict(page=page, name=name, mode=mode, source=function(page, name),
                    api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
+    if page == 'ai_demand_forecast':
+        template = (ROOT / 'app/templates/ai_demand_forecast.html').read_text(encoding='utf-8')
+        payload['source'] = '\n'.join(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', template, re.S))
+        shared = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
+        start = shared.index('function escapeHtml(')
+        payload['escape'] = shared[start:shared.index('\n}', start) + 2]
     if page == 'wechat_share':
         payload['source'] = 'let wechatShareWriteBusy = false;\n' + function(page, 'writeWechatShare') + '\n' + payload['source']
     program = r'''
@@ -75,7 +81,18 @@ const ctx={document:doc,JSON,parseInt,selectedMaterialId:7,getFilters:()=>({}),F
   WMS:{api:{post:(url,data)=>{calls.push({url,data});return Promise.resolve({token:'fixture-token',msg:'ok'});}}},
   $:()=>({length:1,val:()=> '7',show(){},hide(){},closest(){throw Error('must not delete last row');}})};
 ctx.window=ctx;vm.createContext(ctx);
-if(p.page==='label_template'||p.page==='approval'||p.page==='wechat_share'){
+if(p.page==='ai_demand_forecast'){
+  fields.forecastDays.value='7';fields.categoryFilter.value='';
+  ctx.$=target=>{
+    if(target===doc)return {ready(fn){fn();}};
+    const element=fields[String(target).replace(/^#/,'')];
+    const query={length:1,val:()=>element.value,on(){return query;},prop(name,value){element[name]=value;return query;},
+      show(){element.style.display='block';return query;},hide(){element.style.display='none';return query;}};
+    return query;
+  };
+  vm.runInContext(p.escape,ctx);
+}
+if(p.page==='label_template'||p.page==='approval'||p.page==='wechat_share'||p.page==='ai_demand_forecast'){
   ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});
   if(p.page==='wechat_share')doc.querySelectorAll=()=>[];
   vm.runInContext(p.api,ctx);
@@ -96,6 +113,14 @@ vm.runInContext(p.source,ctx);
   if(p.mode==='cancel'){assert.equal(calls.length,0);assert.deepEqual(events,[]);return;}
   assert.equal(events.length,0,'errors must neither block with alert nor reload');
   assert.equal(messages.length,1);assert.ok(['danger','warning'].includes(messages[0].t),'errors cannot be styled as success');
+  if(p.page==='ai_demand_forecast'){
+    assert.equal(calls.length,1,'forecast error handling must execute the real request');
+    assert.equal(calls[0].url,'/api/ai/demand_forecast');assert.equal(calls[0].opts.method,'POST');
+    assert.equal(calls[0].opts.headers['X-CSRFToken'],'fixture-csrf');
+    assert.deepEqual(JSON.parse(calls[0].opts.body),{forecast_days:7,category:''});
+    assert.equal(fields.generateForecastBtn.disabled,false);assert.equal(fields.loadingArea.style.display,'none');
+    assert.equal(fields.resultArea.style.display,'none','failed predictions stay hidden');
+  }
   if(p.mode==='guard'){assert.equal(calls.length,0);return;}
   if(!['deleteTemplate','setDefault'].includes(p.name)||p.mode==='network')assert.ok(messages[0].m.includes(marker),'preserve original error text');
 })().catch(e=>{console.error(e);process.exitCode=1;});
