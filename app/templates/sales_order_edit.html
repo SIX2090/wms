@@ -676,7 +676,8 @@ textarea.form-control {
         row.querySelector('.name').value = material ? material.name || '' : '';
         row.querySelector('.spec').value = material ? material.spec || '' : '';
         row.querySelector('.unit').value = unitName(material);
-        if (material && (!row.querySelector('.price').value || Number(row.querySelector('.price').value) === 0)) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        // BUG-2026-10-25-001：零单价是明确输入，仅缺失单价才使用物料默认价。
+        if (material && !row.querySelector('.price').value) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
         recalc();
     }
 
@@ -782,7 +783,7 @@ textarea.form-control {
             '<td data-column-key="spec"><input class="form-control spec" readonly></td>' +
             '<td data-column-key="unit"><input class="form-control unit" readonly></td>' +
             '<td data-column-key="quantity" class="num-col"><input class="form-control qty" type="number" min="0.01" step="0.01" value="' + (existing.quantity || 1) + '"></td>' +
-            '<td data-column-key="price" class="num-col"><input class="form-control price" type="number" min="0" step="0.01" value="' + (existing.price || 0) + '"></td>' +
+            '<td data-column-key="price" class="num-col"><input class="form-control price" type="number" min="0" step="0.01" value="' + (existing.price != null ? existing.price : '') + '"></td>' +
             '<td data-column-key="tax_rate" class="num-col"><input class="form-control tax-rate" type="number" min="0" max="1" step="0.01" value="' + (existing.tax_rate !== undefined && existing.tax_rate !== null ? existing.tax_rate : defaultTaxRate) + '"></td>' +
             '<td data-column-key="untaxed" class="amount-col untaxed">0.00</td>' +
             '<td data-column-key="tax" class="amount-col tax">0.00</td>' +
@@ -894,7 +895,7 @@ textarea.form-control {
                 var row = index === 0 && !body.querySelector('tr .material-code').value ? body.querySelector('tr') : addRow();
                 row.querySelector('.material-code').value = parts[0];
                 row.querySelector('.qty').value = parts[1] || '1';
-                row.querySelector('.price').value = parts[2] || '0';
+                row.querySelector('.price').value = parts[2] || '';
                 row.querySelector('.tax-rate').value = parts[3] || defaultTaxRate;
                 row.querySelector('.batch-no').value = parts[4] || '';
                 row.querySelector('.serial-no').value = parts[5] || '';
@@ -1017,7 +1018,7 @@ textarea.form-control {
             addRow({
                 code: item.code || '',
                 quantity: item.quantity || 1,
-                price: item.price || 0,
+                price: item.price,
                 tax_rate: item.tax_rate != null ? item.tax_rate : defaultTaxRate,
                 batch_no: item.batch_no || '',
                 serial_no: item.serial_no || '',

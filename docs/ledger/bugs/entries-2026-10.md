@@ -2004,3 +2004,16 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生效确认：2026-10-25由Codex核对78c9b8d9的三工作流精确目标全绿，Android真实编译、lint及81项单测全部通过；仅测试夹具及回归守护变化，无须生产重启。证据C:/wms_backups/frontend_six_20261024/android_ci_20261025，官方依据https://raw.githubusercontent.com/robolectric/robolectric/robolectric-4.14.1/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSQLiteConnection.java。
 - 门禁例外授权：2026-10-25用户明确回复「允许本次CI修复例外」，允许在Android实际红灯基线上仅提交推送已展示的五个测试/台账文件。此处不伪称基线全绿；仅本次push临时使用WMS_SKIP_CI_GATE并finally清除，分支与原pre-commit规则继续执行，三工作流全绿前不恢复下一批业务写入。
 - 提交及CI生效确认：78c9b8d99b1a16ab417e5727f572fd2721362d41实际push（762ec679..78c9b8d9 main -> main），HEAD/origin/live一致。WMS CI40177478032、AI40177478041、Android40177478067均精确匹配completed/success；Android job121121206258日志81 PASSED、0 FAILED，新增持久化检查及原保单重建用例均通过，APK编译与lint通过。目标全绿后才按哈希恢复021修改；仅测试变化，不需要生产重启。本次配置与运行验证通过，不以一次成功保证未来所有SQLite环境故障均已消除。
+
+### BUG-2026-10-25-001: 销售订单编辑将已有零单价替换为物料默认价
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：sales_order_edit的fillRow将数值0误作未填写，打开已有零单价行即改用物料默认价；默认价125、数量2的真实页面函数复现为单价125.00、金额250。后端读取和保存本来支持0，本次不修改价格业务口径。
+- 同类点已排查：关联10月BOM零成本、粘贴零价格及复制行历史；核对销售新增/编辑/模板/复制/粘贴链路以及出入库、售后价格默认消费点。显式重新选物料的强制默认价与已有行初始化区分，本批修复已有销售价格被静默覆盖及对应输入初始化，保持新空行带默认价。
+- 开工门禁：b42098dc0dfbf9f2b4010dfdbed575b648b27171与实时远端main一致；WMS CI40178435471、AI40178435468精确匹配completed/success。Android40177478067成功，78c9b8d99b1a16ab417e5727f572fd2721362d41为祖先，Git对象齐全且Android工程/工作流无差异。匿名HTTP403仅查询失败，替代证据C:/wms_backups/frontend_ten_20261025/baseline_ci.json。
+- 修前基线：28个受影响及相邻模块405 passed、28项既有警告；真实页面addRow/fillRow/collect及后端解析证据存于sales_zero/audit-probe.json与baseline-evidence.json。
+- 修复：价格是否存在按null/undefined/空字符串判断，保留数值0和字符串0；已有行、复制、模板及粘贴遵循相同口径，新空行仍可采用物料默认价。生产需重启 WMS 服务生效。
+- 生效确认：待本地回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据、价格或库存。
+- 回归锁：20项真实addRow/fillRow/collect及复制/模板/粘贴/最近物料/新空行用例通过，覆盖0、字符串0、0.00、缺失/null/空值及正价和金额税额。物理备份后回退旧模板为7 failed、13正对照passed；finally恢复产品与测试且SHA256一致，证据sales_zero/rollback-evidence.json。
+- 最终模块回归：原28模块及新增模块共425 passed、28项既有SQLAlchemy警告，原业务断言保留；证据sales_zero/final.log和final-evidence.json。销售编辑空白预留行导致400另记002，不夹带本次价格修复。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8编码及diff检查通过。最新三工作流仍是开工成功记录，实时远端及Android复用证明再次核对通过，证据sales_zero/precommit_ci_alternative.json；未核实的查询失败不视作CI失败或成功。
