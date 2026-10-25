@@ -253,6 +253,7 @@
 <script>
 const reportType = {{ report_type|tojson }};
 const reportTitle = {{ title|tojson }};
+const summaryLabels = {{ summary_labels|tojson }};
 const summaryTypes = {{ summary_types|tojson }};
 
 let currentPage = 1;
@@ -366,7 +367,8 @@ printBtn.addEventListener('click', async () => {
         let totalPages = 1;
         let page = 1;
         let truncated = false;
-        const params = buildParams();
+        const printContext = captureReportPrintContext();
+        const params = printContext.params;
         do {
             params.set('page', String(page));
             params.set('page_size', '500');
@@ -375,7 +377,12 @@ printBtn.addEventListener('click', async () => {
             if (!resp.ok || result.status !== 'success') {
                 throw new Error(result.msg || '打印数据加载失败');
             }
-            columns = result.columns || columns;
+            if (page === 1) {
+                columns = result.columns || columns;
+                printContext.summary = result.summary || {};
+                printContext.summaryLabels = Object.assign({}, summaryLabels, result.summary_labels || {});
+                printContext.summaryTypes = Object.assign({}, summaryTypes, result.summary_types || {});
+            }
             allRows.push(...(result.data || []));
             totalPages = result.total_pages || 1;
             page += 1;
@@ -384,7 +391,7 @@ printBtn.addEventListener('click', async () => {
                 break;
             }
         } while (page <= totalPages);
-        renderPrintArea(columns, allRows, truncated);
+        renderPrintArea(columns, allRows, truncated, printContext);
         window.print();
     } catch (error) {
         renderTruncation(null);
@@ -396,8 +403,8 @@ printBtn.addEventListener('click', async () => {
     }
 });
 
-function renderPrintArea(columns, rows, truncated) {
-    const el = document.getElementById('printArea');
+function captureReportPrintContext() {
+    const params = buildParams();
     const metaParts = [];
     const formData = new FormData(filterForm);
     for (const [key, value] of formData.entries()) {
@@ -414,12 +421,17 @@ function renderPrintArea(columns, rows, truncated) {
         }
         metaParts.push(`${label}：${String(value).trim()}`);
     }
-    const summaryText = Array.from(document.querySelectorAll('#summaryCards .summary-card'))
-        .map(card => {
-            const label = card.querySelector('.summary-label');
-            const value = card.querySelector('.summary-value');
-            return label && value ? `${label.textContent.trim()} ${value.textContent.trim()}` : '';
-        }).filter(Boolean).join('　|　');
+    return { params, metaParts };
+}
+
+function renderPrintArea(columns, rows, truncated, printContext) {
+    const el = document.getElementById('printArea');
+    const metaParts = printContext.metaParts;
+    const summaryText = ['count', 'quantity', 'amount'].map(key => {
+        const label = printContext.summaryLabels[key] || key;
+        const value = formatValue(printContext.summary[key] || 0, printContext.summaryTypes[key]);
+        return `${label} ${value}`;
+    }).join('　|　');
     const now = new Date();
     const printedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     const headHtml = columns.map(c => `<th>${escapeHtml(c.title)}</th>`).join('');
@@ -436,7 +448,7 @@ function renderPrintArea(columns, rows, truncated) {
             <h3>${escapeHtml(reportTitle)}</h3>
             <div class="print-meta">打印时间：${escapeHtml(printedAt)}　|　共 ${rows.length.toLocaleString('zh-CN')} 条${truncated ? '（超过打印上限，仅前 ' + MAX_PRINT_ROWS.toLocaleString('zh-CN') + ' 条，完整数据请导出 Excel）' : ''}</div>
             ${metaParts.length ? `<div class="print-meta">筛选条件：${escapeHtml(metaParts.join('；'))}</div>` : ''}
-            ${summaryText ? `<div class="print-summary">${escapeHtml(summaryText)}</div>` : ''}
+            ${summaryText ? `<div class="print-summary">筛选结果汇总${truncated ? '（含未打印行）' : ''}：${escapeHtml(summaryText)}</div>` : ''}
         </div>
         <table class="print-table">
             <thead><tr>${headHtml}</tr></thead>

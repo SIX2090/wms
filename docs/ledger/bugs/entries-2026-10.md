@@ -2059,3 +2059,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 完整模块：原27及新增共28模块943 passed、107既有skipped、20既有警告，40个产品/依赖/测试输入前后哈希稳定。物料GET移至共享helper，旧动态扫描少1表达式的8项传输参数例，由新188用例覆盖，原业务断言保留；四份既有夹具仅加载真实helper/新增DOM及更新3份外链字节快照。证据master_edit/final.log、final-evidence.json。
 - 真实浏览器验收：独立18080及内存库，真实单位页/原Bootstrap，实际点击A后B并延迟A；A回包后仍显示QA-B/QA单位B，关闭B后迟到A不重开。加载期间保存disabled且取消可用，切换新增后迟到A不打断新增弹窗。UI及截图证据master_edit/browser/ui-proof.json、after-race.png；请求除测试登录外全部GET，两测试单位保持不变。文件SQLite连接均被外部守卫在connect前拒绝，自有服务器与浏览器已关闭；未生产登录或改账号密码。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规，非GET请求/UTF-8/JS语法及diff检查通过。匿名CI查询HTTP403，经连接器重新核实8401b99c最新三工作流全绿及实时远端、Android复用证明，证据master_edit/precommit_ci_alternative.json；失败查询不冒充实际红灯或放行依据。
+- 提交与CI：2f4400b1926942332ad260297f02a951f5f63228实际push（8401b99c..2f4400b1 main -> main），HEAD/origin/live main一致；WMS CI40183420093、AI40183420092精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过（master_edit/target_ci.json）。pre-push匿名403，经同基线最新运行替代证据核实后仅该次WMS_SKIP_CI_GATE=1重推并finally清除；push.log/push_ci_alternative.json保留。生产统一验收待执行。
+
+### BUG-2026-10-25-005: 报表打印明细与汇总取自不同筛选快照
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：report_view打印按当前表单重新请求全部明细，renderPrintArea却读取屏幕旧summaryCards。实际函数复现甲仓旧合计100，改乙仓未查询直接打印，输出乙仓及明细7却带旧合计100；条件文字也在await后重新读表单，缺少统一打印快照。
+- 同类点已排查：关联BUG-2026-09-07-008全量打印和报表仓库/汇总历史，本共享模板覆盖14类报表。修复当前打印的请求/元数据/汇总一致性，不修改库存计算；stock_query打印漏关键词等筛选为另一个前后端契约问题，隔离实证及独立方案已记录，另列012处理。
+- 开工门禁：实时main为2f4400b1926942332ad260297f02a951f5f63228；WMS CI40183420093、AI40183420092精确匹配success，Android40177478067成功且祖先/对象/保护路径证明通过（master_edit/target_ci.json）。
+- 修前基线：22个完整受影响及相邻模块140 passed、34项既有警告；004后重跑并核211输入哈希稳定，当前目标复用证据report_print/baseline-after004-target-reuse.json。实际打印handler/render及独立库存打印只读证据C:/wms_backups/frontend_ten_20261025/report_print。
+- 生效确认：待目标CI及统一生产验收；生产需重启 WMS 服务生效。未生产打印或修改业务数据。
+- 修复：开始打印时冻结请求参数及中文条件；第一页响应提供同次筛选的汇总、标签与类型，后续页只合并明细，不累加全集汇总。保持500行分页拉取及10000行上限，截断时明确汇总包含未打印行，屏幕原查询保持。生产需重启 WMS 服务生效。
+- 回归锁：30项真实打印handler、buildParams及renderPrintArea用例通过；物理备份并回退旧模板后23 failed、7个错误/缺仓库对照passed，finally恢复且SHA256一致（report_print/rollback-proof.json）。既有打印契约仅调整携快照的函数调用锚，分页、上限、打印CSS及window.print断言保留。
+- 完整模块：原22及新增模块共170 passed、34项既有警告，197个产品/依赖/测试输入前后SHA256一致。证据report_print/final005-result.json及final005.log。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止，verify_wms_bugs全部通过、A1–A14零违规、非GET请求/源码编码/diff检查通过。连接器核对同一2f4400b1基线最新三工作流及实时main、Android祖先/对象/保护路径证明通过，证据report_print/quality.json与precommit_ci_alternative.json。

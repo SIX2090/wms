@@ -32,7 +32,7 @@ class TestBug20260907008:
         assert 'MAX_PRINT_ROWS = 10000' in TPL, "缺打印行数上限保护"
         assert "params.set('page_size', '500')" in TPL, "打印必须显式大 page_size（R1）"
         assert 'while (page <= totalPages)' in TPL, "必须按 total_pages 循环拉取全部页"
-        assert 'renderPrintArea(columns, allRows, truncated)' in TPL, "拉取后必须渲染打印区"
+        assert 'renderPrintArea(columns, allRows, truncated, printContext)' in TPL, "拉取后必须携同次快照渲染打印区"
         assert 'window.print();' in TPL, "渲染后必须触发打印"
         assert '完整数据请导出 Excel' in TPL, "超上限必须提示改用导出"
 
