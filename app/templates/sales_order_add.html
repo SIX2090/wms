@@ -412,8 +412,8 @@
     function collect() {
         var data = {};
         formFields.forEach(function(name) { var node = document.querySelector('[name="' + name + '"]'); data[name] = node ? node.value : ''; });
-        data.items = Array.from(body.querySelectorAll('tr')).map(function(row) {
-            return {
+        data.items = Array.from(body.querySelectorAll('tr')).map(function(row, index) {
+            var item = {
                 code: row.querySelector('.material-code').value.trim(),
                 quantity: row.querySelector('.qty').value,
                 price: row.querySelector('.price').value,
@@ -424,7 +424,22 @@
                 project_name: row.querySelector('.line-project-name').value.trim(),
                 remark: row.querySelector('.line-remark').value
             };
-        }).filter(function(item) { return item.code; });
+            // BUG-2026-10-25-002：空白行可跳过，缺编码的半填行必须由用户补全或删除。
+            var hasContent = item.code || [item.quantity, item.price, item.tax_rate,
+                item.batch_no, item.serial_no, item.contract_no, item.project_name, item.remark
+            ].some(function(value) { return String(value).trim() !== ''; });
+            var hasInvalidNumber = ['.qty', '.price', '.tax-rate'].some(function(selector) {
+                var input = row.querySelector(selector);
+                return input.validity && input.validity.badInput;
+            });
+            if (!hasContent && !hasInvalidNumber) return null;
+            if (!item.code) {
+                var codeInput = row.querySelector('.material-code');
+                if (typeof codeInput.focus === 'function') codeInput.focus();
+                throw new Error('第 ' + (index + 1) + ' 行缺少物料编码，请选择物料后再保存');
+            }
+            return item;
+        }).filter(function(item) { return item !== null; });
         return data;
     }
     var salesSaveBusy = false;
@@ -560,7 +575,12 @@
     });
 
     document.getElementById('saveTemplateBtn').addEventListener('click', function() {
-        var items = collect().items.filter(function(item) { return item.code; });
+        var items;
+        try { items = collect().items; }
+        catch (err) {
+            document.getElementById('entryStatus').textContent = err.message || '请检查销售明细';
+            return;
+        }
         if (!items.length) {
             document.getElementById('entryStatus').textContent = '单据为空，无法保存模板';
             return;

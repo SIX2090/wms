@@ -2017,3 +2017,17 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 回归锁：20项真实addRow/fillRow/collect及复制/模板/粘贴/最近物料/新空行用例通过，覆盖0、字符串0、0.00、缺失/null/空值及正价和金额税额。物理备份后回退旧模板为7 failed、13正对照passed；finally恢复产品与测试且SHA256一致，证据sales_zero/rollback-evidence.json。
 - 最终模块回归：原28模块及新增模块共425 passed、28项既有SQLAlchemy警告，原业务断言保留；证据sales_zero/final.log和final-evidence.json。销售编辑空白预留行导致400另记002，不夹带本次价格修复。
 - 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8编码及diff检查通过。最新三工作流仍是开工成功记录，实时远端及Android复用证明再次核对通过，证据sales_zero/precommit_ci_alternative.json；未核实的查询失败不视作CI失败或成功。
+- 提交与CI：8d538943e014060d93f0e78be2ed7f69971c8634实际push（b42098dc..8d538943 main -> main），HEAD/origin/live main一致；WMS CI40179821572、AI40179821852精确匹配completed/success，Android40177478067成功且祖先/对象齐全/保护路径无变化证明通过。pre-push匿名403，同基线连接器证据核实后单次WMS_SKIP_CI_GATE=1重推并finally清除。证据sales_zero/target_ci.json和push.log，生产统一验收待执行。
+
+### BUG-2026-10-25-002: 销售明细空白预留行阻断编辑保存及新增半填行被静默丢弃
+
+- 状态：已修复，待目标CI及统一生产验收（2026-10-25）。
+- 根因/危害：编辑页ensureBlankRows(15)的预留行全部进入collect载荷，一条有效明细加14条空行使真实后端返回400；新增页反而按编码过滤所有空码行，数量、零价、批次及合同备注已填的半行会悄悄漏掉。原始行号丢失会使操作者难以核对。
+- 同类点已排查：核对销售明细收集、既有粘贴校验和单据默认空行历史；本组统一两销售页的collect边界及全部调用（保存、校验、模板）。不泛化其他单据默认行语义，不修改后端校验、库存或权限。
+- 开工门禁：实时main为8d538943e014060d93f0e78be2ed7f69971c8634；WMS CI40179821572、AI40179821852精确匹配success，Android40177478067成功且复用证明通过（sales_zero/target_ci.json）。
+- 修前证据：隔离内存库GET真实草稿、执行实际页面addRow/ensureBlankRows/collect后POST15行返回400且原草稿不变，仅有效行对照返回200。实际新增页collect把有数量7、价格0及合同备注却无编码的第二行删除。证据C:/wms_backups/frontend_ten_20261025/sales_blank；修前29模块425 passed及相同范围哈希由001最终回归复用并再次核对。
+- 生效确认：待完整回归、目标CI及统一生产验收；生产需重启 WMS 服务生效。未修改生产单据或库存。
+- 修复：两页collect仅忽略真正未填写行；编辑预留行的默认数量1及默认税率不视为录入，零价/改数量税率/批次等内容均保留。半填缺码或数值badInput行提示原始行号并聚焦物料编码，阻止保存；模板保存也捕获相同校验并保持原存储。合法行字段、顺序和零值及既有保存互斥保持。生产需重启 WMS 服务生效。
+- 回归锁：38项新增实际页面addRow/collect/save/模板与真实api.js运行用例通过，包含原始行号、11类半行字段、空白预留、数值0、失败重试及成功锁；四项真实隔离后端POST验证200或400回滚、明细及库存保持。物理备份并回退两模板后31 failed、7正对照passed，finally产品及测试SHA256完整恢复，证据sales_blank/rollback-evidence.json。
+- 最终模块回归：原29模块及新增模块共463 passed、30项SQLAlchemy警告（原基线28项，新增隔离集成触发2项），001的20项零价回归保持通过，两个产品和全部30测试模块前后SHA256一致。证据sales_blank/final.log、final-modules.txt及final-evidence.json。
+- 提交前验收：文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停止；verify_wms_bugs全部通过、A1–A14为0违规、非GET请求检查/UTF-8/diff检查通过。连接器再次核实最新三工作流及同一远端8d538943基线全绿、Android复用证明通过，证据sales_blank/precommit_ci_alternative.json。
