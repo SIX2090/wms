@@ -1973,3 +1973,13 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 既有测试维护：dead_header运行fixture补真实api.js、HTTP/业务状态封套和clearTimeout；合同focus源码契约同步为focus→search(false)→triggerSearch(value,version)，仍要求聚焦同步发起查询，另由真实运行用例验证。未弱化保存、字段或请求断言。
 - 最终验证：61个受影响及相邻模块1987 passed、21项既有skipped、2项既有SQLAlchemy警告；77新增锁包含其中不重复计数，运行前后产品、测试及其余冻结依赖哈希无变化（async/final-evidence.json）。文档契约34 passed、隔离HTTP冒烟121/121且自有服务已停、verify_wms_bugs通过、严格AI台账通过、A1–A14零违规、JS语法/UTF-8/diff检查通过。请求lint无违规，存量模板warn未增加。
 - 提交前门禁：匿名查询仍为HTTP403限流，经连接器分页核对最新main三工作流仍为上述成功记录，实时main仍133a9ba6；Android祖先、完整对象和保护路径无差异重新验证。证据async/precommit_alternative.json。
+
+### BUG-2026-10-08-014-F01: 文件恢复测试沿用Robolectric内存日志默认值导致SQLite故障复发
+
+- 状态：已修复，待Android真实编译与目标CI验收（2026-10-25）。
+- 根因/危害：最新main 762ec679的Android定时运行40132587829在PendingQueueRebuildProtectionTest重建保单用例失败，首次SQLITE_BUSY，单独重跑失败job后仍SQLITE_IOERR_SHORT_READ。故障在真实临时文件重新打开阶段；Robolectric 4.14.1的ShadowSQLiteConnection默认同步OFF、日志MEMORY，官方源码要求文件同步场景显式配置持久化模式。历史偶发记录不能充当本次全绿证据。
+- 同类点已排查：关联BUG-2026-09-22-001及BUG-2026-10-08-014，全局LEGACY配置保持；本类两处Room回补测试及OfflineQueueStateMachineTest均使用inMemoryDatabaseBuilder。本类其余场景专门执行文件关闭/重开/重建，调整局限此类。前端021改动已逐文件备份到android_ci_20261025/held_frontend后从工作区撤下，不夹带发布。
+- 修复：在测试setUp取得Context/清理数据库之前，通过官方ShadowSQLiteConnection设置FULL同步及PERSIST日志；从初次打开即使用正确默认值，不在已打开连接上切换journal_mode。新增真实Android用例验证PRAGMA同步级别、持久日志、关闭重开后的队列备份。全部原保单、空库、坏库及恢复断言保留；生产AppDatabase与业务逻辑不变。
+- 回归：修前3个相关静态守护模块27 passed，真实Android80项中1失败且重跑仍失败。修后相关模块及两个新增源码守护29 passed；物理备份并回退Kotlin后两个新守护失败、finally恢复且SHA256一致。这是源码配置守护，不冒充Android运行时或编译证明；完整Android新增81项及三工作流须CI真实验收。
+- 生效确认：待推送修复提交、Android编译/单测和三工作流精确目标全绿；仅测试夹具及回归守护变化，生产服务无需重启。证据C:/wms_backups/frontend_six_20261024/android_ci_20261025，官方依据https://raw.githubusercontent.com/robolectric/robolectric/robolectric-4.14.1/shadows/framework/src/main/java/org/robolectric/shadows/ShadowSQLiteConnection.java。
+- 门禁例外授权：2026-10-25用户明确回复「允许本次CI修复例外」，允许在Android实际红灯基线上仅提交推送已展示的五个测试/台账文件。此处不伪称基线全绿；仅本次push临时使用WMS_SKIP_CI_GATE并finally清除，分支与原pre-commit规则继续执行，三工作流全绿前不恢复下一批业务写入。

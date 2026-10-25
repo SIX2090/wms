@@ -15,6 +15,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowSQLiteConnection
 
 /**
  * BUG-2026-09-21-005：删库重建不得静默清空离线待同步队列。
@@ -43,6 +44,11 @@ class PendingQueueRebuildProtectionTest {
 
     @Before
     fun setUp() {
+        // BUG-2026-10-08-014-F01: these tests close/reopen real files. Robolectric's
+        // OFF/MEMORY defaults are for disposable in-process databases, not disk recovery.
+        // Configure the initial open; do not switch journal_mode on an open connection.
+        ShadowSQLiteConnection.setDefaultSyncMode("FULL")
+        ShadowSQLiteConnection.setDefaultJournalMode("PERSIST")
         context = ApplicationProvider.getApplicationContext()
         purgeDatabase()
     }
@@ -164,6 +170,26 @@ class PendingQueueRebuildProtectionTest {
     // ---------------------------------------------------------------
     // backupPendingOperations
     // ---------------------------------------------------------------
+
+    @Test
+    fun `file fixture persists queue with durable sqlite defaults`() {
+        plantRawDatabase(listOf(sampleEntity("req-durable")))
+        SQLiteDatabase.openDatabase(
+            context.getDatabasePath(dbName).absolutePath, null, SQLiteDatabase.OPEN_READWRITE
+        ).use { raw ->
+            raw.rawQuery("PRAGMA synchronous", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("File recovery fixtures require FULL synchronization", 2, cursor.getInt(0))
+            }
+            raw.rawQuery("PRAGMA journal_mode", null).use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("File recovery fixtures require a persistent journal", "persist", cursor.getString(0))
+            }
+        }
+        val rows = AppDatabase.backupPendingOperations(context)
+        assertEquals(1, rows.size)
+        assertEquals("req-durable", rows.single().requestId)
+    }
 
     @Test
     fun `backup returns empty when db file does not exist`() {
