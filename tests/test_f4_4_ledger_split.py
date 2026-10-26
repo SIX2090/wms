@@ -137,6 +137,7 @@ POST_SPLIT_BUGS['BUG-2026-10-26-001'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-26-002'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-26-003'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-26-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-26-007'] = 'fixed'
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 
@@ -239,3 +240,4 @@ class TestMonthlyReviewEquivalence:
             assert statuses.pop(bug_id) == expected_status
         dist = Counter(statuses.values())
         assert dict(dist) == STATUS_DIST_BASELINE, dict(dist)
+
