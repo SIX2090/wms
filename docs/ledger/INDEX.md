@@ -936,3 +936,5 @@
 | BUG-2026-09-22-006 | bugs | history-2026-08.md |
 | BUG-2026-09-29-001 | bugs | history-2026-08.md |
 | FEAT-2026-10-03-001 | bugs | history-2026-08.md |
+| AI-R01-F01 | ai | records-2026-10.md |
+| BUG-2026-10-26-010 | bugs | entries-2026-10.md |

@@ -17,6 +17,8 @@ def dispatch_registered_tool(
     logger: Any | None = None,
     manual_confirmation: bool = False,
 ) -> Any | None:
+    if not isinstance(tool_name, str):
+        return None
     spec = get_ai_tool_spec(tool_name)
     handler = dispatchers.get(tool_name)
     if not spec or not handler:
@@ -25,7 +27,9 @@ def dispatch_registered_tool(
         if logger is not None:
             logger.warning('AI tool requires manual confirmation before dispatch: %s', tool_name)
         return None
-    validation = validate_ai_tool_input(tool_name, context or {})
+    # None means no page context. Other falsy roots must still be validated.
+    context = {} if context is None else context
+    validation = validate_ai_tool_input(tool_name, context)
     if not validation.valid:
         if logger is not None:
             logger.warning(

@@ -21553,7 +21553,7 @@ def _ai_tool_call_dispatch_response(message, context=None):
         if brand_v:
             parts.append(f'（品牌：{brand_v}）')
         qty_v = params.get('required_qty')
-        if qty_v:
+        if qty_v is not None:
             parts.append(f'（需要数量：{qty_v}）')
         enriched = ' '.join(parts)
         app.logger.info('AI tool call dispatched: %s params=%s', tool_name, params)

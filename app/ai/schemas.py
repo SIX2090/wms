@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import math
 import re
 from typing import Any
 
@@ -66,6 +67,10 @@ def _validate_node(schema: Mapping[str, Any], value: Any, path: str, errors: lis
         return
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
+        # Python's JSON decoder accepts NaN/Infinity, which are not JSON numbers.
+        if isinstance(value, float) and not math.isfinite(value):
+            errors.append(f'{path}: expected a finite number')
+            return
         minimum = schema.get('minimum')
         maximum = schema.get('maximum')
         if isinstance(minimum, (int, float)) and value < minimum:
