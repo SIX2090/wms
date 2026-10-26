@@ -240,4 +240,3 @@ class TestMonthlyReviewEquivalence:
             assert statuses.pop(bug_id) == expected_status
         dist = Counter(statuses.values())
         assert dict(dist) == STATUS_DIST_BASELINE, dict(dist)
-
