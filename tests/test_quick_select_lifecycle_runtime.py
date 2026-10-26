@@ -21,4 +21,4 @@ def test_quick_select_lifecycle_runtime():
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
     assert report['failed'] == 0
-    assert report['passed'] == 34
+    assert report['passed'] == 51

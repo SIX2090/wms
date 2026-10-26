@@ -127,6 +127,35 @@ def test_returns_unified_structure():
             assert key in item
 
 
+@pytest.mark.parametrize('sql_path', [False, True])
+def test_bug_2026_10_26_004_pages_cover_all_matches(monkeypatch, sql_path):
+    client = _make_client()
+    db.session.add_all(Supplier(code='WIRE-%03d' % i, name='电线%03d' % i) for i in range(1, 566))
+    db.session.commit()
+    if sql_path:
+        monkeypatch.setattr(options_api, '_SQL_THRESHOLD', 0)
+    pages = [_get(client, 'supplier', kw='电线', limit=50, offset=n).get_json()
+             for n in range(0, 565, 50)]
+    codes = [item['code'] for page in pages for item in page['data']]
+    assert codes == ['WIRE-%03d' % i for i in range(1, 566)]
+    for n, page in enumerate(pages):
+        assert page['total'] == 565
+        assert page['offset'] == n * 50
+        assert page['limit'] == 50
+        assert page['has_more'] is (n < len(pages) - 1)
+    beyond = _get(client, 'supplier', kw='电线', limit=50, offset=600).get_json()
+    assert beyond['data'] == [] and beyond['total'] == 565
+    assert beyond['has_more'] is False
+
+
+@pytest.mark.parametrize('offset', ['abc', '-1', ''])
+def test_bug_2026_10_26_004_bad_offset_defaults_to_first_page(offset):
+    client = _make_client()
+    page = _get(client, 'supplier', limit=1, offset=offset).get_json()
+    assert page['offset'] == 0 and page['limit'] == 1
+    assert len(page['data']) == 1 and page['total'] == 2 and page['has_more'] is True
+
+
 def test_substring_match_by_code_and_name():
     client = _make_client()
     by_code = _get(client, "supplier", kw="S001").get_json()

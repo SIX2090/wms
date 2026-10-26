@@ -5,7 +5,7 @@
 
 为全系统筛选输入框提供统一候选，供前端 quick-select 组件消费：
 
-    GET /api/options/<entity>?kw=关键词&limit=50
+    GET /api/options/<entity>?kw=关键词&limit=50&offset=0
 
 统一返回：
     {"status":"success","data":[{"id":..,"code":..,"name":..,"sub":..,"label":..}]}
@@ -205,7 +205,8 @@ def _sql_like_pool(entity, kw):
     if entity == 'material' and hasattr(M, 'status'):
         _q = _q.filter(db.or_(M.status == 'active',
                               M.status.is_(None), M.status == ''))
-    rows = _q.limit(_MAX_SQL_ROWS).all()
+    # 分批读取匹配行；不能把一批的大小当成候选全集上限。
+    rows = _q.order_by(M.id).yield_per(_MAX_SQL_ROWS)
     # AI-WMS-FILTER-005：sub 必须带 extras 拼接文本——此前 sub='' 导致
     # 按规格/品牌关键词命中的行在 _score 阶段被误杀（_t 不含 extras），
     # 大数据量（>5000）时按规格/品牌搜索永远空结果；同时独立下发 extras 字段。
@@ -301,6 +302,10 @@ def register_options_routes(app):
         except (TypeError, ValueError):
             limit = 50
         limit = max(1, min(limit, 200))
+        try:
+            offset = max(0, int(request.values.get('offset') or 0))
+        except (TypeError, ValueError):
+            offset = 0
 
         low = kw.lower()
         try:
@@ -310,14 +315,18 @@ def register_options_routes(app):
                 s = _score(item, low)
                 if s:
                     scored.append((s, item))
-            scored.sort(key=lambda x: (-x[0], len(x[1]['label'])))
+            scored.sort(key=lambda x: (-x[0], len(x[1]['label']),
+                                       x[1]['code'], str(x[1]['id'])))
             data = []
-            for _s, item in scored[:limit]:
+            for _s, item in scored[offset:offset + limit]:
                 data.append({k: v for k, v in item.items() if not k.startswith('_')})
             return jsonify({
                 'status': 'success',
                 'data': data,
                 'total': len(scored),
+                'offset': offset,
+                'limit': limit,
+                'has_more': offset + len(data) < len(scored),
                 'cached': cached,
                 'pinyin': _HAS_PINYIN,
             })

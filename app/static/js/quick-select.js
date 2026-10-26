@@ -70,11 +70,11 @@
                 try { data = JSON.parse(xhr.responseText); } catch (e) { data = null; }
                 cb(data || { data: [] });
             } else {
-                cb({ data: [] });
+                cb({ data: [], status: 'error' });
             }
         };
-        xhr.onerror = function () { cb({ data: [] }); };
-        xhr.ontimeout = function () { cb({ data: [] }); };
+        xhr.onerror = function () { cb({ data: [], status: 'error' }); };
+        xhr.ontimeout = function () { cb({ data: [], status: 'error' }); };
         xhr.send(null);
     }
 
@@ -102,22 +102,34 @@
         return out;
     }
 
-    function getOptions(entity, kw, cb) {
+    function getOptions(entity, kw, cb, offset) {
+        offset = offset || 0;
         var p = pools[entity];
+        function remoteResult(d) {
+            var items = d.data || [];
+            cb(items, Math.max(Number(d.total) || 0, offset + items.length),
+               d.status === 'error' || (offset > 0 && d.offset !== offset));
+        }
+        function localResult(data) {
+            var matches = filterLocal(data, kw);
+            cb(matches.slice(offset, offset + MAX_ITEMS), matches.length, false);
+        }
+        function remoteSearch() {
+            ajax(API_BASE + encodeURIComponent(entity) + '?kw=' + encodeURIComponent(kw) +
+                 '&limit=' + MAX_ITEMS + (offset ? '&offset=' + offset : ''), remoteResult);
+        }
 
         // 远程模式（大数据集）：每次带关键词请求，服务端做拼音匹配
         if (p && p.remote) {
-            ajax(API_BASE + encodeURIComponent(entity) + '?kw=' + encodeURIComponent(kw) +
-                 '&limit=' + MAX_ITEMS, function (d) { cb(d.data || [], true); });
+            remoteSearch();
             return;
         }
 
         // 本地池命中：直接过滤；无结果时回源一次（服务端可命中拼音）
         if (p && p.data) {
             var local = filterLocal(p.data, kw);
-            if (local.length || !kw) { cb(local.slice(0, MAX_ITEMS), false); return; }
-            ajax(API_BASE + encodeURIComponent(entity) + '?kw=' + encodeURIComponent(kw) +
-                 '&limit=' + MAX_ITEMS, function (d) { cb(d.data || [], true); });
+            if (local.length || !kw) { localResult(p.data); return; }
+            remoteSearch();
             return;
         }
 
@@ -125,14 +137,13 @@
         ajax(API_BASE + encodeURIComponent(entity) + '?kw=&limit=' + FIRST_FETCH_LIMIT,
             function (d) {
                 var data = d.data || [];
+                if (d.status === 'error') { remoteResult(d); return; }
                 var remote = (d.total || 0) > data.length;
                 pools[entity] = { t: Date.now(), data: data, remote: remote };
-                if (remote && kw) {
-                    ajax(API_BASE + encodeURIComponent(entity) + '?kw=' +
-                         encodeURIComponent(kw) + '&limit=' + MAX_ITEMS,
-                         function (d2) { cb(d2.data || [], true); });
+                if (remote) {
+                    remoteSearch();
                 } else {
-                    cb(filterLocal(data, kw).slice(0, MAX_ITEMS), false);
+                    localResult(data);
                 }
             });
     }
@@ -156,6 +167,11 @@
         document.body.appendChild(menu);
 
         menu.addEventListener('mousedown', function (ev) {
+            menu._ksPointerDown = true;
+            if (ev.target.closest && ev.target.closest('.ks-more')) {
+                ev.preventDefault();
+                return;
+            }
             var item = ev.target.closest ? ev.target.closest('.ks-item') : null;
             if (!item) return;
             ev.preventDefault();
@@ -166,21 +182,44 @@
             hideMenu();
         });
 
-        document.addEventListener('scroll', function () { hideMenu(); }, true);
+        menu.addEventListener('click', function (ev) {
+            if (ev.target.closest && ev.target.closest('.ks-more')) loadMore();
+        });
+
+        document.addEventListener('mouseup', function () {
+            menu._ksPointerDown = false;
+            var input = menu._ksInput;
+            if (input && menu.style.display === 'block' && document.activeElement !== input) {
+                input.focus({ preventScroll: true });
+            }
+        });
+        document.addEventListener('scroll', function (ev) {
+            if (menu.contains(ev.target)) {
+                if (!menu._ksFailed && menu.scrollTop + menu.clientHeight >= menu.scrollHeight - 40) loadMore();
+                return;
+            }
+            hideMenu();
+        }, true);
         window.addEventListener('resize', function () { hideMenu(); });
         return menu;
     }
 
     function positionMenu(input) {
         var r = input.getBoundingClientRect();
+        var margin = 8, gap = 3;
+        var below = Math.max(0, window.innerHeight - r.bottom - gap - margin);
+        var above = Math.max(0, r.top - gap - margin);
+        var upward = below < 290 && above > below;
+        var width = Math.min(Math.max(r.width, 220), Math.max(0, window.innerWidth - margin * 2));
         menu.style.position = 'fixed';
-        menu.style.left = r.left + 'px';
+        menu.style.boxSizing = 'border-box';
+        menu.style.width = width + 'px';
+        menu.style.left = Math.max(margin, Math.min(r.left, window.innerWidth - margin - width)) + 'px';
         menu.style.top = (r.bottom + 3) + 'px';
-        menu.style.minWidth = Math.max(r.width, 220) + 'px';
-        menu.style.maxWidth = Math.max(r.width, 420) + 'px';
+        menu.style.minWidth = '0';
+        menu.style.maxHeight = Math.min(290, upward ? above : below) + 'px';
         // 空间不足时向上翻转
-        var spaceBelow = window.innerHeight - r.bottom;
-        if (spaceBelow < 200 && r.top > 200) {
+        if (upward) {
             menu.style.top = '';
             menu.style.bottom = (window.innerHeight - r.top + 3) + 'px';
         } else {
@@ -211,14 +250,19 @@
                '</div>';
     }
 
-    function renderMenu(input, items, kw) {
+    function renderMenu(input, items, kw, total, failed) {
         menu._ksItems = items;
         menu._ksInput = input;
         menu._ksActive = -1;
+        menu._ksKeyword = kw;
+        menu._ksValue = input.value;
+        menu._ksTotal = total;
+        menu._ksLoading = false;
+        menu._ksFailed = failed;
 
         if (!items.length) {
             menu.innerHTML = '<div class="ks-empty">' +
-                (kw ? '无匹配结果' : '暂无可选数据') + '</div>';
+                (failed ? '查询失败，请重新输入重试' : (kw ? '无匹配结果' : '暂无可选数据')) + '</div>';
         } else {
             var entity = input.getAttribute('data-ks') || '';
             var html = '';
@@ -237,8 +281,54 @@
             }
             menu.innerHTML = html;
         }
+        renderMore();
+        menu.scrollTop = 0;
         menu.style.display = 'block';
         positionMenu(input);
+    }
+
+    function renderMore() {
+        var old = menu.querySelector('.ks-footer');
+        if (old) old.remove();
+        if (!menu._ksItems.length) return;
+        var footer = document.createElement('div');
+        footer.className = 'ks-footer';
+        var count = menu._ksItems.length;
+        footer.innerHTML = '<span>已显示 ' + count + ' / ' + menu._ksTotal + ' 条</span>' +
+            (count < menu._ksTotal ? '<button type="button" class="ks-more"' +
+             (menu._ksLoading ? ' disabled' : '') + '>' +
+             (menu._ksLoading ? '加载中…' : (menu._ksFailed ? '加载失败，点击重试' : '加载更多')) + '</button>' : '');
+        menu.appendChild(footer);
+    }
+
+    function loadMore() {
+        var input = menu && menu._ksInput;
+        if (!input || menu.style.display !== 'block' || menu._ksLoading ||
+            menu._ksItems.length >= menu._ksTotal) return;
+        var ticket = seq, kw = menu._ksKeyword, offset = menu._ksItems.length;
+        menu._ksLoading = true;
+        renderMore();
+        getOptions(input.getAttribute('data-ks'), kw, function (items, total, failed) {
+            if (ticket !== seq || !menuVisibleFor(input) || !input.isConnected || input.value !== menu._ksValue) return;
+            menu._ksLoading = false;
+            menu._ksFailed = failed || !items.length;
+            if (!menu._ksFailed) {
+                var old = menu.querySelector('.ks-footer');
+                if (old) old.remove();
+                for (var i = 0; i < items.length; i++) {
+                    var idx = menu._ksItems.length;
+                    var it = items[i];
+                    var html = input.getAttribute('data-ks') === 'material' ? renderMaterialItem(it, idx, kw) :
+                        '<div class="ks-item" data-idx="' + idx + '"><span class="ks-main">' +
+                        highlight(it.code || it.name || it.label || '', kw) + '</span><span class="ks-sub">' +
+                        esc(it.sub || (it.code ? it.name : '') || '') + '</span></div>';
+                    menu.insertAdjacentHTML('beforeend', html);
+                    menu._ksItems.push(it);
+                }
+                menu._ksTotal = Math.max(total, menu._ksItems.length);
+            }
+            renderMore();
+        }, offset);
     }
 
     function hideMenu() {
@@ -246,7 +336,7 @@
         if (cancelPendingSearch) cancelPendingSearch();
         cancelPendingSearch = null;
         searchOwner = null;
-        if (menu) { menu.style.display = 'none'; menu._ksInput = null; }
+        if (menu) { menu.style.display = 'none'; menu._ksInput = null; menu._ksPointerDown = false; }
     }
 
     function menuVisibleFor(input) {
@@ -257,6 +347,10 @@
         if (!menu || menu.style.display !== 'block') return;
         var nodes = menu.querySelectorAll('.ks-item');
         if (!nodes.length) return;
+        if (step > 0 && menu._ksActive === nodes.length - 1 && menu._ksItems.length < menu._ksTotal) {
+            loadMore();
+            return;
+        }
         var idx = menu._ksActive + step;
         if (idx < 0) idx = nodes.length - 1;
         if (idx >= nodes.length) idx = 0;
@@ -323,12 +417,12 @@
             var inputValue = input.value || '';
             var kw = showAll ? '' : (input.value || '').trim();
             var ticket = ++seq;
-            getOptions(entity, kw, function (items) {
+            getOptions(entity, kw, function (items, total, failed) {
                 if (ticket !== seq || searchOwner !== input || composing) return;
                 if (document.activeElement !== input || input.isConnected === false) return;
                 if ((input.value || '') !== inputValue) return;
                 ensureMenu();
-                renderMenu(input, items, kw);
+                renderMenu(input, items, kw, total, failed);
             });
         };
 
@@ -346,7 +440,7 @@
             debounced();
         };
 
-        input.addEventListener('focus', function () { doSearch(false); });
+        input.addEventListener('focus', function () { if (!menuVisibleFor(input)) doSearch(false); });
         input.addEventListener('click', function () { if (!menuVisibleFor(input)) doSearch(false); });
         input.addEventListener('compositionstart', function () {
             composing = true;
@@ -403,7 +497,10 @@
         });
 
         // 候选 mousedown 已 preventDefault，可先提交；失焦立即撤销旧请求与防抖。
-        input.addEventListener('blur', invalidate);
+        input.addEventListener('blur', function () {
+            if (menuVisibleFor(input) && menu._ksPointerDown) return;
+            invalidate();
+        });
     }
 
     function init() {
@@ -420,6 +517,10 @@
             '.ks-menu{display:none;background:#fff;border:1px solid #d0d7de;border-radius:8px;',
             'box-shadow:0 8px 24px rgba(15,23,42,.16);max-height:290px;overflow-y:auto;',
             'z-index:99999;padding:4px;font-size:13.5px;line-height:1.5}',
+            '.ks-menu{overscroll-behavior:contain}',
+            '.ks-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;',
+            'padding:8px 10px;color:#64748b;font-size:12px}',
+            '.ks-more{border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#1d4ed8;cursor:pointer;padding:4px 8px}',
             '.ks-item{display:flex;justify-content:space-between;gap:10px;align-items:baseline;',
             'padding:7px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}',
             '.ks-item:hover,.ks-item.active{background:#eff6ff}',
