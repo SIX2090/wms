@@ -21,10 +21,14 @@ let refreshes = 0, exportCount = 0;
 const mapping = {'[data-report-template]': 'select', '[data-report-preview]': 'preview', '[data-report-download]': 'download', '[data-report-status]': 'status', '[data-report-retry]': 'retry', '[data-report-manage]': 'manage', '#refreshReportBtn': 'refresh', '#exportReportBtn': 'export', '#reportPrintMenu': 'menu'};
 const root = {dataset: {reportKind: stock ? 'stock' : summary ? 'summary' : 'outflow', exportAction: 'legacyExport', exportUrl: '/legacy-export', warehouse: fields.warehouse_id},
     querySelector(selector) { if (selector === '[data-report-scope]') return summary ? controls.scope : null; assert(mapping[selector], selector); return controls[mapping[selector]]; }, querySelectorAll() { return []; }};
-const context = {console, URLSearchParams, Set,
+if (scenario === 'export_query') {
+    root.dataset.exportAction = '';
+    root.dataset.exportUrl = '/sales/reconciliation/export?warehouse_id=old&format=xlsx';
+}
+const context = {console, URL, URLSearchParams, Set,
     document: {readyState: 'complete', querySelectorAll(selector) { assert.equal(selector, '[data-report-workbench]'); return [root]; }, querySelector(selector) { assert.equal(selector, 'form[method="get"]'); return form; }, createElement(tag) { assert.equal(tag, 'option'); return new Control(); }},
     FormData: class {constructor(value) { assert.equal(value, form); } forEach(handler) { for (const [key, value] of Object.entries(fields)) handler(value, key); }},
-    window: {location: {search: '?warehouse_id=' + fields.warehouse_id + '&sort=code&order=desc&page=7&per_page=1&embedded=1&csrf_token=SECRET', reload(){refreshes++;}, assign(url){opened.push(new URL(url, 'http://isolated.test'));}},
+    window: {location: {origin: 'http://isolated.test', search: '?warehouse_id=' + fields.warehouse_id + '&sort=code&order=desc&page=7&per_page=1&embedded=1&csrf_token=SECRET', reload(){refreshes++;}, assign(url){opened.push(new URL(url, 'http://isolated.test'));}},
         legacyExport(){exportCount++;}, open(url) {opened.push(new URL(url, 'http://isolated.test'));},
         WMS: {api: {get(url) { calls.push(url); return new Promise((resolve, reject) => pending.push({resolve, reject})); }}}},
 };
@@ -62,6 +66,16 @@ function reply(index, templates) { pending[index].resolve({status: 'success', te
     assert.equal(controls.select.options.find(option => option.value === '99').disabled, true);
     assert.equal(controls.select.options.find(option => option.value === '11').textContent, '<自定义>');
     if (scenario === 'default') return;
+    if (scenario === 'export_query') {
+        await controls.export.event('click');
+        assert.equal(opened[0].pathname, '/sales/reconciliation/export');
+        assert.deepEqual(opened[0].searchParams.getAll('warehouse_id'), ['2']);
+        assert.equal(opened[0].searchParams.get('format'), 'xlsx');
+        assert.equal(opened[0].searchParams.get('search'), '轴承');
+        assert.equal(opened[0].searchParams.get('sort'), 'code');
+        for (const key of ['page', 'per_page', 'embedded', 'csrf_token']) assert.equal(opened[0].searchParams.has(key), false);
+        return;
+    }
     if (scenario === 'refresh') { await controls.refresh.event('click'); assert.equal(refreshes, 1); await controls.export.event('click'); assert.equal(exportCount, 1); return; }
     if (scenario === 'filters_changed') {
         fields.search = '未查询的新条件'; await controls.preview.event('click'); await controls.download.event('click'); await controls.export.event('click');

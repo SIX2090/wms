@@ -116,7 +116,11 @@
             if (!currentFilters()) return;
             var action = window[root.dataset.exportAction];
             if (typeof action === 'function') action();
-            else if (root.dataset.exportUrl) window.location.assign(root.dataset.exportUrl + '?' + applied.toString());
+            else if (root.dataset.exportUrl) {
+                var target = new URL(root.dataset.exportUrl, window.location.origin);
+                applied.forEach(function (value, key) { target.searchParams.set(key, value); });
+                window.location.assign(target.pathname + target.search);
+            }
         });
         preview.addEventListener('click', function () { output('preview'); });
         download.addEventListener('click', function (event) { event.preventDefault(); output('download'); });

@@ -14,7 +14,7 @@
     </div>
 </div>
 
-{{ report_toolbar('reconciliation', export_url=url_for('export_sales_reconciliation_report'), warehouse=warehouse_id) }}
+{{ report_toolbar('reconciliation', export_url=url_for('export_sales_reconciliation_report', warehouse_id=warehouse_id), warehouse=warehouse_id) }}
   <div class="card mb-3">
     <div class="card-body py-2">
         <form method="get" class="row g-2 align-items-end">

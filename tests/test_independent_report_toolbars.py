@@ -67,7 +67,7 @@ def test_independent_pages_keep_tables_and_have_one_explicit_report_toolbar(page
 
 
 @pytest.mark.parametrize('scenario', ['default', 'builtin', 'failure_retry', 'all_missing', 'stale',
-                                    'preview_download', 'filters_changed', 'scope', 'refresh', 'stock', 'stock_all'])
+                                    'preview_download', 'filters_changed', 'scope', 'refresh', 'stock', 'stock_all', 'export_query'])
 def test_independent_report_toolbar_runtime(scenario):
     node = shutil.which('node')
     if not node:
