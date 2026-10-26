@@ -1063,7 +1063,12 @@ def main() -> int:
         and 'class OpenAICompatibleConfig' in ai_providers_py
         and 'def build_chat_payload' in ai_providers_py
         and 'def validate_ai_tool_input' in ai_registry_py
-        and 'validate_ai_tool_input(tool_name, context or {})' in ai_orchestrator_py
+        and 'context = {} if context is None else context' in ai_orchestrator_py
+        and 'validate_ai_tool_input(tool_name, context)' in ai_orchestrator_py
+        and 'return handler(message, context)' in ai_orchestrator_py
+        and ai_orchestrator_py.index('context = {} if context is None else context')
+        < ai_orchestrator_py.index('validate_ai_tool_input(tool_name, context)')
+        < ai_orchestrator_py.index('return handler(message, context)')
         and 'from ai.prompts import CURRENT_PROMPT_VERSION' in ai_idempotency_py
         and 'prompt_version=CURRENT_PROMPT_VERSION' in ai_idempotency_py,
         'AI platform foundation modules must provide schema validation, prompt versioning, provider config, and dispatch-time input validation',
