@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_report_toolbar.html" import report_toolbar %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% block title %}销售趋势分析表{% endblock %}
 {% block content %}
 <div class="container-fluid py-3">
@@ -15,6 +17,7 @@
     </div>
   </div>
 
+  {{ report_toolbar('trend', export_action='exportTrend', warehouse=warehouse_id) }}
   <form class="card card-body mb-3" id="trendFilter" method="get">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-2 align-items-end">
@@ -38,7 +41,7 @@
       </div>
       <div class="col-md-3 d-flex gap-2">
         <button class="btn btn-primary">查询</button>
-        <button type="button" class="btn btn-outline-secondary" onclick="exportTrend()">导出 Excel</button>
+
       </div>
       <div class="col-md-6 text-end text-muted small align-self-end">
         数据基于销售订单（不含已取消），按订单日期所属月份聚合。
@@ -59,9 +62,7 @@
       <span>月度销售趋势</span>
       <span class="d-flex align-items-center gap-2">
         <span class="text-muted small">共 {{ rows|length }} 个月</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
-          <i class="bi bi-list-columns"></i> 栏目设置
-        </button>
+
       </span>
     </div>
     <div class="table-responsive">
@@ -135,4 +136,9 @@ function exportTrend() {
   window.location.href = '{{ url_for("export_sales_trend_report") }}?' + params.toString();
 }
 </script>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
 {% endblock %}

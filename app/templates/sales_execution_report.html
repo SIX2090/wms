@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_report_toolbar.html" import report_toolbar %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% block title %}销售订单执行{% endblock %}
 {% block content %}
 <div class="container-fluid py-3">
@@ -6,6 +8,7 @@
     <div><h4 class="mb-1"><i class="bi bi-list-check"></i> 销售订单执行</h4><div class="text-muted small">按订单查看已发货、待发货和金额执行率；库存扣减仍以完成销售出库单为准。</div></div>
     <div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">销售报表</a><a class="btn btn-outline-info btn-sm" href="{{ url_for('sales_price_analysis') }}">价格分析</a></div>
   </div>
+  {{ report_toolbar('execution', export_action='exportReport', warehouse=filters.warehouse_id) }}
   <form class="card card-body mb-3" method="get">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-2 align-items-end">
@@ -14,11 +17,16 @@
       <div class="col-md-2"><label class="form-label small">客户</label><select class="form-select form-select-sm" name="customer_id"><option value="">全部客户</option>{% for customer in customers %}<option value="{{ customer.id }}" {% if filters.customer_id == customer.id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}</select></div>
       <div class="col-md-2"><label class="form-label small">仓库</label><select class="form-select form-select-sm" name="warehouse_id"><option value="">全部仓库</option>{% for wh in warehouses %}<option value="{{ wh.id }}" {% if filters.warehouse_id == wh.id %}selected{% endif %}>{{ wh.name }}</option>{% endfor %}</select></div>
       <div class="col-md-3"><label class="form-label small">物料编码/名称</label><input class="form-control form-control-sm" name="material_code" value="{{ filters.material_code }}"></div>
-      <div class="col-md-2 d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-search"></i> 查询</button><button class="btn btn-outline-success btn-sm" type="button" onclick="exportReport()"><i class="bi bi-file-earmark-excel"></i></button></div>
+      <div class="col-md-2 d-flex gap-2"><button class="btn btn-primary btn-sm" type="submit"><i class="bi bi-search"></i> 查询</button></div>
     </div>
   </form>
   <div class="row g-3 mb-3"><div class="col-md-4"><div class="card card-body"><span class="text-muted">订单数</span><strong class="fs-4">{{ total_orders }}</strong></div></div><div class="col-md-4"><div class="card card-body"><span class="text-muted">订单金额</span><strong class="fs-4">¥ {{ '%.2f'|format(total_amount) }}</strong></div></div><div class="col-md-4"><div class="card card-body"><span class="text-muted">待发货金额</span><strong class="fs-4 text-warning">¥ {{ '%.2f'|format(remaining_amount) }}</strong></div></div></div>
-  <div class="card"><div class="card-header py-2 d-flex justify-content-between align-items-center"><span class="small text-muted">订单执行明细</span><button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段"><i class="bi bi-list-columns"></i> 栏目设置</button></div><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0"><thead><tr><th>销售订单号</th><th>日期</th><th>客户</th><th>状态</th><th class="text-end">订单数量</th><th class="text-end">已发货</th><th class="text-end">待发货</th><th class="text-end">订单金额</th><th class="text-end">已发货金额</th><th class="text-end">执行率</th></tr></thead><tbody>{% for row in rows %}<tr><td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}" target="_blank" rel="noopener">{{ row.order.order_no }}</a></td><td>{{ row.order.date or '-' }}</td><td>{{ row.order.customer.name if row.order.customer else '-' }}</td><td>{{ status_label(row.order.status) if status_label is defined else row.order.status }}</td><td class="text-end">{{ row.quantity }}</td><td class="text-end">{{ row.shipped_quantity }}</td><td class="text-end text-warning">{{ row.remaining_quantity }}</td><td class="text-end">¥ {{ '%.2f'|format(row.amount) }}</td><td class="text-end">¥ {{ '%.2f'|format(row.shipped_amount) }}</td><td class="text-end">{{ '%.2f'|format(row.execution_rate) }}%</td></tr>{% else %}<tr><td colspan="10" class="text-center text-muted py-4">暂无数据</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="card"><div class="card-header py-2 d-flex justify-content-between align-items-center"><span class="small text-muted">订单执行明细</span></div><div class="table-responsive"><table class="table table-hover table-sm align-middle mb-0"><thead><tr><th>销售订单号</th><th>日期</th><th>客户</th><th>状态</th><th class="text-end">订单数量</th><th class="text-end">已发货</th><th class="text-end">待发货</th><th class="text-end">订单金额</th><th class="text-end">已发货金额</th><th class="text-end">执行率</th></tr></thead><tbody>{% for row in rows %}<tr><td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}" target="_blank" rel="noopener">{{ row.order.order_no }}</a></td><td>{{ row.order.date or '-' }}</td><td>{{ row.order.customer.name if row.order.customer else '-' }}</td><td>{{ status_label(row.order.status) if status_label is defined else row.order.status }}</td><td class="text-end">{{ row.quantity }}</td><td class="text-end">{{ row.shipped_quantity }}</td><td class="text-end text-warning">{{ row.remaining_quantity }}</td><td class="text-end">¥ {{ '%.2f'|format(row.amount) }}</td><td class="text-end">¥ {{ '%.2f'|format(row.shipped_amount) }}</td><td class="text-end">{{ '%.2f'|format(row.execution_rate) }}%</td></tr>{% else %}<tr><td colspan="10" class="text-center text-muted py-4">暂无数据</td></tr>{% endfor %}</tbody></table></div></div>
 </div>
 <script>function exportReport(){const p=new URLSearchParams(new FormData(document.querySelector('form')));window.location.href='{{ url_for("export_sales_execution_report") }}?'+p.toString();}</script>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
 {% endblock %}

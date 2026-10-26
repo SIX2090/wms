@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_report_toolbar.html" import report_toolbar %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% from '_list_macros.html' import sort_th, pager %}
 {% block title %}库存查询{% endblock %}
 
@@ -6,54 +8,23 @@
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center">
         <h2 class="mb-0"><i class="bi bi-search"></i> 库存查询</h2>
-        <div class="d-flex gap-2 align-items-center">
-            <select id="stockTemplateSelect" class="form-select form-select-sm" style="width:180px;" title="选择 Excel 打印模板（模板中心可在线设计）">
-                <option value="">默认Excel模板</option>
-            </select>
-            <a href="/print_templates?target_type=list" target="_blank" class="btn btn-outline-secondary btn-sm" title="在模板中心在线设计库存列表模板">
-                <i class="bi bi-pencil-square"></i>
-            </a>
-            {% set print_disabled = not materials or all_warehouses_mode %}
-            {% set print_params = {'warehouse_id': filters.warehouse_id, 'sort': sort_by, 'order': sort_order} %}
-            {% for key in ('search', 'category_id', 'stock_filter') if filters[key] %}
-            {% set _ = print_params.update({key: filters[key]}) %}
-            {% endfor %}
-            <a id="stockPrintBtn" href="/report/stock/print?{{ print_params|urlencode }}" target="_blank"
-               class="btn btn-primary btn-sm {% if print_disabled %}disabled{% endif %}"
-               {% if print_disabled %}aria-disabled="true" tabindex="-1"
-               {% endif %}{% if not materials %}title="请先筛选出有数据的库存后再打印"
-               {% elif all_warehouses_mode %}title="全部仓库模式下暂不支持打印，请选择具体仓库后打印"
-               {% else %}title="打印当前查询结果"{% endif %}
-               onclick="return {{ 'false' if print_disabled else 'true' }};">
-                <i class="bi bi-printer"></i> 打印报表
-                {% if not materials %}<span class="badge bg-warning text-dark ms-1">无数据</span>{% endif %}
-                {% if all_warehouses_mode and materials %}<span class="badge bg-info text-dark ms-1">选仓库打印</span>{% endif %}
-            </a>
-        </div>
+
     </div>
 </div>
+{% set print_params = {'warehouse_id': filters.warehouse_id, 'sort': sort_by, 'order': sort_order, 'template_mode': 1} %}
+{% for key in ('search', 'category_id', 'stock_filter') if filters[key] %}
+{% set _ = print_params.update({key: filters[key]}) %}
+{% endfor %}
+{{ report_toolbar('stock', export_url='/report/stock/print', warehouse=filters.warehouse_id, download_href='/report/stock/print?' ~ (print_params|urlencode), blocked=all_warehouses_mode) }}
 <script>
 (function () {
     var select = document.getElementById('stockTemplateSelect');
     var btn = document.getElementById('stockPrintBtn');
     var baseHref = btn.getAttribute('href');
-    fetch('/doc_print_templates/stock_query.json')
-        .then(function (r) { return r.json(); })
-        .then(function (res) {
-            if (res.status !== 'success' || !res.templates) return;
-            res.templates.forEach(function (t) {
-                var opt = document.createElement('option');
-                opt.value = t.id;
-                opt.textContent = t.name + (t.is_default ? '（默认）' : '');
-                select.appendChild(opt);
-            });
-        })
-        .catch(function () { /* 模板列表不可达时保持默认模板 */ });
+    // Preserve effective stock print links for existing integrations; output is handled once by the shared toolbar.
     select.addEventListener('change', function () {
         var url = new URL(baseHref, window.location.origin);
-        if (this.value) {
-            url.searchParams.set('template_id', this.value);
-        }
+        if (this.value) url.searchParams.set('template_id', this.value);
         btn.setAttribute('href', url.pathname + url.search);
     });
 })();
@@ -113,9 +84,7 @@
         <span><i class="bi bi-file-text"></i> 查询结果{% if all_warehouses_mode %}<small class="text-muted ms-2">全部仓库逐仓汇总，与库存预警页全局口径可能不同</small>{% endif %}</span>
         <span class="d-flex align-items-center gap-2">
             <span class="text-muted small">共 {{ pagination.total if pagination else materials|length }} 条记录</span>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
-                <i class="bi bi-list-columns"></i> 栏目设置
-            </button>
+
         </span>
     </div>
     <div class="card-body p-0">
@@ -191,4 +160,9 @@
         {% endif %}
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
 {% endblock %}

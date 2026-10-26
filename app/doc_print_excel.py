@@ -218,6 +218,59 @@ TABLE_EXCEL_PRINT_TYPES = {
     },
 }
 
+# Sales report scopes are independent template targets; a customer layout must
+# never be silently substituted for a material or detail layout.
+SALES_REPORT_PRINT_SPECS = {
+    'summary_customer': ('销售汇总表（按客户）', [
+        ('客户', 'name', 20), ('订单数', 'orders', 10), ('数量', 'quantity', 12),
+        ('未税金额', 'untaxed_amount', 14), ('税额', 'tax_amount', 12), ('含税金额', 'amount', 14)]),
+    'summary_material': ('销售汇总表（按物料）', [
+        ('物料编码', 'code', 14), ('物料名称', 'name', 22), ('数量', 'quantity', 12),
+        ('未税金额', 'untaxed_amount', 14), ('税额', 'tax_amount', 12), ('含税金额', 'amount', 14)]),
+    'summary_salesperson': ('销售汇总表（按业务员）', [
+        ('业务员', 'name', 18), ('订单数', 'orders', 10), ('未税金额', 'untaxed_amount', 14),
+        ('税额', 'tax_amount', 12), ('含税金额', 'amount', 14)]),
+    'summary_detail': ('销售明细报表', [
+        ('销售订单号', 'order_no', 18), ('日期', 'date', 12), ('客户', 'customer', 20),
+        ('业务员', 'salesperson', 16), ('物料编码', 'material_code', 14),
+        ('物料名称', 'material_name', 22), ('规格', 'spec', 18), ('单位', 'unit', 8),
+        ('数量', 'quantity', 12), ('已发货数量', 'shipped_quantity', 12), ('含税单价', 'price', 12),
+        ('税率', 'tax_rate', 10), ('未税金额', 'untaxed_amount', 14), ('税额', 'tax_amount', 12),
+        ('含税金额', 'amount', 14), ('合同编号', 'contract_no', 16), ('工程名称', 'project_name', 20),
+        ('订单状态', 'status', 12), ('发货状态', 'shipment_status', 12)]),
+    'reconciliation': ('销售订单对账表', [
+        ('销售订单号', 'order_no', 18), ('仓库', 'warehouse', 16), ('订单已发货', 'shipped_qty', 12),
+        ('出库已完成', 'completed_qty', 12), ('数量差异', 'quantity_diff', 12),
+        ('金额差异', 'amount_diff', 14), ('对账状态', 'result', 12)]),
+    'outflow': ('销售出库明细表', [
+        ('出库日期', 'out_date', 12), ('出库单号', 'out_order_no', 18), ('客户', 'customer', 20),
+        ('仓库', 'warehouse', 16), ('物料编码', 'material_code', 14), ('物料名称', 'material_name', 22),
+        ('规格', 'spec', 18), ('单位', 'unit', 8), ('数量', 'quantity', 12), ('含税单价', 'price', 12),
+        ('税率', 'tax_rate', 10), ('未税金额', 'untaxed_amount', 14), ('税额', 'tax_amount', 12),
+        ('含税金额', 'amount', 14), ('状态', 'out_status', 12), ('备注', 'remark', 22)]),
+    'trend': ('销售趋势分析表', [
+        ('月份', 'month', 12), ('订单数', 'orders', 10), ('客户数', 'customers', 10),
+        ('数量', 'quantity', 12), ('未税金额', 'untaxed_amount', 14), ('税额', 'tax_amount', 12),
+        ('含税金额', 'amount', 14), ('已发货金额', 'shipped_amount', 14),
+        ('发货率（%）', 'shipment_rate', 12), ('环比增长（%）', 'growth', 12)]),
+    'execution': ('销售订单执行表', [
+        ('销售订单号', 'order_no', 18), ('日期', 'date', 12), ('客户', 'customer', 20),
+        ('状态', 'status', 12), ('订单数量', 'quantity', 12), ('已发货数量', 'shipped_quantity', 12),
+        ('待发货数量', 'remaining_quantity', 12), ('订单金额', 'amount', 14),
+        ('已发货金额', 'shipped_amount', 14), ('待发货金额', 'remaining_amount', 14),
+        ('执行率（%）', 'execution_rate', 12), ('合同编号', 'contract_no', 16), ('工程名称', 'project_name', 20)]),
+    'price_analysis': ('销售价格分析表', [
+        ('物料编码', 'code', 14), ('物料名称', 'name', 22), ('规格', 'spec', 18),
+        ('销售数量', 'quantity', 12), ('客户数', 'customers', 10), ('平均成交价', 'avg_price', 14),
+        ('最低价', 'min_price', 12), ('最高价', 'max_price', 12), ('含税金额', 'amount', 14)]),
+}
+TABLE_EXCEL_PRINT_TYPES.update({
+    'report_sales_' + code: {'target_type': 'report', 'label': label,
+        'sheets': [{'name': label[:31], 'columns': columns}]}
+    for code, (label, columns) in SALES_REPORT_PRINT_SPECS.items()
+})
+
+
 # ==================== 内置模板生成 ====================
 
 _THIN = Side(style='thin', color='000000')

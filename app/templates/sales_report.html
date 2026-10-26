@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_report_toolbar.html" import report_toolbar %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% block title %}销售报表{% endblock %}
 {% block content %}
 <div class="container-fluid py-3">
@@ -16,6 +18,7 @@
       <a class="btn btn-outline-info" href="{{ url_for('sales_reconciliation_report') }}">销售对账</a>
     </div>
   </div>
+  {{ report_toolbar('summary', export_action='exportSalesReport', warehouse=warehouse_id, scope='detail' if drill_material_code else 'customer') }}
   <form class="card card-body mb-3" id="reportFilter" method="get">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-2 align-items-end">
@@ -65,7 +68,7 @@
       </div>
       <div class="col-md-6 d-flex gap-2 justify-content-end">
         <button type="submit" class="btn btn-primary btn-sm"><i class="bi bi-search"></i> 筛选</button>
-        <button type="button" class="btn btn-outline-primary btn-sm" onclick="exportSalesReport()"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</button>
+
         {% if drill_customer_id or drill_material_code or salesperson_id or status or shipment_status or project_no or warehouse_id %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">清除筛选</a>{% endif %}
       </div>
     </div>
@@ -220,4 +223,9 @@ function exportSalesReport() {
   window.location.href = '{{ url_for("export_sales_report") }}?' + params.toString();
 }
 </script>
+{% endblock %}
+
+{% block extra_js %}
+{{ super() }}
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
 {% endblock %}

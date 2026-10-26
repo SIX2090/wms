@@ -14,7 +14,7 @@
     .sheet { max-width: none; margin: 24px auto; background: white; box-shadow: 0 1px 9px #ccd3df; }
     .sheet h2 { font-size: 14px; margin: 0 0 12px; }
     table { border-collapse: collapse; table-layout: fixed; width: 100%; color: black; }
-    td { padding: 3px 5px; overflow-wrap: anywhere; }
+    td { padding: 3px 5px; overflow: hidden; overflow-wrap: anywhere; }
     .preview-error { padding: 24px; background: #fff4ec; border: 1px solid #ebc4a7; margin: 24px; line-height: 1.8; }
     {% for sheet in sheets %}
     @page {{ sheet.page_name }} { size: {{ sheet.paper }} {{ sheet.orientation }}; margin: {{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}; }

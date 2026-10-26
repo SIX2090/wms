@@ -1,0 +1,43 @@
+{% macro report_toolbar(kind, export_action='', export_url='', warehouse='', scope='', download_href='#', blocked=false) %}
+<div id="reportToolbar" class="d-flex flex-wrap align-items-center gap-2 mb-3 no-print"
+     role="toolbar" aria-label="报表工具栏" data-report-workbench
+     data-report-kind="{{ kind }}" data-export-action="{{ export_action }}"
+     data-export-url="{{ export_url }}" data-warehouse="{{ warehouse or '' }}">
+    <button type="button" class="btn btn-outline-primary btn-sm" id="refreshReportBtn"><i class="bi bi-arrow-clockwise"></i> 刷新</button>
+    <button type="button" class="btn btn-outline-success btn-sm" id="exportReportBtn"><i class="bi bi-file-earmark-excel"></i> 导出 Excel</button>
+    <details class="position-relative" id="reportPrintMenu">
+        <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-printer"></i> 打印</summary>
+        <div class="position-absolute bg-white border rounded shadow p-3 mt-1" style="z-index:1040;width:340px;max-width:85vw;">
+            {% if kind == 'summary' %}
+            <label class="form-label small" for="reportPrintScope">打印范围</label>
+            <select class="form-select form-select-sm mb-2" id="reportPrintScope" data-report-scope>
+                {% for value, label in [('customer','客户汇总'),('material','物料汇总'),('salesperson','业务员汇总'),('detail','销售明细')] %}
+                <option value="{{ value }}" {% if scope == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            <label class="form-label small" for="{{ 'stockTemplateSelect' if kind == 'stock' else 'templateSelect' }}">打印模板</label>
+            <select class="form-select form-select-sm mb-2" id="{{ 'stockTemplateSelect' if kind == 'stock' else 'templateSelect' }}" data-report-template disabled aria-describedby="reportPrintStatus"><option value="">正在加载模板…</option></select>
+            <div class="small text-muted mb-2" id="reportPrintStatus" role="status" aria-live="polite" data-report-status>{{ '全部仓库模式下请选仓库打印' if blocked else '正在加载模板…' }}</div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" type="button" id="templatePreviewBtn" data-report-preview disabled>预览并打印</button>
+                <a id="{{ 'stockPrintBtn' if kind == 'stock' else 'templatePrintBtn' }}" href="{{ download_href }}" class="btn btn-outline-success btn-sm disabled" aria-disabled="true" tabindex="-1" target="_blank" rel="noopener" data-report-download>下载打印文件</a>
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="retryPrintTemplatesBtn" data-report-retry hidden>重新加载模板</button>
+                <a class="btn btn-outline-secondary btn-sm" href="/print_templates?target_type={{ 'list' if kind == 'stock' else 'report' }}" target="_blank" rel="noopener" data-report-manage>模板管理</a>
+            </div>
+        </div>
+    </details>
+    {% if kind == 'summary' %}
+    <details class="position-relative" id="columnSettingsBtn">
+        <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-columns"></i> 字段设置</summary>
+        <div class="position-absolute bg-white border rounded shadow p-2 mt-1" style="z-index:1040;min-width:150px;">
+            {% for table, label in [('salesReportCustomerTable','客户汇总字段'),('salesReportMaterialTable','物料汇总字段'),('salesReportSalespersonTable','业务员汇总字段'),('salesReportDrillTable','钻取明细字段')] %}
+            <button type="button" class="btn btn-sm btn-light d-block w-100 text-start" data-report-fields="{{ table }}">{{ label }}</button>
+            {% endfor %}
+        </div>
+    </details>
+    {% else %}
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示、隐藏及调整报表字段"><i class="bi bi-list-columns"></i> 字段设置</button>
+    {% endif %}
+</div>
+{% endmacro %}

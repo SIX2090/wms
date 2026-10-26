@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% from "_report_toolbar.html" import report_toolbar %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% block title %}销售对账{% endblock %}
 
 {% block content %}
@@ -8,11 +10,12 @@
             <h2 class="mb-0"><i class="bi bi-shield-check"></i> 销售订单/出库/库存对账</h2>
             <div class="text-muted small">只读核对订单已发货量、已完成销售出库量和库存流水；不自动修正任何数据。</div>
         </div>
-        <a href="{{ url_for('export_sales_reconciliation_report', warehouse_id=warehouse_id) }}" class="btn btn-outline-success btn-sm"><i class="bi bi-file-earmark-excel"></i> 导出</a>
+
     </div>
 </div>
 
-<div class="card mb-3">
+{{ report_toolbar('reconciliation', export_url=url_for('export_sales_reconciliation_report'), warehouse=warehouse_id) }}
+  <div class="card mb-3">
     <div class="card-body py-2">
         <form method="get" class="row g-2 align-items-end">
             <div class="col-md-3">
@@ -98,9 +101,7 @@
 <div class="card border-0 shadow-sm">
     <div class="card-header bg-white border-bottom d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-table"></i> 对账明细</h5>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
-            <i class="bi bi-list-columns"></i> 栏目设置
-        </button>
+
     </div>
     <div class="card-body p-0">
         <div class="table-responsive-wrapper">
@@ -145,6 +146,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
 <script src="{{ url_for('static', filename='cdn/chart.umd-4.4.1.min.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {

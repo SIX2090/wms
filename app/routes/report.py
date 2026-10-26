@@ -545,39 +545,40 @@ def register_report_routes(app):
     @login_required
     def report_stock_print():
         from openpyxl import Workbook
-        from app import (api_error, get_warehouse_stock_quantities,
-                         inventory_alert_enabled, resolve_request_warehouse)
-        from routes.stock_query import build_stock_material_query, get_stock_query_filters
+        from app import api_error, inventory_alert_enabled, price_dimension_enabled
+        from services.stock_print_preview import (collect_stock_print_data,
+            resolve_stock_print_template, stock_print_rows, build_stock_excel_print)
         # BUG-2026-08-12-005：库存导出必须输出仓库级库存，不得输出 Material.stock 跨仓总数；
         # 仓库解析规则与新版报表一致（显式参数校验 + 默认仓库回退，无默认 400）
-        warehouse, wh_err = resolve_request_warehouse(request.args)
-        if wh_err:
-            return api_error(wh_err, 400)
-        quantities = get_warehouse_stock_quantities(warehouse)
-        filters = get_stock_query_filters(request.args)
+        try:
+            warehouse, materials, quantities = collect_stock_print_data(request.args)
+            template, template_path = resolve_stock_print_template(request.args, app.static_folder)
+        except ValueError as exc:
+            return api_error(str(exc), 400)
         # Printing consumes the same filtered candidates/order as the screen,
         # without its page/per_page limit. Both Excel paths use this one list.
-        materials = build_stock_material_query(filters, quantities).all()
         # PRINT-TEMPLATE-F04 A6：库存查询列表接入 Excel 模板打印——
         # 显式 template_id 或存在默认模板记录时按模板渲染；否则回退原硬编码版式
-        from doc_print_excel import (render_table_excel_print,
-                                     resolve_excel_template)
-        template_id = request.args.get('template_id', type=int)
-        has_template = bool(template_id) or \
-            resolve_excel_template('list', 'stock_query') is not None
-        if has_template:
+        if request.args.get('template_mode') == '1':
+            try:
+                include_prices = price_dimension_enabled()
+                output = build_stock_excel_print('库存查询（%s）' % warehouse.name,
+                    stock_print_rows(warehouse, materials, quantities, include_prices=include_prices),
+                    include_prices=include_prices, template_path=template_path)
+            except ValueError as exc:
+                return api_error(str(exc), 400)
+            except Exception:
+                app.logger.exception('库存查询模板下载失败')
+                return api_error('打印文件生成失败，请检查模板和筛选条件后重试', 500)
+            return send_file(output, download_name='stock_query.xlsx', as_attachment=True,
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        from doc_print_excel import render_table_excel_print
+        if template is not None:
             from types import SimpleNamespace
-            rows = []
-            for m in materials:
-                stock = quantities.get(m.id, 0)
-                price = m.price or 0
-                rows.append(SimpleNamespace(
-                    warehouse=warehouse.name or '', code=m.code or '',
-                    brand=m.brand or '', name=m.name or '', spec=m.spec or '',
-                    unit=m.unit.name if m.unit else '', stock=stock,
-                    price=price, amount=stock * price))
+            rows = [SimpleNamespace(**row) for row in stock_print_rows(
+                warehouse, materials, quantities, include_prices=price_dimension_enabled())]
             result = render_table_excel_print(
-                'stock_query', rows, template_id=template_id,
+                'stock_query', rows, template_id=template.id,
                 static_folder=app.static_folder,
                 title_extra=warehouse.name or '')
             if result is not None:
@@ -626,3 +627,33 @@ def register_report_routes(app):
         wb.save(output)
         output.seek(0)
         return send_file(output, download_name='stock_report.xlsx', as_attachment=True)
+
+    @app.route('/report/stock/print_preview')
+    @login_required
+    def report_stock_print_preview():
+        """Render full filtered stock through the selected existing list template, read-only."""
+        from app import price_dimension_enabled
+        from services.report_print_preview import build_report_print_preview
+        from services.stock_print_preview import (collect_stock_print_data,
+            resolve_stock_print_template, stock_print_rows, stock_print_columns)
+        context = dict(title='库存查询', sheets=[], template_name='', total=0, error=None)
+        try:
+            warehouse, materials, quantities = collect_stock_print_data(request.args)
+            template, path = resolve_stock_print_template(request.args, app.static_folder)
+            include_prices = price_dimension_enabled()
+            rows = stock_print_rows(warehouse, materials, quantities, include_prices=include_prices)
+            columns = stock_print_columns()
+            context.update(sheets=build_report_print_preview(
+                '库存查询（%s）' % warehouse.name, columns, rows,
+                template_path=path, include_prices=include_prices),
+                total=len(rows), template_name=template.name if template else '系统内置模板')
+        except ValueError as exc:
+            context['error'] = str(exc)
+            return render_template('report_print_preview.html', **context), 400
+        except Exception:
+            app.logger.exception('库存查询打印预览失败')
+            context['error'] = '打印预览生成失败，请检查模板和筛选条件后重试'
+            return render_template('report_print_preview.html', **context), 500
+        response = app.make_response(render_template('report_print_preview.html', **context))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
