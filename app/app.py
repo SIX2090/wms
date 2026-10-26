@@ -27847,18 +27847,20 @@ REPORT_DEFINITIONS = {
     },
     'warehouse_monthly': {
         'title': '仓库月报表',
-        'description': '按月份和物料汇总期初、入库、出库、期末结存和库存金额。',
+        'description': '按自然月和物料核对月初、本月收发及月末结存，数量按单位分别合计。',
         'icon': 'bi-calendar3',
         'accent': 'primary',
         'summary_labels': {
             'count': '月报行数',
-            'quantity': '期末结存',
-            'amount': '库存金额',
+            'beginning_quantity': '首月期初',
+            'in_quantity': '期间入库',
+            'out_quantity': '期间出库',
+            'ending_quantity': '末月结存',
         },
         'summary_types': {
             'count': 'number',
-            'quantity': 'number',
-            'amount': 'money',
+            'beginning_quantity': 'text', 'in_quantity': 'text',
+            'out_quantity': 'text', 'ending_quantity': 'text',
         },
         'filters': {
             'date': True,
@@ -27903,8 +27905,8 @@ REPORT_DEFINITIONS = {
         },
         'summary_types': {
             'count': 'number',
-            'quantity': 'number',
-            'amount': 'money',
+            'beginning_quantity': 'text', 'in_quantity': 'text',
+            'out_quantity': 'text', 'ending_quantity': 'text',
         },
         'filters': {
             'date': True,
@@ -28358,6 +28360,8 @@ def _build_report_filters():
     if raw_business_type not in REPORT_BUSINESS_TYPE_WHITELIST:
         raw_business_type = ''
     return {
+        'start_month': (request.args.get('start_month') or '').strip(),
+        'end_month': (request.args.get('end_month') or '').strip(),
         'start_date': _parse_date_arg('start_date'),
         'end_date': _parse_date_arg('end_date'),
         'warehouse_id': warehouse_id,
@@ -28738,7 +28742,7 @@ def _ledger_columns():
 def _warehouse_monthly_columns():
     return [
         {'field': 'month', 'title': '月份'},
-        {'field': 'material_code', 'title': '物料编码'},
+        {'field': 'material_code', 'title': '物料编码', 'link_field': 'ledger_url'},
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},
         {'field': 'unit', 'title': '单位'},
@@ -30550,160 +30554,14 @@ def _monthly_txn_price_map(transactions):
         if not mapping:
             continue
         price = mapping.get((t.reference_id, t.material_id))
-        if price:
+        if price is not None:
             prices[t.id] = price
     return prices
 
 def _build_warehouse_monthly_report(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return _warehouse_monthly_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
-    today_value = date.today()
-    start_date = filters.get('start_date') or today_value.replace(day=1)
-    end_date = filters.get('end_date') or today_value
-    if end_date < start_date:
-        start_date, end_date = end_date, start_date
+    from services.warehouse_monthly_report import build_warehouse_monthly_report
+    return build_warehouse_monthly_report(filters)
 
-    material_query = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc(), Material.id.asc())
-    if filters.get('supplier_id'):
-        material_query = material_query.filter(Material.supplier_id == filters['supplier_id'])
-    supplier_clause = _supplier_filter_clause(filters.get('supplier'))
-    if supplier_clause is not None:
-        material_query = material_query.join(Material.supplier).filter(supplier_clause)
-    material_clause = _material_filter_clause(filters.get('material_code'))
-    if material_clause is not None:
-        material_query = material_query.filter(material_clause)
-
-    materials = material_query.all()
-    material_ids = [material.id for material in materials]
-    if not material_ids:
-        return _warehouse_monthly_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
-
-    start_month = _month_start(start_date)
-    end_month = _month_start(end_date)
-    final_cutoff = datetime.combine(_month_end(end_month), time.max)
-
-    # BUG-2026-08-27-001/002：仓库月报按仓库过滤；多仓库时匹配仓库名/编码/该仓库
-    # 名下库位名；单仓库不过滤（全部流水必属该仓库）。
-    # BUG-2026-08-27-004：月报仓库口径与台账统一走 _warehouse_scoped_txn_condition——
-    # 此前月报仅 location.in_(loc_names)，把多仓库下空 location 的历史流水整体排除
-    # （BUG-2026-08-27-003 只修了台账漏了月报），导致月报与台账数字对不上；
-    # 现统一放行空 location 流水，取出后按来源单据仓库归属过滤。
-    # C-2026-08-27：condition 优先 warehouse_id 外键精确命中（B 治本），
-    # 未回填行退回 location 兜底；wid 传给 Python 侧归属过滤。
-    loc_names, warehouse_condition, wid = _warehouse_scoped_txn_condition(filters)
-
-    # 未来流水（期末之后）同样放行空 location 流水，取出后按来源单据仓库归属
-    # 过滤再聚合，保证期末倒推口径与月内流水一致（BUG-2026-08-27-004）。
-    future_query = StockTransaction.query.filter(
-        StockTransaction.material_id.in_(material_ids),
-        StockTransaction.created_at > final_cutoff,
-    )
-    if warehouse_condition is not None:
-        future_query = future_query.filter(warehouse_condition)
-    future_txns = future_query.all()
-    future_txns = _filter_txn_list_by_warehouse_scope(future_txns, loc_names, wid)
-    future_net_by_material = {}
-    for t in future_txns:
-        future_net_by_material[t.material_id] = future_net_by_material.get(t.material_id, 0.0) + _safe_float(t.quantity)
-
-    # BUG-2026-08-17-00X：月报期末库存按仓库级口径（与库存查询/库存报表一致），
-    # 不再使用跨仓的 Material.stock 全局数，避免多仓库时串仓。
-    warehouse = None
-    if filters.get('warehouse_id'):
-        warehouse = Warehouse.query.get(filters['warehouse_id'])
-    warehouse_stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else {}
-    current_stock_by_material = {
-        material.id: _safe_float(warehouse_stock_map.get(material.id, 0.0)) - future_net_by_material.get(material.id, 0.0)
-        for material in materials
-    }
-
-    month_buckets = {}
-    transactions_query = StockTransaction.query.options(joinedload(StockTransaction.material)).filter(
-        StockTransaction.material_id.in_(material_ids),
-        StockTransaction.created_at >= datetime.combine(start_month, time.min),
-        StockTransaction.created_at <= final_cutoff,
-    )
-    if warehouse_condition is not None:
-        transactions_query = transactions_query.filter(warehouse_condition)
-    transactions = transactions_query.order_by(StockTransaction.created_at.desc(), StockTransaction.id.desc()).all()
-
-    # BUG-2026-08-27-004：空 location 流水仅当来源单据仓库与所选仓库一致时保留（与台账一致）
-    # C-2026-08-27：warehouse_id 精确命中的行（含空 location 新数据）直接保留。
-    transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names, wid)
-
-    # BUG-2026-09-07-005：月内出入库金额按来源单据实际单价累计（批量解析，
-    # 无单据价的流水用物料当前价兜底），不再一律用当前价估算历史月份金额。
-    material_price_map = {material.id: _safe_float(material.price) for material in materials}
-    txn_prices = _monthly_txn_price_map(transactions)
-
-    for transaction in transactions:
-        if not transaction.created_at:
-            continue
-        txn_month_start = transaction.created_at.date().replace(day=1)
-        if txn_month_start < start_month or txn_month_start > end_month:
-            continue
-        key = (transaction.material_id, txn_month_start)
-        bucket = month_buckets.setdefault(key, {
-            'in_quantity': 0.0,
-            'out_quantity': 0.0,
-            'in_amount': 0.0,
-            'out_amount': 0.0,
-            'transaction_count': 0,
-            'document_keys': set(),
-        })
-        quantity = abs(_safe_float(transaction.quantity))
-        txn_price = txn_prices.get(transaction.id) or material_price_map.get(transaction.material_id, 0.0)
-        inbound_direction = _is_inbound_transaction(transaction.transaction_type, transaction.quantity)
-        if inbound_direction is True:
-            bucket['in_quantity'] += quantity
-            bucket['in_amount'] += quantity * txn_price
-        elif inbound_direction is False:
-            bucket['out_quantity'] += quantity
-            bucket['out_amount'] += quantity * txn_price
-        bucket['transaction_count'] += 1
-        if transaction.reference_type and transaction.reference_id:
-            bucket['document_keys'].add((transaction.reference_type, transaction.reference_id))
-        else:
-            bucket['document_keys'].add(('stock_transaction', transaction.id))
-
-    rows = []
-    for month_start in reversed(list(_iter_month_starts(start_month, end_month))):
-        for material in materials:
-            bucket = month_buckets.get((material.id, month_start), {})
-            in_quantity = _safe_float(bucket.get('in_quantity'))
-            out_quantity = _safe_float(bucket.get('out_quantity'))
-            ending_quantity = current_stock_by_material[material.id]
-            beginning_quantity = ending_quantity - in_quantity + out_quantity
-            price = _safe_float(material.price)
-            rows.append({
-                'month': month_start.strftime('%Y-%m'),
-                'material_code': material.code or '',
-                'material_name': material.name or '',
-                'spec': material.spec or '',
-                'unit': material.unit.name if material.unit else '',
-                'beginning_quantity': round_to_2_decimals(beginning_quantity),
-                'in_quantity': round_to_2_decimals(in_quantity),
-                'out_quantity': round_to_2_decimals(out_quantity),
-                'ending_quantity': round_to_2_decimals(ending_quantity),
-                'price': round_to_2_decimals(price),
-                # BUG-2026-09-07-005：出入库金额按来源单据实际单价累计；
-                # 期末库存金额仍按当前单价估值（库存估值口径）。
-                'in_amount': round_to_2_decimals(_safe_float(bucket.get('in_amount'))),
-                'out_amount': round_to_2_decimals(_safe_float(bucket.get('out_amount'))),
-                'inventory_amount': round_to_2_decimals(ending_quantity * price),
-                'document_count': len(bucket.get('document_keys', set())),
-                'transaction_count': bucket.get('transaction_count', 0),
-                'remark': '出入库金额按来源单据实际单价，期末库存金额按当前单价估值',
-            })
-            current_stock_by_material[material.id] = beginning_quantity
-
-    summary = {
-        'count': len(rows),
-        'quantity': sum(row['ending_quantity'] for row in rows),
-        'amount': sum(row['inventory_amount'] for row in rows),
-    }
-    return _warehouse_monthly_columns(), rows, summary
 
 def _build_purchase_order_execution_report(filters):
     rows = _collect_purchase_order_execution_rows(filters)

@@ -62,7 +62,22 @@
             {% if report_type == 'ledger' %}
             <input type="hidden" id="ledgerMaterialId" name="material_id" value="{{ request.args.get('material_id', '') }}">
             {% endif %}
-            {% if filters_config.date %}
+            {% if report_type == 'warehouse_monthly' %}
+            <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+                <span class="small text-muted">快捷月份</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-month-range="current">本月</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-month-range="previous">上月</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-month-range="year">本年</button>
+            </div>
+            <div class="col-md-3">
+                <label for="start_month" class="form-label">开始月份</label>
+                <input id="start_month" name="start_month" type="month" class="form-control" required>
+            </div>
+            <div class="col-md-3">
+                <label for="end_month" class="form-label">结束月份</label>
+                <input id="end_month" name="end_month" type="month" class="form-control" required>
+            </div>
+            {% elif filters_config.date %}
             <div class="col-12 d-flex flex-wrap align-items-center gap-2">
                 <span class="small text-muted">快捷日期</span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-date-range="today">今天</button>
@@ -164,11 +179,11 @@
             </div>
             {% endif %}
 
-            {% if report_type in ('inventory', 'material_movement') %}
+            {% if report_type in ('inventory', 'material_movement', 'warehouse_monthly') %}
             <div class="col-md-3 d-flex align-items-end">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="hideZero" name="hide_zero" value="1">
-                    <label class="form-check-label" for="hideZero">{{ '期末库存等于0不显示' if report_type == 'material_movement' else '库存等于0不显示' }}</label>
+                    <label class="form-check-label" for="hideZero">{{ '末月结存等于0不显示' if report_type == 'warehouse_monthly' else ('期末库存等于0不显示' if report_type == 'material_movement' else '库存等于0不显示') }}</label>
                 </div>
             </div>
             {% endif %}
@@ -191,10 +206,15 @@
 <div class="small text-muted mb-3">期初为开始日期前的结存；本期包含期初建账、调拨及盘点调整等已生效库存变动，草稿不参与。未设日期时从建账开始统计。点击物料编码可查看台账。</div>
 <div id="materialMovementCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>
 {% endif %}
+{% if report_type == 'warehouse_monthly' %}
+<div class="small text-muted mb-3">按完整自然月、单据业务日期统计已生效库存变动。首月期初＋期间入库－期间出库＝末月结存，各月结存不累加。数量按单位分别合计；点击物料编码联查当月台账。常规查询只显示本仓有期初或发生的物料，指定完整编码时可核对零记录。金额为参考估值，非财务成本。</div>
+<div id="monthlyReportCount" class="small text-muted mb-2" aria-live="polite">月报行数：0</div>
+{% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">
-    {% if report_type == 'material_movement' %}
-    {% for key in ('opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity') %}
+    {% if report_type in ('material_movement', 'warehouse_monthly') %}
+    {% set quantity_fields = ('beginning_quantity', 'in_quantity', 'out_quantity', 'ending_quantity') if report_type == 'warehouse_monthly' else ('opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity') %}
+    {% for key in quantity_fields %}
     <div class="col-sm-6 col-xl-3">
         <div class="card border-0 shadow-sm summary-card"><div class="card-body">
             <div class="summary-label">{{ summary_labels[key] }}</div>
@@ -241,7 +261,7 @@
         {# BUG-2026-09-07-003：查询结果超上限被截断时显式提示，不再静默失真 #}
         <div class="alert alert-warning d-none mb-0 rounded-0 border-0 border-bottom py-2 px-3 small" id="truncationAlert" role="alert"></div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0" id="reportTable">
+            <table class="table table-hover align-middle mb-0{% if report_type == 'warehouse_monthly' %} monthly-stock-table{% endif %}" id="reportTable">
                 <thead class="table-dark">
                     <tr id="tableHeaderRow"></tr>
                 </thead>
@@ -281,8 +301,11 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if report_type == 'material_movement' %}
+{% if report_type in ('material_movement', 'warehouse_monthly') %}
 <script src="{{ url_for('static', filename='js/material-movement-report.js') }}?v={{ STATIC_VERSION }}"></script>
+{% endif %}
+{% if report_type == 'warehouse_monthly' %}
+<script src="{{ url_for('static', filename='js/warehouse-monthly-report.js') }}?v={{ STATIC_VERSION }}"></script>
 {% endif %}
 <script>
 const reportType = {{ report_type|tojson }};
@@ -330,6 +353,7 @@ filterForm.addEventListener('submit', (event) => {
 
 resetBtn.addEventListener('click', () => {
     resetReportFilters();
+    if (reportType === 'warehouse_monthly') window.WMSWarehouseMonthly.applyRange('current', document);
     currentPage = 1;
     currentSortField = '';
     currentSortOrder = 'asc';
@@ -551,6 +575,16 @@ function formatValue(value, type) {
 
 
 function renderSummary(summary) {
+    if (typeof reportType !== 'undefined' && reportType === 'warehouse_monthly') {
+        ['beginning_quantity', 'in_quantity', 'out_quantity', 'ending_quantity'].forEach(key => {
+            document.getElementById('summary-' + key).textContent = summary
+                ? window.WMSMaterialMovement.formatUnitTotal(summary, key) : '—';
+        });
+        document.getElementById('monthlyReportCount').textContent = summary
+            ? `物料数：${summary.material_count || 0}；月报行数：${summary.count || 0}；月份：${summary.start_month} 至 ${summary.end_month}`
+            : '月报行数：—';
+        return;
+    }
     if (typeof reportType !== 'undefined' && reportType === 'material_movement') {
         ['opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity'].forEach(key => {
             document.getElementById('summary-' + key).textContent = summary
@@ -962,10 +996,18 @@ if (reportType === 'material_movement') {
         setReportDate(document.getElementById('end_date'), dates[1]);
     }
 }
+if (reportType === 'warehouse_monthly') {
+    window.WMSWarehouseMonthly.initialise(document, window.location.search, () => {
+        currentPage = 1;
+        loadData();
+    });
+}
 loadData();
 </script>
 
 <style>
+#reportTable.monthly-stock-table { min-width: 1150px; table-layout: auto; }
+#reportTable.monthly-stock-table th, #reportTable.monthly-stock-table td { white-space: nowrap; }
 .report-template-menu { position: relative; }
 .report-template-options { position: absolute; right: 0; top: 100%; z-index: 1030; width: 360px; max-width: 90vw; padding: 12px; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px #0002; }
 .filter-card.collapsed .card-body {
