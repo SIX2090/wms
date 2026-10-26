@@ -36,19 +36,39 @@ if (scenario === 'units' || scenario === 'error') {
     const html = nodes.printArea.innerHTML;
     assert(html.includes('结存 11 件 / 15 米&lt;&amp;&gt;'));
     assert(html.includes('物料数 2')); assert(!html.includes('<img onerror=bad>'));
-} else if (scenario === 'switch') {
+} else if (['switch', 'embedded_switch', 'embedded_all_switch'].includes(scenario)) {
     let clicked, assigned;
-    const link = { href: 'http://qa.test/report/view/summary?summary_view=daily', addEventListener(_, fn) { clicked = fn; } };
+    const documentHandlers = [];
+    const link = { href: 'http://qa.test/report/view/summary?summary_view=daily',
+        addEventListener(_, fn) { clicked = fn; }, getAttribute(name) { assert.equal(name, 'href'); return this.href; }, hasAttribute() { return false; } };
     ctx.document.querySelectorAll = selector => { assert.equal(selector, '[data-summary-view]'); return [link]; };
-    ctx.window.location = { href: 'http://qa.test/report/view/summary?embedded=1', search: '?embedded=1', assign(url) { assigned = new URL(url); } };
-    ctx.buildParams = () => new URLSearchParams('warehouse_id=4&start_date=2026-10-01&end_date=2026-10-20&material_code=A%26B&date_scope=period&page=8&status=pending');
+    ctx.window.location = { origin: 'http://qa.test', search: '?embedded=1',
+        get href() { return 'http://qa.test/report/view/summary?embedded=1'; },
+        set href(value) { assigned = new URL(value, this.origin); }, assign(url) { assigned = new URL(url); } };
+    ctx.buildParams = () => new URLSearchParams('warehouse_id=4&material_code=A%26B&page=8&status=pending&' +
+        (scenario === 'embedded_all_switch' ? 'date_scope=all' : 'start_date=2026-10-01&end_date=2026-10-20&date_scope=period'));
+    if (scenario !== 'switch') {
+        // Run the real document delegate after the real link handler, as the browser does.
+        ctx.document.addEventListener = (_, fn) => documentHandlers.push(fn);
+        const a = shared.indexOf("document.addEventListener('click', function(event) {", shared.indexOf('// 嵌入页面链接处理'));
+        const b = shared.indexOf('\n        });', a) + '\n        });'.length;
+        const helperStart = shared.indexOf('function withEmbeddedParam('), helperEnd = shared.indexOf('\nfunction isMobileViewport(', helperStart);
+        assert(a >= 0 && b > a && helperEnd > helperStart);
+        vm.runInContext(shared.slice(helperStart, helperEnd) + '\n' + shared.slice(a, b), ctx);
+    }
     vm.runInContext(slice("document.querySelectorAll('[data-summary-view]')", "\nif (reportType === 'ledger')"), ctx);
-    clicked({ preventDefault() {} });
+    const event = { target: { closest() { return link; } }, preventDefault() {}, stopPropagation() { this.stopped = true; } };
+    clicked(event);
+    if (!event.stopped) documentHandlers.forEach(fn => fn(event));
     assert.equal(assigned.searchParams.get('summary_view'), 'daily');
     assert.equal(assigned.searchParams.get('warehouse_id'), '4');
     assert.equal(assigned.searchParams.get('material_code'), 'A&B');
     assert.equal(assigned.searchParams.get('embedded'), '1');
     assert(!assigned.searchParams.has('status') && !assigned.searchParams.has('page'));
+    if (scenario === 'embedded_all_switch') {
+        assert.equal(assigned.searchParams.get('date_scope'), 'all');
+        assert(!assigned.searchParams.has('start_date') && !assigned.searchParams.has('end_date'));
+    }
 } else if (scenario === 'ledger_change') {
     const handlers = {};
     nodes.ledgerMaterialId = { value: '42' };

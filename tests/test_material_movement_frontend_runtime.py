@@ -8,7 +8,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize('scenario', ['units', 'error', 'print', 'switch', 'ledger_change', 'date_scope'])
+@pytest.mark.parametrize('scenario', ['units', 'error', 'print', 'switch', 'ledger_change', 'date_scope',
+                                     'embedded_switch', 'embedded_all_switch'])
 def test_material_movement_frontend_runtime(scenario):
     node = shutil.which('node')
     if not node:

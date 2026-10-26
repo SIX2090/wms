@@ -2360,7 +2360,9 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 文档与证据：数量、日期、单位、兼容入口及API见docs/REPORT_MATERIAL_MOVEMENT.md。完整日志、源文件摘要、反证、隔离守卫及截图在C:/wms_backups/material_movement_20261026。
 - 最终模块回归：20个受影响/相邻模块185 passed（141项既有SQLAlchemy警告），新接口26项与JS运行时6项均在其中。输入、隔离运行器及守卫源码摘要稳定，凭据文件访问事件为空；模板中心原新建流程及原日报分页/筛选/导出/打印均保留。最终以外部static目录和上传写入前守卫运行，工作区未再生成QA模板。
 - 提交前质量：文档契约34 passed、隔离HTTP冒烟121/121且自有18080实例已停止；verify_wms_bugs、A1–A14、非GET请求检查、严格AI台账、UTF-8与staged diff均通过。质量脚本及冒烟另启用外部static副本、生产上传写入前守卫，未把测试生成的模板落入共享目录。提交前同一main基线三工作流及Android复用证明重新核实，precommit-ci.json为ok=true。
-- 生效确认：待最终模块/质量检查、目标CI及生产部署核验；不把隔离演示数据当作生产业务验证。
+- F01嵌入导航补验：首批6590937a79f462d343dfa13129cc96a6df759caf已实际push（6685a269..6590937a main -> main），WMS CI40258056568/AI40258056600准确匹配success，Android复用证明完整；发布前真实浏览器发现公共app.js的document冒泡导航覆盖视图链接生成的完整URL，仓库/日期/物料丢失，6590937a未部署。以该全绿目标为后续修复基线，仅在报表视图切换handler停止冒泡，不改公共导航；新增2项同时执行真实link handler和真实document delegate的事件传播用例，旧版2 failed/6 passed，修复8 passed，物理回退模板后仍2 failed/6 passed，再逐字节恢复（embedded-rollback-proof.json）。最终新回归为26个接口用例+8个JS用例。
+- F01最终验收：20个模块187 passed（141项既有警告），文档34 passed、隔离HTTP冒烟121/121，质量8项全部通过，输入/守卫摘要稳定且凭据访问事件为空。真实浏览器在embedded模式验证“不限日期→按日期汇总→按物料收发存”保留warehouse_id=4/date_scope=all，返回本月与同仓同期间精确物料台账均正确（期初100、入库20、出库10、结存110）；最终截图material-summary-final.png。两个自有浏览器页面及18080服务均已关闭。
+- 生效确认：待最终目标CI及生产部署核验；不把隔离演示数据当作生产业务验证。
 
 ## （未修复；本轮独立复核后保留的后续批次）
 

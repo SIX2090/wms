@@ -931,6 +931,7 @@ document.querySelectorAll('[data-date-range]').forEach(button => {
 document.querySelectorAll('[data-summary-view]').forEach(link => {
     link.addEventListener('click', event => {
         event.preventDefault();
+        event.stopPropagation();
         const url = new URL(link.href, window.location.href);
         const current = buildParams();
         ['warehouse_id', 'start_date', 'end_date', 'material_code', 'date_scope'].forEach(key => {
