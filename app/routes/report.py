@@ -65,8 +65,10 @@ def register_report_routes(app):
     @app.route('/report')
     @login_required
     def report():
-        from app import REPORT_DEFINITIONS, REPORT_TYPE_ORDER, get_default_warehouse
+        from app import REPORT_DEFINITIONS, REPORT_TYPE_ORDER, get_default_warehouse, _get_report_definition
         report_cards = [
+            {'report_type': 'material_movement', **_get_report_definition('material_movement')}
+            if report_type == 'summary' else
             {'report_type': report_type, **REPORT_DEFINITIONS[report_type]}
             for report_type in REPORT_TYPE_ORDER
         ]
@@ -214,6 +216,8 @@ def register_report_routes(app):
     def report_view(report_type):
         from app import (Supplier, _get_report_definition, get_active_warehouses,
                          get_default_warehouse, price_dimension_enabled)
+        if report_type == 'summary' and request.args.get('summary_view') != 'daily':
+            report_type = 'material_movement'
         definition = _get_report_definition(report_type)
         if definition is None:
             abort(404)

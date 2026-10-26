@@ -39,6 +39,13 @@
     </div>
 </div>
 
+{% if report_type in ('summary', 'material_movement') %}
+<div class="d-flex flex-wrap gap-2 mb-3" aria-label="汇总方式">
+    <a class="btn btn-sm {{ 'btn-primary' if report_type == 'material_movement' else 'btn-outline-primary' }}" data-summary-view="material" href="{{ url_for('report_view', report_type='summary', summary_view='material') }}">按物料收发存</a>
+    <a class="btn btn-sm {{ 'btn-primary' if report_type == 'summary' else 'btn-outline-primary' }}" data-summary-view="daily" href="{{ url_for('report_view', report_type='summary', summary_view='daily') }}">按日期汇总</a>
+</div>
+{% endif %}
+
 <section class="card border-0 shadow-sm mb-3 filter-card" id="filterPanel">
     <div class="card-header bg-white">
         <h5 class="mb-0"><i class="bi bi-sliders"></i> 查询条件</h5>
@@ -46,6 +53,15 @@
     <div class="card-body">
         <form id="filterForm" class="row g-3">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if report_type in ('summary', 'material_movement') %}
+            <input type="hidden" name="summary_view" value="{{ 'daily' if report_type == 'summary' else 'material' }}">
+            {% endif %}
+            {% if report_type in ('summary', 'material_movement') %}
+            <input type="hidden" id="movementDateScope" name="date_scope" value="period">
+            {% endif %}
+            {% if report_type == 'ledger' %}
+            <input type="hidden" id="ledgerMaterialId" name="material_id" value="{{ request.args.get('material_id', '') }}">
+            {% endif %}
             {% if filters_config.date %}
             <div class="col-12 d-flex flex-wrap align-items-center gap-2">
                 <span class="small text-muted">快捷日期</span>
@@ -148,11 +164,11 @@
             </div>
             {% endif %}
 
-            {% if report_type == 'inventory' %}
+            {% if report_type in ('inventory', 'material_movement') %}
             <div class="col-md-3 d-flex align-items-end">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="hideZero" name="hide_zero" value="1">
-                    <label class="form-check-label" for="hideZero">库存等于0不显示</label>
+                    <label class="form-check-label" for="hideZero">{{ '期末库存等于0不显示' if report_type == 'material_movement' else '库存等于0不显示' }}</label>
                 </div>
             </div>
             {% endif %}
@@ -171,8 +187,22 @@
     </div>
 </section>
 <div id="activeFilterSummary" class="small text-muted mb-3" aria-live="polite"></div>
+{% if report_type == 'material_movement' %}
+<div class="small text-muted mb-3">期初为开始日期前的结存；本期包含期初建账、调拨及盘点调整等已生效库存变动，草稿不参与。未设日期时从建账开始统计。点击物料编码可查看台账。</div>
+<div id="materialMovementCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>
+{% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">
+    {% if report_type == 'material_movement' %}
+    {% for key in ('opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity') %}
+    <div class="col-sm-6 col-xl-3">
+        <div class="card border-0 shadow-sm summary-card"><div class="card-body">
+            <div class="summary-label">{{ summary_labels[key] }}</div>
+            <div class="summary-value" id="summary-{{ key }}">0</div>
+        </div></div>
+    </div>
+    {% endfor %}
+    {% else %}
     <div class="col-md-4">
         <div class="card border-0 shadow-sm summary-card">
             <div class="card-body">
@@ -197,6 +227,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </section>
 
 <section class="card border-0 shadow-sm" id="reportTableSection">
@@ -250,6 +281,9 @@
 {% endblock %}
 
 {% block extra_js %}
+{% if report_type == 'material_movement' %}
+<script src="{{ url_for('static', filename='js/material-movement-report.js') }}?v={{ STATIC_VERSION }}"></script>
+{% endif %}
 <script>
 const reportType = {{ report_type|tojson }};
 const reportTitle = {{ title|tojson }};
@@ -427,9 +461,11 @@ function captureReportPrintContext() {
 function renderPrintArea(columns, rows, truncated, printContext) {
     const el = document.getElementById('printArea');
     const metaParts = printContext.metaParts;
-    const summaryText = ['count', 'quantity', 'amount'].map(key => {
+    const summaryText = Object.keys(printContext.summaryLabels).map(key => {
         const label = printContext.summaryLabels[key] || key;
-        const value = formatValue(printContext.summary[key] || 0, printContext.summaryTypes[key]);
+        const value = Array.isArray(printContext.summary.unit_totals) && key !== 'count'
+            ? window.WMSMaterialMovement.formatUnitTotal(printContext.summary, key)
+            : formatValue(printContext.summary[key] || 0, printContext.summaryTypes[key]);
         return `${label} ${value}`;
     }).join('　|　');
     const now = new Date();
@@ -515,6 +551,14 @@ function formatValue(value, type) {
 
 
 function renderSummary(summary) {
+    if (typeof reportType !== 'undefined' && reportType === 'material_movement') {
+        ['opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity'].forEach(key => {
+            document.getElementById('summary-' + key).textContent = summary
+                ? window.WMSMaterialMovement.formatUnitTotal(summary, key) : '—';
+        });
+        document.getElementById('materialMovementCount').textContent = '物料数：' + (summary ? String(summary.count || 0) : '—');
+        return;
+    }
     if (!summary) {
         ['summaryCount', 'summaryQuantity', 'summaryAmount'].forEach(id => {
             document.getElementById(id).textContent = '—';
@@ -877,12 +921,46 @@ document.querySelectorAll('[data-date-range]').forEach(button => {
         const dates = reportDateRange(button.dataset.dateRange);
         setReportDate(document.getElementById('start_date'), dates[0]);
         setReportDate(document.getElementById('end_date'), dates[1]);
+        const dateScope = document.getElementById('movementDateScope');
+        if (dateScope) dateScope.value = button.dataset.dateRange === 'all' ? 'all' : 'period';
         currentPage = 1;
         loadData();
     });
 });
 
+document.querySelectorAll('[data-summary-view]').forEach(link => {
+    link.addEventListener('click', event => {
+        event.preventDefault();
+        const url = new URL(link.href, window.location.href);
+        const current = buildParams();
+        ['warehouse_id', 'start_date', 'end_date', 'material_code', 'date_scope'].forEach(key => {
+            if (current.has(key)) url.searchParams.set(key, current.get(key));
+        });
+        const embedded = new URLSearchParams(window.location.search).get('embedded');
+        if (embedded) url.searchParams.set('embedded', embedded);
+        window.location.assign(url.toString());
+    });
+});
+
+if (reportType === 'ledger') {
+    const linkedMaterialId = document.getElementById('ledgerMaterialId');
+    const linkedMaterialCode = document.getElementById('material_code');
+    if (linkedMaterialId && linkedMaterialCode) {
+        ['input', 'change'].forEach(event => linkedMaterialCode.addEventListener(event, () => {
+            linkedMaterialId.value = '';
+        }));
+    }
+}
+
 restoreReportFilters();
+if (reportType === 'material_movement') {
+    const initial = new URLSearchParams(window.location.search);
+    if (!initial.has('date_scope') && !initial.has('start_date') && !initial.has('end_date')) {
+        const dates = reportDateRange('month');
+        setReportDate(document.getElementById('start_date'), dates[0]);
+        setReportDate(document.getElementById('end_date'), dates[1]);
+    }
+}
 loadData();
 </script>
 

@@ -28365,6 +28365,7 @@ def _build_report_filters():
         'warehouse_code': warehouse_code,
         'business_type': raw_business_type,
         'material_code': (request.args.get('material_code') or '').strip(),
+        'material_id': _parse_positive_int(request.args.get('material_id'), 0),
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
         'supplier': (request.args.get('supplier') or '').strip(),
         'customer': (request.args.get('customer') or '').strip(),
@@ -28688,10 +28689,10 @@ def _out_detail_columns():
 def _summary_columns():
     return [
         {'field': 'date', 'title': '日期'},
-        {'field': 'in_count', 'title': '入库单数'},
+        {'field': 'in_count', 'title': '入库明细行数'},
         {'field': 'in_quantity', 'title': '入库数量'},
         {'field': 'in_amount', 'title': '入库金额', 'type': 'money'},
-        {'field': 'out_count', 'title': '领料单数'},
+        {'field': 'out_count', 'title': '领料明细行数'},
         {'field': 'out_quantity', 'title': '领料数量'},
         {'field': 'out_amount', 'title': '领料金额', 'type': 'money'},
         {'field': 'net_quantity', 'title': '净变动数量'},
@@ -30901,7 +30902,14 @@ def _build_requisition_report(filters):
     }
     return _requisition_columns(), rows, summary
 
+from services.material_movement_report import (DEFINITION as _MATERIAL_MOVEMENT_DEFINITION,
+                                               _build_material_movement_report,
+                                               _sql_paged_material_movement_report)
+
+REPORT_DEFINITIONS['material_movement'] = _MATERIAL_MOVEMENT_DEFINITION
+
 REPORT_BUILDERS = {
+    'material_movement': _build_material_movement_report,
     'inventory': _build_inventory_report,
     'inventory_analysis': _build_inventory_analysis_report,
     'in_detail': _build_in_detail_report,
@@ -32070,6 +32078,7 @@ def _sql_paged_subcontract_report(filters):
 
 
 SQL_PAGED_REPORT_BUILDERS = {
+    'material_movement': _sql_paged_material_movement_report,
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
     'check': _sql_paged_check_report,
