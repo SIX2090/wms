@@ -2196,6 +2196,8 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 
 ## 已修复：二十子代理前端批次（2026年10月25日，代码，按批统一提交）
 
+2026-10-26 CI补正续修：用户在已展示的单测试夹具及台账候选后指示“继续上面的任务”，本次仅落地该范围。6943bb72的WMS CI40204872609及定时40233867667均仅采购导入旧夹具8项失败；本地138模块漏纳入test_purchase_transport_runtime.py。保留真实async前缀、补importFileButton依赖，并加强成功刷新期输入/按钮/pending锁断言；原42场景、载荷/错误/确认/失败重试断言保留。外部原8失败/34通过、候选42通过及重复验证、19独立复审已记录（C:/wms_backups/frontend_twenty_20261025/17/ci-fixture、19/ci-fixture-review.md）；落仓后的该模块、相邻及文档共384 passed，规则0违规、严格AI台账和编码检查通过，1344原验证输入中仅该测试变化，业务代码完全一致（ci-repair-20261026/source-proof.json、local-result.json）。昨夜Android40233861271中1个既有Room/Robolectric单测缺表失败，原样重跑attempt2后工作流成功，APK build/lint通过；未改Android源代码，不把一次重跑成功称为根治偶发I/O问题。实际推送和新目标CI另验，本批生产仍未重启，生效确认待验收。
+
 本批提交前验收：最终138完整模块4132 passed / 107既有skipped / 43 warnings，源码、测试及隔离守卫前后SHA稳定，凭据事件[]（C:/wms_backups/frontend_twenty_20261025/final-regression-2/result.json）。首轮56失败定位为旧夹具遗漏async/真实依赖及成功刷新期锁契约；5旧测试补齐真实依赖，原请求载荷、错误、确认、失败重试与下载断言保留，成功刷新前加强为输入/按钮/pending同时锁定，独立复审见19/final-fixture-review.md。规则/请求/编码/历史BUG及文档34项通过；隔离HTTP121/121通过。初次冒烟的Waitress内部随机端口触发器被严格网络守卫拒绝，外部启动夹具改用Werkzeug WSGI后通过，产品和网络守卫未放宽（quality-accepted.json、smoke-final/smoke.log）。未执行生产业务操作；本批CI与生产生效继续分别验收。
 
 ### BUG-2026-10-25-013: 采购申请改写物料文字后仍携带旧物料身份

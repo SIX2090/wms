@@ -22,7 +22,7 @@ CASES += [('copy', 'success_fallback')]
 def test_purchase_actions_preserve_confirmation_payload_feedback_and_retry(action, scenario):
     page = 'purchase_request_add' if action == 'request' else 'purchase_order'
     name = dict(import_='submitImportForm', delete='deletePurchaseOrder', copy='copyPurchaseOrder', batch='batchDeletePurchaseOrders', request='submitForm')['import_' if action == 'import' else action]
-    handler = callback(page, 'function ' + name + '(')
+    handler = callback(page, ('async ' if action == 'import' else '') + 'function ' + name + '(')
     program = r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);
 let sent=[],messages=[],timers=[],reloads=0,confirmations=0,expired=0;let responseScenario=p.scenario;
@@ -30,7 +30,8 @@ const formFields={request_id:'stable-request',request_no:'PR-A',date:'2026-10-22
 const lines=[{material_id:'7',material_code:'M-7',material_name:'Fixture',unit_id:'2',quantity:'3',estimated_price:'4',supplier_id:'9',supplier_name:'Supplier'}];
 class FormData{constructor(form){this.owner=form.id;}get(k){return formFields[k];}}
 const file={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false};
-const ctx={FormData,Headers,document:{getElementById:id=>id==='importFile'?file:{id},querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:()=>[]},
+const importButton={disabled:false};
+const ctx={FormData,Headers,document:{getElementById:id=>id==='importFile'?file:id==='importFileButton'?importButton:{id},querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:()=>[]},
 collectItems:()=>p.scenario==='empty'?[]:lines,selectedPurchaseOrderIds:()=>p.scenario==='empty'?[]:['7','8'],showConfirm:()=>{confirmations++;return Promise.resolve(p.scenario!=='cancel');},confirm:()=>{expired++;return false;},
 showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},
 fetch:(u,o)=>{sent.push({u,o});const status=responseScenario==='http'?400:responseScenario==='html'?503:responseScenario==='expired401'?401:responseScenario==='expired419'?419:200;
@@ -40,7 +41,7 @@ async function invoke(){await ctx[p.name](7);await new Promise(r=>setImmediate(r
 (async()=>{await invoke();
 if(p.scenario==='cancel'||p.scenario==='empty'){assert.equal(sent.length,0);assert.equal(reloads,0);assert.equal(ctx.location.href,'original');if(p.scenario==='empty'&&p.action!=='import')assert(messages.some(m=>m.t==='warning'));return;}
 assert.equal(sent.length,1);const req=sent[0],h=new Headers(req.o.headers);assert.equal(req.o.method,'POST');assert.equal(req.o.credentials,'same-origin');assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert.equal(h.get('X-Requested-With'),'XMLHttpRequest');
-if(p.action==='import'){assert(req.o.body instanceof FormData);assert.equal(req.o.body.owner,'importForm');assert(!h.has('Content-Type'));assert.equal(file.value,'','file input reset on all outcomes');assert.equal(file.disabled,false);}
+if(p.action==='import'){assert(req.o.body instanceof FormData);assert.equal(req.o.body.owner,'importForm');assert(!h.has('Content-Type'));assert.equal(file.value,'','file input reset on all outcomes');if(p.scenario==='success'){assert.equal(file.disabled,true);assert.equal(importButton.disabled,true);assert.equal(ctx[p.name].pending,true);}else{assert.equal(file.disabled,false);assert.equal(importButton.disabled,false);assert.equal(ctx[p.name].pending,false);}}
 else {const body=JSON.parse(req.o.body);assert.equal(typeof body,'object','JSON encoded exactly once');if(p.action==='batch')assert.deepEqual(body,{ids:['7','8']});else if(p.action==='request')assert.deepEqual(body,{...formFields,items:lines});else assert.deepEqual(body,{});}
 if(['delete','copy','batch'].includes(p.action))assert.equal(confirmations,1);
 if(p.scenario.startsWith('success')){assert(messages.some(m=>m.t==='success'));for(const fn of timers)fn();if(p.action==='copy')assert.equal(ctx.location.href,p.scenario==='success_fallback'?'/purchase_order/17/edit':'/purchase_order/17/edit?copied=1');else if(p.action==='request')assert.equal(ctx.location.href,'/purchase_request/17');else assert.equal(reloads,1);}
