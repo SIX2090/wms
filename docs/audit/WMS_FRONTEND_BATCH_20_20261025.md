@@ -27,6 +27,8 @@
 |19|独立审计与公共下拉实施|原报告/台账/库存证据对账；quick-select34场景修复|
 |20|独立复审与物料找图实施|复审root/13无新增确证回归；找图32场景修复与浏览器夹具|
 
-详细根因、同类点、回退和生效状态见[10月BUG台账](../ledger/bugs/entries-2026-10.md)。完整外部证据：C:/wms_backups/frontend_twenty_20261025；初始54完整模块1460 passed，追加66完整模块2281 passed/107既有skipped。最终138完整模块4132 passed / 107既有skipped / 43 warnings，输入与守卫SHA稳定、凭据事件[]（final-regression-2/result.json）。首轮56个旧夹具失败补齐async/真实依赖，成功刷新期增加互斥检查；原载荷/错误/确认/失败重试断言保留，独立复审见19/final-fixture-review.md。规则、编码、历史BUG、文档34项及隔离HTTP121/121通过（quality-accepted.json）；冒烟启动夹具的网络守卫拒绝与修正记录完整保留。目标CI及生产生效另验，不把本地通过当交付完成。原用户两份未跟踪审计报告保留，未加入本批提交。
+详细根因、同类点、回退和生效状态见[10月BUG台账](../ledger/bugs/entries-2026-10.md)。完整外部证据：C:/wms_backups/frontend_twenty_20261025；初始54完整模块1460 passed，追加66完整模块2281 passed/107既有skipped。最终138完整模块4132 passed / 107既有skipped / 43 warnings，输入与守卫SHA稳定、凭据事件[]（final-regression-2/result.json）。首轮56个旧夹具失败补齐async/真实依赖，成功刷新期增加互斥检查；原载荷/错误/确认/失败重试断言保留，独立复审见19/final-fixture-review.md。规则、编码、历史BUG、文档34项及隔离HTTP121/121通过（quality-accepted.json）；冒烟启动夹具的网络守卫拒绝与修正记录完整保留。目标CI及生产生效已按文末分别验收；本地通过不独立作为交付完成证据。原用户两份未跟踪审计报告保留，未加入本批提交。
 
 原报告剩余工程化、其它内联迁移、样式统一属于后续工程治理；CSP unsafe-eval、公共乱码、重型图表无条件加载及公共静态脚本/样式缓存已有历史修复，不能重复报告未修。完整逐项独立映射见外部19/matrix.json。
+
+最终交付（2026-10-26）：59文件业务批次6943bb72、仅测试和台账的2文件补正5d2f3dd3均已推送，部署目标5d2f3dd37fad8a28a82c209e129b58272689da1b的[WMS CI](https://github.com/SIX2090/wms/actions/runs/40247497486)及[AI验证](https://github.com/SIX2090/wms/actions/runs/40247497523)成功。原138回归漏纳入采购测试的8项CI失败已如实保留；补正及相邻/文档384项通过，全部旧断言/场景保留，成功刷新期锁增强。Android原样重跑81项与build/lint通过，完成祖先/对象/路径无改证明，不宣称根治偶发SQLite测试故障。按既有授权完成在线备份、回退包和原任务单次重启，PID15544；源码、启动SHA、本地/公网登录200及3静态资源哈希一致，8核心表摘要不变（deployment-v2/effective.json verified=true）。真实录单、库存和打印未在生产试跑；隔离验收截图见外部20/browser-race.png及browser-normal-save.png。此后仅文档收尾，不启动下一批产品写入；026/027明确保留。
