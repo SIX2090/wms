@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · 打印预览</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #eef1f5; color: #172b45; font: 14px Arial,"Microsoft YaHei",sans-serif; }
+    .preview-toolbar { padding: 16px 24px; background: white; border-bottom: 1px solid #d5dce5; }
+    .preview-toolbar h1 { font-size: 19px; margin: 0 0 12px; }
+    .preview-toolbar p { margin: 8px 0; line-height: 1.6; }
+    button { background: #2265d8; color: white; border: 0; border-radius: 4px; padding: 9px 20px; cursor: pointer; }
+    .sheet { max-width: none; margin: 24px auto; background: white; box-shadow: 0 1px 9px #ccd3df; }
+    .sheet h2 { font-size: 14px; margin: 0 0 12px; }
+    table { border-collapse: collapse; table-layout: fixed; width: 100%; color: black; }
+    td { padding: 3px 5px; overflow-wrap: anywhere; }
+    .preview-error { padding: 24px; background: #fff4ec; border: 1px solid #ebc4a7; margin: 24px; line-height: 1.8; }
+    {% for sheet in sheets %}
+    @page {{ sheet.page_name }} { size: {{ sheet.paper }} {{ sheet.orientation }}; margin: {{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}; }
+    .{{ sheet.page_name }} { page: {{ sheet.page_name }}; }
+    {% endfor %}
+    @media print {
+      body { background: white; margin: 0; }
+      .preview-toolbar, .sheet h2 { display: none; }
+      .sheet { width: 100% !important; min-height: 0 !important; padding: 0 !important; margin: 0; box-shadow: none; break-after: page; }
+      .sheet:last-child { break-after: auto; }
+      tr { break-inside: avoid; }
+      td { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body class="wms-report-print-preview" data-global-toolbar="off">
+  <header class="preview-toolbar">
+    <h1>{{ title }} · 打印预览</h1>
+    {% if not error %}
+    <p>模板：{{ template_name }} · 当前筛选共 {{ total }} 行（全部结果）</p>
+    <p>按所选模板呈现当前数据。浏览器字体和分页可能与 Excel 不同；请在系统打印窗口确认纸张、方向和缩放。</p>
+    <button id="printPreviewButton" type="button">打印</button>
+    {% endif %}
+  </header>
+  {% if error %}<p class="preview-error" role="alert">{{ error }}</p>{% endif %}
+  {% for sheet in sheets %}
+  <section class="sheet {{ sheet.page_name }}" aria-label="{{ sheet.name }}" style="width:{{ sheet.page_width }}mm;min-height:{{ sheet.page_height }}mm;padding:{{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}">
+    <h2>{{ sheet.name }}</h2>
+    <table aria-label="{{ title }}">
+      <colgroup>{% for width in sheet.widths %}<col style="width:{{ width }}px">{% endfor %}</colgroup>
+      <tbody>{% for row in sheet.rows %}
+        <tr style="height:{{ row.height }}pt">{% for cell in row.cells %}
+          <td rowspan="{{ cell.rowspan }}" colspan="{{ cell.colspan }}" style="{{ cell.css }}">{{ cell.text }}</td>
+        {% endfor %}</tr>
+      {% endfor %}</tbody>
+    </table>
+  </section>
+  {% endfor %}
+  <script>
+    document.getElementById('printPreviewButton')?.addEventListener('click', function () { window.print(); });
+  </script>
+</body>
+</html>

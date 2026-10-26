@@ -342,6 +342,77 @@ def register_report_routes(app):
             output, download_name=filename, as_attachment=True,
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+    @app.route('/report/<report_type>/print_preview')
+    @login_required
+    def report_print_preview(report_type):
+        """Preview current full report data using the selected Excel template, without writes."""
+        from pathlib import Path
+        from app import (_build_report_filters, _collect_report_export_rows,
+                         _get_report_definition, _serialize_excel_value, ExcelPrintTemplate, Warehouse,
+                         price_dimension_enabled)
+        from doc_print_excel import report_target_code
+        from print_fill import template_file_abspath
+        from services.report_print_preview import build_report_print_preview
+
+        definition = _get_report_definition(report_type)
+        title = definition['title'] if definition else '报表'
+        context = dict(title=title, sheets=[], template_name='', total=0, error=None)
+        try:
+            if definition is None:
+                raise ValueError('不支持的报表类型')
+            include_prices = price_dimension_enabled()
+            if report_type == 'purchase_price_analysis' and not include_prices:
+                raise ValueError('价格维度未启用，采购价格分析已下线')
+            filters = _build_report_filters()
+            if not filters.get('warehouse_id'):
+                raise ValueError('请选择仓库')
+            if db.session.get(Warehouse, filters['warehouse_id']) is None:
+                raise ValueError('所选仓库不存在，请重新选择')
+            query = ExcelPrintTemplate.query.filter_by(
+                target_type='report', target_code=report_target_code(report_type),
+                template_type='excel')
+            raw_id = (request.args.get('template_id') or '').strip()
+            template = None
+            template_path = None
+            if raw_id:
+                if not raw_id.isdecimal() or len(raw_id) > 18 or int(raw_id) <= 0:
+                    raise ValueError('所选打印模板无效，请重新选择')
+                template = query.filter_by(id=int(raw_id)).first()
+                if template is None:
+                    raise ValueError('所选模板不存在或不属于当前报表，请重新选择')
+            else:
+                # Do not let a stale default prevent the in-memory built-in template.
+                template = query.filter_by(is_default=True).first()
+            if template is not None:
+                candidate = template_file_abspath(template.excel_template_path, app.static_folder)
+                root = Path(app.static_folder).resolve()
+                candidate = Path(candidate).resolve() if candidate else None
+                if candidate and candidate.is_relative_to(root) and candidate.is_file():
+                    template_path = candidate
+                elif raw_id:
+                    raise ValueError('所选打印模板文件不存在或不可用，请修复或重新选择模板')
+                else:
+                    template = None
+            columns, rows, truncated, raw_total = _collect_report_export_rows(report_type, filters)
+            if truncated:
+                raise ValueError('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据')
+            rows = [dict(row, **{column['field']: _serialize_excel_value(column, row)
+                               for column in columns if column.get('type') == 'status'})
+                    for row in rows]
+            context.update(sheets=build_report_print_preview(title, columns, rows,
+                template_path=template_path, include_prices=include_prices),
+                total=len(rows), template_name=template.name if template else '系统内置模板')
+        except ValueError as exc:
+            context['error'] = str(exc)
+            return render_template('report_print_preview.html', **context), 400
+        except Exception:
+            app.logger.exception('报表打印预览失败(%s)', report_type)
+            context['error'] = '打印预览生成失败，请检查模板和筛选条件后重试'
+            return render_template('report_print_preview.html', **context), 500
+        response = app.make_response(render_template('report_print_preview.html', **context))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+
     @app.route('/report/inout/print')
     @login_required
     def report_inout_print():

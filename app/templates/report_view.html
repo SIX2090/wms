@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
+{% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -8,29 +9,37 @@
             <h2 class="mb-1"><i class="bi bi-graph-up"></i> {{ title }}</h2>
             <div class="text-muted">按当前筛选条件查看、导出和打印报表。</div>
         </div>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2" id="reportToolbar" role="toolbar" aria-label="报表工具栏">
             <button class="btn btn-outline-primary" type="button" id="toggleFilterBtn" aria-expanded="true" aria-controls="filterPanel">
                 <i class="bi bi-funnel"></i> <span id="filterToggleLabel">收起筛选</span>
+            </button>
+            <button class="btn btn-outline-primary" type="button" id="refreshReportBtn">
+                <i class="bi bi-arrow-clockwise" aria-hidden="true"></i> 刷新
             </button>
             <button class="btn btn-outline-success" type="button" id="exportBtn">
                 <i class="bi bi-file-earmark-excel"></i> 导出 Excel
             </button>
-            <details class="report-template-menu">
-                <summary class="btn btn-outline-secondary">模板打印</summary>
-                <div class="input-group report-template-options">
-                <select class="form-select" id="templateSelect" style="max-width:170px;">
-                    <option value="">默认Excel模板</option>
-                </select>
-                <button class="btn btn-outline-success" type="button" id="templatePrintBtn" title="按模板中心设计的 Excel 模板生成报表">
-                    <i class="bi bi-file-earmark-spreadsheet"></i> 按模板打印
-                </button>
-                <a class="btn btn-outline-secondary" href="/print_templates?target_type=report" target="_blank" title="在模板中心在线设计本报表的 Excel 模板">
-                    <i class="bi bi-pencil-square"></i>
-                </a>
+            <details class="report-template-menu" id="reportPrintMenu">
+                <summary class="btn btn-outline-secondary"><i class="bi bi-printer" aria-hidden="true"></i> 打印 <i class="bi bi-chevron-down" aria-hidden="true"></i></summary>
+                <div class="report-template-options">
+                    <label class="form-label" for="templateSelect">打印模板</label>
+                    <select class="form-select mb-2" id="templateSelect" disabled>
+                        <option value="">正在加载模板…</option>
+                    </select>
+                    <div class="small text-muted mb-2" id="reportPrintStatus" role="status" aria-live="polite">正在加载模板…</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary mb-2" id="retryPrintTemplatesBtn" hidden>重新加载模板</button>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-primary" type="button" id="templatePreviewBtn" disabled><i class="bi bi-eye" aria-hidden="true"></i> 预览并打印</button>
+                        <button class="btn btn-outline-success" type="button" id="templatePrintBtn" disabled><i class="bi bi-file-earmark-spreadsheet" aria-hidden="true"></i> 下载打印文件</button>
+                        <a class="btn btn-outline-secondary" href="/print_templates?target_type=report" target="_blank" rel="noopener"><i class="bi bi-pencil-square" aria-hidden="true"></i> 模板管理</a>
+                    </div>
+                    <hr>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" id="printBtn"><i class="bi bi-printer" aria-hidden="true"></i> 标准清单打印</button>
+                    <div class="small text-muted mt-1">标准清单使用表格布局；自定义版式请先选择模板。</div>
                 </div>
             </details>
-            <button class="btn btn-outline-info" type="button" id="printBtn">
-                <i class="bi bi-printer"></i> 打印
+            <button type="button" class="btn btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
+                <i class="bi bi-list-columns" aria-hidden="true"></i> 字段设置
             </button>
             <a href="{{ url_for('report') }}" class="btn btn-secondary">
                 <i class="bi bi-arrow-left"></i> 返回报表中心
@@ -253,9 +262,6 @@
 <section class="card border-0 shadow-sm" id="reportTableSection">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span class="small text-muted">查询明细</span>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" title="显示/隐藏及调整明细字段">
-            <i class="bi bi-list-columns"></i> 栏目设置
-        </button>
     </div>
     <div class="card-body p-0">
         {# BUG-2026-09-07-003：查询结果超上限被截断时显式提示，不再静默失真 #}
@@ -374,32 +380,93 @@ exportBtn.addEventListener('click', () => {
 // PRINT-TEMPLATE-F04 A4：按模板中心设计的 Excel 模板打印报表
 const templateSelect = document.getElementById('templateSelect');
 const templatePrintBtn = document.getElementById('templatePrintBtn');
+const templatePreviewBtn = document.getElementById('templatePreviewBtn');
+let printTemplateRequestId = 0;
+let printTemplatesReady = false;
+let printableTemplateIds = new Set();
 
 async function loadPrintTemplates() {
+    const requestId = ++printTemplateRequestId;
+    const status = document.getElementById('reportPrintStatus');
+    const retry = document.getElementById('retryPrintTemplatesBtn');
+    printTemplatesReady = false;
+    printableTemplateIds = new Set();
+    templateSelect.disabled = true;
+    templatePreviewBtn.disabled = true;
+    templatePrintBtn.disabled = true;
+    retry.hidden = true;
+    status.textContent = '正在加载模板…';
     try {
         const resp = await fetch(`/doc_print_templates/report_${encodeURIComponent(reportType)}.json`);
         const data = await resp.json();
-        if (data.status !== 'success' || !data.templates) return;
-        templateSelect.innerHTML = '<option value="">默认Excel模板</option>';
+        if (requestId !== printTemplateRequestId) return;
+        if (!resp.ok || data.status !== 'success' || !Array.isArray(data.templates)) {
+            throw new Error(data.msg || '打印模板加载失败');
+        }
+        const usable = data.templates.filter(t => t.has_file !== false);
+        templateSelect.innerHTML = '';
+        if (!usable.length) {
+            const builtin = document.createElement('option');
+            builtin.value = '';
+            builtin.textContent = '系统内置模板';
+            templateSelect.appendChild(builtin);
+            printableTemplateIds.add('');
+        }
         data.templates.forEach((t) => {
             const opt = document.createElement('option');
-            opt.value = t.id;
-            opt.textContent = t.name + (t.is_default ? '（默认）' : '');
+            opt.value = String(t.id);
+            opt.textContent = t.name + (t.has_file === false ? '（文件缺失）' : t.is_default ? '（默认）' : '');
+            opt.disabled = t.has_file === false;
+            if (!opt.disabled) printableTemplateIds.add(opt.value);
             templateSelect.appendChild(opt);
         });
+        const selected = usable.find(t => t.is_default) || usable[0];
+        templateSelect.value = selected ? String(selected.id) : '';
+        templateSelect.disabled = false;
+        printTemplatesReady = true;
+        templatePreviewBtn.disabled = false;
+        templatePrintBtn.disabled = false;
+        status.textContent = usable.length ? '选择模板后预览当前筛选的全部结果。下载打印文件将生成 Excel。' : '当前使用系统内置模板；可在模板管理中新建多套模板。';
     } catch (err) {
-        templateSelect.innerHTML = '<option value="">默认Excel模板</option>';
+        if (requestId !== printTemplateRequestId) return;
+        templateSelect.innerHTML = '<option value="">模板加载失败</option>';
+        status.textContent = (err.message || '打印模板加载失败') + '，请重新加载。';
+        retry.hidden = false;
     }
 }
 
-templatePrintBtn.addEventListener('click', () => {
+function openReportTemplateOutput(mode) {
+    if (!printTemplatesReady || !['preview', 'download'].includes(mode)) return;
+    const status = document.getElementById('reportPrintStatus');
+    const warehouse = filterForm.querySelector('#warehouse_id');
+    if (warehouse && !warehouse.value) {
+        status.textContent = '请先选择仓库再打印';
+        return;
+    }
+    if (!printableTemplateIds.has(templateSelect.value)) {
+        status.textContent = '所选模板不可用，请重新选择或重新加载模板';
+        return;
+    }
     const params = buildParams(true);
     params.delete('export');
+    params.delete('template_id');
     const templateId = templateSelect.value;
     if (templateId) {
         params.set('template_id', templateId);
     }
-    window.open(`/report/${encodeURIComponent(reportType)}/print_excel?${params.toString()}`, '_blank');
+    const endpoint = mode === 'preview' ? 'print_preview' : 'print_excel';
+    window.open(`/report/${encodeURIComponent(reportType)}/${endpoint}?${params.toString()}`, '_blank', 'noopener');
+}
+
+templatePreviewBtn.addEventListener('click', () => openReportTemplateOutput('preview'));
+templatePrintBtn.addEventListener('click', () => openReportTemplateOutput('download'));
+document.getElementById('retryPrintTemplatesBtn').addEventListener('click', loadPrintTemplates);
+document.getElementById('refreshReportBtn').addEventListener('click', () => loadData());
+document.getElementById('reportPrintMenu').addEventListener('keydown', event => {
+    if (event.key === 'Escape') {
+        event.currentTarget.open = false;
+        event.currentTarget.querySelector('summary').focus();
+    }
 });
 
 loadPrintTemplates();
@@ -1009,7 +1076,8 @@ loadData();
 #reportTable.monthly-stock-table { min-width: 1150px; table-layout: auto; }
 #reportTable.monthly-stock-table th, #reportTable.monthly-stock-table td { white-space: nowrap; }
 .report-template-menu { position: relative; }
-.report-template-options { position: absolute; right: 0; top: 100%; z-index: 1030; width: 360px; max-width: 90vw; padding: 12px; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px #0002; }
+.report-template-options { position: absolute; right: 0; top: 100%; z-index: 1030; width: 390px; max-width: calc(100vw - 32px); padding: 16px; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px #0002; }
+@media (max-width: 576px) { .report-template-options { left: 0; right: auto; width: min(390px, calc(100vw - 32px)); } }
 .filter-card.collapsed .card-body {
     display: none;
 }
