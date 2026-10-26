@@ -510,6 +510,7 @@
 | BUG-2026-10-25-023 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-024 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-025 | bugs | entries-2026-10.md |
+| BUG-2026-10-26-001 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-25-027 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |

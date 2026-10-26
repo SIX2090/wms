@@ -28861,6 +28861,9 @@ def _collect_inventory_rows(filters):
 
     rows = []
     for material in query.all():
+        # BUG-2026-10-26-001：行集也按本仓库存记录筛选；有记录但净额为零仍保留。
+        if material.id not in warehouse_stock_map:
+            continue
         stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
         price = _safe_float(material.price)
         # BUG-2026-08-18-00X：hide_zero 选项过滤掉库存为 0 的行
