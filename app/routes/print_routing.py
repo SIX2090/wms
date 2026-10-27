@@ -195,6 +195,7 @@ def register_print_routing_routes(app):
     @require_role('admin')
     def print_routing_page():
         from app import PrintRouteRule, PrintWorkstation, Warehouse
+        from routes.print_queue import workstation_is_online
         # BUG-2026-08-19-003：老库若缺 print 系列表（启动时 create_all 未跑，
         # 如 WMS_SKIP_STARTUP_DB_UPGRADE / WMS_NO_DB_TOUCH），首条查询抛
         # "no such table" 直接 500，页面显示"服务器内部错误"。按代码库既有模式
@@ -212,7 +213,8 @@ def register_print_routing_routes(app):
             warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code).all()
         return render_template(
             'print_routing.html', workstations=workstations, rules=rules,
-            warehouses=warehouses, event_labels=BUSINESS_EVENT_LABELS)
+            warehouses=warehouses, event_labels=BUSINESS_EVENT_LABELS,
+            workstation_is_online=workstation_is_online)
 
     @app.route('/print_routing/download_agent')
     @login_required

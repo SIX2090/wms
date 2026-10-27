@@ -280,6 +280,9 @@
 | A3-4 | ai | records-2026-10.md |
 | AI-PROMPT-V2-2026-10-04 | ai | records-2026-10.md |
 | AI-R01-F01 | ai | records-2026-10.md |
+| AI-R17-FIX-BROWSER-001 | ai | records-2026-10.md |
+| 优先级 | ai | records-2026-10.md |
+| P1 | ai | records-2026-10.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |
@@ -524,6 +527,7 @@
 | BUG-2026-10-26-010 | bugs | entries-2026-10.md |
 | BUG-2026-10-26-006 | bugs | entries-2026-10.md |
 | BUG-2026-10-27-001 | bugs | entries-2026-10.md |
+| BUG-2026-10-27-002 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

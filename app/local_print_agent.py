@@ -87,6 +87,8 @@ def _run_powershell_status(command: str, *, log_failure: bool = False) -> tuple[
     """
     if os.name != 'nt':
         return False, ''
+    # Windows PowerShell defaults to the OEM code page when stdout is redirected.
+    command = "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); " + command
     try:
         result = subprocess.run(
             ['powershell', '-NoProfile', '-NonInteractive', '-Command', command],

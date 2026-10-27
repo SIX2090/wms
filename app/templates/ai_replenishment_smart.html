@@ -47,13 +47,14 @@
         </div>
     </form>
 
+    <div class="text-muted small mb-2">汇总统计覆盖当前筛选范围的全部物料。</div>
     <div class="row g-2 mb-3">
         {% for label, value in [
             ('总物料数', report.summary.total),
             ('需处理', report.summary.action_required),
             ('立即处理', report.summary.critical),
             ('高风险', report.summary.high),
-            ('建议补货', report.summary.medium),
+            ('中风险物料数', report.summary.medium),
             ('建议金额', '%.2f'|format(report.summary.suggested_amount))
         ] %}
         <div class="col-6 col-md-2">
@@ -127,4 +128,5 @@
         计算口径：日均消耗=近{{ report.summary.days }}天负向库存流水绝对值/{{ report.summary.days }}；趋势=近15天vs前15天出库量对比；优先级=风险等级+趋势+可用天数综合评分；建议补货=目标库存-现存-在途采购，目标库存取最大库存、安全库存（含最低库存）和覆盖天数需求的较大值。置信度=规则型建议的可解释可信程度（库存缺口类按缺口比例、趋势类按样本天数折算），低于 0.6 标记待复核，仅供提示、不自动执行。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
     </div>
 </div>
+{% include 'partials/ai_report_pagination.html' %}
 {% endblock %}

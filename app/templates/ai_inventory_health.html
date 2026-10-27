@@ -41,6 +41,7 @@
         </div>
     </form>
 
+    <div class="text-muted small mb-2">汇总统计覆盖全部物料；下方明细按显示范围筛选。</div>
     <div class="row g-2 mb-3">
         <div class="col-6 col-md-2">
             <div class="border rounded p-2 h-100">
@@ -140,4 +141,5 @@
         计算口径：健康分基于可用天数、库存水位、出库频率综合评分；可用天数=当前库存/近{{ report.summary.days }}天日均出库；缺货风险=可用天数≤7天；超储风险=当前库存>最大库存×2；呆滞风险=近90天无出库且有库存。生成时间：{{ report.summary.generated_at.strftime('%Y-%m-%d %H:%M:%S') }}。
     </div>
 </div>
+{% include 'partials/ai_report_pagination.html' %}
 {% endblock %}

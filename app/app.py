@@ -10411,12 +10411,27 @@ def _ai_analysis_low_stock_report():
             f'{r.get("alert_status") or "-"} | {reorder:.0f} |')
     return '\n'.join(lines)
 
+def _ai_report_page(report):
+    """Paginate complete filtered rows; summaries and CSV retain their full scope."""
+    total = len(report['rows'])
+    pages = max(1, (total + 199) // 200)
+    page = min(max(request.args.get('page', 1, type=int), 1), pages)
+    params = {key: request.args[key] for key in ('days', 'coverage_days', 'risk', 'embedded') if key in request.args}
+    report['pagination'] = {
+        'total': total, 'page': page, 'pages': pages,
+        'previous': url_for(request.endpoint, **params, page=page - 1) if page > 1 else None,
+        'next': url_for(request.endpoint, **params, page=page + 1) if page < pages else None,
+    }
+    report['rows'] = report['rows'][(page - 1) * 200:page * 200]
+    return report
+
+
 def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
     """库存健康度评分报告。
     计算每个物料的健康分数、风险类型和优化建议。
     """
     days = max(int(days or 30), 1)
-    limit = max(min(int(limit or 200), 500), 1)
+    limit = None if limit is None else max(min(int(limit or 200), 500), 1)
     
     # 查询所有物料
     materials = Material.query.options(
@@ -10611,7 +10626,7 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
     rows.sort(key=lambda row: (row['health_score'], row['code'] or ''))
     rows = rows[:limit]
     
-    total_materials = len(rows)
+    total_materials = len(materials)
     avg_health_score = round_to_2_decimals(total_health_score / total_materials) if total_materials > 0 else 0
     
     summary = {
@@ -19151,7 +19166,7 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
     """Smart replenishment report with AI suggestions, trend, and priority score."""
     days = max(int(days or 30), 1)
     coverage_days = max(int(coverage_days or 30), 1)
-    limit = max(min(int(limit or 200), 300), 1)
+    limit = None if limit is None else max(min(int(limit or 200), 300), 1)
     materials = Material.query.options(
         joinedload(Material.unit),
         joinedload(Material.supplier),
@@ -19166,7 +19181,7 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
     rows = []
     for material in materials:
         outbound_qty = round_to_2_decimals(out_qty.get(material.id, 0))
-        avg_daily = round_to_2_decimals(outbound_qty / days) if outbound_qty else 0
+        avg_daily = outbound_qty / days if outbound_qty else 0
         current_stock = round_to_2_decimals(material.stock or 0)
         min_stock = round_to_2_decimals(material.min_stock or 0)
         reorder_point = round_to_2_decimals(material.reorder_point or 0)
@@ -19277,7 +19292,7 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
             'reorder_point': reorder_point,
             'max_stock': max_stock,
             'outbound_qty': outbound_qty,
-            'avg_daily': avg_daily,
+            'avg_daily': round_to_2_decimals(avg_daily),
             'coverage_stock': coverage_stock,
             'on_order': on_order.get(material.id, 0),
             'pending_request': has_pending_request,
@@ -19303,7 +19318,6 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
         -row['suggested_qty'],
         row['code'] or '',
     ))
-    rows = rows[:limit]
     summary = {
         'total': len(rows),
         'critical': sum(1 for row in rows if row['risk_level'] == 'critical'),
@@ -19316,7 +19330,7 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
         'coverage_days': coverage_days,
         'generated_at': datetime.now(),
     }
-    return {'rows': rows, 'summary': summary}
+    return {'rows': rows[:limit], 'summary': summary}
 
 def _ai_replenishment_planning_response(message, context=None, force=False):
     if not force and not _ai_replenishment_triggered(message):
@@ -19940,14 +19954,7 @@ def _ai_system_health_response(message, context=None, force=False):
         OperationLog.operation_type.like('%删除%'),
     ).count()
 
-    backup_files = []
-    backup_dir = Path(BACKUP_DIR)
-    if backup_dir.exists():
-        backup_files = sorted(
-            [path for path in backup_dir.glob('*.db') if path.is_file()],
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
+    backup_files = _ai_registered_backup_files()
     latest_backup = backup_files[0] if backup_files else None
     latest_backup_age_days = None
     if latest_backup:
@@ -20051,14 +20058,7 @@ def _ai_system_fix_list_response(message, context=None, force=False):
     if not _ai_llm_vision_enabled():
         add_task(4, '启用图片识别配置', '送货单、标签、拍照入库依赖图片识别，建议配置支持视觉的模型后做识图自检。', 'AI助手参数', url_for('system_settings_page'))
 
-    backup_files = []
-    backup_dir = Path(BACKUP_DIR)
-    if backup_dir.exists():
-        backup_files = sorted(
-            [path for path in backup_dir.glob('*.db') if path.is_file()],
-            key=lambda path: path.stat().st_mtime,
-            reverse=True,
-        )
+    backup_files = _ai_registered_backup_files()
     latest_backup = backup_files[0] if backup_files else None
     latest_backup_age_days = None
     if latest_backup:
@@ -20488,10 +20488,7 @@ def _ai_product_suggestion_response(message, context=None, force=False):
     ai_ready = _ai_llm_configured()
     vision_ready = ai_ready and _ai_llm_vision_enabled()
     purchase_summary = build_purchase_order_todo_summary()
-    backup_files = []
-    backup_dir = Path(BACKUP_DIR)
-    if backup_dir.exists():
-        backup_files = [path for path in backup_dir.glob('*.db') if path.is_file()]
+    backup_files = _ai_registered_backup_files()
 
     suggestions = []
 
@@ -20835,8 +20832,7 @@ def _ai_task_list_response(message, context=None, force=False):
             '系统管理员',
         )
 
-    backup_dir = Path(BACKUP_DIR)
-    backup_files = [path for path in backup_dir.glob('*.db') if path.is_file()] if backup_dir.exists() else []
+    backup_files = _ai_registered_backup_files()
     if not backup_files:
         add_task(
             70,
@@ -21763,10 +21759,10 @@ def ai_replenishment_page():
     report = _ai_replenishment_report(
         days=days,
         coverage_days=coverage_days,
-        limit=200,
+        limit=None,
         only_action=only_action,
     )
-    return render_template('ai_replenishment.html', report=report, risk=risk)
+    return render_template('ai_replenishment.html', report=_ai_report_page(report), risk=risk)
 
 @app.route('/ai/replenishment_live')
 @login_required
@@ -21780,10 +21776,10 @@ def ai_replenishment_live_page():
     report = _ai_replenishment_report(
         days=days,
         coverage_days=coverage_days,
-        limit=200,
+        limit=None,
         only_action=only_action,
     )
-    return render_template('ai_replenishment.html', report=report, risk=risk)
+    return render_template('ai_replenishment.html', report=_ai_report_page(report), risk=risk)
 
 @app.route('/ai/inventory_health_live')
 @login_required
@@ -21794,10 +21790,10 @@ def ai_inventory_health_live_page():
     risk = (request.args.get('risk') or 'all').strip()
     report = _ai_inventory_health_report(
         days=days,
-        limit=200,
+        limit=None,
         risk_filter=risk,
     )
-    return render_template('ai_inventory_health.html', report=report, risk=risk)
+    return render_template('ai_inventory_health.html', report=_ai_report_page(report), risk=risk)
 
 @app.route('/ai/inventory_health')
 @login_required
@@ -21812,7 +21808,7 @@ def ai_inventory_health_page():
     
     report = _ai_inventory_health_report(
         days=days,
-        limit=200,
+        limit=None,
         risk_filter=risk,
     )
     
@@ -21856,7 +21852,7 @@ def ai_inventory_health_page():
             mimetype='text/csv',
         )
     
-    return render_template('ai_inventory_health.html', report=report, risk=risk)
+    return render_template('ai_inventory_health.html', report=_ai_report_page(report), risk=risk)
 
 @app.route('/ai/replenishment_smart')
 @login_required
@@ -21874,7 +21870,7 @@ def ai_replenishment_smart_page():
     report = _ai_smart_replenishment_report(
         days=days,
         coverage_days=coverage_days,
-        limit=200,
+        limit=None,
         only_action=only_action,
     )
 
@@ -21918,7 +21914,7 @@ def ai_replenishment_smart_page():
             mimetype='text/csv',
         )
 
-    return render_template('ai_replenishment_smart.html', report=report, risk=risk)
+    return render_template('ai_replenishment_smart.html', report=_ai_report_page(report), risk=risk)
 
 def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label='', action_url='', severity='medium'):
     checks.append({
@@ -21931,16 +21927,20 @@ def _ai_prelaunch_add_check(checks, code, title, status, detail, action_label=''
         'severity': severity,
     })
 
+def _ai_registered_backup_files():
+    """Use the same registered backup sources and exclusions as backup management."""
+    from backup_catalog import get_backup_sources, list_backup_files
+    sources = get_backup_sources(BACKUP_DIR)
+    entries, _warnings = list_backup_files(sources, (_resolve_sqlite_db_path(),))
+    entries.sort(key=lambda entry: entry['created_at'], reverse=True)
+    return [Path(sources[entry['source']]['directory']) / entry['filename'] for entry in entries]
+
+
 def _ai_prelaunch_checks():
     checks = []
     now_value = datetime.now()
 
-    backup_dir = Path(BACKUP_DIR)
-    backup_files = sorted(
-        [path for path in backup_dir.glob('*.db') if path.is_file()] if backup_dir.exists() else [],
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
+    backup_files = _ai_registered_backup_files()
     latest_backup = backup_files[0] if backup_files else None
     latest_backup_age_hours = None
     if latest_backup:
@@ -22019,9 +22019,7 @@ def _ai_prelaunch_checks():
         'medium',
     )
 
-    db_uri = str(app.config.get('SQLALCHEMY_DATABASE_URI') or '')
-    sqlite_db = db_uri.startswith('sqlite:///')
-    db_path = db_uri.replace('sqlite:///', '', 1) if sqlite_db else ''
+    db_path = _resolve_sqlite_db_path()
     db_exists = Path(db_path).exists() if db_path else True
     _ai_prelaunch_add_check(
         checks,

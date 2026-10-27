@@ -32,13 +32,13 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-header d-flex justify-content-between align-items-center
-                            {% if ws.enabled and ws.status == 'online' %}bg-success text-white{% elif ws.enabled %}bg-warning{% else %}bg-secondary text-white{% endif %}">
+                            {% if ws.enabled and workstation_is_online(ws) %}bg-success text-white{% elif ws.enabled %}bg-warning{% else %}bg-secondary text-white{% endif %}">
                     <span>
                         <i class="bi bi-pc-display"></i>
                         <b>{{ ws.code }}</b> {{ ws.name }}
                     </span>
-                    <span class="badge {% if not ws.enabled %}bg-dark{% elif ws.status == 'online' %}bg-light text-success{% else %}bg-light text-warning{% endif %}">
-                        {% if not ws.enabled %}已停用{% elif ws.status == 'online' %}在线{% else %}离线{% endif %}
+                    <span class="badge {% if not ws.enabled %}bg-dark{% elif workstation_is_online(ws) %}bg-light text-success{% else %}bg-light text-warning{% endif %}">
+                        {% if not ws.enabled %}已停用{% elif workstation_is_online(ws) %}在线{% else %}离线{% endif %}
                     </span>
                 </div>
                 <div class="card-body py-2">
