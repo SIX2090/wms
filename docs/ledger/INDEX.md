@@ -178,6 +178,7 @@
 | AI-UX-DATE-SYNC-001 | ai | completions-2026-10.md |
 | AI-C13-FIX-FORECAST-LIFECYCLE-001 | ai | completions-2026-10.md |
 | AI-UX-DROPDOWN-FIX-001 | ai | completions-2026-10.md |
+| AI-BROWSER-FIX-001 | ai | completions-2026-10.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -280,7 +281,6 @@
 | A3-4 | ai | records-2026-10.md |
 | AI-PROMPT-V2-2026-10-04 | ai | records-2026-10.md |
 | AI-R01-F01 | ai | records-2026-10.md |
-| AI-R17-FIX-BROWSER-001 | ai | records-2026-10.md |
 | 优先级 | ai | records-2026-10.md |
 | P1 | ai | records-2026-10.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
