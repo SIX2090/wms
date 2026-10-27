@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('fs'),vm=require('vm'),path=require('path'),assert=require('assert/strict');
 const root=process.env.WMS_DROPDOWN_ROOT||path.resolve(__dirname,'..');
-const source=n=>fs.readFileSync(path.join(root,'app/templates',n+'.html'),'utf8');
+const source=n=>fs.readFileSync(path.join(root,'app/templates',n+'.html'),'utf8').replaceAll("{{ (order.warehouse or '')|tojson }}",JSON.stringify('fixture-warehouse'));
 function fn(s,name){let start=s.indexOf('function '+name+'(');assert(start>=0,name);let open=s.indexOf(') {',start)+2,depth=0;for(let end=open;end<s.length;end++){depth+=(s[end]==='{')-(s[end]==='}');if(!depth)return s.slice(start,end+1);}throw Error(name);}
 const cases=[];function test(name,body){cases.push([name,body]);}
 const matches=Array.from({length:125},(_,i)=>({id:i+1,code:'WIRE-'+String(i+1).padStart(3,'0'),name:'电线',spec:'BV '+i,brand:'QA',stock:1,unit:'米',label:'电线'}));

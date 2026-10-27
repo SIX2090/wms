@@ -58,6 +58,8 @@ def test_page_feedback_behavior(page, name, mode):
         pytest.skip('Node.js required')
     payload = dict(page=page, name=name, mode=mode, source=function(page, name),
                    api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
+    if page == 'ai_business_quality':
+        payload['source'] = function(page, 'qualityRequestError') + '\n' + payload['source']
     if page == 'ai_demand_forecast':
         template = (ROOT / 'app/templates/ai_demand_forecast.html').read_text(encoding='utf-8')
         payload['source'] = '\n'.join(re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', template, re.S))
@@ -94,7 +96,7 @@ if(p.page==='ai_demand_forecast'){
   };
   vm.runInContext(p.escape,ctx);
 }
-if(p.page==='label_template'||p.page==='approval'||p.page==='wechat_share'||p.page==='ai_demand_forecast'){
+if(p.page==='ai_business_quality'||p.page==='label_template'||p.page==='approval'||p.page==='wechat_share'||p.page==='ai_demand_forecast'){
   ctx.WMS={};doc.querySelector=()=>({content:'fixture-csrf'});
   if(p.page==='wechat_share')doc.querySelectorAll=()=>[];
   vm.runInContext(p.api,ctx);

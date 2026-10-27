@@ -144,10 +144,11 @@ def test_import_in_order_no_file_returns_error():
 def test_import_out_order_valid_excel_succeeds():
     client = _setup()
     # 构造合法领料单 Excel（含基础数据：部门、物料、单位、出库单）
-    from app import Department, Material, OutOrder, OutOrderItem, Unit
+    from app import Department, Material, OutOrder, OutOrderItem, Unit, Warehouse
     with app_module.app.app_context():
         dept = Department(code="D-001", name="生产车间")
-        db.session.add(dept)
+        warehouse = Warehouse(code="WH-OUT", name="领料默认仓", is_default=True, status="active")
+        db.session.add_all([dept, warehouse])
         db.session.commit()
 
         mat = Material(code="MAT001", name="示例物料", spec="规格A")
@@ -179,6 +180,10 @@ def test_import_out_order_valid_excel_succeeds():
     assert payload is not None
     assert payload.get("status") == "success", payload
     assert payload.get("count") == 1, payload
+    with app_module.app.app_context():
+        assert OutOrder.query.one().warehouse == "领料默认仓"
+        assert OutOrder.query.one().status == "pending"
+        assert OutOrderItem.query.one().quantity == 10
 
 
 def test_import_in_order_valid_excel_succeeds():

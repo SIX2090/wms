@@ -41,6 +41,7 @@ def test_detail_modal_preserves_the_same_context_guard(page, action):
 
 def detail(page, action, error=None, modal=False):
     source = (ROOT / f'app/templates/{page}_order_detail.html').read_text(encoding='utf-8')
+    source = source.replace("{{ (order.warehouse or '')|tojson }}", json.dumps('fixture-warehouse'))
     names = ['getMaterialQuickDropdown', 'hideMaterialQuickDropdown', 'setMaterialQuickActive',
              'selectAddMaterial', 'renderMaterialQuickDropdown', 'lookupAddMaterial', 'scheduleAddMaterialLookup']
     program = r"""

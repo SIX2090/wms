@@ -117,7 +117,7 @@ function createRow(){return addNewRow();}
 function calcAmount(){} function calcTotal(){} function calcRow(){} function updateCheckDiff(){}
 function formatQtyTrim(q){return String(Number(q.toFixed(2)));}
 function formatQty(q){return String(Number(q.toFixed(2)));}
-''' .replace('TEXT', json.dumps(text)).replace('FAIL', json.dumps(fail)).replace('CANCEL',json.dumps(cancel)).replace('DOC_TYPE',json.dumps(doc_type)) + function + r'''
+''' .replace('TEXT', json.dumps(text)).replace('FAIL', json.dumps(fail)).replace('CANCEL',json.dumps(cancel)).replace('DOC_TYPE',json.dumps(doc_type)) + '\nconst window={WMS};\n' + (ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8') + function + r'''
 const first=parsePastedData();
 Promise.all([first,REPEAT ? parsePastedData() : Promise.resolve()]).then(()=>process.stdout.write(JSON.stringify({
  rows:rows.map(r=>({code:r.querySelector('.material-code').value,qty:r.querySelector('.material-qty').value||r.querySelector('.line-qty').value||r.querySelector('.adjust-qty').value||r.querySelector('.actual-stock').value,price:r.querySelector('.material-price').value})),

@@ -51,7 +51,7 @@ const context={row,materials:[{id:1,code:'M001',name:'轴承',price:99,stock:10}
  calcAmount(){calculated++},calcTotal(){},clearTimeout(){},
  setTimeout(f,ms){timers.push({f,ms})},
  WMS:{api:{get(){throw Error('Unexpected network')}}}};
-vm.createContext(context);vm.runInContext(p.source,context);
+context.window=context;vm.createContext(context);vm.runInContext(p.cache,context);vm.runInContext(p.source,context);
 vm.runInContext("row.querySelector('.material-code').addEventListener('keydown',"+p.callback+");setupScanAutoFill();",context);
 const event={key:p.mode==='non_enter'?'Tab':'Enter',target:input,
  defaultPrevented:p.mode==='preconsumed',isComposing:p.mode==='ime',
@@ -98,6 +98,6 @@ def test_scan_respects_consumed_enter(template, mode):
         pytest.skip('Node.js required for actual entry event handlers')
     source, callback = page_handlers(template)
     result = subprocess.run([node, '-e', SCRIPT],
-                            input=json.dumps(dict(source=source, callback=callback, mode=mode)),
+                            input=json.dumps(dict(source=source, callback=callback, mode=mode, cache=(ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8'))),
                             capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr

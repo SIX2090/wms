@@ -59,7 +59,7 @@ def test_detail_row_actions_keep_column_and_payload_meaning(page, business, cust
     if not node:
         pytest.skip('Node.js required')
     source = (ROOT / f'app/templates/{page}_order_detail.html').read_text(encoding='utf-8')
-    material = SimpleNamespace(code='M-01', brand='品牌', name='轴承', spec='6204', unit=SimpleNamespace(name='套'), stock=99)
+    material = SimpleNamespace(code='M-01', brand='品牌', name='轴承', spec='6204', unit=SimpleNamespace(name='套'), stock=999)
     po = SimpleNamespace(id=8, order_no='PO-08')
     item = SimpleNamespace(id=9, material_id=11, material=material, quantity=2, price=0, amount=0,
                            remark='说明 & 中', contract_no='HT-01', project_name='工程一',
@@ -68,7 +68,7 @@ def test_detail_row_actions_keep_column_and_payload_meaning(page, business, cust
                            source_purchase_order_item=SimpleNamespace(id=10, purchase_order=po, quantity=7))
     order = SimpleNamespace(id=7, status='pending', business_type=business, items=[item], contract_no='HEAD', project_name='表头工程')
     env = Environment(autoescape=True)
-    context = dict(order=order, purchase_order_execution={}, url_for=lambda *a, **kw: '/fixture')
+    context = dict(order=order, warehouse_stock={11: 99}, purchase_order_execution={}, url_for=lambda *a, **kw: '/fixture')
     table_start = source.rindex('<table', 0, source.index('id="itemTable"'))
     table_end = source.index('</table>', table_start) + len('</table>')
     table = TableParser(env.from_string(source[table_start:table_end]).render(**context))
