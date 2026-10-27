@@ -77,13 +77,15 @@ const material={id:7,code:'CODE',name:p.value,spec:p.value};
 function element(tag){const e={tagName:tag,children:[],textContent:'',className:'',appendChild(child){this.children.push(child);},addEventListener(name,fn){this[name]=fn;}};Object.defineProperty(e,'innerHTML',{set(){assert.fail('untrusted material fields must use textContent');}});return e;}
 const dropdown={children:[],html(value){this.markup=value;this.children=[];},empty(){this.children=[];},append(node){this.children.push(node);},addClass(){},removeClass(){}};
 const search={on:(name,fn)=>input=fn};
-const ctx={document:{createElement:element},allMaterials:[material],selectMaterial:(...args)=>calls.push(args),$:selector=>selector==='#materialSearch'?search:selector==='#materialDropdown'?dropdown:{val:()=>p.query||'CODE'}};
+const menuElement={};let positions=0;
+const ctx={document:{createElement:element,getElementById(id){assert.equal(id,'materialDropdown');return menuElement;}},WMS:{positionDropdown(input,menu){assert.equal(menu,menuElement);positions++;}},allMaterials:[material],selectMaterial:(...args)=>calls.push(args),$:selector=>selector==='#materialSearch'?search:selector==='#materialDropdown'?dropdown:{val:()=>p.query||'CODE'}};
 vm.runInNewContext(p.source,ctx);input.call({});
 assert.equal(dropdown.children.length,1,'one material must remain selectable');
 const option=dropdown.children[0];assert.equal(option.children.length,3);
 assert.deepEqual(option.children.map(child=>child.textContent),['CODE',p.value,p.value]);
 option.click();assert.deepEqual(calls,[[7,'CODE',p.value]]);
 input.call({});assert.equal(dropdown.children.length,1,'rerender must replace old options');
+assert.equal(positions,2,'both renders must position the actual dropdown');
 process.stdout.write('{}');
 '''
     node(program, dict(source=source, value=value))

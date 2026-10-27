@@ -775,7 +775,7 @@ function filterCustomers(keyword) {
                String(c.code || '').toLowerCase().includes(keyword) ||
                String(c.phone || '').toLowerCase().includes(keyword) ||
                String(c.contact || '').toLowerCase().includes(keyword);
-    }).slice(0, 80);
+    });
 }
 
 function showCustomerDropdown(list) {
@@ -798,6 +798,7 @@ function showCustomerDropdown(list) {
             dropdown.style.display = 'none';
         });
     });
+    WMS.positionDropdown(input, dropdown, {maxHeight: 200});
     dropdown.style.display = 'block';
 }
 

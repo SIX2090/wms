@@ -1161,6 +1161,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 '</div>'
             ).join('');
             dropdown.style.display = 'block';
+            WMS.positionDropdown(searchInput, dropdown, {maxHeight: 200});
             activeIndex = -1;
 
             dropdown.querySelectorAll('.supplier-item').forEach(function(item) {

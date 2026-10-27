@@ -949,7 +949,7 @@ function renderMaterialQuickDropdown(results) {
     var dropdown = getMaterialQuickDropdown();
     if (!dropdown) return;
     var input = activeMaterialInput || document.getElementById('code');
-    if (input && input.closest('tr.new-item-row')) {
+    if (input) {
         WMS.positionDropdown(input, dropdown, {minWidth: 420, gap: 3});
     }
     if (!results.length) {
@@ -965,6 +965,7 @@ function renderMaterialQuickDropdown(results) {
             '<span class="meta">库存：' + formatStock(m.stock) + '</span></div>' +
             '</div>';
     }).join('');
+    if (results.length >= 100) dropdown.insertAdjacentHTML('beforeend', '<div class="text-muted small p-2">本次显示前100条候选，请细化编码 / 名称 / 规格继续查找。</div>');
     dropdown.style.display = 'block';
     dropdown.querySelectorAll('.material-quick-item[data-index]').forEach(function(item) {
         item.addEventListener('mousedown', function(e) {
@@ -1018,7 +1019,7 @@ function lookupAddMaterial() {
             } else if (!row) {
                 clearAddMaterialInfo();
             }
-            if (document.activeElement === codeInput) renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
+            if (document.activeElement === codeInput) renderMaterialQuickDropdown(materialQuickResults);
         })
         .catch(function() {
             if (current()) {
@@ -1078,7 +1079,7 @@ function bindMaterialQuickInput(input) {
     });
     input.addEventListener('focus', function() {
         activeMaterialInput = input;
-        if (materialQuickResults.length) renderMaterialQuickDropdown(materialQuickResults.slice(0, 20));
+        if (materialQuickResults.length) renderMaterialQuickDropdown(materialQuickResults);
     });
 }
 

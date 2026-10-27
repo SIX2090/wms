@@ -429,6 +429,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function showDropdown() {
+            WMS.positionDropdown(input, dropdown, {maxHeight: 220});
             dropdown.style.display = 'block';
             activeDropdown = dropdown;
         }

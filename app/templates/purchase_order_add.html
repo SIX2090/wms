@@ -594,7 +594,7 @@ function showSupplierDropdown(showAll = false) {
         hideSupplierDropdown();
         return;
     }
-    const filtered = suppliers.filter(s => showAll || supplierSearchText(s).includes(keyword)).slice(0, 80);
+    const filtered = suppliers.filter(s => showAll || supplierSearchText(s).includes(keyword));
     if (!filtered.length) {
         dropdown.innerHTML = '<div class="supplier-dropdown-item text-muted">无匹配供应商，保存时将自动新增</div>';
     } else {
@@ -802,7 +802,7 @@ function showMaterialDropdown(row, showAll = false) {
     if (activeDropdown && activeDropdown !== dropdown) {
         activeDropdown.style.display = 'none';
     }
-    const filtered = materials.filter(m => showAll || materialSearchText(m).includes(keyword)).slice(0, 80);
+    const filtered = materials.filter(m => showAll || materialSearchText(m).includes(keyword));
     if (!filtered.length) {
         dropdown.innerHTML = '<div class="material-dropdown-item text-muted">无匹配物料</div>';
     } else {
@@ -846,6 +846,7 @@ function hideMaterialDropdown() {
 function selectMaterial(row, code) {
     const material = findMaterial(code);
     if (!material) return;
+    row.querySelector('.material-code').value = material.code;
     fillMaterial(row, material);
     hideMaterialDropdown();
     row.querySelector('.material-qty').focus();

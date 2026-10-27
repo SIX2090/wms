@@ -1552,7 +1552,7 @@ function filterCustomers(keyword) {
                String(c.code || '').toLowerCase().includes(keyword) ||
                String(c.phone || '').toLowerCase().includes(keyword) ||
                String(c.contact || '').toLowerCase().includes(keyword);
-    }).slice(0, 80);
+    });
 }
 
 function refreshCustomers(options) {
@@ -2070,9 +2070,7 @@ function applyBatchUpdate() {
                     });
                 });
                 pickerDropdown.style.display = 'block';
-                var rect = pickerInput.getBoundingClientRect();
-                pickerDropdown.style.top = (rect.bottom + 2) + 'px';
-                pickerDropdown.style.left = rect.left + 'px';
+                WMS.positionDropdown(pickerInput, pickerDropdown, {maxHeight: 220, gap: 2});
                 pickerActiveIndex = -1;
             })
             .catch(function() {

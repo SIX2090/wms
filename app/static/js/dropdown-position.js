@@ -27,6 +27,7 @@
         menu.style.right = 'auto';
         menu.style.maxHeight = Math.min(limit, upward ? above : below) + 'px';
         menu.style.overflowY = 'auto';
+        menu.style.overscrollBehavior = 'contain';
         menu.style.top = upward ? 'auto' : (rect.bottom + gap) + 'px';
         menu.style.bottom = upward ? (window.innerHeight - rect.top + gap) + 'px' : 'auto';
         menu.style.visibility = rect.bottom < margin || rect.top > window.innerHeight - margin ? 'hidden' : '';

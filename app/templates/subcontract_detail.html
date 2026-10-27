@@ -551,7 +551,7 @@ function filterSubcontractMaterials(keyword) {
         return (m.code && String(m.code).toLowerCase().indexOf(normalized) >= 0) ||
                (m.name && String(m.name).toLowerCase().indexOf(normalized) >= 0) ||
                (m.spec && String(m.spec).toLowerCase().indexOf(normalized) >= 0);
-    }).slice(0, 20);
+    });
 }
 
 function bindScMaterialInput(inputId, dropdownId, onSelect) {
@@ -587,6 +587,7 @@ function bindScMaterialInput(inputId, dropdownId, onSelect) {
 
     function render(list) {
         results = list;
+        WMS.positionDropdown(input, dropdown, {maxHeight: 260});
         if (!list.length) {
             dropdown.innerHTML = '<div class="sc-material-item sc-material-empty">无匹配物料</div>';
             dropdown.style.display = 'block';
@@ -652,7 +653,7 @@ function bindScMaterialInput(inputId, dropdownId, onSelect) {
     return {
         show: function() {
             const keyword = input.value.trim();
-            render(keyword ? filterSubcontractMaterials(keyword) : subcontractMaterials.slice(0, 20));
+            render(keyword ? filterSubcontractMaterials(keyword) : subcontractMaterials.slice());
         }
     };
 }

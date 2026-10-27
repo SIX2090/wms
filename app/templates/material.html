@@ -1303,11 +1303,11 @@ function findQuickSelectItem(type, value) {
 function filterQuickSelectItems(type, keyword) {
     const normalized = normalizeQuickText(keyword);
     const items = quickSelectData[type] || [];
-    if (!normalized) return items.slice(0, 80);
+    if (!normalized) return items.slice();
     return items.filter(function(item) {
         return normalizeQuickText(item.name).includes(normalized) ||
                normalizeQuickText(item.code).includes(normalized);
-    }).slice(0, 80);
+    });
 }
 
 function setQuickSelectValue(hiddenId, id) {
@@ -1344,6 +1344,7 @@ function renderQuickSelectMenu(root, showAll) {
     }
     closeQuickSelects(root);
     root.classList.add('open');
+    WMS.positionDropdown(input, menu, {minWidth: 220, maxHeight: 220});
 }
 
 function commitQuickSelectInput(root) {

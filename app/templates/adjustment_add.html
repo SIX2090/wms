@@ -573,7 +573,7 @@ function showDropdown(row, showAll) {
             String(m.code || '').toLowerCase().includes(keyword) ||
             String(m.name || '').toLowerCase().includes(keyword) ||
             String(m.spec || '').toLowerCase().includes(keyword);
-    }).slice(0, 80);
+    });
 
     if (!filtered.length) {
         dropdown.style.display = 'none';

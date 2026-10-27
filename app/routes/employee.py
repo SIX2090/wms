@@ -326,9 +326,10 @@ def register_employee_routes(app):
                     Employee.phone.like(kw),
                 )
             )
-        employees = query.order_by(Employee.name.asc()).limit(50).all()
+        employees = query.order_by(Employee.name.asc(), Employee.id).all()
         return jsonify({
             'status': 'success',
+            'total': len(employees),
             'data': [
                 {'id': e.id, 'code': e.code or '', 'name': e.name,
                  'department': e.department.name if e.department else '',

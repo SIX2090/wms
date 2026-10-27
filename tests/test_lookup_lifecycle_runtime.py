@@ -44,13 +44,13 @@ const doc={activeElement:input,getElementById:id=>id==='wms-contract-autocomplet
 const ctx={document:doc,FormData,URLSearchParams,console,scrollY:0,escapeHtml:esc,showToast:(m)=>toasts.push(m),confirm:()=>false,location:{href:'original'},
  setTimeout(f){const id=++timerId;timers.set(id,f);return id;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>pending.push({url,options,resolve,reject}))};ctx.window=ctx;
-vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.code,ctx);
+vm.createContext(ctx);vm.runInContext(p.api,ctx);ctx.WMS.positionDropdown=function(anchor,m){assert(anchor===input||anchor===other);assert(m===dropdown||body.includes(m));m.positioned=true;};vm.runInContext(p.code,ctx);
 if(p.page==='contract'){ctx.WMS.ContractAutocomplete.bind(input);ctx.WMS.ContractAutocomplete.bind(other);}
 const tick=()=>new Promise(r=>setImmediate(r));
 function fire(node,name,extra={}){node.handlers[name]?.call(node,{key:'',target:node,preventDefault(){this.prevented=true},stopPropagation(){},...extra});}
 function flush(){const work=[...timers.values()];timers.clear();work.forEach(f=>f());}
 function menu(){return p.page==='contract'?body.at(-1):dropdown;}
-function visible(){const m=menu();return !!m&&(p.page==='contract'||m.style.display==='block');}
+function visible(){const m=menu();const open=!!m&&(p.page==='contract'||m.style.display==='block');if(open)assert.equal(m.positioned,true,'visible candidates must be positioned');return open;}
 function contains(name){const m=menu();return visible()&&(p.page==='contract'?m.children.some(x=>x.attrs['data-contract-no']===name):m.innerHTML.includes(name));}
 function reply(index,name,kind='ok'){
  const req=pending[index];assert(req,'request '+index+' exists');if(kind==='network'){req.reject(Error('offline'));return;}

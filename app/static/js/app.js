@@ -4383,11 +4383,6 @@ function getRecentVisits() {
         dropdown.className = ACTIVE_CLASS;
         dropdown.setAttribute('role', 'listbox');
 
-        var rect = input.getBoundingClientRect();
-        dropdown.style.left = rect.left + 'px';
-        dropdown.style.top = (rect.bottom + window.scrollY + 2) + 'px';
-        dropdown.style.width = Math.max(rect.width, 320) + 'px';
-
         contracts.forEach(function(c, idx) {
             var item = document.createElement('div');
             item.className = ITEM_CLASS;
@@ -4412,6 +4407,7 @@ function getRecentVisits() {
         });
 
         document.body.appendChild(dropdown);
+        global.WMS.positionDropdown(input, dropdown, {minWidth: 320, maxHeight: 260, gap: 2});
         currentDropdown = dropdown;
     }
 

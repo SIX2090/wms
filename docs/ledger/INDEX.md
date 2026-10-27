@@ -278,6 +278,7 @@
 | 9 | ai | records-2026-10.md |
 | A3-4 | ai | records-2026-10.md |
 | AI-PROMPT-V2-2026-10-04 | ai | records-2026-10.md |
+| AI-R01-F01 | ai | records-2026-10.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |
@@ -519,6 +520,8 @@
 | BUG-2026-10-26-007 | bugs | entries-2026-10.md |
 | BUG-2026-10-26-008 | bugs | entries-2026-10.md |
 | BUG-2026-10-26-009 | bugs | entries-2026-10.md |
+| BUG-2026-10-26-010 | bugs | entries-2026-10.md |
+| BUG-2026-10-26-006 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
@@ -936,5 +939,3 @@
 | BUG-2026-09-22-006 | bugs | history-2026-08.md |
 | BUG-2026-09-29-001 | bugs | history-2026-08.md |
 | FEAT-2026-10-03-001 | bugs | history-2026-08.md |
-| AI-R01-F01 | ai | records-2026-10.md |
-| BUG-2026-10-26-010 | bugs | entries-2026-10.md |

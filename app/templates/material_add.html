@@ -188,6 +188,7 @@ function showUnitDropdown(list) {
         (u.code ? ' <span style="color:#999;">(' + escapeHtml(u.code) + ')</span>' : '') +
         '</div>'
     ).join('');
+    WMS.positionDropdown(unitSearch, unitDropdown, {maxHeight: 200});
     unitDropdown.style.display = 'block';
 
     unitDropdown.querySelectorAll('.dropdown-item').forEach(item => {
@@ -272,6 +273,7 @@ function showSupplierDropdown(list) {
         (s.phone ? ' <span style="color:#999;">| ' + escapeHtml(s.phone) + '</span>' : '') +
         '</div>'
     ).join('');
+    WMS.positionDropdown(supplierSearch, supplierDropdown, {maxHeight: 200});
     supplierDropdown.style.display = 'block';
 
     supplierDropdown.querySelectorAll('.dropdown-item').forEach(item => {

@@ -256,7 +256,7 @@ $('#materialSearch').on('input', function() {
         m.code.toLowerCase().includes(query) || 
         m.name.toLowerCase().includes(query) ||
         (m.spec && m.spec.toLowerCase().includes(query))
-    ).slice(0, 20);
+    );
     
     dropdown.empty();
     if (filtered.length === 0) {
@@ -286,6 +286,7 @@ $('#materialSearch').on('input', function() {
         });
     }
     dropdown.addClass('show');
+    WMS.positionDropdown(this, document.getElementById('materialDropdown'), {maxHeight: 300});
 });
 
 // 点击外部关闭下拉

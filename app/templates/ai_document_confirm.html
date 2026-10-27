@@ -175,6 +175,7 @@
             <button type="button" class="btn btn-outline-secondary btn-sm" id="aiSelectAll">全选</button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="aiDeselectAll">取消全选</button>
             <input type="search" class="form-control form-control-sm ai-material-filter" id="materialFilter" placeholder="过滤物料编码/名称/规格" style="width: 220px;">
+            <span class="text-muted small">模糊搜索最多显示100条，请细化编码 / 名称 / 规格查找。</span>
         </div>
     </div>
 
@@ -434,7 +435,7 @@
         if (seq === undefined) seq = ++filterSeq;
         const current = () => seq === filterSeq && filter.isConnected !== false && filter.value.trim() === keyword;
         if (!keyword) {
-            const items = Array.from(initialOptions.values()).slice(0, 100);
+            const items = Array.from(initialOptions.values());
             if (current()) callback(items);
             return;
         }

@@ -40,9 +40,10 @@ def test_dropdown_renders_untrusted_fields_as_literal_text_and_preserves_selecti
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);let click;
 const row={dataset:{id:'7'},style:{},querySelector:()=>({textContent:p.value==null?'':p.value}),addEventListener:(type,fn)=>{if(type==='click')click=fn;}};
 const dropdown={style:{display:'none'},innerHTML:'',querySelectorAll:()=>[row]},search={value:''},hidden={value:''};
-const ctx={unitDropdown:dropdown,supplierDropdown:dropdown,unitSearch:search,supplierSearch:search,unitIdHidden:hidden,supplierIdHidden:hidden};vm.createContext(ctx);
+let positions=0;
+const ctx={unitDropdown:dropdown,supplierDropdown:dropdown,unitSearch:search,supplierSearch:search,unitIdHidden:hidden,supplierIdHidden:hidden,WMS:{positionDropdown(input,menu){assert.equal(input,search);assert.equal(menu,dropdown);positions++;}}};vm.createContext(ctx);
 vm.runInContext(p.helper+'\n'+p.handler,ctx);ctx['show'+p.kind+'Dropdown']([{id:7,name:p.value,code:p.value,contact:p.value,phone:p.value}]);
-assert.equal(dropdown.style.display,'block');click.call(row);assert.equal(search.value,p.value==null?'':p.value);assert.equal(hidden.value,'7');assert.equal(dropdown.style.display,'none');
+assert.equal(positions,1);assert.equal(dropdown.style.display,'block');click.call(row);assert.equal(search.value,p.value==null?'':p.value);assert.equal(hidden.value,'7');assert.equal(dropdown.style.display,'none');
 const html=dropdown.innerHTML;ctx['show'+p.kind+'Dropdown']([]);assert.equal(dropdown.style.display,'none');
 process.stdout.write(JSON.stringify({html}));
 '''

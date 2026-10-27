@@ -610,6 +610,7 @@ function renderMaterialMenuItems(matches, index) {
             <span class="meta">库存：${escapeHtml(item.stock ?? 0)}</span>
         </div>
     `).join('') : '<div class="material-menu-item">没有匹配物料</div>';
+    if (matches.length >= 100) materialMenu.insertAdjacentHTML('beforeend', '<div class="text-muted small p-2">本次显示前100条候选，请细化编码 / 名称 / 规格继续查找。</div>');
 }
 
 function showMaterialMenu(input, index) {

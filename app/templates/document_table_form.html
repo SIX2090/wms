@@ -658,7 +658,7 @@ function showDropdown(row, showAll) {
     if (activeDropdown && activeDropdown !== dropdown) activeDropdown.style.display = 'none';
     const filtered = materials.filter(function(m) {
         return showAll || String(m.code||'').toLowerCase().includes(keyword) || String(m.brand||'').toLowerCase().includes(keyword) || String(m.name||'').toLowerCase().includes(keyword) || String(m.spec||'').toLowerCase().includes(keyword);
-    }).slice(0, 80);
+    });
     if (!filtered.length) { dropdown.style.display = 'none'; return; }
     dropdown.innerHTML = filtered.map(function(m) {
         return `<div class="material-dropdown-item" data-code="${escapeHtml(m.code)}"><span class="code">${escapeHtml(m.code)}</span><span class="meta">${escapeHtml(m.brand || '')}</span> - ${escapeHtml(m.name)}<span class="meta">${escapeHtml(m.spec || '')}</span><span class="meta">${escapeHtml(getMaterialUnit(m))}</span><span class="meta">库存 ${formatQty(m.stock)}</span></div>`;

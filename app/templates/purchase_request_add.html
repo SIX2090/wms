@@ -534,7 +534,7 @@ function findMaterialQuickMatch(keyword) {
 function getMaterialMatches(keyword, showAll = false) {
     const normalized = normalizeSearchValue(keyword);
     if (showAll || !normalized) {
-        return materials.slice(0, 80);
+        return materials.slice();
     }
     const exactCode = [];
     const startsWith = [];
@@ -554,7 +554,7 @@ function getMaterialMatches(keyword, showAll = false) {
             contains.push(material);
         }
     });
-    return exactCode.concat(startsWith, contains).slice(0, 80);
+    return exactCode.concat(startsWith, contains);
 }
 
 function addNewRow(insertBeforeRow = null, data = {}) {
@@ -897,7 +897,7 @@ function showSupplierDropdown(row, showAll = false) {
         if (showAll || !keyword) return true;
         const haystack = `${s.code || ''} ${s.name || ''} ${s.contact || ''} ${s.phone || ''}`.toLowerCase();
         return haystack.includes(keyword);
-    }).slice(0, 60);
+    });
 
     if (filtered.length === 0) {
         dropdown.innerHTML = '<div class="supplier-dropdown-item" data-empty="1" style="color:#999;cursor:default;">无匹配供应商，可直接手工输入</div>';
