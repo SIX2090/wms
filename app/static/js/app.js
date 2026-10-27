@@ -3932,7 +3932,9 @@ function getRecentVisits() {
             var rawText = Array.from(th.childNodes).filter(function(n) { return n.nodeType === 3; }).map(function(n) { return n.textContent; }).join('').trim();
             var label = th.dataset.defaultLabel || rawText || (hasOnlyCheckbox ? '' : key);
             th.dataset.defaultLabel = label;
-            return { key: key, label: label, defaultLabel: label, defaultIndex: Number(th.dataset.wmsDefaultColumnIndex), locked: ['row_no','material_code','quantity','contract_no','project_name','actions'].indexOf(key) !== -1 };
+            // Business fields, including newly added columns, are configurable by default.
+            // Only the row-number and action columns are structural controls.
+            return { key: key, label: label, defaultLabel: label, defaultIndex: Number(th.dataset.wmsDefaultColumnIndex), locked: ['row_no','actions'].indexOf(key) !== -1 };
         }).sort(function(a, b) { return a.defaultIndex - b.defaultIndex; });
     }
 

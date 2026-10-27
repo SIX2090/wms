@@ -86,7 +86,7 @@ function fixture(options = {}) {
     const settingsBody = new Element('tbody'); settingsBody.querySelectorAll = () => settingsBody.children;
     function settingsRow() {
         const row = new Element('tr'), text = new Element('input'), checkbox = new Element('input');
-        Object.defineProperty(row, 'innerHTML', {set() { row.children = Array.from({length: 4}, () => new Element('td')); }});
+        Object.defineProperty(row, 'innerHTML', {set(html) { row.children = Array.from({length: 4}, () => new Element('td')); checkbox.disabled = /type="checkbox"[^>]*\bdisabled/.test(html); }});
         row.querySelector = selector => selector.includes('checkbox') ? checkbox : text;
         return row;
     }
@@ -135,6 +135,50 @@ function fixture(options = {}) {
 }
 
 function run() {
+    if (scenario.startsWith('business-columns-')) {
+        const keys = ['row_no', 'material_code', 'quantity', 'contract_no', 'project_name', 'new_business_field', 'actions'];
+        const dynamic = scenario.includes('dynamic');
+        const options = {keys, report: scenario.includes('report'), locked: ['row_no', 'actions']};
+        const g = fixture(options);
+        if (dynamic) g.dynamic();
+        g.initialize(); g.open();
+        for (const key of keys.slice(1, -1)) {
+            const checkbox = g.rowOf(key).querySelector('input[type=checkbox]');
+            assert.equal(checkbox.disabled, false, key + ' must allow hiding');
+            checkbox.checked = false;
+            checkbox.handlers.change.forEach(handler => handler.call(checkbox));
+        }
+        assert.equal(g.rowOf('row_no').querySelector('input[type=checkbox]').disabled, true);
+        assert.equal(g.rowOf('actions').querySelector('input[type=checkbox]').disabled, true);
+        g.move('project_name', 'up'); g.move('project_name', 'up');
+        g.move('contract_no', 'down');
+        const expected = ['row_no', 'material_code', 'project_name', 'quantity', 'new_business_field', 'contract_no', 'actions'];
+        g.ok(); g.flush();
+        assert.deepEqual(g.order(), expected); assert.deepEqual(g.bodyOrder(), expected);
+        const saved = JSON.parse(g.store.get(g.fieldKey));
+        assert.deepEqual(saved.hidden.sort(), keys.slice(1, -1).sort());
+        const reload = fixture({...options, store: g.store});
+        if (dynamic) reload.dynamic();
+        reload.initialize(); reload.open();
+        assert.deepEqual(reload.order(), expected);
+        for (const key of saved.hidden) {
+            assert(reload.header.children.find(cell => cell.dataset.columnKey === key).classes.has('wms-field-column-hidden'));
+            assert.equal(reload.rowOf(key).querySelector('input[type=checkbox]').checked, false);
+        }
+        const later = reload.cell('later_added_field', 'later_added_field');
+        reload.header.appendChild(later); reload.addRow([...expected, 'later_added_field']); reload.flush();
+        reload.open();
+        let added = reload.rowOf('later_added_field').querySelector('input[type=checkbox]');
+        assert.equal(added.disabled, false); assert.equal(added.checked, true);
+        reload.move('later_added_field', 'up');
+        added = reload.rowOf('later_added_field').querySelector('input[type=checkbox]');
+        added.checked = false; added.handlers.change.forEach(handler => handler.call(added));
+        reload.ok(); reload.flush();
+        assert(JSON.parse(reload.store.get(reload.fieldKey)).hidden.includes('later_added_field'));
+        reload.open(); reload.reset(); reload.ok();
+        assert.deepEqual(JSON.parse(reload.store.get(reload.fieldKey)).hidden, []);
+        return;
+    }
     const defaults = ['quantity', 'memo', 'price'];
     const sharedOrder = ['memo', 'price', 'quantity'];
     const ownOrder = ['price', 'quantity', 'memo'];
