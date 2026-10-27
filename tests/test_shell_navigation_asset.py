@@ -50,7 +50,7 @@ def test_navigation_loads_once_in_its_original_execution_position(role):
 def test_navigation_extraction_preserves_original_script_bytes():
     source = (ROOT / 'app/static' / ASSET).read_bytes()
     # Entire original script, including comments, whitespace and execution order.
-    assert hashlib.sha256(source).hexdigest() == '517c7e85bf148e328afb0529e64a85c7ba503ce6fd17902960410c4b91f35d21'
+    assert hashlib.sha256(source).hexdigest() == '26fbbaefb795a286d88a52d4ba790075ab449c8a31693d4f1e431862e899db36'
     assert b'{{' not in source and b'{%' not in source
 
 
@@ -68,6 +68,7 @@ def test_navigation_response_supports_browser_cache_and_etag():
 @pytest.mark.parametrize('path,query,expected', [
     ('/in_order', '?type=purchase_in', '采购管理'),
     ('/in_order', '?type=product_in', '产品管理'),
+    ('/in_order', '?type=product_in&embedded=1', '产品管理'),
     ('/in_order/7/edit', '', '采购管理'),
     ('/', '', None), ('/unlisted', '', None),
 ])
@@ -103,7 +104,7 @@ const document={title:'明细 <原样显示>',
  if(s==='.module-menu.open')return menus.find(m=>m.classList.contains('open'))||null;throw Error(s);},
  getElementById:id=>id==='wmsBreadcrumb'?nav:id==='wmsBreadcrumbList'?list:null,
  createElement(tag){const node=element();if(tag==='a')Object.defineProperty(node,'href',{set(value){const u=new URL(value,'https://wms.test');node.pathname=u.pathname;node.search=u.search;}});return node;}};
-const ctx={document,Date,window:{location:{pathname:p.path,search:p.query},setTimeout:(fn,delay)=>timers.push({fn,delay})}};
+const ctx={document,Date,URLSearchParams,window:{location:{pathname:p.path,search:p.query},setTimeout:(fn,delay)=>timers.push({fn,delay})}};
 vm.createContext(ctx);vm.runInContext(p.source,ctx);
 assert.equal(date.attrs.lang,undefined,'initializers must wait for DOM readiness');
 for(const item of listeners.DOMContentLoaded)item.fn();

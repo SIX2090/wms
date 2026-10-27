@@ -173,6 +173,23 @@ def register_purchase_order_routes(app):
             }
         suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
         summary = build_purchase_order_todo_summary()
+        # 已下推草稿仍未入库；不得把未下推数量当成待收货数量。
+        from sqlalchemy import func
+        from app import InOrder, InOrderItem
+        completed_by_item = dict(db.session.query(
+            InOrderItem.source_purchase_order_item_id,
+            func.sum(InOrderItem.quantity),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).filter(
+            InOrder.status == 'completed',
+            InOrderItem.source_purchase_order_item_id.isnot(None),
+        ).group_by(InOrderItem.source_purchase_order_item_id).all())
+        pending_items = db.session.query(PurchaseOrderItem.id, PurchaseOrderItem.received_quantity).join(
+            PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id,
+        ).filter(PurchaseOrder.status.in_(('pending', 'partial'))).all()
+        summary['pending_receive_qty'] = round_to_2_decimals(sum(
+            max((pushed or 0) - (completed_by_item.get(item_id) or 0), 0)
+            for item_id, pushed in pending_items
+        ))
         filters = {
             'status': status_filter,
             'search': search,

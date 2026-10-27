@@ -886,7 +886,7 @@ def register_out_order_routes(app):
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
 
-            log_operation('保存领料单', f'领料单：{order_no}', 'out_order', order.id)
+            log_operation(f'保存{order.business_type or "领料单"}', f'出库单：{order_no}', 'out_order', order.id)
             app.logger.info(f'领料单创建成功：{order.order_no}')
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
         except Exception as e:
@@ -1213,7 +1213,7 @@ def register_out_order_routes(app):
             sync_sales_order_shipment(order, quantity_sign=1)
             recalculate_order_total(order)
             db.session.commit()
-            log_operation('完成领料单', f'领料单：{order.order_no}', 'out_order', id)
+            log_operation(f'完成{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
             app.logger.info(f'领料单完成：{order.order_no}')
             return jsonify({'status': 'success', 'msg': '提交成功'})
         except Exception as e:
@@ -1267,7 +1267,7 @@ def register_out_order_routes(app):
             sync_sales_order_shipment(order, quantity_sign=-1)
             recalculate_order_total(order)
             db.session.commit()
-            log_operation('反提交领料单', f'领料单：{order.order_no}', 'out_order', id)
+            log_operation(f'反提交{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
             # BUG-2026-08-16-012：反提交领料单写结构化审计
             log_audit(
                 'revert_out_order', 'out_order', id,
@@ -1316,7 +1316,7 @@ def register_out_order_routes(app):
             ).delete(synchronize_session=False)
             db.session.delete(order)
             db.session.commit()
-            log_operation('删除领料单', f'领料单：{order.order_no}', 'out_order', id)
+            log_operation(f'删除{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
             # BUG-2026-08-16-012：删除领料单写结构化审计
             log_audit(
                 'delete_out_order', 'out_order', id,

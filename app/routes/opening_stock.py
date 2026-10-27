@@ -1140,6 +1140,13 @@ def register_opening_stock_routes(app):
                 Material.spec.like(like),
             ))
         query = query.order_by(Material.code.asc())
+        if only_gap:
+            built_material_ids = [
+                material_id for material_id in qty_map
+                if not _opening_stock_progress_cells(qty_map, material_id, warehouse_ids)[-1]
+            ]
+            if built_material_ids:
+                query = query.filter(Material.id.notin_(built_material_ids))
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
         rows = []

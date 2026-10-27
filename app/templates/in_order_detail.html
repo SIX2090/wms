@@ -336,7 +336,7 @@
                             <td><a href="{{ url_for('purchase_order_detail', id=order.source_purchase_order.id) }}" target="_blank" rel="noopener">{{ order.source_purchase_order.order_no }}</a></td>
                             <td>{{ order.source_purchase_order.supplier.name if order.source_purchase_order.supplier else '-' }}</td>
                             <td class="text-end">¥{{ "%.2f"|format(order.source_purchase_order.total_amount or 0) }}</td>
-                            <td>{{ order.source_purchase_order.status }}</td>
+                            <td>{{ {'pending':'未入库', 'partial':'部分入库', 'completed':'已入库', 'closed':'已关闭'}.get(order.source_purchase_order.status, '未知状态') }}</td>
                         </tr>
                         {% else %}
                         <tr><td colspan="6" class="text-center text-muted">暂无单头来源采购单，明细行仍可查看来源追溯。</td></tr>
@@ -1209,20 +1209,20 @@ function toggleColumn(colClass) {
     const cells = document.querySelectorAll('[data-col="' + colClass + '"]');
     const rows = document.querySelectorAll('#itemTable tbody tr');
     const index = Array.from(document.querySelectorAll('#itemTable thead th')).findIndex(th => th.dataset.col === colClass);
-    
+
     if (index === -1) return;
-    
+
     const isVisible = !cells[0]?.classList.contains('d-none');
-    
+
     // Toggle header
     cells.forEach(cell => cell.classList.toggle('d-none'));
-    
+
     // Toggle body cells
     rows.forEach(row => {
         const cell = row.cells[index];
         if (cell) cell.classList.toggle('d-none');
     });
-    
+
     // Toggle footer cells
     document.querySelectorAll('#itemTable tfoot tr').forEach(row => {
         const cell = row.cells[index];
@@ -1419,7 +1419,7 @@ function revertOrder(id) {
 function deleteOrder(id) {
     var showConfirmFn = window.showConfirm || (window.parent && window.parent.showConfirm) || null;
     var showToastFn = window.showToast || (window.parent && window.parent.showToast) || null;
-    
+
     if (showConfirmFn) {
         showConfirmFn('确定要删除该入库单吗？此操作不可恢复。', {title: '删除入库单'}).then(function(confirmed) {
             if (!confirmed) return;
@@ -1553,7 +1553,7 @@ function addItem() {
     const code = document.getElementById('code').value.trim();
     const qty = parseFloat(document.getElementById('qty').value);
     const price = parseFloat(document.getElementById('price').value) || 0;
-    
+
     if (!code) {
         showToast('请输入物料编码', 'warning');
         return;
@@ -1562,7 +1562,7 @@ function addItem() {
         showToast('请输入有效的数量', 'warning');
         return;
     }
-    
+
     const itemData = new FormData();
     itemData.append('material_code', code);
     itemData.append('quantity', qty);

@@ -10,7 +10,7 @@
   </div>
   {{ report_toolbar('execution', export_action='exportReport', warehouse=filters.warehouse_id) }}
   <form class="card card-body mb-3" method="get">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
     <div class="row g-2 align-items-end">
       <div class="col-md-2"><label class="form-label small">开始日期</label><input class="form-control form-control-sm" type="date" name="date_start" value="{{ filters.date_start }}"></div>
       <div class="col-md-2"><label class="form-label small">结束日期</label><input class="form-control form-control-sm" type="date" name="date_end" value="{{ filters.date_end }}"></div>

@@ -508,6 +508,7 @@ function createRow(item) {
         if (docType === 'check') {
             row.querySelector('.system-stock').value = formatQty(item.system_stock);
             row.querySelector('.actual-stock').value = formatQty(item.actual_stock);
+            row.dataset.counted = item.counted_at || item.counted_by_name ? 'true' : 'false';
             row.querySelector('.line-area').value = item.area || '';
             row.querySelector('.line-reason').value = item.reason || '';
             // INV-BATCH-001-D：行级盘点归属回查（盘点人 / 时间）
@@ -564,7 +565,10 @@ function bindRowEvents(row) {
         }
     });
     row.querySelectorAll('.line-qty,.line-price,.actual-stock,.system-stock').forEach(function(input) {
-        input.addEventListener('input', function() { trimDecimalInput(this); calcRow(row); });
+        input.addEventListener('input', function() {
+            if (this.classList.contains('actual-stock')) row.dataset.counted = 'true';
+            trimDecimalInput(this); calcRow(row);
+        });
         input.addEventListener('blur', function() { if (this.value) this.value = formatQty(this.value); calcRow(row); });
     });
 }
@@ -610,6 +614,7 @@ function copyRowAfter(row) {
     if (docType === 'check') {
         target.querySelector('.system-stock').value = row.querySelector('.system-stock').value;
         target.querySelector('.actual-stock').value = row.querySelector('.actual-stock').value;
+        target.dataset.counted = row.dataset.counted || 'false';
         target.querySelector('.line-area').value = row.querySelector('.line-area').value;
         target.querySelector('.line-reason').value = row.querySelector('.line-reason').value;
         updateCheckDiff(target);
@@ -710,7 +715,7 @@ function collectItems() {
                 unit_id: unitId,
                 area: area,
                 system_stock: parseFloat(row.querySelector('.system-stock').value) || 0,
-                actual_stock: parseFloat(row.querySelector('.actual-stock').value) || 0,
+                actual_stock: row.dataset.counted === 'true' ? (parseFloat(row.querySelector('.actual-stock').value) || 0) : null,
                 reason: row.querySelector('.line-reason').value.trim()
             });
             return;
@@ -959,6 +964,7 @@ async function parsePastedData() {
             fillMaterialFields(row, material);
             if (docType === 'check') {
                 row.querySelector('.actual-stock').value = formatQty(entry.qty);
+                row.dataset.counted = 'true';
                 row.querySelector('.line-reason').value = entry.parts[2] || '';
                 updateCheckDiff(row);
             } else {

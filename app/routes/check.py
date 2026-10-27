@@ -373,6 +373,8 @@ def register_check_routes(app):
                     # 已有行：冻结账面保留，只更新实盘/原因/差异
                     if has_actual:
                         row.actual_stock = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock))
+                        row.counted_by = current_user.id
+                        row.counted_at = datetime.now()
                     row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
                     row.reason = (item_data.get('reason') or item_data.get('remark') or '').strip()
                 else:
@@ -386,6 +388,8 @@ def register_check_routes(app):
                         area=area,
                         system_stock=system_stock,
                         actual_stock=actual_stock,
+                        counted_by=current_user.id if has_actual else None,
+                        counted_at=datetime.now() if has_actual else None,
                         difference=round_to_2_decimals(actual_stock - system_stock),
                         reason=(item_data.get('reason') or item_data.get('remark') or '').strip()
                     ))

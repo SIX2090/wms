@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% import '_list_macros.html' as ui %}
-{% block title %}{{ order.business_type or '领料单' }}详情 - {{ order.order_no }}{% endblock %}
+{% block title %}{{ out_document_label }}详情 - {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
@@ -115,6 +115,7 @@
 </style>
 {% endblock %}
 
+{% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
 {% block content %}
 {% if push_source %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -129,7 +130,7 @@
             <div>
                 <div class="order-title">
                     <i class="bi bi-box-arrow-up"></i>
-                    {{ order.business_type or '领料单' }}：{{ order.order_no }}
+                    {{ out_document_label }}：{{ order.order_no }}
                     <span class="status-badge {{ order.status }}">
                         <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
                         {% if order.status == 'pending' %}草稿
@@ -161,7 +162,7 @@
                     <i class="bi bi-pencil-square"></i> 编辑单据
                 </button>
                 <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
-                    <i class="bi bi-check-circle"></i> 完成领料
+                    <i class="bi bi-check-circle"></i> 完成出库
                 </button>
                 <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})">
                     <i class="bi bi-trash"></i> 删除
@@ -200,7 +201,7 @@
                     <span class="info-value">{{ order.order_no }}</span>
                 </div>
                 <div class="info-item">
-                    <span class="info-label">领料日期</span>
+                    <span class="info-label">出库日期</span>
                     <span class="info-value">{{ order.date }}</span>
                 </div>
                 <div class="info-item">
@@ -338,7 +339,7 @@
     <div class="order-table-container">
         <div class="order-toolbar">
             <div class="table-header-custom">
-                <span><i class="bi bi-list-ul"></i> 领料明细</span>
+                <span><i class="bi bi-list-ul"></i> 出库明细</span>
                 <span class="badge bg-light text-dark">共 {{ order.items|length }} 项</span>
             </div>
         </div>
@@ -1345,10 +1346,10 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
     });
 });
 
-// ==================== 完成领料 ====================
+// ==================== 完成出库 ====================
 function completeOrder(id, force) {
     return WMS.runDocumentAction('completeOrder', function() {
-        return _showConfirm('确认完成领料？完成后库存将减少。', {title: '完成领料'}).then(function(confirmed) {
+        return _showConfirm('确认完成出库？完成后库存将减少。', {title: '完成出库'}).then(function(confirmed) {
             if (!confirmed) return;
             var url = '/out_order/' + id + '/complete';
             if (force) {
@@ -1359,7 +1360,7 @@ function completeOrder(id, force) {
                 if (res.status === 'warning') {
                     showAnomalyWarning(res.anomalies, id);
                 } else if (res.status === 'success') {
-                    _showToast(res.msg || '领料完成', 'success');
+                    _showToast(res.msg || '出库完成', 'success');
                     setTimeout(function() { location.reload(); }, 600);
                 } else {
                     _showToast(res.msg || '操作失败', 'danger');
@@ -1405,7 +1406,7 @@ function forceCompleteOrder() {
 
 // ==================== 反提交 ====================
 function revertOrder(id) {
-    _showConfirm('确认反提交？反提交后库存将恢复。', {title: '反提交领料单'}).then(function(confirmed) {
+    _showConfirm('确认反提交？反提交后库存将恢复。', {title: '反提交{{ out_document_label }}'}).then(function(confirmed) {
         if (!confirmed) return;
         return WMS.api.postRaw('/out_order/' + id + '/revert')
         .then(function(res) {
@@ -1421,7 +1422,7 @@ function revertOrder(id) {
 
 // ==================== 删除单据 ====================
 function deleteOrder(id) {
-    _showConfirm('确定要删除该领料单吗？此操作不可恢复。', {title: '删除领料单'}).then(function(confirmed) {
+    _showConfirm('确定要删除该{{ out_document_label }}吗？此操作不可恢复。', {title: '删除{{ out_document_label }}'}).then(function(confirmed) {
         if (!confirmed) return;
         WMS.api.postRaw('/out_order/' + id + '/delete')
         .then(function(res) {
@@ -1429,7 +1430,7 @@ function deleteOrder(id) {
                 _showToast('删除成功', 'success');
                 setTimeout(function() {
                     if (window.parent && window.parent.WmsTabs) {
-                        window.parent.WmsTabs.open('/out_order', '领料单');
+                        window.parent.WmsTabs.open('/out_order', '{{ out_document_label }}');
                     } else {
                         location.href = '/out_order';
                     }
@@ -1446,7 +1447,7 @@ function deleteOrder(id) {
 
 // ==================== 复制单据 ====================
 function copyOrder(id) {
-    _showConfirm('确定复制该出库/领料单吗？系统会生成一张新的草稿，不会直接扣减库存。', {title: '复制出库单'}).then(function(confirmed) {
+    _showConfirm('确定复制该出库/{{ out_document_label }}吗？系统会生成一张新的草稿，不会直接扣减库存。', {title: '复制出库单'}).then(function(confirmed) {
         if (!confirmed) return;
         WMS.api.postRaw('/out_order/' + id + '/copy', {})
         .then(function(res) {
@@ -1519,12 +1520,12 @@ function printLabel(materialId) {
 function showAiAnomalyAnalysis() {
     var modal = new bootstrap.Modal(document.getElementById('aiAnomalyModal'));
     modal.show();
-    
+
     // 重置状态
     document.getElementById('aiAnomalyLoading').style.display = 'block';
     document.getElementById('aiAnomalyContent').style.display = 'none';
     document.getElementById('aiAnomalyError').style.display = 'none';
-    
+
     // 调用API
     fetch('/api/ai/out_order/{{ order.id }}/anomaly_analysis', {
         method: 'GET',
@@ -1533,20 +1534,20 @@ function showAiAnomalyAnalysis() {
     .then(function(r) { return r.json(); })
     .then(function(res) {
         document.getElementById('aiAnomalyLoading').style.display = 'none';
-        
+
         if (res.status === 'success' && res.data) {
             var data = res.data;
             document.getElementById('aiAnomalySummary').innerHTML = '<i class="bi bi-lightbulb"></i> ' + escapeHtml(data.summary || '分析完成');
-            
+
             var anomalies = data.anomalies || [];
             var listHtml = '';
-            
+
             if (anomalies.length === 0) {
                 listHtml = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> 未发现异常，所有物料状态正常。</div>';
             } else {
                 listHtml = '<div class="table-responsive"><table class="table table-sm table-bordered">';
                 listHtml += '<thead class="table-light"><tr><th>物料编码</th><th>物料名称</th><th>异常类型</th><th>说明</th><th>严重程度</th></tr></thead><tbody>';
-                
+
                 anomalies.forEach(function(a) {
                     var severityClass = 'bg-secondary';
                     var severityText = '提示';
@@ -1560,7 +1561,7 @@ function showAiAnomalyAnalysis() {
                         severityClass = 'bg-info text-dark';
                         severityText = '提示';
                     }
-                    
+
                     listHtml += '<tr>';
                     listHtml += '<td>' + escapeHtml(a.material_code || '') + '</td>';
                     listHtml += '<td>' + escapeHtml(a.material_name || '') + '</td>';
@@ -1569,10 +1570,10 @@ function showAiAnomalyAnalysis() {
                     listHtml += '<td><span class="badge ' + severityClass + '">' + severityText + '</span></td>';
                     listHtml += '</tr>';
                 });
-                
+
                 listHtml += '</tbody></table></div>';
             }
-            
+
             document.getElementById('aiAnomalyList').innerHTML = listHtml;
             document.getElementById('aiAnomalyContent').style.display = 'block';
         } else {
@@ -1618,7 +1619,7 @@ function addItem() {
     var code = document.getElementById('code').value.trim();
     var qty = parseFloat(document.getElementById('qty').value);
     var price = parseFloat(document.getElementById('price').value) || 0;
-    
+
     if (!code) {
         _showToast('请输入物料编码', 'warning');
         return;
@@ -1627,7 +1628,7 @@ function addItem() {
         _showToast('请输入有效的数量', 'warning');
         return;
     }
-    
+
     var formData = new FormData();
     formData.append('material_code', code);
     formData.append('quantity', qty);
@@ -1674,7 +1675,7 @@ let excelTable = null;
 document.addEventListener('DOMContentLoaded', function() {
     new ExcelImportExport({
         tableId: 'itemTable',
-        fileName: '领料单明细',
+        fileName: '{{ out_document_label }}明细',
         exportUrl: '/out_order/{{ order.id }}/export',
         importUrl: '/import/out_order',
         templateUrl: '/export/template/out_order',

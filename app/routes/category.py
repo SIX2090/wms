@@ -42,7 +42,10 @@ def register_category_routes(app):
         query, sort_by = _apply_master_order(query, MaterialCategory, sort_by, sort_order, allowed_sorts, 'code')
         categories = query.all()
         all_categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc(), MaterialCategory.id.asc()).all()
-        display_rows = build_category_tree_rows(categories if search else all_categories)
+        display_rows = build_category_tree_rows(all_categories)
+        if search:
+            matching_ids = {category.id for category in categories}
+            display_rows = [row for row in display_rows if row['category'].id in matching_ids]
         parent_options = build_category_parent_options(all_categories)
         return render_template(
             'category.html',

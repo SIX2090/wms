@@ -30,7 +30,7 @@
 <div class="card mb-3">
     <div class="card-body py-2">
         <form method="get" class="row g-2 align-items-end">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
@@ -129,7 +129,7 @@
             </tbody>
         </table>
         </div>
-        
+
         {% if pagination.pages > 1 %}
         <nav aria-label="分页导航">
             <ul class="pagination justify-content-center mt-3">
@@ -142,7 +142,7 @@
                     <span class="page-link">上一页</span>
                 </li>
                 {% endif %}
-                
+
                 {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
                     {% if page_num %}
                         {% if page_num == pagination.page %}
@@ -160,7 +160,7 @@
                         </li>
                     {% endif %}
                 {% endfor %}
-                
+
                 {% if pagination.has_next %}
                 <li class="page-item">
                     <a class="page-link" href="{{ url_for('after_sale_out_list', page=pagination.next_num, sort=sort_by, order=sort_order, per_page=per_page, status=filters.status, search=filters.search, date_start=filters.date_start, date_end=filters.date_end, embedded=request.args.get('embedded')) }}">下一页</a>

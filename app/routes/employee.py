@@ -104,6 +104,12 @@ def register_employee_routes(app):
         )
         db.session.add(employee)
         try:
+            db.session.flush()
+            if not code:
+                serial = employee.id
+                while Employee.query.filter_by(code=f'EMP{serial:05d}').first():
+                    serial += 1
+                employee.code = f'EMP{serial:05d}'
             db.session.commit()
         except Exception as e:
             db.session.rollback()

@@ -582,6 +582,17 @@ window.WmsTabs = (function() {
         });
 
         tabs.set(key, { key: key, url: normalizedUrl, title: tabTitle, button: button, frame: frame });
+        frame.addEventListener('load', function() {
+            try {
+                const tab = tabs.get(key);
+                const frameTitle = frame.contentDocument && frame.contentDocument.title;
+                if (!tab || !frameTitle) return;
+                tab.title = frameTitle.replace(/\s+/g, ' ').trim();
+                button.querySelector('.tab-title').textContent = tab.title;
+                button.title = tab.title;
+                persistTabs();
+            } catch (error) { /* 非同源页面保留原页签标题。 */ }
+        });
         tabBar.appendChild(button);
         frameWrap.appendChild(frame);
         activate(key);

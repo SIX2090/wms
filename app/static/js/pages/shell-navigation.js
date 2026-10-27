@@ -123,7 +123,7 @@
             var info = parseHref(link.getAttribute('href'));
             if (!info.path || info.path === '/') return;
             var score = -1;
-            if (info.path === path && info.search && info.search === currentSearch) {
+            if (info.path === path && info.search && Array.from(new URLSearchParams(info.search)).every(function(pair) { return new URLSearchParams(currentSearch).get(pair[0]) === pair[1]; })) {
                 score = 100 + info.path.length;            // 路径+查询完全匹配（如 采购入库明细）
             } else if (info.path === path && !info.search) {
                 score = 50 + info.path.length;             // 纯路径匹配

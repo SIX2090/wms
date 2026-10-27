@@ -126,7 +126,7 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="materialTable">
             <thead>
                 <tr>
-                    <th width="50" data-column-key="select"><input type="checkbox" id="checkAll"></th>
+                    <th width="50" data-column-key="select" data-default-label="选择"><span class="visually-hidden">选择</span><input type="checkbox" id="checkAll" aria-label="全选物料"></th>
                     <th data-column-key="code" data-sortable="code" class="sortable-header">物料编码 {% if sort_by=='code' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="name" data-sortable="name" class="sortable-header">物料名称 {% if sort_by=='name' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="brand" data-sortable="brand" class="sortable-header">品牌 {% if sort_by=='brand' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
@@ -222,7 +222,7 @@
         </div>
         {% endif %}
         </div><!-- end table-responsive-wrapper -->
-        
+
         {% if materials and materials|length > 0 %}
         <div class="d-flex justify-content-between align-items-center mt-3">
             <div class="d-flex align-items-center">
@@ -236,7 +236,7 @@
                 </select>
                 <span class="text-muted ms-2">共 {{ pagination.total }} 条记录</span>
             </div>
-            
+
             {% if pagination.pages > 1 %}
             <nav aria-label="分页导航">
                 <ul class="pagination justify-content-center mb-0">
@@ -249,7 +249,7 @@
                         <span class="page-link">上一页</span>
                     </li>
                     {% endif %}
-                    
+
                     {% for page_num in pagination.iter_pages(left_edge=2, left_current=2, right_current=3, right_edge=2) %}
                         {% if page_num %}
                             {% if page_num == pagination.page %}
@@ -267,7 +267,7 @@
                         </li>
                         {% endif %}
                     {% endfor %}
-                    
+
                     {% if pagination.has_next %}
                     <li class="page-item">
                         <a class="page-link" href="{{ url_for('material_list', page=pagination.next_num, per_page=per_page, sort=sort_by, order=sort_order, search=request.args.get('search', ''), category_id=category_id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">下一页</a>
@@ -713,7 +713,7 @@
                                 <button class="btn btn-outline-danger" onclick="deleteCol()" title="删除列"><i class="bi bi-file-minus"></i> 删除列</button>
                             </div>
                         </div>
-                        
+
                         <!-- 标签尺寸选择 -->
                         <div style="margin-bottom: 10px; background: white; padding: 10px; border-radius: 5px;">
                             <label style="font-size: 12px; margin-right: 10px;">模板:</label>
@@ -742,7 +742,7 @@
                                 </span>
                             </div>
                         </div>
-                        
+
                         <!-- 画布缩放工具条 -->
                         <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                             <div class="btn-group btn-group-sm">
@@ -789,7 +789,7 @@
                             <i class="bi bi-info-circle"></i> 提示：拖拽或双击字段插入单元格；拖动已填单元格可移动/交换位置；点击单元格编辑；Ctrl+点击多选；Ctrl+Z 撤销 / Ctrl+Y 重做 / Delete 清空选中
                         </div>
                     </div>
-                    
+
                     <!-- 右侧：属性面板 -->
                     <div style="width: 235px; background: #f8f9fa; border-left: 1px solid #dee2e6; padding: 15px; overflow-y: auto;">
                         <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-sliders"></i> 当前选中</h6>
@@ -956,6 +956,8 @@
 
 {% block extra_css %}
 <style>
+#materialTable tbody td { padding: 6px 8px; line-height: 1.4; }
+#materialTable tbody td:not([data-column-key="image"]) { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field-item {
     background: white;
     border: 1px solid #dee2e6;
@@ -2505,18 +2507,18 @@ function openLabelTemplate() {
     if (labelTemplateWriteBusy) return;
     labelTemplateModal = new bootstrap.Modal(document.getElementById('labelTemplateModal'));
     labelTemplateModal.show();
-    
+
     // 重置选中状态
     selectedCell = null;
     selectedCells = [];
     document.getElementById('cellProperties').style.display = 'none';
     document.getElementById('noSelection').style.display = 'block';
     document.querySelectorAll('.label-cell').forEach(c => c.classList.remove('selected'));
-    
+
     // 重置委托标志，确保每次打开都能正确绑定事件
     var table = document.getElementById('labelTable');
     if (table) table._dragDelegated = false;
-    
+
     // 加载模板列表
     loadTemplateList();
 
@@ -2757,7 +2759,7 @@ function updateCellProperties() {
     document.getElementById('cellText').value = content.textContent;
     document.getElementById('cellField').value = content.dataset.field || '';
     document.getElementById('cellColspan').value = selectedCell.colSpan || 1;
-    
+
     // 条码/二维码宽高设置显示/隐藏（AA3：二维码也可控尺寸）
     var barcodeSettings = document.getElementById('barcodeSizeSettings');
     var field = content.dataset.field || '';
@@ -2773,16 +2775,16 @@ function updateCellProperties() {
     } else {
         barcodeSettings.style.display = 'none';
     }
-    
+
     // 同步左侧样式工具的值到当前单元格的实际样式
     var curFontSize = content.style.fontSize ? parseInt(content.style.fontSize) : 12;
     var fontSizeSelect = document.getElementById('fontSizeSelect');
     if (fontSizeSelect) fontSizeSelect.value = curFontSize;
-    
+
     var curFontWeight = content.style.fontWeight || 'normal';
     var fontWeightSelect = document.getElementById('fontWeightSelect');
     if (fontWeightSelect) fontWeightSelect.value = curFontWeight;
-    
+
     var curColor = content.style.color || '#000000';
     var textColorSelect = document.getElementById('textColorSelect');
     if (textColorSelect) {
@@ -2795,7 +2797,7 @@ function updateCellProperties() {
         }
         textColorSelect.value = curColor;
     }
-    
+
     // 显示选中单元格位置（行/列/跨列）
     var posInfo = document.getElementById('cellPosInfo');
     if (posInfo) {
@@ -2895,13 +2897,13 @@ function insertRow() {
     var newRowIndex = table.rows.length; // 新行索引
     var row = table.insertRow(-1);
     row.style.height = '30px';
-    
+
     // 计算实际列数
     var actualCols = 0;
     for (var i = 0; i < table.rows[0].cells.length; i++) {
         actualCols += table.rows[0].cells[i].colSpan || 1;
     }
-    
+
     for (var i = 0; i < actualCols; i++) {
         var cell = row.insertCell(-1);
         cell.className = 'label-cell';
@@ -2919,12 +2921,12 @@ function insertRow() {
 function insertCol() {
     var table = document.getElementById('labelTable');
     var newColIndex = 0;
-    
+
     // 计算实际列数
     for (var i = 0; i < table.rows[0].cells.length; i++) {
         newColIndex += table.rows[0].cells[i].colSpan || 1;
     }
-    
+
     for (var i = 0; i < table.rows.length; i++) {
         var row = table.rows[i];
         var cell = row.insertCell(-1);
@@ -2962,7 +2964,7 @@ function deleteRow() {
         __notify('至少需要保留一行', 'warning');
         return;
     }
-    
+
     var rowIndex = table.rows.length - 1; // 默认删除最后一行
     if (selectedCell) {
         var row = selectedCell.parentElement;
@@ -2970,7 +2972,7 @@ function deleteRow() {
             rowIndex = row.rowIndex;
         }
     }
-    
+
     table.deleteRow(rowIndex);
     currentTemplate.rows--;
     selectedCell = null;
@@ -2981,18 +2983,18 @@ function deleteRow() {
 
 function deleteCol() {
     var table = document.getElementById('labelTable');
-    
+
     // 计算实际列数（考虑跨列）
     var actualCols = 0;
     for (var i = 0; i < table.rows[0].cells.length; i++) {
         actualCols += table.rows[0].cells[i].colSpan || 1;
     }
-    
+
     if (actualCols <= 1) {
         __notify('至少需要保留一列', 'warning');
         return;
     }
-    
+
     var colIndex = actualCols - 1; // 默认删除最后一列
     if (selectedCell) {
         // 计算选中单元格的实际列索引
@@ -3002,11 +3004,11 @@ function deleteCol() {
         }
         colIndex = tempIndex + (selectedCell.colSpan || 1) - 1;
     }
-    
+
     // 从后往前遍历每行，删除指定列
     for (var i = 0; i < table.rows.length; i++) {
         var row = table.rows[i];
-        
+
         // 计算该行的实际列索引
         var currentColIndex = 0;
         var targetCellIndex = -1;
@@ -3018,7 +3020,7 @@ function deleteCol() {
             }
             currentColIndex += span;
         }
-        
+
         if (targetCellIndex >= 0 && row.cells[targetCellIndex]) {
             var cell = row.cells[targetCellIndex];
             if (cell.colSpan > 1) {
@@ -3032,7 +3034,7 @@ function deleteCol() {
             }
         }
     }
-    
+
     currentTemplate.cols--;
     selectedCell = null;
     document.getElementById('cellProperties').style.display = 'none';
@@ -3138,7 +3140,7 @@ function changeLabelSize() {
     var size = document.getElementById('labelSizeSelect').value;
     var customSizeDiv = document.getElementById('customSize');
     var canvas = document.getElementById('labelCanvas');
-    
+
     if (size === 'custom') {
         customSizeDiv.style.display = 'inline';
     } else {
@@ -3447,7 +3449,7 @@ function loadTemplateToEditor(template) {
         labelWidth: dimension([layout.width, layout.labelWidth, template.width, template.labelWidth], 60),
         labelHeight: dimension([layout.height, layout.labelHeight, template.height, template.labelHeight], 40)
     };
-    
+
     var sizeSelect = document.getElementById('labelSizeSelect');
     var customSizeDiv = document.getElementById('customSize');
     if (sizeSelect) {
@@ -3465,18 +3467,18 @@ function loadTemplateToEditor(template) {
             if (chInput) chInput.value = h;
         }
     }
-    
+
     var table = document.getElementById('labelTable');
     table.innerHTML = '';
     table._dragDelegated = false;
-    
+
     // 创建行
     for (var r = 0; r < currentTemplate.rows; r++) {
         var row = table.insertRow(-1);
         var rh = (layout.rowHeights && layout.rowHeights[r]) ? layout.rowHeights[r] : 30;
         row.style.height = rh + 'px';
     }
-    
+
     if (layout.cells && layout.cells.length > 0) {
         layout.cells.forEach(function(cellData) {
             var r = parseInt(cellData.row);
@@ -3493,7 +3495,7 @@ function loadTemplateToEditor(template) {
                 var cell = row.cells[c];
                 cell.dataset.row = r;
                 cell.dataset.col = c;
-                
+
                 {
                     cell.innerHTML = '';
                     var content = document.createElement('span');
@@ -3536,7 +3538,7 @@ function loadTemplateToEditor(template) {
             }
         }
     }
-    
+
     // 补齐每行缺失的单元格
     for (var r = 0; r < table.rows.length; r++) {
         var row = table.rows[r];
@@ -3554,7 +3556,7 @@ function loadTemplateToEditor(template) {
             usedCols++;
         }
     }
-    
+
     initTemplateDragDrop();
     updateCanvasSize();  // 让画布反映模板宽高比并同步缩放占位（AA5）
     if (!__applyingHistory) { __resetHistory(); }
@@ -3775,7 +3777,7 @@ function printLabels() {
     document.querySelectorAll('.check-item:checked').forEach(function(cb) {
         selected.push(cb.value);
     });
-    
+
     if (selected.length === 0) {
         __notify('请先选择要打印标签的物料（勾选表格中的复选框）', 'warning');
         return;

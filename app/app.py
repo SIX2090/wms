@@ -27798,7 +27798,7 @@ REPORT_DEFINITIONS = {
         'summary_labels': {
             'count': '记录数',
             'quantity': '实盘数量',
-            'amount': '差异合计',
+            'amount': '绝对差异合计',
         },
         'summary_types': {
             'count': 'number',

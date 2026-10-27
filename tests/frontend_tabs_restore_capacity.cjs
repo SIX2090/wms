@@ -14,7 +14,7 @@ function makeRuntime(storage) {
    addEventListener(k,fn){this.listeners[k]=fn;}
    appendChild(e){e.parentNode=this;this.children.push(e);}
    remove(){if(this.parentNode)this.parentNode.children=this.parentNode.children.filter(x=>x!==this);}
-   querySelector(sel){if(sel==='.tab-close')return this.close||(this.close=new Element('button'));return null;}
+   querySelector(sel){if(sel==='.tab-close')return this.close||(this.close=new Element('button'));if(sel==='.tab-title')return this.titleNode||(this.titleNode=new Element('span'));return null;}
  }
  const nodes={tabBar:new Element('div'),tabFrameWrap:new Element('div')};
  const window={location:{origin:'https://wms.fixture',pathname:urls[0],search:'',hash:''}};
@@ -28,6 +28,13 @@ function run(count){
  const before=JSON.parse(storage.wms_open_tabs);
  const second=makeRuntime(storage);second.tabs.restore();
  const after=JSON.parse(storage.wms_open_tabs);
+ const frame=second.nodes.tabFrameWrap.children[0];
+ const button=second.nodes.tabBar.children[0];
+ frame.contentDocument={title:'销售异常 <原样显示>'};
+ assert.equal(typeof frame.listeners.load,'function');
+ frame.listeners.load();
+ assert.equal(button.querySelector('.tab-title').textContent,'销售异常 <原样显示>');
+ assert.equal(JSON.parse(storage.wms_open_tabs).tabs[0].title,'销售异常 <原样显示>');
  return {requested:count,before:before.tabs.length,after:after.tabs.length,lost:before.tabs.map(t=>t.url).filter(u=>!after.tabs.some(t=>t.url===u)),persistedAfterReload:after};
 }
 const count=Number(process.argv[2]);const result=run(count);assert.equal(result.before,count);assert.equal(result.after,count);assert.equal(result.lost.length,0);console.log(JSON.stringify(result));

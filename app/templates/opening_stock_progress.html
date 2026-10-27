@@ -12,7 +12,7 @@
             <a class="btn btn-outline-secondary" href="/opening_stock"><i class="bi bi-list-ul"></i> 期初单据列表</a>
             <a class="btn btn-primary" href="/opening_stock/add"><i class="bi bi-plus-lg"></i> 新增单据</a>
             <!-- 导出链接带上全部筛选字段（含 per_page），保证与页面所见筛选口径一致 -->
-            <a class="btn btn-outline-primary" href="/opening_stock/progress/export?only_gap={{ filters.only_gap }}&search={{ filters.search|urlencode }}&per_page={{ per_page }}"><i class="bi bi-download"></i> 导出未建账清单</a>
+            <a class="btn btn-outline-primary" href="/opening_stock/progress/export?only_gap={{ filters.only_gap }}&search={{ filters.search|urlencode }}&per_page={{ per_page }}"><i class="bi bi-download"></i> {{ '导出未建账清单' if filters.only_gap == '1' else '导出建账清单' }}</a>
         </div>
     </div>
 
