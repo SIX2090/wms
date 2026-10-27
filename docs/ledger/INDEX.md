@@ -528,6 +528,7 @@
 | BUG-2026-10-26-006 | bugs | entries-2026-10.md |
 | BUG-2026-10-27-001 | bugs | entries-2026-10.md |
 | BUG-2026-10-27-002 | bugs | entries-2026-10.md |
+| BUG-2026-10-27-003 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

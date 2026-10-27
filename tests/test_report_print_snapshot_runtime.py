@@ -31,6 +31,11 @@ const fields={
 };
 Object.defineProperty(fields.warehouse_id,'selectedIndex',{get(){return fields.warehouse_id.options.findIndex(o=>o.value===fields.warehouse_id.value)}});
 const labels={warehouse_id:'仓库 *',start_date:'开始日期',end_date:'结束日期',material_code:'物料搜索',hideZero:'库存等于0不显示'};
+if(reportType==='in_detail'){
+ fields.contract_no={id:'contract_no',name:'contract_no',tagName:'INPUT',type:'text',value:'C-001'};
+ fields.project_name={id:'project_name',name:'project_name',tagName:'INPUT',type:'text',value:'一号工程'};
+ labels.contract_no='合同编号';labels.project_name='工程名称';
+}
 let handler,prints=0,load=[],requests=[],pending=[],renderSnapshots=[];
 const area={innerHTML:''},error={textContent:'',classList:{remove(){},add(){}}};
 const screenValues={count:'99',quantity:'100',amount:'999'};
@@ -63,6 +68,10 @@ function assertRequest(index,warehouse='2'){
  assert.equal(requests[index].pathname,'/report/api/'+reportType);
  assert.equal(requests[index].searchParams.get('warehouse_id'),warehouse);
  assert.equal(requests[index].searchParams.get('page_size'),'500');
+ if(reportType==='in_detail'){
+  assert.equal(requests[index].searchParams.get('contract_no'),'C-001');
+  assert.equal(requests[index].searchParams.get('project_name'),'一号工程');
+ }
  assert.equal(requests[index].searchParams.has('csrf_token'),false);
  assert.equal(requests[index].searchParams.get('sort_field'),'quantity');
  assert.equal(requests[index].searchParams.get('sort_order'),'desc');

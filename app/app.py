@@ -28359,6 +28359,8 @@ def _build_report_filters():
         'warehouse': warehouse_name,
         'warehouse_code': warehouse_code,
         'business_type': raw_business_type,
+        'contract_no': (request.args.get('contract_no') or '').strip(),
+        'project_name': (request.args.get('project_name') or '').strip(),
         'material_code': (request.args.get('material_code') or '').strip(),
         'material_id': _parse_positive_int(request.args.get('material_id'), 0),
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
@@ -28643,6 +28645,8 @@ def _in_detail_columns():
         {'field': 'date', 'title': '日期'},
         {'field': 'order_no', 'title': '入库单号', 'link_field': 'order_url'},
         {'field': 'business_type', 'title': '业务类型'},
+        {'field': 'contract_no', 'title': '合同编号'},
+        {'field': 'project_name', 'title': '工程名称'},
         {'field': 'supplier', 'title': '供应商'},
         {'field': 'customer', 'title': '客户'},
         {'field': 'warehouse', 'title': '仓库'},
@@ -29121,6 +29125,8 @@ def _in_detail_row(item):
         'order_no': order.order_no or '',
         'order_url': _report_detail_url('in_order_detail', order.id),
         'business_type': order.business_type or '采购入库',
+        'contract_no': item.contract_no if item.contract_no is not None else (order.contract_no or ''),
+        'project_name': item.project_name if item.project_name is not None else (order.project_name or ''),
         'supplier': order.supplier.name if order.supplier else '',
         'customer': order.customer.name if order.customer else '',
         'warehouse': order.warehouse or '',
@@ -29179,7 +29185,10 @@ def _filtered_in_detail_query(filters):
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
-    return query
+    return _apply_header_or_item_contract_filters(
+        query, InOrder, InOrderItem, 'in_order_id',
+        contract_no_filter=filters.get('contract_no'),
+        project_name_filter=filters.get('project_name'), item_level=True)
 
 
 def _collect_in_detail_rows(filters):
@@ -30785,6 +30794,8 @@ _IN_DETAIL_SORT_MAP = {
     'date': InOrder.date,
     'order_no': InOrder.order_no,
     'business_type': InOrder.business_type,
+    'contract_no': func.coalesce(InOrderItem.contract_no, InOrder.contract_no, ''),
+    'project_name': func.coalesce(InOrderItem.project_name, InOrder.project_name, ''),
     'supplier': Supplier.name,
     'customer': Customer.name,
     'warehouse': InOrder.warehouse,

@@ -146,6 +146,17 @@
             </div>
             {% endif %}
 
+            {% if report_type == 'in_detail' %}
+            <div class="col-md-3">
+                <label for="contract_no" class="form-label">合同编号</label>
+                <input id="contract_no" name="contract_no" type="text" class="form-control" placeholder="输入合同编号关键字">
+            </div>
+            <div class="col-md-3">
+                <label for="project_name" class="form-label">工程名称</label>
+                <input id="project_name" name="project_name" type="text" class="form-control" placeholder="输入工程名称关键字">
+            </div>
+            {% endif %}
+
             {% if filters_config.material %}
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
