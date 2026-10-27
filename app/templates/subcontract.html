@@ -267,7 +267,6 @@ batchDeleteBtn.addEventListener('click', function() {
         }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
     }
 });
-}
 
 // 新增委外加工单
 document.getElementById('submitAdd').addEventListener('click', function() {
@@ -284,6 +283,7 @@ document.getElementById('submitAdd').addEventListener('click', function() {
         }
     }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
 });
+}
 
 // 删除委外加工单
 var deleteButtons = document.querySelectorAll('.delete-btn');

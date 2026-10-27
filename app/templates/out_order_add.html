@@ -1321,7 +1321,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         business_type: document.querySelector('[name="business_type"]').value,
         department_id: departmentId,
         customer: customer,
-        picker: document.querySelector('[name="picker"]')?.value || '',
+        picker: document.querySelector('[name="picker"]').value,
         warehouse_id: document.querySelector('[name="warehouse_id"]').value,
         location: locationValue,
         remark: document.querySelector('[name="remark"]').value,

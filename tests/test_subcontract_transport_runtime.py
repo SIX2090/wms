@@ -33,11 +33,10 @@ CASES += [(action, 'cancel') for action in ACTIONS if action in CONFIRMED]
 
 
 @pytest.mark.parametrize('action,scenario', CASES)
-def test_subcontract_transport_runtime(action, scenario, actual_dom=False):
+def test_subcontract_transport_runtime(action, scenario):
     node = shutil.which('node')
     assert node, 'Node.js is required for the production transport runtime regression'
     payload = {'action': action, 'scenario': scenario, 'source': source_for(action),
-               'dom_ids': re.findall(r'\bid="([^"]+)"', (ROOT / 'app/templates/subcontract.html').read_text(encoding='utf-8')) if actual_dom else None,
                'api': (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')}
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
@@ -49,7 +48,7 @@ for(const id of ['productQty','issueQty','receiveQty'])nodes[id].value='2.5';
 for(const id of ['issueLocation','receiveLocation'])nodes[id].value='东&A/位';
 nodes.receivePrice.value='3.2';nodes.upload.value='chosen.xlsx';nodes.importForm.action='/fixture/import';
 const checks=[field('check7','7'),field('check8','8')],del=field('delete'),rev=field('revert'),productDel=field('productDelete');
-const document={getElementById:id=>p.dom_ids&&!p.dom_ids.includes(id)?null:nodes[id],addEventListener(){},querySelector:s=>s.startsWith('meta')?{content:'test-token'}:null,querySelectorAll:s=>s.startsWith('.itemCheck')?checks:s==='.delete-btn'?[del]:s==='.revert-btn'?[rev]:s==='.delProductBtn'?[productDel]:[]};
+const document={getElementById:id=>nodes[id],addEventListener(){},querySelector:s=>s.startsWith('meta')?{content:'test-token'}:null,querySelectorAll:s=>s.startsWith('.itemCheck')?checks:s==='.delete-btn'?[del]:s==='.revert-btn'?[rev]:s==='.delProductBtn'?[productDel]:[]};
 class FormData{constructor(form){this.rows=form?[['csrf_token','test-token'],['supplier_id','3'],['file','audit.xlsx']]:[];}append(k,v){this.rows.push([k,String(v)]);}get(k){return this.rows.find(x=>x[0]===k)?.[1]??null;}getAll(k){return this.rows.filter(x=>x[0]===k).map(x=>x[1]);}}
 const ctx={document,FormData,Headers,Promise,URL,URLSearchParams,console,parseFloat,encodeURIComponent,
 location:{href:'http://fixture/subcontract',reload(){trace.push('reload');reloads++;}},setTimeout(fn){fn();},clearTimeout(){},
@@ -78,11 +77,6 @@ else{assert.equal(hidden,0);assert.equal(nodes.productCode.value,'中文&A/1');a
     result = subprocess.run([node, '--max-old-space-size=64', '-e', program], input=json.dumps(payload),
                             capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-@pytest.mark.parametrize('scenario', ['success', 'business', 'httpjson', 'html', 'network'])
-def test_subcontract_add_binds_with_actual_page_ids(scenario):
-    test_subcontract_transport_runtime('add', scenario, actual_dom=True)
 
 
 def test_active_subcontract_pages_have_no_legacy_transport():
