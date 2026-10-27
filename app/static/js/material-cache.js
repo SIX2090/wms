@@ -4,14 +4,15 @@
     var active = new WeakMap();
     var pageSize = 2000;
 
-    async function refresh(target) {
+    async function refresh(target, warehouse) {
         var ticket = {};
         active.set(target, ticket);
         var current = function() { return active.get(target) === ticket; };
         var found = [], seen = new Set(), total = null, pages = null;
         try {
             for (var page = 1; ; page++) {
-                var response = await global.WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + pageSize);
+                var response = await global.WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + pageSize +
+                    (warehouse ? '&warehouse=' + encodeURIComponent(warehouse) : ''));
                 if (!current()) return false;
                 if (!response || response.status !== 'success' || !Array.isArray(response.materials) ||
                     !Number.isSafeInteger(response.total) || response.total < 0 ||
@@ -46,8 +47,48 @@
         }
     }
 
+    function warehouseFromForm() {
+        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_location"]');
+        if (!field || !field.value) return '';
+        var option = field.selectedOptions && field.selectedOptions[0];
+        return option ? option.textContent.trim() : field.value;
+    }
+
+    function bindWarehouse(target) {
+        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_location"]');
+        if (!field || !field.addEventListener || field.dataset && field.dataset.stockScopeBound) return;
+        if (field.dataset) field.dataset.stockScopeBound = 'true';
+        field.addEventListener('change', async function() {
+            var warehouse = warehouseFromForm();
+            if (!warehouse) return;
+            document.querySelectorAll('.material-stock').forEach(function(input) { input.value = ''; });
+            try {
+                if (!await refresh(target, warehouse)) return;
+                document.querySelectorAll('.material-code').forEach(function(input) {
+                    var material = target.find(function(item) { return item.code === input.value.trim(); });
+                    var row = input.closest('tr');
+                    if (!row || !material) return;
+                    var stock = row.querySelector('.material-stock');
+                    if (stock) stock.value = Number(material.stock || 0).toFixed(2);
+                    if (row.dataset && row.dataset.systemStockFrozen !== 'true') {
+                        var system = row.querySelector('.system-stock');
+                        if (system) system.value = Number(material.stock || 0).toFixed(2);
+                        var actual = row.querySelector('.actual-stock');
+                        if (actual && row.dataset.counted !== 'true') actual.value = Number(material.stock || 0).toFixed(2);
+                        var difference = row.querySelector('.line-diff');
+                        if (difference && actual && system) difference.value = (Number(actual.value) - Number(system.value)).toFixed(2);
+                    }
+                });
+            } catch (error) {
+                if (typeof global.showToast === 'function') global.showToast('仓库库存刷新失败，请重试：' + error.message, 'danger');
+            }
+        });
+    }
+
     global.WMS.materialCache = {
         refresh: refresh,
+        warehouseFromForm: warehouseFromForm,
+        bindWarehouse: bindWarehouse,
         isRefreshing: function(target) { return active.has(target); }
     };
 })(window);

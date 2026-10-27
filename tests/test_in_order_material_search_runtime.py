@@ -79,7 +79,7 @@ const ctx={document,URLSearchParams,FormData:class{},showToast:(message,type)=>m
  setTimeout:(fn,delay)=>{const id=++nextTimer;timers.set(id,{fn,delay});return id;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
  updateRowAmount(){},calcAmount:r=>fills.push(r.fields['.material-code'].value),focusNextEditable(){},WMS:{positionDropdown(){}}};ctx.window=ctx;
-vm.createContext(ctx);vm.runInContext(p.escape,ctx);vm.runInContext(p.api,ctx);
+vm.createContext(ctx);vm.runInContext(p.escape,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.materialCache,ctx);
 vm.runInContext('const materials='+JSON.stringify(initial)+';let activeDropdown=null,activeIndex=-1,activeMaterialDropdown=null,activeMaterialIndex=-1;',ctx);
 vm.runInContext(p.notify,ctx);vm.runInContext(p.core,ctx);vm.runInContext(p.key,ctx);vm.runInContext(p.click,ctx);vm.runInContext(p.refresh,ctx);if(p.page==='pr')rows.forEach(r=>ctx.bindMaterialInput(r));
 const evaluate=s=>vm.runInContext(s,ctx),codes=()=>Array.from(evaluate('materials'),m=>m.code);
@@ -148,7 +148,8 @@ const escape=()=>{const event={key:'Escape',target:rows[0].fields['.material-cod
     assert binary, 'Node.js required for frontend runtime verification'
     payload = dict(action=action, error=error, page=page, core=core, refresh=refresh, click=click,
                    key=key, notify=function((ROOT / 'app/templates/in_order_add.html').read_text(encoding='utf-8'), 'notifyMaterialRefresh'), escape=function(app_js, 'escapeHtml'),
-                   api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
+                   api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
+                   materialCache=(ROOT / 'app/static/js/material-cache.js').read_text(encoding='utf-8'))
     result = subprocess.run([binary, '--max-old-space-size=64', '-e', program], input=json.dumps(payload),
                             capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr

@@ -842,7 +842,7 @@ function findEmptyRow() {
 }
 
 function refreshMaterials() {
-    return WMS.materialCache.refresh(materials).then(function(applied) {
+    return WMS.materialCache.refresh(materials, WMS.materialCache.warehouseFromForm()).then(function(applied) {
         if (applied) showToast('物料列表已刷新', 'success');
     }).catch(function(err) { showToast('刷新失败：' + err.message, 'danger'); });
 }
@@ -854,6 +854,7 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    WMS.materialCache.bindWarehouse(materials);
     existingItems.forEach(function(item) {
         createRow(item);
     });

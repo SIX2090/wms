@@ -389,7 +389,7 @@ class ExcelImportExport {
             this.importPending = navigationPending;
             if (input && !navigationPending) input.disabled = originalInputDisabled;
             btn.disabled = this.importCommitted || originalButton.disabled || !this.selectedFile || !this.previewData;
-            btn.innerHTML = this.importCommitted ? '<i class="bi bi-check"></i> 已导入，请核对结果' : originalButton.html;
+            btn.innerHTML = this.importCommitted ? '<i class="bi bi-check"></i> 已处理，请核对结果' : originalButton.html;
         }
     }
 

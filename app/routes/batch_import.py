@@ -71,6 +71,9 @@ def register_batch_import_routes(app):
             Unit,
             api_error,
             current_user,
+            get_default_warehouse,
+            location_management_enabled,
+            validate_inventory_warehouse,
             reuse_material_by_name_spec,
         )
         file = request.files.get('file')
@@ -107,10 +110,14 @@ def register_batch_import_routes(app):
                     col_map['date'] = idx
                 elif h == '用途' or '用途' in h:
                     col_map['purpose'] = idx
-                elif '部门' in h or '领料' in h:
+                elif '部门' in h:
                     col_map['department'] = idx
                 elif h == '领料人' or '领料人' in h:
                     col_map['picker'] = idx
+                elif h == '仓库' or '仓库' in h:
+                    col_map['warehouse'] = idx
+                elif h == '库位' or '库位' in h:
+                    col_map['location'] = idx
                 elif '物料编码' in h or '编码' in h:
                     col_map['material_code'] = idx
                 elif '物料名称' in h or '名称' in h:
@@ -172,6 +179,19 @@ def register_batch_import_routes(app):
                     current_order = None
                     current_items = []
                 if not current_order:
+                    warehouse_raw = get_val('warehouse')
+                    default_wh = get_default_warehouse() if not warehouse_raw else None
+                    warehouse, warehouse_error = validate_inventory_warehouse(
+                        warehouse_raw or (default_wh.name if default_wh else ''))
+                    if warehouse_error:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：{warehouse_error}')
+                        continue
+                    location = get_val('location')
+                    if location_management_enabled() and not location:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：库位管理已开启，请填写库位')
+                        continue
                     dept_name = get_val('department')
                     department = Department.query.filter_by(name=dept_name).first() if dept_name else None
                     if not department and dept_name:
@@ -201,6 +221,8 @@ def register_batch_import_routes(app):
                         date=date_val,
                         purpose='领料单' if get_val('purpose') == '生产出库' else get_val('purpose'),
                         business_type='领料单',
+                        warehouse=warehouse.name,
+                        location=location or warehouse.name,
                         department_id=department.id if department else None,
                         picker=get_val('picker') or None,
                         remark=get_val('remark'),
@@ -213,6 +235,12 @@ def register_batch_import_routes(app):
                         continue
                     db.session.add(current_order)
                     db.session.flush()
+                elif get_val('warehouse'):
+                    row_warehouse, row_error = validate_inventory_warehouse(get_val('warehouse'))
+                    if row_error or row_warehouse.name != current_order.warehouse:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：同一单据不能包含不同仓库')
+                        continue
                 material_code = get_val('material_code')
                 if material_code:
                     material = Material.query.filter_by(code=material_code).first()

@@ -29,6 +29,38 @@ from utils import require_role
 
 # no-test:reason=路由注册辅助函数，能力由 after_sale_out_* 各路由测试覆盖
 def register_after_sale_out_routes(app):
+    @app.route('/after_sale_out/source_options')
+    @require_role('warehouse')
+    @login_required
+    def after_sale_source_options():
+        from app import SalesOrder, OutOrder, Customer, api_error
+        from sqlalchemy.orm import joinedload
+        kind = request.args.get('type', 'sales')
+        search = (request.args.get('search') or '').strip()
+        page = max(1, request.args.get('page', 1, type=int) or 1)
+        if kind == 'sales':
+            query = SalesOrder.query.options(joinedload(SalesOrder.customer))
+            if search:
+                query = query.outerjoin(Customer).filter(db.or_(
+                    SalesOrder.order_no.contains(search), Customer.name.contains(search)))
+            query = query.order_by(SalesOrder.id.desc())
+        elif kind == 'out':
+            query = OutOrder.query.filter(OutOrder.business_type == '销售出库')
+            if search:
+                query = query.filter(db.or_(OutOrder.order_no.contains(search), OutOrder.customer.contains(search)))
+            query = query.order_by(OutOrder.id.desc())
+        else:
+            return api_error('无效的来源单据类型')
+        pagination = query.paginate(page=page, per_page=20, error_out=False)
+        labels = {'draft':'草稿', 'confirmed':'已确认', 'pending':'草稿', 'completed':'已完成'}
+        return jsonify(status='success', items=[{
+            'id':row.id, 'order_no':row.order_no,
+            'customer':(row.customer.name if row.customer else '') if kind == 'sales' else (row.customer or ''),
+            'date':row.date.isoformat() if row.date else '',
+            'status':labels.get(row.status, row.status or ''),
+        } for row in pagination.items], total=pagination.total, page=pagination.page,
+            page_size=20, total_pages=pagination.pages)
+
     @app.route('/after_sale_out')
     @login_required
     def after_sale_out_list():
@@ -83,12 +115,16 @@ def register_after_sale_out_routes(app):
     @app.route('/after_sale_out/<int:id>')
     @login_required
     def after_sale_out_detail(id):
-        from app import AfterSaleOutOrder, DocumentPushLine, get_recent_operation_logs
+        from app import (AfterSaleOutOrder, DocumentPushLine, get_recent_operation_logs,
+                         validate_inventory_warehouse, get_warehouse_stock_quantities)
         order = AfterSaleOutOrder.query.get_or_404(id)
         push_source = DocumentPushLine.query.filter_by(
             target_document_type='after_sale_out', target_document_id=order.id, status='active'
         ).first()
-        return render_template('after_sale_out_detail.html', order=order, push_source=push_source, operation_logs=get_recent_operation_logs('after_sale_out_order', id))
+        warehouse, _error = validate_inventory_warehouse(order.warehouse or '')
+        warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else None
+        return render_template('after_sale_out_detail.html', order=order, push_source=push_source,
+                               warehouse_stock=warehouse_stock, operation_logs=get_recent_operation_logs('after_sale_out_order', id))
 
     @app.route('/after_sale_out/<int:id>/print')
     @login_required
@@ -172,7 +208,7 @@ def register_after_sale_out_routes(app):
                          Material, Unit, get_active_warehouses, get_default_warehouse,
                          get_warehouse_stock_quantities, serialize_customer,
                          serialize_material_with_stock, serialize_unit,
-                         validate_inventory_warehouse)
+                         validate_inventory_warehouse, SalesOrder, OutOrder)
         from sqlalchemy.orm import joinedload
         order = AfterSaleOutOrder.query.options(
             joinedload(AfterSaleOutOrder.items).joinedload(AfterSaleOutOrderItem.material).joinedload(Material.unit)
@@ -215,7 +251,9 @@ def register_after_sale_out_routes(app):
             order_id=order.id,
             order_no=order.order_no,
             order_date=(order.date if order.date else date.today()).strftime('%Y-%m-%d'),
-            initial_items=initial_items)
+            initial_items=initial_items,
+            source_sales_order=db.session.get(SalesOrder, order.source_sales_order_id) if order.source_sales_order_id else None,
+            source_out_order=db.session.get(OutOrder, order.source_out_order_id) if order.source_out_order_id else None)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/after_sale_out/add', methods=['POST'])

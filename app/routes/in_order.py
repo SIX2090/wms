@@ -491,7 +491,8 @@ def register_in_order_routes(app):
                          Supplier, _in_order_push_history, _in_order_push_source_type,
                          build_purchase_order_execution, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
-                         location_management_enabled)
+                         location_management_enabled, validate_inventory_warehouse,
+                         get_warehouse_stock_quantities)
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.source_purchase_order),
@@ -512,6 +513,8 @@ def register_in_order_routes(app):
         warehouses = get_active_warehouses()
         warehouse_names = [warehouse.name for warehouse in warehouses]
         default_warehouse = get_default_warehouse()
+        stock_warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
+        warehouse_stock = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         # P2（2026-10-03）：反提交草稿警示——库存已回退但采购收货预留未释放
         is_reverted_draft = (
             order.status == 'pending' and order.id in get_reverted_in_order_ids([order.id])
@@ -531,6 +534,7 @@ def register_in_order_routes(app):
             purchase_order_execution=purchase_order_execution,
             today=date.today(),
             operation_logs=get_recent_operation_logs('in_order', id),
+            warehouse_stock=warehouse_stock,
         )
 
     @app.route('/in_order/<int:id>/push')
@@ -1483,7 +1487,7 @@ def register_in_order_routes(app):
         """Batch add inbound detail rows. Format per line: code,quantity,price."""
         from app import (InOrder, InOrderItem, Material, api_error, is_purchase_in_order,
                          log_operation, parse_float_value, purchase_in_order_requires_order,
-                         recalculate_order_total, round_to_2_decimals)
+                         recalculate_order_total, round_to_2_decimals, resolve_item_contract)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有草稿状态的入库单可以添加明细')
@@ -1492,17 +1496,33 @@ def register_in_order_routes(app):
 
         data = request.get_json(silent=True) or {}
         content = (data.get('content') or request.form.get('content') or '').strip()
-        if not content:
+        file = request.files.get('file')
+        if not content and not file:
             return api_error('请输入物料信息')
 
         added = 0
         errors = []
         try:
-            for line_no, raw_line in enumerate(content.splitlines(), start=1):
-                line = raw_line.strip()
-                if not line:
-                    continue
-                parts = [part.strip() for part in line.replace('\t', ',').split(',')]
+            if file:
+                from app import _read_import_sheet, _get_excel_cell, import_max_rows
+                fields = ('code', 'quantity', 'price', 'batch', 'expiry', 'remark')
+                sheet, columns, _ = _read_import_sheet(file, {
+                    'code':['物料编码', '材料编码'], 'quantity':['数量'],
+                    'price':['单价', '价格'], 'batch':['批次号', '批次'],
+                    'expiry':['有效期', '到期日期'], 'remark':['备注'],
+                })
+                if not {'code', 'quantity'}.issubset(columns):
+                    return api_error('明细文件必须包含物料编码和数量列')
+                if sheet.max_row - 1 > import_max_rows():
+                    return api_error('明细文件超过系统导入行数上限，请拆分文件')
+                import_lines = [
+                    [_get_excel_cell(row, columns, field) for field in fields]
+                    for row in sheet.iter_rows(min_row=2, values_only=True) if any(value is not None for value in row)
+                ]
+            else:
+                import_lines = [[part.strip() for part in line.replace('\t', ',').split(',')]
+                                for line in content.splitlines() if line.strip()]
+            for line_no, parts in enumerate(import_lines, start=1):
                 material_code = parts[0] if parts else ''
                 quantity = round_to_2_decimals(parse_float_value(parts[1] if len(parts) > 1 else None, 0))
                 if not material_code or quantity <= 0:
@@ -1543,6 +1563,7 @@ def register_in_order_routes(app):
                     contract_id=_c_id,
                     contract_no=_c_no,
                     project_name=_p_name,
+                    remark=parts[5] if len(parts) > 5 else '',
                 ))
                 added += 1
 
@@ -1554,7 +1575,7 @@ def register_in_order_routes(app):
             msg = f'成功添加 {added} 条'
             if errors:
                 msg += '，部分行失败：' + '；'.join(errors[:3])
-            return jsonify({'status': 'success', 'msg': msg})
+            return jsonify({'status': 'success', 'msg': msg, 'count': added, 'warnings': errors})
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'批量添加入库明细失败: {e}')

@@ -379,8 +379,7 @@ def register_check_routes(app):
                     row.reason = (item_data.get('reason') or item_data.get('remark') or '').strip()
                 else:
                     # 新增行：账面取当前仓库级（该行首次录入时点）
-                    system_stock = round_to_2_decimals(parse_float_value(
-                        item_data.get('system_stock'), warehouse_stock_map.get(material.id, 0) or 0))
+                    system_stock = round_to_2_decimals(warehouse_stock_map.get(material.id, 0) or 0)
                     actual_stock = round_to_2_decimals(parse_float_value(raw_actual, system_stock)) if has_actual else system_stock
                     db.session.add(InventoryCheckItem(
                         inventory_check_id=check.id,

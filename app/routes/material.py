@@ -173,7 +173,17 @@ def register_material_routes(app):
     @login_required
     def material_api_by_codes():
         """Resolve a bounded batch of exact material codes for document paste imports."""
-        from app import Material, material_selectable_filter, serialize_material
+        from app import (Material, material_selectable_filter, serialize_material,
+                         serialize_material_with_stock, validate_inventory_warehouse,
+                         get_warehouse_stock_quantities, api_error)
+        warehouse_name = (request.args.get('warehouse') or '').strip()
+        warehouse = None
+        stock_map = None
+        if warehouse_name:
+            warehouse, error = validate_inventory_warehouse(warehouse_name)
+            if error:
+                return api_error(error)
+            stock_map = get_warehouse_stock_quantities(warehouse)
         codes = request.args.getlist('code')
         if not codes or len(codes) > 200 or any(not code.strip() or len(code) > 100 for code in codes):
             return jsonify(status='error', msg='请提供1至200个有效物料编码，每个不超过100字符'), 400
@@ -182,14 +192,25 @@ def register_material_routes(app):
         if selectable is not None:
             query = query.filter(selectable)
         rows = query.options(joinedload(Material.unit)).order_by(Material.code).all()
-        return jsonify(status='success', data=[serialize_material(material) for material in rows],
+        return jsonify(status='success', data=[serialize_material_with_stock(material, warehouse, stock_map)
+                       if warehouse else serialize_material(material) for material in rows],
                        total=len(rows), page=1, page_size=len(codes), total_pages=1)
 
     @app.route('/material/api/all')
     @login_required
     def material_api_all():
         """分页返回物料完整数据，避免旧接口静默截断。"""
-        from app import Material, material_selectable_filter, serialize_material
+        from app import (Material, material_selectable_filter, serialize_material,
+                         serialize_material_with_stock, validate_inventory_warehouse,
+                         get_warehouse_stock_quantities, api_error)
+        warehouse_name = (request.args.get('warehouse') or '').strip()
+        warehouse = None
+        stock_map = None
+        if warehouse_name:
+            warehouse, error = validate_inventory_warehouse(warehouse_name)
+            if error:
+                return api_error(error)
+            stock_map = get_warehouse_stock_quantities(warehouse)
         page = max(1, request.args.get('page', 1, type=int) or 1)
         per_page = request.args.get('per_page', 2000, type=int) or 2000
         per_page = min(max(1, per_page), 2000)
@@ -204,7 +225,8 @@ def register_material_routes(app):
         ).paginate(page=page, per_page=per_page, error_out=False)
         return jsonify({
             'status': 'success',
-            'materials': [serialize_material(m) for m in pagination.items],
+            'materials': [serialize_material_with_stock(m, warehouse, stock_map)
+                          if warehouse else serialize_material(m) for m in pagination.items],
             'total': pagination.total,
             'page': pagination.page,
             'per_page': pagination.per_page,

@@ -220,6 +220,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
@@ -493,7 +494,8 @@ function showDropdown(row, showAll = false) {
     if (activeDropdown) activeDropdown.style.display = 'none';
     dropdown.style.display = 'none';
     activeDropdown = dropdown;
-    const current = () => seq === materialSearchState.seq && row.isConnected !== false &&
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    const current = () => warehouseContext === WMS.materialCache.warehouseFromForm() && seq === materialSearchState.seq && row.isConnected !== false &&
         input.value.trim() === keyword;
 
     if (!keyword && !showAll) {
@@ -505,7 +507,7 @@ function showDropdown(row, showAll = false) {
     materialSearchState.timer = setTimeout(function() {
         materialSearchState.timer = null;
         if (!current()) return;
-        const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT;
+        const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT + '&warehouse=' + encodeURIComponent(WMS.materialCache.warehouseFromForm());
         WMS.api.getRaw(url).then(function(res) {
             if (!current()) return;
             if (!res || res.status !== 'success' || !Array.isArray(res.data) ||
@@ -537,7 +539,8 @@ function selectMaterial(row, code) {
     const seq = materialSearchState.seq;
     const input = row.querySelector('.material-code');
     const expected = input.value;
-    const current = () => seq === materialSearchState.seq && row.isConnected !== false && input.value === expected;
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    const current = () => warehouseContext === WMS.materialCache.warehouseFromForm() && seq === materialSearchState.seq && row.isConnected !== false && input.value === expected;
     const finish = function(material) {
         fillMaterialFields(row, material);
         row.querySelector('.material-dropdown').style.display = 'none';
@@ -549,7 +552,7 @@ function selectMaterial(row, code) {
     const material = materials.find(m => m.code === code);
     if (material) { finish(material); return; }
     // The selected candidate provides a canonical code: resolve exactly, not the first fuzzy hit.
-    return WMS.api.get('/material/api/by_codes?code=' + encodeURIComponent(code)).then(function(list) {
+    return WMS.api.get('/material/api/by_codes?code=' + encodeURIComponent(code) + '&warehouse=' + encodeURIComponent(warehouseContext)).then(function(list) {
         if (!current()) return;
         if (!Array.isArray(list)) throw new Error('物料查询结果格式不正确');
         const hit = list.find(m => m && m.code === code && typeof m.name === 'string');
@@ -1107,6 +1110,7 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    WMS.materialCache.bindWarehouse(materials);
     const editItems = {{ edit_items | tojson }};
     editItems.forEach((item) => {
         addNewRow();
@@ -1303,7 +1307,7 @@ function notifyMaterialRefresh(message, type, silent) {
 // P2：物料联想已改为服务端搜索，这里不再需要「全量物料」。
 // fetchMaterialsPage 只取一页（用于重建初始缓存 / 重置缓存）。
 function fetchMaterialsPage(page) {
-    return WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + MATERIAL_INITIAL_CACHE_SIZE)
+    return WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + MATERIAL_INITIAL_CACHE_SIZE + '&warehouse=' + encodeURIComponent(WMS.materialCache.warehouseFromForm()))
         .then(function(res) {
             if (!res || res.status !== 'success' || !Array.isArray(res.materials) ||
                 res.materials.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
@@ -1316,6 +1320,7 @@ function fetchMaterialsPage(page) {
 let materialRefreshSeq = 0;
 function refreshMaterials(options) {
     const seq = ++materialRefreshSeq;
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
     const silent = !!(options && options.silent);
     const btn = document.querySelector('button[onclick="refreshMaterials()"]');
     if (btn) {
@@ -1327,7 +1332,7 @@ function refreshMaterials(options) {
     // 已选中的行不受影响（其物料对象按编码合并保留）。
     return fetchMaterialsPage(1)
         .then(function(page) {
-            if (seq !== materialRefreshSeq) return;
+            if (seq !== materialRefreshSeq || warehouseContext !== WMS.materialCache.warehouseFromForm()) return;
             const keep = new Map();
             materials.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
             page.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
@@ -1337,7 +1342,7 @@ function refreshMaterials(options) {
         })
         .catch(function(err){ if (seq === materialRefreshSeq) notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
         .finally(function() {
-            if (seq !== materialRefreshSeq) return;
+            if (seq !== materialRefreshSeq || warehouseContext !== WMS.materialCache.warehouseFromForm()) return;
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新物料';
@@ -1460,6 +1465,7 @@ async function parsePastedData() {
         for (let offset = 0; offset < missing.length; offset += 200) {
             const params = new URLSearchParams();
             missing.slice(offset, offset + 200).forEach(code => params.append('code', code));
+            params.set('warehouse', WMS.materialCache.warehouseFromForm());
             const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
             found.forEach(material => {
                 if (material && material.code && !materials.some(m => m.code === material.code)) materials.push(material);

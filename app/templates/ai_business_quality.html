@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {# AI_TASK: AI-R15-FIX-TEXT-EVENT-001 #}
+{# 子修复任务：AI-R15-FIX-UI-FEEDBACK-001-F01 #}
 {# 修复任务：AI-UX-DATE-SYNC-001 #}
 {% block title %}AI业务质量运营看板{% endblock %}
 
@@ -193,17 +194,17 @@
 
 <script>
 let currentSnapshot = null;
+function qualityRequestError(error) {
+    if (error && [502,503,504].includes(error.status)) return '服务器暂时无法响应（HTTP ' + error.status + '），请稍后重试。';
+    if (error && /Unexpected|JSON|SyntaxError/i.test(error.message || '')) return '服务器响应格式异常，请刷新后重试。';
+    return error && error.message ? error.message : '请求失败，请稍后重试。';
+}
 
 // 加载快照
 async function loadSnapshot() {
     const filters = getFilters();
     try {
-        const resp = await fetch('/api/ai/business_quality_snapshot', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(filters),
-        });
-        const data = await resp.json();
+        const data = await WMS.api.postRaw('/api/ai/business_quality_snapshot', filters);
         if (data.status === 'ok') {
             currentSnapshot = data.snapshot;
             renderMetricsCards(data.snapshot.metrics);
@@ -215,7 +216,7 @@ async function loadSnapshot() {
             showToast('加载失败：' + (data.msg || '未知错误'), 'danger');
         }
     } catch (e) {
-        showToast('请求失败：' + e.message, 'danger');
+        showToast(qualityRequestError(e), 'danger');
     }
 }
 
@@ -342,17 +343,12 @@ async function showSampleDetail(dim, value) {
     modal.show();
     
     try {
-        const resp = await fetch('/api/ai/business_quality_drilldown', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
+        const data = await WMS.api.postRaw('/api/ai/business_quality_drilldown', {
                 dimension: dim,
                 value: value,
                 threshold: 0.6,
                 limit: 50,
-            }),
         });
-        const data = await resp.json();
         
         if (data.status === 'ok' && data.samples && data.samples.length > 0) {
             let html = `
@@ -430,19 +426,14 @@ async function loadVersionComparison() {
     };
     
     try {
-        const resp = await fetch('/api/ai/business_quality_compare', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
+        const data = await WMS.api.postRaw('/api/ai/business_quality_compare', payload);
         if (data.status === 'ok') {
             renderVersionComparison(data.comparison);
         } else {
             showToast('对比失败：' + (data.msg || '未知错误'), 'danger');
         }
     } catch (e) {
-        showToast('请求失败：' + e.message, 'danger');
+        showToast(qualityRequestError(e), 'danger');
     }
 }
 

@@ -1385,6 +1385,7 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    WMS.materialCache.bindWarehouse(materials);
     const editItems = {{ edit_items | tojson }};
     editItems.forEach((item) => {
         addNewRow();
@@ -1490,7 +1491,7 @@ function refreshMaterials(options) {
         btn.disabled = true;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
     }
-    return WMS.materialCache.refresh(materials).then(function(applied) {
+    return WMS.materialCache.refresh(materials, WMS.materialCache.warehouseFromForm()).then(function(applied) {
         if (applied) notifyMaterialRefresh('物料列表已更新，共 ' + materials.length + ' 条', 'success', silent);
     }).catch(function(err) {
         notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent);

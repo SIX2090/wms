@@ -3,6 +3,7 @@
 > **文档定位**：本文件回答一个问题——**这个系统里的"库存"到底以哪份数据为准？**
 > 与 [`AGENTS.md`](./AGENTS.md)、[`WMS_BUSINESS_SCOPE.md`](./WMS_BUSINESS_SCOPE.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 配套使用。
 > 新增日期：2026-09-11。修改本文件属于独立 atomic action（1 commit + 1 push）。
+> 2026-10-27：随 BUG-2026-10-27-007 校准启动回填引用行号，库存规则未变。
 > 2026-10-27：随 BUG-2026-10-27-001 隐藏列表打印设置，校准 app.py 行号引用；库存规则与代码未变。
 > 2026-10-26：随 BUG-2026-10-26-001、BUG-2026-10-26-002、BUG-2026-10-26-003 校准库存回填函数的源码行号引用，库存规则未变。
 
@@ -243,7 +244,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29707`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29714`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -406,7 +407,7 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为 app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:29707`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> （`app/app.py:29714`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
 > 但**歧义行与无法解析行有意保留 NULL**（`app/app.py:29682`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 

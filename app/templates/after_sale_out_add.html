@@ -282,10 +282,22 @@
                     <div class="mb-2">
                         <label class="form-label">售后原因</label>
                         <input type="text" class="form-control" name="reason" placeholder="请输入售后原因" value="{{ order.reason if order else '' }}">
-                        <input type="number" class="form-control mt-2" name="source_sales_order_id" placeholder="原销售订单ID（可选）" value="{{ order.source_sales_order_id if order else '' }}">
-                        <input type="number" class="form-control mt-2" name="source_out_order_id" placeholder="原销售出库单ID（可选）" value="{{ order.source_out_order_id if order else '' }}">
-                        <input type="text" class="form-control mt-2" name="responsibility" placeholder="责任归属（可选）" value="{{ order.responsibility if order else '' }}">
                     </div>
+                </div>
+                {% for kind, field, label, source in [('sales', 'source_sales_order_id', '原销售订单', source_sales_order|default(none)), ('out', 'source_out_order_id', '原销售出库单', source_out_order|default(none))] %}
+                <div class="col-md-4">
+                    <label class="form-label" for="{{ field }}_label">{{ label }}（可选）</label>
+                    <input type="hidden" name="{{ field }}" value="{{ (order|attr(field)) or '' if order else '' }}">
+                    <div class="input-group mb-2">
+                        <input class="form-control" id="{{ field }}_label" readonly value="{{ source.order_no if source else '' }}" placeholder="未选择">
+                        <button class="btn btn-outline-primary" type="button" onclick="openSourcePicker('{{ kind }}', '{{ field }}')">选单</button>
+                        <button class="btn btn-outline-secondary" type="button" onclick="clearSourcePicker('{{ field }}')">清除</button>
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="col-md-4">
+                    <label class="form-label" for="afterSaleResponsibility">责任归属（可选）</label>
+                    <input id="afterSaleResponsibility" type="text" class="form-control mb-2" name="responsibility" value="{{ order.responsibility if order else '' }}">
                 </div>
                 <div class="col-md-6">
                     <div class="mb-2">
@@ -341,11 +353,65 @@
         </form>
     </div>
 </div>
+<div class="modal fade" id="afterSaleSourceModal" tabindex="-1" aria-label="选择来源单据">
+  <div class="modal-dialog modal-lg"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">选择来源单据</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+    <div class="modal-body">
+      <div class="input-group mb-3"><input id="sourcePickerSearch" class="form-control" aria-label="单号或客户" placeholder="搜索单号或客户"><button type="button" class="btn btn-primary" onclick="loadSourcePicker(1)">查询</button></div>
+      <div class="table-responsive"><table class="table table-hover"><thead><tr><th>单号</th><th>客户</th><th>日期</th><th>状态</th><th>操作</th></tr></thead><tbody id="sourcePickerRows"></tbody></table></div>
+      <div id="sourcePickerFeedback" role="status"></div>
+    </div>
+    <div class="modal-footer"><button type="button" id="sourcePickerPrevious" class="btn btn-outline-secondary" onclick="loadSourcePicker(sourcePickerPage-1)">上一页</button><button type="button" id="sourcePickerNext" class="btn btn-outline-secondary" onclick="loadSourcePicker(sourcePickerPage+1)">下一页</button><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button></div>
+  </div></div>
+</div>
 {% endblock %}
-
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
+let sourcePickerKind = 'sales', sourcePickerField = '', sourcePickerPage = 1, sourcePickerGeneration = 0;
+function clearSourcePicker(field) {
+    document.querySelector('[name="' + field + '"]').value = '';
+    document.getElementById(field + '_label').value = '';
+}
+function openSourcePicker(kind, field) {
+    sourcePickerKind = kind; sourcePickerField = field; sourcePickerPage = 1;
+    document.getElementById('sourcePickerSearch').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('afterSaleSourceModal')).show();
+    loadSourcePicker(1);
+}
+async function loadSourcePicker(page) {
+    const generation = ++sourcePickerGeneration;
+    const body = document.getElementById('sourcePickerRows');
+    const feedback = document.getElementById('sourcePickerFeedback');
+    feedback.textContent = '正在加载…'; body.replaceChildren();
+    try {
+        const result = await WMS.api.getRaw('/after_sale_out/source_options?type=' + sourcePickerKind +
+            '&page=' + page + '&search=' + encodeURIComponent(document.getElementById('sourcePickerSearch').value));
+        if (generation !== sourcePickerGeneration) return;
+        if (!result || result.status !== 'success' || !Array.isArray(result.items)) throw new Error('来源单据加载失败');
+        sourcePickerPage = result.page;
+        result.items.forEach(item => {
+            const row = document.createElement('tr');
+            [item.order_no, item.customer, item.date, item.status].forEach(value => {
+                const cell = document.createElement('td'); cell.textContent = value || '-'; row.appendChild(cell);
+            });
+            const cell = document.createElement('td'), button = document.createElement('button');
+            button.type = 'button'; button.className = 'btn btn-sm btn-outline-primary'; button.textContent = '选择';
+            button.addEventListener('click', () => {
+                document.querySelector('[name="' + sourcePickerField + '"]').value = item.id;
+                document.getElementById(sourcePickerField + '_label').value = item.order_no;
+                bootstrap.Modal.getInstance(document.getElementById('afterSaleSourceModal')).hide();
+            });
+            cell.appendChild(button); row.appendChild(cell); body.appendChild(row);
+        });
+        feedback.textContent = result.total ? '共 ' + result.total + ' 张，第 ' + result.page + ' / ' + result.total_pages + ' 页' : '暂无匹配单据';
+        document.getElementById('sourcePickerPrevious').disabled = result.page <= 1;
+        document.getElementById('sourcePickerNext').disabled = result.page >= result.total_pages;
+    } catch (error) {
+        if (generation === sourcePickerGeneration) feedback.textContent = '加载失败，请重试：' + error.message;
+    }
+}
 const materials = {{ materials|tojson }};
 const customers = {{ customers|tojson }};
 const initialItems = {{ initial_items|default([])|tojson }};
@@ -712,6 +778,7 @@ document.addEventListener('click', function(e) {
 });
 
 document.addEventListener('DOMContentLoaded', function() {
+    WMS.materialCache.bindWarehouse(materials);
     if (initialItems.length) {
         initialItems.forEach(function(item) {
             addNewRow(null, item);

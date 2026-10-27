@@ -77,7 +77,7 @@
         <div class="card {% if module_type == 'out_order' or module_type == 'outbound' %}batch-card-highlight{% endif %}">
             <div class="card-header"><h5 class="mb-0">导入领料单</h5></div>
             <div class="card-body">
-                <p class="text-muted small">按表头名称自动匹配列。表头需含：单据编号、日期、用途、领料部门、物料编码、物料名称、规格、单位、数量、单价、金额、备注</p>
+                <p class="text-muted small">按表头名称自动匹配列。支持：单据编号、日期、用途、领料部门、领料人、物料编码、物料名称、规格、单位、数量、单价、金额、备注、仓库、库位。仓库可填编码或名称；旧模板未提供时使用默认仓库，无默认仓库则拒绝。启用库位管理时必须填写库位。</p>
                 <form class="import-form" data-url="/import/out_order" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <div class="mb-3">

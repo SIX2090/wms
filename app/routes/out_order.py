@@ -379,9 +379,12 @@ def register_out_order_routes(app):
         from app import (Department, DocumentPushLine, Material, OutOrder,
                          OutOrderItem, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
-                         location_management_enabled)
+                         location_management_enabled, validate_inventory_warehouse,
+                         get_warehouse_stock_quantities)
         from sqlalchemy.orm import joinedload
         order = OutOrder.query.options(joinedload(OutOrder.department), joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)).get_or_404(id)
+        warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
+        warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else None
         source_sales_orders = {}
         if order.source_sales_order:
             source_sales_orders[order.source_sales_order.id] = order.source_sales_order
@@ -392,7 +395,7 @@ def register_out_order_routes(app):
         push_source = DocumentPushLine.query.filter_by(
             target_document_id=order.id, status='active'
         ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
-        return render_template('out_order_detail.html', order=order, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
+        return render_template('out_order_detail.html', order=order, warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/<int:id>/update', methods=['POST'])

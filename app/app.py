@@ -26617,9 +26617,15 @@ def _render_generic_document_print(payload):
     payload.setdefault('total_amount', sum(row.get('amount', 0) or 0 for row in payload.get('rows', [])))
     return render_template('document_print.html', doc=payload)
 
-def _document_materials_json():
+def _document_materials_json(warehouse=None, scoped=False):
     materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
-    return [serialize_material(material) for material in materials]
+    stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else None
+    rows = [serialize_material_with_stock(material, warehouse, stock_map) if warehouse
+            else serialize_material(material) for material in materials]
+    if scoped and warehouse is None:
+        for row in rows:
+            row['stock'] = 0
+    return rows
 
 def _document_units_json():
     units = Unit.query.order_by(Unit.name.asc()).all()
@@ -26649,7 +26655,7 @@ def _render_transfer_form(transfer=None):
             'to_location': transfer.to_location if transfer else '',
             'remark': transfer.remark if transfer else '',
         },
-        materials=_document_materials_json(),
+        materials=_document_materials_json(validate_inventory_warehouse(transfer.from_location)[0] if transfer and transfer.from_location else default_warehouse, scoped=True),
         units=_document_units_json(),
         warehouses=warehouses,
         default_warehouse=default_warehouse,
@@ -26718,6 +26724,7 @@ def _build_check_batch_meta(check):
 
 
 def _render_check_form(check=None):
+    warehouse = validate_inventory_warehouse(check.warehouse)[0] if check and check.warehouse else get_default_warehouse()
     return render_template(
         'document_table_form.html',
         doc_type='check',
@@ -26739,7 +26746,7 @@ def _render_check_form(check=None):
             'remark': check.remark if check else '',
             'warehouse': getattr(check, 'warehouse', '') if check else '',
         },
-        materials=_document_materials_json(),
+        materials=_document_materials_json(warehouse, scoped=True),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),
@@ -26860,7 +26867,7 @@ def _render_requisition_form(requisition=None):
             'location': requisition.location if requisition else prefill['location'],
             'remark': requisition.remark if requisition else prefill['remark'],
         },
-        materials=_document_materials_json(),
+        materials=_document_materials_json(validate_inventory_warehouse(requisition.warehouse)[0] if requisition and requisition.warehouse else (validate_inventory_warehouse(warehouse_id=prefill['warehouse_id'])[0] if prefill['warehouse_id'] else get_default_warehouse()), scoped=True),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),

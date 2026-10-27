@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set warehouse_stock = warehouse_stock|default(none) %}
 {% import '_list_macros.html' as ui %}
 {% block title %}入库单详情 - {{ order.order_no }}{% endblock %}
 
@@ -475,7 +476,7 @@
                         <td data-column-key="colContractNo">{{ item.contract_no or order.contract_no or '-' }}</td>
                         <td data-column-key="colProjectName">{{ item.project_name or order.project_name or '-' }}</td>
                         <td class="text-center" data-column-key="colUnit">{{ item.material.unit.name if item.material.unit else '-' }}</td>
-                        <td class="text-end" data-column-key="colStock">{{ "%.2f"|format(item.material.stock or 0) }}</td>
+                        <td class="text-end" data-column-key="colStock">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if warehouse_stock is not none else '-' }}</td>
                         <td data-column-key="colBatchNo">{{ item.batch_no or '-' }}</td>
                         <td data-column-key="colExpiryDate">{{ item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '-' }}</td>
                         <td class="text-end fw-medium editable-cell" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
@@ -881,7 +882,7 @@ function lookupAddMaterial() {
         return;
     }
 
-    WMS.api.getRaw('/api/material/search?kw=' + encodeURIComponent(keyword))
+    WMS.api.getRaw('/api/material/search?kw=' + encodeURIComponent(keyword) + '&warehouse=' + encodeURIComponent({{ (order.warehouse or '')|tojson }}))
         .then(res => {
             if (!current()) return;
             if (!res || res.status !== 'success' || !Array.isArray(res.data) ||
@@ -1641,8 +1642,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tableId: 'itemTable',
         fileName: '入库单明细',
         exportUrl: '/in_order/{{ order.id }}/export',
-        importUrl: '/import/in_order',
-        templateUrl: '/export/template/in_order',
+        importUrl: '/in_order/{{ order.id }}/batch_add_items',
         columns: [
             {label: '物料编码', field: 'code', required: true, example: 'M001'},
             {label: '物料名称', field: 'name', required: true, example: '原材料A'},

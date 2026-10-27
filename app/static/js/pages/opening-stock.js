@@ -968,7 +968,7 @@ function confirmPasteImport() {
             }
             if (ready) {
                 pasteLookupPending = false;
-                doPasteImport(text, feedback);
+                doPasteImport(text, feedback, isCurrent);
             }
         }).catch(err => {
             if (!isCurrent()) {
@@ -982,7 +982,7 @@ function confirmPasteImport() {
         });
 }
 
-function doPasteImport(text, feedback) {
+async function doPasteImport(text, feedback, isCurrent) {
     const parsed = parsePasteLines(text, document.getElementById('pasteDocDate')?.value || '');
     if (!parsed.items.length) {
         feedback.textContent = '没有可导入的有效行。' + (parsed.errors[0] || '');
@@ -1014,6 +1014,19 @@ function doPasteImport(text, feedback) {
     if (headerWarehouseId) payload.warehouse_id = headerWarehouseId;
     const headerRemark = (document.getElementById('headerRemark')?.value || '').trim();
     if (headerRemark) payload.remark = headerRemark;
+    if (OPENING_DOC || rows.some(row => row.material_id || row.material_code)) {
+        if (!window.showConfirm) {
+            feedback.textContent = '确认面板未就绪，请刷新页面后重试；尚未保存。';
+            return;
+        }
+        const confirmed = await window.showConfirm(
+            '粘贴导入会替换当前单据的全部明细。已建账的原明细将回冲库存，再按粘贴内容重新建账；未保存的明细也会被替换。确认继续？',
+            {title:'替换期初单据明细', okText:'替换明细并保存', cancelText:'返回检查'});
+        if (!confirmed) { feedback.textContent = '已取消，原明细未更改。'; return; }
+        if (isCurrent && !isCurrent()) {
+            feedback.textContent = '确认期间录入内容已变化，请重新导入。'; return;
+        }
+    }
     WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
