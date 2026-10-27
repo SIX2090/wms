@@ -64,6 +64,8 @@ case 'validSale':sale=true;break;
 case 'validOther':other=true;fields.department_id.value='';break;
 case 'validNoLocation':delete fields.location;break;
 }
+// The purchase-return branch does not render a picker input.
+if(purchase)delete fields.picker;
 const initial=JSON.stringify(Object.fromEntries(Object.entries(line).map(([k,v])=>[k,v.value])));
 const document={querySelector:s=>{const m=s.match(/name="([^"]+)"/);return m?fields[m[1]]||null:s==='#materialTableBody .material-code'?line['.material-code']:null;},querySelectorAll:s=>s==='#materialTableBody tr'?rows:[],getElementById:id=>ids[id]||null};
 const ctx={document,isSaleOrder:sale,isPurchaseReturn:purchase,isOtherOut:other,purchaseReturnRequiresOrder:true,outOrderSubmitting:false,returnAddUrl:'/out_order/add',window:{location:{href:'original'}},showToast:(m,t)=>messages.push({m,t}),alert:()=>alerts++,confirm:()=>true,calcAmount:()=>calcs++,calcTotal:()=>calcs++,WMS:{api:{postRaw:(url,data)=>{calls.push({url,data});return Promise.resolve({status:'success',id:8});}}}};
@@ -81,7 +83,8 @@ if(expected[p.scenario]){
 }else {
  assert.equal(calls.length,1);assert.equal(calls[0].url,'/out_order/add');const d=calls[0].data;
  assert.equal(d.warehouse_id,'2');assert.equal(d.date,'2026-10-21');assert.equal(d.customer,'Acme');assert.equal(d.items.length,1);assert.equal(d.items[0].quantity,2);assert.equal(d.items[0].price,1);assert.equal(d.items[0].contract_no,'C1');assert.equal(d.items[0].project_name,'P1');assert.equal(d.items[0].remark,'R1');
- if(purchase){assert.equal(d.source_in_order_id,'7');assert.equal(d.items[0].source_in_order_item_id,'9');}
+ if(purchase){assert.equal(d.picker,'');assert.equal(d.source_in_order_id,'7');assert.equal(d.items[0].source_in_order_item_id,'9');}
+ else assert.equal(d.picker,'Tester');
  assert.equal(d.location,p.scenario==='validNoLocation'?'':'A');assert.equal(ctx.window.location.href,'/out_order/8');
 }
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
