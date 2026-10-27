@@ -3942,7 +3942,7 @@ SYSTEM_SETTING_GROUPS = [
         'key': 'print',
         'title': '打印参数',
         'icon': 'bi-printer',
-        'description': '控制单据、列表和标签打印方式。',
+        'description': '控制单据、报表和标签打印方式。',
         'settings': [
             {
                 'key': 'print_template_only',
@@ -3950,13 +3950,6 @@ SYSTEM_SETTING_GROUPS = [
                 'type': 'bool',
                 'default': '0',
                 'remark': '开启后打印入口优先使用系统维护的模板，减少临时格式差异。',
-            },
-            {
-                'key': 'list_print_merge_rows',
-                'label': '列表打印合并行',
-                'type': 'bool',
-                'default': '0',
-                'remark': '用于后续列表打印时合并重复表头或重复字段。',
             },
             {
                 'key': 'auto_print_on_submit',

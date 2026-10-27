@@ -53,7 +53,11 @@ def test_independent_pages_keep_tables_and_have_one_explicit_report_toolbar(page
                  'retryPrintTemplatesBtn', 'columnSettingsBtn']:
         assert name in dom.ids, name
     assert dom.ids['reportToolbar'][1].get('role') == 'toolbar'
-    assert '下载打印文件' in html and '模板管理' in html
+    assert '下载打印文件' in html
+    if page == 'stock_query':
+        assert 'data-report-manage' not in html
+    else:
+        assert '模板管理' in html and 'data-report-manage' in html
     assert '<table' in html and '<form' in html
     assert 'report-workbench.js' in html
     if page == 'stock_query':

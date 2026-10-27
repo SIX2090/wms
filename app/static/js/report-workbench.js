@@ -62,7 +62,7 @@
             select.disabled = true;
             retry.hidden = true;
             status.textContent = '正在加载模板…';
-            manage.href = '/print_templates?target_type=' + (kind === 'stock' ? 'list' : 'report') + '&target_code=' + encodeURIComponent(targetCode());
+            if (manage) manage.href = '/print_templates?target_type=report&target_code=' + encodeURIComponent(targetCode());
             try {
                 var result = await window.WMS.api.get('/doc_print_templates/' + encodeURIComponent(targetCode()) + '.json');
                 if (token !== requestId) return;

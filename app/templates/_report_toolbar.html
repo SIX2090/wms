@@ -23,7 +23,7 @@
                 <button class="btn btn-primary btn-sm" type="button" id="templatePreviewBtn" data-report-preview disabled>预览并打印</button>
                 <a id="{{ 'stockPrintBtn' if kind == 'stock' else 'templatePrintBtn' }}" href="{{ download_href }}" class="btn btn-outline-success btn-sm disabled" aria-disabled="true" tabindex="-1" target="_blank" rel="noopener" data-report-download>下载打印文件</a>
                 <button class="btn btn-outline-secondary btn-sm" type="button" id="retryPrintTemplatesBtn" data-report-retry hidden>重新加载模板</button>
-                <a class="btn btn-outline-secondary btn-sm" href="/print_templates?target_type={{ 'list' if kind == 'stock' else 'report' }}" target="_blank" rel="noopener" data-report-manage>模板管理</a>
+                {% if kind != 'stock' %}<a class="btn btn-outline-secondary btn-sm" href="/print_templates?target_type=report" target="_blank" rel="noopener" data-report-manage>模板管理</a>{% endif %}
             </div>
         </div>
     </details>

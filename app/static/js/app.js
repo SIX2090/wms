@@ -3556,6 +3556,8 @@ function insertGlobalActionBar() {
             // saveCurrentPage() 最终落到 document.querySelector('form')——
             // 命中的是**筛选表单**，属于会误提交的假按钮，直接移除。
             if (item.key === 'save') return false;
+            // BUG-2026-10-27-001：列表页不再提供通用列表打印入口。
+            if (item.key === 'print') return false;
             // 「设置」：openSettings() 发现 module.printTemplateUrl 就跳打印模板，
             // 在列表页表现为「点设置打开了打印模板」的名不副实。
             // 仅当 printTemplateUrl 存在时才隐藏；对 material 这类无打印模板的模块，

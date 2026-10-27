@@ -20,7 +20,7 @@ const form = {}, calls = [], pending = [], opened = [];
 let refreshes = 0, exportCount = 0;
 const mapping = {'[data-report-template]': 'select', '[data-report-preview]': 'preview', '[data-report-download]': 'download', '[data-report-status]': 'status', '[data-report-retry]': 'retry', '[data-report-manage]': 'manage', '#refreshReportBtn': 'refresh', '#exportReportBtn': 'export', '#reportPrintMenu': 'menu'};
 const root = {dataset: {reportKind: stock ? 'stock' : summary ? 'summary' : 'outflow', exportAction: 'legacyExport', exportUrl: '/legacy-export', warehouse: fields.warehouse_id},
-    querySelector(selector) { if (selector === '[data-report-scope]') return summary ? controls.scope : null; assert(mapping[selector], selector); return controls[mapping[selector]]; }, querySelectorAll() { return []; }};
+    querySelector(selector) { if (selector === '[data-report-scope]') return summary ? controls.scope : null; if (selector === '[data-report-manage]' && stock) return null; assert(mapping[selector], selector); return controls[mapping[selector]]; }, querySelectorAll() { return []; }};
 if (scenario === 'export_query') {
     root.dataset.exportAction = '';
     root.dataset.exportUrl = '/sales/reconciliation/export?warehouse_id=old&format=xlsx';

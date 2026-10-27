@@ -70,7 +70,7 @@ console.log(JSON.stringify(rendered.children.filter(c=>c.title).map(c=>c.title))
 ])
 def test_page_toolbar_aliases_keep_one_action(add_label):
     labels = [add_label, '删除已选', '字段设置', '批量导入', '导出', '下载模板']
-    assert _render_toolbar([{'text': t} for t in labels]) == ['打印', '智能分享']
+    assert _render_toolbar([{'text': t} for t in labels]) == ['智能分享']
 
 
 def test_missing_hidden_and_row_actions_do_not_remove_global_actions():
@@ -82,7 +82,7 @@ def test_missing_hidden_and_row_actions_do_not_remove_global_actions():
 
 def test_delete_all_and_batch_print_are_distinct_actions():
     result = _render_toolbar([{'text':'删除全部'}, {'text':'批量打印'}])
-    assert '删除' in result and '打印' in result
+    assert '删除' in result and '打印' not in result
 
 
 def test_sales_selection_has_one_contextual_toolbar():

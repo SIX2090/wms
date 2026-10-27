@@ -14,7 +14,6 @@
     {% endif %}
     <a href="{{ url_for('export_bom', search=filters.search, status=filters.status, sort=sort_by, order=sort_order) }}" class="btn btn-outline-success btn-sm">导出</a>
     <a href="/export/template/bom" class="btn btn-outline-secondary btn-sm">下载模板</a>
-    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()">打印</button>
     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="smartShare(getWmsActionModule())">智能分享</button>
     <button type="button" id="columnSettingsBtn" class="btn btn-outline-secondary btn-sm">栏目设置</button>
   </div>

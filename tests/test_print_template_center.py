@@ -156,3 +156,26 @@ def test_create_blank_report_template():
         path = template_file_abspath(tpl.excel_template_path,
                                      m.app.static_folder)
         assert os.path.exists(path)
+
+
+def test_list_print_templates_are_hidden_from_center():
+    client = _client()
+    with m.app.app_context():
+        m.db.session.add(m.ExcelPrintTemplate(name='列表旧模板', target_type='list', target_code='stock', excel_template_path='/tmp/old.xlsx'))
+        m.db.session.commit()
+    for url in ['/print_templates', '/print_templates?target_type=list']:
+        html = client.get(url).get_data(as_text=True)
+        assert '列表打印' not in html
+        assert '列表旧模板' not in html
+        assert 'value="list"' not in html
+    assert '单据打印' in html and '报表打印' in html and '标签打印' in html
+    with m.app.app_context():
+        assert m.ExcelPrintTemplate.query.filter_by(name='列表旧模板').count() == 1
+
+
+def test_list_print_controls_hidden_without_removing_document_print():
+    root = ROOT / 'app'
+    assert 'onclick="window.print()">打印</button>' not in (root / 'templates/bom.html').read_text(encoding='utf-8')
+    assert "if (item.key === 'print') return false;" in (root / 'static/js/app.js').read_text(encoding='utf-8')
+    assert "url_for('print_in_order'" in (root / 'templates/in_order.html').read_text(encoding='utf-8')
+    assert "if (manage) manage.href" in (root / 'static/js/report-workbench.js').read_text(encoding='utf-8')
