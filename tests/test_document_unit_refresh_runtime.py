@@ -30,7 +30,7 @@ class Select {
  appendChild(option){this.options.push(option);}
 }
 const selects=[new Select()],fields={'.material-code':{value:'M1',style:{}},'.unit-id':selects[0],'.line-qty':{value:'3',style:{}},'.line-price':{value:'0'},'.material-name':{value:'物料'},'.material-spec':{value:''},'.material-unit':{value:'个'},'.line-usage':{value:''},'.line-remark':{value:''},'.line-area':{value:'A'},'.system-stock':{value:'4'},'.actual-stock':{value:'3'},'.line-reason':{value:''}};
-const row={querySelector:s=>fields[s]||null};
+const row={dataset:{counted:'true'},querySelector:s=>fields[s]||null};
 const ctx={FormData:class{},document:{querySelector:()=>null,querySelectorAll:s=>s==='.unit-id'?selects:s==='#docTableBody tr'?[row]:[]},
  fetch:(url,options={})=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},showToast:m=>notices.push(m),
  findMaterialByCode:()=>({id:1,code:'M1',name:'物料',unit:{id:1,name:'个'},price:5}),getMaterialUnitId:()=>1,getMaterialUnit:()=>'个'};

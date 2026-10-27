@@ -79,7 +79,7 @@ const fieldValues={order_id:'7',order_no:'FIXTURE-7',date:'2026-10-22',warehouse
 const fields=Object.fromEntries(Object.entries(fieldValues).map(([name,value])=>[name,{value}]));
 const rowValues={'.material-code':'M1','.unit-id':'1','.line-area':'区域','.system-stock':'2','.actual-stock':'3','.line-reason':'盘盈','.line-qty':'2','.line-price':'0','.line-usage':'用途','.line-remark':'行备注'};
 const rowFields=Object.fromEntries(Object.entries(rowValues).map(([key,value])=>[key,{value,style:{}}]));
-const row={querySelector:selector=>rowFields[selector]||null};
+const row={dataset:{counted:'true'},querySelector:selector=>rowFields[selector]||null};
 const document={querySelector:selector=>selector.startsWith('meta')?{content:'fixture-token'}:fields[(selector.match(/name="([^"]+)"/)||[])[1]]||null,
  querySelectorAll:selector=>selector==='#docTableBody tr'?[row]:selector==='.doc-header button, #forceCompleteBtn'?[...buttons,...(forceButton?[forceButton]:[])]:[],
  addEventListener(){},getElementById:id=>id==='forceCompleteBtn'?forceButton:modals[id]||null,

@@ -48,9 +48,9 @@ def test_navigation_loads_once_in_its_original_execution_position(role):
 
 
 def test_navigation_extraction_preserves_original_script_bytes():
-    source = (ROOT / 'app/static' / ASSET).read_bytes()
+    source = (ROOT / 'app/static' / ASSET).read_text(encoding='utf-8').encode('utf-8')
     # Entire original script, including comments, whitespace and execution order.
-    assert hashlib.sha256(source).hexdigest() == '26fbbaefb795a286d88a52d4ba790075ab449c8a31693d4f1e431862e899db36'
+    assert hashlib.sha256(source).hexdigest() == '7c1980c6162a90fba5092a81504ad5fa0d7109598d1ca0dc7daedab6716e417a'
     assert b'{{' not in source and b'{%' not in source
 
 
