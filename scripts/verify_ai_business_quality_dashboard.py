@@ -1,6 +1,8 @@
 """AI-R15-F01 业务质量运营看板与版本回归告警验证脚本。
 
 # AI_TASK: AI-R15-F01
+# AI_TASK: AI-R15-FIX-UI-FEEDBACK-001-F01
+# 子修复传输回归见 tests/test_quality_compare_transport_runtime.py；本脚本保留看板相邻能力验证。
 
 验证内容：
 1. 看板页面路由存在且可访问
