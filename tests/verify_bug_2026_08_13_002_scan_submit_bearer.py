@@ -179,11 +179,16 @@ class TestScanSubmitBearer(unittest.TestCase):
             tok_val = tok.token
 
         with app_module.app.test_client() as c:
+            missing = c.post("/mobile/api/scan_submit",
+                             json={"mode": "query", "code": "SC4"},
+                             headers={"Authorization": f"Bearer {tok_val}"})
+            self.assertEqual(missing.status_code, 400, missing.get_json())
             rv = c.post("/mobile/api/scan_submit",
-                        json={"mode": "query", "code": "SC4"},
+                        json={"mode": "query", "code": "SC4", "warehouse": "TEST_WH"},
                         headers={"Authorization": f"Bearer {tok_val}"})
         self.assertEqual(rv.status_code, 200)
         self.assertTrue(rv.get_json().get("success"))
+        self.assertEqual(rv.get_json()["data"]["material"]["code"], "SC4")
 
     def test_user_bearer_403(self):
         """T5：普通 user Bearer -> 403。"""

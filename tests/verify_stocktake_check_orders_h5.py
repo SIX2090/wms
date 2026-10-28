@@ -7,6 +7,9 @@
 - 提交 payload 携带 check_id；提交前校验已选盘点单（否则阻止）。
 """
 from pathlib import Path
+import pytest
+from bs4 import BeautifulSoup
+from jinja2 import Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parent.parent
 TPL = ROOT / "app" / "templates" / "mobile_scan.html"
@@ -16,12 +19,20 @@ def _text():
     return TPL.read_text(encoding="utf-8")
 
 
-def test_check_mode_shows_warehouse_field():
-    """盘点模式仓库字段必须可见（与 in/out 同级）。"""
-    src = _text()
-    assert "mode not in ['in', 'out', 'check']" in src, (
-        "仓库字段可见性须把 check 与 in/out 并列"
-    )
+@pytest.mark.parametrize('mode', ['in', 'out', 'check', 'query', 'confirm'])
+def test_check_mode_shows_warehouse_field(mode):
+    """Check actual rendering: four stock modes require a visible warehouse, confirm has its own filter."""
+    template = Environment(loader=FileSystemLoader(str(TPL.parent))).get_template(TPL.name)
+    context = template.new_context(dict(mode=mode, mode_config={'title':'test','icon':''},
+        warehouses=[], departments=[], default_warehouse=None, location_management_enabled=False,
+        can_write=False, csrf_token=lambda:'test', url_for=lambda *a,**kw:'#'))
+    html = BeautifulSoup(''.join(template.blocks['content'](context)), 'html.parser')
+    field = html.select_one('#warehouseInput')
+    if mode == 'confirm':
+        assert field is None and html.select_one('#confirmWarehouseSelect') is not None
+    else:
+        assert field is not None and field.has_attr('required')
+        assert 'd-none' not in field.parent.get('class', [])
 
 
 def test_check_order_dropdown_present():

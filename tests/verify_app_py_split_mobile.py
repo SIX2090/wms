@@ -160,13 +160,16 @@ class TestMobileRegister:
         _login(client)
         with app_module.app.app_context():
             _seed_material("M001", "6204轴承", stock=10)
+        missing = client.post("/mobile/api/scan_submit", json={"mode": "query", "code": "M001"})
+        assert missing.status_code == 400, missing.get_json()
         resp = client.post(
             "/mobile/api/scan_submit",
-            json={"mode": "query", "code": "M001"},
+            json={"mode": "query", "code": "M001", "warehouse": "W001"},
         )
         data = resp.get_json()
         assert data["status"] == "success", data
         assert data["data"]["material"]["name"] == "6204轴承"
+        assert data["data"]["material"]["code"] == "M001"
 
     def test_scan_submit_in(self):
         """S6b：in 模式生成入库单并增加库存。"""
