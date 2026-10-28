@@ -41,7 +41,7 @@ let rendered;
 const content = {firstChild: null, insertBefore(bar) {rendered = bar;}};
 const tableIds = new Set(data.tableIds || []);
 const document = {body: element(), getElementById(id) {return tableIds.has(id) ? {id} : null;},
-    querySelector(s) {return s === '.embedded-content' ? content : null;}, querySelectorAll() {return own;}, createElement() {return element();}};
+    querySelector(s) {return s === '.embedded-content' ? content : (data.readonlyForm && s === 'form.readonly-mask' ? {} : null);}, querySelectorAll() {return own;}, createElement() {return element();}};
 const window = {location: {pathname: data.path || '/purchase_order'}};
 function isWmsEmbeddedPage() {return true;}
 function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl,tableId:data.moduleTableId};}

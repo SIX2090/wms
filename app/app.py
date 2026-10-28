@@ -26632,6 +26632,9 @@ def _render_transfer_form(transfer=None):
     warehouses = get_active_warehouses()
     # BUG-2026-08-02-016：调拨单新建时调出仓库预选默认仓库
     default_warehouse = get_default_warehouse()
+    source_warehouse = (transfer.from_warehouse or transfer.from_location) if transfer else ''
+    warehouse = validate_inventory_warehouse(source_warehouse)[0] if source_warehouse else default_warehouse
+    warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     return render_template(
         'document_table_form.html',
         doc_type='transfer',
@@ -26652,12 +26655,12 @@ def _render_transfer_form(transfer=None):
             'to_location': transfer.to_location if transfer else '',
             'remark': transfer.remark if transfer else '',
         },
-        materials=_document_materials_json(validate_inventory_warehouse(transfer.from_location)[0] if transfer and transfer.from_location else default_warehouse, scoped=True),
+        materials=_document_materials_json(warehouse, scoped=True),
         units=_document_units_json(),
         warehouses=warehouses,
         default_warehouse=default_warehouse,
         boms=[],
-        existing_items=[_material_line_data(item) for item in (transfer.items if transfer else [])],
+        existing_items=[_material_line_data(item, extra={'stock': float(warehouse_stock.get(item.material_id, 0))}) for item in (transfer.items if transfer else [])],
         can_complete=bool(transfer and transfer.status == 'pending'),
         can_revert=bool(transfer and transfer.status == 'completed'),
         can_save=not bool(transfer and transfer.status != 'pending'),
@@ -26838,6 +26841,13 @@ def _render_requisition_form(requisition=None):
         prefill['warehouse'] = (request.args.get('warehouse') or '').strip()[:100]
         prefill['location'] = (request.args.get('location') or '').strip()[:100]
         prefill['remark'] = (request.args.get('remark') or '').strip()[:500]
+    if requisition:
+        warehouse = validate_inventory_warehouse(requisition.warehouse)[0]
+    elif prefill['warehouse_id']:
+        warehouse = validate_inventory_warehouse(warehouse_id=prefill['warehouse_id'])[0]
+    else:
+        warehouse = validate_inventory_warehouse(prefill['warehouse'])[0] if prefill['warehouse'] else get_default_warehouse()
+    warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else {}
     return render_template(
         'document_table_form.html',
         doc_type='requisition',
@@ -26864,13 +26874,13 @@ def _render_requisition_form(requisition=None):
             'location': requisition.location if requisition else prefill['location'],
             'remark': requisition.remark if requisition else prefill['remark'],
         },
-        materials=_document_materials_json(validate_inventory_warehouse(requisition.warehouse)[0] if requisition and requisition.warehouse else (validate_inventory_warehouse(warehouse_id=prefill['warehouse_id'])[0] if prefill['warehouse_id'] else get_default_warehouse()), scoped=True),
+        materials=_document_materials_json(warehouse, scoped=True),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),
         location_management_enabled=location_management_enabled(),
         boms=boms,
-        existing_items=[_material_line_data(item) for item in (requisition.items if requisition else [])],
+        existing_items=[_material_line_data(item, extra={'stock': float(warehouse_stock.get(item.material_id, 0))}) for item in (requisition.items if requisition else [])],
         can_complete=bool(requisition and requisition.status == 'pending'),
         can_revert=bool(requisition and requisition.status == 'completed'),
         can_save=not bool(requisition and requisition.status != 'pending'),

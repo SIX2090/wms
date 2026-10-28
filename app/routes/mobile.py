@@ -334,6 +334,7 @@ def register_mobile_routes(app):
     def mobile_scan():
         from app import (
             Department,
+            get_default_warehouse,
             MOBILE_SCAN_MODES,
             Warehouse,
             current_user,
@@ -351,10 +352,12 @@ def register_mobile_routes(app):
             modes=MOBILE_SCAN_MODES,
             mode_config=MOBILE_SCAN_MODES[mode],
             warehouses=warehouses,
+            default_warehouse=get_default_warehouse(),
             departments=departments,
             can_write=current_user.role in ('admin', 'warehouse'),
         )
 
+    @app.route('/mobile/api/stock_lookup', endpoint='mobile_stock_lookup')
     @app.route('/mobile/api/material_lookup')
     @login_required
     def mobile_material_lookup():
@@ -364,6 +367,10 @@ def register_mobile_routes(app):
         from app import validate_inventory_warehouse
         _lk_wh = None
         _lk_wh_raw = (request.args.get('warehouse') or '').strip()
+        if request.endpoint == 'mobile_stock_lookup':
+            _lk_wh, _lk_err = validate_inventory_warehouse(_lk_wh_raw)
+            if not _lk_wh_raw or _lk_err:
+                return jsonify({'status': 'error', 'success': False, 'msg': _lk_err or '请选择仓库'}), 400
         if _lk_wh_raw:
             _lk_wh, _lk_err = validate_inventory_warehouse(_lk_wh_raw)
         material, matches = find_mobile_material(keyword)
@@ -423,6 +430,7 @@ def register_mobile_routes(app):
             parse_float_value,
             request,
             resolve_request_warehouse,
+            validate_inventory_warehouse,
             round_to_2_decimals,
             selectinload,
             _create_adjustment_drafts_from_check_scan,
@@ -468,12 +476,10 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': f'物料不存在：{code}'}), 404
 
         if mode == 'query':
-            # BUG-2026-09-03-002：查询随请求携带仓库时按仓库级展示账面库存
-            _q_wh = None
-            if (data.get('warehouse') or data.get('warehouse_code') or '').strip():
-                _q_wh, _q_wh_err = resolve_request_warehouse(data)
-                if _q_wh_err:
-                    _q_wh = None
+            query_warehouse = (data.get('warehouse') or data.get('warehouse_code') or '').strip()
+            _q_wh, _q_wh_err = validate_inventory_warehouse(query_warehouse, warehouse_id=data.get('warehouse_id'))
+            if (not query_warehouse and not data.get('warehouse_id')) or _q_wh_err:
+                return jsonify({'status': 'error', 'success': False, 'msg': _q_wh_err or '请选择仓库'}), 400
             return jsonify({
                 'status': 'success',
                 'success': True,

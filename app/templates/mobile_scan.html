@@ -155,9 +155,9 @@
                 <input id="quantityInput" class="form-control" type="number" step="0.01" min="0" inputmode="decimal" value="1">
             </div>
 
-            <div class="mobile-scan-field {% if mode not in ['in', 'out', 'check'] %}d-none{% endif %}">
+            <div class="mobile-scan-field">
                 <label class="mobile-scan-label" for="warehouseInput">仓库</label>
-                <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择仓库">
+                <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择仓库" required value="{{ default_warehouse.name if default_warehouse else '' }}">
                 <datalist id="warehouseOptions">
                     {% for warehouse in warehouses %}
                     <option value="{{ warehouse.name }}">{{ warehouse.code }} {{ warehouse.name }}</option>
@@ -289,7 +289,7 @@
 <script>
 (function() {
     var shell = document.querySelector('.mobile-scan-shell');
-    if (!shell) return;
+    if (!shell || shell.dataset.mode === 'confirm') return;
 
     var mode = shell.dataset.mode || 'query';
     var canWrite = shell.dataset.canWrite === '1';
@@ -312,6 +312,7 @@
     var historyWrap = document.getElementById('scanHistory');
     var historyList = document.getElementById('historyList');
     var selectedMaterial = null;
+    var lookupVersion = 0;
     var barcodeScanner = document.getElementById('barcodeScanner');
     var barcodeVideo = document.getElementById('barcodeVideo');
     var barcodeBtn = document.getElementById('barcodeBtn');
@@ -369,7 +370,7 @@
         }
     }
 
-    function renderMatches(matches) {
+    function renderMatches(matches, stocksScoped) {
         matchList.innerHTML = '';
         if (!matches || !matches.length) {
             matchList.hidden = true;
@@ -382,16 +383,11 @@
             button.innerHTML = '<strong></strong><span></span><em></em>';
             button.querySelector('strong').textContent = material.code || '-';
             button.querySelector('span').textContent = material.name || '-';
-            button.querySelector('em').textContent = '库存 ' + formatQty(material.stock) + (material.unit || '');
+            button.querySelector('em').textContent = stocksScoped ? '库存 ' + formatQty(material.stock) + (material.unit || '') : '请选择物料查看本仓库存';
             button.addEventListener('click', function() {
                 scanCode.value = material.code || '';
                 matchList.hidden = true;
-                renderMaterial(material);
-                setStatus('已选择物料', 'success');
-                if (mode !== 'query') {
-                    quantityInput.focus();
-                    quantityInput.select();
-                }
+                lookupMaterial();
             });
             matchList.appendChild(button);
         });
@@ -409,16 +405,26 @@
         matchList.hidden = true;
         // BUG-2026-09-03-002：查询带当前仓库，让"系统库存/当前库存"按仓库级口径展示
         var lookupWh = warehouseInput ? (warehouseInput.value || '').trim() : '';
-        var lookupUrl = '/mobile/api/material_lookup?code=' + encodeURIComponent(code)
-            + (lookupWh ? '&warehouse=' + encodeURIComponent(lookupWh) : '');
+        var version = ++lookupVersion;
+        if (!lookupWh) {
+            selectedMaterial = null;
+            materialCard.hidden = true;
+            if (printLabelBtn) printLabelBtn.hidden = true;
+            setStatus('请选择仓库', 'error');
+            if (warehouseInput) warehouseInput.focus();
+            return Promise.resolve(null);
+        }
+        var lookupUrl = '/mobile/api/stock_lookup?code=' + encodeURIComponent(code)
+            + '&warehouse=' + encodeURIComponent(lookupWh);
         return WMS.api.getRaw(lookupUrl)
 
             .then(function(data) {
+                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh) return null;
                 if (data.status === 'multiple') {
                     selectedMaterial = null;
                     materialCard.hidden = true;
                     if (printLabelBtn) printLabelBtn.hidden = true;
-                    renderMatches((data.data && data.data.matches) || []);
+                    renderMatches((data.data && data.data.matches) || [], true);
                     setStatus('找到多个物料，请点选一个', '');
                     return null;
                 }
@@ -431,6 +437,7 @@
                 return data.data;
             })
             .catch(function(error) {
+                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh) return null;
                 selectedMaterial = null;
                 materialCard.hidden = true;
                 if (printLabelBtn) printLabelBtn.hidden = true;
@@ -802,6 +809,15 @@
         checkOrderSelect.addEventListener('change', refreshCheckProgress);
     }
 
+    if (warehouseInput) warehouseInput.addEventListener('change', function () {
+        lookupVersion++;
+        selectedMaterial = null;
+        materialCard.hidden = true;
+        matchList.hidden = true;
+        if (printLabelBtn) printLabelBtn.hidden = true;
+        if ((scanCode.value || '').trim()) lookupMaterial();
+    });
+
     if (mode === 'check' && warehouseInput) {
         warehouseInput.addEventListener('change', function () {
             lastCheckWh = null;
@@ -872,6 +888,7 @@
             }
             return WMS.api.postRaw('/mobile/api/scan_submit', payload)
                 .then(function(data) {
+                    if (mode === 'query' && (warehouseInput.value || '').trim() !== payload.warehouse.trim()) return;
                     if (data.status !== 'success') throw data;
                     var returnedMaterial = data.data && data.data.material ? data.data.material : material;
                     renderMaterial(returnedMaterial);
@@ -887,6 +904,7 @@
                     if (mode === 'check') refreshCheckProgress();
                 })
                 .catch(function(error) {
+                    if (mode === 'query' && (warehouseInput.value || '').trim() !== payload.warehouse.trim()) return;
                     setStatus((error && (error.msg || error.message)) || '提交失败', 'error');
                 })
                 .finally(function() {
@@ -957,7 +975,8 @@
             setStatus('识别完成', 'success');
             if (data.matches && data.matches.length > 0) {
                 if (data.matches.length === 1) {
-                    renderMaterial(data.matches[0]);
+                    scanCode.value = data.matches[0].code || '';
+                    lookupMaterial();
                 } else {
                     renderMatches(data.matches);
                 }
@@ -1011,6 +1030,7 @@
     var outLoaded = 0;
     var moreBar = null;
     var loadingMore = false;
+    var pendingVersion = 0;
 
     function fetchPendingPage(kind, page) {
         // 仓库必填：按选中的仓库查询待确认草稿（AGENTS.md 仓库必填）
@@ -1020,6 +1040,8 @@
     }
 
     function loadPending() {
+        var version = ++pendingVersion;
+        loadingMore = false;
         inPage = 1;
         outPage = 1;
         inHasMore = false;
@@ -1028,6 +1050,9 @@
         outLoaded = 0;
         showTip('<p class="mobile-confirm-empty">加载中...</p>');
         Promise.all([fetchPendingPage('in', 1), fetchPendingPage('out', 1)]).then(function(results) {
+            if (version !== pendingVersion) return;
+            listEl.innerHTML = '';
+            moreBar = null;
             applyPendingPage('in', inPage, results[0]);
             applyPendingPage('out', outPage, results[1]);
             if (inLoaded + outLoaded === 0) {
@@ -1036,6 +1061,7 @@
             }
             renderMoreBar();
         }).catch(function(error) {
+            if (version !== pendingVersion) return;
             if (error && error.message === 'login') return;
             showTip('<p class="mobile-confirm-empty">加载待确认草稿失败，请点击刷新重试</p>');
         });
@@ -1063,6 +1089,7 @@
 
     function loadMore() {
         if (loadingMore || (!inHasMore && !outHasMore)) return;
+        var version = pendingVersion;
         loadingMore = true;
         setMoreBarLoading(true);
         var nextIn = inHasMore ? inPage + 1 : null;
@@ -1071,6 +1098,7 @@
             nextIn ? fetchPendingPage('in', nextIn) : Promise.resolve(null),
             nextOut ? fetchPendingPage('out', nextOut) : Promise.resolve(null)
         ]).then(function(results) {
+            if (version !== pendingVersion) return;
             if (nextIn) {
                 inPage = nextIn;
                 applyPendingPage('in', inPage, results[0]);
@@ -1081,13 +1109,14 @@
             }
             renderMoreBar();
         }).catch(function(error) {
+            if (version !== pendingVersion) return;
             if (error && error.message === 'login') return;
             if (window.showToast) {
                 window.showToast('加载更多草稿失败，请重试', 'danger');
             }
             renderMoreBar();
         }).then(function() {
-            loadingMore = false;
+            if (version === pendingVersion) loadingMore = false;
         });
     }
 
