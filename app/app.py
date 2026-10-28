@@ -6705,6 +6705,16 @@ def build_purchase_order_todo_summary():
         summary[f'{status}_amount'] = round_to_2_decimals(amount or 0)
     # P2-9 收口：在途口径改走统一函数（行级 max(0)），超收行不再以负数拉低汇总
     summary['remaining_qty'] = get_purchase_in_transit()
+    # 首页待收货按已完成入库事实计算；remaining_qty 仍表示未下推量。
+    summary['pending_receipt_qty'] = 0
+    if summary['pending_count'] + summary['partial_count']:
+        open_orders = select(PurchaseOrder.id).where(PurchaseOrder.status.in_(('pending', 'partial')))
+        receipts = _purchase_completed_receipts_subquery(order_ids=open_orders)
+        remaining = func.coalesce(PurchaseOrderItem.quantity, 0) - func.coalesce(receipts.c.received_quantity, 0)
+        summary['pending_receipt_qty'] = float(db.session.query(
+            func.coalesce(func.sum(case((remaining > 0, remaining), else_=0)), 0)
+        ).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id).filter(
+            PurchaseOrderItem.purchase_order_id.in_(open_orders)).scalar() or 0)
     summary['overdue_count'] = PurchaseOrder.query.filter(
         PurchaseOrder.status.in_(('pending', 'partial')),
         PurchaseOrder.expected_date.isnot(None),
@@ -27759,14 +27769,14 @@ REPORT_DEFINITIONS = {
         },
     },
     'out_detail': {
-        'title': '领料明细报表',
-        'description': '按单据和物料查看领料明细。',
+        'title': '出库明细报表',
+        'description': '按单据和物料查看各类出库明细。',
         'icon': 'bi-box-arrow-up',
         'accent': 'info',
         'summary_labels': {
             'count': '记录数',
-            'quantity': '领料数量',
-            'amount': '领料金额',
+            'quantity': '出库数量',
+            'amount': '出库金额',
         },
         'summary_types': {
             'count': 'number',
@@ -28046,6 +28056,7 @@ TRANSACTION_TYPE_LABELS = {
     'after_sale_out': '售后出库',
 }
 REFERENCE_TYPE_LABELS = {
+    'opening_stock': '期初库存',
     'in_order': '入库单',
     'out_order': '领料单',
     'transfer': '调拨单',
@@ -28492,7 +28503,17 @@ def _report_detail_url(endpoint, doc_id):
     except Exception:
         return ''
 
-def _report_reference_info(reference_type, reference_id, fallback_no=''):
+def _report_reference_info(reference_type, reference_id, fallback_no='', opening_lines=None, warehouse_id=None, material_id=None):
+    if reference_type == 'opening_stock':
+        fallback = f'期初记录 #{reference_id}' if reference_id else '期初库存'
+        line = (opening_lines.get(reference_id) if opening_lines is not None
+                else db.session.get(OpeningStock, reference_id) if reference_id else None)
+        doc = line.doc if line else None
+        if (not doc or (material_id and line.material_id != material_id) or
+                (warehouse_id and line.warehouse_id and line.warehouse_id != warehouse_id) or
+                (warehouse_id and not line.warehouse_id and doc.warehouse_id and doc.warehouse_id != warehouse_id)):
+            return fallback, ''
+        return doc.doc_no or fallback, _report_detail_url('opening_stock_doc_detail', doc.id)
     config = REPORT_REFERENCE_LINKS.get(reference_type or '')
     fallback_no = fallback_no or ''
     if not config or not reference_id:
@@ -28682,10 +28703,10 @@ def _in_detail_columns():
 def _out_detail_columns():
     return [
         {'field': 'date', 'title': '日期'},
-        {'field': 'order_no', 'title': '领料单号', 'link_field': 'order_url'},
+        {'field': 'order_no', 'title': '出库单号', 'link_field': 'order_url'},
         # BUG-2026-09-22-013：补业务类型列，与入库明细报表（'业务类型'）对齐
         {'field': 'business_type', 'title': '业务类型'},
-        {'field': 'customer', 'title': '领料部门'},
+        {'field': 'customer', 'title': '客户/部门'},
         {'field': 'material_code', 'title': '物料编码'},
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},
@@ -29984,6 +30005,10 @@ def _collect_ledger_rows(filters):
     # BUG-2026-09-24-001：单据日期 map——业务日期 = 单据日期优先、流水时间兜底。
     # 一次批量回查，下方循环按 txn.id 直接取用。
     doc_date_map = _ledger_document_date_map(transactions)
+    opening_ids = {t.reference_id for t in transactions
+                   if t.reference_type == 'opening_stock' and t.reference_id}
+    opening_lines = {line.id: line for line in OpeningStock.query.filter(
+        OpeningStock.id.in_(opening_ids)).all()} if opening_ids else {}
 
     def _txn_biz_date(t):
         """流水业务日期：单据日期优先，无单据退回 created_at 日期。"""
@@ -30038,6 +30063,7 @@ def _collect_ledger_rows(filters):
             transaction.reference_type,
             transaction.reference_id,
             f"{transaction.reference_type or 'txn'}-{transaction.reference_id or transaction.id}",
+            opening_lines=opening_lines, warehouse_id=wid, material_id=material_id,
         )
         rows.append({
             'date': txn_date.isoformat() if txn_date else '',

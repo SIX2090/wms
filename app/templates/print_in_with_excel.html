@@ -1,8 +1,9 @@
+{% set print_title = (order.business_type or '采购入库') ~ '单' %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>采购入库单 - {{ order.order_no }}</title>
+    <title>{{ print_title }} - {{ order.order_no }}</title>
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
@@ -83,10 +84,10 @@
     </script>
 
     <div class="doc">
-        <div class="doc-title">采购入库单</div>
+        <div class="doc-title">{{ print_title }}</div>
         <div class="doc-header">
             <span>供应商：{{ order.supplier.name if order.supplier else '' }}</span>
-            <span>采购入库单号：{{ order.order_no }}</span>
+            <span>{{ print_title }}号：{{ order.order_no }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
         <table class="doc-table">
@@ -106,10 +107,10 @@
             <tbody>
                 {% for item in order.items %}
                 <tr>
-                    <td>{{ item.material.code if item.material else '' }}</td>
-                    <td>{{ item.material.brand if item.material else '' }}</td>
-                    <td>{{ item.material.name if item.material else '' }}</td>
-                    <td>{{ item.material.spec if item.material else '' }}</td>
+                    <td>{{ (item.material.code or '') if item.material else '' }}</td>
+                    <td>{{ (item.material.brand or '') if item.material else '' }}</td>
+                    <td>{{ (item.material.name or '') if item.material else '' }}</td>
+                    <td>{{ (item.material.spec or '') if item.material else '' }}</td>
                     <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
                     <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
                     <td>{{ '%.2f'|format(item.price or 0) }}</td>

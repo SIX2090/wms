@@ -203,6 +203,21 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                 raise ValueError('模板工作表规模过大，请精简模板')
             if (sheet.max_row + max(0, len(items) - 1)) * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('展开后的打印内容过大，请缩小筛选范围后打印')
+            # Only the generated built-in layout gets a wider date footer. Custom
+            # workbook merges, wrapping and print areas remain authoritative.
+            builtin_layout = (not template_path or
+                              re.fullmatch(r'builtin_report_[a-z_]+_default\.xlsx', Path(template_path).name))
+            if builtin_layout and sheet.max_column >= 4:
+                for cells in sheet.iter_rows():
+                    for cell in cells:
+                        if (cell.value == '打印日期：{print_date}' and
+                                all(sheet.cell(cell.row, col).value is None
+                                    for col in range(cell.column + 1, sheet.max_column + 1))):
+                            sheet.merge_cells(start_row=cell.row, start_column=cell.column,
+                                              end_row=cell.row, end_column=sheet.max_column)
+                            alignment = copy(cell.alignment)
+                            alignment.wrap_text = True
+                            cell.alignment = alignment
             if sheet._images or sheet._charts:
                 raise ValueError('此模板含图片或图表，浏览器暂不能完整呈现，请使用 Excel 模板文件打印')
             for cells in sheet.iter_rows():
@@ -253,13 +268,14 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                                       'A3': (297, 420), 'A4': (210, 297), 'A5': (148, 210)}[paper]
             if sheet.page_setup.orientation == 'landscape':
                 page_width, page_height = page_height, page_width
+            widths = [_number(sheet.column_dimensions[get_column_letter(col)].width, 13, 1, 80) * 7
+                      for col in range(left, right + 1) if not sheet.column_dimensions[get_column_letter(col)].hidden]
             sheets.append(dict(name=sheet.title, page_name='reportSheet%d' % index,
                 page_width=page_width, page_height=page_height,
                 paper=paper, orientation='landscape' if sheet.page_setup.orientation == 'landscape' else 'portrait',
                 margins={key: '%gmm' % (_number(getattr(margins, key), .5, 0, 3) * 25.4)
                          for key in ('top', 'bottom', 'left', 'right')},
-                widths=[_number(sheet.column_dimensions[get_column_letter(col)].width, 13, 1, 80) * 7
-                        for col in range(left, right + 1) if not sheet.column_dimensions[get_column_letter(col)].hidden],
+                widths=widths, width_percentages=[width / sum(widths) * 100 for width in widths],
                 rows=rendered_rows))
         if not sheets:
             raise ValueError('模板没有可见工作表')

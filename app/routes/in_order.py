@@ -127,6 +127,34 @@ def _parse_item_expiry_date(value):
         return None, '有效期格式不正确，应为 YYYY-MM-DD'
 
 
+def _in_order_print_title(order):
+    """Use the saved business type consistently across built-in print outputs."""
+    return (getattr(order, 'business_type', None) or '采购入库') + '单'
+
+
+def _retitle_builtin_in_order_excel(output, order):
+    """Retitle the filled managed workbook only; never rewrite a template file."""
+    import io
+    from openpyxl import load_workbook
+    title = _in_order_print_title(order)
+    if title == '采购入库单':
+        return output
+    workbook = load_workbook(output)
+    try:
+        for sheet in workbook.worksheets:
+            if sheet['A1'].value == '采购入库单':
+                sheet['A1'] = title
+            label = sheet['D2'].value
+            if isinstance(label, str) and label.startswith('采购入库单号：'):
+                sheet['D2'] = title + '号：' + label.split('：', 1)[1]
+        result = io.BytesIO()
+        workbook.save(result)
+        result.seek(0)
+        return result
+    finally:
+        workbook.close()
+
+
 def _build_in_order_excel(order):
     """按用户指定样式生成采购入库单 Excel（无合计行）。
 
@@ -141,7 +169,7 @@ def _build_in_order_excel(order):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = '采购入库单'
+    ws.title = _in_order_print_title(order)
 
     thin = Side(style='thin', color='000000')
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -156,7 +184,7 @@ def _build_in_order_excel(order):
         ws.column_dimensions[get_column_letter(idx)].width = width
 
     ws.merge_cells('A1:I1')
-    ws['A1'] = '采购入库单'
+    ws['A1'] = _in_order_print_title(order)
     ws['A1'].font = title_font
     ws['A1'].alignment = center
     ws.row_dimensions[1].height = 26
@@ -174,7 +202,7 @@ def _build_in_order_excel(order):
     ws.merge_cells('A2:C2')
     ws['A2'] = f'供应商：{supplier or ""}'
     ws.merge_cells('D2:F2')
-    ws['D2'] = f'采购入库单号：{order_no}'
+    ws['D2'] = f'{_in_order_print_title(order)}号：{order_no}'
     ws.merge_cells('G2:I2')
     ws['G2'] = f'日期：{date_str}'
     for cell in ('A2', 'D2', 'G2'):
@@ -3255,7 +3283,9 @@ def register_in_order_routes(app):
                     template_path, order,
                     date_str=datetime.now().strftime('%Y-%m-%d'),
                 )
-                filename = f'{template.name or "采购入库单"}_{order.order_no or id}.xlsx'
+                if os.path.basename(template_path) == 'builtin_in_order_default_v2.xlsx':
+                    output = _retitle_builtin_in_order_excel(output, order)
+                filename = f'{template.name or _in_order_print_title(order)}_{order.order_no or id}.xlsx'
                 return send_file(
                     output,
                     download_name=filename,
@@ -3263,7 +3293,7 @@ def register_in_order_routes(app):
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 )
         output = _build_in_order_excel(order)
-        filename = f'采购入库单_{order.order_no or id}.xlsx'
+        filename = f'{_in_order_print_title(order)}_{order.order_no or id}.xlsx'
         return send_file(
             output,
             download_name=filename,

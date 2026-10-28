@@ -24,11 +24,13 @@ class Element {
 function node(id) { return nodes[id] ||= new Element(id); }
 const warehouse = node('warehouse_id'); warehouse.value = '2';
 const requests = [], pending = [], opened = [], notices = [];
+const documentHandlers = {};
 let refreshes = 0;
 const context = {
     console, URLSearchParams, URL, reportType: 'out_detail',
     filterForm: {querySelector(selector) { return selector === '#warehouse_id' ? warehouse : null; }},
-    document: {getElementById: node, createElement: () => new Element()},
+    document: {getElementById: node, createElement: () => new Element(),
+        addEventListener(type, fn) { (documentHandlers[type] ||= []).push(fn); }},
     window: {open(url, target) { opened.push({url: new URL(url, 'http://isolated.test'), target}); return {}; }},
     buildParams(exported) { const params = new URLSearchParams({warehouse_id: warehouse.value, material_code: 'M-1', start_date: '2026-10-01', sort_field: 'quantity', sort_order: 'desc', page: '3', page_size: '20'}); if (exported) params.set('export', 'excel'); return params; },
     showToast(message) { notices.push(message); }, renderTruncation(){}, loadData(){refreshes++;},
@@ -37,6 +39,7 @@ const context = {
 context.window.showToast = context.showToast;
 vm.createContext(context);
 vm.runInContext(source.slice(begin, end), context);
+assert.equal(documentHandlers.click.length, 1, 'outside-click handler registered');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const good = [
     {id: 5, name: '<自定义模板>', is_default: false, has_file: true},

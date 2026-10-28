@@ -399,7 +399,12 @@ def register_report_routes(app):
             rows = [dict(row, **{column['field']: _serialize_excel_value(column, row)
                                for column in columns if column.get('type') == 'status'})
                     for row in rows]
-            context.update(sheets=build_report_print_preview(title, columns, rows,
+            scope = [f"仓库：{filters['warehouse']}（{filters['warehouse_code']}）"]
+            if filters.get('start_month') or filters.get('end_month'):
+                scope.append(f"月份：{filters.get('start_month') or '不限'} 至 {filters.get('end_month') or '不限'}")
+            elif filters.get('start_date') or filters.get('end_date'):
+                scope.append(f"日期：{filters.get('start_date') or '不限'} 至 {filters.get('end_date') or '不限'}")
+            context.update(print_scope=' · '.join(scope), sheets=build_report_print_preview(title, columns, rows,
                 template_path=template_path, include_prices=include_prices),
                 total=len(rows), template_name=template.name if template else '系统内置模板')
         except ValueError as exc:

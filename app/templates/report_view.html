@@ -278,7 +278,7 @@
         {# BUG-2026-09-07-003：查询结果超上限被截断时显式提示，不再静默失真 #}
         <div class="alert alert-warning d-none mb-0 rounded-0 border-0 border-bottom py-2 px-3 small" id="truncationAlert" role="alert"></div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0{% if report_type == 'warehouse_monthly' %} monthly-stock-table{% endif %}" id="reportTable">
+            <table class="table table-hover align-middle mb-0{% if report_type == 'warehouse_monthly' %} monthly-stock-table{% elif report_type in ('in_detail', 'out_detail') %} detail-report-table{% endif %}" id="reportTable">
                 <thead class="table-dark">
                     <tr id="tableHeaderRow"></tr>
                 </thead>
@@ -466,6 +466,7 @@ function openReportTemplateOutput(mode) {
         params.set('template_id', templateId);
     }
     const endpoint = mode === 'preview' ? 'print_preview' : 'print_excel';
+    document.getElementById('reportPrintMenu').open = false;
     window.open(`/report/${encodeURIComponent(reportType)}/${endpoint}?${params.toString()}`, '_blank', 'noopener');
 }
 
@@ -477,6 +478,12 @@ document.getElementById('reportPrintMenu').addEventListener('keydown', event => 
     if (event.key === 'Escape') {
         event.currentTarget.open = false;
         event.currentTarget.querySelector('summary').focus();
+    }
+});
+document.addEventListener('click', event => {
+    const menu = document.getElementById('reportPrintMenu');
+    if (menu.open && (!menu.contains(event.target) || event.target.closest('a'))) {
+        menu.open = false;
     }
 });
 
@@ -496,6 +503,8 @@ printBtn.addEventListener('click', async () => {
         el.classList.remove('d-none');
         return;
     }
+    const menu = document.getElementById('reportPrintMenu');
+    if (menu) menu.open = false;
     setLoading(true);
     try {
         const allRows = [];
@@ -1086,6 +1095,8 @@ loadData();
 <style>
 #reportTable.monthly-stock-table { min-width: 1150px; table-layout: auto; }
 #reportTable.monthly-stock-table th, #reportTable.monthly-stock-table td { white-space: nowrap; }
+#reportTable.detail-report-table { width: max-content; min-width: 100%; table-layout: auto; }
+#reportTable.detail-report-table th, #reportTable.detail-report-table td { white-space: nowrap; min-width: 90px; }
 .report-template-menu { position: relative; }
 .report-template-options { position: absolute; right: 0; top: 100%; z-index: 1030; width: 390px; max-width: calc(100vw - 32px); padding: 16px; background: white; border: 1px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 16px #0002; }
 @media (max-width: 576px) { .report-template-options { left: 0; right: auto; width: min(390px, calc(100vw - 32px)); } }

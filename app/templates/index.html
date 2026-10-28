@@ -622,7 +622,7 @@
                     </div>
                     <div class="hero-action-main">
                         <strong>待入库采购单</strong>
-                        <span>当前没有待入库采购单。</span>
+                        <span>{% if purchase_order_summary.open_count %}还有 {{ purchase_order_summary.open_count }} 张采购单待入库。{% else %}当前没有待入库采购单。{% endif %}</span>
                     </div>
                 </a>
             </div>
@@ -714,7 +714,7 @@
         <a class="summary-card" href="/purchase_order?status=open">
             <div class="label">待入库采购单</div>
             <div class="value">{{ purchase_order_summary.open_count }}</div>
-            <div class="hint">待收货数量 {{ "%.2f"|format(purchase_order_summary.remaining_qty) }}</div>
+            <div class="hint">待收货数量 {{ "%.2f"|format(purchase_order_summary.pending_receipt_qty) }}</div>
         </a>
         <a class="summary-card" href="/purchase_order?sort=expected_date&order=asc">
             <div class="label">逾期采购</div>
