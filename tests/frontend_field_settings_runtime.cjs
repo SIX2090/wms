@@ -99,7 +99,7 @@ function fixture(options = {}) {
     document = {
         body: new Element('body'), activeElement: null,
         querySelectorAll: selector => selector === 'table' ? [table] : [],
-        getElementById: id => id === 'wms-detail-column-style' ? {} : id === 'reportTable' ? table : host || null,
+        getElementById: id => id === 'wms-detail-column-style' ? {} : id === table.id ? table : id === 'wmsFieldSettingsBackdrop' ? host || null : null,
         createElement: tag => tag === 'tr' ? settingsRow() : tag === 'th' ? new Element('th') : (host = makeHost()),
         createDocumentFragment: () => Object.assign(new Element('fragment'), {fragment: true}),
         createTextNode: text => ({nodeType: 3, textContent: text}),
@@ -117,7 +117,13 @@ function fixture(options = {}) {
     ctx.window = ctx; vm.createContext(ctx); vm.runInContext(helpers + '\n' + dynamicSource + '\n' + common, ctx);
     const fieldKey = 'wms:field-settings:v3:/isolated:' + table.id;
     const scope = {querySelectorAll: () => [table]}, button = new Element('button');
-    button.closest = selector => selector === '.modal.show' ? null : scope;
+    button.closest = selector => selector === 'button,a' ? button : selector === '.modal.show' || selector === '#wmsFieldSettingsBackdrop' ? null : scope;
+    if (options.toolbar) {
+        button.textContent = '栏目设置';
+        button.setAttribute('data-field-settings-table', table.id);
+        // The toolbar sits outside the table card; generic scope lookup cannot find it.
+        scope.querySelectorAll = () => [];
+    }
     const initialize = () => (listeners.DOMContentLoaded || []).forEach(handler => handler());
     const order = () => header.children.map(item => item.dataset.columnKey);
     const bodyOrder = () => body.children[0].children.map(item => item.dataset.columnKey);
@@ -131,10 +137,30 @@ function fixture(options = {}) {
     function move(key, direction) { rowOf(key).click(); moves.find(button => button.dataset.fsMove === direction).click(); }
     const dynamic = () => ctx.setupDynamicDetailColumnControls({tableSelector: table, orderKey: 'own-order', widthKey: 'own-width', lockedColumns: options.locked || []});
     function flush(added = []) { for (const observer of observers) observer.handler([{type: 'childList', addedNodes: added}]); }
-    return {ctx, store, writes, table, header, body, controls, fieldKey, initialize, order, bodyOrder, labels, open, reset, ok, cancel, rename, move, dynamic, flush, addRow, cell, rowOf};
+    const clickToolbar = () => (listeners.click || []).forEach(handler => handler({target: button, preventDefault() {}, stopImmediatePropagation() {}}));
+    return {ctx, store, writes, table, header, body, controls, fieldKey, initialize, order, bodyOrder, labels, open, reset, ok, cancel, rename, move, dynamic, flush, addRow, cell, rowOf, clickToolbar};
 }
 
 function run() {
+    if (scenario === 'toolbar-column-settings') {
+        const f = fixture({toolbar: true});
+        f.initialize(); f.clickToolbar();
+        assert(f.rowOf('memo'), 'toolbar must open the actual column dialog');
+        f.rename('memo', '盘点备注'); f.move('memo', 'top');
+        const checkbox = f.rowOf('price').querySelector('input[type=checkbox]');
+        checkbox.checked = false; checkbox.handlers.change.forEach(handler => handler.call(checkbox));
+        f.ok(); f.flush();
+        const reload = fixture({toolbar: true, store: f.store});
+        reload.initialize(); reload.clickToolbar();
+        assert.equal(reload.labels().memo, '盘点备注');
+        assert.deepEqual(reload.order(), ['memo', 'quantity', 'price']);
+        assert.equal(reload.rowOf('price').querySelector('input[type=checkbox]').checked, false);
+        reload.reset(); reload.ok(); reload.flush();
+        assert.deepEqual(reload.order(), ['quantity', 'memo', 'price']);
+        assert.equal(reload.labels().memo, 'memo');
+        assert.deepEqual(JSON.parse(reload.store.get(reload.fieldKey)).hidden, []);
+        return;
+    }
     if (scenario.startsWith('business-columns-')) {
         const keys = ['row_no', 'material_code', 'quantity', 'contract_no', 'project_name', 'new_business_field', 'actions'];
         const dynamic = scenario.includes('dynamic');

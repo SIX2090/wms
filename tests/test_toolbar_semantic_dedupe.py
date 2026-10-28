@@ -39,11 +39,12 @@ function element(text = '', visible = true, inTable = false) {
 const own = data.own.map(o => element(o.text, o.visible !== false, !!o.inTable));
 let rendered;
 const content = {firstChild: null, insertBefore(bar) {rendered = bar;}};
-const document = {body: element(), getElementById() {return null;},
+const tableIds = new Set(data.tableIds || []);
+const document = {body: element(), getElementById(id) {return tableIds.has(id) ? {id} : null;},
     querySelector(s) {return s === '.embedded-content' ? content : null;}, querySelectorAll() {return own;}, createElement() {return element();}};
 const window = {location: {pathname: data.path || '/purchase_order'}};
 function isWmsEmbeddedPage() {return true;}
-function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl};}
+function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl,tableId:data.moduleTableId};}
 function isWmsListPage() {return data.isList !== false;}
 function isFormPage() {return !!data.isForm;}
 function createDocumentNavigationGroup() {return null;}
@@ -52,7 +53,9 @@ const code = ['escapeHtml','pageHasOwnButton','trimWmsActionbarDividers','pageHa
     .map(n=>extract(n,n==='pageHasOwnListAction')).join('\n');
 eval(code);
 insertGlobalActionBar();
-console.log(JSON.stringify(rendered.children.filter(c=>c.title).map(c=>c.title)));
+console.log(JSON.stringify(data.returnTargets
+    ? rendered.children.filter(c=>c.attrs['data-field-settings-table']).map(c=>c.attrs['data-field-settings-table'])
+    : rendered.children.filter(c=>c.title).map(c=>c.title)));
 '''
     result = subprocess.run([node, '-e', script], input=json.dumps({
         'source': str(ROOT / 'app/static/js/app.js'), 'own': own, **context}),
@@ -78,6 +81,24 @@ def test_missing_hidden_and_row_actions_do_not_remove_global_actions():
     assert '新增' in expected and '删除' in expected and '导入' in expected
     assert _render_toolbar([{'text':'新增采购单','visible':False},
                             {'text':'删除已选','inTable':True}]) == expected
+
+
+@pytest.mark.parametrize('path,is_list', [('/check', True), ('/check/add', False), ('/check/12', False)])
+def test_inventory_check_toolbar_names_the_actual_column_settings(path, is_list):
+    labels = _render_toolbar([], path=path, isList=is_list)
+    assert '栏目设置' in labels
+    assert '设置' not in labels
+
+
+@pytest.mark.parametrize('path,table_ids,expected', [
+    ('/check', ['checkTable'], 'checkTable'),
+    ('/check/add', ['linkedScansTable', 'docTable'], 'docTable'),
+    ('/check/12', ['linkedScansTable', 'docTable'], 'docTable'),
+])
+def test_check_settings_target_primary_table_instead_of_linked_scan_history(path, table_ids, expected):
+    targets = _render_toolbar([], path=path, isList=path == '/check',
+                              moduleTableId='checkTable', tableIds=table_ids, returnTargets=True)
+    assert targets == [expected]
 
 
 def test_delete_all_and_batch_print_are_distinct_actions():

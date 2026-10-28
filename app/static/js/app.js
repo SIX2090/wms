@@ -3629,7 +3629,13 @@ function insertGlobalActionBar() {
         btn.type = 'button';
         btn.className = 'btn btn-sm';
         if (item.key === 'add') btn.setAttribute('data-wms-new', '');
-        var actionLabel = item.key === 'settings' && module.printTemplateUrl ? '打印设置' : item.label;
+        var actionLabel = item.key === 'settings' ? (module.printTemplateUrl ? '打印设置' : '栏目设置') : item.label;
+        if (item.key === 'settings' && !module.printTemplateUrl) {
+            var settingsTable = module.tableId && document.getElementById(module.tableId);
+            // Shared document forms can place linked scan history before the business grid.
+            if (!settingsTable) settingsTable = document.getElementById('docTable');
+            if (settingsTable) btn.setAttribute('data-field-settings-table', settingsTable.id);
+        }
         // 页面显式声明合并动作时，顶部只替换保存入口，其余工具及翻页保持。
         var primarySave = item.key === 'save' && document.querySelector('button[data-wms-save-complete]');
         if (primarySave) {
@@ -4030,6 +4036,11 @@ function getRecentVisits() {
     }
 
     function findGrid(button) {
+        var tableId = button.getAttribute('data-field-settings-table');
+        if (tableId) {
+            var target = document.getElementById(tableId);
+            return prepareTable(target) ? target : null;
+        }
         var scope = button.closest('form,.card,.content-card,.main-content') || document;
         var tables = Array.from(scope.querySelectorAll('table')).filter(prepareTable);
         return tables.find(function(table) { return table.querySelector('tbody'); }) || tables[0] || null;
