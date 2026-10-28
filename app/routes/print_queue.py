@@ -187,6 +187,9 @@ def _migration_error_response(e):
     """print_job 表缺 printing_started_at 列（服务端未重启迁移）时给 503 明确
     提示，其余 DB 异常给 500，避免误导性的「服务器内部错误」。"""
     msg = str(e)
+    if 'database is locked' in msg.lower() or 'database table is locked' in msg.lower():
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '打印队列忙，结果尚未保存，请稍后重试'}), 503
     if 'printing_started_at' in msg or 'no such column' in msg:
         return jsonify({'status': 'error',
                         'msg': '打印队列表待迁移：请重启 WMS 服务（启动会自动补列）'}), 503
@@ -329,7 +332,7 @@ def mark_job_printed(job, ok, error_msg=None):
     失败时在 commit 后挂 PRINT-ROUTING-F01-P7 告警（独立事务，绝不阻断回写）。
     """
     job.status = 'done' if ok else 'failed'
-    job.printed_at = datetime.now()
+    job.printed_at = datetime.now() if ok else None
     if error_msg:
         job.error_msg = error_msg[:500]
     db.session.commit()
@@ -710,7 +713,10 @@ def register_print_queue_routes(app):
         job.printed_at = datetime.now()
         if req.error_msg:
             job.error_msg = req.error_msg[:500]
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as e:
+            return _migration_error_response(e)
         return jsonify({'status': 'success', 'msg': '已标记完成'})
 
     @app.route('/print_queue/jobs/<int:job_id>/fail', methods=['POST'])
@@ -730,8 +736,11 @@ def register_print_queue_routes(app):
             return jsonify({'status': 'error', 'msg': '任务已重新认领或租约失效'}), 409
         job.status = 'failed'
         job.error_msg = (req.error_msg or '桌面端打印失败')[:500]
-        job.printed_at = datetime.now()
-        db.session.commit()
+        job.printed_at = None
+        try:
+            db.session.commit()
+        except Exception as e:
+            return _migration_error_response(e)
         return jsonify({'status': 'success', 'msg': '已标记失败'})
 
     @app.route('/print_queue/station')

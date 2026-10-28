@@ -365,6 +365,25 @@ def test_fail_job(client):
         job = PrintJob.query.get(r['job_id'])
         assert job.status == 'failed'
         assert job.error_msg == '打印机离线'
+        assert job.printed_at is None
+
+
+@pytest.mark.parametrize('outcome', ['complete', 'fail'])
+def test_result_database_busy_is_retryable_without_losing_claim(client, monkeypatch, outcome):
+    from sqlalchemy.exc import OperationalError
+    result = client.post('/print_queue/jobs', json={'job_type': 'out_order', 'target_id': 1}).get_json()
+    claim = client.get('/print_queue/next').get_json()['job']
+    def locked_commit():
+        raise OperationalError('UPDATE print_job', {}, Exception('database is locked'))
+    monkeypatch.setattr(db.session, 'commit', locked_commit)
+    response = client.post(f'/print_queue/jobs/{result["job_id"]}/{outcome}',
+                           json={'lease_token': claim['lease_token']})
+    assert response.status_code == 503
+    assert '稍后重试' in response.get_json()['msg']
+    with app_module.app.app_context():
+        job = db.session.get(PrintJob, result['job_id'])
+        assert job.status == 'printing'
+        assert job.printed_at is None
 
 
 # ==================== 僵尸任务回收 ====================

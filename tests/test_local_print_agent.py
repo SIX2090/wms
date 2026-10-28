@@ -276,6 +276,7 @@ def test_mark_job_printed(app_ctx):
     db.session.commit()
     mark_job_printed(job, False, 'x' * 600)
     assert job.status == 'failed'
+    assert job.printed_at is None
     assert len(job.error_msg) == 500
 
 

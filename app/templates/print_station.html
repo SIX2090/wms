@@ -53,9 +53,9 @@
                 <!-- kiosk-printing 提示 -->
                 <div class="alert alert-warning alert-kiosk" id="kioskAlert">
                     <i class="bi bi-exclamation-triangle"></i>
-                    <strong>全自动打印配置：</strong>浏览器安全策略禁止网页跳过打印对话框。
-                    要实现「无人值守自动出纸」，请用以下命令启动 Chrome/Edge：
-                    <code>chrome --kiosk-printing --kiosk http://你的WMS地址/print_queue/station</code>
+                    <strong>浏览器打印须确认出纸：</strong>关闭或取消打印窗口不能证明打印成功。
+                    请检查纸张后确认结果；无人值守打印请在连接打印机的客户端运行 Windows 打印代理，云服务器无需连接打印机。
+                    <a href="/print_routing">打开打印工作台</a>
                     <button type="button" class="btn-close" onclick="document.getElementById('kioskAlert').remove()"></button>
                 </div>
 
@@ -67,8 +67,16 @@
                     <button class="btn btn-outline-secondary btn-sm" onclick="clearLog()">
                         <i class="bi bi-eraser"></i> 清空日志
                     </button>
-                    <span class="badge text-bg-success ms-3 align-self-center">自动打印已启用</span>
+                    <span class="badge text-bg-secondary ms-3 align-self-center">浏览器打印 · 人工确认结果</span>
                     <span class="text-muted small align-self-center">轮询间隔: <span id="intervalLabel">3</span> 秒</span>
+                </div>
+
+                <div class="alert alert-warning" id="printResultPanel" hidden>
+                    <p id="printResultText" role="status" aria-live="polite"></p>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button type="button" class="btn btn-success" id="confirmPrintedBtn">本份已出纸，确认</button>
+                        <button type="button" class="btn btn-outline-danger" id="notPrintedBtn">未出纸，标记失败</button>
+                    </div>
                 </div>
 
                 <!-- 日志 -->
@@ -89,6 +97,12 @@
         var polling = true;
         var currentJob = null;    // 当前正在打印的任务
         var timer = null;
+        var awaitingResult = null;
+        var resultBusy = false;
+        var resultPanel = document.getElementById('printResultPanel');
+        var resultText = document.getElementById('printResultText');
+        var confirmPrintedBtn = document.getElementById('confirmPrintedBtn');
+        var notPrintedBtn = document.getElementById('notPrintedBtn');
 
         // 统一 CSRF token 注入（所有 POST 请求自动带上）
         var csrfToken = document.querySelector('meta[name="csrf-token"]');
@@ -181,8 +195,8 @@
                 var doc = this.contentWindow && this.contentWindow.document;
                 if (!doc) {
                     log('任务 #' + job.id + ' iframe 加载失败', 'error');
-                    reportFail(job.id, 'iframe 加载失败');
-                    currentJob = null;
+                    showPrintResult(job, copies, 0, '打印模板加载失败，请检查后重新发起打印。', false);
+                    settlePrintResult(false, '打印模板加载失败');
                     return;
                 }
                 log('任务 #' + job.id + ' 模板已加载，份数=' + copies + '，正在调起打印...', 'info');
@@ -195,57 +209,96 @@
         }
 
         function printCopies(job, total, idx) {
-            if (idx >= total) {
-                log('任务 #' + job.id + ' 已完成 ' + total + ' 份打印', 'success');
-                reportComplete(job.id);
-                currentJob = null;
-                return;
-            }
             try {
                 var fw = document.getElementById('printFrame').contentWindow;
                 if (!fw) { throw new Error('打印窗口不可用'); }
-                // 监听打印对话框关闭（afterprint 在对话框关闭/取消后均会触发）
+                // afterprint also fires on cancellation; only a person can confirm paper output.
                 var afterHandled = false;
+                var printTimeout;
                 var onAfter = function() {
                     if (afterHandled) return;
                     afterHandled = true;
+                    clearTimeout(printTimeout);
                     fw.removeEventListener('afterprint', onAfter);
-                    log('任务 #' + job.id + ' 第 ' + (idx+1) + '/' + total + ' 份打印对话框已关闭', 'success');
-                    // 继续下一份
-                    setTimeout(function() { printCopies(job, total, idx + 1); }, 300);
+                    showPrintResult(job, total, idx, '打印窗口已关闭，请检查本份是否实际出纸。');
                 };
                 fw.addEventListener('afterprint', onAfter);
-                // 兜底：5 秒后 if afterprint 未触发（部分浏览器/驱动行为），强制进入下一份
-                setTimeout(function() {
+                // Missing events cannot prove success either. Keep the claim until the result is saved.
+                printTimeout = setTimeout(function() {
                     if (!afterHandled) {
                         afterHandled = true;
                         fw.removeEventListener('afterprint', onAfter);
-                        log('任务 #' + job.id + ' 第 ' + (idx+1) + ' 份 afterprint 未触发，按超时继续', 'warn');
-                        printCopies(job, total, idx + 1);
+                        showPrintResult(job, total, idx, '尚未收到打印窗口关闭反馈，请关闭打印窗口并检查是否实际出纸。');
                     }
                 }, 8000);
                 fw.focus();
                 fw.print();
             } catch (e) {
                 log('任务 #' + job.id + ' 打印调用异常：' + e.message, 'error');
-                reportFail(job.id, e.message);
-                currentJob = null;
+                showPrintResult(job, total, idx, '无法调起打印，请检查客户端打印机后重试。', false);
+                settlePrintResult(false, e.message);
             }
         }
 
-        function reportComplete(jobId, note) {
-            WMS.api.post('/print_queue/jobs/' + jobId + '/complete', {
-                error_msg: note || null,
-                lease_token: currentJob && currentJob.lease_token
-            }).catch(function() { log('上报完成失败 #' + jobId, 'error'); });
+        function showPrintResult(job, total, idx, message, canConfirm) {
+            if (currentJob !== job) return;
+            awaitingResult = {job: job, total: total, idx: idx, canConfirm: canConfirm !== false};
+            resultText.textContent = '任务 #' + job.id + '，第 ' + (idx + 1) + '/' + total + ' 份：' + message + ' 确认前不会处理后续任务。';
+            resultPanel.hidden = false;
+            confirmPrintedBtn.disabled = !awaitingResult.canConfirm;
+            notPrintedBtn.disabled = false;
+            log('任务 #' + job.id + ' 等待人工确认出纸结果', 'warn');
         }
 
-        function reportFail(jobId, errMsg) {
-            WMS.api.post('/print_queue/jobs/' + jobId + '/fail', {
-                error_msg: errMsg,
-                lease_token: currentJob && currentJob.lease_token
-            }).catch(function() { log('上报失败状态失败 #' + jobId, 'error'); });
+        function settlePrintResult(printed, errorMessage) {
+            if (!awaitingResult || resultBusy || (printed && !awaitingResult.canConfirm)) return;
+            var state = awaitingResult;
+            if (printed && state.idx + 1 < state.total) {
+                awaitingResult = null;
+                resultPanel.hidden = true;
+                printCopies(state.job, state.total, state.idx + 1);
+                return;
+            }
+            resultBusy = true;
+            confirmPrintedBtn.disabled = true;
+            notPrintedBtn.disabled = true;
+            var failure = errorMessage || ('浏览器打印未出纸（取消或失败），已确认 ' + state.idx + '/' + state.total + ' 份，请检查打印机后重新发起打印');
+            var request = printed ? reportComplete(state.job) : reportFail(state.job, failure);
+            request.then(function() {
+                log('任务 #' + state.job.id + (printed ? ' 已人工确认全部出纸' : ' 已标记未出纸'), printed ? 'success' : 'warn');
+                awaitingResult = null;
+                currentJob = null;
+                resultBusy = false;
+                resultPanel.hidden = true;
+                refreshStats();
+                scheduleNext(POLL_INTERVAL);
+            }).catch(function(error) {
+                resultBusy = false;
+                resultText.textContent = '打印结果尚未保存：' + ((error && error.message) || '网络异常') + '。请核对任务后稍后重试，请勿重复打印。';
+                log('任务 #' + state.job.id + ' 结果未保存，保留当前任务等待重试', 'warn');
+                setTimeout(function() {
+                    if (awaitingResult !== state || resultBusy) return;
+                    confirmPrintedBtn.disabled = !state.canConfirm;
+                    notPrintedBtn.disabled = false;
+                }, POLL_INTERVAL);
+            });
         }
+
+        function reportComplete(job) {
+            return WMS.api.post('/print_queue/jobs/' + job.id + '/complete', {
+                lease_token: job.lease_token
+            });
+        }
+
+        function reportFail(job, errMsg) {
+            return WMS.api.post('/print_queue/jobs/' + job.id + '/fail', {
+                error_msg: errMsg,
+                lease_token: job.lease_token
+            });
+        }
+
+        confirmPrintedBtn.addEventListener('click', function() { settlePrintResult(true); });
+        notPrintedBtn.addEventListener('click', function() { settlePrintResult(false); });
 
         // 启动
         log('打印工作站已启动，开始轮询...', 'success');

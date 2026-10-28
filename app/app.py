@@ -7,7 +7,7 @@ from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
-from sqlalchemy import case, func, false, true, tuple_ as sa_tuple, update as sa_update, or_
+from sqlalchemy import case, func, false, true, tuple_ as sa_tuple, update as sa_update, or_, select, union_all
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import csv
@@ -6567,13 +6567,10 @@ def build_purchase_order_execution(order):
     item_ids = [item.id for item in items if item.id]
     completed_by_item = {item_id: 0 for item_id in item_ids}
     if item_ids:
+        receipts = _purchase_completed_receipts_subquery(order_ids=[order.id])
         rows = db.session.query(
-            InOrderItem.source_purchase_order_item_id,
-            func.coalesce(func.sum(InOrderItem.quantity), 0),
-        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).filter(
-            InOrderItem.source_purchase_order_item_id.in_(item_ids),
-            InOrder.status == 'completed',
-        ).group_by(InOrderItem.source_purchase_order_item_id).all()
+            receipts.c.item_id, receipts.c.received_quantity,
+        ).filter(receipts.c.item_id.in_(item_ids)).all()
         for item_id, completed_qty in rows:
             completed_by_item[item_id] = round_to_2_decimals(completed_qty or 0)
 
@@ -30179,7 +30176,86 @@ def _purchase_order_item_query(filters):
         ).filter(match_clause).distinct()
     return query
 
-def _purchase_execution_row(item, today_value):
+def _purchase_completed_receipts_subquery(filters=None, order_ids=None):
+    """Completed inbound facts, including old header-only links, without per-row queries.
+
+    Explicit source-line links win. Legacy rows without a source line are assigned
+    once in receipt-ID/order-line-ID order within the same order and material.
+    The last order line retains historical over-receipts instead of hiding them.
+    Allocation precedes warehouse filtering so splitting warehouses never duplicates
+    a legacy receipt. This only reads facts; it never repairs or rewrites documents.
+    """
+    if order_ids is None and filters is not None:
+        allowed = _purchase_order_item_query(filters).with_entities(
+            PurchaseOrderItem.purchase_order_id.label('order_id')).distinct().subquery()
+        order_ids = select(allowed.c.order_id)
+    linked_query = select(
+        InOrderItem.source_purchase_order_item_id.label('item_id'),
+        InOrder.warehouse.label('warehouse'),
+        func.sum(InOrderItem.quantity).label('received_quantity'),
+    ).join(InOrder, InOrderItem.in_order_id == InOrder.id).join(
+        PurchaseOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
+    ).where(
+        InOrder.status == 'completed',
+        InOrderItem.source_purchase_order_item_id.isnot(None),
+    )
+    if order_ids is not None:
+        linked_query = linked_query.where(PurchaseOrderItem.purchase_order_id.in_(order_ids))
+    linked = linked_query.group_by(InOrderItem.source_purchase_order_item_id, InOrder.warehouse).cte()
+    direct = select(linked.c.item_id, func.sum(linked.c.received_quantity).label('quantity')).group_by(linked.c.item_id).cte()
+    available = func.coalesce(PurchaseOrderItem.quantity, 0) - func.coalesce(direct.c.quantity, 0)
+    capacity_query = select(
+        PurchaseOrderItem.id.label('item_id'), PurchaseOrderItem.purchase_order_id.label('order_id'),
+        PurchaseOrderItem.material_id.label('material_id'),
+        case((available > 0, available), else_=0).label('capacity'),
+    ).outerjoin(direct, direct.c.item_id == PurchaseOrderItem.id)
+    if order_ids is not None:
+        capacity_query = capacity_query.where(PurchaseOrderItem.purchase_order_id.in_(order_ids))
+    capacity = capacity_query.cte()
+    partition = [capacity.c.order_id, capacity.c.material_id]
+    ranges = select(
+        capacity.c.item_id, capacity.c.order_id, capacity.c.material_id,
+        func.coalesce(func.sum(capacity.c.capacity).over(
+            partition_by=partition, order_by=capacity.c.item_id, rows=(None, -1)), 0).label('start_qty'),
+        func.sum(capacity.c.capacity).over(
+            partition_by=partition, order_by=capacity.c.item_id, rows=(None, 0)).label('end_qty'),
+        func.row_number().over(partition_by=partition, order_by=capacity.c.item_id.desc()).label('reverse_row'),
+    ).cte()
+    legacy_query = select(
+        InOrderItem.id.label('receipt_id'), InOrder.source_purchase_order_id.label('order_id'),
+        InOrderItem.material_id.label('material_id'), InOrder.warehouse.label('warehouse'),
+        InOrderItem.quantity.label('quantity'),
+    ).join(InOrder, InOrderItem.in_order_id == InOrder.id).where(
+        InOrder.status == 'completed', InOrder.source_purchase_order_id.isnot(None),
+        InOrderItem.source_purchase_order_item_id.is_(None), InOrderItem.quantity > 0,
+    )
+    if order_ids is not None:
+        legacy_query = legacy_query.where(InOrder.source_purchase_order_id.in_(order_ids))
+    legacy = legacy_query.cte()
+    legacy_ranges = select(
+        *legacy.c,
+        func.sum(legacy.c.quantity).over(partition_by=[legacy.c.order_id, legacy.c.material_id],
+                                       order_by=legacy.c.receipt_id, rows=(None, 0)).label('end_qty'),
+    ).cte()
+    legacy_start = legacy_ranges.c.end_qty - legacy_ranges.c.quantity
+    lower = case((ranges.c.start_qty > legacy_start, ranges.c.start_qty), else_=legacy_start)
+    upper = case((ranges.c.reverse_row == 1, legacy_ranges.c.end_qty),
+                 (ranges.c.end_qty < legacy_ranges.c.end_qty, ranges.c.end_qty), else_=legacy_ranges.c.end_qty)
+    allocated = select(
+        ranges.c.item_id, legacy_ranges.c.warehouse,
+        func.sum(upper - lower).label('received_quantity'),
+    ).select_from(ranges.join(legacy_ranges, db.and_(
+        ranges.c.order_id == legacy_ranges.c.order_id, ranges.c.material_id == legacy_ranges.c.material_id,
+    ))).where(upper > lower).group_by(ranges.c.item_id, legacy_ranges.c.warehouse)
+    receipts = union_all(select(linked.c.item_id, linked.c.warehouse, linked.c.received_quantity), allocated).subquery()
+    query = select(receipts.c.item_id, func.round(func.sum(receipts.c.received_quantity), 2).label('received_quantity'))
+    if filters is not None:
+        query = query.where(_warehouse_document_match_clause(
+            receipts.c.warehouse, warehouse_name=filters.get('warehouse'), warehouse_code=filters.get('warehouse_code')))
+    return query.group_by(receipts.c.item_id).subquery()
+
+
+def _purchase_execution_row(item, today_value, completed_quantity):
     """采购执行明细行映射（_collect 与 SQL 分页 builder 共用，防两份映射漂移）。
 
     remaining/overdue 依赖当前日期计算，由调用方传入 today_value。
@@ -30189,7 +30265,7 @@ def _purchase_execution_row(item, today_value):
     if not order or not material:
         return None
     order_qty = _safe_float(item.quantity)
-    received_qty = _safe_float(item.received_quantity)
+    received_qty = _safe_float(completed_quantity)
     remaining_qty = max(round_to_2_decimals(order_qty - received_qty), 0)
     price = _safe_float(item.price)
     overdue_days = 0
@@ -30225,7 +30301,10 @@ def _collect_purchase_order_execution_rows(filters):
         return []
     # BUG-2026-08-30-003：采购执行/汇总/价格分析共用本采集器，超限不再静默截断
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
-    item_query = _purchase_order_item_query(filters).options(
+    receipts = _purchase_completed_receipts_subquery(filters)
+    item_query = _purchase_order_item_query(filters).outerjoin(
+        receipts, receipts.c.item_id == PurchaseOrderItem.id,
+    ).add_columns(func.coalesce(receipts.c.received_quantity, 0)).options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
         joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
@@ -30237,8 +30316,8 @@ def _collect_purchase_order_execution_rows(filters):
     items = _report_check_row_limit(item_query, REPORT_ROW_LIMIT, '采购执行明细').all()
     today_value = date.today()
     rows = []
-    for item in items:
-        row = _purchase_execution_row(item, today_value)
+    for item, received_quantity in items:
+        row = _purchase_execution_row(item, today_value, received_quantity)
         if row is not None:
             rows.append(row)
     return rows
@@ -30960,12 +31039,8 @@ _PURCHASE_EXECUTION_SORT_MAP = {
     'spec': Material.spec,
     'unit': Unit.name,
     'order_quantity': PurchaseOrderItem.quantity,
-    'received_quantity': PurchaseOrderItem.received_quantity,
-    'remaining_quantity': (PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity),
     'price': PurchaseOrderItem.price,
     'amount': PurchaseOrderItem.amount,
-    'received_amount': (PurchaseOrderItem.received_quantity * PurchaseOrderItem.price),
-    'remaining_amount': ((PurchaseOrderItem.quantity - PurchaseOrderItem.received_quantity) * PurchaseOrderItem.price),
     'expected_date': PurchaseOrder.expected_date,
     # 逾期天数与预计到货日同序（逾期越久日期越小，desc 时逾期最久在前）
     'overdue_days': PurchaseOrder.expected_date,
@@ -31022,7 +31097,11 @@ def _sql_paged_purchase_execution_report(filters):
     # AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
-    base = _purchase_order_item_query(filters)
+    receipts = _purchase_completed_receipts_subquery(filters)
+    received_quantity = func.coalesce(receipts.c.received_quantity, 0)
+    remaining = PurchaseOrderItem.quantity - received_quantity
+    remaining_quantity = case((remaining > 0, remaining), else_=0)
+    base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
     total = base.count()
     # 汇总必须基于 distinct 后的明细行：warehouse 分支 outerjoin 入库单会
     # 把同一采购行展开多行，直接 sum 会按入库行数放大（金额/数量失真）。
@@ -31043,12 +31122,16 @@ def _sql_paged_purchase_execution_report(filters):
         'quantity': _safe_float(agg[1]),
         'amount': _safe_float(agg[2]),
     }
+    sort_map = dict(_PURCHASE_EXECUTION_SORT_MAP, received_quantity=received_quantity,
+                    remaining_quantity=remaining_quantity,
+                    received_amount=received_quantity * PurchaseOrderItem.price,
+                    remaining_amount=remaining_quantity * PurchaseOrderItem.price)
     query = _sql_order_by(
-        base, _PURCHASE_EXECUTION_SORT_MAP,
+        base, sort_map,
         filters.get('sort_field'), filters.get('sort_order'),
         (PurchaseOrder.date.desc(), PurchaseOrder.order_no.desc(), PurchaseOrderItem.id.desc()),
         PurchaseOrderItem.id,
-    ).options(
+    ).add_columns(received_quantity).options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
         joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
@@ -31061,8 +31144,8 @@ def _sql_paged_purchase_execution_report(filters):
         items = query.offset((page - 1) * page_size).limit(page_size).all()
     today_value = date.today()
     rows = []
-    for item in items:
-        row = _purchase_execution_row(item, today_value)
+    for item, received_quantity in items:
+        row = _purchase_execution_row(item, today_value, received_quantity)
         if row is not None:
             rows.append(row)
     return columns, rows, summary, total
@@ -31225,13 +31308,14 @@ def _sql_paged_supplier_purchase_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
-    base = _purchase_order_item_query(filters)
+    receipts = _purchase_completed_receipts_subquery(filters)
+    base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
     # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
     # 再聚合，避免 sum 被入库行数放大
     sub = base.with_entities(
         PurchaseOrderItem.id.label('item_id'),
         PurchaseOrderItem.quantity.label('quantity'),
-        PurchaseOrderItem.received_quantity.label('received_quantity'),
+        func.coalesce(receipts.c.received_quantity, 0).label('received_quantity'),
         PurchaseOrderItem.price.label('price'),
         PurchaseOrderItem.amount.label('amount'),
         PurchaseOrder.id.label('order_id'),
@@ -31361,13 +31445,14 @@ def _sql_paged_material_purchase_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
-    base = _purchase_order_item_query(filters)
+    receipts = _purchase_completed_receipts_subquery(filters)
+    base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
     # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
     # 再聚合，避免 sum 被入库行数放大（与 009-07-013 同款防护）
     sub = base.with_entities(
         PurchaseOrderItem.id.label('item_id'),
         PurchaseOrderItem.quantity.label('quantity'),
-        PurchaseOrderItem.received_quantity.label('received_quantity'),
+        func.coalesce(receipts.c.received_quantity, 0).label('received_quantity'),
         PurchaseOrderItem.price.label('price'),
         PurchaseOrderItem.amount.label('amount'),
         PurchaseOrder.id.label('order_id'),
