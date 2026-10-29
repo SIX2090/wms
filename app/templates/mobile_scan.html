@@ -58,7 +58,7 @@
         <div class="mobile-scan-codebox">
             <label class="mobile-scan-label" for="scanCode">物料编码</label>
             <div class="mobile-scan-input-row">
-                <input id="scanCode" class="form-control mobile-scan-code-input" type="text" inputmode="text" autocomplete="off" placeholder="扫描或输入编码">
+                <input id="scanCode" class="form-control mobile-scan-code-input" type="text" inputmode="text" autocomplete="off" placeholder="扫描或输入编码" value="{{ initial_code | default('') }}">
                 <button type="button" class="btn btn-outline-primary mobile-scan-camera" id="cameraBtn" title="拍照识物">
                     <i class="bi bi-camera"></i>
                 </button>
@@ -128,6 +128,10 @@
             </div>
             <dl class="mobile-material-meta">
                 <div>
+                    <dt>品牌</dt>
+                    <dd id="materialBrand">-</dd>
+                </div>
+                <div>
                     <dt>分类</dt>
                     <dd id="materialCategory">-</dd>
                 </div>
@@ -141,6 +145,7 @@
                 </div>
             </dl>
             <div class="mobile-location-list" id="locationList" hidden></div>
+            <a id="materialDetailLink" class="btn btn-outline-primary mobile-scan-print" href="/mobile/material">查看全部物料信息</a>
             <button type="button" class="btn btn-outline-primary mobile-scan-print" id="printLabelBtn" hidden>
                 <i class="bi bi-printer"></i> 打印物料标签
             </button>
@@ -347,6 +352,11 @@
         if (printLabelBtn) printLabelBtn.hidden = false;
         document.getElementById('materialCode').textContent = material.code || '-';
         document.getElementById('materialName').textContent = material.name || '-';
+        var brandNode = document.getElementById('materialBrand');
+        if (brandNode) brandNode.textContent = material.brand || '-';
+        var detailLink = document.getElementById('materialDetailLink');
+        if (detailLink) detailLink.href = '/mobile/material?code=' + encodeURIComponent(material.code || '')
+            + '&warehouse=' + encodeURIComponent(warehouseInput ? warehouseInput.value : '');
         document.getElementById('materialSpec').textContent = material.spec || '-';
         document.getElementById('materialStock').textContent = formatQty(material.stock);
         document.getElementById('materialUnit').textContent = material.unit || '';
@@ -1002,6 +1012,7 @@
 
     window.setTimeout(function() {
         scanCode.focus();
+        if ((scanCode.value || '').trim()) lookupMaterial();
     }, 200);
 })();
 </script>

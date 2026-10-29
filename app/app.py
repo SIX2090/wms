@@ -156,7 +156,7 @@ from ai.documents.sales_draft_validation import (
     build_sales_draft_evidence,
     validate_ai_only_draft,
 )
-
+from services.material_label import material_scan_code
 # Import utility functions
 from utils import (
     round_to_2_decimals, parse_float_value, parse_int_value, parse_date_value,
@@ -26284,7 +26284,7 @@ def material_search_api():
 @app.route('/api/material/info', methods=['GET', 'POST'])
 @web_or_api_required
 def material_info_api():
-    code = (request.values.get('code') or '').strip()
+    code = material_scan_code(request.values.get('code'))
     material_id = request.values.get('id', type=int)
 
     material = None

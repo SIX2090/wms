@@ -13,7 +13,7 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
-from flask import render_template, request
+from flask import abort, render_template, request
 from flask_login import login_required
 
 from utils import print_token_or_login_required
@@ -27,6 +27,7 @@ def register_label_routes(app):
         from datetime import datetime
         from sqlalchemy.orm import joinedload
         from app import Material
+        from services.material_label import material_label_qr
         ids = request.args.get('ids', '').split(',')
         ids = [int(i) for i in ids if i.strip().isdigit()]
         materials = Material.query.options(
@@ -37,9 +38,15 @@ def register_label_routes(app):
 
         materials_data = []
         for m in materials:
+            try:
+                qr = material_label_qr(m.code, request.args.get('qr_base_url'))
+            except ValueError as error:
+                abort(400, description=str(error))
             materials_data.append({
                 'id': m.id,
                 'code': m.code or '',
+                'brand': m.brand or '',
+                **qr,
                 'name': m.name or '',
                 'spec': m.spec or '',
                 'unit_name': m.unit.name if m.unit else '',
@@ -54,7 +61,9 @@ def register_label_routes(app):
         # 关键修复：materials_data 是 Python 列表，直接交给 Jinja2 tojson 序列化，
         # 避免 json.dumps + tojson 双重 JSON 化导致 MATERIALS 变成字符串，
         # 进而 MATERIALS.forEach 抛 TypeError，触发"加载失败/网络错误"。
-        return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
+        return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data,
+                               default_material_qr=True,
+                               qr_public_base=materials_data[0]['qrcode'].split('/mobile/material?')[0] if materials_data else '')
 
     @app.route('/label/batch_print_excel')
     @print_token_or_login_required(job_type='label')  # 与 batch_print 同一 ptoken 绑定（BUG-2026-08-24-002）

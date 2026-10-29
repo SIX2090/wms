@@ -10,6 +10,7 @@ from flask_login import login_required
 from sqlalchemy.exc import OperationalError
 
 from utils import sync_material_primary_image
+from services.material_label import material_scan_code
 
 # A2白名单：@_web_or_api_required / @_web_or_api_role_required 会在 lint_wms_rules.py KNOWN_DECORATOR_HINTS 注册
 
@@ -186,6 +187,7 @@ def mobile_material_payload(material, warehouse=None):
         'id': material.id,
         'code': material.code or '',
         'name': material.name or '',
+        'brand': material.brand or '',
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
         'category': material.category.name if material.category else '',
@@ -246,7 +248,7 @@ def _match_material_by_description(description, query):
 # no-test:reason=从 app.py 原样迁移的辅助函数，能力由 mobile_* 各路由测试覆盖
 def find_mobile_material(keyword):
     from app import Material, db, joinedload
-    keyword = (keyword or '').strip()
+    keyword = material_scan_code(keyword)
     if not keyword:
         return None, []
 
@@ -278,6 +280,25 @@ def find_mobile_material(keyword):
 
 # no-test:reason=路由注册辅助函数，能力由 mobile_* 各路由测试覆盖
 def register_mobile_routes(app):
+    @app.route('/mobile/material')
+    @login_required
+    def mobile_material_detail():
+        from flask import abort, render_template, request
+        from app import Material, Warehouse, get_default_warehouse, validate_inventory_warehouse
+        code = (request.args.get('code') or '').strip()
+        material = Material.query.filter_by(code=code).first_or_404()
+        warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code).all()
+        raw = (request.args.get('warehouse') or '').strip()
+        warehouse = get_default_warehouse()
+        if raw:
+            warehouse, error = validate_inventory_warehouse(raw)
+            if error:
+                abort(400, description=error)
+        images = _safe_material_image_list(material.id)
+        return render_template('mobile_material_detail.html', material=material, images=images,
+                               warehouses=warehouses, warehouse=warehouse,
+                               stock=mobile_material_payload(material, warehouse=warehouse)['stock'] if warehouse else None)
+
     # 启动自检：语音指令（/mobile/api/asr）优先依赖腾讯云 ASR 密钥环境变量；
     # 缺失时自动回退 TokenHub 同步 ASR（复用 LLM 网关 API Key），
     # 两者都没有才告警不可用（FEATURE-2026-10-08-ASR）。
@@ -340,6 +361,7 @@ def register_mobile_routes(app):
             current_user,
             render_template,
             request,
+            validate_inventory_warehouse,
         )
         mode = (request.args.get('mode') or 'query').strip()
         if mode not in MOBILE_SCAN_MODES:
@@ -352,9 +374,11 @@ def register_mobile_routes(app):
             modes=MOBILE_SCAN_MODES,
             mode_config=MOBILE_SCAN_MODES[mode],
             warehouses=warehouses,
-            default_warehouse=get_default_warehouse(),
+            default_warehouse=(validate_inventory_warehouse(request.args.get('warehouse'))[0]
+                               if request.args.get('warehouse') else get_default_warehouse()),
             departments=departments,
             can_write=current_user.role in ('admin', 'warehouse'),
+            initial_code=material_scan_code(request.args.get('code')),
         )
 
     @app.route('/mobile/api/stock_lookup', endpoint='mobile_stock_lookup')
@@ -463,7 +487,7 @@ def register_mobile_routes(app):
             return jsonify({'status': 'error', 'success': False, 'msg': f'参数校验失败：{exc}'}), 400
 
         mode = req.mode
-        code = req.code
+        code = material_scan_code(req.code)
         # BUG-2026-08-13-002：装饰器接受 Web 会话或 Bearer Token 任一，这里解析真实操作人
         actor = current_user if current_user.is_authenticated else get_bearer_user()
 

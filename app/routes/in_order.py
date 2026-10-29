@@ -3353,6 +3353,7 @@ def register_in_order_routes(app):
     def print_in_order_labels():
         from datetime import datetime
         from app import InOrderItem
+        from services.material_label import material_label_qr
         ids = request.args.get('ids', '').split(',')
         item_ids = [int(item_id) for item_id in ids if item_id.strip().isdigit()]
         items = InOrderItem.query.filter(InOrderItem.id.in_(item_ids)).all() if item_ids else []
@@ -3362,6 +3363,8 @@ def register_in_order_routes(app):
             {
                 'id': m.id,
                 'code': m.code or '',
+                'brand': m.brand or '',
+                **material_label_qr(m.code),
                 'name': m.name or '',
                 'spec': m.spec or '',
                 'unit_name': m.unit.name if m.unit else '',
@@ -3374,7 +3377,9 @@ def register_in_order_routes(app):
             }
             for m in materials
         ]
-        return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data)
+        return render_template('print_batch_labels.html', materials=materials, materials_data=materials_data,
+                               default_material_qr=True,
+                               qr_public_base=materials_data[0]['qrcode'].split('/mobile/material?')[0] if materials_data else '')
 
     @app.route('/in_order_print_template')
     @login_required

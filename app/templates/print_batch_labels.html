@@ -95,16 +95,16 @@
             .label-inner-table td { border: none !important; padding: 0.3mm !important; }
         }
 
-        .label-simple {
-            padding: 2mm;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 1mm;
-        }
-        .label-simple-row { display: flex; justify-content: space-between; font-size: 9pt; }
-        .label-simple-name { font-size: 11pt; font-weight: bold; }
+        .label-simple { height: 100%; padding: 2mm; display: grid; grid-template-columns: 54mm 30mm; gap: 2mm; color: #000; }
+        .label-material-text { min-width: 0; min-height: 0; display: grid; grid-template-rows: 1fr 2fr 2fr; }
+        .label-material-header { display: grid; grid-template-columns: 3fr 2fr; gap: 1mm; min-height: 0; }
+        .label-material-field { min-width: 0; min-height: 0; display: flex; align-items: center; font-size: 11pt; line-height: 1.2; }
+        .label-material-field span { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+        .label-material-name { font-size: 13pt; font-weight: bold; }
+        .label-material-qr { display: flex; align-items: center; justify-content: center; }
+        .label-material-qr img { width: 30mm; height: 30mm; image-rendering: pixelated; }
     </style>
+    <style id="labelPageSize"></style>
 </head>
 <body>
     {% if not materials %}
@@ -158,6 +158,16 @@
         <span class="info" id="templateStatus" role="status" aria-live="polite"></span>
         <span class="info" id="excelTemplateStatus" role="status" aria-live="polite"></span>
         <span class="info" id="wmsAutoprintStatus" role="status" aria-live="polite"></span>
+        {% if default_material_qr %}
+        <form method="get" action="{{ url_for('print_batch_labels') }}" class="d-flex gap-2 align-items-center flex-wrap w-100">
+            <input type="hidden" name="ids" value="{{ materials_data | map(attribute='id') | join(',') }}">
+            {% if request.args.get('ptoken') %}<input type="hidden" name="ptoken" value="{{ request.args.get('ptoken') }}">{% endif %}
+            <label for="qrBaseUrl" class="info">二维码网址（手机可访问）</label>
+            <input id="qrBaseUrl" type="url" name="qr_base_url" value="{{ qr_public_base }}" required class="form-control form-control-sm" style="width:260px">
+            <button type="submit" class="btn btn-secondary">更新二维码</button>
+            <span class="info">从公网地址打印可直接使用；本机打印请填写公网域名或手机可访问的局域网地址。</span>
+        </form>
+        {% endif %}
     </div>
 
     <div class="labels-container" id="labelsContainer" data-wms-print-state="loading">
@@ -166,6 +176,7 @@
     <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <script>
     var MATERIALS = {{ materials_data | tojson }};
+    var builtinMaterialQrMode = {{ default_material_qr | default(false) | tojson }};
     var container = document.getElementById('labelsContainer');
     var anonymousPrintMode = {{ (current_user is defined and not current_user.is_authenticated and (request.args.get('ptoken') or '') != '') | tojson }};
     var templateCache = {};
@@ -184,6 +195,12 @@
             setLoadingStatus('templateStatus', '标签尚未就绪，请等待加载完成；加载失败时请重试或明确选择默认90×50mm标签。', true);
             return false;
         }
+        if (container.querySelectorAll && Array.from(container.querySelectorAll('img')).some(function(image) {
+            return image.complete === false || image.naturalWidth === 0;
+        })) {
+            setLoadingStatus('templateStatus', '标签图片尚未加载完成，请稍后重试。', true);
+            return false;
+        }
         window.print();
         return true;
     }
@@ -192,6 +209,7 @@
         switch(field) {
             case 'code':          return mat.code || '';
             case 'name':          return mat.name || '';
+            case 'brand':         return mat.brand || '';
             case 'spec':          return mat.spec || '';
             case 'unit':          return mat.unit_name || '';
             case 'unit_name':     return mat.unit_name || '';
@@ -201,7 +219,7 @@
             case 'stock':         return mat.stock || '0';
             case 'price':         return mat.price == null || mat.price === '' ? '' : '¥' + mat.price;
             case 'barcode':       return mat.barcode || mat.code || '';
-            case 'qrcode':        return mat.code || '';
+            case 'qrcode':        return mat.qrcode || mat.code || '';
             case 'date':          return mat.date || '';
             case 'supplier_name': return mat.supplier_name || '';
             default:              return '';
@@ -212,9 +230,9 @@
         var version = ++templateLoadVersion;
         var select = document.getElementById('templateSelect');
         if (anonymousPrintMode) {
-            select.innerHTML = '<option value="">默认90×50mm文字标签</option>';
+            select.innerHTML = '<option value="">90×50mm 物料二维码标签</option>';
             renderLabels(null);
-            setLoadingStatus('templateStatus', '免登录打印使用默认文字标签；自定义模板需登录。', false);
+            setLoadingStatus('templateStatus', '使用90×50mm物料二维码标签；自定义模板需登录。', false);
             return;
         }
         setPrintState('loading');
@@ -226,7 +244,7 @@
             if (!res || res.status !== 'success' || !Array.isArray(res.templates)) {
                 throw new Error((res && res.msg) || '服务器返回的模板列表无效');
             }
-            select.innerHTML = '<option value="">默认90×50mm标签</option>';
+            select.innerHTML = '<option value="">90×50mm 物料二维码标签</option>';
             res.templates.forEach(function(t) {
                 var opt = document.createElement('option');
                 opt.value = t.id;
@@ -235,12 +253,13 @@
             });
             var preferred = res.templates.find(function(t) { return t.width == 90 && t.height == 50; })
                 || res.templates.find(function(t) { return t.is_default; }) || res.templates[0];
-            if (preferred) {
+            if (!builtinMaterialQrMode && preferred) {
                 select.value = preferred.id;
                 return switchTemplate(preferred.id);
             }
+            select.value = '';
             renderLabels(null);
-            setLoadingStatus('templateStatus', '暂无标签模板，使用默认90×50mm标签。', false);
+            setLoadingStatus('templateStatus', '左侧编码/品牌、名称、规格；右侧统一物料二维码。可切换自定义模板。', false);
         }).catch(function(err) {
             if (version !== templateLoadVersion) return;
             select.innerHTML = '<option value="__load_error__" selected disabled>-- 标签模板加载失败 --</option><option value="">默认90×50mm标签</option>';
@@ -343,6 +362,7 @@
 
         var W = tmplData.width;
         var H = tmplData.height;
+        document.getElementById('labelPageSize').textContent = '@page { size: ' + Number(W) + 'mm ' + Number(H) + 'mm; margin: 0; }';
         // BUG-2026-09-08-001：渲染网格取「模板声明 rows/cols」与「单元格实际最大坐标+1」
         // 的较大者。设计器删行/删列后历史模板可能残留越界坐标单元格，
         // 仅按声明行列迭代会把这些单元格静默丢弃（表现为某字段打印不出来）。
@@ -454,7 +474,7 @@
                         var qrW = qrSizeW > 0 ? Math.min(qrSizeW, W * 0.95) : qrSize;
                         var qrH = qrSizeH > 0 ? Math.min(qrSizeH, H * 0.95) : (qrSizeW > 0 ? qrW : qrSize);
                         var qrPxSize = Math.max(100, Math.min(400, Math.round(Math.max(qrW, qrH) * 3.78)));
-                        qrImg.src = '/api/qrcode/' + encodeURIComponent(fieldVal) + '?size=' + qrPxSize;
+                        qrImg.src = mat.qrcode_png ? 'data:image/png;base64,' + mat.qrcode_png : '/api/qrcode/' + encodeURIComponent(fieldVal) + '?size=' + qrPxSize;
                         qrImg.alt = '二维码';
                         qrImg.style.width = qrW + 'mm';
                         qrImg.style.height = qrH + 'mm';
@@ -479,9 +499,10 @@
         setPrintState(MATERIALS.length ? 'ready' : 'empty');
     }
 
-    function renderLabels(tmpl) {
+    function renderMaterialLabels() {
         var W = 90, H = 50;
-        document.getElementById('sizeInfo').textContent = '使用默认尺寸 90×50mm（无模板）';
+        document.getElementById('labelPageSize').textContent = '@page { size: 90mm 50mm; margin: 0; }';
+        document.getElementById('sizeInfo').textContent = '90×50mm · 三行高度1:2:2 · 微信/WMS共用二维码';
         document.documentElement.style.setProperty('--label-width', W + 'mm');
         document.documentElement.style.setProperty('--label-height', H + 'mm');
 
@@ -490,17 +511,71 @@
         MATERIALS.forEach(function(mat){
             var card = document.createElement('div');
             card.className = 'label-card';
-            card.style.width = (W - 0.5) + 'mm';
+            card.style.width = W + 'mm';
             card.style.height = H + 'mm';
             var inner = document.createElement('div');
             inner.className = 'label-simple';
+            var text = document.createElement('div');
+            text.className = 'label-material-text';
+            var header = document.createElement('div');
+            header.className = 'label-material-header';
+            function addField(parent, className, value) {
+                var field = document.createElement('div');
+                field.className = 'label-material-field ' + className;
+                var span = document.createElement('span');
+                span.textContent = value || '—';
+                field.appendChild(span);
+                parent.appendChild(field);
+            }
+            addField(header, 'label-material-code', mat.code);
+            addField(header, 'label-material-brand', mat.brand);
+            text.appendChild(header);
+            addField(text, 'label-material-name', mat.name);
+            addField(text, 'label-material-spec', mat.spec);
+            inner.appendChild(text);
+            var qr = document.createElement('div');
+            qr.className = 'label-material-qr';
+            var image = document.createElement('img');
+            image.src = mat.qrcode_png ? 'data:image/png;base64,' + mat.qrcode_png : '/api/qrcode/' + encodeURIComponent(mat.qrcode || mat.code || '') + '?size=360&border=4';
+            image.alt = '物料二维码';
+            qr.appendChild(image);
+            inner.appendChild(qr);
+            card.appendChild(inner);
+            container.appendChild(card);
+        });
+        // Fit wrapped text inside its reserved row; preserve the physical 1:2:2 ratio.
+        if (container.querySelectorAll) container.querySelectorAll('.label-material-field').forEach(function(field) {
+            var span = field.firstElementChild;
+            var size = parseFloat(window.getComputedStyle(field).fontSize);
+            while (span && field.clientHeight && (span.scrollHeight > field.clientHeight || span.scrollWidth > field.clientWidth) && size > 8) {
+                size -= 0.5;
+                field.style.fontSize = size + 'px';
+            }
+        });
+        setPrintState(MATERIALS.length ? 'ready' : 'empty');
+    }
+
+    function renderLabels(tmpl) {
+        if (builtinMaterialQrMode) { renderMaterialLabels(); return; }
+        var W = 90, H = 50;
+        document.getElementById('sizeInfo').textContent = '使用默认尺寸 90×50mm（无模板）';
+        document.documentElement.style.setProperty('--label-width', W + 'mm');
+        document.documentElement.style.setProperty('--label-height', H + 'mm');
+        container.innerHTML = '';
+        MATERIALS.forEach(function(mat) {
+            var card = document.createElement('div');
+            card.className = 'label-card';
+            card.style.width = (W - 0.5) + 'mm';
+            card.style.height = H + 'mm';
+            var inner = document.createElement('div');
+            inner.style.cssText = 'padding:2mm;display:flex;flex-direction:column;justify-content:center;gap:1mm;';
             var name = document.createElement('div');
-            name.className = 'label-simple-name';
+            name.style.cssText = 'font-size:11pt;font-weight:bold;';
             name.textContent = mat.name || '';
             inner.appendChild(name);
             function addInfoRow(left, right) {
                 var row = document.createElement('div');
-                row.className = 'label-simple-row';
+                row.style.cssText = 'display:flex;justify-content:space-between;font-size:9pt;';
                 var leftSpan = document.createElement('span');
                 leftSpan.textContent = left;
                 var rightSpan = document.createElement('span');

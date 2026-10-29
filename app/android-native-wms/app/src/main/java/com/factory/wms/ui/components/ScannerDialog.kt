@@ -255,7 +255,7 @@ fun ScannerDialog(
                                                             for (barcode in barcodes) {
                                                                 val rawValue = barcode.rawValue
                                                                 if (!rawValue.isNullOrEmpty() && scannedFlag.compareAndSet(false, true)) {
-                                                                    onBarcodeScanned(rawValue)
+                                                                    onBarcodeScanned(materialScanCode(rawValue))
                                                                     // 连续模式：交付后重新武装节流窗口，让下一条码能进来；
                                                                     // 非连续模式：保持置位，等调用方关闭弹窗（旧行为）。
                                                                     if (continuousRef.value) {
