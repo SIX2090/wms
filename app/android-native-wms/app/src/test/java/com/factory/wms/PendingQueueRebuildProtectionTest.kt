@@ -1,6 +1,8 @@
 package com.factory.wms
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.database.DatabaseErrorHandler
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -16,6 +18,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowSQLiteConnection
+import java.io.File
+import java.nio.file.Files
 
 /**
  * BUG-2026-09-21-005：删库重建不得静默清空离线待同步队列。
@@ -38,6 +42,7 @@ import org.robolectric.shadows.ShadowSQLiteConnection
 class PendingQueueRebuildProtectionTest {
 
     private lateinit var context: Context
+    private lateinit var databaseDirectory: File
 
     /** 与 AppDatabase.DB_NAME 一致（private const，测试侧重复声明以保持可读）。 */
     private val dbName = "wms_database"
@@ -49,13 +54,34 @@ class PendingQueueRebuildProtectionTest {
         // Configure the initial open; do not switch journal_mode on an open connection.
         ShadowSQLiteConnection.setDefaultSyncMode("FULL")
         ShadowSQLiteConnection.setDefaultJournalMode("PERSIST")
-        context = ApplicationProvider.getApplicationContext()
+        val application: Context = ApplicationProvider.getApplicationContext()
+        // BUG-2026-10-08-014-F02: failed Room opens can outlive a test's singleton.
+        // Never reuse their file paths in another test, even after unlinking files.
+        databaseDirectory = Files.createTempDirectory("pending-queue-").toFile()
+        context = object : ContextWrapper(application) {
+            override fun getApplicationContext(): Context = this
+            override fun getDatabasePath(name: String): File = File(databaseDirectory, name)
+            override fun deleteDatabase(name: String): Boolean =
+                super.deleteDatabase(getDatabasePath(name).absolutePath)
+
+            override fun openOrCreateDatabase(
+                name: String, mode: Int, factory: SQLiteDatabase.CursorFactory?
+            ): SQLiteDatabase =
+                super.openOrCreateDatabase(getDatabasePath(name).absolutePath, mode, factory)
+
+            override fun openOrCreateDatabase(
+                name: String, mode: Int, factory: SQLiteDatabase.CursorFactory?,
+                errorHandler: DatabaseErrorHandler?
+            ): SQLiteDatabase =
+                super.openOrCreateDatabase(getDatabasePath(name).absolutePath, mode, factory, errorHandler)
+        }
         purgeDatabase()
     }
 
     @After
     fun tearDown() {
         purgeDatabase()
+        databaseDirectory.deleteRecursively()
     }
 
     // ---------------------------------------------------------------
@@ -170,6 +196,20 @@ class PendingQueueRebuildProtectionTest {
     // ---------------------------------------------------------------
     // backupPendingOperations
     // ---------------------------------------------------------------
+
+    @Test
+    fun `fixture context routes opens and deletes to its unique directory`() {
+        val file = context.getDatabasePath(dbName)
+        assertEquals(databaseDirectory, file.parentFile)
+        assertTrue(context === context.applicationContext)
+        context.openOrCreateDatabase(dbName, Context.MODE_PRIVATE, null).use { raw ->
+            assertEquals(file.absolutePath, raw.path)
+            raw.execSQL("CREATE TABLE fixture_marker (id INTEGER)")
+        }
+        assertTrue(file.isFile)
+        assertTrue(context.deleteDatabase(dbName))
+        assertTrue(!file.exists())
+    }
 
     @Test
     fun `file fixture persists queue with durable sqlite defaults`() {

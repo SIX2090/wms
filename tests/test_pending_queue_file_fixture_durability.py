@@ -25,3 +25,20 @@ def test_android_runtime_checks_durability_and_reopened_queue():
     assert '"persist", cursor.getString(0)' in probe
     assert 'AppDatabase.backupPendingOperations(context)' in probe
     assert 'assertEquals("req-durable", rows.single().requestId)' in probe
+
+
+def test_disk_fixture_uses_a_unique_directory_for_all_context_database_operations():
+    source = SOURCE.read_text(encoding='utf-8')
+    assert 'Files.createTempDirectory("pending-queue-")' in source
+    assert 'override fun getApplicationContext(): Context = this' in source
+    assert 'override fun getDatabasePath(name: String): File = File(databaseDirectory, name)' in source
+    assert 'super.deleteDatabase(getDatabasePath(name).absolutePath)' in source
+    assert source.count('super.openOrCreateDatabase(getDatabasePath(name).absolutePath, mode, factory') == 2
+
+
+def test_android_runtime_verifies_context_and_raw_database_share_the_fixture_path():
+    source = SOURCE.read_text(encoding='utf-8')
+    assert 'fun `fixture context routes opens and deletes to its unique directory`()' in source
+    assert 'assertEquals(file.absolutePath, raw.path)' in source
+    assert 'assertTrue(context === context.applicationContext)' in source
+    assert 'assertTrue(context.deleteDatabase(dbName))' in source

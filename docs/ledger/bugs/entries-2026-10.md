@@ -2758,3 +2758,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 008-016共同隔离证据校准：首轮AI full69/70的唯一失败来自外置副本漏同步既有scripts/verify_ai_business_quality_dashboard.py任务标记，主仓库标记已存在；同步受跟踪文本源后严格full70/70，不新增虚假标记、不改检查或放宽断言。完整当前源码重新测修前基线332及修后363通过；末次布局规模门禁提前到内存排版前，既有超大模板/展开规模拒绝回归保留。
 
 - 008-016共同浏览器限制补证：收尾时为验证自行取消，隔离期初页“清空录入”触发confirm；官方getJsDialog返回空，官方浏览器Escape也被焦点命令阻塞，未确认清空，停止该页操作。未用原始CDP/系统权限替代路线或绕过拦截；此项不登记为自动取消通过，不影响此前候选代码验收。原生系统打印窗、实际出纸及相机扫码硬件仍未验收。
+
+### BUG-2026-10-08-014-F02: Android 文件恢复测试复用数据库路径导致锁故障复发
+
+- 状态：测试隔离修复已完成，本地源码守护通过，待目标 Android 运行及 CI 验收。
+- 同类点已排查：关联 BUG-2026-09-22-001、BUG-2026-10-08-014 及 F01；本次 main e8f6ef01 的 Android 定时运行40782359647及失败项重跑均在 PendingQueueRebuildProtectionTest 报 SQLITE_BUSY，分别发生在探针重开和种库阶段的 android_metadata 写入。FULL/PERSIST配置及全部原断言保留，不切换SQLite引擎、不增加重试掩盖失败。
+- 修复：每个测试分配独立临时数据库目录，ContextWrapper将 getDatabasePath、两种 openOrCreateDatabase、deleteDatabase 及 applicationContext统一指向该目录，避免先前失败Room打开的连接影响后续测试使用的相同文件名。只改测试夹具，AppDatabase与APK业务逻辑不变；新增Android运行用例验证路径、上下文及删除路由。
+- 回归：相关三个模块修前18 passed，修后20 passed；新增两个源码守护回退Kotlin后2 failed/2 passed，finally按原字节恢复。源码检查不能替代真实Android编译与运行，后者由本提交CI验证；一次绿灯也不保证永久消除环境故障。
+- 门禁例外授权：2026-10-29用户明确回复“允许先独立修复 CI，再继续打印”，仅本批测试隔离及必要台账，验收三工作流全绿前不写打印业务代码；本次推送按此授权临时使用钩子现有CI例外，其他钩子保持。
+- 生效确认：待确认；本批仅测试，无需生产重启。证据 C:/wms_backups/print_followup_20261029/ci/。
