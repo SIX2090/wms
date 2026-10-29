@@ -240,6 +240,7 @@
                 {% endif %}
             </table>
         </div>
+            <div class="quantity-summary border-top px-3 py-2 bg-warning-subtle text-end" style="position:sticky;bottom:0;z-index:2;" data-quantity-summary="productTable" data-quantity-selector=".inline-product-qty, .product-qty-cell" data-material-selector=".inline-product-code">数量合计：<strong data-quantity-value aria-live="polite">0.00</strong></div>
     </div>
 
     <!-- 发料明细 -->
@@ -713,6 +714,7 @@ function renumberProductRows() {
 }
 
 function calcInlineProductAmount(row) {
+    if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('productTable');
     const qty = parseFloat(row.querySelector('.inline-product-qty')?.value || '0') || 0;
     const priceRaw = row.querySelector('.inline-product-price')?.value || '';
     const price = parseFloat(priceRaw || '0') || 0;

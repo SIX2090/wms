@@ -200,6 +200,7 @@
                     </tfoot>
                 </table>
             </div>
+            <div class="quantity-summary border-top px-3 py-2 bg-warning-subtle text-end" style="position:sticky;bottom:0;z-index:2;" data-quantity-summary="materialTable" data-quantity-selector=".qty" data-material-selector=".material-code">数量合计：<strong data-quantity-value aria-live="polite">0.00</strong></div>
         </form>
     </div>
 </div>
@@ -250,6 +251,7 @@
         row.querySelector('.included').textContent = included.toFixed(2);
     }
     function recalc() {
+        if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('materialTable');
         var totals = {untaxed:0, tax:0, included:0};
         body.querySelectorAll('tr').forEach(function(row) {
             recalcRow(row);

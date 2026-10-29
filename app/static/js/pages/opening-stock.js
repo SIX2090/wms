@@ -1107,6 +1107,7 @@ function exportRows() {
 }
 
 function updateTotal() {
+    if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('openingGrid');
     const total = rows.reduce((sum, row) => sum + amountOf(row), 0);
     document.getElementById('totalAmount').textContent = formatMoney(total, true);
 }

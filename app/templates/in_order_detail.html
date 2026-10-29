@@ -422,7 +422,7 @@
                 <span class="badge bg-light text-dark">共 {{ order.items|length }} 项</span>
             </div>
         </div>
-        <div class="table-responsive">
+        <div class="table-responsive" data-quantity-summary="itemTable" data-quantity-selector=".material-qty-field, [data-field=quantity]" data-material-selector=".material-code-field">
             <table class="table order-table mb-0" id="itemTable">
                 <thead>
                     <tr>
@@ -534,12 +534,11 @@
                     </tr>
                     {% endfor %}
                 </tbody>
-                {% if order.items %}
                 <tfoot>
                     <tr class="total-row">
                         <td colspan="{{ 8 if order.status == 'pending' else 7 }}"></td>
                         <td class="text-end">合计：</td>
-                        <td class="text-end">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                        <td class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
                         <td colspan="6"></td>
                         <td class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td></td>
@@ -549,7 +548,6 @@
                         {% endif %}
                     </tr>
                 </tfoot>
-                {% endif %}
             </table>
         </div>
     </div>
@@ -984,6 +982,7 @@ document.addEventListener('click', function(e) {
 });
 
 function calcInlineRowAmount(row) {
+    if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('itemTable');
     if (!row || !row.classList.contains('new-item-row')) return;
     const qty = parseFloat(row.querySelector('.material-qty-field')?.value) || 0;
     const price = parseFloat(row.querySelector('.material-price-field')?.value) || 0;

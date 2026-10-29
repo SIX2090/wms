@@ -348,6 +348,7 @@
                     </tfoot>
                 </table>
             </div>
+            <div class="quantity-summary border-top px-3 py-2 bg-warning-subtle text-end" style="position:sticky;bottom:0;z-index:2;" data-quantity-summary="materialTable" data-quantity-selector=".material-qty" data-material-selector=".material-code">数量合计：<strong data-quantity-value aria-live="polite">0.00</strong></div>
 
             </fieldset>
         </form>
@@ -571,6 +572,7 @@ function calcAmount(row) {
 }
 
 function calcTotal() {
+    if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('materialTable');
     let total = 0;
     document.querySelectorAll('#materialTableBody tr').forEach(row => {
         total += parseFloat(row.querySelector('.material-amount').value) || 0;

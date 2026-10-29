@@ -966,6 +966,7 @@
     <script src="{{ url_for('static', filename='js/pages/ai-assistant.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% endif %}
 
+    <script src="{{ url_for('static', filename='js/quantity-summary.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% block extra_js %}{% endblock %}
 
     <!-- Flatpickr JS + 中文日期格式初始化（本地化） -->
