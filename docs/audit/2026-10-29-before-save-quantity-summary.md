@@ -48,3 +48,18 @@
 2026-10-29 16:46（Asia/Shanghai）代码 CI 验收通过。生产只读核对仍为 WMS-Warehouse / run_wms_task.bat / Python311 run_server.py，PID 14104、创建于 15:55:04、唯一 127.0.0.1:8080。生产需重启 WMS 服务生效；重启授权待用户确认，未重启生产。
 
 交付补证批次仅修改本记录和月度 BUG 条目。开工/提交前再次连接器核实 33596bdd 为远端 main，WMS CI/AI 精确目标成功；本地 check_ci_green.py --target-sha 33596bdd857be5a9a7149184bf5cd861b7d4d41a --json 查询已恢复，三个工作流均 green，退出码 0。台账回归 30 passed；该补证 push 不使用跳过开关。
+
+
+## 生产生效确认（2026-10-29）
+
+用户明确授权“按原计划任务重启并验收”后执行。重启前现场核实 main 与 origin/main 为 9c70dd267db96e1e50c387a39ed03d2fccd5359e；连接器最新 WMS CI [40844895486](https://github.com/SIX2090/wms/actions/runs/40844895486)、AI [40844895546](https://github.com/SIX2090/wms/actions/runs/40844895546)均精确目标 completed/success，Android [40791277115](https://github.com/SIX2090/wms/actions/runs/40791277115)祖先及路径无改证明通过。本地查询遭遇 HTTP403，不据此误判工作流失败。
+
+- 数据库在线备份 `C:/wms_backups/quantity_summary_20261029/production-before-restart-1829.db` 已通过 integrity_check；16 个应用文件与部署 Git 对象规范化字节一致，保留旧文件回退副本及新增文件清单。
+- 原进程 PID14104 / Python311 run_server.py / Session0。Stop-Process 返回 Object reference 异常后，先确认旧进程仍存活、监听未退出，未启动第二实例；改用 Win32_Process.Terminate 返回成功，确认旧监听消失后才启动原 WMS-Warehouse 计划任务，未修改任务或启动脚本。
+- 新进程 PID3784，2026-10-29 18:35:00 启动，Python311 run_server.py / Session0；唯一监听 127.0.0.1:8080，任务结果 0。日志显示启动版本 9c70dd2、CSRF=on、初始化跳过、schema-check 因禁用启动迁移而跳过；原 WMS_NO_DB_TOUCH=1 保持，未宣称执行迁移。
+- 本机及公网 https://gd2026.top/login 均 200 且包含 CSRF。Python requests 公网 TLS EOF；curl 默认验证证书与主机名成功，未使用不安全选项。两端 quantity-summary.js 与本地发布文件一致，SHA256=5ce9dad80c6bc4bc324b679a0dfca600f9654f8db9e29e518cae027431f04215。
+- Chrome 通过既有公网登录态只读打开 /in_order/add?embedded=1 和 /out_order/add?embedded=1，均实际显示“数量合计：0.00”，入库页确认共享脚本已引入。不输入合成明细、不保存、不覆盖操作员浏览器草稿；实时输入行为沿用本批 13 页隔离验证。
+- 33 张业务/库存/账号相关表重启前后完整行摘要一致，quick_check=ok；公网页面检查后再次比对仍无变化。未修改生产单据、库存、账号或密码，未触发打印。
+- 生效确认人：Codex；时间：2026-10-29 18:35 后（Asia/Shanghai）。截图、前后摘要、HTTP 验收、文件清单位于本批外置证据目录。生产需重启 WMS 服务生效，本次已完成。此前“生产待确认”已由本节闭环。
+
+本次收尾仅补生效文档，运行中的业务代码保持 9c70dd2，无须为纯文档提交再次重启；收尾提交自身 CI 单独验收。
