@@ -359,7 +359,18 @@ class TestBug20260922016ManualPoCountsTowardRequest:
             s = _seed()
             req, items = _make_request('PR-008', [(s['m1'], 100)])
             # 手工单：下了 100、其中 30 已入库
-            _make_manual_po('PO-RECV', [(s['m1'], 100, 30)], purchase_request_id=req.id)
+            po = _make_manual_po('PO-RECV', [(s['m1'], 100, 30)], purchase_request_id=req.id)
+            # BUG-2026-10-29-015: received_quantity alone only reserves a push.
+            # Preserve all receipt assertions with an actual completed inbound.
+            from app import InOrder, InOrderItem
+            receipt = InOrder(order_no='IN-MANUAL-RECV', date=date.today(),
+                              business_type='采购入库', status='completed',
+                              warehouse='历史仓库', source_purchase_order_id=po.id)
+            db.session.add(receipt)
+            db.session.flush()
+            db.session.add(InOrderItem(in_order_id=receipt.id, material_id=s['m1'].id,
+                                       quantity=30, price=10, amount=300))
+            db.session.commit()
 
             ex = _exec(items, req)[items[0].id]
             assert ex['ordered_quantity'] == 100, ex

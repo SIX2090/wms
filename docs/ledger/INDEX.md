@@ -554,6 +554,7 @@
 | BUG-2026-10-08-014-F02 | bugs | entries-2026-10.md |
 | BUG-2026-10-28-015-F01 | bugs | entries-2026-10.md |
 | BUG-2026-10-28-016-F01 | bugs | entries-2026-10.md |
+| BUG-2026-10-29-015 | bugs | entries-2026-10.md |
 | BUG-2026-10-29-001 | bugs | entries-2026-10.md |
 | BUG-2026-10-29-002 | bugs | entries-2026-10.md |
 | BUG-2026-10-29-003 | bugs | entries-2026-10.md |

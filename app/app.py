@@ -6428,11 +6428,17 @@ def build_purchase_request_execution(valid_items, request_order=None):
     ordered_by_item = {item_id: 0 for item_id in item_ids}
     received_by_item = {item_id: 0 for item_id in item_ids}
     if item_ids:
+        # BUG-2026-10-29-015: the PO counter reserves draft pushes, not receipts.
+        receipts = _purchase_completed_receipts_subquery(order_ids=select(
+            PurchaseOrderItem.purchase_order_id).where(
+                PurchaseOrderItem.purchase_request_item_id.in_(item_ids)))
         rows = db.session.query(
             PurchaseOrderItem.purchase_request_item_id,
             func.coalesce(func.sum(PurchaseOrderItem.quantity), 0),
-            func.coalesce(func.sum(PurchaseOrderItem.received_quantity), 0),
-        ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+            func.coalesce(func.sum(receipts.c.received_quantity), 0),
+        ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).outerjoin(
+            receipts, receipts.c.item_id == PurchaseOrderItem.id,
+        ).filter(
             PurchaseOrderItem.purchase_request_item_id.in_(item_ids),
             PurchaseOrder.status != 'closed',
         ).group_by(PurchaseOrderItem.purchase_request_item_id).all()
@@ -6491,11 +6497,15 @@ def build_purchase_request_execution(valid_items, request_order=None):
                 or_clauses.append(PurchaseOrder.remark.like(f'%{request_no}%'))
 
         if or_clauses:
+            receipts = _purchase_completed_receipts_subquery(order_ids=select(
+                PurchaseOrder.id).where(db.or_(*or_clauses), PurchaseOrder.status != 'closed'))
             unlinked_rows = db.session.query(
                 PurchaseOrderItem.material_id,
                 func.coalesce(func.sum(PurchaseOrderItem.quantity), 0),
-                func.coalesce(func.sum(PurchaseOrderItem.received_quantity), 0),
-            ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).filter(
+                func.coalesce(func.sum(receipts.c.received_quantity), 0),
+            ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).outerjoin(
+                receipts, receipts.c.item_id == PurchaseOrderItem.id,
+            ).filter(
                 db.or_(*or_clauses),
                 PurchaseOrder.status != 'closed',
                 PurchaseOrderItem.purchase_request_item_id.is_(None),
