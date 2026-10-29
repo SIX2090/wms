@@ -9567,7 +9567,7 @@ def sync_contract_project_name(contract_id, old_contract_no, new_contract_no,
 
 # ==================== Category management ====================
 
-def build_category_tree_rows(categories):
+def build_category_tree_rows(categories, preserve_order=False):
     category_list = list(categories)
     by_parent = {}
     by_id = {cat.id: cat for cat in category_list}
@@ -9575,7 +9575,7 @@ def build_category_tree_rows(categories):
         parent_id = cat.parent_id if cat.parent_id in by_id and cat.parent_id != cat.id else None
         by_parent.setdefault(parent_id, []).append(cat)
 
-    for siblings in by_parent.values():
+    for siblings in (() if preserve_order else by_parent.values()):
         siblings.sort(key=lambda item: ((item.code or '').lower(), (item.name or '').lower(), item.id))
 
     rows = []
@@ -25786,10 +25786,10 @@ def _warehouse_query_from_args():
             Warehouse.remark.like(f'%{search}%'),
         ]
         if status_from_search:
-            conditions.append(Warehouse.status == status_from_search)
+            conditions.append(Warehouse.status.in_((status_from_search, '启用' if status_from_search == 'active' else '停用')))
         query = query.filter(db.or_(*conditions))
     if status_filter in ('active', 'inactive'):
-        query = query.filter(Warehouse.status == status_filter)
+        query = query.filter(Warehouse.status.in_((status_filter, '启用' if status_filter == 'active' else '停用')))
     query, sort_by = _apply_master_order(query, Warehouse, sort_by, sort_order, {'code', 'name', 'type', 'location', 'status', 'created_at'})
     return query, {'search': search, 'status': status_filter}, sort_by, sort_order
 

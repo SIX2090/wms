@@ -15,6 +15,9 @@
 from __future__ import annotations
 
 import io
+from collections import defaultdict, deque
+
+from master_import import MasterImportError, master_import_rows
 
 from flask import current_app, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -41,8 +44,9 @@ def register_category_routes(app):
         query = _apply_simple_search(MaterialCategory.query, MaterialCategory, search, ['code', 'name'])
         query, sort_by = _apply_master_order(query, MaterialCategory, sort_by, sort_order, allowed_sorts, 'code')
         categories = query.all()
-        all_categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc(), MaterialCategory.id.asc()).all()
-        display_rows = build_category_tree_rows(all_categories)
+        tree_query, _ = _apply_master_order(MaterialCategory.query, MaterialCategory, sort_by, sort_order, allowed_sorts, 'code')
+        all_categories = tree_query.all()
+        display_rows = build_category_tree_rows(all_categories, preserve_order=True)
         if search:
             matching_ids = {category.id for category in categories}
             display_rows = [row for row in display_rows if row['category'].id in matching_ids]
@@ -202,6 +206,7 @@ def register_category_routes(app):
             _apply_master_order,
             _apply_simple_search,
             _get_master_list_filters,
+            build_category_tree_rows,
         )
         wb = Workbook()
         ws = wb.active
@@ -210,7 +215,10 @@ def register_category_routes(app):
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
         query = _apply_simple_search(MaterialCategory.query, MaterialCategory, search, ['code', 'name'])
         query, _ = _apply_master_order(query, MaterialCategory, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
-        for c in query.all():
+        matching_ids = {category.id for category in query.all()}
+        tree_query, _ = _apply_master_order(MaterialCategory.query, MaterialCategory, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
+        rows = build_category_tree_rows(tree_query.all(), preserve_order=True)
+        for c in (row['category'] for row in rows if row['category'].id in matching_ids):
             ws.append([c.code, c.name, c.parent.code if c.parent else ''])
         output = io.BytesIO()
         wb.save(output)
@@ -244,29 +252,37 @@ def register_category_routes(app):
             ws = wb.active
             count = 0
             skip = 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                code = str(row[0]).strip() if row[0] else ''
-                name = str(row[1]).strip() if len(row) > 1 and row[1] else ''
-                parent_code = str(row[2]).strip() if len(row) > 2 and row[2] else ''
-                if not code or not name:
+            rows = master_import_rows(ws, ('分类编码', '分类名称'))
+            existing = MaterialCategory.query.all()
+            by_code = {category.code: category for category in existing}
+            codes, names = set(by_code), {category.name for category in existing}
+            ready, waiting = deque(), defaultdict(list)
+            # First occurrence wins, as with the other archive importers.
+            for row in rows:
+                code, name = row['分类编码'], row['分类名称']
+                if not code or not name or code in codes or name in names:
                     skip += 1
                     continue
-                if MaterialCategory.query.filter_by(code=code).first():
-                    skip += 1
-                    continue
-                if MaterialCategory.query.filter_by(name=name).first():
-                    skip += 1
-                    continue
-                parent_id = None
-                if parent_code:
-                    parent = MaterialCategory.query.filter_by(code=parent_code).first()
-                    if not parent:
-                        skip += 1
-                        continue
-                    parent_id = parent.id
-                cat = MaterialCategory(code=code, name=name, parent_id=parent_id)
+                codes.add(code)
+                names.add(name)
+                parent_code = row.get('上级分类编码', '')
+                if not parent_code or parent_code in by_code:
+                    ready.append(row)
+                else:
+                    waiting[parent_code].append(row)
+            # Resolve each row once. Missing parents, self references and cycles
+            # remain unprocessed and cannot create orphan categories.
+            while ready:
+                row = ready.popleft()
+                parent = by_code.get(row.get('上级分类编码', ''))
+                cat = MaterialCategory(code=row['分类编码'], name=row['分类名称'],
+                                       parent_id=parent.id if parent else None)
                 db.session.add(cat)
+                db.session.flush()
+                by_code[cat.code] = cat
                 count += 1
+                ready.extend(waiting.pop(cat.code, ()))
+            skip += sum(len(children) for children in waiting.values())
             try:
                 db.session.commit()
             except Exception:
@@ -276,6 +292,9 @@ def register_category_routes(app):
             if skip:
                 msg += f'，跳过 {skip} 条（重复或格式错误）'
             return jsonify({'status': 'success', 'msg': msg})
+        except MasterImportError as exc:
+            db.session.rollback()
+            return api_error(str(exc))
         except Exception:
             db.session.rollback()
             return api_error('导入失败，请稍后重试')

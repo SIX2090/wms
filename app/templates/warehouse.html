@@ -15,7 +15,7 @@
             <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/warehouse/export?search={{ filters.search|urlencode }}&status={{ filters.status|urlencode }}" class="btn btn-outline-success btn-sm">
+            <a href="/warehouse/export?search={{ filters.search|urlencode }}&status={{ filters.status|urlencode }}&sort={{ sort_by|urlencode }}&order={{ sort_order|urlencode }}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>
             <a href="/warehouse/download_template" class="btn btn-outline-secondary btn-sm">
@@ -75,8 +75,12 @@
                         <td>
                             {% if w.status == 'active' %}
                             <span class="badge bg-success">启用</span>
-                            {% else %}
+                            {% elif w.status == 'inactive' %}
                             <span class="badge bg-secondary">停用</span>
+                            {% elif w.status in ('启用', '停用') %}
+                            <span class="badge bg-warning text-dark">{{ w.status }}（历史状态，请编辑确认）</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark">状态异常，请编辑确认</span>
                             {% endif %}
                             {% if w.is_default %}
                             <span class="badge bg-warning text-dark ms-1">默认</span>

@@ -13,7 +13,7 @@
             <a href="/batch_import?type=employee" class="btn btn-outline-info btn-sm">
                 <i class="bi bi-cloud-upload"></i> 批量导入
             </a>
-            <a href="/employee/export{% if filters.search or filters.department_id %}?{% if filters.search %}search={{ filters.search }}{% endif %}{% if filters.department_id %}{% if filters.search %}&{% endif %}department_id={{ filters.department_id }}{% endif %}{% endif %}" class="btn btn-outline-success btn-sm">
+            <a href="{{ url_for('export_employee', search=filters.search, department_id=filters.department_id, sort=sort_by, order=sort_order) }}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>
             <button type="button" class="btn btn-outline-primary btn-sm" onclick="showImportModal()">

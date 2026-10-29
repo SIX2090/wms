@@ -570,6 +570,10 @@
 | BUG-2026-10-29-012 | bugs | entries-2026-10.md |
 | BUG-2026-10-29-013 | bugs | entries-2026-10.md |
 | BUG-2026-10-29-014 | bugs | entries-2026-10.md |
+| BUG-2026-10-29-016 | bugs | entries-2026-10.md |
+| BUG-2026-10-29-017 | bugs | entries-2026-10.md |
+| BUG-2026-10-29-018 | bugs | entries-2026-10.md |
+| BUG-2026-10-29-019 | bugs | entries-2026-10.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

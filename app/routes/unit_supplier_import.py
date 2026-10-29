@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import io
 
+from master_import import MasterImportError, master_import_rows
+
 from flask import flash, jsonify, redirect, request, send_file, url_for
 from flask_login import login_required
 
@@ -85,9 +87,9 @@ def register_unit_supplier_import_routes(app):
             ws = wb.active
             count = 0
             skip = 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                code = str(row[0]).strip() if row[0] else ''
-                name = str(row[1]).strip() if len(row) > 1 and row[1] else ''
+            for row in master_import_rows(ws, ('单位编号', '单位名称')):
+                code = row['单位编号']
+                name = row['单位名称']
                 if not code or not name:
                     skip += 1
                     continue
@@ -106,6 +108,9 @@ def register_unit_supplier_import_routes(app):
             if skip:
                 msg += f'，跳过 {skip} 条（重复或格式错误）'
             return jsonify({'status': 'success', 'msg': msg})
+        except MasterImportError as exc:
+            db.session.rollback()
+            return api_error(str(exc))
         except Exception:
             db.session.rollback()
             return api_error('导入失败，请稍后重试')
@@ -186,9 +191,9 @@ def register_unit_supplier_import_routes(app):
             ws = wb.active
             count = 0
             skip = 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                code = str(row[0]).strip() if row[0] else ''
-                name = str(row[1]).strip() if len(row) > 1 and row[1] else ''
+            for row in master_import_rows(ws, ('供应商编号', '供应商名称')):
+                code = row['供应商编号']
+                name = row['供应商名称']
                 if not code or not name:
                     skip += 1
                     continue
@@ -198,9 +203,9 @@ def register_unit_supplier_import_routes(app):
                 sup = Supplier(
                     code=code,
                     name=name,
-                    contact=str(row[2]).strip() if len(row) > 2 and row[2] else '',
-                    phone=str(row[3]).strip() if len(row) > 3 and row[3] else '',
-                    address=str(row[4]).strip() if len(row) > 4 and row[4] else ''
+                    contact=row.get('联系人', ''),
+                    phone=row.get('电话', ''),
+                    address=row.get('地址', '')
                 )
                 db.session.add(sup)
                 count += 1
@@ -218,6 +223,11 @@ def register_unit_supplier_import_routes(app):
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                 return jsonify({'status': 'success', 'msg': msg, 'count': count})
             flash(msg, 'success')
+        except MasterImportError as exc:
+            db.session.rollback()
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                return api_error(str(exc))
+            flash(str(exc), 'danger')
         except Exception:
             db.session.rollback()
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':

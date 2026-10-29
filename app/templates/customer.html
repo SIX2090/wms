@@ -15,7 +15,7 @@
         <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#importModal">
             <i class="bi bi-upload"></i> 导入
         </button>
-        <a href="/customer/export?search={{ filters.search|urlencode }}&search_field={{ filters.search_field|urlencode }}&date_from={{ filters.date_from|urlencode }}&date_to={{ filters.date_to|urlencode }}&has_business={{ filters.has_business|urlencode }}" class="btn btn-outline-success btn-sm">
+        <a href="/customer/export?search={{ filters.search|urlencode }}&search_field={{ filters.search_field|urlencode }}&date_from={{ filters.date_from|urlencode }}&date_to={{ filters.date_to|urlencode }}&has_business={{ filters.has_business|urlencode }}&sort={{ sort_by|urlencode }}&order={{ sort_order|urlencode }}" class="btn btn-outline-success btn-sm">
             <i class="bi bi-download"></i> 导出
         </a>
         <a href="/customer/download_template" class="btn btn-outline-secondary btn-sm">

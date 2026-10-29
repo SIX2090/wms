@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import io
 
+from master_import import MasterImportError, master_import_rows
+
 from flask import current_app, jsonify, render_template, request, send_file
 from flask_login import login_required
 
@@ -295,9 +297,9 @@ def register_customer_routes(app):
             ws = wb.active
             count = 0
             skip = 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                code = str(row[0]).strip() if row and row[0] else ''
-                name = str(row[1]).strip() if len(row) > 1 and row[1] else ''
+            for row in master_import_rows(ws, ('客户编号', '客户名称')):
+                code = row['客户编号']
+                name = row['客户名称']
                 if not code or not name:
                     skip += 1
                     continue
@@ -307,9 +309,9 @@ def register_customer_routes(app):
                 customer = Customer(
                     code=code,
                     name=name,
-                    contact=str(row[2]).strip() if len(row) > 2 and row[2] else '',
-                    phone=str(row[3]).strip() if len(row) > 3 and row[3] else '',
-                    address=str(row[4]).strip() if len(row) > 4 and row[4] else ''
+                    contact=row.get('联系人', ''),
+                    phone=row.get('电话', ''),
+                    address=row.get('地址', '')
                 )
                 db.session.add(customer)
                 count += 1
@@ -318,6 +320,9 @@ def register_customer_routes(app):
             if skip:
                 msg += f'，跳过 {skip} 条（重复或格式错误）'
             return jsonify({'status': 'success', 'msg': msg, 'count': count})
+        except MasterImportError as exc:
+            db.session.rollback()
+            return api_error(str(exc))
         except Exception:
             db.session.rollback()
             return api_error('客户导入失败')
