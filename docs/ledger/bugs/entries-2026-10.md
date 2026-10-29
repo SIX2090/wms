@@ -3026,10 +3026,11 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 生效确认：2026-10-29 18:57（Asia/Shanghai）经用户授权按 WMS-Warehouse 原计划任务重启，PID 11640、Session 0、唯一 127.0.0.1:8080，启动版本 b63eb03，任务结果 0，CSRF 开启且启动迁移禁用。本机和公网登录页 200；公网启动初期短暂 502，就绪后恢复。33 张业务、库存及账号表重启前后摘要一致，quick_check=ok。代码提交 b63eb03876f31e722eba830243064fbb3f2395e2 的 WMS CI 40859924099 和 AI 40859924051 已成功；Android 40791277115 祖先和路径不变已核验。 Chrome 公网库存健康度页实点刷新后 embedded=1 保留；未修改业务数据。 在线备份及数据快照位于 C:/wms_backups/status_embedded_20261029。
 ### BUG-2026-10-29-023: 统一物料二维码回调破坏扫码回归契约
 
-- 状态：已修复，待目标CI验收。
+- 状态：已修复，代码与目标CI已验收；生产与实机待确认。
 - 关联：FEATURE-LABEL-2026-10-29-001；历史BUG-2026-08-09-001。
 - 根因：3266db5d将二维码解析放在`onBarcodeScanned`调用参数中，破坏既有扫码回归锁要求的“非空码守卫后回调”源码接口；WMS CI 40866253968的verify-shard-3中该锁失败1项。Android构建、JVM单测、lint及WMS全部单元测试均成功，仍不作为整体交付完成。
 - 修复：把解析前移到读取ML Kit结果之后、非空判断及原子置位之前，恢复原回调入口；既有断言保持不变。解析为空时不占用扫码标志，下一帧可继续识别。只修本批当前CI失败，不加入新功能。
 - 同类点已排查：同类点已排查ScannerDialog全部调用方、连续扫码及单码查询；共享解码器继续覆盖出入库、库存查询、盘点和期初库存。
-- 回归：修复前既有扫码锁实跑1 failed / 3 passed；修复后Android/扫码模块全量300 passed，台账测试同步新增ID的明确状态预期，拆分前315/141/19/1断言不变；规则门禁通过，远端精确目标重新验收。此前555 passed / 4 skipped和121/121隔离冒烟仍保留为功能批次证据，不替代本次修复验收。
+- 回归：修复前既有扫码锁实跑1 failed / 3 passed；修复后Android/扫码模块全量300 passed，台账与扫码锁34 passed，台账测试同步新增ID的明确状态预期，拆分前315/141/19/1断言不变；规则门禁通过。此前555 passed / 4 skipped和121/121隔离冒烟仍保留为功能批次证据。
+- 交付与CI：最终代码`80453132aadbce502e8101546151ad3e4d312662`，parent=`3266db5dca0eb6a88c45c20db90616619406e3d2`，完整tree=`6555bc71c1cdd6a65e1982180c9459343d18991f`。CI恢复通过已连接GitHub工具上传精确五文件，以3266db5d的tree为base、以该提交为parent非强制更新main；API ref返回success，随后Git fetch核实parent/tree和完整差异一致。API作者信息产生不同本地提交`f0397a25ed4d102ee3ab9d647b9ecea14fca8370`，已保存本地bundle并在确认两者tree相同、无tracked改动后对齐main；未重置工作文件，原三项未跟踪文件保留。WMS CI [40868368265](https://github.com/SIX2090/wms/actions/runs/40868368265)、AI [40868368266](https://github.com/SIX2090/wms/actions/runs/40868368266)、Android [40868368209](https://github.com/SIX2090/wms/actions/runs/40868368209)均为精确80453132目标completed/success；Android build、lint、JVM单测均通过。后续本条纯台账验收批次以该全绿SHA为基线；公共API限流时使用上述连接器同SHA证据，仅该次查询故障临时使用已有pre-push开关。
 - 生效确认：生产未重启、未出纸；Android需安装最终修复目标的APK。实机微信/Android相机扫码待现场确认。
