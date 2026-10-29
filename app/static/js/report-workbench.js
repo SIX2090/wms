@@ -109,6 +109,7 @@
         function output(mode) {
             if (!ready || !currentFilters()) return;
             if (!available.has(select.value)) { status.textContent = '所选模板不可用，请重新选择或重新加载。'; return; }
+            root.querySelector('#reportPrintMenu').open = false;
             window.open(outputUrl(mode), '_blank', 'noopener');
         }
         root.querySelector('#refreshReportBtn').addEventListener('click', function () { window.location.reload(); });
@@ -137,6 +138,12 @@
         });
         root.querySelector('#reportPrintMenu').addEventListener('keydown', function (event) {
             if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary').focus(); }
+        });
+        document.addEventListener('click', function (event) {
+            var menu = root.querySelector('#reportPrintMenu');
+            if (menu.open && (!menu.contains(event.target) || event.target.closest('[data-report-manage]'))) {
+                menu.open = false;
+            }
         });
         loadTemplates();
     }

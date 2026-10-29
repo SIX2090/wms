@@ -12,10 +12,10 @@
     .preview-toolbar p { margin: 8px 0; line-height: 1.6; }
     button { background: #2265d8; color: white; border: 0; border-radius: 4px; padding: 9px 20px; cursor: pointer; }
     .sheet { max-width: none; margin: 24px auto; background: white; box-shadow: 0 1px 9px #ccd3df; }
-    .sheet h2 { font-size: 14px; margin: 0 0 12px; }
     .print-scope { margin: 0 0 10px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
     table { border-collapse: collapse; table-layout: fixed; width: 100%; color: black; }
     td { padding: 3px 5px; overflow: hidden; overflow-wrap: anywhere; }
+    .builtin-sheet td { padding: 3px; }
     .preview-error { padding: 24px; background: #fff4ec; border: 1px solid #ebc4a7; margin: 24px; line-height: 1.8; }
     {% for sheet in sheets %}
     @page {{ sheet.page_name }} { size: {{ sheet.paper }} {{ sheet.orientation }}; margin: {{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}; }
@@ -23,9 +23,10 @@
     {% endfor %}
     @media print {
       body { background: white; margin: 0; }
-      .preview-toolbar, .sheet h2 { display: none; }
+      .preview-toolbar { display: none; }
+      thead { display: table-header-group; }
       .sheet { width: 100% !important; min-height: 0 !important; padding: 0 !important; margin: 0; box-shadow: none; break-after: page; }
-      .sheet:last-child { break-after: auto; }
+      .sheet:last-of-type { break-after: auto; }
       tr { break-inside: avoid; }
       td { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
     }
@@ -42,12 +43,18 @@
   </header>
   {% if error %}<p class="preview-error" role="alert">{{ error }}</p>{% endif %}
   {% for sheet in sheets %}
-  <section class="sheet {{ sheet.page_name }}" aria-label="{{ sheet.name }}" style="width:{{ sheet.page_width }}mm;min-height:{{ sheet.page_height }}mm;padding:{{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}">
-    <h2>{{ sheet.name }}</h2>
+  <section class="sheet {{ sheet.page_name }}{% if sheet.is_builtin %} builtin-sheet{% endif %}" aria-label="{{ sheet.name }}" style="width:{{ sheet.page_width }}mm;min-height:{{ sheet.page_height }}mm;padding:{{ sheet.margins.top }} {{ sheet.margins.right }} {{ sheet.margins.bottom }} {{ sheet.margins.left }}">
     <p class="print-scope">{{ print_scope }}</p>
     <table aria-label="{{ title }}">
       <colgroup>{% for width in sheet.width_percentages %}<col style="width:{{ width }}%">{% endfor %}</colgroup>
-      <tbody>{% for row in sheet.rows %}
+      {% if sheet.rows|selectattr('is_header')|list %}
+      <thead>{% for row in sheet.rows if row.is_header %}
+        <tr style="height:{{ row.height }}pt">{% for cell in row.cells %}
+          <td rowspan="{{ cell.rowspan }}" colspan="{{ cell.colspan }}" style="{{ cell.css }}">{{ cell.text }}</td>
+        {% endfor %}</tr>
+      {% endfor %}</thead>
+      {% endif %}
+      <tbody>{% for row in sheet.rows if not row.is_header %}
         <tr style="height:{{ row.height }}pt">{% for cell in row.cells %}
           <td rowspan="{{ cell.rowspan }}" colspan="{{ cell.colspan }}" style="{{ cell.css }}">{{ cell.text }}</td>
         {% endfor %}</tr>

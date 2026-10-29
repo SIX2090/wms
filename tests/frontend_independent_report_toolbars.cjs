@@ -9,10 +9,14 @@ class Control {
     set innerHTML(value) { assert.equal(value, ''); this.children = []; }
     addEventListener(type, handler) { (this.handlers[type] ||= []).push(handler); }
     setAttribute(key, value) { this.attributes[key] = value; }
-    async event(type) { if (type === 'click' && this.disabled) return; for (const handler of this.handlers[type] || []) await handler({preventDefault(){}, currentTarget: this}); }
+    async event(type, extra = {}) { if (type === 'click' && this.disabled) return; for (const handler of this.handlers[type] || []) await handler({preventDefault(){}, currentTarget: this, ...extra}); }
     get options() { return this.children; }
 }
 const controls = Object.fromEntries(['select', 'preview', 'download', 'status', 'retry', 'manage', 'scope', 'refresh', 'export', 'menu'].map(key => [key, new Control()]));
+const documentEvents = {}, summaryControl = {focused: false, focus(){this.focused = true;}};
+controls.menu.open = true;
+controls.menu.contains = target => target.inside === true;
+controls.menu.querySelector = selector => {assert.equal(selector, 'summary'); return summaryControl;};
 const stock = scenario.startsWith('stock'), summary = scenario === 'scope' || scenario === 'stale';
 controls.scope.value = 'customer';
 const fields = {warehouse_id: scenario === 'stock_all' ? '0' : '2', search: '轴承', csrf_token: 'SECRET'};
@@ -26,7 +30,7 @@ if (scenario === 'export_query') {
     root.dataset.exportUrl = '/sales/reconciliation/export?warehouse_id=old&format=xlsx';
 }
 const context = {console, URL, URLSearchParams, Set,
-    document: {readyState: 'complete', querySelectorAll(selector) { assert.equal(selector, '[data-report-workbench]'); return [root]; }, querySelector(selector) { assert.equal(selector, 'form[method="get"]'); return form; }, createElement(tag) { assert.equal(tag, 'option'); return new Control(); }},
+    document: {readyState: 'complete', addEventListener(type, handler){(documentEvents[type] ||= []).push(handler);}, querySelectorAll(selector) { assert.equal(selector, '[data-report-workbench]'); return [root]; }, querySelector(selector) { assert.equal(selector, 'form[method="get"]'); return form; }, createElement(tag) { assert.equal(tag, 'option'); return new Control(); }},
     FormData: class {constructor(value) { assert.equal(value, form); } forEach(handler) { for (const [key, value] of Object.entries(fields)) handler(value, key); }},
     window: {location: {origin: 'http://isolated.test', search: '?warehouse_id=' + fields.warehouse_id + '&sort=code&order=desc&page=7&per_page=1&embedded=1&csrf_token=SECRET', reload(){refreshes++;}, assign(url){opened.push(new URL(url, 'http://isolated.test'));}},
         legacyExport(){exportCount++;}, open(url) {opened.push(new URL(url, 'http://isolated.test'));},
@@ -58,6 +62,26 @@ function reply(index, templates) { pending[index].resolve({status: 'success', te
         assert.equal(opened.length, 0); assert.match(controls.status.textContent, /具体仓库/); return;
     }
     assert.equal(controls.preview.disabled, false);
+    if (scenario.includes('menu_')) {
+        const action = scenario.replace('stock_', '').replace('menu_', '');
+        if (['outside', 'inside', 'manage'].includes(action)) {
+            assert.ok(documentEvents.click?.length, 'outside click must be registered');
+            const target = {inside: action !== 'outside', closest: selector => action === 'manage' ? controls.manage : null};
+            for (const handler of documentEvents.click) handler({target});
+            assert.equal(controls.menu.open, action === 'inside');
+        } else if (action === 'escape') {
+            await controls.menu.event('keydown', {key: 'Escape'});
+            assert.equal(controls.menu.open, false); assert.equal(summaryControl.focused, true);
+        } else {
+            if (action === 'invalid') controls.select.value = '99';
+            if (action === 'filters') fields.search = 'unapplied';
+            await controls[action === 'download' ? 'download' : 'preview'].event('click');
+            const rejected = action === 'invalid' || action === 'filters';
+            assert.equal(controls.menu.open, rejected);
+            assert.equal(opened.length, rejected ? 0 : 1);
+        }
+        return;
+    }
     if (scenario === 'builtin' || scenario === 'all_missing') {
         assert.equal(controls.select.value, ''); await controls.preview.event('click');
         assert.equal(opened[0].searchParams.has('template_id'), false); return;

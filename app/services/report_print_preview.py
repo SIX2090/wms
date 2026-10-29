@@ -207,6 +207,18 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
             # workbook merges, wrapping and print areas remain authoritative.
             builtin_layout = (not template_path or
                               re.fullmatch(r'builtin_report_[a-z_]+_default\.xlsx', Path(template_path).name))
+            if builtin_layout:
+                sheet.page_setup.paperSize = '9'
+                # Keep readable column proportions; use the extra width of A4
+                # landscape when the generated columns exceed portrait space.
+                natural_width = sum(_number(sheet.column_dimensions[get_column_letter(col)].width,
+                                            13, 1, 80) * 7
+                                    for col in range(1, sheet.max_column + 1)
+                                    if not sheet.column_dimensions[get_column_letter(col)].hidden)
+                sheet.page_setup.orientation = ('landscape' if natural_width > (210 - 20.32) * 96 / 25.4
+                                                else 'portrait')
+                for edge in ('top', 'bottom', 'left', 'right'):
+                    setattr(sheet.page_margins, edge, .4)
             if builtin_layout and sheet.max_column >= 4:
                 for cells in sheet.iter_rows():
                     for cell in cells:
@@ -257,8 +269,12 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                         continue
                     cell = sheet.cell(row, col)
                     rowspan, colspan = anchors.get((row, col), (1, 1))
-                    cells.append(dict(text=_display_value(cell), css=_cell_css(cell), rowspan=rowspan, colspan=colspan))
-                rendered_rows.append(dict(cells=cells, height=_number(sheet.row_dimensions[row].height, 16, 8, 400)))
+                    css = _cell_css(cell)
+                    if builtin_layout and row > 1:
+                        css += ';font-size:9pt'
+                    cells.append(dict(text=_display_value(cell), css=css, rowspan=rowspan, colspan=colspan))
+                rendered_rows.append(dict(cells=cells, height=_number(sheet.row_dimensions[row].height, 16, 8, 400),
+                                          is_header=bool(builtin_layout and row <= 2)))
             margins = sheet.page_margins
             papers = {'1': 'Letter', '5': 'Legal', '8': 'A3', '9': 'A4', '11': 'A5'}
             paper = papers.get(str(sheet.page_setup.paperSize or '9'))
@@ -270,7 +286,7 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                 page_width, page_height = page_height, page_width
             widths = [_number(sheet.column_dimensions[get_column_letter(col)].width, 13, 1, 80) * 7
                       for col in range(left, right + 1) if not sheet.column_dimensions[get_column_letter(col)].hidden]
-            sheets.append(dict(name=sheet.title, page_name='reportSheet%d' % index,
+            sheets.append(dict(name=sheet.title, page_name='reportSheet%d' % index, is_builtin=bool(builtin_layout),
                 page_width=page_width, page_height=page_height,
                 paper=paper, orientation='landscape' if sheet.page_setup.orientation == 'landscape' else 'portrait',
                 margins={key: '%gmm' % (_number(getattr(margins, key), .5, 0, 3) * 25.4)
