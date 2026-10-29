@@ -114,6 +114,8 @@
                             <span class="badge bg-success">已通过</span>
                             {% elif approval.status == 'rejected' %}
                             <span class="badge bg-danger">已驳回</span>
+                            {% elif approval.status == 'completed' %}
+                            <span class="badge bg-success">已完成</span>
                             {% else %}
                             <span class="badge bg-secondary">未知</span>
                             {% endif %}

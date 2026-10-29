@@ -9,6 +9,7 @@
             <div class="text-muted small">跟踪送货单、微信截图、Excel文本等识别结果和草稿生成状态。</div>
         </div>
         <form method="get" class="d-flex align-items-center gap-2">
+            {% if request.args.get('embedded') == '1' %}<input type="hidden" name="embedded" value="1">{% endif %}
             <select name="status" class="form-select form-select-sm" style="width: 170px;">
                 <option value="">全部状态</option>
                 {% for item in ['uploading', 'recognizing', 'recognized', 'pending_confirmation', 'draft_created', 'failed', 'cancelled'] %}

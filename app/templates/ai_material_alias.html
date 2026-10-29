@@ -86,9 +86,10 @@
             <div class="alias-subtitle">维护微信、送货单、客户叫法和系统物料之间的映射。</div>
         </div>
         <form method="get" class="alias-search">
+            {% if request.args.get('embedded') == '1' %}<input type="hidden" name="embedded" value="1">{% endif %}
             <input type="search" name="search" class="form-control form-control-sm" value="{{ search or '' }}" placeholder="搜索别名/物料编码/名称/规格">
             <button type="submit" class="btn btn-outline-primary btn-sm">搜索</button>
-            {% if search %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_material_alias_list') }}">清空</a>{% endif %}
+            {% if search %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ai_material_alias_list', embedded='1') if request.args.get('embedded') == '1' else url_for('ai_material_alias_list') }}">清空</a>{% endif %}
         </form>
     </div>
 
