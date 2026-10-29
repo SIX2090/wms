@@ -19,4 +19,6 @@ Chrome已用新编号错误模板验证五页拒绝；三级分类以孙、子�
 
 仓库旧中文状态需要人工编辑确认；这不等同迁移历史数据。未把原生打印对话框、实体设备、客户端权限阻塞或尚未穷尽的全站分支算作本批修复。详细操作约定见[档案Excel说明](../ARCHIVE_EXCEL_IMPORT.md)。
 
-生产需重启 WMS 服务生效。当前提交前状态：待推送、目标CI和原生产任务重启验收。
+生产需重启 WMS 服务生效，本次已完成。2026-10-29 15:55:43（Asia/Shanghai）核验：代码82e166acffed6950249be70ac478b65e9eba39ad已实际push，目标[WMS CI](https://github.com/SIX2090/wms/actions/runs/40837867746)和[AI](https://github.com/SIX2090/wms/actions/runs/40837867744)均success；[Android](https://github.com/SIX2090/wms/actions/runs/40791277115)复用已验证祖先3d17eb8、完整对象及保护路径不变。初次只读门禁查询403，写入前和提交前通过连接器确认同一基线全绿，随后正常钩子推送成功，未使用跳过开关。
+
+部署前在线备份deploy_inventory_20261029-155502.db、保存13文件回退包与新增文件清单；原WMS-Warehouse任务重启为PID14104/Session0、唯一127.0.0.1:8080，原Python311/run_server.py及NO_DB_TOUCH保护保持。启动版本82e166a；13文件匹配；本机及公网/login均200且含CSRF，公网app.js匹配。30张业务/账号/档案表摘要不变，quick_check=ok，详见deployment/effective.json。
