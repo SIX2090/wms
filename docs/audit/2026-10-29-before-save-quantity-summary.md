@@ -38,4 +38,13 @@
 
 ## 交付与生效
 
-待提交、推送及目标 CI 验收。生产需重启 WMS 服务生效；未授权重启生产，生产生效待确认。
+代码提交 `33596bdd857be5a9a7149184bf5cd861b7d4d41a` 已实际 push（2da561cf..33596bdd main -> main），本地与 origin/main 相同。GitHub main 分支返回的 tree 与本地 HEAD tree 均为 `338f85485e11a9f93d5068f187b619393b10f504`。
+
+- [WMS CI 40844098589](https://github.com/SIX2090/wms/actions/runs/40844098589)：精确目标 completed/success；标准 smoke、所有 verify 分片及静态检查均成功。
+- [AI 40844098590](https://github.com/SIX2090/wms/actions/runs/40844098590)：精确目标 completed/success。
+- Android 最新成功仍为 [40791277115](https://github.com/SIX2090/wms/actions/runs/40791277115)，已再次验证至本代码目标为祖先且工程/构建工作流无变化。
+- 代码推送使用已记录同基线替代门禁证据；WMS_SKIP_CI_GATE 仅在该次 push 设置，finally 移除，pre-commit 正常执行。
+
+2026-10-29 16:46（Asia/Shanghai）代码 CI 验收通过。生产只读核对仍为 WMS-Warehouse / run_wms_task.bat / Python311 run_server.py，PID 14104、创建于 15:55:04、唯一 127.0.0.1:8080。生产需重启 WMS 服务生效；重启授权待用户确认，未重启生产。
+
+交付补证批次仅修改本记录和月度 BUG 条目。开工/提交前再次连接器核实 33596bdd 为远端 main，WMS CI/AI 精确目标成功；本地 check_ci_green.py --target-sha 33596bdd857be5a9a7149184bf5cd861b7d4d41a --json 查询已恢复，三个工作流均 green，退出码 0。台账回归 30 passed；该补证 push 不使用跳过开关。
