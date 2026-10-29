@@ -21,3 +21,5 @@ WMS网页扫码、电脑物料查询接口与更新后的安卓App均识别此�
 写入与提交基线：main `159b0a69332f8162c1568388a2398e9854648134`，WMS CI [40861904428](https://github.com/SIX2090/wms/actions/runs/40861904428) / AI [40861904417](https://github.com/SIX2090/wms/actions/runs/40861904417)均completed/success。Android最近运行[40791277115](https://github.com/SIX2090/wms/actions/runs/40791277115)为`3d17eb803a006f2abf14e6e091f1b7b24636c60a`且成功，已核对祖先关系和Android工程/构建工作流至基线无差异。公共API限流时通过已连接GitHub工具查询最近运行；本次pre-push如遇同一查询故障，仅依据上述同一基线替代证据临时使用已有跳过开关。本批修改了Android，推送后必须验收本批目标的新Android构建，不复用旧APK。
 
 生效确认：生产需重启WMS服务生效；安卓须安装本批新APK。当前未操作生产单据、账号或库存，未重启生产服务。实际出纸、微信扫一扫和安卓相机实机扫码待现场验收。
+
+CI恢复记录：3266db5d的Android、AI、WMS单元测试与冒烟成功，WMS脚本回归中既有扫码回调锁失败1项。BUG-2026-10-29-023只把解析移到空码判断之前，恢复既有回调契约，未修改既有测试。此为AGENTS §三要求的当前CI故障修复，不能将红色基线当作已全绿，也不使用`WMS_SKIP_CI_GATE=1`冒充查询故障放行；通过§8.1已连接工具的受控Git Data通道提交精确修复集合，反查main的parent/tree并在新目标验收三工作流。

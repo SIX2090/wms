@@ -253,9 +253,9 @@ fun ScannerDialog(
                                                             // 若无条件置位，相机首帧（几乎必为空结果）会永久关闭
                                                             // 后续所有帧的分析，表现为"扫码无法识别条码"。
                                                             for (barcode in barcodes) {
-                                                                val rawValue = barcode.rawValue
+                                                                val rawValue = barcode.rawValue?.let(::materialScanCode)
                                                                 if (!rawValue.isNullOrEmpty() && scannedFlag.compareAndSet(false, true)) {
-                                                                    onBarcodeScanned(materialScanCode(rawValue))
+                                                                    onBarcodeScanned(rawValue)
                                                                     // 连续模式：交付后重新武装节流窗口，让下一条码能进来；
                                                                     // 非连续模式：保持置位，等调用方关闭弹窗（旧行为）。
                                                                     if (continuousRef.value) {
