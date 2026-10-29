@@ -89,7 +89,7 @@ def register_department_routes(app):
                 'id': department.id,
                 'code': department.code,
                 'name': department.name,
-                'status': department.status,
+                'status': {'启用': 'active', '停用': 'inactive'}.get(department.status, department.status),
                 'remark': department.remark
             }
         })
@@ -194,7 +194,7 @@ def register_department_routes(app):
     def department_api_list():
         """部门列表API - 只返回启用的部门"""
         from app import Department
-        departments = Department.query.filter_by(status='active').order_by(Department.code).all()
+        departments = Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code).all()
         return jsonify({
             'departments': [{
                 'id': d.id,
@@ -253,24 +253,36 @@ def register_department_routes(app):
             return api_error(_size_msg)
         try:
             from openpyxl import load_workbook
-            wb = load_workbook(file)
+            wb = load_workbook(file, data_only=True)
             ws = wb.active
+            header = [str(value).strip() if value is not None else '' for value in
+                      next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())]
+            if not {'部门编码', '部门名称'}.issubset(header):
+                return api_error('Excel表头缺少必要列：部门编码、部门名称')
+            indexes = {value: index for index, value in enumerate(header) if value}
             count = 0
             skip = 0
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                code = str(row[0]).strip() if row and row[0] else ''
-                name = str(row[1]).strip() if len(row) > 1 and row[1] else ''
+            for row_number, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+                values = {key: str(row[index]).strip() if index < len(row) and row[index] is not None else ''
+                          for key, index in indexes.items()}
+                code, name = values['部门编码'], values['部门名称']
                 if not code or not name:
                     skip += 1
                     continue
+                raw_status = values.get('状态', '').lower() or 'active'
+                status = {'active': 'active', 'inactive': 'inactive',
+                          '启用': 'active', '停用': 'inactive'}.get(raw_status)
+                if status is None:
+                    db.session.rollback()
+                    return api_error(f'第{row_number}行状态无效，请填写启用、停用、active或inactive')
                 if Department.query.filter_by(code=code).first() or Department.query.filter_by(name=name).first():
                     skip += 1
                     continue
                 department = Department(
                     code=code,
                     name=name,
-                    status=str(row[2]).strip() if len(row) > 2 and row[2] else 'active',
-                    remark=str(row[3]).strip() if len(row) > 3 and row[3] else ''
+                    status=status,
+                    remark=values.get('备注', '')
                 )
                 db.session.add(department)
                 count += 1

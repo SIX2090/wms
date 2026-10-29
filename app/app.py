@@ -4655,7 +4655,7 @@ def _generate_order_no_locked(prefix):
                 last_order = InventoryCheck.query.filter(InventoryCheck.check_no.like(f'{prefix}{year_month}%')).order_by(InventoryCheck.id.desc()).with_for_update().first()
             elif prefix == 'CS':
                 last_order = InventoryCheckScan.query.filter(InventoryCheckScan.check_no.like(f'{prefix}{year_month}%')).order_by(InventoryCheckScan.id.desc()).with_for_update().first()
-            elif prefix == 'SC':
+            elif prefix in ('SC', 'SUB'):
                 last_order = SubcontractOrder.query.filter(SubcontractOrder.order_no.like(f'{prefix}{year_month}%')).order_by(SubcontractOrder.id.desc()).with_for_update().first()
             elif prefix == 'SF':
                 last_order = SubcontractIssue.query.filter(SubcontractIssue.issue_no.like(f'{prefix}{year_month}%')).order_by(SubcontractIssue.id.desc()).with_for_update().first()
@@ -4683,9 +4683,9 @@ def _generate_order_no_locked(prefix):
                 last_order = None
 
             if last_order:
-                if prefix in ('IN', 'PI', 'OU', 'SO', 'SE', 'PO'):
+                if prefix in ('IN', 'PI', 'OU', 'SO', 'SE', 'PO', 'SC', 'SUB'):
                     last_no = last_order.order_no
-                elif prefix in ('CK', 'SC'):
+                elif prefix == 'CK':
                     last_no = last_order.check_no
                 elif prefix == 'CS':
                     last_no = last_order.check_no
@@ -25795,10 +25795,10 @@ def _department_query_from_args():
             Department.remark.like(f'%{search}%'),
         ]
         if status_from_search:
-            conditions.append(Department.status == status_from_search)
+            conditions.append(Department.status.in_((status_from_search, '启用' if status_from_search == 'active' else '停用')))
         query = query.filter(db.or_(*conditions))
     if status_filter in ('active', 'inactive'):
-        query = query.filter(Department.status == status_filter)
+        query = query.filter(Department.status.in_((status_filter, '启用' if status_filter == 'active' else '停用')))
     query, sort_by = _apply_master_order(query, Department, sort_by, sort_order, {'code', 'name', 'status', 'created_at'})
     return query, {'search': search, 'status': status_filter}, sort_by, sort_order
 

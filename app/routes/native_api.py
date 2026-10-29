@@ -3108,7 +3108,7 @@ def register_native_api_routes(app):
     def native_api_departments():
         """移动端部门列表（2026-09-12）：返回启用部门，供出库领料部门下拉选择"""
         from app import Department, api_json_success
-        departments = Department.query.filter_by(status='active').order_by(
+        departments = Department.query.filter(Department.status.in_(('active', '启用'))).order_by(
             Department.code.asc(), Department.id.asc()).all()
         return api_json_success({
             'items': [

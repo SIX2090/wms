@@ -269,7 +269,7 @@ def register_employee_routes(app):
                 return jsonify({'status': 'error', 'msg': '缺少必要列：姓名'}), 400
             idx = {col: header.index(col) for col in header if col}
             added, updated, skipped = 0, 0, 0
-            for r in rows[1:]:
+            for row_number, r in enumerate(rows[1:], 2):
                 if not r or not r[idx['姓名']]:
                     skipped += 1
                     continue
@@ -282,8 +282,10 @@ def register_employee_routes(app):
                 dept_id_int = None
                 if dept_code:
                     dept = Department.query.filter_by(code=dept_code).first()
-                    if dept:
-                        dept_id_int = dept.id
+                    if not dept:
+                        db.session.rollback()
+                        return api_error(f'第{row_number}行部门编码不存在：{dept_code}，请先维护部门或修正文件')
+                    dept_id_int = dept.id
                 if code:
                     existing = Employee.query.filter_by(code=code).first()
                     if existing:
@@ -314,7 +316,11 @@ def register_employee_routes(app):
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'员工导入异常: {e}')
-            return jsonify({'status': 'error', 'msg': f'导入失败：{e}'}), 500
+            from zipfile import BadZipFile
+            from openpyxl.utils.exceptions import InvalidFileException
+            if isinstance(e, (BadZipFile, InvalidFileException, ValueError)):
+                return api_error('无法读取员工Excel文件，请使用有效的.xlsx工作簿并按导入模板填写')
+            return jsonify({'status': 'error', 'msg': '员工导入失败，请核对模板和部门编码后重试'}), 500
 
     @app.route('/employee/api/search')
     @login_required

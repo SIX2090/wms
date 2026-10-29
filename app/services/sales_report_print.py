@@ -251,7 +251,7 @@ def sales_trend_context():
             row['growth'] = None
         rows.append(row)
         prev_amount = row['amount']
-    return dict(months_back=months_back, warehouse_id=selected_warehouse.id if selected_warehouse else '', warehouse=selected_warehouse.name if selected_warehouse else '', warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_orders=sum((r['orders'] for r in rows)), total_amount=round_to_2_decimals(sum((r['amount'] for r in rows))), total_untaxed=round_to_2_decimals(sum((r['untaxed_amount'] for r in rows))), total_tax=round_to_2_decimals(sum((r['tax_amount'] for r in rows))), total_shipped=round_to_2_decimals(sum((r['shipped_amount'] for r in rows))))
+    return dict(months_back=months_back, period_start=start_month.isoformat(), warehouse_id=selected_warehouse.id if selected_warehouse else '', warehouse=selected_warehouse.name if selected_warehouse else '', warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), rows=rows, total_orders=sum((r['orders'] for r in rows)), total_amount=round_to_2_decimals(sum((r['amount'] for r in rows))), total_untaxed=round_to_2_decimals(sum((r['untaxed_amount'] for r in rows))), total_tax=round_to_2_decimals(sum((r['tax_amount'] for r in rows))), total_shipped=round_to_2_decimals(sum((r['shipped_amount'] for r in rows))))
 
 
 def sales_execution_context():
@@ -377,7 +377,13 @@ def collect_sales_report_print(report_kind):
                 row['shipment_rate'] = round(row['shipped_amount'] / row['amount'] * 100, 1) if row['amount'] > 0 else '-'
                 if row['growth'] is None:
                     row['growth'] = '-'
-    return dict(title=title, target_code='report_sales_' + key,
+    filters = context.get('filters', context)
+    scope_parts = [f'仓库：{warehouse.name}（{warehouse.code}）']
+    if report_kind == 'trend':
+        scope_parts.append(f"日期：{context['period_start']}起（近{context['months_back']}个月筛选）")
+    else:
+        scope_parts.append(f"日期：{filters.get('date_start') or '不限'} 至 {filters.get('date_end') or '不限'}")
+    return dict(title=title, target_code='report_sales_' + key, print_scope=' · '.join(scope_parts),
                 columns=[dict(title=label, field=field) for label, field, width in specs], rows=rows)
 
 
@@ -406,7 +412,7 @@ def resolve_sales_report_print_template(target_code):
     return None, '系统内置模板'
 
 
-def render_sales_report_excel(title, columns, rows, template_path=None):
+def render_sales_report_excel(title, columns, rows, template_path=None, print_scope=''):
     """Fill the chosen workbook in memory; never register or save templates during GET."""
     from openpyxl import load_workbook
     from doc_print_excel import generate_report_builtin_template
@@ -440,6 +446,12 @@ def render_sales_report_excel(title, columns, rows, template_path=None):
             if (sheet.max_row + max(0, len(items) - 1)) * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('展开后的打印内容过大，请缩小筛选范围')
             _fill_sheet(sheet, _Filler(order, items, date.today().isoformat()))
+            if print_scope:
+                for header in (sheet.oddHeader, sheet.evenHeader, sheet.firstHeader):
+                    existing = header.center.text or ''
+                    header.center.text = (existing + '\n' if existing else '') + print_scope.replace('&', '&&')
+                    if not existing:
+                        header.center.size = 8
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)

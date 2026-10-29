@@ -395,7 +395,7 @@ def register_out_order_routes(app):
         push_source = DocumentPushLine.query.filter_by(
             target_document_id=order.id, status='active'
         ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
-        return render_template('out_order_detail.html', order=order, warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
+        return render_template('out_order_detail.html', order=order, warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/<int:id>/update', methods=['POST'])
@@ -532,7 +532,7 @@ def register_out_order_routes(app):
         # 但额外关联来源采购入库单（原单退货），并受开关 purchase_return_requires_order 约束。
         # 镜像 P1-5（in_order.py 的 is_sales_return）。
         is_purchase_return = order.business_type == '采购退货出库' if order else order_type in ('purchase_return', 'return_out')
-        departments = Department.query.filter_by(status='active').all()
+        departments = Department.query.filter(Department.status.in_(('active', '启用'))).all()
         warehouses = get_active_warehouses()
         order_no = order.order_no if order else generate_order_no(
             'OO' if is_other_out else ('SO' if is_sale_order else ('PR' if is_purchase_return else 'OUT')))

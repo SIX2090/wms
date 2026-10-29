@@ -14,7 +14,6 @@
     {% endif %}
     <a href="{{ url_for('export_bom', search=filters.search, status=filters.status, sort=sort_by, order=sort_order) }}" class="btn btn-outline-success btn-sm">导出</a>
     <a href="/export/template/bom" class="btn btn-outline-secondary btn-sm">下载模板</a>
-    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="smartShare(getWmsActionModule())">智能分享</button>
     <button type="button" id="columnSettingsBtn" class="btn btn-outline-secondary btn-sm">栏目设置</button>
   </div>
 </div>
@@ -30,7 +29,7 @@
 </form>
 <div class="card"><div class="card-header">BOM列表 <span class="text-muted small">共 {{ boms|length }} 份</span></div><div class="table-responsive">
 <table id="bomTable" class="table table-hover align-middle mb-0"><thead><tr>
-  {% if can_edit %}<th data-column-key="actions"><input type="checkbox" id="selectAll" aria-label="全选当前列表"></th>{% endif %}
+  {% if can_edit %}<th data-column-key="actions" data-default-label="选择"><input type="checkbox" id="selectAll" aria-label="全选当前列表"></th>{% endif %}
   {{ sort_th('BOM编号', 'bom_no', sort_by, sort_order) }}
   {{ sort_th('产品编码', 'product_code', sort_by, sort_order) }}
   {{ sort_th('产品名称', 'product_name', sort_by, sort_order) }}

@@ -1871,6 +1871,7 @@ const WMS_ACTION_MODULES = {
     },
     bom: {
         match: /^\/bom(\/?$|\/add|\/\d+)/,
+        shareEnabled: false,
         navigator: true,
         detailUrl: '/bom/{id}',
         addUrl: '/bom/add',
@@ -3533,6 +3534,7 @@ function insertGlobalActionBar() {
         { divider: true },
         { key: 'share', icon: 'bi-share', label: '智能分享', action: function() { smartShare(module); } }
     ];
+    buttons = buttons.filter(function(item) { return item.key !== 'share' || module.shareEnabled !== false; });
     // BUG-2026-08-27-001：单据详情页（URL 以 /数字 结尾）自带状态感知的操作按钮
     // （草稿显示「删除」、已完成显示「反提交」、打印/发送打印等），全局工具栏再注入
     // 通用「删除/打印」会出现两个删除、两个打印；且已完成单上全局「删除」必定被后端
@@ -3968,6 +3970,12 @@ function getRecentVisits() {
                 return column && !column.locked;
             });
             saved.labels = saved.labels && typeof saved.labels === 'object' ? saved.labels : {};
+            columns.forEach(function(column) {
+                if (column.label && saved.labels[column.key] === column.key &&
+                    table.querySelector('thead th[data-column-key="' + CSS.escape(column.key) + '"] input[type="checkbox"]')) {
+                    delete saved.labels[column.key];
+                }
+            });
             return saved;
         } catch (e) { return fallback; }
     }

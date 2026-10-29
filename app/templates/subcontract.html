@@ -120,9 +120,9 @@
                             <td>{{ order.order_no }}</td>
                             <td>{{ order.date }}</td>
                             <td>{{ order.supplier.name if order.supplier else '' }}</td>
-                            <td>{{ order.contact }}</td>
-                            <td>{{ order.phone }}</td>
-                            <td>{{ order.deadline }}</td>
+                            <td>{{ order.contact or '' }}</td>
+                            <td>{{ order.phone or '' }}</td>
+                            <td>{{ order.deadline or '' }}</td>
                             <td>
                                 {% if order.status == 'pending' %}
                                 <span class="badge badge-secondary">待处理</span>
@@ -173,6 +173,15 @@
             <div class="modal-body">
                 <form id="addForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group">
+                        <label for="subcontractWarehouse">仓库 *</label>
+                        <select class="form-control" id="subcontractWarehouse" name="warehouse_id" required>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.id }}" {% if default_warehouse and warehouse.id == default_warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
                     <div class="form-group">
                         <label for="supplier_id">加工厂商</label>
                         <select class="form-control" id="supplier_id" name="supplier_id">

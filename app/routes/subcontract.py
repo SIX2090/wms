@@ -21,6 +21,7 @@
 # 注意：本文件顶部不用多行 """docstring""" 作为模块说明。
 from __future__ import annotations
 
+from pydantic import BaseModel, Field
 from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
@@ -28,15 +29,100 @@ from db import db
 from utils import require_role
 
 
+class SubcontractProductImportRow(BaseModel):
+    material_code: str = Field(min_length=1)
+    quantity: float = Field(gt=0, allow_inf_nan=False)
+    unit: str = ''
+
+
+def resolve_subcontract_import_warehouse(value, parent=None):
+    """Resolve file warehouse without silently routing explicit errors to a default."""
+    from app import get_default_warehouse, validate_inventory_warehouse, assert_warehouse_active
+    if not value:
+        value = parent.warehouse if parent else ''
+    if not value:
+        default = get_default_warehouse()
+        value = default.name if default else ''
+    warehouse, error = validate_inventory_warehouse(value)
+    if error or warehouse is None:
+        raise ValueError(error or '请选择仓库')
+    valid, error = assert_warehouse_active(warehouse.name, allow_empty=False)
+    if not valid:
+        raise ValueError(error)
+    return warehouse
+
+
 # no-test:reason=路由注册辅助函数，能力由 subcontract_* 各路由测试覆盖
 def register_subcontract_routes(app):
+    @app.route('/subcontract/<int:id>/items/import', methods=['POST'])
+    @require_role('production')
+    @login_required
+    def import_subcontract_products(id):
+        from pydantic import ValidationError
+        from app import (Material, SubcontractItem, SubcontractOrder, _read_import_sheet,
+                         _get_excel_cell, api_error, round_to_2_decimals,
+                         _acquire_order_write_lock, log_operation)
+        order = SubcontractOrder.query.get_or_404(id)
+        if order.status != 'pending':
+            return api_error('只有草稿状态的委外单可以导入产品明细')
+        file = request.files.get('file')
+        if not file:
+            return api_error('请选择要导入的产品Excel文件')
+        try:
+            sheet, columns, _header = _read_import_sheet(file, {
+                'material_code': ['产品编码', '物料编码'],
+                'quantity': ['数量', '委外数量'], 'unit': ['单位'],
+            })
+            if not {'material_code', 'quantity'}.issubset(columns):
+                return api_error('Excel表头缺少必要列：产品编码、数量')
+            prepared = []
+            for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
+                if not any(value is not None and str(value).strip() for value in row):
+                    continue
+                if len(prepared) >= 2000:
+                    return api_error('一次最多导入2000条产品明细，请拆分文件')
+                try:
+                    values = SubcontractProductImportRow.model_validate({
+                        key: _get_excel_cell(row, columns, key)
+                        for key in ('material_code', 'quantity', 'unit')})
+                except ValidationError:
+                    return api_error(f'第{row_number}行产品编码或数量无效，数量须为大于0的有限数字')
+                quantity = round_to_2_decimals(values.quantity)
+                if quantity <= 0 or abs(quantity - values.quantity) > 1e-8:
+                    return api_error(f'第{row_number}行数量须大于0且最多两位小数')
+                material = Material.query.filter_by(code=values.material_code, status='active').first()
+                if material is None:
+                    return api_error(f'第{row_number}行产品编码不存在或已停用：{values.material_code}')
+                if values.unit and (not material.unit or values.unit != material.unit.name):
+                    return api_error(f'第{row_number}行单位与产品库存单位不一致，系统未配置单位换算')
+                prepared.append((material, quantity))
+            if not prepared:
+                return api_error('文件没有可导入的产品明细')
+            order, locked = _acquire_order_write_lock(SubcontractOrder, id, 'pending')
+            if not locked:
+                return api_error('单据状态已变化或正在操作，请刷新后重试')
+            for material, quantity in prepared:
+                db.session.add(SubcontractItem(subcontract_order_id=id,
+                    material_id=material.id, unit_id=material.unit_id, quantity=quantity))
+            db.session.flush()
+            order.total_amount = round_to_2_decimals(sum(
+                (item.quantity or 0) * (item.material.price or 0) for item in order.items))
+            db.session.commit()
+            log_operation('导入委外产品', f'委外单：{order.order_no}，新增{len(prepared)}行', 'subcontract', id)
+            return jsonify(status='success', count=len(prepared), msg=f'成功导入{len(prepared)}条产品明细')
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('委外产品文件导入失败')
+            return api_error('无法导入产品Excel，请核对文件格式、产品编码及数量后重试')
+
     @app.route('/subcontract')
     @login_required
     def subcontract_list():
         from sqlalchemy.orm import joinedload, selectinload
         from app import (Material, SubcontractItem, SubcontractOrder, Supplier,
                          _apply_status_date_filters, _apply_subcontract_search,
-                         _get_order_list_filters, parse_date_value)
+                         _get_order_list_filters, parse_date_value,
+                         get_active_warehouses, get_default_warehouse)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'processing', 'completed', 'cancelled'))
         deadline_start = parse_date_value(request.args.get('deadline_start'))
         deadline_end = parse_date_value(request.args.get('deadline_end'))
@@ -70,7 +156,8 @@ def register_subcontract_routes(app):
             'deadline_start': deadline_start.strftime('%Y-%m-%d') if deadline_start else '',
             'deadline_end': deadline_end.strftime('%Y-%m-%d') if deadline_end else '',
         }
-        return render_template('subcontract.html', orders=orders, pagination=pagination, suppliers=suppliers, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page)
+        return render_template('subcontract.html', orders=orders, pagination=pagination, suppliers=suppliers, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page,
+                               warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/subcontract/progress')
     @login_required
@@ -92,7 +179,8 @@ def register_subcontract_routes(app):
                          SubcontractOrder, SubcontractItem, SubcontractReceive,
                          SubcontractReceiveItem, Supplier, Unit,
                          get_recent_operation_logs, get_warehouse_stock_quantities,
-                         serialize_material_with_stock, validate_inventory_warehouse)
+                         serialize_material_with_stock, validate_inventory_warehouse,
+                         get_active_warehouses)
         # F2.16：详情页预加载，消除 order.items / issue_orders / receive_orders
         # 三重懒加载 N+1（对齐同文件 print_subcontract 的 .options 写法）。
         order = SubcontractOrder.query.options(
@@ -110,7 +198,7 @@ def register_subcontract_routes(app):
         suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
         # BUG-2026-10-17-015-F07：委外详情页库存按委外单仓库口径展示。
         sub_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse or '')
-        sub_stock_map = get_warehouse_stock_quantities(sub_warehouse) if sub_warehouse else None
+        sub_stock_map = get_warehouse_stock_quantities(sub_warehouse) if sub_warehouse else {}
         materials=[serialize_material_with_stock(material, sub_warehouse, sub_stock_map) for material in materials]
         return render_template(
             'subcontract_detail.html',
@@ -118,6 +206,7 @@ def register_subcontract_routes(app):
             materials=materials,
             units=units,
             suppliers=suppliers,
+            warehouses=get_active_warehouses(),
             operation_logs=get_recent_operation_logs('subcontract', id),
         )
 
@@ -511,13 +600,29 @@ def register_subcontract_routes(app):
     @login_required
     def edit_subcontract_header(id):
         """编辑委外单基础信息（仅 pending 状态可编辑）"""
-        from app import SubcontractOrder, Supplier, api_error, log_operation, parse_date_value
+        from app import (SubcontractOrder, Supplier, api_error, log_operation, parse_date_value,
+                         validate_inventory_warehouse, assert_warehouse_active,
+                         _acquire_order_write_lock)
         order = SubcontractOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理状态的委外单可以编辑')
 
         data = request.get_json(silent=True) or request.form
         try:
+            order, locked = _acquire_order_write_lock(SubcontractOrder, id, 'pending')
+            if not locked:
+                return api_error('单据状态已变化或正在操作，请刷新后重试')
+            if 'warehouse_id' in data or 'warehouse' in data:
+                warehouse, error = validate_inventory_warehouse(data.get('warehouse') or '', data.get('warehouse_id'))
+                if error or warehouse is None:
+                    return api_error(error or '请选择仓库')
+                valid, error = assert_warehouse_active(warehouse.name, allow_empty=False)
+                if not valid:
+                    return api_error(error)
+                if warehouse.name != order.warehouse:
+                    if order.issue_orders or order.receive_orders:
+                        return api_error('已有发料或收货记录，不能修改委外单仓库')
+                    order.warehouse = warehouse.name
             if 'date' in data and data.get('date'):
                 new_date = parse_date_value(data.get('date'))
                 if new_date:
@@ -556,7 +661,8 @@ def register_subcontract_routes(app):
         from flask_login import current_user
         from sqlalchemy.orm import selectinload
         from app import (SubcontractItem, SubcontractOrder, api_error, generate_order_no,
-                         log_operation, round_to_2_decimals)
+                         log_operation, round_to_2_decimals, validate_inventory_warehouse,
+                         get_default_warehouse, assert_warehouse_active)
         source = SubcontractOrder.query.options(
             selectinload(SubcontractOrder.items),
         ).get_or_404(id)
@@ -564,12 +670,23 @@ def register_subcontract_routes(app):
             return api_error('原委外单没有产品明细，不能复制')
 
         try:
+            warehouse_name = source.warehouse or ''
+            if not warehouse_name:
+                default = get_default_warehouse()
+                warehouse_name = default.name if default else ''
+            warehouse, error = validate_inventory_warehouse(warehouse_name)
+            if error or warehouse is None:
+                return api_error(error or '请选择仓库')
+            valid, error = assert_warehouse_active(warehouse.name, allow_empty=False)
+            if not valid:
+                return api_error(error)
             new_order = SubcontractOrder(
                 order_no=generate_order_no('SUB'),
                 date=date.today(),
                 supplier_id=source.supplier_id,
                 contact=source.contact,
                 phone=source.phone,
+                warehouse=warehouse.name,
                 deadline=source.deadline,
                 remark=(f'由委外单 {source.order_no} 复制生成'
                         + (f'；原备注：{source.remark}' if source.remark else '')),
@@ -590,6 +707,7 @@ def register_subcontract_routes(app):
                 db.session.add(SubcontractItem(
                     subcontract_order_id=new_order.id,
                     material_id=item.material_id,
+                    unit_id=item.unit_id or (item.material.unit_id if item.material else None),
                     quantity=qty,
                     returned_quantity=0,
                     loss=0,
@@ -841,13 +959,14 @@ def register_subcontract_routes(app):
                         item.loss or 0,
                         _subcontract_status_label(order.status),
                         order.remark or '',
+                        order.warehouse or '',
                     ])
             else:
-                rows.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.supplier.name if order.supplier else '', order.contact or '', order.phone or '', order.deadline.strftime('%Y-%m-%d') if order.deadline else '', '', '', '', '', 0, 0, 0, _subcontract_status_label(order.status), order.remark or ''])
+                rows.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.supplier.name if order.supplier else '', order.contact or '', order.phone or '', order.deadline.strftime('%Y-%m-%d') if order.deadline else '', '', '', '', '', 0, 0, 0, _subcontract_status_label(order.status), order.remark or '', order.warehouse or ''])
         return _workbook_response(
             'subcontract_orders.xlsx',
             '委外加工',
-            ['单据编号', '日期', '加工厂商', '联系人', '电话', '交货期限', '物料编码', '物料名称', '规格', '单位', '数量', '已回数量', '损耗', '状态', '备注'],
+            ['单据编号', '日期', '加工厂商', '联系人', '电话', '交货期限', '物料编码', '物料名称', '规格', '单位', '数量', '已回数量', '损耗', '状态', '备注', '仓库'],
             rows,
         )
 
@@ -884,6 +1003,7 @@ def register_subcontract_routes(app):
             'unit': ['单位'],
             'quantity': ['数量'],
             'remark': ['备注'],
+            'warehouse': ['仓库', '仓库名称', '仓库编码'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
@@ -904,8 +1024,16 @@ def register_subcontract_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：加工厂商、物料编码为空或数量不正确')
                     continue
+                try:
+                    warehouse = resolve_subcontract_import_warehouse(_get_excel_cell(row, col_map, 'warehouse'))
+                except ValueError as error:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：{error}')
                 order_no = _order_no_from_row(row, col_map, 'order_no', 'SC')
                 order = orders_by_no.get(order_no)
+                if order and order.warehouse != warehouse.name:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：同一委外单不能使用不同仓库')
                 if not order:
                     if SubcontractOrder.query.filter_by(order_no=order_no).first():
                         skip += 1
@@ -916,6 +1044,7 @@ def register_subcontract_routes(app):
                         order_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         supplier_id=supplier.id if supplier else None,
+                        warehouse=warehouse.name,
                         contact=_get_excel_cell(row, col_map, 'contact'),
                         phone=_get_excel_cell(row, col_map, 'phone'),
                         deadline=_parse_excel_date(_get_excel_cell(row, col_map, 'deadline'), None) if _get_excel_cell(row, col_map, 'deadline') else None,
@@ -1555,13 +1684,14 @@ def register_subcontract_routes(app):
                         item.quantity or 0,
                         _subcontract_issue_status_label(issue.status),
                         item.remark or issue.remark or '',
+                        issue.warehouse or '',
                     ])
             else:
-                rows.append([issue.issue_no, issue.date.strftime('%Y-%m-%d') if issue.date else '', issue.subcontract_order.order_no if issue.subcontract_order else '', issue.supplier.name if issue.supplier else '', '', '', '', '', 0, _subcontract_issue_status_label(issue.status), issue.remark or ''])
+                rows.append([issue.issue_no, issue.date.strftime('%Y-%m-%d') if issue.date else '', issue.subcontract_order.order_no if issue.subcontract_order else '', issue.supplier.name if issue.supplier else '', '', '', '', '', 0, _subcontract_issue_status_label(issue.status), issue.remark or '', issue.warehouse or ''])
         return _workbook_response(
             'subcontract_issues.xlsx',
             '委外发料',
-            ['发料单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '数量', '状态', '备注'],
+            ['发料单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '数量', '状态', '备注', '仓库'],
             rows,
         )
 
@@ -1598,6 +1728,7 @@ def register_subcontract_routes(app):
             'unit': ['单位'],
             'quantity': ['数量'],
             'remark': ['备注'],
+            'warehouse': ['仓库', '仓库名称', '仓库编码'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
@@ -1617,21 +1748,31 @@ def register_subcontract_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料编码为空或数量不正确')
                     continue
+                subcontract_no = _get_excel_cell(row, col_map, 'subcontract_no')
+                subcontract_order = SubcontractOrder.query.filter_by(order_no=subcontract_no).first() if subcontract_no else None
+                try:
+                    warehouse = resolve_subcontract_import_warehouse(
+                        _get_excel_cell(row, col_map, 'warehouse'), subcontract_order)
+                except ValueError as error:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：{error}')
                 issue_no = _order_no_from_row(row, col_map, 'order_no', 'SF')
                 issue = orders_by_no.get(issue_no)
+                if issue and issue.warehouse != warehouse.name:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：同一单据不能使用不同仓库')
                 if not issue:
                     if SubcontractIssue.query.filter_by(issue_no=issue_no).first():
                         skip += 1
                         skip_details.append(f'第{row_idx}行：发料单号 {issue_no} 已存在')
                         continue
-                    subcontract_no = _get_excel_cell(row, col_map, 'subcontract_no')
-                    subcontract_order = SubcontractOrder.query.filter_by(order_no=subcontract_no).first() if subcontract_no else None
                     supplier = subcontract_order.supplier if subcontract_order else _find_or_create_supplier(_get_excel_cell(row, col_map, 'supplier'))
                     issue = SubcontractIssue(
                         issue_no=issue_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         subcontract_order_id=subcontract_order.id if subcontract_order else None,
                         supplier_id=supplier.id if supplier else None,
+                        warehouse=warehouse.name,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         operator_id=current_user.id,
@@ -2226,13 +2367,14 @@ def register_subcontract_routes(app):
                         item.amount or 0,
                         _subcontract_receive_status_label(receive.status),
                         item.remark or receive.remark or '',
+                        receive.warehouse or '',
                     ])
             else:
-                rows.append([receive.receive_no, receive.date.strftime('%Y-%m-%d') if receive.date else '', receive.subcontract_order.order_no if receive.subcontract_order else '', receive.supplier.name if receive.supplier else '', '', '', '', '', 0, 0, 0, 0, _subcontract_receive_status_label(receive.status), receive.remark or ''])
+                rows.append([receive.receive_no, receive.date.strftime('%Y-%m-%d') if receive.date else '', receive.subcontract_order.order_no if receive.subcontract_order else '', receive.supplier.name if receive.supplier else '', '', '', '', '', 0, 0, 0, 0, _subcontract_receive_status_label(receive.status), receive.remark or '', receive.warehouse or ''])
         return _workbook_response(
             'subcontract_receives.xlsx',
             '委外入库',
-            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单价', '金额', '状态', '备注'],
+            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单价', '金额', '状态', '备注', '仓库'],
             rows,
         )
 
@@ -2272,6 +2414,7 @@ def register_subcontract_routes(app):
             'scrap_quantity': ['报废数量', '报废'],
             'price': ['单价', '价格'],
             'remark': ['备注'],
+            'warehouse': ['仓库', '仓库名称', '仓库编码'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
@@ -2291,21 +2434,31 @@ def register_subcontract_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料编码为空或数量不正确')
                     continue
+                subcontract_no = _get_excel_cell(row, col_map, 'subcontract_no')
+                subcontract_order = SubcontractOrder.query.filter_by(order_no=subcontract_no).first() if subcontract_no else None
+                try:
+                    warehouse = resolve_subcontract_import_warehouse(
+                        _get_excel_cell(row, col_map, 'warehouse'), subcontract_order)
+                except ValueError as error:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：{error}')
                 receive_no = _order_no_from_row(row, col_map, 'order_no', 'SR')
                 receive = orders_by_no.get(receive_no)
+                if receive and receive.warehouse != warehouse.name:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：同一单据不能使用不同仓库')
                 if not receive:
                     if SubcontractReceive.query.filter_by(receive_no=receive_no).first():
                         skip += 1
                         skip_details.append(f'第{row_idx}行：入库单号 {receive_no} 已存在')
                         continue
-                    subcontract_no = _get_excel_cell(row, col_map, 'subcontract_no')
-                    subcontract_order = SubcontractOrder.query.filter_by(order_no=subcontract_no).first() if subcontract_no else None
                     supplier = subcontract_order.supplier if subcontract_order else _find_or_create_supplier(_get_excel_cell(row, col_map, 'supplier'))
                     receive = SubcontractReceive(
                         receive_no=receive_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         subcontract_order_id=subcontract_order.id if subcontract_order else None,
                         supplier_id=supplier.id if supplier else None,
+                        warehouse=warehouse.name,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         total_quantity=0,

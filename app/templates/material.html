@@ -3433,6 +3433,18 @@ function switchTemplateById(templateId, afterWrite) {
     });
 }
 
+function __labelFieldKey(field) {
+    var aliases = {unit: 'unit_name', category: 'category_name', supplier: 'supplier_name'};
+    return Object.prototype.hasOwnProperty.call(aliases, field) ? aliases[field] : field;
+}
+
+function __labelFieldText(field) {
+    var labels = {code: '物料编码', name: '物料名称', spec: '规格', brand: '品牌',
+        unit_name: '单位', category_name: '分类', supplier_name: '供应商',
+        stock: '库存', price: '单价', barcode: '条码', qrcode: '二维码', date: '日期'};
+    return '[' + (Object.prototype.hasOwnProperty.call(labels, field) ? labels[field] : field) + ']';
+}
+
 // 加载模板到编辑器
 function loadTemplateToEditor(template) {
     var layout = template.layout || template;
@@ -3503,13 +3515,15 @@ function loadTemplateToEditor(template) {
                     content.setAttribute('contenteditable', 'true');
                     content.style.cssText = 'display: block; overflow: hidden; white-space: normal; word-break: break-all;';
                     var cellStyle = cellData.style || {};
-                    content.style.fontSize = cellStyle.fontSize || '12px';
+                    content.style.fontSize = (parseFloat(cellStyle.fontSize) || 12) + 'px';
                     content.style.fontWeight = cellStyle.fontWeight || 'normal';
                     content.style.color = cellStyle.color || '#000';
                     content.style.textAlign = cellStyle.textAlign || 'left';
-                    content.textContent = cellData.text == null ? '' : String(cellData.text);
+                    var fieldKey = __labelFieldKey(cellData.field || '');
+                    content.textContent = cellData.text == null || cellData.text === ''
+                        ? (fieldKey ? __labelFieldText(fieldKey) : '') : String(cellData.text);
                     cell.appendChild(content);
-                    content.dataset.field = cellData.field || '';
+                    content.dataset.field = fieldKey;
                     // 恢复垂直对齐（AA3）
                     if (cellData.style && cellData.style.verticalAlign) {
                         cell.style.verticalAlign = cellData.style.verticalAlign;
@@ -3693,7 +3707,7 @@ function __escapeHtml(s) {
 // 生成单个单元格的内部 HTML（条码/二维码输出真实图片，文本字段填示例值）
 // opts: { scale, unit('px'|'mm'), useSample, labelWidth, labelHeight, origin }
 function __cellInnerHtml(cd, opts) {
-    var field = cd.field || '';
+    var field = __labelFieldKey(cd.field || '');
     var scale = opts.scale || 4;
 
     function codeImgHtml(kind, value) {
@@ -3715,7 +3729,7 @@ function __cellInnerHtml(cd, opts) {
             src = opts.origin + '/api/qrcode/' + encodeURIComponent(value) + '?size=' + pxSize;
         }
         var wCss = opts.unit === 'mm' ? (wMm + 'mm') : (Math.round(wMm * scale) + 'px');
-        var hCss = opts.unit === 'mm' ? (hMm + 'mm') : (Math.round(hMm * scale) + 'px');
+        var hCss = opts.unit === 'mm' ? (hMm + 'mm') : (Math.min(Math.round(hMm * scale), opts.maxHeight || Infinity) + 'px');
         return '<img src="' + src + '" alt="' + __escapeHtml(value) + '" style="width:' + wCss + ';height:' + hCss + ';display:block;max-width:100%;image-rendering:pixelated;">';
     }
 
@@ -3744,23 +3758,24 @@ function __renderPreview() {
     var byRow = {};
     model.cells.forEach(function(cd) { (byRow[cd.row] = byRow[cd.row] || []).push(cd); });
 
-    var html = '<div id="previewLabel" style="width:' + labelWidth + 'px;height:' + labelHeight + 'px;border:1px solid #000;background:white;display:table;table-layout:fixed;border-collapse:collapse;">';
+    var totalHeight = model.rowHeights.slice(0, model.rows).reduce(function(sum, height) { return sum + (Number(height) || 30); }, 0);
+    var html = '<table id="previewLabel" style="width:' + labelWidth + 'px;height:' + labelHeight + 'px;border:1px solid #000;background:white;table-layout:fixed;border-collapse:collapse;"><tbody>';
     for (var r = 0; r < model.rows; r++) {
-        var rowHeight = (model.rowHeights[r] || 30) * scale;
+        var rowHeight = totalHeight > 0 ? (model.rowHeights[r] || 30) / totalHeight * (labelHeight - 1) : (labelHeight - 1) / model.rows;
         html += '<tr style="height:' + rowHeight + 'px;">';
         var rowCells = (byRow[r] || []).sort(function(a, b) { return a.col - b.col; });
         rowCells.forEach(function(cd) {
             var fs = parseInt(cd.style.fontSize) || 12;
             html += '<td' + (cd.colSpan > 1 ? ' colspan="' + cd.colSpan + '"' : '') +
-                ' style="border:0.3px solid #ccc;padding:' + (2 * scale) + 'px;vertical-align:' + (cd.style.verticalAlign || 'middle') +
-                ';overflow:hidden;word-break:break-all;font-size:' + (fs * scale) + 'px;font-weight:' + cd.style.fontWeight +
+                ' style="border:0.3px solid #ccc;padding:2px;vertical-align:' + (cd.style.verticalAlign || 'middle') +
+                ';overflow:hidden;word-break:break-all;font-size:' + (fs * 25.4 / 72 * scale) + 'px;font-weight:' + cd.style.fontWeight +
                 ';color:' + cd.style.color + ';text-align:' + cd.style.textAlign + ';">' +
-                __cellInnerHtml(cd, { scale: scale, unit: 'px', useSample: previewUseSample, labelWidth: model.labelWidth, labelHeight: model.labelHeight, origin: location.origin }) +
+                __cellInnerHtml(cd, { scale: scale, unit: 'px', maxHeight: Math.max(1, rowHeight - 5), useSample: previewUseSample, labelWidth: model.labelWidth, labelHeight: model.labelHeight, origin: location.origin }) +
                 '</td>';
         });
         html += '</tr>';
     }
-    html += '</div>';
+    html += '</tbody></table>';
     preview.innerHTML = html;
 
     var tog = document.getElementById('previewSampleToggle');

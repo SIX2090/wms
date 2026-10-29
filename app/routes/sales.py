@@ -1488,7 +1488,7 @@ def register_sales_routes(app):
         try:
             data = collect_sales_report_print(report_kind)
             template_path, template_name = resolve_sales_report_print_template(data['target_code'])
-            context.update(title=data['title'], total=len(data['rows']), template_name=template_name,
+            context.update(title=data['title'], total=len(data['rows']), template_name=template_name, print_scope=data['print_scope'],
                 sheets=build_report_print_preview(data['title'], data['columns'], data['rows'],
                     template_path=template_path))
         except ValueError as exc:
@@ -1510,7 +1510,7 @@ def register_sales_routes(app):
         try:
             data = collect_sales_report_print(report_kind)
             template_path, template_name = resolve_sales_report_print_template(data['target_code'])
-            output = render_sales_report_excel(data['title'], data['columns'], data['rows'], template_path)
+            output = render_sales_report_excel(data['title'], data['columns'], data['rows'], template_path, print_scope=data['print_scope'])
         except ValueError as exc:
             return jsonify(status='error', msg=str(exc)), 400
         except Exception:

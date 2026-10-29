@@ -146,7 +146,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}?v={{ (config|default({})).get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='cdn/chart.umd-4.4.1.min.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {

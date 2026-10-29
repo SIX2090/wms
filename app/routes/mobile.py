@@ -345,7 +345,7 @@ def register_mobile_routes(app):
         if mode not in MOBILE_SCAN_MODES:
             mode = 'query'
         warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
-        departments = Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all()
+        departments = Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all()
         return render_template(
             'mobile_scan.html',
             mode=mode,

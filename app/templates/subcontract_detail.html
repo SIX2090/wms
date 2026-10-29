@@ -364,6 +364,16 @@
                         <label class="form-label fw-medium">联系人</label>
                         <input class="form-control" id="editContact" type="text" value="{{ order.contact or '' }}">
                     </div>
+                    <div class="col-md-12">
+                        <label for="editWarehouse" class="form-label fw-medium">仓库 *</label>
+                        <select class="form-select" id="editWarehouse" required {% if order.issue_orders or order.receive_orders %}disabled{% endif %}>
+                            <option value="">请选择仓库</option>
+                            {% for warehouse in warehouses %}
+                            <option value="{{ warehouse.id }}" {% if warehouse.name == order.warehouse %}selected{% endif %}>{{ warehouse.name }}</option>
+                            {% endfor %}
+                        </select>
+                        {% if order.issue_orders or order.receive_orders %}<div class="form-text">已有发料或收货记录，仓库不可修改。</div>{% endif %}
+                    </div>
                     <div class="col-md-6">
                         <label class="form-label fw-medium">联系电话</label>
                         <input class="form-control" id="editPhone" type="text" value="{{ order.phone or '' }}">
@@ -850,6 +860,7 @@ document.addEventListener('DOMContentLoaded', function() {
     new ExcelImportExport({
         tableId: 'productTable',
         fileName: '委外产品明细',
+        importUrl: '{{ url_for('import_subcontract_products', id=order.id) }}',
         columns: [
             {label: '产品编码', field: 'code', required: true, example: 'P001'},
             {label: '产品名称', field: 'name', required: true, example: '成品A'},
@@ -1069,6 +1080,7 @@ function saveHeaderEdit(id) {
         date: document.getElementById('editDate').value,
         deadline: document.getElementById('editDeadline').value,
         supplier_id: document.getElementById('editSupplier').value,
+        warehouse_id: document.getElementById('editWarehouse')?.value,
         contact: document.getElementById('editContact').value,
         phone: document.getElementById('editPhone').value,
         remark: document.getElementById('editRemark').value,

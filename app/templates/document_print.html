@@ -126,7 +126,7 @@
     <div class="no-print">
         <button class="btn btn-primary" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
         <button class="btn" onclick="window.close()"><i class="bi bi-x-lg"></i> 关闭</button>
-        <button class="btn" onclick="history.back()"><i class="bi bi-arrow-left"></i> 返回</button>
+        <a class="btn" href="{{ request.path.replace('/print', '') or '/' }}"><i class="bi bi-arrow-left"></i> 返回</a>
     </div>
     <main class="sheet">
         <div class="title">{{ doc.title }}</div>

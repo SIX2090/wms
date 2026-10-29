@@ -16,5 +16,5 @@
 
 {% block extra_js %}
 {{ super() }}
-<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}?v={{ (config|default({})).get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

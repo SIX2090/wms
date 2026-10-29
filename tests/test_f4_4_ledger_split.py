@@ -165,6 +165,21 @@ POST_SPLIT_BUGS['BUG-2026-10-28-013'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-28-014'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-28-015'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-28-016'] = 'fixed'
+# 2026-10-29: register this batch after the split; preserve the original status-distribution assertion.
+POST_SPLIT_BUGS['BUG-2026-10-29-001'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-002'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-003'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-005'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-006'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-007'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-008'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-009'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-010'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-011'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-012'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-013'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-10-29-014'] = 'fixed'
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 

@@ -607,7 +607,7 @@ def register_in_order_routes(app):
         return render_template(
             'in_order_push.html', order=order, lines=lines,
             target_types=INBOUND_PUSH_TARGETS, customers=Customer.query.order_by(Customer.code.asc()).all(),
-            departments=Department.query.filter_by(status='active').order_by(Department.code.asc(), Department.id.asc()).all(),
+            departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(),
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

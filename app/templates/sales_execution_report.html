@@ -6,7 +6,7 @@
 <div class="container-fluid py-3">
   <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
     <div><h4 class="mb-1"><i class="bi bi-list-check"></i> 销售订单执行</h4><div class="text-muted small">按订单查看已发货、待发货和金额执行率；库存扣减仍以完成销售出库单为准。</div></div>
-    <div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">销售报表</a><a class="btn btn-outline-info btn-sm" href="{{ url_for('sales_price_analysis') }}">价格分析</a></div>
+    <div class="d-flex gap-2"><a class="btn btn-outline-secondary btn-sm" href="{{ url_for('sales_report') }}">销售报表</a>{% if price_dimension_enabled %}<a class="btn btn-outline-info btn-sm" href="{{ url_for('sales_price_analysis') }}">价格分析</a>{% endif %}</div>
   </div>
   {{ report_toolbar('execution', export_action='exportReport', warehouse=filters.warehouse_id) }}
   <form class="card card-body mb-3" method="get">
@@ -28,5 +28,5 @@
 
 {% block extra_js %}
 {{ super() }}
-<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}?v={{ (config|default({})).get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

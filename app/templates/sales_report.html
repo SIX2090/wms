@@ -147,7 +147,7 @@
             <tbody>
               {% for row in by_customer %}
               <tr>
-                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=row.customer_id) }}&salesperson_id={{ salesperson_id or '' }}">{{ row.name }}</a></td>
+                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=row.customer_id, material_code=drill_material_code, salesperson_id=salesperson_id or '', warehouse_id=warehouse_id or '', status=status, shipment_status=shipment_status, project_no=project_no) }}">{{ row.name }}</a></td>
                 <td>{{ row.orders }}</td>
                 <td>{{ row.quantity }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
@@ -174,7 +174,7 @@
             <tbody>
               {% for row in by_material %}
               <tr>
-                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, material_code=row.code) }}&customer_id={{ drill_customer_id or '' }}&salesperson_id={{ salesperson_id or '' }}">{{ row.code }}</a></td>
+                <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, material_code=row.code, customer_id=drill_customer_id or '', salesperson_id=salesperson_id or '', warehouse_id=warehouse_id or '', status=status, shipment_status=shipment_status, project_no=project_no) }}">{{ row.code }}</a></td>
                 <td>{{ row.name }}</td>
                 <td>{{ row.quantity }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
@@ -227,5 +227,5 @@ function exportSalesReport() {
 
 {% block extra_js %}
 {{ super() }}
-<script src="{{ url_for('static', filename='js/report-workbench.js') }}"></script>
+<script src="{{ url_for('static', filename='js/report-workbench.js') }}?v={{ (config|default({})).get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}
