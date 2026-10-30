@@ -1830,7 +1830,6 @@ fun StocktakeScreen(
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",
         submitColor = CardPurple,
-        allowZeroQuantity = true,
         // BUG-2026-09-18-009：盘点**不产生出入库单据**，故不需要库位选择器与拍照取证。
         // 这里显式声明为 false —— 原先靠"文案不等于提交入库/出库"隐式决定，
         // 等于把盘点页的行为挂在别人的按钮文案上。
