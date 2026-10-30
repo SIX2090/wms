@@ -2,6 +2,7 @@
 
 > **文档定位**：本文件回答一个问题——**这个系统里的"库存"到底以哪份数据为准？**
 > 与 [`AGENTS.md`](./AGENTS.md)、[`WMS_BUSINESS_SCOPE.md`](./WMS_BUSINESS_SCOPE.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 配套使用。
+> 2026-10-30：随 BUG-2026-10-30-002 校准初始化代码精简后的行号引用，库存规则未变。
 > 新增日期：2026-09-11。修改本文件属于独立 atomic action（1 commit + 1 push）。
 > 2026-10-29：随 BUG-2026-10-29-015 校准源码行号引用，库存规则未变。
 > 2026-10-28：随 BUG-2026-10-28-003、005、009、013 校准库存函数的源码行号引用，库存规则未变。
@@ -86,7 +87,7 @@
 |---|---|---|---|
 | `deduct_stock_atomic` | `app/app.py:4764` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
 | `add_stock` | `app/app.py:4832` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8397` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `_apply_opening_stock_balance` | `app/app.py:8389` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
 | `add_stock_transaction` | `app/app.py:5106` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
@@ -246,7 +247,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29752`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29744`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜

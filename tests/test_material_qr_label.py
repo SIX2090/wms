@@ -194,3 +194,39 @@ def test_inbound_item_print_uses_material_identity_and_the_same_label(material_f
     assert material_scan_code(rows[0]['qrcode']) == 'QR / A&B+01'
     assert 'var builtinMaterialQrMode = true' in response.text
     assert f'name="ids" value="{mid}"' in response.text
+
+
+@pytest.mark.parametrize('value', ['', None, 'missing', '内容<&>'])
+def test_builtin_label_empty_fields_are_blank_in_real_renderer(value):
+    from jinja2 import Environment, FileSystemLoader
+    from tests.test_batch_label_template_loading_runtime import Nodes, PROGRAM
+    root = Path(__file__).resolve().parents[1]
+    material = dict(id=7, qrcode_png='fixture-png')
+    if value != 'missing':
+        material.update({key: value for key in ('code', 'brand', 'name', 'spec')})
+    env = Environment(loader=FileSystemLoader(root / 'app/templates'), autoescape=True)
+    html = env.get_template('print_batch_labels.html').render(
+        materials=[material], materials_data=[material], default_material_qr=True,
+        qr_public_base='', request=NS(args={}), current_user=NS(is_authenticated=True),
+        config={}, url_for=lambda *a, **kw: '/fixture')
+    expected = value if value == '内容<&>' else ''
+    branch = r'''
+ if(p.action==='empty_label'){
+  await finish(excel,{status:'success',templates:[]});
+  await finish(list,{status:'success',templates:[]});
+  const card=ids.labelsContainer.children[0],left=card.children[0].children[0];
+  assert.equal(card.style.width,'90mm');assert.equal(card.style.height,'50mm');
+  const fields=[...left.children[0].children,left.children[1],left.children[2]];
+  assert.equal(fields.length,4);
+  for(const field of fields)assert.equal(field.textContent,p.expected);
+  assert.equal(all(card,'img')[0].src,'data:image/png;base64,fixture-png');
+  return;
+ }
+'''
+    program = PROGRAM.replace(" if(p.action==='token')", branch + " if(p.action==='token')")
+    payload = dict(action='empty_label', expected=expected, nodes=Nodes(html).nodes,
+                   scripts=[body for attrs, body in re.findall(r'<script([^>]*)>(.*?)</script>', html, re.S) if 'src=' not in attrs],
+                   api=(root / 'app/static/js/api.js').read_text(encoding='utf-8'))
+    result = subprocess.run([shutil.which('node'), '-e', program], input=json.dumps(payload),
+                            capture_output=True, text=True, encoding='utf-8', timeout=20)
+    assert result.returncode == 0, result.stderr

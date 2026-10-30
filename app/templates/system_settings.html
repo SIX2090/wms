@@ -210,17 +210,17 @@
             <div class="settings-title text-danger"><i class="bi bi-exclamation-triangle-fill"></i> 初始化业务数据</div>
             <div class="settings-desc mt-1">清空业务单据、库存、流水及相关日志，系统参数重置为默认值。<strong>用户账号与密码保留</strong>，主数据是否清空由下方勾选决定。</div>
         </div>
-        <button type="button" class="btn btn-outline-danger btn-sm" id="openInitModalBtn">
+        <button type="button" class="btn btn-outline-danger btn-sm" id="openInitModalBtn" {% if init_enabled is defined and not init_enabled %}disabled{% endif %}>
             <i class="bi bi-arrow-counterclockwise"></i> 打开初始化向导
         </button>
     </div>
     <div class="card-body">
         <div class="alert alert-warning small mb-0">
-            <strong>操作前先备份</strong>：初始化会清空业务单据和库存，无法在本页撤销；请先创建并核对数据备份。
+            <strong>维护窗口操作</strong>：默认禁止网页初始化，仅服务器显式启用维护开关后可执行。<br><strong>操作前先备份</strong>：初始化会清空业务单据和库存，无法在本页撤销；请先创建并核对数据备份。
             <br>
             <strong>三重门禁</strong>：仅 <code>admin</code> 角色 + 输入当前管理员密码 + 输入确认短语 <code>初始化业务数据</code>。
             <br>
-            <strong>审计记录</strong>：本次初始化审计保留；历史审计会尝试导出后清理，导出可能失败，请以执行结果为准。
+            <strong>审计记录</strong>：本次初始化审计保留；历史审计保留；执行前必须完成完整数据库备份及校验，失败则禁止清理。
         </div>
     </div>
 </div>
@@ -259,7 +259,7 @@
 
                 <!-- SYS-AUDIT-009：include_master_data 前端开关 -->
                 <div class="form-check mt-3">
-                    <input class="form-check-input" type="checkbox" id="initIncludeMasterData" checked>
+                    <input class="form-check-input" type="checkbox" id="initIncludeMasterData">
                     <label class="form-check-label small text-danger" for="initIncludeMasterData">
                         <strong>同时清空主数据</strong>（物料/分类/单位/供应商/客户/仓库/部门/员工/合同/模板）
                     </label>
@@ -312,7 +312,7 @@ async function performSettingsRequest(button, url, buildData, options) {
             button.disabled = originalDisabled;
             button.innerHTML = originalHtml;
             updateConfirmBtnState();
-            if (initPreviewReady && initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+            if (initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
         }
     }
 }
@@ -357,6 +357,7 @@ const confirmBtn = document.getElementById('confirmInitBtn');
 let initPreviewReady = false;
 let initPreviewLoading = false;
 let initPreviewStats = null;
+let initPreviewTokens = null;
 
 
 
@@ -404,6 +405,7 @@ async function loadInitPreview() {
     initPreviewLoading = true;
     initPreviewReady = false;
     initPreviewStats = null;
+    initPreviewTokens = null;
     updateConfirmBtnState();
     previewArea.innerHTML = '<div class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-1"></span>加载中…</div>';
     try {
@@ -411,6 +413,10 @@ async function loadInitPreview() {
         if (!data || data.status !== 'success' || !data.data || typeof data.data !== 'object') {
             throw new Error((data && data.msg) || '预览失败');
         }
+        if (!data.preview_tokens || !data.preview_tokens['0'] || !data.preview_tokens['1']) {
+            throw new Error('预览凭证缺失，请重新打开向导');
+        }
+        initPreviewTokens = data.preview_tokens;
         initPreviewStats = data.data;
         previewArea.innerHTML = renderPreviewTable(initPreviewStats);
         initPreviewReady = true;
@@ -487,21 +493,25 @@ if (confirmBtn) {
             fd.append('admin_password', pwd);
             fd.append('confirm_phrase', phrase);
             const includeMaster = document.getElementById('initIncludeMasterData');
-            fd.append('include_master_data', includeMaster && includeMaster.checked ? '1' : '0');
+            const scope = includeMaster && includeMaster.checked ? '1' : '0';
+            fd.append('include_master_data', scope);
+            fd.append('preview_token', initPreviewTokens[scope]);
             const data = await WMS.api.postRaw('/system_settings/init_business_data/execute', fd);
             if (!data || data.status !== 'success') throw new Error((data && data.msg) || '初始化失败');
             showToast(data.msg || '初始化完成，即将刷新页面', 'success');
             setTimeout(() => location.reload(), 1500);
             refreshing = true;
         } catch (err) {
-            errorArea.textContent = ((err && err.message) || '初始化失败') + '；请先核对执行结果，再决定是否重新确认。';
+            initPreviewReady = false;
+            initPreviewTokens = null;
+            errorArea.textContent = ((err && err.message) || '初始化失败') + '；请先核对执行结果，需要重试时重新打开向导预览确认。';
             errorArea.classList.remove('d-none');
         } finally {
             if (!refreshing) {
                 settingsWriteBusy = false;
                 confirmBtn.innerHTML = originalHtml;
                 updateConfirmBtnState();
-                if (initPreviewReady && initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
+                if (initPreviewStats) previewArea.innerHTML = renderPreviewTable(initPreviewStats);
             }
         }
     });

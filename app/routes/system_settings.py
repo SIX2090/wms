@@ -20,8 +20,6 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
-import json
-
 from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
@@ -36,7 +34,9 @@ def register_system_settings_routes(app):
     @require_role('admin')
     def system_settings_page():
         from app import get_grouped_system_settings
-        return render_template('system_settings.html', setting_groups=get_grouped_system_settings())
+        from services.business_initialization import initialization_enabled
+        return render_template('system_settings.html', setting_groups=get_grouped_system_settings(),
+                               init_enabled=initialization_enabled())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/system_settings/save', methods=['POST'])
@@ -176,213 +176,57 @@ def register_system_settings_routes(app):
     @require_role('admin')
     def preview_init_business_data():
         """预览将要清空的记录数。"""
-        from app import _init_business_data_preview_stats
-        stats = _init_business_data_preview_stats()
-        return jsonify({'status': 'success', 'data': stats})
+        from flask_login import current_user
+        from services.business_initialization import prepare_preview
+        try:
+            stats, tokens = prepare_preview(current_user.id)
+            return jsonify({'status': 'success', 'data': stats, 'preview_tokens': tokens})
+        except Exception:
+            app.logger.exception('初始化预览失败')
+            return jsonify({'status': 'error', 'msg': '预览失败，已禁止初始化'}), 503
 
-    # SYS-AUDIT-003：引入 pydantic BaseModel 校验输入，移除豁免注释
     @app.route('/system_settings/init_business_data/execute', methods=['POST'])
     @login_required
     @require_role('admin')
     def execute_init_business_data():
-        # 多行 docstring 会触发 lint strip_py_comments 行号偏移，故用单行注释替代。
-        # 必传参数：admin_password=当前管理员密码、confirm_phrase=INIT_CONFIRM_PHRASE、include_master_data='1'/'0'。
-        from datetime import datetime
-        from werkzeug.security import check_password_hash
         from flask_login import current_user
-        from pydantic import BaseModel, Field, field_validator
-        from app import (INIT_CONFIRM_PHRASE, OperationAudit,
-                         _init_business_data_keep_users_and_settings,
-                         _init_business_data_preview_stats)
+        from pydantic import BaseModel, Field, ValidationError
+        from werkzeug.security import check_password_hash
+        from app import INIT_CONFIRM_PHRASE
+        from services.business_initialization import (
+            InitializationRefused, execute_initialization, initialization_enabled)
+
+        if not initialization_enabled():
+            return jsonify({'status': 'error', 'msg': '网页初始化未开放；仅允许在明确启用的维护窗口执行'}), 403
 
         class InitBusinessDataExecuteForm(BaseModel):
-            admin_password: str = Field(..., min_length=1, description='当前管理员密码')
-            confirm_phrase: str = Field(..., min_length=1, description='确认短语')
-            include_master_data: str = Field('0', description='是否同时清主数据 1/0')
-
-            @field_validator('include_master_data')
-            @classmethod
-            def validate_include_master_data(cls, v):
-                if v not in ('0', '1'):
-                    raise ValueError('include_master_data 必须为 0 或 1')
-                return v
+            admin_password: str = Field(..., min_length=1)
+            confirm_phrase: str = Field(..., min_length=1)
+            include_master_data: str = Field('0', pattern='^[01]$')
+            preview_token: str = ''
 
         try:
-            form_data = {
-                'admin_password': (request.form.get('admin_password') or '').strip(),
-                'confirm_phrase': (request.form.get('confirm_phrase') or '').strip(),
-                'include_master_data': (request.form.get('include_master_data') or '0'),
-            }
-            try:
-                req = InitBusinessDataExecuteForm.model_validate(form_data)
-            except Exception as exc:
-                return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
-            admin_password = req.admin_password
-            confirm_phrase = req.confirm_phrase
-            include_master_data = req.include_master_data == '1'
-
-            if confirm_phrase != INIT_CONFIRM_PHRASE:
-                return jsonify({
-                    'status': 'error',
-                    'msg': f'确认短语不正确，请输入：{INIT_CONFIRM_PHRASE}',
-                }), 400
-
-            if not current_user or not current_user.is_authenticated:
-                return jsonify({'status': 'error', 'msg': '未登录'}), 401
-            if not check_password_hash(current_user.password_hash, admin_password):
-                return jsonify({'status': 'error', 'msg': '管理员密码不正确'}), 403
-
-            # 先写入「预览」审计（包含统计），保证 init_business_data_preview 与 done 都在审计里
-            stats = _init_business_data_preview_stats()
-            preview_audit = OperationAudit(
-                user_id=current_user.id,
-                username=current_user.username,
-                operation='init_business_data_preview',
-                target_type='system',
-                target_id=0,
-                target_name='业务数据初始化预览',
-                old_data=json.dumps(stats, ensure_ascii=False, default=str),
-                new_data=json.dumps({'include_master_data': include_master_data}, ensure_ascii=False),
-                operation_time=datetime.now(),
-                ip_address=request.remote_addr,
-                user_agent=(request.headers.get('User-Agent') or '')[:500],
-                status='success',
-                reason=f'确认短语+管理员密码二次校验通过（含主数据：{include_master_data}）',
-            )
-            db.session.add(preview_audit)
-            try:
-                db.session.commit()
-            except Exception as exc:
-                app.logger.error('init preview audit 写入失败: %s', exc)
-                db.session.rollback()
-                return jsonify({'status': 'error', 'msg': '审计写入失败，请稍后重试'}), 500
-
-            # 核心清理
-            try:
-                deleted = _init_business_data_keep_users_and_settings(include_master_data=include_master_data)
-            except Exception as exc:
-                app.logger.exception('init_business_data 核心清理失败')
-                db.session.rollback()
-                fail_audit = OperationAudit(
-                    user_id=current_user.id,
-                    username=current_user.username,
-                    operation='init_business_data_failed',
-                    target_type='system',
-                    target_id=0,
-                    target_name='业务数据初始化失败',
-                    old_data=None,
-                    new_data=json.dumps({'error': str(exc)}, ensure_ascii=False),
-                    operation_time=datetime.now(),
-                    ip_address=request.remote_addr,
-                    user_agent=(request.headers.get('User-Agent') or '')[:500],
-                    status='failed',
-                    reason=str(exc)[:200],
-                )
-                db.session.add(fail_audit)
-                try:
-                    db.session.commit()
-                except Exception:
-                    db.session.rollback()
-                return jsonify({'status': 'error', 'msg': '初始化失败，请查看服务器日志获取详情'}), 500
-
-            # 清理成功后写 done 审计
-            done_audit = OperationAudit(
-                user_id=current_user.id,
-                username=current_user.username,
-                operation='init_business_data_done',
-                target_type='system',
-                target_id=0,
-                target_name='业务数据初始化完成',
-                old_data=None,
-                new_data=json.dumps(deleted, ensure_ascii=False, default=str),
-                operation_time=datetime.now(),
-                ip_address=request.remote_addr,
-                user_agent=(request.headers.get('User-Agent') or '')[:500],
-                status='success',
-                reason=f'清理成功（含主数据：{include_master_data}）',
-            )
-            db.session.add(done_audit)
-
-            # 最后清空 OperationAudit 自身（保留本次的 preview+done 两条不会被删，因为本次 commit 时已被排除）
-            # 实际上 done 审计在当前事务内，会被下面的 .delete() 影响，所以先 commit，再单独清
-            db.session.commit()
-
-            # SYS-AUDIT-006：清空前导出一份 OperationAudit 全量备份到文件，
-            # 避免合规风险（等保/SOX 要求审计日志不可销毁）。
-            backup_path = None
-            try:
-                import json as _json
-                import os as _os
-                from datetime import datetime as _dt
-                backup_dir = _os.path.join(_os.getcwd(), 'output', 'audit_backup')
-                _os.makedirs(backup_dir, exist_ok=True)
-                backup_file = f'audit_backup_{_dt.now().strftime("%Y%m%d_%H%M%S")}.json'
-                backup_path = _os.path.join(backup_dir, backup_file)
-                all_audits = OperationAudit.query.order_by(OperationAudit.id).all()
-                records = []
-                for a in all_audits:
-                    records.append({
-                        'id': a.id,
-                        'user_id': a.user_id,
-                        'username': a.username,
-                        'operation': a.operation,
-                        'target_type': a.target_type,
-                        'target_id': a.target_id,
-                        'target_name': a.target_name,
-                        'old_data': a.old_data,
-                        'new_data': a.new_data,
-                        'operation_time': a.operation_time.isoformat() if a.operation_time else None,
-                        'ip_address': a.ip_address,
-                        'user_agent': a.user_agent,
-                        'status': a.status,
-                        'reason': a.reason,
-                    })
-                with open(backup_path, 'w', encoding='utf-8') as f:
-                    _json.dump(records, f, ensure_ascii=False, default=str, indent=2)
-                app.logger.info('审计备份已导出: %s (%d 条)', backup_path, len(records))
-            except Exception as exc:
-                app.logger.warning('导出审计备份失败: %s', exc)
-                backup_path = None
-
-            # 清空历史 OperationAudit（清理除刚才两条外的所有记录）
-            try:
-                keep_ids = [preview_audit.id, done_audit.id]
-                OperationAudit.query.filter(~OperationAudit.id.in_(keep_ids)).delete(synchronize_session=False)
-                db.session.commit()
-            except Exception as exc:
-                app.logger.warning('清理 OperationAudit 历史失败: %s', exc)
-                db.session.rollback()
-
-            # SYS-AUDIT-001：INIT_LOG_TABLES 含 SystemSetting，已被上面的
-            # _init_business_data_keep_users_and_settings 全量删除。此处立即
-            # 调用 ensure_default_system_settings() 恢复默认值，避免设置表
-            # 空窗期导致 AI API Key / LLM 接口地址等配置丢失到下次重启。
-            try:
-                from app import ensure_default_system_settings
-                ensure_default_system_settings()
-            except Exception as exc:
-                app.logger.warning('恢复默认系统参数失败: %s', exc)
-                db.session.rollback()
-
-            # 不再调用 log_operation(...)：因为 OperationLog 已被本路由清理，重新写一条会破坏「再次 preview logs 全部为 0」约束。
-            # 本次 init 的执行记录已通过 OperationAudit(init_business_data_done) 留下审计，可通过审计页查阅。
-
-            # SYS-AUDIT-006：响应中附带审计备份路径
-            audit_backup_note = ''
-            if backup_path:
-                audit_backup_note = f'；历史审计已备份至 {backup_path}'
-            return jsonify({
-                'status': 'success',
-                'msg': f'业务数据初始化完成，User 账号已保留，系统参数已重置为默认值{audit_backup_note}',
-                'data': deleted,
-            })
-        except Exception as exc:
-            app.logger.exception('init_business_data 路由异常')
-            try:
-                db.session.rollback()
-            except Exception:
-                pass
-            return jsonify({'status': 'error', 'msg': '初始化异常，请查看服务器日志获取详情'}), 500
+            req = InitBusinessDataExecuteForm.model_validate(request.form.to_dict())
+        except ValidationError:
+            # Never echo validation input: it contains the administrator password.
+            return jsonify({'status': 'error', 'msg': '参数校验失败，请填写管理员密码和确认短语'}), 400
+        if req.confirm_phrase != INIT_CONFIRM_PHRASE:
+            return jsonify({'status': 'error', 'msg': '确认短语不正确'}), 400
+        if not check_password_hash(current_user.password_hash, req.admin_password):
+            return jsonify({'status': 'error', 'msg': '管理员密码不正确'}), 403
+        if not req.preview_token:
+            return jsonify({'status': 'error', 'msg': '缺少有效初始化预览，请重新打开向导并确认'}), 409
+        try:
+            deleted, backup = execute_initialization(req.preview_token, req.include_master_data == '1',
+                                                     current_user.id, current_user.username)
+            return jsonify({'status': 'success', 'msg': '业务数据初始化完成，账号保留，系统参数重置为默认值；初始化前完整备份已校验',
+                            'data': deleted, 'backup': backup})
+        except InitializationRefused as exc:
+            return jsonify({'status': 'error', 'msg': str(exc)}), 409
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('初始化失败，清理事务已回滚')
+            return jsonify({'status': 'error', 'msg': '初始化未完成，清理事务已回滚；请核对日志及初始化前备份'}), 503
 
     @app.route('/system_settings/add', methods=['GET'])
     @login_required

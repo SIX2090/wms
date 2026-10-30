@@ -8235,7 +8235,7 @@ def _revert_completed_to_pending():
             )
             reverted_count += count
         except Exception as exc:
-            app.logger.warning('revert %s failed: %s', model_cls.__name__, exc)
+            raise RuntimeError(f'重置单据状态失败: {model_cls.__name__}') from exc
     return reverted_count
 
 def _zero_all_material_stock():
@@ -8266,12 +8266,11 @@ def _bulk_delete_model_required(model_cls, label):
         raise RuntimeError(f'清理 {label} 失败，已中止初始化: {exc}') from exc
 
 def _init_business_data_keep_users_and_settings(include_master_data=False):
-    """执行核心清理逻辑。
+    """执行核心清理逻辑（由调用方统一提交，失败整体回滚）。
 
     注意（SYS-AUDIT-001）：函数名中的 keep_users_and_settings 是历史命名，
-    SystemSetting 实际上在 INIT_LOG_TABLES 中，会被全量删除。调用方
-    （execute_init_business_data 路由）在清理完成后会立即调用
-    ensure_default_system_settings() 恢复默认值，避免设置表空窗期。
+    SystemSetting 在 INIT_LOG_TABLES 中被删除；调用方在同一事务中
+    恢复默认值，任何清理、设置恢复或审计失败均整体回滚。
 
     1. 全部 completed 单据先变 pending（模拟人工反提交）
     2. 物料库存归零（等价于回退全部库存）
@@ -8281,7 +8280,7 @@ def _init_business_data_keep_users_and_settings(include_master_data=False):
     6. 删除全部 AI 子表
     7. 可选：删除主数据（物料/分类/单位/供应商/客户/仓库/部门/员工/合同/BOM/模板/字段配置）
     8. 保留 User、当前管理员自身（SystemSetting 由调用方恢复默认值）
-    9. 最后清空 OperationAudit 自身（init 操作本身的审计需要先写入，所以最后清）
+    9. OperationAudit 历史保留；调用方备份、写入本次审计并统一提交
     """
     deleted = {
         'reverted_to_pending': 0,
@@ -8303,39 +8302,32 @@ def _init_business_data_keep_users_and_settings(include_master_data=False):
     try:
         for label, model_cls in INIT_INVENTORY_TABLES:
             deleted['inventory'] += _bulk_delete_model_required(model_cls, label)
-        db.session.commit()
     except RuntimeError:
         db.session.rollback()
         raise
 
     # 3. 库存归零（此时 ③ 已确认清空；失败同样中止）
     deleted['zeroed_materials'] = _zero_all_material_stock()
-    db.session.commit()
 
     # 4. 业务单据主表（先主表后明细，避免外键报错）
     # 明细表在主表之前先删，但有外键反向引用时需要按依赖顺序
     for label, model_cls in INIT_BUSINESS_ITEM_TABLES:
-        deleted['business_items'] += _bulk_delete_model(model_cls)
-    db.session.commit()
+        deleted['business_items'] += _bulk_delete_model_required(model_cls, label)
     for label, model_cls in INIT_BUSINESS_TABLES:
-        deleted['business'] += _bulk_delete_model(model_cls)
-    db.session.commit()
+        deleted['business'] += _bulk_delete_model_required(model_cls, label)
 
     # 5. 日志
     for label, model_cls in INIT_LOG_TABLES:
-        deleted['logs'] += _bulk_delete_model(model_cls)
-    db.session.commit()
+        deleted['logs'] += _bulk_delete_model_required(model_cls, label)
 
     # 6. AI 子表
     for label, model_cls in INIT_AI_TABLES:
-        deleted['ai'] += _bulk_delete_model(model_cls)
-    db.session.commit()
+        deleted['ai'] += _bulk_delete_model_required(model_cls, label)
 
     # 7. 可选主数据
     if include_master_data:
         for label, model_cls in INIT_MASTER_TABLES:
-            deleted['master'] += _bulk_delete_model(model_cls)
-        db.session.commit()
+            deleted['master'] += _bulk_delete_model_required(model_cls, label)
 
     return deleted
 

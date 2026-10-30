@@ -55,6 +55,12 @@ ENDPOINTS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def isolated_maintenance_window(monkeypatch, tmp_path):
+    monkeypatch.setenv('WMS_ALLOW_BUSINESS_INIT', '1')
+    monkeypatch.setenv('WMS_BACKUP_DIR', str(tmp_path / 'init-backups'))
+
+
 def _reset_db():
     db.drop_all()
     db.create_all()
@@ -325,12 +331,14 @@ class TestExecuteInitBusinessDataRestoresSettings:
 
         client = _make_client()
         from app import INIT_CONFIRM_PHRASE
+        preview_token = client.get("/system_settings/init_business_data/preview").get_json()["preview_tokens"]["1"]
         resp = client.post(
             "/system_settings/init_business_data/execute",
             data={
                 "admin_password": "admin",
                 "confirm_phrase": INIT_CONFIRM_PHRASE,
                 "include_master_data": "1",
+                "preview_token": preview_token,
             },
             content_type="application/x-www-form-urlencoded",
         )
