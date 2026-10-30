@@ -2,6 +2,8 @@ package com.factory.wms.ui.navigation
 
 import com.factory.wms.BuildConfig
 
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -182,7 +184,9 @@ fun AppNavGraph() {
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
-                modifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding())
+                modifier = Modifier
+                    .padding(bottom = innerPadding.calculateBottomPadding())
+                    .consumeWindowInsets(PaddingValues(bottom = innerPadding.calculateBottomPadding()))
             ) {
                 composable(Screen.Login.route) {
                     LoginScreen(
