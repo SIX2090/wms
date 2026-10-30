@@ -41,7 +41,7 @@ from werkzeug.security import generate_password_hash  # noqa: E402
 
 import app as app_module  # noqa: E402
 from app import (  # noqa: E402
-    InOrder, InOrderItem, Material, MaterialCategory, StockTransaction,
+    InOrder, InOrderItem, Material, MaterialCategory, PurchaseOrder, PurchaseOrderItem, StockTransaction,
     Supplier, Unit, User, Warehouse, db, set_system_setting,
 )
 from routes.in_order import get_reverted_in_order_ids  # noqa: E402
@@ -187,6 +187,16 @@ class TestRevertedInOrderBadge:
             _legacy_unattributed_stock(mat, 100)
             completed_id = _make_completed_in_order("IN-P2-T3-C", "仓库A", 60)
             fresh_id = _make_fresh_pending_draft("IN-P2-T3-F", "仓库A", 10)
+            # 本用例断言采购预留警示，必须有真实来源与预留，不能只靠反提交流水。
+            purchase = PurchaseOrder(order_no="PO-P2-T3", supplier_id=1)
+            db.session.add(purchase)
+            db.session.flush()
+            source = PurchaseOrderItem(purchase_order_id=purchase.id, material_id=mat.id,
+                                       quantity=100, received_quantity=60)
+            db.session.add(source)
+            db.session.flush()
+            InOrderItem.query.filter_by(in_order_id=completed_id).first().source_purchase_order_item_id = source.id
+            db.session.commit()
 
         resp = client.post("/in_order/batch_revert", json={"ids": [completed_id]})
         data = resp.get_json()

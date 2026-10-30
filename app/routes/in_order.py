@@ -78,6 +78,21 @@ def get_reverted_in_order_ids(order_ids):
     return {row[0] for row in rows}
 
 
+def get_in_order_purchase_reservation_ids(order_ids):
+    """批量找出关联有效采购明细且仍有收货预留的入库单，仅用于显示提示。"""
+    from app import InOrderItem, PurchaseOrder, PurchaseOrderItem
+    ids = {i for i in (order_ids or []) if i is not None}
+    if not ids:
+        return set()
+    rows = (db.session.query(InOrderItem.in_order_id)
+            .join(PurchaseOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id)
+            .join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id)
+            .filter(InOrderItem.in_order_id.in_(ids), InOrderItem.quantity > 0,
+                    PurchaseOrderItem.received_quantity > 0)
+            .distinct().all())
+    return {row[0] for row in rows}
+
+
 def _parse_item_batch_no(value):
     """P0 批次/有效期捕获：解析行级批次号。
 
@@ -482,11 +497,11 @@ def register_in_order_routes(app):
             'supplier_name': supplier_name_filter,
         }
         page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
-        # P2（2026-10-03）：标识"反提交草稿"——曾完成后被反提交的 pending 单仍
-        # 占用来源采购订单收货预留（删除草稿才释放），列表页需与普通新草稿醒目区分。
+        # 反提交草稿身份与采购预留分开判定；无采购来源时仅提示库存已回退。
         reverted_in_order_ids = get_reverted_in_order_ids(
             [row.in_order.id for row in items if row.in_order and row.in_order.id]
         )
+        purchase_reservation_ids = get_in_order_purchase_reservation_ids(reverted_in_order_ids)
         # BUG-2026-09-23-003：本视图同时挂在 /in_order 与 /other_in_order 两个规则上，
         # Flask 的 url_for('in_order_list') 只会稳定解析到「后注册」的那个（/other_in_order），
         # 模板分页若走 url_for 会把采购入库明细表的翻页链接全部指到其他入库明细表；
@@ -505,6 +520,7 @@ def register_in_order_routes(app):
             page_title=page_title,
             list_base_path=list_base_path,
             reverted_in_order_ids=reverted_in_order_ids,
+            purchase_reservation_ids=purchase_reservation_ids,
             purchase_order_status_label=purchase_order_status_label,
             warehouses=get_active_warehouses(),
             default_warehouse=get_default_warehouse(),
@@ -543,14 +559,18 @@ def register_in_order_routes(app):
         default_warehouse = get_default_warehouse()
         stock_warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
         warehouse_stock = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
-        # P2（2026-10-03）：反提交草稿警示——库存已回退但采购收货预留未释放
+        # 先判定反提交身份，再按有效采购行及预留计数决定是否显示采购警示。
         is_reverted_draft = (
             order.status == 'pending' and order.id in get_reverted_in_order_ids([order.id])
+        )
+        has_purchase_reservation = (
+            is_reverted_draft and order.id in get_in_order_purchase_reservation_ids([order.id])
         )
         return render_template(
             'in_order_detail.html',
             order=order,
             is_reverted_draft=is_reverted_draft,
+            has_purchase_reservation=has_purchase_reservation,
             suppliers=suppliers,
             push_history=_in_order_push_history(order),
             can_push=order.status == 'completed' and _in_order_push_source_type(order) is not None,

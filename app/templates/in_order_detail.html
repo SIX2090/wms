@@ -208,12 +208,14 @@
     </div>
 
     {% if is_reverted_draft %}
-    <!-- P2（2026-10-03）：反提交草稿警示横幅 -->
-    <div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+    <!-- 反提交状态与采购预留分开提示，不能把无采购来源草稿说成占用预留。 -->
+    <div class="alert {{ 'alert-warning' if has_purchase_reservation else 'alert-info' }} d-flex align-items-start gap-2" role="alert">
         <i class="bi bi-exclamation-triangle-fill mt-1"></i>
         <div>
-            <strong>该单曾完成后反提交。</strong>库存已回退，但仍占用来源采购订单的收货预留（received_quantity）。
-            请尽快<b>重新完成</b>或<b>删除草稿</b>（删除才释放预留），避免采购订单收货进度虚高。
+            <strong>该单曾完成后反提交。</strong>库存已回退，单据已回到草稿，可继续编辑后重新完成。
+            {% if has_purchase_reservation %}
+            关联采购明细的收货预留仍保留；如确认不再使用，删除草稿会释放其对应预留。
+            {% endif %}
         </div>
     </div>
     {% endif %}
