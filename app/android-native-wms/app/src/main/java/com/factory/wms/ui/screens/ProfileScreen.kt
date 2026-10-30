@@ -1,5 +1,7 @@
 package com.factory.wms.ui.screens
 
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -53,11 +55,8 @@ fun ProfileScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             // ── Header ──
-            // AI-APP-FIX-204：深蓝渐变头部画在状态栏之下（本页 Scaffold 无 topBar，
-            // 内容从屏幕顶开始），浅色主题默认的深色状态栏图标压在深蓝上不可读。
-            // 头像+角色徽标的自定义布局放不进 WmsGradientHeader 的 title/subtitle
-            // 结构，故保留自绘头部、只补状态栏图标适配（偏差说明见修复报告）。
-            StatusBarIconEffect(darkIcons = false)
+            // Scaffold 已预留状态栏安全区，图标颜色跟随实际背景明暗。
+            StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -67,32 +66,16 @@ fun ProfileScreen(
                         )
                     )
             ) {
-                // 装饰圆
-                Box(
-                    modifier = Modifier
-                        .size(150.dp)
-                        .offset(x = (-50).dp, y = (-60).dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.05f))
-                )
-                Box(
-                    modifier = Modifier
-                        .size(100.dp)
-                        .align(Alignment.TopEnd)
-                        .offset(x = 30.dp, y = (-20).dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.07f))
-                )
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 28.dp),
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 头像（白色描边圆环 + 首字母）
                     Box(
                         modifier = Modifier
-                            .size(62.dp)
+                            .size(44.dp)
                             .clip(CircleShape)
                             .background(Color.White.copy(alpha = 0.12f))
                             .padding(4.dp)
@@ -139,12 +122,13 @@ fun ProfileScreen(
 
             // ── 服务器信息 ──
             ProfileSectionCard("服务器信息") {
-                ProfileRow(
-                    icon = Icons.Outlined.Dns,
-                    label = "服务器地址",
-                    value = uiState.baseUrl,
-                    showDivider = false
-                )
+                SelectionContainer {
+                    Text(
+                        uiState.baseUrl,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(12.dp))

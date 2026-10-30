@@ -192,6 +192,11 @@ fun InboundScreen(
                     accentColor = CardBlue,
                     onClick = { showWarehouseDialog = true }
                 )
+            }
+        },
+        detailsCount = listOf(uiState.selectedSupplier != null, uiState.inboundRemark.isNotBlank()).count { it },
+        details = {
+            Column {
                 // BUG-2026-09-18-008：供应商/备注（均选填）。
                 // 此前入库请求体只有明细行，InOrder.supplier_id 恒为 NULL，
                 // 每日报表「采购入库」的供应商列永远空白、采购对账断链。
@@ -513,6 +518,11 @@ fun OutboundScreen(
                     accentColor = CardGreen,
                     onClick = { showWarehouseDialog = true }
                 )
+            }
+        },
+        detailsCount = listOf(uiState.selectedDepartment != null, uiState.selectedEmployee != null, uiState.contractNo.isNotBlank()).count { it },
+        details = {
+            Column {
                 // 2026-09-12：领料部门/领料人下拉（选填，部门→员工联动过滤）
                 PartySelectorCard(
                     label = "领料部门（选填）",
@@ -891,7 +901,7 @@ fun StockQueryScreen(
                             if (uiState.scannedMaterial != null) viewModel.clearScannedMaterial()
                             viewModel.searchMaterialSuggestions(it)
                         },
-                        placeholder = { Text("输入名称/规格/品牌，或扫描条码") },
+                        placeholder = { Text("名称 / 编码 / 规格", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
@@ -1038,14 +1048,16 @@ fun StockQueryScreen(
                             icon = Icons.Outlined.Search,
                             title = "未找到包含「$manualCode」的物料",
                             subtitle = "支持名称/规格/品牌模糊匹配，换个关键词试试",
-                            accentColor = CardOrange
+                            accentColor = CardOrange,
+                            compact = true
                         )
                     } else {
                         WmsEmptyState(
                             icon = Icons.Outlined.Search,
                             title = "输入或扫描物料编码",
                             subtitle = "支持名称/规格/品牌关键词模糊联想",
-                            accentColor = CardOrange
+                            accentColor = CardOrange,
+                            compact = true
                         )
                     }
                 }
