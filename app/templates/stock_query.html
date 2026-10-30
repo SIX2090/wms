@@ -136,7 +136,7 @@
                         </td>
                         {% endif %}
                         {% if inventory_alert_enabled %}
-                        <td>{{ (material.min_stock or 0)|quantity }}</td>
+                        <td>{{ material.min_stock or 0 }}</td>
                         {% endif %}
                         <td>¥{{ "%.2f"|format(material.price or 0) }}</td>
                     </tr>

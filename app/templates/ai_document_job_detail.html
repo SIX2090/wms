@@ -113,7 +113,7 @@
                         <span class="text-muted">未匹配</span>
                         {% endif %}
                     </td>
-                    <td>{{ item.quantity|quantity if item.quantity else '-' }}</td>
+                    <td>{{ item.quantity or '-' }}</td>
                     <td>{{ item.confidence if item.confidence is not none else '-' }}</td>
                     <td>{{ item.match_reason or '-' }}</td>
                 </tr>

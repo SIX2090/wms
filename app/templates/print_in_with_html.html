@@ -102,7 +102,7 @@
                     <td>{{ item.material.name }}</td>
                     <td>{{ item.material.spec or '-' }}</td>
                     <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
-                    <td>{{ (item.quantity)|quantity }}</td>
+                    <td>{{ item.quantity }}</td>
                     <td>¥{{ "%.2f"|format(item.price) }}</td>
                     <td>¥{{ "%.2f"|format(item.amount) }}</td>
                 </tr>

@@ -282,7 +282,7 @@
                                     {% elif cell_data.field == 'unit' %}
                                     <span class="cell-value">{{ material.unit.name if material.unit else '' }}</span>
                                     {% elif cell_data.field == 'stock' %}
-                                    <span class="cell-value">{{ (material.stock)|quantity }}</span>
+                                    <span class="cell-value">{{ material.stock }}</span>
                                     {% elif cell_data.field == 'category' %}
                                     <span class="cell-value">{{ material.category.name if material.category else '' }}</span>
                                     {% elif cell_data.field == 'supplier' %}

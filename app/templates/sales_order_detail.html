@@ -183,8 +183,8 @@
             <td>{{ item.material.name }}</td>
             <td>{{ item.material.spec or '-' }}</td>
             <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
-            <td class="text-end">{{ (item.quantity)|quantity }}</td>
-            <td class="text-end">{{ (item.shipped_quantity or 0)|quantity }}</td>
+            <td class="text-end">{{ item.quantity }}</td>
+            <td class="text-end">{{ item.shipped_quantity or 0 }}</td>
             <td class="text-end">{{ ((item.quantity or 0) - (item.shipped_quantity or 0))|round(2) }}</td>
             <td class="text-end">{{ '%.2f'|format(item.price or 0) }}</td>
             <td class="text-end">{{ ((item.tax_rate or 0) * 100)|round(0) }}%</td>

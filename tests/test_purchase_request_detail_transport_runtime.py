@@ -24,8 +24,6 @@ class Controls(HTMLParser):
 def render(action):
     source=(ROOT/'app/templates/purchase_request_detail.html').read_text(encoding='utf-8')
     env=Environment(loader=DictLoader({'page':source,'base.html':'{% block content %}{% endblock %}{% block extra_js %}{% endblock %}'}),autoescape=True)
-    from utils import format_quantity
-    env.filters['quantity'] = format_quantity
     order=SimpleNamespace(id=7,request_no='PR7',date=date(2026,10,23),applicant='fixture',department='采购',urgency='normal',
         expected_date=None,status='pending' if action in ('approve','reject') else 'approved',operator=None,reason='',remark='',total_amount=0)
     items=[SimpleNamespace(id=item_id,material_id=11,material=None,material_code='M'+str(item_id),material_name='物料',spec='',unit=None,

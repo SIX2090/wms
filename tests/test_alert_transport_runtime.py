@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 import pytest
-from utils import format_quantity
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGE = ROOT / 'app/templates/alert.html'
@@ -21,7 +20,6 @@ def test_alert_write_buttons_follow_backend_roles(role):
                     '_list_macros.html': '{% macro sort_th(a,b,c,d) %}<th>{{ a }}</th>{% endmacro %}'}),
         FileSystemLoader(str(ROOT / 'app/templates')),
     ]))
-    env.filters['quantity'] = format_quantity
     html = env.get_template('alert.html').render(
         current_user=SimpleNamespace(role=role), csrf_token=lambda: 'isolated-token',
         request=SimpleNamespace(args={}),

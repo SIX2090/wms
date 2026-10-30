@@ -170,9 +170,9 @@
                         <td>{{ material.spec or '-' }}</td>
                         <td>{{ material.category or '-' }}</td>
                         <td>{{ material.supplier or '-' }}</td>
-                        <td>{{ (material.stock)|quantity }}</td>
-                        <td>{{ (material.min_stock)|quantity }}</td>
-                        <td>{{ (material.safety_stock)|quantity }}</td>
+                        <td>{{ material.stock }}</td>
+                        <td>{{ material.min_stock }}</td>
+                        <td>{{ material.safety_stock }}</td>
                         <td>
                             {% if material.status == 'low' %}
                             <span class="badge bg-danger">低于最低库存</span>

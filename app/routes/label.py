@@ -16,7 +16,7 @@ from __future__ import annotations
 from flask import abort, jsonify, render_template, request
 from flask_login import login_required
 
-from utils import format_quantity, print_token_or_login_required
+from utils import print_token_or_login_required
 
 
 # no-test:reason=路由注册辅助函数，能力由 print_batch_labels 路由测试覆盖
@@ -51,7 +51,7 @@ def register_label_routes(app):
                 'spec': m.spec or '',
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
-                'stock': format_quantity(m.stock or 0),
+                'stock': str(m.stock) if m.stock else '0',
                 'price': str(m.price) if m.price is not None else '',
                 'barcode': m.code or '',
                 'date': datetime.now().strftime('%Y-%m-%d'),
@@ -88,7 +88,7 @@ def register_label_routes(app):
                      name=m.name or '', spec=m.spec or '', unit_name=m.unit.name if m.unit else '',
                      category_name=m.category.name if m.category else '',
                      supplier_name=m.supplier.name if m.supplier else '',
-                     price=str(m.price) if m.price is not None else '', stock=format_quantity(m.stock or 0))
+                     price=str(m.price) if m.price is not None else '', stock=str(m.stock or 0))
                 for m in materials]
         try:
             path = template_file_abspath(template.excel_template_path, app.static_folder)
@@ -131,7 +131,7 @@ def register_label_routes(app):
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
                 'supplier_name': m.supplier.name if m.supplier else '',
-                'stock': format_quantity(m.stock or 0),
+                'stock': str(m.stock) if m.stock else '0',
                 'price': str(m.price) if m.price is not None else '',
                 'barcode': m.code or '',
             })

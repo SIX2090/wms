@@ -159,7 +159,7 @@ from ai.documents.sales_draft_validation import (
 from services.material_label import material_scan_code
 # Import utility functions
 from utils import (
-    round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
+    round_to_2_decimals, parse_float_value, parse_int_value, parse_date_value,
     normalize_stock_quantity, is_stock_sufficient,
     serialize_unit, serialize_supplier, serialize_customer, serialize_material, serialize_material_legacy,
     serialize_bom_item, serialize_bom,
@@ -3631,7 +3631,7 @@ app.jinja_env.filters['currency_cn'] = currency_cn
 app.jinja_env.filters['from_json'] = from_json_filter
 app.jinja_env.filters['to_json'] = to_json_filter
 app.jinja_env.filters['range'] = range_filter
-app.jinja_env.filters.update({'add': add_filter, 'quantity': format_quantity})
+app.jinja_env.filters['add'] = add_filter
 
 SYSTEM_SETTING_GROUPS = [
     {
@@ -7310,7 +7310,7 @@ def api_material_payload(material, warehouse=None, warehouse_stock_map=None, loc
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
         'price': float(material.price or 0),
-        'stock': float(format_quantity(stock) or 0),
+        'stock': stock,
         # BUG-2026-09-10-003：补最低库存/补货点——Android 查库存「库存充足/不足」
         # 徽标按 stock > min_stock 判断，此前 payload 不下发该字段导致恒按 0 比较，
         # 退化为"大于 0 即充足"，现场误导。
@@ -9227,11 +9227,11 @@ def material_merge_preview(target_id, source_id, allow_identity_difference=False
     return {
         'target': {'id': target.id, 'code': target.code, 'name': target.name,
                    'spec': target.spec or '', 'brand': target.brand or '',
-                   'stock': float(format_quantity(target.stock or 0) or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
+                   'stock': float(target.stock or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
         'source': {'id': source.id, 'code': source.code, 'name': source.name,
                    'spec': source.spec or '', 'brand': source.brand or '',
-                   'stock': float(format_quantity(source.stock or 0) or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
-        'stock_after': float(format_quantity(float(target.stock or 0) + float(source.stock or 0)) or 0),
+                   'stock': float(source.stock or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
+        'stock_after': float(target.stock or 0) + float(source.stock or 0),
         'tables': tables,
         'total_rows': sum(tables.values()),
     }

@@ -84,8 +84,7 @@ def _display_value(cell):
         raise ValueError('模板数据包含无效数值，无法打印')
     fmt = cell.number_format or 'General'
     if fmt in ('General', '@'):
-        # Excel General displays at most 15 significant digits, hiding binary tails.
-        return format(value, '.15g') if isinstance(value, float) else str(value)
+        return str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
     if is_date_format(fmt):
         raise ValueError('模板日期格式与数值数据不匹配，请修正模板')
     section = fmt.split(';')[1 if value < 0 and ';' in fmt else 0]

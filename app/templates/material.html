@@ -165,9 +165,9 @@
                     <td data-column-key="category">{{ mat.category.name if mat.category else '-' }}</td>
                     <td data-column-key="supplier">{{ mat.supplier.name if mat.supplier else '-' }}</td>
                     <td data-column-key="purpose">{{ mat.purpose or '-' }}</td>
-                    <td data-column-key="stock" class="{{ 'text-danger fw-bold' if is_low else ('text-warning fw-bold' if is_danger else '') }}">{{ (mat.stock)|quantity }}</td>
+                    <td data-column-key="stock" class="{{ 'text-danger fw-bold' if is_low else ('text-warning fw-bold' if is_danger else '') }}">{{ mat.stock }}</td>
                     {% if inventory_alert_enabled %}
-                    <td data-column-key="min_stock">{{ (mat.min_stock)|quantity }}</td>
+                    <td data-column-key="min_stock">{{ mat.min_stock }}</td>
                     {% endif %}
                     <td data-column-key="price">¥{{ mat.price }}</td>
                     <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>

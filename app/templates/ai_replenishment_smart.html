@@ -94,12 +94,12 @@
                     <td>{{ row.name }}</td>
                     <td class="text-truncate" style="max-width: 150px;">{{ row.spec or '-' }}</td>
                     <td>{{ row.unit }}</td>
-                    <td class="text-end">{{ (row.current_stock)|quantity }}</td>
-                    <td class="text-end">{{ (row.outbound_qty)|quantity }}</td>
+                    <td class="text-end">{{ row.current_stock }}</td>
+                    <td class="text-end">{{ row.outbound_qty }}</td>
                     <td class="text-end">{{ row.avg_daily }}</td>
                     <td class="text-end">{{ row.days_of_supply if row.days_of_supply is not none else '-' }}</td>
                     <td class="text-end">{{ row.on_order }}</td>
-                    <td class="text-end fw-semibold">{{ (row.suggested_qty)|quantity }}</td>
+                    <td class="text-end fw-semibold">{{ row.suggested_qty }}</td>
                     <td class="text-center">
                         {% if row.trend == 'increasing' %}
                         <span class="text-danger fw-bold" title="消耗上升">{{ row.trend_symbol }}</span>
