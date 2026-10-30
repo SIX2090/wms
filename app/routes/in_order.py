@@ -1188,12 +1188,14 @@ def register_in_order_routes(app):
                     return api_error('只有待处理的入库单可以修改')
             else:
                 if not order_no:
-                    order_no = generate_order_no('IN')
+                    prefix = {'采购入库': 'IN', '产品入库': 'PI', '其他入库': 'OI', '销售退货入库': 'SR'}[business_type]
+                    order_no = generate_order_no(prefix)
 
                 order = InOrder.query.filter_by(order_no=order_no).first()
                 if order:
-                    if order.status != 'pending':
-                        return api_error('入库单号已存在，不能重复保存')
+                    # 新建不能凭预览单号复用草稿；编辑必须显式携带 order_id。
+                    db.session.rollback()
+                    return api_error('入库单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     order = InOrder(
                         order_no=order_no,

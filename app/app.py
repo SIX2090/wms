@@ -4647,8 +4647,8 @@ def _generate_order_no_locked(prefix):
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            if prefix in ('IN', 'PI'):
-                last_order = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(InOrder.id.desc()).with_for_update().first()
+            if prefix in ('IN', 'PI', 'OI'):
+                last_order = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(InOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc(), InOrder.id.desc()).with_for_update().first()
             elif prefix in ('OU', 'SO', 'OO'):
                 last_order = OutOrder.query.filter(OutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(OutOrder.id.desc()).with_for_update().first()
             elif prefix == 'CK':
@@ -4660,7 +4660,17 @@ def _generate_order_no_locked(prefix):
             elif prefix == 'SF':
                 last_order = SubcontractIssue.query.filter(SubcontractIssue.issue_no.like(f'{prefix}{year_month}%')).order_by(SubcontractIssue.id.desc()).with_for_update().first()
             elif prefix == 'SR':
-                last_order = SubcontractReceive.query.filter(SubcontractReceive.receive_no.like(f'{prefix}{year_month}%')).order_by(SubcontractReceive.id.desc()).with_for_update().first()
+                last_order = SubcontractReceive.query.filter(SubcontractReceive.receive_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(SubcontractReceive.receive_no, len(prefix + year_month) + 1), db.Integer).desc(), SubcontractReceive.id.desc()).with_for_update().first()
+                # SR 同时用于销售退货入库和委外收料，两类已有编号都必须避开。
+                last_return = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(InOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc(), InOrder.id.desc()).with_for_update().first()
+                def _sr_sequence(order):
+                    match = re.search(r'(\d+)$', getattr(order, 'receive_no', None) or order.order_no)
+                    return int(match.group(1)) if match else -1
+                last_order = max(
+                    (order for order in (last_order, last_return) if order is not None),
+                    key=_sr_sequence,
+                    default=None,
+                )
             elif prefix == 'PR':
                 last_order = PurchaseRequest.query.filter(PurchaseRequest.request_no.like(f'{prefix}{year_month}%')).order_by(PurchaseRequest.id.desc()).with_for_update().first()
             elif prefix == 'PO':
@@ -4683,7 +4693,7 @@ def _generate_order_no_locked(prefix):
                 last_order = None
 
             if last_order:
-                if prefix in ('IN', 'PI', 'OU', 'SO', 'SE', 'PO', 'SC', 'SUB'):
+                if prefix in ('IN', 'PI', 'OI', 'OU', 'SO', 'SE', 'PO', 'SC', 'SUB'):
                     last_no = last_order.order_no
                 elif prefix == 'CK':
                     last_no = last_order.check_no
@@ -4692,7 +4702,7 @@ def _generate_order_no_locked(prefix):
                 elif prefix == 'SF':
                     last_no = last_order.issue_no
                 elif prefix == 'SR':
-                    last_no = last_order.receive_no
+                    last_no = getattr(last_order, 'receive_no', None) or last_order.order_no
                 elif prefix == 'PR':
                     last_no = last_order.request_no
                 elif prefix == 'ASO':
