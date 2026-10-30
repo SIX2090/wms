@@ -47,6 +47,8 @@ def env():
     （太重），故注入最小 stub，让"有数据"分支也能渲染出来做反向断言。
     """
     e = Environment(loader=FileSystemLoader(str(TPL_DIR)))
+    from utils import format_quantity
+    e.filters['quantity'] = format_quantity
     e.globals.setdefault("url_for", lambda *a, **k: "#")
     e.globals.setdefault("csrf_token", lambda: "test-csrf")
     e.globals.setdefault("get_flashed_messages", lambda *a, **k: [])

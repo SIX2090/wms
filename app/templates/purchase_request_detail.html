@@ -224,7 +224,7 @@
                             <td>{{ item.spec or (item.material.spec if item.material else '-') }}</td>
                             <td>{{ item.unit.name if item.unit else (item.material.unit.name if item.material and item.material.unit else '-') }}</td>
                             <td class="text-end">{{ "%.2f"|format(item.material.stock or 0) if item.material else '-' }}</td>
-                            <td>{{ item.quantity }}</td>
+                            <td>{{ (item.quantity)|quantity }}</td>
                             <td class="text-end" data-ordered-quantity="{{ '%.2f'|format(exec.get('ordered_quantity', 0)) }}">{{ "%.2f"|format(exec.get('ordered_quantity', 0)) }}</td>
                             <td class="text-end" data-received-quantity="{{ '%.2f'|format(exec.get('received_quantity', 0)) }}">{{ "%.2f"|format(exec.get('received_quantity', 0)) }}</td>
                             <td class="text-end" data-remaining-to-order="{{ '%.2f'|format(remaining_to_order) }}">{{ "%.2f"|format(remaining_to_order) }}</td>

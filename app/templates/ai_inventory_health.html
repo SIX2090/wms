@@ -112,10 +112,10 @@
                     <td>{{ row.name }}</td>
                     <td class="text-truncate" style="max-width: 160px;">{{ row.spec or '-' }}</td>
                     <td>{{ row.unit }}</td>
-                    <td class="text-end">{{ row.current_stock }}</td>
-                    <td class="text-end">{{ row.min_stock }}</td>
-                    <td class="text-end">{{ row.max_stock }}</td>
-                    <td class="text-end">{{ row.outbound_qty }}</td>
+                    <td class="text-end">{{ (row.current_stock)|quantity }}</td>
+                    <td class="text-end">{{ (row.min_stock)|quantity }}</td>
+                    <td class="text-end">{{ (row.max_stock)|quantity }}</td>
+                    <td class="text-end">{{ (row.outbound_qty)|quantity }}</td>
                     <td class="text-end">{{ row.days_of_supply if row.days_of_supply is not none else '-' }}</td>
                     <td>
                         {% if row.risk_type == 'shortage' %}

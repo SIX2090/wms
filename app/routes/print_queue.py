@@ -40,7 +40,7 @@ from flask_login import current_user, login_required
 from pydantic import BaseModel, field_validator
 
 from db import db
-from utils import print_token_or_login_required, require_role
+from utils import format_quantity, print_token_or_login_required, require_role
 
 
 # ==================== pydantic 输入模型（A8） ====================
@@ -384,7 +384,7 @@ def _material_label_data(m):
         'unit_name': m.unit.name if m.unit else '',
         'category_name': m.category.name if m.category else '',
         'supplier_name': m.supplier.name if m.supplier else '',
-        'stock': str(m.stock) if m.stock else '0',
+        'stock': format_quantity(m.stock or 0),
         'price': str(m.price) if m.price else '',
         'barcode': m.code or '',
         'date': datetime.now().strftime('%Y-%m-%d'),

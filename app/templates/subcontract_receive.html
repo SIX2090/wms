@@ -100,7 +100,7 @@
                             <td>{{ receive.date }}</td>
                             <td>{{ receive.subcontract_order.order_no if receive.subcontract_order else '-' }}</td>
                             <td>{{ receive.supplier.name if receive.supplier else '' }}</td>
-                            <td>{{ receive.total_quantity }}</td>
+                            <td>{{ (receive.total_quantity)|quantity }}</td>
                             <td>{{ receive.total_scrap }}</td>
                             <td>
                                 {% if receive.status == 'pending' %}

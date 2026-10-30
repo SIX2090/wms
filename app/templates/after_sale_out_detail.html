@@ -139,7 +139,7 @@
                             <td>{{ item.material.spec if item.material else '-' }}</td>
                             <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                             <td class="text-end">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if item.material and warehouse_stock is not none else '-' }}</td>
-                            <td>{{ item.quantity }}</td>
+                            <td>{{ (item.quantity)|quantity }}</td>
                             <td>¥{{ "%.2f"|format(item.price or 0) }}</td>
                             <td>¥{{ "%.2f"|format(item.amount or 0) }}</td>
                             <td>{{ item.remark or '' }}</td>

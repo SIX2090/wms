@@ -121,7 +121,8 @@ def test_detail_and_scan_keep_the_selected_warehouse_and_never_guess_stock(mater
         db.session.commit()
     for wh, stock in [('QRWH', 3), ('QRWH2', 7)]:
         response = client.get('/mobile/material', query_string={'code': 'QR / A&B+01', 'warehouse': wh, 'embedded': 1})
-        assert f'class="fs-3">{stock}.0</strong>' in response.text
+        # Quantity display now trims trailing zeros; retain the exact warehouse value lock.
+        assert f'class="fs-3">{stock}</strong>' in response.text
         assert 'name="embedded" value="1"' in response.text
         scan = client.get('/mobile/scan', query_string={'code': 'QR / A&B+01', 'warehouse': wh})
         wh_name = '标签测试仓' if wh == 'QRWH' else '第二仓'

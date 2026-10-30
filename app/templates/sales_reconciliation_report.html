@@ -123,9 +123,9 @@
                     <tr {% if not row.ok %}class="table-danger table-danger-subtle"{% endif %}>
                         <td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}" target="_blank" rel="noopener">{{ row.order.order_no }}</a></td>
                         <td>{{ row.order.warehouse or '-' }}</td>
-                        <td class="text-end">{{ row.shipped_qty }}</td>
-                        <td class="text-end">{{ row.completed_qty }}</td>
-                        <td class="text-end {% if row.quantity_diff != 0 %}text-danger fw-semibold{% endif %}">{{ row.quantity_diff }}</td>
+                        <td class="text-end">{{ (row.shipped_qty)|quantity }}</td>
+                        <td class="text-end">{{ (row.completed_qty)|quantity }}</td>
+                        <td class="text-end {% if row.quantity_diff != 0 %}text-danger fw-semibold{% endif %}">{{ (row.quantity_diff)|quantity }}</td>
                         <td class="text-end {% if row.amount_diff != 0 %}text-danger fw-semibold{% endif %}">¥{{ "%.2f"|format(row.amount_diff) }}</td>
                         <td>
                             {% if row.ok %}

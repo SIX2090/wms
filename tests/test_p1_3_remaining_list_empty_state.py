@@ -89,6 +89,8 @@ def _table_fragment(src, for_pos):
 @pytest.fixture(scope="module")
 def env():
     e = jinja2.Environment(loader=jinja2.FileSystemLoader(TPL_DIR))
+    from utils import format_quantity
+    e.filters['quantity'] = format_quantity
     # 裸 Environment 没有 Flask 注入的全局量，缺失会让渲染抛 UndefinedError
     e.globals.setdefault("url_for", lambda *a, **k: "#")
     e.globals.setdefault("csrf_token", lambda: "test-csrf")
