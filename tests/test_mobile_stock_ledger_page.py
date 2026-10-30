@@ -156,10 +156,10 @@ def test_T7_home_entry_card():
 
 def test_T8_version_bumped():
     src = _read(GRADLE)
-    # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 28/3.9.4（BUG-2026-10-002 DataStore 超时降级），
+    # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 29/3.9.5（BUG-2026-10-30-009 扫码改数量），
     # 该功能首次发布于 26/3.9.2；后续递增版本号时同步更新本基线。
-    assert 'versionCode = 28' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
-    assert 'versionName = "3.9.4"' in src
+    assert 'versionCode = 29' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
+    assert 'versionName = "3.9.5"' in src
     assert 'AI-MOB-LDG-F01' in src, '版本 changelog 注释缺失'
 
 

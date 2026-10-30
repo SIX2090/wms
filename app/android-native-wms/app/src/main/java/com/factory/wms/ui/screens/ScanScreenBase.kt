@@ -45,6 +45,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import android.graphics.Bitmap
@@ -77,6 +83,8 @@ fun ScanScreenBase(
     onSubmitClick: () -> Unit,
     submitLabel: String,
     submitColor: Color,
+    /** 盘点的实盘数量允许为 0；入库、出库仍须大于 0。 */
+    allowZeroQuantity: Boolean = false,
     /**
      * 是否显示「库位选择器」+「拍照取证」两块单据附属信息（BUG-2026-09-18-009）。
      *
@@ -111,9 +119,64 @@ fun ScanScreenBase(
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
+    var pendingQuantityEdit by remember { mutableStateOf<ScanLine?>(null) }
+    var editedQuantity by remember { mutableStateOf(TextFieldValue("")) }
+    var quantityError by remember { mutableStateOf<String?>(null) }
     val haptics = LocalHapticFeedback.current
     val scanState by viewModel.uiState.collectAsState()
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
+    pendingQuantityEdit?.let { line ->
+        val quantityFocus = remember { FocusRequester() }
+        fun saveQuantity() {
+            val quantity = editedQuantity.text.trim().toDoubleOrNull()
+            if (quantity == null || !quantity.isFinite() || quantity < 0.0 ||
+                (!allowZeroQuantity && quantity == 0.0)) {
+                quantityError = if (allowZeroQuantity) "请输入大于或等于 0 的有效数量"
+                    else "请输入大于 0 的有效数量"
+                return
+            }
+            if (viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)) {
+                pendingQuantityEdit = null
+            } else {
+                quantityError = viewModel.uiState.value.error ?: "当前不可修改数量，请稍后重试"
+            }
+        }
+        AlertDialog(
+            onDismissRequest = { pendingQuantityEdit = null },
+            title = { Text("修改数量") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("${line.material_code} ${line.material_name.orEmpty()}")
+                    line.location_code?.takeIf { it.isNotBlank() }?.let { Text("库位/区域：$it") }
+                    OutlinedTextField(
+                        value = editedQuantity,
+                        onValueChange = { editedQuantity = it; quantityError = null },
+                        label = { Text("数量（确切值）") },
+                        supportingText = { Text(quantityError ?: "输入修改后的总数量，支持小数") },
+                        isError = quantityError != null,
+                        singleLine = true,
+                        modifier = Modifier.focusRequester(quantityFocus),
+                        enabled = !isLoading && scanState.pendingSubmissionId == null,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Decimal,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { saveQuantity() })
+                    )
+                    LaunchedEffect(line) { quantityFocus.requestFocus() }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !isLoading && scanState.pendingSubmissionId == null,
+                    onClick = { saveQuantity() }
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingQuantityEdit = null }) { Text("取消") }
+            }
+        )
+    }
     pendingRemoval?.let { line ->
         AlertDialog(
             onDismissRequest = { pendingRemoval = null },
@@ -486,18 +549,33 @@ fun ScanScreenBase(
                                             )
                                         }
                                     }
-                                    // 数量胶囊（右对齐高亮，一眼看清每行数量）
+                                    // 扫码/手动加入的行均可直接修改确切数量。
                                     Surface(
+                                        onClick = {
+                                            val text = formatQuantity(line.quantity)
+                                            editedQuantity = TextFieldValue(text, selection = TextRange(0, text.length))
+                                            quantityError = null
+                                            pendingQuantityEdit = line
+                                        },
+                                        enabled = !isLoading && scanState.pendingSubmissionId == null,
+                                        modifier = Modifier.heightIn(min = 48.dp).semantics {
+                                            contentDescription = "修改数量：${line.material_code} ${line.location_code.orEmpty()}"
+                                        },
                                         shape = RoundedCornerShape(10.dp),
                                         color = gradient.copy(alpha = 0.10f)
                                     ) {
-                                        Text(
-                                            "× ${formatQuantity(line.quantity)}",
+                                        Column(
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                            color = gradient,
-                                            fontSize = 13.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                "× ${formatQuantity(line.quantity)}",
+                                                color = gradient,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Text("修改", color = gradient, fontSize = 10.sp)
+                                        }
                                     }
                                     IconButton(
                                         onClick = { pendingRemoval = line },
