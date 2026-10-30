@@ -3085,3 +3085,12 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 同类点已排查：关联F2.9仓库TOCTOU守卫、INV-AUDIT-002同名库位隔离及BUG-2026-09-19-001历史归属兜底；覆盖deduct_stock_atomic、_wh_stock_guards和deduct_location_inventory_atomic及服务入口消费点。用户要求完整修复后，将已验证的显示修复BUG-2026-10-30-004与本扣减修复按同一浮点问题批次合并交付。没有新增AI功能、路由、权限或迁移。
 - 基线与回归：开工e4f7b503de3349f3493f210ed3a80c8c1b0a5129；WMS CI [40987575020](https://github.com/SIX2090/wms/actions/runs/40987575020)及AI [40987575009](https://github.com/SIX2090/wms/actions/runs/40987575009)精确目标success，Android40969347674祖先与路径无变化证明沿用并复核。受影响原子扣减/仓库/服务收敛模块修前186 passed。初轮16项、最终20项：总账/仓库各自尾差、历史NULL仓库、库位开启和跨仓同名隔离、真实不足0.0001/0.01仍拒绝、四位余量保留、真实领料完成与整单回滚和重复提交。旧实现8 failed/8 passed，修复16 passed；隔离源码物理回退再次8 failed/8 passed，finally逐字节恢复。首轮原子/仓库/相邻218 passed，另1项台账因引用尚未恢复的显示修复ID导致分类多计；完整恢复004条目与对应明确状态后重新验收，不放宽历史分布断言。合并产品与相邻模块578 passed；扩展8行整单出库、真缺货中途回滚、微差正负边界及显式负库存策略后，最终显示/扣减59 passed。对28个产品文件物理回退到e4f7b503后49 failed/10 passed，finally逐字节恢复后59 passed。全量规则棘轮、staged lint和静态回归通过；显示批次既有121/121隔离HTTP冒烟保留，完整目标由CI验收。
 - 生效确认：待生产验收；本批生产只读核对，未替用户完成OU26100266。测试在仓库外隔离源码和内存库执行；证据C:/wms_backups/atomic_stock_20261030/。需重启WMS服务加载Python修复，之后由用户在原单重试完成出库。
+
+### BUG-2026-10-30-006: 期初单上下张导航误报已到边界
+
+- 状态：已修复（本地真实JS及相邻回归通过，提交CI及页面生效另核验）。
+- 根因：navigateOpeningDoc请求单据导航接口未传current_id，后端无法定位当前记录，返回空prev_id/next_id；旧测试只验证手工传参的API，未覆盖真实页面调用。
+- 修复：现有期初单请求携带OPENING_DOC.id；新建页不传当前ID，保留其首末张和上下张兜底。没有修改导航API、单据、库存、用户权限或数据库结构。
+- 同类点已排查：关联ARCH-OS-DOC-01和BUG-2026-09-15-005；全仓检索document_navigation调用，公共app.js已携带current_id，本次仅修期初独立调用。
+- 基线与回归：main d3eedbf9d67607c284b6f2df36abd17ca77a4315；WMS CI 40990153729和AI 40990153700精确目标success，Android最近成功40969347674对应171e1d60，祖先及路径无改证明通过；本地API查询限流后使用已连接GitHub工具核实。修改前相关68 passed；新增10项真实Node执行导航函数，旧实现8 failed/2 passed。修后期初导航API、真实JS、多单据、单号、草稿及删除行相邻86 passed；物理备份后git checkout回退再次8 failed/2 passed，finally恢复固定文件，未使用stash。提交门禁与CI结果以交付证据为准。
+- 生效确认：待生产确认；旧隔离站已复现边界误报，最新版独立隔离站18145因登录未延续而尚未完成浏览器点击复验，不将其记为页面通过。修复JS已同步该隔离源码；无生产请求、重启或业务写入。证据C:/wms_backups/navigation_readonly_20261030/；静态脚本上线后需刷新页面加载新版。

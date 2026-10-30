@@ -528,7 +528,9 @@ function resetDocument() {
 // 按当前 id 返回 first/prev/next/last_id；新建页（无 id）首张=first、末张=last。
 function navigateOpeningDoc(target) {
     if (!window.WMS || !WMS.api) return;
-    WMS.api.get('/api/document_navigation/opening_stock')
+    const currentId = OPENING_DOC && OPENING_DOC.id;
+    const query = currentId ? '?current_id=' + encodeURIComponent(currentId) : '';
+    WMS.api.get('/api/document_navigation/opening_stock' + query)
         .then(function(data) {
             const payload = (data && data.data) ? data.data : data;
             let targetId = payload ? payload[target + '_id'] : null;
