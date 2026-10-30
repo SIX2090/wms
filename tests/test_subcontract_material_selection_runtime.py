@@ -34,10 +34,12 @@ def test_real_input_and_save(page, scenario):
 def test_rendered_template_loads_shared_script_before_consumers(page):
     from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
     from types import SimpleNamespace
+    from utils import format_quantity
     env = Environment(autoescape=True, loader=ChoiceLoader([
         DictLoader({"base.html": "{% block content %}{% endblock %}{% block extra_js %}{% endblock %}"}),
         FileSystemLoader(ROOT / "app/templates"),
     ]))
+    env.filters['quantity'] = format_quantity
     html = env.get_template(f"subcontract_{page}.html").render(
         current_user=SimpleNamespace(role="admin"), request=SimpleNamespace(args={}),
         filters=dict(status="", search="", date_start="", date_end=""),

@@ -5,7 +5,7 @@
 # 避免模块加载期循环导入。
 from flask_login import login_required
 
-from utils import require_role
+from utils import format_quantity, require_role
 
 
 def _parse_label_layout(raw):
@@ -227,7 +227,7 @@ def register_label_barcode_routes(app):
                 'unit': m.unit.name if m.unit else '',
                 'category': m.category.name if m.category else '',
                 'supplier': m.supplier.name if m.supplier else '',
-                'stock': m.stock, 'price': m.price if m.price is not None else '',
+                'stock': float(format_quantity(m.stock or 0) or 0), 'price': m.price if m.price is not None else '',
             }]
         else:
             preview_data = [

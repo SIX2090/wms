@@ -95,8 +95,8 @@
             <td>{{ it.date }}</td>
             <td>{{ it.customer }}</td>
             <td>{{ it.salesperson }}</td>
-            <td class="text-end">{{ it.quantity }}</td>
-            <td class="text-end">{{ it.shipped_quantity }}</td>
+            <td class="text-end">{{ (it.quantity)|quantity }}</td>
+            <td class="text-end">{{ (it.shipped_quantity)|quantity }}</td>
             <td class="text-end">{{ '%.2f'|format(it.price) }}</td>
             <td class="text-end">{{ (it.tax_rate * 100)|round(0) }}%</td>
             <td class="text-end">{{ '%.2f'|format(it.untaxed_amount) }}</td>
@@ -149,7 +149,7 @@
               <tr>
                 <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, customer_id=row.customer_id, material_code=drill_material_code, salesperson_id=salesperson_id or '', warehouse_id=warehouse_id or '', status=status, shipment_status=shipment_status, project_no=project_no) }}">{{ row.name }}</a></td>
                 <td>{{ row.orders }}</td>
-                <td>{{ row.quantity }}</td>
+                <td>{{ (row.quantity)|quantity }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.tax_amount) }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.amount) }}</td>
@@ -176,7 +176,7 @@
               <tr>
                 <td><a href="{{ url_for('sales_report', date_start=date_start, date_end=date_end, material_code=row.code, customer_id=drill_customer_id or '', salesperson_id=salesperson_id or '', warehouse_id=warehouse_id or '', status=status, shipment_status=shipment_status, project_no=project_no) }}">{{ row.code }}</a></td>
                 <td>{{ row.name }}</td>
-                <td>{{ row.quantity }}</td>
+                <td>{{ (row.quantity)|quantity }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.untaxed_amount) }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.tax_amount) }}</td>
                 <td class="text-end">{{ '%.2f'|format(row.amount) }}</td>

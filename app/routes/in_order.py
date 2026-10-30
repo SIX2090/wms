@@ -44,7 +44,7 @@ from flask import abort, flash, jsonify, redirect, render_template, request, sen
 from flask_login import login_required
 
 from db import db
-from utils import print_token_or_login_required, require_role
+from utils import format_quantity, print_token_or_login_required, require_role
 
 
 def get_reverted_in_order_ids(order_ids):
@@ -3369,7 +3369,7 @@ def register_in_order_routes(app):
                 'spec': m.spec or '',
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
-                'stock': str(m.stock) if m.stock else '0',
+                'stock': format_quantity(m.stock or 0),
                 'price': str(m.price) if m.price else '',
                 'barcode': m.code or '',
                 'date': datetime.now().strftime('%Y-%m-%d'),

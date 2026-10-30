@@ -17,7 +17,7 @@
       </select>
       <button class="btn btn-outline-primary text-nowrap">查询</button>
     </form>
-    <div class="mt-3">当前仓库库存 <strong class="fs-3">{{ stock if stock is not none else '请选择仓库' }}</strong> {{ material.unit.name if material.unit else '' }}</div>
+    <div class="mt-3">当前仓库库存 <strong class="fs-3">{{ stock|quantity if stock is not none else '请选择仓库' }}</strong> {{ material.unit.name if material.unit else '' }}</div>
   </div></section>
   <div class="d-flex gap-2 flex-wrap mb-3">
     {% for mode, label in [('query','查库存'), ('in','扫码入库'), ('out','扫码出库'), ('check','扫码盘点')] %}
@@ -32,8 +32,8 @@
         ('规格', material.spec), ('单位', material.unit.name if material.unit else ''),
         ('分类', material.category.name if material.category else ''),
         ('供应商', material.supplier.name if material.supplier else ''), ('用途', material.purpose),
-        ('单价', material.price), ('最低库存', material.min_stock), ('最大库存', material.max_stock),
-        ('安全库存', material.reorder_point), ('有效期', material.expiry_date), ('预警天数', material.alert_days),
+        ('单价', material.price), ('最低库存', material.min_stock|quantity), ('最大库存', material.max_stock|quantity),
+        ('安全库存', material.reorder_point|quantity), ('有效期', material.expiry_date), ('预警天数', material.alert_days),
         ('状态', '启用' if material.status == 'active' else '停用'), ('备注', material.remark), ('创建时间', material.created_at)
       ] %}<dt class="col-4 mb-2 text-muted">{{ label }}</dt><dd class="col-8 mb-2">{{ value if value is not none and value != '' else '—' }}</dd>{% endfor %}
     </dl>

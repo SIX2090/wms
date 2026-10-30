@@ -159,7 +159,7 @@ from ai.documents.sales_draft_validation import (
 from services.material_label import material_scan_code
 # Import utility functions
 from utils import (
-    round_to_2_decimals, parse_float_value, parse_int_value, parse_date_value,
+    round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
     normalize_stock_quantity, is_stock_sufficient,
     serialize_unit, serialize_supplier, serialize_customer, serialize_material, serialize_material_legacy,
     serialize_bom_item, serialize_bom,
@@ -3631,7 +3631,7 @@ app.jinja_env.filters['currency_cn'] = currency_cn
 app.jinja_env.filters['from_json'] = from_json_filter
 app.jinja_env.filters['to_json'] = to_json_filter
 app.jinja_env.filters['range'] = range_filter
-app.jinja_env.filters['add'] = add_filter
+app.jinja_env.filters.update({'add': add_filter, 'quantity': format_quantity})
 
 SYSTEM_SETTING_GROUPS = [
     {
@@ -4764,7 +4764,7 @@ def _stock_location_from_warehouse(warehouse):
 def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
     """原子扣减库存：用条件 UPDATE 保证并发安全。
     返回 (是否成功, 错误信息, material 对象)。
-    仅当 material.stock >= quantity 时才会把库存减掉；并发冲突下 rowcount==0，
+    仅容忍 STOCK_COMPARE_EPSILON 内的浮点尾差；条件 UPDATE 仍原子校验，并发冲突下 rowcount==0，
     调用方应 rollback 并返回业务失败。
     不改动 material 实例的 Python 属性；扣减完后由上层按需 refresh/读回。
     """
@@ -4799,11 +4799,11 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
 
     condition = Material.id == material_id
     if not allow_negative_stock():
-        condition = db.and_(condition, Material.stock >= qty, *_wh_stock_guards(material_id, warehouse, qty))
+        condition = db.and_(condition, Material.stock - qty >= -STOCK_COMPARE_EPSILON, *_wh_stock_guards(material_id, warehouse, qty))
     rowcount = db.session.execute(
         sa_update(Material)
         .where(condition)
-        .values(stock=Material.stock - qty)
+        .values(stock=case((func.abs(Material.stock - qty) <= STOCK_COMPARE_EPSILON, 0.0), else_=Material.stock - qty))
     ).rowcount
 
     if not rowcount:
@@ -5078,12 +5078,12 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
     else:
         condition = db.and_(condition, LocationInventory.warehouse_id.is_(None))
     if not allow_negative_location_stock():
-        condition = db.and_(condition, LocationInventory.quantity >= qty)
+        condition = db.and_(condition, LocationInventory.quantity - qty >= -STOCK_COMPARE_EPSILON)
     rowcount = db.session.execute(
         sa_update(LocationInventory)
         .where(condition)
         .values(
-            quantity=LocationInventory.quantity - qty,
+            quantity=case((func.abs(LocationInventory.quantity - qty) <= STOCK_COMPARE_EPSILON, 0.0), else_=LocationInventory.quantity - qty),
             updated_at=datetime.now(),
         )
     ).rowcount
@@ -7310,7 +7310,7 @@ def api_material_payload(material, warehouse=None, warehouse_stock_map=None, loc
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
         'price': float(material.price or 0),
-        'stock': stock,
+        'stock': float(format_quantity(stock) or 0),
         # BUG-2026-09-10-003：补最低库存/补货点——Android 查库存「库存充足/不足」
         # 徽标按 stock > min_stock 判断，此前 payload 不下发该字段导致恒按 0 比较，
         # 退化为"大于 0 即充足"，现场误导。
@@ -9227,11 +9227,11 @@ def material_merge_preview(target_id, source_id, allow_identity_difference=False
     return {
         'target': {'id': target.id, 'code': target.code, 'name': target.name,
                    'spec': target.spec or '', 'brand': target.brand or '',
-                   'stock': float(target.stock or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
+                   'stock': float(format_quantity(target.stock or 0) or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
         'source': {'id': source.id, 'code': source.code, 'name': source.name,
                    'spec': source.spec or '', 'brand': source.brand or '',
-                   'stock': float(source.stock or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
-        'stock_after': float(target.stock or 0) + float(source.stock or 0),
+                   'stock': float(format_quantity(source.stock or 0) or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
+        'stock_after': float(format_quantity(float(target.stock or 0) + float(source.stock or 0)) or 0),
         'tables': tables,
         'total_rows': sum(tables.values()),
     }
@@ -36179,7 +36179,7 @@ def _wh_stock_guards(material_id, warehouse, qty):
                ),
            )
            .scalar_subquery())
-    return [agg >= qty]
+    return [agg - qty >= -STOCK_COMPARE_EPSILON]
 
 
 # ==================== Application entrypoint ====================

@@ -97,14 +97,14 @@
                     <td>{{ row.name }}</td>
                     <td class="text-truncate" style="max-width: 160px;">{{ row.spec or '-' }}</td>
                     <td class="text-truncate" style="max-width: 130px;">{{ row.supplier or '-' }}</td>
-                    <td class="text-end">{{ row.current_stock }} {{ row.unit }}</td>
-                    <td class="text-end">{{ row.min_stock }} {{ row.unit }}</td>
-                    <td class="text-end">{{ row.outbound_qty }} {{ row.unit }}</td>
+                    <td class="text-end">{{ (row.current_stock)|quantity }} {{ row.unit }}</td>
+                    <td class="text-end">{{ (row.min_stock)|quantity }} {{ row.unit }}</td>
+                    <td class="text-end">{{ (row.outbound_qty)|quantity }} {{ row.unit }}</td>
                     <td class="text-end">{{ row.avg_daily }} {{ row.unit }}</td>
                     <td class="text-end">{{ row.days_of_supply if row.days_of_supply is not none else '-' }}</td>
                     <td class="text-end">{{ row.on_order }} {{ row.unit }}</td>
-                    <td class="text-end {% if row.projected_stock < 0 %}text-danger{% endif %}">{{ row.projected_stock }} {{ row.unit }}</td>
-                    <td class="text-end fw-semibold">{{ row.suggested_qty }} {{ row.unit }}</td>
+                    <td class="text-end {% if row.projected_stock < 0 %}text-danger{% endif %}">{{ (row.projected_stock)|quantity }} {{ row.unit }}</td>
+                    <td class="text-end fw-semibold">{{ (row.suggested_qty)|quantity }} {{ row.unit }}</td>
                     <td class="text-end">{{ '%.2f'|format(row.estimated_amount) }}</td>
                     <td>
                         {% if row.pending_request %}

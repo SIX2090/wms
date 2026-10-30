@@ -13,7 +13,7 @@ import html.parser
 import logging
 import math
 from datetime import datetime, date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from functools import wraps
 
 from flask import request, jsonify, current_app, has_app_context, redirect, url_for, flash
@@ -23,6 +23,26 @@ from db import db
 
 
 # ==================== 数值处理 ====================
+def format_quantity(value):
+    """Read-only quantity display: up to four input decimals, no float tails or padding.
+
+    Four decimal places retain the existing opening-stock input step (0.0001).
+    This formatter must not be used to change stored quantities or stock checks.
+    """
+    if value is None or value == '':
+        return ''
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite():
+            return ''
+        rounded = number.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        return ''
+    if not rounded:
+        return '0'
+    return format(rounded, 'f').rstrip('0').rstrip('.')
+
+
 def round_to_2_decimals(value):
     """将数值四舍五入到2位小数（ROUND_HALF_UP，符合财务习惯）。
 
@@ -181,7 +201,7 @@ def serialize_material(material):
         'spec': material.spec or '',
         'purpose': material.purpose or '',
         'price': float(material.price or 0),
-        'stock': float(material.stock or 0),
+        'stock': float(format_quantity(material.stock or 0) or 0),
         'unit': unit_obj,
     }
 
@@ -197,7 +217,7 @@ def serialize_material_legacy(material):
         'spec': material.spec or '',
         'purpose': material.purpose or '',
         'price': material.price or 0,
-        'stock': material.stock or 0,
+        'stock': float(format_quantity(material.stock or 0) or 0),
         'unit': material.unit.name if material.unit else '',
     }
 

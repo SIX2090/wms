@@ -35,6 +35,8 @@ def test_independent_pages_keep_tables_and_have_one_explicit_report_toolbar(page
         DictLoader({'base.html': "<body class='{% block body_class %}{% endblock %}'>{% block content %}{% endblock %}{% block extra_js %}{% endblock %}</body>"}),
         FileSystemLoader(ROOT / 'app/templates'),
     ]))
+    from utils import format_quantity
+    env.filters['quantity'] = format_quantity
     env.globals.update(url_for=lambda endpoint, **kwargs: '/' + kwargs.get('filename', endpoint),
                        csrf_token=lambda: 'isolated-test', request=SimpleNamespace(args={}))
     context = dict(rows=[], orders=[], customers=[], employees=[], warehouses=[], suppliers=[],

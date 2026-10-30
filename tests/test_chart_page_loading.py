@@ -18,6 +18,8 @@ def render_scripts(page, **context):
         DictLoader({'base.html': '{% block extra_js %}{% endblock %}'}),
         FileSystemLoader(TEMPLATES),
     ]), autoescape=True)
+    from utils import format_quantity
+    env.filters['quantity'] = format_quantity
     env.globals['url_for'] = lambda endpoint, **kwargs: '/static/' + kwargs['filename']
     return env.get_template(page + '.html').render(**context)
 
