@@ -2,7 +2,6 @@ package com.factory.wms.ui.screens
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -69,8 +68,8 @@ fun HomeScreen(
     var showLogoutDialog by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Scaffold 将内容放在状态栏下方；状态栏实际是浅色背景。
-    StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())
+    // 首页顶部是深蓝 Hero → 浅色状态栏图标（修复深色图标压在深蓝上不可读）
+    StatusBarIconEffect(darkIcons = false)
 
     // BUG-2026-09-10-010：首页概览的仓库切换需要仓库列表，进入首页时加载一次。
     // BUG-2026-09-26-003：底部 Tab 用 saveState/restoreState 恢复首页时，VM 存活、
@@ -224,8 +223,25 @@ fun HomeScreen(
                             )
                         )
                     )
-                    .padding(vertical = 12.dp)
+                    .padding(top = 16.dp, bottom = 48.dp)
             ) {
+                // Decorative circles
+                Box(
+                    modifier = Modifier
+                        .size(180.dp)
+                        .offset(x = (-40).dp, y = (-60).dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.04f))
+                )
+                Box(
+                    modifier = Modifier
+                        .size(120.dp)
+                        .align(Alignment.TopEnd)
+                        .offset(x = 20.dp, y = (-30).dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.06f))
+                )
+
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -269,7 +285,44 @@ fun HomeScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Greeting + avatar
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Avatar
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                uiState.username.take(1).uppercase(),
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 20.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "你好，${uiState.username}",
+                                color = Color.White,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 18.sp
+                            )
+                            Text(
+                                "角色: ${uiState.role.ifBlank { "操作员" }}",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // BUG-2026-10-04-002：「今日概览」标题行收进 Hero 蓝底内。
                     // 原设计把标题行放进 offset(-28) 的半悬浮 Column，假定行高 ≤28dp；
@@ -312,11 +365,11 @@ fun HomeScreen(
                 }
             }
 
-            // 今日概览卡片按正常文档流排列，不再用 offset 留下虚占位。
+            // ── 今日概览卡片（半悬浮，上探 28dp 压住 Hero 下边缘；Hero 底部已留 48dp）──
             // BUG-2026-09-10-010：多仓用户此前只能看到默认仓的今日数据，
             // 仓库切换器已收进上方 Hero 标题行（BUG-2026-10-04-002）。
             if (dashboardData != null) {
-                Column(modifier = Modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
                     TodayOverviewBar(
                         dashboard = dashboardData,
                         onNavigate = onNavigate
@@ -324,7 +377,7 @@ fun HomeScreen(
                 }
             } else if (homeUiState.isLoading) {
                 // AI-APP-UI-002：数据未返回时渲染同形骨架（标题 shimmer 在 Hero 内）。
-                Column(modifier = Modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
                     DashboardOverviewSkeleton()
                 }
             } else {
@@ -332,7 +385,7 @@ fun HomeScreen(
                 // 落到骨架分支——shimmer 永远转下去，用户分不清"在加载"还是"坏了"，
                 // 且没有任何重试入口。渲染同形失败条：点击重试 + 切仓入口常驻
                 // （换仓本身会触发 loadDashboard，也是一条重试路径）。
-                Column(modifier = Modifier.padding(top = 12.dp)) {
+                Column(modifier = Modifier.offset(y = (-28).dp)) {
                     DashboardOverviewError(
                         warehouses = homeUiState.warehouses,
                         selectedId = homeUiState.selectedWarehouseId,
@@ -352,14 +405,6 @@ fun HomeScreen(
             val rowCount = (cards.size + 2) / 3
 
             for (row in 0 until rowCount) {
-                if (row == 0 || row == 1) {
-                    Text(
-                        if (row == 0) "常用操作" else "更多功能",
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -383,6 +428,57 @@ fun HomeScreen(
                     }
                 }
                 Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // ── Bottom Info ──
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = CardBackground
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(9.dp))
+                            .background(Primary.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Outlined.Dns,
+                            contentDescription = null,
+                            tint = Primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            "当前服务器",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            uiState.baseUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -423,30 +519,127 @@ fun FunctionCardItem(
     index: Int = 0,
     onClick: () -> Unit
 ) {
+    var pressed by remember { mutableStateOf(false) }
+    val haptics = LocalHapticFeedback.current
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "card_scale"
+    )
+
+    // AI-APP-UI-002：入场交错动画——卡片按序号依次淡入上浮，
+    // 首页从"一屏元素同时砸下来"变为有节奏的进入，感知更精致。
+    // 延迟封顶 400ms：卡片再多也不会让最后一排等太久。
+    val entrance = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        delay((index * 35L).coerceAtMost(400L))
+        entrance.animateTo(1f, tween(320, easing = FastOutSlowInEasing))
+    }
+
     Card(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 96.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        modifier = modifier
+            .height(104.dp)
+            .graphicsLayer {
+                alpha = entrance.value
+                translationY = (1f - entrance.value) * 36f
+            }
+            .scale(scale)
+            .shadow(
+                elevation = if (pressed) 3.dp else 5.dp,
+                shape = RoundedCornerShape(16.dp),
+                ambientColor = card.gradient.first().copy(alpha = 0.15f),
+                spotColor = card.gradient.first().copy(alpha = 0.2f)
+            )
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onClick()
+                }
+            ),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = Brush.linearGradient(
+                        colors = card.gradient,
+                        start = Offset(0f, 0f),
+                        end = Offset(600f, 600f)
+                    )
+                )
         ) {
-            Icon(
-                card.icon, contentDescription = null,
-                tint = card.gradient.first(), modifier = Modifier.size(28.dp)
+            // Decorative background elements（随卡片缩小，避免溢出）
+            Box(
+                modifier = Modifier
+                    .size(70.dp)
+                    .offset(x = 60.dp, y = (-28).dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.08f))
             )
-            // 完整名称可换行，随系统字体增大；不再用固定高度裁掉半行文字。
-            Text(
-                card.title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
-                textAlign = TextAlign.Center
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .offset(x = 55.dp, y = 45.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.05f))
             )
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .offset(x = (-8).dp, y = 78.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.06f))
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Icon container
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White.copy(alpha = 0.22f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = card.icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                // Title & subtitle（104dp 高度内单行副标题，Ellipsis 兜底截断）
+                Column {
+                    Text(
+                        text = card.title,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = card.subtitle,
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }
@@ -475,7 +668,7 @@ fun TodayOverviewBar(
             screen = Screen.Outbound
         ),
         OverviewItem(
-            label = "待处理",
+            label = "待处理单据",
             value = "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
             sub = "入${dashboard.pendingInOrders}·出${dashboard.pendingOutOrders}",
             icon = Icons.Outlined.PendingActions,
@@ -656,6 +849,21 @@ private fun OverviewItemCell(
             .then(clickModifier),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(11.dp))
+                .background(item.color.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                item.icon,
+                contentDescription = null,
+                tint = item.color,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(7.dp))
         Text(
             item.value,
             fontSize = 20.sp,

@@ -12,9 +12,6 @@
 - 概览条四格 label/sub 加 maxLines=1 + 顶对齐
 - Hero 区与概览条半悬浮衔接
 
-2026-10-30 用户要求简化布局：三列及全部入口保留；固定高度、半悬浮断言
-按新规格替换为内容自适应和正常文档流断言，并新增 Compose 真实测量回归。
-
 本测试为结构断言（沙箱无 Kotlin SDK，无法真编译），与
 verify_android_startup_crash_safety.py 同一模式。
 """
@@ -74,19 +71,15 @@ def test_grid_last_row_has_placeholder():
 
 def test_card_height_reduced():
     src = _read()
-    assert "heightIn(min = 96.dp)" in src
-    assert "height(104.dp)" not in src, "固定高度会裁切放大字体"
+    assert "height(104.dp)" in src, "卡片高度未压缩到 104.dp"
     assert "height(168.dp)" not in src, "仍残留 168.dp 高度"
 
 
-def test_card_title_wraps_without_redundant_subtitle():
+def test_card_subtitle_single_line():
     src = _read()
     body = _extract_function(src, "fun FunctionCardItem(")
-    # 2026-10-30 用户要求减少信息：完整标题可换行，冗余副标题不再渲染。
-    assert "card.title" in body
-    assert "card.subtitle" not in body
-    assert "maxLines" not in body
-    assert "TextOverflow.Ellipsis" not in body
+    # 副标题块：找到 card.subtitle 所在的 Text，其后应有 maxLines = 1
+    assert "maxLines = 1" in body, "卡片副标题未限制单行"
 
 
 # ---------------------------------------------------------------------------
@@ -119,18 +112,18 @@ def test_overview_alert_text_shortened():
 # ④ Hero 半悬浮
 # ---------------------------------------------------------------------------
 
-def test_hero_compact_padding():
+def test_hero_bottom_padding_increased():
     src = _read()
-    assert ".padding(vertical = 12.dp)" in src
-    assert "padding(top = 16.dp, bottom = 48.dp)" not in src
-    assert "// Greeting + avatar" not in src
+    assert "padding(top = 16.dp, bottom = 48.dp)" in src, (
+        "Hero 底部 padding 未加大到 48.dp，无法承接半悬浮概览条"
+    )
 
 
 def test_overview_section_offset():
     src = _read()
-    # 成功、加载、失败三种状态均保持正常文档流，不产生 offset 虚占位。
-    assert "Modifier.offset" not in src
-    assert src.count("Column(modifier = Modifier.padding(top = 12.dp))") == 3
+    # 标题 + 概览条整体 Column offset，骨架同形
+    count = src.count("Column(modifier = Modifier.offset(y = (-28).dp))")
+    assert count >= 2, f"半悬浮 offset 只出现 {count} 次，真实布局或骨架至少一处缺失"
 
 
 # ---------------------------------------------------------------------------

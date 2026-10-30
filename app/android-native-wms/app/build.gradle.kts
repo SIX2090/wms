@@ -32,8 +32,8 @@ android {
         // 3.9.4(28)=BUG-2026-10-002 DataStore 访问加 5s 超时/降级，actor 死亡时提交/登录不再永久挂起。
         // BUG-2026-10-30-009：入库/出库/盘点清单点数量修改，期初沿用既有编辑。
         // 3.9.6(30)=AI-MOB-VOICE-F01-UI-HIDE-001：隐藏手机端语音入口及说明。
-        versionCode = 31
-        versionName = "3.9.7"
+        versionCode = 30
+        versionName = "3.9.6"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 
@@ -238,7 +238,6 @@ dependencies {
 
     // ---- 单元测试依赖（BUG-2026-09-14-033）----
     // 此前**完全没有任何测试依赖**，CI 的 testReleaseUnitTest 一直在空跑。
-    testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     // Robolectric：在 JVM 上模拟 Android 运行时，可真实实例化 ViewModel/Repository、

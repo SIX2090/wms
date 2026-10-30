@@ -28,7 +28,6 @@ import com.factory.wms.ui.components.PendingSyncBanner
 import com.factory.wms.ui.components.ScannerDialog
 // AI-APP-FIX-405：拍照 launcher 迁至 ui/components/CameraLauncher.kt，此处需显式导入
 import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
-import com.factory.wms.ui.components.WmsExpandableSection
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.components.WmsOutlinedActionButton
@@ -100,8 +99,6 @@ fun ScanScreenBase(
     onExtraAction: (() -> Unit)? = null,
     // 可选的顶部区域（如出入库的仓库选择），渲染在汇总条之前
     header: (@Composable () -> Unit)? = null,
-    details: (@Composable () -> Unit)? = null,
-    detailsCount: Int = 0,
     // 可选的自定义横幅（如语音建单成功提示），渲染在 header 之下、汇总条之上
     banner: (@Composable () -> Unit)? = null,
     // 提交成功后的"打印单据"横幅（提交入库/出库后出现）
@@ -121,7 +118,6 @@ fun ScanScreenBase(
     onRetryOffline: () -> Unit = {}
 ) {
     var showCameraScanner by remember { mutableStateOf(false) }
-    var showClearConfirmation by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
     var pendingQuantityEdit by remember { mutableStateOf<ScanLine?>(null) }
     var editedQuantity by remember { mutableStateOf(TextFieldValue("")) }
@@ -129,25 +125,6 @@ fun ScanScreenBase(
     val haptics = LocalHapticFeedback.current
     val scanState by viewModel.uiState.collectAsState()
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
-    if (showClearConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showClearConfirmation = false },
-            title = { Text("清空物料清单？") },
-            text = { Text("将移除 ${scanLines.size} 行物料，需重新扫码或添加。") },
-            confirmButton = {
-                TextButton(
-                    enabled = !isLoading && scanState.pendingSubmissionId == null,
-                    onClick = {
-                        viewModel.clearScanLines()
-                        showClearConfirmation = false
-                    }
-                ) { Text("确认清空") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirmation = false }) { Text("取消") }
-            }
-        )
-    }
     pendingQuantityEdit?.let { line ->
         val quantityFocus = remember { FocusRequester() }
         fun saveQuantity() {
@@ -315,19 +292,10 @@ fun ScanScreenBase(
                 if (showLocationSelector) {
                     ScanLocationSelector(viewModel)
                 }
-                if (details != null || showEvidenceCapture) {
-                    WmsExpandableSection(
-                        title = "更多信息（选填）",
-                        summary = "已填 $detailsCount 项" +
-                            if (showEvidenceCapture) " · 照片 ${scanState.evidence.size}/3" else ""
-                    ) {
-                        details?.invoke()
-                        if (showEvidenceCapture) {
-                            Row(Modifier.padding(horizontal = 16.dp)) {
-                                OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
-                                    Text("拍照取证（${scanState.evidence.size}/3）")
-                                }
-                            }
+                if (showEvidenceCapture) {
+                    Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = evidenceCamera, enabled = !isLoading && scanState.evidence.size < 3) {
+                            Text("拍照取证（${scanState.evidence.size}/3）")
                         }
                     }
                 }
@@ -435,18 +403,65 @@ fun ScanScreenBase(
 
                 // Summary bar
                 if (scanLines.isNotEmpty()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = gradient.copy(alpha = 0.06f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${scanLines.size} 行物料", style = MaterialTheme.typography.titleSmall)
-                            Text("合计：${formatQuantity(totalQuantity)}", style = MaterialTheme.typography.bodySmall)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(gradient.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Outlined.Inventory2,
+                                        null,
+                                        tint = gradient,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        "${scanLines.size} 种物料",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        "总计: ${formatQuantity(totalQuantity)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            FilledTonalButton(
+                                onClick = { viewModel.clearScanLines() },
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = ErrorContainer,
+                                    contentColor = Error
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("清空", fontSize = 13.sp)
+                            }
                         }
-                        TextButton(
-                            onClick = { showClearConfirmation = true },
-                            enabled = !isLoading && scanState.pendingSubmissionId == null
-                        ) { Text("清空", color = MaterialTheme.colorScheme.error) }
                     }
 
                     // Scan list
@@ -495,6 +510,22 @@ fun ScanScreenBase(
                                         .padding(horizontal = 14.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    // Index badge（圆角方块，与模块色呼应）
+                                    Box(
+                                        modifier = Modifier
+                                            .size(38.dp)
+                                            .clip(RoundedCornerShape(11.dp))
+                                            .background(gradient.copy(alpha = 0.12f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "${index + 1}",
+                                            color = gradient,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
                                             line.material_code,
@@ -513,12 +544,11 @@ fun ScanScreenBase(
                                                 materialDetails,
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                // 完整规格用于区分相似物料，不省略尾部型号。
-                                                softWrap = true
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(8.dp))
                                     // 扫码/手动加入的行均可直接修改确切数量。
                                     Surface(
                                         onClick = {
@@ -581,8 +611,7 @@ fun ScanScreenBase(
                             icon = Icons.Outlined.QrCodeScanner,
                             title = "暂无扫描记录",
                             subtitle = "点击下方按钮扫码或手动添加",
-                            accentColor = gradient,
-                            compact = true
+                            accentColor = gradient
                         )
                     }
                 }
@@ -597,13 +626,13 @@ fun ScanScreenBase(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth(),
-                shadowElevation = 2.dp,
+                shadowElevation = 12.dp,
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(16.dp)
                         // BUG-2026-09-18-006：本区不再可滚（它在可滚区之外，必须整体可见），
                         // 故对"可能无限长"的内容加限高 + 内部滚动，防止把提交按钮推到屏幕外：
                         // 手工添加候选与下方的扫码/手动按钮区共用最大高度约束，
@@ -612,17 +641,15 @@ fun ScanScreenBase(
                 ) {
                     // Submit button（AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton，
                     // 触觉确认由组件内置——提交是关键动作，避免嘈杂现场重复点）
-                    if (scanLines.isNotEmpty()) {
-                        WmsPrimaryButton(
-                            text = submitLabel,
-                            onClick = onSubmitClick,
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Icons.Outlined.CheckCircle,
-                            color = submitColor,
-                            loading = isLoading,
-                            enabled = scanLines.isNotEmpty()
-                        )
-                    }
+                    WmsPrimaryButton(
+                        text = submitLabel,
+                        onClick = onSubmitClick,
+                        modifier = Modifier.fillMaxWidth(),
+                        icon = Icons.Outlined.CheckCircle,
+                        color = submitColor,
+                        loading = isLoading,
+                        enabled = scanLines.isNotEmpty()
+                    )
 
                     if (materialSuggestionsLoading) {
                         LinearProgressIndicator(
@@ -659,7 +686,7 @@ fun ScanScreenBase(
                             }
                         }
                     }
-                    if (scanLines.isNotEmpty()) Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     // Extra recognition-type action (e.g. 识物盘点), only when provided
                     // AI-APP-FIX-404：自绘描边按钮 → WmsOutlinedActionButton

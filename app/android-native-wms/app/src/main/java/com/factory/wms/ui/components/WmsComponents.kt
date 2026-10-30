@@ -167,7 +167,22 @@ fun WmsGradientHeader(
                 )
             )
     ) {
-        // 装饰不参与测量，头部高度只由标题与系统安全区决定。
+        // 装饰圆
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .offset(x = (-50).dp, y = (-60).dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.05f))
+        )
+        Box(
+            modifier = Modifier
+                .size(90.dp)
+                .align(Alignment.TopEnd)
+                .offset(x = 30.dp, y = (-24).dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.07f))
+        )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -266,8 +281,7 @@ fun WmsEmptyState(
     modifier: Modifier = Modifier,
     accentColor: Color = Primary,
     /** AI-APP-FIX-405：AI 采集页空态的虚线圆角图标井样式（替代圆环井）。 */
-    dashedBorder: Boolean = false,
-    compact: Boolean = false
+    dashedBorder: Boolean = false
 ) {
     Column(
         modifier = modifier.padding(32.dp),
@@ -292,14 +306,14 @@ fun WmsEmptyState(
         } else {
             Box(
                 modifier = Modifier
-                    .size(if (compact) 48.dp else 96.dp)
+                    .size(96.dp)
                     .clip(CircleShape)
                     .background(accentColor.copy(alpha = 0.05f)),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(if (compact) 40.dp else 72.dp)
+                        .size(72.dp)
                         .clip(CircleShape)
                         .background(accentColor.copy(alpha = 0.08f)),
                     contentAlignment = Alignment.Center
@@ -307,7 +321,7 @@ fun WmsEmptyState(
                     Icon(
                         icon,
                         contentDescription = null,
-                        modifier = Modifier.size(if (compact) 24.dp else 34.dp),
+                        modifier = Modifier.size(34.dp),
                         tint = accentColor.copy(alpha = 0.55f)
                     )
                 }
@@ -325,7 +339,7 @@ fun WmsEmptyState(
             subtitle,
             style = MaterialTheme.typography.bodySmall,
             color = OnSurfaceVariant,
-            textAlign = TextAlign.Center,
+            textAlign = if (dashedBorder) TextAlign.Center else null,
             lineHeight = if (dashedBorder) 20.sp else androidx.compose.ui.unit.TextUnit.Unspecified
         )
     }

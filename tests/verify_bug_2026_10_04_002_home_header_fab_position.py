@@ -15,15 +15,15 @@
 ## 修复约定（本测试锁死）
 
 1. HomeScreen 的「今日概览」标题行渲染在 Hero（蓝底）内——不得再出现在
-   半悬浮 offset Column 里；2026-10-30用户新要求将三态（成功/骨架/失败）
-   卡片改为正常文档流，原标题可读及语音避让断言保留。
+   半悬浮 offset Column 里；三态（成功/骨架/失败）的卡片仍各自保留
+   `Column(modifier = Modifier.offset(y = (-28).dp))` 半悬浮。
 2. VoiceAssistant 的 FAB modifier 必须含 `navigationBarsPadding()` 且
    底部 padding ≥ 80dp（M3 NavigationBar 高 80dp）。
 3. BUG-2026-10-04-002 必须登记台账（含「生效确认」字段，A13）。
 
 ## 为什么是静态断言
 
-本地无 Android SDK 与 Kotlin 工具链；Android CI另做真实编译及Compose测量；
+沙箱/CI 无 Android SDK 与 Kotlin 工具链，无法编译运行 Compose；
 本测试以源码结构契约锁死修复。
 """
 
@@ -74,11 +74,11 @@ def test_002_title_row_rendered_inside_hero() -> None:
     assert "Color.White" in seg, "Hero 内的「今日概览」标题必须是白色（蓝底）"
 
 
-def test_002_overview_states_have_no_floating_overlap() -> None:
-    """2026-10-30 用户要求紧凑布局：三态改正常流，保留标题在蓝底内的原防裁切锁。"""
+def test_002_floating_card_offset_preserved() -> None:
+    """半悬浮卡片 offset(-28) 结构必须保留（三态至少 2 处，防止误删悬浮效果）。"""
     src = _read(HOME)
-    assert "Modifier.offset" not in src
-    assert src.count("Column(modifier = Modifier.padding(top = 12.dp))") == 3
+    count = src.count("Column(modifier = Modifier.offset(y = (-28).dp))")
+    assert count >= 2, f"半悬浮 offset 只剩 {count} 处，卡片悬浮效果被误删"
 
 
 def test_002_voice_fab_clears_bottom_bar() -> None:
