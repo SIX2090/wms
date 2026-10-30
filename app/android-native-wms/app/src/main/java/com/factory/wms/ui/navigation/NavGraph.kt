@@ -1,5 +1,7 @@
 package com.factory.wms.ui.navigation
 
+import com.factory.wms.BuildConfig
+
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -434,8 +436,9 @@ fun AppNavGraph() {
         // AUDIT-2026-10-07-P2：AI 助手聊天页隐藏悬浮语音球。聊天页输入区有自己的
         // 语音输入（AssistantVoiceInputViewModel），悬浮球（VoiceCommandViewModel）
         // 此时仍可点 → 两个引擎同时抢麦克风，录音互相干扰/失败。进聊天页时隐藏，
-        // 返回其他页面自动恢复。
-        if (authState.isLoggedIn && currentRoute != Screen.AssistantChat.route) {
+        // 语音 UI 启用时返回其他页面自动恢复；当前按用户要求统一隐藏。
+        // AI-MOB-VOICE-F01-UI-HIDE-001：统一隐藏语音入口，不构造悬浮层及其引擎。
+        if (authState.isLoggedIn && currentRoute != Screen.AssistantChat.route && BuildConfig.VOICE_UI_ENABLED) {
             VoiceAssistantOverlay(
                 voiceViewModel = viewModel(),
                 voiceDraftViewModel = viewModel(),

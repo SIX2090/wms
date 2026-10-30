@@ -176,60 +176,63 @@ fun ProfileScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            if (BuildConfig.VOICE_UI_ENABLED) {
+                Spacer(modifier = Modifier.height(12.dp))
 
-            // ── 语音指令说明 ──
-            ProfileSectionCard("语音指令说明") {
-                ProfileRow(
-                    icon = Icons.Outlined.ArrowDownward,
-                    label = "去入库",
-                    value = "说“入库”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.ArrowUpward,
-                    label = "去出库",
-                    value = "说“出库”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.Search,
-                    label = "去查库存",
-                    value = "说“查库存”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.Inventory2,
-                    label = "去盘点",
-                    value = "说“盘点”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.Description,
-                    label = "识别单据",
-                    value = "说“识别单据”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.ArrowBack,
-                    label = "返回上一页",
-                    value = "说“返回”",
-                    isHint = true
-                )
-                ProfileRow(
-                    icon = Icons.Outlined.Home,
-                    label = "回到首页",
-                    value = "说“回到首页”",
-                    isHint = true
-                )
-                ProfileRow(
-                    // AI-ASSISTANT-MOBILE-001：语音也支持任意 AI 问答（经 LLM 意图路由）
-                    icon = Icons.Outlined.SmartToy,
-                    label = "AI 问答",
-                    value = "说任意问题，如“低库存报告”",
-                    isHint = true,
-                    showDivider = false
-                )
+                // ── 语音指令说明 ──
+                ProfileSectionCard("语音指令说明") {
+                    ProfileRow(
+                        icon = Icons.Outlined.ArrowDownward,
+                        label = "去入库",
+                        value = "说“入库”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.ArrowUpward,
+                        label = "去出库",
+                        value = "说“出库”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.Search,
+                        label = "去查库存",
+                        value = "说“查库存”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.Inventory2,
+                        label = "去盘点",
+                        value = "说“盘点”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.Description,
+                        label = "识别单据",
+                        value = "说“识别单据”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.ArrowBack,
+                        label = "返回上一页",
+                        value = "说“返回”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        icon = Icons.Outlined.Home,
+                        label = "回到首页",
+                        value = "说“回到首页”",
+                        isHint = true
+                    )
+                    ProfileRow(
+                        // AI-ASSISTANT-MOBILE-001：语音也支持任意 AI 问答（经 LLM 意图路由）
+                        icon = Icons.Outlined.SmartToy,
+                        label = "AI 问答",
+                        value = "说任意问题，如“低库存报告”",
+                        isHint = true,
+                        showDivider = false
+                    )
+                }
+
             }
 
             Spacer(modifier = Modifier.height(24.dp))

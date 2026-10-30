@@ -1,5 +1,7 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.BuildConfig
+
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -460,43 +462,45 @@ fun AssistantChatScreen(
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
-                    FilledIconButton(
-                        onClick = {
-                            if (voiceState.isListening) {
-                                voiceViewModel.stopListening()
-                            } else {
-                                val granted = ContextCompat.checkSelfPermission(
-                                    context, Manifest.permission.RECORD_AUDIO
-                                ) == PackageManager.PERMISSION_GRANTED
-                                if (granted) {
-                                    voiceViewModel.startListening(context)
+                    if (BuildConfig.VOICE_UI_ENABLED) {
+                        // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
+                        FilledIconButton(
+                            onClick = {
+                                if (voiceState.isListening) {
+                                    voiceViewModel.stopListening()
                                 } else {
-                                    micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    val granted = ContextCompat.checkSelfPermission(
+                                        context, Manifest.permission.RECORD_AUDIO
+                                    ) == PackageManager.PERMISSION_GRANTED
+                                    if (granted) {
+                                        voiceViewModel.startListening(context)
+                                    } else {
+                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                    }
                                 }
+                            },
+                            shape = RoundedCornerShape(50),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = if (voiceState.isListening) Error else CardBackground,
+                                contentColor = if (voiceState.isListening) Color.White else Primary
+                            )
+                        ) {
+                            if (voiceState.isListening) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = Color.White,
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Icon(
+                                    Icons.Outlined.Mic,
+                                    contentDescription = "语音输入",
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
-                        },
-                        shape = RoundedCornerShape(50),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (voiceState.isListening) Error else CardBackground,
-                            contentColor = if (voiceState.isListening) Color.White else Primary
-                        )
-                    ) {
-                        if (voiceState.isListening) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                        } else {
-                            Icon(
-                                Icons.Outlined.Mic,
-                                contentDescription = "语音输入",
-                                modifier = Modifier.size(20.dp)
-                            )
                         }
+                        Spacer(Modifier.width(8.dp))
                     }
-                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
                         value = input,
                         onValueChange = { if (it.length <= 2000) input = it },
