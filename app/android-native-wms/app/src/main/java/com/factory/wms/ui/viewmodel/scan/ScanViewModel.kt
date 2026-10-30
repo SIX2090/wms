@@ -470,39 +470,6 @@ class ScanViewModel(
         }
     }
 
-    /** 修改清单行的确切数量；保留扫码累加语义，并拒绝覆盖打开弹窗后变化的行。 */
-    fun updateScanLineQuantity(expected: ScanLine, quantity: Double, allowZero: Boolean = false): Boolean {
-        if (draftEditingBlocked()) return false
-        if (!quantity.isFinite() || quantity < 0.0 || (!allowZero && quantity == 0.0)) {
-            _uiState.value = _uiState.value.copy(error = if (allowZero)
-                "请输入大于或等于 0 的有效数量" else "请输入大于 0 的有效数量")
-            return false
-        }
-        val current = _uiState.value.scanLines.toMutableList()
-        val matches = current.indices.filter {
-            current[it].material_code == expected.material_code &&
-                current[it].location_code.orEmpty() == expected.location_code.orEmpty()
-        }
-        val index = matches.singleOrNull()
-        if (index == null || current[index].quantity != expected.quantity) {
-            _uiState.value = _uiState.value.copy(error = "清单已变化，请取消后重新打开修改数量")
-            return false
-        }
-        current[index] = current[index].copy(quantity = quantity)
-        val total = current.sumOf { it.quantity }
-        if (!total.isFinite()) {
-            _uiState.value = _uiState.value.copy(error = "数量合计过大，请重新输入")
-            return false
-        }
-        _uiState.value = _uiState.value.copy(
-            scanLines = current,
-            totalQuantity = total,
-            error = null,
-            scanFeedback = "${expected.material_code} 数量已修改为 ${formatQuantity(quantity)}"
-        )
-        return true
-    }
-
     /** 清单中同物料行的当前数量；不存在返回 null（用于盘点重复扫码确认）。 */
     fun existingLineQuantity(code: String, location: String? = null): Double? {
         val clean = code.trim()
