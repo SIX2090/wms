@@ -3265,6 +3265,23 @@ function shouldSkipMobileField(label, value) {
     return false;
 }
 
+function copyMobileCardCellContent(cell, target) {
+    var copy = cell.cloneNode(true);
+    copy.removeAttribute('id');
+    copy.querySelectorAll('[id]').forEach(function(node) { node.removeAttribute('id'); });
+    var sources = cell.querySelectorAll('button, a[href], img');
+    copy.querySelectorAll('button, a[href], img').forEach(function(node, index) {
+        var source = sources[index];
+        node.removeAttribute('onclick');
+        node.addEventListener('click', function(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (!source.disabled) source.click();
+        });
+    });
+    Array.from(copy.childNodes).forEach(function(node) { target.appendChild(node); });
+}
+
 function initMobileListCards() {
     if (!isMobileViewport()) return;
     document.querySelectorAll('table.wms-mobile-table').forEach(function(table) {
@@ -3295,6 +3312,28 @@ function initMobileListCards() {
 
             var header = document.createElement('div');
             header.className = 'wms-mobile-list-card-header';
+            var sourceCheck = row.querySelector('input[type="checkbox"]');
+            if (sourceCheck) {
+                var cardCheck = sourceCheck.cloneNode(false);
+                cardCheck.removeAttribute('id');
+                cardCheck.removeAttribute('name');
+                cardCheck.removeAttribute('onclick');
+                cardCheck.setAttribute('aria-label', '选择 ' + titleText);
+                var syncCheck = function() {
+                    cardCheck.checked = sourceCheck.checked;
+                    cardCheck.disabled = sourceCheck.disabled;
+                };
+                syncCheck();
+                cardCheck.addEventListener('change', function() {
+                    if (!sourceCheck.disabled) {
+                        sourceCheck.checked = cardCheck.checked;
+                        sourceCheck.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    syncCheck();
+                });
+                table.addEventListener('change', syncCheck);
+                header.appendChild(cardCheck);
+            }
             if (titleLink) {
                 var link = titleLink.cloneNode(true);
                 link.className = 'wms-mobile-list-card-title';
@@ -3317,6 +3356,7 @@ function initMobileListCards() {
                 Array.from(statusCell.childNodes).forEach(function(node) {
                     status.appendChild(node.cloneNode(true));
                 });
+                status.querySelectorAll('button, a[href]').forEach(function(node) { node.remove(); });
                 header.appendChild(status);
             }
             card.appendChild(header);
@@ -3332,22 +3372,32 @@ function initMobileListCards() {
                 item.className = 'wms-mobile-field';
                 item.innerHTML = '<span class="wms-mobile-field-label"></span><span class="wms-mobile-field-value"></span>';
                 item.querySelector('.wms-mobile-field-label').textContent = label || '字段';
-                item.querySelector('.wms-mobile-field-value').textContent = value || '-';
+                var valueNode = item.querySelector('.wms-mobile-field-value');
+                if (cell.querySelector('img') || /图片|图像|照片/i.test(label)) {
+                    copyMobileCardCellContent(cell, valueNode);
+                } else {
+                    valueNode.textContent = value || '-';
+                }
                 body.appendChild(item);
             });
             card.appendChild(body);
 
-            var actionCell = cells.find(function(cell, index) {
-                return /^(操作|动作)$/i.test(labels[index] || '') || cell.querySelector('.btn, button, a[href]');
-            });
-            if (actionCell) {
-                var actions = document.createElement('div');
-                actions.className = 'wms-mobile-list-card-actions';
-                Array.from(actionCell.querySelectorAll('a[href], button')).forEach(function(action) {
-                    actions.appendChild(action.cloneNode(true));
+            var actions = document.createElement('div');
+            actions.className = 'wms-mobile-list-card-actions';
+            cells.forEach(function(cell, index) {
+                if (cell === titleCell || cell.querySelector('img') || /图片|图像|照片/i.test(labels[index] || '')) return;
+                cell.querySelectorAll('a[href], button').forEach(function(action) {
+                    var clone = action.cloneNode(true);
+                    clone.removeAttribute('id');
+                    clone.removeAttribute('onclick');
+                    clone.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        if (!action.disabled) action.click();
+                    });
+                    actions.appendChild(clone);
                 });
-                if (actions.children.length) card.appendChild(actions);
-            }
+            });
+            if (actions.children.length) card.appendChild(actions);
 
             cards.appendChild(card);
         });
