@@ -1448,30 +1448,35 @@ function setInputValueIfExists(id, value) {
     if (node) node.value = value;
 }
 
+function getSelectedMaterialIds() {
+    return Array.from(document.querySelectorAll('#materialTable .check-item:checked'), function(cb) {
+        return cb.value;
+    });
+}
+
 function getSelectedSingleId() {
-    var checked = document.querySelectorAll('#materialTable .check-item:checked');
-    if (checked.length !== 1) return null;
-    return checked[0].value;
+    var ids = getSelectedMaterialIds();
+    return ids.length === 1 ? ids[0] : null;
 }
 
 function updateToolbarButtons() {
-    var id = getSelectedSingleId();
-    var hasSelection = id !== null;
-    document.getElementById('toolbarEditBtn').disabled = !hasSelection;
-    document.getElementById('toolbarCopyBtn').disabled = !hasSelection;
+    var count = getSelectedMaterialIds().length;
+    var hasSelection = count > 0;
+    var isSingleSelection = count === 1;
+    document.getElementById('toolbarEditBtn').disabled = !isSingleSelection;
+    document.getElementById('toolbarCopyBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
     document.getElementById('toolbarRemotePrintBtn').disabled = !hasSelection;
-    document.getElementById('toolbarFindImageBtn').disabled = !hasSelection;
-    document.getElementById('toolbarDeleteBtn').disabled = !hasSelection;
-    var mergeCount = document.querySelectorAll('#materialTable .check-item:checked').length;
-    document.getElementById('toolbarMergeBtn').disabled = mergeCount < 1 || mergeCount > 2;
+    document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
+    document.getElementById('toolbarDeleteBtn').disabled = !isSingleSelection;
+    document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
 }
 
 function initToolbarActions() {
     var table = document.getElementById('materialTable');
     if (table) {
         table.addEventListener('change', function(e) {
-            if (e.target.classList.contains('check-item')) {
+            if (e.target.classList.contains('check-item') || e.target.id === 'checkAll') {
                 updateToolbarButtons();
             }
         });
@@ -1491,14 +1496,13 @@ function toolbarCopy() {
 }
 
 function toolbarPrint() {
-    var id = getSelectedSingleId();
-    if (id) printSingleLabel(id);
+    printLabels();
 }
 
 function sendLabelsToPrintStation() {
-    var id = getSelectedSingleId();
-    if (!id) return;
-    WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: String(id)})
+    var ids = getSelectedMaterialIds();
+    if (!ids.length) return;
+    WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: ids.join(',')})
     .then(function(res) {
         showToast(res.msg || '已发送标签到打印工作站', 'success');
     })
@@ -3788,10 +3792,7 @@ function previewLabel() {
 }
 
 function printLabels() {
-    var selected = [];
-    document.querySelectorAll('.check-item:checked').forEach(function(cb) {
-        selected.push(cb.value);
-    });
+    var selected = getSelectedMaterialIds();
 
     if (selected.length === 0) {
         __notify('请先选择要打印标签的物料（勾选表格中的复选框）', 'warning');
