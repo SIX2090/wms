@@ -931,6 +931,19 @@
                 tryStreamChat(text, requestId);
             }
         }
+        // AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-002
+        window.WmsAiAssistant = {
+            ask: function(text) {
+                if (typeof text !== 'string' || !text.trim()) return false;
+                if (isSending) {
+                    showToast('AI助手正在处理，请稍后重试', 'warning');
+                    return false;
+                }
+                panel.classList.add('open');
+                sendAssistantMessage(text.trim(), []);
+                return true;
+            }
+        };
         messages.addEventListener('click', function(event) {
             const btn = event.target.closest('.ai-suggestion');
             if (!btn || isSending) return;

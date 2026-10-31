@@ -34524,6 +34524,8 @@ def api_ai_acceptance_daily_snapshots():
             'status': 'ok',
             'snapshots': snapshots,
             'count': len(snapshots),
+            'latest_package_id': db.session.query(AIAcceptanceEvidencePackage.id).order_by(
+                AIAcceptanceEvidencePackage.id.desc()).limit(1).scalar(),
         })
     except Exception as e:
         app.logger.error(f'AI-R17-F02 查询每日快照失败: {e}')
@@ -34804,7 +34806,8 @@ def api_supplier_evaluation():
         # 近90天入库单据
         recent_orders = InOrder.query.filter(
             InOrder.supplier_id == supplier.id,
-            InOrder.date >= ninety_days_ago
+            InOrder.date >= ninety_days_ago,
+            InOrder.status == 'completed',
         ).all()
 
         order_count = len(recent_orders)
@@ -34928,7 +34931,7 @@ def api_recommend_location():
     # 会触发 SQLAlchemy "Unknown column material.status" 错误，导致 AI 库位推荐
     # 和需求预测 API 直接 500。移除该过滤条件，所有物料均视为可用。
     materials = Material.query.all()
-    material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit or ''} for m in materials]
+    material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else ''} for m in materials]
     
     if not material_id:
         return jsonify({
@@ -35040,7 +35043,7 @@ def api_recommend_location():
 编码：{material.code}
 名称：{material.name}
 规格：{material.spec or '无'}
-单位：{material.unit or '无'}
+单位：{material.unit.name if material.unit else '无'}
 
 【周转情况】
 近90天出入库次数：{total_turnover}次（入库{turnover_in}次，出库{turnover_out}次）
@@ -35051,7 +35054,7 @@ def api_recommend_location():
 """
     if current_dist:
         for cd in current_dist:
-            prompt += f"- {cd['location']}：{cd['quantity']}{material.unit or ''}\n"
+            prompt += f"- {cd['location']}：{cd['quantity']}{material.unit.name if material.unit else ''}\n"
     else:
         prompt += "暂无库存分布\n"
     
@@ -35077,7 +35080,7 @@ def api_recommend_location():
                 'code': material.code,
                 'name': material.name,
                 'spec': material.spec or '',
-                'unit': material.unit or '',
+                'unit': material.unit.name if material.unit else '',
             },
             'turnover': {
                 'total': total_turnover,
@@ -35121,14 +35124,16 @@ def api_demand_forecast():
     # BUG-2026-08-04-006: Material 模型无 status 字段，移除 filter_by(status='active')
     materials_query = Material.query
     if category:
-        materials_query = materials_query.filter_by(category=category)
+        materials_query = materials_query.filter(Material.category.has(MaterialCategory.name == category))
     materials = materials_query.limit(100).all()
     
     if not materials:
         return jsonify({'status': 'success', 'forecasts': [], 'msg': '暂无物料数据'})
     
     # 获取分类列表
-    categories = db.session.query(Material.category).distinct().filter(Material.category.isnot(None), Material.category != '').all()
+    categories = db.session.query(MaterialCategory.name).join(
+        Material, Material.category_id == MaterialCategory.id,
+    ).filter(MaterialCategory.name != '').distinct().all()
     category_list = [c[0] for c in categories]
     
     # 历史数据周期
@@ -35204,8 +35209,8 @@ def api_demand_forecast():
             'material_code': material.code,
             'material_name': material.name,
             'material_spec': material.spec or '',
-            'category': material.category or '-',
-            'unit': material.unit or '',
+            'category': material.category.name if material.category else '-',
+            'unit': material.unit.name if material.unit else '',
             'current_stock': round(current_stock, 2),
             'history_days': history_days,
             'total_out': round(total_out, 2),

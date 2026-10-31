@@ -135,6 +135,23 @@
 {% block extra_js %}
 <script>
 let currentFile = null;
+// AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-002
+let ocrGeneration = 0;
+let ocrFileGeneration = 0;
+let ocrController = null;
+let ocrReadingImage = false;
+
+function invalidateDocumentOcr() {
+    ocrGeneration += 1;
+    if (ocrController) ocrController.abort();
+    ocrController = null;
+    const button = document.getElementById('recognizeBtn');
+    button.disabled = !currentFile || ocrReadingImage;
+    button.innerHTML = '<i class="bi bi-stars"></i> 开始识别';
+    document.getElementById('resultCard').style.display = 'none';
+    document.getElementById('resultContent').innerHTML = '';
+    document.getElementById('emptyResultCard').style.display = 'block';
+}
 
 // HTML 转义工具：所有来自后端/AI 的字符串字段必须经此处理后再插入 innerHTML
 
@@ -196,12 +213,27 @@ function handleFileSelect(file) {
     }
     
     currentFile = file;
+    ocrReadingImage = true;
+    invalidateDocumentOcr();
+    const fileGeneration = ++ocrFileGeneration;
     const reader = new FileReader();
     reader.onload = function(e) {
+        if (fileGeneration !== ocrFileGeneration || currentFile !== file) return;
+        ocrReadingImage = false;
         document.getElementById('previewImage').src = e.target.result;
         document.getElementById('uploadPlaceholder').style.display = 'none';
         document.getElementById('uploadPreview').style.display = 'block';
         document.getElementById('recognizeBtn').disabled = false;
+    };
+    reader.onerror = function() {
+        if (fileGeneration !== ocrFileGeneration) return;
+        currentFile = null;
+        ocrFileGeneration += 1;
+        ocrReadingImage = false;
+        invalidateDocumentOcr();
+        document.getElementById('uploadPlaceholder').style.display = 'block';
+        document.getElementById('uploadPreview').style.display = 'none';
+        showToast('图片读取失败，请重新选择', 'danger');
     };
     reader.readAsDataURL(file);
 }
@@ -210,14 +242,22 @@ function handleFileSelect(file) {
 document.getElementById('clearImageBtn').addEventListener('click', function(e) {
     e.stopPropagation();
     currentFile = null;
+    ocrFileGeneration += 1;
+    ocrReadingImage = false;
+    invalidateDocumentOcr();
     document.getElementById('fileInput').value = '';
     document.getElementById('uploadPlaceholder').style.display = 'block';
     document.getElementById('uploadPreview').style.display = 'none';
     document.getElementById('recognizeBtn').disabled = true;
 });
 
+document.getElementById('documentType').addEventListener('change', invalidateDocumentOcr);
+document.getElementById('remarks').addEventListener('input', invalidateDocumentOcr);
+window.addEventListener('pagehide', invalidateDocumentOcr);
+
 // 开始识别
 document.getElementById('recognizeBtn').addEventListener('click', function() {
+    if (ocrController || ocrReadingImage) return;
     if (!currentFile) {
         showToast('请先上传图片', 'warning');
         return;
@@ -227,6 +267,9 @@ document.getElementById('recognizeBtn').addEventListener('click', function() {
     const resultCard = document.getElementById('resultCard');
     const resultContent = document.getElementById('resultContent');
     const emptyResultCard = document.getElementById('emptyResultCard');
+    const generation = ++ocrGeneration;
+    const controller = new AbortController();
+    ocrController = controller;
     
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> 识别中...';
@@ -239,15 +282,9 @@ document.getElementById('recognizeBtn').addEventListener('click', function() {
     formData.append('document_type', document.getElementById('documentType').value);
     formData.append('remarks', document.getElementById('remarks').value);
     
-    fetch('/api/ai/document_ocr', {
-        method: 'POST',
-        headers: {
-            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
-        },
-        body: formData
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/api/ai/document_ocr', formData, {signal: controller.signal})
     .then(res => {
+        if (generation !== ocrGeneration) return;
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-stars"></i> 开始识别';
         
@@ -259,10 +296,17 @@ document.getElementById('recognizeBtn').addEventListener('click', function() {
         }
     })
     .catch(function(err) {
+        if (generation !== ocrGeneration) return;
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-stars"></i> 开始识别';
         // XSS 防护：转义异常 message 后再插入 DOM
         resultContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err && err.message ? err.message : String(err)) + '</div>';
+    })
+    .finally(function() {
+        if (generation === ocrGeneration) {
+            ocrController = null;
+            btn.disabled = !currentFile || ocrReadingImage;
+        }
     });
 });
 

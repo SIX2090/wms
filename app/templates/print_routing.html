@@ -95,7 +95,7 @@
                     </table>
                 </div>
                 <div class="card-footer text-end py-1">
-                    <button class="btn btn-outline-primary btn-sm" onclick='editWs({{ ws.id }}, {{ ws.name | tojson }}, {{ ws.warehouse_id | tojson }})'>编辑</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick='editWs({{ ws.id }}, {{ ws.name | tojson }}, {{ ws.warehouse_id | tojson }}, {{ ws.enabled | tojson }})'>编辑</button>
                     <button class="btn btn-outline-warning btn-sm" onclick="resetToken({{ ws.id }})">重置令牌</button>
                     <a href="/print_routing/download_agent?ws={{ ws.code | urlencode }}" class="btn btn-outline-success btn-sm">下载代理(含令牌)</a>
                     <button class="btn btn-outline-danger btn-sm" onclick='deleteWs({{ ws.id }}, {{ ws.code | tojson }})'>删除</button>
@@ -130,7 +130,7 @@
                         <td>{{ '是' if r.enabled else '否' }}</td>
                         <td>
                             <button class="btn btn-outline-primary btn-sm py-0 px-1"
-                                    onclick='editRule({{ r.id }}, {{ r.name | tojson }}, {{ r.business_event | tojson }}, {{ r.warehouse_id | tojson }}, {{ r.workstation_id | tojson }}, {{ r.printer_id | tojson }}, {{ r.priority }})'>编辑</button>
+                                    onclick='editRule({{ r.id }}, {{ r.name | tojson }}, {{ r.business_event | tojson }}, {{ r.warehouse_id | tojson }}, {{ r.workstation_id | tojson }}, {{ r.printer_id | tojson }}, {{ r.priority }}, {{ r.enabled | tojson }})'>编辑</button>
                             <button class="btn btn-outline-danger btn-sm py-0 px-1" onclick='deleteRule({{ r.id }}, {{ r.name | tojson }})'>删除</button>
                         </td>
                     </tr>
@@ -421,10 +421,11 @@ function addWs() {
     });
 }
 
-function editWs(id, name, warehouseId) {
+function editWs(id, name, warehouseId, enabled) {
     document.getElementById('wsEditId').value = id;
     document.getElementById('wsEditName').value = name;
     document.getElementById('wsEditWarehouse').value = warehouseId || '';
+    document.getElementById('wsEditEnabled').checked = !!enabled;
     var modal = new bootstrap.Modal(document.getElementById('wsEditModal'));
     modal.show();
 }
@@ -558,7 +559,7 @@ function prepareRuleModal() {
     onRuleWorkstationChange();
 }
 
-function editRule(id, name, event, warehouseId, wsId, printerId, priority) {
+function editRule(id, name, event, warehouseId, wsId, printerId, priority, enabled) {
     prepareRuleModal();
     document.getElementById('ruleEditId').value = id;
     document.getElementById('ruleModalTitle').textContent = '编辑路由规则';
@@ -569,6 +570,7 @@ function editRule(id, name, event, warehouseId, wsId, printerId, priority) {
     onRuleWorkstationChange();
     document.getElementById('rulePrinter').value = printerId;
     document.getElementById('rulePriority').value = priority;
+    document.getElementById('ruleEnabled').checked = !!enabled;
     new bootstrap.Modal(document.getElementById('ruleAddModal')).show();
 }
 

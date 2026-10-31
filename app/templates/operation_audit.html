@@ -195,16 +195,14 @@
 {% block extra_js %}
 <script>
 function askAiAudit() {
-    var button = document.getElementById('aiAssistantButton');
-    var input = document.getElementById('aiAssistantInput');
-    if (button) button.click();
-    window.setTimeout(function() {
-        if (input) {
-            input.value = '操作日志审计';
-            var form = document.getElementById('aiAssistantForm');
-            if (form) form.dispatchEvent(new Event('submit', {cancelable: true, bubbles: true}));
+    try {
+        var host = window.parent !== window ? window.parent : window;
+        if (host.WmsAiAssistant && typeof host.WmsAiAssistant.ask === 'function') {
+            host.WmsAiAssistant.ask('操作日志审计');
+            return;
         }
-    }, 150);
+    } catch (error) { /* 非同源容器无法访问外层助手。 */ }
+    showToast('AI助手尚未就绪，请刷新页面后重试', 'warning');
 }
 </script>
 {% endblock %}

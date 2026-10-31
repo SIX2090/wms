@@ -66,9 +66,32 @@
 {% block extra_js %}
 <script>
 (function() {
+    function syncPrintAlertCount(count) {
+        if (!Number.isInteger(count) || count < 0) return;
+        var documents = [document];
+        try {
+            if (window.parent !== window && window.parent.document) documents.push(window.parent.document);
+        } catch (error) { /* 跨域容器只更新当前页。 */ }
+        documents.forEach(function(doc) {
+            doc.querySelectorAll('.print-alert-bell').forEach(function(bell) {
+                var badge = bell.querySelector('.print-alert-badge');
+                bell.classList.toggle('has-unread', count > 0);
+                if (!count) {
+                    if (badge) badge.remove();
+                    return;
+                }
+                if (!badge) {
+                    badge = doc.createElement('span');
+                    badge.className = 'print-alert-badge';
+                    bell.appendChild(badge);
+                }
+                badge.textContent = count > 99 ? '99+' : String(count);
+            });
+        });
+    }
     function markRead(ids, all) {
         WMS.api.post('/print_alerts/mark_read', { ids: ids, all: !!all })
-            .then(function() { window.location.reload(); })
+            .then(function(result) { syncPrintAlertCount(result.unread_count); window.location.reload(); })
             .catch(function(err) { showToast((err && err.msg) || '操作失败，请稍后重试', 'danger'); });
     }
     document.querySelectorAll('.mark-read-btn').forEach(function(btn) {

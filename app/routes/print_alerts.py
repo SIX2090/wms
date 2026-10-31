@@ -487,4 +487,7 @@ def register_print_alert_routes(app):
             query = query.filter(Notification.id.in_(req.ids[:200]))
         updated = query.update({'is_read': True}, synchronize_session=False)
         db.session.commit()
-        return jsonify({'status': 'success', 'msg': f'已标记 {updated} 条为已读'})
+        return jsonify({
+            'status': 'success', 'msg': f'已标记 {updated} 条为已读',
+            'unread_count': inject_print_alert_unread().get('print_alert_unread_count', 0),
+        })
