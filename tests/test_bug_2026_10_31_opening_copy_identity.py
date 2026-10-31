@@ -12,6 +12,7 @@ from tests.test_opening_stock_material_lookup_runtime import ROOT, SOURCE, Nodes
 def test_copied_saved_row_has_no_persisted_identity_and_original_survives(operation):
     check = r'''
  ctx.confirm=()=>true;
+ ctx.showConfirm=async()=>true;
  vm.runInContext("rows=[{line_id:73,material_id:1,material_code:'M1',material_name:'fixture',quantity:2,price:0,warehouse_id:1,remark:'old'}];selectedFlags=[false];",ctx);
  ctx.copyPreviousRow();
  const copied=vm.runInContext('rows[1]',ctx), original=vm.runInContext('rows[0]',ctx);

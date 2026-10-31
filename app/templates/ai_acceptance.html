@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 <!-- AI_TASK: AI-R18-F02 -->
+<!-- AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001 -->
 {% block title %}AI七日验收{% endblock %}
 {% block content %}
 <div class="container-fluid px-3">
@@ -23,9 +24,9 @@
     <section class="border rounded mb-3">
         <div class="d-flex justify-content-between align-items-center p-2 border-bottom">
             <strong>每日验收快照</strong>
-            <div class="d-flex gap-2 align-items-center">
+            <div class="d-flex flex-wrap gap-2 align-items-center">
                 <input id="snapshotDate" class="form-control form-control-sm" type="date" style="max-width: 150px;">
-                <button class="btn btn-primary btn-sm" type="button" id="collectButton"><i class="bi bi-plus-circle"></i> 采集今日快照</button>
+                <button class="btn btn-primary btn-sm flex-shrink-0 text-nowrap" type="button" id="collectButton"><i class="bi bi-plus-circle"></i> 采集今日快照</button>
             </div>
         </div>
         <div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
@@ -49,22 +50,24 @@
         </div>
     </section>
 </div>
+{% endblock %}
+{% block extra_js %}
 <script>
 (() => {
-    const state = {snapshots: [], packageId: null};
+    const state = {snapshots: [], packageId: null, canGo: false};
     const $ = (id) => document.getElementById(id);
     const show = (text, danger = false) => { const node = $('message'); node.textContent = text; node.className = `alert ${danger ? 'alert-danger' : 'alert-success'}`; };
-    const read = async (response) => { const body = await response.json(); if (!response.ok || body.status === 'error') throw new Error(body.msg || '请求失败'); return body; };
+    const read = (body) => { if (body.status !== 'ok') throw new Error(body.msg || '请求失败'); return body; };
     const render = () => {
         const rows = $('snapshotRows'); rows.textContent = '';
         if (!state.snapshots.length) { const row = rows.insertRow(); const cell = row.insertCell(); cell.colSpan = 5; cell.className = 'text-center text-muted py-3'; cell.textContent = '暂无真实验收快照'; return; }
         state.snapshots.forEach((item) => { const row = rows.insertRow(); const roleZh = {'admin': '管理员', 'warehouse': '仓库', 'purchase': '采购', 'sales': '销售'}; [item.snapshot_date, Object.values(item.absolute_counts || {}).join(' / '), (item.rollout_roles || []).map((r) => roleZh[r] || r).join(', '), `${item.window_hours || 0} 小时`, item.all_absolute_zero ? '四项为 0' : '存在异常'].forEach((value) => row.insertCell().textContent = value); row.cells[4].className = item.all_absolute_zero ? 'text-success' : 'text-danger'; });
         $('snapshotCount').textContent = state.snapshots.length; $('latestSnapshot').textContent = state.snapshots[0]?.snapshot_date || '-'; $('zeroDays').textContent = `${state.snapshots.filter((item) => item.all_absolute_zero).length} / 7`;
     };
-    const load = async () => { try { state.snapshots = (await read(await fetch('/api/ai/acceptance/daily_snapshots?limit=30'))).snapshots || []; render(); } catch (error) { show(error.message, true); } };
-    $('collectButton').onclick = async () => { try { await read(await fetch('/api/ai/acceptance/daily_snapshot', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({date: $('snapshotDate').value || undefined})})); show('快照已采集，请继续核对每日数据。'); await load(); } catch (error) { show(error.message, true); } };
-    $('buildButton').onclick = async () => { try { const result = await read(await fetch('/api/ai/acceptance/evidence_package', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({days: 7})})); state.packageId = result.package_db_id || null; $('packageStatus').textContent = result.validation_passed ? '可签署' : '待处理'; $('signButton').disabled = !state.packageId; const panel = $('packagePanel'); panel.textContent = `证据范围：${result.package?.start_date || '-'} 至 ${result.package?.end_date || '-'}；七日全 0：${result.seven_days_zero ? '是' : '否'}`; const list = document.createElement('ul'); list.className = 'mb-0 mt-2 text-danger'; (result.validation_failures || []).forEach((item) => { const li = document.createElement('li'); li.textContent = item; list.appendChild(li); }); panel.appendChild(list); show(result.validation_passed ? '证据包校验通过，等待管理员签署。' : '证据包已保存，但存在未处理项。', !result.validation_passed); } catch (error) { show(error.message, true); } };
-    $('signButton').onclick = async () => { if (!state.packageId) return; const decision = $('decision').value; const reason = $('reason').value.trim(); if (decision === 'no_go' && !reason) { show('不通过必须填写原因。', true); return; } try { await read(await fetch('/api/ai/acceptance/go_no_go', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({package_id: state.packageId, decision, reason})})); show(`已人工签署${decision === 'go' ? '通过' : '不通过'}。`); $('signButton').disabled = true; } catch (error) { show(error.message, true); } };
+    const load = async () => { try { state.snapshots = (await read(await WMS.api.getRaw('/api/ai/acceptance/daily_snapshots?limit=30'))).snapshots || []; render(); } catch (error) { show(error.message, true); } };
+    $('collectButton').onclick = async () => { try { await read(await WMS.api.postRaw('/api/ai/acceptance/daily_snapshot', {date: $('snapshotDate').value || undefined})); show('快照已采集，请继续核对每日数据。'); await load(); } catch (error) { show(error.message, true); } };
+    $('buildButton').onclick = async () => { try { const result = await read(await WMS.api.postRaw('/api/ai/acceptance/evidence_package', {days: 7})); state.packageId = result.package_db_id || null; state.canGo = !!result.validation_passed; $('decision').querySelector('option[value="go"]').disabled = !state.canGo; if (!state.canGo) $('decision').value = 'no_go'; $('packageStatus').textContent = result.validation_passed ? '可签署' : '待处理'; $('signButton').disabled = !state.packageId; const panel = $('packagePanel'); panel.textContent = `证据范围：${result.package?.start_date || '-'} 至 ${result.package?.end_date || '-'}；七日全 0：${result.seven_days_zero ? '是' : '否'}`; const list = document.createElement('ul'); list.className = 'mb-0 mt-2 text-danger'; (result.validation_failures || []).forEach((item) => { const li = document.createElement('li'); li.textContent = item; list.appendChild(li); }); panel.appendChild(list); show(result.validation_passed ? '证据包校验通过，等待管理员签署。' : '证据包已保存，但存在未处理项。', !result.validation_passed); } catch (error) { show(error.message, true); } };
+    $('signButton').onclick = async () => { if (!state.packageId) return; const decision = $('decision').value; const reason = $('reason').value.trim(); if (decision === 'go' && !state.canGo) { show('证据校验未通过，不能签署通过。', true); return; } if (decision === 'no_go' && !reason) { show('不通过必须填写原因。', true); return; } try { await read(await WMS.api.postRaw('/api/ai/acceptance/go_no_go', {package_id: state.packageId, decision, reason})); show(`已人工签署${decision === 'go' ? '通过' : '不通过'}。`); $('signButton').disabled = true; $('packageStatus').textContent = decision === 'go' ? '已通过' : '不通过'; } catch (error) { show(error.message, true); } };
     $('refreshButton').onclick = load; $('snapshotDate').value = new Date().toISOString().slice(0, 10); load();
 })();
 </script>

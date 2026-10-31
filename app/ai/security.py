@@ -38,6 +38,18 @@ _ID_CARD_PATTERN = re.compile(r'\d{17}[\dXx]')
 _BANK_CARD_PATTERN = re.compile(r'\d{16,19}')
 
 
+def mask_text(text: str, keep_prefix: int = 0, keep_suffix: int = 0) -> str:
+    """Mask a whole field while keeping only the explicitly requested ends."""
+    # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
+    value = str(text or '')
+    if not value:
+        return ''
+    prefix, suffix = max(0, keep_prefix), max(0, keep_suffix)
+    if len(value) <= prefix + suffix:
+        return '***'
+    return value[:prefix] + '***' + (value[-suffix:] if suffix else '')
+
+
 def mask_phone(text: str) -> str:
     """脱敏手机号：保留前3后4，中间用****替换。"""
     def _mask(m):

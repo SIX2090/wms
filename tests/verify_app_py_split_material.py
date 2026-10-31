@@ -293,14 +293,25 @@ class TestMaterialRegister:
         assert resp.get_json()["status"] == "error"
 
     def test_fix_empty_fields(self):
-        """fix_empty_fields：修复空分类/单位/供应商字段。"""
+        """fix_empty_fields：已有注册资料时成功修复空分类/单位。"""
         client = self._setup()
         _login(client)
+        with app_module.app.app_context():
+            from app import Unit, MaterialCategory
+            db.session.add_all([Unit(code='SYN-U', name='个'), MaterialCategory(code='SYN-C', name='默认分类')])
+            db.session.commit()
         _add_material(client, code="M001", name="轴承")
+        with app_module.app.app_context():
+            material=Material.query.filter_by(code='M001').one()
+            material.unit_id=None; material.category_id=None; db.session.commit()
         resp = client.post("/material/fix_empty_fields")
         data = resp.get_json()
         assert data["status"] == "success", data
         assert "已修复" in data["msg"], data
+        with app_module.app.app_context():
+            material=Material.query.filter_by(code='M001').one()
+            assert material.unit_id==Unit.query.one().id
+            assert material.category_id==MaterialCategory.query.one().id
 
     def test_copy_material(self):
         """copy_material：生成复制草稿，返回建议编码。"""

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+<!-- AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001 -->
 {# AI_TASK: AI-R15-FIX-TEXT-EVENT-001 #}
 {# 子修复任务：AI-R15-FIX-UI-FEEDBACK-001-F01 #}
 {# 修复任务：AI-UX-DATE-SYNC-001 #}
@@ -253,7 +254,8 @@ function renderMetricsCards(metrics) {
         const m = metrics[key];
         if (!m) continue;
         const rate = (m.rate * 100).toFixed(2);
-        const color = m.rate >= 0.8 ? 'success' : m.rate >= 0.6 ? 'warning' : 'danger';
+        const qualityRate = key === 'human_correction_rate' ? 1 - m.rate : m.rate;
+        const color = qualityRate >= 0.8 ? 'success' : qualityRate >= 0.6 ? 'warning' : 'danger';
         const textClass = `text-${color}`;
         const bgClass = `bg-${color}`;
         html += `
@@ -308,7 +310,7 @@ function renderLowQualitySamples(snapshot) {
     
     for (const [dim, values] of Object.entries(snapshot.by_dimension)) {
         for (const [value, metrics] of Object.entries(values)) {
-            const avgRate = Object.values(metrics).reduce((a, b) => a + b, 0) / Object.keys(metrics).length;
+            const avgRate = Object.entries(metrics).reduce((a, [key, value]) => a + (key === 'human_correction_rate' ? 1 - value : value), 0) / Object.keys(metrics).length;
             if (avgRate < threshold) {
                 html += `<tr>
                     <td>${escapeHtml(dim)}-${escapeHtml(value)}</td>
@@ -464,9 +466,10 @@ function renderVersionComparison(comparison) {
         const current = comparison.current_metrics[metric];
         const isRegression = comparison.regressions.includes(metric);
         const deltaStr = (delta * 100).toFixed(2);
-        const color = isRegression ? 'danger' : delta > 0 ? 'success' : 'secondary';
+        const isImprovement = metric === 'human_correction_rate' ? delta < 0 : delta > 0;
+        const color = isRegression ? 'danger' : isImprovement ? 'success' : 'secondary';
         const status = isRegression ? '<span class="badge bg-danger">回归</span>' : 
-                       delta > 0 ? '<span class="badge bg-success">提升</span>' : 
+                       isImprovement ? '<span class="badge bg-success">提升</span>' :
                        '<span class="badge bg-secondary">持平</span>';
         
         html += `

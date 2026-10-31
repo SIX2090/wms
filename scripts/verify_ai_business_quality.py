@@ -231,15 +231,15 @@ def test3_version_comparison():
     # 表头准确率：current 0.5 - baseline 1.0 = -0.5（下降）
     assert abs(cmp.deltas[METRIC_HEADER_ACCURACY] - (-0.5)) < 1e-9
 
-    # 人工修正率：current 0.4 - baseline 0.1 = 0.3（提升，修正率上升=质量下降但 delta 为正）
+    # 人工修正率：current 0.4 - baseline 0.1 = 0.3，修正率上升是质量下降。
     assert abs(cmp.deltas[METRIC_HUMAN_CORRECTION_RATE] - 0.3) < 1e-9
 
     # regressions：下降超阈值（默认 0.05）的指标
     # classification -1.0, header -0.5, line_recall -0.4, material -0.6, draft -1.0, dup -1.0/3
-    # human_correction 是 +0.3 不算 regression
+    # human_correction 是 +0.3，修正增加也必须报 regression。
     assert METRIC_CLASSIFICATION_ACCURACY in cmp.regressions
     assert METRIC_HEADER_ACCURACY in cmp.regressions
-    assert METRIC_HUMAN_CORRECTION_RATE not in cmp.regressions  # 提升
+    assert METRIC_HUMAN_CORRECTION_RATE in cmp.regressions  # 修正增加，质量下降
 
     # validate_version_comparison 校验
     ok, msg = validate_version_comparison(cmp)

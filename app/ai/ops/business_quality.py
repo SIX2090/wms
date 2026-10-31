@@ -34,6 +34,8 @@
 """
 from __future__ import annotations
 
+# AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
@@ -385,7 +387,7 @@ def compare_versions(
 
     验收要求："版本对比"。
     对两版本分别计算快照，逐指标对比 delta = current_rate - baseline_rate，
-    delta < -threshold 视为下降（is_regression）。
+    准确率等指标下降超阈值视为回归；人工修正率上升超阈值视为回归。
 
     Args:
         current_samples: 当前版本样本
@@ -408,8 +410,9 @@ def compare_versions(
         base_rate = baseline_snapshot.metrics[metric].rate
         delta = cur_rate - base_rate
         deltas[metric] = delta
-        # 下降超阈值（delta 为负且绝对值 > threshold），用容差避免浮点精度误判
-        if delta < -(regression_threshold + 1e-9):
+        # 修正越少越好；其他指标越高越好。delta 保留原始差值用于复算。
+        degradation = delta if metric == METRIC_HUMAN_CORRECTION_RATE else -delta
+        if degradation > regression_threshold + 1e-9:
             regressions.append(metric)
 
     return VersionComparison(

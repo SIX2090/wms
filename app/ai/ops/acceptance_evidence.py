@@ -1,6 +1,7 @@
 """AI-R17-F02 连续七天真实上线验收 — 验收证据包纯逻辑模块。
 
 # AI_TASK: AI-R17-F02
+# AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
 
 台账 13.2 节验收要求：
 1. 四项绝对指标（越权成功/重复草稿/自动提交/低置信度未确认建单）连续七天每日为 0。
@@ -497,7 +498,9 @@ def validate_sample_lists_present(
     return True, '四类样本清单字段齐全（失败/降级/重复/人工修正）'
 
 
-def validate_all_evidence(package: AcceptanceEvidencePackage) -> tuple[bool, list[str]]:
+def validate_all_evidence(
+    package: AcceptanceEvidencePackage, *, include_decision: bool = True,
+) -> tuple[bool, list[str]]:
     """一次性多项校验验收证据包。"""
     failures: list[str] = []
     # validate_seven_consecutive_days_zero 接收快照列表，其他校验器接收 package
@@ -506,7 +509,7 @@ def validate_all_evidence(package: AcceptanceEvidencePackage) -> tuple[bool, lis
         failures.append(reason)
     for validator in (
         validate_evidence_reproducible,
-        validate_go_no_go,
+        *([validate_go_no_go] if include_decision else []),
         validate_rollout_matrix_complete,
         validate_rollback_evidence_present,
         validate_sample_lists_present,

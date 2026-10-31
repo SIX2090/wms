@@ -610,6 +610,26 @@ def test8_e2e_api_closure():
     list_body = resp_list.get_json()
     assert list_body['count'] >= 7, f'应至少 7 条快照，实际 {list_body["count"]}'
 
+    # 七日全零仍不能代替回滚演练；先锁住缺证据的拒绝分支。
+    incomplete = client.post('/api/ai/acceptance/evidence_package', json={
+        'end_date': '2026-07-18', 'days': 7,
+    }).get_json()
+    assert incomplete['validation_passed'] is False
+    rejected = client.post('/api/ai/acceptance/go_no_go', json={
+        'package_id': incomplete['package_db_id'], 'decision': 'go', 'reason': 'synthetic missing rollback',
+    })
+    assert rejected.status_code == 400, '缺少回滚演练不得签署通过'
+    # 仅向本测试内存库补入合成演练记录，保留下面原有成功闭环断言。
+    with app.app_context():
+        for action in ('shutdown', 'restore'):
+            wms_app.db.session.add(wms_app.AIRollbackEvent(
+                event_id=f'f02-synthetic-{action}', action=action,
+                operator_id=admin_id, operator_role='admin',
+                started_at=datetime(2026, 7, 18, 9), completed_at=datetime(2026, 7, 18, 9, 1),
+                created_at=datetime(2026, 7, 18, 9),
+            ))
+        wms_app.db.session.commit()
+
     # 构建证据包
     resp_pkg = client.post('/api/ai/acceptance/evidence_package', json={
         'end_date': '2026-07-18',
@@ -621,6 +641,7 @@ def test8_e2e_api_closure():
     assert pkg_body['package']['start_date'] == '2026-07-12'
     assert pkg_body['package']['end_date'] == '2026-07-18'
     assert pkg_body['seven_days_zero'] is True, '7 天全 0 应 seven_days_zero=True'
+    assert pkg_body['validation_passed'] is True, pkg_body['validation_failures']
     package_db_id = pkg_body['package_db_id']
 
     # 查询证据包详情

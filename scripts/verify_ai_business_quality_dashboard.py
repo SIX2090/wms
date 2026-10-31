@@ -110,7 +110,8 @@ def test_metrics_cards_rendering_logic() -> None:
     assert 'duplicate_interception_rate' in content, '缺少重复拦截率'
     
     # 检查颜色阈值逻辑
-    assert 'm.rate >= 0.8' in content, '缺少颜色阈值判断'
+    assert 'qualityRate >= 0.8' in content, '缺少颜色阈值判断'
+    assert "key === 'human_correction_rate' ? 1 - m.rate : m.rate" in content, '人工修正率必须按越低越好判断颜色'
     # 检查动态生成的样式类名（JavaScript 模板字符串）
     assert 'success' in content, '缺少成功状态样式'
     assert 'warning' in content, '缺少警告状态样式'

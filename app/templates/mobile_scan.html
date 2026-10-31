@@ -490,11 +490,10 @@
             return;
         }
 
-        barcodeScanner.hidden = false;
-        setStatus('正在打开摄像头...', '');
-
         // Stop any existing scanner first
         stopBarcodeScanner();
+        barcodeScanner.hidden = false;
+        setStatus('正在打开摄像头...', '');
 
         // Create ZXing reader with multiple format support
         try {
@@ -523,10 +522,15 @@
         setStatus('请将条码放入扫描框，自动识别', 'success');
 
         // Wait for video element to be ready before starting camera
+        var reader = zxingCodeReader;
         setTimeout(function() {
+            if (reader !== zxingCodeReader) return;
             // Use ZXing's built-in method to handle camera and decoding
             // This will automatically select the rear camera on mobile devices
-            var scanPromise = zxingCodeReader.decodeFromVideoDevice(null, barcodeVideo, function(result, err) {
+            var scanPromise;
+            try {
+            scanPromise = reader.decodeFromVideoDevice(null, barcodeVideo, function(result, err) {
+                if (reader !== zxingCodeReader) return;
                 if (result) {
                     // Barcode successfully decoded
                     var code = result.getText().trim();
@@ -544,10 +548,16 @@
                     setStatus('扫码失败: ' + err.message, 'error');
                 }
             });
+            } catch (error) {
+                stopBarcodeScanner();
+                setStatus('无法打开摄像头，请手动输入编码或使用WMS扫码APP', 'error');
+                return;
+            }
 
             // Handle promise rejection (camera access errors)
             if (scanPromise && typeof scanPromise.catch === 'function') {
                 scanPromise.catch(function(error) {
+                    if (reader !== zxingCodeReader) return;
                     stopBarcodeScanner();
                     var errorMsg = '无法打开摄像头';
                     if (error.name === 'NotAllowedError') {
@@ -932,6 +942,18 @@
     var recognizePreviewImg = document.getElementById('recognizePreviewImg');
     var recognizeLoading = document.getElementById('recognizeLoading');
     var closePreviewBtn = document.getElementById('closePreviewBtn');
+    // AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
+    var recognizeGeneration = 0;
+    var recognizeController = null;
+
+    function cancelMaterialRecognition() {
+        recognizeGeneration += 1;
+        if (recognizeController) recognizeController.abort();
+        recognizeController = null;
+        if (recognizePreview) recognizePreview.hidden = true;
+        if (recognizeLoading) recognizeLoading.hidden = true;
+        if (cameraBtn) cameraBtn.disabled = false;
+    }
 
     if (cameraBtn && cameraFileInput) {
         cameraBtn.addEventListener('click', function() {
@@ -941,34 +963,39 @@
         cameraFileInput.addEventListener('change', function(e) {
             var file = e.target.files && e.target.files[0];
             if (!file) return;
+            cancelMaterialRecognition();
+            var generation = recognizeGeneration;
+            cameraBtn.disabled = true;
 
             // 显示图片预览
             var reader = new FileReader();
             reader.onload = function(e) {
+                if (generation !== recognizeGeneration) return;
                 recognizePreviewImg.src = e.target.result;
                 recognizePreview.hidden = false;
                 recognizeLoading.hidden = false;
+                recognizeMaterialImage(file, generation);
             };
             reader.onerror = function() {
+                if (generation !== recognizeGeneration) return;
                 recognizeLoading.hidden = true;
                 recognizePreview.hidden = true;
+                cameraBtn.disabled = false;
                 setStatus('图片读取失败，请重新选择', 'error');
             };
             reader.readAsDataURL(file);
 
-            recognizeMaterialImage(file);
             cameraFileInput.value = '';
         });
     }
 
     if (closePreviewBtn) {
         closePreviewBtn.addEventListener('click', function() {
-            recognizePreview.hidden = true;
-            recognizeLoading.hidden = true;
+            cancelMaterialRecognition();
         });
     }
 
-    function recognizeMaterialImage(file) {
+    function recognizeMaterialImage(file, generation) {
         if (cameraBtn) cameraBtn.disabled = true;
         setStatus('正在识别图片...', '');
         var formData = new FormData();
@@ -976,10 +1003,12 @@
 
         // 超时控制（60 秒）与防重复提交
         var controller = new AbortController();
+        recognizeController = controller;
         var timeoutId = setTimeout(function() { controller.abort(); }, 60000);
 
         WMS.api.postRaw('/mobile/api/recognize_material', formData, {signal: controller.signal})
         .then(function(data) {
+            if (generation !== recognizeGeneration) return;
             if (data.status !== 'success') throw data;
             recognizeLoading.hidden = true;
             setStatus('识别完成', 'success');
@@ -997,6 +1026,7 @@
             }
         })
         .catch(function(error) {
+            if (generation !== recognizeGeneration) return;
             recognizeLoading.hidden = true;
             if (error && error.name === 'AbortError') {
                 setStatus('识别超时，请重试', 'error');
@@ -1006,7 +1036,10 @@
         })
         .finally(function() {
             clearTimeout(timeoutId);
-            if (cameraBtn) cameraBtn.disabled = false;
+            if (generation === recognizeGeneration) {
+                recognizeController = null;
+                if (cameraBtn) cameraBtn.disabled = false;
+            }
         });
     }
 

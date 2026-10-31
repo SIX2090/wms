@@ -22362,131 +22362,151 @@ def _ai_pending_document_count():
             count += model.query.filter(model.status.in_(statuses)).count()
     return count
 
+def _ai_fail_agent_task(task, label):
+    # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
+    """Keep a failed analysis task visible without reporting successful execution."""
+    task_id = task.id
+    values = {field: getattr(task, field) for field in ('ai_run_id', 'user_id', 'agent_type', 'objective', 'created_at')}
+    db.session.rollback()
+    app.logger.exception('%s Agent 执行失败', label)
+    failed = db.session.get(AIAgentTask, task_id)
+    if failed is None or any(getattr(failed, field) != value for field, value in values.items()):
+        failed = AIAgentTask(**values, status='failed')
+        db.session.add(failed)
+    _ai_finish_agent_task(failed, 'failed', f'{label}执行失败，请重试或联系管理员。')
+    return failed, 'execution_failed'
+
 def _ai_run_warehouse_patrol_agent():
     if not _ai_capability_allowed('warehouse_patrol_agent'):
         return None, 'warehouse_patrol_agent denied'
     task = _ai_create_agent_task('warehouse_patrol', '仓库每日巡检：库存风险、待处理单据、草稿阻塞和采购到货阻塞。')
-    negative_count = Material.query.filter(Material.stock < 0).count()
-    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
-    _ai_add_agent_step(
-        task,
-        1,
-        '库存风险扫描',
-        'warehouse_insights',
-        '物料库存、最低库存与库存预警设置',
-        f'负库存：{negative_count} 项；低库存：{low_count} 项。',
-        '打开库存预警',
-        url_for('material_list', stock_filter='low'),
-    )
+    try:
+        negative_count = Material.query.filter(Material.stock < 0).count()
+        low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+        _ai_add_agent_step(
+            task,
+            1,
+            '库存风险扫描',
+            'warehouse_insights',
+            '物料库存、最低库存与库存预警设置',
+            f'负库存：{negative_count} 项；低库存：{low_count} 项。',
+            '打开库存预警',
+            url_for('material_list', stock_filter='low'),
+        )
 
-    pending_count = _ai_pending_document_count()
-    _ai_add_agent_step(
-        task,
-        2,
-        '待处理单据闭环扫描',
-        'warehouse_insights',
-        '待入库、待出库、调拨、盘点与调整单据',
-        f'影响库存闭环的待处理单据：{pending_count} 张。',
-        '打开待办中心',
-        url_for('pending_documents'),
-    )
+        pending_count = _ai_pending_document_count()
+        _ai_add_agent_step(
+            task,
+            2,
+            '待处理单据闭环扫描',
+            'warehouse_insights',
+            '待入库、待出库、调拨、盘点与调整单据',
+            f'影响库存闭环的待处理单据：{pending_count} 张。',
+            '打开待办中心',
+            url_for('pending_documents'),
+        )
 
-    draft_parts = []
-    for label, model, endpoint in (
-        ('入库草稿', InOrder, 'in_order_list'),
-        ('出库草稿', OutOrder, 'out_order_list'),
-        ('调拨草稿', TransferOrder, 'transfer_list'),
-        ('盘点草稿', InventoryCheck, 'check_list'),
-        ('调整草稿', AdjustmentOrder, 'adjustment_list'),
-    ):
-        count = model.query.filter_by(status='pending').count()
-        if count:
-            draft_parts.append(f'{label}：{count} 张')
-    _ai_add_agent_step(
-        task,
-        3,
-        '草稿阻塞扫描',
-        'warehouse_insights',
-        '仅仓库草稿单据；不执行提交、审核、完成操作',
-        '；'.join(draft_parts) if draft_parts else '未发现仓库草稿阻塞。',
-        '打开待办中心',
-        url_for('pending_documents'),
-    )
+        draft_parts = []
+        for label, model, endpoint in (
+            ('入库草稿', InOrder, 'in_order_list'),
+            ('出库草稿', OutOrder, 'out_order_list'),
+            ('调拨草稿', TransferOrder, 'transfer_list'),
+            ('盘点草稿', InventoryCheck, 'check_list'),
+            ('调整草稿', AdjustmentOrder, 'adjustment_list'),
+        ):
+            count = model.query.filter_by(status='pending').count()
+            if count:
+                draft_parts.append(f'{label}：{count} 张')
+        _ai_add_agent_step(
+            task,
+            3,
+            '草稿阻塞扫描',
+            'warehouse_insights',
+            '仅仓库草稿单据；不执行提交、审核、完成操作',
+            '；'.join(draft_parts) if draft_parts else '未发现仓库草稿阻塞。',
+            '打开待办中心',
+            url_for('pending_documents'),
+        )
 
-    purchase_summary = build_purchase_order_todo_summary()
-    _ai_add_agent_step(
-        task,
-        4,
-        '采购到货依赖扫描',
-        'purchase_insights',
-        '关联仓库收货的在途采购订单',
-        f'在途采购订单：{purchase_summary.get("open_count", 0)} 张；逾期：{purchase_summary.get("overdue_count", 0)} 张。',
-        '打开采购订单',
-        url_for('purchase_order_list'),
-    )
-    summary = f'仓库巡检完成。库存风险 {negative_count + low_count} 项，待处理单据 {pending_count} 张，在途采购订单 {purchase_summary.get("open_count", 0)} 张。'
-    return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
+        purchase_summary = build_purchase_order_todo_summary()
+        _ai_add_agent_step(
+            task,
+            4,
+            '采购到货依赖扫描',
+            'purchase_insights',
+            '关联仓库收货的在途采购订单',
+            f'在途采购订单：{purchase_summary.get("open_count", 0)} 张；逾期：{purchase_summary.get("overdue_count", 0)} 张。',
+            '打开采购订单',
+            url_for('purchase_order_list'),
+        )
+        summary = f'仓库巡检完成。库存风险 {negative_count + low_count} 项，待处理单据 {pending_count} 张，在途采购订单 {purchase_summary.get("open_count", 0)} 张。'
+        return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
+    except Exception:
+        return _ai_fail_agent_task(task, '仓库巡检')
 
 def _ai_run_purchase_followup_agent():
     if not _ai_capability_allowed('purchase_followup_agent'):
         return None, 'purchase_followup_agent denied'
     task = _ai_create_agent_task('purchase_followup', '采购跟进：逾期订单、即将到货、待处理申请和低库存补货。')
-    summary = build_purchase_order_todo_summary()
-    _ai_add_agent_step(
-        task,
-        1,
-        '在途采购订单扫描',
-        'purchase_insights',
-        '待处理或部分入库的采购订单',
-        f'在途订单：{summary.get("open_count", 0)} 张；剩余数量：{normalize_stock_quantity(summary.get("remaining_qty", 0))}；逾期：{summary.get("overdue_count", 0)} 张。',
-        '打开采购订单',
-        url_for('purchase_order_list'),
-    )
+    try:
+        summary = build_purchase_order_todo_summary()
+        _ai_add_agent_step(
+            task,
+            1,
+            '在途采购订单扫描',
+            'purchase_insights',
+            '待处理或部分入库的采购订单',
+            f'在途订单：{summary.get("open_count", 0)} 张；剩余数量：{normalize_stock_quantity(summary.get("remaining_qty", 0))}；逾期：{summary.get("overdue_count", 0)} 张。',
+            '打开采购订单',
+            url_for('purchase_order_list'),
+        )
 
-    today_value = date.today()
-    due_soon_count = PurchaseOrder.query.filter(
-        PurchaseOrder.status.in_(('pending', 'partial')),
-        PurchaseOrder.expected_date.isnot(None),
-        PurchaseOrder.expected_date >= today_value,
-        PurchaseOrder.expected_date <= today_value + timedelta(days=3),
-    ).count()
-    _ai_add_agent_step(
-        task,
-        2,
-        '即将到货扫描',
-        'purchase_insights',
-        '预计 3 天内到货的采购订单',
-        f'3 天内到货采购订单：{due_soon_count} 张。',
-        '打开采购订单',
-        url_for('purchase_order_list'),
-    )
+        today_value = date.today()
+        due_soon_count = PurchaseOrder.query.filter(
+            PurchaseOrder.status.in_(('pending', 'partial')),
+            PurchaseOrder.expected_date.isnot(None),
+            PurchaseOrder.expected_date >= today_value,
+            PurchaseOrder.expected_date <= today_value + timedelta(days=3),
+        ).count()
+        _ai_add_agent_step(
+            task,
+            2,
+            '即将到货扫描',
+            'purchase_insights',
+            '预计 3 天内到货的采购订单',
+            f'3 天内到货采购订单：{due_soon_count} 张。',
+            '打开采购订单',
+            url_for('purchase_order_list'),
+        )
 
-    pending_request_count = PurchaseRequest.query.filter(PurchaseRequest.status.in_(('pending', 'approved'))).count()
-    _ai_add_agent_step(
-        task,
-        3,
-        '采购申请转单扫描',
-        'purchase_insights',
-        '待审批和已审批的采购申请',
-        f'待审批或待转单的采购申请：{pending_request_count} 张。',
-        '打开采购申请',
-        url_for('purchase_request_list'),
-    )
+        pending_request_count = PurchaseRequest.query.filter(PurchaseRequest.status.in_(('pending', 'approved'))).count()
+        _ai_add_agent_step(
+            task,
+            3,
+            '采购申请转单扫描',
+            'purchase_insights',
+            '待审批和已审批的采购申请',
+            f'待审批或待转单的采购申请：{pending_request_count} 张。',
+            '打开采购申请',
+            url_for('purchase_request_list'),
+        )
 
-    low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
-    _ai_add_agent_step(
-        task,
-        4,
-        '低库存补货扫描',
-        'purchase_request_draft',
-        '低库存物料、在途采购订单剩余数量、待处理采购申请',
-        f'需复核的低库存物料：{low_count} 项。补货草稿仍需人工创建或显式 AI 草稿操作。',
-        '创建补货草稿',
-        '#',
-        risk_level='draft',
-    )
-    task_summary = f'采购跟进完成。在途订单 {summary.get("open_count", 0)} 张，逾期 {summary.get("overdue_count", 0)} 张，3 天内到货 {due_soon_count} 张，待处理申请 {pending_request_count} 张。'
-    return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
+        low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+        _ai_add_agent_step(
+            task,
+            4,
+            '低库存补货扫描',
+            'purchase_request_draft',
+            '低库存物料、在途采购订单剩余数量、待处理采购申请',
+            f'需复核的低库存物料：{low_count} 项。补货草稿仍需人工创建或显式 AI 草稿操作。',
+            '创建补货草稿',
+            '#',
+            risk_level='draft',
+        )
+        task_summary = f'采购跟进完成。在途订单 {summary.get("open_count", 0)} 张，逾期 {summary.get("overdue_count", 0)} 张，3 天内到货 {due_soon_count} 张，待处理申请 {pending_request_count} 张。'
+        return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
+    except Exception:
+        return _ai_fail_agent_task(task, '采购跟进')
 
 def _ai_handle_draft_check_request(payload):
     payload = payload or {}
@@ -22529,8 +22549,11 @@ def ai_agent_task_detail(id):
 def ai_agent_run_warehouse_patrol():
     task, error = _ai_run_warehouse_patrol_agent()
     if error:
-        flash('当前账号没有权限运行仓库巡检 Agent。', 'danger')
-        return redirect(url_for('ai_agent_task_list'))
+        if error == 'execution_failed':
+            flash('仓库巡检执行失败，请查看详情后重试。', 'danger')
+        else:
+            flash('当前账号没有权限运行仓库巡检 Agent。', 'danger')
+        return redirect(url_for('ai_agent_task_detail', id=task.id) if task is not None else url_for('ai_agent_task_list'))
     flash('仓库巡检 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
 
@@ -22540,8 +22563,11 @@ def ai_agent_run_warehouse_patrol():
 def ai_agent_run_purchase_followup():
     task, error = _ai_run_purchase_followup_agent()
     if error:
-        flash('当前账号没有权限运行采购跟进 Agent。', 'danger')
-        return redirect(url_for('ai_agent_task_list'))
+        if error == 'execution_failed':
+            flash('采购跟进执行失败，请查看详情后重试。', 'danger')
+        else:
+            flash('当前账号没有权限运行采购跟进 Agent。', 'danger')
+        return redirect(url_for('ai_agent_task_detail', id=task.id) if task is not None else url_for('ai_agent_task_list'))
     flash('采购跟进 Agent 已完成。', 'success')
     return redirect(url_for('ai_agent_task_detail', id=task.id))
 
@@ -33969,10 +33995,10 @@ def api_ai_business_quality_drilldown():
                 'schema_version': r.schema_version or '',
                 'field_name': r.field_name or '',
                 'original_value': mask_text(r.original_value or '', keep_prefix=4, keep_suffix=0),
-                'confirmed_value': mask_text(r.confirmed_value or '', keep_prefix=4, keep_suffix=0),
+                'confirmed_value': mask_text(r.corrected_value or '', keep_prefix=4, keep_suffix=0),
                 'adopted': r.adopted,
-                'confidence': r.confidence,
-                'document_job_id': r.document_job_id,
+                'confidence': None,  # Field feedback does not store OCR confidence.
+                'document_job_id': None,  # No document-job association on this model.
             })
 
         return jsonify({
@@ -34513,6 +34539,7 @@ def api_ai_acceptance_evidence_package():
     包含样本清单、回滚记录和 go/no-go 结论（待签字）。
     """
     import json as _json_f02
+    from uuid import uuid4
     from ai.ops.acceptance_evidence import (
         build_evidence_package, build_daily_snapshot,
         validate_all_evidence, validate_seven_consecutive_days_zero,
@@ -34561,7 +34588,7 @@ def api_ai_acceptance_evidence_package():
         if ok_seven and len(daily_snapshots) >= days:
             initial_decision = 'pending'  # 仍需签字
         package = build_evidence_package(
-            package_id=f'f02-pkg-{datetime.now().strftime("%Y%m%d%H%M%S")}',
+            package_id=f'f02-pkg-{datetime.now().strftime("%Y%m%d%H%M%S")}-{uuid4().hex}',
             daily_snapshots=daily_snapshots,
             rollout_role_matrix=role_matrix,
             failure_samples=failures,
@@ -34592,7 +34619,7 @@ def api_ai_acceptance_evidence_package():
         db.session.add(pkg_row)
         db.session.commit()
         # 综合校验
-        ok_all, failures_all = validate_all_evidence(package)
+        ok_all, failures_all = validate_all_evidence(package, include_decision=False)
         return jsonify({
             'status': 'ok',
             'package': package.to_dict(),
@@ -34656,7 +34683,8 @@ def api_ai_acceptance_go_no_go():
     """
     import json as _json_f02
     from ai.ops.acceptance_evidence import (
-        GO_DECISION, NO_GO_DECISION, validate_go_no_go, build_evidence_package,
+        GO_DECISION, NO_GO_DECISION, build_daily_snapshot, build_evidence_package,
+        EvidenceSample, RollbackEvidence, validate_all_evidence,
     )
     # AI_TASK: AI-R17-F02
     try:
@@ -34666,6 +34694,11 @@ def api_ai_acceptance_go_no_go():
         reason = payload.get('reason', '')
         if decision not in (GO_DECISION, NO_GO_DECISION):
             return jsonify({'status': 'error', 'msg': 'decision 必须为 go 或 no_go'}), 400
+        if not isinstance(reason, str):
+            return jsonify({'status': 'error', 'msg': '签署原因必须为文字'}), 400
+        reason = reason.strip()
+        if decision == NO_GO_DECISION and not reason:
+            return jsonify({'status': 'error', 'msg': '不通过必须填写原因'}), 400
         row = AIAcceptanceEvidencePackage.query.filter_by(id=package_db_id).first()
         if not row:
             return jsonify({'status': 'error', 'msg': '证据包不存在'}), 404
@@ -34679,6 +34712,48 @@ def api_ai_acceptance_go_no_go():
                 'msg': '绝对指标非 0 时不得 go，必须 no_go 并建立子修复项',
                 'absolute_totals': summary.get('absolute_totals', {}),
             }), 400
+        if decision == GO_DECISION:
+            # Reconstruct the stored evidence, not just its all-zero aggregate.
+            # Daily snapshots may have been recollected after the package was built.
+            try:
+                dates = _json_f02.loads(row.daily_snapshot_dates)
+                snapshot_rows = AIAcceptanceDailySnapshot.query.filter(
+                    AIAcceptanceDailySnapshot.snapshot_date.in_(dates)
+                ).order_by(AIAcceptanceDailySnapshot.snapshot_date.asc()).all()
+                snapshots = [build_daily_snapshot(
+                    snapshot_date=item.snapshot_date,
+                    absolute_counts=_json_f02.loads(item.absolute_counts),
+                    quality_metrics=_json_f02.loads(item.quality_metrics),
+                    rollout_user_count=item.rollout_user_count,
+                    rollout_role_count=item.rollout_role_count,
+                    rollout_roles=tuple(_json_f02.loads(item.rollout_roles or '[]')),
+                    window_hours=item.window_hours,
+                    filter_applied=_json_f02.loads(item.filter_applied or '{}'),
+                    now=item.generated_at or datetime.now(),
+                ) for item in snapshot_rows]
+                def _samples(field):
+                    return [EvidenceSample(**item) for item in _json_f02.loads(field or '[]')]
+                package = build_evidence_package(
+                    package_id=row.package_id, daily_snapshots=snapshots,
+                    rollout_role_matrix=_json_f02.loads(row.rollout_role_matrix or '[]'),
+                    failure_samples=_samples(row.failure_samples),
+                    fallback_samples=_samples(row.fallback_samples),
+                    duplicate_samples=_samples(row.duplicate_samples),
+                    correction_samples=_samples(row.correction_samples),
+                    rollback_events=[RollbackEvidence(**item) for item in _json_f02.loads(row.rollback_events or '[]')],
+                    go_no_go_decision=decision, decision_reason=reason,
+                    decided_by=current_user.id, decided_at=datetime.now().isoformat(),
+                )
+                unchanged = (dates == [item.snapshot_date for item in snapshots]
+                    and row.start_date == package.start_date and row.end_date == package.end_date
+                    and summary == package.seven_day_summary)
+                if not unchanged:
+                    return jsonify({'status': 'error', 'msg': '每日快照已变化，请重新构建证据包后签署'}), 400
+                valid, failures = validate_all_evidence(package)
+                if not valid:
+                    return jsonify({'status': 'error', 'msg': '验收证据不完整，不能签署通过', 'validation_failures': failures}), 400
+            except (ValueError, TypeError, KeyError):
+                return jsonify({'status': 'error', 'msg': '验收证据不完整，请重新构建后签署'}), 400
         # 签字
         row.go_no_go_decision = decision
         row.decision_reason = reason

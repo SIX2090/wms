@@ -974,20 +974,23 @@ def register_material_routes(app):
     @require_role('warehouse')
     @login_required
     def fix_empty_fields():
-        """修复已导入物料的空分类/单位/供应商"""
+        """使用已有基础资料修复空分类/单位，缺少必要资料时整批拒绝。"""
         from app import Material, MaterialCategory, Unit
-        default_unit = Unit.query.filter_by(name='个').first()
-        if not default_unit:
-            default_unit = Unit.query.first()
-        default_cat = MaterialCategory.query.filter_by(name='默认分类').first()
-        if not default_cat:
-            default_cat = MaterialCategory.query.first()
         count = 0
         try:
             materials = Material.query.filter(
                 db.or_(Material.unit_id.is_(None), Material.unit_id == 0,
                        Material.category_id.is_(None), Material.category_id == 0)
             ).all()
+            default_unit = Unit.query.filter_by(name='个').first() or Unit.query.first()
+            default_cat = MaterialCategory.query.filter_by(name='默认分类').first() or MaterialCategory.query.first()
+            missing = []
+            if not default_unit and any(not m.unit_id for m in materials):
+                missing.append('计量单位')
+            if not default_cat and any(not m.category_id for m in materials):
+                missing.append('物料分类')
+            if missing:
+                return jsonify({'status': 'error', 'msg': '无法修复：缺少' + '、'.join(missing) + '，请先在基础资料中新增后重试；尚未修改物料'}), 400
             for m in materials:
                 if not m.unit_id or m.unit_id == 0:
                     m.unit_id = default_unit.id if default_unit else None

@@ -334,7 +334,9 @@ if (checkAllBox) {
 //   · 已保存行（有 line_id）→ 调后端批量接口，立即物理删除 + 库存回冲；
 //   · 未保存行（刚加、还没存过）→ 只从录入网格移除，不涉及库存。
 // 混选时两条路径都走，并在确认框里分别报出数量，避免用户误以为"删了但没生效"。
-function batchDeleteSelectedRows() {
+let batchDeleteInFlight = false;
+async function batchDeleteSelectedRows() {
+    if (batchDeleteInFlight) return;
     if (!rows.length) {
         showToast('当前没有可删除的明细行', 'info');
         return;
@@ -355,38 +357,58 @@ function batchDeleteSelectedRows() {
     if (unsavedLines.length) {
         confirmMsg += `\n另有 ${unsavedLines.length} 行尚未保存，仅从当前录入中移除。`;
     }
-    if (!confirm(confirmMsg)) return;
-
-    // 未保存行直接在本地移除（不碰后端）
-    if (!savedLines.length) {
-        removeRowsAt(selectedIndexes);
-        showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
+    if (!window.showConfirm) {
+        showToast('确认面板未就绪，请刷新页面后重试；尚未删除。', 'warning');
         return;
     }
-
-    if (!OPENING_DOC) {
-        // 理论不可达：没有单据就不该有 line_id。兜底按未保存处理，避免打到不存在的单据 id。
-        removeRowsAt(selectedIndexes);
-        showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
-        return;
-    }
-
-    const lineIds = savedLines.map(i => rows[i].line_id);
-    WMS.api.post('/opening_stock/' + OPENING_DOC.id + '/lines/delete', { line_ids: lineIds })
-        .then(function(data) {
-            if (data && data.status === 'success') {
-                // 已保存行已被后端删除，本地同步摘掉；未保存行一并移除
-                removeRowsAt(selectedIndexes);
-                let msg = data.msg || '明细行已删除';
-                if (unsavedLines.length) msg += `；另移除 ${unsavedLines.length} 行未保存明细`;
-                showToast(msg, 'success', 4200);
-            } else {
-                showToast((data && data.msg) || '删除失败', 'danger', 4200);
-            }
-        })
-        .catch(function(error) {
-            showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+    const selectedRows = selectedIndexes.map(i => rows[i]);
+    const selectedSnapshots = selectedRows.map(row => JSON.stringify(row));
+    batchDeleteInFlight = true;
+    try {
+        const confirmed = await window.showConfirm(confirmMsg, {
+            title: '删除选中明细', okText: savedLines.length ? '删除并回冲库存' : '移除未保存行', cancelText: '返回检查'
         });
+        if (!confirmed) return;
+        const currentSelection = rows.map((_, i) => i).filter(i => selectedFlags[i]);
+        if (JSON.stringify(currentSelection) !== JSON.stringify(selectedIndexes) || selectedIndexes.some((i, n) =>
+            rows[i] !== selectedRows[n] || JSON.stringify(rows[i]) !== selectedSnapshots[n])) {
+            showToast('确认期间明细或勾选已变化，请重新选择后操作；尚未删除。', 'warning');
+            return;
+        }
+
+        // 未保存行直接在本地移除（不碰后端）
+        if (!savedLines.length) {
+            removeRowsAt(selectedIndexes);
+            showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
+            return;
+        }
+
+        if (!OPENING_DOC) {
+            // 理论不可达：没有单据就不该有 line_id。兜底按未保存处理，避免打到不存在的单据 id。
+            removeRowsAt(selectedIndexes);
+            showToast(`已移除 ${selectedIndexes.length} 行未保存的明细`, 'success');
+            return;
+        }
+
+        const lineIds = savedLines.map(i => rows[i].line_id);
+        await WMS.api.post('/opening_stock/' + OPENING_DOC.id + '/lines/delete', { line_ids: lineIds })
+            .then(function(data) {
+                if (data && data.status === 'success') {
+                    // 已保存行已被后端删除，本地同步摘掉；未保存行一并移除
+                    removeRowsAt(selectedIndexes);
+                    let msg = data.msg || '明细行已删除';
+                    if (unsavedLines.length) msg += `；另移除 ${unsavedLines.length} 行未保存明细`;
+                    showToast(msg, 'success', 4200);
+                } else {
+                    showToast((data && data.msg) || '删除失败', 'danger', 4200);
+                }
+            })
+            .catch(function(error) {
+                showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
+            });
+    } finally {
+        batchDeleteInFlight = false;
+    }
 }
 
 // 按下标数组删除本地行（从后往前删，避免下标位移错杀）

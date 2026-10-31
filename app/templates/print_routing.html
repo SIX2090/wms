@@ -519,12 +519,15 @@ function openAddPrinter(wsId, wsCode) {
 function addPrinter() {
     var data = {
         workstation_id: parseInt(document.getElementById('printerAddWsId').value, 10),
-        display_name: document.getElementById('printerAddName').value,
+        display_name: document.getElementById('printerAddName').value.trim(),
         system_name: document.getElementById('printerAddSystemName').value || null,
         printer_type: document.getElementById('printerAddType').value,
         enabled: document.getElementById('printerAddEnabled').checked,
     };
     if (!data.display_name) { if (typeof showToast === 'function') { showToast('请填写打印机名称', 'danger'); } return; }
+    if (data.display_name.length > 100) { showToast('打印机名称不能超过100字', 'danger'); return; }
+    if (!Number.isInteger(data.workstation_id) || data.workstation_id <= 0) { showToast('请选择有效工作站', 'danger'); return; }
+    if (!['mixed', 'label', 'document'].includes(data.printer_type)) { showToast('请选择有效打印机类型', 'danger'); return; }
     WMS.api.post('/print_routing/printers', data).then(function (res) {
         if (typeof showToast === 'function') { showToast(res.msg); } location.reload();
     }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '新增失败', 'danger'); } });
@@ -571,17 +574,23 @@ function editRule(id, name, event, warehouseId, wsId, printerId, priority) {
 
 function saveRule() {
     var data = {
-        name: document.getElementById('ruleName').value,
+        name: document.getElementById('ruleName').value.trim(),
         business_event: document.getElementById('ruleEvent').value,
         warehouse_id: document.getElementById('ruleWarehouse').value || null,
         workstation_id: parseInt(document.getElementById('ruleWorkstation').value, 10),
         printer_id: parseInt(document.getElementById('rulePrinter').value, 10),
-        priority: parseInt(document.getElementById('rulePriority').value, 10) || 100,
+        priority: Number(document.getElementById('rulePriority').value.trim() || '100'),
         enabled: document.getElementById('ruleEnabled').checked,
     };
     if (!data.name || !data.workstation_id || !data.printer_id) {
         showToast('请填写规则名称并选择工作站和打印机', 'warning'); return;
     }
+    if (data.name.length > 100) { showToast('规则名称不能超过100字', 'warning'); return; }
+    if (!Number.isInteger(data.workstation_id) || data.workstation_id <= 0 || !Number.isInteger(data.printer_id) || data.printer_id <= 0) {
+        showToast('请选择有效工作站和打印机', 'warning'); return;
+    }
+    if (!['out_order', 'in_order', 'label', 'material_archive'].includes(data.business_event)) { showToast('请选择有效业务事件', 'warning'); return; }
+    if (!Number.isInteger(data.priority) || data.priority < 1 || data.priority > 9999) { showToast('优先级必须是1到9999之间的整数', 'warning'); return; }
     var ruleId = document.getElementById('ruleEditId').value;
     var url = ruleId ? '/print_routing/rules/' + ruleId + '/edit' : '/print_routing/rules';
     WMS.api.post(url, data).then(function (res) {
