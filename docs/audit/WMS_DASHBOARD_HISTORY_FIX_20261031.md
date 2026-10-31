@@ -14,4 +14,8 @@
 
 生产数据库、账号、单据、库存和服务未操作，生产需重启 WMS 服务生效；前端资源需强刷。本批不把既有41项待验按钮自动全部关闭，真实登录、设备和外部AI不在合成验收范围。
 
-有限清单按同一口径只关闭020的非空本地规则及可见结果/历史恢复分支：41→40，来源和逐项记录在本轮completed-current.json/pending-current.json；不是全系统按钮总数，也不代表外部模型质量或正常凭据验收。代码推送及目标CI验收待回填。
+有限清单按同一口径只关闭020的非空本地规则及可见结果/历史恢复分支：41→40，来源和逐项记录在本轮completed-current.json/pending-current.json；不是全系统按钮总数，也不代表外部模型质量或正常凭据验收。
+
+代码已推送1eca191bd53cb52a0544019c54b6b5be2dacde2e；[AI验证](https://github.com/SIX2090/wms/actions/runs/41192232427)成功，[WMS CI](https://github.com/SIX2090/wms/actions/runs/41192232368)仅unit-tests-shard-2的一项文档行号契约失败：新增筛选使backfill_stock_txn_warehouse_id定义移至29805，INVENTORY_TRUTH.md引用未同步。隔离原测试复现1 failed/21 passed，保留原测试断言，同步该函数及相邻调用/NULL规则的三处文档引用；不修改库存逻辑。修正后完整22项通过，重新推送验收目标CI后再登记整体完成。
+
+2026-10-31用户明确批准“允许本次最小修正推送并重新验收”：只提交三处文档引用和本验收记录，保留pre-commit，仅这次修正推送临时设置WMS_SKIP_CI_GATE=1，之后恢复门禁并验收新目标完整CI。此为用户批准的单次非绿修正例外，不作为全绿替代证据或后续跳过授权。相关文档契约整组114 passed、规则0违规、编码及diff检查通过。
