@@ -2,6 +2,7 @@
 
 > **文档定位**：本文件回答一个问题——**这个系统里的"库存"到底以哪份数据为准？**
 > 与 [`AGENTS.md`](./AGENTS.md)、[`WMS_BUSINESS_SCOPE.md`](./WMS_BUSINESS_SCOPE.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 配套使用。
+> 2026-10-31：随 BUG-2026-10-31-002 校准详情库存显示修复后的行号引用，库存规则未变。
 > 2026-10-30：随 BUG-2026-10-30-007 校准入库取号修复后的行号引用，库存规则未变。
 > 2026-10-30：随 BUG-2026-10-30-002 校准初始化代码精简后的行号引用，库存规则未变。
 > 新增日期：2026-09-11。修改本文件属于独立 atomic action（1 commit + 1 push）。
@@ -248,7 +249,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29754`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29757`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -411,8 +412,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为 app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:29734`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（`app/app.py:29702`，符合 §3.2）——
+> （`app/app.py:29737`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（`app/app.py:29705`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

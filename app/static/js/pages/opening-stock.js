@@ -505,7 +505,7 @@ function copyPreviousRow() {
         showToast('没有可复制的上一行', 'warning');
         return;
     }
-    rows.push({...filled[filled.length - 1], remark: ''});
+    rows.push({...filled[filled.length - 1], line_id: null, remark: ''});
     syncSelectedFlags(rows.length);
     renderRows();
     // P1-D：复制上一行是用户意图 → 落草稿
