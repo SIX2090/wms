@@ -19,3 +19,5 @@
 代码已推送1eca191bd53cb52a0544019c54b6b5be2dacde2e；[AI验证](https://github.com/SIX2090/wms/actions/runs/41192232427)成功，[WMS CI](https://github.com/SIX2090/wms/actions/runs/41192232368)仅unit-tests-shard-2的一项文档行号契约失败：新增筛选使backfill_stock_txn_warehouse_id定义移至29805，INVENTORY_TRUTH.md引用未同步。隔离原测试复现1 failed/21 passed，保留原测试断言，同步该函数及相邻调用/NULL规则的三处文档引用；不修改库存逻辑。修正后完整22项通过，重新推送验收目标CI后再登记整体完成。
 
 2026-10-31用户明确批准“允许本次最小修正推送并重新验收”：只提交三处文档引用和本验收记录，保留pre-commit，仅这次修正推送临时设置WMS_SKIP_CI_GATE=1，之后恢复门禁并验收新目标完整CI。此为用户批准的单次非绿修正例外，不作为全绿替代证据或后续跳过授权。相关文档契约整组114 passed、规则0违规、编码及diff检查通过。
+
+交付确认（2026-10-31）：实际git push将1eca191b推进至9e2760b83a480246f52937a8a26fe2c276b83fb0，HEAD/origin/main/live完整SHA一致；单次跳过变量已移除。纠正后目标的[WMS CI 41193384333](https://github.com/SIX2090/wms/actions/runs/41193384333)与[AI验证41193384406](https://github.com/SIX2090/wms/actions/runs/41193384406)均completed/success，性能工作流41193384337亦success。连接器逐页核对main最新运行，Android最近成功41139060796对应完整SHA8c92667c175aa3c8e35a76f9b8848da6260fe711，git对象齐全、祖先及Android源码/工作流无差异证明通过。代码交付完成，AI任务003与BUG025至027同步收尾；本记录不宣称生产部署或其余40项按钮完成。测试服务18166已按进程身份停止，监听数0；stock/materials/operation_logs/config等隔离前后摘要不变，真实外部模型调用0次。
