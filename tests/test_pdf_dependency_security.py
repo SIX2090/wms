@@ -36,6 +36,18 @@ def test_dependency_pin_includes_october_24_security_fixes():
     assert tuple(map(int, pins[0].split('.'))) >= (6, 21, 2)
 
 
+def test_dependency_pin_includes_october_31_security_fixes():
+    # CVE-2026-119203 through 119209 require the combined 6.21.4 patch level.
+    pins = [line.partition('==')[2] for line in (ROOT / 'app/requirements.txt').read_text(encoding='utf-8').splitlines() if line.startswith('pypdf==')]
+    assert len(pins) == 1
+    assert tuple(map(int, pins[0].split('.'))) >= (6, 21, 4)
+
+
+def test_installed_pdf_parser_includes_october_31_security_fixes():
+    from pypdf import __version__
+    assert tuple(map(int, __version__.split('.'))) >= (6, 21, 4)
+
+
 def test_repeated_missing_object_does_not_rescan_whole_pdf():
     class CountedPdf(BytesIO):
         full_reads = 0

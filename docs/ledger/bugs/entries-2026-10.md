@@ -3143,3 +3143,14 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 - 首轮CI与回滚：e4395c66应用Kotlin编译、lint和AI验证通过，Android41035298376的新增测试编译因DpRect.height扩展未导入失败；立即git revert，并通过连接器将已验证旧tree ced4fbd3以e4395c66为parent非强制恢复至557183f6，本地核对空差异/同tree后软对齐。回滚CI41035838777、AI41035838808、Android41035838819全部精确目标success后重新应用。仅修测试高度计算为bottom-top，并用外层Box解除Activity窗口强制最小尺寸以测量真实组件；小于120dp断言及大字体/交互断言保持，产品代码逐字节不变。最终目标以交付证据核验。
 - 参考：Odoo条码作业的扫码/手工数量录入与微软Warehouse Management的按任务突出字段/按需展开辅助流程；仅借鉴交互原则，不复制ERP业务范围。来源https://www.odoo.com/documentation/master/applications/inventory_and_mrp/barcode/operations/adjustments.html 与 https://learn.microsoft.com/en-us/dynamics365/supply-chain/warehousing/warehouse-app-detours 。
 - 生效确认：需安装本批CI发布的3.9.7 APK；精确目标CI及固定Release核验记录在本批外置证据。手机字体比例、输入法弹起、滚动和手套触控待用户实际设备确认；本批不连接生产单据/库存、不重启WMS服务。
+
+### BUG-2026-10-31-004: pypdf新增七项漏洞阻断CI安全审计
+
+- 状态：已修复（外置回归及依赖审计通过，目标CI另核验；仅修当前失败，不夹带被回滚的三类前端改动）。
+- 根因/危害：560a6da7的WMS CI41149626253，lint-and-static步骤pip-audit命中pypdf6.21.2的CVE-2026-119203/119204/119205/119206/119207/119208/119209；其中119203/119204/119205要求6.21.4，其余要求6.21.3。上游2026-10-27/28发布6.21.3/4的页计数、xref、复制/循环和EOF安全修复，审计数据库在旧绿色基线之后更新。
+- 修复：仅将唯一生产依赖钉版改为6.21.4，测试依赖继续复用；不添加忽略项，不关闭安全扫描，不改PDF业务解析函数，不安装生产解释器或重启服务。
+- 同类点已排查：关联BUG-2026-10-22-001、BUG-2026-10-24-001；唯一有效钉版app/requirements.txt，业务消费者_ai_parse_pdf_bytes及既有PDF安全/附件解析用例保持。
+- 回归：新增最低安全钉版及实际加载版本回归；旧6.21.2应失败，6.21.4在外置依赖目录验证，普通多页/加密/损坏/图像/对象引用等相邻完整模块和pip-audit另核验。上游https://pypdf.readthedocs.io/en/stable/meta/CHANGELOG.html；本轮外置证据C:/wms_backups/repair_ci_20261031/。
+- 回滚边界：560a6da7另有页签标题回归，按R8先恢复旧代码tree e3a22cd0，连接器以560a6da7为parent创建b6a76ad5并非强制更新main；本地回退0d8e67a8的tree相同、空差异后软对齐。此处不把依赖审计失败说成本批前端引入的漏洞，也不把此前本地绿色当目标CI绿色。
+- 生效确认：待目标CI及生产单独验收；本批不访问生产业务数据，不更新生产Python，不重启服务。依赖需在正式部署时安装后才生效。
+- 本批验证：旧依赖基线19 passed；新增安全锁在旧pin/旧库下2 failed、11 passed；升级外置依赖后PDF/页签/台账31 passed。物理回退requirements后1 failed、12 passed，finally逐字节恢复；完整pip-audit -r app/requirements.txt为No known vulnerabilities found。所有安装均位于外置deps或audit-venv，未更新生产Python。
