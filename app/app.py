@@ -10771,6 +10771,7 @@ def _ai_analyze_out_order_anomalies(order_id):
     }
 
 def _ai_report_mom_insights():
+    # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-003
     """报表仪表盘环比分析洞察"""
     today = date.today()
     month_start = today.replace(day=1)
@@ -10779,36 +10780,44 @@ def _ai_report_mom_insights():
 
     # 本月数据
     month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
     month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
 
     # 上月数据
     last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start
     ).scalar() or 0
     last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start
     ).scalar() or 0
@@ -28135,6 +28144,7 @@ def _shift_month_start(month_start, offset):
     return date(year, month, 1)
 
 def build_report_dashboard_context(warehouse):
+    # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-003
     """构建指定仓库的数据仪表盘统计与图表数据。"""
     warehouse_name = (warehouse.name or '').strip()
     warehouse_code = (warehouse.code or '').strip()
@@ -28149,21 +28159,25 @@ def build_report_dashboard_context(warehouse):
     last_month_start = _shift_month_start(month_start, -1)
 
     month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
         db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
         db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
         db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
         db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
@@ -28172,21 +28186,25 @@ def build_report_dashboard_context(warehouse):
     # 上月数据用于环比分析
     last_month_start = _shift_month_start(month_start, -1)
     last_month_in_amount = db.session.query(func.coalesce(func.sum(InOrder.total_amount), 0)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
         db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
         db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
+        InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
         db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
         db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
@@ -28240,6 +28258,7 @@ def build_report_dashboard_context(warehouse):
         InOrder.date,
         func.coalesce(func.sum(InOrderItem.quantity), 0)
     ).join(InOrderItem, InOrderItem.in_order_id == InOrder.id).filter(
+        InOrder.status == 'completed',
         InOrder.date >= trend_start,
         InOrder.date <= today,
         _wh_cond,
@@ -28248,6 +28267,7 @@ def build_report_dashboard_context(warehouse):
         OutOrder.date,
         func.coalesce(func.sum(OutOrderItem.quantity), 0)
     ).join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= trend_start,
         OutOrder.date <= today,
         _wh_cond_out,
@@ -28293,11 +28313,13 @@ def build_report_dashboard_context(warehouse):
 
     monthly_start = _shift_month_start(month_start, -5)
     in_amount_rows = db.session.query(InOrder.date, InOrder.total_amount).filter(
+        InOrder.status == 'completed',
         InOrder.date >= monthly_start,
         InOrder.date < next_month_start,
         _wh_cond,
     ).all()
     out_amount_rows = db.session.query(OutOrder.date, OutOrder.total_amount).filter(
+        OutOrder.status == 'completed',
         OutOrder.date >= monthly_start,
         OutOrder.date < next_month_start,
         _wh_cond_out,

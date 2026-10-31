@@ -687,6 +687,8 @@
         }
 
         function sendNonStreaming(text, attachments, requestId) {
+            historyLoaded = true;
+            historyVersion += 1;
             requestId = requestId || createAIRequestId();
             setBusy(true);
             const loading = addMessage('正在处理...', 'assistant', null, false);
@@ -717,6 +719,8 @@
         }
 
         function tryStreamChat(text, requestId) {
+            historyLoaded = true;
+            historyVersion += 1;
             requestId = requestId || createAIRequestId();
             setBusy(true);
             const loading = addMessage('正在处理...', 'assistant', null, false);
@@ -819,24 +823,29 @@
             });
         }
 
+        // AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-003
         let historyLoaded = false;
+        let historyVersion = 0;
         function restoreHistory() {
             // AI-ASSISTANT-HISTORY-001：面板首次打开时从 DB 恢复最近活跃会话，
             // 刷新/重启后对话不再丢失。失败静默（老行为：空面板开新对话）。
             if (historyLoaded) return;
             historyLoaded = true;
+            if (chatHistory.length || messages.querySelector('.ai-message')) return;
+            const version = historyVersion;
             WMS.api.getRaw('/api/ai/conversations?limit=1')
                 .then(function(data) {
+                    if (version !== historyVersion) return;
                     if (!data || data.status !== 'success' || !data.conversations || !data.conversations.length) return;
                     var conv = data.conversations[0];
                     if (conv.status !== 'active') return;
                     return WMS.api.getRaw('/api/ai/conversations/' + conv.id + '?limit=20')
                         .then(function(detail) {
+                            if (version !== historyVersion || chatHistory.length || messages.querySelector('.ai-message')) return;
                             if (!detail || detail.status !== 'success' || !detail.messages || !detail.messages.length) return;
                             detail.messages.forEach(function(m) {
                                 if (m.role !== 'user' && m.role !== 'assistant') return;
-                                var html = m.role === 'assistant' ? renderMarkdown(m.content) : escapeHtml(m.content);
-                                addMessage(html, m.role, null, m.role === 'assistant');
+                                addMessage(m.content, m.role, null, m.role === 'assistant');
                             });
                             // 恢复的消息同步进内存 chatHistory，供多轮上下文拼接
                             detail.messages.forEach(function(m) {
@@ -861,6 +870,8 @@
         });
         if (clearButton) {
             clearButton.addEventListener('click', function() {
+                historyLoaded = true;
+                historyVersion += 1;
                 WMS.api.post('/api/ai/chat/clear', {})
                     .then(function() {
                         chatHistory.length = 0;
