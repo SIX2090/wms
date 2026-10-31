@@ -792,10 +792,7 @@ function submitForm(completeAfterSave) {
             if (!completeAfterSave || !completeUrl) {
                 submitForm.completed = true;
                 showToast('保存成功', 'success');
-                setTimeout(() => {
-                    const url = detailUrl + '/' + res.id;
-                    window.location.href = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(url) : url;
-                }, 500);
+                setTimeout(() => { window.location.href = detailUrl + '/' + res.id; }, 500);
                 return;
             }
             const actionUrl = completeUrl.replace(/\/0(?=\/|$)/, '/' + res.id);
@@ -827,11 +824,9 @@ function runComplete(actionUrl, force, orderId) {
                             const value = document.querySelector('[name="' + name + '"]')?.value || '';
                             if (value.trim()) params.set(name, value);
                         });
-                        const url = '/requisition/add' + (params.size ? '?' + params.toString() : '');
-                        window.location.href = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(url) : url;
+                        window.location.href = '/requisition/add' + (params.size ? '?' + params.toString() : '');
                     } else {
-                        const url = detailUrl + '/' + (orderId || '');
-                        window.location.href = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(url) : url;
+                        window.location.href = detailUrl + '/' + (orderId || '');
                     }
                 }, 700);
                 return;

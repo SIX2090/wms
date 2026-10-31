@@ -706,26 +706,19 @@ function submitForm(completeAfterSave) {
             if (res.adjustment_no) {
                 document.querySelector('[name="adjustment_no"]').value = res.adjustment_no;
             }
-            const detailUrl = '/adjustment/' + res.id;
-            const nextUrl = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(detailUrl) : detailUrl;
             if (!completeAfterSave) {
                 showToast('保存成功', 'success');
-                return new Promise(function(resolve) {
-                    setTimeout(function() { window.location.href = nextUrl; resolve(); }, 500);
-                });
+                setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 500);
+                return null;
             }
             return WMS.api.postRaw('/adjustment/' + res.id + '/complete', {})
                 .then(function(completeRes) {
                     if (completeRes.status === 'success') {
                         showToast(completeRes.msg || '库存调整已完成', 'success');
-                        return new Promise(function(resolve) {
-                            setTimeout(function() { window.location.href = nextUrl; resolve(); }, 600);
-                        });
+                        setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 600);
                     } else {
                         showToast('单据已保存但完成失败：' + (completeRes.msg || '未知错误'), 'danger', 4200);
-                        return new Promise(function(resolve) {
-                            setTimeout(function() { window.location.href = nextUrl; resolve(); }, 900);
-                        });
+                        setTimeout(function() { window.location.href = '/adjustment/' + res.id; }, 900);
                     }
                 });
         })

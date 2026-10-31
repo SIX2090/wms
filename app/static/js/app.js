@@ -546,13 +546,11 @@ window.WmsTabs = (function() {
         }
 
         const normalizedUrl = normalizeUrl(url);
-        const existingTab = Array.from(tabs.values()).find(tab => tab.url === normalizedUrl);
-        if (existingTab) {
-            activate(existingTab.key);
+        const key = makeKey(normalizedUrl);
+        if (tabs.has(key)) {
+            activate(key);
             return;
         }
-        let key = makeKey(normalizedUrl);
-        while (tabs.has(key)) key += '_new';
 
         // BUG-015 修复：超过 MAX_TABS 自动关闭最早的 Tab
         while (tabs.size >= MAX_TABS) {
@@ -588,16 +586,10 @@ window.WmsTabs = (function() {
             try {
                 const tab = tabs.get(key);
                 const frameTitle = frame.contentDocument && frame.contentDocument.title;
-                if (!tab) return;
-                const loadedUrl = new URL(frame.contentWindow.location.href, window.location.origin);
-                if (loadedUrl.origin !== window.location.origin) return;
-                tab.url = normalizeUrl(loadedUrl.href);
-                if (frameTitle) {
-                    tab.title = frameTitle.replace(/\s+/g, ' ').trim();
-                    button.querySelector('.tab-title').textContent = tab.title;
-                    button.title = tab.title;
-                }
-                if (activeKey === key) updateActiveMenu(tab.url);
+                if (!tab || !frameTitle) return;
+                tab.title = frameTitle.replace(/\s+/g, ' ').trim();
+                button.querySelector('.tab-title').textContent = tab.title;
+                button.title = tab.title;
                 persistTabs();
             } catch (error) { /* 非同源页面保留原页签标题。 */ }
         });

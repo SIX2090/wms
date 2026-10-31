@@ -26747,8 +26747,6 @@ def _build_check_batch_meta(check):
 
 def _render_check_form(check=None):
     warehouse = validate_inventory_warehouse(check.warehouse)[0] if check and check.warehouse else get_default_warehouse()
-    materials = _document_materials_json(warehouse, scoped=True)
-    warehouse_stock = {material['id']: material['stock'] for material in materials}
     return render_template(
         'document_table_form.html',
         doc_type='check',
@@ -26770,14 +26768,13 @@ def _render_check_form(check=None):
             'remark': check.remark if check else '',
             'warehouse': getattr(check, 'warehouse', '') if check else '',
         },
-        materials=materials,
+        materials=_document_materials_json(warehouse, scoped=True),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),
         boms=[],
         existing_items=[
             _material_line_data(item, extra={
-                'stock': float(warehouse_stock.get(item.material_id, 0) or 0),
                 'system_stock': float(item.system_stock or 0),
                 'actual_stock': float(item.actual_stock or 0),
                 'area': item.area or '',
@@ -26989,7 +26986,7 @@ def _render_requisition_form(requisition=None):
 # ==================== Inventory adjustment management ====================
 
 
-def _serialize_adjustment_item_for_form(item, stock_map):
+def _serialize_adjustment_item_for_form(item):
     """Serialize adjustment detail rows for the table editor."""
     material = item.material
     unit_name = ''
@@ -27004,7 +27001,7 @@ def _serialize_adjustment_item_for_form(item, stock_map):
         'name': material.name if material else '',
         'spec': material.spec if material else '',
         'unit': unit_name,
-        'stock': float(stock_map.get(item.material_id, 0) or 0),
+        'stock': float(material.stock or 0) if material else 0,
         'quantity': abs(float(item.quantity or 0)),
         'location': item.location or '',
         'reason': item.reason or '',
