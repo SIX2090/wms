@@ -12,4 +12,6 @@
 
 浏览器：实际Chrome700像素页面从可见卡片勾选QA14-M1，原表格checked与工具栏启用同步；工具栏候选选用真实绑定路由成功。旧标签读取超时并重置后，新标签重开看到卡片图片，实际点击打开大图；另一个物料卡片行内找图及选用成功。图片提供器为本地自造PNG，未联网搜索或下载。截图card-image-preview.png及card-after-reload.png。OCR新页导航超时，其修复后的实际浏览器取消交互未补完，不冒充现场通过；对应共用fetch观察链运行时锁及旧代码回退有效。
 
-生产需重启 WMS 服务生效，本批未发布/重启。分类单位修复的原生确认、两种分享和真实网络/设备等原清单边界保持，不能把本批两类修复当成41项按钮全通过。提交及目标CI验收完成后回填交付证据。
+生产需重启 WMS 服务生效，本批未发布/重启。分类单位修复的原生确认、两种分享和真实网络/设备等原清单边界保持，不能把本批两类修复当成41项按钮全通过。
+
+交付：代码9f54ffe90d81aa79343da918e15c1c602b80b108已推送main，本地HEAD、origin/main与实时远端一致。[WMS CI #1926](https://github.com/SIX2090/wms/actions/runs/41187224379)及[WMS AI Verification #2221](https://github.com/SIX2090/wms/actions/runs/41187224384)均completed/success，CI全量分流的单测、四个专项分片、静态检查、冒烟及聚合门禁通过，文档轻量分支按规则跳过。Android最近一次运行仍为[#857](https://github.com/SIX2090/wms/actions/runs/41139060796)，完整SHA 8c92667c175aa3c8e35a76f9b8848da6260fe711为代码目标祖先，app/android-native-wms/及构建工作流无差异；Git对象已核实。匿名API的403限流不作失败或通过依据，改用已连接GitHub工具逐页找到全部三项最新main运行。CI替代证据保存在本轮evidence/code-ci-final.json。
