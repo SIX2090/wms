@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from functools import wraps
+import re
 
 from flask import jsonify
 from flask_login import current_user
@@ -179,25 +180,33 @@ def detect_ai_high_risk_operation(message: str) -> str | None:
     if not compact:
         return None
     matched_operation = None
-    matched_keywords: tuple[str, ...] = ()
     for operation, keywords in AI_HIGH_RISK_OPERATION_KEYWORDS.items():
-        if any(keyword.lower() in compact for keyword in keywords):
+        patterns = {
+            'complete': r'完成.{0,12}(?:入库单|出库单|业务单据)',
+            'delete': r'删除.{0,12}(?:入库单|出库单|单据|草稿)',
+            'stock_write': r'库存.{0,12}(?:改为|改成|设为|设置为)',
+        }
+        extra = re.search(patterns[operation], compact) if operation in patterns else None
+        if extra:
+            keywords = (*keywords, extra[0])
+        if not any(keyword.lower() in compact for keyword in keywords):
+            continue
+        explicit_request = '忽略规则' in compact or any(
+            f'{marker}{keyword.lower()}' in compact
+            for marker in (*AI_HIGH_RISK_REQUEST_MARKERS, '然后', '再')
+            for keyword in keywords
+        ) or any(
+            f'{keyword.lower()}{suffix}' in compact
+            for keyword in keywords
+            for suffix in ('一下', '掉', '这张单', '这个单')
+        )
+        # Querying a completed/pending state is not a completion instruction.
+        read_question = any(marker in compact for marker in (
+            *AI_HIGH_RISK_QUESTION_MARKERS, '哪些', '多少', '几张', '何时', '什么时候', '统计',
+        ))
+        if explicit_request or not read_question:
             matched_operation = operation
-            matched_keywords = keywords
             break
-    if not matched_operation:
-        return None
-    explicit_request = any(
-        f'{marker}{keyword.lower()}' in compact
-        for marker in AI_HIGH_RISK_REQUEST_MARKERS
-        for keyword in matched_keywords
-    ) or any(
-        f'{keyword.lower()}{suffix}' in compact
-        for keyword in matched_keywords
-        for suffix in ('一下', '掉', '了', '单据', '这张单', '这个单')
-    )
-    if any(marker in compact for marker in AI_HIGH_RISK_QUESTION_MARKERS) and not explicit_request:
-        return None
     return matched_operation
 
 
