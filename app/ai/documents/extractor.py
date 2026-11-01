@@ -50,7 +50,7 @@ def extract_from_text(text: str) -> DocumentExtraction:
         lines.append(DocumentLine(
             line_no=i,
             code=item.get('code', ''),
-            name=item.get('name', ''),
+            name=item.get('parsed_name') or item.get('name', ''),
             spec=item.get('spec', ''),
             unit=item.get('unit', ''),
             quantity=item.get('quantity', 0.0),
@@ -109,8 +109,10 @@ def extract_from_excel_table(table_text: str) -> DocumentExtraction:
         cells = [c.strip() for c in row.split('\t')]
         if len(cells) < 2:
             continue
+        if len(cells) >= 4 and cells[0] in ('物料编码', '商品编码', '编码') and cells[1] in ('物料名称', '商品名称', '名称') and cells[3] == '数量':
+            continue
         lines.append(DocumentLine(
-            line_no=i,
+            line_no=len(lines) + 1,
             code=cells[0] if len(cells) > 0 else '',
             name=cells[1] if len(cells) > 1 else '',
             spec=cells[2] if len(cells) > 2 else '',
@@ -214,42 +216,17 @@ def _parse_material_segments(text: str) -> list[dict]:
     text = text.strip()
     if not text:
         return []
-    normalized = re.sub(r'[\r\n,\uff0c;\uff1b\u3001]+', ' ', text)
-    segments = []
-    unit_pattern = r'(?:个|只|套|件|箱|包|PCS|pcs|kg|KG|米|支|条)'
-    for match in re.finditer(
-        r'([A-Za-z0-9_\-\*/\u4e00-\u9fff]{2,40}?)\s*([0-9]+(?:\.[0-9]+)?)\s*(' + unit_pattern + r')?(?=\s|$)',
-        normalized,
-    ):
-        name = (match.group(1) or '').strip()
-        qty = float(match.group(2)) if match.group(2) else 0
-        unit = (match.group(3) or '').strip()
-        if not name or qty <= 0:
-            continue
-        if re.fullmatch(r'\d+(?:\.\d+)?', name):
-            continue
-        segments.append({'name': name, 'quantity': round(qty, 2), 'unit': unit, 'raw': match.group(0)})
-    return segments
+    from ai.read_queries import parse_material_segments, supplier_label
+    supplier = supplier_label(text)
+    if supplier:
+        text = text.replace(supplier, '', 1)
+    return parse_material_segments(text)
 
 
 def _extract_supplier(text: str) -> str:
     """从文本提取供应商名称。"""
-    text = text.strip()
-    patterns = (
-        r'(?:今天|明天|后天|上午|下午|晚上)?\s*(?:发|送|出货|发货)\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
-        r'(?:供应商|厂家)\s*[:：]?\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
-    )
-    stop_words = ('货', '货单', '送货单', '出货通知', '通知', '一下')
-    for pattern in patterns:
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        value = (match.group(1) or '').strip()
-        value = re.split(r'\s|,|，|;|；', value, 1)[0].strip()
-        if not value or value in stop_words:
-            continue
-        return value[:100]
-    return ''
+    from ai.read_queries import supplier_label
+    return supplier_label(text)
 
 
 def _extract_customer(text: str) -> str:

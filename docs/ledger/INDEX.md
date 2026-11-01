@@ -629,6 +629,10 @@
 | BUG-2026-11-01-009 | bugs | entries-2026-11.md |
 | BUG-2026-11-01-010 | bugs | entries-2026-11.md |
 | BUG-2026-11-01-011 | bugs | entries-2026-11.md |
+| BUG-2026-11-01-012 | bugs | entries-2026-11.md |
+| BUG-2026-11-01-013 | bugs | entries-2026-11.md |
+| BUG-2026-11-01-014 | bugs | entries-2026-11.md |
+| BUG-2026-11-01-015 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

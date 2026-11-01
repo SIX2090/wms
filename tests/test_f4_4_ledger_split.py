@@ -329,15 +329,19 @@ class TestMonthlyReviewEquivalence:
         dist = Counter(statuses.values())
         assert dict(dist) == STATUS_DIST_BASELINE, dict(dist)
 
-# R8 rollback retains explicit new BUG registrations as open; historical snapshot unchanged.
-POST_SPLIT_BUGS['BUG-2026-11-01-001'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-002'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-003'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-004'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-005'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-006'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-007'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-008'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-009'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-010'] = 'open'
-POST_SPLIT_BUGS['BUG-2026-11-01-011'] = 'open'
+# Reimplemented registrations are verified individually; historical snapshot unchanged.
+POST_SPLIT_BUGS['BUG-2026-11-01-001'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-002'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-003'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-005'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-006'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-007'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-008'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-009'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-010'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-011'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-012'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-013'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-014'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-015'] = 'fixed'
