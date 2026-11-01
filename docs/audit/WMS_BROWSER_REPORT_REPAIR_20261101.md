@@ -24,6 +24,7 @@
 - 实际采购单：数量 10、占用 8、完成实收 4、待入库 4、未下推 2；打印预览实收 4、未入库 6；选单已下推 8、未下推 2。
 - 本地完整相邻分组：1622 passed、1 skipped；补扫工单领料及采购文案相关分组442 passed，两组有重叠，不相加为唯一用例数。
 - 整批18个产品文件物理换回旧版本：34 failed、21对照passed；逐字节恢复并核验SHA256后55 passed，未使用stash、未放宽既有断言。
+- 台账契约补齐024至028五个新增ID的独立状态登记，原315/141/19/1历史分布断言逐字未改；文档/台账/编码分组16 passed。
 - 常规规则、A11全量及全量棘轮门禁通过，裸非GET fetch检查和verify_wms_bugs通过；全量棘轮有已登记存量，不称其为零违规。
 - 原样 `scripts/full_smoke_test.py` 经独立文件库与 Flask 请求桥运行：119/119，通过；合成登录夹具选择脚本第二候选，因此不执行两项未授权密码写入，不宣称真实认证或生产冒烟通过。
 - 外部证据目录：`C:/wms_backups/browser_report_fix_20261101/`，包括日志、浏览器截图、只读数据库核对及回退字节证明。仅停止本次创建的测试服务并关闭测试标签页。
@@ -36,4 +37,6 @@
 
 ## 交付记录
 
-待整批本地验证、实际推送与精确目标 CI 验收后补充。
+本地验证已通过；精确目标 CI 验收待补。
+
+推送前匿名 GitHub API 返回 HTTP403 限流。已连接 GitHub 的 Actions 集合按 main 连续读取两页（每页30项），重新核实远端基线仍为 `ba62e3030d5f4f548af6d86076cec2a3392743ec`，最新 [WMS CI 41296717409](https://github.com/SIX2090/wms/actions/runs/41296717409) 与 [AI 41296717424](https://github.com/SIX2090/wms/actions/runs/41296717424) 均 completed/success、完整SHA匹配；最新 [Android 41245230422](https://github.com/SIX2090/wms/actions/runs/41245230422) 在 `c2557df8da6bec9764349d37cf5b5a4902bbce5e` 成功，Git对象存在、为基线祖先，且该提交至本批HEAD的Android源码/构建工作流差异为空。替代证据保存在外部 `baseline-ci-connector.json`。本批按AGENTS已有流程，仅为同一已核实基线的该次push临时使用WMS_SKIP_CI_GATE=1，未改钩子、全局配置或验证范围。
