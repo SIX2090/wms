@@ -8785,6 +8785,7 @@ def _material_image_search_terms(material):
     return ' '.join(tokens[:8]).strip()
 
 def _extract_bing_image_candidates(html, limit=12):
+    from services.material_image_candidates import normalize_image_candidate
     candidates = []
     seen = set()
     patterns = [
@@ -8799,18 +8800,15 @@ def _extract_bing_image_candidates(html, limit=12):
                 meta = json.loads(raw)
             except Exception:
                 continue
-            image_url = (meta.get('murl') or '').strip()
-            if not image_url or image_url in seen:
+            if not isinstance(meta, dict):
                 continue
-            if not image_url.lower().startswith(('http://', 'https://')):
+            candidate = normalize_image_candidate(
+                meta.get('murl'), meta.get('turl'), meta.get('purl'),
+                meta.get('t') or meta.get('desc'))
+            if candidate is None or candidate['image_url'] in seen:
                 continue
-            seen.add(image_url)
-            candidates.append({
-                'image_url': image_url,
-                'thumb_url': (meta.get('turl') or image_url).strip(),
-                'source_url': (meta.get('purl') or '').strip(),
-                'title': (meta.get('t') or meta.get('desc') or '').strip()[:120],
-            })
+            seen.add(candidate['image_url'])
+            candidates.append(candidate)
             if len(candidates) >= limit:
                 return candidates
     return candidates
@@ -8821,31 +8819,23 @@ def _extract_baidu_image_candidates(data, limit=12):
     百度返回的 objURL/fromURL 常为编码串不可直接用，
     取 middleURL（百度缓存中等图）为 image_url，thumbURL 为缩略图。
     """
+    from services.material_image_candidates import candidate_http_url, normalize_image_candidate
     candidates = []
     seen = set()
     items = data.get('data', []) if isinstance(data, dict) else []
+    if not isinstance(items, (list, tuple)):
+        return candidates
     for item in items:
         if not isinstance(item, dict):
             continue
-        image_url = (item.get('middleURL') or item.get('thumbURL') or '').strip()
-        if not image_url or image_url in seen:
+        image_url = candidate_http_url(item.get('middleURL')) or candidate_http_url(item.get('thumbURL'))
+        candidate = normalize_image_candidate(
+            image_url, item.get('thumbURL'), item.get('fromURL'),
+            item.get('fromPageTitle') or item.get('title'), strip_title_html=True)
+        if candidate is None or candidate['image_url'] in seen:
             continue
-        if not image_url.lower().startswith(('http://', 'https://')):
-            continue
-        seen.add(image_url)
-        thumb_url = (item.get('thumbURL') or image_url).strip()
-        # fromPageTitle 含 <strong> 等 HTML 标签，需清理
-        title_raw = item.get('fromPageTitle') or item.get('title') or ''
-        title = re.sub(r'<[^>]+>', '', title_raw).strip()[:120]
-        source_url = item.get('fromURL') or ''
-        if not source_url.lower().startswith(('http://', 'https://')):
-            source_url = ''
-        candidates.append({
-            'image_url': image_url,
-            'thumb_url': thumb_url,
-            'source_url': source_url,
-            'title': title,
-        })
+        seen.add(candidate['image_url'])
+        candidates.append(candidate)
         if len(candidates) >= limit:
             return candidates
     return candidates
@@ -9226,7 +9216,7 @@ def material_merge_preview(target_id, source_id, allow_identity_difference=False
 
     target, source = _material_merge_check_pair(target_id, source_id, allow_identity_difference)
     tables = {}
-    for name in tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES):
+    for name in tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES) + ('ai_material_alias',):
         tbl = db.metadata.tables.get(name)
         if tbl is None or 'material_id' not in tbl.c:
             continue
@@ -13466,7 +13456,8 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
                 if 500 <= response.status_code < 600:
                     app.logger.warning('AI vision %s (%s) server error %s, will fallback', model_id, model_name, response.status_code)
                     continue
-                return None, None, last_error
+                from services.document_ocr_feedback import public_ocr_error_message
+                return None, None, public_ocr_error_message(last_error)
             response.raise_for_status()
             data = response.json()
             content = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
@@ -14251,12 +14242,8 @@ def _ai_ocr_text(value):
     return str(value or '').translate(table).strip()
 
 def _ai_ocr_number(value, default=0):
-    text = _ai_ocr_text(value)
-    text = re.sub(r'(?<=\d),(?=\d{3}(?:\D|$))', '', text)
-    match = re.search(r'\d+(?:\.\d+)?', text)
-    if not match:
-        return round_to_2_decimals(parse_float_value(value, default))
-    return round_to_2_decimals(parse_float_value(match.group(0), default))
+    from services.document_ocr_numbers import parse_ocr_number
+    return parse_ocr_number(_ai_ocr_text(value), default)
 
 def _ai_ocr_confidence(value):
     confidence = _ai_ocr_number(value, 0)
@@ -14282,8 +14269,9 @@ def _ai_normalize_document_extraction(raw, source_text=''):
         quantity = _ai_ocr_number(_ai_item_value(item, 'quantity'), 0)
         box_count = _ai_ocr_number(_ai_item_value(item, 'box_count'), 0)
         pcs_per_box = _ai_ocr_number(_ai_item_value(item, 'pcs_per_box'), 0)
-        if quantity <= 0 and box_count > 0 and pcs_per_box > 0:
-            quantity = round_to_2_decimals(box_count * pcs_per_box)
+        if quantity == 0 and box_count > 0 and pcs_per_box > 0:
+            from services.document_ocr_numbers import packaged_ocr_quantity
+            quantity = packaged_ocr_quantity(box_count, pcs_per_box)
         code = str(_ai_item_value(item, 'code') or '').strip()
         name = str(_ai_item_value(item, 'name') or '').strip()
         spec = str(_ai_item_value(item, 'spec') or '').strip()
@@ -14573,7 +14561,7 @@ def _ai_low_confidence_field_names(rows, threshold=0.80):
     return sorted(names)
 
 
-def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message='', image_path=None):
+def _ai_record_document_job(extracted, source, status, context=None, matched=None, unmatched=None, error_message='', image_path=None, commit_now=True):
     if not has_request_context() or not current_user.is_authenticated:
         return None
     extracted = extracted or {}
@@ -14650,7 +14638,8 @@ def _ai_record_document_job(extracted, source, status, context=None, matched=Non
     # BUG-2026-10-17-011-F05：把低置信度字段写回 job，供 _ai_check_draft_creation_gate 判定
     low_names = _ai_low_confidence_field_names(list(matched or []) + list(unmatched or []))
     job.low_confidence_fields = json.dumps(low_names) if low_names else '[]'
-    db.session.commit()
+    if commit_now:
+        db.session.commit()
     return job
 
 def _ai_record_document_attempt(job, source, status, matched=None, unmatched=None, error_message=''):
@@ -17381,31 +17370,25 @@ def _ai_f02_query_daily_quality(target_date):
     复用 _ai_bq_query_samples 的口径，但按单日筛选。
     返回 {metric: {numerator, denominator, rate}}。
     """
-    from ai.ops.business_quality import ALL_METRICS
+    from ai.ops.business_quality import ALL_METRICS, compute_business_quality
     day_start = datetime.strptime(target_date, '%Y-%m-%d')
     day_end = day_start + timedelta(days=1)
     result = {}
     try:
         samples = _ai_bq_query_samples({
             'time_start': day_start.isoformat(),
-            'time_end': day_end.isoformat(),
+            # Shared quality filters include their end point. Keep this
+            # natural-day consumer strictly before the following midnight.
+            'time_end': (day_end - timedelta(microseconds=1)).isoformat(),
         })
-        # 聚合单日样本
+        # ORM adapter returns QualitySample counters, not per-metric dicts.
+        metrics = compute_business_quality(samples).metrics
         for metric in ALL_METRICS:
-            total_num = 0
-            total_den = 0
-            for s in samples:
-                entry = s.get(metric, {}) if isinstance(s, dict) else getattr(s, metric, None)
-                if entry is None:
-                    continue
-                if isinstance(entry, dict):
-                    total_num += int(entry.get('numerator', 0))
-                    total_den += int(entry.get('denominator', 0))
-            rate = total_num / total_den if total_den > 0 else 0.0
+            value = metrics[metric]
             result[metric] = {
-                'numerator': total_num,
-                'denominator': total_den,
-                'rate': round(rate, 6),
+                'numerator': value.numerator,
+                'denominator': value.denominator,
+                'rate': round(value.rate, 6),
             }
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 单日质量指标查询异常: {exc}')
@@ -32640,9 +32623,17 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             if _routing_decision is not None:
                 _err_resp['routing_decision'] = _routing_decision.to_dict()
             if _call_evidence is not None:
-                _err_resp['call_evidence'] = _call_evidence.to_dict()
+                from services.document_ocr_feedback import public_ocr_call_evidence
+                _err_resp['call_evidence'] = public_ocr_call_evidence(_call_evidence)
             return jsonify(_err_resp), 500
         
+        # Normalize finite quantities once before matching and any review writes.
+        from services.document_ocr_numbers import InvalidOCRNumber, normalize_document_quantities
+        try:
+            extracted = normalize_document_quantities(extracted)
+        except InvalidOCRNumber:
+            return jsonify({'status': 'error', 'msg': '识别数量无效或无法按两位小数安全表示，请重新识别或人工录入'}), 422
+
         # 尝试创建草稿
         draft_info = None
         items_info = []
@@ -32848,13 +32839,24 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             matched_rows, unmatched_rows = _ai_match_extracted_items(extracted.get('items') or [])
             # AI_TASK: AI-R08-F02 拍照 OCR 统一进入确认台（pending_confirmation + 确认页跳转）
             job_status = 'pending_confirmation'
-            document_job = _ai_record_document_job(
-                extracted, 'ocr_upload', job_status,
-                matched=matched_rows, unmatched=unmatched_rows,
-            )
-            confirmation_action = _ai_confirmation_action(
-                extracted, document_job_id=document_job.id if document_job else None,
-            )
+            pending_was_present = '_ai_document_confirmations' in session
+            pending_before = dict(session.get('_ai_document_confirmations') or {})
+            try:
+                document_job = _ai_record_document_job(
+                    extracted, 'ocr_upload', job_status,
+                    matched=matched_rows, unmatched=unmatched_rows, commit_now=False,
+                )
+                # The confirmation-token update commits the whole pending job.
+                confirmation_action = _ai_confirmation_action(
+                    extracted, document_job_id=document_job.id if document_job else None,
+                )
+            except Exception:
+                db.session.rollback()
+                if pending_was_present:
+                    session['_ai_document_confirmations'] = pending_before
+                else:
+                    session.pop('_ai_document_confirmations', None)
+                raise
 
         return jsonify({
             'status': 'success',

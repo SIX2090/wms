@@ -225,19 +225,32 @@ document.querySelectorAll('.delBtn').forEach(function(btn) {
 
 document.querySelectorAll('.revertBtn').forEach(function(btn) {
     btn.addEventListener('click', async function() {
-        const id = this.dataset.id;
-        const confirmed = await showConfirm('确认反提交该库存调整单？反提交后库存将恢复。', {title: '反提交库存调整'});
-        if (!confirmed) return;
-        WMS.api.postRaw('/adjustment/' + id + '/revert')
-        .then(res => {
+        const button = this;
+        if (button.disabled || button.dataset.revertPending === '1') return;
+        const id = button.dataset.id;
+        const wasDisabled = button.disabled;
+        let navigating = false;
+        button.dataset.revertPending = '1';
+        button.disabled = true;
+        try {
+            const confirmed = await showConfirm('确认反提交该库存调整单？反提交后库存将恢复。', {title: '反提交库存调整'});
+            if (!confirmed) return;
+            const res = await WMS.api.postRaw('/adjustment/' + id + '/revert');
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
+                navigating = true;
             } else {
                 showToast(res.msg || '反提交失败', 'danger', 3600);
             }
-        })
-        .catch(err => showToast('反提交失败：' + err.message, 'danger', 3600));
+        } catch (err) {
+            showToast('反提交失败：' + err.message, 'danger', 3600);
+        } finally {
+            if (!navigating) {
+                delete button.dataset.revertPending;
+                button.disabled = wasDisabled;
+            }
+        }
     });
 });
 
