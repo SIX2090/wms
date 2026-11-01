@@ -479,11 +479,7 @@ def register_material_routes(app):
         if not image_url:
             return jsonify({'status': 'error', 'msg': '请选择图片'}), 400
 
-        try:
-            image_path, error = _save_material_image_from_url(material, image_url)
-        except Exception as exc:
-            current_app.logger.warning('Material image download failed: %s', type(exc).__name__)
-            return jsonify({'status': 'error', 'msg': '下载图片失败，请稍后重试或手动上传图片'}), 502
+        image_path, error = _save_material_image_from_url(material, image_url)
         if error:
             return jsonify({'status': 'error', 'msg': error}), 400
 

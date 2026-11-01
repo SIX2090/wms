@@ -470,18 +470,15 @@
         // 主动停掉 video 上的媒体轨道并清空 srcObject，否则停止扫码后
         // 摄像头指示灯常亮、页面关闭扫描框后仍在录制，浪费电量与隐私风险。
         if (barcodeVideo && barcodeVideo.srcObject) {
-            stopBarcodeStream(barcodeVideo.srcObject);
+            var stream = barcodeVideo.srcObject;
+            if (stream && typeof stream.getTracks === 'function') {
+                stream.getTracks().forEach(function(track) {
+                    try { track.stop(); } catch (e) { /* 忽略单条轨道停止失败 */ }
+                });
+            }
             barcodeVideo.srcObject = null;
         }
         if (barcodeScanner) barcodeScanner.hidden = true;
-    }
-
-    function stopBarcodeStream(stream) {
-        if (stream && typeof stream.getTracks === 'function') {
-            stream.getTracks().forEach(function(track) {
-                try { track.stop(); } catch (e) { /* 单条失败不阻止释放其他轨道 */ }
-            });
-        }
     }
 
     function startBarcodeScanner() {
@@ -526,25 +523,6 @@
 
         // Wait for video element to be ready before starting camera
         var reader = zxingCodeReader;
-        // getUserMedia/playback may finish after close or a new scan session.
-        // Guard the SDK boundaries before an old stream can touch shared video.
-        if (typeof reader.decodeFromStream === 'function') {
-            var decodeFromStream = reader.decodeFromStream;
-            reader.decodeFromStream = function(stream) {
-                if (reader !== zxingCodeReader) {
-                    stopBarcodeStream(stream);
-                    return Promise.resolve();
-                }
-                return decodeFromStream.apply(reader, arguments);
-            };
-        }
-        if (typeof reader.decodeContinuously === 'function') {
-            var decodeContinuously = reader.decodeContinuously;
-            reader.decodeContinuously = function() {
-                if (reader !== zxingCodeReader) return;
-                return decodeContinuously.apply(reader, arguments);
-            };
-        }
         setTimeout(function() {
             if (reader !== zxingCodeReader) return;
             // Use ZXing's built-in method to handle camera and decoding
@@ -975,10 +953,6 @@
         if (recognizePreview) recognizePreview.hidden = true;
         if (recognizeLoading) recognizeLoading.hidden = true;
         if (cameraBtn) cameraBtn.disabled = false;
-    }
-
-    if (typeof window.addEventListener === 'function') {
-        window.addEventListener('pagehide', cancelMaterialRecognition);
     }
 
     if (cameraBtn && cameraFileInput) {

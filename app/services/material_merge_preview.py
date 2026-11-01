@@ -21,7 +21,7 @@ def _fingerprint(preview):
     from app import Material, MATERIAL_MERGE_REF_TABLES, MATERIAL_MERGE_QUANTITY_TABLES
     pair = sorted((preview['source']['id'], preview['target']['id']))
     digest = hashlib.sha256(json.dumps(preview, sort_keys=True, ensure_ascii=False, default=str).encode('utf-8'))
-    names = (Material.__tablename__, 'ai_material_alias') + tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES)
+    names = (Material.__tablename__,) + tuple(MATERIAL_MERGE_REF_TABLES) + tuple(MATERIAL_MERGE_QUANTITY_TABLES)
     for name in sorted(set(names)):
         table = db.metadata.tables.get(name)
         if table is None:

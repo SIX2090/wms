@@ -309,32 +309,17 @@ $(document).ready(function() {
     });
 
     // 批量删除
-    $('.revertBtn').click(async function() {
-        var button = this;
-        if (button.disabled || button.dataset.revertPending === '1') return;
-        var id = $(button).data('id');
-        var wasDisabled = button.disabled;
-        var navigating = false;
-        button.dataset.revertPending = '1';
-        button.disabled = true;
-        try {
-            if (!confirm('确认反提交该调拨单？反提交后库存将恢复到调拨前。')) return;
-            var res = await WMS.api.postRaw('/transfer/' + id + '/revert');
+    $('.revertBtn').click(function() {
+        var id = $(this).data('id');
+        if (!confirm('确认反提交该调拨单？反提交后库存将恢复到调拨前。')) return;
+        WMS.api.postRaw('/transfer/' + id + '/revert').then(function(res) {
             if (res.status === 'success') {
                 showToast(res.msg || '反提交成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
-                navigating = true;
             } else {
                 showToast(res.msg || '反提交失败', 'danger', 3600);
             }
-        } catch (err) {
-            showToast('操作失败：' + err.message, 'danger', 3600);
-        } finally {
-            if (!navigating) {
-                delete button.dataset.revertPending;
-                button.disabled = wasDisabled;
-            }
-        }
+        }).catch(function(err) { showToast('操作失败：' + err.message, 'danger', 3600); });
     });
 
     $('#batchDeleteBtn').click(function() {
