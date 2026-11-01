@@ -57,7 +57,7 @@ def audit_case(monkeypatch):
         material = m.Material(code='M29', name='验收产品', unit_id=unit.id, stock=12, price=3)
         m.db.session.add(material)
         m.db.session.flush()
-        order = m.SubcontractOrder(order_no='SC' + datetime.now().strftime('%y%m') + '00001',
+        order = m.SubcontractOrder(order_no='SC' + datetime.now().strftime('%y%m') + '0001',
             supplier_id=supplier.id, warehouse=second.name, status='pending',
             contact=None, phone=None, deadline=None)
         m.db.session.add(order)
@@ -77,14 +77,27 @@ def audit_case(monkeypatch):
         m.db.session.remove()
 
 
-def test_second_subcontract_can_be_created(audit_case):
+@pytest.mark.parametrize('year,month', [(2026, 10), (2026, 11), (2026, 12), (2027, 1)])
+def test_second_subcontract_can_be_created(audit_case, monkeypatch, year, month):
     client, ids = audit_case
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(year, month, 15, 12, 0, 0, tzinfo=tz)
+
+    monkeypatch.setattr(m, 'datetime', FixedDateTime)
+    prefix = f'SC{year % 100:02d}{month:02d}'
+    with m.app.app_context():
+        m.db.session.get(m.SubcontractOrder, ids['order']).order_no = prefix + '0001'
+        m.db.session.commit()
     response = client.post('/subcontract/add', data={
         'supplier_id': ids['supplier'], 'warehouse_id': ids['second']})
     assert response.status_code == 200, response.get_json()
     with m.app.app_context():
         orders = m.SubcontractOrder.query.order_by(m.SubcontractOrder.id).all()
-        assert len(orders) == 2 and orders[-1].order_no.endswith('00002')
+        assert len(orders) == 2
+        assert orders[-1].order_no == prefix + '0002'
         assert orders[-1].warehouse == '验收乙仓'
 
 

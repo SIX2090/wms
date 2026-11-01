@@ -41,3 +41,11 @@
 原51场景55轮最终重放仅4个模型未配置HTTP分支（R04/H05/H06/H07），不将它们包装成真实模型或安全验收通过；其余HTTP200不等于业务期望全部满足。严格黄金组件1/43及样本期望问题保持单列，真实模型泛化、图片、语音和设备未重测。87用例、23模块、11修复类别、40待验分支使用不同计数口径。
 
 当前待实际统一commit/push和精确目标CI；未完成交付前不报告整体完成。生产未部署，生产需重启 WMS 服务生效，本轮不重启。详细机器证据位于本轮evidence目录的final-related.txt、rollback-clean.txt、ai-final.txt、startup-recheck.txt、bug-final-recheck.txt、smoke-final.txt、browser-proof.json和offline-proof.json。
+
+## 首次推送及跨月测试纠正
+
+2026-11-01实际push将main从c2557df8推进到`89c00823f92c5aaaa350ae06e71ce8438b6cb1b4`，HEAD/origin/main/live一致。匿名CI查询403时，已连接GitHub核实同一基线三个最新main运行全绿后，依AGENTS查询故障流程仅对该push临时设置跳过重复查询变量，随即移除；未复用此前非绿例外。
+
+[AI验证41261952919](https://github.com/SIX2090/wms/actions/runs/41261952919)全部success；[WMS CI41261953012](https://github.com/SIX2090/wms/actions/runs/41261953012)仅unit-tests-shard-2的`test_second_subcontract_can_be_created`失败：实际`SC26110002`，旧测试错误要求以五位`00002`结尾。原取号契约为前缀+年月+四位流水，10月末位0掩盖错误，11月触发；产品取号函数、委外路由和该测试在本批均未修改。用c2557df8旧产品及原测试在同一天隔离复现同一失败，故不是本批引入新失败，不据此回滚AI业务修复。
+
+最小纠正仅将测试初始样本规范为四位流水，改为完整单号精确断言，并显式覆盖2026年10/11/12月及2027年1月；保留数量、仓库、成功状态等原断言，不改产品取号规则或业务代码。旧产品完整模块58 passed，本批产品及相邻三模块88 passed；原测试在旧产品已失败的证据保留。用户已明确批准本次“最小纠正推送并重新验收”，仅此测试和本验收记录提交；保留提交检查，临时跳过当前非绿基线前置查询后，必须验收新目标完整CI，不能当作已通过。生产未操作。
