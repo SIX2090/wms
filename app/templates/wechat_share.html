@@ -297,12 +297,30 @@
             </select>
             <button type="submit" class="btn btn-sm btn-outline-primary">筛选</button>
             {% if log_filters.status or log_filters.limit != 10 %}
-            <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">清除</a>
+            <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">重置筛选</a>
             {% endif %}
             {% if log_counts.failed > 0 %}
             <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
             {% endif %}
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="openWechatShareCleanup()">清理历史记录</button>
         </form>
+    </div>
+    <div id="wechatCleanupPanel" class="card-body border-bottom" hidden>
+        <div class="d-flex flex-wrap align-items-center gap-3">
+            <label for="wechatCleanupDays" class="form-label mb-0">清理范围</label>
+            <select id="wechatCleanupDays" class="form-select form-select-sm" style="width: 170px;" onchange="resetWechatShareCleanupPreview()">
+                <option value="30">30 天前</option>
+                <option value="90" selected>90 天前</option>
+                <option value="0">全部历史记录</option>
+            </select>
+            <label class="form-check-label"><input id="wechatCleanupImages" type="checkbox" class="form-check-input me-1" onchange="resetWechatShareCleanupPreview()">同时清理关联图片</label>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-primary" onclick="previewWechatShareCleanup()">预览清理数量</button>
+            <button id="wechatCleanupConfirm" data-wechat-write type="button" class="btn btn-sm btn-danger" disabled onclick="confirmWechatShareCleanup()">确认清理</button>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-secondary" onclick="closeWechatShareCleanup()">收起</button>
+        </div>
+        <p class="small text-muted mt-2 mb-1">只清理 WMS 内的已发送、失败和跳过记录。待发送、发送中、结果待确认及正在执行任务的记录保留；保留防重复发送保护。</p>
+        <p class="small text-muted mb-1">不影响入库单和库存，不会撤回微信消息。清理不受上方列表筛选和显示条数限制；图片默认保留，共用图片及分享目录外文件不会删除。</p>
+        <div id="wechatCleanupPreview" class="small" role="status" aria-live="polite">请先预览清理数量，再确认清理。</div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -411,6 +429,7 @@ async function writeWechatShare(url, payload, options) {
         if (!refreshing) {
             wechatShareWriteBusy = false;
             buttons.forEach((button, index) => { button.disabled = disabled[index]; });
+            if (options.kind === 'cleanup') resetWechatShareCleanupPreview();
         }
     }
 }
@@ -447,6 +466,85 @@ function clearWechatShareLogs(status) {
     return writeWechatShare('/wechat_share/logs/clear', formData, {
         confirmation: '确认清理所有' + label + '分享记录？图片文件不会删除。',
         failure: '清理失败', success: '已清理'
+    });
+}
+
+let wechatCleanupPlan = null;
+let wechatCleanupRevision = 0;
+
+function resetWechatShareCleanupPreview() {
+    wechatCleanupRevision += 1;
+    wechatCleanupPlan = null;
+    document.getElementById('wechatCleanupConfirm').disabled = true;
+    document.getElementById('wechatCleanupPreview').textContent = '请先预览清理数量，再确认清理。';
+}
+
+function openWechatShareCleanup() {
+    if (wechatShareWriteBusy) return;
+    document.getElementById('wechatCleanupPanel').hidden = false;
+    resetWechatShareCleanupPreview();
+}
+
+function closeWechatShareCleanup() {
+    if (wechatShareWriteBusy) return;
+    document.getElementById('wechatCleanupPanel').hidden = true;
+    resetWechatShareCleanupPreview();
+}
+
+async function previewWechatShareCleanup() {
+    if (wechatShareWriteBusy) return;
+    resetWechatShareCleanupPreview();
+    const revision = wechatCleanupRevision;
+    const days = document.getElementById('wechatCleanupDays');
+    const images = document.getElementById('wechatCleanupImages');
+    const options = {retention_days: Number(days.value), delete_images: images.checked};
+    const buttons = Array.from(document.querySelectorAll('button[data-wechat-write]'));
+    const disabled = buttons.map(button => button.disabled);
+    const fieldsDisabled = [days.disabled, images.disabled];
+    wechatShareWriteBusy = true;
+    buttons.forEach(button => { button.disabled = true; });
+    days.disabled = images.disabled = true;
+    document.getElementById('wechatCleanupPreview').textContent = '正在统计可清理记录…';
+    try {
+        const res = await WMS.api.get('/wechat_share/logs/cleanup_preview', {query: {
+            retention_days: options.retention_days, delete_images: options.delete_images ? 1 : 0
+        }});
+        if (revision !== wechatCleanupRevision || Number(days.value) !== options.retention_days || images.checked !== options.delete_images) return;
+        if (!res || !Number.isInteger(res.count) || res.count < 0 || typeof res.preview_token !== 'string') {
+            throw new Error('清理预览无效，请重试');
+        }
+        wechatCleanupPlan = {...options, ...res};
+        const range = res.cutoff ? res.cutoff + ' 之前' : '全部历史';
+        document.getElementById('wechatCleanupPreview').textContent = range + '可清理 ' + res.count + ' 条；受保护记录保留 ' + res.protected_count + ' 条。'
+            + (options.delete_images ? '将尝试清理无其他引用的关联图片。' : '图片文件保留。');
+    } catch (err) {
+        if (revision === wechatCleanupRevision) {
+            document.getElementById('wechatCleanupPreview').textContent = '预览失败：' + ((err && err.message) || '请稍后重试');
+        }
+    } finally {
+        wechatShareWriteBusy = false;
+        buttons.forEach((button, index) => { button.disabled = disabled[index]; });
+        days.disabled = fieldsDisabled[0];
+        images.disabled = fieldsDisabled[1];
+        document.getElementById('wechatCleanupConfirm').disabled = !wechatCleanupPlan || wechatCleanupPlan.count === 0;
+    }
+}
+
+function confirmWechatShareCleanup() {
+    if (wechatShareWriteBusy) return;
+    const plan = wechatCleanupPlan;
+    if (!plan || plan.count <= 0 || plan.retention_days !== Number(document.getElementById('wechatCleanupDays').value)
+            || plan.delete_images !== document.getElementById('wechatCleanupImages').checked) {
+        resetWechatShareCleanupPreview();
+        return;
+    }
+    return writeWechatShare('/wechat_share/logs/cleanup', {
+        retention_days: plan.retention_days, delete_images: plan.delete_images, preview_token: plan.preview_token
+    }, {
+        kind: 'cleanup', failure: '清理失败', success: '清理完成',
+        confirmation: '确认永久清理 ' + plan.count + ' 条分享记录？'
+            + (plan.delete_images ? '\n同时清理无其他引用的关联图片。' : '\n图片文件保留。')
+            + '\n待发送、发送中和结果待确认的记录保留。不影响入库单、库存，也不会撤回微信消息。'
     });
 }
 </script>

@@ -2,8 +2,24 @@
 # 共享辅助函数（_wechat_share_* / run_wechat_share_for_today 等）仍留在 app.py，
 # 各路由函数内部延迟导入，避免模块加载期循环导入。
 from flask_login import login_required
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, ValidationError, field_validator
+from typing import Literal
 
 from utils import require_role
+
+
+class ShareCleanupInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    retention_days: Literal[0, 30, 90] = 90
+    delete_images: StrictBool = False
+    preview_token: str = Field(min_length=1, max_length=4096)
+
+    @field_validator('retention_days', mode='before')
+    @classmethod
+    def validate_retention_days(cls, value):
+        if type(value) is not int:
+            raise ValueError('清理范围必须为整数')
+        return value
 
 
 # no-test:reason=路由注册辅助函数，能力由 wechat_share_* 各路由测试覆盖
@@ -250,7 +266,6 @@ def register_wechat_share_routes(app):
     def clear_wechat_share_logs():
         from flask import current_app
         from app import (
-            WechatShareLog,
             _wechat_share_log_status_label,
             db,
             jsonify,
@@ -262,14 +277,63 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '只能清理失败或跳过的分享记录'}), 400
 
         try:
-            deleted = WechatShareLog.query.filter(WechatShareLog.status == clear_status).delete(synchronize_session=False)
-            db.session.commit()
+            from flask_login import current_user
+            from services.wechat_share_cleanup import cleanup_share_history
+            result = cleanup_share_history(0, False, current_user.id, legacy_status=clear_status)
+            deleted = result['deleted']
             log_operation('清理微信分享记录', f'状态：{_wechat_share_log_status_label(clear_status)}，数量：{deleted}', 'wechat_share')
             return jsonify({'status': 'success', 'msg': f'已清理 {deleted} 条{_wechat_share_log_status_label(clear_status)}记录', 'deleted': deleted})
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('清理微信分享记录失败: status=%s', clear_status)
             return jsonify({'status': 'error', 'msg': f'清理失败：{exc}'}), 500
+
+    @app.route('/wechat_share/logs/cleanup_preview')
+    @login_required
+    @require_role('admin')
+    def preview_wechat_share_cleanup():
+        from flask import current_app, jsonify, request
+        from flask_login import current_user
+        from services.wechat_share_cleanup import preview_share_cleanup
+        days = request.args.get('retention_days', '90')
+        images = request.args.get('delete_images', '0')
+        if days not in {'0', '30', '90'} or images not in {'0', '1'}:
+            return jsonify(status='error', msg='请选择有效的清理范围和图片选项'), 400
+        try:
+            result = preview_share_cleanup(int(days), images == '1', current_user.id)
+            response = jsonify(status='success', data=result)
+            response.headers['Cache-Control'] = 'no-store'
+            return response
+        except Exception:
+            current_app.logger.exception('预览微信分享历史清理失败')
+            return jsonify(status='error', msg='暂时无法预览，请稍后重试；请确认分享任务表已初始化'), 503
+
+    @app.route('/wechat_share/logs/cleanup', methods=['POST'])
+    @login_required
+    @require_role('admin')
+    def cleanup_wechat_share_history():
+        from flask import current_app, jsonify, request
+        from flask_login import current_user
+        from services.wechat_share_cleanup import CleanupChanged, cleanup_share_history
+        from app import log_operation
+        try:
+            selection = ShareCleanupInput.model_validate(request.get_json(silent=True))
+        except ValidationError:
+            return jsonify(status='error', msg='清理参数无效，请重新预览后确认'), 400
+        try:
+            result = cleanup_share_history(selection.retention_days, selection.delete_images,
+                                           current_user.id, selection.preview_token)
+        except CleanupChanged as error:
+            return jsonify(status='error', msg=str(error)), 409
+        except Exception:
+            current_app.logger.exception('清理微信分享历史失败')
+            return jsonify(status='error', msg='清理未完成，请重新预览；请确认分享任务表已初始化'), 503
+        try:
+            log_operation('清理微信分享历史', f'范围：{selection.retention_days}天（0为全部）；{result["msg"]}', 'wechat_share')
+        except Exception:
+            current_app.logger.exception('微信分享历史已清理，但操作日志未记录')
+            result['msg'] += '；操作日志记录失败'
+        return jsonify(result)
 
     @app.route('/wechat_share/log/<int:log_id>/image')
     @login_required
