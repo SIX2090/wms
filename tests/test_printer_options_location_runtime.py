@@ -30,10 +30,10 @@ const fields=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{valu
 if(!p.locationEnabled)delete fields.location;
 const row={dataset:{},querySelector:s=>({value:({'.material-code':'M-01','.material-qty':'2','.material-price':'0'}[s]||''),checked:false})};
 const ctx={document:{querySelector:s=>fields[(s.match(/name="([^"]+)"/)||[])[1]]||null,querySelectorAll:s=>s==='#materialTableBody tr'?[row]:[]},clearInOrderValidation(){},findMaterialByCode:()=>({id:1}),markRowError(){},showInOrderValidation(e){errors=e;},confirm:()=>true,showToast(){},WMS:{api:{postRaw:(url,data)=>{sent={url,data};return Promise.resolve({status:'error',msg:'测试响应'});}}}};
-vm.createContext(ctx);vm.runInContext('let inOrderSubmitting=false;const partyField="supplier_id",partyLabel="供应商",supplierRequired=true,returnAddUrl="/in_order/add";',ctx);vm.runInContext(p.source,ctx);
+ctx.window=ctx;vm.createContext(ctx);vm.runInContext('let inOrderSubmitting=false;const partyField="supplier_id",partyLabel="供应商",supplierRequired=true,returnAddUrl="/in_order/add";',ctx);vm.runInContext(p.source,ctx);
 (async()=>{await ctx.submitForm();process.stdout.write(JSON.stringify({sent,errors}));})().catch(e=>{console.error(e);process.exitCode=1;});
 '''
-    result = subprocess.run([NODE, '-e', script], input=json.dumps({'source': source[start:end], 'location': location, 'locationEnabled': location_enabled}),
+    result = subprocess.run([NODE, '-e', script], input=json.dumps({'source': (ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+source[start:end], 'location': location, 'locationEnabled': location_enabled}),
                             capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr
     actual = json.loads(result.stdout)

@@ -360,3 +360,4 @@ POST_SPLIT_BUGS['BUG-2026-11-01-027'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-028'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-029'] = 'fixed'  # sales duplicate-number feedback; release tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-01-030'] = 'fixed'  # download guide wrapping; real browser evidence in audit
+POST_SPLIT_BUGS['BUG-2026-11-01-031'] = 'fixed'  # decimal entry rounding; exact release evidence in audit

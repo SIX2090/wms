@@ -130,7 +130,7 @@ def _run(kind, scenario, embedded=False, existing=False):
     names = ['submitForm'] if kind != 'shared' else ['beginDocumentAction', 'endDocumentAction', 'submitForm', 'runComplete']
     shared = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
     payload = dict(kind=kind, scenario=scenario, embedded=embedded, existing=existing,
-        script='\n'.join(_function(source, name) for name in names),
+        script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+'\n'.join(_function(source, name) for name in names),
         shared='\n'.join(_function(shared, name, optional=name=='showDocumentCompletionIssue') for name in ['withEmbeddedParam','preserveEmbeddedUrl','showDocumentCompletionIssue']),
         api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
     result = subprocess.run([binary, '--max-old-space-size=64', '-e', PROGRAM], input=json.dumps(payload),

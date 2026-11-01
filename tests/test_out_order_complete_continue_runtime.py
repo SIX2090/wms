@@ -73,7 +73,7 @@ def run(scenario='success',embedded=False,kind='normal',submit_override=None):
     shared=(ROOT/'app/static/js/app.js').read_text(encoding='utf-8')
     config=shared[shared.index('const WMS_ACTION_MODULES = {'):shared.index('\n};',shared.index('const WMS_ACTION_MODULES = {'))+3]
     helpers=config+'\n'+'\n'.join(function(shared,name) for name in ['getWmsActionModule','isFormPage','withEmbeddedParam','preserveEmbeddedUrl','escapeHtml','insertGlobalActionBar'])
-    payload=dict(scenario=scenario,embedded=embedded,kind=kind,buttons=buttons,api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'),helpers=helpers,submit=submit_override or function(source,'submitForm'))
+    payload=dict(scenario=scenario,embedded=embedded,kind=kind,buttons=buttons,api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'),helpers=helpers,submit=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+(submit_override or function(source,'submitForm')))
     node=shutil.which('node');assert node,'Node required for actual requisition submit'
     result=subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM],input=json.dumps(payload),capture_output=True,text=True,encoding='utf-8',timeout=15)
     assert result.returncode==0,result.stdout+result.stderr

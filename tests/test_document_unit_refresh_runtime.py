@@ -83,7 +83,7 @@ async function reply(index,data=usual,error=null){if(error==='network')pending[i
         api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
         helper=(ROOT / 'app/static/js/list-cache.js').read_text(encoding='utf-8'),
         escape=function(app, 'escapeHtml'), options=function(source, 'unitOptions'),
-        refresh=function(source, 'refreshUnits'), collect=function(source, 'collectItems'))),
+        refresh=function(source, 'refreshUnits'), collect=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+function(source, 'collectItems'))),
         capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == 'ok', 'Runtime must finish all assertions'

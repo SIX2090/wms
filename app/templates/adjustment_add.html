@@ -364,6 +364,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
@@ -432,10 +433,10 @@ function bindRowEvents(row) {
         }
     });
     row.querySelector('.adjust-qty').addEventListener('input', function() {
-        trimDecimalInput(this);
         calcTotal();
     });
     row.querySelector('.adjust-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
         if (this.value) this.value = formatQty(this.value);
         calcTotal();
     });
@@ -538,15 +539,6 @@ function renumberRows() {
     });
 }
 
-function trimDecimalInput(input) {
-    const val = input.value;
-    if (val.includes('.')) {
-        const parts = val.split('.');
-        if (parts[1].length > 2) {
-            input.value = parts[0] + '.' + parts[1].substring(0, 2);
-        }
-    }
-}
 
 function calcTotal() {
     let total = 0;
@@ -621,6 +613,7 @@ function collectItems() {
         const codeInput = row.querySelector('.material-code');
         const qtyInput = row.querySelector('.adjust-qty');
         const code = codeInput.value.trim();
+        if (code) WMS.normalizeDecimalInput(qtyInput);
         const qty = parseFloat(qtyInput.value);
         if (!code) {
             codeInput.style.borderColor = '';

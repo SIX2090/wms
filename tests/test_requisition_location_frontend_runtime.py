@@ -148,7 +148,7 @@ def form_run(action,enabled=True,completed=False,location=LOCATION,role='product
     html=form(enabled,completed,role,location)
     script=re.search(r'<script>(.*?)</script>',html,re.S)
     assert script
-    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=script.group(1),helper=escape_helper(),select_helper=(ROOT/'app/static/js/select-refresh.js').read_text(encoding='utf-8'),cache=(ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8'),api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
+    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+script.group(1),helper=escape_helper(),select_helper=(ROOT/'app/static/js/select-refresh.js').read_text(encoding='utf-8'),cache=(ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8'),api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
 
 
 @pytest.mark.parametrize('enabled',[False,True])

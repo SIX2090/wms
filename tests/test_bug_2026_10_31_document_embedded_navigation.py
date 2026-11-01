@@ -26,7 +26,7 @@ def test_shared_form_success_preserves_rendering_mode(doc, mode, embedded):
     program = program.replace("assert(ctx.location.href.startsWith('/requisition/add?'));", "assert.equal(new URL(ctx.location.href,'http://fixture.test').pathname,'/requisition/add');")
     actions = [a['onclick'] for tag,a in Controls(html).nodes if tag=='button' and a.get('onclick','').startswith(('submitForm(', 'completeDocument(', 'revertDocument('))]
     payload = dict(doc=doc, mode=mode, scenario='success', embedded=embedded, helpers=helpers,
-                   actions=actions, script=re.findall(r'<script>(.*?)</script>', html, re.S)[0],
+                   actions=actions, script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+re.findall(r'<script>(.*?)</script>', html, re.S)[0],
                    api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'))
     result = subprocess.run([shutil.which('node'), '-e', program], input=json.dumps(payload),
                             capture_output=True, text=True, encoding='utf-8', timeout=20)

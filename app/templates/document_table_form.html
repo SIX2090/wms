@@ -356,6 +356,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
@@ -400,13 +401,6 @@ function unitOptions(selectedId) {
         html += '<option value="' + escapeHtml(String(unit.id)) + '"' + (String(selectedId || '') === String(unit.id) ? ' selected' : '') + '>' + escapeHtml(unit.name) + '</option>';
     });
     return html;
-}
-function trimDecimalInput(input) {
-    const val = input.value;
-    if (val.includes('.')) {
-        const parts = val.split('.');
-        if (parts[1].length > 2) input.value = parts[0] + '.' + parts[1].substring(0, 2);
-    }
 }
 function fillMaterialFields(row, material) {
     row.dataset.materialId = material.id || '';
@@ -568,9 +562,13 @@ function bindRowEvents(row) {
     row.querySelectorAll('.line-qty,.line-price,.actual-stock,.system-stock').forEach(function(input) {
         input.addEventListener('input', function() {
             if (this.classList.contains('actual-stock')) row.dataset.counted = 'true';
-            trimDecimalInput(this); calcRow(row);
+            calcRow(row);
         });
-        input.addEventListener('blur', function() { if (this.value) this.value = formatQty(this.value); calcRow(row); });
+        input.addEventListener('blur', function() {
+            WMS.normalizeDecimalInput(this, this.classList.contains('line-price') ? '单价' : '数量');
+            if (this.value) this.value = formatQty(this.value);
+            calcRow(row);
+        });
     });
 }
 function addNewRow() {
@@ -703,6 +701,9 @@ function collectItems() {
             return;
         }
         codeInput.style.borderColor = '';
+        WMS.normalizeDecimalInput(row.querySelector('.line-qty'));
+        WMS.normalizeDecimalInput(row.querySelector('.actual-stock'));
+        WMS.normalizeDecimalInput(row.querySelector('.line-price'), '单价');
         const unitId = row.querySelector('.unit-id').value || getMaterialUnitId(material);
         if (docType === 'check') {
             const area = row.querySelector('.line-area').value.trim();

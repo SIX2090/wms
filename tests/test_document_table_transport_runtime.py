@@ -139,7 +139,7 @@ def execute(doc, mode, scenario='success', role='admin'):
     assert len(scripts)==1
     actions = [attrs['onclick'] for tag,attrs in Controls(html).nodes if tag=='button' and attrs.get('onclick','').startswith(('submitForm(', 'completeDocument(', 'revertDocument('))]
     result = subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM],input=json.dumps(dict(
-        doc=doc,mode=mode,scenario=scenario,script=scripts[0],actions=actions,
+        doc=doc,mode=mode,scenario=scenario,script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+scripts[0],actions=actions,
         api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'))),capture_output=True,text=True,encoding='utf-8',timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
 

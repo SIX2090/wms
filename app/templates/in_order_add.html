@@ -221,6 +221,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
@@ -359,14 +360,6 @@ function addNewRow() {
         handleKeydown(event, row);
     });
     row.querySelector('.material-qty').addEventListener('input', function() {
-        // 强制保留2位小数
-        let val = this.value;
-        if (val.includes('.')) {
-            const parts = val.split('.');
-            if (parts[1].length > 2) {
-                this.value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-        }
         calcAmount(row);
     });
     row.querySelector('.material-qty').addEventListener('keydown', function(event) {
@@ -377,6 +370,7 @@ function addNewRow() {
         }
     });
     row.querySelector('.material-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
         // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
         if (this.value) {
             this.value = formatQtyTrim(this.value);
@@ -384,14 +378,6 @@ function addNewRow() {
         }
     });
     row.querySelector('.material-price').addEventListener('input', function() {
-        // 强制保留2位小数
-        let val = this.value;
-        if (val.includes('.')) {
-            const parts = val.split('.');
-            if (parts[1].length > 2) {
-                this.value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-        }
         calcAmount(row);
     });
     row.querySelector('.material-price').addEventListener('keydown', function(event) {
@@ -407,6 +393,7 @@ function addNewRow() {
         }
     });
     row.querySelector('.material-price').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this, '单价');
         // 失去焦点时格式化
         if (this.value) {
             this.value = parseFloat(this.value).toFixed(2);
@@ -746,17 +733,10 @@ function insertRowBefore(btn) {
         handleKeydown(event, newRow);
     });
     newRow.querySelector('.material-qty').addEventListener('input', function() {
-        // 强制保留2位小数
-        let val = this.value;
-        if (val.includes('.')) {
-            const parts = val.split('.');
-            if (parts[1].length > 2) {
-                this.value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-        }
         calcAmount(newRow);
     });
     newRow.querySelector('.material-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
         // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
         if (this.value) {
             this.value = formatQtyTrim(this.value);
@@ -764,17 +744,10 @@ function insertRowBefore(btn) {
         }
     });
     newRow.querySelector('.material-price').addEventListener('input', function() {
-        // 强制保留2位小数
-        let val = this.value;
-        if (val.includes('.')) {
-            const parts = val.split('.');
-            if (parts[1].length > 2) {
-                this.value = parts[0] + '.' + parts[1].substring(0, 2);
-            }
-        }
         calcAmount(newRow);
     });
     newRow.querySelector('.material-price').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this, '单价');
         // 失去焦点时格式化
         if (this.value) {
             this.value = parseFloat(this.value).toFixed(2);
@@ -987,6 +960,10 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
 
     rows.forEach((row, rowIndex) => {
         const code = row.querySelector('.material-code').value.trim();
+        if (code) {
+            WMS.normalizeDecimalInput(row.querySelector('.material-qty'));
+            WMS.normalizeDecimalInput(row.querySelector('.material-price'), '单价');
+        }
         const qty = parseFloat(row.querySelector('.material-qty').value);
         const price = parseFloat(row.querySelector('.material-price').value);
         if (!code) return;

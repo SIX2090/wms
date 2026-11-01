@@ -118,7 +118,7 @@ async function main(){
  if(scenario==='save_error'||scenario==='save_network')assert.equal(inOrderSubmitting,false);
 }
 main().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
-'''.replace('SCENARIO', json.dumps(scenario)).replace('SUBMIT', submit)
+'''.replace('SCENARIO', json.dumps(scenario)).replace('SUBMIT', 'window.WMS=WMS;window.showToast=showToast;\n' + (ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8') + '\n' + submit)
     result = subprocess.run([node_binary(), '-e', harness], capture_output=True, text=True, encoding='utf-8')
     assert result.returncode == 0, result.stderr
 
