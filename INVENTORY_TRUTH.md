@@ -2,7 +2,6 @@
 
 > **文档定位**：本文件回答一个问题——**这个系统里的"库存"到底以哪份数据为准？**
 > 与 [`AGENTS.md`](./AGENTS.md)、[`WMS_BUSINESS_SCOPE.md`](./WMS_BUSINESS_SCOPE.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 配套使用。
-> 2026-11-01：随AI文本助手修复校准启动回填函数行号；库存规则与回填逻辑未变。
 > 2026-10-31：随 BUG-2026-10-31-005至012校准回填入口引用；库存规则未变。
 > 2026-10-31：随 BUG-2026-10-31-002 校准详情库存显示修复后的行号引用，库存规则未变。
 > 2026-10-30：随 BUG-2026-10-30-007 校准入库取号修复后的行号引用，库存规则未变。
@@ -251,7 +250,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29850`）幂等回填历史行。
+- **启动回填（已做）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29805`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜

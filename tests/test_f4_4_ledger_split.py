@@ -226,17 +226,6 @@ POST_SPLIT_BUGS['BUG-2026-10-31-024'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-31-025'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-31-026'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-10-31-027'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-001'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-002'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-003'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-004'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-005'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-006'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-007'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-008'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-009'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-010'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-01-011'] = 'fixed'
 MAIN_FILE_SIZE_LIMIT_KB = 400  # 两份主文件体积上限（拆分后约 232/263KB）
 
 
@@ -339,3 +328,16 @@ class TestMonthlyReviewEquivalence:
             assert statuses.pop(bug_id) == expected_status
         dist = Counter(statuses.values())
         assert dict(dist) == STATUS_DIST_BASELINE, dict(dist)
+
+# R8 rollback retains explicit new BUG registrations as open; historical snapshot unchanged.
+POST_SPLIT_BUGS['BUG-2026-11-01-001'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-002'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-003'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-004'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-005'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-006'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-007'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-008'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-009'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-010'] = 'open'
+POST_SPLIT_BUGS['BUG-2026-11-01-011'] = 'open'

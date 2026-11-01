@@ -78,17 +78,7 @@ class AIIdempotencyService:
     def idempotent_request(self, view_function):
         @wraps(view_function)
         def wrapped(*args, **kwargs):
-            payload = request.get_json(silent=True)
-            if not isinstance(payload, dict):
-                return self.error('请求 JSON 必须是对象', 400)
-            if 'message' in payload and not isinstance(payload['message'], str):
-                return self.error('message 必须是文本', 400)
-            history = payload.get('history')
-            if history is not None and (not isinstance(history, list) or any(
-                not isinstance(turn, dict) or not isinstance(turn.get('role'), str)
-                or not isinstance(turn.get('content'), str) for turn in history
-            )):
-                return self.error('history 必须是有效的对话列表', 400)
+            payload = request.get_json(silent=True) or {}
             request_id = str(payload.get('request_id') or '').strip()
             if not request_id:
                 return self.error('缺少 request_id，无法安全处理 AI 请求', 400)

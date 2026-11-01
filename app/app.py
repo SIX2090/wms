@@ -11124,17 +11124,14 @@ def _ai_today_summary():
     reply = f'今天业务概况：入库 {in_count} 张，领料 {out_count} 张，售后出库 {after_sale_count} 张；待处理 {pending_count} 张；负库存 {negative_count} 项，低库存 {low_count} 项。'
     return reply, cards
 
-def _ai_today_received_materials(limit=12, warehouse=None):
+def _ai_today_received_materials(limit=12):
     today = date.today()
-    filters = [InOrder.date == today, InOrder.status == 'completed']
-    if warehouse:
-        filters.append(_document_warehouse_scope(InOrder, {'warehouse':warehouse.name, 'warehouse_code':warehouse.code}))
     rows = (
         InOrderItem.query
         .options(joinedload(InOrderItem.material).joinedload(Material.unit), joinedload(InOrderItem.in_order))
         .join(InOrder, InOrderItem.in_order_id == InOrder.id)
         .join(Material, InOrderItem.material_id == Material.id)
-        .filter(*filters)
+        .filter(InOrder.date == today)
         .order_by(InOrder.id.desc(), InOrderItem.id.asc())
         .limit(limit)
         .all()
@@ -11148,21 +11145,18 @@ def _ai_today_received_materials(limit=12, warehouse=None):
             'meta': f'入库 {normalize_stock_quantity(item.quantity or 0)} {material.unit.name if material and material.unit else ""}，单据 {order.order_no if order else ""}',
             'url': url_for('in_order_detail', id=order.id) if order else '',
         })
-    total_orders = InOrder.query.filter(*filters).count()
+    total_orders = InOrder.query.filter_by(date=today).count()
     reply = f'今天共有 {total_orders} 张入库单，下面列出前 {len(cards)} 条入库物料。' if cards else '今天还没有入库物料记录。'
     return reply, cards
 
-def _ai_today_issued_materials(limit=12, warehouse=None):
+def _ai_today_issued_materials(limit=12):
     today = date.today()
-    filters = [OutOrder.date == today, OutOrder.status == 'completed']
-    if warehouse:
-        filters.append(_document_warehouse_scope(OutOrder, {'warehouse':warehouse.name, 'warehouse_code':warehouse.code}))
     rows = (
         OutOrderItem.query
         .options(joinedload(OutOrderItem.material).joinedload(Material.unit), joinedload(OutOrderItem.out_order))
         .join(OutOrder, OutOrderItem.out_order_id == OutOrder.id)
         .join(Material, OutOrderItem.material_id == Material.id)
-        .filter(*filters)
+        .filter(OutOrder.date == today)
         .order_by(OutOrder.id.desc(), OutOrderItem.id.asc())
         .limit(limit)
         .all()
@@ -11176,11 +11170,11 @@ def _ai_today_issued_materials(limit=12, warehouse=None):
             'meta': f'出库 {normalize_stock_quantity(item.quantity or 0)} {material.unit.name if material and material.unit else ""}，单据 {order.order_no if order else ""}',
             'url': url_for('out_order_detail', id=order.id) if order else '',
         })
-    total_orders = OutOrder.query.filter(*filters).count()
+    total_orders = OutOrder.query.filter_by(date=today).count()
     reply = f'今天共有 {total_orders} 张出库/领料单，下面列出前 {len(cards)} 条出库物料。' if cards else '今天还没有出库/领料物料记录。'
     return reply, cards
 
-def _ai_supplier_deliveries(supplier_name, days=1, limit=20, warehouse=None):
+def _ai_supplier_deliveries(supplier_name, days=1, limit=20):
     """BUG-2026-10-07-008：按供应商查入库单。
     用户问「X今天送了什么货」「X最近送了什么」时调用。
     """
@@ -11194,15 +11188,12 @@ def _ai_supplier_deliveries(supplier_name, days=1, limit=20, warehouse=None):
         return f'没有找到供应商「{supplier_name}」，可以换名称或编码再试一次。', []
 
     start_date = date.today() - timedelta(days=days - 1)
-    filters = [InOrder.supplier_id == supplier.id, InOrder.date >= start_date, InOrder.status == 'completed']
-    if warehouse:
-        filters.append(_document_warehouse_scope(InOrder, {'warehouse':warehouse.name, 'warehouse_code':warehouse.code}))
     rows = (
         InOrderItem.query
         .options(joinedload(InOrderItem.material).joinedload(Material.unit), joinedload(InOrderItem.in_order))
         .join(InOrder, InOrderItem.in_order_id == InOrder.id)
         .join(Material, InOrderItem.material_id == Material.id)
-        .filter(*filters)
+        .filter(InOrder.supplier_id == supplier.id, InOrder.date >= start_date)
         .order_by(InOrder.date.desc(), InOrder.id.desc(), InOrderItem.id.asc())
         .limit(limit)
         .all()
@@ -11218,7 +11209,10 @@ def _ai_supplier_deliveries(supplier_name, days=1, limit=20, warehouse=None):
             'url': url_for('in_order_detail', id=order.id) if order else '',
         })
 
-    total_orders = InOrder.query.filter(*filters).count()
+    total_orders = InOrder.query.filter(
+        InOrder.supplier_id == supplier.id,
+        InOrder.date >= start_date
+    ).count()
 
     if days == 1:
         time_desc = '今天'
@@ -13870,22 +13864,39 @@ def _ai_parse_wechat_material_segments(text):
     text = (text or '').strip()
     if not text:
         return []
-    from ai.read_queries import parse_material_segments
-    supplier = _ai_extract_supplier_from_wechat_delivery_notice(text)
-    if supplier:
-        text = text.replace(supplier, '', 1)
-    return parse_material_segments(text)
+    normalized = re.sub(r'[\r\n,\uff0c;\uff1b\u3001]+', ' ', text)
+    segments = []
+    unit_pattern = r'(?:\u4e2a|\u53ea|\u5957|\u4ef6|\u7bb1|\u5305|PCS|pcs|kg|KG|\u7c73|\u652f|\u6761)'
+    for match in re.finditer(r'([A-Za-z0-9_\-\*/\u4e00-\u9fff]{2,40}?)\s*([0-9]+(?:\.[0-9]+)?)\s*(' + unit_pattern + r')?(?=\s|$)', normalized):
+        name = (match.group(1) or '').strip()
+        qty = round_to_2_decimals(parse_float_value(match.group(2), 0))
+        unit = (match.group(3) or '').strip()
+        if not name or qty <= 0:
+            continue
+        if re.fullmatch(r'\d+(?:\.\d+)?', name):
+            continue
+        segments.append({'name': name, 'quantity': qty, 'unit': unit})
+    return segments
 
 def _ai_extract_supplier_from_wechat_delivery_notice(text):
     text = (text or '').strip()
     if not text:
         return ''
-    suppliers = Supplier.query.filter(Supplier.name != '').all()
-    named = [s.name for s in suppliers if s.name and s.name in text]
-    if named:
-        return max(named, key=len)
-    from ai.read_queries import supplier_label
-    return supplier_label(text)
+    patterns = (
+        r'(?:今天|明天|后天|上午|下午|晚上)?\s*(?:发|送|出货|发货)\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
+        r'(?:供应商|厂家)\s*[:：]?\s*([\u4e00-\u9fffA-Za-z0-9_\-]{2,30})',
+    )
+    stop_words = ('货', '货单', '送货单', '出货通知', '通知', '一下')
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if not match:
+            continue
+        value = (match.group(1) or '').strip()
+        value = re.split(r'\s|,|，|;|；', value, 1)[0].strip()
+        if not value or value in stop_words:
+            continue
+        return value[:100]
+    return ''
 
 def _ai_extract_customer_from_text(text):
     text = (text or '').strip()
@@ -13921,10 +13932,12 @@ def _ai_extract_document_from_text(message):
     }
     items = []
     seen_tokens = set()
-    from ai.read_queries import parse_material_segments, material_label_parts
-    parsed_segments = (_ai_parse_wechat_material_segments(text) if _ai_is_wechat_delivery_notice(text)
-                       else parse_material_segments(text))
-    raw_rows = [(row['name'], row['quantity'], row.get('unit') or '') for row in parsed_segments]
+    parsed_segments = _ai_parse_wechat_material_segments(normalized) if _ai_is_wechat_delivery_notice(text) else []
+    if parsed_segments:
+        raw_rows = [(row['name'], row['quantity'], row.get('unit') or '') for row in parsed_segments]
+    else:
+        pattern = re.compile(r'([A-Za-z0-9_\-\*/\u4e00-\u9fff]{2,40}?)\s*(?:x|X|\*)?\s*([0-9]+(?:\.[0-9]+)?)(?:\s*(\u4e2a|\u53ea|\u5957|\u4ef6|\u7bb1|\u5305|PCS|pcs|kg|KG|\u7c73|\u652f|\u6761))?')
+        raw_rows = [(token, round_to_2_decimals(parse_float_value(qty_text, 0)), unit_text or '') for token, qty_text, unit_text in pattern.findall(normalized)]
     for token, quantity, unit_text in raw_rows:
         token = token.strip()
         if token in skip or token.lower() in skip:
@@ -13936,8 +13949,7 @@ def _ai_extract_document_from_text(message):
             continue
         if quantity <= 0:
             continue
-        parts = material_label_parts(token)
-        items.append({'code': token, 'name': parts['name'], 'spec':parts['spec'], 'quantity': quantity, 'unit': unit_text or '', 'raw': token})
+        items.append({'code': token, 'name': '', 'quantity': quantity, 'unit': unit_text or '', 'raw': token})
         seen_tokens.add(key)
     if not items:
         return None
@@ -14741,7 +14753,7 @@ def _ai_match_cards(matched, unmatched):
         unit_name = material.unit.name if material.unit else ''
         cards.append({
             'title': f'已匹配 {material.code} {material.name}',
-            'meta': f'数量：{row["quantity"]}{unit_name}，全系统库存：{normalize_stock_quantity(material.stock or 0)}{unit_name}（尚未按单据仓库筛选）',
+            'meta': f'数量：{row["quantity"]}{unit_name}，库存：{normalize_stock_quantity(material.stock or 0)}{unit_name}',
             'url': url_for('material_list', search=material.code or material.name or ''),
         })
     for row in unmatched:
@@ -18169,10 +18181,9 @@ def _ai_flow_query_response(message, context=None):
         return _ai_permission_denied_response('warehouse_insights')
 
     # 解析物料（LLM 意图优先，回退正则）
-    from ai.read_queries import _explicit_materials, _warehouse
-    materials = _explicit_materials(message)
-    parsed_intent = _ai_llm_parse_stock_intent(message) if not materials else None
-    if parsed_intent and not materials:
+    parsed_intent = _ai_llm_parse_stock_intent(message)
+    materials = []
+    if parsed_intent:
         materials = _ai_query_materials_by_intent(parsed_intent, limit=5)
     if not materials:
         # 剥掉流水动词后找物料
@@ -18200,11 +18211,7 @@ def _ai_flow_query_response(message, context=None):
     # FIX-2026-10-10-F2：同名多规格（如 38 种「铜排」）时聚合所有同名物料流水，
     # 否则只报第一条规格的流水会漏报其他规格
     # FIX-2026-10-11：收敛到 _materials_sharing_name（判重防腐测试白名单函数）
-    explicit_materials = _explicit_materials(message)
-    explicit_specs = [m for m in materials if m.spec and m.spec in message]
-    precise_materials = explicit_materials or explicit_specs
-    same_name_ids = ([m.id for m in precise_materials] if precise_materials else
-                     [m.id for m in _materials_sharing_name(material.name)])
+    same_name_ids = [m.id for m in _materials_sharing_name(material.name)]
     if len(same_name_ids) > 1 and material.id in same_name_ids:
         material_ids = same_name_ids
         scope_label = material.name
@@ -18212,25 +18219,11 @@ def _ai_flow_query_response(message, context=None):
         material_ids = [material.id]
         scope_label = f'{material.name}（{material.spec or "无规格"}）'
 
-    txns_query = StockTransaction.query.filter(
+    txns = StockTransaction.query.filter(
         StockTransaction.material_id.in_(material_ids),
         StockTransaction.created_at >= start,
         StockTransaction.created_at < end,
-    )
-
-    warehouse, warehouse_error = _warehouse(message)
-    if warehouse_error:
-        return _ai_json_response(warehouse_error)
-    loc_names, scope_condition, warehouse_id = [], None, None
-    if warehouse:
-        loc_names, scope_condition, warehouse_id = _warehouse_scoped_txn_condition({
-            'warehouse_id':warehouse.id, 'warehouse':warehouse.name, 'warehouse_code':warehouse.code})
-        if scope_condition is not None:
-            txns_query = txns_query.filter(scope_condition)
-        scope_label = f'{warehouse.name}：{scope_label}'
-    txns = txns_query.order_by(StockTransaction.created_at.desc()).all()
-    if warehouse:
-        txns = _filter_txn_list_by_warehouse_scope(txns, loc_names, warehouse_id)
+    ).order_by(StockTransaction.created_at.desc()).all()
 
     in_total = sum(t.quantity or 0 for t in txns if (t.quantity or 0) > 0)
     out_total = abs(sum(t.quantity or 0 for t in txns if (t.quantity or 0) < 0))
@@ -18447,13 +18440,6 @@ def _ai_stock_query_response(message, context=None):
     if not _ai_capability_allowed('warehouse_insights'):
         return _ai_permission_denied_response('warehouse_insights')
 
-    from ai.read_queries import _explicit_materials, _stock_response
-    if (_explicit_materials(message) or re.search(r'\d+\s*(套|个|件|米|根|条|箱|包|kg)', message)
-            or any(wh.name and wh.name in message for wh in get_active_warehouses())):
-        scoped_response = _stock_response(message, [])
-        if scoped_response is not None:
-            return scoped_response
-
     # 用 LLM（DeepSeek-V4-Pro）解析用户意图，输出结构化查询条件
     parsed_intent = _ai_llm_parse_stock_intent(message)
     
@@ -18536,7 +18522,7 @@ def _ai_stock_query_response(message, context=None):
         if current_stock <= safety_stock:
             reply_parts.append(f'⚠️ 已低于安全库存（{normalize_stock_quantity(safety_stock)}{unit_name}），建议补货。')
         else:
-            reply_parts.append(f'高于安全库存（{normalize_stock_quantity(safety_stock)}{unit_name}），按安全线判断库存充足；本次需求数量未提供，不能据此判断够领。')
+            reply_parts.append(f'高于安全库存（{normalize_stock_quantity(safety_stock)}{unit_name}），库存充足。')
     # FIX-2026-10-10：多候选时列出全部库存数字（原只列名字，用户看不到其他物料库存）
     if len(candidates) > 1:
         other_lines = []
@@ -23325,12 +23311,6 @@ def _ai_execute_intent(message, intent_payload, context=None):
         )
 
     if intent in {'query_material', 'stock_transactions'}:
-        if intent == 'query_material' and keyword:
-            from ai.read_queries import _stock_response
-            scope = str(params.get('warehouse') or '').strip()
-            scoped_response = _stock_response(f'查{scope}的{keyword}库存', [])
-            if scoped_response is not None:
-                return scoped_response
         # BUG-2026-10-07-006：用户问「某仓有什么物料/某仓所有物料库存」时，
         # params.warehouse 有值但 keyword 可能为空或不相关。此时按仓库列出库存物料。
         warehouse_param = str(params.get('warehouse') or '').strip()
@@ -23557,17 +23537,6 @@ def _ai_handle_warehouse_assistant_request(payload):
     augmented_message = message
 
     try:
-        if not images and not files:
-            from ai.read_queries import read_query_response
-            query_history = payload.get('history')
-            if not isinstance(query_history, list):
-                query_history = _ai_get_history(user_id, getattr(g, 'ai_requested_conversation_id', None))
-            query_response = read_query_response(message, context, query_history)
-            if query_response is not None:
-                body = query_response.get_json(silent=True) or {}
-                _ai_append_history(user_id, 'user', message)
-                _ai_append_history(user_id, 'assistant', str(body.get('reply') or ''))
-                return query_response
         # BUG-2026-10-07-009：文件内容拼到 message 前面
         if files:
             file_context = '\n\n'.join([f'# 文件「{f["name"]}」内容：\n{f["text"]}' for f in files])
@@ -23828,20 +23797,6 @@ def _ai_handle_chat_stream_request(payload):
         )
 
     context = {'page_url': page_url, 'page_title': page_title}
-    from ai.read_queries import read_query_response
-    query_history = payload.get('history')
-    if not isinstance(query_history, list):
-        query_history = _ai_get_history(user_id)
-    query_response = read_query_response(message, context, query_history)
-    if query_response is not None:
-        def _query_generate():
-            body = query_response.get_json(silent=True) or {}
-            reply = str(body.get('reply') or '')
-            yield from stream_response_payload(reply, body.get('cards'), body.get('actions'))
-            _ai_append_history(user_id, 'user', message)
-            _ai_append_history(user_id, 'assistant', reply)
-        return Response(stream_with_context(_query_generate()), content_type='text/event-stream; charset=utf-8',
-                        headers={'Cache-Control':'no-cache', 'X-Accel-Buffering':'no'})
     intent_payload = _ai_call_llm_intent(message)
     force_general_chat = bool(
         intent_payload
