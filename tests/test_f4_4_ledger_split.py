@@ -352,3 +352,4 @@ POST_SPLIT_BUGS['BUG-2026-11-01-019'] = 'fixed'  # software fix; exact release C
 POST_SPLIT_BUGS['BUG-2026-11-01-020'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-021'] = 'fixed'  # history cleanup; deployment acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-01-022'] = 'fixed'  # merge consent; local candidate, not deployed
+POST_SPLIT_BUGS['BUG-2026-11-01-023'] = 'fixed'  # failed print stale callback; local only

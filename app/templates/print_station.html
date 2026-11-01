@@ -234,6 +234,10 @@
                 fw.focus();
                 fw.print();
             } catch (e) {
+                // A failed invocation must never be upgraded by a late browser event.
+                afterHandled = true;
+                clearTimeout(printTimeout);
+                if (fw && onAfter) fw.removeEventListener('afterprint', onAfter);
                 log('任务 #' + job.id + ' 打印调用异常：' + e.message, 'error');
                 showPrintResult(job, total, idx, '无法调起打印，请检查客户端打印机后重试。', false);
                 settlePrintResult(false, e.message);
