@@ -180,6 +180,8 @@ def register_requisition_routes(app):
                 if requisition:
                     if requisition.status != 'pending':
                         return api_error('工单领料单号已存在')
+                    db.session.rollback()
+                    return api_error('工单领料单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     requisition = ProductionRequisition(req_no=req_no, status='pending', operator_id=current_user.id)
                     db.session.add(requisition)
