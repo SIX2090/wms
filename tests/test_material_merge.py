@@ -59,6 +59,18 @@ def _reset(login=True):
     return client
 
 
+
+def _post_merge_with_preview(client, url, **kwargs):
+    """Successful execution tests now obtain the required real HTTP receipt."""
+    payload = kwargs.get('json')
+    if isinstance(payload, dict) and payload.get('confirm') is True:
+        response = client.post(url, json=dict(payload, confirm=False), headers=kwargs.get('headers', {}))
+        if response.status_code == 200 and response.get_json().get('status') == 'preview':
+            token = response.get_json()['data'].get('preview_token')
+            assert token, 'The real preview must issue its bound confirmation receipt'
+            kwargs['json'] = dict(payload, preview_token=token)
+    return client.post(url, **kwargs)
+
 def _seed(code, name="模块前连接器40针", spec="6ES75921BM000XB0", brand=None, stock=0):
     with app_module.app.app_context():
         m = Material(code=code, name=name, spec=spec, brand=brand, stock=stock,
@@ -289,7 +301,7 @@ def test_merge_route_requires_preview_before_execute():
     client = _reset()
     target = _seed("115021", stock=28)
     source = _seed("115022", stock=2)
-    r = client.post(f"/material/{source}/merge",
+    r = _post_merge_with_preview(client, f"/material/{source}/merge",
                     json={"target_code": "115021"}, headers=AJAX_HEADERS)
     data = r.get_json()
     assert data["status"] == "preview", data
@@ -310,7 +322,7 @@ def test_merge_route_executes_with_confirm():
         db.session.add(StockTransaction(material_id=source, transaction_type="in",
                                         quantity=2))
         db.session.commit()
-    r = client.post(f"/material/{source}/merge",
+    r = _post_merge_with_preview(client, f"/material/{source}/merge",
                     json={"target_code": "115021", "confirm": True, "keep_alias": True},
                     headers=AJAX_HEADERS)
     data = r.get_json()
@@ -323,7 +335,7 @@ def test_merge_route_executes_with_confirm():
 def test_merge_route_rejects_unknown_target():
     client = _reset()
     source = _seed("115022")
-    r = client.post(f"/material/{source}/merge",
+    r = _post_merge_with_preview(client, f"/material/{source}/merge",
                     json={"target_code": "NOT-EXIST", "confirm": True},
                     headers=AJAX_HEADERS)
     assert r.get_json()["status"] == "error"

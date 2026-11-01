@@ -858,6 +858,7 @@ def register_material_routes(app):
             source_code: str = Field(..., description='被合并掉的物料编码')
             target_code: str = Field(..., description='保留下来的物料编码')
             manual_review: bool = Field(False, description='人工合并窗口查看差异，不代表执行合并')
+            keep_alias: bool = Field(True, description='预览合并后保留旧编码别名的选项')
 
         if request.method == 'POST':
             payload = request.get_json(silent=True) or dict(request.form)
@@ -880,6 +881,8 @@ def register_material_routes(app):
             return jsonify({'status': 'error', 'msg': f'找不到物料编码 {target_code}'}), 404
         try:
             data = _preview(target.id, source.id, allow_identity_difference=req.manual_review)
+            from services.material_merge_preview import issue_merge_preview
+            data = issue_merge_preview(data, req.keep_alias)
         except ValueError as exc:
             return jsonify({'status': 'error', 'msg': str(exc)}), 400
         return jsonify({'status': 'success', 'data': data})
@@ -905,6 +908,7 @@ def register_material_routes(app):
             keep_alias: bool = Field(True, description='是否把被并掉的编码转为物料别名')
             confirm: bool = Field(False, description='已看过预览并确认合并')
             identity_confirmed: bool = Field(False, description='人工判定两份档案属于同一物料')
+            preview_token: str = Field('', max_length=4096, description='本次合并预览的确认凭证')
 
         source = db.session.get(Material, id)
         if not source:
@@ -923,14 +927,28 @@ def register_material_routes(app):
         if not req.confirm:
             try:
                 data = _preview(target.id, source.id, allow_identity_difference=req.identity_confirmed)
+                from services.material_merge_preview import issue_merge_preview
+                data = issue_merge_preview(data, req.keep_alias)
             except ValueError as exc:
                 return jsonify({'status': 'error', 'msg': str(exc)}), 400
             return jsonify({'status': 'preview', 'msg': '请先确认合并影响', 'data': data})
         try:
+            from app import _material_merge_check_pair
+            from services.material_merge_preview import require_merge_preview, MergePreviewChanged
+            from sqlalchemy.exc import OperationalError
+            # Preserve the existing unit/identity rejection before taking any write lock.
+            _material_merge_check_pair(target.id, source.id, req.identity_confirmed)
+            require_merge_preview(req.preview_token, target.id, source.id, req.keep_alias, req.identity_confirmed)
             stats = _merge(target.id, source.id, keep_alias=req.keep_alias, identity_confirmed=req.identity_confirmed)
             if stats.get('ledger_regressed'):
                 raise ValueError('合并后库存校验不通过，已撤销本次合并，请核对库存。')
             db.session.commit()
+        except MergePreviewChanged as exc:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(exc)}), 409
+        except OperationalError:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '数据库暂忙，请稍后重新预览并确认。'}), 503
         except ValueError as exc:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': str(exc)}), 400

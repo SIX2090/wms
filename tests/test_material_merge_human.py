@@ -39,7 +39,7 @@ def test_material_merge_preview_manual_review_shows_differences_without_mutation
 @pytest.mark.parametrize('confirm,identity', [(False, False), (False, True), (True, False)])
 def test_merge_material_requires_manual_identity_and_execution_confirmations(client, confirm, identity):
     target, source = pair()
-    response = client.post(f'/material/{source}/merge', json={
+    response = legacy._post_merge_with_preview(client, f'/material/{source}/merge', json={
         'target_code': '102059', 'confirm': confirm, 'identity_confirmed': identity}, headers=legacy.AJAX_HEADERS)
     assert response.get_json()['status'] != 'success'
     with app_module.app.app_context():
@@ -54,7 +54,7 @@ def test_merge_material_human_can_confirm_attribute_differences(client, field, v
         setattr(db.session.get(Material, source), field, value)
         db.session.get(Material, source).status = 'inactive'
         db.session.commit()
-    response = client.post(f'/material/{source}/merge', json={
+    response = legacy._post_merge_with_preview(client, f'/material/{source}/merge', json={
         'target_code': '102059', 'confirm': True, 'identity_confirmed': True}, headers=legacy.AJAX_HEADERS)
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['status'] == 'success'
@@ -77,7 +77,7 @@ def test_merge_material_manual_confirm_does_not_bypass_unit_safety(client):
         db.session.get(Material, a).unit_id = piece.id
         db.session.get(Material, b).unit_id = box.id
         db.session.commit()
-    response = client.post(f'/material/{b}/merge', json={
+    response = legacy._post_merge_with_preview(client, f'/material/{b}/merge', json={
         'target_code': 'A', 'confirm': True, 'identity_confirmed': True}, headers=legacy.AJAX_HEADERS)
     assert response.status_code == 400
     assert '单位' in response.get_json()['msg']
@@ -92,7 +92,7 @@ def test_merge_material_ledger_regression_rolls_back_before_commit(client, monke
         db.session.delete(db.session.get(Material, source))
         return {'ledger_regressed': True}
     monkeypatch.setattr(app_module, 'merge_material_duplicates', regress)
-    response = client.post(f'/material/{source}/merge', json={
+    response = legacy._post_merge_with_preview(client, f'/material/{source}/merge', json={
         'target_code': '102059', 'confirm': True, 'identity_confirmed': True}, headers=legacy.AJAX_HEADERS)
     assert response.status_code == 400
     with app_module.app.app_context():
@@ -115,7 +115,7 @@ def test_merge_material_human_preserves_multiple_warehouses_and_legacy_nulls(cli
                 db.session.add(LocationInventory(material_id=material_id, warehouse_id=warehouse_id, location='SAME', quantity=amount))
                 db.session.add(StockTransaction(material_id=material_id, warehouse_id=warehouse_id, location='SAME', transaction_type='in', quantity=amount))
         db.session.commit()
-    response = client.post(f'/material/{source}/merge', json={
+    response = legacy._post_merge_with_preview(client, f'/material/{source}/merge', json={
         'target_code': '102059', 'confirm': True, 'identity_confirmed': True}, headers=legacy.AJAX_HEADERS)
     assert response.get_json()['status'] == 'success', response.get_json()
     with app_module.app.app_context():

@@ -11,7 +11,7 @@
     function sync() {
         node('mergeDirection').textContent = '被合并：' + (state.source ? state.source.code : '')
             + ' → 保留：' + (state.target ? state.target.code : '请从下方选择');
-        node('mergeExecuteBtn').disabled = state.busy || !state.preview || !node('mergeHumanConfirmed').checked;
+        node('mergeExecuteBtn').disabled = state.busy || !state.preview || !state.preview.preview_token || !node('mergeHumanConfirmed').checked;
         node('mergeExecuteBtn').textContent = state.busy ? '正在合并…' : '确认合并';
         node('mergeSwapBtn').disabled = state.busy || !state.target;
         node('mergePrevBtn').disabled = state.busy || state.page <= 1;
@@ -122,11 +122,11 @@
         });
     }
     function execute() {
-        if (state.busy || !state.preview || !node('mergeHumanConfirmed').checked) return;
+        if (state.busy || !state.preview || !state.preview.preview_token || !node('mergeHumanConfirmed').checked) return;
         var source = state.source, target = state.target;
         state.busy = true; sync(); error('');
         WMS.api.postRaw('/material/' + source.id + '/merge', {target_code: target.code,
-            keep_alias: true, confirm: true, identity_confirmed: true}).then(function (response) {
+            keep_alias: true, confirm: true, identity_confirmed: true, preview_token: state.preview.preview_token}).then(function (response) {
                 if (!response || response.status !== 'success') throw new Error(response && response.msg || '合并失败');
                 showToast(response.msg || '合并成功', 'success');
                 window.location.reload();
