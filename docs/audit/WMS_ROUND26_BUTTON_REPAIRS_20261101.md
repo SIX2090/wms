@@ -55,4 +55,8 @@ R8：在隔离源码副本物理备份并回退本批全部5个既有产品文�
 
 ## 发布验收
 
-本提交仅本批修复、测试及必要台账。精确提交SHA、实际push输出和完整CI结果在验收后补录；在此之前不视为交付完成。生产未部署、未重启；没有外部模型、消息、设备、生产数据或真实持久凭据操作。
+代码`1036f27c61bae5b098fdbe2435c5e8f74c3478f7`已实际push（2334e39c..1036f27c，main→main），本地/远端一致。[WMS CI41271272259](https://github.com/SIX2090/wms/actions/runs/41271272259)和[AI41271272199](https://github.com/SIX2090/wms/actions/runs/41271272199)全部completed/success；WMS三个单元分片、四脚本分片、静态、冒烟与gate通过，AI core/static/gate通过，docs-checks因选择业务全量正常分流。Android41245230422复用成功祖先，Git对象无缺失，受保护构建输入无变化。未使用CI跳过变量或旧单次例外。
+
+收尾只修改完成记录和证据，不改业务代码；自身提交随后依据实际远端main验收，最终证据位于`C:/wms_backups/fix_round26_20261101_round27/evidence/final-ci-proof.json`，不预填未知SHA或把运行中当成功。生产未部署、未重启；没有外部模型、消息、设备、生产数据或真实持久凭据操作。
+
+定位：输入模型`app/request_input.py:9`，图片绑定`app/routes/material.py:471`，盘点完成`app/routes/check.py:521`，调整保存`app/routes/adjustment.py:234`，预测`app/app.py:35182`，证据构建`app/app.py:34604`，视觉测试`app/routes/system_settings.py:151`，价格缓存`app/app.py:34895`。源行对应代码提交1036f27c。
