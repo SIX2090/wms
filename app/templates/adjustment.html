@@ -35,6 +35,7 @@
             <div class="col-md-2">
                 <label class="form-label small text-muted mb-1">仓库</label>
                 <select name="warehouse_id" class="form-select form-select-sm" required>
+                    <option value="" {% if not filters.warehouse_id %}selected{% endif %}>请选择仓库后查询</option>
                     {% for warehouse in warehouses %}<option value="{{ warehouse.id }}" {% if filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}
                 </select>
             </div>
