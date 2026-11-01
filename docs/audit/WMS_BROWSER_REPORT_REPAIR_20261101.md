@@ -2,7 +2,7 @@
 
 - 基线：`ba62e3030d5f4f548af6d86076cec2a3392743ec`；本地与远端 main 一致，开工前三个 CI 工作流门禁通过，Android 旧成功运行的祖先及输入无变化证明通过。
 - 范围：用户提供的五项浏览器问题，以及确认同一根因的消费点；不将原报告的统计数字当作本轮验收结论。
-- 当前状态：本地针对性验证通过；整批回退、相邻回归与精确目标 CI 的最终结果见文末交付记录。
+- 当前状态：代码批次完整CI验收通过；生产未部署。
 
 | 原报告 | 本轮记录 | 核实与修复 |
 |---|---|---|
@@ -37,6 +37,15 @@
 
 ## 交付记录
 
-本地验证已通过；精确目标 CI 验收待补。
+代码批次包含`32e7fd39`至`06b190c34f26c8ce8376950f6b7d28ba11c07091`七个本地提交，已通过正常Git推送：`ba62e303..06b190c3 main -> main`。本地HEAD、origin/main和Git协议实时main完整SHA一致。
+
+- [WMS CI 41306961758](https://github.com/SIX2090/wms/actions/runs/41306961758)：精确目标`06b190c34f26c8ce8376950f6b7d28ba11c07091`，completed/success；完整路径的三个unit-tests分片、四个verify分片、smoke、lint-and-static及最终gate全部success，docs-checks为正常未选分支。
+- [WMS AI Verification 41306961842](https://github.com/SIX2090/wms/actions/runs/41306961842)：相同精确目标completed/success，ai-core、static-checks与gate全部success。
+- [Android APK Build 41245230422](https://github.com/SIX2090/wms/actions/runs/41245230422)：最新main构建在`c2557df8da6bec9764349d37cf5b5a4902bbce5e`成功；为本批祖先，Git对象齐全，Android源码和构建工作流无变化，按规则复用。未宣称重新编译Android。
+- 性能告警工作流41306961693也success，不作为替代业务门禁。
+
+本次仅回填本审计记录和月度BUG台账Markdown，以以上完整成功的代码提交为紧邻基线，文档分级CI单独验收；不改变已验产品代码。外部最终证明保存至`code-ci-acceptance.json`及后续文档验收记录。
 
 推送前匿名 GitHub API 返回 HTTP403 限流。已连接 GitHub 的 Actions 集合按 main 连续读取两页（每页30项），重新核实远端基线仍为 `ba62e3030d5f4f548af6d86076cec2a3392743ec`，最新 [WMS CI 41296717409](https://github.com/SIX2090/wms/actions/runs/41296717409) 与 [AI 41296717424](https://github.com/SIX2090/wms/actions/runs/41296717424) 均 completed/success、完整SHA匹配；最新 [Android 41245230422](https://github.com/SIX2090/wms/actions/runs/41245230422) 在 `c2557df8da6bec9764349d37cf5b5a4902bbce5e` 成功，Git对象存在、为基线祖先，且该提交至本批HEAD的Android源码/构建工作流差异为空。替代证据保存在外部 `baseline-ci-connector.json`。本批按AGENTS已有流程，仅为同一已核实基线的该次push临时使用WMS_SKIP_CI_GATE=1，未改钩子、全局配置或验证范围。
+
+文档回填以已验`06b190c34f26c8ce8376950f6b7d28ba11c07091`为远端基线，沿用同一限流替代证据流程；不以首次代码推送前的旧SHA替代本次基线。
