@@ -148,7 +148,7 @@ def register_system_settings_routes(app):
             if test_type == 'vision':
                 vision_reply, vision_error = _ai_test_llm_vision(overrides)
                 if not vision_reply:
-                    detail = f' 供应商返回：{vision_error}' if vision_error else ''
+                    detail = ' 供应商返回：图片识别测试未完成，请核对接口和模型配置' if vision_error else ''
                     return jsonify({'status': 'error', 'msg': '已连接大模型，但图片识别测试没有得到有效结果。请确认模型名称支持视觉/图片理解，并且供应商兼容 image_url 消息格式。' + detail}), 502
                 log_operation('测试AI图片识别连接', f'模型：{_ai_llm_model(overrides)}，接口：{_ai_llm_endpoint(overrides)}', 'system_settings', 0)
                 return jsonify({

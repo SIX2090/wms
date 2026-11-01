@@ -23136,8 +23136,8 @@ def _ai_test_llm_vision(overrides=None):
             return None, '供应商接口返回成功，但 choices[0].message.content 为空'
         return content[:300], ''
     except Exception as exc:
-        app.logger.warning('AI vision test unavailable: %s', exc)
-        return None, str(exc)
+        app.logger.warning('AI vision test unavailable (%s)', type(exc).__name__)
+        return None, '图片识别服务请求失败，请核对配置或服务状态'
 
 def _ai_llm_error_message(response):
     try:
@@ -34615,11 +34615,13 @@ def api_ai_acceptance_evidence_package():
     )
     # AI_TASK: AI-R17-F02
     try:
-        payload = request.get_json(silent=True) or {}
-        end_date = payload.get('end_date') or datetime.now().strftime('%Y-%m-%d')
-        days = int(payload.get('days', 7))
-        if days < 1 or days > 30:
-            days = 7
+        from request_input import AcceptanceEvidenceInput, json_object_body
+        try:
+            payload = AcceptanceEvidenceInput.model_validate(json_object_body())
+        except (ValueError, TypeError):
+            return jsonify({'status': 'error', 'msg': '验收参数格式不正确，请检查日期和1至30天的整数天数'}), 400
+        end_date = payload.end_date or datetime.now().strftime('%Y-%m-%d')
+        days = payload.days
         # 从 DB 取最近 days 天的快照
         end_dt = datetime.strptime(end_date, '%Y-%m-%d')
         start_dt = end_dt - timedelta(days=days - 1)
@@ -34890,18 +34892,21 @@ def api_supplier_evaluation():
 
         # 价格稳定性：同物料多次采购的价格变异系数
         price_cv_list = []
+        price_history_cache = {}
         for order in recent_orders:
             for item in order.items:
                 if item.price and item.price > 0 and item.material_id:
                     # 查该物料在该供应商的历史价格
-                    hist_prices = InOrderItem.query.join(InOrder).filter(
-                        InOrder.supplier_id == supplier.id,
-                        InOrderItem.material_id == item.material_id,
-                        InOrder.status == 'completed',
-                        InOrder.date >= ninety_days_ago,
-                        InOrderItem.price > 0
-                    ).with_entities(InOrderItem.price).all()
-                    prices = [p[0] for p in hist_prices if p[0] and p[0] > 0]
+                    if item.material_id not in price_history_cache:
+                        hist_prices = InOrderItem.query.join(InOrder).filter(
+                            InOrder.supplier_id == supplier.id,
+                            InOrderItem.material_id == item.material_id,
+                            InOrder.status == 'completed',
+                            InOrder.date >= ninety_days_ago,
+                            InOrderItem.price > 0
+                        ).with_entities(InOrderItem.price).all()
+                        price_history_cache[item.material_id] = [p[0] for p in hist_prices if p[0] and p[0] > 0]
+                    prices = price_history_cache[item.material_id]
                     if len(prices) >= 2:
                         mean_p = sum(prices) / len(prices)
                         if mean_p > 0:
@@ -35183,9 +35188,13 @@ def api_demand_forecast():
     # WMS-AI-GATE-001：统计预测不门禁大模型——无 LLM 时 ai_analysis 自动降级为提示文案，
     # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
 
-    data = request.get_json() or {}
-    forecast_days = data.get('forecast_days', 30)  # 预测天数：7/14/30
-    category = data.get('category', '')  # 物料分类筛选
+    from request_input import ForecastInput, json_object_body
+    try:
+        data = ForecastInput.model_validate(json_object_body())
+    except (ValueError, TypeError):
+        return jsonify({'status': 'error', 'msg': '参数格式不正确：预测天数仅支持7、14、30，分类必须是文本'}), 400
+    forecast_days = data.forecast_days
+    category = data.category
     
     # 获取物料列表
     # BUG-2026-08-04-006: Material 模型无 status 字段，移除 filter_by(status='active')

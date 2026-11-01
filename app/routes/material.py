@@ -471,8 +471,11 @@ def register_material_routes(app):
     def material_image_select(id):
         from app import Material, _save_material_image_from_url, log_operation
         material = Material.query.get_or_404(id)
-        payload = request.get_json(silent=True) or {}
-        image_url = (payload.get('image_url') or '').strip()
+        from request_input import MaterialImageInput, json_object_body
+        try:
+            image_url = MaterialImageInput.model_validate(json_object_body()).image_url.strip()
+        except (ValueError, TypeError):
+            return jsonify({'status': 'error', 'msg': '图片参数格式不正确，请选择图片地址'}), 400
         if not image_url:
             return jsonify({'status': 'error', 'msg': '请选择图片'}), 400
 

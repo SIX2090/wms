@@ -242,7 +242,11 @@ def register_adjustment_routes(app):
                          validate_inventory_warehouse, _material_stock_unattributed)
         # Support both JSON and form data
         if request.is_json:
-            data = request.get_json(silent=True) or {}
+            from request_input import AdjustmentSaveInput, json_object_body
+            try:
+                data = AdjustmentSaveInput.model_validate(json_object_body()).model_dump(exclude_unset=True)
+            except (ValueError, TypeError):
+                return api_error('调整单参数格式不正确，请检查文本、编号和明细数量')
             order_id = data.get('order_id') or data.get('id')
             adjustment_no = (data.get('adjustment_no') or '').strip()
             adjustment_type = (data.get('adjustment_type') or '').strip()
@@ -253,6 +257,11 @@ def register_adjustment_routes(app):
             items_data = data.get('items', [])
             replace_items = 'items' in data
         else:
+            from request_input import AdjustmentSaveInput
+            try:
+                AdjustmentSaveInput.model_validate(request.form.to_dict())
+            except (ValueError, TypeError):
+                return api_error('调整单参数格式不正确，请检查文本、编号和明细数量')
             order_id = request.form.get('order_id')
             adjustment_no = (request.form.get('adjustment_no') or '').strip()
             adjustment_type = (request.form.get('adjustment_type') or '').strip()
@@ -271,6 +280,14 @@ def register_adjustment_routes(app):
                     'reason': request.form.get('reason'),
                 })
             replace_items = bool(items_data)
+
+        # Validate form rows before replacing any existing detail rows as well.
+        if replace_items:
+            from request_input import AdjustmentItemInput
+            try:
+                items_data = [AdjustmentItemInput.model_validate(item).model_dump() for item in items_data]
+            except (ValueError, TypeError):
+                return api_error('调整明细格式不正确，请检查物料和有限的正数数量')
 
         if order_id and order_id not in ('None', '', 'null'):
             try:

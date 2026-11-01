@@ -540,8 +540,11 @@ def register_check_routes(app):
         # status='confirm' 由前端弹窗列出未盘明细，用户确认后带 force=1 放行，
         # 不硬阻断（账面 0 无实物等合法未盘场景仍须可完成）。
         # 旧客户端不带 body 调用时 get_json(silent=True) 返回 None，force=False。
-        payload = request.get_json(silent=True) or {}
-        force = str(payload.get('force') or '').strip().lower() in ('1', 'true', 'yes')
+        from request_input import CheckCompleteInput, json_object_body
+        try:
+            force = CheckCompleteInput.model_validate(json_object_body()).force
+        except (ValueError, TypeError):
+            return api_error('完成参数格式不正确，请确认 force 为布尔值')
         if not force:
             uncounted, total_rows, samples = _check_uncounted_alerts(check)
             if uncounted:
