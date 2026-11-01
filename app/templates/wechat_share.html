@@ -214,7 +214,7 @@
                     {% endif %}
                 </div>
                 {% endif %}
-                {% if log_counts.uncertain > 0 %}
+                {% if log_counts.get('uncertain', 0) > 0 %}
                 <div class="alert alert-warning py-2 mt-2 mb-0 small">
                     {{ log_counts.uncertain }} 条发送中或结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
                 </div>

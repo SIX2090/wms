@@ -5,7 +5,7 @@
 ## 事务与恢复边界
 
 - 新表`wechat_share_dispatch`以`module_key/order_id/share_date`复合主键领取任务。独立短事务先提交占位，随后才生成图片和发送；唯一键与token条件更新约束所有进程。调用方有未保存变更时拒绝分享，绝不顺手提交业务数据。
-- 状态为`preparing → sending → sent/pending/failed/uncertain`。发送前，尝试日志和`sending`同事务持久化；发送在事务外；回执日志和领取状态再同事务提交。失败的commit连接被invalidate，不返回连接池供恢复流程读到未提交状态。
+- 状态为`preparing → sending → sent/pending/failed/uncertain`。发送前，尝试日志和`sending`同事务持久化；发送在事务外；回执日志和领取状态再同事务提交。flush先于commit异常隔离：确定被拒的唯一键flush由调用方回滚，不invalidate健康连接；真正commit失败仍invalidate，不返回连接池供恢复流程读到未提交状态。
 - 领取/图片生成阶段尚未发送：明确失败允许普通重试。`preparing`租约300秒后可凭token条件更新重新领取，过期旧执行者不能继续发送。数据库暂忙则中文503失败关闭，不绕过占位、不发送、不忙循环。
 - 已进入`sending`后进程中断、断连、超时、畸形响应、接收确认后回执提交失败均可能已经产生外部效果：普通请求只查询/跳过，不重发。尽力持久化`uncertain`，若数据库持续不可用则原`sending`占位仍存在；过期后转为`uncertain`而非自动解锁再发。
 - `force=true`和逐条“重发”是明确接受重复风险的新尝试；不能抢占尚未过期的`preparing/sending`。过期发送或`uncertain`可由人工先核对接收端，再显式重发。新尝试追加日志与唯一图片名，保留旧回执、接收人和图片。历史失败无可靠拒绝码时也按不确定处理，不清理或改写原记录。
@@ -51,4 +51,18 @@ R8整批物理旧码对照：隔离副本同时恢复4个旧产品文件并移�
 
 ## 本批代码发布记录
 
-发布前已逐字节核对12文件与173项最终证据，业务候选没有变化；仅更新本批授权/状态及对应状态锁，并在提交前复验。正式提交SHA、实际push与CI结果待后续验收记录；不复用过去非绿门禁单次例外，不把生产生效等同GitHub发布。
+首推`2cc61f6e43ff65293ea39a8209566364be000732`已实际到达main。WMS AI Verification 41279600862成功，WMS CI 41279600959失败：`test_round26_risks_http.py::test_share_existing_pending_log_is_skipped_across_sequential_http_requests`报`Cannot operate on a closed database`。此前173项未包含这个既有RAM用例，不能以本地绿冒充本批CI绿；本批尚未交付完成。
+
+## 同批最小CI及菜单兼容纠正
+
+- 修前受影响两模块：1 failed / 41 passed；原失败精确复现。`Session.commit()`自动flush的唯一键冲突被误判为提交不确定，invalidate关闭StaticPool共用连接，造成后续请求500。
+- `_commit`显式先flush，再进入commit异常隔离。没有把所有IntegrityError一概当成安全冲突：若发生在真正commit阶段，仍invalidate并保留uncertain/sending，防止回执未知时自动重发。
+- 两种历史状态pending/sent均增加连续三次真实HTTP请求，必须created=0/skipped=1、日志仍1条且pool invalidate事件为0；原失败用例及其断言未修改。
+- 回执commit故障同时覆盖RuntimeError和IntegrityError。现有两OS进程正常/force竞争、未过期/过期租约、失败恢复、真实commit错误、历史日志与重发等全部旧回归保留。
+- 模板唯一修改为`log_counts.get('uncertain', 0) > 0`。完整HTTP覆盖统计字段有/无、领取表有/无四种组合，均200；缺表的发送仍受控503且发送0，不自动建表。
+- 针对性9项通过；整项回退两份产品修改到首推代码后5 failed / 4 controls passed，逐字节恢复。产品及分享/通道/历史行为相邻回归163 passed。完整日志为`ci-targeted-fixed.log`、`ci-correction-r8.log`、`ci-correction-product-adjacent.log`，新证据不与此前173项累加。
+- 本次独立文档/台账/启动契约43 passed（21项台账/启动守卫＋22项库存文档行号），与产品163项合计206个唯一pytest用例；隔离完整冒烟桥接另1 passed，不计作正常密码登录或生产验收。规则A1–A14、全量A11、裸非GET检查及差异检查通过；模板存量warn未冒充已清零。BUG验证器通过，严格AI台账44标记/132完成映射一致。
+- 生产旧PID4280仍缓存原条件，磁盘修正不等于页面恢复。未对生产请求该路由、未重启/建表/初始化凭据或真实外发。离线旧版本受限启动工件已停止扩展并保留，不作为生产部署方案。
+- 正常恢复最短路径可以暂不建表：菜单已在缺领取表条件下200，只有执行分享为受控503。现有正常入口和18份导入期兼容/回填/备份函数与293f91f公开源码一致，不是本次新增；仍可能执行其既有兼容写入、启动备份及后台任务，不能以同版本或主迁移开关推断无副作用，须按明确只读预检白名单和维护窗口另批。
+
+纠正提交仍须保留钩子、核实实际推送及精确目标完整CI；不复用此前“查询故障且同基线已绿”的开关证据来绕过本次实际失败。必要的正常生产恢复授权包另列：明确待部署版本、新表目标、正常启动副作用及后台分享/打印行为、只读验证与失败回退；未得到具体批准前不执行。

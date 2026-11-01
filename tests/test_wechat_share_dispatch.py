@@ -18,6 +18,7 @@ from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy import create_engine, event
 
 import app as m
+from tests.test_round26_input_http import http_case
 
 
 def _client(ids, role='actor', csrf=True):
@@ -133,11 +134,15 @@ def test_execute_share(case):
     assert len(case['calls']) == 2 and _rows() == [(1, 'sent'), (2, 'sent')]
 
 
-def test_ack_then_commit_failure_does_not_replay(case):
+@pytest.mark.parametrize('commit_error', ['runtime', 'integrity'])
+def test_ack_then_commit_failure_does_not_replay(case, commit_error):
     injected = [False]
     def fail(connection):
         if case['calls'] and not injected[0]:
             injected[0] = True
+            if commit_error == 'integrity':
+                from sqlalchemy.exc import IntegrityError
+                raise IntegrityError('COMMIT', {}, RuntimeError('QA29 receipt commit ambiguity'))
             raise RuntimeError('QA29 receipt commit fault')
     event.listen(case['engine'], 'commit', fail)
     try:
@@ -152,6 +157,63 @@ def test_ack_then_commit_failure_does_not_replay(case):
         assert len(case['calls']) == 2 and _rows() == [(1, 'uncertain'), (2, 'sent')]
     finally:
         event.remove(case['engine'], 'commit', fail)
+
+
+@pytest.mark.parametrize('legacy_status', ['pending', 'sent'])
+def test_unique_claim_conflict_preserves_shared_memory_connection(http_case, monkeypatch, legacy_status):
+    """Expected duplicate flushes must not invalidate StaticPool's shared DBAPI connection."""
+    client, ids, state = http_case
+    def refuse(*args, **kwargs):
+        pytest.fail('A historical pending/sent attempt must not render or deliver')
+    monkeypatch.setattr(m, '_build_order_share_image', refuse)
+    monkeypatch.setattr(m, '_wechat_share_deliver', refuse)
+    with m.app.app_context():
+        m.db.session.add(m.SystemSetting(key='wechat_share_enabled', value='1'))
+        config = m.WechatShareConfig(receiver_name='QA29-NO-SEND', share_in_order=True,
+                                     enabled=True, auto_send=False, immediate_on_complete=False)
+        order = m.InOrder(order_no='QA29-SHARED-' + legacy_status, business_type='purchase',
+                          warehouse='QA27-A', date=date.today(), status='completed', total_amount=0)
+        m.db.session.add_all([config, order])
+        m.db.session.flush()
+        order_id = order.id
+        m.db.session.add(m.WechatShareLog(config_id=config.id, module_key='in_order',
+            order_id=order_id, order_no=order.order_no, share_date=date.today(), status=legacy_status))
+        m.db.session.commit()
+        engine = m.db.engine
+    invalidations = []
+    def invalidated(connection, record, exception):
+        invalidations.append(type(exception).__name__)
+    event.listen(engine.pool, 'invalidate', invalidated)
+    try:
+        c = client()
+        for _ in range(3):
+            response = c.post('/wechat_share/run_now', data={'force': '0'})
+            assert response.status_code == 200, response.get_json()
+            assert response.json['created'] == 0 and response.json['skipped'] == 1
+        assert invalidations == []
+        with m.app.app_context():
+            assert m.WechatShareLog.query.count() == 1
+            claim = m.db.session.get(m.WechatShareDispatch, ('in_order', order_id, date.today()))
+            assert claim.state == legacy_status
+    finally:
+        event.remove(engine.pool, 'invalidate', invalidated)
+
+
+@pytest.mark.parametrize('case', ['normal', 'legacy-no-dispatch'], indirect=True)
+@pytest.mark.parametrize('missing_uncertain', [False, True])
+def test_share_menu_accepts_legacy_counts_without_claim_schema(case, monkeypatch, missing_uncertain):
+    render = m.render_template
+    def old_context(template, **kwargs):
+        if template == 'wechat_share.html' and missing_uncertain:
+            kwargs['log_counts'].pop('uncertain', None)
+            assert set(kwargs['log_counts']) == {'pending', 'failed', 'sent_today'}
+        return render(template, **kwargs)
+    monkeypatch.setattr(m, 'render_template', old_context)
+    response = case['client']().get('/wechat_share')
+    assert response.status_code == 200
+    assert not case['calls']
+    with m.app.app_context():
+        assert m.WechatShareLog.query.count() == 0
 
 
 def test_persistent_receipt_database_failure_keeps_durable_sending(case):

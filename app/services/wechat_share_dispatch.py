@@ -28,7 +28,10 @@ class DispatchUnavailable(RuntimeError):
 
 
 def _commit(session):
-    """A failed commit must not return an ambiguous connection to the pool."""
+    """Keep rejected flushes distinct from an ambiguous actual commit failure."""
+    # Unique-claim conflicts fail before COMMIT. Let the caller roll them back
+    # without invalidating a healthy connection (StaticPool may share it).
+    session.flush()
     try:
         session.commit()
     except Exception:
