@@ -32,4 +32,6 @@
 - 实际浏览器验证默认90天前3条、改成30天前4条，修改选项立即禁用旧确认，并可收起。截图`cleanup-preview.png`及请求记录`browser-http.json`；浏览器没有执行最终删除。删除和文件行为由合成库/临时图片自动化验证。
 - 开工及推送基线：WMS CI [41284979401](https://github.com/SIX2090/wms/actions/runs/41284979401)、AI [41284979313](https://github.com/SIX2090/wms/actions/runs/41284979313)均对应基线SHA且success。Android [41245230422](https://github.com/SIX2090/wms/actions/runs/41245230422)成功，提交`c2557df8da6bec9764349d37cf5b5a4902bbce5e`为基线祖先，Git对象完整且Android工程/构建工作流无差异。匿名API限流，经连接器逐项核实；推送前仍复核同一基线。
 
-精确目标CI在推送后验收回填。生产需重启 WMS 服务生效；生产重启、补表、真实记录清理及外发不在本批操作范围。
+产品提交`2d029b597ee272ada3fbd18605fea5201ff6d0a8`已实际推送，HEAD/origin/main/实时远端一致；[WMS CI 41289537052](https://github.com/SIX2090/wms/actions/runs/41289537052)与[AI验证 41289537056](https://github.com/SIX2090/wms/actions/runs/41289537056)精确匹配并完整success，含全站三个测试分片、四个专项分片、冒烟及静态门禁。Android41245230422的成功祖先、对象完整和两个输入路径无差异证明对产品SHA再次通过。推送钩子的匿名查询403按AGENTS同基线替代证据流程单次放行，未跳过pre-commit；证据`prepush-ci-evidence.json`。
+
+本次后续提交只回填两份白名单Markdown验收记录，代码与测试不变，按文档分级验收。生产需重启 WMS 服务生效；生产重启、补表、真实记录清理及外发不在本批操作范围。
