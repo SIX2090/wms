@@ -317,11 +317,8 @@ def register_check_routes(app):
                 if check:
                     if check.status != 'pending':
                         return api_error('盘点单号已存在')
-                    locked, ok = _acquire_order_write_lock(
-                        InventoryCheck, check.id, 'pending', selectinload(InventoryCheck.items))
-                    if not ok:
-                        return api_error('该盘点单状态已变更，请刷新后重试')
-                    check = locked
+                    db.session.rollback()
+                    return api_error('盘点单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     check = InventoryCheck(check_no=check_no, status='pending', operator_id=current_user.id)
                     db.session.add(check)

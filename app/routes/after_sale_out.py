@@ -340,6 +340,8 @@ def register_after_sale_out_routes(app):
                 if order:
                     if order.status != 'pending':
                         return api_error('售后出库单号已存在，不能重复保存')
+                    db.session.rollback()
+                    return api_error('售后出库单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     order = AfterSaleOutOrder(
                         order_no=order_no,

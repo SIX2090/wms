@@ -479,6 +479,8 @@ def register_purchase_request_routes(app):
                 if request_order:
                     if request_order.status != 'pending':
                         return api_error('采购申请单号已存在，不能重复保存')
+                    db.session.rollback()
+                    return api_error('采购申请单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     request_order = PurchaseRequest(
                         request_no=request_no,

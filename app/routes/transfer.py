@@ -159,6 +159,8 @@ def register_transfer_routes(app):
                 if transfer:
                     if transfer.status != 'pending':
                         return api_error('调拨单号已存在')
+                    db.session.rollback()
+                    return api_error('调拨单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     transfer = TransferOrder(transfer_no=transfer_no, status='pending', operator_id=current_user.id)
                     db.session.add(transfer)

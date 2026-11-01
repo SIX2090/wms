@@ -336,6 +336,8 @@ def register_adjustment_routes(app):
                 if adjustment:
                     if adjustment.status != 'pending':
                         return api_error('调整单号已存在，不能重复保存')
+                    db.session.rollback()
+                    return api_error('调整单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。', 409)
                 else:
                     adjustment = AdjustmentOrder(
                         adjustment_no=adjustment_no,
