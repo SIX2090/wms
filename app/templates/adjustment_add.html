@@ -648,6 +648,14 @@ function collectItems() {
 }
 
 function submitForm(completeAfterSave) {
+    // 已保存后等待导航或人工核对，避免完成结果不明时再次重建明细。
+    if (submitForm.savedId) return Promise.resolve();
+    submitForm.keepSavedLocked = function() {
+        if (!submitForm.savedId) return;
+        document.querySelectorAll('button[data-document-action="submitAdjustment"], button[data-document-action="completeAdjustment"]').forEach(function(button) {
+            button.disabled = true;
+        });
+    };
     return WMS.runDocumentAction('submitAdjustment', function() {
         if (readonly) return;
         const date = document.querySelector('[name="date"]').value;
@@ -699,6 +707,7 @@ function submitForm(completeAfterSave) {
             if (res.adjustment_no) {
                 document.querySelector('[name="adjustment_no"]').value = res.adjustment_no;
             }
+            submitForm.savedId = res.id;
             const detailUrl = '/adjustment/' + res.id;
             const nextUrl = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(detailUrl) : detailUrl;
             if (!completeAfterSave) {
@@ -709,32 +718,36 @@ function submitForm(completeAfterSave) {
             }
             return WMS.api.postRaw('/adjustment/' + res.id + '/complete', {})
                 .then(function(completeRes) {
-                    if (completeRes.status === 'success') {
+                    if (completeRes && completeRes.status === 'success') {
                         showToast(completeRes.msg || '库存调整已完成', 'success');
                         return new Promise(function(resolve) {
                             setTimeout(function() { window.location.href = nextUrl; resolve(); }, 600);
                         });
                     } else {
-                        showToast('单据已保存但完成失败：' + (completeRes.msg || '未知错误'), 'danger', 4200);
-                        return new Promise(function(resolve) {
-                            setTimeout(function() { window.location.href = nextUrl; resolve(); }, 900);
-                        });
+                        showDocumentCompletionIssue(detailUrl, completeRes);
                     }
                 });
         })
         .catch(function(err) {
-            showToast(err.message || '保存失败', 'danger', 3600);
+            if (submitForm.savedId) {
+                showDocumentCompletionIssue('/adjustment/' + submitForm.savedId, err);
+            } else {
+                showToast(err.message || '保存失败', 'danger', 3600);
+            }
         })
         .finally(function() {
             if (saveBtn) saveBtn.disabled = false;
         });
-    });
+    }).finally(submitForm.keepSavedLocked);
 }
 
 function completeAdjustment() {
+    if (submitForm.savedId) return Promise.resolve();
     return WMS.runDocumentAction('completeAdjustment', function() {
         if (!confirm('确认完成该库存调整单？完成后会立即变更库存。')) return;
         return submitForm(true);
+    }).finally(function() {
+        if (submitForm.keepSavedLocked) submitForm.keepSavedLocked();
     });
 }
 

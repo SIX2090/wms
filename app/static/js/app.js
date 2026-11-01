@@ -2174,7 +2174,7 @@ function showDocumentCompletionIssue(detailUrl, result) {
     var heading = document.createElement('h5');
     heading.textContent = rejected ? '单据已保存，本次完成请求未成功' : '单据已保存，完成结果待核对';
     var reference = document.createElement('p');
-    var number = document.querySelector('[name="order_no"]');
+    var number = document.querySelector('[name="order_no"], [name="adjustment_no"]');
     reference.textContent = number && number.value ? '单据编号：' + number.value : '已保存的单据可通过下方链接查看。';
     var reason = document.createElement('p');
     reason.style.whiteSpace = 'pre-wrap';
@@ -3840,7 +3840,7 @@ function initKeyboardShortcuts() {
             if (e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             if (e.repeat || (e.target && e.target.isContentEditable) ||
-                document.querySelector('.modal.show, .cb-confirm-overlay.show')) return;
+                document.querySelector('.modal.show, .cb-confirm-overlay.show, #completeConfirmModal')) return;
             var content = document.querySelector('.embedded-content');
             var saveBtn = content && Array.from(content.querySelectorAll('button[data-wms-save]')).find(function(button) {
                 return !button.matches(':disabled') && button.getAttribute('aria-disabled') !== 'true' &&
