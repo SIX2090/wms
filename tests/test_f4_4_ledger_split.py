@@ -358,3 +358,4 @@ POST_SPLIT_BUGS['BUG-2026-11-01-025'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-026'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-027'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-028'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-029'] = 'fixed'  # sales duplicate-number feedback; release tracked separately

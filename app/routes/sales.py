@@ -26,6 +26,7 @@ import json
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
+from sqlalchemy.exc import IntegrityError
 
 from db import db
 from utils import require_role
@@ -529,6 +530,7 @@ def register_sales_routes(app):
                          generate_sales_order_no, log_operation, parse_float_value,
                          recalculate_sales_order, round_to_2_decimals, validate_sales_warehouse)
         payload = request.get_json(silent=True) or request.form
+        order_no = ''
         try:
             customer_id = int(payload.get('customer_id') or 0)
             customer = db.session.get(Customer, customer_id)
@@ -548,8 +550,9 @@ def register_sales_routes(app):
             if warehouse_error:
                 return jsonify({'status': 'error', 'msg': warehouse_error}), 400
             _contract_id_raw = (payload.get('contract_id') or '').strip()
+            order_no = (payload.get('order_no') or '').strip() or generate_sales_order_no()
             order = SalesOrder(
-                order_no=(payload.get('order_no') or '').strip() or generate_sales_order_no(),
+                order_no=order_no,
                 customer_id=customer.id,
                 operator_id=current_user.id,
                 date=datetime.strptime(payload.get('date') or date.today().isoformat(), '%Y-%m-%d').date(),
@@ -605,6 +608,14 @@ def register_sales_routes(app):
             log_operation('保存销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
             return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no,
                             'warnings': shortage_warnings})
+        except IntegrityError:
+            db.session.rollback()
+            # The unique constraint arbitrates simultaneous saves; never reuse a draft by number.
+            if order_no and SalesOrder.query.filter_by(order_no=order_no).first() is not None:
+                return jsonify({'status': 'error', 'msg':
+                                '销售订单号已存在，不能覆盖原单据。请刷新新增页面后重试；编辑原单请从原单据打开。'}), 409
+            app.logger.exception('保存销售订单失败')
+            return jsonify({'status': 'error', 'msg': '保存失败，请稍后重试'}), 500
         except (ValueError, TypeError, json.JSONDecodeError):
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '日期或明细格式不正确'}), 400
