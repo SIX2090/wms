@@ -5264,6 +5264,7 @@ from models import (
     Warehouse,
     WechatShareConfig,
     WechatShareLog,
+    WechatShareDispatch,
 )
 
 DEFAULT_WAREHOUSES = (
@@ -8129,6 +8130,7 @@ INIT_LOG_TABLES = [
     ('登录日志', LoginLog),
     ('API Token', ApiToken),
     ('移动 API 请求', MobileApiRequest),
+    ('微信分享发送占位', WechatShareDispatch),
     ('微信分享日志', WechatShareLog),
     ('微信分享配置', WechatShareConfig),
     ('系统参数', SystemSetting),
@@ -24796,9 +24798,9 @@ def _wechat_share_send_image(config, image_path):
     wechat_window_not_found / open_contact_failed / paste_failed /
     send_key_failed / focus_lost / send_failed）。
 
-    BUG-2026-08-11-010：取代脆弱的关键词匹配状态判定，并仅对连接级错误
-    （ConnectionError，请求未到达助手、零副作用）自动重试 1 次；读超时
-    （Timeout）不重试——请求可能已被助手执行，重试会重复粘贴/发送。
+    BUG-2026-08-11-010：取代脆弱的关键词匹配状态判定。
+    2026-11-01：ConnectionError 也可能是已接收后的断连，不再自动重试；
+    Timeout 同样不重试。持久化发送占位将这些结果标记为待确认。
     """
     helper_url = (
         (config.helper_url or '').strip()
@@ -24838,16 +24840,12 @@ def _wechat_share_send_image(config, image_path):
             )
 
     try:
-        try:
-            response = _post_once()
-        except requests.exceptions.ConnectionError:
-            # 连接被拒绝/未建立：请求未到达助手，无副作用，安全重试一次
-            import time as _time
-            _time.sleep(1)
-            response = _post_once()
+        response = _post_once()
     except requests.exceptions.ConnectionError as exc:
-        app.logger.warning('微信发送助手连接失败（已重试 1 次）: %s', exc)
-        return 'failed', 'helper_offline', f'微信发送助手未运行或连接被拒绝（已自动重试 1 次）：{exc}'
+        # ConnectionError also includes a reset *after* POST was accepted.
+        # No transport retry without a receiver idempotency contract.
+        app.logger.warning('微信发送助手连接异常，不自动重试')
+        return 'failed', 'helper_offline', '微信发送助手连接异常，发送结果待核对；不自动重试，请核对接收端后人工重发'
     except requests.exceptions.Timeout:
         # 读超时：请求可能已被助手接收并执行，重试会重复发送，禁止自动重试
         app.logger.warning('微信发送助手响应超时，不做自动重试')
@@ -25092,54 +25090,31 @@ def _async_wechat_share_on_complete(app_ref, config_id, order_id, order_no=''):
     threading.Thread(target=_run, name='wechat-share-async', daemon=True).start()
 
 def _wechat_share_order(config, order, trigger_type='manual', force=False):
-    existing = WechatShareLog.query.filter_by(
-        module_key='in_order',
-        order_id=order.id,
-        share_date=date.today(),
-    ).filter(WechatShareLog.status.in_(('pending', 'sent'))).first()
-    if existing and not force:
-        return existing, 'skipped'
+    from services.wechat_share_dispatch import execute_share
+    from types import SimpleNamespace
 
-    image_bytes, original_filename = _build_order_share_image(order, 'in_order')
-    folder = _wechat_share_output_dir()
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f'{timestamp}_{_wechat_share_safe_filename(order.order_no)}.png'
-    image_path = os.path.join(folder, filename)
-    with open(image_path, 'wb') as file_obj:
-        file_obj.write(image_bytes.getvalue())
+    def _prepare():
+        image_bytes, _ = _build_order_share_image(order, 'in_order')
+        # Different explicit attempts must not overwrite another attempt's image.
+        filename = f'{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex}_{_wechat_share_safe_filename(order.order_no)}.png'
+        image_path = os.path.join(_wechat_share_output_dir(), filename)
+        with open(image_path, 'wb') as file_obj:
+            file_obj.write(image_bytes.getvalue())
+        supplier = getattr(getattr(order, 'supplier', None), 'name', '') or '-'
+        caption = (f'**入库单 {order.order_no}**\n> 供应商：{supplier}\n'
+                   f'> 明细：{len(order.items or [])} 项　合计：¥{float(order.total_amount or 0):.2f}')
+        return {'image_path': image_path, 'image_size': os.path.getsize(image_path)}, (image_path, caption)
 
-    image_size = os.path.getsize(image_path)
-    # WECOM-BOT-001：经调度器发送（配企业微信 webhook 走企业微信，否则回退本机助手），并附 markdown 摘要
-    supplier_name = getattr(getattr(order, 'supplier', None), 'name', '') or ''
-    item_count = len(getattr(order, 'items', None) or [])
-    total_amount = float(getattr(order, 'total_amount', 0) or 0)
-    caption = (
-        f'**入库单 {order.order_no}**\n'
-        f'> 供应商：{supplier_name or "-"}\n'
-        f'> 明细：{item_count} 项　合计：¥{total_amount:.2f}'
+    result = execute_share(
+        {'module_key': 'in_order', 'order_id': order.id, 'share_date': date.today()},
+        {'config_id': config.id, 'order_no': order.order_no, 'trigger_type': trigger_type,
+         'receiver_name': config.receiver_name, 'receiver_wechat_id': config.receiver_wechat_id},
+        _prepare, lambda data: _wechat_share_deliver(config, data[0], caption=data[1]), force=force,
     )
-    # BUG-2026-08-11-010：直接采用结构化三元组，status 即日志状态，无需关键词猜测
-    status, result_code, message = _wechat_share_deliver(config, image_path, caption=caption)
-    sent = (status == 'sent')
-    if status == 'failed' and result_code not in ('ok', ''):
-        message = f'{message}（错误码：{result_code}）'
-    log = WechatShareLog(
-        config_id=config.id,
-        module_key='in_order',
-        order_id=order.id,
-        order_no=order.order_no,
-        share_date=date.today(),
-        trigger_type=trigger_type,
-        status=status,
-        message=message,
-        image_path=image_path,
-        image_size=image_size,
-        receiver_name=config.receiver_name,
-        receiver_wechat_id=config.receiver_wechat_id,
-        sent_at=datetime.now() if sent else None,
-    )
-    db.session.add(log)
-    return log, 'created'
+    # Independent receipt commits must be visible to callers with cached logs.
+    db.session.expire_all()
+    log = db.session.get(WechatShareLog, result['log_id']) if result['log_id'] else None
+    return log or SimpleNamespace(id=None, status=result['status'], message=result['message']), result['action']
 
 def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
     # 总开关（2026-09-04）：微信分享整体停用时任何触发（含手动）都拒绝发送，
@@ -25178,6 +25153,7 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
         'msg': f'已处理 {len(orders)} 张今日入库单，生成 {created} 张分享图片，跳过 {skipped} 张',
         'created': created,
         'skipped': skipped,
+        'uncertain': sum(log.status in ('sending', 'uncertain') for log in logs),
         'log_ids': [log.id for log in logs if getattr(log, 'id', None)],
     }
 
@@ -25667,6 +25643,9 @@ def _wechat_share_log_status_label(status):
         'pending': '待发送',
         'failed': '失败',
         'skipped': '跳过',
+        'sending': '发送中',
+        'preparing': '准备中',
+        'uncertain': '结果待确认',
     }.get(status, status or '-')
 
 def _wechat_share_log_trigger_label(trigger_type):

@@ -31,7 +31,7 @@ def register_wechat_share_routes(app):
         config = _wechat_share_default_config()
         master_enabled = _wechat_share_master_enabled()
         status_filter = (request.args.get('status') or '').strip()
-        if status_filter not in {'', 'pending', 'failed', 'sent', 'skipped'}:
+        if status_filter not in {'', 'pending', 'failed', 'sent', 'skipped', 'sending', 'uncertain'}:
             status_filter = ''
         log_limit = request.args.get('limit', 10, type=int)
         if log_limit not in {10, 20, 50}:
@@ -48,6 +48,7 @@ def register_wechat_share_routes(app):
         log_counts = {
             'pending': WechatShareLog.query.filter_by(status='pending').count(),
             'failed': WechatShareLog.query.filter_by(status='failed').count(),
+            'uncertain': WechatShareLog.query.filter(WechatShareLog.status.in_(('sending', 'uncertain'))).count(),
             'sent_today': WechatShareLog.query.filter(
                 WechatShareLog.status == 'sent',
                 WechatShareLog.share_date == date.today(),
@@ -148,12 +149,16 @@ def register_wechat_share_routes(app):
     @require_role('admin')
     def run_wechat_share_now():
         from flask import current_app
+        from services.wechat_share_dispatch import DispatchUnavailable
         from app import db, jsonify, log_operation, request, run_wechat_share_for_today
         force = request.form.get('force') == '1'
         try:
             result = run_wechat_share_for_today(trigger_type='manual', force=force)
             log_operation('立即执行微信分享', result.get('msg', ''), 'wechat_share')
             return jsonify(result)
+        except DispatchUnavailable as exc:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(exc)}), 503
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('立即执行微信分享失败')
@@ -165,6 +170,7 @@ def register_wechat_share_routes(app):
     @require_role('admin')
     def resend_wechat_share_log(log_id):
         from flask import current_app
+        from services.wechat_share_dispatch import DispatchUnavailable, execute_share
         from app import (
             WechatShareLog,
             _wechat_share_default_config,
@@ -191,21 +197,6 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
 
         try:
-            # WECOM-BOT-001：已配企业微信 webhook 时重发走企业微信（群发，无需 frozen-receiver 逻辑）
-            wecom_webhook = _wechat_share_wecom_webhook()
-            if wecom_webhook:
-                status, result_code, message = _wechat_share_send_wecom(
-                    wecom_webhook, image_path, caption=f'**入库单 {log.order_no or "-"}**（重发）'
-                )
-                if status == 'failed' and result_code not in ('ok', ''):
-                    message = f'{message}（错误码：{result_code}）'
-                log.status = status
-                log.message = message
-                log.trigger_type = 'manual_resend'
-                log.sent_at = datetime.now() if status == 'sent' else None
-                db.session.commit()
-                log_operation('重发微信分享', f'记录：{log.id}，单据：{log.order_no or "-"}，状态：{log.status}（企业微信）', 'wechat_share', log.id)
-                return jsonify({'status': 'success', 'msg': message or '已重新提交企业微信机器人', 'log_status': log.status})
             # BUG-2026-08-11-014：重发冻结使用日志记录的历史接收人。
             # 列表"接收人"列展示的是分享时冻结的 receiver，若重发改用当前配置
             # 接收人，实际收件人与页面展示不一致（配置中途修改后会发错人）。
@@ -226,21 +217,27 @@ def register_wechat_share_routes(app):
                     auto_send=config.auto_send,
                 )
                 used_frozen_receiver = True
-            # BUG-2026-08-11-010：结构化三元组直取状态，错误码附在 message 便于排查
-            status, result_code, message = _wechat_share_send_image(send_config, image_path)
-            if used_frozen_receiver:
-                message = f'{message}（按历史接收人 {frozen_name or frozen_id} 重发）'
-            log.status = status
-            if status == 'failed' and result_code not in ('ok', ''):
-                message = f'{message}（错误码：{result_code}）'
-            log.message = message
-            log.trigger_type = 'manual_resend'
-            log.receiver_name = config.receiver_name
-            log.receiver_wechat_id = config.receiver_wechat_id
-            log.sent_at = datetime.now() if status == 'sent' else None
-            db.session.commit()
-            log_operation('重发微信分享', f'记录：{log.id}，单据：{log.order_no or "-"}，状态：{log.status}', 'wechat_share', log.id)
-            return jsonify({'status': 'success', 'msg': message or '已重新提交微信助手', 'log_status': log.status})
+            def _deliver(_):
+                webhook = _wechat_share_wecom_webhook()
+                if webhook:
+                    return _wechat_share_send_wecom(webhook, image_path, caption=f'**入库单 {log.order_no or "-"}**（重发）')
+                status, code, message = _wechat_share_send_image(send_config, image_path)
+                if used_frozen_receiver:
+                    message = f'{message}（按历史接收人 {frozen_name or frozen_id} 重发）'
+                return status, code, message
+
+            result = execute_share(
+                {'module_key': log.module_key, 'order_id': log.order_id, 'share_date': log.share_date},
+                {'config_id': config.id, 'order_no': log.order_no, 'trigger_type': 'manual_resend',
+                 'receiver_name': send_config.receiver_name, 'receiver_wechat_id': send_config.receiver_wechat_id},
+                lambda: ({'image_path': image_path, 'image_size': log.image_size}, None), _deliver, force=True,
+            )
+            log_operation('重发微信分享', f'原记录：{log.id}，状态：{result["status"]}', 'wechat_share', log.id)
+            return jsonify({'status': 'success', 'msg': result['message'], 'log_status': result['status'],
+                            'log_id': result['log_id']})
+        except DispatchUnavailable as exc:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': str(exc)}), 503
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('重发微信分享失败: log_id=%s', log_id)

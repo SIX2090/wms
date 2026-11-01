@@ -2,6 +2,10 @@
 """
 BUG-2026-08-11-010 回归测试：WMS 侧结构化错误码映射 + 连接级安全重试。
 
+2026-11-01 R28-F02安全修订：ConnectionError包含POST已被接收后的断连，
+T3/T6改为严格只允许一次调用并要求人工核对；其余映射与断言保持。
+下方“安全重试”说明为历史行为，不再是当前重试保证。
+
 根因：
 - `_wechat_share_send_image` 只返回 (sent, message)，丢弃助手端的机器可读 code，
   WMS 侧只能靠 `_wechat_share_status_from_send_result` 关键词匹配猜测 failed/pending，
@@ -120,8 +124,8 @@ class TestStructuredCodeMapping:
         assert outcome[0] == "pending"
         assert outcome[1] == "ok"
 
-    def test_t3_connection_error_retried_once(self, tmp_path, monkeypatch):
-        """T3：首次连接失败、第二次成功 → sent，恰好 2 次请求。"""
+    def test_t3_connection_error_never_blindly_retried(self, tmp_path, monkeypatch):
+        """T3：断连可能发生在接收之后；不得调用第二次，即使第二次会成功。"""
         outcome, calls = _send(
             _make_config(), _make_image(tmp_path), monkeypatch,
             lambda n: (
@@ -130,8 +134,9 @@ class TestStructuredCodeMapping:
                 else _FakeResponse({"status": "sent", "code": "ok", "msg": "已发送"})
             ),
         )
-        assert outcome[0] == "sent"
-        assert len(calls) == 2, f"应安全重试 1 次，实际请求 {len(calls)} 次"
+        assert outcome[0] == "failed" and outcome[1] == "helper_offline"
+        assert '核对' in outcome[2] and '不自动重试' in outcome[2]
+        assert len(calls) == 1, f"断连禁止盲目重试，实际请求 {len(calls)} 次"
 
     def test_t4_timeout_never_retried(self, tmp_path, monkeypatch):
         """T4：读超时不重试（请求可能已执行），仅 1 次请求。"""
@@ -156,14 +161,15 @@ class TestStructuredCodeMapping:
         assert "token" in outcome[2].lower()
 
     def test_t6_persistent_connection_error_offline(self, tmp_path, monkeypatch):
-        """T6：持续连接失败 → failed(helper_offline)，恰好 2 次请求。"""
+        """T6：持续连接异常也只调用一次，保留待核对提示。"""
         outcome, calls = _send(
             _make_config(), _make_image(tmp_path), monkeypatch,
             lambda n: requests.exceptions.ConnectionError("connection refused"),
         )
         assert outcome[0] == "failed"
         assert outcome[1] == "helper_offline"
-        assert len(calls) == 2
+        assert len(calls) == 1
+        assert '核对' in outcome[2]
 
     def test_t7_no_helper_url_pending_no_request(self, tmp_path, monkeypatch):
         """T7：未配置 helper_url → pending(helper_not_configured)，零请求。"""

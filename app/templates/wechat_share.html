@@ -19,9 +19,11 @@
     .wechat-log-table .col-receiver {
         width: 120px;
     }
-    .wechat-log-table .col-trigger,
-    .wechat-log-table .col-status {
+    .wechat-log-table .col-trigger {
         width: 92px;
+    }
+    .wechat-log-table .col-status {
+        width: 140px;
     }
     .wechat-log-table .col-image {
         width: 112px;
@@ -212,6 +214,11 @@
                     {% endif %}
                 </div>
                 {% endif %}
+                {% if log_counts.uncertain > 0 %}
+                <div class="alert alert-warning py-2 mt-2 mb-0 small">
+                    {{ log_counts.uncertain }} 条发送中或结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
+                </div>
+                {% endif %}
                 {% if latest_log %}
                 <div class="border-bottom py-2">
                     <div class="text-muted mb-1">最近结果</div>
@@ -280,6 +287,8 @@
                 <option value="failed" {% if log_filters.status == 'failed' %}selected{% endif %}>失败</option>
                 <option value="sent" {% if log_filters.status == 'sent' %}selected{% endif %}>已发送</option>
                 <option value="skipped" {% if log_filters.status == 'skipped' %}selected{% endif %}>跳过</option>
+                <option value="sending" {% if log_filters.status == 'sending' %}selected{% endif %}>发送中</option>
+                <option value="uncertain" {% if log_filters.status == 'uncertain' %}selected{% endif %}>结果待确认</option>
             </select>
             <select name="limit" class="form-select form-select-sm" style="width: 100px;">
                 <option value="10" {% if log_filters.limit == 10 %}selected{% endif %}>最近10条</option>
@@ -388,8 +397,9 @@ async function writeWechatShare(url, payload, options) {
         let message = res.msg || options.success;
         if (options.kind === 'run') {
             message += '\n处理完成不代表全部发送成功，请核对下方分享记录。';
+            if (res.uncertain) message += '\n有发送中或结果待确认的任务，普通执行不会重发。请先核对接收端；强制重发可能重复。';
         } else if (options.kind === 'resend') {
-            const labels = { sent: '已发送', pending: '待发送', failed: '发送失败', skipped: '已跳过' };
+            const labels = { sent: '已发送', pending: '待发送', failed: '发送失败', skipped: '已跳过', preparing: '准备中', sending: '发送中', uncertain: '结果待确认' };
             message += '\n发送状态：' + (labels[res.log_status] || '未知，请核对分享记录');
         }
         alert(message); // allow-alert: 刷新前保留人工关闭，发送结果和错误原因必须可阅读
@@ -418,7 +428,7 @@ function runWechatShareNow(force) {
     return writeWechatShare('/wechat_share/run_now', formData, {
         kind: 'run', failure: '执行失败', success: '分享请求已处理',
         confirmation: force
-            ? '确认重新生成并再次发送今日入库单？此操作会绕过已分享记录的去重，可能向微信或企业微信重复发送消息。'
+            ? '确认重新生成并再次发送今日入库单？此操作在没有执行中任务时会绕过已分享记录去重。请先核对接收端，强制重发可能向微信或企业微信重复发送消息。'
             : '确认立即分享今日已完成入库单？此操作会向已配置的微信或企业微信目标发送消息。'
     });
 }

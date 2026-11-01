@@ -13,6 +13,7 @@ from datetime import date
 __all__ = [
     'WechatShareConfig',
     'WechatShareLog',
+    'WechatShareDispatch',
 ]
 
 
@@ -62,3 +63,20 @@ class WechatShareLog(db.Model):
     sent_at = db.Column(db.DateTime)
 
     config = db.relationship('WechatShareConfig', backref='logs')
+
+
+class WechatShareDispatch(db.Model):
+    """Durable per-document/day claim; attempts remain in WechatShareLog.
+
+    The business key serializes *all* workers. Explicit force can start another
+    attempt, but cannot steal an unexpired preparing/sending claim.
+    """
+    __tablename__ = 'wechat_share_dispatch'
+    module_key = db.Column(db.String(50), primary_key=True)
+    order_id = db.Column(db.Integer, primary_key=True)
+    share_date = db.Column(db.Date, primary_key=True)
+    token = db.Column(db.String(32), nullable=False)
+    state = db.Column(db.String(30), nullable=False)
+    lease_until = db.Column(db.DateTime, nullable=False)
+    log_id = db.Column(db.Integer, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.now)

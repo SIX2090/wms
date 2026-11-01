@@ -348,3 +348,5 @@ POST_SPLIT_BUGS['BUG-2026-11-01-015'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-016'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-017'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-01-018'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-01-019'] = 'fixed'  # software fix; exact release CI is recorded separately
+POST_SPLIT_BUGS['BUG-2026-11-01-020'] = 'fixed'
