@@ -8,11 +8,16 @@
 import os
 from datetime import datetime
 
-from flask import jsonify
+from flask import jsonify, send_from_directory
 
 
 # no-test:reason=路由注册辅助函数，能力由 tests/test_healthz_endpoint.py 覆盖
 def register_health_routes(app):
+    @app.route('/favicon.ico')
+    def favicon():
+        return send_from_directory(app.static_folder, 'favicon.svg',
+                                   mimetype='image/svg+xml', max_age=0)
+
     @app.route('/healthz')
     def healthz():
         checks = {
