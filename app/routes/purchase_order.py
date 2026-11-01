@@ -220,7 +220,7 @@ def register_purchase_order_routes(app):
         from app import (Material, PurchaseOrder, PurchaseOrderItem, PurchaseRequest,
                          Supplier, _apply_header_or_item_contract_filters,
                          _apply_status_date_filters, _get_order_list_filters,
-                         _workbook_response, purchase_order_status_label,
+                         _workbook_response, build_purchase_order_execution, purchase_order_status_label,
                          round_to_2_decimals)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'partial', 'completed', 'closed'))
         supplier_id = request.args.get('supplier_id', type=int) or 0
@@ -252,9 +252,11 @@ def register_purchase_order_routes(app):
         query = query.order_by(PurchaseOrder.date.desc(), PurchaseOrder.id.desc())
         rows = []
         for order in query.all():
+            item_execution = build_purchase_order_execution(order)
             if order.items:
                 for item in order.items:
-                    remain_qty = round_to_2_decimals((item.quantity or 0) - (item.received_quantity or 0))
+                    received_qty = item_execution[item.id]['completed_quantity']
+                    remain_qty = round_to_2_decimals(max((item.quantity or 0) - received_qty, 0))
                     rows.append([
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
@@ -266,7 +268,7 @@ def register_purchase_order_routes(app):
                         item.material.spec if item.material else '',
                         item.material.unit.name if item.material and item.material.unit else '',
                         item.quantity or 0,
-                        item.received_quantity or 0,
+                        received_qty,
                         remain_qty,
                         item.price or 0,
                         item.amount or 0,
@@ -646,7 +648,7 @@ def register_purchase_order_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (Material, PurchaseOrder, PurchaseOrderItem, _fmt_date,
                          _material_row_common, _operator_name,
-                         _render_generic_document_print, purchase_order_status_label,
+                         _render_generic_document_print, build_purchase_order_execution, purchase_order_status_label,
                          round_to_2_decimals)
         order = PurchaseOrder.query.options(
             joinedload(PurchaseOrder.supplier),
@@ -654,12 +656,14 @@ def register_purchase_order_routes(app):
             joinedload(PurchaseOrder.operator),
             selectinload(PurchaseOrder.items).joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
         ).get_or_404(id)
+        item_execution = build_purchase_order_execution(order)
         rows = [
             _material_row_common(
                 item,
                 extra={
-                    'received_quantity': item.received_quantity or 0,
-                    'remaining_quantity': round_to_2_decimals((item.quantity or 0) - (item.received_quantity or 0)),
+                    'received_quantity': item_execution[item.id]['completed_quantity'],
+                    'remaining_quantity': round_to_2_decimals(max(
+                        (item.quantity or 0) - item_execution[item.id]['completed_quantity'], 0)),
                 }
             )
             for item in order.items

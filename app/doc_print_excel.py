@@ -603,6 +603,17 @@ def _template_path_or_builtin(template, static_folder, target_code):
     return _builtin_template_abspath(static_folder, target_code)
 
 
+class _PurchaseReceiptPrintItem:
+    """Read-only receipt facts for both built-in and custom Excel placeholders."""
+
+    def __init__(self, item, completed_quantity):
+        self._item = item
+        self.received_quantity = completed_quantity
+
+    def __getattr__(self, name):
+        return getattr(self._item, name)
+
+
 def render_doc_excel_print(target_code, order, items=None, template_id=None,
                            static_folder=None, date_str=None):
     """按注册表填充单据 Excel 模板，返回 (BytesIO, 文件名)；未注册返回 None。"""
@@ -616,9 +627,15 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
         static_folder, target_code)
     if not path:
         return None
+    print_items = items if items is not None else getattr(order, 'items', None)
+    if target_code == 'purchase_order':
+        from app import build_purchase_order_execution
+        execution = build_purchase_order_execution(order)
+        print_items = [_PurchaseReceiptPrintItem(item, execution.get(item.id, {}).get('completed_quantity', 0))
+                       for item in (print_items or [])]
     output = build_filled_print_excel(
         path, order,
-        items=items if items is not None else getattr(order, 'items', None),
+        items=print_items,
         date_str=date_str or datetime.now().strftime('%Y-%m-%d'),
     )
     order_no = ''
