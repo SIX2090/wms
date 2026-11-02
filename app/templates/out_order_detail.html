@@ -1349,7 +1349,8 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
 // ==================== 完成出库 ====================
 function completeOrder(id, force) {
     return WMS.runDocumentAction('completeOrder', function() {
-        return _showConfirm('确认完成出库？完成后库存将减少。', {title: '完成出库'}).then(function(confirmed) {
+        var confirmation = force ? Promise.resolve(true) : _showConfirm('确认完成出库？完成后库存将减少。', {title: '完成出库'});
+        return confirmation.then(function(confirmed) {
             if (!confirmed) return;
             var url = '/out_order/' + id + '/complete';
             if (force) {
@@ -1398,10 +1399,10 @@ function closeAnomalyModal() {
 
 function forceCompleteOrder() {
     var modal = document.getElementById('anomalyModal');
-    if (!modal) return;
+    if (!modal || modal.style.display !== 'flex') return;
     var orderId = modal.dataset.orderId;
     closeAnomalyModal();
-    completeOrder(orderId, true);
+    return completeOrder(orderId, true);
 }
 
 // ==================== 反提交 ====================

@@ -1339,7 +1339,8 @@ function saveHeader() {
 // ==================== 完成入库 ====================
 function completeOrder(id, force) {
     return WMS.runDocumentAction('completeOrder', function() {
-        return showConfirm('确认完成入库？入库后库存将增加。', {title: '完成入库'}).then(function(confirmed) {
+        var confirmation = force ? Promise.resolve(true) : showConfirm('确认完成入库？入库后库存将增加。', {title: '完成入库'});
+        return confirmation.then(function(confirmed) {
             if (!confirmed) return;
             var url = '/in_order/' + id + '/complete';
             if (force) {
@@ -1394,10 +1395,10 @@ function closeAnomalyModal() {
 
 function forceCompleteOrder() {
     var modal = document.getElementById('anomalyModal');
-    if (!modal) return;
+    if (!modal || modal.style.display !== 'flex') return;
     var orderId = modal.dataset.orderId;
     closeAnomalyModal();
-    completeOrder(orderId, true);
+    return completeOrder(orderId, true);
 }
 
 // ==================== 反提交 ====================

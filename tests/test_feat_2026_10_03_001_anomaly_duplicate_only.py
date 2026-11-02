@@ -10,9 +10,10 @@
     连同专用辅助函数 _calc_smart_threshold 一并删除；
   * 保留重复单据检测（duplicate_order：同日同供应商/客户/部门）；
   * 口径补充（同日用户进一步明确）：「单据明细重复」指一张单据【所有明细】
-    的重复（本单全部明细物料 ⊆ 另一张单），而非某一条明细撞车即报——
+    的重复，而非某一条明细撞车即报——
     同一供应商一天送多批货、物料有交集是正常业务，只有整单重复才是
-    疑似重复录入；
+    疑似重复录入；2026-11-02 用户进一步要求数量等关键字段全部一致，
+    不再使用原物料集合包含关系作为完整判据；
   * check_anomalies 路由的 AI 分析 prompt 改用通用键（type/material/msg）——
     原 current/average/deviation 三键仅偏离类异常才有，重复单据直接索引
     会 KeyError（存量隐患，本次口径下必然触发，一并修复）。
@@ -199,9 +200,17 @@ def test_t4_in_check_route_deviation_silent_duplicate_warns(wms_env):
     r2 = client.post(f"/in_order/{pending.id}/check_anomalies")
     assert r2.status_code == 200
     body2 = r2.get_json()
-    assert body2["has_anomalies"] is True
-    assert {a["type"] for a in body2["anomalies"]} == {"duplicate_order"}
-    assert body2["anomalies"][0]["existing_order"] == "FEAT1003001-H5"
+    assert body2["has_anomalies"] is False  # 500 vs 100 is a normal different receipt.
+    assert body2["anomalies"] == []
+
+    # The same endpoint must still warn once the full content really matches.
+    pending.items[0].quantity = 100
+    pending.items[0].amount = 10000
+    wms_env.db.session.commit()
+    body3 = client.post(f"/in_order/{pending.id}/check_anomalies").get_json()
+    assert body3["has_anomalies"] is True
+    assert {a["type"] for a in body3["anomalies"]} == {"duplicate_order"}
+    assert body3["anomalies"][0]["existing_order"] == "FEAT1003001-H5"
 
 
 # --------------------------------------------------------------------------

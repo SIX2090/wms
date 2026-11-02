@@ -662,6 +662,8 @@
 | BUG-2026-11-02-008 | bugs | entries-2026-11.md |
 | BUG-2026-11-02-009 | bugs | entries-2026-11.md |
 | BUG-2026-11-02-010 | bugs | entries-2026-11.md |
+| BUG-2026-11-02-011 | bugs | entries-2026-11.md |
+| BUG-2026-11-02-012 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

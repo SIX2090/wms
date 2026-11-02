@@ -371,3 +371,6 @@ POST_SPLIT_BUGS['BUG-2026-11-02-007'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-02-008'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-02-009'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-02-010'] = 'fixed'
+
+POST_SPLIT_BUGS['BUG-2026-11-02-011'] = 'fixed'  # exact duplicate comparison; delivery tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-02-012'] = 'fixed'
