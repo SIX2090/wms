@@ -25,7 +25,7 @@
 - R8整批物理换回基线app.py和两个详情模板，并暂移新增服务：60 failed、6对照passed、4不适用skipped。finally逐字节恢复四份业务文件并校验SHA256，恢复后66 passed、4不适用skipped；没有放宽既有断言。原T4接口用例按用户新规则改为不同数量不提醒，并补数量金额改为完整相同后仍提醒的正向断言。
 - 业务与相邻27模块分两组完成：21模块441 passed/4不适用skipped，另6个详情/列表/数量汇总模块434 passed；两组测试ID不重复，共875 passed/4不适用skipped，包含新增66项，不累加。覆盖单张/批量完成、退货、三账、多仓和历史兼容、零单价、错误反馈、完成防连点、原小数输入及文档行号。台账/行号/规则契约49 passed，与相邻含重叠，不累加。
 - 未改full_smoke_test.py，在全新文件库及请求桥执行119/119；桥内合成会话、关闭CSRF代替真实密码登录，不冒充真实浏览器鉴权测试。上述真实浏览器保留CSRF。
-- 常规新增行规则0违规；完整棘轮无新增违规、A11全量0违规、非GET fetch检查及verify_wms_bugs均退出0。精确提交CI待推送后验收。
+- 常规新增行规则0违规；完整棘轮无新增违规、A11全量0违规、非GET fetch检查及verify_wms_bugs均退出0。精确代码提交完整CI已验收，见下节。
 
 ## 真实浏览器
 
@@ -39,4 +39,11 @@ Computer Use操作真实in-app浏览器，测试服务仅127.0.0.1:18185，数�
 
 ## 交付与生效
 
-精确新SHA及CI待本批提交推送后回填。生产未部署，生产需重启 WMS 服务生效。
+代码提交`06df9be6ff1cb071ee577e8f3d1c113168fd472a`已实际推送，输出`0e482016..06df9be6 main -> main`；独立副本HEAD、origin/main及实时远端SHA一致。首次普通push停在GCM多账号选择；Windows窗口输入被拒绝后停止该次推送，改用Git已有账号筛选`git -c credential.username=SIX2090 -c credential.interactive=never push origin main`成功。未读取、更换凭据，未绕过钩子或CI门禁。
+
+- [WMS CI 41382190266](https://github.com/SIX2090/wms/actions/runs/41382190266)：completed/success，精确匹配上述完整SHA；三个单测分片、四个verify分片、静态及安全检查、库存三账、smoke和gate均success，full路径下docs-checks按策略skipped。
+- [WMS AI Verification 41382190387](https://github.com/SIX2090/wms/actions/runs/41382190387)：completed/success，精确匹配上述完整SHA，ai-core/static-checks/gate均success。
+- [Android APK Build 41356189466](https://github.com/SIX2090/wms/actions/runs/41356189466)：成功SHA`2afd4c055213ddc62c2b3daa07453af926b4f2fc`为本次目标祖先，Git对象齐全，Android工程及工作流无差异。未宣称本轮重新编译APK。
+- `python scripts/check_ci_green.py --target-sha 06df9be6ff1cb071ee577e8f3d1c113168fd472a --json`退出0；外部证据code-ci-acceptance.json与code-jobs.json保存完整证明。
+
+生产未部署，未更新C:/wms生产文件或重启服务；后续部署后生产需重启 WMS 服务生效。
