@@ -374,3 +374,6 @@ POST_SPLIT_BUGS['BUG-2026-11-02-010'] = 'fixed'
 
 POST_SPLIT_BUGS['BUG-2026-11-02-011'] = 'fixed'  # exact duplicate comparison; delivery tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-02-012'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-02-013'] = 'fixed'  # local software fix; exact release CI tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-02-014'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-02-015'] = 'fixed'

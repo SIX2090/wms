@@ -442,11 +442,17 @@ function saveWs() {
 }
 
 function resetToken(wsId) {
+    resetToken.pending = resetToken.pending || Object.create(null);
+    if (resetToken.pending[wsId]) return;
     if (!confirm('重置令牌后，该工作站正在使用的打印代理将立即失联，需要更新代理配置。确定重置？')) return;
-    WMS.api.post('/print_routing/workstations/' + wsId + '/reset_token', {}).then(function (res) {
+    resetToken.pending[wsId] = true;
+    return WMS.api.post('/print_routing/workstations/' + wsId + '/reset_token', {}).then(function (res) {
         alert('新令牌（请更新打印代理配置）：\n\n' + res.token); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
         location.reload();
-    }).catch(function (e) { if (typeof showToast === 'function') { showToast(e.message || '重置失败', 'danger'); } });
+    }).catch(function (e) {
+        delete resetToken.pending[wsId];
+        if (typeof showToast === 'function') { showToast(e.message || '重置失败', 'danger'); }
+    });
 }
 
 function deleteWs(wsId, code) {

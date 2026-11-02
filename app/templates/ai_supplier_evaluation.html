@@ -127,6 +127,9 @@
 let currentEvalData = [];
 
 function loadSupplierEvaluation() {
+    if (loadSupplierEvaluation.pending) return;
+    loadSupplierEvaluation.pending = true;
+    currentEvalData = [];
     var btn = document.getElementById('loadEvalBtn');
     var aiCard = document.getElementById('aiAnalysisCard');
     var aiContent = document.getElementById('aiAnalysisContent');
@@ -141,18 +144,16 @@ function loadSupplierEvaluation() {
     summaryCards.style.display = 'none';
     aiContent.innerHTML = '<div class="text-center text-muted py-4"><div class="spinner-border text-primary mb-2" role="status"></div><div>正在生成供应商评估报告...</div></div>';
     
-    fetch('/api/ai/supplier_evaluation', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]')?.content || ''
-        }
-    })
-    .then(r => r.json())
+    return WMS.api.postRaw('/api/ai/supplier_evaluation', {})
     .then(res => {
-        if (btn) btn.disabled = false;
-        
         if (res.status === 'success') {
+            if (!Array.isArray(res.evaluations) || res.evaluations.some(item => !item || typeof item !== 'object' || Array.isArray(item))) {
+                throw new Error('供应商评估明细格式无效，请重新生成');
+            }
+            if (res.summary && ['total', 'total_amount', 'price_unstable'].some(name =>
+                typeof res.summary[name] !== 'number' || !Number.isFinite(res.summary[name]) || res.summary[name] < 0)) {
+                throw new Error('供应商评估汇总格式无效，请重新生成');
+            }
             // 显示汇总卡片
             if (res.summary) {
                 document.getElementById('totalSuppliers').textContent = res.summary.total;
@@ -180,8 +181,14 @@ function loadSupplierEvaluation() {
         }
     })
     .catch(function(err) {
-        if (btn) btn.disabled = false;
+        currentEvalData = [];
+        evalCard.style.display = 'none';
+        summaryCards.style.display = 'none';
         aiContent.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err.message) + '</div>';
+    })
+    .finally(function() {
+        loadSupplierEvaluation.pending = false;
+        if (btn) btn.disabled = false;
     });
 }
 

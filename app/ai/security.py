@@ -522,14 +522,14 @@ def sanitize_log_message(message: str) -> str:
     """清理日志消息中的敏感信息。"""
     # 移除 API Key（sk- 开头或 api_key= 赋值）
     message = re.sub(r'sk-[a-zA-Z0-9]{8,}', 'sk-***', message)
-    message = re.sub(r'(?:api[_-]?key|apikey)\s*[=:]\s*["\']?([a-zA-Z0-9_-]{8,})',
-                     r'api_key=***', message, flags=re.IGNORECASE)
+    message = re.sub(r'((?:api[_-]?key|apikey)["\']?\s*[=:]\s*["\']?)([a-zA-Z0-9_.+/=-]{8,})',
+                     r'\1***', message, flags=re.IGNORECASE)
     # 移除 Base64 图片（通常很长）
     message = re.sub(r'data:image/[a-z]+;base64,[A-Za-z0-9+/=]{100,}',
                      '[BASE64_IMAGE_REDACTED]', message)
     # 移除 Bearer token
     message = re.sub(r'Bearer\s+[a-zA-Z0-9._-]{8,}',
-                     'Bearer ***', message)
+                     'Bearer ***', message, flags=re.IGNORECASE)
     return message
 
 
@@ -542,6 +542,15 @@ class SafeLogFilter(logging.Filter):
     """
 
     def filter(self, record):
+        # Exception text is appended by Formatter after getMessage(), and may
+        # already be cached by another handler. Sanitize that final channel too.
+        if record.exc_info or record.exc_text:
+            try:
+                exception_text = record.exc_text or logging.Formatter().formatException(record.exc_info)
+                record.exc_text = sanitize_log_message(exception_text)
+            except Exception:
+                record.exc_text = '[exception details redacted]'
+            record.exc_info = None
         try:
             full_msg = record.getMessage()
             record.msg = sanitize_log_message(full_msg)
