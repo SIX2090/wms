@@ -35,8 +35,8 @@
     {% else %}
     <div class="d-flex gap-2">
         {% if business_type == '采购入库' %}
-        <button type="button" class="btn btn-success" data-wms-save-complete="1" onclick="submitForm(false, true)" title="保存单据并完成入库，成功后继续新增采购入库单">
-            <i class="bi bi-check-circle"></i> 保存并完成入库
+        <button type="button" class="btn btn-success" data-wms-save-complete="1" data-wms-save-complete-label="保存" onclick="submitForm(false, true)" title="保存单据并完成入库，成功后继续新增采购入库单">
+            <i class="bi bi-check-circle"></i> 保存
         </button>
         {% else %}
         <button type="button" class="btn btn-primary" data-wms-save onclick="submitForm(false, false)">

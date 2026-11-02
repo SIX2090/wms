@@ -26,7 +26,10 @@ def test_purchase_toolbar_single_action():
     source = SOURCE.read_text(encoding='utf-8')
     toolbar = source.split('{% block content %}', 1)[1].split('<div class="card">', 1)[0]
     rendered = Template(toolbar).render(is_other_in=False, business_type='采购入库')
-    assert '保存并完成入库' in rendered
+    from bs4 import BeautifulSoup
+    save_button = BeautifulSoup(rendered, 'html.parser').select_one('button[data-wms-save-complete]')
+    assert save_button.get_text(strip=True) == '保存'
+    assert save_button['data-wms-save-complete-label'] == '保存'
     assert 'onclick="submitForm(false, true)"' in rendered
     assert 'onclick="submitForm(false, false)"' not in rendered
     assert 'onclick="submitForm(true, false)"' not in rendered
