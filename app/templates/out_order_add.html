@@ -453,8 +453,8 @@ textarea.form-control {
     {% else %}
     <div class="d-flex gap-2 flex-wrap">
         {% if not is_sale_order and not is_purchase_return %}
-        <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" data-wms-save-complete-label="保存完成并新增领料单" onclick="submitForm(false, true)">
-            <i class="bi bi-check-circle"></i> 保存完成并新增领料单
+        <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" data-wms-save-complete-label="保存" onclick="submitForm(false, true)">
+            <i class="bi bi-check-circle"></i> 保存
         </button>
         {% else %}
         <button type="button" class="btn btn-primary" data-wms-save onclick="submitForm()">

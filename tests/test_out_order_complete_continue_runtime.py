@@ -46,7 +46,7 @@ const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r))
 function response(stage){const outcome=p.scenario;const status=outcome==='complete_http'&&stage==='complete'?500:200;const body=stage==='save'?{status:outcome==='save_error'?'error':'success',id:7,order_no:'OUT-7',msg:'fixture refusal'}:{status:outcome==='complete_error'?'error':outcome==='warning'?'warning':'success',msg:'fixture refusal'};return{ok:status===200,status,json:()=>Promise.resolve(body)};}
 (async()=>{
  let click;
- if(p.embedded){ctx.insertGlobalActionBar();const proxy=bar.children.find(n=>n.attrs['data-wms-save-complete-proxy']==='1');assert(proxy,'production toolbar has a primary proxy');assert.equal(proxy.title,'保存完成并新增领料单');click=()=>proxy.click();}
+ if(p.embedded){ctx.insertGlobalActionBar();const proxy=bar.children.find(n=>n.attrs['data-wms-save-complete-proxy']==='1');assert(proxy,'production toolbar has a primary proxy');assert.equal(proxy.title,'保存');click=()=>proxy.click();}
  else if(p.kind==='normal'){assert(primary);click=()=>primary.click();}
  else if(p.kind==='other')click=()=>ctx.submitForm(false,false);
  else click=()=>buttons.find(n=>n.attrs.onclick==='submitForm()').click();

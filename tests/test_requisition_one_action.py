@@ -38,7 +38,10 @@ def test_work_order_single_button(existing):
 def test_normal_requisition_single_button():
     header=SOURCE.read_text(encoding='utf-8').split('{% block content %}',1)[1].split('<div class="card">',1)[0]
     rendered=Template(header).render(is_other_out=False,is_sale_order=False,is_purchase_return=False)
-    assert '保存完成并新增领料单' in rendered
+    from bs4 import BeautifulSoup
+    button = BeautifulSoup(rendered, 'html.parser').select_one('button[data-wms-save-complete]')
+    assert button.get_text(strip=True) == '保存'
+    assert button['data-wms-save-complete-label'] == '保存'
     assert '保存并新增' not in rendered
 
 
