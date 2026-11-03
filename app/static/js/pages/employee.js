@@ -70,7 +70,7 @@ async function deleteEmployee(id) {
     .catch(function(err){ showToast('删除失败：' + err.message, 'danger', 3600); });
 }
 
-async function batchDelete() {
+async function deleteSelectedEmployees() {
     var ids = Array.from(document.querySelectorAll('.check-item:checked')).map(function(el){ return el.value; });
     if (!ids.length) {
         showToast('请先勾选要删除的员工', 'warning', 2400);

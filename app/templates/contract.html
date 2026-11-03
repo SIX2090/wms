@@ -47,7 +47,7 @@
             <a href="/contract/download_template" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-file-earmark-spreadsheet"></i> 导入模板
             </a>
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDelete()">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteSelectedContracts()">
                 <i class="bi bi-trash"></i> 批量删除
             </button>
         </div>
@@ -418,7 +418,7 @@ function deleteContract(id) {
     .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
 }
 
-function batchDelete() {
+function deleteSelectedContracts() {
     const ids = Array.from(document.querySelectorAll('.check-item:checked')).map(cb => parseInt(cb.value));
     if (!ids.length) {
         showToast('请先勾选要删除的合同', 'warning', 3000);

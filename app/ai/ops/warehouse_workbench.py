@@ -18,7 +18,7 @@
   回调必须返回与原业务列表完全一致的计数（如 InOrder.query.filter_by(status='pending').count()）。
 
 - 只读或跳转：每个 section 强制 read_only=True，仅展示卡片摘要 + jump_url 跳转链接，
-  不含任何提交/审核/删除动作。jump_url 指向对应业务流程页面（如 /in_order/list）。
+  不含任何提交/审核/删除动作。jump_url 指向对应业务流程页面（如 /in_order）。
 
 - 纯逻辑 + 依赖注入：不依赖 Flask/ORM，与 AI-R06/R07/R08/R09 一致。
   CI 无 DB 可 mock 测，生产由 app.py 提供 ORM adapter。
@@ -156,7 +156,7 @@ def build_warehouse_workbench(
         title='今日待收',
         count=count,
         items=_to_items(items),
-        jump_url='/in_order/list',
+        jump_url='/in_order',
         empty_hint='暂无待收入库单',
     ))
     total_pending += count
@@ -168,7 +168,7 @@ def build_warehouse_workbench(
         title='今日待出',
         count=count,
         items=_to_items(items),
-        jump_url='/out_order/list',
+        jump_url='/out_order',
         empty_hint='暂无待出出库单',
     ))
     total_pending += count
@@ -180,7 +180,7 @@ def build_warehouse_workbench(
         title='待盘点',
         count=count,
         items=_to_items(items),
-        jump_url='/inventory_check/list',
+        jump_url='/check',
         empty_hint='暂无待盘点单',
     ))
     total_pending += count
@@ -193,7 +193,7 @@ def build_warehouse_workbench(
         title='异常库存',
         count=count,
         items=_to_items(items),
-        jump_url='/material/list?filter=abnormal',
+        jump_url='/alert',
         empty_hint='暂无异常库存',
     ))
 

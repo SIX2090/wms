@@ -24,7 +24,7 @@ import re
 
 from flask import jsonify, render_template, request
 from flask_login import current_user, login_required
-from pydantic import BaseModel, field_validator
+from pydantic import Field, BaseModel, field_validator
 
 from db import db
 from utils import require_role
@@ -124,9 +124,36 @@ class _MergeModel(BaseModel):
         return v
 
 
+class _PageSetupModel(BaseModel):
+    size: str = 'A4'
+    orient: str = 'portrait'
+    w: float = Field(default=210, ge=20, le=1200, allow_inf_nan=False)
+    h: float = Field(default=297, ge=20, le=1200, allow_inf_nan=False)
+    mt: float = Field(default=12, ge=0, le=200, allow_inf_nan=False)
+    mb: float = Field(default=12, ge=0, le=200, allow_inf_nan=False)
+    ml: float = Field(default=12, ge=0, le=200, allow_inf_nan=False)
+    mr: float = Field(default=12, ge=0, le=200, allow_inf_nan=False)
+    scale: int = Field(default=100, ge=30, le=200)
+
+    @field_validator('size')
+    @classmethod
+    def validate_size(cls, value):
+        if value not in ('A4', 'A5', 'B5', 'custom'):
+            raise ValueError('纸张大小无效')
+        return value
+
+    @field_validator('orient')
+    @classmethod
+    def validate_orientation(cls, value):
+        if value not in ('portrait', 'landscape'):
+            raise ValueError('纸张方向无效')
+        return value
+
+
 class _GridSheetModel(BaseModel):
     """一个工作表内的编辑动作。"""
     name: str
+    page_setup: _PageSetupModel | None = None
     upserts: list[tuple[int, int, object]] = []
     del_rows: list[int] = []
     styles: list[tuple[int, int, _CellStyleModel]] = []
@@ -188,6 +215,7 @@ class _GridSheetModel(BaseModel):
         """转换为引擎入参；styles 按 exclude_unset 保留「缺失=保持」语义。"""
         return {
             'name': self.name,
+            'page_setup': self.page_setup.model_dump() if self.page_setup else None,
             'upserts': [list(u) for u in self.upserts],
             'del_rows': list(self.del_rows),
             'styles': [[r, c, s.model_dump(exclude_unset=True)]

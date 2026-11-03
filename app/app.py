@@ -4387,6 +4387,21 @@ def price_dimension_enabled():
         return False
 
 
+def _other_order_navigation(mode, current_id=None):
+    """Bounded same-type navigation; IDs need not be contiguous."""
+    model = OutOrder if mode == 'out' else InOrder
+    kind = '其他出库' if mode == 'out' else '其他入库'
+    query = model.query.filter_by(business_type=kind)
+    first = query.order_by(model.id.asc()).first()
+    last = query.order_by(model.id.desc()).first()
+    previous = query.filter(model.id < current_id).order_by(model.id.desc()).first() if current_id else None
+    following = query.filter(model.id > current_id).order_by(model.id.asc()).first() if current_id else None
+    endpoint = 'out_order_detail' if mode == 'out' else 'in_order_detail'
+    return {key: url_for(endpoint, id=row.id, embedded=request.args.get('embedded') or None)
+            if row and row.id != current_id else None
+            for key, row in [('first', first), ('prev', previous), ('next', following), ('last', last)]}
+
+
 @app.context_processor
 def inject_query_helpers():
     def url_with_query(**updates):
@@ -4401,6 +4416,7 @@ def inject_query_helpers():
 
     return {
         'url_with_query': url_with_query,
+        'other_order_navigation': _other_order_navigation,
         'inventory_alert_enabled': inventory_alert_enabled(),
         'location_management_enabled': location_management_enabled(),
         'price_dimension_enabled': price_dimension_enabled(),
@@ -4685,7 +4701,13 @@ def _generate_order_no_locked(prefix):
                     default=None,
                 )
             elif prefix == 'PR':
-                last_order = PurchaseRequest.query.filter(PurchaseRequest.request_no.like(f'{prefix}{year_month}%')).order_by(PurchaseRequest.id.desc()).with_for_update().first()
+                last_request = PurchaseRequest.query.filter(PurchaseRequest.request_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(PurchaseRequest.request_no, len(prefix + year_month) + 1), db.Integer).desc()).with_for_update().first()
+                last_return = OutOrder.query.filter(OutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(OutOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc()).with_for_update().first()
+                def _pr_sequence(order):
+                    number = getattr(order, 'request_no', None) or order.order_no
+                    suffix = number[len(prefix + year_month):]
+                    return int(suffix) if suffix.isdigit() else 0
+                last_order = max((o for o in (last_request, last_return) if o is not None), key=_pr_sequence, default=None)
             elif prefix == 'PO':
                 last_order = PurchaseOrder.query.filter(PurchaseOrder.order_no.like(f'{prefix}{year_month}%')).order_by(PurchaseOrder.id.desc()).with_for_update().first()
             elif prefix == 'ASO':
@@ -4717,7 +4739,7 @@ def _generate_order_no_locked(prefix):
                 elif prefix == 'SR':
                     last_no = getattr(last_order, 'receive_no', None) or last_order.order_no
                 elif prefix == 'PR':
-                    last_no = last_order.request_no
+                    last_no = getattr(last_order, 'request_no', None) or last_order.order_no
                 elif prefix == 'ASO':
                     last_no = last_order.order_no
                 elif prefix == 'BOM':
@@ -9430,7 +9452,8 @@ def _nonempty_reference_values(*values):
     return result
 
 def _format_delete_blockers(blockers):
-    return '；'.join(f'{label} {count} 条' for label, count in blockers if count)
+    return '；'.join(item if isinstance(item, str) else f'{item[0]} {item[1]} 条'
+                    for item in blockers if item and (isinstance(item, str) or item[1]))
 
 def _warehouse_delete_blockers(warehouse):
     """仓库删除阻断检查（F3.9，审计 §3.4）。
@@ -15852,7 +15875,7 @@ def _ai_ww_query_today_inbound_pending():
                 'title': o.order_no or f'入库单#{o.id}',
                 'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
                 'detail': f'{o.business_type or "采购入库"} · {o.date.strftime("%Y-%m-%d") if o.date else ""}',
-                'jump_url': f'/in_order/view/{o.id}',
+                'jump_url': f'/in_order/{o.id}',
                 'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
             })
         return count, items
@@ -15878,7 +15901,7 @@ def _ai_ww_query_today_outbound_pending():
                 'title': o.order_no or f'出库单#{o.id}',
                 'subtitle': (o.department.name if o.department else '') or '无部门',
                 'detail': f'{o.date.strftime("%Y-%m-%d") if o.date else ""}',
-                'jump_url': f'/out_order/view/{o.id}',
+                'jump_url': f'/out_order/{o.id}',
                 'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
             })
         return count, items
@@ -15900,10 +15923,10 @@ def _ai_ww_query_inventory_check_pending():
         for o in records:
             items.append({
                 'id': o.id,
-                'title': o.order_no or f'盘点单#{o.id}',
+                'title': o.check_no or f'盘点单#{o.id}',
                 'subtitle': o.warehouse or '',
                 'detail': f'{o.date.strftime("%Y-%m-%d") if o.date else ""}',
-                'jump_url': f'/inventory_check/view/{o.id}',
+                'jump_url': f'/check/{o.id}',
                 'extra': {'status': o.status, 'created_at': o.created_at.isoformat() if o.created_at else ''},
             })
         return count, items
@@ -15923,7 +15946,7 @@ def _ai_ww_query_abnormal_stock():
                 'title': m.code or f'物料#{m.id}',
                 'subtitle': m.name or '',
                 'detail': f'负库存 {m.stock}',
-                'jump_url': f'/material/view/{m.id}',
+                'jump_url': f'/material/{m.id}',
                 'extra': {'severity': 'high', 'stock': m.stock, 'type': 'negative'},
             })
         # 低库存（min_stock 不为空且 stock <= min_stock 且 stock >= 0）
@@ -15938,7 +15961,7 @@ def _ai_ww_query_abnormal_stock():
                 'title': m.code or f'物料#{m.id}',
                 'subtitle': m.name or '',
                 'detail': f'低库存 {m.stock}/{m.min_stock or 0}',
-                'jump_url': f'/material/view/{m.id}',
+                'jump_url': f'/material/{m.id}',
                 'extra': {'severity': 'medium', 'stock': m.stock, 'min_stock': m.min_stock or 0, 'type': 'low'},
             })
         count = len(negative) + len(low)
@@ -16061,7 +16084,7 @@ def _ai_pf_query_pending_arrival():
                 'title': o.order_no or f'采购单#{o.id}',
                 'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
                 'detail': f'应到 {o.expected_date.strftime("%Y-%m-%d") if o.expected_date else "未定"}（{days_until} 天后）',
-                'jump_url': f'/purchase_order/view/{o.id}',
+                'jump_url': f'/purchase_order/{o.id}',
                 'metric_scope': 'expected_date>=today 且 status in (pending,partial)',
                 'extra': {'status': o.status, 'expected_date': o.expected_date.isoformat() if o.expected_date else ''},
             })
@@ -16097,7 +16120,7 @@ def _ai_pf_query_delayed_arrival():
                 'title': o.order_no or f'采购单#{o.id}',
                 'subtitle': (o.supplier.name if o.supplier else '') or '无供应商',
                 'detail': f'应到 {o.expected_date.strftime("%Y-%m-%d") if o.expected_date else ""}，已延期 {delayed_days} 天',
-                'jump_url': f'/purchase_order/view/{o.id}',
+                'jump_url': f'/purchase_order/{o.id}',
                 'metric_scope': 'expected_date<today 且 status in (pending,partial)',
                 'extra': {'status': o.status, 'delayed_days': delayed_days, 'expected_date': o.expected_date.isoformat() if o.expected_date else ''},
             })
@@ -16129,7 +16152,7 @@ def _ai_pf_query_short_delivery():
                 'title': f'{po.order_no if po else ""} - {(material.code if material else "")}',
                 'subtitle': (material.name if material else '') or '未知物料',
                 'detail': f'应到 {it.quantity or 0} 已到 {it.received_quantity or 0}，短交 {shortage}',
-                'jump_url': f'/purchase_order/view/{po.id}' if po else '/purchase_order/list',
+                'jump_url': f'/purchase_order/{po.id}' if po else '/purchase_order',
                 'metric_scope': 'PurchaseOrderItem.received_quantity < quantity',
                 'extra': {'quantity': it.quantity or 0, 'received': it.received_quantity or 0, 'shortage': shortage},
             })
@@ -16161,7 +16184,7 @@ def _ai_pf_query_over_receive():
                 'title': f'{po.order_no if po else ""} - {(material.code if material else "")}',
                 'subtitle': (material.name if material else '') or '未知物料',
                 'detail': f'应到 {it.quantity or 0} 已到 {it.received_quantity or 0}，超收 {over}',
-                'jump_url': f'/purchase_order/view/{po.id}' if po else '/purchase_order/list',
+                'jump_url': f'/purchase_order/{po.id}' if po else '/purchase_order',
                 'metric_scope': 'PurchaseOrderItem.received_quantity > quantity',
                 'extra': {'quantity': it.quantity or 0, 'received': it.received_quantity or 0, 'over': over},
             })
@@ -16303,7 +16326,7 @@ def _ai_pf_query_supplier_followup_list():
                 'short_delivery_count': short,
                 'followup_suggestion': suggestion,
                 'needs_manual_confirmation': True,  # 对外沟通必须人工确认
-                'jump_url': f'/purchase_order/list?supplier_id={sid}',
+                'jump_url': f'/purchase_order?supplier_id={sid}',
             })
         # 按延期数+短交数降序排序
         result.sort(key=lambda x: (-(x['delayed_count'] + x['short_delivery_count']), x['supplier_name']))
@@ -16343,7 +16366,7 @@ def _ai_sf_query_pending_shipment():
                 'title': o.order_no or f'销售单#{o.id}',
                 'subtitle': (o.customer.name if o.customer else '') or '无客户',
                 'detail': f'应发 {o.delivery_date.strftime("%Y-%m-%d") if o.delivery_date else "未定"}（{days_until} 天后）',
-                'jump_url': f'/sales_order/detail/{o.id}',
+                'jump_url': f'/sales/{o.id}',
                 'metric_scope': 'status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date>=today',
                 'extra': {'status': o.status, 'delivery_date': o.delivery_date.isoformat() if o.delivery_date else ''},
             })
@@ -16381,7 +16404,7 @@ def _ai_sf_query_overdue_shipment():
                 'title': o.order_no or f'销售单#{o.id}',
                 'subtitle': (o.customer.name if o.customer else '') or '无客户',
                 'detail': f'应发 {o.delivery_date.strftime("%Y-%m-%d") if o.delivery_date else ""}，已逾期 {overdue_days} 天',
-                'jump_url': f'/sales_order/detail/{o.id}',
+                'jump_url': f'/sales/{o.id}',
                 'metric_scope': 'status in (draft,confirmed) 且 shipment_status in (pending,partial) 且 delivery_date<today',
                 'extra': {'status': o.status, 'overdue_days': overdue_days, 'delivery_date': o.delivery_date.isoformat() if o.delivery_date else ''},
             })
@@ -16419,7 +16442,7 @@ def _ai_sf_query_partial_stalled():
                 'title': o.order_no or f'销售单#{o.id}',
                 'subtitle': (o.customer.name if o.customer else '') or '无客户',
                 'detail': f'部分发货停滞 {days_stalled} 天，建议人工核查剩余明细',
-                'jump_url': f'/sales_order/detail/{o.id}',
+                'jump_url': f'/sales/{o.id}',
                 'metric_scope': 'shipment_status=partial 超 N 天未推进',
                 'extra': {'status': o.status, 'days_stalled': days_stalled},
             })
@@ -16463,7 +16486,7 @@ def _ai_sf_query_short_stock():
                     items.append({'id': item.id, 'title': f'{order.order_no or ""} - {material.code or ""}',
                                   'subtitle': material.name or '未命名物料',
                                   'detail': f'仓库 {warehouse.name}：待发 {pending_qty}，库存 {stock_val}，缺口 {shortage}',
-                                  'jump_url': f'/sales_order/detail/{order.id}',
+                                  'jump_url': f'/sales/{order.id}',
                                   'metric_scope': 'SalesOrderItem.pending_quantity > warehouse stock; count is full result set',
                                   'extra': {'quantity': quantity, 'shipped': shipped, 'stock': stock_val,
                                             'shortage': shortage, 'warehouse_id': warehouse.id}})
@@ -16509,7 +16532,7 @@ def _ai_sf_query_customer_urgency():
                 'title': info['customer_name'],
                 'subtitle': f'逾期 {overdue_count} 单',
                 'detail': suggestion,
-                'jump_url': f'/sales_order/list?customer_id={cid}',
+                'jump_url': f'/sales?customer_id={cid}',
                 'metric_scope': '按客户归组的催发货话术建议，需人工确认后发送',
                 'extra': {'customer_id': cid, 'overdue_count': overdue_count, 'needs_manual_confirmation': True},
             })
@@ -16555,7 +16578,7 @@ def _ai_sf_query_merge_candidates():
                 'title': f'{cname} - 仓库#{wid or "?"}',
                 'subtitle': f'{len(order_list)} 笔订单可合并',
                 'detail': f'订单：{order_nos}{"..." if len(order_list) > 3 else ""}',
-                'jump_url': f'/sales_order/list?customer_id={cid}&warehouse_id={wid}',
+                'jump_url': f'/sales?customer_id={cid}&warehouse_id={wid}',
                 'metric_scope': '同客户+同仓库+相近交期的多笔订单候选',
                 'extra': {'customer_id': cid, 'warehouse_id': wid, 'order_count': len(order_list)},
             })
@@ -16618,7 +16641,7 @@ def _ai_sf_query_customer_followup_list():
                            'pending_count': pending, 'overdue_count': overdue,
                            'short_stock_count': short, 'followup_suggestion': suggestion,
                            'needs_manual_confirmation': True,
-                           'jump_url': f'/sales_order/list?customer_id={cid}'})
+                           'jump_url': f'/sales?customer_id={cid}'})
         result.sort(key=lambda x: (-(x['overdue_count'] + x['short_stock_count']), x['customer_name']))
         return result[:20]
     except Exception as exc:  # noqa: BLE001
@@ -30153,7 +30176,8 @@ def _collect_ledger_rows(filters):
         )
         rows.append({
             'date': txn_date.isoformat() if txn_date else '',
-            'reference_type': REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水'),
+            'reference_type': (REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水')
+                               + ('（反提交冲销）' if (transaction.transaction_type or '').startswith('revert_') else '')),
             'reference_no': reference_no,
             'reference_url': reference_url,
             # FEAT-2026-09-24-001：来源单据的合同编号；无合同单据（调拨/盘点/调整/

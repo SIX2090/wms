@@ -250,6 +250,9 @@
                 <i class="bi bi-check-circle"></i> 完成调整
             </button>
             {% endif %}
+            {% if adjustment and adjustment.status == 'completed' and current_user.role in ['admin', 'warehouse'] %}
+            <button type="button" class="btn btn-outline-warning btn-sm" data-document-action="revertAdjustment" onclick="revertAdjustment()">反提交</button>
+            {% endif %}
             {% if adjustment %}
             <a href="{{ url_for('print_adjustment', id=adjustment.id) }}" target="_blank" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-printer"></i> 打印
@@ -865,6 +868,14 @@ document.addEventListener('click', function(e) {
         hideDropdown();
     }
 });
+
+async function revertAdjustment() {
+    if (!(await showConfirm('确认反提交？将按原仓库回退本单库存调整。'))) return;
+    try {
+        await WMS.api.post('/adjustment/' + {{ order_id|tojson }} + '/revert', {});
+        location.reload();
+    } catch (error) { showToast(error.message || '反提交失败', 'danger'); }
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     WMS.materialCache.bindWarehouse(materials);

@@ -258,6 +258,8 @@ def register_report_routes(app):
             # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
+            if report_type == 'ledger' and filters['export'] == 'excel' and not (filters.get('material_code') or filters.get('material_id')):
+                return api_error('请先选择物料再查询、导出或打印库存台账', 400)
             if filters['export'] == 'excel':
                 # BUG-2026-09-07-020：导出走分批流式下载——SQL 分页报表循环取批
                 # 全量导出（不再受 REPORT_ROW_LIMIT 单次截断），内存路径报表
@@ -314,6 +316,8 @@ def register_report_routes(app):
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
+            if report_type == 'ledger' and not (filters.get('material_code') or filters.get('material_id')):
+                return api_error('请先选择物料再查询、导出或打印库存台账', 400)
             # BUG-2026-09-07-019/020：模板打印语义 = 当前筛选全量（打印请求不带
             # export 参数，前端显式 delete；019 曾强制置位走 payload，020 起直接
             # 用分批收集：SQL 分页报表循环取批全量、内存路径报表全量构建），
@@ -368,6 +372,8 @@ def register_report_routes(app):
                 raise ValueError('请选择仓库')
             if db.session.get(Warehouse, filters['warehouse_id']) is None:
                 raise ValueError('所选仓库不存在，请重新选择')
+            if report_type == 'ledger' and not (filters.get('material_code') or filters.get('material_id')):
+                raise ValueError('请先选择物料再打印库存台账')
             query = ExcelPrintTemplate.query.filter_by(
                 target_type='report', target_code=report_target_code(report_type),
                 template_type='excel')
