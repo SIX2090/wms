@@ -1197,7 +1197,8 @@ function copyDetailMaterialRow(row) {
 
 // ==================== 列设置 ====================
 function toggleColumnSettings() {
-    document.getElementById('columnSettingsPanel').classList.toggle('show');
+    var panel = document.getElementById('columnSettingsPanel');
+    if (panel) panel.classList.toggle('show');
 }
 
 document.addEventListener('click', function(e) {

@@ -10569,13 +10569,18 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
         # 低于最低库存扣分
         if current_stock < min_stock and min_stock > 0:
             health_score -= 20
+
+        # 明确的最低库存红线/负库存不能被缺少动销历史掩盖为健康。
+        below_minimum = min_stock > 0 and current_stock < min_stock
+        if below_minimum or current_stock < 0:
+            health_score = min(health_score, 59 if current_stock <= 0 else 79)
         
         # 限制在0-100
         health_score = max(0, min(100, health_score))
         
         # 确定风险类型（优先级顺序）
         risk_type = 'normal'
-        if days_of_supply is not None and days_of_supply <= 7:
+        if below_minimum or current_stock < 0 or (days_of_supply is not None and days_of_supply <= 7):
             risk_type = 'shortage'
         elif max_stock > 0 and current_stock > max_stock * 2:
             risk_type = 'overstock'
@@ -10597,6 +10602,9 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
             ai_suggestion = '库存基本健康，建议持续监控'
         else:
             ai_suggestion = '库存状态良好'
+
+        if days_of_supply is None:
+            ai_suggestion += '；近期出库数据不足，无法估算可用天数'
         
         # 统计
         stock_value = round_to_2_decimals(current_stock * price)
@@ -22403,14 +22411,16 @@ def _ai_run_warehouse_patrol_agent():
     task = _ai_create_agent_task('warehouse_patrol', '仓库每日巡检：库存风险、待处理单据、草稿阻塞和采购到货阻塞。')
     try:
         negative_count = Material.query.filter(Material.stock < 0).count()
-        low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+        alerts_enabled = inventory_alert_enabled()
+        low_count = Material.query.filter(_material_low_stock_filter()).count() if alerts_enabled else 0
         _ai_add_agent_step(
             task,
             1,
             '库存风险扫描',
             'warehouse_insights',
             '物料库存、最低库存与库存预警设置',
-            f'负库存：{negative_count} 项；低库存：{low_count} 项。',
+            (f'负库存：{negative_count} 项；低库存：{low_count} 项。' if alerts_enabled
+             else f'负库存：{negative_count} 项；库存预警未启用，未检测低库存。'),
             '打开库存预警',
             url_for('material_list', stock_filter='low'),
         )
@@ -22461,6 +22471,8 @@ def _ai_run_warehouse_patrol_agent():
             url_for('purchase_order_list'),
         )
         summary = f'仓库巡检完成。库存风险 {negative_count + low_count} 项，待处理单据 {pending_count} 张，在途采购订单 {purchase_summary.get("open_count", 0)} 张。'
+        if not alerts_enabled:
+            summary += '库存风险仅含负库存；库存预警未启用，未检测低库存。'
         return _ai_finish_agent_task(task, 'completed', summary, url_for('pending_documents')), None
     except Exception:
         return _ai_fail_agent_task(task, '仓库巡检')
@@ -22512,19 +22524,23 @@ def _ai_run_purchase_followup_agent():
             url_for('purchase_request_list'),
         )
 
-        low_count = Material.query.filter(_material_low_stock_filter()).count() if inventory_alert_enabled() else 0
+        alerts_enabled = inventory_alert_enabled()
+        low_count = Material.query.filter(_material_low_stock_filter()).count() if alerts_enabled else 0
         _ai_add_agent_step(
             task,
             4,
             '低库存补货扫描',
             'purchase_request_draft',
             '低库存物料、在途采购订单剩余数量、待处理采购申请',
-            f'需复核的低库存物料：{low_count} 项。补货草稿仍需人工创建或显式 AI 草稿操作。',
+            (f'需复核的低库存物料：{low_count} 项。补货草稿仍需人工创建或显式 AI 草稿操作。' if alerts_enabled
+             else '库存预警未启用，未检测低库存。补货草稿仍需人工创建或显式 AI 草稿操作。'),
             '创建补货草稿',
             '#',
             risk_level='draft',
         )
         task_summary = f'采购跟进完成。在途订单 {summary.get("open_count", 0)} 张，逾期 {summary.get("overdue_count", 0)} 张，3 天内到货 {due_soon_count} 张，待处理申请 {pending_request_count} 张。'
+        if not alerts_enabled:
+            task_summary += '库存预警未启用，未检测低库存。'
         return _ai_finish_agent_task(task, 'completed', task_summary, url_for('purchase_order_list')), None
     except Exception:
         return _ai_fail_agent_task(task, '采购跟进')
@@ -26753,6 +26769,8 @@ def _build_check_batch_meta(check):
         return None
     active_rows = [it for it in (check.items or []) if it.material_id]
     distinct_materials = len({it.material_id for it in active_rows})
+    counted_materials = {it.material_id for it in active_rows
+                         if getattr(it, 'counted_at', None) or getattr(it, 'counted_by', None)}
     diff_rows = [it for it in active_rows if abs(it.difference or 0) > STOCK_COMPARE_EPSILON]
 
     try:
@@ -26783,6 +26801,8 @@ def _build_check_batch_meta(check):
         'frozen_at': check.frozen_at.strftime('%Y-%m-%d %H:%M') if getattr(check, 'frozen_at', None) else '',
         'row_count': len(active_rows),
         'material_count': distinct_materials,
+        'counted_count': len(counted_materials),
+        'uncounted_count': distinct_materials - len(counted_materials),
         'diff_row_count': len(diff_rows),
         'scan_count': scan_count,
         'scans': scans,

@@ -3596,7 +3596,8 @@ function insertGlobalActionBar() {
         { divider: true },
         { key: 'share', icon: 'bi-share', label: '智能分享', action: function() { smartShare(module); } }
     ];
-    buttons = buttons.filter(function(item) { return item.key !== 'share' || module.shareEnabled !== false; });
+    buttons = buttons.filter(function(item) { return item.key !== 'share' ||
+        (module.shareEnabled !== false && ['in_order', 'out_order'].indexOf(module.key) !== -1 && typeof getCurrentRecordId === 'function' && !!getCurrentRecordId()); });
     // BUG-2026-08-27-001：单据详情页（URL 以 /数字 结尾）自带状态感知的操作按钮
     // （草稿显示「删除」、已完成显示「反提交」、打印/发送打印等），全局工具栏再注入
     // 通用「删除/打印」会出现两个删除、两个打印；且已完成单上全局「删除」必定被后端
@@ -4006,7 +4007,7 @@ function getRecentVisits() {
             var key = th.dataset.columnKey;
             // BUG-2026-07-28-006 修复：checkbox 列（仅含 <input type="checkbox"> 无文本节点）
             // 不要回退到 key 作为 label，否则会显示「COLU...」之类被截断的字段名。
-            var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && child.classList.contains('cb-col-resizer')); });
+            var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn'))); });
             var hasOnlyCheckbox = contentChildren.length === 1
                 && contentChildren[0].tagName === 'INPUT'
                 && (contentChildren[0].type || '').toLowerCase() === 'checkbox';
@@ -4015,7 +4016,7 @@ function getRecentVisits() {
             th.dataset.defaultLabel = label;
             // Business fields, including newly added columns, are configurable by default.
             // Only the row-number and action columns are structural controls.
-            return { key: key, label: label, defaultLabel: label, defaultIndex: Number(th.dataset.wmsDefaultColumnIndex), locked: ['row_no','actions'].indexOf(key) !== -1 };
+            return { key: key, label: label, defaultLabel: label, selection: hasOnlyCheckbox, defaultIndex: Number(th.dataset.wmsDefaultColumnIndex), locked: hasOnlyCheckbox || ['row_no','actions'].indexOf(key) !== -1 };
         }).sort(function(a, b) { return a.defaultIndex - b.defaultIndex; });
     }
 
@@ -4033,8 +4034,7 @@ function getRecentVisits() {
             });
             saved.labels = saved.labels && typeof saved.labels === 'object' ? saved.labels : {};
             columns.forEach(function(column) {
-                if (column.label && saved.labels[column.key] === column.key &&
-                    table.querySelector('thead th[data-column-key="' + CSS.escape(column.key) + '"] input[type="checkbox"]')) {
+                if (column.selection) {
                     delete saved.labels[column.key];
                 }
             });
@@ -4045,7 +4045,7 @@ function getRecentVisits() {
     function setHeaderLabel(th, label) {
         // BUG-2026-07-28-006 修复：checkbox 列无 label，不要插入任何文本节点，
         // 否则 50px 窄列会显示「COLU...」之类被截断的字段名。
-        var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && child.classList.contains('cb-col-resizer')); });
+        var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn'))); });
         var hasOnlyCheckbox = contentChildren.length === 1
             && contentChildren[0].tagName === 'INPUT'
             && (contentChildren[0].type || '').toLowerCase() === 'checkbox';
@@ -4124,13 +4124,11 @@ function getRecentVisits() {
         host.hidden = true;
         host.innerHTML = '<section class="wms-field-settings" role="dialog" aria-modal="true" aria-labelledby="wmsFieldSettingsTitle">' +
             '<header class="wms-field-settings__title"><span id="wmsFieldSettingsTitle">栏目设置</span><button type="button" class="wms-field-settings__icon-btn" data-fs-close aria-label="关闭">&times;</button></header>' +
-            '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab" data-fs-tab="header">表头</button><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button><button type="button" class="wms-field-settings__tab" data-fs-tab="footer">表尾</button></nav>' +
+            '<nav class="wms-field-settings__tabs"><button type="button" class="wms-field-settings__tab active" data-fs-tab="detail">明细</button></nav>' +
             '<div class="wms-field-settings__tools"><input class="wms-field-settings__search" data-fs-search aria-label="搜索字段名称" placeholder="请输入字段名称"><button class="wms-field-settings__btn" type="button" data-fs-locate>定位</button></div>' +
             '<div class="wms-field-settings__content">' +
-            '<div class="wms-field-settings__panel" data-fs-panel="header" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表头字段设置功能开发中...</div></div>' +
             '<div class="wms-field-settings__panel" data-fs-panel="detail"><div class="wms-field-settings__table-wrap"><table class="wms-field-settings__table"><thead><tr><th style="width:52px">序号</th><th>字段名称</th><th>显示名称</th><th style="width:66px">显示</th></tr></thead><tbody data-fs-body></tbody></table><div class="wms-field-settings__empty" data-fs-empty hidden>当前区域暂无可设置字段</div></div>' +
             '<div class="wms-field-settings__move"><button type="button" data-fs-move="top" title="置顶" aria-label="字段置顶">⇈</button><button type="button" data-fs-move="up" title="上移" aria-label="字段上移">↑</button><button type="button" data-fs-move="down" title="下移" aria-label="字段下移">↓</button><button type="button" data-fs-move="bottom" title="置底" aria-label="字段置底">⇊</button></div></div>' +
-            '<div class="wms-field-settings__panel" data-fs-panel="footer" style="display:none;grid-column:1/-1"><div class="wms-field-settings__empty">表尾字段设置功能开发中...</div></div>' +
             '</div>' +
             '<div class="wms-field-settings__hint">调整内容将保存在当前浏览器，并应用于当前单据页面。</div>' +
             '<footer class="wms-field-settings__footer"><button type="button" class="wms-field-settings__btn" data-fs-reset>恢复默认</button><div class="wms-field-settings__footer-right"><button type="button" class="wms-field-settings__btn primary" data-fs-ok>确定</button><button type="button" class="wms-field-settings__btn" data-fs-close>取消</button></div></footer></section>';
@@ -4197,7 +4195,8 @@ function getRecentVisits() {
             row.innerHTML = '<td>' + (index + 1) + '</td><td>' + escapeHtml(column.defaultLabel) + '</td><td><input type="text" maxlength="30"></td><td><input type="checkbox"' + (column.locked ? ' disabled title="系统必显字段"' : '') + '></td>';
             Array.from(row.cells).forEach(function(cell, cellIndex) { cell.dataset.fsLabel = ['序号', '字段名称', '显示名称', '显示'][cellIndex]; });
             row.querySelector('input[type=text]').setAttribute('aria-label', (column.defaultLabel || '选择列') + '显示名称');
-            row.querySelector('input[type=text]').value = label;
+            row.querySelector('input[type=text]').value = column.selection ? '选择列' : label;
+            row.querySelector('input[type=text]').disabled = !!column.selection;
             row.querySelector('input[type=text]').addEventListener('input', function() { controller.state.labels[key] = this.value.trim() || column.defaultLabel; });
             var checkbox = row.querySelector('input[type=checkbox]');
             checkbox.setAttribute('aria-label', '显示' + (column.defaultLabel || '选择列'));
@@ -4360,7 +4359,7 @@ function getRecentVisits() {
         Array.from(table.querySelectorAll('thead th[data-column-key]')).forEach(function(th) {
             var key = th.dataset.columnKey;
             var existing = th.querySelector('.wms-fill-down-btn');
-            var supports = !excludedKeys.has(key) && rowsOf(table).some(function(row) { return !!editableControl(cellFor(row, key)); });
+            var supports = !th.querySelector('input[type="checkbox"]') && !excludedKeys.has(key) && rowsOf(table).some(function(row) { return !!editableControl(cellFor(row, key)); });
             if (!supports) { if (existing) existing.remove(); return; }
             if (existing) return;
             var button = document.createElement('button');

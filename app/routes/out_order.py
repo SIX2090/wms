@@ -502,8 +502,8 @@ def register_out_order_routes(app):
             app.logger.error(f'编辑出库单失败: {e}')
             return api_error('保存失败，请稍后重试')
 
-    @app.route('/out_order/add')
     @app.route('/other_out_order/add')
+    @app.route('/out_order/add')
     @login_required
     def out_order_add_page():
         from datetime import date, datetime

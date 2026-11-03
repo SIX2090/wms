@@ -54,6 +54,8 @@ def _client():
         db.session.flush()
         db.session.add(Material(code="M-001", name="螺丝", spec="M6*20",
                                 unit_id=unit.id, stock=99, price=2.0))
+        # Price-bearing legacy layouts are tested with the dimension explicitly enabled.
+        app_module.set_system_setting('price_dimension_enabled', '1')
         db.session.commit()
     client = app_module.app.test_client()
     client.post("/login", data={"username": "admin", "password": "admin"})
