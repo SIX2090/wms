@@ -190,9 +190,6 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
     if error:
         raise ValueError(error)
     workbook = load_workbook(io.BytesIO(raw), keep_links=False)
-    if not include_prices:
-        from services.stock_print_preview import remove_builtin_stock_price_columns
-        remove_builtin_stock_price_columns(workbook, template_path)
     try:
         if len(workbook.worksheets) > 10:
             raise ValueError('模板工作表过多，请精简模板')

@@ -650,7 +650,7 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
 
 
 def render_table_excel_print(target_code, sheet_rows, template_id=None,
-                             static_folder=None, date_str=None, title_extra=None, include_prices=True):
+                             static_folder=None, date_str=None, title_extra=None):
     """按注册表填充列表/报表 Excel 模板。
 
     sheet_rows: {工作表名: [SimpleNamespace 行]}；单表模板也可直接传行列表。
@@ -674,9 +674,6 @@ def render_table_excel_print(target_code, sheet_rows, template_id=None,
         operator=SimpleNamespace(username=''),
     )
     wb = load_workbook(path)
-    if target_code == 'stock_query' and not include_prices:
-        from services.stock_print_preview import remove_builtin_stock_price_columns
-        remove_builtin_stock_price_columns(wb, path)
     filler_rows = sheet_rows or {}
     for ws in wb.worksheets:
         _Filler(order, filler_rows.get(ws.title, []),

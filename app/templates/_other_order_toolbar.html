@@ -39,6 +39,8 @@
             <button type="button" class="tool-btn" data-action="import"><i class="bi bi-upload"></i> 导入</button>
             <button type="button" class="tool-btn" data-action="export"><i class="bi bi-download"></i> 导出</button>
             <button type="button" class="tool-btn" data-action="import-export-template"><i class="bi bi-file-spreadsheet"></i> 导入导出模板</button>
+            <span class="tool-sep"></span>
+            <button type="button" class="tool-btn" data-action="smart-share"><i class="bi bi-share"></i> 智能分享</button>
         </div>
         <div class="toolbar-right nav-tools">
             <a data-wms-back class="tool-btn" href="{{ return_list_url or ('/other_out_order' if toolbar_mode == 'out' else '/other_in_order') }}"><i class="bi bi-search"></i> 查找单据</a>

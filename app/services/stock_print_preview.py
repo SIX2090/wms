@@ -61,31 +61,6 @@ def stock_print_columns():
         for title, key, _width in TABLE_EXCEL_PRINT_TYPES['stock_query']['sheets'][0]['columns']]
 
 
-def remove_builtin_stock_price_columns(workbook, template_path):
-    """Filter only the built-in output copy, retaining custom layouts and valid merges."""
-    if not template_path or Path(template_path).name != 'builtin_stock_query_default.xlsx':
-        return
-    for sheet in workbook.worksheets:
-        columns = {cell.column for row in sheet for cell in row
-                   if isinstance(cell.value, str) and
-                   any(token in cell.value for token in ('{item.price}', '{item.amount}'))}
-        if not columns:
-            continue
-        merges = [merged.bounds for merged in sheet.merged_cells.ranges]
-        for merged in list(sheet.merged_cells.ranges):
-            sheet.unmerge_cells(str(merged))
-        for column in sorted(columns, reverse=True):
-            sheet.delete_cols(column)
-        for left, top, right, bottom in merges:
-            remaining = [column for column in range(left, right + 1) if column not in columns]
-            if not remaining:
-                continue
-            new_left = remaining[0] - sum(column < remaining[0] for column in columns)
-            new_right = remaining[-1] - sum(column < remaining[-1] for column in columns)
-            if new_left != new_right or top != bottom:
-                sheet.merge_cells(start_row=top, end_row=bottom, start_column=new_left, end_column=new_right)
-
-
 def build_stock_excel_print(title, rows, include_prices=True, template_path=None):
     """Fill selected or built-in stock layouts in memory, matching browser row expansion."""
     import io
@@ -112,8 +87,6 @@ def build_stock_excel_print(title, rows, include_prices=True, template_path=None
     if error:
         raise ValueError(error)
     workbook = load_workbook(io.BytesIO(raw), keep_links=False)
-    if not include_prices:
-        remove_builtin_stock_price_columns(workbook, template_path)
     order = SimpleNamespace(title=title, operator=SimpleNamespace(username=''),
         total_amount=sum(float(row.get('amount') or 0) for row in rows) if include_prices else '')
     try:

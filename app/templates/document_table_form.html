@@ -252,9 +252,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                     {% else %}
                     <span class="badge bg-secondary">尚未冻结账面（首笔盘点明细写入时冻结）</span>
                     {% endif %}
-                    <span class="badge bg-primary">已盘 {{ batch_meta.counted_count }} 个物料</span>
-                    <span class="badge bg-light text-dark">总计 {{ batch_meta.material_count }} 个物料</span>
-                    <span class="badge bg-secondary">未盘 {{ batch_meta.uncounted_count }} 个物料</span>
+                    <span class="badge bg-primary">已盘 {{ batch_meta.material_count }} 个物料</span>
                     {% if batch_meta.diff_row_count %}<span class="badge bg-warning text-dark">有差异 {{ batch_meta.diff_row_count }} 行</span>{% endif %}
                     <span class="badge bg-light text-dark border">扫码提交 {{ batch_meta.scan_count }} 次</span>
                 </div>
