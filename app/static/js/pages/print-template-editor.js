@@ -103,7 +103,6 @@
                 st.rows[m.row - 1 + i].cells[m.col - 1 + j].cov = [m.row - 1, m.col - 1];
             }
         });
-        st.page_setup = structuredClone(sheet.page_setup || pageCfg);
         return st;
     }
 
@@ -193,8 +192,6 @@
         refreshDirty();
     }
     function afterRestore() {
-        Object.assign(pageCfg, S.page_setup || pageCfg);
-        applyPageStyle();
         if (selA) {
             selA = { r: Math.min(selA.r, R() - 1), c: Math.min(selA.c, C() - 1) };
             selF = { r: Math.min(selF.r, R() - 1), c: Math.min(selF.c, C() - 1) };
@@ -730,8 +727,6 @@
         sheets[activeIdx].undo = undoStack; sheets[activeIdx].redo = redoStack;
         activeIdx = i;
         S = sheets[i].S;
-        Object.assign(pageCfg, S.page_setup || pageCfg);
-        applyPageStyle();
         undoStack = sheets[i].undo; redoStack = sheets[i].redo;
         selA = selF = null; clip = null;
         buildTabs(); render(); refreshDirty();
@@ -750,8 +745,6 @@
             }
             activeIdx = 0;
             S = sheets[0].S;
-            Object.assign(pageCfg, S.page_setup || pageCfg);
-            applyPageStyle();
             undoStack = sheets[0].undo; redoStack = sheets[0].redo;
             buildTabs(); render(); refreshDirty();
             document.getElementById('statusInfo').textContent = '已加载 ' + sheets.length + ' 个工作表';
@@ -833,9 +826,7 @@
         const payload = { name: sh.name, upserts, del_rows: [], styles, col_widths, row_heights, merges, unmerges };
         const count = upserts.length + styles.length + merges.length + unmerges.length +
             Object.keys(col_widths).length + Object.keys(row_heights).length;
-        const pageChanged = stableStringify(N.page_setup) !== stableStringify(O.page_setup);
-        if (pageChanged) payload.page_setup = N.page_setup;
-        return count || pageChanged ? payload : null;
+        return count ? payload : null;
     }
     function onSave() {
         if (saveInFlight) return;
@@ -892,8 +883,6 @@
         document.getElementById('customSize').style.display = e.target.value === 'custom' ? 'flex' : 'none';
     };
     document.getElementById('btnPageOk').onclick = () => {
-        if (!S) return toast('模板尚未加载完成', 'warning');
-        pushHistory();
         pageCfg.size = document.getElementById('pgSize').value;
         pageCfg.orient = document.getElementById('pgOrient').value;
         if (pageCfg.size === 'custom') {
@@ -905,8 +894,6 @@
         pageCfg.ml = +document.getElementById('pgMl').value || 0;
         pageCfg.mr = +document.getElementById('pgMr').value || 0;
         pageCfg.scale = Math.max(30, Math.min(200, +document.getElementById('pgScale').value || 100));
-        S.page_setup = structuredClone(pageCfg);
-        refreshDirty();
         pageModal().hide();
         applyPageStyle();
     };

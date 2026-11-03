@@ -1,7 +1,0 @@
-{% set nav = other_order_navigation(nav_mode, nav_id) %}
-<span class="other-order-navigation" aria-label="同类型单据翻页">
-{% for key, label in [('first','首张'), ('prev','上一张'), ('next','下一张'), ('last','末张')] %}
-{% if nav[key] %}<a class="btn btn-sm btn-outline-secondary" data-order-nav="{{ key }}" href="{{ nav[key] }}">{{ label }}</a>
-{% else %}<button type="button" class="btn btn-sm btn-outline-secondary" data-action="nav-{{ key }}" data-order-nav="{{ key }}" disabled title="没有可翻阅的单据，请使用查找单据">{{ label }}</button>{% endif %}
-{% endfor %}
-</span>

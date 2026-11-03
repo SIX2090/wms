@@ -459,7 +459,7 @@ function rowCells(item) {
     }
     if (docType === 'check') {
         html += `
-            <td class="num-col" data-column-key="system_stock"><input type="number" class="system-stock" step="0.01" readonly title="建单时冻结的账面数量，由系统维护"></td>
+            <td class="num-col" data-column-key="system_stock"><input type="number" class="system-stock" step="0.01" ${readonlyAttr}></td>
             <td class="num-col" data-column-key="actual_stock"><input type="number" class="actual-stock" step="0.01" ${readonlyAttr}></td>
             <td class="num-col" data-column-key="diff"><input type="text" class="line-diff" readonly></td>
             <td data-column-key="area"><input type="text" class="line-area" maxlength="100" ${checkLocationRequired ? 'required' : ''} ${readonlyAttr}></td>

@@ -118,7 +118,6 @@
 
 {% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
 {% block content %}
-{% if order.business_type == '其他出库' %}{% set nav_mode = 'out' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
 {% if push_source %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
     <span><i class="bi bi-diagram-3"></i> 来源入库单：{{ push_source.source_document_no }}（下推生成草稿）</span>

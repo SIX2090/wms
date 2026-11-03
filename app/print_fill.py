@@ -533,39 +533,6 @@ def _cell_style_to_json(cell):
     return style or None
 
 
-def _sheet_page_setup(ws):
-    papers = {'9': ('A4', 210, 297), '11': ('A5', 148, 210), '13': ('B5', 176, 250)}
-    size, width, height = papers.get(str(ws.page_setup.paperSize or '9'), ('A4', 210, 297))
-    if ws.page_setup.paperWidth and ws.page_setup.paperHeight:
-        import re
-        def millimetres(value, fallback):
-            match = re.fullmatch(r'([0-9.]+)(mm|cm|in|pt)', str(value))
-            return float(match[1]) * {'mm':1, 'cm':10, 'in':25.4, 'pt':25.4/72}[match[2]] if match else fallback
-        width = millimetres(ws.page_setup.paperWidth, width)
-        height = millimetres(ws.page_setup.paperHeight, height)
-        size = 'custom'
-    cfg = {'size': size, 'orient': ws.page_setup.orientation or 'portrait', 'w': width, 'h': height,
-           'scale': ws.page_setup.scale or 100}
-    for key, side in [('mt','top'), ('mb','bottom'), ('ml','left'), ('mr','right')]:
-        value = getattr(ws.page_margins, side)
-        cfg[key] = round(float(value) * 25.4, 4) if value is not None else 12
-    return cfg
-
-
-def _apply_sheet_page_setup(ws, data):
-    # Revalidate at the engine boundary too; invalid input must never reach disk.
-    from routes.print_template_editor import _PageSetupModel
-    cfg = _PageSetupModel.model_validate(data)
-    ws.page_setup.orientation = cfg.orient
-    ws.page_setup.paperSize = {'A4':'9', 'A5':'11', 'B5':'13'}.get(cfg.size)
-    ws.page_setup.paperWidth = f'{cfg.w}mm' if cfg.size == 'custom' else None
-    ws.page_setup.paperHeight = f'{cfg.h}mm' if cfg.size == 'custom' else None
-    ws.page_setup.scale = cfg.scale
-    ws.sheet_properties.pageSetUpPr.fitToPage = False
-    for key, side in [('mt','top'), ('mb','bottom'), ('ml','left'), ('mr','right')]:
-        setattr(ws.page_margins, side, getattr(cfg, key) / 25.4)
-
-
 def _sheet_dimensions_to_json(ws):
     """提取显式设置的列宽/行高：{列号: 宽} / {行号: 高}（仅 customWidth/显式行高）。"""
     from openpyxl.utils import column_index_from_string
@@ -646,7 +613,6 @@ def serialize_print_template_grid(template_path):
             col_widths, row_heights = _sheet_dimensions_to_json(ws)
             sheets.append({
                 'name': ws.title,
-                'page_setup': _sheet_page_setup(ws),
                 'max_row': ws.max_row or 1,
                 'max_col': ws.max_column or 1,
                 'merges': merges,
@@ -972,8 +938,6 @@ def apply_print_template_grid(template_path, sheets_data):
                 style_ops.append((r, c, style))
             for r, c, style in style_ops:
                 _apply_grid_style(ws.cell(r, c), style)
-            if sheet.get('page_setup') is not None:
-                _apply_sheet_page_setup(ws, sheet['page_setup'])
             # 列宽/行高回写
             from openpyxl.utils import get_column_letter
             for col, width in (sheet.get('col_widths') or {}).items():

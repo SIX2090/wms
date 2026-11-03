@@ -20,7 +20,7 @@ CASES += [('contract_batch', 'empty')]
 
 def action_source(action):
     if action.startswith('contract_'):
-        name = dict(contract_import='submitImport', contract_add='submitAdd', contract_edit='submitEdit', contract_delete='deleteContract', contract_batch='deleteSelectedContracts')[action]
+        name = dict(contract_import='submitImport', contract_add='submitAdd', contract_edit='submitEdit', contract_delete='deleteContract', contract_batch='batchDelete')[action]
         return callback('contract', 'function ' + name + '('), name
     source = (ROOT / 'app/templates/requisition.html').read_text(encoding='utf-8')
     marker = "document.querySelectorAll('." + {'req_revert':'revert-btn', 'req_delete':'delete-btn', 'req_complete':'complete-btn'}[action] + "')"

@@ -25,7 +25,6 @@ def _header(filename, **context):
             end = '<div class="adjust-body">'
         fragment = fragment.split(end, 1)[0]
     env = Environment(loader=FileSystemLoader(ROOT / 'app/templates'), autoescape=True)
-    env.globals['other_order_navigation'] = lambda *_: dict(first=None, prev=None, next=None, last=None)
     return env.from_string(fragment).render(
         url_for=lambda *args, **kwargs: '/fixture',
         order=SimpleNamespace(order_no='SO1', id=1), **context)

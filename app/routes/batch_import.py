@@ -172,12 +172,6 @@ def register_batch_import_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：单据编号为空')
                     continue
-                row_error = ('物料编码不能为空' if not get_val('material_code') else
-                             '数量必须大于 0' if get_num('quantity') <= 0 else None)
-                if row_error:
-                    skip += 1
-                    skip_details.append(f'第{row_idx}行：{row_error}')
-                    continue
                 if current_order and order_no != current_order.order_no:
                     for item in current_items:
                         db.session.add(item)
@@ -391,8 +385,6 @@ def register_batch_import_routes(app):
                     col_map['warehouse'] = idx
                 elif h == '库位' or '库位' in h:
                     col_map['location'] = idx
-                elif '供应商' in h and '客户' in h:
-                    col_map['party'] = idx
                 elif '供应商' in h:
                     col_map['supplier'] = idx
                 elif h == '客户' or '客户' in h or '客供方' in h:
@@ -462,18 +454,6 @@ def register_batch_import_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：单据编号为空')
                     continue
-                from routes.in_order import _parse_item_expiry_date
-                expiry_raw = row[col_map['expiry_date']] if 'expiry_date' in col_map and col_map['expiry_date'] < len(row) else None
-                _, expiry_error = _parse_item_expiry_date(expiry_raw)
-                row_kind = current_order.business_type if current_order and current_order.order_no == order_no else (get_val('business_type') or '采购入库')
-                row_error = ('物料编码不能为空' if not get_val('material_code') else
-                             '数量必须大于 0' if get_num('quantity') <= 0 else
-                             '批次号超过50个字符' if len(get_val('batch_no')) > 50 else
-                             '客供料只能用于其他入库' if get_val('customer_supplied').lower() in ('是','yes','y','true','1') and row_kind != '其他入库' else expiry_error)
-                if row_error:
-                    skip += 1
-                    skip_details.append(f'第{row_idx}行：{row_error}')
-                    continue
                 if current_order and order_no != current_order.order_no:
                     for item in current_items:
                         db.session.add(item)
@@ -501,12 +481,8 @@ def register_batch_import_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：库位为空')
                         continue
-                    supplier_name = get_val('supplier') or (get_val('party') if business_type == '采购入库' else '')
-                    customer_name = get_val('customer') or (get_val('party') if business_type == '其他入库' else '')
-                    if InOrder.query.filter_by(order_no=order_no).first():
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：单据编号{order_no}已存在')
-                        continue
+                    supplier_name = get_val('supplier')
+                    customer_name = get_val('customer')
                     supplier = Supplier.query.filter_by(name=supplier_name).first() if supplier_name else None
                     if not supplier and supplier_name:
                         supplier = Supplier.query.filter_by(code=supplier_name).first()

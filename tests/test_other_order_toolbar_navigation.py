@@ -27,7 +27,6 @@ class Controls(HTMLParser):
 @pytest.mark.parametrize('order_id', [None, 7])
 def test_unimplemented_navigation_is_disabled_with_guidance(mode, order_id):
     env = Environment(loader=FileSystemLoader(str(ROOT / 'app/templates')))
-    env.globals['other_order_navigation'] = lambda *_: dict(first=None, prev=None, next=None, last=None)
     controls = Controls(env.get_template('_other_order_toolbar.html').render(
         toolbar_mode=mode, order_id=order_id, has_complete_action=mode == 'in'))
     for action in ['nav-first', 'nav-prev', 'nav-next', 'nav-last']:
@@ -40,7 +39,6 @@ def test_unimplemented_navigation_is_disabled_with_guidance(mode, order_id):
 @pytest.mark.parametrize('mode', ['in', 'out'])
 def test_explicit_return_url_keeps_its_filter_query(mode):
     env = Environment(loader=FileSystemLoader(str(ROOT / 'app/templates')))
-    env.globals['other_order_navigation'] = lambda *_: dict(first=None, prev=None, next=None, last=None)
     url = '/other_' + mode + '_order?warehouse_id=2&search=M8'
     controls = Controls(env.get_template('_other_order_toolbar.html').render(
         toolbar_mode=mode, order_id=7, return_list_url=url))

@@ -186,7 +186,6 @@ def test_other_order_editor_does_not_offer_hint_only_share(mode, order_id):
             if value:
                 self.actions.append(value)
     env = Environment(loader=FileSystemLoader(str(ROOT/'app/templates')))
-    env.globals['other_order_navigation'] = lambda *_: dict(first=None, prev=None, next=None, last=None)
     parser = Actions()
     parser.feed(env.get_template('_other_order_toolbar.html').render(toolbar_mode=mode, order_id=order_id))
     assert 'smart-share' not in parser.actions
