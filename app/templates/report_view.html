@@ -384,6 +384,7 @@ pageSizeSelect.addEventListener('change', () => {
 });
 
 exportBtn.addEventListener('click', () => {
+    if (!filterForm.reportValidity()) return;
     const params = buildParams(true);
     window.open(`/report/api/${encodeURIComponent(reportType)}?${params.toString()}`, '_blank');
 });

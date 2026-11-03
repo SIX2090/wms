@@ -125,6 +125,7 @@
 {% endblock %}
 
 {% block content %}
+{% if order.business_type == '其他入库' %}{% set nav_mode = 'in' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
 <div class="container-fluid px-3 order-animate">
     <!-- 单据头部 -->
     <div class="page-header">

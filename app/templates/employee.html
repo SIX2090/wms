@@ -22,7 +22,7 @@
             <a href="/employee/download_template" class="btn btn-outline-secondary btn-sm">
                 <i class="bi bi-file-earmark-spreadsheet"></i> 导入模板
             </a>
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchDelete()">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteSelectedEmployees()">
                 <i class="bi bi-trash"></i> 批量删除
             </button>
         </div>
@@ -220,4 +220,5 @@
 </div>
 
 <script src="{{ url_for('static', filename='js/pages/employee.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/pages/employee-actions.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

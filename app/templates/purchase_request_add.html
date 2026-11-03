@@ -618,7 +618,7 @@ function fillRowData(row, data) {
     row.querySelector('.spec').value = data.spec || '';
     unitInput.value = data.unit_name || data.unit || '';
     unitInput.dataset.unitId = data.unit_id || '';
-    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(data.stock)) ? parseFloat(data.stock).toFixed(2) : '';
+    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(data.stock)) ? parseFloat(data.stock).toFixed(2) : '未查询';
     row.querySelector('.quantity').value = data.quantity || '';
     row.querySelector('.estimated-price').value = data.estimated_price || data.price || '';
     supplierIdInput.value = data.supplier_id || '';
@@ -844,7 +844,7 @@ function selectMaterial(row, material) {
     row.querySelector('.spec').value = material.spec || '';
     row.querySelector('.unit-name').value = getMaterialUnitName(material);
     row.querySelector('.unit-name').dataset.unitId = getMaterialUnitId(material);
-    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '0.00';
+    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '未查询';
     row.querySelector('.estimated-price').value = material.price ? material.price : '';
     updateRowAmount(row);
 }

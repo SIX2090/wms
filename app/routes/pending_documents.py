@@ -20,6 +20,22 @@ from flask_login import login_required
 
 # no-test:reason=路由注册辅助函数，能力由该路由测试覆盖
 def register_pending_documents_routes(app):
+    # AI_TASK: AI-R10
+    # Sub-repair AI-R10-F02: read-only recovery of the workbench's missing queue link.
+    @app.route('/ai/drafts')
+    @login_required
+    def ai_processing_drafts():
+        from app import AIDraftIdempotency
+        from flask_login import current_user
+        from flask import abort
+        if current_user.role not in ('admin', 'warehouse'):
+            abort(403)
+        page = max(1, request.args.get('page', 1, type=int))
+        pagination = AIDraftIdempotency.query.filter_by(status='processing').order_by(
+            AIDraftIdempotency.created_at.desc(), AIDraftIdempotency.id.desc()
+        ).paginate(page=page, per_page=30, error_out=False)
+        return render_template('ai_processing_drafts.html', pagination=pagination)
+
     @app.route('/pending_documents')
     @login_required
     def pending_documents():

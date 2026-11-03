@@ -65,7 +65,7 @@
                 <button type="button" class="btn btn-outline-success mobile-scan-camera" id="barcodeBtn" title="条码扫描">
                     <i class="bi bi-upc-scan"></i>
                 </button>
-                <button type="button" class="btn btn-primary mobile-scan-lookup" id="lookupBtn">
+                <button type="button" class="btn btn-primary mobile-scan-lookup" id="lookupBtn" title="查找物料" aria-label="查找物料">
                     <i class="bi bi-search"></i>
                 </button>
             </div>
@@ -165,7 +165,7 @@
                 <input id="warehouseInput" class="form-control" list="warehouseOptions" autocomplete="off" placeholder="选择仓库" required value="{{ default_warehouse.name if default_warehouse else '' }}">
                 <datalist id="warehouseOptions">
                     {% for warehouse in warehouses %}
-                    <option value="{{ warehouse.name }}">{{ warehouse.code }} {{ warehouse.name }}</option>
+                    <option value="{{ warehouse.name }}" {% if default_warehouse and warehouse.id == default_warehouse.id %}selected{% endif %}>{{ warehouse.code }} {{ warehouse.name }}</option>
                     {% endfor %}
                 </datalist>
             </div>
@@ -275,7 +275,7 @@
             <label class="mobile-scan-label" for="confirmWarehouseSelect" style="margin:0 8px 0 0;white-space:nowrap;">仓库</label>
             <select id="confirmWarehouseSelect" class="form-control" style="flex:1;">
                 {% for warehouse in warehouses %}
-                <option value="{{ warehouse.name }}">{{ warehouse.code }} {{ warehouse.name }}</option>
+                <option value="{{ warehouse.name }}" {% if default_warehouse and warehouse.id == default_warehouse.id %}selected{% endif %}>{{ warehouse.code }} {{ warehouse.name }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -429,7 +429,7 @@
         return WMS.api.getRaw(lookupUrl)
 
             .then(function(data) {
-                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh) return null;
+                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh || (scanCode.value || '').trim() !== code) return null;
                 if (data.status === 'multiple') {
                     selectedMaterial = null;
                     materialCard.hidden = true;
@@ -447,7 +447,7 @@
                 return data.data;
             })
             .catch(function(error) {
-                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh) return null;
+                if (version !== lookupVersion || (warehouseInput.value || '').trim() !== lookupWh || (scanCode.value || '').trim() !== code) return null;
                 selectedMaterial = null;
                 materialCard.hidden = true;
                 if (printLabelBtn) printLabelBtn.hidden = true;
@@ -714,6 +714,13 @@
         }
     }
 
+    scanCode.addEventListener('input', function() {
+        lookupVersion++;
+        selectedMaterial = null;
+        materialCard.hidden = true;
+        matchList.hidden = true;
+        if (printLabelBtn) printLabelBtn.hidden = true;
+    });
     lookupBtn.addEventListener('click', lookupMaterial);
     scanCode.addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
@@ -750,9 +757,12 @@
     var checkOrderSelect = document.getElementById('checkOrderSelect');
     var checkOrderTip = document.getElementById('checkOrderTip');
     var lastCheckWh = null;
+    var checkOrdersVersion = 0;
 
     function loadCheckOrders(wh) {
-        if (!checkOrderSelect || !wh) return;
+        if (!checkOrderSelect) return;
+        var version = ++checkOrdersVersion;
+        if (!wh) { lastCheckWh = null; checkOrderSelect.innerHTML = ''; checkOrderSelect.disabled = true; return; }
         if (lastCheckWh === wh) return; // 同仓库只拉一次
         lastCheckWh = wh;
         checkOrderSelect.innerHTML = '';
@@ -761,6 +771,7 @@
         WMS.api.getRaw('/mobile/api/check_orders?warehouse=' + encodeURIComponent(wh))
 
             .then(function (data) {
+                if (version !== checkOrdersVersion) return;
                 checkOrderSelect.innerHTML = '';
                 var orders = (data && data.data && data.data.orders) || [];
                 if (!orders.length) {
@@ -784,6 +795,7 @@
                 checkOrderSelect.disabled = false;
             })
             .catch(function () {
+                if (version !== checkOrdersVersion) return;
                 lastCheckWh = null;
                 checkOrderSelect.innerHTML = '';
                 checkOrderSelect.disabled = true;
@@ -866,6 +878,7 @@
             checkOrderSelect.value = '';
             loadCheckOrders((warehouseInput.value || '').trim());
         });
+        loadCheckOrders((warehouseInput.value || '').trim());
     }
 
     scanForm.addEventListener('submit', function(event) {

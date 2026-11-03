@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block title %}AI 处理中草稿{% endblock %}
+{% block content %}
+<div class="container-fluid py-3">
+  <h1 class="h5">AI 处理中草稿</h1>
+  <p class="text-muted">此页仅查看处理记录。处理中记录不表示业务单据已保存；请先核对原单据，避免重复创建。</p>
+  <p>共 {{ pagination.total }} 条 · <a href="/ai/warehouse_workbench">返回仓库工作台</a></p>
+  <table class="table table-bordered"><thead><tr><th>记录</th><th>单据编号</th><th>类型</th><th>来源</th><th>创建时间</th></tr></thead><tbody>
+  {% for row in pagination.items %}<tr><td>{{ row.id }}</td><td>{{ row.draft_no or '尚无单号' }}</td><td>{{ row.draft_type or '草稿' }}</td><td>{{ row.source or '' }}</td><td>{{ row.created_at or '' }}</td></tr>
+  {% else %}<tr><td colspan="5">暂无处理中草稿</td></tr>{% endfor %}
+  </tbody></table>
+  {% if pagination.has_prev %}<a href="{{ url_for('ai_processing_drafts', page=pagination.prev_num) }}">上一页</a>{% endif %}
+  <span>{{ pagination.page }} / {{ pagination.pages or 1 }}</span>
+  {% if pagination.has_next %}<a href="{{ url_for('ai_processing_drafts', page=pagination.next_num) }}">下一页</a>{% endif %}
+</div>
+{% endblock %}
