@@ -44,7 +44,9 @@ const document = {body: element(), getElementById(id) {return tableIds.has(id) ?
     querySelector(s) {return s === '.embedded-content' ? content : (data.readonlyForm && s === 'form.readonly-mask' ? {} : null);}, querySelectorAll() {return own;}, createElement() {return element();}};
 const window = {location: {pathname: data.path || '/purchase_order'}};
 function isWmsEmbeddedPage() {return true;}
-function getWmsActionModule() {return {listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl,tableId:data.moduleTableId};}
+// Explicitly supply a share-capable saved record for the unrelated-action sentinel.
+function getCurrentRecordId() {return data.recordId === undefined ? 7 : data.recordId;}
+function getWmsActionModule() {return {key:data.moduleKey || 'in_order',listUrl:'/purchase_order',deleteUrl:'/purchase_order/batch_delete',printTemplateUrl:data.printTemplateUrl,tableId:data.moduleTableId};}
 function isWmsListPage() {return data.isList !== false;}
 function isFormPage() {return !!data.isForm;}
 function createDocumentNavigationGroup() {return null;}

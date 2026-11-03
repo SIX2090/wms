@@ -585,7 +585,7 @@ def register_report_routes(app):
             result = render_table_excel_print(
                 'stock_query', rows, template_id=template.id,
                 static_folder=app.static_folder,
-                title_extra=warehouse.name or '')
+                title_extra=warehouse.name or '', include_prices=price_dimension_enabled())
             if result is not None:
                 output, filename = result
                 return send_file(

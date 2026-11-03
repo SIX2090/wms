@@ -1124,12 +1124,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // ==================== 列设置 ====================
 function toggleColumnSettings() {
-    document.getElementById('columnSettingsPanel').classList.toggle('show');
+    var panel = document.getElementById('columnSettingsPanel');
+    if (panel) panel.classList.toggle('show');
 }
 
 document.addEventListener('click', function(e) {
     if (!e.target.closest('.column-settings-panel') && !e.target.closest('[onclick="toggleColumnSettings()"]')) {
-        document.getElementById('columnSettingsPanel').classList.remove('show');
+        var panel = document.getElementById('columnSettingsPanel');
+        if (panel) panel.classList.remove('show');
     }
 });
 

@@ -538,7 +538,7 @@ textarea.form-control {
                         <select class="form-select" name="department_id">
                             <option value="">请选择</option>
                             {% for dept in departments %}
-                            <option value="{{ dept.id }}">{{ dept.name }}</option>
+                            <option value="{{ dept.id }}" {% if prefill and prefill.department_id|string == dept.id|string %}selected{% endif %}>{{ dept.name }}</option>
                             {% endfor %}
                         </select>
                         <input type="hidden" name="customer" value="">

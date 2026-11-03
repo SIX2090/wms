@@ -106,7 +106,7 @@
                         {% if inventory_alert_enabled %}
                         {{ sort_th('最低库存', 'min_stock', sort_by, sort_order) }}
                         {% endif %}
-                        {{ sort_th('单价', 'price', sort_by, sort_order) }}
+                        {% if price_dimension_enabled %}{{ sort_th('单价', 'price', sort_by, sort_order) }}{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -138,10 +138,10 @@
                         {% if inventory_alert_enabled %}
                         <td>{{ (material.min_stock or 0)|quantity }}</td>
                         {% endif %}
-                        <td>¥{{ "%.2f"|format(material.price or 0) }}</td>
+                        {% if price_dimension_enabled %}<td>¥{{ "%.2f"|format(material.price or 0) }}</td>{% endif %}
                     </tr>
                     {% else %}
-                    <tr><td colspan="{{ (10 if inventory_alert_enabled else 9) + (1 if location_management_enabled else 0) }}" class="text-center text-muted">暂无匹配物料</td></tr>
+                    <tr><td colspan="{{ 8 + (1 if inventory_alert_enabled else 0) + (1 if price_dimension_enabled else 0) + (1 if location_management_enabled else 0) }}" class="text-center text-muted">暂无匹配物料</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

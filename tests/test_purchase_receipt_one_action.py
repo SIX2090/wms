@@ -137,7 +137,11 @@ const assert=require('assert');
 const combined=COMBINED;
 let clicked=0,saved=0,rendered;
 const primary={getAttribute(name){return name==='data-wms-save-complete'?MARKER:name==='data-wms-save-complete-label'?LABEL:null;},click(){clicked++;}};
-const module={printTemplateUrl:'/templates',deleteUrl:'/delete'};
+// Share remains the unrelated-action sentinel: give that dependency an explicit
+// supported module and saved record. Unsaved/unsupported contexts have their own
+// production-handler capability matrix in test_bug_2026_11_03_browser_report.py.
+const module={key:'in_order',printTemplateUrl:'/templates',deleteUrl:'/delete'};
+function getCurrentRecordId(){return '7';}
 const document={
  getElementById(){return null;},
  body:{classList:{contains(){return false;},add(){}}},
