@@ -143,7 +143,7 @@ def test_missing_table_skips_without_error(tmp_path):
         ).fetchone() is None
 
 
-def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
+def test_startup_wiring_runs_with_upgrade_only_skip(tmp_path):
     """接线：生产启动脚本默认 WMS_NO_DB_TOUCH=1 会跳过 auto_migrate_database，
     ensure_sales_return_source_columns 必须不受该开关影响。子进程 `import app`
     模拟完整启动，校验三列被补上（本次线上真 bug，首页 500）。"""
@@ -151,7 +151,8 @@ def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    env["WMS_NO_DB_TOUCH"] = "1"
+    # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
+    env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"

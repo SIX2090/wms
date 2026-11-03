@@ -260,7 +260,8 @@ C:\wms_backups\
 | `WMS_BOOTSTRAP_PASSWORD` | 仅首次创建管理员时使用，不重置已有密码 |
 | `DATABASE_URL` | SQLAlchemy数据库地址；默认sqlite:///inventory.db按应用instance目录解析 |
 | `UPLOAD_FOLDER` / `LOG_FILE` | 上传目录和日志文件；默认锚定应用目录 |
-| `WMS_NO_DB_TOUCH` / `WMS_SKIP_STARTUP_DB_UPGRADE` | 禁止启动数据库升级/初始化；不是禁止所有业务写入；还须核对 `WMS_NO_DB_TOUCH.flag` 标记文件 |
+| `WMS_NO_DB_TOUCH` | 禁止启动升级/初始化及兼容维护（回填、清理、补列/索引、模板/工作站）；同样受应用目录或instance目录的 `WMS_NO_DB_TOUCH.flag` 控制。不是数据库只读模式，运行期业务写入仍按原权限执行 |
+| `WMS_SKIP_STARTUP_DB_UPGRADE` | 仅跳过主要升级/初始化，保留既有兼容维护；不等同于强禁用开关。强禁用时需提前单独准备兼容schema/模板，不会在启动时自动补齐 |
 | `SESSION_COOKIE_SECURE` / `WMS_ALLOW_INSECURE_COOKIE` | 生产安全Cookie或受信HTTP显式放行；后者不是默认安全配置 |
 | `WMS_SKIP_AUTO_UPDATE` | 跳过启动前自动更新 |
 | `WMS_PORT` / `WMS_HOST` | 监听端口和地址；端口默认8080 |

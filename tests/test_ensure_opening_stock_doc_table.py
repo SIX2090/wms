@@ -282,7 +282,7 @@ def test_migration_and_ensure_share_same_helpers():
     assert tbl_call > col_call, "建表+回填必须注册在补列之后（先列后表再回填）"
 
 
-def test_startup_wiring_creates_table_when_no_db_touch(tmp_path):
+def test_startup_wiring_creates_table_with_upgrade_only_skip(tmp_path):
     """接线：生产启动脚本默认 WMS_NO_DB_TOUCH=1，create_all/迁移被整体跳过
     （本次线上真 bug 场景）。子进程 `import app` 模拟完整启动，缺表必须被
     补建、历史必须被归单。"""
@@ -290,7 +290,8 @@ def test_startup_wiring_creates_table_when_no_db_touch(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    env["WMS_NO_DB_TOUCH"] = "1"
+    # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
+    env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"

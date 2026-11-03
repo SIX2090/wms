@@ -139,7 +139,7 @@ def test_existing_table_untouched(tmp_path):
         ).fetchone() == ("老模板",)
 
 
-def test_startup_wiring_creates_table_even_when_no_db_touch(tmp_path):
+def test_startup_wiring_creates_table_with_upgrade_only_skip(tmp_path):
     """接线：生产启动脚本默认 WMS_NO_DB_TOUCH=1，会跳过 create_all。
     ensure_excel_print_template_table 必须不受该开关影响。通过子进程
     `import app` 模拟完整启动，校验缺表被补建（本次线上真 bug）。"""
@@ -147,7 +147,8 @@ def test_startup_wiring_creates_table_even_when_no_db_touch(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    env["WMS_NO_DB_TOUCH"] = "1"
+    # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
+    env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"

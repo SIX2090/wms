@@ -128,7 +128,7 @@ def test_idempotent_repeat_run(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM out_order").fetchone() == (1,)
 
 
-def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
+def test_startup_wiring_runs_with_upgrade_only_skip(tmp_path):
     """接线：WMS_NO_DB_TOUCH=1 会跳过 create_all 与 auto_migrate_database，
     两个兜底函数必须不受该开关影响。子进程 `import app` 模拟完整启动，
     校验 department 表与三列都被补上（本次线上真 bug）。"""
@@ -136,7 +136,8 @@ def test_startup_wiring_runs_even_when_no_db_touch(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    env["WMS_NO_DB_TOUCH"] = "1"
+    # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
+    env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"

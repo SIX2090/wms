@@ -223,18 +223,29 @@ def api_error(msg, code=400):
 def _env_flag(name):
     return os.environ.get(name, '').strip().lower() in ('1', 'true', 'yes', 'on')
 
-def startup_db_upgrade_disabled():
-    """Return True when startup schema/data bootstrap must be skipped."""
+def startup_db_touch_disabled():
+    """Disable startup database maintenance, including legacy repair hooks."""
     base_dir = os.path.dirname(__file__)
     no_touch_markers = (
         os.path.join(base_dir, 'WMS_NO_DB_TOUCH.flag'),
         os.path.join(base_dir, 'instance', 'WMS_NO_DB_TOUCH.flag'),
     )
     return (
-        _env_flag('WMS_SKIP_STARTUP_DB_UPGRADE')
-        or _env_flag('WMS_NO_DB_TOUCH')
+        _env_flag('WMS_NO_DB_TOUCH')
         or any(os.path.exists(path) for path in no_touch_markers)
     )
+
+def startup_db_upgrade_disabled():
+    """Skip the main upgrade/bootstrap while retaining upgrade-only semantics."""
+    return _env_flag('WMS_SKIP_STARTUP_DB_UPGRADE') or startup_db_touch_disabled()
+
+
+def _run_startup_db_maintenance(callback):
+    """Gate startup dispatch only; explicit maintenance calls remain usable."""
+    if startup_db_touch_disabled():
+        return None
+    return callback()
+
 
 def _resolve_sqlite_db_path(uri=None, instance_path=None):
     """解析SQLite文件路径（Repair task: AUDIT-FULL-20261016-001-F02）。
@@ -3191,23 +3202,25 @@ app.logger.info("Flask config loaded: env=%s, DEBUG=%s", env, app.config.get('DE
 from request_timing import init_request_timing
 init_request_timing(app)
 
+# 2026-11-02：以下保留历史修复背景；当前所有启动维护受强禁用开关统一控制。
+# WMS_NO_DB_TOUCH/标记文件不派发；仅WMS_SKIP_STARTUP_DB_UPGRADE仍沿用兼容自愈。
 # BUG-2026-08-18-005：启动期自动把历史无仓库采购入库单/领料单回填到默认仓库。
 # 独立于 schema 迁移开关执行：start_wms_offline.bat 默认设置 WMS_NO_DB_TOUCH=1
 # 会跳过 auto_migrate_database，若回填也放进同一分支，生产重启时永远不会生效。
 # 必须放在日志配置之后调用，回填结果才能在控制台/日志文件可见（否则日志行丢失）。
-backfill_empty_warehouse_documents()
+_run_startup_db_maintenance(backfill_empty_warehouse_documents)
 
 # BUG-2026-08-20-001：start_wms_*.bat 默认 WMS_NO_DB_TOUCH=1 会跳过
 # auto_migrate_database，且 fix_db_columns.py 不含 print_job 补列，导致
 # 线上 print_job 缺 printing_started_at 等迁移列重启也补不上。与回填一样
 # 独立于迁移开关无条件执行，幂等补列。
-ensure_print_job_columns()
+_run_startup_db_maintenance(ensure_print_job_columns)
 
 # BUG-2026-08-28-004：同理，BUG-2026-08-27-005 加入的 stock_transaction.warehouse_id
 # 列只在 auto_migrate_database 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启也补不上，
 # 库存台账/仓库月报/库存汇总按仓库查询即 500（no such column: stock_transaction.warehouse_id）。
 # 独立于迁移开关无条件执行，幂等补列 + 索引。
-ensure_stock_transaction_warehouse_id_column()
+_run_startup_db_maintenance(ensure_stock_transaction_warehouse_id_column)
 
 # BUG-2026-09-05-001：同理，INV-BATCH-001-A/002 的盘点域迁移列
 # （inventory_check.frozen_at、inventory_check_item.counted_by / counted_at /
@@ -3215,7 +3228,7 @@ ensure_stock_transaction_warehouse_id_column()
 # 只在 auto_migrate_database 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启补不上，
 # 物料编辑保存的级联统计查询即报 no such column: inventory_check_item.counted_by。
 # 独立于迁移开关无条件执行，幂等补列。
-ensure_inventory_check_columns()
+_run_startup_db_maintenance(ensure_inventory_check_columns)
 
 # BUG-2026-09-12（R6 第 5 次复发）：P1-5 销售退货入库的
 # in_order.source_sales_order_id / source_sales_order_no 与
@@ -3224,25 +3237,25 @@ ensure_inventory_check_columns()
 # 500（no such column: in_order.source_sales_order_id）。
 # 与上面同理，独立于迁移开关无条件执行、幂等补列。这是存量库唯一自愈路径
 # （start_wms_auto.bat 根本不调用 fix_db_columns.py）。
-ensure_sales_return_source_columns()
+_run_startup_db_maintenance(ensure_sales_return_source_columns)
 
 # P1-7 采购退货出库：out_order.source_in_order_id / source_in_order_no 与
 # out_order_item.source_in_order_item_id 同理——只在 auto_migrate_database 里 ADD，
 # WMS_NO_DB_TOUCH=1 的存量库重启补不上，访问出库单即 500。独立于迁移开关无条件
 # 执行、幂等补列（存量库唯一自愈路径，start_wms_auto.bat 不调用 fix_db_columns.py）。
-ensure_purchase_return_source_columns()
+_run_startup_db_maintenance(ensure_purchase_return_source_columns)
 
 # P0 批次/有效期捕获：in_order_item.batch_no / expiry_date 同理，
 # WMS_NO_DB_TOUCH=1 的存量库重启补不上，入库单详情页渲染 item.batch_no
 # 即 500。独立于迁移开关无条件执行、幂等补列（存量库唯一自愈路径，
 # start_wms_auto.bat 不调用 fix_db_columns.py）。
-ensure_in_order_item_batch_columns()
+_run_startup_db_maintenance(ensure_in_order_item_batch_columns)
 
 # ARCH-OS-DOC-01：期初库存多单据化给 opening_stock 加了 doc_id，只在
 # auto_migrate_database 里 ADD；WMS_NO_DB_TOUCH=1 时存量库重启补不上，
 # 一打开期初库存页/导航即 500（no such column: opening_stock.doc_id）。
 # 同上，独立于迁移开关无条件执行、幂等补列。
-ensure_opening_stock_doc_columns()
+_run_startup_db_maintenance(ensure_opening_stock_doc_columns)
 
 # BUG-2026-09-16-006：同理，opening_stock_doc 单据头表只在 create_all /
 # auto_migrate_database 里建，WMS_NO_DB_TOUCH=1 的存量库重启建不出表，
@@ -3250,49 +3263,49 @@ ensure_opening_stock_doc_columns()
 # （no such table: opening_stock_doc）。上一行只补了 doc_id 列；这里
 # 无条件幂等建表 + 按 (建账日期, 仓库) 回填历史单据（与迁移同一实现，
 # 缺 doc_id 列也顺带兜底）。放在补列之后注册，先列后表再回填。
-ensure_opening_stock_doc_table()
+_run_startup_db_maintenance(ensure_opening_stock_doc_table)
 
 # BUG-2026-09-16-007：删除了就没有流水——历史"追加 -N 回冲流水"遗留的
 # 悬挂流水（明细行已物理删除、台账仍显示 opening_stock-<id>）启动期统一
 # 清理；「新增物料初始库存」流水（reference_id=material.id）按 remark 排除
 # 不误删。无条件执行、幂等，清完后每次启动 0 条。
-cleanup_dangling_opening_stock_transactions()
+_run_startup_db_maintenance(cleanup_dangling_opening_stock_transactions)
 
 # BUG-2026-09-12：移动端「领料部门/领料人」整套依赖 department 表 +
 # out_order.department_id/picker + employee.department_id，四者都只在
 # create_all / auto_migrate_database 里，WMS_NO_DB_TOUCH=1 时存量库
 # 重启一样补不上（no such table: department / no such column:
 # out_order.department_id）。同上，无条件执行、幂等。
-ensure_department_table()
-ensure_outbound_department_columns()
+_run_startup_db_maintenance(ensure_department_table)
+_run_startup_db_maintenance(ensure_outbound_department_columns)
 
 # 物料停用功能（2026-09-25）：material.status 列同样只在 auto_migrate_database()
 # 里 ADD，WMS_NO_DB_TOUCH=1 时存量库重启补不上，物料列表一查状态即 500。
 # 独立于迁移开关无条件执行，幂等补列（R6 同根因，别再踩第 6 次）。
-ensure_material_status_column()
+_run_startup_db_maintenance(ensure_material_status_column)
 
 # 「一个物料只允许一个物料编号」的数据库级唯一索引（2026-09-25）。
 # 存量还有一物两码时建不上（只告警，不阻断启动）—— 合并完那几组，下次启动
 # 会自动补建；也允许在合并操作当场补建（见 /material/<id>/merge）。
-ensure_material_dedupe_unique_index()
+_run_startup_db_maintenance(ensure_material_dedupe_unique_index)
 
 # BUG-2026-08-22-001：同理，WMS_NO_DB_TOUCH=1 跳过 db.create_all() 时，
 # 存量库永远建不出 excel_print_template 表，「Excel打印模板中心」打开即 500。
 # 独立于迁移开关无条件执行，幂等建表（已有表不动）。
-ensure_excel_print_template_table()
+_run_startup_db_maintenance(ensure_excel_print_template_table)
 
 # PRINT-TEMPLATE-F03：所有单据/列表/报表打印模块支持在线 Excel 模板编辑。
 # excel_print_template 表刚由上一行无条件建好，紧接着用 raw sqlite 幂等
 # 同步各模块内置默认模板（缺行补行、内置副本丢失补文件）；ORM 版同步会
 # 被 WMS_NO_DB_TOUCH=1 跳过，故此处无条件执行。失败仅记日志不阻断启动。
 from doc_print_excel import ensure_builtin_excel_doc_templates  # noqa: E402
-ensure_builtin_excel_doc_templates()
+_run_startup_db_maintenance(ensure_builtin_excel_doc_templates)
 
 # SERVER-AUTOPRINT-01：内置本机打印代理的配套兜底——无条件确保内置工作站
 # （LOCAL-SERVER）与 print 系列表存在。独立于迁移开关、幂等（已存在不动，
 # 含 auth_token 不重新生成），start_wms_*.bat（WMS_NO_DB_TOUCH=1）同样生效。
 from local_print_agent import ensure_builtin_print_workstation  # noqa: E402
-ensure_builtin_print_workstation()
+_run_startup_db_maintenance(ensure_builtin_print_workstation)
 
 if env == 'production':
     if not app.config.get('SESSION_COOKIE_SECURE'):
@@ -6251,7 +6264,7 @@ def _ensure_default_print_templates_unconditional(db_path=None):
                 pass
 
 
-_ensure_default_print_templates_unconditional()
+_run_startup_db_maintenance(_ensure_default_print_templates_unconditional)
 def purchase_request_item_has_material(item):
     return bool(
         getattr(item, 'material_id', None) or
@@ -29884,16 +29897,18 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
 # 建好，先探测前置表；未建好则降级 INFO 静默跳过（下次启动重试），不再刷
 # ERROR traceback。
 try:
-    with app.app_context():
-        if not _stock_txn_backfill_ready():
-            app.logger.info(
-                '[DB] stock_transaction.warehouse_id 启动回填跳过：'
-                '前置表尚未建好（空库/首启导入期），下次启动重试')
-        else:
-            _backfilled = backfill_stock_txn_warehouse_id()
-            if _backfilled:
+    if not startup_db_touch_disabled():
+        with app.app_context():
+            if not _stock_txn_backfill_ready():
                 app.logger.info(
-                    f'[DB] stock_transaction.warehouse_id 启动回填 {_backfilled} 条')
+                    '[DB] stock_transaction.warehouse_id 启动回填跳过：'
+                    '前置表尚未建好（空库/首启导入期），下次启动重试')
+            else:
+                _backfilled = backfill_stock_txn_warehouse_id()
+                if _backfilled:
+                    app.logger.info(
+                        f'[DB] stock_transaction.warehouse_id 启动回填 {_backfilled} 条')
+
 except Exception:
     app.logger.exception(
         'stock_transaction.warehouse_id 启动回填失败（下次启动重试）')

@@ -83,7 +83,7 @@ def test_ensure_department_table_keeps_existing_data(tmp_path):
         assert conn.execute("SELECT name FROM department WHERE id = 1").fetchone() == ("生产部",)
 
 
-def test_ensure_department_table_startup_wiring_no_db_touch(tmp_path):
+def test_ensure_department_table_startup_wiring_upgrade_only(tmp_path):
     """接线：WMS_NO_DB_TOUCH=1 会跳过 create_all，本函数必须不受该开关影响。"""
     db_path = tmp_path / "inventory.db"
     with sqlite3.connect(db_path) as conn:
@@ -91,7 +91,8 @@ def test_ensure_department_table_startup_wiring_no_db_touch(tmp_path):
 
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"
-    env["WMS_NO_DB_TOUCH"] = "1"
+    # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
+    env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
