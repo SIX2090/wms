@@ -166,7 +166,8 @@ def test_ddl_matches_app_py_ensure_function():
                 f"脚本 DDL 与 app.py ensure_inventory_check_columns 不一致: {ddl}"
             )
     # 启动序列必须调用该函数（自愈接线）
-    assert "ensure_inventory_check_columns()" in src
+    from tests.startup_source_contracts import startup_dispatch_positions
+    assert 'ensure_inventory_check_columns' in startup_dispatch_positions(src)
 
 
 def test_bat_script_wiring():

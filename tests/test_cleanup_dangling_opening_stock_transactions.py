@@ -130,8 +130,10 @@ def test_startup_wiring_and_delete_semantics_static():
     """静态契约：清理函数注册在 ensure_opening_stock_doc_table() 之后；
     _reverse_opening_stock_line 已切换为物理删除流水（不再追加回冲流水）。"""
     src = (APP_DIR / "app.py").read_text(encoding="utf-8")
-    tbl_call = src.index("\nensure_opening_stock_doc_table()")
-    clean_call = src.index("\ncleanup_dangling_opening_stock_transactions()")
+    from tests.startup_source_contracts import startup_dispatch_positions
+    dispatches = startup_dispatch_positions(src)
+    tbl_call = dispatches['ensure_opening_stock_doc_table']
+    clean_call = dispatches['cleanup_dangling_opening_stock_transactions']
     assert clean_call > tbl_call
     # 删除语义：物理删除该行流水
     assert "StockTransaction.query.filter_by(" in src

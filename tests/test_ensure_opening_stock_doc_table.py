@@ -277,8 +277,10 @@ def test_migration_and_ensure_share_same_helpers():
     assert "_create_opening_stock_doc_table(cur)" in src      # ensure 兜底
     assert "_backfill_opening_stock_docs(cur)" in src         # ensure 兜底
     # 启动注册：ensure_opening_stock_doc_table() 必须在 ensure_opening_stock_doc_columns() 之后
-    col_call = src.index("\nensure_opening_stock_doc_columns()")
-    tbl_call = src.index("\nensure_opening_stock_doc_table()")
+    from tests.startup_source_contracts import startup_dispatch_positions
+    dispatches = startup_dispatch_positions(src)
+    col_call = dispatches['ensure_opening_stock_doc_columns']
+    tbl_call = dispatches['ensure_opening_stock_doc_table']
     assert tbl_call > col_call, "建表+回填必须注册在补列之后（先列后表再回填）"
 
 

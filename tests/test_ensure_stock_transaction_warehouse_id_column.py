@@ -162,8 +162,10 @@ class TestStartupWiring:
         必须在 ensure_print_job_columns() 之后被调用（独立于迁移开关）。"""
         app_py = Path(__file__).resolve().parents[1] / "app" / "app.py"
         text = app_py.read_text(encoding="utf-8")
-        pj_idx = text.find("ensure_print_job_columns()")
-        st_idx = text.find("ensure_stock_transaction_warehouse_id_column()")
+        from tests.startup_source_contracts import startup_dispatch_positions
+        dispatches = startup_dispatch_positions(text)
+        pj_idx = dispatches['ensure_print_job_columns']
+        st_idx = dispatches['ensure_stock_transaction_warehouse_id_column']
         assert pj_idx > 0, "ensure_print_job_columns() 接线缺失"
         assert st_idx > 0, "ensure_stock_transaction_warehouse_id_column() 接线缺失"
         assert pj_idx < st_idx, (
