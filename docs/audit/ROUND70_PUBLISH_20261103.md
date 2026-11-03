@@ -17,4 +17,10 @@
 
 4个静态测试体在不导入app/DB fixture情况下提取执行，盘点DDL常量静态读取原脚本：修前0/4、修后4/4；新增AST反证/控制6例及相关/文档组合96 passed。完整4个原模块含DB/账号/清理fixture未在本地另行运行，须由纠正后完整CI验证，不拿静态提取冒充模块全量。
 
-当前最小纠正只形成可审本地提交；因远端CI实际非绿，纠正推送需要本次具体门禁例外批准，不能借用过去一次许可。尚未使用WMS_SKIP_CI_GATE，不把已有失败视为绿。批准后仍保留正常提交钩子，必须核新精确SHA完整CI。生产需重启WMS服务生效，但本轮未部署/重启。
+最小纠正提交`5d64242ad9f9dba17b4ca6b77fbcf9c7ab210667`经用户本次明确批准，以仅当次WMS_SKIP_CI_GATE=1推送；正常提交检查保留，实际输出`f78ad79..5d64242 main -> main`，退出0，HEAD/origin/main一致；环境变量随后移除，许可不复用。本次是已批准的实际红CI最小纠正例外，不以钩子的通用替代绿证据提示冒充此前CI已绿。
+
+## 纠正目标完整验收
+
+2026-11-03，产品提交386674e1b7ee72b3a4fa2738c2c7133307001c62及f78ad7982e163c3ad32730cc49f8bfae2562f2b1、最小静态契约纠正提交`5d64242ad9f9dba17b4ca6b77fbcf9c7ab210667`均已实际推送；[WMS CI41583760064](https://github.com/SIX2090/wms/actions/runs/41583760064)和[AI41583760086](https://github.com/SIX2090/wms/actions/runs/41583760086)精确匹配该SHA，完整completed/success。Android41557773962为7d374fc6d989ed3342b7c0aa7af499280a772f1b成功记录，已核实祖先、对象完整及Android源码/工作流无变化。生产未访问、未部署/重启，生产需重启 WMS 服务生效；本收尾文档提交自身CI另行验收。
+
+精确门禁`python scripts/check_ci_green.py --target-sha 5d64242ad9f9dba17b4ca6b77fbcf9c7ab210667 --json`返回ok=true，证据为仓库外evidence/corrective-exact-ci-20261103.json。WMS CI三个单元分片、四组业务脚本、服务器冒烟、静态/规则/安全及聚合gate全部成功；AI与性能均成功。4个原静态契约所在模块已由正常全量CI验证。原260/1、96、41及24份导出为不同且部分重叠的验证口径，不合计为按钮数量。

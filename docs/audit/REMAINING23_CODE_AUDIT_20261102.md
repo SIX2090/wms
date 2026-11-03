@@ -55,6 +55,6 @@
 - Python子进程守卫拒绝生产路径、范围外SQLite、全部SQLite写入/DDL、外网/DNS、真实密码生成；仅放行已审阅Node路径。Node VM使用测试代码提供的假fetch/DOM，不将其描述为操作系统级网络沙箱。
 - 原`full_smoke_test.py`默认8080，包含登录、创建和表单写入，且无只读选项，本轮不调用；本地以页面运行时和模板检查替代，完整服务器/数据库冒烟交正常完整CI运行，不伪称本地全站冒烟通过。
 - 本批不新增路由、模型、工具、参数、迁移、AI自动业务权限或生产部署。后端/模板改动生产需重启 WMS 服务生效；本次未重启。
-- 推送及精确新SHA CI结果待验收后补记；当前仅本地修复及安全回归通过，不宣称交付完成。
+- 发布补记：2026-11-03，产品提交386674e1b7ee72b3a4fa2738c2c7133307001c62及f78ad7982e163c3ad32730cc49f8bfae2562f2b1、最小静态契约纠正提交`5d64242ad9f9dba17b4ca6b77fbcf9c7ab210667`均已实际推送；[WMS CI41583760064](https://github.com/SIX2090/wms/actions/runs/41583760064)和[AI41583760086](https://github.com/SIX2090/wms/actions/runs/41583760086)精确匹配该SHA，完整completed/success。Android41557773962为7d374fc6d989ed3342b7c0aa7af499280a772f1b成功记录，已核实祖先、对象完整及Android源码/工作流无变化。生产未访问、未部署/重启，生产需重启 WMS 服务生效；本收尾文档提交自身CI另行验收。 首次4项静态接线契约失败及最小纠正授权保留于docs/audit/ROUND70_PUBLISH_20261103.md；本代码审查不因此升级为所有按钮、设备或真实模型端到端通过。
 
 本机证据根目录：`C:/wms_backups/code_audit_remaining_20261102_round70/evidence/`；最终组合 `final-combined.log`，三文件反证 `r8-batch-old.log` / `r8-batch-restored-hashes.json`。早期Node守卫识别错误的失败单独保留，不当作产品失败；检索无匹配与命令路径错误也不计测试结果。
