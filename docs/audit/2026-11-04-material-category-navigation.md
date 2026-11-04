@@ -19,3 +19,20 @@ python -m pytest -q tests/test_material_category_navigation.py tests/test_quick_
 [Android APK Build](https://github.com/SIX2090/wms/actions/runs/41740259322)为最新成功构建，完整SHA `3aeaaf1c2199ad03d4b2b2c4002f10277f5615ba`；`git merge-base --is-ancestor`和工程/工作流完整diff均退出0，证明可复用。首次pre-push匿名查询WMS CI时403限流；通过已连接GitHub工具重新取最新main记录并核实同一基线全部成功，仅该次push临时使用现有门禁替代证据开关，随后移除；未读取内部凭据或改动钩子。证据见外部日志。
 
 生产尚未部署，生产需重启 WMS 服务生效；未操作生产业务记录、账号密码或服务。上线需另行授权。本文档验收更新单独提交，只有台账与audit Markdown，无新增业务代码。
+
+## 生产生效确认：2026-11-04 14:58（Asia/Shanghai）
+
+用户随后明确授权“现在应用这项修复并重启 WMS”，本节更新前述未部署快照。
+
+现场为 `C:/wms_backups/audit_repair_0634b9d5_20261104` 的封存后端 `0634b9d5eb752a73aab228ad4869e2628bf51567` 和界面覆盖，启动方式为 WMS-Warehouse 原计划任务。仅替换 `overlay/app/templates/material.html` 分类导航的三个 `search` 参数，与已通过完整CI的20c22ba2三个链接逐一一致；同步overlay-manifest及release-manifest中的SHA256和界面版本。其他界面覆盖、后端源文件、C:/wms未提交工作、任务动作、凭据、自动发送/打印暂停与图片运行模式均保留。
+
+证据目录 `C:/wms_backups/category_navigation_20c22ba2_20261104`：
+
+- `production-online-before.db` 和 `production-stopped-before.db`：SQLite在线备份API完成并integrity_check通过；保留三个原文件及task-before.xml，回退脚本只恢复界面和清单，不自动恢复生产数据库。
+- `lab-result.json`：生产同版隔离库验证46个分类链接及3次跟随导航，搜索词/页码清空，状态和内嵌参数保留；隔离数据库摘要不变，schema只读检查通过，自动任务仍暂停。
+- `production-preflight.log`：只读生产启动预检通过，未启动监听，不执行数据库迁移/初始化。
+- `deployment-result.json`：旧PID3144已退出，新PID2080于14:57:42启动，独占127.0.0.1:8080；HTTP登录200且新界面版本可见，任务启动动作未改。
+- `database-before.json` 与 `database-after.json`：逐表行数和行摘要完全相同，integrity_check为ok。未修改任何业务记录或密码。
+- `https-login.html`：curl将gd2026.top解析至本机127.0.0.1的443端口，HTTPS登录200且包含 `24fb0dc07ebbd6e9-cat20c22ba2`。仅证明本机Nginx HTTPS链路，不扩大为外网可达证明。
+
+计划任务保持Running，轮询触发的LastTaskResult现场为2147946720（重复实例策略IgnoreNew），保留该真实值，不以其断言零退出；服务有效性由单一新进程、端口、HTTP/HTTPS200和新界面版本共同确认。
