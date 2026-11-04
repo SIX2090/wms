@@ -2,6 +2,7 @@
 from sqlalchemy.dialects.sqlite import dialect
 from sqlalchemy.schema import CreateIndex, CreateTable
 from sqlalchemy import literal, UniqueConstraint
+from schema_indexes import compare_model_indexes, read_sqlite_indexes
 
 
 def plan_schema_upgrade(connection, metadata):
@@ -9,6 +10,7 @@ def plan_schema_upgrade(connection, metadata):
     compiler = dialect()
     quote = compiler.identifier_preparer.quote_identifier
     tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    index_owners = dict(connection.execute("SELECT name, tbl_name FROM sqlite_master WHERE type='index'"))
     statements, blocked = [], []
     for table in metadata.sorted_tables:
         if table.name not in tables:
@@ -42,15 +44,19 @@ def plan_schema_upgrade(connection, metadata):
             if default_sql is not None:
                 ddl += ' DEFAULT ' + default_sql
             statements.append(ddl)
-        # Recreate constraints/indexes involving newly added columns. A uniqueness
-        # conflict aborts the whole transaction; never silently weaken the model.
+        # Add constraints involving new columns and all missing model indexes.
+        # A uniqueness conflict aborts the whole transaction; never weaken it.
         for constraint in table.constraints:
             if isinstance(constraint, UniqueConstraint) and any(c.name not in columns for c in constraint.columns):
                 names = [c.name for c in constraint.columns]
                 index_name = constraint.name or ('ux_upgrade_' + table.name + '_' + '_'.join(names))
                 statements.append('CREATE UNIQUE INDEX ' + quote(index_name) + ' ON ' + quote(table.name) + ' (' + ', '.join(quote(n) for n in names) + ')')
-        for index in sorted(table.indexes, key=lambda i: i.name):
-            if any(c.name not in columns for c in index.columns):
+        missing_indexes, conflicts = compare_model_indexes(table, read_sqlite_indexes(connection, table.name))
+        blocked.extend(conflicts)
+        for index in missing_indexes:
+            if index.name in index_owners:
+                blocked.append(f'索引名冲突: {index.name} 已属于表 {index_owners[index.name]}')
+            else:
                 statements.append(str(CreateIndex(index).compile(dialect=compiler)))
     return {'statements': statements, 'blocked': blocked}
 

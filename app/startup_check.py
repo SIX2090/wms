@@ -188,13 +188,14 @@ def _reflected_type_family(col_type):
 
 
 def schema_diff(app, db, engine=None):
-    """四维 diff，返回 (errors, warnings)。
+    """比对表、列、类型、外键与模型索引，返回 (errors, warnings)。
 
     errors:   表缺失 / 列缺失 / 类型不一致（人类可读描述列表）
-    warnings: FK 缺失等不阻断项
+    warnings: FK 或普通性能索引缺失等不阻断项
     engine:   可选，指定要反射的目标库引擎（默认 db.engine）；测试/排障用。
     """
     from sqlalchemy import inspect as sa_inspect
+    from schema_indexes import compare_model_indexes
 
     errors: list[str] = []
     warnings: list[str] = []
@@ -218,6 +219,13 @@ def schema_diff(app, db, engine=None):
                         f'类型不一致: {tname}.{column.name} '
                         f'模型={column.type} 实物={actual_cols[column.name]["type"]}'
                     )
+            missing_indexes, conflicts = compare_model_indexes(table, inspector.get_indexes(tname))
+            errors.extend(conflicts)
+            for index in missing_indexes:
+                if index.unique:
+                    errors.append(f'缺唯一索引: {tname}.{index.name}')
+                else:
+                    warnings.append(f'缺索引(仅告警): {tname}.{index.name}；按 docs/SCHEMA_UPGRADE.md 显式补齐')
             # FK 维度（仅警告）
             actual_fks = {
                 (tuple(sorted(fk['constrained_columns'])), fk['referred_table'])
@@ -244,7 +252,7 @@ def verify_schema_or_raise(app, db, engine=None):
     errors, warnings = schema_diff(app, db, engine=engine)
     for w in warnings:
         try:
-            app.logger.warning('schema-check FK: %s', w)
+            app.logger.warning('schema-check warning: %s', w)
         except Exception:  # noqa: BLE001
             pass
     if errors:
@@ -257,5 +265,5 @@ def verify_schema_or_raise(app, db, engine=None):
             '使用 scripts/upgrade_schema.py --db <数据库绝对路径> 检查缺口。'
             'WMS_NO_DB_TOUCH 不豁免结构检查；确需跳过可设 WMS_SCHEMA_CHECK=off（仅排障）'
         )
-    return 'wms %s schema-check: ok（表/列/类型一致；FK 警告 %d 条）' % (
+    return 'wms %s schema-check: ok（表/列/类型/唯一索引一致；结构告警 %d 条）' % (
         version_string(), len(warnings))

@@ -18,6 +18,7 @@ AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 / AI-DEPLOY-F01-FIX-02:
 # AI_TASK: AI-DEPLOY-F01
 # AI_TASK: AI-DEPLOY-F01-FIX-01
 # AI_TASK: AI-DEPLOY-F01-FIX-02
+# AI_FIX_TASK: AI-DEPLOY-F01-FIX-05
 from __future__ import annotations
 
 import datetime
@@ -44,6 +45,8 @@ PIP_REQUIRE_HASHES = os.environ.get("WMS_PIP_REQUIRE_HASHES", "0").strip().lower
 )
 
 _GIT_EXE: str | None = None
+GIT_PROBE_TIMEOUT = 10
+GIT_COMMAND_TIMEOUT = 120
 
 
 # F3.13：auto_update.log 轮转——单文件超 2MB 时滚动为 .1（覆盖旧的 .1），
@@ -86,11 +89,13 @@ def find_git() -> str | None:
             text=True,
             encoding="utf-8",
             errors="replace",
+            stdin=subprocess.DEVNULL,
+            timeout=GIT_PROBE_TIMEOUT,
         )
         if probe.returncode == 0:
             _GIT_EXE = "git"
             return _GIT_EXE
-    except (FileNotFoundError, OSError):
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
         pass
 
     candidates: list[Path] = []
@@ -122,12 +127,14 @@ def find_git() -> str | None:
                     text=True,
                     encoding="utf-8",
                     errors="replace",
+                    stdin=subprocess.DEVNULL,
+                    timeout=GIT_PROBE_TIMEOUT,
                 )
                 if probe.returncode == 0:
                     _GIT_EXE = str(path)
                     log(f"使用 Git: {_GIT_EXE}")
                     return _GIT_EXE
-        except (FileNotFoundError, OSError):
+        except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
             continue
     return None
 
@@ -137,6 +144,9 @@ def run_git(*args: str) -> tuple[int, str, str]:
     git = find_git()
     if not git:
         return 127, "", "git not found"
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    env['GCM_INTERACTIVE'] = '0'
     try:
         result = subprocess.run(
             [git, *args],
@@ -145,8 +155,13 @@ def run_git(*args: str) -> tuple[int, str, str]:
             text=True,
             encoding="utf-8",
             errors="replace",
+            stdin=subprocess.DEVNULL,
+            env=env,
+            timeout=GIT_COMMAND_TIMEOUT,
         )
         return result.returncode, result.stdout.strip(), result.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return 124, '', f'Git 操作超时（{GIT_COMMAND_TIMEOUT}秒），已停止等待，本次自动更新跳过'
     except (FileNotFoundError, OSError) as exc:
         return 127, "", str(exc)
 
