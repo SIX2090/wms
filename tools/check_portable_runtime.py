@@ -1,5 +1,6 @@
 """Verify a pristine Windows package in a disposable copy, never production."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 import os
 from pathlib import Path
@@ -11,13 +12,31 @@ import time
 import urllib.request
 
 
+@contextmanager
+def disposable_directory():
+    temporary = tempfile.TemporaryDirectory(prefix='wms-package-check-')
+    try:
+        yield temporary.name
+    finally:
+        # Windows can briefly retain directory handles after the server exits.
+        # Retry only our own temporary directory and still fail if it stays locked.
+        for attempt in range(21):
+            try:
+                temporary.cleanup()
+                break
+            except PermissionError:
+                if attempt == 20:
+                    raise
+                time.sleep(.5)
+
+
 def verify_package(package):
     package = Path(package).resolve(strict=True)
     if (package / 'app/instance/inventory.db').exists():
         raise ValueError('Distribution contains a database; do not publish it.')
     if not (package / 'python/python.exe').is_file():
         raise ValueError('Embedded Python is missing.')
-    with tempfile.TemporaryDirectory(prefix='wms-package-check-') as temporary:
+    with disposable_directory() as temporary:
         root = Path(temporary) / 'WMS'
         shutil.copytree(package, root)
         python = str(root / 'python/python.exe')
