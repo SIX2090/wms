@@ -425,5 +425,3 @@ POST_SPLIT_BUGS['BUG-2026-11-04-109'] = 'fixed'  # stale web edits; delivery sep
 
 POST_SPLIT_BUGS['BUG-2026-11-04-110'] = 'fixed'  # software fix; exact delivery separately tracked
 POST_SPLIT_BUGS['BUG-2026-11-04-111'] = 'fixed'  # source URI; exact delivery separately tracked
-
-POST_SPLIT_BUGS['BUG-2026-11-04-112'] = 'fixed'  # entry lifecycle;exact delivery separately tracked

@@ -1,9 +1,0 @@
-{
-  "name": "wms-browser-verification",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Isolated CI-only real Chrome verification; not an application runtime dependency",
-  "dependencies": {
-    "playwright-core": "1.57.0"
-  }
-}
