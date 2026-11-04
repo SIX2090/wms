@@ -12,4 +12,10 @@ python -m pytest -q tests/test_material_category_navigation.py tests/test_quick_
 
 统一门禁：`verify_wms_bugs.py`、常规规则、A11全量、UTF-8编码及diff检查通过；台账契约和A13测试15通过。`full_smoke_test.py`通过隔离Flask请求桥执行117/117通过，不连接网络；首次内存库因备份页仅支持文件库为116/117，改用全新隔离文件库后117/117。未修改产品或既有断言迁就环境。
 
-验证日志和请求桥保留于 `C:/wms_audit/20261104_category_evidence`。实际推送及精确CI结果待补。生产尚未部署，生产需重启 WMS 服务生效；未操作生产业务记录、账号密码或服务。上线需另行授权。
+验证日志和请求桥保留于 `C:/wms_audit/20261104_category_evidence`。
+
+代码提交 `20c22ba26d7156da3251ea82b28854c3fafbcc5d` 已读取实际push成功输出（e69fdb48..20c22ba2 main -> main），本地和origin/main一致；[WMS CI](https://github.com/SIX2090/wms/actions/runs/41787450464)及[WMS AI Verification](https://github.com/SIX2090/wms/actions/runs/41787450599)精确匹配该SHA且completed/success，WMS CI三个单元测试分片、四个验证分片、静态检查、冒烟及聚合均通过；本批为代码全量验证，docs分流任务按策略跳过。性能工作流亦成功。
+
+[Android APK Build](https://github.com/SIX2090/wms/actions/runs/41740259322)为最新成功构建，完整SHA `3aeaaf1c2199ad03d4b2b2c4002f10277f5615ba`；`git merge-base --is-ancestor`和工程/工作流完整diff均退出0，证明可复用。首次pre-push匿名查询WMS CI时403限流；通过已连接GitHub工具重新取最新main记录并核实同一基线全部成功，仅该次push临时使用现有门禁替代证据开关，随后移除；未读取内部凭据或改动钩子。证据见外部日志。
+
+生产尚未部署，生产需重启 WMS 服务生效；未操作生产业务记录、账号密码或服务。上线需另行授权。本文档验收更新单独提交，只有台账与audit Markdown，无新增业务代码。
