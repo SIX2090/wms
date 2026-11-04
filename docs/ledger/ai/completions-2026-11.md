@@ -16,4 +16,4 @@
 
 2026-11-03 AI-R10-F02 子修复实现记录：归属已完成的 AI-R10，并排查 AI-R11 / AI-SALES-F02 同类旧链接。补只读分页队列，不新增业务写入或模型调用。软件实现与隔离验证已完成；统一提交、精确目标CI及最终完成状态以 docs/audit/2026-11-03-round4-repairs.md 指向的 final-attestation.json 为准，CI通过前保持待交付，生产未部署。
 
-| AI-C02-FIX-SKILL-CATALOG-001 | 2026-11-04 | 本批待提交 | app/ai/tools/navigation.py；BUG-2026-11-04-103 | tests/test_code_health_repair_batch.py 的技能目录及相邻接口真实请求 | 本地通过；统一 CI 待验收 | 原权限/人工确认/工具定义不变，生产未部署；见 docs/audit/2026-11-04-confirmed-bug-batch.md |
+| AI-C02-FIX-SKILL-CATALOG-001 | 2026-11-04 | `3b719370e5500335d7612b3f771c569482c7babe` | app/ai/tools/navigation.py；BUG-2026-11-04-103 | tests/test_code_health_repair_batch.py 的技能目录及相邻接口真实请求；197个相关模块统一回归、修正后六模块298通过，121/121隔离服务冒烟 | GitHub连接器一次更新main，完整树与本地验证版本一致；[WMS CI41756791309](https://github.com/SIX2090/wms/actions/runs/41756791309)及[AI41756791313](https://github.com/SIX2090/wms/actions/runs/41756791313)精确匹配completed/success；Android41740259322祖先及构建输入不变核验通过；软件修复已交付 | 原权限/人工确认/工具定义不变，生产未部署/重启；生产需重启 WMS 服务生效。详见 docs/audit/2026-11-04-confirmed-bug-batch.md；本收尾文档自身CI另验 |
