@@ -500,11 +500,3 @@ wechat_helper_token
 2026-11-04：备份采用校验后原子发布，失败保留原备份；特殊字符文件路径、隔离恢复与生产覆盖层上线门禁见[发布与恢复记录](docs/audit/2026-11-04-imp03-release-and-recovery.md)。完整仓库/安装包须携带app/sqlite_snapshot.py。
 
 2026-11-04：物料录入脚本独立加载，保存期间防重复点击并支持普通保存快捷键及单位弹窗Esc；嵌入式录入页采用hash CSP试点。范围、真实Chrome CI及生产覆盖边界见[录入与CSP记录](docs/audit/2026-11-04-imp04-entry-and-csp.md)。
-
-### 版权与问题反馈（2026-11-04）
-
-登录页及主界面底部显示 `© 2026 OK1949-2024 版权所有`、联系微信 `OK1949-2024`，并提供 [GitHub 问题反馈](https://github.com/SIX2090/wms/issues) 入口。链接在新窗口打开，保留当前录单页面；打印单据不显示此页脚。反馈时请提供版本、操作步骤及脱敏截图。
-
-运行依赖已移除未使用的 Flasgger。准备新的离线包时，应在全新 wheelhouse 中按 `app/requirements.txt` 下载完整依赖及 pip/setuptools/wheel，不能把旧包文件存在当作仍需安装的依据。生产需重启 WMS 服务生效。
-
-便携版 `2026.11.1` 首次使用：解压到新目录，双击 `setup_first_run.bat` 并选择 Y，创建空业务库；再双击 `启动WMS.bat`。已有数据库时初始化入口会拒绝操作，不会重置账号或覆盖单据。默认首次账号为 admin，密码遵循既有 WMS_BOOTSTRAP_PASSWORD 或 admin 规则，登录后按页面要求修改。旧安装升级不要执行首次初始化。

@@ -61,6 +61,9 @@ email-validator==2.0.0
 # Date utilities
 python-dateutil==2.9.0.post0
 
+# API Docs
+flasgger==0.9.5
+
 # Data validation (A8 requires pydantic for new POST/PUT/DELETE routes)
 pydantic==2.10.4
 

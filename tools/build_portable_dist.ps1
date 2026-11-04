@@ -155,20 +155,6 @@ Write-BatFile (Join-Path $dist 'WMS.bat') @(
     'call "%~dp0app\start_wms_offline.bat" %*'
 )
 
-Write-BatFile (Join-Path $dist 'setup_first_run.bat') @(
-    '@echo off',
-    'setlocal EnableExtensions',
-    'set "PYTHONUTF8=1"',
-    'cd /d "%~dp0" || exit /b 1',
-    'echo This creates a NEW empty WMS database. Existing databases are never overwritten.',
-    'choice /C YN /N /M "Initialize this new installation? [Y/N] "',
-    'if errorlevel 2 exit /b 0',
-    '"%~dp0python\python.exe" "%~dp0tools\init_portable_database.py" --initialize',
-    'if errorlevel 1 (pause & exit /b 1)',
-    'echo Ready. Start WMS.bat. Initial account: admin; password: admin unless explicitly configured.',
-    'pause'
-)
-
 Write-BatFile (Join-Path $dist 'open_login.bat') @(
     '@echo off',
     'start "" "http://127.0.0.1:8080/login"'
