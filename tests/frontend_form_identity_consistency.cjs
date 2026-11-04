@@ -17,8 +17,8 @@ function fixture(page) {
         select() {}
         click() { this.dispatch('click'); }
         remove() { this.isConnected=false; nodes.delete(this.id); }
-        appendChild(child) { this.children.push(child); }
-        querySelector(selector) { if(selector==='span:first-child') return {textContent:this.label}; return this.fields?.[selector] || null; }
+        appendChild(child) { this.children.push(child); if(child.id) nodes.set(child.id,child); }
+        querySelector(selector) { if(selector==='span:first-child') return {textContent:this.label}; if(['[name="csrf_token"]','[data-unit-cancel]','input[name="code"]'].includes(selector)){this.fields ||= {};this.fields[selector] ||= new Element();} return this.fields?.[selector] || null; }
         querySelectorAll(selector) { return selector.includes('dropdown-item') ? this.children : []; }
         getAttribute() { return null; }
         setAttribute() {}
@@ -33,7 +33,7 @@ function fixture(page) {
         }
         get innerHTML() { return this.html || ''; }
     }
-    const document={activeElement:null,body:new Element('body'),getElementById(id){if(!nodes.has(id)) nodes.set(id,new Element(id));return nodes.get(id);},querySelector(){return null;},querySelectorAll(selector){return selector==='#materialTableBody tr'?rows:[];},createElement(){return new Element();},addEventListener(){}};
+    const document={activeElement:null,body:new Element('body'),getElementById(id){if(id==='addUnitModal'&&!nodes.has(id))return null;if(!nodes.has(id)) nodes.set(id,new Element(id));return nodes.get(id);},querySelector(selector){return selector.includes('csrf-token')?{content:'fixture-csrf'}:null;},querySelectorAll(selector){return selector==='#materialTableBody tr'?rows:[];},createElement(){return new Element();},addEventListener(){}};
     class FD {
         constructor(form) { this.values=form.id==='addMaterialForm'?{unit_id:String(document.getElementById('unitIdHidden').value),supplier_id:String(document.getElementById('supplierIdHidden').value)}:form.values||{}; }
         get(name) { return this.values[name] ?? null; }
@@ -43,7 +43,8 @@ function fixture(page) {
     vm.createContext(context);
     vm.runInContext(fs.readFileSync(root+'/app/static/js/api.js','utf8'),context);
     const source=fs.readFileSync(root+'/app/templates/'+page+'.html','utf8');
-    const script=source.slice(source.indexOf('<script>')+8,source.lastIndexOf('</script>'))
+    if(page==='material_add') document.getElementById('material-add-data').textContent=JSON.stringify({units,suppliers});
+    const script=(page==='material_add'?fs.readFileSync(root+'/app/static/js/pages/material-add.js','utf8'):source.slice(source.indexOf('<script>')+8,source.lastIndexOf('</script>')))
         .replace('const units = {{ units|tojson }};','const units = '+JSON.stringify(units)+';')
         .replace('const suppliers = {{ suppliers|tojson }};','const suppliers = '+JSON.stringify(suppliers)+';')
         .replace('const materials = {{ materials|tojson }};','const materials = '+JSON.stringify(materials)+';')
@@ -85,5 +86,5 @@ for(const field of ['unit','supplier']) {
     test('material-'+field+'-save-checks-programmatic-text-change',async()=>{const f=fixture('material_add');f.get(hidden).value=old;f.get(input).value=other;f.get('addMaterialForm').dispatch('submit');await f.settle();assert.equal(f.calls.length,1);assert.equal(f.calls[0].options.body.values[field+'_id'],expected);});
     test('material-'+field+'-ime-enter-does-not-select',()=>{const f=fixture('material_add');f.type(input,other);f.get(field+'Dropdown').children[0].style.backgroundColor='rgb(230, 247, 255)';f.get(input).dispatch('keydown',{key:'Enter',isComposing:true});assert.equal(f.get(hidden).value,'');});
 }
-test('material-new-unit-selected-and-saved',async()=>{const f=fixture('material_add');f.context.showAddUnitModal();const modal=f.get('addUnitModal'),form=f.get('addUnitForm');form.values={code:'BOX',name:'箱'};form.dispatch('submit');await f.settle();assert.equal(modal.isConnected,false);assert.equal(f.get('unitSearch').value,'箱');assert.equal(f.get('unitIdHidden').value,55);f.get('addMaterialForm').dispatch('submit');await f.settle();assert.equal(f.calls.at(-1).options.body.values.unit_id,'55');});
+test('material-new-unit-selected-and-saved',async()=>{const f=fixture('material_add');f.get('addUnitButton').click();const modal=f.get('addUnitModal'),form=f.get('addUnitForm');form.values={code:'BOX',name:'箱'};form.dispatch('submit');await f.settle();assert.equal(modal.isConnected,false);assert.equal(f.get('unitSearch').value,'箱');assert.equal(f.get('unitIdHidden').value,55);f.get('addMaterialForm').dispatch('submit');await f.settle();assert.equal(f.calls.at(-1).options.body.values.unit_id,'55');});
 (async()=>{const selected=process.argv[3]?cases.filter(c=>c.name===process.argv[3]||c.name.startsWith(process.argv[3])):cases;assert(selected.length);const results=[];for(const c of selected){try{await c.run();results.push({name:c.name,status:'passed'});}catch(error){results.push({name:c.name,status:'failed',message:error.message,stack:error.stack});}}console.log(JSON.stringify({total:results.length,passed:results.filter(r=>r.status==='passed').length,failed:results.filter(r=>r.status==='failed').length,results},null,2));process.exitCode=results.some(r=>r.status==='failed')?1:0;})().catch(e=>{console.error(e);process.exitCode=2;});

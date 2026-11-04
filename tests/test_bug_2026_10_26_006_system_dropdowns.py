@@ -86,5 +86,6 @@ def test_picker_exact_empty_and_auth_contracts_are_preserved(picker_client, enti
     ('ai_location_recommendation.html', ['WMS.positionDropdown(this, document.getElementById']),
 ])
 def test_custom_picker_uses_existing_viewport_helper(page, expected):
-    source = (ROOT / 'app/templates' / page).read_text(encoding='utf-8')
+    path = ROOT / ('app/static/js/pages/material-add.js' if page == 'material_add.html' else 'app/templates/' + page)
+    source = path.read_text(encoding='utf-8')
     assert all(call in source for call in expected)
