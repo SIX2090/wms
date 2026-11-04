@@ -18,7 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FULL = {
     'ci': ['lint-and-static', 'unit-tests-shard-0', 'unit-tests-shard-1', 'unit-tests-shard-2',
-           'verify-shard-0', 'verify-shard-1', 'verify-shard-2', 'verify-shard-3', 'smoke', 'browser-material-entry'],
+           'verify-shard-0', 'verify-shard-1', 'verify-shard-2', 'verify-shard-3', 'smoke'],
     'verify': ['static-checks', 'ai-core'],
     'perf': ['perf'],
 }
