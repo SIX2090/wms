@@ -104,13 +104,28 @@
 4. 按两人账号新边界做一次专项并发/权限审计（重点：10-10 审计 1.2 的仓库级扣减 TOCTOU 是否仍开放）。
 5. 优先排批修复 BUG-2026-10-25-026（库存口径类，R2 活跃场景）。
 
+## 七、独立深读发现（本次审计直接读码得出，非台账/历史审计转引）
+
+审计范围：11 月新上线的核心服务（编辑守卫、新建单幂等、重复预警）+ 库存核心服务 + AI 子系统边界。
+
+| # | 严重度 | 发现 | 证据 |
+|---|---|---|---|
+| I-1 | 中低 | **幂等回执依赖「提交前必调 stage_document_response」的约定，无结构性守卫**。31 个装饰路由当前全部平衡，且 SQLite 单写者模型天然杜绝脏 claim 并发；但若未来某装饰路由 commit 了业务而漏调 stage，回执将以 status_code=0/空响应提交，此后同 key 重试永远命中误导性 409（「已保存其他内容」），原始成功响应不可重放。建议 finally 中检测未落定的回执并强制释放或补 stage | services/web_document_idempotency.py:86-92 |
+| I-2 | 低 | **零库存过滤使用浮点相等 `stock == 0`**。README 自述数量存在 1e-15 尾差需显示层收敛，同文件内残留浮点值的项目不会被「隐藏 0 库存」过滤命中，口径自相矛盾。建议 `abs(stock) < 1e-9` | app/app.py:29012、29188 |
+| I-3 | 低 | **naive `datetime.utcnow()` 与业务本地时间混用**：AI 校准样本与发布交接元数据共 19 处 utcnow，业务路由 53+ 处 `now()/today()`（上海时区）。两类时间戳同视图排序/展示存在 8 小时偏移；Python 3.12+ utcnow 已弃用。影响面限于 AI 审计元数据，未触及单据日期 | ai/documents/delivery_matcher_calibration.py:170,260；ai/ops/release_handover.py（16 处） |
+| I-4 | 低中 | **编辑守卫 revision token 只捕获首个 commit 后状态**（`saved` 列表仅 append 一次）。若装饰路由存在二次 commit，返回 token 反映中间态，下一次保存将触发本不该发生的 409 假冲突。当前抽查路由均单次提交，属设计脆弱性而非现行缺陷 | services/document_edit_guard.py:165-175 |
+| I-5 | 信息 | 编辑守卫指纹含全部列（含 updated_at）：他人保存**完全相同内容**也会因时间戳变化判冲突。方向保守、可接受，但两人同账号协作时会产生少量无效冲突提示 | services/document_edit_guard.py:56-65 |
+| I-6 | ✅ 正面 | **R5 人工确认边界在代码层成立**：全 `app/ai/` 无任何将业务单据置 `completed` 的路径（唯一命中是幂等回执自身状态）；库存服务三账守卫、逐仓隔离、幂等键/行锁/快照锁三重防重复设计扎实，37 个写入点收敛于单一 apply_stock_delta 路径 | ai/idempotency.py:56；services/warehouse_stock_service.py:188-220 |
+
+**独立审计结论**：核心账务链路未发现新的高危缺陷；I-1/I-4 属「约定优于强制」的结构性脆弱点，建议纳入下一批次加守卫，不构成当前发布阻断。
+
 ---
 
-## 附录：pytest 全量套件结果
-
-（运行中，完成后回填）
+## 附录：pytest 全量套件结果（沙箱）
 
 | 项 | 值 |
 |---|---|
-| 命令 | `pytest tests/ -q -n 4 --dist loadfile` |
-| 结果 | 待回填 |
+| 命令 | `pytest tests/ -q -n 4 --dist loadfile`（收集 12,181 项） |
+| 沙箱结果 | **10609 passed / 7 failed / 182 skipped**（16:59，另有 xdist 收尾 INTERNALERROR 属插件竞态） |
+| 远端权威结果 | main 最新 SHA `caf86367`：**WMS CI #1992 全绿**、AI Verification #2287 绿（2026-11-04） |
+| 差异归因 | 沙箱钉版不可得（SQLAlchemy 2.0.51 vs 2.0.52、pydantic 2.13 vs 2.10、pytest 9.1.1），7 项失败**高度疑似版本漂移所致，具体失败项归因复跑仍在进行**；权威口径以远端 CI 全绿为准，本报告不将沙箱 7 项失败认定为真实缺陷，也不排除其中含个别环境无关失败的可能 |
