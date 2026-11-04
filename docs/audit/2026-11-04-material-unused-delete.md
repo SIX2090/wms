@@ -28,6 +28,16 @@ BUG-2026-11-04-202。复用原 `/material/delete`（权限与CSRF不变），不
 
 最终代码在全新合成库重启后再次通过真实浏览器混合清理与关闭刷新；旧版单图保护补测后，最终专项（含并发、实际JS、勾选打印、历史删除兼容、审计、台账及A13）65通过，1项既有弃用警告。规则常规/staged、A11全量、裸非GET fetch、UTF-8编码、diff检查及verify_wms_bugs全部通过。模板裸fetch门禁保留既有34处warn，未新增。
 
-推送前同步远端新增 `1db8e60309f2151c028552616679a6e80fdb8e3a` 索引/自动更新超时批次，精确WMS CI41790821414、AI41790821448成功；无物料路由或模板改动，文档冲突逐项保留。合并后复验及实际push/精确CI待登记。
+推送前同步远端新增 `1db8e60309f2151c028552616679a6e80fdb8e3a` 索引/自动更新超时批次，精确WMS CI41790821414、AI41790821448成功；无物料路由或模板改动，文档冲突逐项保留。合并后，最终专项/台账及两个新增基线模块组合80通过（1项既有弃用警告），隔离冒烟再次117/117；Git逐文件diff证明物料产品代码及其新测试与浏览器冻结版本完全相同。
+
+## 提交推送与CI验收
+
+代码 `b956269a2a8604ee49293f1ec083d645c172ac8c` 实际push输出为 `1db8e603..b956269a main -> main`，本地HEAD和origin/main一致。该次push未跳过钩子；pre-commit规则检查通过。
+
+- [WMS CI41793487745](https://github.com/SIX2090/wms/actions/runs/41793487745)：精确代码SHA，completed/success。三个单元测试分片、四个验证分片、静态检查、冒烟及聚合完整通过；docs分支按代码全量模式跳过。
+- [WMS AI Verification41793487656](https://github.com/SIX2090/wms/actions/runs/41793487656)：精确代码SHA，completed/success。
+- [Android APK Build41740259322](https://github.com/SIX2090/wms/actions/runs/41740259322)：最新main成功记录，SHA `3aeaaf1c2199ad03d4b2b2c4002f10277f5615ba`；git祖先检查与Android工程/工作流全路径diff均退出0，可复用。
+
+验证日志、浏览器截图及合成数据库保留在 `C:/wms_audit/20261104_material_unused_delete_evidence`。测试浏览器页和5098测试服务均已关闭。
 
 生产未部署，生产需重启 WMS 服务生效；本批不执行任何生产物料删除、数据库变更、密码操作或服务重启。
