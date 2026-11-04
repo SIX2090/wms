@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}新增物料{% endblock %}
-{% block body_class %}wms-no-global-actionbar{% endblock %}
 
 {% block content %}
 <div class="page-header">
@@ -9,7 +8,7 @@
 
 <div class="card">
     <div class="card-body">
-        <form id="addMaterialForm" method="post" action="{{ url_for('add_material') }}">
+        <form id="addMaterialForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row">
                 <div class="col-md-3">
@@ -59,7 +58,7 @@
                                 <input type="hidden" name="unit_id" id="unitIdHidden">
                                 <div id="unitDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                             </div>
-                            <button type="button" class="btn btn-outline-primary" id="addUnitButton" title="新增单位">
+                            <button type="button" class="btn btn-outline-primary" onclick="showAddUnitModal()" title="新增单位">
                                 <i class="bi bi-plus"></i>
                             </button>
                         </div>
@@ -115,9 +114,8 @@
                 </div>
             </div>
             
-            <p id="materialSaveFeedback" data-save-feedback role="status" aria-live="polite" class="small text-muted">正在准备录入，如持续未就绪请刷新页面。</p>
             <div class="mt-3">
-                <button type="submit" class="btn btn-primary" id="materialSaveButton" data-wms-save disabled title="保存（Ctrl/Cmd+S）">
+                <button type="submit" class="btn btn-primary">
                     <i class="bi bi-save"></i> 保存
                 </button>
                 <a href="/material" class="btn btn-secondary">
@@ -130,6 +128,278 @@
 {% endblock %}
 
 {% block extra_js %}
-<script type="application/json" id="material-add-data">{{ {'units': units, 'suppliers': suppliers}|tojson }}</script>
-<script src="{{ url_for('static', filename='js/pages/material-add.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script>
+const units = {{ units|tojson }};
+const suppliers = {{ suppliers|tojson }};
+
+document.getElementById('addMaterialForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    try {
+        resolveMaterialRelation(unitSearch, unitIdHidden, units, '单位');
+        resolveMaterialRelation(supplierSearch, supplierIdHidden, suppliers, '供应商');
+    } catch (error) {
+        showToast(error.message, 'warning');
+        return;
+    }
+    const formData = new FormData(this);
+    WMS.api.postRaw('/material/add', formData).then(res => {
+        if (res.status === 'success') {
+            alert('物料添加成功！'); // allow-alert: 刷新或跳转前保留人工关闭，避免结果或令牌一闪而过
+            window.location.href = '/material';
+        } else {
+            showToast('添加失败：' + (res.msg || '未知错误'), 'danger');
+        }
+    }).catch(err => {
+        showToast('请求失败：' + err.message, 'danger');
+    });
+});
+
+// ==================== 单位搜索下拉 ====================
+const unitSearch = document.getElementById('unitSearch');
+const unitDropdown = document.getElementById('unitDropdown');
+const unitIdHidden = document.getElementById('unitIdHidden');
+
+function resolveMaterialRelation(input, hidden, list, label) {
+    const keyword = input.value.trim().toLowerCase();
+    if (!keyword) { hidden.value = ''; return; }
+    const exact = item => [item.name, item.code].some(value => String(value || '').toLowerCase() === keyword);
+    // 显式选择可消除同名歧义；文字与所选记录必须仍然一致。
+    const selected = list.find(item => String(item.id) === String(hidden.value) && exact(item));
+    if (selected) return;
+    hidden.value = '';
+    const byCode = list.filter(item => String(item.code || '').toLowerCase() === keyword);
+    const matches = byCode.length ? byCode : list.filter(item => String(item.name || '').toLowerCase() === keyword);
+    if (matches.length !== 1) {
+        input.focus();
+        throw new Error(label + (matches.length > 1 ? '存在同名记录，请从候选中明确选择' : '未匹配，请从候选中选择或先新增'));
+    }
+    input.value = matches[0].name;
+    hidden.value = String(matches[0].id);
+}
+
+function showUnitDropdown(list) {
+    if (!list.length) {
+        unitDropdown.style.display = 'none';
+        return;
+    }
+    unitDropdown.innerHTML = list.map(u =>
+        '<div class="dropdown-item" data-id="' + escapeHtml(u.id) + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+        '<span style="font-weight:bold;">' + escapeHtml(u.name) + '</span>' +
+        (u.code ? ' <span style="color:#999;">(' + escapeHtml(u.code) + ')</span>' : '') +
+        '</div>'
+    ).join('');
+    WMS.positionDropdown(unitSearch, unitDropdown, {maxHeight: 200});
+    unitDropdown.style.display = 'block';
+
+    unitDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+        item.addEventListener('click', function() {
+            unitSearch.value = this.querySelector('span:first-child').textContent;
+            unitIdHidden.value = this.dataset.id;
+            unitDropdown.style.display = 'none';
+        });
+        item.addEventListener('mouseenter', function() {
+            unitDropdown.querySelectorAll('.dropdown-item').forEach(el => el.style.backgroundColor = '');
+            this.style.backgroundColor = '#e6f7ff';
+        });
+    });
+}
+
+unitSearch.addEventListener('input', function() {
+    unitIdHidden.value = '';
+    const keyword = this.value.trim().toLowerCase();
+    if (!keyword) {
+        unitIdHidden.value = '';
+        unitDropdown.style.display = 'none';
+        return;
+    }
+    const filtered = units.filter(u =>
+        (u.name || '').toLowerCase().includes(keyword) ||
+        (u.code || '').toLowerCase().includes(keyword)
+    );
+    showUnitDropdown(filtered);
+});
+
+unitSearch.addEventListener('focus', function() {
+    if (this.value.trim()) {
+        const keyword = this.value.trim().toLowerCase();
+        showUnitDropdown(units.filter(u => (u.name || '').toLowerCase().includes(keyword) || (u.code || '').toLowerCase().includes(keyword)));
+    } else {
+        showUnitDropdown(units);
+    }
+});
+
+unitSearch.addEventListener('keydown', function(e) {
+    if (e.isComposing || e.keyCode === 229 || unitDropdown.style.display !== 'block') return;
+    const items = unitDropdown.querySelectorAll('.dropdown-item');
+    if (!items.length) return;
+
+    let activeIndex = -1;
+    items.forEach((el, i) => {
+        if (el.style.backgroundColor === 'rgb(230, 247, 255)') activeIndex = i;
+    });
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : '');
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        items.forEach((el, i) => el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : '');
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIndex >= 0 && items[activeIndex]) {
+            items[activeIndex].click();
+        }
+    } else if (e.key === 'Escape') {
+        unitDropdown.style.display = 'none';
+    }
+});
+
+// ==================== 供应商搜索下拉 ====================
+const supplierSearch = document.getElementById('supplierSearch');
+const supplierDropdown = document.getElementById('supplierDropdown');
+const supplierIdHidden = document.getElementById('supplierIdHidden');
+
+function showSupplierDropdown(list) {
+    if (!list.length) {
+        supplierDropdown.style.display = 'none';
+        return;
+    }
+    supplierDropdown.innerHTML = list.map(s =>
+        '<div class="dropdown-item" data-id="' + escapeHtml(s.id) + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+        '<span style="font-weight:bold;">' + escapeHtml(s.name) + '</span>' +
+        (s.contact ? ' <span style="color:#999;">| ' + escapeHtml(s.contact) + '</span>' : '') +
+        (s.phone ? ' <span style="color:#999;">| ' + escapeHtml(s.phone) + '</span>' : '') +
+        '</div>'
+    ).join('');
+    WMS.positionDropdown(supplierSearch, supplierDropdown, {maxHeight: 200});
+    supplierDropdown.style.display = 'block';
+
+    supplierDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+        item.addEventListener('click', function() {
+            supplierSearch.value = this.querySelector('span:first-child').textContent;
+            supplierIdHidden.value = this.dataset.id;
+            supplierDropdown.style.display = 'none';
+        });
+        item.addEventListener('mouseenter', function() {
+            supplierDropdown.querySelectorAll('.dropdown-item').forEach(el => el.style.backgroundColor = '');
+            this.style.backgroundColor = '#e6f7ff';
+        });
+    });
+}
+
+supplierSearch.addEventListener('input', function() {
+    supplierIdHidden.value = '';
+    const keyword = this.value.trim().toLowerCase();
+    if (!keyword) {
+        supplierIdHidden.value = '';
+        supplierDropdown.style.display = 'none';
+        return;
+    }
+    const filtered = suppliers.filter(s =>
+        (s.name || '').toLowerCase().includes(keyword) ||
+        (s.code || '').toLowerCase().includes(keyword) ||
+        (s.contact || '').toLowerCase().includes(keyword) ||
+        (s.phone || '').toLowerCase().includes(keyword)
+    );
+    showSupplierDropdown(filtered);
+});
+
+supplierSearch.addEventListener('focus', function() {
+    if (this.value.trim()) {
+        const keyword = this.value.trim().toLowerCase();
+        showSupplierDropdown(suppliers.filter(s => (s.name || '').toLowerCase().includes(keyword) || (s.code || '').toLowerCase().includes(keyword) || (s.contact || '').toLowerCase().includes(keyword) || (s.phone || '').toLowerCase().includes(keyword)));
+    } else {
+        showSupplierDropdown(suppliers);
+    }
+});
+
+supplierSearch.addEventListener('keydown', function(e) {
+    if (e.isComposing || e.keyCode === 229 || supplierDropdown.style.display !== 'block') return;
+    const items = supplierDropdown.querySelectorAll('.dropdown-item');
+    if (!items.length) return;
+
+    let activeIndex = -1;
+    items.forEach((el, i) => {
+        if (el.style.backgroundColor === 'rgb(230, 247, 255)') activeIndex = i;
+    });
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeIndex = Math.min(activeIndex + 1, items.length - 1);
+        items.forEach((el, i) => el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : '');
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeIndex = Math.max(activeIndex - 1, 0);
+        items.forEach((el, i) => el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : '');
+    } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (activeIndex >= 0 && items[activeIndex]) {
+            items[activeIndex].click();
+        }
+    } else if (e.key === 'Escape') {
+        supplierDropdown.style.display = 'none';
+    }
+});
+
+// 点击外部关闭下拉框
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('#unitSearch') && !e.target.closest('#unitDropdown')) {
+        unitDropdown.style.display = 'none';
+    }
+    if (!e.target.closest('#supplierSearch') && !e.target.closest('#supplierDropdown')) {
+        supplierDropdown.style.display = 'none';
+    }
+});
+
+// 新增单位弹窗
+function showAddUnitModal() {
+    const modal = document.createElement('div');
+    modal.id = 'addUnitModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:24px;width:400px;max-width:90%;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">新增计量单位</h5>
+            <form id="addUnitForm">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="mb-3">
+                    <label class="form-label">单位编号 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="code" required placeholder="如：PCS、KG">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">单位名称 <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" name="name" required placeholder="如：个、千克">
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:8px;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('addUnitModal').remove()">取消</button>
+                    <button type="submit" class="btn btn-primary">保存</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    document.getElementById('addUnitForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        WMS.api.postRaw('/unit/add', formData).then(res => {
+            if (res.status === 'success') {
+                showToast('单位添加成功！', 'success');
+                // 添加到单位列表
+                units.push({ id: res.id, name: res.name, code: formData.get('code') });
+                // 设置为当前选中
+                unitSearch.value = res.name;
+                unitIdHidden.value = res.id;
+                // 关闭弹窗
+                document.getElementById('addUnitModal').remove();
+            } else {
+                showToast('添加失败：' + (res.msg || '未知错误'), 'danger');
+            }
+        }).catch(err => {
+            showToast('请求失败：' + err.message, 'danger');
+        });
+    });
+}
+</script>
 {% endblock %}
