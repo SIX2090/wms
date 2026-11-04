@@ -498,5 +498,3 @@ wechat_helper_token
 启动自动更新仍默认关闭。启用后，Git探测每次最多等待10秒，单条Git命令最多120秒；超时跳过本次更新并沿用现有代码启动，避免网络等待阻塞服务。见[索引及Git超时修复记录](docs/audit/2026-11-04-index-and-git-timeout.md)。
 
 2026-11-04：备份采用校验后原子发布，失败保留原备份；特殊字符文件路径、隔离恢复与生产覆盖层上线门禁见[发布与恢复记录](docs/audit/2026-11-04-imp03-release-and-recovery.md)。完整仓库/安装包须携带app/sqlite_snapshot.py。
-
-2026-11-04：物料录入脚本独立加载，保存期间防重复点击并支持普通保存快捷键及单位弹窗Esc；嵌入式录入页采用hash CSP试点。范围、真实Chrome CI及生产覆盖边界见[录入与CSP记录](docs/audit/2026-11-04-imp04-entry-and-csp.md)。
