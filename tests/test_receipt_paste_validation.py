@@ -88,7 +88,8 @@ function showToast(){} function alert(){} function calcAmount(){} function calcT
     assert r.stdout==expected
 
 
-def _run_paste(page, text, fail=False, repeat=False, cancel=False,doc_type='requisition'):
+def _run_paste(page, text, fail=False, repeat=False, cancel=False, doc_type='requisition',
+               warehouse='仓库A', switch=False, refreshing=False):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
@@ -101,31 +102,62 @@ def _run_paste(page, text, fail=False, repeat=False, cancel=False,doc_type='requ
     script = r'''
 const rows=[],calls=[]; let removed=false;
 const pasteArea={value:TEXT,isConnected:true,readOnly:false};
+const warehouseField={value:WAREHOUSE,selectedOptions:[{textContent:WAREHOUSE}]};
 const button={disabled:false}; const result={textContent:'',style:{}};
 const modal={remove(){removed=true;},appendChild(){}};
 const document={getElementById(id){return {pasteArea,pasteModal:modal,pasteImportResult:result}[id];},
- querySelector(s){return s.includes('last-child') ? rows.at(-1) : button;},createElement(){return result;}};
+ querySelector(s){return s.startsWith('[name="warehouse') ? warehouseField : s.includes('last-child') ? rows.at(-1) : button;},createElement(){return result;}};
 const materials=[{code:'M1',price:12}];
 const docType=DOC_TYPE;
-const WMS={api:{get:async url=>{calls.push(url);if(FAIL)throw new Error('network');if(CANCEL)pasteArea.isConnected=false;return [{code:'M350',price:12}];}}};
+const WMS={api:{get:async url=>{calls.push(url);if(FAIL)throw new Error('network');if(CANCEL)pasteArea.isConnected=false;
+ const stock=new URL('http://fixture'+url).searchParams.get('warehouse')==='仓库A' ? 10 : new URL('http://fixture'+url).searchParams.get('warehouse')==='仓库B' ? 90 : 100;
+ if(SWITCH){warehouseField.value='仓库B';warehouseField.selectedOptions=[{textContent:'仓库B'}];}
+ return [{code:'M350',price:12,stock}];}}};
 function showToast(){} function alert(){}
 function findEmptyRow(){return null;}
 function addNewRow(){const fields={};const r={dataset:{},querySelector(s){return fields[s] ||= {value:'',focus(){}};}};rows.push(r);return r;}
-function fillMaterialFields(r,m){r.querySelector('.material-code').value=m.code;}
+function fillMaterialFields(r,m){r.querySelector('.material-code').value=m.code;r.querySelector('.material-stock').value=m.stock;}
 function findMaterialByCode(code){return materials.find(m=>m.code===code);}
 function createRow(){return addNewRow();}
 function calcAmount(){} function calcTotal(){} function calcRow(){} function updateCheckDiff(){}
 function formatQtyTrim(q){return String(Number(q.toFixed(2)));}
 function formatQty(q){return String(Number(q.toFixed(2)));}
-''' .replace('TEXT', json.dumps(text)).replace('FAIL', json.dumps(fail)).replace('CANCEL',json.dumps(cancel)).replace('DOC_TYPE',json.dumps(doc_type)) + '\nconst window={WMS};\n' + (ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8') + function + r'''
+''' .replace('TEXT', json.dumps(text)).replace('FAIL', json.dumps(fail)).replace('CANCEL',json.dumps(cancel)).replace('DOC_TYPE',json.dumps(doc_type)).replace('WAREHOUSE',json.dumps(warehouse)).replace('SWITCH',json.dumps(switch)) + '\nconst window={WMS};\n' + (ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8') + '\nWMS.materialCache.isRefreshing=()=>'+json.dumps(refreshing)+';\n' + function + r'''
 const first=parsePastedData();
 Promise.all([first,REPEAT ? parsePastedData() : Promise.resolve()]).then(()=>process.stdout.write(JSON.stringify({
- rows:rows.map(r=>({code:r.querySelector('.material-code').value,qty:r.querySelector('.material-qty').value||r.querySelector('.line-qty').value||r.querySelector('.adjust-qty').value||r.querySelector('.actual-stock').value,price:r.querySelector('.material-price').value})),
- calls,removed,text:pasteArea.value,disabled:button.disabled
+ rows:rows.map(r=>({code:r.querySelector('.material-code').value,qty:r.querySelector('.material-qty').value||r.querySelector('.line-qty').value||r.querySelector('.adjust-qty').value||r.querySelector('.actual-stock').value,price:r.querySelector('.material-price').value,stock:r.querySelector('.material-stock').value})),
+ calls,removed,text:pasteArea.value,disabled:button.disabled,cachedCodes:materials.map(m=>m.code)
 }))).catch(err=>{process.stderr.write(String(err));process.exitCode=1;});
 '''.replace('REPEAT',json.dumps(repeat))
     r = subprocess.run([node,'-e',script],text=True,encoding='utf-8',capture_output=True,check=True)
     return json.loads(r.stdout)
+
+
+@pytest.mark.parametrize('page', ['in', 'out', 'shared', 'adjustment'])
+@pytest.mark.parametrize('warehouse,stock', [('仓库A', 10), ('仓库B', 90)])
+def test_uncached_paste_uses_selected_warehouse(page, warehouse, stock):
+    result = _run_paste(page, 'M350\t2', warehouse=warehouse)
+    assert result['rows'][0]['stock'] == stock
+    assert len(result['calls']) == 1
+
+
+@pytest.mark.parametrize('page', ['in', 'out', 'shared', 'adjustment'])
+@pytest.mark.parametrize('context', ['missing', 'switch', 'refreshing', 'cancel'])
+def test_paste_preserves_input_and_cache_when_warehouse_context_is_unusable(page, context):
+    options = {'missing': {'warehouse': ''}, 'switch': {'switch': True},
+               'refreshing': {'refreshing': True}, 'cancel': {'cancel': True}}[context]
+    result = _run_paste(page, 'M350\t2', **options)
+    assert result['rows'] == []
+    assert result['text'] == 'M350\t2'
+    assert result['cachedCodes'] == ['M1']
+    assert result['disabled'] is False
+    if context in ('missing', 'refreshing'):
+        assert result['calls'] == []
+
+
+def test_bom_paste_keeps_existing_no_warehouse_contract():
+    result = _run_paste('shared', 'M350\t2', doc_type='bom', warehouse='')
+    assert len(result['rows']) == 1
 
 
 @pytest.fixture

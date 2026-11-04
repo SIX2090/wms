@@ -29009,7 +29009,7 @@ def _collect_inventory_rows(filters):
         stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
         price = _safe_float(material.price)
         # BUG-2026-08-18-00X：hide_zero 选项过滤掉库存为 0 的行
-        if filters.get('hide_zero') and stock == 0:
+        if filters.get('hide_zero') and abs(stock) < STOCK_COMPARE_EPSILON:
             continue
         rows.append({
             'code': material.code or '',
@@ -29185,7 +29185,7 @@ def _sql_paged_inventory_analysis_report(filters):
     for material in materials:
         stock = _safe_float(warehouse_stock_map.get(material.id) or 0)
         # BUG-2026-08-18-00X：hide_zero 过滤零库存行（与库存报表口径一致）
-        if filters.get('hide_zero') and stock == 0:
+        if filters.get('hide_zero') and abs(stock) < STOCK_COMPARE_EPSILON:
             continue
         kept.append(material)
         stock_by_material[material.id] = stock

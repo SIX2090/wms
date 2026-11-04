@@ -432,3 +432,5 @@ POST_SPLIT_BUGS['BUG-2026-11-04-113'] = 'fixed'  # unused dependency; release ac
 POST_SPLIT_BUGS['BUG-2026-11-04-114'] = 'fixed'  # explicit first install; release acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-115'] = 'fixed'  # package UTF8 preservation; release acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-116'] = 'fixed'  # print navigation permissions; production activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-04-117'] = 'fixed'  # warehouse-scoped paste; delivery and activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-04-118'] = 'fixed'  # zero-stock filter residue; delivery and activation tracked separately

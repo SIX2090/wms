@@ -930,6 +930,10 @@ async function parsePastedData() {
     if (!pasteArea || button?.disabled) return;
     const text = pasteArea.value.trim();
     if (!text) { showToast('请输入数据', 'warning'); return; }
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    if ((!warehouseContext && docType !== 'bom') || WMS.materialCache.isRefreshing(materials)) {
+        showToast('请先选择仓库并等待库存刷新完成，再导入', 'warning'); return;
+    }
     if (button) button.disabled = true;
     pasteArea.readOnly = true;
     const lines = text.split(/\r?\n/).filter(line => line.trim());
@@ -959,7 +963,12 @@ async function parsePastedData() {
         for (let offset = 0; offset < missing.length; offset += 200) {
             const params = new URLSearchParams();
             missing.slice(offset, offset + 200).forEach(code => params.append('code', code));
+            params.set('warehouse', warehouseContext);
             const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
+            if (!pasteArea.isConnected) return;
+            if (warehouseContext !== WMS.materialCache.warehouseFromForm() || WMS.materialCache.isRefreshing(materials)) {
+                throw new Error('仓库已变化或库存正在刷新，请核对仓库后重新导入');
+            }
             found.forEach(material => {
                 if (material && material.code && !materials.some(m => m.code === material.code)) materials.push(material);
             });

@@ -721,6 +721,8 @@
 | BUG-2026-11-04-114 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-115 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-116 | bugs | entries-2026-11.md |
+| BUG-2026-11-04-117 | bugs | entries-2026-11.md |
+| BUG-2026-11-04-118 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
