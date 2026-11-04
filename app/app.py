@@ -3604,6 +3604,8 @@ SYSTEM_CONFIG = {
 def apply_security_headers(response):
     for header, value in app.config.get('SECURITY_HEADERS', {}).items():
         response.headers.setdefault(header, value)
+    from services.material_form_policy import apply_material_script_policy
+    apply_material_script_policy(response)
 
     if request.path.startswith('/static/'):
         response.headers['Cache-Control'] = 'public, max-age=31536000'
