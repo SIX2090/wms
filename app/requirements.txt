@@ -29,8 +29,6 @@ openpyxl==3.1.2
 
 # HTTP
 requests==2.33.0
-# IA-01: GHSA-6q48-6c7w-9gw2 removes compromised emSign roots.
-certifi==2026.10.18
 # urllib3 2.7.0 → 2.8.0：CVE-2026-97687/97688/97689 修复版（BUG-2026-09-30-003，
 # pip-audit 阻塞门禁 2026-09-30 转 红）；全仓无直接 import，纯 requests 传递依赖，
 # 本机 3.13 + CI 3.11 冒烟通过
