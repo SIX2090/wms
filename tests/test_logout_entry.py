@@ -7,13 +7,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _shell(authenticated=True, role='viewer'):
-    return Environment(autoescape=True).from_string((ROOT/'app/templates/base.html').read_text(encoding='utf-8')).render(
+    return Environment(autoescape=True, loader=FileSystemLoader(ROOT / 'app/templates')).from_string((ROOT/'app/templates/base.html').read_text(encoding='utf-8')).render(
         current_user=SimpleNamespace(is_authenticated=authenticated, role=role, username='<操作员>', id=1),
         csrf_token=lambda:'fixture', config={}, request=SimpleNamespace(args={}),
         url_for=lambda name,**kw:'/static/'+kw['filename'] if name=='static' else '/'+name)

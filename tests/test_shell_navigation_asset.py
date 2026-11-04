@@ -9,7 +9,7 @@ import subprocess
 from types import SimpleNamespace
 
 import app as app_module
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemLoader
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +17,7 @@ ASSET = 'js/pages/shell-navigation.js'
 
 
 def render_shell(role='viewer'):
-    return Environment(autoescape=True).from_string(
+    return Environment(autoescape=True, loader=FileSystemLoader(ROOT / 'app/templates')).from_string(
         (ROOT / 'app/templates/base.html').read_text(encoding='utf-8')
     ).render(current_user=SimpleNamespace(is_authenticated=True, role=role, username='fixture', id=1),
              csrf_token=lambda: 'fixture-token', config={'STATIC_VERSION': 'nav-test-v1'},

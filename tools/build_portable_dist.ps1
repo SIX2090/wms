@@ -61,10 +61,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "[2/6] Committed program files exported; local data excluded."
 
-Get-ChildItem -LiteralPath $dist -Recurse -Include *.bat,*.cmd | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
+Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object { $_.Extension -in @('.bat', '.cmd') } | ForEach-Object {
     $text = [System.IO.File]::ReadAllText($_.FullName)
     $text = [regex]::Replace($text, "`r?`n", "`r`n")
-    [System.IO.File]::WriteAllText($_.FullName, $text, [System.Text.Encoding]::ASCII)
+    [System.IO.File]::WriteAllText($_.FullName, $text, (New-Object System.Text.UTF8Encoding($false)))
 }
 
 Write-Host "[3/6] Creating embedded Python runtime..."
@@ -135,6 +135,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[5/6] Writing portable launchers..."
+Copy-Item -LiteralPath (Join-Path $dist 'tools\PORTABLE_README.txt') -Destination (Join-Path $dist 'README.txt')
 $startName = ([string][char]0x542F) + ([string][char]0x52A8) + 'WMS.bat'
 function Write-BatFile($Path, [string[]]$Lines) {
     [System.IO.File]::WriteAllText($Path, (($Lines -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)
@@ -153,6 +154,20 @@ Write-BatFile (Join-Path $dist 'WMS.bat') @(
     'setlocal EnableExtensions',
     'cd /d "%~dp0" || exit /b 1',
     'call "%~dp0app\start_wms_offline.bat" %*'
+)
+
+Write-BatFile (Join-Path $dist 'setup_first_run.bat') @(
+    '@echo off',
+    'setlocal EnableExtensions',
+    'set "PYTHONUTF8=1"',
+    'cd /d "%~dp0" || exit /b 1',
+    'echo This creates a NEW empty WMS database. Existing databases are never overwritten.',
+    'choice /C YN /N /M "Initialize this new installation? [Y/N] "',
+    'if errorlevel 2 exit /b 0',
+    '"%~dp0python\python.exe" "%~dp0tools\init_portable_database.py" --initialize',
+    'if errorlevel 1 (pause & exit /b 1)',
+    'echo Ready. Start WMS.bat. Initial account: admin; password: admin unless explicitly configured.',
+    'pause'
 )
 
 Write-BatFile (Join-Path $dist 'open_login.bat') @(

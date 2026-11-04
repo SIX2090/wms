@@ -1,0 +1,19 @@
+.wms-copyright {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 4px 16px;
+    padding: 10px 12px;
+    color: #687382;
+    font-size: 12px;
+    line-height: 1.6;
+    text-align: center;
+}
+.wms-copyright a { color: #315f91; text-decoration: underline; text-underline-offset: 3px; }
+.wms-copyright a:focus-visible { outline: 2px solid #315f91; outline-offset: 3px; }
+.wms-contact-id { user-select: text; }
+@media print { .wms-copyright { display: none !important; } }
+
+.login-page > .wms-copyright { grid-column: 1 / -1; background: rgba(255, 255, 255, .94); border-radius: 8px; justify-self: center; }

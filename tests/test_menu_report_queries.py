@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemLoader
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +30,7 @@ class MenuLinks(HTMLParser):
 
 def shell(role, locations=False, prices=False):
     source = (ROOT / 'app/templates/base.html').read_text(encoding='utf-8')
-    html = Environment(autoescape=True).from_string(source).render(
+    html = Environment(autoescape=True, loader=FileSystemLoader(ROOT / 'app/templates')).from_string(source).render(
         current_user=SimpleNamespace(is_authenticated=True, role=role, username='menu-fixture', id=1),
         csrf_token=lambda: 'fixture-csrf', config={'STATIC_VERSION': 'menu-test'},
         request=SimpleNamespace(args={}), location_management_enabled=locations,

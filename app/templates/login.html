@@ -568,6 +568,7 @@
             }
         }
     </style>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/copyright.css') }}">
 </head>
 <body>
     <!-- 科技粒子背景 -->
@@ -697,12 +698,7 @@
             </div>
         </section>
 
-        <div class="brand-footer" aria-hidden="true">
-            <span>采购入库</span>
-            <span>库存管理</span>
-            <span>单据联查</span>
-            <span>个人仓库系统</span>
-        </div>
+        {% include '_copyright_footer.html' %}
     </main>
 
     <script>
