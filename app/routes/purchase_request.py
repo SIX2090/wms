@@ -30,6 +30,7 @@ from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -437,6 +438,7 @@ def register_purchase_request_routes(app):
     @app.route('/purchase_request/add', methods=['POST'])
     @require_role('purchase')
     @login_required
+    @web_document_idempotent
     def add_purchase_request():
         from datetime import date
         from flask_login import current_user
@@ -606,6 +608,8 @@ def register_purchase_request_routes(app):
 
             request_order.total_amount = total_amount
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '保存成功', 'id': request_order.id, 'request_no': request_order.request_no})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

@@ -26245,8 +26245,10 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
         eager_loads = [eager_load]
     try:
         if db.engine.dialect.name == 'sqlite':
-            db.session.rollback()
-            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            # A flushed document receipt already owns the SQLite write transaction.
+            if not (has_request_context() and getattr(g, 'web_document_receipt', None)):
+                db.session.rollback()
+                db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
             order = db.session.get(model_cls, record_id, options=eager_loads) if eager_loads else db.session.get(model_cls, record_id)
         else:
             query = model_cls.query.with_for_update()

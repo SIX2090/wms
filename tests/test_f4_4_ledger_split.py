@@ -405,3 +405,11 @@ POST_SPLIT_BUGS['BUG-2026-11-03-024'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-03-025'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-03-026'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-03-027'] = 'fixed'
+
+POST_SPLIT_BUGS['BUG-2026-11-03-101'] = 'fixed'  # local software fix; CI/deployment tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-04-101'] = 'fixed'  # software fix; delivery separately tracked
+POST_SPLIT_BUGS['BUG-2026-11-04-102'] = 'fixed'  # software fix; delivery separately tracked
+POST_SPLIT_BUGS['BUG-2026-11-04-103'] = 'fixed'  # software fix; delivery separately tracked
+POST_SPLIT_BUGS['BUG-2026-11-04-104'] = 'fixed'  # software fix; delivery separately tracked
+POST_SPLIT_BUGS['BUG-2026-11-04-105'] = 'fixed'  # software fix; delivery separately tracked

@@ -23,6 +23,7 @@ from flask import flash, jsonify, redirect, render_template, request, url_for, s
 from flask_login import login_required, current_user
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -101,6 +102,7 @@ def register_transfer_routes(app):
     @app.route('/transfer/save_table', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def save_transfer_table():
         from app import (TransferOrder, TransferOrderItem, _clean_int, _material_from_payload, _parse_form_date, allow_negative_stock, api_error, generate_order_no, get_warehouse_stock_quantities, is_stock_sufficient, location_management_enabled, log_operation, normalize_stock_quantity, parse_float_value, round_to_2_decimals, validate_inventory_warehouse)
         from flask import jsonify, request
@@ -205,6 +207,8 @@ def register_transfer_routes(app):
                     remark=(item_data.get('remark') or '').strip() or None
                 ))
 
+            db.session.flush()
+            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': transfer.id, 'order_no': transfer.transfer_no})
             db.session.commit()
             log_operation('保存调拨单', f'调拨单：{transfer.transfer_no}', 'transfer', transfer.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': transfer.id, 'order_no': transfer.transfer_no})
@@ -217,6 +221,7 @@ def register_transfer_routes(app):
     @app.route('/transfer/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_transfer():
         from app import (TransferOrder, api_error, generate_order_no, location_management_enabled, log_operation, validate_inventory_warehouse)
         from flask import jsonify, request
@@ -269,6 +274,8 @@ def register_transfer_routes(app):
             )
             db.session.add(transfer)
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '调拨单创建成功', 'id': transfer.id})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

@@ -330,6 +330,8 @@
     var batchCount = document.getElementById('batchCount');
     var batchSubmitBtn = document.getElementById('batchSubmitBtn');
     var batchQueue = [];
+    var pendingScanRequestId = null;
+    var pendingBatchRequestId = null;
 
     function newRequestId() {
         if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
@@ -677,12 +679,14 @@
 
         setStatus('正在提交' + lines.length + '条明细，生成待确认草稿...', '');
         WMS.api.postRaw('/mobile/api/scan_batch_draft', {
+            request_id: pendingBatchRequestId || (pendingBatchRequestId = newRequestId()),
             mode: mode,
             lines: lines,
             warehouse: warehouseInput ? warehouseInput.value : '',
             remark: remarkInput ? remarkInput.value : ''
         }).then(function(data) {
             if (data.status !== 'success') throw data;
+            pendingBatchRequestId = null;
             batchQueue = [];
             renderBatchQueue();
             setStatus((data.msg || '已生成待确认草稿') + '，请到「待确认」页确认后正式入库/出库', 'success');
@@ -920,7 +924,7 @@
             setStatus('提交中...', '');
             var quantity = quantityInput ? quantityInput.value : '';
             var payload = {
-                request_id: newRequestId(),
+                request_id: pendingScanRequestId || (pendingScanRequestId = newRequestId()),
                 mode: mode,
                 code: material.code,
                 quantity: quantity,
@@ -935,6 +939,7 @@
             };
             if (batchMode && batchMode.checked) {
                 batchQueue.push({payload: payload, material: material});
+                pendingScanRequestId = null;
                 renderBatchQueue();
                 setStatus('已加入待提交清单，可继续扫码', 'success');
                 resetForNextScan(material);
@@ -945,6 +950,7 @@
                 .then(function(data) {
                     if (mode === 'query' && (warehouseInput.value || '').trim() !== payload.warehouse.trim()) return;
                     if (data.status !== 'success') throw data;
+                    pendingScanRequestId = null;
                     var returnedMaterial = data.data && data.data.material ? data.data.material : material;
                     renderMaterial(returnedMaterial);
                     setStatus(data.msg || '操作成功', 'success');
@@ -1285,7 +1291,9 @@
         if (!window.confirm('确认该' + label + '草稿？将立即更新库存并发送打印任务。')) return;
         btn.disabled = true;
         btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 确认中...';
-        WMS.api.postRaw('/mobile/api/scan_draft_confirm/' + id, {order_type: type}).then(function(data) {
+        btn.dataset.requestId = btn.dataset.requestId || (window.crypto && window.crypto.randomUUID
+            ? window.crypto.randomUUID() : 'confirm-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+        WMS.api.postRaw('/mobile/api/scan_draft_confirm/' + id, {order_type: type, request_id: btn.dataset.requestId}).then(function(data) {
             if (data.status !== 'success') throw data;
             if (window.showToast) window.showToast((data.msg || '确认成功') + '，请到桌面打印工作站查看打印结果', 'success');
             loadPending();

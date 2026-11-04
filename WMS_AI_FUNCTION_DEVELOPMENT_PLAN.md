@@ -1869,3 +1869,6 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 | 优先级 | 任务编号 | 状态 | 说明 |
 |---|---|---|---|
 | P1 | AI-BROWSER-AUDIT-FIX-20261102-003 | 进行中 | round32/35/36/37/40/44/45/46/50/51/52累计候选去重集成，BUG-2026-11-02-001至010；既有OCR数量/诊断/原子确认、图片元数据、每日指标及手机/表单取消防重。143项可移植隔离、362项相邻及受限冒烟121项通过，R8旧码78失败/65对照并逐字节恢复；独立main交付与精确CI待验，不将真实模型、设备、正常登录、连续七天或生产验收标完成。 |
+
+<!-- AI_TASK: AI-C02-FIX-SKILL-CATALOG-001 -->
+2026-11-04 AI-C02-FIX-SKILL-CATALOG-001：既有 AI-C02 工具注册表的技能目录子修复，关联 BUG-2026-11-04-103。已查重现有代码、台账和历史，无等价子修复；仅将失效 get_all_tools 调用改为 list_ai_tool_specs，分类采用 audit_category。不增工具、路由、权限、模型、开关或人工确认动作。状态：软件实现及针对性验证完成，统一推送及精确 CI 待验收；见 docs/audit/2026-11-04-confirmed-bug-batch.md。

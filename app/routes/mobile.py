@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 
 from utils import sync_material_primary_image
 from services.material_label import material_scan_code
+from services.web_document_idempotency import mobile_document_idempotent, stage_document_response
 
 # A2白名单：@_web_or_api_required / @_web_or_api_role_required 会在 lint_wms_rules.py KNOWN_DECORATOR_HINTS 注册
 
@@ -418,6 +419,7 @@ def register_mobile_routes(app):
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/mobile/api/scan_submit', methods=['POST'])
     @_web_or_api_role_required('warehouse')
+    @mobile_document_idempotent
     def mobile_scan_submit():
         from flask import current_app
         from app import (
@@ -582,14 +584,18 @@ def register_mobile_routes(app):
                     'in_order', order.id, order.warehouse,
                     created_by=actor.id, source_event='scan_submit_in',
                 )
-                db.session.commit()
-                log_operation('手机扫码入库', f'入库单：{order.order_no}', 'in_order', order.id)
-                return jsonify({
+                db.session.flush()
+                db.session.expire(material)
+                response = {
                     'status': 'success',
                     'success': True,
                     'msg': f'入库成功：{order.order_no}',
                     'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
-                })
+                }
+                stage_document_response(response)
+                db.session.commit()
+                log_operation('手机扫码入库', f'入库单：{order.order_no}', 'in_order', order.id)
+                return jsonify(response)
 
             if mode == 'out':
                 quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
@@ -601,7 +607,8 @@ def register_mobile_routes(app):
                 # 取写锁（与 routes/sales.py 同式）；取锁后下方
                 # get_warehouse_stock_quantities 重新读取，看到的是最新库存，两个
                 # 并发请求不会都通过校验把同一仓扣成负数。取锁前无未提交写入，rollback 安全。
-                if db.engine.dialect.name == 'sqlite':
+                from flask import g
+                if db.engine.dialect.name == 'sqlite' and not getattr(g, 'web_document_receipt', None):
                     db.session.rollback()
                     db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
 
@@ -672,14 +679,18 @@ def register_mobile_routes(app):
                     'out_order', order.id, order.warehouse,
                     created_by=actor.id, source_event='scan_submit_out',
                 )
-                db.session.commit()
-                log_operation('手机扫码出库', f'领料单：{order.order_no}', 'out_order', order.id)
-                return jsonify({
+                db.session.flush()
+                db.session.expire(material)
+                response = {
                     'status': 'success',
                     'success': True,
                     'msg': f'出库成功：{order.order_no}',
                     'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
-                })
+                }
+                stage_document_response(response)
+                db.session.commit()
+                log_operation('手机扫码出库', f'领料单：{order.order_no}', 'out_order', order.id)
+                return jsonify(response)
 
             if mode == 'check':
                 # 盘点区域（可选）：分区盘点时按"物料+区域"分行（同物料多区各行并存）
@@ -751,10 +762,10 @@ def register_mobile_routes(app):
                 if error:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
-                db.session.commit()
-                log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
                 msg = f'盘点保存成功：{check.check_no}，已挂批次 {batch.check_no}'
-                return jsonify({
+                db.session.flush()
+                db.session.expire(material)
+                response = {
                     'status': 'success',
                     'success': True,
                     'msg': msg,
@@ -766,7 +777,11 @@ def register_mobile_routes(app):
                         'adjustment_nos': [],
                         'material': mobile_material_payload(material, warehouse=warehouse),
                     },
-                })
+                }
+                stage_document_response(response)
+                db.session.commit()
+                log_operation('手机扫码盘点', f'扫码盘点单：{check.check_no}', 'inventory_check_scan', check.id)
+                return jsonify(response)
         except OperationalError:
             # F2.9：BEGIN IMMEDIATE 取写锁超时（SQLite "database is locked"）或
             # 并发写冲突——这是可重试的瞬时冲突，返回 409 而非 500，客户端可重试。
@@ -886,7 +901,9 @@ def register_mobile_routes(app):
     # 批量提交：一次扫码队列生成一张草稿（含多条明细），与"AUDIT 入库单"草稿流程一致
     @app.route('/mobile/api/scan_batch_draft', methods=['POST'])
     @_web_or_api_role_required('warehouse')
+    @mobile_document_idempotent
     def mobile_scan_batch_draft():
+        from flask import current_app
         from typing import Optional
         from pydantic import BaseModel, Field, field_validator
         from app import (InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
@@ -1006,8 +1023,7 @@ def register_mobile_routes(app):
                         remark=(line.target or '').strip() or None,
                     ))
             order.total_amount = sum(item.amount or 0 for item in order.items)
-            db.session.commit()
-            return jsonify({
+            response = {
                 'status': 'success',
                 'success': True,
                 'msg': f'已生成待确认草稿：{order.order_no}',
@@ -1017,7 +1033,10 @@ def register_mobile_routes(app):
                     'order_no': order.order_no,
                     'item_count': len(resolved),
                 },
-            })
+            }
+            stage_document_response(response)
+            db.session.commit()
+            return jsonify(response)
         except Exception:
             db.session.rollback()
             current_app.logger.exception('Mobile scan batch draft failed')
@@ -1026,6 +1045,7 @@ def register_mobile_routes(app):
     # 确认草稿：仅 status='pending' 且 admin/warehouse 角色可确认，动库存+打印
     @app.route('/mobile/api/scan_draft_confirm/<int:order_id>', methods=['POST'])
     @_web_or_api_role_required('warehouse')
+    @mobile_document_idempotent
     def mobile_scan_draft_confirm(order_id):
         from typing import Optional
         from pydantic import BaseModel, Field
@@ -1077,7 +1097,6 @@ def register_mobile_routes(app):
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存增加失败'}), 500
                 order.status = 'completed'
                 enqueue_auto_print_job('in_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_in')
-                db.session.commit()
                 order_no = order.order_no
             else:
                 locked, ok = _acquire_order_write_lock(OutOrder, order_id, 'pending', [
@@ -1103,9 +1122,11 @@ def register_mobile_routes(app):
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
                 order.status = 'completed'
                 enqueue_auto_print_job('out_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_out')
-                db.session.commit()
                 order_no = order.order_no
-            return jsonify({'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': {'order_no': order_no}})
+            response = {'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': {'order_no': order_no}}
+            stage_document_response(response)
+            db.session.commit()
+            return jsonify(response)
         except Exception:
             db.session.rollback()
             current_app.logger.exception('Mobile scan draft confirm failed')

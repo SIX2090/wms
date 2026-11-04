@@ -176,7 +176,7 @@ class ApiToken(db.Model):
 
 
 class MobileApiRequest(db.Model):
-    """Idempotency records for native mobile warehouse submissions."""
+    """Request receipts for mobile submissions and atomic web document saves."""
     __tablename__ = 'mobile_api_request'
     __table_args__ = (
         db.UniqueConstraint('user_id', 'endpoint', 'request_key', name='uix_mobile_api_request_key'),

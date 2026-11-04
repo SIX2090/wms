@@ -26,6 +26,7 @@ from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -271,6 +272,7 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/add', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def add_subcontract():
         from flask_login import current_user
         from app import (SubcontractOrder, api_error, assert_warehouse_active,
@@ -316,6 +318,8 @@ def register_subcontract_routes(app):
             )
             db.session.add(order)
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success'})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -1182,6 +1186,7 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/issue/add', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def add_subcontract_issue():
         """新增委外发料单"""
         from flask_login import current_user
@@ -1272,6 +1277,8 @@ def register_subcontract_routes(app):
                 ))
                 added += 1
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '委外发料单创建成功', 'id': issue.id})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -1864,6 +1871,7 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/receive/add', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def add_subcontract_receive():
         """新增委外收货单"""
         from flask_login import current_user
@@ -1965,6 +1973,8 @@ def register_subcontract_routes(app):
             receive.total_quantity = total_quantity
             receive.total_scrap = total_scrap
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '委外收货单创建成功', 'id': receive.id})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

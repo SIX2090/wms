@@ -44,6 +44,7 @@ from flask import abort, flash, jsonify, redirect, render_template, request, sen
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import format_quantity, print_token_or_login_required, require_role
 
 
@@ -1058,6 +1059,7 @@ def register_in_order_routes(app):
     @app.route('/in_order/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_in_order():
         from datetime import date, datetime
         from flask_login import current_user
@@ -1407,6 +1409,8 @@ def register_in_order_routes(app):
             for purchase_order in affected_orders:
                 update_purchase_order_status(purchase_order)
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

@@ -35,6 +35,7 @@ from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -447,6 +448,7 @@ def register_purchase_order_routes(app):
     @app.route('/purchase_order/save', methods=['POST'])
     @require_role('purchase')
     @login_required
+    @web_document_idempotent
     def save_purchase_order():
         from datetime import date
         from sqlalchemy.orm import joinedload
@@ -599,6 +601,8 @@ def register_purchase_order_routes(app):
 
             order.total_amount = round_to_2_decimals(order_total)
             order.status = 'pending'
+            db.session.flush()
+            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
             db.session.commit()
             log_operation('保存采购单', f'采购单：{order.order_no}', 'purchase_order', order.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})

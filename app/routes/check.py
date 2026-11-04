@@ -33,6 +33,7 @@ from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -257,6 +258,7 @@ def register_check_routes(app):
     @app.route('/check/save_table', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def save_check_table():
         from datetime import date, datetime
         from flask_login import current_user
@@ -397,6 +399,8 @@ def register_check_routes(app):
             if check.frozen_at is None:
                 check.frozen_at = datetime.now()
 
+            db.session.flush()
+            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': check.id, 'order_no': check.check_no})
             db.session.commit()
             log_operation('保存盘点单', f'盘点单：{check.check_no}', 'check', check.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': check.id, 'order_no': check.check_no})
@@ -409,6 +413,7 @@ def register_check_routes(app):
     @app.route('/check/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_check():
         from datetime import datetime
         from flask_login import current_user
@@ -488,6 +493,16 @@ def register_check_routes(app):
                 # 明细在建单时写入，账面同步冻结（与 save_check_table 首次写入语义一致）
                 check.frozen_at = datetime.now()
             try:
+                db.session.flush()
+                replay_payload = {'status': 'success', 'id': check.id}
+                if scope_all:
+                    replay_payload['msg'] = (f'盘点单已创建，整仓全部物料生成 {len(materials)} 行待盘明细'
+                                             if materials else '当前无任何物料，已创建空盘点单')
+                elif category is not None:
+                    replay_payload['msg'] = (f'盘点单已创建，按分类「{category.name}」（含子分类）生成 '
+                                             f'{len(materials)} 行待盘明细' if materials else
+                                             f'分类「{category.name}」下暂无物料，已创建空盘点单')
+                stage_document_response(replay_payload)
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

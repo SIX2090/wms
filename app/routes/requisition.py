@@ -23,6 +23,7 @@ from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -111,6 +112,7 @@ def register_requisition_routes(app):
     @app.route('/requisition/save_table', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def save_requisition_table():
         from datetime import date
         from flask_login import current_user
@@ -229,6 +231,8 @@ def register_requisition_routes(app):
                     remark=(item_data.get('remark') or '').strip()
                 ))
 
+            db.session.flush()
+            stage_document_response({'status':'success','msg':'保存成功','id':requisition.id,'order_no':requisition.req_no})
             db.session.commit()
             log_operation('保存工单领料单', f'工单领料单：{requisition.req_no}', 'requisition', requisition.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': requisition.id, 'order_no': requisition.req_no})
@@ -241,6 +245,7 @@ def register_requisition_routes(app):
     @app.route('/requisition/add', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def add_requisition():
         from flask_login import current_user
         from app import (ProductionRequisition, api_error,
@@ -292,6 +297,8 @@ def register_requisition_routes(app):
                 operator_id=current_user.id
             )
             db.session.add(requisition)
+            db.session.flush()
+            stage_document_response({'status': 'success', 'id': requisition.id, 'msg': '保存成功'})
             db.session.commit()
             log_operation('保存工单领料单', f'工单领料单：{req_no}', 'requisition', requisition.id)
             return jsonify({'status': 'success', 'id': requisition.id, 'msg': '保存成功'})

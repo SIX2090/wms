@@ -74,10 +74,8 @@ if errorlevel 1 (
 echo [Preflight] Dependencies OK
 echo.
 
-REM Auto-fix database columns.
-echo [Auto-Fix] Checking database columns...
-"%PYTHON_CMD%" "fix_db_columns.py"
-echo.
+REM Strong no-touch startup does not run implicit schema writes.
+REM Missing schema stops startup; follow docs/SCHEMA_UPGRADE.md for explicit upgrade.
 
 "%PYTHON_CMD%" "%~dp0run_server.py"
 pause

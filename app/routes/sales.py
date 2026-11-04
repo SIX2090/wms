@@ -29,6 +29,7 @@ from flask_login import login_required
 from sqlalchemy.exc import IntegrityError
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -523,6 +524,7 @@ def register_sales_routes(app):
     @app.route('/sales/add', methods=['POST'])
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
+    @web_document_idempotent
     def sales_order_add():
         from datetime import date, datetime
         from flask_login import current_user
@@ -604,6 +606,8 @@ def register_sales_routes(app):
                 qty_by_material_id[item_row.material_id] = round_to_2_decimals(
                     qty_by_material_id.get(item_row.material_id, 0) + float(item_row.quantity or 0))
             shortage_warnings = _sales_stock_shortage_warnings(warehouse, qty_by_material_id)
+            db.session.flush()
+            stage_document_response({'status': 'success', 'id': order.id, 'order_no': order.order_no, 'warnings': shortage_warnings})
             db.session.commit()
             log_operation('保存销售订单', f'销售订单：{order.order_no}', 'sales_order', order.id)
             return jsonify({'status': 'success', 'id': order.id, 'order_no': order.order_no,

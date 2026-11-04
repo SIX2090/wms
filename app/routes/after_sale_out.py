@@ -24,6 +24,7 @@ from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -206,7 +207,7 @@ def register_after_sale_out_routes(app):
         from datetime import date
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, Customer,
                          Material, Unit, get_active_warehouses, get_default_warehouse,
-                         get_warehouse_stock_quantities, serialize_customer,
+                         get_warehouse_stock_quantities, location_management_enabled, serialize_customer,
                          serialize_material_with_stock, serialize_unit,
                          validate_inventory_warehouse, SalesOrder, OutOrder)
         from sqlalchemy.orm import joinedload
@@ -259,6 +260,7 @@ def register_after_sale_out_routes(app):
     @app.route('/after_sale_out/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_after_sale_out_order():
         from datetime import date
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, DocumentPushLine,
@@ -406,6 +408,8 @@ def register_after_sale_out_routes(app):
 
             order.total_amount = round_to_2_decimals(total_amount)
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

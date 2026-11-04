@@ -23,14 +23,15 @@ def skill_catalog() -> list[dict[str, str]]:
     # 而 app/ 无 __init__.py（生产以 app 目录为包根直跑）；ai 是真实包
     # （app/ai/__init__.py），一律用 `from ai...` 跨模块导入（registry.py
     # 顶层 `from ai.policies` 同款），任何导入布局下都可解析。
-    from ai.tools.registry import get_all_tools
+    # AI_FIX_TASK: AI-C02-FIX-SKILL-CATALOG-001
+    from ai.tools.registry import list_ai_tool_specs
 
     skills = []
-    for tool in get_all_tools():
+    for tool in list_ai_tool_specs():
         skills.append({
-            'name': tool.get('name', ''),
-            'description': tool.get('description', ''),
-            'category': tool.get('category', 'general'),
+            'name': tool.name,
+            'description': tool.description,
+            'category': tool.audit_category,
         })
 
     return skills

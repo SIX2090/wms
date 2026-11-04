@@ -15,3 +15,5 @@
 | AI-BROWSER-AUDIT-FIX-20261103-001 | 2026-11-03 | `b412bd3cf8eef2925ce3091406abf93d07d9f2fe`；首轮f5cff2c，R8完整回退d2a8438后整体重做 | 既有AI-C12库存健康及AI-C11仓库巡检/采购跟进，BUG-2026-11-03-002/009；最低库存红线、动销数据不足说明和预警未开启时的未检测状态；无新增权限/路由/模型/工具/开关/迁移 | 33个完整受影响/相邻模块含26新实例552 passed；完整AI70/70；新实例物理旧码22 failed/4对照，14文件精确恢复；真实Chrome、库存Excel与只读任务验证，原363源码及11合成业务表不变 | 用户具体批准本次红CI纠正推送，已实际push至b412bd3cf8eef2925ce3091406abf93d07d9f2fe；WMS CI41590689626及AI41590689588精确匹配completed/success；Android41557773962祖先/对象/范围证明通过。软件修复交付完成，首次红CI保留；本收尾文档自身CI另验 | 生产未访问、未部署/重启，生产需重启 WMS 服务生效；不把合成数据、规则分析及客户端验证当作真实模型、设备或全站全部按钮穷尽验收。证据见docs/audit/2026-11-03-browser-report-repairs.md及其仓库外报告 |
 
 2026-11-03 AI-R10-F02 子修复实现记录：归属已完成的 AI-R10，并排查 AI-R11 / AI-SALES-F02 同类旧链接。补只读分页队列，不新增业务写入或模型调用。软件实现与隔离验证已完成；统一提交、精确目标CI及最终完成状态以 docs/audit/2026-11-03-round4-repairs.md 指向的 final-attestation.json 为准，CI通过前保持待交付，生产未部署。
+
+| AI-C02-FIX-SKILL-CATALOG-001 | 2026-11-04 | 本批待提交 | app/ai/tools/navigation.py；BUG-2026-11-04-103 | tests/test_code_health_repair_batch.py 的技能目录及相邻接口真实请求 | 本地通过；统一 CI 待验收 | 原权限/人工确认/工具定义不变，生产未部署；见 docs/audit/2026-11-04-confirmed-bug-batch.md |

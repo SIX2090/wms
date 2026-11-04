@@ -29,6 +29,7 @@ from flask import jsonify, render_template, request
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -231,6 +232,7 @@ def register_adjustment_routes(app):
     @app.route('/adjustment/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_adjustment():
         from datetime import date, datetime
         from flask_login import current_user
@@ -427,6 +429,8 @@ def register_adjustment_routes(app):
                     )
                     db.session.add(item)
 
+            db.session.flush()
+            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': adjustment.id, 'adjustment_no': adjustment.adjustment_no})
             db.session.commit()
 
             log_operation('保存库存调整单', f'调整单：{adjustment.adjustment_no}', 'adjustment', adjustment.id)

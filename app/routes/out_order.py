@@ -30,6 +30,7 @@ from flask import abort, jsonify, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import get_default_print_template, print_token_or_login_required, require_role
 
 
@@ -599,6 +600,7 @@ def register_out_order_routes(app):
     @app.route('/out_order/add', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def add_out_order():
         from datetime import date
         from app import (DocumentPushLine, InOrder, InOrderItem, Material,
@@ -885,6 +887,8 @@ def register_out_order_routes(app):
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': '采购退货必须关联来源采购入库单（如需免关联，请在系统设置关闭「采购退货必须关联订单」）'}), 400
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

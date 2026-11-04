@@ -93,6 +93,25 @@
     /**
      * 统一请求入口
      */
+    // Keep one random request identity per form intent, including transport retries.
+    // Explicit edits keep their existing semantics. Unnumbered forms retain a key until success.
+    var documentSavePaths = ["/in_order/add", "/out_order/add", "/adjustment/add", "/after_sale_out/add", "/check/save_table", "/check/add", "/transfer/save_table", "/transfer/add", "/purchase_request/add", "/requisition/add", "/requisition/save_table", "/purchase_order/save", "/sales/add", "/subcontract/add", "/subcontract_issue/add", "/subcontract/issue/add", "/subcontract_receive/add", "/subcontract/receive/add"];
+    var pendingDocumentKeys = {};
+    function documentRequestKey(method, url, data) {
+        if (method !== 'POST' || documentSavePaths.indexOf(url.split('?')[0]) < 0 || !data) return '';
+        if (data instanceof FormData) {
+            var formData = data;
+            data = {};
+            ['id', 'order_id', 'request_id', 'order_no', 'check_no', 'transfer_no', 'adjustment_no', 'request_no', 'req_no', 'issue_no', 'receive_no'].forEach(function(name) { data[name] = typeof formData.get === 'function' ? formData.get(name) : null; });
+        }
+        var header = data.header || {};
+        if (Number(data.order_id || data.id || data.request_id || header.order_id || header.id || header.request_id) > 0) return '';
+        var number = data.order_no || data.check_no || data.transfer_no || data.adjustment_no || data.request_no || data.req_no || data.issue_no || data.receive_no || header.order_no || header.check_no || header.transfer_no;
+        var intent = number ? url + ':' + String(number) : url;
+        if (!pendingDocumentKeys[intent]) pendingDocumentKeys[intent] = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2) + '-' + Math.random().toString(36).slice(2);
+        return pendingDocumentKeys[intent];
+    }
+
     function request(method, url, options, raw) {
         options = options || {};
         var data = options.data;
@@ -100,6 +119,9 @@
         var isFormData = data instanceof FormData;
         var headers = buildHeaders(options.headers, data != null && !isFormData);
         var body = buildBody(data);
+        var saveKeyUrl = url;
+        var saveKey = documentRequestKey(method, url, data);
+        if (saveKey && !headers['X-Idempotency-Key']) headers['X-Idempotency-Key'] = saveKey;
 
         // 拼接 query string
         if (query) {
@@ -155,6 +177,7 @@
         .then(function(res) {
             // BUG-2026-10-17-014-F06：raw 模式返回完整响应（含 status/page/total_pages），
             // 供需要分页元数据的调用方使用；默认模式仍自动解包 data。
+            if (res && res.status === 'success' && saveKey && pendingDocumentKeys[saveKeyUrl] === saveKey) delete pendingDocumentKeys[saveKeyUrl];
             if (raw) return res;
             // 业务状态判断
             if (res && res.status === 'success') {

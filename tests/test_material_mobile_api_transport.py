@@ -60,26 +60,31 @@ def node_run(program, payload):
 @pytest.mark.parametrize('page,expression', requests())
 @pytest.mark.parametrize('scenario', ['success', 'multiple', 'array', 'http', 'html', 'expired401', 'expired419', 'network'])
 def test_every_migrated_request_preserves_raw_data_and_errors(page, expression, scenario):
+    mobile_source = (ROOT / 'app/templates/mobile_scan.html').read_text(encoding='utf-8')
+    request_scope = '\n'.join(re.findall(r'var pending(?:Scan|Batch)RequestId = null;', mobile_source))
+    request_scope += '\n' + take(mobile_source, 'function newRequestId()')
     node_run(r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);let sent=[],expired=0;
 class FormData{append(){}}
 const formData=new FormData(),body=p.scenario==='array'?[{id:7}]:{status:p.scenario==='multiple'?'multiple':'success',msg:'literal failure',data:{id:7,matches:[{code:'M1'}]},page:2,total_pages:4,warnings:['warning']};
 const controller=new AbortController();
 const ctx={FormData,Headers,AbortController,controller,document:{querySelector:()=>({content:'fixture-csrf'})},location:{href:'original'},confirm:()=>{expired++;return true;},setTimeout(){},
+ crypto:{randomUUID:()=> 'fixture-intent'},btn:{dataset:{requestId:'fixture-intent'}},
  status:'inactive',id:7,currentTemplateId:7,templateId:7,type:'unit',quickSelectApiByType:{unit:'/fixture/units'},lookupUrl:'/fixture/lookup?warehouse=A',undo:{checkId:7},mode:'in',lines:[{material_code:'M1',quantity:2}],warehouseInput:{value:'A'},remarkInput:{value:'note'},selectedMaterial:{id:7},wh:'A',cid:7,url:'/fixture/list?page=1',qs:'&warehouse=A',formData,dbData:formData,payload:{code:'M1',quantity:2},candidate:{image_url:'/fixture/image.jpg'},
  csrfHeaders:x=>x||{},tokenHeader:()=>({}),
  fetch:(url,options={})=>{sent.push({url,options});return p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:!['http','html','expired401','expired419'].includes(p.scenario),status:p.scenario==='http'?400:p.scenario==='html'?503:p.scenario==='expired401'?401:p.scenario==='expired419'?419:200,json:()=>p.scenario==='html'?Promise.reject(SyntaxError('HTML response')):Promise.resolve(body)});}};
-ctx.window=ctx;ctx.csrfFetch=(u,o)=>ctx.fetch(u,o);vm.createContext(ctx);vm.runInContext(p.api,ctx);
+ctx.window=ctx;ctx.csrfFetch=(u,o)=>ctx.fetch(u,o);vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.request_scope,ctx);
 (async()=>{let result,error;try{result=await vm.runInContext('(function(){return '+p.expression+';}).call({action:"/fixture/import"})',ctx);}catch(e){error=e;}
 assert.equal(sent.length,1);const req=sent[0],headers=new Headers(req.options.headers);assert.equal(req.options.credentials,'same-origin');assert.equal(headers.get('X-CSRFToken'),'fixture-csrf');assert.equal(headers.get('X-Requested-With'),'XMLHttpRequest');
 const post=/postRaw|csrfFetch|method:\s*['"]POST/.test(p.expression);assert.equal(req.options.method,post?'POST':'GET');
+if(post && /scan_batch_draft|scan_draft_confirm/.test(req.url))assert.equal(JSON.parse(req.options.body).request_id,'fixture-intent');
 if(post&&/formData|dbData/.test(p.expression)){assert.equal(req.options.body,formData);assert.equal(headers.has('Content-Type'),false,'browser owns multipart boundary');}
 else if(post&&req.options.body!==undefined){assert.equal(typeof JSON.parse(req.options.body),'object','never double stringify JSON');assert.equal(headers.get('Content-Type'),'application/json');}
 if(p.expression.includes('controller.signal'))assert.equal(req.options.signal,controller.signal,'preserve recognition timeout');
 if(['success','multiple','array'].includes(p.scenario)){assert.equal(error,undefined);assert.deepEqual(result,body,'preserve root envelope and pagination');}
 else {assert(error,'errors must reject');if(p.scenario==='network')assert.equal(error.message,'offline');else if(p.scenario==='http'){assert.equal(error.status,400);assert.equal(error.message,'literal failure');assert.deepEqual(error.data,body);}else if(p.scenario==='html'){assert.equal(error.status,503);assert.equal(error.code,'HTTP_ERROR');assert(!error.message.includes('HTML response'));}else{assert.equal(error.code,'SESSION_EXPIRED');assert.equal(expired,1);assert.equal(ctx.location.href,'/login');}}
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
-''', dict(expression=expression, scenario=scenario, api=API.read_text(encoding='utf-8')))
+''', dict(expression=expression, scenario=scenario, request_scope=request_scope, api=API.read_text(encoding='utf-8')))
 
 
 def test_api_preserves_abort_controller_and_multipart_body():

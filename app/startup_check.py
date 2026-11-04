@@ -253,7 +253,9 @@ def verify_schema_or_raise(app, db, engine=None):
             'F3.3 schema-check 失败，启动被拒绝。实物库与代码声明不一致：\n'
             f'  - {detail}\n'
             '排查方向：是否连错了库 / 版本回滚后未处理 schema / '
-            '确需跳过可设 WMS_SCHEMA_CHECK=off（仅排障）'
+            '停止对应服务后，按 docs/SCHEMA_UPGRADE.md 预览升级并备份；'
+            '使用 scripts/upgrade_schema.py --db <数据库绝对路径> 检查缺口。'
+            'WMS_NO_DB_TOUCH 不豁免结构检查；确需跳过可设 WMS_SCHEMA_CHECK=off（仅排障）'
         )
     return 'wms %s schema-check: ok（表/列/类型一致；FK 警告 %d 条）' % (
         version_string(), len(warnings))
