@@ -92,6 +92,10 @@ class Config:
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() in ('true', '1', 'yes')
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
+    # IA-02：持久登录凭证与会话使用同一传输边界，可信HTTP模式仍可显式使用。
+    REMEMBER_COOKIE_SECURE = SESSION_COOKIE_SECURE
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = 'Lax'
     # 可信代理列表，仅这些 IP 的 X-Forwarded-For 头会被信任
     TRUSTED_PROXIES = [ip.strip() for ip in os.environ.get('TRUSTED_PROXIES', '127.0.0.1,::1').split(',') if ip.strip()]
 
@@ -172,6 +176,7 @@ class TestingConfig(Config):
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
     WTF_CSRF_ENABLED = False
     SESSION_COOKIE_SECURE = False  # 测试环境走 HTTP，关闭 Secure 标志避免会话丢失（AI-SEC-F01）
+    REMEMBER_COOKIE_SECURE = False
     
 
 # ==================== 配置映射 ====================
