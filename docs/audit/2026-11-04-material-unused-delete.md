@@ -41,3 +41,21 @@ BUG-2026-11-04-202。复用原 `/material/delete`（权限与CSRF不变），不
 验证日志、浏览器截图及合成数据库保留在 `C:/wms_audit/20261104_material_unused_delete_evidence`。测试浏览器页和5098测试服务均已关闭。
 
 生产未部署，生产需重启 WMS 服务生效；本批不执行任何生产物料删除、数据库变更、密码操作或服务重启。
+
+## 生产生效确认（2026-11-04 16:12，Asia/Shanghai）
+
+用户随后明确授权“现在部署并重启 WMS”，本节更新前述未部署快照。现场运行入口仍为 `C:/wms_backups/audit_repair_0634b9d5_20261104/serve_images.py` 及WMS-Warehouse原计划任务；封存后端SHA0634b9d5、现有25项界面覆盖、分类导航修复、主题、图片运行模式、启动只读屏障与自动外部任务暂停保持。
+
+只部署本项：从已验收b956269a提交逐字导出物料路由源码和material_delete服务，固定SHA256；运行适配器从已固定路由源码提取唯一delete_material函数，移除已存在的URL注册装饰器，保留warehouse权限及login_required装饰器，替换既有POST视图绑定。其余路由函数不执行、不替换，CSRF配置不变。对应UI改动应用至现有覆盖模板，其余样式/图标保持。新适配器、两个固定源码、功能清单及启动器/模板均受发布哈希清单校验；X-WMS-Material-Cleanup标识本项完整提交，原X-WMS-Release继续标识封存后端。
+
+证据 `C:/wms_backups/material_cleanup_b956269a_20261104`：
+
+- `lab-result.json`：使用实际封存后端并将测试请求绑定到全新内存库，2删除/2保留、全部保留400、缺CSRF400、销售403、匿名401及成功审计快照通过；原lab-state库摘要完全相同。未对生产或已有lab档案执行删除。
+- `production-online-before.db`、`production-stopped-before.db`：两次SQLite在线一致性备份，integrity_check通过；原8项替换/新增文件计划、before/和task-before.xml可用于恢复原界面/处理器及清单，不自动恢复生产数据库。
+- `ci-release-approved.json`：组件目标b956269a的完整CI成功。切换前等待同时提交的c48a44f6完成，最新main的WMS CI41796889024、AI41796888999均success，Android祖先/输入无变证明齐全；不部署该无关业务批次。
+- `production-preflight.log`：生产启动全程只读，schema检查通过、未启动监听，确认cleanup完整SHA，未执行迁移/初始化。
+- `deployment-result.json`：原PID6004退出，新PID2896于16:11:46启动并独占127.0.0.1:8080；原任务动作未改、状态Running。HTTP200、界面版本 `24fb0dc07ebbd6e9-cat20c22ba2-cleanb956269a` 可见。
+- `https-result.json`：curl将gd2026.top解析至本机443，HTTPS登录200，功能响应头精确匹配b956269a完整SHA，页面含新界面版本。仅确认本机Nginx HTTPS链路，不扩大为外网可达。
+- `database-before.json`、`database-after.json`：逐表行数与行摘要完全相同。未对生产/material/delete执行POST，未删除任何生产物料，未改密码、库存、数据库结构或任务启动动作。
+
+操作员刷新物料档案页面后即可使用；实际勾选和删除确认仍由人工执行。
