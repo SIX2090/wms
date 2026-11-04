@@ -414,3 +414,4 @@ POST_SPLIT_BUGS['BUG-2026-11-04-103'] = 'fixed'  # software fix; delivery separa
 POST_SPLIT_BUGS['BUG-2026-11-04-104'] = 'fixed'  # software fix; delivery separately tracked
 POST_SPLIT_BUGS['BUG-2026-11-04-105'] = 'fixed'  # software fix; delivery separately tracked
 POST_SPLIT_BUGS['BUG-2026-11-04-106'] = 'fixed'  # fail-closed secret storage; CI/deployment tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-04-201'] = 'fixed'  # category navigation; CI/deployment tracked separately

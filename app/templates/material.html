@@ -96,12 +96,13 @@
 
 <div class="material-layout">
     <aside class="material-category-panel">
+        {# 切换分类即重新浏览分类明细，不沿用上一次搜索词；分类内搜索仍由上方表单处理。 #}
         <div class="material-category-header">
             <span><i class="bi bi-diagram-3"></i> 分类树</span>
-            <a href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
+            <a href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
         </div>
         <div class="material-category-tree">
-            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">
+            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">
                 <span class="material-category-code">全部</span>
                 <i class="bi bi-folder2-open"></i>
                 <span class="material-category-name">全部分类</span>
@@ -109,7 +110,7 @@
             {% for row in category_rows %}
             {% set cat = row.category %}
             <a class="material-category-node {{ 'active' if category_id == cat.id else '' }}"
-               href="{{ url_for('material_list', category_id=cat.id, search=request.args.get('search', ''), stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}"
+               href="{{ url_for('material_list', category_id=cat.id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}"
                style="padding-left: {{ 10 + row.level * 18 }}px;">
                 <span class="material-category-code">{{ cat.code }}</span>
                 <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }}"></i>
