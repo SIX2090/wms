@@ -42,7 +42,11 @@ def verify_package(package):
         python = str(root / 'python/python.exe')
         env = {k: v for k, v in os.environ.items() if not k.startswith('WMS_')
                and k not in {'DATABASE_URL', 'PYTHONPATH', 'LOG_FILE', 'SECRET_KEY'}}
-        env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8', OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
+        env.update(PYTHONUTF8='1', PYTHONIOENCODING='utf-8', OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1',
+                   WMS_LOCAL_PRINT_AGENT='0', WMS_SKIP_STARTUP_BACKUP='1', AUTO_BACKUP_ENABLED='false',
+                   WMS_BACKUP_DIR=str(root / 'backups'), UPLOAD_FOLDER=str(root / 'uploads'))
+        subprocess.run([python, str(root / 'tools/check_runtime_dependencies.py')],
+                       cwd=root, env=env, check=True, timeout=60)
         subprocess.run([python, '-c', 'import flask, flask_sqlalchemy, flask_wtf, pandas, numpy, openpyxl, PIL, pydantic, cryptography, waitress; import importlib.util; assert importlib.util.find_spec("flasgger") is None'], env=env, check=True, timeout=60)
         initializer = [python, str(root / 'tools/init_portable_database.py'), '--initialize']
         subprocess.run(initializer, cwd=root, env=env, check=True, timeout=120)

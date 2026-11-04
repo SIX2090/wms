@@ -133,6 +133,11 @@ Write-Host "[4/6] Installing dependencies into dist\WMS\python..."
 if ($LASTEXITCODE -ne 0) {
     throw 'Failed to install WMS dependencies from wheelhouse.'
 }
+& $pythonExe (Join-Path $dist 'tools\check_runtime_dependencies.py') --json |
+    Set-Content -LiteralPath (Join-Path $dist 'runtime-dependencies.json') -Encoding UTF8
+if ($LASTEXITCODE -ne 0) {
+    throw 'Installed runtime does not match the pinned dependency manifest.'
+}
 
 Write-Host "[5/6] Writing portable launchers..."
 Copy-Item -LiteralPath (Join-Path $dist 'tools\PORTABLE_README.txt') -Destination (Join-Path $dist 'README.txt')
