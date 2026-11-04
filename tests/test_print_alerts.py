@@ -90,6 +90,35 @@ def _make_job(status="pending", ws=None, created_at=None, attempts=0,
     return job
 
 
+@pytest.mark.parametrize("role", ["admin", "warehouse", "finance"])
+@pytest.mark.parametrize("page", ["/print_alerts", "/print_queue/station"])
+@pytest.mark.parametrize("embedded", [False, True])
+def test_print_routing_entry_matches_target_permission(client, role, page, embedded):
+    """BUG-2026-11-04-116: visible workstation links must lead to an allowed page."""
+    from bs4 import BeautifulSoup
+
+    with app_module.app.app_context():
+        User.query.filter_by(username="admin").one().role = role
+        db.session.commit()
+    response = client.get(page, query_string={"embedded": "1"} if embedded else {})
+    if role == "finance":
+        assert response.status_code == 302
+        assert client.get(page, headers={"X-Requested-With": "XMLHttpRequest"}).status_code == 403
+    else:
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        content = soup.select_one(".embedded-content" if page == "/print_alerts" else "body")
+        assert content is not None
+        links = content.select('a[href="/print_routing"]')
+        assert len(links) == (1 if role == "admin" else 0)
+        if role == "admin":
+            assert client.get(links[0]["href"]).status_code == 200
+        else:
+            assert "请联系管理员" in content.get_text()
+    expected = 200 if role == "admin" else 403
+    assert client.get("/print_routing", headers={"X-Requested-With": "XMLHttpRequest"}).status_code == expected
+
+
 def _alerts(alert_type=None):
     query = Notification.query
     if alert_type:

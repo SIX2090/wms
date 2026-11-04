@@ -55,7 +55,11 @@
                     <i class="bi bi-exclamation-triangle"></i>
                     <strong>浏览器打印须确认出纸：</strong>关闭或取消打印窗口不能证明打印成功。
                     请检查纸张后确认结果；无人值守打印请在连接打印机的客户端运行 Windows 打印代理，云服务器无需连接打印机。
+                    {% if current_user.role == 'admin' %}
                     <a href="/print_routing">打开打印工作台</a>
+                    {% else %}
+                    需要配置打印工作台时，请联系管理员。
+                    {% endif %}
                     <button type="button" class="btn-close" onclick="document.getElementById('kioskAlert').remove()"></button>
                 </div>
 

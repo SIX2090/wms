@@ -431,3 +431,4 @@ POST_SPLIT_BUGS['BUG-2026-11-04-112'] = 'fixed'  # entry lifecycle;exact deliver
 POST_SPLIT_BUGS['BUG-2026-11-04-113'] = 'fixed'  # unused dependency; release acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-114'] = 'fixed'  # explicit first install; release acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-115'] = 'fixed'  # package UTF8 preservation; release acceptance tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-04-116'] = 'fixed'  # print navigation permissions; production activation tracked separately
