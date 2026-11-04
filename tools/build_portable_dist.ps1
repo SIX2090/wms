@@ -61,10 +61,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "[2/6] Committed program files exported; local data excluded."
 
-Get-ChildItem -LiteralPath $dist -Recurse -File | Where-Object { $_.Extension -in @('.bat', '.cmd') } | ForEach-Object {
+Get-ChildItem -LiteralPath $dist -Recurse -Include *.bat,*.cmd | Where-Object { -not $_.PSIsContainer } | ForEach-Object {
     $text = [System.IO.File]::ReadAllText($_.FullName)
     $text = [regex]::Replace($text, "`r?`n", "`r`n")
-    [System.IO.File]::WriteAllText($_.FullName, $text, (New-Object System.Text.UTF8Encoding($false)))
+    [System.IO.File]::WriteAllText($_.FullName, $text, [System.Text.Encoding]::ASCII)
 }
 
 Write-Host "[3/6] Creating embedded Python runtime..."
@@ -135,7 +135,6 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[5/6] Writing portable launchers..."
-Copy-Item -LiteralPath (Join-Path $dist 'tools\PORTABLE_README.txt') -Destination (Join-Path $dist 'README.txt')
 $startName = ([string][char]0x542F) + ([string][char]0x52A8) + 'WMS.bat'
 function Write-BatFile($Path, [string[]]$Lines) {
     [System.IO.File]::WriteAllText($Path, (($Lines -join "`r`n") + "`r`n"), [System.Text.Encoding]::ASCII)

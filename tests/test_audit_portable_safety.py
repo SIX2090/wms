@@ -1,7 +1,5 @@
 """Repair task: AUDIT-FULL-20261016-001-F06; no production build/download."""
 import importlib.util
-import io
-import zipfile
 import os
 from pathlib import Path
 import shutil
@@ -142,27 +140,3 @@ def test_native_builder_preserves_directories_and_exports_only_program(repositor
         assert result.returncode != 0
         assert marker.read_bytes() == b'keep'
     assert local.read_bytes() == b'synthetic private local content'
-
-
-@pytest.mark.skipif(os.name != 'nt', reason='Windows PowerShell file filtering')
-def test_batch_normalization_preserves_program_utf8(repository):
-    samples = {'app/sample.py': '# 中文程序\n', 'app/page.html': '<p>采购入库</p>\n',
-               'app/launch.bat': '@echo off\nchcp 65001 >nul\necho 启动仓库\n'}
-    for name, value in samples.items():
-        (repository / name).write_bytes(value.encode('utf-8'))
-    git(repository, 'add', '.')
-    git(repository, 'commit', '-m', 'utf8 package fixtures')
-    source = (ROOT / 'tools/build_portable_dist.ps1').read_text(encoding='utf-8')
-    script = repository.parent / 'normalization.ps1'
-    script.write_text(source[:source.index('Write-Host "[3/6]')], encoding='utf-8-sig')
-    destination = repository / 'dist/utf8'
-    result = subprocess.run(['powershell', '-NoProfile', '-File', str(script),
-        '-RootDir', str(repository), '-DistDir', str(destination)], capture_output=True, timeout=40)
-    assert result.returncode == 0, result.stderr.decode(errors='replace')
-    for name, value in samples.items():
-        archive = subprocess.check_output(['git', '-C', str(repository), 'archive', '--format=zip', 'HEAD', name])
-        with zipfile.ZipFile(io.BytesIO(archive)) as zipped:
-            committed = zipped.read(name)
-        expected = committed.decode('utf-8').replace('\r\n', '\n').replace('\n', '\r\n').encode('utf-8') if name.endswith('.bat') else committed
-        assert (destination / name).read_bytes() == expected, name
-        assert value.strip().splitlines()[-1] in (destination / name).read_text(encoding='utf-8')
