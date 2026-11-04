@@ -1028,157 +1028,53 @@ def register_material_routes(app):
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': '修复失败'}), 500
 
-    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/material/delete', methods=['POST'])
     @require_role('warehouse')
     @login_required
     def delete_material():
-        from app import (
-            AdjustmentOrderItem,
-            AfterSaleOutOrderItem,
-            AIDocumentItem,
-            AIMaterialAlias,
-            BOMItem,
-            InOrderItem,
-            InventoryCheckItem,
-            InventoryCheckScanItem,
-            LocationInventory,
-            Material,
-            MaterialImage,
-            OpeningStock,
-            OutOrderItem,
-            ProductionRequisitionItem,
-            PurchaseOrderItem,
-            PurchaseRequestItem,
-            SalesOrderItem,
-            StockTransaction,
-            SubcontractIssueItem,
-            SubcontractItem,
-            SubcontractReceiveItem,
-            TransferOrderItem,
-            api_error,
-            log_audit,
-            log_operation,
-        )
         import json
-        # equest.json ?form data
-        if request.is_json:
-            ids = request.json.get('ids', [])
-        else:
-            #  form data
-            ids_str = request.form.get('ids', '[]')
-            try:
-                ids = json.loads(ids_str)
-            except (json.JSONDecodeError, TypeError):
-                return api_error('删除参数格式错误')
+        from typing import Annotated
+        from pydantic import BaseModel, Field, ValidationError, field_validator
+        from app import api_error, log_audit, log_operation
+        from services.material_delete import delete_unused_materials
 
-        if not ids:
-            return api_error('请选择要删除的物料')
+        class DeleteMaterialsInput(BaseModel):
+            ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(min_length=1, max_length=1000)
 
-        success_count = 0
-        fail_count = 0
-        # BUG-2026-08-16-012：记录被删物料快照，供结构化变更审计
-        _deleted_audit = []
-        # F3.10（审计 §3.4）：记录失败原因，响应中给出明确提示
-        _fail_reasons = []
-
-        for id in ids:
-            material = db.session.get(Material, id)
-            if material:
-                # F3.10：先查物料图片——有图片的物料直接给出明确提示，
-                # 否则 raw DELETE 撞 FK 后只落一个静默的「失败 N 条」。
-                try:
-                    if MaterialImage.query.filter_by(material_id=id).first():
-                        fail_count += 1
-                        _fail_reasons.append(f'{material.code}：存在物料图片')
-                        current_app.logger.info(
-                            f"跳过删除物料 {id}({material.code})：存在物料图片，请先删除图片")
-                        continue
-                except Exception as _e:
-                    current_app.logger.warning(
-                        f"物料 {id} 图片检查跳过（表或字段缺失，视为无图片）: {_e}")
-                # 引用完整性校验：被已完成单据或库存流水引用的物料不允许删除，
-                # 避免历史单据变空壳、审计流水丢失。仅允许删除无业务引用的物料。
-                # 逐表检查并分别 try/except：旧库可能缺少新增的 AI 关联表
-                # （如 ai_material_alias / ai_document_item），若某张表查询抛错，
-                # 只跳过该表（视为无引用），绝不能把整个删除接口打成 500 HTML。
-                _ref_check_models = (
-                    InOrderItem, OutOrderItem, StockTransaction, PurchaseOrderItem,
-                    SalesOrderItem, ProductionRequisitionItem, SubcontractItem,
-                    SubcontractIssueItem, SubcontractReceiveItem, BOMItem,
-                    InventoryCheckItem, AfterSaleOutOrderItem, PurchaseRequestItem,
-                    TransferOrderItem, AdjustmentOrderItem, InventoryCheckScanItem,
-                    OpeningStock, AIMaterialAlias, AIDocumentItem,
-                )
-                _referenced = False
-                for _model in _ref_check_models:
-                    try:
-                        if _model.query.filter_by(material_id=id).first():
-                            _referenced = True
-                            break
-                    except Exception as _e:
-                        current_app.logger.warning(
-                            f"物料 {id} 引用检查跳过 {_model.__name__}（表或字段缺失，视为无引用）: {_e}")
-                        continue
-                if _referenced:
-                    fail_count += 1
-                    _fail_reasons.append(f'{material.code}：存在业务引用')
-                    current_app.logger.info(f"跳过删除物料 {id}({material.code})：存在业务引用，建议改为停用")
-                    continue
-                try:
-                    # 无业务引用时，先清理物料的库位辅助记录，再删除物料主数据。
-                    LocationInventory.query.filter_by(material_id=id).delete()
-                    # 主数据删除改用 raw SQL，避免 db.session.delete(material) 触发
-                    # ORM 级联加载 ai_aliases / ai_document_items 等 backref——
-                    # 旧库若缺这些新增的 AI 关联表，ORM 加载会抛 OperationalError 造成 500。
-                    # 上面的引用检查已确认无业务引用，raw DELETE 不会触发外键冲突。
-                    from sqlalchemy import text as _sa_text
-                    db.session.expunge(material)
-                    db.session.execute(
-                        _sa_text("DELETE FROM material WHERE id = :m_id"),
-                        {"m_id": id},
-                    )
-                    _deleted_audit.append({
-                        'id': id, 'code': material.code, 'name': material.name,
-                        'spec': material.spec or '', 'price': material.price or 0,
-                    })
-                    success_count += 1
-                except Exception as e:
-                    # 单条删除失败必须 rollback，否则 session 进入 PendingRollback 状态，
-                    # 后续所有迭代都会持续失败，且最终 commit 也会失败
-                    db.session.rollback()
-                    current_app.logger.error(f"删除物料 {id} 失败: {str(e)}")
-                    fail_count += 1
-            else:
-                fail_count += 1
+            @field_validator('ids', mode='before')
+            @classmethod
+            def parse_material_ids(cls, value):
+                if not isinstance(value, list):
+                    return value
+                return [int(item) if isinstance(item, str) and item.isascii() and item.isdecimal()
+                        else item for item in value]
 
         try:
-            db.session.commit()
-        except Exception as e:
+            payload = request.get_json(silent=True) if request.is_json else {
+                'ids': json.loads(request.form.get('ids', '[]'))}
+            ids = DeleteMaterialsInput.model_validate(payload).ids
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError):
+            return api_error('请选择要删除的物料，物料ID须为正整数（每次最多1000条）')
+        try:
+            result, snapshots = delete_unused_materials(ids)
+        except Exception:
             db.session.rollback()
-            current_app.logger.error(f'数据库操作失败: {e}')
-            return api_error(f'数据库操作失败: 请稍后重试或联系管理员')
+            current_app.logger.exception('物料清理检查或提交失败，本次未删除任何物料')
+            return api_error('物料引用或库存检查失败，本次未删除任何物料，请稍后重试', 503)
 
-        # 记录操作日志
-        log_operation('删除物料', f'批量删除物料，成功 {success_count} 条，失败 {fail_count} 条', 'material')
-        # BUG-2026-08-16-012：物料删除写结构化变更审计（old_data = 被删物料快照）
-        if _deleted_audit:
-            log_audit(
-                'delete_material', 'material', _deleted_audit[0]['id'],
-                target_name=f'删除物料 {success_count} 条',
-                old_data=_deleted_audit,
-                reason=f'成功 {success_count} 条，失败 {fail_count} 条',
-            )
-
-        if success_count == 0:
-            _detail = ('；' + '；'.join(_fail_reasons[:5])) if _fail_reasons else ''
-            return api_error(f'删除失败，没有物料被删除{_detail}')
-
-        return jsonify({
-            'status': 'success',
-            'msg': f'物料删除完成，成功 {success_count} 条' + (f'，失败 {fail_count} 条' if fail_count > 0 else '')
-                   + (('；' + '；'.join(_fail_reasons[:5])) if _fail_reasons else '')
-        })
+        deleted = result['deleted_count']
+        skipped = result['skipped_count']
+        failed = result['failed_count']
+        message = f'物料清理完成，成功 {deleted} 条，保留 {skipped} 条，失败 {failed} 条'
+        log_operation('删除物料', message, 'material')
+        if snapshots:
+            log_audit('delete_material', 'material', snapshots[0]['id'],
+                      target_name=f'删除物料 {deleted} 条', old_data=snapshots,
+                      reason=f'成功 {deleted} 条，保留 {skipped} 条，失败 {failed} 条')
+        if deleted == 0:
+            reasons = '；'.join(item['code'] + '：' + item['reason'] for item in result['items'][:5])
+            return jsonify(status='error', msg='删除失败，没有物料被删除；' + reasons, data=result), 400
+        return jsonify(status='success', msg=message, data=result)
 
     @app.route('/material/download_template')
     @login_required

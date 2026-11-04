@@ -418,3 +418,5 @@ POST_SPLIT_BUGS['BUG-2026-11-04-201'] = 'fixed'  # category navigation; CI/deplo
 
 POST_SPLIT_BUGS['BUG-2026-11-04-107'] = 'fixed'  # index repair; delivery separately tracked
 POST_SPLIT_BUGS['BUG-2026-11-04-108'] = 'fixed'  # startup Git timeout; delivery separately tracked
+
+POST_SPLIT_BUGS['BUG-2026-11-04-202'] = 'fixed'  # selected unused archive cleanup; CI/deployment tracked separately

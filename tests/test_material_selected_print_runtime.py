@@ -16,12 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 ])
 def test_material_toolbar_selected_print_runtime(scenario):
     source = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
-    toolbar = source[source.index('function getSelectedSingleId()'):
+    toolbar = source[source.index('var materialDeleteBusy = false;'):
                      source.index('function toolbarFindImage()')]
-    # Keep adjacent helpers added before the original single-selection helper.
-    helper = re.search(r'^function getSelectedMaterialIds\([^)]*\) \{.*?^\}', source, re.M | re.S)
-    if helper:
-        toolbar = helper[0] + '\n' + toolbar
     printing = source[source.index('function printLabels()'):source.index('function doPrint()')]
     printing = re.sub(r'\{\{.*?\}\}', '/label/batch_print', printing)
     shared = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
@@ -61,8 +57,8 @@ if(p.scenario==='select_all'){header.checked=true;header.change()}
 if(p.scenario==='clear_all'){header.checked=true;header.change();header.checked=false;header.change()}
 if(p.scenario==='changed_selection'){choose(3);boxes[0].checked=false;boxes[0].change();boxes[3].checked=true;boxes[3].change()}
 const selected=boxes.filter(b=>b.checked).map(b=>b.value);
-for(const id of ['Print','RemotePrint'])assert.equal(nodes['toolbar'+id+'Btn'].disabled,selected.length===0,id);
-for(const id of ['Edit','Copy','FindImage','Delete'])assert.equal(nodes['toolbar'+id+'Btn'].disabled,selected.length!==1,id);
+for(const id of ['Print','RemotePrint','Delete'])assert.equal(nodes['toolbar'+id+'Btn'].disabled,selected.length===0,id);
+for(const id of ['Edit','Copy','FindImage'])assert.equal(nodes['toolbar'+id+'Btn'].disabled,selected.length!==1,id);
 assert.equal(nodes.toolbarMergeBtn.disabled,selected.length<1||selected.length>2);
 ctx.toolbarPrint();ctx.sendLabelsToPrintStation();
 if(selected.length){

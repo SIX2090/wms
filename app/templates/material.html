@@ -25,7 +25,7 @@
             <button class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" onclick="toolbarFindImage()" disabled title="网上找图">
                 <i class="bi bi-image"></i> 找图
             </button>
-            <button class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" onclick="toolbarDelete()" disabled title="删除选中物料">
+            <button class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" onclick="toolbarDelete()" disabled title="删除勾选的未使用物料；有库存或引用的自动保留">
                 <i class="bi bi-trash"></i> 删除
             </button>
             <button class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" onclick="toolbarMerge()" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
@@ -286,6 +286,18 @@
     </div>
 </div>
     </section>
+</div>
+
+<div class="modal fade" id="materialDeleteResultModal" tabindex="-1" aria-labelledby="materialDeleteResultTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="materialDeleteResultTitle">物料清理结果</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
+        <div class="modal-body">
+            <p id="materialDeleteSummary" role="status"></p>
+            <p class="small text-muted">只处理本次勾选的物料。有库存、业务引用或图片的档案自动保留；有删除成功的条目时，关闭本窗口会刷新列表。</p>
+            <div class="table-responsive"><table class="table table-sm table-bordered"><thead><tr><th>物料编码</th><th>物料名称</th><th>结果</th><th>原因</th></tr></thead><tbody id="materialDeleteResults"></tbody></table></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">关闭</button></div>
+    </div></div>
 </div>
 
 <!-- MATERIAL-MERGE-HUMAN-001：选择和判断由人工完成，不自动推荐合并。 -->
@@ -1449,6 +1461,8 @@ function setInputValueIfExists(id, value) {
     if (node) node.value = value;
 }
 
+var materialDeleteBusy = false;
+
 function getSelectedMaterialIds() {
     return Array.from(document.querySelectorAll('#materialTable .check-item:checked'), function(cb) {
         return cb.value;
@@ -1469,7 +1483,7 @@ function updateToolbarButtons() {
     document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
     document.getElementById('toolbarRemotePrintBtn').disabled = !hasSelection;
     document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
-    document.getElementById('toolbarDeleteBtn').disabled = !isSingleSelection;
+    document.getElementById('toolbarDeleteBtn').disabled = !hasSelection || materialDeleteBusy;
     document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
 }
 
@@ -1526,9 +1540,58 @@ function previewMaterialImage(src) {
     modal.show();
 }
 
-function toolbarDelete() {
-    var id = getSelectedSingleId();
-    if (id) deleteItem('{{ url_for("delete_material") }}', parseInt(id));
+function showMaterialDeleteResult(result) {
+    var modalEl = document.getElementById('materialDeleteResultModal');
+    var body = document.getElementById('materialDeleteResults');
+    body.replaceChildren();
+    document.getElementById('materialDeleteSummary').textContent = '已选 ' + result.selected_count + ' 条：已删除 ' +
+        result.deleted_count + ' 条，保留 ' + result.skipped_count + ' 条，失败 ' + result.failed_count + ' 条。';
+    var labels = {deleted: '已删除', skipped: '保留', failed: '失败，已保留'};
+    (result.items || []).forEach(function(item) {
+        var row = document.createElement('tr');
+        [item.code || ('ID ' + item.id), item.name || '', labels[item.status] || '保留', item.reason || ''].forEach(function(value) {
+            var cell = document.createElement('td');
+            cell.textContent = value;
+            row.appendChild(cell);
+        });
+        body.appendChild(row);
+    });
+    modalEl._deleteReload = result.deleted_count > 0;
+    if (!modalEl._deleteResultBound) {
+        modalEl.addEventListener('hidden.bs.modal', function() {
+            if (modalEl._deleteReload) {
+                modalEl._deleteReload = false;
+                window.location.reload();
+            }
+        });
+        modalEl._deleteResultBound = true;
+    }
+    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
+}
+
+async function toolbarDelete() {
+    if (materialDeleteBusy) return;
+    var ids = getSelectedMaterialIds();
+    if (!ids.length) {
+        showToast('请先勾选要清理的物料', 'warning');
+        return;
+    }
+    materialDeleteBusy = true;
+    updateToolbarButtons();
+    try {
+        var confirmed = await showConfirm('确定清理已勾选的 ' + ids.length + ' 条物料吗？\n仅删除未使用、无库存且无引用的档案；已使用、有库存或图片的会自动保留。\n只处理本次勾选项，删除后不能在页面恢复。', {title: '删除未使用物料确认'});
+        if (!confirmed) return;
+        // Selection was captured before confirmation; never expand it to other pages or filters.
+        var result = await WMS.api.post('{{ url_for("delete_material") }}', {ids: ids});
+        showMaterialDeleteResult(result);
+    } catch (err) {
+        var result = err && err.data && err.data.data;
+        if (result && Array.isArray(result.items)) showMaterialDeleteResult(result);
+        else showToast((err && err.message) || '物料清理失败，请稍后重试', 'danger');
+    } finally {
+        materialDeleteBusy = false;
+        updateToolbarButtons();
+    }
 }
 
 // 2026-09-25：物料停用 / 启用。停用只挡「新建单据时能否选到」，历史单据、
