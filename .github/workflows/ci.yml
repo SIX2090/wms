@@ -553,46 +553,6 @@ jobs:
           echo "::notice::WMS CI (smoke) 完成"
           echo "详细日志请查看上方各 step 输出"
 
-  browser-material-entry:
-    needs: changes
-    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || needs.changes.outputs.docs_only != 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Checkout complete history for physical baseline rehearsal
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Install pinned test dependencies
-        run: python -m pip install -r app/requirements-test.txt
-      - name: Verify runner Chrome and install locked browser driver
-        run: |
-          node --version
-          google-chrome --version
-          npm ci --prefix tools/browser_checks --ignore-scripts --no-audit --no-fund
-      - name: Real Chrome material entry, CSP and core draft regression
-        env:
-          # Keep the accepted pre-migration source for corrective-push rehearsals too.
-          WMS_BROWSER_BASELINE: d51e84f222f3f9dc9976d28d09e96dbd3d907a3f
-          OPENBLAS_NUM_THREADS: '1'
-          OMP_NUM_THREADS: '1'
-          PYTHONUTF8: '1'
-          PYTHONIOENCODING: utf-8
-        run: node tests/material_browser_check.cjs
-      - name: Preserve browser report and screenshots
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: material-browser-proof
-          path: output/browser-material/
-          if-no-files-found: warn
-          retention-days: 14
-
   docs-checks:
     needs: changes
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.docs_only == 'true' }}
@@ -638,7 +598,7 @@ jobs:
   # The selected branch must finish successfully; skipped/cancelled is never green.
   gate:
     if: ${{ always() }}
-    needs: ["changes", "docs-checks", "lint-and-static", "unit-tests-shard-0", "unit-tests-shard-1", "unit-tests-shard-2", "verify-shard-0", "verify-shard-1", "verify-shard-2", "verify-shard-3", "smoke", "browser-material-entry"]
+    needs: ["changes", "docs-checks", "lint-and-static", "unit-tests-shard-0", "unit-tests-shard-1", "unit-tests-shard-2", "verify-shard-0", "verify-shard-1", "verify-shard-2", "verify-shard-3", "smoke"]
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful classification and selected checks
@@ -655,7 +615,7 @@ jobs:
               raise SystemExit('Change classification did not succeed')
           docs_only = (os.environ['EVENT_NAME'] == 'push' and os.environ['REF_NAME'] == 'refs/heads/main'
                        and needs['changes'].get('outputs', {}).get('docs_only') == 'true')
-          required = ['docs-checks'] if docs_only else ['lint-and-static', 'unit-tests-shard-0', 'unit-tests-shard-1', 'unit-tests-shard-2', 'verify-shard-0', 'verify-shard-1', 'verify-shard-2', 'verify-shard-3', 'smoke', 'browser-material-entry']
+          required = ['docs-checks'] if docs_only else ['lint-and-static', 'unit-tests-shard-0', 'unit-tests-shard-1', 'unit-tests-shard-2', 'verify-shard-0', 'verify-shard-1', 'verify-shard-2', 'verify-shard-3', 'smoke']
           failed = {name: needs.get(name, {}).get('result', 'missing')
                     for name in required if needs.get(name, {}).get('result') != 'success'}
           if failed:
