@@ -283,12 +283,19 @@ class ExcelTable {
                     // 重新选中单元格
                     this.selectCell(cell);
                 } else {
-                    throw new Error(res.msg || '保存失败');
+                    const error = new Error(res.msg || '保存失败');
+                    error.code = res.code;
+                    throw error;
                 }
             })
             .catch(err => {
                 this.showError(err.message || '保存失败');
                 this.cancelEdit(cell, originalContent, originalValue);
+                if (err.code === 'DOCUMENT_EDIT_CONFLICT' || err.data?.code === 'DOCUMENT_EDIT_CONFLICT') {
+                    // Keep the pending value available to copy/check before refresh.
+                    // Dataset and totals still represent the last accepted value.
+                    this.startEdit(cell, String(newValue));
+                }
                 if (this.options.onError) {
                     this.options.onError(err);
                 }

@@ -809,7 +809,8 @@ def require_role(*roles):
                         return deny('当前账号没有权限访问该页面')
                 elif current_user.role not in allowed:
                     return deny('当前账号没有权限执行此操作')
-            return f(*args, **kwargs)
+            from services.document_edit_guard import guarded_document_write
+            return guarded_document_write(f, *args, **kwargs)
         decorated_function._required_roles = frozenset(allowed)
         return decorated_function
     return decorator

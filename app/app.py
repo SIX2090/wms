@@ -4404,6 +4404,7 @@ def _other_order_navigation(mode, current_id=None):
 
 @app.context_processor
 def inject_query_helpers():
+    from services.document_edit_guard import page_revision
     def url_with_query(**updates):
         args = request.args.to_dict(flat=True)
         for key, value in updates.items():
@@ -4415,6 +4416,7 @@ def inject_query_helpers():
         return f'{request.path}?{query}' if query else request.path
 
     return {
+        'document_revision': page_revision(),
         'url_with_query': url_with_query,
         'other_order_navigation': _other_order_navigation,
         'inventory_alert_enabled': inventory_alert_enabled(),
@@ -26251,7 +26253,7 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
     try:
         if db.engine.dialect.name == 'sqlite':
             # A flushed document receipt already owns the SQLite write transaction.
-            if not (has_request_context() and getattr(g, 'web_document_receipt', None)):
+            if not (has_request_context() and (getattr(g, 'web_document_receipt', None) or getattr(g, 'document_edit_guard', False))):
                 db.session.rollback()
                 db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
             order = db.session.get(model_cls, record_id, options=eager_loads) if eager_loads else db.session.get(model_cls, record_id)

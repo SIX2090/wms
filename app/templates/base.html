@@ -11,6 +11,8 @@
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <!-- CSRF Token -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
+    <meta name="document-revision" content="{{ (document_revision|default({}, true)).get('token', '') }}" data-prefixes="{{ (document_revision|default({}, true)).get('prefixes', '') }}">
+    <script src="{{ url_for('static', filename='js/document-edit-guard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <!-- Bootstrap 5 CSS (本地) -->
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <!-- Bootstrap Icons (本地) -->
@@ -26,8 +28,18 @@
     $.ajaxSetup({
         beforeSend: function(xhr, settings) {
             if (!/^(GET|HEAD|OPTIONS|TRACE)$/i.test(settings.type) && !this.crossDomain) {
+                var revisionMeta = document.querySelector('meta[name="document-revision"]');
+                if (!window.WmsDocumentRevision && revisionMeta && revisionMeta.content && revisionMeta.getAttribute && revisionMeta.getAttribute('data-prefixes')) {
+                    wmsGlobalErrorToast('页面组件未加载完成，请保留输入并刷新后重试');
+                    return false;
+                }
                 xhr.setRequestHeader("X-CSRFToken", $('meta[name="csrf-token"]').attr('content'));
+                var revision = window.WmsDocumentRevision ? window.WmsDocumentRevision.tokenFor(settings.url, settings.type) : '';
+                if (revision) xhr.setRequestHeader('X-WMS-Document-Revision', revision);
             }
+        },
+        complete: function(xhr) {
+            if (window.WmsDocumentRevision) window.WmsDocumentRevision.acceptResponse(xhr);
         }
     });
     // F2.14 全局错误提示（节流 3s，避免并发失败刷屏）：优先复用 app.js 的 toast
@@ -79,10 +91,19 @@
                     }
                 }
             }
+            if (window.WmsDocumentRevision) {
+                init.headers = window.WmsDocumentRevision.headers(inputUrl, init.method || (input && input.method), init.headers || (input && input.headers));
+            } else {
+                var revisionMeta = document.querySelector('meta[name="document-revision"]');
+                if (revisionMeta && revisionMeta.content && revisionMeta.getAttribute && revisionMeta.getAttribute('data-prefixes') && !/^(GET|HEAD|OPTIONS)$/i.test(init.method || (input && input.method) || 'GET')) {
+                    return Promise.reject(new Error('页面组件未加载完成，请保留输入并刷新后重试'));
+                }
+            }
             var promise = originalFetch.call(this, input, init);
             // Global 401/419 handler: session expired → prompt re-login once
             if (promise && typeof promise.then === 'function') {
                 promise.then(function(resp) {
+                    if (window.WmsDocumentRevision) window.WmsDocumentRevision.acceptResponse(resp);
                     if ((resp.status === 401 || resp.status === 419) && !window.__wmsSessionExpiredShown) {
                         window.__wmsSessionExpiredShown = true;
                         if (window.confirm('登录已过期或会话失效，请重新登录。点击确定跳转到登录页面。')) {
