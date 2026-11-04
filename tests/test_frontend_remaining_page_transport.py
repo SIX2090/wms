@@ -11,7 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def callback(page, marker, start_at=0):
-    source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    path = ROOT / ('app/static/js/pages/material-add.js' if page == 'material_add' else f'app/templates/{page}.html')
+    source = path.read_text(encoding='utf-8')
     start = source.index(marker, start_at)
     brace = source.index('{', start)
     depth, quote, escaped = 0, None, False
@@ -41,12 +42,15 @@ def test_page_actions_preserve_payload_and_retry_after_failures(action, scenario
     dependencies = ''
     if action in ('material', 'unit'):
         form = 'addMaterialForm' if action == 'material' else 'addUnitForm'
-        source = (ROOT / 'app/templates/material_add.html').read_text(encoding='utf-8')
+        source = (ROOT / 'app/static/js/pages/material-add.js').read_text(encoding='utf-8')
         offset = source.index(f"getElementById('{form}').addEventListener('submit'")
         # Select the real listener, excluding unrelated page initialization.
         handler = callback('material_add', 'function(e)', offset)
+        dependencies = callback('material_add', 'function withPendingForm(')
         if action == 'material':
-            dependencies = callback('material_add', 'function resolveMaterialRelation(')
+            dependencies += '\n' + callback('material_add', 'function resolveMaterialRelation(')
+        else:
+            dependencies += '\n' + callback('material_add', 'function closeUnitModal(')
     elif action == 'label_add':
         handler = callback('label_template', 'function(e)')
     elif action in ('label_delete', 'label_default'):
@@ -58,7 +62,7 @@ const vm=require('node:vm'), assert=require('node:assert/strict'), p=JSON.parse(
 let requests=[],messages=[],reloads=0,removed=0,confirmed=0;let responseScenario=p.scenario;
 class FormData {constructor(form){this.form=form;}get(k){return 'PCS';}}
 const btn={disabled:false,innerHTML:'保存'}, fields={marginTop:{value:'3'},marginRight:{value:'4'},marginBottom:{value:'5'},marginLeft:{value:'6'}};
-const ctx={FormData,Headers,document:{querySelector:s=>s.includes('csrf-token')?{content:'fixture-csrf'}:btn,getElementById:id=>fields[id]||{remove(){removed++;}}},
+const ctx={FormData,Headers,document:{querySelector:s=>s.includes('csrf-token')?{content:'fixture-csrf'}:btn,getElementById:id=>fields[id]||{remove(){removed++;},focus(){}}},
 showToast:(m,t)=>messages.push({m,t}),alert:m=>messages.push({m,t:'manual'}),confirm:()=>{confirmed++;return true;},setTimeout(){},
 location:{href:'original',reload(){reloads++;}},units:[],unitSearch:{value:''},unitIdHidden:{value:''},layoutData:{'0-0':{field:'code',label:'编号',style:{}}},_savingLayout:false,
 fetch:(url,options)=>{requests.push({url,options});const status=responseScenario==='http'?400:responseScenario==='html'?503:responseScenario==='expired401'?401:responseScenario==='expired419'?419:200;
@@ -69,7 +73,7 @@ if(p.dependencies){
  vm.runInContext(p.dependencies,ctx);
 }
 vm.runInContext('var handler='+p.handler+';',ctx);
-async function invoke(){const result=ctx.handler.call({id:'fixture-form'},{preventDefault(){}});await result;await new Promise(r=>setImmediate(r));}
+async function invoke(){const result=ctx.handler.call({id:'fixture-form',dataset:{},setAttribute(){},querySelectorAll(){return [btn];},querySelector(){return null;}},{preventDefault(){}});await result;await new Promise(r=>setImmediate(r));}
 (async()=>{if(p.action==='label_delete'||p.action==='label_default'){ctx.run=()=>ctx.handler(7);await ctx.run();await new Promise(r=>setImmediate(r));}else await invoke();
 assert.equal(requests.length,1);const first=requests[0],headers=new Headers(first.options.headers);assert.equal(first.options.method,'POST');assert.equal(first.options.credentials,'same-origin');assert.equal(headers.get('X-CSRFToken'),'fixture-csrf');
 if(['material','unit','label_add'].includes(p.action)){assert(first.options.body instanceof FormData);assert(!headers.has('Content-Type'));}
