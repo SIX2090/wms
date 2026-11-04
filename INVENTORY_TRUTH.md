@@ -3,6 +3,7 @@
 > 2026-11-04：随请求幂等事务修复同步启动回填函数定位；库存规则不变。
 
 > **文档定位**：本文件回答一个问题——**这个系统里的"库存"到底以哪份数据为准？**
+> 2026-11-04：随敏感配置加密失败保护修复同步启动回填函数行号；库存规则与回填逻辑未改变。
 > 与 [`AGENTS.md`](./AGENTS.md)、[`WMS_BUSINESS_SCOPE.md`](./WMS_BUSINESS_SCOPE.md)、[`WMS_BUG_BASELINE.md`](./WMS_BUG_BASELINE.md) 配套使用。
 > 2026-11-02：随重复单据检测修复校准启动回填函数行号；库存规则与回填逻辑未变。
 > 2026-11-03：随浏览器补测修复同步函数行号引用，库存口径不变。
@@ -255,7 +256,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29851`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29856`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -418,8 +419,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:29851`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:29851`，符合 §3.2）——
+> （`app/app.py:29856`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:29856`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

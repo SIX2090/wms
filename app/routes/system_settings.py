@@ -43,7 +43,7 @@ def register_system_settings_routes(app):
     @login_required
     @require_role('admin')
     def save_system_settings():
-        from app import (SYSTEM_SETTING_DEFINITIONS, _secret_encrypt, api_error,
+        from app import (SYSTEM_SETTING_DEFINITIONS, SecretEncryptionError, _secret_encrypt, api_error,
                          get_system_setting, location_management_enabled,
                          log_operation, set_system_setting)
         from services.warehouse_stock_service import find_location_ledger_mismatches
@@ -116,6 +116,10 @@ def register_system_settings_routes(app):
             content = '更新参数：' + ('、'.join(changed) if changed else '无变化')
             log_operation('保存系统设置', content, 'system_settings', 0)
             return jsonify({'status': 'success', 'msg': '系统参数已保存'})
+        except SecretEncryptionError:
+            db.session.rollback()
+            app.logger.error('敏感配置加密失败，本次设置已回滚')
+            return api_error('敏感配置加密失败，本次设置未保存，请检查服务配置后重试', 503)
         except Exception as exc:
             db.session.rollback()
             app.logger.error(f'保存系统设置失败: {exc}')

@@ -190,6 +190,7 @@
 | AI-C13-FIX-SUPPLIER-TRANSPORT-20261102-001 | ai | completions-2026-11.md |
 | AI-BROWSER-AUDIT-FIX-20261103-001 | ai | completions-2026-11.md |
 | AI-C02-FIX-SKILL-CATALOG-001 | ai | completions-2026-11.md |
+| AI-SEC-FIX-SECRET-FAIL-CLOSED-20261104-001 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -705,6 +706,7 @@
 | BUG-2026-11-04-103 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-104 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-105 | bugs | entries-2026-11.md |
+| BUG-2026-11-04-106 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

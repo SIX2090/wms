@@ -12900,12 +12900,16 @@ def _ai_llm_enabled(overrides=None):
         return override == '1'
     return get_system_setting_bool('ai_llm_enabled', bool(app.config.get('WMS_LLM_ENABLED', True)))
 
+class SecretEncryptionError(RuntimeError):
+    """Sensitive settings must not be saved when encryption is unavailable."""
+
+
 def _secret_encrypt(plain):
     """BUG-2026-08-16-019：用 Fernet 对称加密 API Key 等敏感配置。
 
     密钥由 SECRET_KEY 派生（SHA-256 后 base64），SECRET_KEY 由环境变量或
     instance/secret_key 持久化文件提供，同一实例内稳定。返回值带 'enc:' 前缀。
-    加密失败时原样返回不阻断功能（调用方负责告警）。
+    加密失败时拒绝保存；异常不携带原始密钥或加密组件错误内容。
     """
     if not plain:
         return plain
@@ -12913,11 +12917,12 @@ def _secret_encrypt(plain):
         import hashlib
         from cryptography.fernet import Fernet
         _raw = str(app.config.get('SECRET_KEY') or '')
+        if not _raw.strip():
+            raise ValueError('Missing encryption key')
         _key = base64.urlsafe_b64encode(hashlib.sha256(_raw.encode('utf-8')).digest())
         return 'enc:' + Fernet(_key).encrypt(plain.encode('utf-8')).decode('ascii')
     except Exception:
-        app.logger.warning('secret 加密失败，将以明文保存（请检查 SECRET_KEY 配置）', exc_info=True)
-        return plain
+        raise SecretEncryptionError('敏感配置加密失败') from None
 
 def _secret_decrypt(stored):
     """解密 'enc:' 前缀的密文；无前缀的值（历史明文）原样返回，向后兼容。"""
