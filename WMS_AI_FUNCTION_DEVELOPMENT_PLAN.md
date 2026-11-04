@@ -1876,3 +1876,5 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 2026-11-04 AI-C02-FIX-SKILL-CATALOG-001：既有 AI-C02 工具注册表的技能目录子修复，关联 BUG-2026-11-04-103。已查重现有代码、台账和历史，无等价子修复；仅将失效 get_all_tools 调用改为 list_ai_tool_specs，分类采用 audit_category。不增工具、路由、权限、模型、开关或人工确认动作。状态：软件实现及针对性验证完成，统一推送及精确 CI 待验收；见 docs/audit/2026-11-04-confirmed-bug-batch.md。
 
 2026-11-04 AI-DEPLOY-F01-FIX-05：既有启动自动更新能力的超时子修复，关联BUG-2026-11-04-108。全仓查重既有FIX-01～04、启动调用链及供应链/备份测试，无等价超时保护；仅为Git探测和执行添加等待上限，超时跳过更新，不新增AI模型、工具、路由、开关、迁移或业务权限。状态：软件实现及本地针对性验证通过，统一提交推送与精确CI验收见[本批记录](docs/audit/2026-11-04-index-and-git-timeout.md)指向的final-attestation.json；该回执生成前不标记整批完成。人工确认边界不变，生产未操作。
+
+2026-11-04 AI-DEPLOY-F01-FIX-06：进行中，既有启动更新备份子修复，关联BUG-2026-11-04-110/111。已查重FIX-01～05及备份门禁、源码与安装/更新消费点，修正特殊路径和失败发布，不新增模型、工具、路由、开关、迁移或业务权限。完整CI及交付回执前不标已完成，见[IMP-03记录](docs/audit/2026-11-04-imp03-release-and-recovery.md)。生产与人工确认边界不变。

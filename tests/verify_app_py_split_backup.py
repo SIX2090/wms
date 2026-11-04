@@ -55,6 +55,13 @@ def isolate_registered_backup_sources(tmp_path, monkeypatch):
     import backup_catalog
     monkeypatch.setenv('WMS_BACKUP_DIR', str(tmp_path / 'daily'))
     monkeypatch.setattr(backup_catalog, 'UPDATE_BACKUP_DIR', tmp_path / 'update')
+    originals = {name: getattr(app_module, name) for name in (
+        'BACKUP_DIR', 'get_database_file_path', 'create_sqlite_online_backup')}
+    try:
+        yield
+    finally:
+        for name, original in originals.items():
+            setattr(app_module, name, original)
 
 
 def _reset_db():
@@ -95,7 +102,7 @@ class TestBackupRegister:
         app_module.BACKUP_DIR = self._backup_dir
         app_module.get_database_file_path = lambda: self._db_path
         # 隔离真实 sqlite 备份逻辑：测试环境使用临时内存库，直接重写为写文件
-        app_module.create_sqlite_online_backup = lambda src, dst: open(dst, "wb").write(b"backup")
+        app_module.create_sqlite_online_backup = lambda src, dst: Path(dst).write_bytes(b"backup")
         return _make_client()
 
     def test_endpoints_and_urls(self):

@@ -65,6 +65,7 @@ def layout(tmp_path):
     for name in ['online_backup.py', 'restore_backup.py']:
         shutil.copyfile(ROOT / 'scripts' / name, package / 'scripts' / name)
     shutil.copyfile(ROOT / 'app/runtime_guard.py', package / 'app/runtime_guard.py')
+    shutil.copyfile(ROOT / 'app/sqlite_snapshot.py', package / 'app/sqlite_snapshot.py')
     with closing(database(target / 'instance/inventory.db')):
         pass
     return target, package, profile

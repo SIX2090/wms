@@ -51,6 +51,7 @@ def repo(tmp_path):
     (seed / 'app/requirements.txt').write_bytes(b'')
     (seed / 'app/restart.py').write_text('raise SystemExit(1)\n', encoding='utf-8')
     shutil.copyfile(ROOT / 'scripts/online_backup.py', seed / 'scripts/online_backup.py')
+    shutil.copyfile(ROOT / 'app/sqlite_snapshot.py', seed / 'app/sqlite_snapshot.py')
     (seed / '.gitignore').write_text('app/instance/\ninstance/\nbackups/\n*.flag\n*.marker\n__pycache__/\n', encoding='utf-8')
     (seed / 'README.txt').write_text('old\n', encoding='utf-8')
     old = commit(seed, 'old')
@@ -417,7 +418,7 @@ def test_windows_batch_faults_preserve_service_or_report_start_failure(tmp_path,
     (work / 'app').mkdir()
     (work / 'scripts').mkdir()
     for name in ['scripts/update_from_github.py', 'scripts/online_backup.py',
-                 'app/service_control.py', 'update_from_github.bat']:
+                 'app/service_control.py', 'app/sqlite_snapshot.py', 'update_from_github.bat']:
         shutil.copyfile(ROOT / name, work / name)
     (work / 'app/requirements.txt').write_bytes(b'')
     (work / 'app/restart.py').write_text(

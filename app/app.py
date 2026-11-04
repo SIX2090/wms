@@ -3437,15 +3437,8 @@ def backup_sqlite_on_startup():
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     backup_path = backup_dir / f'auto_startup_{timestamp}.db'
     try:
-        with sqlite3.connect(str(db_path)) as src_conn, sqlite3.connect(str(backup_path)) as dst_conn:
-            src_conn.backup(dst_conn)
-        check_conn = sqlite3.connect(str(backup_path))
-        try:
-            result = check_conn.execute('PRAGMA quick_check').fetchone()
-            if not result or result[0] != 'ok':
-                raise OSError(f'启动备份完整性校验失败: {result[0] if result else "no result"}')
-        finally:
-            check_conn.close()
+        from sqlite_snapshot import create_snapshot
+        create_snapshot(db_path, backup_path)
         try:
             keep = max(1, int(os.environ.get('WMS_STARTUP_BACKUP_KEEP', '10')))
         except (TypeError, ValueError):
@@ -3456,11 +3449,7 @@ def backup_sqlite_on_startup():
             _remove_backup_with_sidecars(old_backup)
         app.logger.info('Startup database backup created: %s', backup_path.name)
     except Exception:
-        app.logger.exception('Startup database backup failed')
-        try:
-            _remove_backup_with_sidecars(backup_path)
-        except Exception:
-            pass
+        app.logger.exception('Startup database backup failed; earlier backups preserved')
 
 with app.app_context():
     backup_sqlite_on_startup()
@@ -35511,21 +35500,9 @@ def get_database_file_path():
     return path
 
 def create_sqlite_online_backup(source_path, backup_path):
-    """Create a consistent SQLite backup while the app is running."""
-    source = Path(source_path).resolve()
-    target = Path(backup_path).resolve()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    source_uri = f'file:{source.as_posix()}?mode=ro'
-
-    src_conn = sqlite3.connect(source_uri, uri=True, timeout=30)
-    try:
-        dst_conn = sqlite3.connect(str(target), timeout=30)
-        try:
-            src_conn.backup(dst_conn)
-        finally:
-            dst_conn.close()
-    finally:
-        src_conn.close()
+    """Publish a verified snapshot; failed attempts preserve the previous backup."""
+    from sqlite_snapshot import create_snapshot
+    create_snapshot(source_path, backup_path)
 
 # ==================== Export routes ====================
 

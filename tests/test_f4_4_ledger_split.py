@@ -422,3 +422,6 @@ POST_SPLIT_BUGS['BUG-2026-11-04-108'] = 'fixed'  # startup Git timeout; delivery
 POST_SPLIT_BUGS['BUG-2026-11-04-202'] = 'fixed'  # selected unused archive cleanup; CI/deployment tracked separately
 
 POST_SPLIT_BUGS['BUG-2026-11-04-109'] = 'fixed'  # stale web edits; delivery separately tracked
+
+POST_SPLIT_BUGS['BUG-2026-11-04-110'] = 'fixed'  # software fix; exact delivery separately tracked
+POST_SPLIT_BUGS['BUG-2026-11-04-111'] = 'fixed'  # source URI; exact delivery separately tracked

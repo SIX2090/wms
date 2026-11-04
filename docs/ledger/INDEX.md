@@ -192,6 +192,7 @@
 | AI-C02-FIX-SKILL-CATALOG-001 | ai | completions-2026-11.md |
 | AI-SEC-FIX-SECRET-FAIL-CLOSED-20261104-001 | ai | completions-2026-11.md |
 | AI-DEPLOY-F01-FIX-05 | ai | completions-2026-11.md |
+| AI-DEPLOY-F01-FIX-06 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -713,6 +714,8 @@
 | BUG-2026-11-04-108 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-202 | bugs | entries-2026-11.md |
 | BUG-2026-11-04-109 | bugs | entries-2026-11.md |
+| BUG-2026-11-04-110 | bugs | entries-2026-11.md |
+| BUG-2026-11-04-111 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

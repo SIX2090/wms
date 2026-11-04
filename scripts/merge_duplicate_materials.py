@@ -18,6 +18,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+
 DEDUPE_CONFLICT_SQL = '''
 SELECT lower(replace(replace(trim(coalesce(name,'')), ' ', ''), char(12288), '')) k_name,
        lower(replace(replace(trim(coalesce(spec,'')), ' ', ''), char(12288), '')) k_spec,
@@ -35,7 +37,7 @@ INDEX_DDL = (
 
 
 def connect(path, readonly):
-    uri = 'file:' + path.replace('\\', '/') + ('?mode=ro' if readonly else '?mode=rw')
+    uri = Path(path).resolve().as_uri() + ('?mode=ro' if readonly else '?mode=rw')
     conn = sqlite3.connect(uri, uri=True, timeout=60)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA busy_timeout=60000')
@@ -88,10 +90,8 @@ def backup(conn, db_path, backup_dir):
     backup_dir = Path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
     target = backup_dir / ('manual_merge_%s.db' % datetime.now().strftime('%Y%m%d_%H%M%S'))
-    dst = sqlite3.connect(str(target))
-    with dst:
-        conn.backup(dst)
-    dst.close()
+    from sqlite_snapshot import snapshot_connection
+    snapshot_connection(conn, target)
     return str(target)
 
 

@@ -19,6 +19,7 @@ AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 / AI-DEPLOY-F01-FIX-02:
 # AI_TASK: AI-DEPLOY-F01-FIX-01
 # AI_TASK: AI-DEPLOY-F01-FIX-02
 # AI_FIX_TASK: AI-DEPLOY-F01-FIX-05
+# AI_FIX_TASK: AI-DEPLOY-F01-FIX-06
 from __future__ import annotations
 
 import datetime
@@ -200,7 +201,7 @@ def backup_database() -> bool:
     改用 sqlite3 在线备份 API（与 app.py create_sqlite_online_backup 同一语义）：
     以只读 URI 打开源库，通过 backup() 在源库读一致性快照，拷贝期间业务写入不阻断。
     本模块是独立脚本（run_server.py 在业务模块加载前调用），不能 import app，
-    故用标准库 sqlite3 内联实现。
+    故复用仅标准库的sqlite_snapshot，不加载业务模块。
     """
     import sqlite3
 
@@ -213,24 +214,8 @@ def backup_database() -> bool:
     stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = backup_dir / f"before_auto_update_{stamp}_inventory.db"
     try:
-        source_uri = f"file:{db.resolve().as_posix()}?mode=ro"
-        src_conn = sqlite3.connect(source_uri, uri=True, timeout=30)
-        try:
-            dst_conn = sqlite3.connect(str(dest), timeout=30)
-            try:
-                src_conn.backup(dst_conn)
-            finally:
-                dst_conn.close()
-        finally:
-            src_conn.close()
-        # 备份完整性校验：坏备份比没备份更危险（给人虚假安全感）。
-        check_conn = sqlite3.connect(str(dest), timeout=30)
-        try:
-            result = check_conn.execute("PRAGMA integrity_check").fetchone()
-            if not result or result[0] != "ok":
-                raise OSError(f"备份完整性校验失败: {result[0] if result else 'no result'}")
-        finally:
-            check_conn.close()
+        from sqlite_snapshot import create_snapshot
+        create_snapshot(db, dest)
         log(f"数据库已备份(在线一致性快照): {dest}")
         return True
     except (OSError, sqlite3.Error) as e:

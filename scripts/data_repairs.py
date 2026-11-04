@@ -22,12 +22,13 @@ import argparse
 import json
 import sqlite3
 import sys
+from pathlib import Path
 
 DEDUPE_KEY = ("lower(replace(replace(trim(coalesce({col},'')), ' ', ''), char(12288), ''))")
 
 
 def _connect(path, readonly):
-    uri = 'file:' + path.replace('\\', '/') + ('?mode=ro' if readonly else '?mode=rw')
+    uri = Path(path).resolve().as_uri() + ('?mode=ro' if readonly else '?mode=rw')
     conn = sqlite3.connect(uri, uri=True, timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
