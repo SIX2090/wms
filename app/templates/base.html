@@ -371,6 +371,7 @@
         });
     })();
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/copyright.css') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}{% if request.args.get('embedded') == '1' %} embedded-page{% endif %}">
     <header class="mobile-topbar no-print">
@@ -834,6 +835,7 @@
         <div class="tab-workspace" id="tabWorkspace">
             <div class="tab-bar" id="tabBar" aria-label="已打开页面"></div>
             <div class="tab-frame-wrap" id="tabFrameWrap"></div>
+            {% include '_copyright_footer.html' %}
         </div>
         <div class="embedded-content">
             <nav aria-label="面包屑" class="wms-breadcrumb no-print" id="wmsBreadcrumb" hidden>

@@ -1,0 +1,41 @@
+name: WMS 问题反馈
+description: 报告录单、扫码、库存查询、打印或安装过程中遇到的问题
+title: "[BUG] "
+body:
+  - type: markdown
+    attributes:
+      value: "感谢反馈。请勿上传数据库、密码、客户资料等敏感信息；截图请先遮挡。也可联系微信 OK1949-2024。"
+  - type: input
+    id: version
+    attributes:
+      label: WMS 版本
+      placeholder: "例如：2026.11.1；不知道可填写未知"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 使用环境
+      placeholder: "例如 Windows 11 + Edge，或 Android 手机型号与系统版本"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎样出现这个问题？
+      description: "写明页面、点击的按钮和操作顺序。"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 你希望出现什么结果？
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际发生了什么？
+      description: "可添加错误文字、脱敏截图；是否每次都出现？"
+    validations:
+      required: true
