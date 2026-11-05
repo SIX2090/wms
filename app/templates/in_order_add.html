@@ -129,7 +129,7 @@
                 </div></div>
                 <div class="col-md-3"><div class="mb-2">
                     <label class="form-label">合同编号</label>
-                    <input class="form-control" name="contract_no" maxlength="50" value="{{ prefill.contract_no or '' }}">
+                    <input class="form-control" name="contract_no" maxlength="50" data-product-contract autocomplete="off" value="{{ prefill.contract_no or '' }}">
                 </div></div>
                 <div class="col-md-6"><div class="mb-2">
                     <label class="form-label">工程名称</label>
@@ -242,6 +242,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/product-receipt-contract.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>

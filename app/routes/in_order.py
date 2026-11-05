@@ -143,6 +143,15 @@ def _parse_item_expiry_date(value):
         return None, '有效期格式不正确，应为 YYYY-MM-DD'
 
 
+def _product_header_project(business_type, contract_no, project_name):
+    """Fill a missing product-header project from an exact contract master match."""
+    if business_type != '产品入库' or project_name or not contract_no:
+        return project_name
+    from app import Contract
+    contract = Contract.query.filter_by(contract_no=contract_no).first()
+    return contract.project_name if contract else project_name
+
+
 def _in_order_print_title(order):
     """Use the saved business type consistently across built-in print outputs."""
     return (getattr(order, 'business_type', None) or '采购入库') + '单'
@@ -889,7 +898,8 @@ def register_in_order_routes(app):
         order.purpose = (data.get('purpose') or '').strip()
         # 合同编号/工程名称：入库单（含反提交后的草稿）允许修改
         order.contract_no = (data.get('contract_no') or '').strip() or None
-        order.project_name = (data.get('project_name') or '').strip() or None
+        order.project_name = _product_header_project(
+            order.business_type, order.contract_no, (data.get('project_name') or '').strip()) or None
         warehouse = (data.get('warehouse') or '').strip()
         # P1-6：仓库参数统一为 warehouse_id（前端传 ID，仓库改名不失配）。
         # 旧客户端/脚本仍传 warehouse 名称，故两者都收、ID 优先；校验函数
@@ -1115,6 +1125,7 @@ def register_in_order_routes(app):
         contract_id = (data.get('contract_id') if request.is_json else request.form.get('contract_id'))
         contract_no = ((data.get('contract_no') if request.is_json else request.form.get('contract_no')) or '').strip()
         project_name = ((data.get('project_name') if request.is_json else request.form.get('project_name')) or '').strip()
+        project_name = _product_header_project(business_type, contract_no, project_name)
 
         # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
         # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。

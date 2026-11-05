@@ -634,7 +634,7 @@
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-medium">合同编号</label>
-                            <input class="form-control" name="contract_no" maxlength="50" value="{{ order.contract_no or '' }}" placeholder="请输入合同编号">
+                            <input class="form-control" name="contract_no" maxlength="50" {% if order.business_type == '产品入库' %}data-product-contract{% endif %} autocomplete="off" value="{{ order.contract_no or '' }}" placeholder="请输入合同编号">
                         </div>
                         <div class="col-md-6">
                             <label class="form-label fw-medium">工程名称</label>
@@ -762,6 +762,7 @@ MAT003,20,10.00"></textarea>
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/product-receipt-contract.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 
 
