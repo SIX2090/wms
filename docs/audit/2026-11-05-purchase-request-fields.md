@@ -65,3 +65,19 @@
 写入前d79ea82b的完整CI [41955404275](https://github.com/SIX2090/wms/actions/runs/41955404275)、AI [41955404189](https://github.com/SIX2090/wms/actions/runs/41955404189)已全部success；Android复用证明不变。两种供应商分支新增页面联查与合同/工程/备注断言在原模板均失败，修后6模块109 passed；不以只校验数据库替代实际页面验收。待精确新CI、最终发布包和生产统一验收。
 
 实际操作入口：申请单详情点“审批通过”，再点顶部“生成采购单”（全部未下推数量），或在物料明细勾选行、填写“本次下推”数量后点“选中下推采购单”。申请的“单据联查”及“下游采购单”可点开采购单；采购单“来源申请”可返回申请。只有从申请下推的采购订单自动建立来源关联，手工新增不会自动匹配。
+
+
+## 最终上线验收（2026-11-05 10:46，Asia/Shanghai）
+
+本节为最终状态，替代上文开发阶段的“待确认/尚未执行”记录。
+
+- 发布代码及界面：f70826cf7a4d6d35103af2f4b355e1ca305dbb1c；本地main、origin/main及GitHub API核对一致。普通Git推送停在凭据管理器，终止本次认证等待后通过已连接GitHub通道上传；所有blob和完整tree与本地提交一致，expected_sha保护main更新，无强推。
+- 精确完整CI：WMS CI [41956661365](https://github.com/SIX2090/wms/actions/runs/41956661365)、AI [41956661370](https://github.com/SIX2090/wms/actions/runs/41956661370) completed/success。Android [41937038001](https://github.com/SIX2090/wms/actions/runs/41937038001)成功5a753090为目标祖先且相关目录及工作流无差异。前批d79ea82b也已全绿。
+- 最终发布包759份源文件逐份核对Git blob、38份界面文件核对SHA256。独立合成97表环境原生预检及编译模板通过；启动业务行读取被保护阻断，网络/凭据/文件/进程启动副作用计数均0。没有复制生产库或凭据到测试环境。
+- 真实Chrome完成申请新增、合同搜索选择、工程带入、备注手填/复制/保存/重开/清空、真实零库存0.00；随后实际确认审批、选择第2行下推数量1，采购订单明细正确显示合同/工程/备注，采购单来源申请链接1个、申请侧下游链接2个均存在。测试均为合成数据，未对生产做登录POST、审批或下推。
+- 打印最终发布包生成16行2页PDF，逐页图像确认表格边线、序号、分页、公司抬头、固定制表人与手工备注，空规格留白；HTML分页0/1/15/16/31行通过。最终包HTTP冒烟119/119。
+- 生产备份：production-before-pr-20261105-104554.db，使用scripts/online_backup.py的SQLite在线一致性快照，完整性检查通过；SHA256为2b1a3eee98953861c11d18867907412c419063bcb84beaa213d720c9148bdde5。未使用文件复制代替在线备份。
+- 用户明确授权后，仅执行两条ALTER TABLE，为purchase_request_item新增contract_no VARCHAR(50)、project_name VARCHAR(200)，均可空、无默认值。原列定义逐项不变，事务内完整性检查ok，total_changes=0；无UPDATE/DELETE、回填、恢复、库存或账号操作。备注沿用原remark列，未新增第三列。
+- 生产预检使用原生SQLite只读元数据与完整结构检查，schema_check=passed、无监听；随后沿用原WMS-Warehouse任务切换至C:/wms_releases/20261105_pr_final_f70826cf，10:46:19健康，25.51秒切换窗口。单监听8080，PID4296，后台和界面版本均为f70826cf。
+- 本机127.0.0.1:8080与外网gd2026.top的/login、/healthz、app.js共6次匿名GET全部200；版本头精确一致，app.js内容哈希与发布清单一致。未登录或写入生产测试单据；原C:/wms的未提交源代码改动未覆盖。
+- 外置审阅证据：pr-final-release-ci.json、pr105-fixed-prepare.json、pr105-fixed-lab-startup.json、pr105-lab-preflight.log、pr105-browser.log、pr105-push-browser.log、pr105-pdf-browser.log、pr105-final-package-smoke.log、pr-schema-helper-rehearsal.json、pr-production-schema.json、pr-production-preflight.log、pr-activation-result.json、pr-production-attestation.json，均位于C:/wms_backups/column_settings_20261105。旧6455045e发布包保留，可回退应用；不得擅自删除新增列或恢复生产数据库。
