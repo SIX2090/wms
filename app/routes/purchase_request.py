@@ -28,17 +28,10 @@ import json
 
 from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
-
-
-class PurchaseRequestContractFields(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
-    contract_no: str | None = Field(default=None, max_length=50, strict=True)
-    project_name: str | None = Field(default=None, max_length=200, strict=True)
 
 
 # no-test:reason=路由注册辅助函数，能力由 purchase_request_* 各路由测试覆盖
@@ -152,8 +145,7 @@ def register_purchase_request_routes(app):
                 item,
                 price=item.estimated_price or 0,
                 amount=item.estimated_amount or 0,
-                extra={'supplier': item.supplier.name if item.supplier else (item.supplier_name or ''),
-                       'contract_no': item.contract_no or '', 'project_name': item.project_name or ''}
+                extra={'supplier': item.supplier.name if item.supplier else (item.supplier_name or '')}
             )
             for item in valid_items
         ]
@@ -184,8 +176,6 @@ def register_purchase_request_routes(app):
                 ('price', '预计单价', 'right money'),
                 ('amount', '预计金额', 'right money'),
                 ('supplier', '推荐供应商', ''),
-                ('contract_no', '合同编号', ''),
-                ('project_name', '工程名称', ''),
                 ('remark', '备注', ''),
             ],
             'rows': rows,
@@ -300,9 +290,7 @@ def register_purchase_request_routes(app):
                             received_quantity=0,
                             price=price,
                             amount=round_to_2_decimals(quantity * price),
-                            remark=req_item.remark or '',
-                            contract_no=req_item.contract_no,
-                            project_name=req_item.project_name,
+                            remark=req_item.remark or ''
                         ))
 
                     db.session.flush()
@@ -357,9 +345,7 @@ def register_purchase_request_routes(app):
                     received_quantity=0,
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
-                    remark=req_item.remark or '',
-                    contract_no=req_item.contract_no,
-                    project_name=req_item.project_name,
+                    remark=req_item.remark or ''
                 ))
 
             db.session.flush()
@@ -435,8 +421,6 @@ def register_purchase_request_routes(app):
                 'estimated_price': float(item.estimated_price or 0),
                 'supplier_id': item.supplier_id or (item.supplier.id if item.supplier else None),
                 'supplier_name': item.supplier.name if item.supplier else (item.supplier_name or ''),
-                'contract_no': item.contract_no or '',
-                'project_name': item.project_name or '',
             })
         return render_template(
             'purchase_request_add.html',
@@ -534,14 +518,6 @@ def register_purchase_request_routes(app):
             if not valid_items_data:
                 return api_error('请至少添加一条采购明细')
 
-            contract_fields = []
-            for row_no, item_data in enumerate(valid_items_data, start=1):
-                try:
-                    contract_fields.append(PurchaseRequestContractFields.model_validate(item_data))
-                except ValidationError:
-                    db.session.rollback()
-                    return api_error(f'第 {row_no} 行合同编号必须为不超过50字的文本，工程名称必须为不超过200字的文本')
-
             for existing_item in list(request_order.items):
                 db.session.delete(existing_item)
             db.session.flush()
@@ -626,8 +602,6 @@ def register_purchase_request_routes(app):
                     estimated_amount=estimated_amount,
                     supplier_id=supplier_id,
                     supplier_name=supplier_name or None,
-                    contract_no=contract_fields[row_no - 1].contract_no or None,
-                    project_name=contract_fields[row_no - 1].project_name or None,
                     remark=(item_data.get('remark') or '').strip()
                 )
                 db.session.add(item)
@@ -825,8 +799,6 @@ def register_purchase_request_routes(app):
             'quantity': ['数量'],
             'price': ['预估单价', '单价', '价格'],
             'supplier': ['推荐供应商', '供应商'],
-            'contract_no': ['合同编号', '合同单号'],
-            'project_name': ['工程名称'],
             'remark': ['备注'],
         }
         try:
@@ -886,14 +858,6 @@ def register_purchase_request_routes(app):
                 supplier = _find_or_create_supplier(supplier_name)
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
                 amount = round_to_2_decimals(quantity * price)
-                try:
-                    fields = PurchaseRequestContractFields.model_validate({
-                        'contract_no': _get_excel_cell(row, col_map, 'contract_no'),
-                        'project_name': _get_excel_cell(row, col_map, 'project_name'),
-                    })
-                except ValidationError:
-                    db.session.rollback()
-                    return api_error(f'第 {row_idx} 行合同编号或工程名称超过允许长度')
                 order.total_amount = (order.total_amount or 0) + amount
                 db.session.add(PurchaseRequestItem(
                     purchase_request_id=order.id,
@@ -907,8 +871,6 @@ def register_purchase_request_routes(app):
                     estimated_amount=amount,
                     supplier_id=supplier.id if supplier else None,
                     supplier_name=supplier.name if supplier else supplier_name or None,
-                    contract_no=fields.contract_no or None,
-                    project_name=fields.project_name or None,
                     remark=_get_excel_cell(row, col_map, 'remark'),
                 ))
                 item_count += 1

@@ -206,8 +206,6 @@
                             <th>预估单价</th>
                             <th>预估金额</th>
                             <th>推荐供应商</th>
-                            <th>合同编号</th>
-                            <th>工程名称</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -264,18 +262,16 @@
                             <td>¥{{ "%.2f"|format(item.estimated_price or 0) }}</td>
                             <td>¥{{ "%.2f"|format(item.estimated_amount or 0) }}</td>
                             <td>{{ item.supplier.name if item.supplier else (item.supplier_name or '-') }}</td>
-                            <td>{{ item.contract_no or '' }}</td>
-                            <td>{{ item.project_name or '' }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="{{ 20 if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) else 17 }}" class="text-center text-muted">暂无明细</td></tr>
+                        <tr><td colspan="{{ 18 if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) else 15 }}" class="text-center text-muted">暂无明细</td></tr>
                         {% endfor %}
                     </tbody>
                     <tfoot>
                         <tr>
                             <td colspan="{{ 16 if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) else 13 }}" class="text-end"><strong>合计：</strong></td>
                             <td><strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</strong></td>
-                            <td colspan="3"></td>
+                            <td></td>
                         </tr>
                     </tfoot>
                 </table>
