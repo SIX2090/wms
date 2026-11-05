@@ -470,6 +470,7 @@ textarea.form-control {
                             <th style="width: 120px;" data-column-key="supplier">推荐供应商<span class="col-resize"></span></th>
                             <th style="width: 150px;" data-column-key="contract_no">合同编号<span class="col-resize"></span></th>
                             <th style="width: 180px;" data-column-key="project_name">工程名称<span class="col-resize"></span></th>
+                            <th style="width: 200px;" data-column-key="remark">备注<span class="col-resize"></span></th>
                             <th class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>
                         </tr>
                     </thead>
@@ -479,7 +480,7 @@ textarea.form-control {
                         <tr class="total-row">
                             <td colspan="8" class="text-end"><strong>合计：</strong></td>
                             <td class="amount-col" data-column-key="estimated_amount"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
-                            <td colspan="4"></td>
+                            <td colspan="5"></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -589,8 +590,9 @@ function addNewRow(insertBeforeRow = null, data = {}) {
                 <div class="supplier-dropdown" style="display:none;"></div>
             </div>
         </td>
-        <td data-column-key="contract_no"><input type="text" class="form-control contract-no" maxlength="50" aria-label="合同编号"></td>
-        <td data-column-key="project_name"><input type="text" class="form-control project-name" maxlength="200" aria-label="工程名称"></td>
+        <td data-column-key="contract_no"><input type="text" class="form-control contract-no line-contract-no" maxlength="50" aria-label="合同编号" title="输入合同编号或工程名称搜索合同档案" autocomplete="off"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control project-name line-project-name" maxlength="200" aria-label="工程名称" readonly></td>
+        <td data-column-key="remark"><input type="text" class="form-control line-remark" maxlength="200" aria-label="明细备注"></td>
         <td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
@@ -604,6 +606,10 @@ function addNewRow(insertBeforeRow = null, data = {}) {
     }
     bindMaterialInput(row);
     bindSupplierInput(row);
+    if (window.WMS && WMS.ContractAutocomplete) WMS.ContractAutocomplete.bindRow(row);
+    row.querySelector('.contract-no').addEventListener('input', function() {
+        row.querySelector('.project-name').value = '';
+    });
     fillRowData(row, data);
     updateRowAmount(row);
     renumberRows();
@@ -629,6 +635,7 @@ function fillRowData(row, data) {
     row.querySelector('.supplier-name').value = data.supplier_name || data.supplier || '';
     row.querySelector('.contract-no').value = data.contract_no || '';
     row.querySelector('.project-name').value = data.project_name || '';
+    row.querySelector('.line-remark').value = data.remark || '';
 }
 
 function bindMaterialInput(row) {
@@ -963,6 +970,7 @@ function copyRowAfter(row) {
     target.querySelector('.supplier-name').value = row.querySelector('.supplier-name').value;
     target.querySelector('.contract-no').value = row.querySelector('.contract-no').value;
     target.querySelector('.project-name').value = row.querySelector('.project-name').value;
+    target.querySelector('.line-remark').value = row.querySelector('.line-remark').value;
     updateRowAmount(target);
     target.querySelector('.quantity').focus();
     target.querySelector('.quantity').select();
@@ -1017,7 +1025,8 @@ function collectItems() {
             supplier_id: supplierIdInput.value || null,
             supplier_name: supplierNameInput.value.trim(),
             contract_no: row.querySelector('.contract-no').value.trim(),
-            project_name: row.querySelector('.project-name').value.trim()
+            project_name: row.querySelector('.project-name').value.trim(),
+            remark: row.querySelector('.line-remark').value.trim()
         };
     }).filter(function(item) {
         return item.material_id || item.material_code || item.material_name;
@@ -1131,7 +1140,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 estimated_amount: 100,
                 supplier: 120,
                 contract_no: 150,
-                project_name: 180
+                project_name: 180,
+                remark: 200
             }
         });
     }
