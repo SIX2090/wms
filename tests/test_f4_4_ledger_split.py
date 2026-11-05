@@ -436,3 +436,4 @@ POST_SPLIT_BUGS['BUG-2026-11-04-117'] = 'fixed'  # warehouse-scoped paste; deliv
 POST_SPLIT_BUGS['BUG-2026-11-04-118'] = 'fixed'  # zero-stock filter residue; delivery and activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-119'] = 'fixed'  # runtime dependency gate; delivery and activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-04-120'] = 'fixed'  # remember-cookie security; delivery and activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-05-101'] = 'fixed'  # column settings naming; exact delivery and activation tracked separately

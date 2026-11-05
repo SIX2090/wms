@@ -29,15 +29,15 @@
     </details>
     {% if kind == 'summary' %}
     <details class="position-relative" id="columnSettingsBtn">
-        <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-columns"></i> 字段设置</summary>
+        <summary class="btn btn-outline-secondary btn-sm"><i class="bi bi-list-columns"></i> 栏目设置</summary>
         <div class="position-absolute bg-white border rounded shadow p-2 mt-1" style="z-index:1040;min-width:150px;">
-            {% for table, label in [('salesReportCustomerTable','客户汇总字段'),('salesReportMaterialTable','物料汇总字段'),('salesReportSalespersonTable','业务员汇总字段'),('salesReportDrillTable','钻取明细字段')] %}
+            {% for table, label in [('salesReportCustomerTable','客户汇总栏目'),('salesReportMaterialTable','物料汇总栏目'),('salesReportSalespersonTable','业务员汇总栏目'),('salesReportDrillTable','钻取明细栏目')] %}
             <button type="button" class="btn btn-sm btn-light d-block w-100 text-start" data-report-fields="{{ table }}">{{ label }}</button>
             {% endfor %}
         </div>
     </details>
     {% else %}
-    <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示、隐藏及调整报表字段"><i class="bi bi-list-columns"></i> 字段设置</button>
+    <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示、隐藏及调整报表栏目"><i class="bi bi-list-columns"></i> 栏目设置</button>
     {% endif %}
 </div>
 {% endmacro %}
