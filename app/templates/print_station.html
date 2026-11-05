@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="wms-external-operations" content="{{ 'paused' if runtime_external_paused else 'available' }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>打印工作站 - WMS</title>
@@ -32,6 +33,7 @@
     </style>
 </head>
 <body>
+    {% include "_runtime_pause_notice.html" %}
     <div class="container station-card">
         <div class="card shadow-sm">
             <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
@@ -309,6 +311,12 @@
         notPrintedBtn.addEventListener('click', function() { settlePrintResult(false); });
 
         // 启动
+        var deployment = document.querySelector('meta[name="wms-external-operations"]');
+        if (deployment && deployment.content === 'paused') {
+            document.getElementById('btnToggle').disabled = true;
+            log('当前部署暂停设备队列，未启动轮询或认领任务。', 'warn');
+            return;
+        }
         log('打印工作站已启动，开始轮询...', 'success');
         setConn(true);
         refreshStats();

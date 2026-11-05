@@ -24702,6 +24702,9 @@ def _wechat_share_master_enabled():
     全部拦截。单独关某条 config 的 enabled 只停该条定时，总开关在发送
     入口统一把关，且不影响微信分享配置的保存/日志查看。
     """
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused():
+        return False
     raw = str(get_system_setting('wechat_share_enabled', '1') or '1').strip().lower()
     return raw not in ('0', 'false', 'off', 'no', '')
 
@@ -24710,6 +24713,11 @@ def _wechat_share_default_config():
     config = WechatShareConfig.query.order_by(WechatShareConfig.id.asc()).first()
     if config:
         return config
+
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused():
+        return WechatShareConfig(enabled=False, auto_send=False, immediate_on_complete=False,
+                                 share_time='15:30', receiver_type='person', share_in_order=True)
 
     config = WechatShareConfig(
         sender_name='',
@@ -24784,6 +24792,9 @@ def _wechat_share_cleanup_old_images(retention_days=None):
 
 def _wechat_share_cleanup_old_images_daily():
     """每日最多执行一次的图片清理（供每分钟 scheduler 调用）。"""
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused():
+        return 0
     today = date.today()
     if _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] == today:
         return 0
@@ -25046,6 +25057,9 @@ _WECHAT_SHARE_HEALTH_CACHE_TTL_SECONDS = 30
 
 
 def _wechat_share_get_helper_health(config):
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused():
+        return {'online': False, 'ok': False, 'message': '当前部署已暂停微信助手联网探测'}
     health = {
         'configured': bool((config.helper_url or '').strip() or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()),
         'online': False,

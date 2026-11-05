@@ -29,6 +29,16 @@ from utils import require_role
 
 # no-test:reason=路由注册辅助函数，能力由 system_settings_* 各路由测试覆盖
 def register_system_settings_routes(app):
+    from services.runtime_status import initialize_runtime_status
+    initialize_runtime_status(app)
+
+    @app.route('/system_status')
+    @login_required
+    @require_role('admin')
+    def system_runtime_status():
+        from services.runtime_status import get_runtime_status
+        return render_template('system_status.html', runtime=get_runtime_status())
+
     @app.route('/system_settings')
     @login_required
     @require_role('admin')

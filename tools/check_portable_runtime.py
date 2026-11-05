@@ -47,6 +47,10 @@ def verify_package(package):
                    WMS_BACKUP_DIR=str(root / 'backups'), UPLOAD_FOLDER=str(root / 'uploads'))
         subprocess.run([python, str(root / 'tools/check_runtime_dependencies.py')],
                        cwd=root, env=env, check=True, timeout=60)
+        # Keep the existing dependency gate first, then verify the complete artifact
+        # in this empty reconstruction before imports or synthetic initialization.
+        subprocess.run([python, str(root / 'tools/manage_release_manifest.py'), 'verify', '--root', str(root)],
+                       cwd=root, env=env, check=True, timeout=120)
         subprocess.run([python, '-c', 'import flask, flask_sqlalchemy, flask_wtf, pandas, numpy, openpyxl, PIL, pydantic, cryptography, waitress; import importlib.util; assert importlib.util.find_spec("flasgger") is None'], env=env, check=True, timeout=60)
         initializer = [python, str(root / 'tools/init_portable_database.py'), '--initialize']
         subprocess.run(initializer, cwd=root, env=env, check=True, timeout=120)

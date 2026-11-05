@@ -146,7 +146,7 @@
             </dl>
             <div class="mobile-location-list" id="locationList" hidden></div>
             <a id="materialDetailLink" class="btn btn-outline-primary mobile-scan-print" href="/mobile/material">查看全部物料信息</a>
-            <button type="button" class="btn btn-outline-primary mobile-scan-print" id="printLabelBtn" hidden>
+            <button type="button" class="btn btn-outline-primary mobile-scan-print" id="printLabelBtn" hidden {% if runtime_external_paused %}disabled title="当前部署暂停设备队列"{% endif %}>
                 <i class="bi bi-printer"></i> 打印物料标签
             </button>
         </article>

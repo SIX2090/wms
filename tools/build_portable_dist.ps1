@@ -1,6 +1,7 @@
 param(
     [string]$RootDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
-    [string]$DistDir = ''
+    [string]$DistDir = '',
+    [switch]$PauseExternalOperations
 )
 
 $ErrorActionPreference = 'Stop'
@@ -217,6 +218,22 @@ Write-Host "[6/6] Smoke testing embedded runtime..."
 if ($LASTEXITCODE -ne 0) {
     throw 'Portable runtime smoke test failed.'
 }
+
+$sourceSha = (& git -C $root rev-parse HEAD).Trim()
+if ($LASTEXITCODE -ne 0) { throw 'Cannot identify committed package source.' }
+$releaseArgs = @((Join-Path $dist 'tools\manage_release_manifest.py'), 'create',
+    '--root', $dist, '--source-sha', $sourceSha,
+    '--runtime-report', (Join-Path $dist 'runtime-dependencies.json'))
+foreach ($entry in @('app', 'tools', 'python', 'README.txt', 'WMS.bat', $startName,
+                    'setup_first_run.bat', 'open_login.bat', 'stop_wms.bat', 'runtime-dependencies.json')) {
+    $releaseArgs += @('--include', $entry)
+}
+if (Test-Path (Join-Path $dist 'WMS.exe')) { $releaseArgs += @('--include', 'WMS.exe') }
+if ($PauseExternalOperations) { $releaseArgs += '--external-operations-paused' }
+& $pythonExe @releaseArgs
+if ($LASTEXITCODE -ne 0) { throw 'Complete release identity could not be sealed.' }
+& $pythonExe (Join-Path $dist 'tools\manage_release_manifest.py') verify --root $dist
+if ($LASTEXITCODE -ne 0) { throw 'Complete release identity verification failed.' }
 
 Write-Host ''
 Write-Host '============================================================'

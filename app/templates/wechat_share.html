@@ -41,9 +41,10 @@
 {% endblock %}
 
 {% block content %}
+{% include "_runtime_pause_notice.html" %}
 <div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
     <h2 class="mb-0"><i class="bi bi-wechat"></i> 微信分享</h2>
-    <button data-wechat-write type="button" class="btn btn-primary" onclick="runWechatShareNow(false)">
+    <button data-wechat-write type="button" class="btn btn-primary" onclick="runWechatShareNow(false)" {% if runtime_external_paused %}disabled title="当前部署暂停发送"{% endif %}>
         <i class="bi bi-send"></i> 立即分享今日入库单
     </button>
 </div>
@@ -57,6 +58,7 @@
             <div class="card-body">
                 <form id="wechatShareForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <fieldset {% if runtime_external_paused %}disabled{% endif %}>
                     <div class="row g-3">
                         <div class="col-12">
                             <div class="border rounded p-3 {% if master_enabled %}border-success{% else %}border-danger bg-light{% endif %}">
@@ -158,6 +160,7 @@
                             <i class="bi bi-arrow-repeat"></i> 重新生成并再次发送今日入库单
                         </button>
                     </div>
+                </fieldset>
                 </form>
             </div>
         </div>
@@ -368,7 +371,7 @@
                         </td>
                         <td>
                             {% if log.module_key == 'in_order' and log.image_path %}
-                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})">
+                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})" {% if runtime_external_paused %}disabled title="当前部署暂停发送"{% endif %}>
                                 <i class="bi bi-send"></i> 重发
                             </button>
                             {% else %}

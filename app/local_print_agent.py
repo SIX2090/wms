@@ -618,6 +618,10 @@ def start_local_print_agent(app, base_url: str):
     - 本进程尚未启动过（幂等）
     """
     global _started
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused(app):
+        log.info('当前部署已暂停设备队列，内置打印代理不启动')
+        return None
     if os.environ.get('WMS_LOCAL_PRINT_AGENT', '').strip().lower() in _DISABLE_VALUES:
         log.info('WMS_LOCAL_PRINT_AGENT 已关闭，内置打印代理不启动')
         return None

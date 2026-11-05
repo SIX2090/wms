@@ -3,6 +3,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="wms-external-operations" content="{{ 'paused' if runtime_external_paused else 'available' }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
     <!-- 禁用浏览器缓存 -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
@@ -634,7 +635,7 @@
                 <div class="module-flyout">
                     <div class="flyout-title">系统管理</div>
                     <a class="flyout-link" href="/system_settings"><i class="bi bi-sliders"></i> 系统设置</a>
-                    <a class="flyout-link" href="/print_routing"><i class="bi bi-pc-display"></i> 打印工作台路由</a>
+                    <a class="flyout-link" href="/print_routing"><i class="bi bi-pc-display"></i> 打印工作台路由{% if runtime_external_paused %}<span class="badge text-bg-warning ms-1">队列暂停</span>{% endif %}</a>
                     <a class="flyout-link" href="/print_alerts"><i class="bi bi-bell"></i> 打印告警</a>
                     <a class="flyout-link" href="/print_templates"><i class="bi bi-file-earmark-spreadsheet"></i> Excel打印模板中心</a>
                     <a class="flyout-link" href="/ai/ops"><i class="bi bi-activity"></i> AI运维看板</a>
@@ -644,7 +645,7 @@
                     <a class="flyout-link" href="/user"><i class="bi bi-person-gear"></i> 用户管理</a>
                     <a class="flyout-link" href="/approval"><i class="bi bi-check2-square"></i> 审批中心</a>
                     <a class="flyout-link" href="/operation_audit"><i class="bi bi-shield-check"></i> 操作审计</a>
-                    <a class="flyout-link" href="/wechat_share"><i class="bi bi-wechat"></i> 微信分享</a>
+                    <a class="flyout-link" href="/wechat_share"><i class="bi bi-wechat"></i> 微信分享{% if runtime_external_paused %}<span class="badge text-bg-warning ms-1">暂停</span>{% endif %}</a>
                     <a class="flyout-link" href="/backup"><i class="bi bi-database"></i> 数据备份</a>
                 </div>
             </li>
@@ -810,12 +811,12 @@
                 </button>
                 <ul class="submenu-list">
                     <li><a class="nav-link" href="/system_settings"><i class="bi bi-circle"></i> 系统设置</a></li>
-                    <li><a class="nav-link" href="/print_routing"><i class="bi bi-circle"></i> 打印工作台路由</a></li>
+                    <li><a class="nav-link" href="/print_routing"><i class="bi bi-circle"></i> 打印工作台路由{% if runtime_external_paused %}<span class="badge text-bg-warning ms-1">队列暂停</span>{% endif %}</a></li>
                     <li><a class="nav-link" href="/print_alerts"><i class="bi bi-circle"></i> 打印告警</a></li>
                     <li><a class="nav-link" href="/user"><i class="bi bi-circle"></i> 用户管理</a></li>
                     <li><a class="nav-link" href="/approval"><i class="bi bi-circle"></i> 审批中心</a></li>
                     <li><a class="nav-link" href="/operation_audit"><i class="bi bi-circle"></i> 操作审计</a></li>
-                    <li><a class="nav-link" href="/wechat_share"><i class="bi bi-circle"></i> 微信分享</a></li>
+                    <li><a class="nav-link" href="/wechat_share"><i class="bi bi-circle"></i> 微信分享{% if runtime_external_paused %}<span class="badge text-bg-warning ms-1">暂停</span>{% endif %}</a></li>
                     <li><a class="nav-link" href="/backup"><i class="bi bi-circle"></i> 数据备份</a></li>
                 </ul>
             </li>

@@ -467,6 +467,9 @@ def auto_print_on_submit_enabled():
     巡检把滞留的自动来源 pending 任务自动作废。
     """
     from app import get_system_setting_bool
+    from services.runtime_status import external_operations_paused
+    if external_operations_paused():
+        return False
     return get_system_setting_bool('auto_print_on_submit', True)
 
 

@@ -19,7 +19,7 @@
             <button class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" onclick="toolbarPrint()" disabled title="打印标签">
                 <i class="bi bi-printer"></i> 打印
             </button>
-            <button class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" onclick="sendLabelsToPrintStation()" disabled title="发送标签到桌面打印工作站">
+            <button class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" onclick="sendLabelsToPrintStation()" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
                 <i class="bi bi-printer-fill"></i> 发送打印
             </button>
             <button class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" onclick="toolbarFindImage()" disabled title="网上找图">
@@ -1481,7 +1481,8 @@ function updateToolbarButtons() {
     document.getElementById('toolbarEditBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarCopyBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
-    document.getElementById('toolbarRemotePrintBtn').disabled = !hasSelection;
+    const remotePrintButton = document.getElementById('toolbarRemotePrintBtn');
+    remotePrintButton.disabled = !hasSelection || remotePrintButton.dataset?.runtimePaused === '1';
     document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarDeleteBtn').disabled = !hasSelection || materialDeleteBusy;
     document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;

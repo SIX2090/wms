@@ -509,6 +509,8 @@ wechat_helper_token
 
 运行依赖已移除未使用的 Flasgger。准备新的离线包时，应在全新 wheelhouse 中按 `app/requirements.txt` 下载完整依赖及 pip/setuptools/wheel，不能把旧包文件存在当作仍需安装的依据。生产需重启 WMS 服务生效。
 
-便携版 `2026.11.1` 首次使用：解压到新目录，双击 `setup_first_run.bat` 并选择 Y，创建空业务库；再双击 `启动WMS.bat`。已有数据库时初始化入口会拒绝操作，不会重置账号或覆盖单据。默认首次账号为 admin，密码遵循既有 WMS_BOOTSTRAP_PASSWORD 或 admin 规则，登录后按页面要求修改。旧安装升级不要执行首次初始化。
+便携版 `2026.11.2` 首次使用：解压到新目录，双击 `setup_first_run.bat` 并选择 Y，创建空业务库；再双击 `启动WMS.bat`。已有数据库时初始化入口会拒绝操作，不会重置账号或覆盖单据。默认首次账号为 admin，密码遵循既有 WMS_BOOTSTRAP_PASSWORD 或 admin 规则，登录后按页面要求修改。旧安装升级不要执行首次初始化。
+
+2026-11-05：新发布包包含 `wms-release.json`，绑定源码来源、覆盖清单、全部封存文件、Python与固定依赖；启动前验证，拒绝文件缺失、篡改、额外注入及解释器/依赖漂移。管理员在“系统参数 → 发布与运行状态”查看完整身份及非敏感配置指纹。未登记清单的旧部署明确显示未登记；不把本地Git提交当成线上完整身份。受保护部署会在微信和设备入口显示暂停状态，停止设备认领及外部发送，普通部署保留原业务开关。制作、核验与恢复边界见[发布身份及暂停状态](docs/RELEASE_IDENTITY.md)。生产需重启 WMS 服务生效；新包发行不自动切换现有生产。
 
 Windows 预览发行由 `Windows Portable Release` 工作流生成：仅打包当前 main 且通过完整 CI 的精确提交，重新下载离线依赖、验证临时副本首次安装与启动，再上传 ZIP 和 SHA256 校验文件到 [GitHub Releases](https://github.com/SIX2090/wms/releases)。发行包不含用户数据库、账号配置或密钥；自动发布不等于更新已有生产服务。相同版本标签不重复发布，后续发行需递增 `app/version.py`。

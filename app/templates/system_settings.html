@@ -110,6 +110,7 @@
         <h2 class="mb-1"><i class="bi bi-sliders"></i> 系统参数</h2>
         <div class="text-muted small">统一管理会直接影响业务行为的系统级参数。</div>
     </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('system_runtime_status') }}"><i class="bi bi-info-circle"></i> 发布与运行状态</a>
 </div>
 
 {% set ns = namespace(total_settings=0) %}

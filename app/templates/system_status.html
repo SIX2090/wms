@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}发布与运行状态{% endblock %}
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <h2 class="mb-0"><i class="bi bi-info-circle"></i> 发布与运行状态</h2>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-primary" href="{{ url_for('system_runtime_status') }}">刷新状态</a>
+        <a class="btn btn-outline-secondary" href="{{ url_for('system_settings_page') }}">返回系统参数</a>
+    </div>
+</div>
+{% if not runtime.registered %}
+<div class="alert alert-warning" role="status">当前运行未登记完整发布制品。不能据此页确认源码、覆盖文件及依赖已经对应同一份清单；请由管理员通过发布工具封存并验证。</div>
+{% else %}
+<div class="alert alert-success" role="status">发布制品启动校验通过。下方制品标识同时绑定程序文件、覆盖清单、Python及固定依赖；配置指纹只包含列出的非敏感运行状态。</div>
+{% endif %}
+{% include "_runtime_pause_notice.html" %}
+<div class="card mb-3"><div class="card-header">发布身份</div><div class="card-body">
+    <dl class="row mb-0 text-break">
+        <dt class="col-sm-3">制品 SHA256</dt><dd class="col-sm-9" id="runtimeArtifactId">{{ runtime.artifact_id or '未登记' }}</dd>
+        <dt class="col-sm-3">源码来源提交</dt><dd class="col-sm-9">{{ runtime.source_sha or '未登记' }}</dd>
+        <dt class="col-sm-3">界面来源提交</dt><dd class="col-sm-9">{{ runtime.ui_sha or '未登记' }}</dd>
+        <dt class="col-sm-3">已校验文件</dt><dd class="col-sm-9">{{ runtime.file_count }} 份，其中覆盖文件 {{ runtime.overlay_file_count }} 份</dd>
+        <dt class="col-sm-3">运行环境</dt><dd class="col-sm-9">Python {{ runtime.python_version }}；固定依赖 {{ runtime.dependency_count }} 项，{{ '实际版本及关键导入已核对' if runtime.runtime_verified else '未绑定发布清单' }}</dd>
+        <dt class="col-sm-3">启动校验时间</dt><dd class="col-sm-9">{{ runtime.checked_at }}（北京时间）</dd>
+        <dt class="col-sm-3">当前配置指纹</dt><dd class="col-sm-9">{{ runtime.config_fingerprint }}</dd>
+    </dl>
+</div></div>
+<div class="card"><div class="card-header">实际功能边界</div><div class="card-body">
+    <p id="runtimeExternalStatus">微信发送与设备队列：<strong>{{ '当前部署暂停' if runtime.external_operations_paused else '部署层未暂停，仍受业务开关、权限及设备状态控制' }}</strong></p>
+    <p>单据登记、查询、模板预览、浏览器直接打印和导出继续使用各自入口与权限。</p>
+    <p>恢复微信发送和设备队列须分别确认配置、目标收件人或设备，并安排单独验收；此页只读，不提供一键恢复。</p>
+    <ul class="mb-0">
+        <li>会话 Cookie：Secure={{ runtime.safe_config.session_cookie_secure }}，HttpOnly={{ runtime.safe_config.session_cookie_httponly }}，SameSite={{ runtime.safe_config.session_cookie_samesite or '未配置' }}</li>
+        <li>启动自动数据库维护：{{ '已禁止（不代表运行期数据库只读）' if runtime.safe_config.startup_db_maintenance_disabled else '未通过环境开关禁止' }}</li>
+    </ul>
+</div></div>
+{% endblock %}
