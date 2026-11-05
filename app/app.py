@@ -9504,8 +9504,6 @@ def _contract_delete_blockers(contract):
     """检查合同是否被业务单据引用，返回阻断原因列表。"""
     blockers = []
     refs = []
-    if contract.contract_no and PurchaseRequestItem.query.filter_by(contract_no=contract.contract_no).count() > 0:
-        refs.append('采购申请单(明细行合同编号)')
     if InOrder.query.filter_by(contract_id=contract.id).count() > 0:
         refs.append('采购入库单(头)')
     # M-05：明细行的 contract_id / contract_no 字符串引用也要校验，避免硬删后历史明细合同字段悬空
@@ -9556,7 +9554,7 @@ def sync_contract_project_name(contract_id, old_contract_no, new_contract_no,
 
     冗余字段消费点全量收口（R6 同类点不留遗漏）：InOrder / InOrderItem /
     OutOrder / OutOrderItem / AfterSaleOutOrderItem / PurchaseOrder /
-    PurchaseOrderItem / SalesOrder / SalesOrderItem / PurchaseRequestItem 共 10 张表。
+    PurchaseOrderItem / SalesOrder / SalesOrderItem 共 9 张表。
 
     匹配口径（与 _contract_delete_blockers 一致，两种引用方式都要命中）：
     - `contract_id == contract_id`（外键引用）；
@@ -9568,7 +9566,7 @@ def sync_contract_project_name(contract_id, old_contract_no, new_contract_no,
     """
     models = (InOrder, InOrderItem, OutOrder, OutOrderItem,
               AfterSaleOutOrderItem, PurchaseOrder, PurchaseOrderItem,
-              SalesOrder, SalesOrderItem, PurchaseRequestItem)
+              SalesOrder, SalesOrderItem)
     result = {}
     if not old_contract_no and not contract_id:
         return result
