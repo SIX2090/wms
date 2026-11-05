@@ -9,7 +9,7 @@
 
 测试用例：
   T1. GET /in_order/add 渲染 200（模板无 Jinja/JS 结构性破坏）
-  T2. 保留的按钮仍在（添加物料/选采购单/复制上一行/粘贴导入/刷新物料/批量修改/字段设置）
+  T2. 保留的按钮仍在（添加物料/选采购单/复制上一行/粘贴导入/刷新物料/批量修改/栏目设置）
   T3. 被删的按钮与函数不再出现（最近使用/存为模板/选择模板/templateSelect/
       showRecentMaterials/saveAsTemplate/loadTemplate/recordRecentMaterial）
 """
@@ -37,7 +37,7 @@ from app import db, Warehouse, User  # noqa: E402
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
-KEPT = ["添加物料", "选采购单", "复制上一行", "粘贴导入", "刷新物料", "批量修改", "字段设置"]
+KEPT = ["添加物料", "选采购单", "复制上一行", "粘贴导入", "刷新物料", "批量修改", "栏目设置"]
 REMOVED = [
     "最近使用", "存为模板", "选择模板", "templateSelect",
     "showRecentMaterials", "saveAsTemplate", "loadTemplate", "recordRecentMaterial",
