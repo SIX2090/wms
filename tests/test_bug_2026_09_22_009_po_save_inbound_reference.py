@@ -22,6 +22,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import sys
 from pathlib import Path
@@ -119,7 +120,7 @@ def _make_client(role="purchase"):
                                 role=role, must_change_password=False))
             db.session.commit()
     client = app_module.app.test_client()
-    client.post("/login", data={"username": role, "password": "admin"},
+    document_post(client,"/login", data={"username": role, "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
     return client
 
@@ -156,7 +157,7 @@ def test_t1_header_level_reference_blocks_save():
         payload = _save_payload(seed_data["po_id"], seed_material)
         material_code = seed_material.code
 
-    resp = client.post("/purchase_order/save", json=payload)
+    resp = document_post(client,"/purchase_order/save", json=payload)
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "error", f"有下游入库引用时保存必须被拒，实际 {data}"
@@ -188,7 +189,7 @@ def test_t2_item_level_reference_blocks_save():
         material = db.session.get(Material, seed_data["material_id"])
         payload = _save_payload(seed_data["po_id"], material)
 
-    resp = client.post("/purchase_order/save", json=payload)
+    resp = document_post(client,"/purchase_order/save", json=payload)
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "error", \
@@ -219,7 +220,7 @@ def test_t3_no_reference_allows_save():
         payload = _save_payload(seed_data["po_id"], material, quantity=12,
                                 remark="正常改量改备注")
 
-    resp = client.post("/purchase_order/save", json=payload)
+    resp = document_post(client,"/purchase_order/save", json=payload)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "success", f"无引用时保存必须放行，实际 {data}"

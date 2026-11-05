@@ -22,7 +22,8 @@ data class OpeningStockDto(
     val quantity: Double?,
     val price: Double?,
     val amount: Double?,
-    val remark: String? = null
+    val remark: String? = null,
+    val revision: String? = null
 )
 
 /** 期初库存单行明细（扫码录入）。 */
@@ -65,7 +66,8 @@ data class OpeningStockListData(
 data class OpeningStockUpdateRequest(
     val quantity: Double? = null,
     val price: Double? = null,
-    val remark: String? = null
+    val remark: String? = null,
+    val revision: String? = null
 )
 
 /** 期初库存编辑响应（data）。[delta] 是本次数量变动差额，供提示"减少 40"。 */

@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import sys
 import re
@@ -83,7 +84,7 @@ def _make_client():
     login_page = client.get("/login").get_data(as_text=True)
     m = re.search(r'name="csrf_token".*?value="([^"]+)"', login_page)
     token = m.group(1) if m else ""
-    client.post(
+    document_post(client,
         "/login",
         data={"username": "admin", "password": "admin", "csrf_token": token},
     )
@@ -138,7 +139,7 @@ class TestEditPreservesSourceItemId:
 
             # 编辑：改数量从 5 到 3，不传 source_sales_order_item_id
             # 路由是 /out_order/add（带 order_id 为编辑模式）
-            resp = client.post("/out_order/add", json={
+            resp = document_post(client,"/out_order/add", json={
                 "order_id": outbound.id,
                 "order_no": outbound.order_no,
                 "date": str(date.today()),
@@ -174,7 +175,7 @@ class TestEditPreservesSourceItemId:
             client = _make_client()
 
             # 编辑：改数量从 5 到 7
-            resp = client.post("/out_order/add", json={
+            resp = document_post(client,"/out_order/add", json={
                 "order_id": outbound.id,
                 "order_no": outbound.order_no,
                 "date": str(date.today()),
@@ -216,7 +217,7 @@ class TestEditPreservesSourceItemId:
             client = _make_client()
 
             # 编辑：前端回传 source_sales_order_item_id=sales_item2.id
-            resp = client.post("/out_order/add", json={
+            resp = document_post(client,"/out_order/add", json={
                 "order_id": outbound.id,
                 "order_no": outbound.order_no,
                 "date": str(date.today()),

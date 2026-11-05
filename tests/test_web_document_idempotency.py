@@ -254,7 +254,8 @@ def test_explicit_document_edit_bypasses_create_receipt(all_case, entry):
     assert first.status_code == 200, first.json
     edited = create_payload(kind, ids, data['order_no'], True)
     edited['request_id' if kind == 'request' else 'order_id'] = first.json['id']
-    result = clients[0].post(endpoint, json=edited, headers=headers)
+    from tests.document_revision_client import document_post
+    result = document_post(clients[0], endpoint, json=edited, headers=headers)
     assert result.status_code == 200, result.json
     assert result.json['id'] == first.json['id']
     with w.app.app_context():

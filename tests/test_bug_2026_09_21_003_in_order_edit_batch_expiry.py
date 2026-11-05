@@ -26,6 +26,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import json
 import os
 import re
@@ -77,7 +78,7 @@ def _make_client():
     login_page = client.get("/login").get_data(as_text=True)
     m = re.search(r'name="csrf_token".*?value="([^"]+)"', login_page)
     token = m.group(1) if m else ""
-    client.post(
+    document_post(client,
         "/login",
         data={"username": "admin", "password": "admin", "csrf_token": token},
     )
@@ -158,7 +159,7 @@ def test_T4_edit_resave_preserves_batch_and_expiry_end_to_end():
         edit_items = _extract_edit_items(html)
         it = edit_items[0]
         # 模拟浏览器：页面回填后用户原样点保存（页面提交字段名是 code/quantity/...）
-        resp = client.post("/in_order/add", json={
+        resp = document_post(client,"/in_order/add", json={
             "order_id": oid,
             "order_no": "IN-EDIT-001",
             "business_type": "其他入库",

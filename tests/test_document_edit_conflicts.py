@@ -11,7 +11,7 @@ def revision(client, path):
     response = client.get(path)
     assert response.status_code == 200
     match = re.search(r'<meta name="document-revision" content="([^"]*)"', response.text)
-    return match.group(1) if match else ''
+    return match.group(1) if match else response.headers.get('X-WMS-Document-Read-Revision', '')
 
 
 @pytest.fixture
@@ -284,6 +284,12 @@ def test_remaining_editable_document_forms(family_case, kind):
     assert first.status_code == 200 and first.json['status'] == 'success', first.json
     stale = clients[1].post(endpoint, json=data, headers={'X-WMS-Document-Revision': tokens[1]})
     assert stale.status_code == 409, stale.json
+    missing = clients[1].post(endpoint, json=data)
+    assert missing.status_code == 409, missing.json
+    assert missing.json['code'] == 'DOCUMENT_REVISION_REQUIRED'
+    missing = clients[1].post(endpoint, json=data)
+    assert missing.status_code == 409, missing.json
+    assert missing.json['code'] == 'DOCUMENT_REVISION_REQUIRED'
     with w.app.app_context():
         assert w.db.session.get(model, oid).remark == 'saved-first'
         assert [(m.id, m.stock) for m in w.Material.query.order_by(w.Material.id)] == stocks

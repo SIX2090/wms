@@ -1,12 +1,12 @@
 """Page-scoped optimistic edit checks, serialized with the business transaction.
 
-Legacy clients without a revision retain their established API contract. Current
-web pages send a signed, user-bound snapshot of their header and all item rows.
+Edits require the signed snapshot read by the operator. New-document intents and
+explicit state commands retain their existing protocols.
 """
 import hashlib
 import json
 
-from flask import current_app, g, has_request_context, jsonify, make_response, request
+from flask import abort, current_app, g, has_request_context, jsonify, make_response, request
 from flask_login import current_user
 from itsdangerous import BadSignature, URLSafeSerializer
 from sqlalchemy import event, inspect
@@ -33,6 +33,29 @@ DOCUMENTS = {
     'opening_stock': ('OpeningStockDoc', 'lines', 'OpeningStock', 'doc_id'),
 }
 HEADER = 'X-WMS-Document-Revision'
+# These handlers replace page content, rather than apply an explicit command to
+# the current state (complete/revert/copy, etc.). An old client must reopen the
+# document; silently treating its submitted content as current loses other edits.
+EDIT_ENDPOINTS = frozenset({
+    'add_in_order', 'update_in_order', 'add_in_order_item',
+    'batch_add_in_order_items', 'update_in_order_item', 'update_completed_in_order',
+    'delete_in_order_item', 'in_order_item_delete_alias',
+    'add_out_order', 'update_out_order', 'add_out_order_item',
+    'batch_add_out_order_items', 'update_out_order_item', 'delete_out_order_item',
+    'add_after_sale_out_order', 'save_transfer_table', 'add_transfer',
+    'update_transfer', 'add_transfer_item', 'update_transfer_item',
+    'delete_transfer_item', 'batch_delete_transfer_items', 'batch_add_transfer_items',
+    'save_check_table', 'add_check', 'update_check', 'add_check_item',
+    'update_check_item', 'delete_check_item', 'add_adjustment',
+    'add_purchase_request', 'save_purchase_order', 'sales_order_edit',
+    'save_requisition_table', 'add_requisition', 'update_requisition',
+    'add_requisition_item', 'update_requisition_item', 'delete_requisition_item',
+    'batch_delete_requisition_items', 'batch_add_requisition_items',
+    'edit_subcontract_header', 'add_subcontract_item', 'delete_subcontract_item',
+    'add_subcontract_issue_item', 'add_subcontract_receive_item',
+    'edit_opening_stock', 'batch_save_opening_stock', 'save_opening_stock_doc',
+    'update_opening_stock_doc_date',
+})
 NEW_DOCUMENT_INTENTS = frozenset({
     'copy_in_order', 'copy_in_order_to_out', 'convert_in_order_to_out_order',
     'create_in_order_push', 'copy_out_order', 'copy_check', 'copy_transfer',
@@ -57,40 +80,64 @@ def _identity(family):
     data = request.args if request.method == 'GET' else (
         request.get_json(silent=True) if request.is_json else request.form)
     if not isinstance(data, dict) and not hasattr(data, 'get'):
-        return None
+        data = {}
     args = request.view_args or {}
+    if any(type(value) is int and value >= 2**63 for value in args.values()):
+        return -3
+
+    def positive_id(value):
+        if value is None or (isinstance(value, str) and value.strip() in ('', 'None', 'null')):
+            return 0
+        if isinstance(value, str) and len(value.strip()) <= 19 and value.strip().isdecimal():
+            value = int(value.strip())
+        if type(value) is not int or not 0 <= value < 2**63:
+            raise ValueError('Invalid document identity')
+        return value
+
     child_model, parent_key = DOCUMENTS[family][2:]
     inline = request.path in ('/in_order/item/update', '/out_order/item/update')
     opening_line = family == 'opening_stock' and request.path.startswith('/opening_stock/edit/')
     if inline or opening_line:
         raw_id = args.get('id') if opening_line else data.get('id')
         try:
-            child = db.session.get(getattr(w, child_model), int(raw_id))
+            child_id = positive_id(raw_id)
+            if not child_id:
+                return None
+            child = db.session.get(getattr(w, child_model), child_id)
         except (TypeError, ValueError):
-            return None
+            return -3
         # A row may have been deleted/replaced since the signed page was read.
         # Keep this distinct from a genuinely new document with no identity.
-        return getattr(child, parent_key) if child else -1
-    header = data.get('header') or {}
-    raw_id = args.get('id') or data.get('order_id') or data.get('doc_id')
-    if not raw_id and family == 'purchase_request':
-        raw_id = data.get('request_id')
-    if not raw_id and isinstance(header, dict):
-        raw_id = header.get('order_id') or header.get('id')
-    # Some legacy edit forms use id. Avoid interpreting an item id on inline APIs.
-    if not raw_id and '/item/' not in request.path:
-        raw_id = data.get('id')
+        return (getattr(child, parent_key) or -2) if child else -1
     try:
-        return int(raw_id) if int(raw_id) > 0 else None
+        # URL identity is authoritative for handlers with a fixed target.
+        if args.get('id') is not None:
+            return positive_id(args['id']) or None
+        header = data.get('header') or {}
+        if not isinstance(header, dict):
+            if request.is_json:
+                return -3
+            header = {}
+        candidates = [data.get('order_id'), data.get('doc_id'),
+                      header.get('order_id'), header.get('id')]
+        if family == 'purchase_request':
+            candidates.append(data.get('request_id'))
+        if '/item/' not in request.path:
+            candidates.append(data.get('id'))
+        identities = {positive_id(value) for value in candidates} - {0}
+        # Never let a zero/invalid alias hide the ID actually consumed by a view.
+        return identities.pop() if len(identities) == 1 else (-3 if identities else None)
     except (TypeError, ValueError):
-        return None
+        return -3
 
 
 def _fingerprint(order, relationship):
     def _columns(row):
         return {c.key: getattr(row, c.key) for c in inspect(type(row)).columns}
-    items = sorted(getattr(order, relationship), key=lambda row: row.id)
-    value = {'header': _columns(order), 'items': [_columns(row) for row in items]}
+    value = _columns(order)
+    if relationship:
+        items = sorted(getattr(order, relationship), key=lambda row: row.id)
+        value = {'header': value, 'items': [_columns(row) for row in items]}
     return hashlib.sha256(json.dumps(value, sort_keys=True, default=str,
                                      ensure_ascii=False).encode('utf-8')).hexdigest()
 
@@ -102,6 +149,24 @@ def _sign(family, order):
     })
 
 
+def opening_line_revision(opening, user_id):
+    """Version of exactly the native opening-stock row that the user read."""
+    return URLSafeSerializer(current_app.secret_key, salt='wms-opening-line-edit').dumps({
+        'id': opening.id, 'user': user_id, 'fingerprint': _fingerprint(opening, None),
+    })
+
+
+def opening_line_revision_matches(opening, user_id, token):
+    """No unsigned fallback; malformed, foreign-user and stale versions fail."""
+    if not isinstance(token, str) or not token:
+        return False
+    serializer = URLSafeSerializer(current_app.secret_key, salt='wms-opening-line-edit')
+    try:
+        return serializer.loads(token) == serializer.loads(opening_line_revision(opening, user_id))
+    except BadSignature:
+        return False
+
+
 def page_revision():
     """Revision of the same ORM snapshot used to render a single document page."""
     if not has_request_context() or request.method != 'GET' or not current_user.is_authenticated:
@@ -110,6 +175,8 @@ def page_revision():
     if not family:
         return {}
     identity = _identity(family)
+    if identity == -3:
+        return {}
     if not identity:
         return {}
     import app as w
@@ -126,7 +193,7 @@ def guarded_document_write(view, *args, **kwargs):
     """Called only after role authorization; share the lock with existing routes."""
     token = request.headers.get(HEADER) or request.form.get('document_revision')
     family = _family()
-    if request.method != 'POST' or not token or not family or getattr(g, 'document_edit_guard', False):
+    if request.method != 'POST' or not family or getattr(g, 'document_edit_guard', False):
         return view(*args, **kwargs)
     # Existing-record POSTs are writes regardless of URL spelling (e.g. a check
     # line has no /update suffix, and an opening date uses just /date).
@@ -134,19 +201,36 @@ def guarded_document_write(view, *args, **kwargs):
     if request.endpoint in NEW_DOCUMENT_INTENTS:
         return view(*args, **kwargs)
     identity = _identity(family)
+    if identity == -3:
+        return jsonify(status='error', code='INVALID_DOCUMENT_ID',
+                       msg='单据标识格式不正确或不一致，请刷新核对后重试'), 400
     if not identity:
         return view(*args, **kwargs)
+    import app as w
+    orphan_line = identity == -2 and family == 'opening_stock'
+    model = w.OpeningStock if orphan_line else getattr(w, DOCUMENTS[family][0])
+    relationship = None if orphan_line else DOCUMENTS[family][1]
+    if orphan_line:
+        identity = (request.view_args or {})['id']
+    if not token:
+        if request.endpoint in EDIT_ENDPOINTS:
+            if identity == -1 or db.session.get(model, identity) is None:
+                abort(404)
+            return jsonify(status='error', code='DOCUMENT_REVISION_REQUIRED',
+                           msg='缺少单据版本，本次修改未保存，请保留输入并重新打开单据后再编辑'), 409
+        return view(*args, **kwargs)
     try:
-        expected = URLSafeSerializer(current_app.secret_key, salt='wms-document-edit').loads(token)
+        salt = 'wms-opening-line-edit' if orphan_line else 'wms-document-edit'
+        expected = URLSafeSerializer(current_app.secret_key, salt=salt).loads(token)
     except BadSignature:
         return jsonify(status='error', msg='单据页面校验失败，请刷新后重试'), 409
     if identity == -1 and isinstance(expected, dict) and expected.get('family') == family and expected.get('user') == current_user.id:
         return jsonify(status='error', code='DOCUMENT_EDIT_CONFLICT',
                        msg='单据明细已被其他操作更新，本次修改未保存，请保留输入并刷新核对后重试'), 409
-    if not isinstance(expected, dict) or (expected.get('family'), expected.get('id'), expected.get('user')) != (family, identity, current_user.id):
+    if (not isinstance(expected, dict) or
+            (expected.get('id'), expected.get('user')) != (identity, current_user.id) or
+            (not orphan_line and expected.get('family') != family)):
         return jsonify(status='error', msg='单据页面已变化，请刷新后重试'), 409
-    import app as w
-    model = getattr(w, DOCUMENTS[family][0])
     db.session.rollback()
     try:
         if db.engine.dialect.name == 'sqlite':
@@ -154,13 +238,17 @@ def guarded_document_write(view, *args, **kwargs):
             order = db.session.get(model, identity)
         else:
             order = model.query.filter_by(id=identity).with_for_update().first()
-        if order is None or _fingerprint(order, DOCUMENTS[family][1]) != expected.get('fingerprint'):
+        if order is None or _fingerprint(order, relationship) != expected.get('fingerprint'):
             db.session.rollback()
             return jsonify(status='error', code='DOCUMENT_EDIT_CONFLICT',
                            msg='单据已被其他操作更新，本次修改未保存，请保留输入并刷新核对后重试'), 409
     except OperationalError:
         db.session.rollback()
         return jsonify(status='error', msg='单据正在保存，请保留当前输入并稍后重试'), 503
+    # A comparison must not leave old details cached for a view that replaces
+    # rows by foreign key and then calculates a total from the relationship.
+    if relationship:
+        db.session.expire(order, [relationship])
     g.document_edit_guard = True
     saved = []
     session = db.session()
@@ -171,8 +259,9 @@ def guarded_document_write(view, *args, **kwargs):
         if not saved and inspect(order).persistent and order not in active_session.deleted:
             active_session.flush()
             active_session.refresh(order)
-            active_session.expire(order, [DOCUMENTS[family][1]])
-            saved.append(_sign(family, order))
+            if relationship:
+                active_session.expire(order, [relationship])
+            saved.append(opening_line_revision(order, current_user.id) if orphan_line else _sign(family, order))
 
     event.listen(session, 'before_commit', _capture_revision)
     try:

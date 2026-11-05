@@ -35,6 +35,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import datetime
 import os
 import sys
@@ -75,7 +76,7 @@ def _reset_db():
 
 
 def _login(client):
-    client.post("/login",
+    document_post(client,"/login",
                 data={"username": "p17", "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
 
@@ -156,7 +157,7 @@ def _make_transfer(client, from_wh, to_wh, qty, *, from_loc=None, to_loc=None):
     if from_loc or to_loc:
         payload["header"]["from_location"] = from_loc or ""
         payload["header"]["to_location"] = to_loc or ""
-    resp = client.post("/transfer/save_table", json=payload)
+    resp = document_post(client,"/transfer/save_table", json=payload)
     data = resp.get_json()
     assert data.get("status") == "success", data
     return data.get("id") or data.get("order_id")
@@ -172,14 +173,14 @@ def _make_requisition(client, warehouse, qty, *, location=None):
         db.session.commit()
         rid = req.id
     # /requisition/<id>/update 只改表头；明细必须走 /requisition/<id>/item/add
-    resp = client.post(f"/requisition/{rid}/update", data={
+    resp = document_post(client,f"/requisition/{rid}/update", data={
         "date": datetime.date.today().isoformat(),
         "warehouse": warehouse,
         "location": location or "",
     }, content_type="application/x-www-form-urlencoded")
     body = resp.get_json()
     assert body.get("status") == "success", body
-    resp = client.post(f"/requisition/{rid}/item/add", data={
+    resp = document_post(client,f"/requisition/{rid}/item/add", data={
         "material_code": "M-P17",
         "quantity": str(qty),
         "unit_id": "1",
@@ -205,7 +206,7 @@ class TestTransferThreeLedgers:
             mid = mat.id
         _login(client)
         tid = _make_transfer(client, "仓库A", "仓库B", 4)
-        resp = client.post(f"/transfer/{tid}/complete")
+        resp = document_post(client,f"/transfer/{tid}/complete")
         assert resp.get_json().get("status") == "success", resp.get_json()
         # ① 不变（仍为 10）
         assert abs(_ledger(mid) - 10) <= TOL, _ledger(mid)
@@ -228,7 +229,7 @@ class TestTransferThreeLedgers:
         _login(client)
         tid = _make_transfer(client, "仓库A", "仓库B", 4,
                              from_loc="仓库A", to_loc="仓库B")
-        resp = client.post(f"/transfer/{tid}/complete")
+        resp = document_post(client,f"/transfer/{tid}/complete")
         body = resp.get_json()
         assert body.get("status") == "success", body
         assert abs(_ledger(mid) - 10) <= TOL, _ledger(mid)
@@ -245,9 +246,9 @@ class TestTransferThreeLedgers:
             mid = mat.id
         _login(client)
         tid = _make_transfer(client, "仓库A", "仓库B", 4)
-        assert client.post(f"/transfer/{tid}/complete").get_json().get("status") == "success"
+        assert document_post(client,f"/transfer/{tid}/complete").get_json().get("status") == "success"
         before_ledger, before_txn = _ledger(mid), _txn_sum(mid)
-        resp = client.post(f"/transfer/{tid}/revert")
+        resp = document_post(client,f"/transfer/{tid}/revert")
         assert resp.get_json().get("status") == "success", resp.get_json()
         assert abs(_ledger(mid) - before_ledger) <= TOL
         assert abs(_txn_sum(mid) - before_txn) <= TOL
@@ -269,7 +270,7 @@ class TestRequisitionThreeLedgers:
             mid = mat.id
         _login(client)
         rid = _make_requisition(client, "仓库A", 3)
-        resp = client.post(f"/requisition/{rid}/complete")
+        resp = document_post(client,f"/requisition/{rid}/complete")
         assert resp.get_json().get("status") == "success", resp.get_json()
         assert abs(_ledger(mid) - 7) <= TOL, _ledger(mid)
         assert abs(_txn_sum(mid) - 7) <= TOL, _txn_sum(mid)
@@ -289,7 +290,7 @@ class TestRequisitionThreeLedgers:
             mid = mat.id
         _login(client)
         rid = _make_requisition(client, "仓库A", 3, location="仓库A")
-        resp = client.post(f"/requisition/{rid}/complete")
+        resp = document_post(client,f"/requisition/{rid}/complete")
         assert resp.get_json().get("status") == "success", resp.get_json()
         _assert_identity(mid, location_on=True)
         assert abs(_loc_sum(mid) - 7) <= TOL, _loc_sum(mid)
@@ -305,9 +306,9 @@ class TestRequisitionThreeLedgers:
             mid = mat.id
         _login(client)
         rid = _make_requisition(client, "仓库A", 3)
-        assert client.post(f"/requisition/{rid}/complete").get_json().get("status") == "success"
+        assert document_post(client,f"/requisition/{rid}/complete").get_json().get("status") == "success"
         assert abs(_ledger(mid) - 7) <= TOL
-        resp = client.post(f"/requisition/{rid}/revert")
+        resp = document_post(client,f"/requisition/{rid}/revert")
         assert resp.get_json().get("status") == "success", resp.get_json()
         assert abs(_ledger(mid) - 10) <= TOL, _ledger(mid)
         assert abs(_txn_sum(mid) - 10) <= TOL, _txn_sum(mid)
@@ -339,7 +340,7 @@ class TestRequisitionThreeLedgers:
             db.session.add(ProductionRequisitionItem(
                 requisition_id=rid, material_id=mid, quantity=0, unit_id=1))
             db.session.commit()
-        resp = client.post(f"/requisition/{rid}/complete")
+        resp = document_post(client,f"/requisition/{rid}/complete")
         body = resp.get_json()
         assert body.get("status") == "error", body
         assert '扣减数量必须大于 0' in (body.get("msg") or ""), body
@@ -358,7 +359,7 @@ class TestMaterialInitialStockThreeLedgers:
             _reset_db()
             _seed(location_on=False)
         _login(client)
-        resp = client.post("/material/add", data={
+        resp = document_post(client,"/material/add", data={
             "code": "M-INIT", "name": "初始库存料", "spec": "S",
             "category_id": "1", "unit_id": "1",
             # 表单字段名是 stock（material.py:239），不是 initial_stock

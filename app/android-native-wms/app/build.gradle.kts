@@ -32,8 +32,9 @@ android {
         // 3.9.4(28)=BUG-2026-10-002 DataStore 访问加 5s 超时/降级，actor 死亡时提交/登录不再永久挂起。
         // BUG-2026-10-30-009：入库/出库/盘点清单点数量修改，期初沿用既有编辑。
         // 3.9.6(30)=AI-MOB-VOICE-F01-UI-HIDE-001：隐藏手机端语音入口及说明。
-        versionCode = 31
-        versionName = "3.9.7"
+        // 3.9.8(32)=IA-05：已有期初明细编辑携带读取版本，避免覆盖另一账号。
+        versionCode = 32
+        versionName = "3.9.8"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

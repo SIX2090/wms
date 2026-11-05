@@ -270,6 +270,11 @@ def check_stock_sufficient(material, required_quantity):
 def recalculate_order_total(order):
     if not order:
         return 0
+    from sqlalchemy import inspect
+    state = inspect(order, raiseerr=False)
+    if state is not None and state.persistent:
+        state.session.flush()
+        state.session.expire(order, ['items'])
     total = sum((item.amount or 0) for item in order.items)
     order.total_amount = total
     return total
@@ -809,6 +814,10 @@ def require_role(*roles):
                         return deny('当前账号没有权限访问该页面')
                 elif current_user.role not in allowed:
                     return deny('当前账号没有权限执行此操作')
+            from request_input import validate_document_json_input
+            error = validate_document_json_input()
+            if error is not None:
+                return error
             from services.document_edit_guard import guarded_document_write
             return guarded_document_write(f, *args, **kwargs)
         decorated_function._required_roles = frozenset(allowed)

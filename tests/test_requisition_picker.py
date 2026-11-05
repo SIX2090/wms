@@ -9,6 +9,7 @@ P3. 表格保存（/requisition/save_table）持久化 picker 字段。
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import sys
 import json
@@ -42,7 +43,7 @@ def _reset_db():
 
 
 def _login(client):
-    return client.post(
+    return document_post(client,
         "/login",
         data={"username": "admin", "password": "admin"},
         content_type="application/x-www-form-urlencoded",
@@ -82,7 +83,7 @@ class TestRequisitionPicker:
 
     def test_P1_add_saves_picker(self):
         client, _ = self._setup()
-        resp = client.post("/requisition/add", data={"purpose": "测试领料", "picker": "张三", "remark": ""})
+        resp = document_post(client,"/requisition/add", data={"purpose": "测试领料", "picker": "张三", "remark": ""})
         data = resp.get_json()
         assert data["status"] == "success", data
         with app_module.app.app_context():
@@ -109,7 +110,7 @@ class TestRequisitionPicker:
             "header": {"purpose": "测试", "picker": "王五", "warehouse": "默认仓"},
             "items": [{"code": "M001", "quantity": 5}],
         }
-        resp = client.post("/requisition/save_table", json=payload)
+        resp = document_post(client,"/requisition/save_table", json=payload)
         data = resp.get_json()
         assert data["status"] == "success", data
         with app_module.app.app_context():
@@ -128,7 +129,7 @@ class TestRequisitionPicker:
         client, _ = self._setup()
         order_id = None
         if existing_picker is not None:
-            response = client.post('/requisition/save_table', json={
+            response = document_post(client,'/requisition/save_table', json={
                 'order_no': 'REQ-PICKER-EDIT',
                 'header': {'warehouse': '默认仓', 'picker': existing_picker},
                 'items': [{'code': 'M001', 'quantity': 5}],
@@ -174,7 +175,7 @@ class TestRequisitionPicker:
                                 capture_output=True, check=True)
         header = json.loads(output.stdout)
         assert header.get('picker') == typed_picker
-        response = client.post('/requisition/save_table', json={
+        response = document_post(client,'/requisition/save_table', json={
             'order_id': order_id, 'order_no': fields.values['order_no'],
             'date': fields.values['date'], 'header': header,
             'items': [{'code': 'M001', 'quantity': 5}],

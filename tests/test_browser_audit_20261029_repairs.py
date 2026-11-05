@@ -1,4 +1,5 @@
 """Runtime regressions for the remaining isolated-browser audit findings."""
+from tests.document_revision_client import document_post
 import io
 import json
 import re
@@ -91,7 +92,7 @@ def test_second_subcontract_can_be_created(audit_case, monkeypatch, year, month)
     with m.app.app_context():
         m.db.session.get(m.SubcontractOrder, ids['order']).order_no = prefix + '0001'
         m.db.session.commit()
-    response = client.post('/subcontract/add', data={
+    response = document_post(client,'/subcontract/add', data={
         'supplier_id': ids['supplier'], 'warehouse_id': ids['second']})
     assert response.status_code == 200, response.get_json()
     with m.app.app_context():
@@ -104,7 +105,7 @@ def test_second_subcontract_can_be_created(audit_case, monkeypatch, year, month)
 def test_repeated_copy_keeps_warehouse_unit_and_unique_number(audit_case):
     client, ids = audit_case
     for _ in range(2):
-        response = client.post('/subcontract/%s/copy' % ids['order'])
+        response = document_post(client,'/subcontract/%s/copy' % ids['order'])
         assert response.status_code == 200, response.get_json()
     with m.app.app_context():
         orders = m.SubcontractOrder.query.order_by(m.SubcontractOrder.id).all()
@@ -122,7 +123,7 @@ def test_whole_subcontract_import_has_explicit_or_default_warehouse(audit_case, 
     if warehouse:
         headers.append('仓库')
         row.append(warehouse)
-    response = client.post('/subcontract/import', data={
+    response = document_post(client,'/subcontract/import', data={
         'file': (excel(headers, [row]), 'audit.xlsx')})
     assert response.status_code == 200, response.get_json()
     with m.app.app_context():
@@ -133,7 +134,7 @@ def test_whole_subcontract_import_has_explicit_or_default_warehouse(audit_case, 
 
 def test_bad_import_warehouse_creates_nothing(audit_case):
     client, _ = audit_case
-    response = client.post('/subcontract/import', data={'file': (excel(
+    response = document_post(client,'/subcontract/import', data={'file': (excel(
         ['委外单号', '加工厂商', '物料编码', '数量', '仓库'],
         [['SC-BAD29', '隔离加工厂', 'M29', 2, '不存在的仓库']]), 'audit.xlsx')})
     assert response.status_code == 400 or response.get_json().get('count') == 0
@@ -173,7 +174,7 @@ def test_resolve_subcontract_import_warehouse(audit_case, kind, explicit, expect
     client, ids = audit_case
     with m.app.app_context():
         number = m.db.session.get(m.SubcontractOrder, ids['order']).order_no
-    response = client.post('/subcontract/%s/import' % kind, data={'file': (excel(
+    response = document_post(client,'/subcontract/%s/import' % kind, data={'file': (excel(
         ['单据编号', '委外单号', '物料编码', '数量', '仓库'],
         [['IMPORT29', number, 'M29', 2, explicit]]), 'audit.xlsx')})
     assert response.status_code == (200 if expected else 400), response.get_json()
@@ -192,7 +193,7 @@ def test_no_default_warehouse_rejects_file_without_warehouse(audit_case, path):
     with m.app.app_context():
         m.Warehouse.query.update({'is_default': False})
         m.db.session.commit()
-    response = client.post(path, data={'file': (excel(
+    response = document_post(client,path, data={'file': (excel(
         ['单据编号', '加工厂商', '物料编码', '数量'],
         [['NO-WH29', '隔离加工厂', 'M29', 2]]), 'audit.xlsx')})
     assert response.status_code == 400
@@ -213,7 +214,7 @@ def test_subcontract_file_templates_and_exports_include_warehouse(audit_case, pa
 
 def test_pending_order_can_repair_warehouse_but_not_after_issue(audit_case):
     client, ids = audit_case
-    response = client.post('/subcontract/%s/edit' % ids['order'], json={
+    response = document_post(client,'/subcontract/%s/edit' % ids['order'], json={
         'warehouse_id': ids['first']})
     assert response.status_code == 200
     with m.app.app_context():
@@ -222,7 +223,7 @@ def test_pending_order_can_repair_warehouse_but_not_after_issue(audit_case):
         m.db.session.add(m.SubcontractIssue(issue_no='SF29', subcontract_order_id=order.id,
             warehouse='验收甲仓', status='pending'))
         m.db.session.commit()
-    response = client.post('/subcontract/%s/edit' % ids['order'], json={
+    response = document_post(client,'/subcontract/%s/edit' % ids['order'], json={
         'warehouse_id': ids['second']})
     assert response.status_code == 400
     with m.app.app_context():
@@ -233,7 +234,7 @@ def test_pending_order_can_repair_warehouse_but_not_after_issue(audit_case):
     ('abc', 'M29', 400), (float('inf'), 'M29', 400), (1, 'MISSING29', 400)])
 def test_product_file_import_is_atomic_and_never_posts_stock(audit_case, quantity, code, status):
     client, ids = audit_case
-    response = client.post('/subcontract/%s/items/import' % ids['order'], data={
+    response = document_post(client,'/subcontract/%s/items/import' % ids['order'], data={
         'file': (excel(['产品编码', '产品名称', '单位', '数量'],
                        [[code, '验收产品', '件', quantity]]), 'audit.xlsx')})
     assert response.status_code == status, response.get_json()
@@ -249,7 +250,7 @@ def test_product_file_rejects_completed_order_and_mixed_invalid_rows(audit_case)
         with m.app.app_context():
             m.db.session.get(m.SubcontractOrder, ids['order']).status = state
             m.db.session.commit()
-        response = client.post('/subcontract/%s/items/import' % ids['order'], data={
+        response = document_post(client,'/subcontract/%s/items/import' % ids['order'], data={
             'file': (excel(['产品编码', '数量'], [['M29', 2], ['MISSING29', 1]]), 'audit.xlsx')})
         assert response.status_code == 400
         with m.app.app_context():
@@ -259,16 +260,16 @@ def test_product_file_rejects_completed_order_and_mixed_invalid_rows(audit_case)
 def test_product_file_authorization_and_validation(audit_case):
     client, ids = audit_case
     path = '/subcontract/%s/items/import' % ids['order']
-    assert m.app.test_client().post(path).status_code in (302, 401)
-    assert client.post(path).status_code == 400
+    assert document_post(m.app.test_client(),path).status_code in (302, 401)
+    assert document_post(client,path).status_code == 400
     for headers, row in [(['产品名称'], ['验收产品']),
                          (['产品编码', '数量', '单位'], ['M29', 2, '吨'])]:
-        response = client.post(path, data={'file': (excel(headers, [row]), 'audit.xlsx')})
+        response = document_post(client,path, data={'file': (excel(headers, [row]), 'audit.xlsx')})
         assert response.status_code == 400
     with m.app.app_context():
         m.db.session.get(m.User, ids['user']).role = 'viewer'
         m.db.session.commit()
-    assert client.post(path, headers={'Accept': 'application/json'}).status_code == 403
+    assert document_post(client,path, headers={'Accept': 'application/json'}).status_code == 403
     with m.app.app_context():
         assert m.SubcontractItem.query.count() == 1
 
@@ -290,7 +291,7 @@ def test_new_tab_document_print_return_has_a_real_destination(audit_case):
 
 def test_department_bad_headers_rejected_before_writes(audit_case):
     client, _ = audit_case
-    response = client.post('/department/import', data={'file': (excel(
+    response = document_post(client,'/department/import', data={'file': (excel(
         ['未知列A', '未知列B', '未知列C', '未知列D'],
         [['D-BAD29', '错误表头', 'active', '']]), 'audit.xlsx')})
     assert response.status_code == 400
@@ -302,7 +303,7 @@ def test_department_bad_headers_rejected_before_writes(audit_case):
                                            ('INACTIVE', 'inactive')])
 def test_department_import_maps_reordered_header_and_status(audit_case, status, expected):
     client, _ = audit_case
-    response = client.post('/department/import', data={'file': (excel(
+    response = document_post(client,'/department/import', data={'file': (excel(
         ['备注', '状态', '部门名称', '部门编码'],
         [['验收', status, '状态验收部门', 'D-NEW29']]), 'audit.xlsx')})
     assert response.status_code == 200, response.get_json()
@@ -339,7 +340,7 @@ def test_unknown_employee_department_does_not_clear_existing_link(audit_case):
     with m.app.app_context():
         m.db.session.add(m.Employee(code='E29', name='原员工', department_id=ids['department']))
         m.db.session.commit()
-    response = client.post('/employee/import', data={'file': (excel(
+    response = document_post(client,'/employee/import', data={'file': (excel(
         ['员工编码', '姓名', '部门编码'], [['E29', '错误更新', 'D-NOT-EXIST29']]), 'audit.xlsx')})
     assert response.status_code == 400
     assert '部门编码' in response.get_json()['msg']
@@ -350,7 +351,7 @@ def test_unknown_employee_department_does_not_clear_existing_link(audit_case):
 
 def test_broken_employee_workbook_has_readable_error(audit_case):
     client, _ = audit_case
-    response = client.post('/employee/import', data={'file': (io.BytesIO(b'not-a-workbook'), 'bad.xlsx')})
+    response = document_post(client,'/employee/import', data={'file': (io.BytesIO(b'not-a-workbook'), 'bad.xlsx')})
     assert response.status_code == 400
     message = response.get_json()['msg']
     assert 'Excel' in message and 'zip' not in message
