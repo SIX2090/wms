@@ -69,3 +69,8 @@
 证据：batch03-ci-revert-proof.json、batch03-ci-rework-summary.json、batch03-ci-baseline-*.xml、batch03-ci-corrected-*.xml、batch03-ci-correction-adjacent.xml、batch03-assertion-preservation.json。回退与纠正统一发布，不单独发布中间撤回状态。
 
 纠正后相邻7模块统一260 passed，新增/缺版本/冲突/合计/输入/台账/库存定位边界保持；修订后的暂存规则及源编码检查通过。260与前述1605含重叠，不相加。
+
+
+## 后续生产授权与实际生效
+
+用户随后明确批准“发布到生产”。2026-11-05 14:21:57（Asia/Shanghai），原SYSTEM计划任务切换至85df6437独立目录，耗时10.95秒；实际发布包合成库Chrome7项及119/119冒烟、公网匿名健康与只读Chrome检查通过，APK3.9.8（32）下载哈希正确。仅启动阶段对生产进行原生只读结构预检，无迁移、业务测试写入或账号修改。之前“未部署/未重启”的段落为代码验收阶段状态，本次生效结果见[生产发布记录](2026-11-05-document-revision-production.md)。第二项独立运维任务仍按进度表待启用，真机交互仍待硬件。
