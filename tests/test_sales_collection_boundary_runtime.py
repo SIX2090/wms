@@ -1,5 +1,4 @@
 """Sales collectors distinguish untouched padding from incomplete material rows."""
-from tests.document_revision_client import document_post
 from datetime import date
 import json
 from pathlib import Path
@@ -224,7 +223,7 @@ def test_sales_collected_padding_payload_saves_in_isolated_real_backend(page, sa
     payload = _run(page, 'success')['payload']
     payload.update(customer_id=ids['customer'], warehouse_id=ids['warehouse'])
     url = '/sales/add' if page == 'add' else '/sales/' + str(ids['order']) + '/edit'
-    response = document_post(client,url, json=payload)
+    response = client.post(url, json=payload)
     assert response.status_code == 200, response.get_json()
     db.session.expire_all()
     order = db.session.get(SalesOrder, response.get_json()['id'])
@@ -245,7 +244,7 @@ def test_sales_incomplete_payload_control_preserves_original_draft(page, sales_c
                'date': '2026-10-25', 'items': result['rawItems']}
     url = '/sales/add' if page == 'add' else '/sales/' + str(ids['order']) + '/edit'
     # Bypassing the UI must still fail atomically in the existing backend.
-    response = document_post(client,url, json=payload)
+    response = client.post(url, json=payload)
     assert response.status_code == 400
     db.session.expire_all()
     order = db.session.get(SalesOrder, ids['order'])

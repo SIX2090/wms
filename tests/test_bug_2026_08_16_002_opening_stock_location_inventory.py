@@ -156,8 +156,7 @@ def test_edit_opening_stock_adjusts_location_inventory(client):
     with app_module.app.app_context():
         opening = OpeningStock.query.filter_by(material_id=material_id).first()
         opening_id = opening.id
-    from tests.document_revision_client import document_post
-    resp = document_post(client, f"/opening_stock/edit/{opening_id}", data={
+    resp = client.post(f"/opening_stock/edit/{opening_id}", data={
         "material_id": material_id, "warehouse_id": warehouse_id,
         "quantity": "4", "price": "1", "location": "主仓-A1",
     })
@@ -187,8 +186,7 @@ def test_edit_backfills_legacy_missing_location_row(client):
         db.session.commit()
         opening = OpeningStock.query.filter_by(material_id=material_id).first()
         opening_id = opening.id
-    from tests.document_revision_client import document_post
-    resp = document_post(client, f"/opening_stock/edit/{opening_id}", data={
+    resp = client.post(f"/opening_stock/edit/{opening_id}", data={
         "material_id": material_id, "warehouse_id": warehouse_id,
         "quantity": "3", "price": "1",
     })

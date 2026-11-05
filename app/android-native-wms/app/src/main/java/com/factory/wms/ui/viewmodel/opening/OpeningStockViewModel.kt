@@ -427,8 +427,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                 lineId = lineId,
                 request = OpeningStockUpdateRequest(
                     quantity = newQuantity,
-                    price = newPrice,
-                    revision = item.revision
+                    price = newPrice
                 )
             ).fold(
                 onSuccess = { result ->

@@ -24,7 +24,6 @@ ID 优先、名称兜底、两者都无回退默认仓，无默认 400。
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import datetime
 import os
 import sys
@@ -68,7 +67,7 @@ def _seed(default=True):
 
 
 def _login(client):
-    document_post(client,"/login", data={"username": "p16r", "password": "admin"},
+    client.post("/login", data={"username": "p16r", "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
 
 
@@ -81,7 +80,7 @@ class TestRequisitionWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/requisition/add", data={
+            resp = client.post("/requisition/add", data={
                 "date": "2026-09-25",
                 "warehouse_id": wh_b.id,
                 "items": "[]",
@@ -100,7 +99,7 @@ class TestRequisitionWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/requisition/add", data={
+            resp = client.post("/requisition/add", data={
                 "date": "2026-09-25",
                 "warehouse": "仓库乙",
                 "items": "[]",
@@ -125,7 +124,7 @@ class TestRequisitionWarehouseIdParam:
             req_id = req.id
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,f"/requisition/{req_id}/update", data={
+            resp = client.post(f"/requisition/{req_id}/update", data={
                 "date": "2026-09-25",
                 "warehouse_id": wh_b.id,
                 "items": "[]",
@@ -142,7 +141,7 @@ class TestRequisitionWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/requisition/add", data={
+            resp = client.post("/requisition/add", data={
                 "date": "2026-09-25",
                 "warehouse_id": 99999,
                 "items": "[]",
@@ -160,7 +159,7 @@ class TestCheckAndAdjustmentWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/check/add", data={
+            resp = client.post("/check/add", data={
                 "date": "2026-09-25",
                 "warehouse_id": wh_b.id,
             }, content_type="application/x-www-form-urlencoded")
@@ -177,7 +176,7 @@ class TestCheckAndAdjustmentWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/adjustment/add", json={
+            resp = client.post("/adjustment/add", json={
                 "date": "2026-09-25",
                 "adjustment_type": "surplus",  # 有效值：surplus / loss（中文"盘盈"会被拒）
                 "warehouse_id": wh_b.id,

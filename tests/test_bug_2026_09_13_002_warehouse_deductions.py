@@ -1,4 +1,3 @@
-from tests.document_revision_client import document_post
 import pytest
 
 import app as wms
@@ -76,7 +75,7 @@ def test_transfer_item_edit_warehouse_stock(scene, available, sibling_quantity, 
             quantity=sibling_quantity, price=1, amount=sibling_quantity))
     wms.db.session.commit()
     transaction_count = wms.StockTransaction.query.count()
-    result = document_post(client,f'/transfer/{order.id}/item/{item.id}/update',
+    result = client.post(f'/transfer/{order.id}/item/{item.id}/update',
                          data={'quantity': 10, 'price': 2}).get_json()
     assert result['status'] == ('success' if succeeds else 'error'), result
     wms.db.session.expire_all()
@@ -103,17 +102,17 @@ def test_transfer_draft_entry_cumulative_stock(scene, entry, available):
     wms.db.session.commit()
     order_id = order.id
     if entry == 'save':
-        result = document_post(client,'/transfer/save_table', json={
+        result = client.post('/transfer/save_table', json={
             'order_id': order_id, 'order_no': 'TR-ADD',
             'header': {'from_warehouse': source.name, 'to_warehouse': other.name},
             'items': [{'code': material.code, 'quantity': 7},
                       {'code': material.code, 'quantity': 10}],
         }).get_json()
     elif entry == 'batch':
-        result = document_post(client,f'/transfer/{order_id}/batch_add_items',
+        result = client.post(f'/transfer/{order_id}/batch_add_items',
                              json={'content': f'{material.code},10,1'}).get_json()
     else:
-        result = document_post(client,f'/transfer/{order_id}/item/add',
+        result = client.post(f'/transfer/{order_id}/item/add',
                              data={'material_code': material.code, 'quantity': 10}).get_json()
     assert result['status'] == ('success' if available == 17 else 'error'), result
     wms.db.session.expire_all()
@@ -132,7 +131,7 @@ def test_transfer_batch_counts_accepted_rows(scene):
                               from_location=source.name, to_location=other.name)
     wms.db.session.add(order)
     wms.db.session.commit()
-    result = document_post(client,f'/transfer/{order.id}/batch_add_items', json={
+    result = client.post(f'/transfer/{order.id}/batch_add_items', json={
         'content': f'{material.code},7,1\n{material.code},7,1',
     }).get_json()
     assert result['status'] == 'success', result
@@ -166,7 +165,7 @@ def test_warehouse_deduction_routes(scene, kind, available):
         endpoint = f"/adjustment/{order.id}/{'revert' if reverting else 'complete'}"
     original_status = order.status
     wms.db.session.commit()
-    result = document_post(client,endpoint).get_json()
+    result = client.post(endpoint).get_json()
     assert result["status"] == ("success" if available else "error"), result
     wms.db.session.expire_all()
     assert wms.get_warehouse_stock_quantities(source).get(material.id, 0) == 0
@@ -195,7 +194,7 @@ def test_transfer_aggregates_duplicate_materials(scene, reverting, available):
     wms.db.session.commit()
     original_status = order.status
     txn_count = wms.StockTransaction.query.count()
-    result = document_post(client,f"/transfer/{order.id}/{'revert' if reverting else 'complete'}").get_json()
+    result = client.post(f"/transfer/{order.id}/{'revert' if reverting else 'complete'}").get_json()
     assert result["status"] == ("success" if available == 14 else "error"), result
     wms.db.session.expire_all()
     balance = wms.get_warehouse_stock_quantities(debit).get(material.id, 0)

@@ -19,7 +19,6 @@ BUG-C：`warehouse_stock` 在 `update_completed_in_order` 循环外只算一次�
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import inspect
 import os
 import sys
@@ -72,7 +71,7 @@ def scene():
         db.session.add(mat)
         db.session.commit()
         client = app_module.app.test_client()
-        document_post(client,"/login", data={"username": "admin", "password": "admin"},
+        client.post("/login", data={"username": "admin", "password": "admin"},
                     content_type="application/x-www-form-urlencoded")
         yield client, mat
         db.session.remove()
@@ -148,7 +147,7 @@ def test_bug_b_reduce_qty_with_legacy_unattributed_stock(scene):
         order_id, item_ids = _completed_order(mat, "仓库A", [50], "IN-F212-B")
 
     # 改小数量（减库存 10）：仓库级聚合为 0，但全局有 50 → 应回退全局口径放行
-    resp = document_post(client,f"/in_order/{order_id}/update_completed", json={
+    resp = client.post(f"/in_order/{order_id}/update_completed", json={
         "items": [{"id": item_ids[0], "quantity": 40, "price": 10}],
     })
     data = resp.get_json()
@@ -170,7 +169,7 @@ def test_bug_b_symmetry_delete_also_passes(scene):
         db.session.commit()
         order_id, item_ids = _completed_order(mat, "仓库A", [50], "IN-F212-B2")
 
-    resp = document_post(client,f"/in_order/{order_id}/update_completed", json={
+    resp = client.post(f"/in_order/{order_id}/update_completed", json={
         "items": [], "deleted_items": [item_ids[0]],
     })
     data = resp.get_json()
@@ -195,7 +194,7 @@ def test_bug_c_per_row_recompute(scene):
     # 第 1 行 +40（A 仓 10→50）；第 2 行 -30。
     # 修复前：第 2 行用循环外的陈旧快照（A=10）→ 10<30 误拒。
     # 修复后：第 2 行按行现取（A=50）→ 50>=30 放行。
-    resp = document_post(client,f"/in_order/{order_id}/update_completed", json={
+    resp = client.post(f"/in_order/{order_id}/update_completed", json={
         "items": [
             {"id": item_ids[0], "quantity": 140, "price": 10},
             {"id": item_ids[1], "quantity": 70, "price": 10},

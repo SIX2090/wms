@@ -3,7 +3,6 @@
 Sessions are synthetic; invalid password hashes cannot be used for real login.
 No real provider, device, credential generation, merge, or nonempty deletion.
 """
-from tests.document_revision_client import document_post
 import json
 from datetime import date, datetime, timedelta
 
@@ -105,7 +104,7 @@ def endpoint(key, ids):
 def test_invalid_root_is_controlled_400_and_no_business_changes(http_case, key, raw):
     client, ids, state = http_case
     before=state()
-    response=document_post(client(),endpoint(key,ids), data=raw, content_type='application/json')
+    response=client().post(endpoint(key,ids), data=raw, content_type='application/json')
     assert response.status_code == 400, response.get_data(as_text=True)[:300]
     body=response.get_json()
     assert body and body['status']=='error'
@@ -118,9 +117,9 @@ def test_real_authentication_and_csrf_guards(http_case, key):
     client, ids, state=http_case
     path=endpoint(key,ids)
     before=state()
-    assert document_post(client(role=None),path,json={}).status_code in (401,302)
-    assert document_post(client(csrf=False),path,json={}).status_code==400
-    denied=document_post(client(role='finance'),path,json={})
+    assert client(role=None).post(path,json={}).status_code in (401,302)
+    assert client(csrf=False).post(path,json={}).status_code==400
+    denied=client(role='finance').post(path,json={})
     assert denied.status_code==403, denied.get_data(as_text=True)[:300]
     assert state()==before
 
@@ -129,7 +128,7 @@ def test_real_authentication_and_csrf_guards(http_case, key):
 def test_forecast_period_type_and_bounds(http_case, days):
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('forecast',ids),json={'forecast_days':days})
+    response=client().post(endpoint('forecast',ids),json={'forecast_days':days})
     assert response.status_code==400
     assert state()==before
 
@@ -137,7 +136,7 @@ def test_forecast_period_type_and_bounds(http_case, days):
 @pytest.mark.parametrize('period', [7,14,30])
 def test_forecast_normal_real_read_query(http_case, period):
     client,ids,state=http_case
-    response=document_post(client(role='warehouse'),endpoint('forecast',ids),json={'forecast_days':period})
+    response=client(role='warehouse').post(endpoint('forecast',ids),json={'forecast_days':period})
     assert response.status_code==200,response.get_data(as_text=True)[:300]
     body=response.get_json()
     assert body['status']=='success' and body['summary']['total']==1
@@ -158,7 +157,7 @@ def test_forecast_normal_real_read_query(http_case, period):
 def test_adjustment_rejects_bad_types_before_any_mutation(http_case,payload):
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('adjustment',ids),json=payload)
+    response=client().post(endpoint('adjustment',ids),json=payload)
     assert response.status_code==400,response.get_data(as_text=True)[:300]
     assert state()==before
 
@@ -167,7 +166,7 @@ def test_adjustment_rejects_bad_types_before_any_mutation(http_case,payload):
 def test_check_force_must_be_an_explicit_boolean(http_case,force):
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('check',ids),json={'force':force})
+    response=client().post(endpoint('check',ids),json={'force':force})
     assert response.status_code==400
     assert state()==before
 
@@ -175,19 +174,19 @@ def test_check_force_must_be_an_explicit_boolean(http_case,force):
 def test_zero_difference_completion_and_repeat_are_real_http(http_case):
     client,ids,state=http_case
     c=client(role='warehouse')
-    response=document_post(c,endpoint('check',ids),json={'force':False})
+    response=c.post(endpoint('check',ids),json={'force':False})
     assert response.status_code==200,response.get_json()
     assert response.get_json()['status']=='success'
     after=state()
     assert after['check']=='completed' and after['adjustments']==0 and after['flows']==3
-    repeat=document_post(c,endpoint('check',ids),json={'force':False})
+    repeat=c.post(endpoint('check',ids),json={'force':False})
     assert repeat.status_code==400
     assert state()==after
 
 
 def test_valid_adjustment_creates_only_a_new_draft(http_case):
     client,ids,state=http_case
-    response=document_post(client(role='warehouse'),endpoint('adjustment',ids),json={
+    response=client(role='warehouse').post(endpoint('adjustment',ids),json={
         'adjustment_no':'QA27-ADJ-NEW', 'adjustment_type':'surplus', 'warehouse_id':ids['a'],
         'date':date.today().isoformat(), 'items':[{'material_id':ids['material'],'quantity':'1.25'}]})
     assert response.status_code==200,response.get_data(as_text=True)[:300]
@@ -201,7 +200,7 @@ def test_valid_adjustment_creates_only_a_new_draft(http_case):
 def test_image_url_type_is_checked_before_download(http_case,url):
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('image',ids),json={'image_url':url})
+    response=client().post(endpoint('image',ids),json={'image_url':url})
     assert response.status_code==400
     assert state()==before
 
@@ -210,28 +209,28 @@ def test_image_url_type_is_checked_before_download(http_case,url):
 def test_forecast_category_boundary(http_case,payload):
     client,ids,state=http_case
     before=state()
-    assert document_post(client(),endpoint('forecast',ids),json=payload).status_code==400
+    assert client().post(endpoint('forecast',ids),json=payload).status_code==400
     assert state()==before
 
 
 @pytest.mark.parametrize('payload',[{'days':'7'},{'days':True},{'days':0},{'days':31},{'end_date':[]}])
 def test_acceptance_field_types_are_controlled(http_case,payload):
     client,ids,state=http_case
-    assert document_post(client(),endpoint('acceptance',ids),json=payload).status_code==400
+    assert client().post(endpoint('acceptance',ids),json=payload).status_code==400
 
 
 def test_json_object_body(http_case):
     # json_object_body and CheckCompleteInput retain the legacy empty POST.
     client,ids,state=http_case
-    assert document_post(client(role='warehouse'),endpoint('check',ids)).status_code==200
-    assert document_post(client(),endpoint('image',ids),json={}).status_code==400
-    assert document_post(client(),endpoint('acceptance',ids),json={'days':7}).status_code==404
+    assert client(role='warehouse').post(endpoint('check',ids)).status_code==200
+    assert client().post(endpoint('image',ids),json={}).status_code==400
+    assert client().post(endpoint('acceptance',ids),json={'days':7}).status_code==404
 
 
 def test_consistent_document_id(http_case):
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('adjustment',ids),json={'order_id':1,'id':2})
+    response=client().post(endpoint('adjustment',ids),json={'order_id':1,'id':2})
     assert response.status_code==400 and '参数格式' in response.get_json()['msg']
     assert state()==before
 
@@ -241,7 +240,7 @@ def test_adjustment_form_uses_same_finite_quantity_guard(http_case,quantity):
     # AdjustmentItemInput shares finite_quantity with JSON; no existing detail is deleted.
     client,ids,state=http_case
     before=state()
-    response=document_post(client(),endpoint('adjustment',ids),data={
+    response=client().post(endpoint('adjustment',ids),data={
         'adjustment_type':'surplus','warehouse_id':str(ids['a']),
         'material_id':str(ids['material']),'quantity':quantity})
     assert response.status_code==400
@@ -255,5 +254,5 @@ def test_adjustment_form_header_boundaries_match_json(http_case,extra):
     payload={'adjustment_type':'surplus','warehouse_id':str(ids['a']),
         'material_id':str(ids['material']),'quantity':'1'}
     payload.update(extra)
-    assert document_post(client(),endpoint('adjustment',ids),data=payload).status_code==400
+    assert client().post(endpoint('adjustment',ids),data=payload).status_code==400
     assert state()==before

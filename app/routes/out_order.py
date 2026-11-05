@@ -447,7 +447,7 @@ def register_out_order_routes(app):
             order.location = location
 
         order.date = order_date
-        department_id = str(data.get('department_id') or '').strip()
+        department_id = (data.get('department_id') or '').strip()
         if department_id in ('', 'None', 'null'):
             order.department_id = None
         else:
@@ -490,7 +490,7 @@ def register_out_order_routes(app):
                     return jsonify({'status': 'error', 'msg': f'来源采购入库单 {src_io_no} 不存在'}), 400
                 order.source_in_order_id = src_io.id
                 order.source_in_order_no = src_io.order_no
-            elif str(data.get('source_in_order_id') or '').strip() in ('', 'None', 'null'):
+            elif (data.get('source_in_order_id') or '').strip() in ('', 'None', 'null'):
                 order.source_in_order_id = None
                 order.source_in_order_no = None
 

@@ -1,5 +1,4 @@
 """043/044/072, fresh RAM per case; exact quantities, no nonempty deletes."""
-from tests.document_revision_client import document_post
 from contextlib import contextmanager
 from datetime import datetime
 import pytest
@@ -53,11 +52,11 @@ def test_043_period_movement_force_only_creates_plus_two_draft(bounded):
         seed_locations(ids,13,20);m.db.session.commit()
     before=stock(ids)
     with requests():
-        warning=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':False})
+        warning=clients('warehouse').post(f"/check/{ids['check']}/complete",json={'force':False})
         assert warning.status_code==200 and warning.json['code']=='period_movement'
         assert warning.json['status']=='confirm' and warning.json['count']==1
         assert stock(ids)==before
-        done=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':True})
+        done=clients('warehouse').post(f"/check/{ids['check']}/complete",json={'force':True})
         assert done.status_code==200 and done.json['status']=='success',done.json
     assert stock(ids)==before and before[0]==[13,20]
     with m.app.app_context():
@@ -73,7 +72,7 @@ def test_044_save_complete_and_reverse_plus_two_only_in_warehouse_a(bounded):
         seed_locations(ids,10,20);m.db.session.commit()
     before=stock(ids)
     with requests():
-        saved=document_post(clients('warehouse'),'/adjustment/add',json={'adjustment_type':'surplus',
+        saved=clients('warehouse').post('/adjustment/add',json={'adjustment_type':'surplus',
             'warehouse':'QA27-A','warehouse_id':ids['a'],
             'items':[{'material_id':ids['material'],'quantity':2,'location':'QA27-A','reason':'QA30 +2'}]})
         assert saved.status_code==200 and saved.json['status']=='success',saved.json
@@ -81,12 +80,12 @@ def test_044_save_complete_and_reverse_plus_two_only_in_warehouse_a(bounded):
         with m.app.app_context():
             assert m.db.session.get(m.AdjustmentOrder,adjustment_id).status=='pending'
         assert stock(ids)==before
-        complete=document_post(clients('warehouse'),f'/adjustment/{adjustment_id}/complete',json={})
+        complete=clients('warehouse').post(f'/adjustment/{adjustment_id}/complete',json={})
         assert complete.status_code==200 and complete.json['status']=='success',complete.json
         assert stock(ids)[0:2]==([12,20],32)
         with m.app.app_context():
             assert m.db.session.get(m.AdjustmentOrder,adjustment_id).status=='completed'
-        reversed=document_post(clients('warehouse'),f'/adjustment/{adjustment_id}/revert',json={})
+        reversed=clients('warehouse').post(f'/adjustment/{adjustment_id}/revert',json={})
         assert reversed.status_code==200 and reversed.json['status']=='success',reversed.json
     assert stock(ids)[0:2]==([10,20],30)
     with m.app.app_context():
@@ -108,7 +107,7 @@ def test_072_reverse_exact_three_transfer_restores_both_warehouses(bounded):
     before=stock(ids)
     assert before[0:2]==([7,23],30)
     with requests():
-        response=document_post(clients('warehouse'),f'/transfer/{transfer_id}/revert',json={})
+        response=clients('warehouse').post(f'/transfer/{transfer_id}/revert',json={})
         assert response.status_code==200 and response.json['status']=='success',response.json
     after=stock(ids)
     assert after[0:2]==([10,20],30)
@@ -136,7 +135,7 @@ def test_044_existing_detail_rebuild_stops_before_deletion(http_case,monkeypatch
         return original(query,*a,**k)
     monkeypatch.setattr(query_type,'delete',refuse_existing)
     before=stock(ids)
-    response=document_post(clients('warehouse'),'/adjustment/add',json={'id':draft_id,
+    response=clients('warehouse').post('/adjustment/add',json={'id':draft_id,
         'adjustment_type':'surplus','warehouse_id':ids['a'],'warehouse':'QA27-A',
         'items':[{'material_id':ids['material'],'quantity':3,'location':'QA27-A'}]})
     # This controlled failure is caused by the explicit no-delete stand-in.

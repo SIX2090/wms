@@ -52,7 +52,6 @@ expire，断言前需 ``db.session.expire(...)`` 或 ``db.session.refresh(...)``
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import re
 import sys
@@ -119,7 +118,7 @@ def _make_client():
     login_page = client.get("/login").get_data(as_text=True)
     m = re.search(r'name="csrf_token".*?value="([^"]+)"', login_page)
     token = m.group(1) if m else ""
-    document_post(client,
+    client.post(
         "/login",
         data={"username": "admin", "password": "admin", "csrf_token": token},
     )
@@ -193,7 +192,7 @@ class TestBug20260922015FailRollsBack:
             stock_before = _db_stock(mat_id)
             qty_before = _db_item(item_id).quantity
 
-            resp = document_post(client,f"/in_order/{order.id}/update_completed", json={
+            resp = client.post(f"/in_order/{order.id}/update_completed", json={
                 "items": [{
                     "id": item_id,
                     "quantity": 80,
@@ -227,7 +226,7 @@ class TestBug20260922015FailRollsBack:
             stock_before = _db_stock(mat_id)
             qty_before = _db_item(item_id).quantity
 
-            resp = document_post(client,f"/in_order/{order.id}/update_completed", json={
+            resp = client.post(f"/in_order/{order.id}/update_completed", json={
                 "items": [{
                     "id": item_id,
                     "quantity": 80,
@@ -265,7 +264,7 @@ class TestBug20260922015FailRollsBack:
             ids_before = _db_item_ids(order.id)
             stock_before = _db_stock(mat_id)
 
-            resp = document_post(client,f"/in_order/{order.id}/update_completed", json={
+            resp = client.post(f"/in_order/{order.id}/update_completed", json={
                 "items": [{
                     "id": second_id,
                     "quantity": 30,
@@ -299,7 +298,7 @@ class TestBug20260922015FailRollsBack:
             item_id, mat_id = item.id, mat.id
             stock_before = _db_stock(mat_id)
 
-            resp = document_post(client,f"/in_order/{order.id}/update_completed", json={
+            resp = client.post(f"/in_order/{order.id}/update_completed", json={
                 "items": [{
                     "id": item_id,
                     "quantity": 80,

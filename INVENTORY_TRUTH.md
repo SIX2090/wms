@@ -98,7 +98,7 @@
 |---|---|---|---|
 | `deduct_stock_atomic` | `app/app.py:4802` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
 | `add_stock` | `app/app.py:4870` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8434` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `_apply_opening_stock_balance` | `app/app.py:8429` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
 | `add_stock_transaction` | `app/app.py:5144` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
@@ -258,7 +258,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29856`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29851`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -421,8 +421,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:29856`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:29856`，符合 §3.2）——
+> （`app/app.py:29851`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:29851`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计
@@ -541,5 +541,3 @@ if not is_stock_sufficient(available, quantity):
 2026-11-04（IMP-03）：备份实现迁入仅标准库的sqlite_snapshot；同步本文件当前app.py定位行号，库存来源、仓库及业务口径未变。
 
 2026-11-04（IMP-04）：物料嵌入页脚本策略接入，定位提示随app.py更新；库存与仓库口径不变。
-
-2026-11-05（IA-05/06）：JSON输入边界校验同步app.py定位行号，库存来源、仓库归属和写入规则未变。

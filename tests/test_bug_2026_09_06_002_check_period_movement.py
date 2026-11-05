@@ -18,7 +18,6 @@ T7 _check_period_movement_alerts 直接调用：三种口径
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import sys
 from datetime import datetime, timedelta
@@ -75,7 +74,7 @@ def _seed_admin():
 
 
 def _login_web(client):
-    r = document_post(client,"/login", data={"username": "admin", "password": "admin"})
+    r = client.post("/login", data={"username": "admin", "password": "admin"})
     assert r.status_code in (302, 303), f"Web 登录失败：{r.status_code}"
 
 
@@ -115,7 +114,7 @@ def _seed_scene():
 def _new_check(client, codes, warehouse="A仓"):
     """建盘点单。save_table 首次写入即设 frozen_at=now。"""
     items = [{"code": c, "actual_stock": c == "M001" and 58 or 30} for c in codes]
-    r = document_post(client,"/check/save_table", json={
+    r = client.post("/check/save_table", json={
         "order_id": None, "check_no": "",
         "header": {"warehouse": warehouse, "remark": ""},
         "items": items,
@@ -135,7 +134,7 @@ def _items_of(check_id):
 
 def _count_as_counted(client, check_id, item_id, actual):
     """走 update_check_item 标记该行已盘（写入 counted_by/counted_at）。"""
-    r = document_post(client,f"/check/{check_id}/item/{item_id}",
+    r = client.post(f"/check/{check_id}/item/{item_id}",
                     data={"actual_stock": actual})
     assert r.status_code == 200, r.get_data(as_text=True)
     assert r.get_json().get("status") == "success", r.get_json()
@@ -170,7 +169,7 @@ def test_t1_no_period_movement_completes_directly():
     _count_as_counted(client, cid, items[0].id, 60)
     _count_as_counted(client, cid, items[1].id, 30)
 
-    r = document_post(client,f"/check/{cid}/complete", json={})
+    r = client.post(f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body
@@ -191,7 +190,7 @@ def test_t2_period_movement_returns_confirm():
     _write_txn(m1, wh_a, -10, "out")
     _write_txn(m2, wh_a, +5, "in")
 
-    r = document_post(client,f"/check/{cid}/complete", json={})
+    r = client.post(f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "confirm", body
@@ -217,7 +216,7 @@ def test_t3_force_skips_movement_confirm():
 
     _write_txn(m1, wh_a, -10, "out")  # 期间动销
 
-    r = document_post(client,f"/check/{cid}/complete", json={"force": 1})
+    r = client.post(f"/check/{cid}/complete", json={"force": 1})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body
@@ -244,7 +243,7 @@ def test_t4_cross_warehouse_txn_excluded():
     # B 仓动销：不属于本盘点单仓库
     _write_txn(m1, wh_b, -10, "out")
 
-    r = document_post(client,f"/check/{cid}/complete", json={})
+    r = client.post(f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     # 无动销 → 直接 success
@@ -268,7 +267,7 @@ def test_t5_no_frozen_at_passes_through():
 
     _write_txn(m1, wh_a, -10, "out")
 
-    r = document_post(client,f"/check/{cid}/complete", json={})
+    r = client.post(f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body
@@ -287,7 +286,7 @@ def test_t6_own_reference_excluded():
     _write_txn(m1, wh_a, -10, "out",
                reference_type="check", reference_id=cid)
 
-    r = document_post(client,f"/check/{cid}/complete", json={})
+    r = client.post(f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body

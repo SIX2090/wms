@@ -19,7 +19,6 @@ BUG-2026-08-30-005 回归测试：仓库管理模块审计修复
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import re
 import sys
@@ -51,7 +50,7 @@ def _make_client():
     login_page = client.get("/login").get_data(as_text=True)
     m = re.search(r'name="csrf_token".*?value="([^"]+)"', login_page)
     token = m.group(1) if m else ""
-    document_post(client,"/login", data={"username": "admin", "password": "admin",
+    client.post("/login", data={"username": "admin", "password": "admin",
                                 "csrf_token": token})
     return client
 
@@ -105,7 +104,7 @@ class TestBug20260830005:
         items = [{'code': 'M001', 'name': '电缆'}]
         if system_stock is not None:
             items[0]['system_stock'] = system_stock
-        return document_post(self.client,
+        return self.client.post(
             '/check/save_table',
             json={'header': {'warehouse': warehouse_name}, 'items': items},
         )
@@ -129,7 +128,7 @@ class TestBug20260830005:
             for it in list(check.items):
                 db.session.delete(it)
             db.session.commit()
-        resp2 = document_post(self.client,f'/check/{check_id}/add_item',
+        resp2 = self.client.post(f'/check/{check_id}/add_item',
                                  data={'material_id': self.mat_id})
         assert resp2.status_code == 200, resp2.get_data(as_text=True)[:200]
         with app_module.app.app_context():
@@ -138,7 +137,7 @@ class TestBug20260830005:
                 f"add_item 系统库存应为仓库级 100，实际 {item.system_stock}"
 
     def test_T3_rename_warehouse_syncs_all_documents(self):
-        resp = document_post(self.client,
+        resp = self.client.post(
             f'/warehouse/{self.whA_id}/edit',
             data={'code': 'WHA', 'name': '仓库A新', 'type': '', 'location': '',
                   'status': 'active', 'remark': ''},
@@ -158,7 +157,7 @@ class TestBug20260830005:
             assert InOrder.query.filter_by(order_no="IN-CODE").first().warehouse == "WHA"
 
     def test_T4_add_warehouse_rejects_invalid_status(self):
-        resp = document_post(self.client,'/warehouse/add',
+        resp = self.client.post('/warehouse/add',
                                 data={'code': 'WHX', 'name': '仓库X',
                                       'status': 'hacked', 'type': '', 'location': '',
                                       'remark': ''})

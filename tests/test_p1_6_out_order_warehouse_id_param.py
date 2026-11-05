@@ -18,7 +18,6 @@
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import sys
 from pathlib import Path
@@ -61,7 +60,7 @@ def _seed(default=True):
 
 
 def _login(client):
-    document_post(client,"/login", data={"username": "p16_out", "password": "admin"},
+    client.post("/login", data={"username": "p16_out", "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
 
 
@@ -93,7 +92,7 @@ class TestOutOrderWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/out_order/add", json=_add_payload(warehouse_id=wh_b.id))
+            resp = client.post("/out_order/add", json=_add_payload(warehouse_id=wh_b.id))
             body = resp.get_json()
             assert body["status"] == "success", body
             order = OutOrder.query.get(body["id"])
@@ -106,7 +105,7 @@ class TestOutOrderWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/out_order/add", json=_add_payload(warehouse="仓库乙"))
+            resp = client.post("/out_order/add", json=_add_payload(warehouse="仓库乙"))
             body = resp.get_json()
             assert body["status"] == "success", body
             order = OutOrder.query.get(body["id"])
@@ -119,7 +118,7 @@ class TestOutOrderWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/out_order/add", json=_add_payload(
+            resp = client.post("/out_order/add", json=_add_payload(
                 warehouse_id=wh_b.id, warehouse="仓库甲"))
             body = resp.get_json()
             assert body["status"] == "success", body
@@ -133,7 +132,7 @@ class TestOutOrderWarehouseIdParam:
             wh_a, wh_b, material = _seed()
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,"/out_order/add", json=_add_payload(warehouse_id=99999))
+            resp = client.post("/out_order/add", json=_add_payload(warehouse_id=99999))
             assert resp.status_code == 400
             assert resp.get_json()["status"] == "error"
 
@@ -146,7 +145,7 @@ class TestOutOrderWarehouseIdParam:
             order_id = order.id
             client = app_module.app.test_client()
             _login(client)
-            resp = document_post(client,f"/out_order/{order_id}/update",
+            resp = client.post(f"/out_order/{order_id}/update",
                                json={"date": "2026-09-25", "warehouse_id": wh_b.id})
             body = resp.get_json()
             assert body["status"] == "success", body

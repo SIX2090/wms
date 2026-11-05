@@ -24,7 +24,6 @@
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import sys
 from pathlib import Path
@@ -120,7 +119,7 @@ def _make_client(role="warehouse"):
                                 role=role, must_change_password=False))
             db.session.commit()
     client = app_module.app.test_client()
-    document_post(client,"/login", data={"username": role, "password": "admin"},
+    client.post("/login", data={"username": role, "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
     return client
 
@@ -157,7 +156,7 @@ def test_t1_add_rejects_wrong_business_type():
     client = _make_client()
     payload = _add_payload(seed_data["wh_name"], source_no="IN-WRONG-TYPE",
                            ii_id=seed_data["ii_id"])
-    resp = document_post(client,"/out_order/add", json=payload)
+    resp = client.post("/out_order/add", json=payload)
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "error", f"非采购入库类型必须被拒，实际 {data}"
@@ -179,7 +178,7 @@ def test_t2_add_rejects_incomplete_in_order():
     client = _make_client()
     payload = _add_payload(seed_data["wh_name"], source_no="IN-NOT-DONE",
                            ii_id=seed_data["ii_id"])
-    resp = document_post(client,"/out_order/add", json=payload)
+    resp = client.post("/out_order/add", json=payload)
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "error", f"未完成入库单必须被拒，实际 {data}"
@@ -202,7 +201,7 @@ def test_t3_add_accepts_completed_purchase_in_order():
     client = _make_client()
     payload = _add_payload(seed_data["wh_name"], source_no="IN-OK-1",
                            ii_id=seed_data["ii_id"])
-    resp = document_post(client,"/out_order/add", json=payload)
+    resp = client.post("/out_order/add", json=payload)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "success", f"合格的来源必须放行，实际 {data}"
@@ -229,7 +228,7 @@ def test_t4_edit_rejects_incomplete_in_order():
         seed_data.update(draft_id=draft_id, good_id=good_id)
 
     client = _make_client()
-    resp = document_post(client,f"/out_order/{seed_data['draft_id']}/update",
+    resp = client.post(f"/out_order/{seed_data['draft_id']}/update",
                        json={"date": datetime.date.today().strftime("%Y-%m-%d"), "source_in_order_no": "IN-EDIT-BAD"})
     assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
@@ -258,7 +257,7 @@ def test_t5_edit_accepts_completed_purchase_in_order():
         seed_data.update(draft_id=draft_id, second_id=second_id)
 
     client = _make_client()
-    resp = document_post(client,f"/out_order/{seed_data['draft_id']}/update",
+    resp = client.post(f"/out_order/{seed_data['draft_id']}/update",
                        json={"date": datetime.date.today().strftime("%Y-%m-%d"), "source_in_order_no": "IN-E-2"})
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     data = resp.get_json()

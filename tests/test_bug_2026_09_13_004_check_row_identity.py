@@ -1,4 +1,3 @@
-from tests.document_revision_client import document_post
 import io
 
 import pytest
@@ -9,7 +8,7 @@ from tests.test_bug_2026_09_13_002_warehouse_deductions import scene
 
 
 def _save(client, warehouse, material, rows, order_id=None):
-    return document_post(client,"/check/save_table", json={
+    return client.post("/check/save_table", json={
         "order_id": order_id, "order_no": "CK-ROWS", "header": {"warehouse": warehouse.name},
         "items": [{"material_id": material.id, **row} for row in rows],
     }).get_json()
@@ -59,7 +58,7 @@ def test_location_enabled_check_requires_and_preserves_area(scene, area):
     result = _save(client, other, material, [{"area": area, "actual_stock": 98}])
     assert result["status"] == ("success" if area else "error"), result
     if area:
-        completed = document_post(client,f"/check/{result['id']}/complete", json={"force": True}).get_json()
+        completed = client.post(f"/check/{result['id']}/complete", json={"force": True}).get_json()
         assert completed["status"] == "success", completed
         adjustment = wms.AdjustmentOrder.query.one()
         assert adjustment.status == "pending"
@@ -79,7 +78,7 @@ def test_import_rejects_duplicate_material_area(scene):
     content = io.BytesIO()
     book.save(content)
     content.seek(0)
-    result = document_post(client,"/check/import", data={"file": (content, "checks.xlsx")}).get_json()
+    result = client.post("/check/import", data={"file": (content, "checks.xlsx")}).get_json()
     assert result["status"] == "success", result
     rows = wms.InventoryCheckItem.query.all()
     assert len(rows) == 2

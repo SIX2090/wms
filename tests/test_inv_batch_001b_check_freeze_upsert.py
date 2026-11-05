@@ -27,7 +27,6 @@ T6. 响应格式兼容（status/id/order_no），completed 单保存仍拒绝
 """
 from __future__ import annotations
 
-from tests.document_revision_client import document_post
 import os
 import sys
 from datetime import datetime
@@ -87,7 +86,7 @@ def _seed_admin():
 
 
 def _login_web(client):
-    r = document_post(client,"/login", data={"username": "admin", "password": "admin"})
+    r = client.post("/login", data={"username": "admin", "password": "admin"})
     assert r.status_code in (302, 303), f"Web 登录失败：{r.status_code}"
 
 
@@ -135,7 +134,7 @@ def _save_table(client, items, order_id=None, check_no=None, warehouse="A仓"):
         "header": {"warehouse": warehouse, "remark": ""},
         "items": items,
     }
-    return document_post(client,"/check/save_table", json=payload)
+    return client.post("/check/save_table", json=payload)
 
 
 def _write_out_flow(material, warehouse, qty):
@@ -257,7 +256,7 @@ def test_t4_complete_uses_frozen_baseline():
     # 若错误地用当前账面则差异 = 57 − 30 = +27（方向都反了）。
     _write_out_flow(m1, wh_a, 30)
 
-    r2 = document_post(client,f"/check/{check_id}/complete", json={"force": 1})
+    r2 = client.post(f"/check/{check_id}/complete", json={"force": 1})
     assert r2.status_code == 200, r2.get_data(as_text=True)
     body = r2.get_json()
     assert body.get("status") == "success", body
@@ -283,7 +282,7 @@ def test_t5_update_check_item_writes_counted_attribution():
     check = InventoryCheck.query.get(r1.get_json()["id"])
     item = _get_item(check, m1.id)
 
-    r2 = document_post(client,f"/check/{check.id}/item/{item.id}",
+    r2 = client.post(f"/check/{check.id}/item/{item.id}",
                      data={"actual_stock": "56"})
     assert r2.status_code == 200, r2.get_data(as_text=True)
 

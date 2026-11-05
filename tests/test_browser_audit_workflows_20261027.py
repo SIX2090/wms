@@ -1,5 +1,4 @@
 """Second browser-audit batch: real import files and warehouse boundaries."""
-from tests.document_revision_client import document_post
 from io import BytesIO
 
 from flask import template_rendered
@@ -40,7 +39,7 @@ def test_legacy_outbound_template_uses_default_warehouse(bom_case):
     from app import OutOrder, StockTransaction
     client, _ = bom_case
     a, _ = _warehouses()
-    r = document_post(client,'/import/out_order', data={'file':(_xlsx(
+    r = client.post('/import/out_order', data={'file':(_xlsx(
         ['单据编号','物料编码','数量','单价'], [['OLD-WH','B-M',1,0]]), 'legacy.xlsx')})
     assert r.status_code == 200
     assert OutOrder.query.one().warehouse == a.name
@@ -52,7 +51,7 @@ def test_outbound_file_can_choose_other_warehouse_and_picker(bom_case):
     from app import OutOrder
     client, _ = bom_case
     _, b = _warehouses()
-    r = document_post(client,'/import/out_order', data={'file':(_xlsx(
+    r = client.post('/import/out_order', data={'file':(_xlsx(
         ['单据编号','物料编码','数量','仓库','领料人'], [['OTHER-WH','B-M',1,b.code,'验收领用人']]), 'warehouse.xlsx')})
     assert r.status_code == 200
     order = OutOrder.query.one()
@@ -63,7 +62,7 @@ def test_outbound_file_can_choose_other_warehouse_and_picker(bom_case):
 def test_outbound_missing_default_does_not_create_invisible_draft(bom_case):
     from app import OutOrder
     client, _ = bom_case
-    response = document_post(client,'/import/out_order', data={'file':(_xlsx(
+    response = client.post('/import/out_order', data={'file':(_xlsx(
         ['单据编号','物料编码','数量'], [['NO-WH','B-M',1]]), 'missing.xlsx')})
     assert OutOrder.query.count() == 0
     assert '仓库' in str(response.get_json())
@@ -78,7 +77,7 @@ def test_inbound_detail_excel_appends_to_current_draft_only(bom_case):
     db.session.flush()
     db.session.add(InOrderItem(in_order_id=order.id, material_id=ids['material'],quantity=1,price=2,amount=2))
     db.session.commit()
-    response = document_post(client,f'/in_order/{order.id}/batch_add_items', data={'file':(_xlsx(
+    response = client.post(f'/in_order/{order.id}/batch_add_items', data={'file':(_xlsx(
         ['物料编码','数量','单价','备注'], [['B-M',2,3,'追加明细']]), 'details.xlsx')})
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['count'] == 1
@@ -136,7 +135,7 @@ def test_new_check_ignores_client_global_system_stock(bom_case):
         StockTransaction(material_id=ids['material'], warehouse_id=b.id,
         location=b.name,transaction_type='in',quantity=4)])
     db.session.commit()
-    r = document_post(client,'/check/save_table', json={'header':{'warehouse':a.name},
+    r = client.post('/check/save_table', json={'header':{'warehouse':a.name},
         'items':[{'material_id':ids['material'],'actual_stock':6,'system_stock':10}]})
     assert r.status_code == 200
     item = InventoryCheckItem.query.one()

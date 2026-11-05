@@ -1,5 +1,4 @@
 """Inbound previews must never turn a new save into an edit of an old draft."""
-from tests.document_revision_client import document_post
 from datetime import datetime
 import json
 
@@ -64,10 +63,10 @@ def test_new_same_number_cannot_overwrite_draft(case, kind, prefix, transport):
     before = (old.id, item.id, old.date, old.operator_id)
     data = _payload(case, kind, number)
     if transport == 'json':
-        response = document_post(client,'/in_order/add', json=data)
+        response = client.post('/in_order/add', json=data)
     else:
         data['items_json'] = json.dumps(data.pop('items'))
-        response = document_post(client,'/in_order/add', data=data)
+        response = client.post('/in_order/add', data=data)
     assert response.status_code == 409, response.get_json()
     assert '单号已存在' in response.get_json()['msg']
     db.session.expire_all()
@@ -83,7 +82,7 @@ def test_new_same_number_cannot_overwrite_draft(case, kind, prefix, transport):
 
 @pytest.mark.parametrize('kind,prefix', KINDS)
 def test_missing_number_uses_business_prefix(case, kind, prefix):
-    response = document_post(case[0],'/in_order/add', json=_payload(case, kind, ''))
+    response = case[0].post('/in_order/add', json=_payload(case, kind, ''))
     body = response.get_json()
     assert body['status'] == 'success', body
     assert body['order_no'].startswith(prefix + datetime.now().strftime('%y%m'))
@@ -114,7 +113,7 @@ def test_explicit_id_still_edits_only_target(case):
                   status='pending', remark='old')
     db.session.add(old)
     db.session.commit()
-    response = document_post(client,'/in_order/add', json=_payload(case, '其他入库', 'COL-EDIT', order_id=old.id))
+    response = client.post('/in_order/add', json=_payload(case, '其他入库', 'COL-EDIT', order_id=old.id))
     body = response.get_json()
     assert body['status'] == 'success', body
     assert body['id'] == old.id

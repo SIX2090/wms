@@ -1,4 +1,3 @@
-from tests.document_revision_client import document_post
 from datetime import datetime
 
 import pytest
@@ -18,7 +17,7 @@ def test_frozen_check_keeps_warehouse_identity(scene, same_warehouse):
                                  system_stock=60, actual_stock=58, difference=-2)
     wms.db.session.add(row)
     wms.db.session.commit()
-    result = document_post(client,"/check/save_table", json={
+    result = client.post("/check/save_table", json={
         "order_id": check.id, "order_no": check.check_no,
         "header": {"warehouse": source.code if same_warehouse else other.name},
         "items": [{"material_id": material.id, "actual_stock": 18}],
@@ -36,7 +35,7 @@ def test_empty_check_can_choose_another_warehouse(scene):
     check = wms.InventoryCheck(check_no="CK-EMPTY", warehouse=source.name, status="pending")
     wms.db.session.add(check)
     wms.db.session.commit()
-    result = document_post(client,"/check/save_table", json={
+    result = client.post("/check/save_table", json={
         "order_id": check.id, "order_no": check.check_no,
         "header": {"warehouse": other.name},
         "items": [{"material_id": material.id, "actual_stock": 98}],

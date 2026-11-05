@@ -440,8 +440,3 @@ POST_SPLIT_BUGS['BUG-2026-11-05-101'] = 'fixed'  # column settings naming; exact
 POST_SPLIT_BUGS['BUG-2026-11-05-102'] = 'fixed'  # blank unknown stock; exact delivery and activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-05-001'] = 'fixed'  # independent daily backup; production activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-05-002'] = 'fixed'  # finite process recovery; production activation tracked separately
-
-POST_SPLIT_BUGS['BUG-2026-11-05-003'] = 'fixed'  # signed edits; production separately tracked
-POST_SPLIT_BUGS['BUG-2026-11-05-004'] = 'fixed'  # typed document JSON boundaries
-
-POST_SPLIT_BUGS['BUG-2026-11-05-005'] = 'fixed'  # fresh transaction rows for derived totals
