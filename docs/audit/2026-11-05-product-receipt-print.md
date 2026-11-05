@@ -14,3 +14,5 @@
 - 生产只读结构预览列出可空`in_order_item.box_no VARCHAR(100)`；本批[已审阅SQL](2026-11-05-product-receipt-schema.sql)只增加该列，不处理预览同时提示的存量普通性能索引。备份、停服、数据库租约、执行DDL和沿原入口重启须取得本次明确授权。生产需重启 WMS 服务生效。
 
 CI精确目标与推送结果在成功后追加；生产数据库、单据、库存、账号和服务尚未执行写入或重启。
+
+推送前匿名GitHub API返回403限流。本次改用已连接GitHub工具逐页读取main最近运行（每页10条，读取第1、2页直到找到Android），确认最新WMS CI [41990749958](https://github.com/SIX2090/wms/actions/runs/41990749958)与AI [41990749970](https://github.com/SIX2090/wms/actions/runs/41990749970)均为d3f771093497b375d321fc8cf571610f875eed58且completed/success；最新Android [41971520345](https://github.com/SIX2090/wms/actions/runs/41971520345)为86043f560b6b1a17d90046d9eaadb3135dc66ce9且completed/success。Git再次确认远端main仍为同一d3f77109基线，旧Android提交为其祖先，两端提交对象完整，Android工程和构建工作流差异为空。按AGENTS的同一基线替代证据程序，仅本次push临时设置既有WMS_SKIP_CI_GATE=1处理同一查询故障，不绕过未核实或非绿状态，提交钩子保持启用。
