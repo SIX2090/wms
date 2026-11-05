@@ -1,4 +1,5 @@
 """Purchase-request line contracts survive the complete document flow, in memory only."""
+from tests.document_revision_client import document_post
 from datetime import date
 import io
 import json
@@ -56,7 +57,7 @@ def payload(ids, **extra):
 
 
 def save(client, body, mode='json'):
-    response = client.post('/purchase_request/add', **({mode: body} if mode == 'json' else
+    response = document_post(client,'/purchase_request/add', **({mode: body} if mode == 'json' else
                           {'data': {**body, 'items': json.dumps(body['items'])}}))
     assert response.status_code == 200, response.get_data(as_text=True)
     result = response.get_json()
@@ -100,7 +101,7 @@ def test_purchase_request_contracts_follow_selected_push_without_merging_lines(c
         lines = sorted(order.items, key=lambda x: x.id)
         selected = [dict(item_id=x.id, quantity=2) for x in lines]
         w.db.session.commit()
-    response = client.post(f'/purchase_request/{request_id}/create_purchase_order', json={'items': selected})
+    response = document_post(client,f'/purchase_request/{request_id}/create_purchase_order', json={'items': selected})
     assert response.status_code == 200 and response.get_json()['status'] == 'success'
     with w.app.app_context():
         items = w.PurchaseOrderItem.query.order_by(w.PurchaseOrderItem.id).all()
@@ -153,7 +154,7 @@ def test_purchase_request_invalid_contract_fields_reject_without_destroying_exis
     request_id = save(client, body)
     body['request_id'] = request_id
     body['items'][0][field] = value
-    response = client.post('/purchase_request/add', json=body)
+    response = document_post(client,'/purchase_request/add', json=body)
     assert response.status_code == 400
     with w.app.app_context():
         assert w.PurchaseRequestItem.query.count() == 2
@@ -171,7 +172,7 @@ def test_purchase_request_excel_import_preserves_contracts_or_rejects_long_text(
     data = io.BytesIO()
     workbook.save(data)
     data.seek(0)
-    response = client.post('/purchase_request/import', data={'file': (data, 'request.xlsx')})
+    response = document_post(client,'/purchase_request/import', data={'file': (data, 'request.xlsx')})
     assert response.status_code == (400 if invalid else 200), response.get_data(as_text=True)
     with w.app.app_context():
         if invalid:
@@ -186,12 +187,12 @@ def test_purchase_request_contract_changes_participate_in_idempotency(case):
     client, ids = case
     body = payload(ids)
     headers = {'X-Idempotency-Key': 'pr-contract-field-save'}
-    first = client.post('/purchase_request/add', json=body, headers=headers)
-    replay = client.post('/purchase_request/add', json=body, headers=headers)
+    first = document_post(client,'/purchase_request/add', json=body, headers=headers)
+    replay = document_post(client,'/purchase_request/add', json=body, headers=headers)
     assert first.status_code == replay.status_code == 200
     assert first.get_json() == replay.get_json()
     body['items'][0]['contract_no'] = 'CHANGED'
-    assert client.post('/purchase_request/add', json=body, headers=headers).status_code == 409
+    assert document_post(client,'/purchase_request/add', json=body, headers=headers).status_code == 409
     with w.app.app_context():
         assert w.PurchaseRequest.query.count() == 1 and w.PurchaseRequestItem.query.count() == 2
         assert w.PurchaseRequestItem.query.order_by(w.PurchaseRequestItem.id).first().contract_no == 'HT-001'
@@ -288,7 +289,7 @@ def test_purchase_request_unknown_master_reference_keeps_existing_lines(case, co
     body = payload(ids)
     body['request_id'] = save(client, body)
     body['items'][0].update(contract_no=contract_no, project_name=project_name)
-    response = client.post('/purchase_request/add', json=body)
+    response = document_post(client, '/purchase_request/add', json=body)
     assert response.status_code == 400 and '合同' in response.get_json()['msg']
     with w.app.app_context():
         items = w.PurchaseRequestItem.query.order_by(w.PurchaseRequestItem.id).all()
@@ -301,7 +302,7 @@ def test_purchase_request_master_rename_sync_and_both_delete_guards_keep_manual_
     request_id = save(client, payload(ids))
     with w.app.app_context():
         contract_id = w.Contract.query.filter_by(contract_no='HT-001').one().id
-    response = client.post(f'/contract/{contract_id}/edit', data={
+    response = document_post(client, f'/contract/{contract_id}/edit', data={
         'contract_no': 'HT-RENAMED', 'project_name': '新工程', 'status': 'active'})
     assert response.status_code == 200 and response.get_json()['status'] == 'success'
     with w.app.app_context():
@@ -310,7 +311,7 @@ def test_purchase_request_master_rename_sync_and_both_delete_guards_keep_manual_
             'HT-RENAMED', '新工程', '第一行手工备注')
         assert (items[1].contract_no, items[1].project_name) == ('HT-002', '二号工程')
     for path, body in [(f'/contract/{contract_id}/delete', {}), ('/contract/delete', {'ids': [contract_id]})]:
-        response = client.post(path, json=body)
+        response = document_post(client, path, json=body)
         assert response.get_json()['status'] == 'error' and '采购申请' in response.get_json()['msg']
     with w.app.app_context():
         assert w.db.session.get(w.Contract, contract_id) is not None

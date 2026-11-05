@@ -14,6 +14,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import re
 import sys
@@ -91,14 +92,14 @@ def _seed():
 
 
 def _login(client):
-    resp = client.post("/login", data={"username": "p23_admin", "password": "admin"},
+    resp = document_post(client,"/login", data={"username": "p23_admin", "password": "admin"},
                        content_type="application/x-www-form-urlencoded")
     assert resp.status_code in (200, 302)
 
 
 def _create_in_order(client, supplier_id, quantity=10, material_code="CONV_MAT"):
     """开库位管理时建单即要求库位（AGENTS.md 规则二），随建单传入。"""
-    resp = client.post("/in_order/add", json={
+    resp = document_post(client,"/in_order/add", json={
         "business_type": "采购入库",
         "supplier_id": supplier_id,
         "warehouse": WAREHOUSE,
@@ -171,7 +172,7 @@ def test_complete_in_order_writes_three_ledgers(client):
     order_id = _create_in_order(client, client.supplier_id, quantity=10)
     with app_module.app.app_context():
         _assert_location_persisted(order_id)
-    body = client.post(f"/in_order/{order_id}/complete?force=1").get_json()
+    body = document_post(client,f"/in_order/{order_id}/complete?force=1").get_json()
     assert body["status"] == "success", body
 
     with app_module.app.app_context():
@@ -186,8 +187,8 @@ def test_revert_in_order_reverses_three_ledgers(client):
     order_id = _create_in_order(client, client.supplier_id, quantity=10)
     with app_module.app.app_context():
         _assert_location_persisted(order_id)
-    assert client.post(f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
-    body = client.post(f"/in_order/{order_id}/revert").get_json()
+    assert document_post(client,f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
+    body = document_post(client,f"/in_order/{order_id}/revert").get_json()
     assert body["status"] == "success", body
 
     with app_module.app.app_context():
@@ -206,7 +207,7 @@ def test_batch_complete_and_batch_revert_three_ledgers(client):
     with app_module.app.app_context():
         for oid in ids:
             _assert_location_persisted(oid)
-    body = client.post("/in_order/batch_complete", json={"ids": ids}).get_json()
+    body = document_post(client,"/in_order/batch_complete", json={"ids": ids}).get_json()
     assert body["status"] == "success", body
     assert body.get("completed") == 2, body
 
@@ -217,7 +218,7 @@ def test_batch_complete_and_batch_revert_three_ledgers(client):
         assert _loc_qty(code="CONV_MAT") == 5, '批量完成漏写库位账'
         assert _loc_qty(code="CONV_MAT2") == 7, '批量完成漏写库位账（第二张单）'
 
-    body = client.post("/in_order/batch_revert", json={"ids": ids}).get_json()
+    body = document_post(client,"/in_order/batch_revert", json={"ids": ids}).get_json()
     assert body["status"] == "success", body
     assert body.get("reverted") == 2, body
 
@@ -234,14 +235,14 @@ def test_update_completed_in_order_delta_three_ledgers(client):
     order_id = _create_in_order(client, client.supplier_id, quantity=10)
     with app_module.app.app_context():
         _assert_location_persisted(order_id)
-    assert client.post(f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
+    assert document_post(client,f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
 
     with app_module.app.app_context():
         item = InOrderItem.query.filter_by(in_order_id=order_id).one()
         item_id = item.id
 
     # 10 → 15（delta +5）
-    body = client.post(f"/in_order/{order_id}/update_completed", json={
+    body = document_post(client,f"/in_order/{order_id}/update_completed", json={
         "items": [{"id": item_id, "quantity": 15, "price": 1}],
     }).get_json()
     assert body["status"] == "success", body
@@ -251,7 +252,7 @@ def test_update_completed_in_order_delta_three_ledgers(client):
         assert _loc_qty() == 15, '增量未同步库位账'
 
     # 15 → 12（delta -3）
-    body = client.post(f"/in_order/{order_id}/update_completed", json={
+    body = document_post(client,f"/in_order/{order_id}/update_completed", json={
         "items": [{"id": item_id, "quantity": 12, "price": 1}],
     }).get_json()
     assert body["status"] == "success", body
@@ -267,12 +268,12 @@ def test_delete_completed_in_order_item_three_ledgers(client):
     order_id = _create_in_order(client, client.supplier_id, quantity=10)
     with app_module.app.app_context():
         _assert_location_persisted(order_id)
-    assert client.post(f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
+    assert document_post(client,f"/in_order/{order_id}/complete?force=1").get_json()["status"] == "success"
 
     with app_module.app.app_context():
         item_id = InOrderItem.query.filter_by(in_order_id=order_id).one().id
 
-    body = client.post(f"/in_order/{order_id}/update_completed", json={
+    body = document_post(client,f"/in_order/{order_id}/update_completed", json={
         "deleted_items": [item_id], "items": [],
     }).get_json()
     assert body["status"] == "success", body

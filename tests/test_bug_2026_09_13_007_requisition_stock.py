@@ -1,3 +1,4 @@
+from tests.document_revision_client import document_post
 import pytest
 
 import app as wms
@@ -29,20 +30,20 @@ def test_requisition_stock_entries(scene, entry, available, legacy, negative):
     order_id = order.id
     transaction_count = wms.StockTransaction.query.count()
     if entry == 'save':
-        response = client.post('/requisition/save_table', json={
+        response = document_post(client,'/requisition/save_table', json={
             'order_id': order_id, 'order_no': order.req_no,
             'header': {'warehouse': order.warehouse},
             'items': [{'code': material.code, 'quantity': 7},
                       {'code': material.code, 'quantity': 10}],
         })
     elif entry == 'edit':
-        response = client.post(f'/requisition/{order_id}/item/{item.id}/update',
+        response = document_post(client,f'/requisition/{order_id}/item/{item.id}/update',
                                data={'quantity': 10})
     elif entry == 'add':
-        response = client.post(f'/requisition/{order_id}/item/add',
+        response = document_post(client,f'/requisition/{order_id}/item/add',
                                data={'material_code': material.code, 'quantity': 10})
     else:
-        response = client.post(f'/requisition/{order_id}/batch_add_items',
+        response = document_post(client,f'/requisition/{order_id}/batch_add_items',
                                json={'content': f'{material.code},10'})
     result = response.get_json()
     succeeds = available >= 17 or negative
@@ -64,7 +65,7 @@ def test_requisition_batch_counts_accepted_rows(scene):
     order = wms.ProductionRequisition(req_no='REQ-BATCH', status='pending', warehouse=source.name)
     wms.db.session.add(order)
     wms.db.session.commit()
-    result = client.post(f'/requisition/{order.id}/batch_add_items', json={
+    result = document_post(client,f'/requisition/{order.id}/batch_add_items', json={
         'content': f'{material.code},7\n{material.code},7',
     }).get_json()
     assert result['status'] == 'success', result

@@ -31,6 +31,7 @@ opening_stock_doc，唯一约束收窄为 (material_id, warehouse_id, doc_id)，
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import re
 import sys
@@ -112,14 +113,14 @@ class TestOpeningStockMultiDoc:
                 must_change_password=False,
             ))
             db.session.commit()
-        self.client.post("/login",
+        document_post(self.client,"/login",
                          data={"username": "admin", "password": "admin"},
                          content_type="application/x-www-form-urlencoded")
 
     # ---- 工具 ----
 
     def _save(self, payload):
-        resp = self.client.post("/opening_stock/save", json=payload)
+        resp = document_post(self.client,"/opening_stock/save", json=payload)
         try:
             return resp.status_code, resp.get_json()
         except Exception:  # pragma: no cover - 兜底便于定位 500
@@ -268,7 +269,7 @@ class TestOpeningStockMultiDoc:
         doc_id = b["doc_id"]
         assert self._stock(self.m1) == 80.0 and self._stock(self.m2) == 30.0
 
-        resp = self.client.post(f"/opening_stock/{doc_id}/delete")
+        resp = document_post(self.client,f"/opening_stock/{doc_id}/delete")
         assert resp.status_code == 200
         body = resp.get_json()
         assert body["status"] == "success" and body["reversed_count"] == 2
@@ -287,7 +288,7 @@ class TestOpeningStockMultiDoc:
                        "quantity": 60, "price": 2}],
         })
         doc_id = b["doc_id"]
-        resp = self.client.post(f"/opening_stock/{doc_id}/date",
+        resp = document_post(self.client,f"/opening_stock/{doc_id}/date",
                                 json={"date": "2026-07-01"})
         assert resp.status_code == 200, resp.data[:300]
         assert resp.get_json()["line_count"] == 1
@@ -305,7 +306,7 @@ class TestOpeningStockMultiDoc:
             "items": [{"material_id": self.m1.id, "warehouse_id": self.wh1.id,
                        "quantity": 5, "price": 1}],
         })
-        resp = self.client.post(f"/opening_stock/{b['doc_id']}/date",
+        resp = document_post(self.client,f"/opening_stock/{b['doc_id']}/date",
                                 json={"date": ""})
         assert resp.status_code == 400
 
@@ -313,8 +314,8 @@ class TestOpeningStockMultiDoc:
 
     def test_t9_missing_doc_returns_404(self):
         assert self.client.get("/opening_stock/99999").status_code == 404
-        assert self.client.post("/opening_stock/99999/delete").status_code == 404
-        assert self.client.post("/opening_stock/99999/date",
+        assert document_post(self.client,"/opening_stock/99999/delete").status_code == 404
+        assert document_post(self.client,"/opening_stock/99999/date",
                                 json={"date": "2026-01-01"}).status_code == 404
 
     def test_t9b_save_into_missing_doc_returns_404(self):
@@ -402,7 +403,7 @@ class TestOpeningStockMultiDoc:
 
     def test_t12_batch_save_without_doc_id_still_creates_doc(self):
         """旧前端/旧脚本不带 doc_id：必须仍能落库并归入兼容单据。"""
-        resp = self.client.post("/opening_stock/batch_save", json={
+        resp = document_post(self.client,"/opening_stock/batch_save", json={
             "items": [{"material_id": self.m1.id, "warehouse_id": self.wh1.id,
                        "quantity": 25, "price": 4, "date": "2026-09-05"}],
         })
@@ -427,7 +428,7 @@ class TestOpeningStockMultiDoc:
         return buf
 
     def _import(self, rows):
-        resp = self.client.post("/opening_stock/import", data={
+        resp = document_post(self.client,"/opening_stock/import", data={
             "file": (self._xlsx(rows), "opening.xlsx"),
         }, content_type="multipart/form-data")
         assert resp.status_code == 200, resp.data[:300]
@@ -478,7 +479,7 @@ class TestOpeningStockMultiDoc:
     def test_t13e_imported_doc_date_is_editable(self):
         """用户核心诉求：导入进来的单据要能改日期。"""
         body = self._import([["W1", "M001", "螺丝", 60, 2, "", ""]])
-        resp = self.client.post(f"/opening_stock/{body['doc_id']}/date",
+        resp = document_post(self.client,f"/opening_stock/{body['doc_id']}/date",
                                 json={"date": "2026-01-15"})
         assert resp.status_code == 200, resp.data[:300]
         db.session.expire_all()

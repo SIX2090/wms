@@ -15,6 +15,7 @@ BUG-2026-08-04-003 回归测试：update_completed_in_order 必须加写锁
   T3. 状态变为 deleted/不存在后修改：应被锁拒绝
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import sys
@@ -114,7 +115,7 @@ class TestBug20260804003UpdateCompletedLock:
             client = _make_client()
             order, item = _make_completed_in_order(seeds["mat"], qty=50)
             # 修改明细数量从 50 增加到 80（qty_diff=+30）
-            resp = client.post(f"/in_order/{order.id}/update_completed", json={
+            resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
                 "items": [{"id": item.id, "quantity": 80, "price": 10}],
                 "deleted_items": [],
             })
@@ -136,7 +137,7 @@ class TestBug20260804003UpdateCompletedLock:
             order.status = "pending"
             db.session.commit()
             # 尝试修改已完成明细
-            resp = client.post(f"/in_order/{order.id}/update_completed", json={
+            resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
                 "items": [{"id": item.id, "quantity": 80, "price": 10}],
                 "deleted_items": [],
             })
@@ -154,7 +155,7 @@ class TestBug20260804003UpdateCompletedLock:
             order, item = _make_completed_in_order(seeds["mat"], qty=50)
             order.status = "pending"
             db.session.commit()
-            resp = client.post(f"/in_order/{order.id}/update_completed", json={
+            resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
                 "items": [],
                 "deleted_items": [],
             })

@@ -21,6 +21,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import sys
 from pathlib import Path
@@ -105,7 +106,7 @@ def _make_client(role="warehouse"):
                                 role=role, must_change_password=False))
             db.session.commit()
     client = app_module.app.test_client()
-    client.post("/login", data={"username": role, "password": "admin"},
+    document_post(client,"/login", data={"username": role, "password": "admin"},
                 content_type="application/x-www-form-urlencoded")
     return client
 
@@ -123,7 +124,7 @@ def test_t1_item_add_rejected_for_purchase_return():
         seed_data.update(order_id=order_id, material_code=seed["material"].code)
 
     client = _make_client()
-    resp = client.post(f"/out_order/{seed_data['order_id']}/item/add",
+    resp = document_post(client,f"/out_order/{seed_data['order_id']}/item/add",
                        data={"material_code": seed_data["material_code"], "quantity": 100})
     data = resp.get_json()
     assert data["status"] == "error", f"采购退货单必须拒绝裸加明细，实际 {data}"
@@ -147,7 +148,7 @@ def test_t2_item_update_over_limit_rejected():
         seed_data.update(item_id=item_id, material_code=seed["material"].code)
 
     client = _make_client()
-    resp = client.post("/out_order/item/update",
+    resp = document_post(client,"/out_order/item/update",
                        data={"id": seed_data["item_id"], "code": seed_data["material_code"],
                              "quantity": 11, "price": 3.0})
     data = resp.get_json()
@@ -172,7 +173,7 @@ def test_t3_item_update_within_limit_allowed():
         seed_data.update(item_id=item_id, material_code=seed["material"].code)
 
     client = _make_client()
-    resp = client.post("/out_order/item/update",
+    resp = document_post(client,"/out_order/item/update",
                        data={"id": seed_data["item_id"], "code": seed_data["material_code"],
                              "quantity": 6, "price": 3.0})
     data = resp.get_json()
@@ -203,14 +204,14 @@ def test_t4_non_purchase_return_unaffected():
 
     client = _make_client()
     # 领料单裸加明细：应成功
-    resp = client.post(f"/out_order/{seed_data['order_id']}/item/add",
+    resp = document_post(client,f"/out_order/{seed_data['order_id']}/item/add",
                        data={"material_code": seed_data["material_code"], "quantity": 5})
     data = resp.get_json()
     assert data["status"] == "success", f"领料单裸加明细必须放行，实际 {data}"
     item_id = data["item_id"]
 
     # 领料单改量：无来源也应成功（不受采购退货闸影响）
-    resp = client.post("/out_order/item/update",
+    resp = document_post(client,"/out_order/item/update",
                        data={"id": item_id, "code": seed_data["material_code"],
                              "quantity": 8, "price": 3.0})
     data = resp.get_json()

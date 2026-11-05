@@ -32,6 +32,7 @@ PurchaseOrderItem.received_quantity 可能被重复递增（双计数）。
   T2. 反提交→编辑→重新完成：received_quantity 应等于新数量（不双计数）
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import sys
@@ -129,7 +130,7 @@ def _create_in_order(client, mat, po_item, qty, order_id=None):
             "source_purchase_order_item_id": po_item.id,
         }],
     }
-    resp = client.post("/in_order/add", json=payload)
+    resp = document_post(client, "/in_order/add", json=payload)
     return resp
 
 
@@ -150,19 +151,19 @@ class TestBug20260804015ReceivedDoubleCount:
             assert in_order is not None
 
             # 完成
-            r = client.post(f"/in_order/{in_order.id}/complete")
+            r = document_post(client, f"/in_order/{in_order.id}/complete")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 50, f"完成后应为 50，实际 {po_item.received_quantity}"
 
             # 反提交：只回退库存，不释放预留
-            r = client.post(f"/in_order/{in_order.id}/revert")
+            r = document_post(client, f"/in_order/{in_order.id}/revert")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 50, f"反提交后应保持 50（预留），实际 {po_item.received_quantity}"
 
             # 重新完成（不编辑）：不双计数
-            r = client.post(f"/in_order/{in_order.id}/complete")
+            r = document_post(client, f"/in_order/{in_order.id}/complete")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 50, \
@@ -181,13 +182,13 @@ class TestBug20260804015ReceivedDoubleCount:
             in_order = InOrder.query.filter_by(order_no=resp.get_json()["order_no"]).first()
 
             # 完成
-            r = client.post(f"/in_order/{in_order.id}/complete")
+            r = document_post(client, f"/in_order/{in_order.id}/complete")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 50
 
             # 反提交：只回退库存，不释放预留
-            r = client.post(f"/in_order/{in_order.id}/revert")
+            r = document_post(client, f"/in_order/{in_order.id}/revert")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 50
@@ -200,7 +201,7 @@ class TestBug20260804015ReceivedDoubleCount:
                 f"编辑后应为 60，实际 {po_item.received_quantity}"
 
             # 重新完成：应保持 60，不得双计数为 120
-            r = client.post(f"/in_order/{in_order.id}/complete")
+            r = document_post(client, f"/in_order/{in_order.id}/complete")
             assert r.get_json()["status"] == "success", r.get_json()
             db.session.refresh(po_item)
             assert po_item.received_quantity == 60, \

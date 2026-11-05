@@ -1,4 +1,5 @@
 """BUG-2026-10-22-012: missing outbound paste route, transactional draft-only repair."""
+from tests.document_revision_client import document_post
 from datetime import date
 from pathlib import Path
 import sys
@@ -59,7 +60,7 @@ def case(monkeypatch):
 
 def post(case, content='M1,2,4', **kwargs):
     headers = {'X-Requested-With': 'XMLHttpRequest', **kwargs.pop('headers', {})}
-    return case.client.post(f'/out_order/{case.order_id}/batch_add_items', json={'content': content}, headers=headers, **kwargs)
+    return document_post(case.client,f'/out_order/{case.order_id}/batch_add_items', json={'content': content}, headers=headers, **kwargs)
 
 
 def inventory_snapshot():
@@ -111,14 +112,14 @@ def test_bad_row_leaves_entire_batch_unchanged(case, content):
 @pytest.mark.parametrize('payload', [None, [], {}, {'content': None}, {'content': 123}, {'content': True}, {'content': 'x' * 100001}])
 def test_pydantic_json_contract(case, payload):
     before = document_snapshot(case)
-    response = case.client.post(f'/out_order/{case.order_id}/batch_add_items', json=payload)
+    response = document_post(case.client,f'/out_order/{case.order_id}/batch_add_items', json=payload)
     assert response.status_code == 400
     assert document_snapshot(case) == before
 
 
 def test_form_payload_not_accepted(case):
     before = document_snapshot(case)
-    response = case.client.post(f'/out_order/{case.order_id}/batch_add_items', data={'content': 'M1,1'})
+    response = document_post(case.client,f'/out_order/{case.order_id}/batch_add_items', data={'content': 'M1,1'})
     assert response.status_code == 400
     assert document_snapshot(case) == before
 
@@ -250,7 +251,7 @@ def test_requires_login_and_post(case):
     assert case.client.get(f'/out_order/{case.order_id}/batch_add_items').status_code == 405
     from flask import g
     g.pop('_login_user', None)  # A separate client must not inherit this app-context login cache.
-    assert case.app.test_client().post(f'/out_order/{case.order_id}/batch_add_items', json={'content': 'M1,1'}).status_code == 302
+    assert document_post(case.app.test_client(),f'/out_order/{case.order_id}/batch_add_items', json={'content': 'M1,1'}).status_code == 302
     assert document_snapshot(case) == before
 
 

@@ -314,8 +314,17 @@ class TestMobileOpeningStockEdit:
         return row.id
 
     def _edit(self, line_id, payload):
+        headers = self._bearer_headers()
+        row = db.session.get(OpeningStock, line_id)
+        if row and row.warehouse_id:
+            response = self.client.get('/api/opening_stock',
+                                       query_string={'warehouse_id': row.warehouse_id, 'page_size': 100},
+                                       headers=headers)
+            assert response.status_code == 200
+            listed = next(item for item in response.json['data']['items'] if item['id'] == line_id)
+            payload = dict(payload, revision=listed['revision'])
         return self.client.post("/api/opening_stock/%d" % line_id, json=payload,
-                                headers=self._bearer_headers())
+                                headers=headers)
 
     def _stock(self, material):
         db.session.expire_all()

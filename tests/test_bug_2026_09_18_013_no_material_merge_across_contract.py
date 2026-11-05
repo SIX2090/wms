@@ -52,6 +52,7 @@
 """
 from __future__ import annotations
 
+from tests.document_revision_client import document_post
 import os
 import re
 import sys
@@ -130,7 +131,7 @@ def _login():
     c = app_module.app.test_client()
     page = c.get("/login").get_data(as_text=True)
     m = re.search(r'name="csrf_token".*?value="([^"]+)"', page)
-    c.post("/login", data={"username": "admin", "password": "admin",
+    document_post(c,"/login", data={"username": "admin", "password": "admin",
                            "csrf_token": m.group(1) if m else ""})
     return c
 
@@ -148,7 +149,7 @@ def _add_item(client, order_id, code, qty=1, price=10, contract_no=None,
         body["contract_no"] = contract_no
     if po_item_id is not None:
         body["source_purchase_order_item_id"] = po_item_id
-    return client.post(f"/in_order/{order_id}/item/add", data=body)
+    return document_post(client,f"/in_order/{order_id}/item/add", data=body)
 
 
 def _items(order_id):
@@ -278,7 +279,7 @@ def test_T9_entry_b_json_same_material_twice_creates_two_rows():
             {"code": "M001", "quantity": 3, "price": 10, "contract_no": "HD260708"},
         ],
     }
-    resp = c.post("/in_order/add", json=payload)
+    resp = document_post(c,"/in_order/add", json=payload)
     assert resp.status_code in (200, 201, 302), f"add 返回 {resp.status_code}"
     with app_module.app.app_context():
         # 入口 B 新建一张单（单号由后端生成），取其明细校验
@@ -366,7 +367,7 @@ def test_T14_purchase_order_selection_carries_item_contract():
         db.session.commit()
         po_item_id = po_item.id
     c = _login()
-    resp = c.post("/purchase_order/create_in_order_from_selection", json={
+    resp = document_post(c,"/purchase_order/create_in_order_from_selection", json={
         "items": [{"purchase_order_item_id": po_item_id, "quantity": 5}],
         "warehouse": "仓库A",
     })
@@ -425,7 +426,7 @@ def test_T16_completed_in_order_new_item_resolves_contract():
         order.status = "completed"
         db.session.commit()
     c = _login()
-    resp = c.post(f"/in_order/{oid}/update_completed", json={
+    resp = document_post(c,f"/in_order/{oid}/update_completed", json={
         "items": [{"id": None, "is_new": True, "code": code, "material_code": code,
                    "quantity": 2, "price": 10, "contract_no": "DONE-CT"}],
     })
@@ -457,7 +458,7 @@ def test_T17_excel_inbound_import_falls_back_to_header_contract():
     buf.seek(0)
 
     c = _login()
-    resp = c.post("/import/in_order", data={
+    resp = document_post(c,"/import/in_order", data={
         "file": (buf, "in.xlsx"),
     }, content_type="multipart/form-data")
     assert resp.status_code in (200, 201, 302), (
@@ -487,7 +488,7 @@ def test_T18_android_scan_inbound_inherits_header_contract():
         db.session.add(token)
         db.session.commit()
     c = app_module.app.test_client()
-    resp = c.post("/api/inbound", json={
+    resp = document_post(c,"/api/inbound", json={
         "warehouse": "仓库A",
         "business_type": "其他入库",
         "contract_no": "AND-CT",
@@ -521,11 +522,11 @@ def test_T19_out_order_add_item_carries_contract():
         db.session.commit()
         out_id = out.id
     c = _login()
-    r1 = c.post(f"/out_order/{out_id}/item/add", data={
+    r1 = document_post(c,f"/out_order/{out_id}/item/add", data={
         "material_code": code, "quantity": 1, "price": 10,
         "contract_no": "OUT-USER"})
     assert r1.status_code == 200, f"出库加明细返回 {r1.status_code}"
-    r2 = c.post(f"/out_order/{out_id}/item/add", data={
+    r2 = document_post(c,f"/out_order/{out_id}/item/add", data={
         "material_code": code, "quantity": 2, "price": 10})
     assert r2.status_code == 200
     with app_module.app.app_context():

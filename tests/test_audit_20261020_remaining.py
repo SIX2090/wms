@@ -1,4 +1,5 @@
 """A04–A08：真实鉴权、跨账号限流、仓库文本引用、期初账与 HTTPS 回归。"""
+from tests.document_revision_client import document_post
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -46,7 +47,7 @@ def client(monkeypatch):
 @pytest.mark.parametrize('authorization', ['', 'Bearer forged'])
 def test_session_writes_require_csrf_even_with_forged_bearer(client, monkeypatch, path, authorization):
     monkeypatch.setitem(wms.app.config, 'WTF_CSRF_ENABLED', True)
-    response = client.post(path, json={}, headers={'Authorization': authorization})
+    response = document_post(client,path, json={}, headers={'Authorization': authorization})
     if path == '/print_queue/jobs' and authorization:
         assert response.status_code == 401
         return
@@ -95,22 +96,22 @@ def test_api_login_limits_unknown_users_and_shares_web_bucket(client, monkeypatc
     monkeypatch.setattr(wms, 'LOGIN_IP_RATE_LIMIT_PER_MINUTE', 3)
     anonymous = wms.app.test_client()
     for index in range(3):
-        assert anonymous.post('/api/login', json={
+        assert document_post(anonymous,'/api/login', json={
             'username': f'unknown-{index}', 'password': 'wrong',
         }).status_code == 401
-    assert anonymous.post('/api/login', json={
+    assert document_post(anonymous,'/api/login', json={
         'username': 'audit', 'password': 'fixture-password',
     }).status_code == 429
-    assert anonymous.post('/login', data={
+    assert document_post(anonymous,'/login', data={
         'username': 'audit', 'password': 'fixture-password',
     }).status_code == 429
-    assert anonymous.post('/api/login', json={
+    assert document_post(anonymous,'/api/login', json={
         'username': 'audit', 'password': 'fixture-password',
     }, environ_overrides={'REMOTE_ADDR': '192.0.2.9'}).status_code == 200
     # 过期即恢复；不是重启服务或改账号密码才能解锁。
     rate_limit.reset()
     rate_limit.record_failure('login_fail:127.0.0.1', 60, now=0)
-    assert anonymous.post('/api/login', json={
+    assert document_post(anonymous,'/api/login', json={
         'username': 'audit', 'password': 'fixture-password',
     }).status_code == 200
 
@@ -118,10 +119,10 @@ def test_api_login_limits_unknown_users_and_shares_web_bucket(client, monkeypatc
 def test_api_login_wrong_password_and_untrusted_forwarding(client, monkeypatch):
     monkeypatch.setattr(wms, 'LOGIN_IP_RATE_LIMIT_PER_MINUTE', 1)
     anonymous = wms.app.test_client()
-    assert anonymous.post('/api/login', json={
+    assert document_post(anonymous,'/api/login', json={
         'username': 'audit', 'password': 'wrong',
     }, headers={'X-Forwarded-For': '192.0.2.10'}).status_code == 401
-    assert anonymous.post('/api/login', json={
+    assert document_post(anonymous,'/api/login', json={
         'username': 'audit', 'password': 'fixture-password',
     }, headers={'X-Forwarded-For': '192.0.2.11'}).status_code == 429
 
@@ -143,7 +144,7 @@ def test_warehouse_rename_all_text_columns(client, change_code):
                 db.session.add(model(**{key: f'{model.__name__}-{index}',
                                         'date': date.today(), 'warehouse': warehouse, **extra}))
         db.session.commit()
-    response = client.post('/warehouse/1/edit', data={
+    response = document_post(client,'/warehouse/1/edit', data={
         'name': '仓A新', 'code': 'WA2' if change_code else 'WA', 'status': 'active',
     })
     assert response.status_code == 200
@@ -220,12 +221,12 @@ def test_opening_batch_location_rejection_rolls_back_earlier_rows(client, path):
         {'material_id': 1, 'warehouse_id': 1, 'quantity': 10, 'location': 'L-A'},
         {'material_id': 2, 'warehouse_id': 1, 'quantity': 20, 'location': 'L-A'},
     ]}
-    response = client.post(path, json=payload)
+    response = document_post(client,path, json=payload)
     assert response.status_code == 200, response.get_json()
     payload['doc_id'] = response.get_json()['doc_id']
     payload['items'][0]['quantity'] = 12
     payload['items'][1]['location'] = 'L-B'
-    response = client.post(path, json=payload)
+    response = document_post(client,path, json=payload)
     assert response.status_code == 400 and '库位' in response.get_json()['msg']
     with wms.app.app_context():
         assert [r.quantity for r in wms.OpeningStock.query.order_by(wms.OpeningStock.material_id)] == [10, 20]
@@ -248,7 +249,7 @@ def test_warehouse_rename_transaction_rolls_back(client, monkeypatch):
             raise RuntimeError('fixture forced failure')
         return original(self, *args, **kwargs)
     monkeypatch.setattr(Query, 'update', fail_midway)
-    assert client.post('/warehouse/1/edit', data={
+    assert document_post(client,'/warehouse/1/edit', data={
         'name': '仓A新', 'code': 'WA2', 'status': 'active',
     }).status_code == 500
     with wms.app.app_context():
@@ -258,7 +259,7 @@ def test_warehouse_rename_transaction_rolls_back(client, monkeypatch):
 
 
 def test_warehouse_cross_name_code_collision_rejected(client):
-    response = client.post('/warehouse/1/edit', data={
+    response = document_post(client,'/warehouse/1/edit', data={
         'name': 'WB', 'code': 'WA', 'status': 'active',
     })
     assert response.status_code == 400

@@ -3190,8 +3190,11 @@ def register_native_api_routes(app):
         供 App 顶部展示"本仓已建账 N 项 / 合计 Q"。
         """
         from sqlalchemy.orm import joinedload
+        from flask_login import current_user
+        from services.document_edit_guard import opening_line_revision
         from app import (Material, OpeningStock, _mobile_paginate, api_json_error,
                          api_json_success, MOBILE_API_PAGE_SIZE_DEFAULT,
+                         get_bearer_user,
                          normalize_stock_quantity, resolve_request_warehouse,
                          round_to_2_decimals)
         # BUG-2026-08-12-004：仓库必填——未传参时带入默认仓库，无默认仓库返回 400
@@ -3229,6 +3232,7 @@ def register_native_api_routes(app):
 
         query = query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc())
         page_data = _mobile_paginate(query, page, page_size)
+        actor = current_user if current_user.is_authenticated else get_bearer_user()
         return api_json_success({
             'items': [
                 {
@@ -3244,6 +3248,7 @@ def register_native_api_routes(app):
                     'price': round_to_2_decimals(o.price or 0),
                     'amount': round_to_2_decimals(o.amount or 0),
                     'remark': o.remark or '',
+                    'revision': opening_line_revision(o, actor.id),
                 }
                 for o in page_data['items']
             ],
@@ -3275,19 +3280,41 @@ def register_native_api_routes(app):
         from app import (Material, OpeningStock, _apply_opening_stock_balance,
                          api_json_error, api_json_success, normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals)
+        if line_id >= 2**63:
+            return api_json_error('期初库存记录标识超出范围', 400)
         payload = request.get_json(silent=True) or {}
         if not isinstance(payload, dict):
             return api_json_error('请求格式错误', 400)
         if not any(k in payload for k in ('quantity', 'price', 'remark')):
             return api_json_error('请至少提交 quantity / price / remark 之一', 400)
 
-        opening = OpeningStock.query.filter_by(id=line_id).with_for_update().first()
+        from request_input import OpeningLineEditInput
+        try:
+            OpeningLineEditInput.model_validate(payload)
+        except (ValueError, TypeError):
+            return api_json_error('期初库存参数格式不正确，请检查版本、数量、单价和备注', 400)
+
+        from services.document_edit_guard import opening_line_revision, opening_line_revision_matches
+        actor_id = user.id
+        # SQLite ignores FOR UPDATE. Serialize the comparison with the stock
+        # delta; a second account must not pass its check on an old snapshot.
+        db.session.rollback()
+        try:
+            if db.engine.dialect.name == 'sqlite':
+                db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            opening = OpeningStock.query.filter_by(id=line_id).with_for_update().first()
+        except OperationalError:
+            db.session.rollback()
+            return api_json_error('期初库存正在保存，请保留输入并稍后重试', 503)
         if not opening:
             return api_json_error('期初库存记录不存在', 404)
         if opening.warehouse_id is None:
             # 历史无仓库归属行（"看得见的空洞"）：不允许手机端改，
             # 避免在仓库归属未知时改动总账（warehouse_id 是唯一归属依据）。
             return api_json_error('该期初记录未归属仓库，请在 PC 端先补齐仓库', 400)
+        if not opening_line_revision_matches(opening, actor_id, payload.get('revision')):
+            db.session.rollback()
+            return api_json_error('期初库存版本缺失或已变化，本次修改未保存，请保留输入，刷新列表后重新打开该行核对', 409)
         material = db.session.get(Material, opening.material_id)
         if not material:
             return api_json_error('物料不存在，无法调整', 400)
@@ -3324,15 +3351,18 @@ def register_native_api_routes(app):
                 opening.warehouse, opening.date,
             )
             opening.operator_id = user.id
-            db.session.commit()
-            return api_json_success({
+            db.session.flush()
+            response_data = {
                 'id': opening.id,
                 'material_code': material.code or '',
                 'quantity': normalize_stock_quantity(opening.quantity or 0),
                 'price': round_to_2_decimals(opening.price or 0),
                 'amount': round_to_2_decimals(opening.amount or 0),
                 'delta': delta,
-            }, '期初库存已更新')
+                'revision': opening_line_revision(opening, actor_id),
+            }
+            db.session.commit()
+            return api_json_success(response_data, '期初库存已更新')
         except ValueError as ve:
             # BUG-2026-08-16-002 同口径：库位账同步失败要回明确原因并整体回滚
             db.session.rollback()

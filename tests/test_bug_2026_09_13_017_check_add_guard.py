@@ -1,3 +1,4 @@
+from tests.document_revision_client import document_post
 import pytest
 
 import app as wms
@@ -21,7 +22,7 @@ def test_invalid_warehouse_never_uses_global_stock(scene, warehouse):
         source.is_default = False
         warehouse = ""
     check = _check(warehouse)
-    result = client.post(f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
+    result = document_post(client, f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
     assert result["status"] == "error", result
     assert wms.InventoryCheckItem.query.count() == 0
     assert material.stock == 100
@@ -32,7 +33,7 @@ def test_add_freezes_warehouse_stock_and_preserves_area(scene, warehouse):
     client, source, other, material = scene
     _stock(material, source, 7, legacy=True)
     check = _check("" if warehouse == "default" else source.code)
-    result = client.post(f'/check/{check.id}/add_item', data={
+    result = document_post(client, f'/check/{check.id}/add_item', data={
         "material_id": material.id, "area": "Zone A"}).get_json()
     assert result["status"] == "success", result
     item = wms.InventoryCheckItem.query.one()
@@ -40,10 +41,10 @@ def test_add_freezes_warehouse_stock_and_preserves_area(scene, warehouse):
     assert item.area == "Zone A"
     assert check.frozen_at is not None
     frozen = check.frozen_at
-    duplicate = client.post(f'/check/{check.id}/add_item', data={
+    duplicate = document_post(client, f'/check/{check.id}/add_item', data={
         "material_id": material.id, "area": "Zone A"}).get_json()
     assert duplicate["status"] == "error"
-    other_area = client.post(f'/check/{check.id}/add_item', data={
+    other_area = document_post(client, f'/check/{check.id}/add_item', data={
         "material_id": material.id, "area": "Zone B"}).get_json()
     assert other_area["status"] == "success", other_area
     assert check.frozen_at == frozen
@@ -56,7 +57,7 @@ def test_location_enabled_requires_area(scene):
     client, source, other, material = scene
     wms.set_system_setting("location_management_enabled", "1")
     check = _check(other.name)
-    result = client.post(f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
+    result = document_post(client, f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
     assert result["status"] == "error", result
     assert wms.InventoryCheckItem.query.count() == 0
 
@@ -71,7 +72,7 @@ def test_rechecks_status_under_write_lock(scene, monkeypatch):
         return None, False
 
     monkeypatch.setattr(wms, "_acquire_order_write_lock", denied)
-    result = client.post(f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
+    result = document_post(client, f'/check/{check.id}/add_item', data={"material_id": material.id}).get_json()
     assert result["status"] == "error", result
     assert calls
     assert wms.InventoryCheckItem.query.count() == 0
@@ -83,7 +84,7 @@ def test_legacy_frozen_empty_warehouse_is_not_reassigned(scene):
     wms.db.session.add(wms.InventoryCheckItem(inventory_check_id=check.id,
         material_id=material.id, area="Zone A", system_stock=100, actual_stock=100, difference=0))
     wms.db.session.commit()
-    result = client.post(f'/check/{check.id}/add_item', data={
+    result = document_post(client, f'/check/{check.id}/add_item', data={
         "material_id": material.id, "area": "Zone B"}).get_json()
     assert result["status"] == "error"
     assert check.warehouse == ""
@@ -97,7 +98,7 @@ def test_location_area_saved_with_warehouse_balance(scene):
     wms.db.session.add(wms.LocationInventory(material_id=material.id,
         warehouse_id=other.id, location="Zone A", quantity=100))
     check = _check(other.name)
-    result = client.post(f'/check/{check.id}/add_item', data={
+    result = document_post(client, f'/check/{check.id}/add_item', data={
         "material_id": material.id, "location": "Zone A"}).get_json()
     assert result["status"] == "success", result
     item = wms.InventoryCheckItem.query.one()

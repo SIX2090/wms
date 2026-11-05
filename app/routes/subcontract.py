@@ -1312,7 +1312,11 @@ def register_subcontract_routes(app):
         if not issue.items:
             rows.append('<tr><td colspan="5" class="text-center text-muted">暂无明细</td></tr>')
         rows.append('</tbody></table></div>')
-        return ''.join(rows)
+        from flask import make_response
+        from services.document_edit_guard import page_revision
+        response = make_response(''.join(rows))
+        response.headers['X-WMS-Document-Read-Revision'] = page_revision()['token']
+        return response
 
     @app.route('/subcontract/issue/<int:id>/print')
     @app.route('/subcontract_issue/<int:id>/print')
@@ -2010,7 +2014,11 @@ def register_subcontract_routes(app):
         if not receive.items:
             rows.append('<tr><td colspan="7" class="text-center text-muted">暂无明细</td></tr>')
         rows.append('</tbody></table></div>')
-        return ''.join(rows)
+        from flask import make_response
+        from services.document_edit_guard import page_revision
+        response = make_response(''.join(rows))
+        response.headers['X-WMS-Document-Read-Revision'] = page_revision()['token']
+        return response
 
     @app.route('/subcontract/receive/<int:id>/print')
     @app.route('/subcontract_receive/<int:id>/print')

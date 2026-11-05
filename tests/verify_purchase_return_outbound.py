@@ -34,6 +34,7 @@
 - T14 编辑草稿保留行级来源关联（防重建丢来源）
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import sys
@@ -285,13 +286,13 @@ def test_t1_three_ledgers_consistent():
                               supplier_id=seed_data["supplier_id"],
                               source_in_order_id=seed_data["in_order_id"],
                               location="PRT-01")
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     data = resp.get_json()
     assert data["status"] == "success", data
     order_id = data["id"]
 
-    resp = client.post(f"/out_order/{order_id}/complete")
+    resp = document_post(client, f"/out_order/{order_id}/complete")
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
 
     with app_module.app.app_context():
@@ -335,9 +336,9 @@ def test_t2_stock_txn_warehouse_id():
                               [("M-PRET", 5, seed_data["ii_id"])],
                               supplier_id=seed_data["supplier_id"],
                               source_in_order_id=seed_data["in_order_id"])
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     order_id = resp.get_json()["id"]
-    client.post(f"/out_order/{order_id}/complete")
+    document_post(client, f"/out_order/{order_id}/complete")
 
     with app_module.app.app_context():
         txn = StockTransaction.query.filter_by(
@@ -365,7 +366,7 @@ def test_t3_over_return_rejected_on_save():
                               [("M-PRET", 6, seed_data["ii_id"])],
                               supplier_id=seed_data["supplier_id"],
                               source_in_order_id=seed_data["in_order_id"])
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     data = resp.get_json()
     assert data["status"] == "error", "保存阶段必须拦超退"
     assert "可退数量 5.00" in data.get("msg", ""), data
@@ -425,15 +426,15 @@ def test_t5_over_return_rejected_on_complete():
         p = _return_payload(seed_data["wh_name"], [("M-PRET", 10, seed_data["ii_id"])],
                             supplier_id=seed_data["supplier_id"],
                             source_in_order_id=seed_data["in_order_id"])
-        d = client.post("/out_order/add", json=p).get_json()
+        d = document_post(client, "/out_order/add", json=p).get_json()
         assert d["status"] == "success", f"窗口内保存必须放行：{d}"
         drafts.append(d["id"])
 
     # 第一张完成：占满可退量
-    r1 = client.post(f"/out_order/{drafts[0]}/complete")
+    r1 = document_post(client, f"/out_order/{drafts[0]}/complete")
     assert r1.status_code == 200, r1.get_data(as_text=True)[:200]
     # 第二张完成：已退量聚合为 10 → 可退 0 → 必须被拒
-    r2 = client.post(f"/out_order/{drafts[1]}/complete")
+    r2 = document_post(client, f"/out_order/{drafts[1]}/complete")
     d2c = r2.get_json()
     assert d2c["status"] == "error", f"第二张超退必须被拒，实际 {d2c}"
     assert "可退数量 0.00" in d2c.get("msg", ""), d2c
@@ -460,11 +461,11 @@ def test_t6_duplicate_complete_idempotent():
     payload = _return_payload(seed_data["wh_name"], [("M-PRET", 3, seed_data["ii_id"])],
                               supplier_id=seed_data["supplier_id"],
                               source_in_order_id=seed_data["in_order_id"])
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     order_id = resp.get_json()["id"]
-    r1 = client.post(f"/out_order/{order_id}/complete")
+    r1 = document_post(client, f"/out_order/{order_id}/complete")
     assert r1.status_code == 200, r1.get_data(as_text=True)[:200]
-    r2 = client.post(f"/out_order/{order_id}/complete")
+    r2 = document_post(client, f"/out_order/{order_id}/complete")
     data2 = r2.get_json()
     assert data2["status"] == "error", "第二次完成必须被拒"
 
@@ -488,7 +489,7 @@ def test_t7_switch_off_allows_no_source():
 
     payload = _return_payload(seed_data["wh_name"], [("M-PRET", 2, None)],
                               supplier_id=seed_data["supplier_id"])
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     data = resp.get_json()
     assert data["status"] == "success", data
     order_id = data["id"]
@@ -514,7 +515,7 @@ def test_t8_switch_on_requires_source():
 
     payload = _return_payload(seed_data["wh_name"], [("M-PRET", 2, None)],
                               supplier_id=seed_data["supplier_id"])
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     data = resp.get_json()
     assert data["status"] == "error", data
     assert "必须关联来源采购入库单" in data.get("msg", ""), data
@@ -533,7 +534,7 @@ def test_t8b_supplier_required():
 
     payload = _return_payload(seed_data["wh_name"], [("M-PRET", 2, None)])
     payload.pop("customer", None)
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     data = resp.get_json()
     assert data["status"] == "error" and "退货供应商" in data.get("msg", ""), data
 
@@ -569,7 +570,7 @@ def test_t9_source_from_other_business_type_rejected():
         db.session.commit()
         payload["department_id"] = dept.id
 
-    resp = client.post("/out_order/add", json=payload)
+    resp = document_post(client, "/out_order/add", json=payload)
     data = resp.get_json()
     assert data["status"] == "error", data
     assert "仅采购退货出库单可关联采购入库来源" in data.get("msg", ""), data
@@ -704,7 +705,7 @@ def test_t14_edit_draft_preserves_source_link():
     payload = _return_payload(seed_data["wh_name"], [("M-PRET", 4, seed_data["ii_id"])],
                               supplier_id=seed_data["supplier_id"],
                               source_in_order_id=seed_data["in_order_id"])
-    d = client.post("/out_order/add", json=payload).get_json()
+    d = document_post(client, "/out_order/add", json=payload).get_json()
     assert d["status"] == "success", d
     order_id = d["id"]
 
@@ -722,7 +723,7 @@ def test_t14_edit_draft_preserves_source_link():
     payload2 = dict(payload)
     payload2["order_id"] = order_id
     payload2["order_no"] = "PR-RET-EDIT"
-    d2 = client.post("/out_order/add", json=payload2).get_json()
+    d2 = document_post(client, "/out_order/add", json=payload2).get_json()
     assert d2["status"] == "success", d2
 
     with app_module.app.app_context():

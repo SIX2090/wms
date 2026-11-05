@@ -1,4 +1,5 @@
 """Real rendered collectHeader -> requisition routes, using isolated SQLite only."""
+from tests.document_revision_client import document_post
 import json
 from html.parser import HTMLParser
 from pathlib import Path
@@ -111,7 +112,7 @@ def snapshot(mid):
 
 
 def save(client, mid, uid, header, *, order_id='', order_no='U1-REQ', quantity=5):
-    return client.post('/requisition/save_table', json={
+    return document_post(client,'/requisition/save_table', json={
         'order_id':order_id,'order_no':order_no,'date':'2026-10-23','header':header,
         'items':[{'material_id':mid,'quantity':quantity,'unit_id':uid}]
     })
@@ -146,7 +147,7 @@ def test_real_header_completion_isolates_warehouse_and_location_and_totals(scene
     for wid,no,qty in [(a,'U1-A-REQ',5),(b,'U1-B-REQ',7)]:
         header = header_from_page(client,'/requisition/add',{'warehouse_id':str(wid),'location':'Rack-1'})
         rid = accepted(save(client,mid,uid,header,order_no=no,quantity=qty))['id']
-        accepted(client.post(f'/requisition/{rid}/complete'))
+        accepted(document_post(client,f'/requisition/{rid}/complete'))
     total, locations, transactions = snapshot(mid)
     assert {(wid,loc):qty for wid,loc,qty in locations} == {(a,'Rack-1'):35,(a,'Rack-2'):30,(b,'Rack-1'):73}
     assert total == sum(qty for _,_,qty in locations) == 138
@@ -175,7 +176,7 @@ def test_enabled_legacy_blank_location_complete_guard_preserves_ledgers(scene):
     wms.db.session.commit();wms.db.session.refresh(order)
     assert order.location == ''  # ORM default: this is a historical blank, not persisted SQL NULL.
     rid=order.id;before=snapshot(mid)
-    response=client.post(f'/requisition/{rid}/complete')
+    response=document_post(client,f'/requisition/{rid}/complete')
     assert response.status_code==400 and '库位' in response.get_json()['msg']
     assert wms.db.session.get(wms.ProductionRequisition,rid).status=='pending'
     assert snapshot(mid)==before
@@ -198,7 +199,7 @@ def test_disabled_real_header_preserves_legacy_location_and_empty_compatibility(
     assert snapshot(mid)==before
     assert wms.db.session.get(wms.ProductionRequisition,rid).location==(legacy_location or '')
     if legacy_location is None:
-        accepted(client.post(f'/requisition/{rid}/complete'))
+        accepted(document_post(client,f'/requisition/{rid}/complete'))
         total,locations,transactions=snapshot(mid)
         # With location management off, stock is sourced from warehouse transactions.
         assert locations == []

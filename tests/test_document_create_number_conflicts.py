@@ -5,6 +5,7 @@ import json
 import pytest
 import app as wms
 from app import db
+from tests.document_revision_client import document_post
 
 
 CASES = [
@@ -147,7 +148,7 @@ def test_explicit_id_still_edits_its_draft_and_new_number_creates_separate_docum
     document_id = first.get_json()['id']
     edit = payload(kind, ids, data['order_no'], True)
     edit['request_id' if kind == 'request' else 'order_id'] = document_id
-    response = clients[0].post(endpoint, json=edit)
+    response = document_post(clients[0], endpoint, json=edit)
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['id'] == document_id
     fresh = clients[1].post(endpoint, json=payload(kind, ids, 'FRESH-'+kind))

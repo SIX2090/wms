@@ -18,6 +18,7 @@ S6. 编辑期初库存按差额调整成功。
 S7. 批量保存期初库存成功，去重/校验正确。
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import sys
@@ -130,7 +131,7 @@ class TestOpeningStockRegister:
         with app_module.app.app_context():
             _, _, mid, wid = _seed_master()
         # 新增
-        r = client.post("/opening_stock/add", data={
+        r = document_post(client, "/opening_stock/add", data={
             "material_id": mid, "warehouse_id": wid, "quantity": "10", "price": "5", "remark": "首批"
         })
         data = r.get_json()
@@ -144,7 +145,7 @@ class TestOpeningStockRegister:
             assert Material.query.get(mid).stock == 10.0
             oid = opening.id
         # 同物料同仓库重复新增被拒绝
-        r2 = client.post("/opening_stock/add", data={
+        r2 = document_post(client, "/opening_stock/add", data={
             "material_id": mid, "warehouse_id": wid, "quantity": "5", "price": "5"
         })
         assert r2.get_json()["status"] == "error"
@@ -158,7 +159,7 @@ class TestOpeningStockRegister:
         g2 = client.get("/opening_stock/99999")
         assert g2.status_code == 404
         # 编辑：数量调整到 25（差额 +15）
-        e = client.post(f"/opening_stock/edit/{oid}", data={
+        e = document_post(client, f"/opening_stock/edit/{oid}", data={
             "material_id": mid, "warehouse_id": wid, "quantity": "25", "price": "6", "remark": "调整"
         })
         ed = e.get_json()
@@ -179,7 +180,7 @@ class TestOpeningStockRegister:
                                          material_code="M2", material_name="螺母",
                                          unit_code="BOX", cat_code="C2", cat_name="分类二")
         # 正常批量保存
-        r = client.post("/opening_stock/batch_save", json={"items": [
+        r = document_post(client, "/opening_stock/batch_save", json={"items": [
             {"material_id": mid, "warehouse_id": wid, "quantity": "20", "price": "1"},
             {"material_id": mid2, "warehouse_id": wid, "quantity": "50", "price": "0.5"},
         ]})
@@ -191,13 +192,13 @@ class TestOpeningStockRegister:
             assert OpeningStock.query.filter_by(material_id=mid, warehouse_id=wid).first().quantity == 20.0
             assert Material.query.get(mid).stock == 20.0
         # 物料+仓库重复行被拒绝
-        r2 = client.post("/opening_stock/batch_save", json={"items": [
+        r2 = document_post(client, "/opening_stock/batch_save", json={"items": [
             {"material_id": mid, "warehouse_id": wid, "quantity": "1", "price": "1"},
             {"material_id": mid, "warehouse_id": wid, "quantity": "2", "price": "2"},
         ]})
         assert r2.get_json()["status"] == "error"
         # 增量更新：再次保存同一物料+仓库，第二次 changed_count 应为 0（库存无变化）
-        r4 = client.post("/opening_stock/batch_save", json={"items": [
+        r4 = document_post(client, "/opening_stock/batch_save", json={"items": [
             {"material_id": mid, "warehouse_id": wid, "quantity": "20", "price": "1"},
         ]})
         assert r4.get_json()["status"] == "success"

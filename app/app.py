@@ -7093,11 +7093,16 @@ def mobile_api_idempotent(endpoint):
         @wraps(f)
         def decorated_function(user, *args, **kwargs):
             payload = request.get_json(silent=True) or {}
+            if not isinstance(payload, dict):
+                return api_json_error('请求数据必须为JSON对象', 400)
             request_key = (
                 request.headers.get('X-Idempotency-Key')
                 or payload.get('request_id')
                 or ''
-            ).strip()
+            )
+            if not isinstance(request_key, str):
+                return api_json_error('幂等请求号必须为字符串', 400)
+            request_key = request_key.strip()
             if request_key:
                 if len(request_key) > 120:
                     return api_json_error('幂等请求号不能超过120个字符', 400)
@@ -35557,6 +35562,11 @@ def recalculate_sales_order(order):
     - tax_amount = tax_included_amount - untaxed_amount
     - amount 字段保留为含税金额，兼容旧逻辑
     """
+    from sqlalchemy import inspect
+    state = inspect(order, raiseerr=False)
+    if state is not None and state.persistent:
+        state.session.flush()
+        state.session.expire(order, ['items'])
     total_included = 0
     total_untaxed = 0
     total_tax = 0

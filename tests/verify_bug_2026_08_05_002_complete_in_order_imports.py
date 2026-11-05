@@ -16,6 +16,7 @@ NameError，单据停在草稿、下推按钮（需 completed 状态）不出现
   T3. 草稿入库单编辑表头（update_in_order）不再抛 NameError
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import re
@@ -114,7 +115,7 @@ class TestBug20260805002CompleteInOrderImports:
             seeds = _seed()
             client = _make_client()
             order, item = _make_pending_purchase_in_order(seeds["mat"], qty=25)
-            resp = client.post(f"/in_order/{order.id}/complete")
+            resp = document_post(client, f"/in_order/{order.id}/complete")
             assert resp.status_code == 200, f"应 200: {resp.status_code}"
             data = resp.get_json()
             assert data["status"] == "success", f"应成功: {data}"
@@ -135,11 +136,11 @@ class TestBug20260805002CompleteInOrderImports:
             client = _make_client()
             order, item = _make_pending_purchase_in_order(seeds["mat"], qty=25)
             # 先完成
-            client.post(f"/in_order/{order.id}/complete")
+            document_post(client, f"/in_order/{order.id}/complete")
             db.session.expire(order, ["status"])
             assert order.status == "completed"
             # 编辑已完成明细数量 25 -> 30（+5）
-            resp = client.post(f"/in_order/{order.id}/update_completed", json={
+            resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
                 "items": [{"id": item.id, "quantity": 30, "price": 10}],
                 "deleted_items": [],
             })
@@ -156,7 +157,7 @@ class TestBug20260805002CompleteInOrderImports:
             seeds = _seed()
             client = _make_client()
             order, item = _make_pending_purchase_in_order(seeds["mat"], qty=25)
-            resp = client.post(f"/in_order/{order.id}/update", json={
+            resp = document_post(client, f"/in_order/{order.id}/update", json={
                 "date": "2026-08-05",
                 "status": "pending",
             })

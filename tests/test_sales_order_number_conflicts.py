@@ -1,4 +1,5 @@
 """BUG-2026-11-01-029: stale sales previews fail clearly without changing old data."""
+from tests.document_revision_client import document_post
 import copy
 import json
 
@@ -33,10 +34,10 @@ def payload(ids, number=None, second=False):
 
 def post(client, data, transport):
     if transport == 'json':
-        return client.post('/sales/add', json=data)
+        return document_post(client,'/sales/add', json=data)
     data = copy.deepcopy(data)
     data['items'] = json.dumps(data['items'])
-    return client.post('/sales/add', data=data)
+    return document_post(client,'/sales/add', data=data)
 
 
 def snapshot():
@@ -115,7 +116,7 @@ def test_explicit_id_edit_still_updates_only_its_own_sales_draft(sales_case):
     with wms.app.app_context():
         other = rows(wms.SalesOrderItem)[1]
         stocks = rows(wms.Material)
-    response = clients[0].post('/sales/'+str(first.get_json()['id'])+'/edit',
+    response = document_post(clients[0],'/sales/'+str(first.get_json()['id'])+'/edit',
                                json=payload(ids, second=True))
     assert response.status_code == 200, response.get_json()
     with wms.app.app_context():

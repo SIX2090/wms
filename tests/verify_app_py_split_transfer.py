@@ -18,6 +18,7 @@ S7. 待提交调拨单可删除；已完成不可删除。
 S8. 复制调拨单生成新草稿。
 """
 from __future__ import annotations
+from tests.document_revision_client import document_post
 
 import os
 import sys
@@ -124,11 +125,11 @@ def _add_transfer(client, **extra):
         "remark": "测试调拨",
     }
     payload.update(extra)
-    return client.post("/transfer/add", data=payload)
+    return document_post(client, "/transfer/add", data=payload)
 
 
 def _add_item(client, order_id, code="M1", quantity=2, price=10):
-    return client.post(f"/transfer/{order_id}/item/add", data={
+    return document_post(client, f"/transfer/{order_id}/item/add", data={
         "material_code": code,
         "quantity": quantity,
         "price": price,
@@ -212,15 +213,15 @@ class TestTransferRegister:
             assert len(order.items) == 1
             assert order.items[0].quantity == 2
         # 完成
-        c = client.post(f"/transfer/{order_id}/complete")
+        c = document_post(client, f"/transfer/{order_id}/complete")
         assert c.get_json()["status"] == "success", c.get_json()
         with app_module.app.app_context():
             assert db.session.get(TransferOrder, order_id).status == "completed"
         # 重复完成被拒绝
-        c2 = client.post(f"/transfer/{order_id}/complete")
+        c2 = document_post(client, f"/transfer/{order_id}/complete")
         assert c2.get_json()["status"] == "error"
         # 反提交
-        r = client.post(f"/transfer/{order_id}/revert")
+        r = document_post(client, f"/transfer/{order_id}/revert")
         assert r.get_json()["status"] == "success", r.get_json()
         with app_module.app.app_context():
             assert db.session.get(TransferOrder, order_id).status == "pending"
@@ -230,15 +231,15 @@ class TestTransferRegister:
         client = self._setup()
         _login(client)
         order_id = _add_transfer(client).get_json()["id"]
-        d = client.post(f"/transfer/{order_id}/delete")
+        d = document_post(client, f"/transfer/{order_id}/delete")
         assert d.get_json()["status"] == "success", d.get_json()
         with app_module.app.app_context():
             assert db.session.get(TransferOrder, order_id) is None
 
         order_id2 = _add_transfer(client).get_json()["id"]
         _add_item(client, order_id2)
-        client.post(f"/transfer/{order_id2}/complete")
-        d2 = client.post(f"/transfer/{order_id2}/delete")
+        document_post(client, f"/transfer/{order_id2}/complete")
+        d2 = document_post(client, f"/transfer/{order_id2}/delete")
         assert d2.get_json()["status"] == "error"
         with app_module.app.app_context():
             assert db.session.get(TransferOrder, order_id2) is not None
@@ -251,7 +252,7 @@ class TestTransferRegister:
         _add_item(client, order_id)
         with app_module.app.app_context():
             orig_no = db.session.get(TransferOrder, order_id).transfer_no
-        cp = client.post(f"/transfer/{order_id}/copy")
+        cp = document_post(client, f"/transfer/{order_id}/copy")
         data = cp.get_json()
         assert data["status"] == "success", data
         with app_module.app.app_context():
