@@ -119,23 +119,6 @@
                     </div>
                 </div>
                 {% endif %}
-                {% if is_product_in %}
-                <div class="col-md-3"><div class="mb-2">
-                    <label class="form-label" for="productCustomer">客户名称</label>
-                    <select class="form-select" id="productCustomer" name="customer_id">
-                        <option value="">请选择客户</option>
-                        {% for customer in customers %}<option value="{{ customer.id }}" {% if prefill.customer_id|string == customer.id|string %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
-                    </select>
-                </div></div>
-                <div class="col-md-3"><div class="mb-2">
-                    <label class="form-label">合同编号</label>
-                    <input class="form-control" name="contract_no" maxlength="50" value="{{ prefill.contract_no or '' }}">
-                </div></div>
-                <div class="col-md-6"><div class="mb-2">
-                    <label class="form-label">工程名称</label>
-                    <input class="form-control" name="project_name" maxlength="200" value="{{ prefill.project_name or '' }}">
-                </div></div>
-                {% endif %}
                 {% if location_management_enabled %}
                 <div class="col-md-3" id="locationFieldWrap">
                     <div class="mb-2">
@@ -191,7 +174,6 @@
                         <tr>
                             <th data-column-key="row_no" class="row-num">序号<span class="col-resize"></span></th>
                             <th data-column-key="material_code" style="width: 150px;">物料编码<span class="col-resize"></span></th>
-                            {% if is_product_in %}<th data-column-key="box_no" style="width: 140px;">箱体编号<span class="col-resize"></span></th>{% endif %}
                             <th data-column-key="brand" style="width: 100px;">品牌<span class="col-resize"></span></th>
                             <th data-column-key="material_name">物料名称<span class="col-resize"></span></th>
                             <th data-column-key="spec" style="width: 100px;">规格<span class="col-resize"></span></th>
@@ -215,7 +197,6 @@
                         <tr class="total-row" data-total-row="true">
                             <td data-column-key="row_no"></td>
                             <td data-column-key="material_code"></td>
-                            {% if is_product_in %}<td data-column-key="box_no"></td>{% endif %}
                             <td data-column-key="brand"></td>
                             <td data-column-key="material_name"></td>
                             <td data-column-key="spec"></td>
@@ -319,8 +300,6 @@ function clearMaterialFields(row) {
     row.querySelector('.material-spec').value = '';
     row.querySelector('.material-unit').value = '';
     row.querySelector('.material-stock').value = '';
-    const boxInput = row.querySelector('.material-box-no');
-    if (boxInput) boxInput.value = '';
     // P0 批次/有效期捕获：换物料时批次/有效期属于上一物料的行级事实，
     // 必须一并清空，避免把 A 物料的批次带到 B 物料行上（脏数据）。
     const batchInput = row.querySelector('.material-batch-no');
@@ -356,7 +335,6 @@ function addNewRow() {
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
-        {% if is_product_in %}<td data-column-key="box_no"><input type="text" class="form-control material-box-no" maxlength="100" autocomplete="off"></td>{% endif %}
         <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
         <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
@@ -672,7 +650,7 @@ function copyValuesToRow(source, target) {
     target.dataset.sourcePurchaseOrderNo = source.dataset.sourcePurchaseOrderNo || '';
     ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit',
      'material-stock', 'material-qty', 'material-price', 'material-batch-no', 'material-expiry',
-     'material-box-no', 'line-contract-no', 'line-project-name', 'material-remark'].forEach(cls => {
+     'line-contract-no', 'line-project-name', 'material-remark'].forEach(cls => {
         const input = source.querySelector('.' + cls);
         const output = target.querySelector('.' + cls);
         if (input && output) output.value = input.value;
@@ -730,7 +708,6 @@ function insertRowBefore(btn) {
                 <div class="material-dropdown" style="display:none;"></div>
             </div>
         </td>
-        {% if is_product_in %}<td data-column-key="box_no"><input type="text" class="form-control material-box-no" maxlength="100" autocomplete="off"></td>{% endif %}
         <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
         <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
@@ -1022,7 +999,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             markRowError(row, '.material-expiry');
         }
 
-        const item = { code, box_no: (row.querySelector('.material-box-no')?.value || '').trim(), quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: (row.querySelector('.material-batch-no')?.value || '').trim(), expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
+        const item = { code, quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: (row.querySelector('.material-batch-no')?.value || '').trim(), expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) item.source_purchase_order_item_id = sourceItemId;
         items.push(item);
@@ -1045,11 +1022,6 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         business_type: document.querySelector('[name="business_type"]').value,
         purpose: document.querySelector('[name="purpose"]').value.trim(),
         [partyField]: supplierId,
-        {% if is_product_in %}
-        customer_id: document.querySelector('#productCustomer').value,
-        contract_no: document.querySelector('[name="contract_no"]').value.trim(),
-        project_name: document.querySelector('[name="project_name"]').value.trim(),
-        {% endif %}
         warehouse_id: warehouseId,
         location: location,
         auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
@@ -1132,7 +1104,6 @@ document.addEventListener('DOMContentLoaded', function() {
         row.querySelector('.material-qty').value = formatQtyTrim(item.quantity);
         row.querySelector('.material-price').value = item.price;
         // BUG-2026-09-21-003：编辑草稿必须回填批次号/有效期，否则再保存时静默清空
-        if (row.querySelector('.material-box-no')) row.querySelector('.material-box-no').value = item.box_no || '';
         row.querySelector('.material-batch-no').value = item.batch_no || '';
         row.querySelector('.material-expiry').value = item.expiry_date || '';
         row.querySelector('.line-contract-no').value = item.contract_no;
@@ -2197,7 +2168,6 @@ function applyBatchUpdate() {
                 unit: row.querySelector('.material-unit')?.value || '',
                 quantity: row.querySelector('.material-qty')?.value || '',
                 price: row.querySelector('.material-price')?.value || '',
-                box_no: row.querySelector('.material-box-no')?.value || '',
                 batch_no: row.querySelector('.material-batch-no')?.value || '',
                 expiry_date: row.querySelector('.material-expiry')?.value || '',
                 remark: row.querySelector('.material-remark')?.value || ''
@@ -2208,9 +2178,6 @@ function applyBatchUpdate() {
         });
 
         return {
-            customer_id: document.querySelector('#productCustomer')?.value || '',
-            contract_no: document.querySelector('[name="contract_no"]')?.value || '',
-            project_name: document.querySelector('[name="project_name"]')?.value || '',
             supplier: document.querySelector('#supplierSearch')?.value || '',
             // BUG-2026-09-27-002：'#warehouseSelect' 元素在本模板中不存在，
             // 取值恒为 undefined→''，导致自动草稿永远存不到仓库、恢复也回填不了。
@@ -2232,12 +2199,6 @@ function applyBatchUpdate() {
             const draft = JSON.parse(stored);
             const data = draft.data;
 
-            if (document.querySelector('#productCustomer')) {
-                ['customer_id', 'contract_no', 'project_name'].forEach(function(field) {
-                    const input = document.querySelector('[name="' + field + '"]');
-                    if (input && data[field] !== undefined) input.value = data[field];
-                });
-            }
             // 恢复供应商
             if (data.supplier) {
                 const supplierInput = document.querySelector('#supplierSearch');
@@ -2291,8 +2252,6 @@ function applyBatchUpdate() {
                             const priceInput = lastRow.querySelector('.material-price');
                             if (priceInput) priceInput.value = rowData.price;
                         }
-                        const boxInput = lastRow.querySelector('.material-box-no');
-                        if (boxInput) boxInput.value = rowData.box_no || '';
                         if (rowData.batch_no) {
                             const batchInput = lastRow.querySelector('.material-batch-no');
                             if (batchInput) batchInput.value = rowData.batch_no;

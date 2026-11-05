@@ -197,7 +197,6 @@ class InOrderItem(db.Model):
     # P0 批次/有效期捕获（可追溯性）：入库明细行级批次号与有效期。
     # 仅记录事实，不参与库存维度计算（库存批次维度化另行任务）。
     batch_no = db.Column(db.String(50))  # 批次号（行级）
-    box_no = db.Column(db.String(100))  # 产品入库箱体编号，保留前导零，不参与库存维度
     expiry_date = db.Column(db.Date)  # 有效期（行级，到日）
     remark = db.Column(db.String(500))  # Row-level remark
     contract_id = db.Column(db.Integer, db.ForeignKey('contract.id'))

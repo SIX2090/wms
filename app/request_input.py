@@ -12,7 +12,7 @@ STOCK_FIELD_LABELS = {
     'warehouse_id': '仓库', 'contract_id': '合同', 'order_no': '单据编号',
     'date': '日期', 'business_type': '业务类型', 'purpose': '用途',
     'warehouse': '仓库', 'location': '库位', 'remark': '备注',
-    'contract_no': '合同编号', 'project_name': '工程名称', 'box_no': '箱体编号',
+    'contract_no': '合同编号', 'project_name': '工程名称',
     'customer': '客户', 'picker': '领料人', 'code': '物料编码',
     'material_code': '物料编码', 'batch_no': '批次号', 'expiry_date': '有效期',
     'quantity': '数量', 'price': '单价', 'items': '明细',
@@ -63,7 +63,6 @@ class StockDocumentItemInput(BaseModel):
     contract_no: StrictStr | None = Field(None, max_length=50)
     project_name: StrictStr | None = Field(None, max_length=200)
     batch_no: StrictStr | None = Field(None, max_length=50)
-    box_no: StrictStr | None = Field(None, max_length=100)
     expiry_date: StrictStr | None = Field(None, max_length=10)
     material_name: StrictStr | None = None
     spec: StrictStr | None = None

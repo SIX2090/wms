@@ -123,10 +123,9 @@ class ExcelTable {
 
         // 区分文本字段与数字字段：remark 等文本字段用 text 输入框且不做数字校验，
         // 否则用户双击备注单元格会弹出数字框，输入文本必然 parseFloat 失败
-        const isTextField = (field === 'remark' || field === 'remarks' || field === 'note' || field === 'box_no');
+        const isTextField = (field === 'remark' || field === 'remarks' || field === 'note');
         const input = document.createElement('input');
         input.type = isTextField ? 'text' : 'number';
-        if (field === 'box_no') input.maxLength = 100;
         input.step = isTextField ? undefined : '0.01';
         input.className = 'excel-edit-input';
         // 文本字段应使用原始文本内容，而非去除货币符号后的数值
@@ -239,7 +238,7 @@ class ExcelTable {
         const remarkCell = row.querySelector('[data-field="remark"], [data-field="remarks"], [data-field="note"]');
 
         // 区分文本字段（remark/remarks/note）与数字字段
-        const isTextField = (field === 'remark' || field === 'remarks' || field === 'note' || field === 'box_no');
+        const isTextField = (field === 'remark' || field === 'remarks' || field === 'note');
 
         const formData = new FormData();
         formData.append('id', itemId);
@@ -247,10 +246,7 @@ class ExcelTable {
         formData.append('price', field === 'price' ? newValue : (priceCell?.dataset.value || 0));
         // 后端通过 request.form.get('remark') 读取备注，必须显式 append，
         // 否则文本字段的编辑值不会发送到服务端，导致 remark 始终保存为旧值
-        if (field === 'box_no') {
-            formData.append('box_no', newValue);
-            if (remarkCell) formData.append('remark', remarkCell.dataset.value || remarkCell.textContent.trim());
-        } else if (isTextField) {
+        if (isTextField) {
             formData.append('remark', newValue);
         } else if (remarkCell) {
             // 编辑数字字段时也要把当前备注回传，避免后端把 remark 置空
@@ -275,7 +271,7 @@ class ExcelTable {
                     const displayValue = isTextField
                         ? newValue
                         : (field === 'price' ? '¥' + newValue.toFixed(2) : newValue.toFixed(2));
-                    cell.textContent = displayValue;
+                    cell.innerHTML = displayValue;
                     cell.classList.remove('cell-editing');
                     this.isEditing = false;
 

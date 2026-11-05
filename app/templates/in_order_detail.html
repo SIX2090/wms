@@ -265,9 +265,6 @@
                     <span class="info-value">{{ order.customer.name if order.customer else (order.supplier.name if order.supplier else '-') }}</span>
                 </div>
                 {% endif %}
-                {% if order.business_type == '产品入库' %}
-                <div class="info-item"><span class="info-label">客户名称</span><span class="info-value">{{ order.customer.name if order.customer else '-' }}</span></div>
-                {% endif %}
                 <div class="info-item">
                     <span class="info-label">用途</span>
                     <span class="info-value">{{ order.purpose or '-' }}</span>
@@ -439,7 +436,6 @@
                         <th width="40" data-col="chk" data-column-key="chk"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
                         <th class="resizable-th" data-col="colCode" data-column-key="colCode">物料编码<div class="resize-handle"></div></th>
-                        {% if order.business_type == '产品入库' %}<th class="resizable-th" data-col="colBoxNo" data-column-key="colBoxNo">箱体编号<div class="resize-handle"></div></th>{% endif %}
                         <th class="resizable-th" data-col="colBrand" data-column-key="colBrand">品牌<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colName" data-column-key="colName">物料名称<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSpec" data-column-key="colSpec">规格<div class="resize-handle"></div></th>
@@ -476,7 +472,6 @@
                         <td data-column-key="chk"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
                         <td class="fw-medium" data-column-key="colCode">{{ item.material.code }}</td>
-                        {% if order.business_type == '产品入库' %}<td class="editable-cell" data-column-key="colBoxNo" data-field="box_no" data-value="{{ item.box_no or '' }}">{{ item.box_no or '' }}</td>{% endif %}
                         <td data-column-key="colBrand">{{ item.material.brand or '-' }}</td>
                         <td data-column-key="colName">{{ item.material.name }}</td>
                         <td data-column-key="colSpec">{{ item.material.spec or '-' }}</td>
@@ -592,14 +587,6 @@
                                 <option value="其他入库" {% if order.business_type == '其他入库' %}selected{% endif %}>其他入库</option>
                             </select>
                         </div>
-                        {% if order.business_type == '产品入库' %}
-                        <div class="col-md-6">
-                            <label class="form-label">客户名称</label>
-                            <select class="form-select" name="customer_id"><option value="">请选择客户</option>
-                                {% for customer in customers %}<option value="{{ customer.id }}" {% if customer.id == order.customer_id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
-                            </select>
-                        </div>
-                        {% endif %}
                         <div class="col-md-6" id="editPartyField"{% if order.business_type == '产品入库' %} hidden{% endif %}>
                             <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</label>
                             <select class="form-select" name="{{ 'customer_id' if order.business_type == '其他入库' else 'supplier_id' }}">
@@ -1063,7 +1050,6 @@ function saveInlineMaterialRow(btn) {
     }
     btn.disabled = true;
     const itemData = new FormData();
-    itemData.append('box_no', row.querySelector('.material-box-no-field')?.value || '');
     itemData.append('material_code', code);
     itemData.append('quantity', qty);
     itemData.append('price', price);
@@ -1114,7 +1100,6 @@ function addInlineMaterialRow(beforeRow) {
                 <div class="material-quick-dropdown" style="display:none;"></div>
             </div>
         </td>
-        {% if order.business_type == '产品入库' %}<td data-column-key="colBoxNo"><input type="text" class="form-control material-box-no-field" maxlength="100"></td>{% endif %}
         <td data-column-key="colBrand"><input class="form-control material-brand-field" readonly></td>
         <td data-column-key="colName"><input class="form-control material-name-field" readonly></td>
         <td data-column-key="colSpec"><input class="form-control material-spec-field" readonly></td>
@@ -1197,7 +1182,6 @@ function copyDetailMaterialRow(row) {
         contract: 'colContractNo',
         project: 'colProjectName',
         batch: 'colBatchNo',
-        'box-no': 'colBoxNo',
         expiry: 'colExpiryDate'
     };
     Object.keys(columns).forEach(function(field) {
@@ -1681,14 +1665,13 @@ document.addEventListener('DOMContentLoaded', function() {
             {label: '单价', field: 'price', example: '10.50'},
             {label: '金额', field: 'amount', example: '1050.00'},
             {label: '批次号', field: 'batch', example: 'B20260426'},
-            {label: '备注', field: 'remark', example: '备注信息'}{% if order.business_type == '产品入库' %},
-            {label: '箱体编号', field: 'box_no', example: '001-A'}{% endif %}
+            {label: '备注', field: 'remark', example: '备注信息'}
         ]
     });
 
     // 初始化Excel表格
     excelTable = new ExcelTable('itemTable', {
-        editableFields: ['quantity', 'price', 'remark', 'box_no'],
+        editableFields: ['quantity', 'price', 'remark'],
         autoSave: true,
         enableKeyboard: true,
         enableCopyPaste: true,
