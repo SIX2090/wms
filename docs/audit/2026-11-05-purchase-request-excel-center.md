@@ -27,3 +27,19 @@
 - 生产需重启 WMS 服务生效。精确完整CI、最终发布包及上线回执待补。
 
 外置证据位于C:/wms_backups/column_settings_20261105：prtpl-focused.log、prtpl-regression.log、prtpl-rollback.log、prtpl-browser.log、prtpl-browser-actual.xlsx、prtpl-source-smoke.log。
+
+
+## 最终验收与生产回执（2026-11-05 12:33）
+
+本节为最终结果，替代上文开发阶段的待验收记录。
+
+- 源代码及界面8a16972e2e0a5694aeb27236e0bbd74384ce6e97；本地main与origin/main一致，经连接的GitHub通道推送，全部blob/tree与本地提交一致，expected_sha校验main且无强推。
+- WMS CI [41967471273](https://github.com/SIX2090/wms/actions/runs/41967471273)、AI [41967471270](https://github.com/SIX2090/wms/actions/runs/41967471270)完成success；Android [41937038001](https://github.com/SIX2090/wms/actions/runs/41937038001)的成功5a753090为祖先，Android目录及工作流无变化。
+- 最终16模块177 passed、24项既有SQLAlchemy弃用告警；新增13专项和9文件整批回退证明保持。没有放宽旧断言，没有已知新失败。
+- 发布包759源文件逐份匹配Git blob，39界面文件匹配清单哈希。独立合成97表状态下完整新建/编辑/保存/重开/预览/设默认链验证，真正HTTP Excel输出包含修改后抬头、字号18、列宽19、行高25及实际测试单据合同、日期和手工备注；默认Excel及普通打印同时可用。实际发布包119/119 HTTP冒烟通过。
+- 首次包验收脚本在设默认触发页面重载后读取已释放的CDP响应体，产生脚本协议错误；产品操作及默认设置成功。改为等待成功状态与页面默认标记，再核对实际Excel、重开和普通打印；未修改待验代码，复验通过。证据prtpl-package-browser-initial.log和prtpl-package-browser.log均保留。
+- 原生lab/生产预检均schema_check=passed、read_only_startup=true；仅97次业务行读取被启动保护阻断，网络/凭据/文件/进程副作用0；没有初始化、迁移或模板自动登记。
+- 沿用SYSTEM的WMS-Warehouse任务，2026-11-05 12:33:03（Asia/Shanghai）新PID13320健康，11.04秒切换，8080单实例。部署目录C:/wms_releases/20261105_pr_templates_8a16972e；旧f70826cf目录保留应用回退。
+- 本机127.0.0.1:8080与外网gd2026.top的/login、/healthz、app.js共6次匿名GET全部200，后台及界面头均8a16972e，app.js哈希匹配发布清单。没有对生产登录POST或写入测试数据。
+- 本批没有模型/结构变更，没有备份/恢复/迁移生产数据库，没有代用户创建模板记录，没有修改单据、库存或账号。内置版式入口来自代码；用户点击新建/保存/设默认后由既有管理功能保存模板配置。
+- 原C:/wms的未提交源文件未覆盖。外置最终证据：prtpl-ci-final.json、prtpl-prepare.json、prtpl-lab-startup.json、prtpl-lab-preflight.log、prtpl-package-browser.log、prtpl-package-smoke.log、prtpl-production-preflight.log、prtpl-activation-result.json、prtpl-production-attestation.json。
