@@ -763,6 +763,8 @@ class PurchaseRequestItem(db.Model):
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Supplier ID
     supplier_name = db.Column(db.String(100))  # Manual supplier name
     remark = db.Column(db.String(200))  # Remark
+    contract_no = db.Column(db.String(50))
+    project_name = db.Column(db.String(200))
 
     purchase_request = db.relationship('PurchaseRequest', backref='items')
     material = db.relationship('Material', backref='purchase_request_items')

@@ -113,8 +113,8 @@ def register_export_routes(app):
         return _workbook_response(
             'purchase_request_template.xlsx',
             '采购申请导入模板',
-            ['申请编号', '日期', '申请人', '部门', '紧急程度', '期望到货', '申请原因', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '推荐供应商', '备注'],
-            [['PR24010001', '2024-01-01', '张三', '采购部', '普通', '2024-01-10', '采购备货', 'MAT001', '示例物料', '规格A', '个', 10, 5, '示例供应商', '']],
+            ['申请编号', '日期', '申请人', '部门', '紧急程度', '期望到货', '申请原因', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '推荐供应商', '备注', '合同编号', '工程名称'],
+            [['PR24010001', '2024-01-01', '张三', '采购部', '普通', '2024-01-10', '采购备货', 'MAT001', '示例物料', '规格A', '个', 10, 5, '示例供应商', '', '', '']],
         )
 
     @app.route('/export/template/purchase_order')
@@ -254,7 +254,7 @@ def register_export_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '采购申请单'
-        ws.append(['申请编号', '日期', '申请人', '部门', '紧急程度', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '预估金额', '状态'])
+        ws.append(['申请编号', '日期', '申请人', '部门', '紧急程度', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '预估金额', '状态', '合同编号', '工程名称'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'approved', 'rejected', 'completed'))
         allowed_sorts = {'request_no', 'date', 'applicant', 'department', 'urgency', 'expected_date', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
@@ -282,8 +282,12 @@ def register_export_routes(app):
                         item.quantity or 0,
                         item.estimated_price or 0,
                         item.estimated_amount or 0,
-                        _status_label(req.status)
+                        _status_label(req.status),
+                        item.contract_no or '',
+                        item.project_name or '',
                     ])
+                    for cell in list(ws[ws.max_row])[-2:]:
+                        cell.data_type = 's'
             else:
                 ws.append([
                     req.request_no,
@@ -292,7 +296,7 @@ def register_export_routes(app):
                     req.department or '',
                     req.urgency or '',
                     '', '', '', '', 0, 0, 0,
-                    _status_label(req.status)
+                    _status_label(req.status), '', '',
                 ])
         output = io.BytesIO()
         wb.save(output)
