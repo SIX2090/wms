@@ -20,6 +20,18 @@
    <p class="mb-2">配置{{ '已启用' if backup_settings.enabled else '未启用' }} · 计划每日 {{ backup_settings.time }}</p>
    <p class="mb-2">保留最近 {{ backup_settings.retention_days }} 天，仅自动清理每日备份；手动及更新前备份不自动清理。</p>
    <p class="small text-muted mb-0">执行情况以备份记录和服务日志为准。</p>
+   {% if backup_run_status is defined %}
+   <div class="alert {{ 'alert-success' if backup_run_status.state == 'success' else 'alert-warning' }} mt-3 mb-0" role="status">
+    {% if backup_run_status.state == 'success' %}最近一次自动备份成功。
+    {% elif backup_run_status.state == 'failure' %}最近一次自动备份失败，请检查备份任务日志、目录权限和磁盘空间。
+    {% elif backup_run_status.state == 'stale' %}超过36小时未记录成功备份，请检查自动备份任务。
+    {% else %}尚无有效的自动备份执行记录，请核对备份任务是否已接通。{% endif %}
+    <small class="d-block">最近成功：{{ backup_run_status.last_success or '暂无记录' }}</small>
+    {% if backup_run_status.retention_days and backup_run_status.retention_days != backup_settings.retention_days %}
+    <small class="d-block">最近执行的任务保留 {{ backup_run_status.retention_days }} 天，与上方配置不同，请核对任务保留策略。</small>
+    {% endif %}
+   </div>
+   {% endif %}
    {% else %}<p class="text-muted mb-0">需重启 WMS 服务后显示自动备份计划与保留策略。</p>{% endif %}
   </div>
  </div></div>

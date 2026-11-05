@@ -254,6 +254,8 @@ C:\wms_backups\
 
 手动/历史备份、每日自动备份、更新前备份位置及保留策略不同；每日自动备份默认在 `C:\wms_backups`，由 `WMS_BACKUP_DIR` 覆盖。详见 [备份管理说明](docs/BACKUP_MANAGEMENT.md)。活库使用SQLite backup API取得一致快照，不能只复制.db忽略WAL；完整性通过也不能代替恢复演练。生产恢复必须明确授权，测试恢复显式指定隔离目标，禁止使用默认生产路径做演练。
 
+Windows受控入口未启动内置调度器时，可使用[独立每日备份与进程监护](docs/SCHEDULED_OPERATIONS.md)。配置工具默认只读预览；备份执行状态在管理页面显示，监护失败重试有上限。生产任务启用和服务切换须另行确认，代码提交不代表定时备份已生效。
+
 ## 配置说明
 
 变量名以 `app/config.py`、`app/run_server.py` 及对应模块实际读取为准：

@@ -9,12 +9,14 @@
   拍板 #8：本机仅 C 盘，先放独立目录（与安装目录/数据目录隔离，避免误删连带），
   将来接 NAS 时改环境变量即切换，代码不动。
 
-备份使用 sqlite3 在线备份 API（app.create_sqlite_online_backup），
-运行中也可取得一致性快照；每次备份后 PRAGMA integrity_check，
-失败抛错并删除坏文件——坏备份比没备份更危险。
+备份复用 sqlite_snapshot 的只读源连接、在线快照、完整性检查及原子发布。
+独立命令不加载Flask；失败保留已有快照，执行结果持久化供管理页面核对。
 """
+import json
 import logging
 import os
+import stat
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BACKUP_DIR = r'C:\wms_backups'
 AUTO_BACKUP_PREFIX = 'auto_daily_'
+DAILY_STATUS_NAME = '.daily-backup-status.json'
 
 
 def get_backup_dir() -> Path:
@@ -51,32 +54,90 @@ def run_daily_backup(app) -> Path:
     备份失败必须可见，绝不能静默跳过。
     """
     # 延迟导入：避免模块加载期循环依赖（app.py 在导入本模块前尚未就绪）。
-    from app import create_sqlite_online_backup, get_database_file_path
+    from app import get_database_file_path
+    return run_backup_for_source(get_database_file_path())
 
-    source = get_database_file_path()
+
+def _read_daily_record():
+    path = get_backup_dir() / DAILY_STATUS_NAME
+    try:
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_size > 8192 or
+                getattr(info, 'st_file_attributes', 0) & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0x400)):
+            return {}
+        record = json.loads(path.read_text(encoding='utf-8'))
+        return record if isinstance(record, dict) else {}
+    except (OSError, ValueError, UnicodeError):
+        return {}
+
+
+def _write_daily_record(record):
     backup_dir = get_backup_dir()
     backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    dest = backup_dir / f'{AUTO_BACKUP_PREFIX}{stamp}_inventory.db'
-
-    create_sqlite_online_backup(source, dest)
-
-    # 完整性校验：坏备份比没备份更危险。
-    import sqlite3
-    check_conn = sqlite3.connect(str(dest), timeout=30)
+    descriptor, name = tempfile.mkstemp(prefix='.backup-status-', dir=backup_dir)
     try:
-        row = check_conn.execute('PRAGMA integrity_check').fetchone()
-        if not row or row[0] != 'ok':
-            try:
-                dest.unlink()
-            except OSError:
-                pass
-            raise RuntimeError(f'备份完整性校验失败: {row[0] if row else "no result"}')
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as output:
+            json.dump(record, output, ensure_ascii=False)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(name, backup_dir / DAILY_STATUS_NAME)
     finally:
-        check_conn.close()
+        Path(name).unlink(missing_ok=True)
 
+
+def get_daily_backup_status():
+    """Only an execution record proves success; missing/invalid/old records warn."""
+    record = _read_daily_record()
+    state = record.get('state')
+    if state not in {'success', 'failure'}:
+        return {'state': 'unknown', 'last_attempt': None, 'last_success': None}
+    success = record.get('last_success')
+    try:
+        if success is not None and not isinstance(success, str):
+            raise ValueError('invalid timestamp')
+        stamp = datetime.fromisoformat(success) if isinstance(success, str) else None
+        if stamp is not None:
+            age = (datetime.now().astimezone() - stamp).total_seconds()
+            if age < -300:
+                raise ValueError('future timestamp')
+            if state == 'success' and age > 36 * 3600:
+                state = 'stale'
+        elif state == 'success':
+            state = 'unknown'
+    except (ValueError, TypeError, OverflowError):
+        state, success = 'unknown', None
+    attempt = record.get('last_attempt')
+    retention = record.get('retention_days')
+    return {'state': state, 'last_attempt': attempt if isinstance(attempt, str) else None,
+            'last_success': success, 'retention_days': retention if type(retention) is int and retention > 0 else None}
+
+
+def run_backup_for_source(source) -> Path:
+    """Independent daily runner: no Flask import, shared atomic online snapshot."""
+    from sqlite_snapshot import create_snapshot
+    source = Path(source).resolve()
+    status_path = get_backup_dir() / DAILY_STATUS_NAME
+    if source == status_path.resolve() or (source.exists() and status_path.exists() and
+                                          os.path.samefile(source, status_path)):
+        raise ValueError('源库与备份状态文件冲突，拒绝覆盖')
+    previous = get_daily_backup_status()
+    backup_dir = get_backup_dir()
+    stamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+    dest = backup_dir / f'{AUTO_BACKUP_PREFIX}{stamp}_inventory.db'
+    try:
+        create_snapshot(source, dest)
+        _cleanup_expired(backup_dir, protected_source=source)
+        now = datetime.now().astimezone().isoformat()
+        _write_daily_record({'state': 'success', 'last_attempt': now, 'last_success': now,
+                             'retention_days': get_retention_days()})
+    except Exception:
+        try:
+            _write_daily_record({'state': 'failure', 'last_attempt': datetime.now().astimezone().isoformat(),
+                                 'last_success': previous['last_success'], 'retention_days': get_retention_days()})
+        except OSError:
+            logger.exception('备份执行状态无法保存，请检查目录权限和磁盘空间')
+        raise
     logger.info('每日自动备份完成: %s', dest)
-    _cleanup_expired(backup_dir)
     return dest
 
 
@@ -91,13 +152,15 @@ def get_retention_days() -> int:
     return retention_days
 
 
-def _cleanup_expired(backup_dir: Path) -> int:
+def _cleanup_expired(backup_dir: Path, protected_source=None) -> int:
     """清理超过 BACKUP_RETENTION_DAYS 天的自动备份（只动 auto_daily_*.db）。"""
     retention_days = get_retention_days()
     cutoff = time.time() - retention_days * 86400
     removed = 0
     for f in backup_dir.glob(f'{AUTO_BACKUP_PREFIX}*.db'):
         try:
+            if protected_source is not None and os.path.samefile(f, protected_source):
+                continue
             if f.stat().st_mtime < cutoff:
                 f.unlink()
                 removed += 1

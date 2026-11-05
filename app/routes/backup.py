@@ -7,6 +7,7 @@ from typing import Literal
 
 from utils import require_role
 from backup_catalog import get_backup_settings, get_backup_sources, list_backup_files, resolve_backup_file, verify_backup_integrity
+from backup_scheduler import get_daily_backup_status
 
 # Repair task: AUDIT-FULL-20261016-001-F08
 
@@ -77,6 +78,7 @@ def register_backup_routes(app):
         backups.sort(key=_backup_sort_key, reverse=(sort_order == 'desc'))
         return render_template('backup.html', backups=backups, filters={'search': search, 'source': source},
                                sources=sources, backup_settings=get_backup_settings(), warnings=warnings,
+                               backup_run_status=get_daily_backup_status(),
                                sort_by=sort_by, sort_order=sort_order)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

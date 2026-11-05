@@ -438,3 +438,5 @@ POST_SPLIT_BUGS['BUG-2026-11-04-119'] = 'fixed'  # runtime dependency gate; deli
 POST_SPLIT_BUGS['BUG-2026-11-04-120'] = 'fixed'  # remember-cookie security; delivery and activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-05-101'] = 'fixed'  # column settings naming; exact delivery and activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-05-102'] = 'fixed'  # blank unknown stock; exact delivery and activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-05-001'] = 'fixed'  # independent daily backup; production activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-05-002'] = 'fixed'  # finite process recovery; production activation tracked separately
