@@ -23,4 +23,26 @@
 - 独立合成数据库、独立空闲端口且先核对X-WMS-Product-Fixture身份头，HTTP冒烟119/119通过。原生产数据、账号和凭据不复制进该合成候选。
 - 实际Chrome11项检查成功：完整编号自动带工程、两合同切换、客户/箱号保存、备注保留、回填、20行打印、Excel/A4输出，以及详情表头改合同后工程联动并保存；页面脚本错误0。所有写入仅合成库。
 
-证据在本聊天visualizations工作目录`product-contract-fix`：regression.log、rollback-red.log、candidate-rollback-proof.zip、verify.log、smoke.log及browser/acceptance.json。精确新提交、完整CI及生产生效另行核对；**生产需重启 WMS 服务生效**，本修复无需再补列或迁移，也不自动回写历史单据。
+证据在本聊天visualizations工作目录`product-contract-fix`：regression.log、rollback-red.log、candidate-rollback-proof.zip、verify.log、smoke.log及browser/acceptance.json。精确CI及生产生效见下一节；**生产需重启 WMS 服务生效**，本修复无需再补列或迁移，也不自动回写历史单据。
+
+## 精确CI与生产生效
+
+代码提交`9e5d6db2b42083c1a9e3c5cfc880819706486fef`已实际推送`755dbfd2..9e5d6db2 main -> main`，当时本地/远端一致。[WMS CI42016754233](https://github.com/SIX2090/wms/actions/runs/42016754233)的三个单测分片、四组verify、浏览器、冒烟、静态及聚合均success；docs-checks因全量分支正常跳过。[AI42016754278](https://github.com/SIX2090/wms/actions/runs/42016754278)成功。Android41971520345为最近成功运行，86043f56祖先及Android源码/工作流无变化证明通过。匿名API403时逐页核实同一755dbfd2全绿基线并保存替代证据，仅该次push临时使用既有查询故障开关，随后撤除；没有绕过真实失败。
+
+另一聊天“全面检查 WMS 按钮功能”同期部署第4项，收到告警后本聊天未并行改生产动作。其完成19:19上线及明确交接后，本修复基于最终`C:/wms_releases/20261105_audit04_256e05ab`制品继续，不退回未登记完整身份的旧布局；原制品ID为1b03590c14aafdfe373625fa9a9491b538d93c0a31441b63bf72626faa48b2be。未向该聊天发信；跨聊天回复权限问题未获得答复，采用读取交接状态后串行发布的方式继续。
+
+新制品为`C:/wms_releases/20261105_product_contract_9e5d6db2`。原12317份文件逐项原摘要验证后复制，仅3份既有应用源文件和新增JS取精确Git字节，实际覆盖层仅增加本次标记及脚本；固定源码常量、来源/覆盖清单、启动器和完整清单重新封存。新制品**12318文件、768份源码、39份覆盖、34项依赖，Python3.11.9**；独立解释器、verified_entry、额外程序拒绝及状态页身份保留。新制品ID为`9a6d881079905cd3f2988b10ac8da4d175d20b795a65375aa8a07de83db5da86`。
+
+实际新制品使用独立合成库再次完成同样11项Chrome验收，错误0；额外核对已登记身份及设备认领仍503。候选生成的合成状态仅移至其自身lab-state，校验路径及无重解析点后才移动，没有移动生产目录。随后把持久路径映射到既有生产状态，实际完整入口的生产只读预检通过：registered=true、runtime_verified=true、schema_check=passed、read_only_startup=true；网络、凭据、文件系统、子进程启动拒绝0，保留既有97次启动业务行读取拒绝。预检期间原服务继续运行。
+
+切换前再次逐页核对main最近WMS/AI均为9e5d6db2且success，Android复用证明通过，实时远端仍为该目标。维护始于**19:35:00**，19:35:05原监护任务收到新启动请求；运行回执写于19:36:37，**19:38:44**首次健康证据确认HTTP200及准确后台/UI SHA。未连续采样不可用窗口，不把直到首次回执的全部时间称为实际停机时长。
+
+仅将私有动作中的launch路径由audit04改到新目录，其他动作字段、任务XML、SYSTEM身份及无限时配置不变；实际父子链核对新监听PID3924属于verified_entry及原监护子动作。监护状态running，继承的计数2随本次计划启动变为3，没有重置预算或误报为0。第4项暂停策略、完整启动校验和已登记状态页身份均保留。
+
+停服后持原数据库运行租约，用SQLite只读源backup API保存`C:/wms_backups/product_receipt_live_20261105/before-contract-project-restart.db`，完整性ok，SHA256为`20c31b336d75206329891cda2f369ed9628a97266df2aa86bab35771ef6cbdfb`。启动后mode=ro核对100张表全部原列和值摘要一致，quick_check为ok；没有生产DDL、历史回填、业务保存、完成、库存或账号修改，也没有数据库恢复。原完整制品、原私有动作、任务XML和备份保留；后续恢复仍须遵守运行租约及监护预算，不能绕过耗尽锁定。
+
+公网真实Chrome只允许GET/HEAD：登录200，后台/UI完整SHA均为9e5d6db2，合同联动JS与实际制品字节一致，SHA256为`99f403729f8a88194fffd2b4cc0edd831be8915d0c8dc8cc86d6e3fa38619ee7`；原产品Excel模板摘要不变。session为Secure/HttpOnly/SameSite=Lax，匿名状态页302，页面错误0、非GET0。生产未登录或保存真实单据，不将匿名检查冒充生产业务交互验收。
+
+生产回退/状态证据集中在原私有`product_receipt_live_20261105`目录的contract-project-*文件；浏览器结果、已登记身份及实际制品测试在本聊天`product-contract-fix/verified-browser`、verified-identity.json、verified-production-preflight.log及public/。原audit03、product_receipt、audit04及operations目录仍含现役监护宿主或回退依赖，不作临时目录清理。
+
+本回执同步前，另一聊天纯文档推进main至ab74aa63956c7e66ee0101b902c7dde2155fb044，app/scripts/tools差异为空，WMS CI42021402936、AI42021402682均success后安全快进。原21份未提交外观修改保留，本次只更新本审计与007条目；回执按自身精确提交另验文档CI，不改已运行制品身份。
