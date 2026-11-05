@@ -254,7 +254,7 @@ def register_export_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '采购申请单'
-        ws.append(['申请编号', '日期', '申请人', '部门', '紧急程度', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '预估金额', '状态', '合同编号', '工程名称'])
+        ws.append(['申请编号', '日期', '申请人', '部门', '紧急程度', '物料编码', '物料名称', '规格', '单位', '数量', '预估单价', '预估金额', '状态', '合同编号', '工程名称', '备注'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'approved', 'rejected', 'completed'))
         allowed_sorts = {'request_no', 'date', 'applicant', 'department', 'urgency', 'expected_date', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
@@ -285,8 +285,9 @@ def register_export_routes(app):
                         _status_label(req.status),
                         item.contract_no or '',
                         item.project_name or '',
+                        item.remark or '',
                     ])
-                    for cell in list(ws[ws.max_row])[-2:]:
+                    for cell in list(ws[ws.max_row])[-3:]:
                         cell.data_type = 's'
             else:
                 ws.append([
@@ -296,7 +297,7 @@ def register_export_routes(app):
                     req.department or '',
                     req.urgency or '',
                     '', '', '', '', 0, 0, 0,
-                    _status_label(req.status), '', '',
+                    _status_label(req.status), '', '', '',
                 ])
         output = io.BytesIO()
         wb.save(output)

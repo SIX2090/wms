@@ -39,6 +39,21 @@ class PurchaseRequestContractFields(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
     contract_no: str | None = Field(default=None, max_length=50, strict=True)
     project_name: str | None = Field(default=None, max_length=200, strict=True)
+    remark: str | None = Field(default=None, max_length=200, strict=True)
+
+
+def resolve_purchase_request_line_fields(data):
+    """Resolve line contract text from the master and keep the manual remark."""
+    from app import Contract
+    fields = PurchaseRequestContractFields.model_validate(data)
+    if fields.contract_no:
+        contract = Contract.query.filter_by(contract_no=fields.contract_no).first()
+        if not contract:
+            raise ValueError('合同编号不在合同档案中，请重新选择')
+        fields.project_name = contract.project_name
+    elif fields.project_name:
+        raise ValueError('请先从合同档案选择合同编号')
+    return fields
 
 
 # no-test:reason=路由注册辅助函数，能力由 purchase_request_* 各路由测试覆盖
@@ -138,8 +153,7 @@ def register_purchase_request_routes(app):
     def print_purchase_request(id):
         from sqlalchemy.orm import joinedload, selectinload
         from app import (Material, PurchaseRequest, PurchaseRequestItem,
-                         _fmt_date, _material_row_common, _operator_name,
-                         _render_generic_document_print, purchase_request_item_has_material)
+                         _fmt_date, _material_row_common, purchase_request_item_has_material)
         request_order = PurchaseRequest.query.options(
             joinedload(PurchaseRequest.operator),
             selectinload(PurchaseRequest.items).joinedload(PurchaseRequestItem.material).joinedload(Material.unit),
@@ -157,41 +171,10 @@ def register_purchase_request_routes(app):
             )
             for item in valid_items
         ]
-        urgency_label = {'normal': '普通', 'urgent': '紧急', 'emergency': '特急'}.get(request_order.urgency, request_order.urgency or '')
-        return _render_generic_document_print({
-            'title': '采购申请单',
-            'subtitle': 'PURCHASE REQUEST',
-            'number_label': '申请单号',
-            'number': request_order.request_no,
-            'date_label': '申请日期',
-            'date': _fmt_date(request_order.date),
-            'status': request_order.status,
-            'info': [
-                ('申请人', request_order.applicant or ''),
-                ('申请部门', request_order.department or ''),
-                ('紧急程度', urgency_label),
-                ('期望到货', _fmt_date(request_order.expected_date)),
-                ('申请原因', request_order.reason or ''),
-                ('制单人', _operator_name(request_order)),
-            ],
-            'remark': request_order.remark or '',
-            'columns': [
-                ('code', '物料编码', ''),
-                ('name', '物料名称', ''),
-                ('spec', '规格', ''),
-                ('unit', '单位', 'center'),
-                ('quantity', '申请数量', 'right'),
-                ('price', '预计单价', 'right money'),
-                ('amount', '预计金额', 'right money'),
-                ('supplier', '推荐供应商', ''),
-                ('contract_no', '合同编号', ''),
-                ('project_name', '工程名称', ''),
-                ('remark', '备注', ''),
-            ],
-            'rows': rows,
-            'total_amount': request_order.total_amount or sum(row.get('amount', 0) or 0 for row in rows),
-            'signatures': ['申请', '部门审核', '采购审核', '批准'],
-        })
+        pages = [rows[start:start + 15] for start in range(0, len(rows), 15)] or [[]]
+        return render_template(
+            'purchase_request_print.html', pages=pages, request_id=request_order.id,
+            request_no=request_order.request_no, request_date=_fmt_date(request_order.date))
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/purchase_request/<int:id>/create_purchase_order', methods=['POST'])
@@ -437,6 +420,7 @@ def register_purchase_request_routes(app):
                 'supplier_name': item.supplier.name if item.supplier else (item.supplier_name or ''),
                 'contract_no': item.contract_no or '',
                 'project_name': item.project_name or '',
+                'remark': item.remark or '',
             })
         return render_template(
             'purchase_request_add.html',
@@ -537,10 +521,13 @@ def register_purchase_request_routes(app):
             contract_fields = []
             for row_no, item_data in enumerate(valid_items_data, start=1):
                 try:
-                    contract_fields.append(PurchaseRequestContractFields.model_validate(item_data))
+                    contract_fields.append(resolve_purchase_request_line_fields(item_data))
                 except ValidationError:
                     db.session.rollback()
-                    return api_error(f'第 {row_no} 行合同编号必须为不超过50字的文本，工程名称必须为不超过200字的文本')
+                    return api_error(f'第 {row_no} 行合同编号须为不超过50字的文本，工程名称和备注须为不超过200字的文本')
+                except ValueError as exc:
+                    db.session.rollback()
+                    return api_error(f'第 {row_no} 行：{exc}')
 
             for existing_item in list(request_order.items):
                 db.session.delete(existing_item)
@@ -628,7 +615,7 @@ def register_purchase_request_routes(app):
                     supplier_name=supplier_name or None,
                     contract_no=contract_fields[row_no - 1].contract_no or None,
                     project_name=contract_fields[row_no - 1].project_name or None,
-                    remark=(item_data.get('remark') or '').strip()
+                    remark=contract_fields[row_no - 1].remark or ''
                 )
                 db.session.add(item)
 
@@ -887,13 +874,17 @@ def register_purchase_request_routes(app):
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
                 amount = round_to_2_decimals(quantity * price)
                 try:
-                    fields = PurchaseRequestContractFields.model_validate({
+                    fields = resolve_purchase_request_line_fields({
                         'contract_no': _get_excel_cell(row, col_map, 'contract_no'),
                         'project_name': _get_excel_cell(row, col_map, 'project_name'),
+                        'remark': _get_excel_cell(row, col_map, 'remark'),
                     })
                 except ValidationError:
                     db.session.rollback()
-                    return api_error(f'第 {row_idx} 行合同编号或工程名称超过允许长度')
+                    return api_error(f'第 {row_idx} 行合同编号、工程名称或备注超过允许长度')
+                except ValueError as exc:
+                    db.session.rollback()
+                    return api_error(f'第 {row_idx} 行：{exc}')
                 order.total_amount = (order.total_amount or 0) + amount
                 db.session.add(PurchaseRequestItem(
                     purchase_request_id=order.id,
@@ -909,7 +900,7 @@ def register_purchase_request_routes(app):
                     supplier_name=supplier.name if supplier else supplier_name or None,
                     contract_no=fields.contract_no or None,
                     project_name=fields.project_name or None,
-                    remark=_get_excel_cell(row, col_map, 'remark'),
+                    remark=fields.remark or '',
                 ))
                 item_count += 1
             db.session.commit()
