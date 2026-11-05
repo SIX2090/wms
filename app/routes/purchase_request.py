@@ -151,6 +151,8 @@ def register_purchase_request_routes(app):
     @app.route('/purchase_request/<int:id>/print')
     @login_required
     def print_purchase_request(id):
+        from flask import send_file
+        from doc_print_excel import render_doc_excel_print, resolve_excel_template
         from sqlalchemy.orm import joinedload, selectinload
         from app import (Material, PurchaseRequest, PurchaseRequestItem,
                          _fmt_date, _material_row_common, purchase_request_item_has_material)
@@ -161,6 +163,19 @@ def register_purchase_request_routes(app):
             selectinload(PurchaseRequest.items).joinedload(PurchaseRequestItem.supplier),
         ).get_or_404(id)
         valid_items = [item for item in request_order.items if purchase_request_item_has_material(item)]
+        template_error = ''
+        if request.args.get('format') != 'html':
+            default = resolve_excel_template('document', 'purchase_request')
+            if default and default.is_default:
+                try:
+                    output, filename = render_doc_excel_print(
+                        'purchase_request', request_order, items=valid_items,
+                        template_id=default.id, static_folder=app.static_folder)
+                    return send_file(output, download_name=filename, as_attachment=True,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                except Exception as exc:
+                    app.logger.warning('采购申请Excel模板暂不可用，回退普通打印：%s', exc)
+                    template_error = 'Excel模板暂不可用，已使用普通打印；请到模板中心检查并重新保存模板。'
         rows = [
             _material_row_common(
                 item,
@@ -174,7 +189,8 @@ def register_purchase_request_routes(app):
         pages = [rows[start:start + 15] for start in range(0, len(rows), 15)] or [[]]
         return render_template(
             'purchase_request_print.html', pages=pages, request_id=request_order.id,
-            request_no=request_order.request_no, request_date=_fmt_date(request_order.date))
+            request_no=request_order.request_no, request_date=_fmt_date(request_order.date),
+            template_error=template_error)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/purchase_request/<int:id>/create_purchase_order', methods=['POST'])

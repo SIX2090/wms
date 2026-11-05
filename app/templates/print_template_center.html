@@ -7,6 +7,7 @@
   </div>
 
   <div class="row g-2 mb-3">
+    <div class="col-md-3"><a class="card text-decoration-none h-100" href="/print_templates?target_type=document&amp;target_code=purchase_request"><div class="card-body py-2"><i class="bi bi-cart-plus text-primary"></i> <strong>采购申请模板</strong><div class="text-muted small">材料申请单 · 合同编号、物料与手工备注</div></div></a></div>
     <div class="col-md-3"><a class="card text-decoration-none h-100" href="/in_order_print_template"><div class="card-body py-2"><i class="bi bi-box-arrow-in-down text-primary"></i> <strong>入库单模板</strong><div class="text-muted small">采购/产品/其他入库打印模板管理</div></div></a></div>
     <div class="col-md-3"><a class="card text-decoration-none h-100" href="/out_order_print_template"><div class="card-body py-2"><i class="bi bi-box-arrow-up text-warning"></i> <strong>出库单模板</strong><div class="text-muted small">领料/销售/其他出库打印模板管理</div></div></a></div>
     <div class="col-md-3"><a class="card text-decoration-none h-100" href="/print_templates?target_type=label"><div class="card-body py-2"><i class="bi bi-upc-scan text-success"></i> <strong>标签 Excel 模板</strong><div class="text-muted small">物料标签（含条码图片）在线设计</div></div></a></div>
@@ -17,9 +18,9 @@
     <h6 class="mb-2"><i class="bi bi-magic"></i> 在线新建（免上传，直接在线设计）</h6>
     <form class="row g-2 align-items-end" method="post" action="/print_templates/create_blank">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="col-md-3"><label class="form-label">模板名称</label><input class="form-control" name="name" required placeholder="如：采购订单打印模板A"></div>
+      <div class="col-md-3"><label class="form-label">模板名称</label><input class="form-control" name="name" required placeholder="如：采购订单打印模板A"{% if selected_code == 'purchase_request' %} value="材料申请单"{% endif %}></div>
       <div class="col-md-2"><label class="form-label">模板分类</label><select class="form-select" name="target_type" data-code-source required>{% for key,label in target_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListBlank" data-code-target required placeholder="选择或输入业务编码"><datalist id="codeListBlank"></datalist></div>
+      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListBlank" data-code-target required placeholder="选择或输入业务编码" value="{{ selected_code }}"><datalist id="codeListBlank"></datalist></div>
       <div class="col-md-2"><button class="btn btn-success w-100">新建并在线设计</button></div>
       <div class="col-md-2 text-muted small">按内置版式生成，可改可删</div>
     </form>
@@ -31,16 +32,31 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="col-md-2"><label class="form-label">模板名称</label><input class="form-control" name="name" required placeholder="如：采购订单打印"></div>
       <div class="col-md-2"><label class="form-label">模板分类</label><select class="form-select" name="target_type" data-code-source required>{% for key,label in target_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListUpload" data-code-target required placeholder="选择或输入业务编码"><datalist id="codeListUpload"></datalist></div>
+      <div class="col-md-3"><label class="form-label">业务编码</label><input class="form-control" name="target_code" list="codeListUpload" data-code-target required placeholder="选择或输入业务编码" value="{{ selected_code }}"><datalist id="codeListUpload"></datalist></div>
       <div class="col-md-3"><label class="form-label">Excel文件</label><input class="form-control" type="file" name="excel_file" accept=".xlsx" required></div>
       <div class="col-md-1 form-check ms-2"><input class="form-check-input" type="checkbox" name="is_default" value="1" id="isDefault"><label class="form-check-label" for="isDefault">默认</label></div>
       <div class="col-md-1"><button class="btn btn-primary w-100">上传</button></div>
     </form>
   </div></div>
 
+  {% if selected_code == 'purchase_request' %}<p class="text-muted small">从内置版式新建后可在线编辑字体、列宽和行高；保存并设为默认后，采购申请的“打印”使用该 Excel 模板。“普通打印”保留材料申请单原版。</p>{% endif %}
   <div class="d-flex gap-2 mb-2"><a class="btn btn-sm {% if not selected_type %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates">全部</a>{% for key,label in target_types.items() %}<a class="btn btn-sm {% if selected_type == key %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates?target_type={{ key }}">{{ label }}</a>{% endfor %}</div>
   <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>模板名称</th><th>分类</th><th>业务编码</th><th>格式</th><th>状态</th><th>更新时间</th><th class="text-end">操作</th></tr></thead><tbody>
-  {% for template in templates %}<tr><td>{{ template.name }}</td><td>{{ target_types.get(template.target_type, template.target_type) }}</td><td><code>{{ template.target_code }}</code></td><td><span class="badge text-bg-success">Excel</span></td><td>{% if template.is_default %}<span class="badge text-bg-primary">默认模板</span>{% else %}<span class="text-muted">备用</span>{% endif %}</td><td>{{ template.updated_at.strftime('%Y-%m-%d %H:%M') if template.updated_at else '' }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="/global_print_template/{{ template.id }}/edit">在线编辑</a><a class="btn btn-sm btn-outline-success" href="/print_templates/{{ template.id }}/download">下载</a>{% if not template.is_default %}<button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>{% endif %}<button class="btn btn-sm btn-outline-danger" onclick="removeTemplate({{ template.id }})">删除</button></td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">暂无模板：用上方「在线新建」免上传创建，或上传 .xlsx 模板。</td></tr>{% endfor %}
+  {% if show_purchase_request_builtin %}
+  <tr data-builtin-template="purchase_request"><td>采购申请 · 材料申请单</td><td>单据打印</td><td><code>purchase_request</code></td><td><span class="badge text-bg-success">Excel</span></td><td>内置版式</td><td>—</td><td class="text-end">
+    <a class="btn btn-sm btn-outline-success" href="{{ url_for('download_builtin_print_template', target_code='purchase_request') }}">下载内置模板</a>
+    {% if current_user.role == 'admin' %}
+    <form method="post" action="{{ url_for('create_blank_print_template') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="name" value="材料申请单">
+      <input type="hidden" name="target_type" value="document">
+      <input type="hidden" name="target_code" value="purchase_request">
+      <button class="btn btn-sm btn-primary">新建并在线编辑</button>
+    </form>
+    {% endif %}
+  </td></tr>
+  {% endif %}
+  {% for template in templates %}<tr><td>{{ template.name }}</td><td>{{ target_types.get(template.target_type, template.target_type) }}</td><td><code>{{ template.target_code }}</code></td><td><span class="badge text-bg-success">Excel</span></td><td>{% if template.is_default %}<span class="badge text-bg-primary">默认模板</span>{% else %}<span class="text-muted">备用</span>{% endif %}</td><td>{{ template.updated_at.strftime('%Y-%m-%d %H:%M') if template.updated_at else '' }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="/global_print_template/{{ template.id }}/edit">在线编辑</a><a class="btn btn-sm btn-outline-success" href="/print_templates/{{ template.id }}/download">下载</a>{% if not template.is_default %}<button class="btn btn-sm btn-outline-secondary" onclick="setDefault({{ template.id }})">设为默认</button>{% endif %}<button class="btn btn-sm btn-outline-danger" onclick="removeTemplate({{ template.id }})">删除</button></td></tr>{% else %}<tr><td colspan="7" class="text-center text-muted py-5">暂无自定义模板：可从内置版式新建，或上传 .xlsx 模板。</td></tr>{% endfor %}
   </tbody></table></div></div>
 </div>
 <script id="codeOptionsData" type="application/json">{{ code_options | tojson }}</script>

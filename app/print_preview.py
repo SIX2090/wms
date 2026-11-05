@@ -187,6 +187,11 @@ def build_preview_context(target_type: str, target_code: str) -> dict:
                 item_paths.append(barcode_col[1])
 
     items = _build_items(item_paths) if item_paths else []
+    if target_type == 'document' and target_code == 'purchase_request':
+        for index, item in enumerate(items, 1):
+            item.update(sequence=index, material_name=f'示例物料{index}', project_name='示例工程')
+        while len(items) < 15:
+            items.append({**dict.fromkeys(item_paths, ''), 'sequence': len(items) + 1, 'quantity': '', 'project_name': ''})
     context = {
         'order': order,
         'items': items,

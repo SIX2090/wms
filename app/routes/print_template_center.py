@@ -171,17 +171,33 @@ def register_print_template_center_routes(app):
     def print_templates():
         model = _model()
         target_type = (request.args.get('target_type') or '').strip()
+        target_code = (request.args.get('target_code') or '').strip()
         visible_types = {key: label for key, label in TARGET_TYPES.items() if key != 'list'}
         if target_type == 'list':
             target_type = ''
         query = model.query.filter(model.target_type != 'list')
         if target_type in visible_types:
             query = query.filter_by(target_type=target_type)
+        if target_code:
+            query = query.filter_by(target_code=target_code)
         templates = query.order_by(model.target_type, model.target_code, model.is_default.desc(), model.updated_at.desc()).all()
         return render_template(
             'print_template_center.html', templates=templates,
             target_types=visible_types, selected_type=target_type,
+            selected_code=target_code,
+            show_purchase_request_builtin=target_type in ('', 'document') and target_code in ('', 'purchase_request'),
             code_options={key: value for key, value in _code_options().items() if key != 'list'})
+
+    @app.route('/print_templates/builtin/<target_code>/download')
+    @login_required
+    def download_builtin_print_template(target_code):
+        from flask import abort
+        from doc_print_excel import generate_builtin_template
+        output = generate_builtin_template(target_code)
+        if output is None:
+            abort(404)
+        return send_file(output, download_name=f'{target_code}_template.xlsx', as_attachment=True,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/print_templates/create_blank', methods=['POST'])
     @login_required

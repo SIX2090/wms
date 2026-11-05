@@ -37,6 +37,16 @@ from openpyxl.utils import get_column_letter
 # totals: 'quantity' 输出 {total_quantity}；'amount' 输出 {total_amount}（模型须有 total_amount）
 
 DOC_EXCEL_PRINT_TYPES = {
+    'purchase_request': {
+        'label': '采购申请单',
+        'header': [('申请编号', 'request_no'), ('日期', 'date'),
+                   ('申请人', 'applicant'), ('申请部门', 'department')],
+        'columns': [('序号', 'sequence', 5), ('合同编号', 'contract_no', 13.5),
+                    ('名称', 'material_name', 21), ('规格', 'spec', 16.5),
+                    ('单位', 'unit_name', 12), ('数量', 'quantity', 8.5),
+                    ('备注', 'remark', 23)],
+        'totals': (),
+    },
     'check': {
         'label': '盘点单',
         'header': [('单据编号', 'check_no'), ('日期', 'date'), ('仓库', 'warehouse'),
@@ -381,9 +391,51 @@ def _write_label_sheet_layout(ws, spec):
     return ws
 
 
+def generate_purchase_request_template():
+    """The confirmed material-request form, editable through the shared grid editor."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '材料申请单'
+    ws.merge_cells('A1:G1')
+    ws.merge_cells('A2:G2')
+    for row, value, size in [(1, '广东惠电科技发展有限公司', 17), (2, '材料申请单', 15)]:
+        ws.cell(row, 1, value).font = Font(name='楷体', size=size, bold=True)
+        ws.cell(row, 1).alignment = _CENTER
+    ws.row_dimensions[1].height = 27
+    ws.row_dimensions[2].height = 22
+    ws.row_dimensions[3].height = 12
+    ws.row_dimensions[4].height = 6
+    for col, (label, field, width) in enumerate(DOC_EXCEL_PRINT_TYPES['purchase_request']['columns'], 1):
+        ws.column_dimensions[get_column_letter(col)].width = width
+        ws.cell(5, col, label).font = Font(name='宋体', size=10, bold=True)
+        ws.cell(5, col).alignment = _CENTER
+        ws.cell(5, col).border = _BORDER
+        for row in range(6, 21):
+            cell = ws.cell(row, col, '{item.%s}' % field if row == 6 else None)
+            cell.font = Font(name='宋体', size=10)
+            cell.alignment = Alignment(horizontal='right' if field == 'quantity' else
+                                       ('center' if field in ('sequence', 'unit_name') else 'left'),
+                                       vertical='center', wrap_text=True)
+            cell.border = _BORDER
+            ws.row_dimensions[row].height = 20
+    ws.row_dimensions[5].height = 22
+    ws.cell(21, 1, '制表：余国珍').font = Font(name='宋体', size=10, bold=True)
+    ws.cell(21, 6, '日期：{order.date}').font = Font(name='宋体', size=10, bold=True)
+    ws.page_setup.paperSize = ws.PAPERSIZE_A4
+    ws.page_setup.orientation = 'portrait'
+    ws.page_setup.fitToWidth = ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr.fitToPage = True
+    ws.page_margins.left = ws.page_margins.right = .47
+    ws.page_margins.top = ws.page_margins.bottom = .47
+    ws.print_area = 'A1:G21'
+    return wb
+
+
 def generate_builtin_template(target_code):
     """按注册表生成内置默认 .xlsx 模板字节流；未注册的 target_code 返回 None。"""
-    if target_code in DOC_EXCEL_PRINT_TYPES:
+    if target_code == 'purchase_request':
+        wb = generate_purchase_request_template()
+    elif target_code in DOC_EXCEL_PRINT_TYPES:
         spec = DOC_EXCEL_PRINT_TYPES[target_code]
         wb = Workbook()
         ws = wb.active
@@ -614,6 +666,82 @@ class _PurchaseReceiptPrintItem:
         return getattr(self._item, name)
 
 
+def purchase_request_print_rows(items):
+    """Adapt both master materials and manually entered request lines without writes."""
+    from app import purchase_request_item_has_material
+    rows = []
+    for item in items or []:
+        if not purchase_request_item_has_material(item):
+            continue
+        material = getattr(item, 'material', None)
+        unit = getattr(item, 'unit', None) or getattr(material, 'unit', None)
+        rows.append(SimpleNamespace(
+            sequence=len(rows) + 1,
+            contract_no=getattr(item, 'contract_no', '') or '',
+            project_name=getattr(item, 'project_name', '') or '',
+            material_name=getattr(item, 'material_name', '') or getattr(material, 'name', '') or '',
+            spec=getattr(item, 'spec', '') or getattr(material, 'spec', '') or '',
+            unit_name=getattr(unit, 'name', '') or '',
+            quantity=getattr(item, 'quantity', 0) or 0,
+            remark=getattr(item, 'remark', '') or '',
+        ))
+    return rows
+
+
+def render_purchase_request_excel(path, order, items, date_str=None):
+    """Fill each 15-line page using the existing Excel placeholder/style engine."""
+    from openpyxl import load_workbook
+    from openpyxl.drawing.image import Image
+    from copy import deepcopy
+    from print_fill import _Filler
+    wb = load_workbook(path)
+    rows = purchase_request_print_rows(items)
+    pages = [rows[start:start + 15] for start in range(0, len(rows), 15)] or [[]]
+    for original in list(wb.worksheets):
+        title = original.title
+        sheets = [original] + [wb.copy_worksheet(original) for _ in pages[1:]]
+        # openpyxl's worksheet copier excludes drawings and header/footer settings.
+        for image in original._images:
+            raw = image._data()
+            image.ref = io.BytesIO(raw)
+            for sheet in sheets[1:]:
+                logo = Image(io.BytesIO(raw))
+                logo.anchor = deepcopy(image.anchor)
+                sheet.add_image(logo)
+        for sheet in sheets[1:]:
+            sheet.HeaderFooter = deepcopy(original.HeaderFooter)
+            sheet.print_title_rows = original.print_title_rows
+            sheet.print_title_cols = original.print_title_cols
+            for chart in original._charts:
+                sheet.add_chart(deepcopy(chart))
+        for page, (sheet, data) in enumerate(zip(sheets, pages)):
+            if original.print_area:
+                sheet.print_area = original.print_area
+            if len(pages) > 1:
+                sheet.title = title[:24] + f' 第{page + 1}页'
+            padded = list(data)
+            while len(padded) < 15:
+                padded.append(SimpleNamespace(sequence=page * 15 + len(padded) + 1,
+                    contract_no='', project_name='', material_name='', spec='', unit_name='', quantity='', remark=''))
+            # Business text such as a contract starting with '=' remains literal;
+            # formulas explicitly authored in the template retain their meaning.
+            item_row = next((r for r in range(1, sheet.max_row + 1) if any(
+                '{item.' in str(cell.value or '') for cell in sheet[r])), None)
+            literal_cols = [cell.column for cell in sheet[item_row] if
+                '{item.' in str(cell.value or '') and not str(cell.value).startswith('=')] if item_row else []
+            _Filler(order, padded, date_str).fill(sheet)
+            if item_row:
+                for row in sheet.iter_rows(min_row=item_row, max_row=item_row + 14):
+                    for cell in row:
+                        if cell.column in literal_cols and isinstance(cell.value, str):
+                            cell.data_type = 's'
+    output = io.BytesIO()
+    wb.save(output)
+    wb.close()
+    output.seek(0)
+    return output
+
+
 def render_doc_excel_print(target_code, order, items=None, template_id=None,
                            static_folder=None, date_str=None):
     """按注册表填充单据 Excel 模板，返回 (BytesIO, 文件名)；未注册返回 None。"""
@@ -633,13 +761,14 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
         execution = build_purchase_order_execution(order)
         print_items = [_PurchaseReceiptPrintItem(item, execution.get(item.id, {}).get('completed_quantity', 0))
                        for item in (print_items or [])]
-    output = build_filled_print_excel(
-        path, order,
-        items=print_items,
-        date_str=date_str or datetime.now().strftime('%Y-%m-%d'),
-    )
+    if target_code == 'purchase_request':
+        output = render_purchase_request_excel(path, order, print_items, date_str)
+    else:
+        output = build_filled_print_excel(
+            path, order, items=print_items,
+            date_str=date_str or datetime.now().strftime('%Y-%m-%d'))
     order_no = ''
-    for attr in ('order_no', 'check_no', 'transfer_no', 'req_no',
+    for attr in ('order_no', 'request_no', 'check_no', 'transfer_no', 'req_no',
                  'adjustment_no', 'issue_no', 'receive_no'):
         value = getattr(order, attr, None)
         if value:

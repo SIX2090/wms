@@ -31,6 +31,7 @@ from doc_print_excel import (
 
 # target_code → (URL 前缀, app 模块中的模型名)
 _DOC_ROUTE_MODELS = {
+    'purchase_request': ('purchase_request', 'PurchaseRequest'),
     'check': ('check', 'InventoryCheck'),
     'transfer': ('transfer', 'TransferOrder'),
     'requisition': ('requisition', 'ProductionRequisition'),
@@ -52,11 +53,17 @@ def _make_doc_print_excel_view(flask_app, target_code, model_name):
         import app as app_module
         model = getattr(app_module, model_name)
         order = model.query.get_or_404(id)
-        result = render_doc_excel_print(
-            target_code, order,
-            template_id=request.args.get('template_id', type=int),
-            static_folder=flask_app.static_folder,
-        )
+        try:
+            result = render_doc_excel_print(
+                target_code, order,
+                template_id=request.args.get('template_id', type=int),
+                static_folder=flask_app.static_folder,
+            )
+        except Exception as exc:
+            if target_code != 'purchase_request':
+                raise
+            flask_app.logger.warning('采购申请Excel模板无法读取：%s', exc)
+            return app_module.api_error('Excel模板无法读取，请在模板中心重新保存，或使用普通打印', 400)
         if result is None:
             abort(404)
         output, filename = result
