@@ -29,3 +29,18 @@
 ## 生产边界
 
 本批业务验证仅访问新合成内存库/专用SQLite和127.0.0.1:18945；没有读取、备份、迁移、恢复或修改生产库，没有生产账号登录、密码修改、服务重启或任务配置修改。生产仅作匿名GET健康与既有任务状态核对；第二项已启用的备份/监护保持。新版管理员页及统一清单要在授权部署后才能报告生产生效。IA-12的磁盘容量另行登记为现场限制，不擅自清理其他人的工作区或现有发布/备份。
+
+## 软件交付最终验收
+
+产品提交 `3be6e2229876a1c9d2e372e9c2225c7db3a68863` 以已全绿8dc3d926为父提交，通过已连接GitHub工具非强制更新main。33文件的Git blob及完整tree `4b7a8f90cfb5662fe6316abf21fe3399d63f4a6f` 与已验证本地内容一致；原本地提交和合并历史另存bundle，fetch后仅以相同tree安全对齐，本地/远端main一致。普通Git认证失败没有伪装为push成功，没有读取连接器凭据或跳过真实非绿门禁。
+
+- [WMS CI 42004587228](https://github.com/SIX2090/wms/actions/runs/42004587228)：全量分支，三个单测分片3704+4477+4264=**12445 passed**，28+147+16=**191 skipped**；四个verify分片、实际Chrome、静态/编码/规则/凭据门禁、冒烟及聚合成功。文档任务按全量分支正常跳过，不把未执行当测试通过。
+- [AI 42004587371](https://github.com/SIX2090/wms/actions/runs/42004587371)：核心、静态及聚合全部成功。
+- [Android 41971520345](https://github.com/SIX2090/wms/actions/runs/41971520345)：成功祖先86043f56；Git对象、祖先关系及Android源码/工作流无变化证明成立，未冒充重新构建。
+- [Windows Portable Release 42005329528](https://github.com/SIX2090/wms/actions/runs/42005329528)：所有实际下载、构建、临时副本安装、启动和发布步骤success，未因已有标签跳过。完整便携包从562份已提交程序导出；7,328份封存文件在制作、原目录复验和新空目录复制后三次校验同一制品ID `62038963518b1f658562ea10918b9b6514558b574e46a03703348fb1fb047af8`。实际嵌入解释器、依赖导入、无Flasgger、首次初始化、重复初始化拒绝及合成库摘要不变、受保护启动、中文登录及页脚CSS通过。
+
+[Windows 2026.11.2预览发行](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.2) 非draft，标签精确指向产品提交；ZIP `WMS-2026.11.2-windows-x64.zip`为uploaded，97,057,677字节，SHA256 `8e59acda5f21d0b2df1e76bd61952ebf3a20b44053a876d3ed40c35b3072c387`。GitHub独立计算的ZIP资产摘要与CI生成的97字节ASCII/CRLF校验记录摘要交叉核对一致；校验记录资产SHA256为 `5d3bb54be6e9a91833ca44f7d96d7ba86fff9f7a152c6cc7040ac2bbf30d0759`。本机直接流式下载等待数分钟未完成后已停止，未保存ZIP、未声称本机已完整下载/解压；完整安装验收来自上述真实Windows CI。
+
+本地补充：合并后388项相邻回归、最终56项制品/权限专项通过；规范摘要负例在旧代码明确失败。121/121隔离冒烟及两阶段各六组实际Chrome通过，集合有重叠不累加。第二阶段使用产品入库与包含box_no的最新合成模型；只读复核任务/微信配置/日志均0、总账30=两仓20+10。软件进度为4/5，生产前三项生效记录保持；本项生产未部署，第五项未开始，不自动重评分。
+
+最终代码及发行证据：外置 `batch04-code-acceptance.json`、`batch04-publish-proof.json`、`batch04-windows-release-metadata.json`、`batch04-windows-digest-verification.json`、`batch04-integrated-database-proof.json`。本段为产品交付后的纯文档回执，仍需按自身精确提交验收文档CI；不把记录提交SHA冒充另一套程序或另一个ZIP。
