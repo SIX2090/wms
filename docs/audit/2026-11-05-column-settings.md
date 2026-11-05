@@ -26,8 +26,21 @@
 
 ## 交付状态
 
-本地修复与隔离验收已完成；精确提交的远端完整 CI 和生产资源生效确认需在推送后登记。生产验收仅允许匿名只读 GET；不执行生产登录、单据保存、数据库备份/复制/迁移/恢复/初始化或账号密码修改。
+本地修复、精确远端完整 CI 和生产资源生效均已验收，详见下方最终记录。生产验收仅使用匿名只读 GET；未执行生产登录、单据保存、数据库备份/复制/迁移/恢复/初始化或账号密码修改。
 
 ## 首次 CI 纠正
 
 42ef90ba 的所有单元、回归、浏览器和冒烟任务成功，但全量棘轮的 A13 发现新条目插入在上一条生效确认之前。3865fd7f 将本批 15 文件完整回退，tree 与绿色 fe806cc7 完全一致；随后整批重做，仅纠正台账条目边界并记录此经过。8 份产品模板与原已验收版本逐字节相同，检查器、既有断言和门禁阈值未调整；生产未切换。最终精确提交完整 CI 仍需成功。
+
+## 最终交付与生产生效
+
+- 完整整批回退远端提交为 `74b39504bcd85964ab3b2ee49027d694ea650b51`，与本地回退 3865fd7f 的完整 tree 一致。重做提交 [6455045e0ebf8d143517338e26bfde76885724e5](https://github.com/SIX2090/wms/commit/6455045e0ebf8d143517338e26bfde76885724e5)，完整 tree `a99bb33bca3d30de5abc6b50a7f1c9cc6ceec88f`；GitHub 连接器非强制更新 main，反查及 fetch 后本地 HEAD、origin/main 和远端一致。
+- WMS CI [41941999180](https://github.com/SIX2090/wms/actions/runs/41941999180)、AI [41941999174](https://github.com/SIX2090/wms/actions/runs/41941999174) 在该完整 SHA 上 completed/success；所有业务测试分片、回归、浏览器、静态与冒烟均通过。Android [41937038001](https://github.com/SIX2090/wms/actions/runs/41937038001) completed/success，提交 `5a753090f705bc915dc9622fe4df8cf451d2e946` 为目标祖先，Android 目录及工作流无差异。本地纠正后全量棘轮通过，文档/规则契约 54 passed。
+- 用户此前已授权部署生产。2026-11-05 **08:37:46（Asia/Shanghai）**，原 `WMS-Warehouse` 计划任务切换到 `C:/wms_releases/20261105_columns_6455045e`，16.21 秒完成，单一 8080 实例 PID 120。旧包 `C:/wms_releases/20261104_babb4c92` 保留用于回退。
+- 本轮只发布栏目界面覆盖层：基础业务源码仍为已上线 `babb4c9285a40c37859722350a59dcff84ab98c7`，758 份基础源码摘要不变；8 份模板仅应用已验收名称差异，定制 `app.js` 仅复用已验收的空页签删除。原样式和其他定制覆盖保持。34 份覆盖文件由摘要清单校验，不跟随数据库目录复制。`X-WMS-Release` 仍表示原业务源码，另以 `X-WMS-UI-Release=6455045e0ebf8d143517338e26bfde76885724e5` 表示本次界面版本。
+- 实际最终发布包使用全新合成数据库（97 表），真实 Chrome 14 页和改名/排序/隐藏/刷新/取消/隔离/恢复默认均通过，包内冒烟再次 119/119 通过；不与源码验证重复累加。
+- 原生只读生产启动预检 `schema_check=passed`，仅保留既有结构警告；启动业务行读取被拒绝 97 次，SQL 写入未获放行，网络/凭据/文件系统/进程副作用拒绝计数均为 0。未通过迁移或修补数据库消除旧结构警告。
+- 本机及 `https://gd2026.top` 的登录页、healthz、实际 app.js、按钮样式共 **8 个匿名 GET 200**；业务与界面版本标识一致，4 次静态资源摘要匹配，实际 JS 无表头/表尾入口，仅保留明细。
+- 生产未执行登录提交、单据或库存测试写入、数据库备份/复制/迁移/恢复/初始化或账号密码变更。此记录说明本批代理操作边界，不对其他正常使用者的业务写入作全局不变承诺。
+
+完整证据位于 `C:/wms_backups/column_settings_20261105/`：`final-ci-proof.json`、`ui-prepare-proof.json`、`production-preflight.log`、`package-final-browser.log`、`package-final-smoke.log`、`activation-result.json`、`live-acceptance.json`、`production-attestation.json`。
