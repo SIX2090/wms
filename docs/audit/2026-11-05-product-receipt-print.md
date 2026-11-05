@@ -50,3 +50,5 @@
 上述摘要仅覆盖正式应用清单。随后收到另一聊天“全面检查 WMS 按钮功能”的告警：18:10后的清理曾使生产任务引用的监护脚本、动作环境配置及状态文件缺失，相关恢复由该聊天处理。本聊天再次只读核对时脚本与动作配置已存在，supervisor-status.json仍缺失；不能以应用摘要、端口监听或一次HTTP200替代整套监护及备份链路的验收。本聊天未对这些目录执行删除、恢复、计划任务变更或服务重启，不重复介入现场恢复。
 
 本次仅修改本审计及107台账条目。使用`python -m pytest --noconftest -q -o addopts= -p no:cacheprovider tests/test_f4_4_ledger_split.py tests/test_inventory_truth_line_refs.py tests/test_audit_readme_inventory_identity.py tests/test_lint_wms_rules_a13_golden.py`复验39 passed；全量规则棘轮`python scripts/lint_wms_rules.py --full --full-gate`退出0，保留存量报告，不声称全仓零违规。匿名API已恢复，`python scripts/check_ci_green.py --target-sha 4e1e130cee154248ec8d44b0d219bb81df3e4865 --json`返回ok=true且退出0；本次文档推送按正常钩子复核，不沿用此前纠正推送例外。文档收尾的精确提交另按Actions所选文档分支验收，不能把原业务CI当作未执行的文档检查。
+
+软件回执256e05ab已实际推送，本地/远端一致，WMS CI42010690371的changes、docs-checks、gate及AI42010690223均成功，业务作业按纯文档分支正常跳过。随后用户明确授权“先让新打印模板生效”，本批于18:41按原监护入口完成生产启用；此前未部署的描述均为当时阶段记录，现状以[生产生效记录](2026-11-05-product-receipt-production.md)为准。
