@@ -59,7 +59,7 @@ const element=()=>({value:'',dataset:{},hidden:false,events:{},addEventListener(
   const fields={};const row={querySelector:s=>fields[s]||(fields[s]=element())};
   const ctx={cancelMaterialSearch(){},getMaterialUnitName:()=>'',getMaterialUnitId:()=>'',updateRowAmount(){}};
   vm.createContext(ctx);vm.runInContext(src.slice(a,b),ctx);ctx.selectMaterial(row,{code:'M'});
-  assert.equal(fields['.material-stock'].value,'未查询');ctx.selectMaterial(row,{code:'M',stock:0});assert.equal(fields['.material-stock'].value,'0.00');return;
+  assert.equal(fields['.material-stock'].value,'');ctx.selectMaterial(row,{code:'M',stock:0});assert.equal(fields['.material-stock'].value,'0.00');return;
  }
  throw Error(scenario);
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});

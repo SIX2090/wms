@@ -468,6 +468,8 @@ textarea.form-control {
                             <th style="width: 100px;" data-column-key="estimated_price">预估单价<span class="col-resize"></span></th>
                             <th style="width: 100px;" class="amount-col" data-column-key="estimated_amount">预估金额<span class="col-resize"></span></th>
                             <th style="width: 120px;" data-column-key="supplier">推荐供应商<span class="col-resize"></span></th>
+                            <th style="width: 150px;" data-column-key="contract_no">合同编号<span class="col-resize"></span></th>
+                            <th style="width: 180px;" data-column-key="project_name">工程名称<span class="col-resize"></span></th>
                             <th class="action-col" data-column-key="actions">操作<span class="col-resize"></span></th>
                         </tr>
                     </thead>
@@ -477,7 +479,7 @@ textarea.form-control {
                         <tr class="total-row">
                             <td colspan="8" class="text-end"><strong>合计：</strong></td>
                             <td class="amount-col" data-column-key="estimated_amount"><strong id="totalAmount" class="total-amount">¥0.00</strong></td>
-                            <td colspan="2"></td>
+                            <td colspan="4"></td>
                         </tr>
                     </tfoot>
                 </table>
@@ -587,6 +589,8 @@ function addNewRow(insertBeforeRow = null, data = {}) {
                 <div class="supplier-dropdown" style="display:none;"></div>
             </div>
         </td>
+        <td data-column-key="contract_no"><input type="text" class="form-control contract-no" maxlength="50" aria-label="合同编号"></td>
+        <td data-column-key="project_name"><input type="text" class="form-control project-name" maxlength="200" aria-label="工程名称"></td>
         <td class="action-col" data-column-key="actions">
             <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
             <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
@@ -618,11 +622,13 @@ function fillRowData(row, data) {
     row.querySelector('.spec').value = data.spec || '';
     unitInput.value = data.unit_name || data.unit || '';
     unitInput.dataset.unitId = data.unit_id || '';
-    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(data.stock)) ? parseFloat(data.stock).toFixed(2) : '未查询';
+    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(data.stock)) ? parseFloat(data.stock).toFixed(2) : '';
     row.querySelector('.quantity').value = data.quantity || '';
     row.querySelector('.estimated-price').value = data.estimated_price || data.price || '';
     supplierIdInput.value = data.supplier_id || '';
     row.querySelector('.supplier-name').value = data.supplier_name || data.supplier || '';
+    row.querySelector('.contract-no').value = data.contract_no || '';
+    row.querySelector('.project-name').value = data.project_name || '';
 }
 
 function bindMaterialInput(row) {
@@ -844,7 +850,7 @@ function selectMaterial(row, material) {
     row.querySelector('.spec').value = material.spec || '';
     row.querySelector('.unit-name').value = getMaterialUnitName(material);
     row.querySelector('.unit-name').dataset.unitId = getMaterialUnitId(material);
-    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '未查询';
+    row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '';
     row.querySelector('.estimated-price').value = material.price ? material.price : '';
     updateRowAmount(row);
 }
@@ -955,6 +961,8 @@ function copyRowAfter(row) {
     target.querySelector('.estimated-price').value = row.querySelector('.estimated-price').value;
     target.querySelector('.supplier-id').value = row.querySelector('.supplier-id').value;
     target.querySelector('.supplier-name').value = row.querySelector('.supplier-name').value;
+    target.querySelector('.contract-no').value = row.querySelector('.contract-no').value;
+    target.querySelector('.project-name').value = row.querySelector('.project-name').value;
     updateRowAmount(target);
     target.querySelector('.quantity').focus();
     target.querySelector('.quantity').select();
@@ -1007,7 +1015,9 @@ function collectItems() {
             quantity: row.querySelector('.quantity').value,
             estimated_price: row.querySelector('.estimated-price').value,
             supplier_id: supplierIdInput.value || null,
-            supplier_name: supplierNameInput.value.trim()
+            supplier_name: supplierNameInput.value.trim(),
+            contract_no: row.querySelector('.contract-no').value.trim(),
+            project_name: row.querySelector('.project-name').value.trim()
         };
     }).filter(function(item) {
         return item.material_id || item.material_code || item.material_name;
@@ -1119,7 +1129,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 quantity: 80,
                 estimated_price: 90,
                 estimated_amount: 100,
-                supplier: 120
+                supplier: 120,
+                contract_no: 150,
+                project_name: 180
             }
         });
     }
