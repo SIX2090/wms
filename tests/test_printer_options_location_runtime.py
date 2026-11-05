@@ -19,21 +19,22 @@ def test_known_printers_use_unwrapped_api_data(mode):
 
 @pytest.mark.skipif(NODE is None, reason='Node.js required')
 @pytest.mark.parametrize(('location', 'location_enabled'), [('', False), ('   ', True), ('A-01', True), ('  项目仓-货架2  ', True)])
-def test_inbound_save_retains_validated_location(location, location_enabled):
+@pytest.mark.parametrize('business', ['采购入库', '产品入库'])
+def test_inbound_save_retains_validated_location(location, location_enabled, business):
     source = (ROOT / 'app/templates/in_order_add.html').read_text(encoding='utf-8')
     start = source.index('function submitForm(')
     end = source.index("\ndocument.addEventListener('click'", start + 1)
     script = r'''
 const vm=require('vm'),p=JSON.parse(require('fs').readFileSync(0,'utf8'));let sent=null,errors=[];
-const values={date:'2026-10-25',supplier_id:'7',warehouse_id:'2',location:p.location,business_type:'采购入库',purpose:'fixture',order_id:'',order_no:'IN-QA',remark:''};
+const values={date:'2026-10-25',supplier_id:'7',customer_id:'9',contract_no:'HT-QA',project_name:'工程-QA',warehouse_id:'2',location:p.location,business_type:p.business,purpose:'fixture',order_id:'',order_no:'IN-QA',remark:''};
 const fields=Object.fromEntries(Object.entries(values).map(([k,value])=>[k,{value}]));
 if(!p.locationEnabled)delete fields.location;
-const row={dataset:{},querySelector:s=>({value:({'.material-code':'M-01','.material-qty':'2','.material-price':'0'}[s]||''),checked:false})};
-const ctx={document:{querySelector:s=>fields[(s.match(/name="([^"]+)"/)||[])[1]]||null,querySelectorAll:s=>s==='#materialTableBody tr'?[row]:[]},clearInOrderValidation(){},findMaterialByCode:()=>({id:1}),markRowError(){},showInOrderValidation(e){errors=e;},confirm:()=>true,showToast(){},WMS:{api:{postRaw:(url,data)=>{sent={url,data};return Promise.resolve({status:'error',msg:'测试响应'});}}}};
+const row={dataset:{},querySelector:s=>({value:({'.material-code':'M-01','.material-qty':'2','.material-price':'0','.material-box-no':'001-A'}[s]||''),checked:false})};
+const ctx={document:{querySelector:s=>s==='#productCustomer'?(p.business==='产品入库'?fields.customer_id:null):fields[(s.match(/name="([^"]+)"/)||[])[1]]||null,querySelectorAll:s=>s==='#materialTableBody tr'?[row]:[]},clearInOrderValidation(){},findMaterialByCode:()=>({id:1}),markRowError(){},showInOrderValidation(e){errors=e;},confirm:()=>true,showToast(){},WMS:{api:{postRaw:(url,data)=>{sent={url,data};return Promise.resolve({status:'error',msg:'测试响应'});}}}};
 ctx.window=ctx;vm.createContext(ctx);vm.runInContext('let inOrderSubmitting=false;const partyField="supplier_id",partyLabel="供应商",supplierRequired=true,returnAddUrl="/in_order/add";',ctx);vm.runInContext(p.source,ctx);
 (async()=>{await ctx.submitForm();process.stdout.write(JSON.stringify({sent,errors}));})().catch(e=>{console.error(e);process.exitCode=1;});
 '''
-    result = subprocess.run([NODE, '-e', script], input=json.dumps({'source': (ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+source[start:end], 'location': location, 'locationEnabled': location_enabled}),
+    result = subprocess.run([NODE, '-e', script], input=json.dumps({'source': (ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+source[start:end], 'location': location, 'locationEnabled': location_enabled, 'business': business}),
                             capture_output=True, text=True, encoding='utf-8', timeout=15)
     assert result.returncode == 0, result.stdout + result.stderr
     actual = json.loads(result.stdout)
@@ -46,3 +47,10 @@ ctx.window=ctx;vm.createContext(ctx);vm.runInContext('let inOrderSubmitting=fals
     assert (sent['data'].get('location') or '') == location.strip()
     assert sent['data']['warehouse_id'] == '2'
     assert sent['data']['items'][0]['price'] == 0
+    if business == '产品入库':
+        assert sent['data']['customer_id'] == '9'
+        assert sent['data']['contract_no'] == 'HT-QA'
+        assert sent['data']['project_name'] == '工程-QA'
+        assert sent['data']['items'][0]['box_no'] == '001-A'
+    else:
+        assert 'customer_id' not in sent['data']

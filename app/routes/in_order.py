@@ -1008,6 +1008,7 @@ def register_in_order_routes(app):
                                         for material in materials],
                              units=[serialize_unit(unit) for unit in units],
                              suppliers=[serialize_customer(p) if (is_other_in or is_sales_return) else serialize_supplier(p) for p in parties],
+                             customers=Customer.query.order_by(Customer.name).all() if is_product_in else [],
                              warehouses=warehouses,
                              default_warehouse=default_warehouse,
                              location_management_enabled=location_management_enabled(),
@@ -1047,6 +1048,7 @@ def register_in_order_routes(app):
                                  'price': item.price,
                                  # BUG-2026-09-21-003：行级批次号/有效期必须随编辑回填，
                                  # 否则编辑保存时旧明细被整批删除重建，两字段被静默清空。
+                                 'box_no': item.box_no or '',
                                  'batch_no': item.batch_no or '',
                                  'expiry_date': item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '',
                                  'contract_no': item.contract_no or '',
@@ -1373,6 +1375,7 @@ def register_in_order_routes(app):
                         price=price,
                         amount=amount,
                         batch_no=batch_no,
+                        box_no=(item_data.get('box_no') or '').strip() or None,
                         expiry_date=expiry_date,
                         remark=(item_data.get('remark') or '').strip() or None,
                         contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
@@ -1510,6 +1513,7 @@ def register_in_order_routes(app):
                 amount=amount,
                 batch_no=batch_no,
                 expiry_date=expiry_date,
+                box_no=(request.form.get('box_no') or '').strip() or None,
                 remark=(request.form.get('remark') or '').strip() or None,
                 contract_id=contract_id,
                 contract_no=contract_no,
@@ -1559,11 +1563,11 @@ def register_in_order_routes(app):
         try:
             if file:
                 from app import _read_import_sheet, _get_excel_cell, import_max_rows
-                fields = ('code', 'quantity', 'price', 'batch', 'expiry', 'remark')
+                fields = ('code', 'quantity', 'price', 'batch', 'expiry', 'remark', 'box_no')
                 sheet, columns, _ = _read_import_sheet(file, {
                     'code':['物料编码', '材料编码'], 'quantity':['数量'],
                     'price':['单价', '价格'], 'batch':['批次号', '批次'],
-                    'expiry':['有效期', '到期日期'], 'remark':['备注'],
+                    'expiry':['有效期', '到期日期'], 'remark':['备注'], 'box_no':['箱体编号'],
                 })
                 if not {'code', 'quantity'}.issubset(columns):
                     return api_error('明细文件必须包含物料编码和数量列')
@@ -1605,6 +1609,10 @@ def register_in_order_routes(app):
                 if expiry_err:
                     errors.append(f'第 {line_no} 行{expiry_err}')
                     continue
+                box_no = str(parts[6] or '').strip() if len(parts) > 6 else ''
+                if len(box_no) > 100:
+                    errors.append(f'第 {line_no} 行箱体编号不能超过100个字符')
+                    continue
                 _c_id, _c_no, _p_name = resolve_item_contract(order)
                 db.session.add(InOrderItem(
                     in_order_id=id,
@@ -1617,6 +1625,7 @@ def register_in_order_routes(app):
                     contract_id=_c_id,
                     contract_no=_c_no,
                     project_name=_p_name,
+                    box_no=box_no or None,
                     remark=parts[5] if len(parts) > 5 else '',
                 ))
                 added += 1
@@ -1719,6 +1728,8 @@ def register_in_order_routes(app):
         item.quantity = new_quantity
         item.price = round_to_2_decimals(request.form.get('price', item.price))
         item.amount = round_to_2_decimals(item.quantity * item.price)
+        if 'box_no' in request.form:
+            item.box_no = (request.form.get('box_no') or '').strip() or None
         if 'remark' in request.form:
             item.remark = (request.form.get('remark') or '').strip() or None
         try:
@@ -1845,6 +1856,7 @@ def register_in_order_routes(app):
                     quantity=quantity,
                     price=price,
                     amount=round_to_2_decimals(quantity * price),
+                    box_no=item.box_no,
                     batch_no=getattr(item, 'batch_no', None),
                     expiry_date=getattr(item, 'expiry_date', None),
                     remark=item.remark,
@@ -2311,6 +2323,7 @@ def register_in_order_routes(app):
                         contract_no=contract_no,
                         project_name=project_name,
                         batch_no=batch_no,
+                        box_no=(item_data.get('box_no') or '').strip() or None,
                         expiry_date=expiry_date,
                         remark=(item_data.get('remark') or '').strip() or None
                     )
@@ -2389,6 +2402,8 @@ def register_in_order_routes(app):
                         item.quantity = new_qty
                         item.price = new_price
                         item.amount = round_to_2_decimals(new_qty * new_price)
+                        if 'box_no' in item_data:
+                            item.box_no = (item_data.get('box_no') or '').strip() or None
                         if 'remark' in item_data:
                             item.remark = (item_data.get('remark') or '').strip() or None
                         # P0 批次/有效期捕获：已有行支持按需更新批次/有效期
@@ -3255,6 +3270,10 @@ def register_in_order_routes(app):
         from app import (InOrder, InOrderPrintTemplate,
                          get_default_print_template)
         order = InOrder.query.get_or_404(id)
+        if order.business_type == '产品入库':
+            from services.product_receipt_print import product_receipt_pages
+            return jsonify({'status': 'success', 'type': 'html', 'content': render_template(
+                'product_receipt_print.html', order=order, pages=product_receipt_pages(order))})
         template = get_default_print_template(InOrderPrintTemplate)
 
         if template and template.template_type == 'excel' and template.excel_template_path:
@@ -3275,6 +3294,9 @@ def register_in_order_routes(app):
         from app import (InOrder, InOrderPrintTemplate,
                          get_default_print_template)
         order = InOrder.query.get_or_404(id)
+        if order.business_type == '产品入库':
+            from services.product_receipt_print import product_receipt_pages
+            return render_template('product_receipt_print.html', order=order, pages=product_receipt_pages(order))
         template = get_default_print_template(InOrderPrintTemplate)
         # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
         if template and template.template_type == 'excel':
@@ -3298,6 +3320,11 @@ def register_in_order_routes(app):
         from app import InOrder, InOrderPrintTemplate
         from utils import resolve_print_template
         order = InOrder.query.get_or_404(id)
+        if order.business_type == '产品入库' and not request.args.get('template_id', type=int):
+            from services.product_receipt_print import build_product_receipt_excel
+            return send_file(build_product_receipt_excel(order),
+                             download_name=f'产品入库单_{order.order_no}.xlsx', as_attachment=True,
+                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         template = resolve_print_template(InOrderPrintTemplate, request.args.get('template_id', type=int))
         if template and template.excel_template_path:
             import os
@@ -3372,6 +3399,9 @@ def register_in_order_routes(app):
     def print_in_order_direct(id):
         from app import InOrder
         order = InOrder.query.get_or_404(id)
+        if order.business_type == '产品入库':
+            from services.product_receipt_print import product_receipt_pages
+            return render_template('product_receipt_print.html', order=order, pages=product_receipt_pages(order))
         return render_template('print_in.html', order=order)
 
     @app.route('/print_in_order_labels')
@@ -3452,6 +3482,9 @@ def register_in_order_routes(app):
         ws = wb.active
         ws.title = '入库单'
         ws.append(['单据编号', '日期', '用途', '供应商', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '备注'])
+        if order.business_type == '产品入库':
+            ws.cell(1, 16, '客户名称')
+            ws.cell(1, 17, '箱体编号')
         if order.items:
             for item in order.items:
                 ws.append([
@@ -3463,14 +3496,17 @@ def register_in_order_routes(app):
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
-                    item.contract_no or '',
-                    item.project_name or '',
+                    item.contract_no or (order.contract_no if order.business_type == '产品入库' else '') or '',
+                    item.project_name or (order.project_name if order.business_type == '产品入库' else '') or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
                     item.price or 0,
                     item.amount or 0,
                     order.remark or ''
                 ])
+                if order.business_type == '产品入库':
+                    ws.cell(ws.max_row, 16, order.customer.name if order.customer else '')
+                    ws.cell(ws.max_row, 17, item.box_no or '')
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

@@ -182,13 +182,18 @@ def test_inbound_print_html_and_fallback_excel_follow_business(report_case, busi
         m.db.session.add(order)
         m.db.session.flush()
         m.db.session.add(m.InOrderItem(in_order_id=order.id, material_id=c['mat'], quantity=2, price=0, amount=0))
-        m.db.session.add(m.InOrderPrintTemplate(name='默认', template_type='excel', is_default=True))
+        template = m.InOrderPrintTemplate(name='默认', template_type='excel', is_default=True)
+        m.db.session.add(template)
         m.db.session.commit()
         oid = order.id
+        template_id = template.id
     html = c['client'].get('/in_order/%d/print' % oid).get_data(as_text=True)
     assert '<div class="doc-title">%s单</div>' % business in html
     assert '>None<' not in html
-    response = c['client'].get('/in_order/%d/print_excel' % oid)
+    # Explicit legacy selection continues to exercise the canonical fallback;
+    # product defaults now have their separate supplied-form regression.
+    response = c['client'].get('/in_order/%d/print_excel' % oid,
+                               query_string={'template_id': template_id})
     wb = load_workbook(io.BytesIO(response.data))
     assert wb.active['A1'].value == business + '单'
     assert wb.active['D2'].value == business + '单号：IN-R'
@@ -211,11 +216,14 @@ def test_inbound_managed_excel_retitle_is_in_memory_and_custom_untouched(report_
         m.db.session.add(order)
         m.db.session.flush()
         m.db.session.add(m.InOrderItem(in_order_id=order.id, material_id=c['mat'], quantity=2, price=0, amount=0))
-        m.db.session.add(m.InOrderPrintTemplate(name='模板', template_type='excel', is_default=True,
-                                                excel_template_path='/static/' + name))
+        template = m.InOrderPrintTemplate(name='模板', template_type='excel', is_default=True,
+                                          excel_template_path='/static/' + name)
+        m.db.session.add(template)
         m.db.session.commit()
         oid = order.id
-    response = c['client'].get('/in_order/%d/print_excel' % oid)
+        template_id = template.id
+    response = c['client'].get('/in_order/%d/print_excel' % oid,
+                               query_string={'template_id': template_id})
     wb = load_workbook(io.BytesIO(response.data))
     assert wb.active['A1'].value == ('产品入库单' if managed else '采购入库单')
     assert path.read_bytes() == before

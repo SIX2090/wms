@@ -16,7 +16,7 @@ _HEADER_FIELDS = (
 _LINE_FIELDS = (
     'material_id', 'contract_id', 'contract_no', 'project_name',
     'source_purchase_order_item_id', 'source_sales_order_item_id',
-    'source_in_order_item_id', 'batch_no', 'expiry_date', 'is_customer_supplied',
+    'source_in_order_item_id', 'batch_no', 'expiry_date', 'is_customer_supplied', 'box_no',
 )
 
 
