@@ -445,3 +445,4 @@ POST_SPLIT_BUGS['BUG-2026-11-05-003'] = 'fixed'  # signed edits; production sepa
 POST_SPLIT_BUGS['BUG-2026-11-05-004'] = 'fixed'  # typed document JSON boundaries
 
 POST_SPLIT_BUGS['BUG-2026-11-05-005'] = 'fixed'  # fresh transaction rows for derived totals
+POST_SPLIT_BUGS['BUG-2026-11-05-006'] = 'fixed'  # product receipts omit the supplier source picker

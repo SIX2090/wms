@@ -259,10 +259,12 @@
                     <span class="info-label">入库来源</span>
                     <span class="info-value">{{ order.business_type or '采购入库' }}</span>
                 </div>
+                {% if order.business_type != '产品入库' %}
                 <div class="info-item">
-                    <span class="info-label">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商/生产来源' }}</span>
+                    <span class="info-label">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</span>
                     <span class="info-value">{{ order.customer.name if order.customer else (order.supplier.name if order.supplier else '-') }}</span>
                 </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">用途</span>
                     <span class="info-value">{{ order.purpose or '-' }}</span>
@@ -585,8 +587,8 @@
                                 <option value="其他入库" {% if order.business_type == '其他入库' %}selected{% endif %}>其他入库</option>
                             </select>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商/生产来源' }}</label>
+                        <div class="col-md-6" id="editPartyField"{% if order.business_type == '产品入库' %} hidden{% endif %}>
+                            <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</label>
                             <select class="form-select" name="{{ 'customer_id' if order.business_type == '其他入库' else 'supplier_id' }}">
                                 <option value="">请选择</option>
                                 {% for party in (customers if order.business_type == '其他入库' else suppliers) %}
@@ -955,6 +957,13 @@ function bindMaterialQuickInput(input) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
+    const headerBusinessType = document.querySelector('#editHeaderForm [name="business_type"]');
+    const editPartyField = document.getElementById('editPartyField');
+    if (headerBusinessType && editPartyField) {
+        headerBusinessType.addEventListener('change', function() {
+            editPartyField.hidden = this.value === '产品入库';
+        });
+    }
     const codeInput = document.getElementById('code');
     bindMaterialQuickInput(codeInput);
     const searchBtn = document.getElementById('openSearchBtn');
