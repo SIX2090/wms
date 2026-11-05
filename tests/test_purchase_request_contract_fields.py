@@ -108,6 +108,16 @@ def test_purchase_request_contracts_follow_selected_push_without_merging_lines(c
             ('HT-001', '一号工程', 2), ('HT-002', '二号工程', 2)]
         assert w.PurchaseOrder.query.count() == (2 if split_suppliers else 1)
         assert [x.remark for x in items] == ['第一行手工备注', '第二行手工备注']
+        expected = {}
+        for item in items:
+            expected.setdefault(item.purchase_order_id, []).append((item.contract_no, item.project_name, item.remark))
+    for order_id, values in expected.items():
+        response = client.get(f'/purchase_order/{order_id}?embedded=1')
+        assert response.status_code == 200
+        html = response.get_data(as_text=True)
+        assert '来源申请' in html and f'/purchase_request/{request_id}' in html
+        for contract_no, project_name, remark in values:
+            assert contract_no in html and project_name in html and remark in html
 
 
 def test_purchase_request_detail_print_export_and_import_template_keep_line_fields(case):
