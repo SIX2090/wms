@@ -1,191 +1,165 @@
 #!/usr/bin/env python3
-"""WMS CI 冒烟测试包装：启动 WMS 服务 → 等就绪 → 跑全量冒烟 → 关闭服务。
+"""Run writable smoke checks against a new owned server and disposable database.
 
-退出码约定：
-  0 = 冒烟测试全部通过
-  1 = 冒烟测试存在失败项
-  2 = 服务启动失败 / 端口被占用 / 未在超时时间内就绪
-  3 = 冒烟测试脚本本身异常（非 0/1 退出码）
-
-设计要点：
-  - 与 full_smoke_test.py 解耦：仅负责"启服务 + 跑 + 收尾"
-  - 服务进程日志落到 /tmp/wms_server.log，便于 CI 抓取
-  - 健康检查：HTTP GET /login 期待 200
-  - 端口默认 18080，避开本机 8080 的 WMS 服务
-  - 仅依赖 Python 标准库 + requests（已在 requirements.txt）
+BUG-2026-11-06-001: no inherited database, default production URL or HTTP readiness
+probe. The child publishes its identity only after binding an OS-assigned port.
 """
+import argparse
+import json
 import os
+from pathlib import Path
+import secrets
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
-import urllib.error
-import urllib.request
-from pathlib import Path
 
-# 仓库根目录：scripts/ 的父目录
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
-# 启动参数
-HOST = "127.0.0.1"
-PORT = 18080
-BASE_URL = f"http://{HOST}:{PORT}"
-HEALTH_PATH = "/login"
-WAIT_TIMEOUT_SEC = 30  # 服务就绪最长等待时间
-POLL_INTERVAL_SEC = 0.5
-LOG_PATH = Path("/tmp/wms_server.log")
+WAIT_TIMEOUT_SEC = 60
 
 
-def start_server():
-    """在子进程中启动 WMS 服务，返回 (proc, log_file)。
+def clean_environment(root):
+    """Discard inherited application state before the child imports Flask."""
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(('WMS_', 'FLASK_', 'SQLALCHEMY_', 'WECHAT_',
+                                  'OPENAI_', 'ANTHROPIC_', 'DEEPSEEK_', 'DASHSCOPE_',
+                                  'TENCENT', 'SESSION_', 'REMEMBER_', 'AUTO_BACKUP_'))
+           and key not in {'DATABASE_URL', 'SECRET_KEY', 'UPLOAD_FOLDER', 'LOG_FILE',
+                           'PYTHONPATH', 'PYTHONHOME'}}
+    env['FLASK_ENV'] = 'production'
+    env['WMS_ALLOW_INSECURE_COOKIE'] = '1'
+    env.update(
+        DATABASE_URL='sqlite:///' + (root / 'synthetic.db').as_posix(),
+        SECRET_KEY='isolated-smoke-only-secret', WECHAT_HELPER_TOKEN='isolated-smoke-only-helper',
+        WMS_NO_DB_TOUCH='1', WMS_SKIP_AUTO_UPDATE='1', WMS_SKIP_STARTUP_BACKUP='1',
+        WMS_LOCAL_PRINT_AGENT='0', WMS_EXTERNAL_OPERATIONS_PAUSED='1',
+        AUTO_BACKUP_ENABLED='false', SESSION_COOKIE_SECURE='false',
+        LOG_FILE=str(root / 'app.log'), UPLOAD_FOLDER=str(root / 'uploads'),
+        PYTHONDONTWRITEBYTECODE='1', PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+    return env
 
-    环境变量：
-      FLASK_ENV=production          使用生产配置
-      WMS_ALLOW_AUTO_SECRET_KEY=1   CI 无 SECRET_KEY 时允许自动生成
-      WMS_SKIP_AUTO_UPDATE=1        跳过启动前 GitHub 更新
-      WMS_BOOTSTRAP_PASSWORD=admin  admin 初始密码
-      WMS_ALLOW_INSECURE_COOKIE=1   CI 受信环境显式放行 HTTP 会话 Cookie
-                                    （否则 BUG-2026-09-19-003 硬门禁拒绝启动）
-      WMS_PORT=18080                监听端口（run_server.py 已支持）
-      WMS_HOST=127.0.0.1            监听 host
-    """
-    env = os.environ.copy()
+
+def start_server(root, log_file):
+    """Launch only the owned child; no connection to an existing service."""
+    env = clean_environment(root)
+    # Explicit production-cookie opt-in at this startup consumer (A14/R6).
     env["FLASK_ENV"] = "production"
-    env["WMS_ALLOW_AUTO_SECRET_KEY"] = "1"
-    env["WMS_SKIP_AUTO_UPDATE"] = "1"
-    env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
-    # BUG-2026-09-20-004：CI 走 HTTP + 临时测试库，属受信环境。
-    # 生产 Cookie 硬门禁（BUG-2026-09-19-003）要求显式 opt-in，否则服务拒启。
     env["WMS_ALLOW_INSECURE_COOKIE"] = "1"
-    env["WMS_PORT"] = str(PORT)
-    env["WMS_HOST"] = HOST
-    # 确保 PYTHONPATH 包含 app 目录（与 start_wms_offline.bat 一致）
-    env["PYTHONPATH"] = str(REPO_ROOT / "app") + os.pathsep + env.get("PYTHONPATH", "")
-
-    log_file = open(LOG_PATH, "w", encoding="utf-8")
-    proc = subprocess.Popen(
-        ["python3", "app/run_server.py"],
-        cwd=str(REPO_ROOT),
-        env=env,
-        stdout=log_file,
-        stderr=subprocess.STDOUT,
-    )
-    return proc, log_file
+    return subprocess.Popen(
+        [sys.executable, '-I', '-B', '-X', 'utf8', str(Path(__file__).resolve()), '--serve', str(root)],
+        cwd=str(root), env=env, stdout=log_file, stderr=subprocess.STDOUT)
 
 
-def wait_ready(timeout=WAIT_TIMEOUT_SEC):
-    """轮询 health check，直到 /login 返回 200 或超时。返回 bool。"""
-    url = f"{BASE_URL}{HEALTH_PATH}"
-    deadline = time.time() + timeout
-    last_error = None
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=2) as r:
-                if r.status == 200:
-                    return True
-        except urllib.error.HTTPError as e:
-            # 200 之外视为未就绪（401/403 等说明服务起来了但权限未就绪）
-            if e.code in (200, 302):
-                return True
-            last_error = f"HTTP {e.code}"
-        except (urllib.error.URLError, ConnectionError, OSError) as e:
-            last_error = str(e)
-        except Exception as e:  # noqa: BLE001
-            last_error = str(e)
-        time.sleep(POLL_INTERVAL_SEC)
-    print(f"  last_error={last_error}", flush=True)
-    return False
+def wait_ready(proc, root, timeout=WAIT_TIMEOUT_SEC):
+    """Wait for our child's bound-socket receipt without making HTTP requests."""
+    if __package__:
+        from .smoke_isolation import read_identity
+    else:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from smoke_isolation import read_identity
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and proc.poll() is None:
+        path = root / 'ready.json'
+        if path.exists():
+            identity = read_identity(path)
+            if identity['pid'] != proc.pid:
+                raise ValueError('Ready file belongs to another process')
+            return path
+        time.sleep(0.1)
+    raise RuntimeError('Owned smoke child did not become ready')
 
 
-def stop_server(proc, grace_sec=5):
-    """优雅关闭 WMS 服务：先 SIGTERM，超时再 SIGKILL。"""
-    if proc.poll() is not None:
-        return
+def serve_isolated(root):
+    """Import a copied application only after proving the new state is empty."""
+    root = root.resolve(strict=True)
+    if (root.parent != Path(tempfile.gettempdir()).resolve()
+            or not root.name.startswith('wms-isolated-smoke-')
+            or (root / 'synthetic.db').exists() or (root / 'program').exists()
+            or os.environ.get('DATABASE_URL') != 'sqlite:///' + (root / 'synthetic.db').as_posix()):
+        raise ValueError('Refusing reused or unowned smoke state')
+    # Copy program files so import-time relative files cannot modify the checkout.
+    program = root / 'program'
+    shutil.copytree(REPO_ROOT / 'app', program,
+                    ignore=shutil.ignore_patterns('instance', 'logs', 'uploads', 'backups',
+                                                 '__pycache__', '*.db', '*.db-*', '.env*',
+                                                 'android-native-wms', '.venv', 'venv'))
+    sys.path[:0] = [str(program), str(REPO_ROOT)]
+    os.chdir(root)
+    # A14: clean_environment explicitly sets WMS_ALLOW_INSECURE_COOKIE=1.
+    import app as w
+    from werkzeug.security import generate_password_hash
+    from waitress import create_server
+    with w.app.app_context():
+        if Path(w.db.engine.url.database).resolve() != root / 'synthetic.db':
+            raise ValueError('Application database does not match owned synthetic state')
+        w.db.create_all()
+        w.db.session.add(w.User(username='admin', role='admin', status='normal',
+                               password_hash=generate_password_hash('admin'),
+                               must_change_password=True))
+        w.db.session.commit()
+    nonce = secrets.token_hex(32)  # Instance identity, never an account password.
+
+    @w.app.after_request
+    def identify_smoke_response(response):
+        response.headers['X-WMS-Isolated-Smoke'] = nonce
+        return response
+
+    server = create_server(w.app, host='127.0.0.1', port=0, threads=4)
+    port = int(server.effective_port)
+    if port < 10240:
+        server.close()
+        raise ValueError('OS assigned a port outside the isolated test range')
+    identity = dict(schema=1, pid=os.getpid(), nonce=nonce,
+                    base_url=f'http://127.0.0.1:{port}', database=str(root / 'synthetic.db'))
+    draft = root / 'ready.tmp'
+    draft.write_text(json.dumps(identity), encoding='utf-8')
+    draft.replace(root / 'ready.json')
     try:
-        proc.terminate()
-        proc.wait(timeout=grace_sec)
-    except subprocess.TimeoutExpired:
-        print("  [warn] SIGTERM 未响应，强制 SIGKILL", flush=True)
-        try:
-            proc.kill()
-            proc.wait(timeout=grace_sec)
-        except Exception:
-            pass
-
-
-def print_log_tail(n=30):
-    """打印日志末尾 n 行，便于排错。"""
-    try:
-        with open(LOG_PATH, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-        print(f"  --- 日志末 {min(n, len(lines))} 行 ({LOG_PATH}) ---")
-        for line in lines[-n:]:
-            print(f"    {line.rstrip()}")
-        print(f"  --- 日志结束 ---")
-    except Exception as e:
-        print(f"  读取日志失败: {e}")
-
-
-def main():
-    print("=" * 60, flush=True)
-    print("WMS CI 冒烟测试包装", flush=True)
-    print(f"  仓库: {REPO_ROOT}", flush=True)
-    print(f"  监听: {BASE_URL}", flush=True)
-    print("=" * 60, flush=True)
-
-    proc = None
-    log_file = None
-    try:
-        # 1. 启动服务
-        print("\n[1/4] 启动 WMS 服务...", flush=True)
-        proc, log_file = start_server()
-        print(f"  PID: {proc.pid}", flush=True)
-        print(f"  日志: {LOG_PATH}", flush=True)
-
-        # 2. 等就绪
-        print(f"\n[2/4] 等待服务就绪 (≤{WAIT_TIMEOUT_SEC}s)...", flush=True)
-        if not wait_ready():
-            print(f"  ✗ 超时未就绪", flush=True)
-            print_log_tail(40)
-            return 2
-        print(f"  ✓ 服务已就绪", flush=True)
-
-        # 3. 跑冒烟测试
-        print(f"\n[3/4] 跑全量冒烟测试 (BASE={BASE_URL})...", flush=True)
-        smoke_proc = subprocess.run(
-            ["python3", "scripts/full_smoke_test.py", "--base-url", BASE_URL],
-            cwd=str(REPO_ROOT),
-        )
-        smoke_exit = smoke_proc.returncode
-        print(f"\n  冒烟测试 exit code: {smoke_exit}", flush=True)
-        if smoke_exit not in (0, 1):
-            print(f"  异常 exit code（非 0/1），视为基础设施问题", flush=True)
-            print_log_tail(20)
-            return 3
-
-        # 4. 关闭服务
-        print(f"\n[4/4] 关闭服务...", flush=True)
-        stop_server(proc)
-        log_file.close()
-        log_file = None
-        print(f"  ✓ 服务已关闭", flush=True)
-
-        # 退出码语义
-        print("\n" + "=" * 60, flush=True)
-        if smoke_exit == 0:
-            print("✅ CI 冒烟测试 全部通过", flush=True)
-            return 0
-        print(f"❌ CI 冒烟测试 有失败项 (exit={smoke_exit})", flush=True)
-        return 1
+        server.run()
     finally:
-        # 异常路径保底
-        if proc is not None and proc.poll() is None:
-            stop_server(proc)
-        if log_file is not None:
+        server.close()
+
+
+def stop_server(proc):
+    if proc is not None and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--serve', type=Path, help=argparse.SUPPRESS)
+    args = parser.parse_args(argv)
+    if args.serve:
+        serve_isolated(args.serve)
+        return 0
+    with tempfile.TemporaryDirectory(prefix='wms-isolated-smoke-') as directory:
+        root = Path(directory).resolve()
+        proc = None
+        with (root / 'server.log').open('w', encoding='utf-8') as log_file:
             try:
-                log_file.close()
-            except Exception:
-                pass
+                proc = start_server(root, log_file)
+                identity_file = wait_ready(proc, root)
+                print(f'[isolation] owned child PID={proc.pid}; fresh database={root / "synthetic.db"}',
+                      flush=True)
+                result = subprocess.run(
+                    [sys.executable, '-I', '-B', '-X', 'utf8', str(REPO_ROOT / 'scripts/full_smoke_test.py'),
+                     '--isolation-file', str(identity_file)], cwd=str(root),
+                    env=clean_environment(root))
+                return result.returncode
+            except (OSError, ValueError, RuntimeError) as error:
+                print(f'Isolated smoke startup refused: {error}', flush=True)
+                log_file.flush()
+                print((root / 'server.log').read_text(encoding='utf-8')[-8000:], flush=True)
+                return 2
+            finally:
+                stop_server(proc)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main())

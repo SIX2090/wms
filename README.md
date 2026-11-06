@@ -400,10 +400,7 @@ python -m pytest tests/ -q -p no:pylama -n 4 --dist loadfile
 python3 scripts/verify_ai_all.py --level core
 python3 scripts/verify_ai_all.py --level full
 
-# 业务冒烟：先启动隔离测试库服务，显式指定它的端口
-python scripts/full_smoke_test.py --base-url http://127.0.0.1:18080
-
-# Linux/CI包装器：同样先配置隔离数据库，自动启停不等于自动隔离
+# 可写业务冒烟：自动创建全新临时库、自有进程和系统分配的回环端口
 python scripts/run_smoke_in_ci.py
 ```
 
@@ -414,7 +411,9 @@ $env:PYTHONUTF8="1"
 $env:PYTHONIOENCODING="utf-8"
 ```
 
-冒烟脚本会尝试登录并可能创建/修改数据。禁止将上述冒烟默认指向正在使用的生产8080；测试服务须有独立数据库、端口和日志，并关闭打印代理及自动备份等外部副作用。不要把 `run_smoke_in_ci.py` 直接当生产巡检命令。
+冒烟脚本会在一次性合成库中创建专用测试账号、修改其首次登录密码及提交测试数据。2026-11-06起，包装器清除继承的数据库/发布配置，复制程序到临时目录，关闭打印代理、自动备份和外部操作；只有自有子进程绑定端口并生成身份回执后才运行HTTP检查。结束后停止该进程并清理本次临时目录。
+
+`full_smoke_test.py`被导入时不执行测试；直接运行必须传入包装器生成的`--isolation-file`，单传`--base-url`或默认运行均拒绝。每次请求及跳转均受地址和专属响应身份约束，生产8080、公网地址及身份不符的服务不允许登录或写入。不要把可写冒烟当生产巡检命令。原始误请求及验证边界见[隔离保护记录](docs/audit/2026-11-06-smoke-isolation.md)。
 
 ### 月度质量复盘
 

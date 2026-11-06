@@ -447,3 +447,4 @@ POST_SPLIT_BUGS['BUG-2026-11-05-004'] = 'fixed'  # typed document JSON boundarie
 POST_SPLIT_BUGS['BUG-2026-11-05-005'] = 'fixed'  # fresh transaction rows for derived totals
 POST_SPLIT_BUGS['BUG-2026-11-05-006'] = 'fixed'  # product receipts omit the supplier source picker
 POST_SPLIT_BUGS['BUG-2026-11-05-007'] = 'fixed'  # product header resolves the contract master project
+POST_SPLIT_BUGS['BUG-2026-11-06-001'] = 'fixed'  # smoke isolation guard; exact CI acceptance tracked separately
