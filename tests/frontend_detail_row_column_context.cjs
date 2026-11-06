@@ -97,9 +97,11 @@ function aligned(row) {
     });
     if (p.page === 'in') {
         for (const key of ['colSourcePo', 'colSourceQty', 'colSourcePushed', 'colSourceCompleted', 'colSourceStatus']) {
-            const cell = row.querySelector('[data-column-key="' + key + '"]'); assert.equal(cell.querySelectorAll('input').length, 0, 'source metadata stays read only');
+            const cell = row.querySelector('[data-column-key="' + key + '"]');
+            if (p.business === '产品入库') assert.equal(cell, null, 'finished goods do not gain purchase source fields');
+            else assert.equal(cell.querySelectorAll('input').length, 0, 'source metadata stays read only');
         }
-        assert(row.querySelector('[data-column-key="colSourcePo"]').textContent.includes('手工录入'));
+        if (p.business !== '产品入库') assert(row.querySelector('[data-column-key="colSourcePo"]').textContent.includes('手工录入'));
         if (p.business === '其他入库') assert.equal(row.querySelector('[data-column-key="colCustomerSupplied"]').textContent, '否');
     }
 }

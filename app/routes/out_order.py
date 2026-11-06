@@ -395,7 +395,7 @@ def register_out_order_routes(app):
                 source_sales_orders[source_order.id] = source_order
         push_source = DocumentPushLine.query.filter_by(
             target_document_id=order.id, status='active'
-        ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first()
+        ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first()
         return render_template('out_order_detail.html', order=order, warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -733,7 +733,7 @@ def register_out_order_routes(app):
                     return api_error('已完成的领料单不能修改')
                 if DocumentPushLine.query.filter_by(
                     target_document_id=order.id, status='active'
-                ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out'))).first():
+                ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first():
                     return jsonify({'status': 'error', 'msg': '下推生成的目标草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
                 if business_type == '销售出库' and order.source_sales_order_id:
                     source_order = db.session.get(SalesOrder, order.source_sales_order_id)
@@ -1312,7 +1312,7 @@ def register_out_order_routes(app):
             order = locked
 
             _release_document_push_lines(
-                'other_out' if order.business_type == '其他出库' else 'requisition',
+                'sales_out' if order.business_type == '销售出库' else ('other_out' if order.business_type == '其他出库' else 'requisition'),
                 order.id, f'目标草稿 {order.order_no} 已删除'
             )
             for item in list(order.items):
@@ -1377,7 +1377,7 @@ def register_out_order_routes(app):
                     continue
                 order = locked
                 _release_document_push_lines(
-                    'other_out' if order.business_type == '其他出库' else 'requisition',
+                    'sales_out' if order.business_type == '销售出库' else ('other_out' if order.business_type == '其他出库' else 'requisition'),
                     order.id, f'目标草稿 {order.order_no} 已批量删除'
                 )
                 for item in list(order.items):

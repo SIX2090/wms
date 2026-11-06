@@ -1770,6 +1770,8 @@ def register_in_order_routes(app):
         from datetime import date
         from app import (InOrder, OutOrder, OutOrderItem, generate_order_no)
         in_order = InOrder.query.get_or_404(id)
+        if in_order.business_type == '产品入库':
+            return convert_in_order_to_out_order(id)
         order_no = generate_order_no('OU')
         out_order = OutOrder(
             order_no=order_no,
@@ -2664,73 +2666,133 @@ def register_in_order_routes(app):
             db.session.rollback()
             return api_error('操作失败，请稍后重试')
 
-    # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
+    # pydantic:reason=既有无请求体操作，路径ID由Flask int校验，保留单据版本及角色保护
     @app.route('/in_order/<int:id>/convert_to_out_order', methods=['POST'])
     @require_role('warehouse')
     @login_required
     def convert_in_order_to_out_order(id):
-        """将入库单转为领料单"""
+        """Convert completed finished goods into one linked sales-outbound draft."""
         from datetime import date
         from flask_login import current_user
-        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no,
-                         log_operation)
+        from sqlalchemy.orm import selectinload
+        from app import (DocumentPushLine, InOrder, InOrderItem, OutOrder, OutOrderItem,
+                         _acquire_order_write_lock, api_error, generate_order_no,
+                         get_default_warehouse, location_management_enabled,
+                         log_operation, round_to_2_decimals, validate_sales_warehouse)
         in_order = InOrder.query.get_or_404(id)
 
         if in_order.status != 'completed':
-            return api_error('只有已完成的入库单才能转为领料单')
+            return api_error('只有已完成的产品入库单才能转为销售出库单')
         if in_order.business_type != '产品入库':
-            return api_error('只有产品入库单可以转为领料单，采购入库单不能转换')
+            return api_error('只有产品入库单可以转为销售出库单')
 
         try:
-            # 生成领料单编号：必须复用 generate_order_no('OUT')，否则手动拼接的
-            # OUT{YYYYMMDD} 序号既无 with_for_update 锁，又与全局 OUT 单号格式不一致，
-            # 高并发下易与正常领料单单号冲突
+            operator_id = current_user.id
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'completed', selectinload(InOrder.items))
+            if not ok or locked.business_type != '产品入库':
+                db.session.rollback()
+                return api_error('来源单状态已变化，请刷新产品入库单后重试')
+            in_order = locked
+            # Serializing on the source also makes double clicks and two-account
+            # retries open the existing target, without allocating another draft.
+            links = DocumentPushLine.query.filter_by(source_document_type='product_in_order',
+                source_document_id=id, target_document_type='sales_out', status='active').all()
+            if links:
+                target_ids = {line.target_document_id for line in links}
+                target = db.session.get(OutOrder, next(iter(target_ids))) if len(target_ids) == 1 else None
+                if target is None or target.business_type != '销售出库':
+                    db.session.rollback()
+                    return api_error('关联销售出库单异常，请核对已有下游单据', 409)
+                response = dict(status='success', msg='已存在销售出库单，正在打开原单据',
+                                out_order_id=target.id, out_order_no=target.order_no, replayed=True)
+                db.session.rollback()
+                return jsonify(response)
+            if not in_order.customer:
+                db.session.rollback()
+                return api_error('请先为产品入库单填写客户名称，再转为销售出库单')
+            if not in_order.items:
+                db.session.rollback()
+                return api_error('产品入库单没有明细，不能生成销售出库草稿')
+            warehouse_value = (in_order.warehouse or '').strip()
+            if not warehouse_value:
+                default_warehouse = get_default_warehouse()
+                warehouse_value = default_warehouse.name if default_warehouse else ''
+            warehouse, error = validate_sales_warehouse(warehouse_value)
+            if error:
+                db.session.rollback()
+                return api_error(error)
+            if location_management_enabled() and not (in_order.location or '').strip():
+                db.session.rollback()
+                return api_error('来源产品入库单缺少库位，请先核对库位后再转单')
+            for item in in_order.items:
+                if not math.isfinite(item.quantity) or item.quantity <= 0 or not math.isfinite(item.price) or item.price < 0:
+                    db.session.rollback()
+                    return api_error('产品入库明细数量或单价异常，请核对来源单据')
             today = date.today()
-            order_no = generate_order_no('OUT')
+            order_no = generate_order_no('SO')
 
-            # 创建领料单
+            # A draft does not consume stock or complete the sales shipment.
             out_order = OutOrder(
                 order_no=order_no,
                 date=today,
-                purpose=f'由入库单 {in_order.order_no} 转换',
-                business_type='领料单',
-                warehouse=in_order.warehouse or '',
-                operator_id=current_user.id,
+                purpose=f'由产品入库单 {in_order.order_no} 转为销售出库',
+                business_type='销售出库',
+                customer=in_order.customer.name,
+                warehouse=warehouse.name,
+                location=in_order.location or '',
+                contract_id=in_order.contract_id,
+                contract_no=in_order.contract_no,
+                project_name=in_order.project_name,
+                operator_id=operator_id,
                 status='pending',
                 remark=in_order.remark or ''
             )
             db.session.add(out_order)
             db.session.flush()
 
-            # 复制明细
+            request_id = uuid4().hex
             for in_item in in_order.items:
                 out_item = OutOrderItem(
                     out_order_id=out_order.id,
                     material_id=in_item.material_id,
                     quantity=in_item.quantity,
                     price=in_item.price,
-                    amount=in_item.amount,
-                    remark=in_item.remark
+                    amount=round_to_2_decimals(in_item.quantity * in_item.price),
+                    remark=in_item.remark,
+                    contract_id=in_item.contract_id or in_order.contract_id,
+                    contract_no=in_item.contract_no or in_order.contract_no,
+                    project_name=in_item.project_name or in_order.project_name,
                 )
                 db.session.add(out_item)
+                db.session.flush()
+                # The generic line allocation retains each cabinet's source row;
+                # purchase-return foreign keys must not be used for finished goods.
+                db.session.add(DocumentPushLine(source_document_type='product_in_order',
+                    source_document_id=in_order.id, source_document_no=in_order.order_no,
+                    source_item_id=in_item.id, target_document_type='sales_out',
+                    target_document_id=out_order.id, target_document_no=out_order.order_no,
+                    target_item_id=out_item.id, pushed_quantity=in_item.quantity,
+                    request_id=request_id, created_by=operator_id))
+
+            out_order.total_amount = round_to_2_decimals(sum(item.amount for item in out_order.items))
 
             db.session.commit()
 
             # 记录操作日志（放在commit之后，避免影响主事务）
             try:
-                log_operation('入库单转领料单', f'入库单 {in_order.order_no} 转为领料单 {out_order.order_no}', 'out_order', out_order.id)
+                log_operation('产品入库转销售出库', f'产品入库单 {in_order.order_no} 转为销售出库单 {out_order.order_no}', 'out_order', out_order.id)
             except Exception as log_err:
                 app.logger.error(f'记录日志失败: {log_err}')
 
             return jsonify({
                 'status': 'success',
-                'msg': '转换成功',
+                'msg': '已生成销售出库草稿，请核对后手工完成出库',
                 'out_order_id': out_order.id,
                 'out_order_no': out_order.order_no
             })
         except Exception as e:
             db.session.rollback()
-            app.logger.error(f'入库单转领料单失败: {e}')
+            app.logger.error(f'产品入库转销售出库失败: {e}')
             return api_error(f'转换失败，请稍后重试或联系管理员')
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务

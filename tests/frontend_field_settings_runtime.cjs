@@ -142,6 +142,21 @@ function fixture(options = {}) {
 }
 
 function run() {
+    if (scenario.startsWith('business-profile-')) {
+        const g = fixture();
+        const legacy = JSON.stringify({order:['price','memo','quantity'],hidden:['quantity'],labels:{memo:'采购备注'}});
+        g.store.set(g.fieldKey, legacy);
+        g.table.dataset.fieldSettingsKey = 'finished-goods-detail';
+        if (scenario.endsWith('dynamic-first')) { g.dynamic(); g.initialize(); }
+        else { g.initialize(); g.dynamic(); }
+        assert.deepEqual(g.order(), ['quantity','memo','price'], 'a product profile ignores the old purchase order');
+        g.open(); g.rename('memo','生产备注'); g.ok(); g.flush();
+        assert.equal(g.store.get(g.fieldKey), legacy, 'keep other receipt preferences unchanged');
+        const saved = JSON.parse(g.store.get('wms:field-settings:v3:finished-goods-detail'));
+        assert.equal(saved.labels.memo, '生产备注');
+        assert.deepEqual(saved.hidden, []);
+        return;
+    }
     if (scenario === 'toolbar-column-settings') {
         const f = fixture({toolbar: true});
         f.initialize(); f.clickToolbar();

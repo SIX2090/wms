@@ -26065,7 +26065,7 @@ def _in_order_push_source_type(order):
 def _active_in_order_push_lines(order_id):
     return DocumentPushLine.query.filter_by(
         source_document_id=order_id, status='active'
-    ).filter(DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order')))
+    ).filter(DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order', 'product_in_order')))
 
 def _in_order_push_quantities(order):
     rows = _active_in_order_push_lines(order.id).with_entities(
@@ -26075,24 +26075,24 @@ def _in_order_push_quantities(order):
     return {item_id: normalize_stock_quantity(quantity) for item_id, quantity in rows}
 
 def _push_target_url(target_type, target_id):
-    if target_type in ('requisition', 'other_out'):
+    if target_type in ('requisition', 'other_out', 'sales_out'):
         return url_for('out_order_detail', id=target_id)
     return url_for('after_sale_out_detail', id=target_id)
 
 def _in_order_push_history(order):
     rows = DocumentPushLine.query.filter_by(source_document_id=order.id).filter(
-        DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order'))
+        DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order', 'product_in_order'))
     ).order_by(DocumentPushLine.created_at.desc(), DocumentPushLine.id.desc()).all()
     grouped = {}
     for row in rows:
         key = (row.target_document_type, row.target_document_id)
         if key not in grouped:
             target = (db.session.get(OutOrder, row.target_document_id)
-                      if row.target_document_type in ('requisition', 'other_out')
+                      if row.target_document_type in ('requisition', 'other_out', 'sales_out')
                       else db.session.get(AfterSaleOutOrder, row.target_document_id))
             grouped[key] = {
                 'target_type': row.target_document_type,
-                'target_label': INBOUND_PUSH_TARGETS.get(row.target_document_type, {}).get('label', row.target_document_type),
+                'target_label': ('销售出库单' if row.target_document_type == 'sales_out' else INBOUND_PUSH_TARGETS.get(row.target_document_type, {}).get('label', row.target_document_type)),
                 'target_id': row.target_document_id,
                 'target_no': row.target_document_no,
                 'status': target.status if target else ('released' if row.status == 'released' else 'missing'),

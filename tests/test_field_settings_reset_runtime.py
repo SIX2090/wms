@@ -8,6 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = [
     'toolbar-column-settings',
+    'business-profile-common-first', 'business-profile-dynamic-first',
     'business-columns-plain', 'business-columns-report', 'business-columns-dynamic',
     'plain-reset-button', 'plain-reset-escape', 'plain-reset-backdrop',
     'plain-reset-ok', 'plain-move-ok', 'plain-edit-cancel', 'new-column-observer',

@@ -448,3 +448,5 @@ POST_SPLIT_BUGS['BUG-2026-11-05-005'] = 'fixed'  # fresh transaction rows for de
 POST_SPLIT_BUGS['BUG-2026-11-05-006'] = 'fixed'  # product receipts omit the supplier source picker
 POST_SPLIT_BUGS['BUG-2026-11-05-007'] = 'fixed'  # product header resolves the contract master project
 POST_SPLIT_BUGS['BUG-2026-11-06-001'] = 'fixed'  # smoke isolation guard; exact CI acceptance tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-002'] = 'fixed'  # product detail fields and sorting; production acceptance tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-003'] = 'fixed'  # finished goods to sales draft; production acceptance tracked separately

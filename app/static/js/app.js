@@ -1080,7 +1080,7 @@ function setupDynamicDetailColumnControls(config) {
 
     // The page controller may initialize before or after the shared field dialog.
     // Keep existing shared preferences when there is no independent drag order.
-    const sharedState = readJson('wms:field-settings:v3:' + window.location.pathname + ':' + (table.id || 'document-grid'), null);
+    const sharedState = readJson('wms:field-settings:v3:' + (table.dataset?.fieldSettingsKey || window.location.pathname + ':' + (table.id || 'document-grid')), null);
     const fallbackOrder = sharedState && Array.isArray(sharedState.order) ? sharedState.order : initialOrder;
 
     const getMinWidth = function(cellOrKey) {
@@ -3981,7 +3981,7 @@ function getRecentVisits() {
     }
 
     function storageKey(table) {
-        return 'wms:field-settings:v3:' + location.pathname + ':' + (table.id || 'document-grid');
+        return 'wms:field-settings:v3:' + (table.dataset?.fieldSettingsKey || location.pathname + ':' + (table.id || 'document-grid'));
     }
 
     function prepareTable(table) {
