@@ -450,3 +450,4 @@ POST_SPLIT_BUGS['BUG-2026-11-05-007'] = 'fixed'  # product header resolves the c
 POST_SPLIT_BUGS['BUG-2026-11-06-001'] = 'fixed'  # smoke isolation guard; exact CI acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-002'] = 'fixed'  # product detail fields and sorting; production acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-003'] = 'fixed'  # finished goods to sales draft; production acceptance tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-004'] = 'fixed'  # declared external material-script overlay is served by the production package

@@ -35,9 +35,9 @@
 
 证据在本聊天 visualizations 工作目录：product-detail-before.log、product-detail-candidate.log、product-detail-adjacent.log、product-convert-confirmation.log、detail-rollback-proof/acceptance.json 及 product-detail-browser.log。截图为 C:\wms\output\playwright\product-detail-fields-fixed.png 和 product-detail-sorted-fixed.png。
 
-推送前已核实远端基线 64204eaf829a0fafe7b6263c149aa18751dd9a9f：WMS CI 42162621929、AI 42162621893 成功；Android 42131949898 为成功祖先，Android 输入无变化，原生门禁通过。**生产需重启 WMS 服务生效**；当前线上仍为原登记制品，尚未切换本批修正，也未操作生产单据、库存或账号。上线须按既有规则另行明确授权，并复核监护预算。
+推送前已核实远端基线 64204eaf829a0fafe7b6263c149aa18751dd9a9f：WMS CI 42162621929、AI 42162621893 成功；Android 42131949898 为成功祖先，Android 输入无变化，原生门禁通过。**生产需重启 WMS 服务生效，已按具体授权执行**。2026-11-06 19:29最终运行6c328d17 / 制品7e764440；源码、UI、静态内容及100表摘要核对通过，未操作生产业务单据、库存或账号。[生产回执](2026-11-06-product-detail-production.md)记录一次获批预算重置和另获批准的补充普通重启。
 
-后续代码交付验收：a81c493b8a1183c138f3555d72300999debdd540 已实际推送，WMS CI 42199567456、AI 42199567432 均成功；Android成功祖先及输入无变证明通过，原生目标门禁 ok=true。完整业务 CI 已验收，生产仍未切换。
+代码交付验收：a81c493b8a1183c138f3555d72300999debdd540 已实际推送，WMS CI 42199567456、AI 42199567432 均成功；Android成功祖先及输入无变证明通过，原生目标门禁 ok=true。后续同类消费点6c328d17的CI42203207846、AI42203207994亦成功，两批已统一生产生效。
 
 ## 后续任务
 
