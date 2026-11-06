@@ -50,7 +50,6 @@ def function(source, name):
 @pytest.mark.parametrize('page,business,customer', [
     ('in', '采购入库', False), ('in', '产品入库', False),
     ('in', '其他入库', False), ('in', '其他入库', True),
-    ('in', '销售退货入库', False),
     ('out', '领料出库', False), ('out', '销售出库', False),
     ('out', '其他出库', False), ('out', '采购退货出库', False),
 ])

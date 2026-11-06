@@ -420,7 +420,6 @@ $('#submitAdd').click(saveSubcontractDraft);
 function showDetail(id) {
     $.get('/subcontract/issue/' + id, function(data) {
         $('#detailContent').html(data);
-        document.querySelectorAll('#detailContent table[data-detail-sort]').forEach(setupDetailRowSorting);
         $('#detailModal').modal('show');
     });
 }

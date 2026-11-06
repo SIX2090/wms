@@ -1,10 +1,8 @@
-{% set print_title = {'销售出库': '销售出库单', '其他出库': '其他出库单', '采购退货出库': '采购退货出库单'}.get(order.business_type, '领料单') %}
-{% set box_numbers = box_numbers|default({}) %}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>{{ print_title }} - {{ order.order_no }}</title>
+    <title>领料单 - {{ order.order_no }}</title>
     <link href="{{ url_for('static', filename='cdn/bootstrap-5.3.0.min.css') }}" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}">
     <style>
@@ -85,9 +83,9 @@
     </script>
 
     <div class="doc">
-        <div class="doc-title">{{ print_title }}</div>
+        <div class="doc-title">领料单</div>
         <div class="doc-header">
-            <span>{{ '客户' if order.business_type == '销售出库' else ('供应商' if order.business_type == '采购退货出库' else '领料部门') }}：{{ (order.customer or '') if order.business_type in ['销售出库', '采购退货出库'] else (order.department.name if order.department else (order.customer or '')) }}</span>
+            <span>领料部门：{{ order.department.name if order.department else (order.customer or '') }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
         <table class="doc-table">
@@ -134,7 +132,7 @@
             <tfoot>
                 <tr>
                     <td colspan="6" class="sig-cell"></td>
-                    <td colspan="3" class="sig-cell">{{ '收货' if order.business_type == '销售出库' else '领料' }}：</td>
+                    <td colspan="3" class="sig-cell">领料：</td>
                 </tr>
             </tfoot>
         </table>

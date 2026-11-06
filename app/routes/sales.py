@@ -990,8 +990,6 @@ def register_sales_routes(app):
                 'tax_included_amount': item.tax_included_amount or item.amount or 0,
                 'batch_no': item.batch_no or '',
                 'serial_no': item.serial_no or '',
-                'contract_no': item.contract_no or order.contract_no or '-',
-                'project_name': item.project_name or order.project_name or '-',
             },
         ) for item in order.items]
         return _render_generic_document_print({
@@ -1033,8 +1031,6 @@ def register_sales_routes(app):
                 ('tax_included_amount', '含税金额', 'right money'),
                 ('batch_no', '批次号', ''),
                 ('serial_no', '序列号', ''),
-                ('contract_no', '合同编号', ''),
-                ('project_name', '工程名称', ''),
                 ('remark', '备注', ''),
             ],
             'rows': rows,

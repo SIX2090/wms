@@ -54,10 +54,6 @@ def test_rendered_columns_preserve_business_meaning_and_summary_alignment(busine
         assert keys[1 if status == 'completed' else 2] == 'colBoxNo'
         assert not SOURCE_KEYS.intersection(keys), 'finished goods do not use purchase-execution columns'
         assert [next(cell['text'].strip() for cell in row['cells'] if cell['attrs']['data-column-key'] == 'colBoxNo') for row in rows] == ['PA03-LP10', 'PA03-LP2', 'PA03-LP1']
-    elif business == '销售退货入库':
-        assert 'colBoxNo' not in keys
-        assert not SOURCE_KEYS.intersection(keys)
-        assert 'colSourceSales' in keys, 'returns trace their original sales, not purchasing execution'
     else:
         assert 'colBoxNo' not in keys
         assert SOURCE_KEYS <= set(keys), 'keep existing purchasing/source traceability for other receipts'

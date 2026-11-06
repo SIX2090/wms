@@ -98,14 +98,10 @@ function aligned(row) {
     if (p.page === 'in') {
         for (const key of ['colSourcePo', 'colSourceQty', 'colSourcePushed', 'colSourceCompleted', 'colSourceStatus']) {
             const cell = row.querySelector('[data-column-key="' + key + '"]');
-            if (['产品入库','销售退货入库'].includes(p.business)) assert.equal(cell, null, 'non-purchasing receipts do not gain purchase source fields');
+            if (p.business === '产品入库') assert.equal(cell, null, 'finished goods do not gain purchase source fields');
             else assert.equal(cell.querySelectorAll('input').length, 0, 'source metadata stays read only');
         }
-        if (p.business === '销售退货入库') {
-            const source = row.querySelector('[data-column-key="colSourceSales"]');
-            assert(source.textContent.includes('手工录入'));
-            assert.equal(source.querySelectorAll('input').length, 0);
-        } else if (p.business !== '产品入库') assert(row.querySelector('[data-column-key="colSourcePo"]').textContent.includes('手工录入'));
+        if (p.business !== '产品入库') assert(row.querySelector('[data-column-key="colSourcePo"]').textContent.includes('手工录入'));
         if (p.business === '其他入库') assert.equal(row.querySelector('[data-column-key="colCustomerSupplied"]').textContent, '否');
     }
 }
