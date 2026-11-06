@@ -118,6 +118,7 @@
 
 {% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
 {% block content %}
+{% set box_numbers = box_numbers|default({}) %}
 {% if order.business_type == '其他出库' %}{% set nav_mode = 'out' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
 {% if push_source %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -346,13 +347,14 @@
             </div>
         </div>
         <div class="table-responsive" data-quantity-summary="itemTable" data-quantity-selector=".material-qty-field, [data-field=quantity]" data-material-selector=".material-code-field">
-            <table class="table order-table mb-0" id="itemTable">
+            <table class="table order-table mb-0" id="itemTable" data-detail-sort{% if box_numbers %} data-field-settings-key="product_sales_out_detail_v1"{% endif %}>
                 <thead>
                     <tr>
                         <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="row_no" data-default-label="序">序<div class="resize-handle"></div></th>
                         {% if order.status == 'pending' %}
                         <th width="40" data-col="chk" data-column-key="selection" data-default-label="选择"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
+                        {% if box_numbers %}<th data-column-key="box_no" data-default-label="箱体编号">箱体编号</th>{% endif %}
                         <th class="resizable-th" data-col="colCode" data-column-key="material_code" data-default-label="物料编码">物料编码<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colBrand" data-column-key="brand" data-default-label="品牌">品牌<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colName" data-column-key="material_name" data-default-label="物料名称">物料名称<div class="resize-handle"></div></th>
@@ -378,6 +380,7 @@
                         {% if order.status == 'pending' %}
                         <td data-column-key="selection"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
+                        {% if box_numbers %}<td data-column-key="box_no">{{ box_numbers.get(item.id, '') or '-' }}</td>{% endif %}
                         <td data-column-key="material_code" class="fw-medium">{{ item.material.code }}</td>
                         <td data-column-key="brand">{{ item.material.brand or '-' }}</td>
                         <td data-column-key="material_name">{{ item.material.name }}</td>
@@ -409,7 +412,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ 16 if order.status == 'pending' else 14 }}" class="empty-state">
+                        <td colspan="{{ (16 if order.status == 'pending' else 14) + (1 if box_numbers else 0) }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
@@ -422,6 +425,7 @@
                         {% if order.status == 'pending' %}
                         <td data-column-key="selection"></td>
                         {% endif %}
+                        {% if box_numbers %}<td data-column-key="box_no"></td>{% endif %}
                         <td data-column-key="material_code"></td>
                         <td data-column-key="brand"></td>
                         <td data-column-key="material_name"></td>
@@ -737,6 +741,7 @@ function addInlineMaterialRow(beforeRow) {
     row.innerHTML = `
         <td data-column-key="row_no" class="text-center"><span class="row-num"></span></td>
         <td data-column-key="selection"><input type="checkbox" disabled></td>
+        {% if box_numbers %}<td data-column-key="box_no">-</td>{% endif %}
         <td data-column-key="material_code"><div class="material-quick-search"><input class="form-control material-code-field" placeholder="编号/名称/规格" autocomplete="off"><div class="material-quick-dropdown" style="display:none;"></div></div></td>
         <td data-column-key="brand"><input class="form-control material-brand-field" readonly></td>
         <td data-column-key="material_name"><input class="form-control material-name-field" readonly></td>

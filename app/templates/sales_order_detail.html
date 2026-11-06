@@ -155,7 +155,7 @@
         </div>
     </div>
     <div class="table-responsive">
-      <table class="table order-table mb-0" id="itemTable">
+      <table class="table order-table mb-0" id="itemTable" data-detail-sort>
         <thead>
           <tr>
             <th class="resizable-th" data-col="colCode">物料编码<div class="resize-handle"></div></th>
@@ -172,6 +172,8 @@
             <th class="text-end resizable-th" data-col="colAmount">含税金额<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colBatch">批次号<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colSerial">序列号<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colContractNo">合同编号<div class="resize-handle"></div></th>
+            <th class="resizable-th" data-col="colProjectName">工程名称<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colRemark">备注<div class="resize-handle"></div></th>
             {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<th class="text-end resizable-th" data-col="colOutbound">本次出库<div class="resize-handle"></div></th>{% endif %}
           </tr>
@@ -193,6 +195,8 @@
             <td class="text-end">{{ '%.2f'|format(item.tax_included_amount or item.amount or 0) }}</td>
             <td>{{ item.batch_no or '-' }}</td>
             <td>{{ item.serial_no or '-' }}</td>
+            <td>{{ item.contract_no or order.contract_no or '-' }}</td>
+            <td>{{ item.project_name or order.project_name or '-' }}</td>
             <td>{{ item.remark or '' }}</td>
             {% if order.status=='confirmed' and order.shipment_status != 'shipped' %}<td class="text-end"><input class="form-control form-control-sm selected-outbound-quantity" data-item-id="{{ item.id }}" type="number" min="0" max="{{ ((item.quantity or 0) - (item.shipped_quantity or 0))|round(2) }}" step="0.01" placeholder="未选"></td>{% endif %}
           </tr>
@@ -202,7 +206,7 @@
             <td class="text-end"><strong>{{ '%.2f'|format(order.untaxed_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.tax_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.total_amount or 0) }}</strong></td>
-            <td colspan="{% if order.status=='confirmed' and order.shipment_status != 'shipped' %}4{% else %}3{% endif %}"></td>
+            <td colspan="{% if order.status=='confirmed' and order.shipment_status != 'shipped' %}6{% else %}5{% endif %}"></td>
           </tr>
         </tbody>
       </table>

@@ -30,6 +30,7 @@ from flask import abort, jsonify, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
+from services.document_detail import get_out_order_box_numbers
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import get_default_print_template, print_token_or_login_required, require_role
 
@@ -59,7 +60,12 @@ def _out_order_stock_error(order):
     return None
 
 
-def _build_out_order_excel(order):
+def _out_order_print_title(order):
+    return {'销售出库': '销售出库单', '其他出库': '其他出库单',
+            '采购退货出库': '采购退货出库单'}.get(getattr(order, 'business_type', None), '领料单')
+
+
+def _build_out_order_excel(order, box_numbers=None):
     """按用户指定样式生成领料单 Excel（无合计行）。
 
     列：物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号；
@@ -72,7 +78,11 @@ def _build_out_order_excel(order):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = '领料单'
+    ws.title = _out_order_print_title(order)
+    box_numbers = box_numbers or {}
+    business_type = getattr(order, 'business_type', None)
+    offset = 1 if box_numbers else 0
+    last_column = 9 + offset
 
     thin = Side(style='thin', color='000000')
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -83,11 +93,12 @@ def _build_out_order_excel(order):
     body_font = Font(name='微软雅黑', size=11)
     header_font = Font(name='微软雅黑', size=11, bold=True)
 
-    for idx, width in enumerate([12, 10, 20, 14, 6, 8, 10, 10, 12], start=1):
+    widths = ([20] if box_numbers else []) + [12, 10, 20, 14, 6, 8, 10, 10, 12]
+    for idx, width in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(idx)].width = width
 
-    ws.merge_cells('A1:I1')
-    ws['A1'] = '领料单'
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_column)
+    ws['A1'] = _out_order_print_title(order)
     ws['A1'].font = title_font
     ws['A1'].alignment = center
     ws.row_dimensions[1].height = 26
@@ -102,15 +113,17 @@ def _build_out_order_excel(order):
     contract_no = getattr(order, 'contract_no', None) or ''
 
     ws.merge_cells('A2:E2')
-    ws['A2'] = f'领料部门：{department or ""}'
-    ws.merge_cells('F2:I2')
+    party_label = '客户' if business_type == '销售出库' else ('供应商' if business_type == '采购退货出库' else '领料部门')
+    party = (getattr(order, 'customer', None) or '') if business_type in ('销售出库', '采购退货出库') else department
+    ws['A2'] = f'{party_label}：{party}'
+    ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=last_column)
     ws['F2'] = f'日期：{date_str}'
     ws['A2'].font = body_font
     ws['A2'].alignment = left_align
     ws['F2'].font = body_font
     ws['F2'].alignment = left_align
 
-    headers = ['物料编码', '品牌', '物料名称', '规格', '单位', '数量', '单价', '金额', '合同编号']
+    headers = (['箱体编号'] if box_numbers else []) + ['物料编码', '品牌', '物料名称', '规格', '单位', '数量', '单价', '金额', '合同编号']
     for col, text in enumerate(headers, start=1):
         c = ws.cell(row=3, column=col, value=text)
         c.font = header_font
@@ -129,33 +142,36 @@ def _build_out_order_excel(order):
         unit = ''
         if material is not None and getattr(material, 'unit', None):
             unit = material.unit.name or ''
-        for col, value in enumerate(vals, start=1):
+        if box_numbers:
+            cell = ws.cell(row=row, column=1, value=box_numbers.get(item.id, '') or '-')
+            cell.data_type = 's'
+        for col, value in enumerate(vals, start=1 + offset):
             ws.cell(row=row, column=col, value=value)
-        ws.cell(row=row, column=5, value=unit)
-        ws.cell(row=row, column=6, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
-        ws.cell(row=row, column=7, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=8, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=9, value=(getattr(item, 'contract_no', None) or contract_no or ''))
-        for col in range(1, 10):
+        ws.cell(row=row, column=5 + offset, value=unit)
+        ws.cell(row=row, column=6 + offset, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
+        ws.cell(row=row, column=7 + offset, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
+        ws.cell(row=row, column=8 + offset, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        ws.cell(row=row, column=9 + offset, value=(getattr(item, 'contract_no', None) or contract_no or ''))
+        for col in range(1, last_column + 1):
             c = ws.cell(row=row, column=col)
             c.font = body_font
             c.border = border
-            c.alignment = right_align if col in (6, 7, 8) else center
+            c.alignment = right_align if col in (6 + offset, 7 + offset, 8 + offset) else center
         row += 1
 
     # 预留空白明细行（至少补到第 11 行结束，便于打印/手写补录）
     while row < 12:
-        for col in range(1, 10):
+        for col in range(1, last_column + 1):
             c = ws.cell(row=row, column=col)
             c.border = border
             c.font = body_font
         row += 1
 
     # 「领料：」签名行：起点对齐「单价」列（G 列），向右延伸留出签字空间
-    ws.merge_cells(f'G{row}:I{row}')
-    ws.cell(row=row, column=7, value='领料：').alignment = Alignment(
+    ws.merge_cells(start_row=row, start_column=7 + offset, end_row=row, end_column=last_column)
+    ws.cell(row=row, column=7 + offset, value='收货：' if business_type == '销售出库' else '领料：').alignment = Alignment(
         horizontal='left', vertical='center')
-    for col in range(7, 10):
+    for col in range(7 + offset, last_column + 1):
         ws.cell(row=row, column=col).font = body_font
     ws.row_dimensions[row].height = 22
 
@@ -396,7 +412,7 @@ def register_out_order_routes(app):
         push_source = DocumentPushLine.query.filter_by(
             target_document_id=order.id, status='active'
         ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first()
-        return render_template('out_order_detail.html', order=order, warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
+        return render_template('out_order_detail.html', order=order, box_numbers=get_out_order_box_numbers(order), warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/<int:id>/update', methods=['POST'])
@@ -1557,7 +1573,8 @@ def register_out_order_routes(app):
     def preview_out_order_template(id):
         from app import (OutOrder, OutOrderPrintTemplate)
         order = OutOrder.query.get_or_404(id)
-        template = get_default_print_template(OutOrderPrintTemplate)
+        box_numbers = get_out_order_box_numbers(order)
+        template = None if box_numbers else get_default_print_template(OutOrderPrintTemplate)
 
         if template and template.template_type == 'excel' and template.excel_template_path:
             return jsonify({
@@ -1569,18 +1586,19 @@ def register_out_order_routes(app):
 
         # 打印模板仅允许 Excel：无 Excel 模板时预览内置打印页
         return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html',
-                        'content': render_template('print_out.html', order=order)})
+                        'content': render_template('print_out.html', order=order, box_numbers=box_numbers)})
 
     def _render_out_order_print(id):
         # PRINT-ROUTING-F01-P3：抽出的未装饰实现，供 /print（ptoken 免登录）复用，
         # 避免直接调用带 @login_required 的视图函数导致 ptoken 通过外层仍被内层重定向。
         from app import (OutOrder, OutOrderPrintTemplate)
         order = OutOrder.query.get_or_404(id)
-        template = get_default_print_template(OutOrderPrintTemplate)
+        box_numbers = get_out_order_box_numbers(order)
+        template = None if box_numbers else get_default_print_template(OutOrderPrintTemplate)
         # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
         if template and template.template_type == 'excel':
             return render_template('print_out_with_excel.html', order=order, template=template)
-        return render_template('print_out.html', order=order)
+        return render_template('print_out.html', order=order, box_numbers=box_numbers)
 
     @app.route('/out_order/<int:id>/print_with_template')
     @login_required
@@ -1599,26 +1617,30 @@ def register_out_order_routes(app):
         from app import OutOrder, OutOrderPrintTemplate
         from utils import resolve_print_template
         order = OutOrder.query.get_or_404(id)
-        template = resolve_print_template(OutOrderPrintTemplate, request.args.get('template_id', type=int))
+        box_numbers = get_out_order_box_numbers(order)
+        template_id = request.args.get('template_id', type=int)
+        template = None if box_numbers and not template_id else resolve_print_template(OutOrderPrintTemplate, template_id)
         if template and template.excel_template_path:
             import os
             from print_fill import build_filled_print_excel, template_file_abspath
             template_path = template_file_abspath(template.excel_template_path, app.static_folder)
             if template_path and os.path.exists(template_path):
                 from datetime import datetime
+                for item in order.items:
+                    item.box_no = box_numbers.get(item.id, '')
                 output = build_filled_print_excel(
                     template_path, order,
                     date_str=datetime.now().strftime('%Y-%m-%d'),
                 )
-                filename = f'{template.name or "领料单"}_{order.order_no or id}.xlsx'
+                filename = f'{template.name or _out_order_print_title(order)}_{order.order_no or id}.xlsx'
                 return send_file(
                     output,
                     download_name=filename,
                     as_attachment=True,
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 )
-        output = _build_out_order_excel(order)
-        filename = f'领料单_{order.order_no or id}.xlsx'
+        output = _build_out_order_excel(order, box_numbers)
+        filename = f'{_out_order_print_title(order)}_{order.order_no or id}.xlsx'
         return send_file(
             output,
             download_name=filename,

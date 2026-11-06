@@ -3726,6 +3726,104 @@ function insertGlobalActionBar() {
     content.insertBefore(bar, content.firstChild);
 }
 
+// Saved document details sort existing row nodes so controls keep their item IDs.
+function setupDetailRowSorting(table) {
+    if (!table || table.dataset.detailSortReady || !table.tHead || !table.tBodies.length) return;
+    table.dataset.detailSortReady = '1';
+    const body = table.tBodies[0];
+    const headers = Array.from(table.tHead.rows[table.tHead.rows.length - 1].cells);
+    const excluded = new Set(['seq', 'row_no', 'chk', 'selection', 'action', 'actions', 'label']);
+    const numberLabels = new Set(['数量', '当前库存', '系统库存', '实际库存', '差异', '调整数量', '用量',
+        '单价', '金额', '成本', '期初余额', '采购数量', '已下推', '已入库', '申请数量', '已采购',
+        '已出库', '未出库', '本次出库', '未税单价', '未税金额', '税率', '税额', '含税单价', '含税金额',
+        '待入库', '未下推', '本次入库', '本次下推', '预估单价', '预估金额', '已发数量', '已收数量',
+        '订单数量', '已出数量', '未出数量', '已出库数量', '未出库数量', '已发货', '未发货',
+        '收货数量', '报废数量', '税率(%)']);
+    const collator = new Intl.Collator('zh-CN', {numeric: true, sensitivity: 'base'});
+    let active = null, direction = 1, dragging = false;
+    const keyOf = header => header.dataset.columnKey || header.dataset.col;
+    const numberHeader = headers.find(header => ['seq', 'row_no'].includes(keyOf(header)) ||
+        ['序', '序号'].includes(header.textContent.trim()));
+    const dataRows = () => Array.from(body.rows).filter(row =>
+        row.cells.length === headers.length && !row.classList.contains('total-row') &&
+        Array.from(row.cells).every(cell => cell.colSpan <= 1));
+
+    function cellFor(row, header) {
+        const key = keyOf(header);
+        return (key && Array.from(row.cells).find(cell => cell.dataset.columnKey === key)) ||
+            row.cells[Array.from(header.parentNode.cells).indexOf(header)];
+    }
+    function value(row, header) {
+        const cell = cellFor(row, header);
+        if (!cell) return null;
+        const control = cell.querySelector('input:not([type="hidden"]):not([type="checkbox"]),select,textarea');
+        const raw = String(control ? control.value : (cell.dataset.value ?? cell.textContent)).trim();
+        if (!raw || raw === '-') return null;
+        if (header.dataset.detailSortType !== 'number') return raw;
+        const number = Number(raw.replace(/[¥￥,%\s]/g, ''));
+        return Number.isFinite(number) ? number : null;
+    }
+    function applySort() {
+        if (!active) return;
+        const rows = dataRows(), original = new Map(rows.map((row, index) => [row, index]));
+        const sorted = rows.slice().sort(function(left, right) {
+            const a = value(left, active), b = value(right, active);
+            if (a === null || b === null) return a === b ? original.get(left) - original.get(right) : (a === null ? 1 : -1);
+            const compared = active.dataset.detailSortType === 'number' ? a - b : collator.compare(a, b);
+            return direction * compared || original.get(left) - original.get(right);
+        });
+        // Leave merged summaries and empty-state rows outside the sortable set.
+        if (sorted.some((row, index) => row !== rows[index])) {
+            const anchor = rows.length ? rows[rows.length - 1].nextSibling : null;
+            sorted.forEach(row => body.insertBefore(row, anchor));
+        }
+        sorted.forEach(function(row, index) {
+            const number = row.querySelector('.row-num,.row-no') || (numberHeader && cellFor(row, numberHeader));
+            if (number && !number.querySelector('input,button')) number.textContent = String(index + 1);
+        });
+    }
+    function activate(header) {
+        direction = active === header ? -direction : 1;
+        active = header;
+        applySort();
+        headers.forEach(function(th) {
+            const indicator = th.querySelector('.cb-sort-indicator');
+            if (!indicator) return;
+            th.setAttribute('aria-sort', th === active ? (direction === 1 ? 'ascending' : 'descending') : 'none');
+            indicator.textContent = th === active ? (direction === 1 ? ' ↑' : ' ↓') : ' ↕';
+        });
+    }
+    headers.forEach(function(header) {
+        const label = (header.dataset.defaultLabel || header.textContent).trim();
+        if (excluded.has(keyOf(header)) || ['序', '序号', '操作', '标签', '选择'].includes(label) || header.querySelector('input,button')) return;
+        if (numberLabels.has(label)) header.dataset.detailSortType = 'number';
+        if (!header.dataset.defaultLabel) header.dataset.defaultLabel = label;
+        header.style.cursor = 'pointer';
+        header.classList.add('cb-detail-sortable');
+        header.tabIndex = 0;
+        header.setAttribute('aria-sort', 'none');
+        const indicator = document.createElement('span');
+        indicator.className = 'cb-sort-indicator';
+        indicator.setAttribute('aria-hidden', 'true');
+        indicator.textContent = ' ↕';
+        header.appendChild(indicator);
+        header.addEventListener('click', function(event) {
+            if (dragging || event.defaultPrevented || event.target.closest('a,button,input,select,textarea,.resize-handle,.cb-col-resizer,.col-resize,.wms-fill-down-btn')) return;
+            activate(header);
+        });
+        header.addEventListener('keydown', function(event) {
+            if (event.target === header && (event.key === 'Enter' || event.key === ' ')) {
+                event.preventDefault();
+                activate(header);
+            }
+        });
+    });
+    table.addEventListener('dragstart', function() { dragging = true; });
+    table.addEventListener('dragend', function() { setTimeout(function() { dragging = false; }, 0); });
+    // Re-rendered grids (including opening stock) keep their original data-index.
+    new MutationObserver(applySort).observe(body, {childList: true});
+}
+
 // DOM加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
     if (isWmsEmbeddedPage()) {
@@ -3813,6 +3911,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (window.WmsRefreshDropdowns) window.WmsRefreshDropdowns();
 
     setupSortableHeaders();
+    document.querySelectorAll('table[data-detail-sort]').forEach(setupDetailRowSorting);
     insertGlobalActionBar();
 
     document.addEventListener('keydown', function(event) {

@@ -45,7 +45,7 @@
         <div class="info-item"><span class="info-label">日　　期：</span>{{ order.date }}</div>
     </div>
     <div class="info-row">
-        <div class="info-item"><span class="info-label">供应商：</span>{{ order.supplier.name if order.supplier else '-' }}</div>
+        <div class="info-item"><span class="info-label">{{ '退货客户' if order.business_type == '销售退货入库' else '供应商' }}：</span>{{ (order.customer.name if order.customer else '-') if order.business_type == '销售退货入库' else (order.supplier.name if order.supplier else '-') }}</div>
         <div class="info-item"><span class="info-label">用　　途：</span>{{ order.purpose or '-' }}</div>
     </div>
     <div class="info-row">
@@ -56,6 +56,7 @@
         <div class="info-item"><span class="info-label">状　　态：</span>{{ '已完成' if order.status == 'completed' else '待处理' }}</div>
     </div>
 
+    {% if order.business_type == '销售退货入库' %}<div class="info-row"><span class="info-label">原销售订单：</span>{% for source in sales_return_sources %}{{ source.order_no }}{{ '、' if not loop.last else '' }}{% else %}-{% endfor %}</div>{% endif %}
     <table style="margin-top: 15px;">
         <thead>
             <tr>

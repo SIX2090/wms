@@ -157,6 +157,23 @@ def _in_order_print_title(order):
     return (getattr(order, 'business_type', None) or '采购入库') + '单'
 
 
+def _in_order_sales_sources(order):
+    """Collect the saved header and line sales sources without guessing by material."""
+    if order.business_type != '销售退货入库':
+        return []
+    sources = {}
+    candidates = [order.source_sales_order] + [
+        item.source_sales_order_item.sales_order
+        for item in order.items if item.source_sales_order_item
+    ]
+    for source in candidates:
+        if source:
+            sources[source.order_no] = {'id': source.id, 'order_no': source.order_no}
+    if order.source_sales_order_no and order.source_sales_order_no not in sources:
+        sources[order.source_sales_order_no] = {'id': None, 'order_no': order.source_sales_order_no}
+    return list(sources.values())
+
+
 def _retitle_builtin_in_order_excel(output, order):
     """Retitle the filled managed workbook only; never rewrite a template file."""
     import io
@@ -172,6 +189,10 @@ def _retitle_builtin_in_order_excel(output, order):
             label = sheet['D2'].value
             if isinstance(label, str) and label.startswith('采购入库单号：'):
                 sheet['D2'] = title + '号：' + label.split('：', 1)[1]
+            if order.business_type == '销售退货入库':
+                sheet['A2'] = '退货客户：' + (order.customer.name if order.customer else '')
+                sheet.cell(row=sheet.max_row + 1, column=1, value='原销售订单：' + '、'.join(
+                    source['order_no'] for source in _in_order_sales_sources(order)))
         result = io.BytesIO()
         workbook.save(result)
         result.seek(0)
@@ -225,7 +246,8 @@ def _build_in_order_excel(order):
     contract_no = getattr(order, 'contract_no', None) or ''
 
     ws.merge_cells('A2:C2')
-    ws['A2'] = f'供应商：{supplier or ""}'
+    ws['A2'] = (f'退货客户：{order.customer.name if order.customer else ""}'
+                if getattr(order, 'business_type', None) == '销售退货入库' else f'供应商：{supplier or ""}')
     ws.merge_cells('D2:F2')
     ws['D2'] = f'{_in_order_print_title(order)}号：{order_no}'
     ws.merge_cells('G2:I2')
@@ -282,6 +304,11 @@ def _build_in_order_excel(order):
     for col in range(7, 10):
         ws.cell(row=row, column=col).font = body_font
     ws.row_dimensions[row].height = 22
+
+    if getattr(order, 'business_type', None) == '销售退货入库':
+        ws.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=9)
+        ws.cell(row=row + 1, column=1, value='原销售订单：' + '、'.join(
+            source['order_no'] for source in _in_order_sales_sources(order))).font = body_font
 
     output = _io.BytesIO()
     wb.save(output)
@@ -541,7 +568,7 @@ def register_in_order_routes(app):
     def in_order_detail(id):
         from datetime import date
         from sqlalchemy.orm import joinedload
-        from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrderItem,
+        from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrderItem, SalesOrderItem,
                          Supplier, _in_order_push_history, _in_order_push_source_type,
                          build_purchase_order_execution, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
@@ -549,6 +576,9 @@ def register_in_order_routes(app):
                          get_warehouse_stock_quantities)
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
+            joinedload(InOrder.customer),
+            joinedload(InOrder.source_sales_order),
+            joinedload(InOrder.items).joinedload(InOrderItem.source_sales_order_item).joinedload(SalesOrderItem.sales_order),
             joinedload(InOrder.source_purchase_order),
             joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
             joinedload(InOrder.items).joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
@@ -590,6 +620,7 @@ def register_in_order_routes(app):
             default_warehouse=default_warehouse,
             location_management_enabled=location_management_enabled(),
             purchase_order_execution=purchase_order_execution,
+            sales_return_sources=_in_order_sales_sources(order),
             today=date.today(),
             operation_logs=get_recent_operation_logs('in_order', id),
             warehouse_stock=warehouse_stock,
@@ -891,7 +922,7 @@ def register_in_order_routes(app):
             order.customer_id = None
 
         business_type = (data.get('business_type') or order.business_type or '').strip()
-        if business_type in ('采购入库', '产品入库', '其他入库'):
+        if business_type in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
             order.business_type = business_type
 
         order.date = order_date
@@ -3357,6 +3388,8 @@ def register_in_order_routes(app):
             from services.product_receipt_print import product_receipt_pages
             return jsonify({'status': 'success', 'type': 'html', 'content': render_template(
                 'product_receipt_print.html', order=order, pages=product_receipt_pages(order))})
+        if order.business_type == '销售退货入库':
+            return jsonify({'status': 'success', 'type': 'html', 'content': _render_in_order_print(id)})
         template = get_default_print_template(InOrderPrintTemplate)
 
         if template and template.template_type == 'excel' and template.excel_template_path:
@@ -3381,10 +3414,12 @@ def register_in_order_routes(app):
             from services.product_receipt_print import product_receipt_pages
             return render_template('product_receipt_print.html', order=order, pages=product_receipt_pages(order))
         template = get_default_print_template(InOrderPrintTemplate)
+        sales_return_sources = _in_order_sales_sources(order)
         # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
         if template and template.template_type == 'excel':
-            return render_template('print_in_with_excel.html', order=order, template=template)
-        return render_template('print_in.html', order=order)
+            return render_template('print_in_with_excel.html', order=order, template=template,
+                                   sales_return_sources=sales_return_sources)
+        return render_template('print_in.html', order=order, sales_return_sources=sales_return_sources)
 
     @app.route('/in_order/<int:id>/print_with_template')
     @login_required

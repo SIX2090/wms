@@ -86,10 +86,11 @@
     <div class="doc">
         <div class="doc-title">{{ print_title }}</div>
         <div class="doc-header">
-            <span>供应商：{{ order.supplier.name if order.supplier else '' }}</span>
+            <span>{{ '退货客户' if order.business_type == '销售退货入库' else '供应商' }}：{{ (order.customer.name if order.customer else '') if order.business_type == '销售退货入库' else (order.supplier.name if order.supplier else '') }}</span>
             <span>{{ print_title }}号：{{ order.order_no }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
+        {% if order.business_type == '销售退货入库' %}<div class="doc-header"><span>原销售订单：{% for source in sales_return_sources %}{{ source.order_no }}{{ '、' if not loop.last else '' }}{% else %}-{% endfor %}</span></div>{% endif %}
         <table class="doc-table">
             <thead>
                 <tr>
