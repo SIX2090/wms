@@ -290,7 +290,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% endif %}
 
             <div class="table-responsive doc-grid-wrapper">
-                <table class="doc-grid" id="docTable">
+                <table class="doc-grid" id="docTable"{% if order_id %} data-detail-sort{% endif %}>
                     <thead>
                         <tr>
                             <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>

@@ -333,7 +333,7 @@
             {% endif %}
 
             <div class="table-responsive adjust-grid-wrapper">
-                <table class="adjust-grid" id="adjustmentTable">
+                <table class="adjust-grid" id="adjustmentTable"{% if order_id %} data-detail-sort{% endif %}>
                     <thead>
                         <tr>
                             <th class="row-num" data-column-key="row_no">序号<span class="col-resize"></span></th>

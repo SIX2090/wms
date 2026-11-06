@@ -451,3 +451,7 @@ POST_SPLIT_BUGS['BUG-2026-11-06-001'] = 'fixed'  # smoke isolation guard; exact 
 POST_SPLIT_BUGS['BUG-2026-11-06-002'] = 'fixed'  # product detail fields and sorting; production acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-003'] = 'fixed'  # finished goods to sales draft; production acceptance tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-004'] = 'fixed'  # declared external material-script overlay is served by the production package
+POST_SPLIT_BUGS['BUG-2026-11-06-005'] = 'fixed'  # document detail follow-up; production activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-006'] = 'fixed'  # document detail follow-up; production activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-007'] = 'fixed'  # document detail follow-up; production activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-06-008'] = 'fixed'  # document detail follow-up; production activation tracked separately

@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
 {% import '_list_macros.html' as ui %}
-{% block title %}{{ '产品入库单' if order.business_type == '产品入库' else '入库单' }}详情 - {{ order.order_no }}{% endblock %}
+{% block title %}{{ (order.business_type ~ '单') if order.business_type in ['产品入库', '销售退货入库'] else '入库单' }}详情 - {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
 <link href="{{ url_for('static', filename='css/order-detail.css') }}" rel="stylesheet">
@@ -133,7 +133,7 @@
             <div>
                 <div class="order-title">
                     <i class="bi bi-box-arrow-in-down"></i>
-                    {{ '产品入库单' if order.business_type == '产品入库' else '入库单' }}：{{ order.order_no }}
+                    {{ (order.business_type ~ '单') if order.business_type in ['产品入库', '销售退货入库'] else '入库单' }}：{{ order.order_no }}
                     <span class="status-badge {{ order.status }}">
                         <i class="bi bi-circle-fill" style="font-size:0.5rem"></i>
                         {% if order.status == 'pending' %}草稿
@@ -144,7 +144,7 @@
                 <div class="order-meta">
                     <span><i class="bi bi-calendar3"></i> {{ order.date }}</span>
                     <span><i class="bi bi-box-arrow-in-down"></i> {{ order.business_type or '采购入库' }}</span>
-                    <span><i class="bi bi-building"></i> {{ order.supplier.name if order.supplier else '-' }}</span>
+                    <span><i class="bi bi-building"></i> {{ (order.customer.name if order.customer else '-') if order.business_type == '销售退货入库' else (order.supplier.name if order.supplier else '-') }}</span>
                     <span><i class="bi bi-tag"></i> {{ order.purpose or '-' }}</span>
                     <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
                 </div>
@@ -154,7 +154,7 @@
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
                 </button>
-                <a class="btn btn-sm btn-outline-primary" href="{% if order.business_type == '其他入库' %}/other_in_order/add?{% elif order.business_type == '产品入库' %}/in_order/add?type=product&{% else %}/in_order/add?{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&supplier_id={{ order.supplier_id or '' }}&customer_id={{ order.customer_id or '' }}">
+                <a class="btn btn-sm btn-outline-primary" href="{% if order.business_type == '其他入库' %}/other_in_order/add?{% elif order.business_type == '产品入库' %}/in_order/add?type=product&{% elif order.business_type == '销售退货入库' %}/in_order/add?type=sales_return&{% else %}/in_order/add?{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&supplier_id={{ order.supplier_id or '' }}&customer_id={{ order.customer_id or '' }}">
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
                 {% if order.status == 'pending' %}
@@ -261,8 +261,8 @@
                 </div>
                 {% if order.business_type != '产品入库' %}
                 <div class="info-item">
-                    <span class="info-label">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</span>
-                    <span class="info-value">{{ order.customer.name if order.customer else (order.supplier.name if order.supplier else '-') }}</span>
+                    <span class="info-label">{{ '退货客户' if order.business_type == '销售退货入库' else ('客户/客供方' if order.business_type == '其他入库' else '供应商') }}</span>
+                    <span class="info-value">{{ (order.customer.name if order.customer else '-') if order.business_type == '销售退货入库' else (order.customer.name if order.customer else (order.supplier.name if order.supplier else '-')) }}</span>
                 </div>
                 {% endif %}
                 {% if order.business_type == '产品入库' %}
@@ -290,7 +290,13 @@
                     <span class="info-value">{{ order.location }}</span>
                 </div>
                 {% endif %}
-                {% if order.business_type != '产品入库' %}
+                {% if order.business_type == '销售退货入库' %}
+                <div class="info-item"><span class="info-label">原销售订单</span><span class="info-value">
+                    {% for source in sales_return_sources %}
+                    {% if source.id %}<a href="{{ url_for('sales_order_detail', id=source.id) }}" target="_blank" rel="noopener">{{ source.order_no }}</a>{% else %}{{ source.order_no }}{% endif %}{{ '、' if not loop.last else '' }}
+                    {% else %}-{% endfor %}
+                </span></div>
+                {% elif order.business_type != '产品入库' %}
                 <div class="info-item">
                     <span class="info-label">来源采购单</span>
                     <span class="info-value">
@@ -322,7 +328,7 @@
         </div>
     </div>
 
-    {% if order.business_type != '产品入库' %}
+    {% if order.business_type not in ['产品入库', '销售退货入库'] %}
     <div class="order-info-card trace-panel" id="documentTrace">
         <div class="card-header-custom">
             <i class="bi bi-diagram-3"></i> 单据联查
@@ -435,7 +441,7 @@
             </div>
         </div>
         <div class="table-responsive" data-quantity-summary="itemTable" data-quantity-selector=".material-qty-field, [data-field=quantity]" data-material-selector=".material-code-field">
-            <table class="table order-table mb-0" id="itemTable" data-business-type="{{ order.business_type }}"{% if order.business_type == '产品入库' %} data-field-settings-key="product_in_order_detail_v1"{% endif %}>
+            <table class="table order-table mb-0" id="itemTable"{% if order.business_type != '产品入库' %} data-detail-sort{% endif %} data-business-type="{{ order.business_type }}"{% if order.business_type == '销售退货入库' %} data-field-settings-key="sales_return_detail_v1"{% endif %}{% if order.business_type == '产品入库' %} data-field-settings-key="product_in_order_detail_v1"{% endif %}>
                 <thead>
                     <tr>
                         <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="seq">序<div class="resize-handle"></div></th>
@@ -455,13 +461,14 @@
                         <th class="resizable-th" data-col="colBatchNo" data-column-key="colBatchNo">批次号<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colExpiryDate" data-column-key="colExpiryDate">有效期<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colQty" data-column-key="colQty">数量<div class="resize-handle"></div></th>
-                        {% if order.business_type != '产品入库' %}
+                        {% if order.business_type not in ['产品入库', '销售退货入库'] %}
                         <th class="resizable-th" data-col="colSourcePo" data-column-key="colSourcePo">来源采购单<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colSourceQty" data-column-key="colSourceQty">采购数量<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colSourcePushed" data-column-key="colSourcePushed">已下推<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colSourceCompleted" data-column-key="colSourceCompleted">已入库<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colSourceStatus" data-column-key="colSourceStatus">来源状态<div class="resize-handle"></div></th>
                         {% endif %}
+                        {% if order.business_type == '销售退货入库' %}<th data-col="colSourceSales" data-column-key="colSourceSales">原销售订单</th>{% endif %}
                         <th class="text-end resizable-th" data-col="colPrice" data-column-key="colPrice">单价<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colAmount" data-column-key="colAmount">金额<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colRemark" data-column-key="colRemark">备注<div class="resize-handle"></div></th>
@@ -496,7 +503,7 @@
                         <td data-column-key="colBatchNo">{{ item.batch_no or '-' }}</td>
                         <td data-column-key="colExpiryDate">{{ item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '-' }}</td>
                         <td class="text-end fw-medium editable-cell" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
-                        {% if order.business_type != '产品入库' %}
+                        {% if order.business_type not in ['产品入库', '销售退货入库'] %}
                         <td data-column-key="colSourcePo" data-source-purchase-order-id="{{ source_order.id if source_order else '' }}">
                             {% if source_order %}
                             <a href="{{ url_for('purchase_order_detail', id=source_order.id) }}" target="_blank" rel="noopener">{{ source_order.order_no }}</a>
@@ -523,6 +530,9 @@
                             {% endif %}
                         </td>
                         {% endif %}
+                        {% if order.business_type == '销售退货入库' %}
+                        <td data-column-key="colSourceSales">{% set sales_source = item.source_sales_order_item.sales_order if item.source_sales_order_item else None %}{% if sales_source %}<a href="{{ url_for('sales_order_detail', id=sales_source.id) }}" target="_blank" rel="noopener">{{ sales_source.order_no }}</a>{% else %}<span class="text-muted">手工录入</span>{% endif %}</td>
+                        {% endif %}
                         <td class="text-end editable-cell" data-column-key="colPrice" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
                         <td class="text-end fw-bold text-danger" data-column-key="colAmount">¥{{ "%.2f"|format(item.amount) }}</td>
                         {% if order.status == 'pending' %}
@@ -545,7 +555,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ (23 if order.status == 'pending' else 21) + (1 if order.business_type == '其他入库' else 0) - (4 if order.business_type == '产品入库' else 0) }}" class="empty-state">
+                        <td colspan="{{ (23 if order.status == 'pending' else 21) + (1 if order.business_type == '其他入库' else 0) - (4 if order.business_type in ['产品入库', '销售退货入库'] else 0) }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
@@ -569,13 +579,14 @@
                         <td data-column-key="colBatchNo"></td>
                         <td data-column-key="colExpiryDate"></td>
                         <td class="text-end" data-column-key="colQty" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
-                        {% if order.business_type != '产品入库' %}
+                        {% if order.business_type not in ['产品入库', '销售退货入库'] %}
                         <td data-column-key="colSourcePo"></td>
                         <td data-column-key="colSourceQty"></td>
                         <td data-column-key="colSourcePushed"></td>
                         <td data-column-key="colSourceCompleted"></td>
                         <td data-column-key="colSourceStatus"></td>
                         {% endif %}
+                        {% if order.business_type == '销售退货入库' %}<td data-column-key="colSourceSales"></td>{% endif %}
                         <td data-column-key="colPrice"></td>
                         <td class="text-end fs-6" data-column-key="colAmount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="colRemark"></td>
@@ -616,18 +627,19 @@
                             <select class="form-select" name="business_type">
                                 <option value="采购入库" {% if (order.business_type or '采购入库') == '采购入库' %}selected{% endif %}>采购入库</option>
                                 <option value="产品入库" {% if order.business_type == '产品入库' %}selected{% endif %}>产品入库</option>
+                                <option value="销售退货入库" {% if order.business_type == '销售退货入库' %}selected{% endif %}>销售退货入库</option>
                                 <option value="其他入库" {% if order.business_type == '其他入库' %}selected{% endif %}>其他入库</option>
                             </select>
                         </div>
-                        {% if order.business_type == '产品入库' %}
+                        {% if order.business_type in ['产品入库', '销售退货入库'] %}
                         <div class="col-md-6">
-                            <label class="form-label">客户名称</label>
+                            <label class="form-label">{{ '退货客户' if order.business_type == '销售退货入库' else '客户名称' }}</label>
                             <select class="form-select" name="customer_id"><option value="">请选择客户</option>
                                 {% for customer in customers %}<option value="{{ customer.id }}" {% if customer.id == order.customer_id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
                             </select>
                         </div>
                         {% endif %}
-                        <div class="col-md-6" id="editPartyField"{% if order.business_type == '产品入库' %} hidden{% endif %}>
+                        <div class="col-md-6" id="editPartyField"{% if order.business_type in ['产品入库', '销售退货入库'] %} hidden{% endif %}>
                             <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</label>
                             <select class="form-select" name="{{ 'customer_id' if order.business_type == '其他入库' else 'supplier_id' }}">
                                 <option value="">请选择</option>
@@ -1002,7 +1014,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const editPartyField = document.getElementById('editPartyField');
     if (headerBusinessType && editPartyField) {
         headerBusinessType.addEventListener('change', function() {
-            editPartyField.hidden = this.value === '产品入库';
+            editPartyField.hidden = ['产品入库', '销售退货入库'].includes(this.value);
         });
     }
     const codeInput = document.getElementById('code');
@@ -1154,13 +1166,14 @@ function addInlineMaterialRow(beforeRow) {
         <td data-column-key="colBatchNo"><input class="form-control material-batch-field" type="text" maxlength="50"></td>
         <td data-column-key="colExpiryDate"><input class="form-control material-expiry-field" type="date"></td>
         <td data-column-key="colQty"><input class="form-control material-qty-field text-end" type="number" step="0.01" min="0"></td>
-        {% if order.business_type != '产品入库' %}
+        {% if order.business_type not in ['产品入库', '销售退货入库'] %}
         <td data-column-key="colSourcePo"><span class="text-muted">手工录入</span></td>
         <td data-column-key="colSourceQty" class="text-end text-muted">-</td>
         <td data-column-key="colSourcePushed" class="text-end text-muted">-</td>
         <td data-column-key="colSourceCompleted" class="text-end text-muted">-</td>
         <td data-column-key="colSourceStatus" class="text-muted">-</td>
         {% endif %}
+        {% if order.business_type == '销售退货入库' %}<td data-column-key="colSourceSales"><span class="text-muted">手工录入</span></td>{% endif %}
         <td data-column-key="colPrice"><input class="form-control material-price-field text-end" type="number" step="0.01" min="0"></td>
         <td data-column-key="colAmount"><input class="form-control material-amount-field text-end fw-bold text-danger" readonly></td>
         <td data-column-key="colRemark"><input class="form-control material-remark-field" type="text" maxlength="500"></td>
@@ -1685,6 +1698,9 @@ document.addEventListener('DOMContentLoaded', function() {
             {% if order.business_type == '产品入库' %}
             orderKey: 'product_in_order_detail_col_order_v1',
             widthKey: 'product_in_order_detail_col_widths_v1',
+            {% elif order.business_type == '销售退货入库' %}
+            orderKey: 'sales_return_detail_col_order_v1',
+            widthKey: 'sales_return_detail_col_widths_v1',
             {% else %}
             orderKey: 'in_order_detail_col_order_v1',
             widthKey: 'in_order_detail_col_widths_v1',

@@ -1298,7 +1298,7 @@ def register_subcontract_routes(app):
         from app import SubcontractIssue
         issue = SubcontractIssue.query.get_or_404(id)
         rows = [
-            '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">',
+            '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" data-detail-sort>',
             '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">数量</th><th>单位</th><th>备注</th></tr></thead><tbody>'
         ]
         for item in issue.items:
@@ -1998,7 +1998,7 @@ def register_subcontract_routes(app):
         from app import SubcontractReceive
         receive = SubcontractReceive.query.get_or_404(id)
         rows = [
-            '<div class="table-responsive"><table class="table table-sm table-bordered mb-0">',
+            '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" data-detail-sort>',
             '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">收货数量</th><th class="text-end">报废数量</th><th>单位</th><th class="text-end">单价</th><th class="text-end">金额</th></tr></thead><tbody>'
         ]
         for item in receive.items:
