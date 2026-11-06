@@ -1158,11 +1158,10 @@ def register_in_order_routes(app):
                 if not isinstance(item_data, dict):
                     return jsonify({'status': 'error', 'msg': f'第 {index} 行入库明细格式不正确'}), 400
                 material_code = (item_data.get('code') or '').strip()
-                if not material_code and not (business_type == '产品入库' and item_data.get('name')):
-                    message = '请填写物料名称或物料编码' if business_type == '产品入库' else '请选择物料'
-                    return jsonify({'status': 'error', 'msg': f'第 {index} 行{message}'}), 400
+                if not material_code:
+                    return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择物料'}), 400
                 material = Material.query.filter_by(code=material_code).first()
-                if not material and business_type != '产品入库':
+                if not material:
                     return jsonify({'status': 'error', 'msg': f'第 {index} 行物料 {material_code} 不存在'}), 400
                 try:
                     quantity = round_to_2_decimals(item_data.get('quantity', 0))
@@ -1193,9 +1192,8 @@ def register_in_order_routes(app):
                     if not isinstance(item_data, dict):
                         return jsonify({'status': 'error', 'msg': f'第 {index} 行入库明细格式不正确'}), 400
                     material_code = (item_data.get('code') or '').strip()
-                    if not material_code and not (business_type == '产品入库' and item_data.get('name')):
-                        message = '请填写物料名称或物料编码' if business_type == '产品入库' else '请选择物料'
-                        return jsonify({'status': 'error', 'msg': f'第 {index} 行{message}'}), 400
+                    if not material_code:
+                        return jsonify({'status': 'error', 'msg': f'第 {index} 行请选择物料'}), 400
                     try:
                         quantity = round_to_2_decimals(item_data.get('quantity', 0))
                     except (TypeError, ValueError):
@@ -1285,14 +1283,6 @@ def register_in_order_routes(app):
             ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
             if not ok:
                 return jsonify({'status': 'error', 'msg': wh_msg}), 400
-
-            if business_type == '产品入库' and items_data:
-                from services.product_receipt_materials import resolve_product_receipt_materials
-                try:
-                    items_data = resolve_product_receipt_materials(items_data)
-                except ValueError as exc:
-                    db.session.rollback()
-                    return api_error(str(exc))
 
             source_item_updates = []
             source_purchase_order_ids = set()
