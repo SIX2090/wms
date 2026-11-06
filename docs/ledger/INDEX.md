@@ -741,6 +741,8 @@
 | FEAT-2026-11-05-108 | bugs | entries-2026-11.md |
 | FEAT-2026-11-05-109 | bugs | entries-2026-11.md |
 | BUG-2026-11-05-007 | bugs | entries-2026-11.md |
+| FEAT-2026-11-06-001 | bugs | entries-2026-11.md |
+| FEAT-2026-11-06-002 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

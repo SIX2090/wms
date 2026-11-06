@@ -1,6 +1,7 @@
 """Exercise the actual array-cache consumers and HTTP client with delayed replies."""
 import json
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import re
 import shutil
 import subprocess
@@ -24,7 +25,7 @@ CASES = [
 @pytest.mark.parametrize('action', ['success', 'empty', 'order', 'latest_error', 'stale_error',
                                       'http', 'business', 'shape', 'network', 'invalid_row', 'duplicate', 'silent'])
 def test_real_cache_consumer_keeps_latest_complete_valid_list(page, name, mode, url, action):
-    source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    source = material_page_source() if page == 'material' else (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
     asset = ROOT / 'app/static/js/list-cache.js'
     program = r"""
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));

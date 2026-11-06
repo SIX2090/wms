@@ -14,26 +14,26 @@
             <div class="row">
                 <div class="col-md-3">
                     <div class="mb-3">
-                        <label class="form-label">物料编码 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="code" required>
+                        <label class="form-label" for="material-add-code-1">物料编码 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="code" required id="material-add-code-1">
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-3">
-                        <label class="form-label">物料名称 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="name" required>
+                        <label class="form-label" for="material-add-name-2">物料名称 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="name" required id="material-add-name-2">
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-3">
-                        <label class="form-label">规格型号</label>
-                        <input type="text" class="form-control" name="spec">
+                        <label class="form-label" for="material-add-spec-3">规格型号</label>
+                        <input type="text" class="form-control" name="spec" id="material-add-spec-3">
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-3">
-                        <label class="form-label">品牌</label>
-                        <input type="text" class="form-control" name="brand" maxlength="100" placeholder="如 ABB、施耐德">
+                        <label class="form-label" for="material-add-brand-4">品牌</label>
+                        <input type="text" class="form-control" name="brand" maxlength="100" placeholder="如 ABB、施耐德" id="material-add-brand-4">
                     </div>
                 </div>
             </div>
@@ -41,8 +41,8 @@
             <div class="row">
                 <div class="col-md-4">
                     <div class="mb-3">
-                        <label class="form-label">分类</label>
-                        <select class="form-select" name="category_id">
+                        <label class="form-label" for="material-add-category_id-5">分类</label>
+                        <select class="form-select" name="category_id" id="material-add-category_id-5">
                             <option value="">请选择分类</option>
                             {% for category in categories %}
                             <option value="{{ category.id }}">{{ category.name }}</option>
@@ -52,7 +52,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="mb-3">
-                        <label class="form-label">单位</label>
+                        <label class="form-label" for="unitSearch">单位</label>
                         <div class="input-group">
                             <div style="position:relative;flex:1;">
                                 <input type="text" class="form-control" id="unitSearch" placeholder="输入单位名称搜索..." autocomplete="off">
@@ -67,7 +67,7 @@
                 </div>
                 <div class="col-md-4">
                     <div class="mb-3">
-                        <label class="form-label">供应商</label>
+                        <label class="form-label" for="supplierSearch">供应商</label>
                         <div style="position:relative;">
                             <input type="text" class="form-control" id="supplierSearch" placeholder="输入供应商名称搜索..." autocomplete="off">
                             <input type="hidden" name="supplier_id" id="supplierIdHidden">
@@ -80,21 +80,21 @@
             <div class="row">
                 <div class="col-md-4">
                     <div class="mb-3">
-                        <label class="form-label">初始库存</label>
-                        <input type="number" class="form-control" name="stock" value="0" min="0" step="0.01">
+                        <label class="form-label" for="material-add-stock-7">初始库存</label>
+                        <input type="number" class="form-control" name="stock" value="0" min="0" step="0.01" id="material-add-stock-7">
                     </div>
                 </div>
                 {% if inventory_alert_enabled %}
                     <div class="col-md-4">
                         <div class="mb-3">
-                            <label class="form-label">最低库存</label>
-                            <input type="number" class="form-control" name="min_stock" value="0" min="0" step="0.01">
+                            <label class="form-label" for="material-add-min_stock-8">最低库存</label>
+                            <input type="number" class="form-control" name="min_stock" value="0" min="0" step="0.01" id="material-add-min_stock-8">
                         </div>
                     </div>
                     <div class="col-md-4">
                         <div class="mb-3">
-                            <label class="form-label">安全库存</label>
-                            <input type="number" class="form-control" name="safety_stock" value="0" min="0" step="0.01">
+                            <label class="form-label" for="material-add-safety_stock-9">安全库存</label>
+                            <input type="number" class="form-control" name="safety_stock" value="0" min="0" step="0.01" id="material-add-safety_stock-9">
                         </div>
                     </div>
                 {% endif %}
@@ -103,14 +103,14 @@
             <div class="row">
                 <div class="col-md-6">
                     <div class="mb-3">
-                        <label class="form-label">参考单价</label>
-                        <input type="number" class="form-control" name="price" value="0" min="0" step="0.01">
+                        <label class="form-label" for="material-add-price-10">参考单价</label>
+                        <input type="number" class="form-control" name="price" value="0" min="0" step="0.01" id="material-add-price-10">
                     </div>
                 </div>
                 <div class="col-md-6">
                     <div class="mb-3">
-                        <label class="form-label">备注</label>
-                        <textarea class="form-control" name="remark" rows="2"></textarea>
+                        <label class="form-label" for="material-add-remark-11">备注</label>
+                        <textarea class="form-control" name="remark" rows="2" id="material-add-remark-11"></textarea>
                     </div>
                 </div>
             </div>

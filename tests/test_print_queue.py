@@ -13,6 +13,10 @@
 from __future__ import annotations
 
 import os
+import json
+import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -300,7 +304,9 @@ def test_autoprint_page_renders(client):
         mat_id = material.id
     resp = client.get(f'/material_archive/{mat_id}/print?autoprint=1&copies=2&ptoken=x')
     assert resp.status_code == 200
-    assert 'var copies = 2;' in resp.get_data(as_text=True)
+    config = re.search(r'<script type="application/json" id="material-archive-data">([\s\S]*?)</script>', resp.get_data(as_text=True))
+    assert config and json.loads(config[1]) == {'autoprint': '1', 'copies': 2}
+    assert 'js/pages/material-archive.js' in resp.get_data(as_text=True)
     # 同一 include 的出库单/入库单打印页同样必须可渲染
     for url in ('/out_order/1/print?autoprint=1', '/in_order/1/print?autoprint=1'):
         assert client.get(url).status_code == 200
@@ -318,10 +324,26 @@ def test_autoprint_page_closes_window_after_print(client):
     resp = client.get(f'/material_archive/{mat_id}/print?autoprint=1&copies=2&ptoken=x')
     assert resp.status_code == 200
     html = resp.get_data(as_text=True)
-    assert 'window.close' in html
-    # 只在 autoprint 模式自关，人工打开打印页不受影响
+    source = (ROOT / 'app/static/js/pages/material-archive.js').read_text(encoding='utf-8')
+    program = r'''
+const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
+for(const autoprint of ['1','']){
+ let prints=0,closes=0,manual;const timers=[];
+ const ctx={document:{readyState:'complete',getElementById:id=>id==='material-archive-data'?{textContent:JSON.stringify({autoprint,copies:2})}:id==='materialArchivePrintButton'?{addEventListener:(_,fn)=>manual=fn}:null},setTimeout:fn=>timers.push(fn),print:()=>prints++,close:()=>closes++};ctx.window=ctx;
+ vm.runInNewContext(p.source,ctx);for(let i=0;timers.length&&i<20;i++)timers.shift()();
+ assert.equal(prints,autoprint?2:1,'requested copies are actually printed');assert.equal(closes,autoprint?1:0,'only automatic mode closes');assert.equal(timers.length,0);
+ manual();assert.equal(prints,autoprint?3:2,'manual print button remains usable');
+}
+'''
+    result = subprocess.run([shutil.which('node'), '-e', program],
+        input=json.dumps({'source': source}), text=True, encoding='utf-8',
+        capture_output=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert 'js/pages/material-archive.js' in html
+    # Manual page shares the asset but receives an explicit non-automatic mode.
     resp = client.get(f'/material_archive/{mat_id}/print')
-    assert 'window.close' not in resp.get_data(as_text=True)
+    config = re.search(r'<script type="application/json" id="material-archive-data">([\s\S]*?)</script>', resp.get_data(as_text=True))
+    assert config and not json.loads(config[1])['autoprint']
 
 
 def test_copies_in_url(client):

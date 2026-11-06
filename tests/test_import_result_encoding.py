@@ -35,7 +35,8 @@ def execute(page, scenario, value, url='/opening_stock/7?q=A%26B'):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    path = 'app/static/js/pages/employee.js' if page == 'employee' else f'app/templates/{page}.html'
+    assets = {'employee': 'employee.js', 'material': 'material-list.js'}
+    path = 'app/static/js/pages/' + assets[page] if page in assets else f'app/templates/{page}.html'
     source = (ROOT / path).read_text(encoding='utf-8')
     if page in ['employee', 'contract']:
         handler = function_at(source, source.index('function submitImport('))

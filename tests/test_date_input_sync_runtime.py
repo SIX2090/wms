@@ -1,6 +1,7 @@
 """Run actual date consumers; browser acceptance also uses these source extracts."""
 import json
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import shutil
 import subprocess
 
@@ -23,7 +24,7 @@ def function(source, name):
 
 def sources():
     shared = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
-    material = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    material = material_page_source()
     opening = (ROOT / 'app/static/js/pages/opening-stock.js').read_text(encoding='utf-8')
     quality = (ROOT / 'app/templates/ai_business_quality.html').read_text(encoding='utf-8')
     reset_start = material.index("document.getElementById('addModal').addEventListener('hidden.bs.modal', function() {")

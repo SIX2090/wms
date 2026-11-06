@@ -45,6 +45,12 @@ def _resolve_alert_thresholds(min_stock, reorder_point):
 
 # no-test:reason=路由注册辅助函数，能力由 material_* 各路由测试覆盖
 def register_material_routes(app):
+    from services.material_form_policy import material_page_uses_strict_scripts
+
+    @app.context_processor
+    def material_page_script_context():  # no-test:reason=六页面正常及嵌入响应的CSP/导航实际渲染覆盖
+        return {'strict_material_scripts': material_page_uses_strict_scripts()}
+
     @app.route('/material')
     @require_role('warehouse')
     @login_required

@@ -1,0 +1,89 @@
+const materialArchiveData = JSON.parse(document.getElementById('material-archive-data').textContent);
+document.getElementById('materialArchivePrintButton').addEventListener('click', function() { window.print(); });
+if (materialArchiveData.autoprint) {
+
+(function () {
+    if (window.__wmsAutoprint) { return; }
+    window.__wmsAutoprint = true;
+
+    var copies = materialArchiveData.copies;
+    if (!copies || copies < 1 || copies > 99) { copies = 1; }
+    var printed = 0;
+    // Optional explicit state applies only to pages that opt in.
+    function explicitPrintState() {
+        var container = document.getElementById('labelsContainer');
+        var state = container && typeof container.getAttribute === 'function'
+            ? container.getAttribute('data-wms-print-state') : null;
+        return state == null ? null : state;
+    }
+    function stopMarkedPrint(message) {
+        var status = document.getElementById('wmsAutoprintStatus');
+        if (!status) {
+            status = document.createElement('div');
+            status.id = 'wmsAutoprintStatus';
+            status.className = 'no-print alert alert-warning';
+            document.body.appendChild(status);
+        }
+        status.textContent = message;
+    }
+    function firePrint() {
+        var state = explicitPrintState();
+        if (state !== null && state !== 'ready') {
+            if (state === 'loading') {
+                waitAndPrint();
+                return;
+            }
+            stopMarkedPrint('标签未就绪或模板已更换，自动打印已停止；请核对模板后手动打印。');
+            return;
+        }
+        if (printed >= copies) {
+            // BUG-2026-08-19-009：打印代理等浏览器进程退出才算完成；页面不自关
+            // 则代理等满 print_timeout（默认 120s）强杀进程并把已出纸任务上报
+            // 为 failed。--app 模式下 window.close() 生效；人工打开的标签页
+            // 浏览器会忽略自关，不受影响。
+            setTimeout(function () { window.close(); }, 800);
+            return;
+        }
+        printed += 1;
+        try { window.print(); } catch (e) { return; }
+        setTimeout(firePrint, 800);
+    }
+    // 标签批量打印页为异步渲染（labelsContainer 子元素就绪才算加载完成），轮询等待
+    var waited = 0;
+    function waitAndPrint() {
+        var container = document.getElementById('labelsContainer');
+        var state = explicitPrintState();
+        if (state !== null) {
+            if (state === 'ready') {
+                setTimeout(firePrint, 400);
+                return;
+            }
+            if (state === 'error' || state === 'empty' || waited >= 15000) {
+                stopMarkedPrint(waited >= 15000
+                    ? '标签加载超时，自动打印已停止；请重试模板并核对后手动打印。'
+                    : '标签尚未就绪，自动打印已停止；请检查物料及模板后手动打印。');
+                return;
+            }
+            waited += 300;
+            setTimeout(waitAndPrint, 300);
+            return;
+        }
+        if (!container || container.children.length > 0 || waited >= 15000) {
+            setTimeout(firePrint, 400);
+            return;
+        }
+        waited += 300;
+        setTimeout(waitAndPrint, 300);
+    }
+    if (document.readyState === 'complete') {
+        waitAndPrint();
+    } else {
+        window.addEventListener('load', waitAndPrint);
+    }
+})();
+
+} else if (document.readyState === 'complete') {
+    window.print();
+} else {
+    window.addEventListener('load', function() { window.print(); }, { once: true });
+}

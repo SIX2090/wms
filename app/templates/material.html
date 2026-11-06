@@ -10,47 +10,47 @@
                 <i class="bi bi-cloud-upload"></i> 批量导入
             </a>
             <div class="vr"></div>
-            <button class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" onclick="toolbarEdit()" disabled title="编辑选中物料">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" data-material-action="toolbarEdit" disabled title="编辑选中物料">
                 <i class="bi bi-pencil"></i> 编辑
             </button>
-            <button class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" onclick="toolbarCopy()" disabled title="复制为新物料草稿">
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" data-material-action="toolbarCopy" disabled title="复制为新物料草稿">
                 <i class="bi bi-files"></i> 复制
             </button>
-            <button class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" onclick="toolbarPrint()" disabled title="打印标签">
+            <button type="button" class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" data-material-action="toolbarPrint" disabled title="打印标签">
                 <i class="bi bi-printer"></i> 打印
             </button>
-            <button class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" onclick="sendLabelsToPrintStation()" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
+            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" data-material-action="sendLabelsToPrintStation" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
                 <i class="bi bi-printer-fill"></i> 发送打印
             </button>
-            <button class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" onclick="toolbarFindImage()" disabled title="网上找图">
+            <button type="button" class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" data-material-action="toolbarFindImage" disabled title="网上找图">
                 <i class="bi bi-image"></i> 找图
             </button>
-            <button class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" onclick="toolbarDelete()" disabled title="删除勾选的未使用物料；有库存或引用的自动保留">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="删除勾选的未使用物料；有库存或引用的自动保留">
                 <i class="bi bi-trash"></i> 删除
             </button>
-            <button class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" onclick="toolbarMerge()" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
                 <i class="bi bi-arrow-left-right"></i> 合并物料
             </button>
             <div class="vr"></div>
             <div class="position-relative">
-                <button class="btn btn-outline-secondary btn-sm" id="toolbarColumnBtn" onclick="toggleMaterialColumnSettings()" title="设置显示/隐藏列">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarColumnBtn" data-material-action="toggleMaterialColumnSettings" title="设置显示/隐藏列">
                     <i class="bi bi-layout-three-columns"></i> 列设置
                 </button>
                 <div class="dropdown-menu material-col-settings-panel" id="materialColSettingsPanel">
                     <div class="material-col-settings-title">选择显示字段</div>
                     <div id="materialColOptions"></div>
                     <div class="material-col-settings-footer">
-                        <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetMaterialColumns()">
+                        <button type="button" class="btn btn-sm btn-outline-secondary w-100" data-material-action="resetMaterialColumns">
                             <i class="bi bi-arrow-counterclockwise"></i> 重置
                         </button>
                     </div>
                 </div>
             </div>
             <div class="vr"></div>
-            <button class="btn btn-warning btn-sm" onclick="fixEmptyFields()">
+            <button type="button" class="btn btn-warning btn-sm" data-material-action="fixEmptyFields">
                 <i class="bi bi-tools"></i> 修复空分类/单位
             </button>
-            <button class="btn btn-warning btn-sm" onclick="openLabelTemplate()">
+            <button type="button" class="btn btn-warning btn-sm" data-material-action="openLabelTemplate">
                 <i class="bi bi-grid-3x3"></i> 标签模板
             </button>
             {# AI-CI-GREEN-005-F03：物料档案是设置最低库存/安全库存的地方，
@@ -72,7 +72,7 @@
             <input type="hidden" name="embedded" value="1">
             {% endif %}
             {% if inventory_alert_enabled %}
-            <select name="stock_filter" class="form-select" style="width: 150px;" onchange="this.form.submit()">
+            <select name="stock_filter" class="form-select" style="width: 150px;" data-material-change="submitFilterForm" aria-label="库存条件">
                 <option value="" {% if not stock_filter %}selected{% endif %}>全部库存</option>
                 <option value="low" {% if stock_filter == 'low' %}selected{% endif %}>库存预警</option>
             </select>
@@ -80,12 +80,12 @@
             <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
             {# 2026-09-25：默认只看启用，停用物料需显式切到「停用/全部」才能看到，
                这样被停用的重复档案不会继续在日常列表里占位干扰。 #}
-            <select name="status" class="form-select" style="width: 130px;" onchange="this.form.submit()">
+            <select name="status" class="form-select" style="width: 130px;" data-material-change="submitFilterForm" aria-label="启用状态">
                 <option value="active" {% if status_filter == 'active' %}selected{% endif %}>启用</option>
                 <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
                 <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
             </select>
-            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
+            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
             <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id %}
             <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary">清除</a>
@@ -176,29 +176,29 @@
                         {% if (mat.status or 'active') == 'inactive' %}
                         <span class="badge bg-secondary">停用</span>
                         <button type="button" class="btn btn-sm btn-outline-success ms-1"
-                                onclick="toggleMaterialStatus({{ mat.id }}, 'active')" title="重新启用">
+                                data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="active" title="重新启用">
                             <i class="bi bi-play-circle"></i> 启用
                         </button>
                         {% else %}
                         <span class="badge bg-success">启用</span>
                         <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
-                                onclick="toggleMaterialStatus({{ mat.id }}, 'inactive')"
+                                data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="inactive"
                                 title="停用后新建单据不能再选到它；历史单据、库存与报表不受影响">
                             <i class="bi bi-pause-circle"></i> 停用
                         </button>
                         {% endif %}
                         <button type="button" class="btn btn-sm btn-outline-danger ms-1"
                                 data-code="{{ mat.code }}"
-                                onclick="mergeMaterialInto({{ mat.id }}, this.dataset.code)"
+                                data-material-action="mergeMaterialInto" data-material-id="{{ mat.id }}"
                                 title="把本物料合并到另一个物料：一个物料只保留一个物料编号">
                             <i class="bi bi-arrow-bar-right"></i> 合并
                         </button>
                     </td>
                     <td data-column-key="image">
                         {% if mat.image %}
-                        <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" class="img-thumbnail" title="点击放大" onclick="previewMaterialImage(this.src)">
+                        <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" class="img-thumbnail" title="点击放大" data-material-action="previewMaterialImage" role="button" tabindex="0" aria-label="预览物料图片">
                         {% else %}
-                        <button type="button" class="btn btn-sm btn-outline-success" onclick="findMaterialImage({{ mat.id }})" title="网上找图">
+                        <button type="button" class="btn btn-sm btn-outline-success" data-material-action="findMaterialImage" data-material-id="{{ mat.id }}" title="网上找图">
                             <i class="bi bi-image"></i>
                         </button>
                         {% endif %}
@@ -376,13 +376,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">物料编码 *</label>
+                                <label class="form-label" for="add_code">物料编码 *</label>
                                 <input type="text" class="form-control" name="code" id="add_code" required>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">物料名称 *</label>
+                                <label class="form-label" for="add_name">物料名称 *</label>
                                 <input type="text" class="form-control" name="name" id="add_name" required>
                             </div>
                         </div>
@@ -390,7 +390,7 @@
                     <div class="row">
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">分类</label>
+                                <label class="form-label" for="add_category_input">分类</label>
                                 <div class="quick-select" data-hidden-id="add_category_id">
                                     <input type="hidden" name="category_id" id="add_category_id">
                                     <input type="text" class="form-control quick-select-input" id="add_category_input" placeholder="请选择或输入分类" autocomplete="off">
@@ -401,7 +401,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">单位</label>
+                                <label class="form-label" for="add_unit_input">单位</label>
                                 <div class="quick-select" data-hidden-id="add_unit_id">
                                     <input type="hidden" name="unit_id" id="add_unit_id">
                                     <input type="text" class="form-control quick-select-input" id="add_unit_input" placeholder="请选择或输入单位" autocomplete="off">
@@ -412,7 +412,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">供应商</label>
+                                <label class="form-label" for="add_supplier_input">供应商</label>
                                 <div class="quick-select" data-hidden-id="add_supplier_id">
                                     <input type="hidden" name="supplier_id" id="add_supplier_id">
                                     <input type="text" class="form-control quick-select-input" id="add_supplier_input" placeholder="请选择或输入供应商" autocomplete="off">
@@ -425,13 +425,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">规格</label>
+                                <label class="form-label" for="add_spec">规格</label>
                                 <input type="text" class="form-control" name="spec" id="add_spec" maxlength="100">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">品牌</label>
+                                <label class="form-label" for="add_brand">品牌</label>
                                 <input type="text" class="form-control" name="brand" id="add_brand" maxlength="100" placeholder="如 ABB、施耐德">
                             </div>
                         </div>
@@ -439,13 +439,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">用途</label>
+                                <label class="form-label" for="add_purpose">用途</label>
                                 <input type="text" class="form-control" name="purpose" id="add_purpose">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">单价</label>
+                                <label class="form-label" for="add_price">单价</label>
                                 <input type="number" class="form-control" name="price" id="add_price" value="0" step="0.01">
                             </div>
                         </div>
@@ -454,27 +454,27 @@
                         {% if inventory_alert_enabled %}
                         <div class="col-md-3">
                             <div class="mb-3">
-                                <label class="form-label">最低库存</label>
+                                <label class="form-label" for="add_min_stock">最低库存</label>
                                 <input type="number" class="form-control" name="min_stock" id="add_min_stock" value="0" step="0.01">
                             </div>
                         </div>
                         {% endif %}
                         <div class="col-md-3">
                             <div class="mb-3">
-                                <label class="form-label">最大库存</label>
+                                <label class="form-label" for="add_max_stock">最大库存</label>
                                 <input type="number" class="form-control" name="max_stock" id="add_max_stock" value="0" step="0.01">
                             </div>
                         </div>
                         {% if inventory_alert_enabled %}
                         <div class="col-md-3">
                             <div class="mb-3">
-                                <label class="form-label">安全库存</label>
+                                <label class="form-label" for="add_reorder_point">安全库存</label>
                                 <input type="number" class="form-control" name="reorder_point" id="add_reorder_point" value="0" step="0.01">
                             </div>
                         </div>
                         <div class="col-md-3">
                             <div class="mb-3">
-                                <label class="form-label">预警天数</label>
+                                <label class="form-label" for="add_alert_days">预警天数</label>
                                 <input type="number" class="form-control" name="alert_days" id="add_alert_days" value="30" min="0">
                             </div>
                         </div>
@@ -483,17 +483,17 @@
                     <div class="row">
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">有效期至</label>
+                                <label class="form-label" for="add_expiry_date">有效期至</label>
                                 <input type="date" class="form-control" name="expiry_date" id="add_expiry_date">
                             </div>
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">物料图片</label>
-                        <input type="file" class="form-control" name="image" accept="image/*">
+                        <label class="form-label" for="material-image-15">物料图片</label>
+                        <input type="file" class="form-control" name="image" accept="image/*" id="material-image-15">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">备注</label>
+                        <label class="form-label" for="add_remark">备注</label>
                         <textarea class="form-control" name="remark" id="add_remark" rows="2" maxlength="500" placeholder="可填写物料相关备注（最多500字）"></textarea>
                     </div>
                 </div>
@@ -520,13 +520,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">物料编码 *</label>
+                                <label class="form-label" for="edit_code">物料编码 *</label>
                                 <input type="text" class="form-control" name="code" id="edit_code" required>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">物料名称 *</label>
+                                <label class="form-label" for="edit_name">物料名称 *</label>
                                 <input type="text" class="form-control" name="name" id="edit_name" required>
                             </div>
                         </div>
@@ -534,7 +534,7 @@
                     <div class="row">
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">分类</label>
+                                <label class="form-label" for="edit_category_input">分类</label>
                                 <div class="quick-select" data-hidden-id="edit_category_id">
                                     <input type="hidden" name="category_id" id="edit_category_id">
                                     <input type="text" class="form-control quick-select-input" id="edit_category_input" placeholder="请选择或输入分类" autocomplete="off">
@@ -545,7 +545,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">单位</label>
+                                <label class="form-label" for="edit_unit_input">单位</label>
                                 <div class="quick-select" data-hidden-id="edit_unit_id">
                                     <input type="hidden" name="unit_id" id="edit_unit_id">
                                     <input type="text" class="form-control quick-select-input" id="edit_unit_input" placeholder="请选择或输入单位" autocomplete="off">
@@ -556,7 +556,7 @@
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">供应商</label>
+                                <label class="form-label" for="edit_supplier_input">供应商</label>
                                 <div class="quick-select" data-hidden-id="edit_supplier_id">
                                     <input type="hidden" name="supplier_id" id="edit_supplier_id">
                                     <input type="text" class="form-control quick-select-input" id="edit_supplier_input" placeholder="请选择或输入供应商" autocomplete="off">
@@ -569,13 +569,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">规格</label>
+                                <label class="form-label" for="edit_spec">规格</label>
                                 <input type="text" class="form-control" name="spec" id="edit_spec" maxlength="100">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">品牌</label>
+                                <label class="form-label" for="edit_brand">品牌</label>
                                 <input type="text" class="form-control" name="brand" id="edit_brand" maxlength="100" placeholder="如 ABB、施耐德">
                             </div>
                         </div>
@@ -583,13 +583,13 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">用途</label>
+                                <label class="form-label" for="edit_purpose">用途</label>
                                 <input type="text" class="form-control" name="purpose" id="edit_purpose">
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">单价</label>
+                                <label class="form-label" for="edit_price">单价</label>
                                 <input type="number" class="form-control" name="price" id="edit_price" value="0" step="0.01">
                             </div>
                         </div>
@@ -598,21 +598,21 @@
                         {% if inventory_alert_enabled %}
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">最低库存</label>
+                                <label class="form-label" for="edit_min_stock">最低库存</label>
                                 <input type="number" class="form-control" name="min_stock" id="edit_min_stock" value="0" step="1">
                             </div>
                         </div>
                         {% endif %}
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">最大库存</label>
+                                <label class="form-label" for="edit_max_stock">最大库存</label>
                                 <input type="number" class="form-control" name="max_stock" id="edit_max_stock" value="0" step="1">
                             </div>
                         </div>
                         {% if inventory_alert_enabled %}
                         <div class="col-md-4">
                             <div class="mb-3">
-                                <label class="form-label">安全库存</label>
+                                <label class="form-label" for="edit_reorder_point">安全库存</label>
                                 <input type="number" class="form-control" name="reorder_point" id="edit_reorder_point" value="0" step="1">
                             </div>
                         </div>
@@ -621,27 +621,27 @@
                     <div class="row">
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">有效期至</label>
+                                <label class="form-label" for="edit_expiry_date">有效期至</label>
                                 <input type="date" class="form-control" name="expiry_date" id="edit_expiry_date">
                             </div>
                         </div>
                         {% if inventory_alert_enabled %}
                         <div class="col-md-6">
                             <div class="mb-3">
-                                <label class="form-label">预警天数</label>
+                                <label class="form-label" for="edit_alert_days">预警天数</label>
                                 <input type="number" class="form-control" name="alert_days" id="edit_alert_days" value="30" step="1">
                             </div>
                         </div>
                         {% endif %}
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">物料图片（最多5张，手机/电脑统一）</label>
+                        <label class="form-label" for="edit_image_upload">物料图片（最多5张，手机/电脑统一）</label>
                         <div id="editMaterialImageGrid" class="material-image-grid"></div>
-                        <input type="file" class="form-control" name="image" id="edit_image_upload" accept="image/*" onchange="uploadEditMaterialImage(this)">
+                        <input type="file" class="form-control" name="image" id="edit_image_upload" accept="image/*" data-material-change="uploadEditMaterialImage">
                         <small class="text-muted">选择图片后立即追加到档案（最多5张）；已上传图片可在下方删除。保存修改时选中的图片也会一并上传。</small>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">备注</label>
+                        <label class="form-label" for="edit_remark">备注</label>
                         <textarea class="form-control" name="remark" id="edit_remark" rows="2" maxlength="500" placeholder="可填写物料相关备注（最多500字）"></textarea>
                     </div>
                 </div>
@@ -710,38 +710,38 @@
                     <div style="flex: 1; padding: 20px; background: #e9ecef; overflow: auto;">
                         <div style="margin-bottom: 15px;">
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-success" onclick="previewLabel()"><i class="bi bi-eye"></i> 预览</button>
-                                <button class="btn btn-info" onclick="printLabels()"><i class="bi bi-printer"></i> 批量打印</button>
-                                <button class="btn btn-secondary" onclick="clearTemplate()"><i class="bi bi-trash3"></i> 清空</button>
+                                <button type="button" class="btn btn-success" data-material-action="previewLabel"><i class="bi bi-eye"></i> 预览</button>
+                                <button type="button" class="btn btn-info" data-material-action="printLabels"><i class="bi bi-printer"></i> 批量打印</button>
+                                <button type="button" class="btn btn-secondary" data-material-action="clearTemplate"><i class="bi bi-trash3"></i> 清空</button>
                             </div>
                             <div class="btn-group btn-group-sm ms-2">
-                                <button class="btn btn-outline-secondary" onclick="undoTemplate()" title="撤销 (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i> 撤销</button>
-                                <button class="btn btn-outline-secondary" onclick="redoTemplate()" title="重做 (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i> 重做</button>
-                                <button class="btn btn-outline-danger" onclick="clearSelectedCells()" title="清空选中单元格 (Delete)"><i class="bi bi-eraser"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-material-action="undoTemplate" title="撤销 (Ctrl+Z)"><i class="bi bi-arrow-counterclockwise"></i> 撤销</button>
+                                <button type="button" class="btn btn-outline-secondary" data-material-action="redoTemplate" title="重做 (Ctrl+Y)"><i class="bi bi-arrow-clockwise"></i> 重做</button>
+                                <button type="button" class="btn btn-outline-danger" data-material-action="clearSelectedCells" title="清空选中单元格 (Delete)"><i class="bi bi-eraser"></i></button>
                             </div>
                             <div class="btn-group btn-group-sm ms-2">
-                                <button class="btn btn-outline-primary" onclick="insertRow()" title="插入行"><i class="bi bi-file-plus"></i> 插入行</button>
-                                <button class="btn btn-outline-danger" onclick="deleteRow()" title="删除行"><i class="bi bi-file-minus"></i> 删除行</button>
-                                <button class="btn btn-outline-primary" onclick="insertCol()" title="插入列"><i class="bi bi-file-plus"></i> 插入列</button>
-                                <button class="btn btn-outline-danger" onclick="deleteCol()" title="删除列"><i class="bi bi-file-minus"></i> 删除列</button>
+                                <button type="button" class="btn btn-outline-primary" data-material-action="insertRow" title="插入行"><i class="bi bi-file-plus"></i> 插入行</button>
+                                <button type="button" class="btn btn-outline-danger" data-material-action="deleteRow" title="删除行"><i class="bi bi-file-minus"></i> 删除行</button>
+                                <button type="button" class="btn btn-outline-primary" data-material-action="insertCol" title="插入列"><i class="bi bi-file-plus"></i> 插入列</button>
+                                <button type="button" class="btn btn-outline-danger" data-material-action="deleteCol" title="删除列"><i class="bi bi-file-minus"></i> 删除列</button>
                             </div>
                         </div>
 
                         <!-- 标签尺寸选择 -->
                         <div style="margin-bottom: 10px; background: white; padding: 10px; border-radius: 5px;">
-                            <label style="font-size: 12px; margin-right: 10px;">模板:</label>
-                            <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="templateSelect" onchange="switchTemplate()">
+                            <label style="font-size: 12px; margin-right: 10px;" for="templateSelect">模板:</label>
+                            <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="templateSelect" data-material-change="switchTemplate">
                                 <option value="">-- 选择模板 --</option>
                             </select>
                             <input type="text" class="form-control form-control-sm" style="width: 120px; display: inline-block; margin-left: 10px;" id="templateNameInput" placeholder="模板名称">
-                            <button class="btn btn-sm btn-primary" onclick="saveTemplate()" title="已载入模板时原地更新，否则新建"><i class="bi bi-save"></i> 保存</button>
-                            <button class="btn btn-sm btn-outline-primary" onclick="saveAsTemplate()" title="以当前名称另存为新模板"><i class="bi bi-files"></i> 另存为</button>
-                            <button class="btn btn-sm btn-outline-success" onclick="setDefaultTemplate()" title="将当前模板设为默认"><i class="bi bi-star"></i> 设为默认</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteTemplate()"><i class="bi bi-trash"></i> 删除</button>
+                            <button type="button" class="btn btn-sm btn-primary" data-material-action="saveTemplate" title="已载入模板时原地更新，否则新建"><i class="bi bi-save"></i> 保存</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-material-action="saveAsTemplate" title="以当前名称另存为新模板"><i class="bi bi-files"></i> 另存为</button>
+                            <button type="button" class="btn btn-sm btn-outline-success" data-material-action="setDefaultTemplate" title="将当前模板设为默认"><i class="bi bi-star"></i> 设为默认</button>
+                            <button type="button" class="btn btn-sm btn-danger" data-material-action="deleteTemplate"><i class="bi bi-trash"></i> 删除</button>
                             <div id="labelTemplateStatus" class="small text-muted mt-1" role="status" aria-live="polite"></div>
                             <div style="margin-top: 8px;">
-                                <label style="font-size: 12px; margin-right: 10px;">标签尺寸:</label>
-                                <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="labelSizeSelect" onchange="changeLabelSize()">
+                                <label style="font-size: 12px; margin-right: 10px;" for="labelSizeSelect">标签尺寸:</label>
+                                <select class="form-select form-select-sm" style="width: auto; display: inline-block;" id="labelSizeSelect" data-material-change="changeLabelSize">
                                     <option value="small">小标签 (40x20mm)</option>
                                     <option value="medium" selected>中标签 (60x40mm)</option>
                                     <option value="large90">常用标签 (90x50mm)</option>
@@ -751,7 +751,7 @@
                                 <span id="customSize" style="display: none; margin-left: 10px;">
                                     <input type="number" class="form-control form-control-sm" style="width: 60px; display: inline-block;" id="customWidth" value="60"> x
                                     <input type="number" class="form-control form-control-sm" style="width: 60px; display: inline-block;" id="customHeight" value="40"> mm
-                                    <button class="btn btn-sm btn-primary" onclick="applyCustomSize()">应用</button>
+                                    <button type="button" class="btn btn-sm btn-primary" data-material-action="applyCustomSize">应用</button>
                                 </span>
                             </div>
                         </div>
@@ -759,12 +759,12 @@
                         <!-- 画布缩放工具条 -->
                         <div style="margin-bottom: 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
                             <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-secondary" onclick="zoomCanvas(-0.1)" title="缩小"><i class="bi bi-zoom-out"></i></button>
-                                <button class="btn btn-outline-secondary" id="canvasZoomLabel" onclick="resetCanvasZoom()" title="重置为100%" style="min-width:56px;">100%</button>
-                                <button class="btn btn-outline-secondary" onclick="zoomCanvas(0.1)" title="放大"><i class="bi bi-zoom-in"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" data-material-action="zoomCanvas" data-material-value="-0.1" title="缩小"><i class="bi bi-zoom-out"></i></button>
+                                <button type="button" class="btn btn-outline-secondary" id="canvasZoomLabel" data-material-action="resetCanvasZoom" title="重置为100%" style="min-width:56px;">100%</button>
+                                <button type="button" class="btn btn-outline-secondary" data-material-action="zoomCanvas" data-material-value="0.1" title="放大"><i class="bi bi-zoom-in"></i></button>
                             </div>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="fitCanvasZoom()" title="适应宽度"><i class="bi bi-arrows-angle-contract"></i> 适应</button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="toggleDesignerFullscreen()" title="全屏/退出全屏"><i class="bi bi-fullscreen"></i> 全屏</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-material-action="fitCanvasZoom" title="适应宽度"><i class="bi bi-arrows-angle-contract"></i> 适应</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-material-action="toggleDesignerFullscreen" title="全屏/退出全屏"><i class="bi bi-fullscreen"></i> 全屏</button>
                         </div>
 
                         <!-- Excel风格表格画布（缩放视口 + 缩放包裹层） -->
@@ -808,11 +808,11 @@
                         <h6 style="font-weight: bold; margin-bottom: 15px;"><i class="bi bi-sliders"></i> 当前选中</h6>
                         <div id="cellProperties" style="display: none;">
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">内容</label>
+                                <label class="form-label" style="font-size: 12px;" for="cellText">内容</label>
                                 <input type="text" class="form-control form-control-sm" id="cellText" placeholder="单元格内容">
                             </div>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">字段绑定</label>
+                                <label class="form-label" style="font-size: 12px;" for="cellField">字段绑定</label>
                                 <select class="form-select form-select-sm" id="cellField">
                                     <option value="">-- 无 --</option>
                                     <option value="code">物料编码</option>
@@ -835,16 +835,16 @@
                             <!-- 条码/二维码宽高设置（选中条码或二维码字段时显示） -->
                             <div id="barcodeSizeSettings" style="display: none;">
                                 <div class="mb-2">
-                                    <label class="form-label" style="font-size: 12px;" id="barcodeWidthLabel">条码宽度(mm)</label>
+                                    <label class="form-label" style="font-size: 12px;" id="barcodeWidthLabel" for="barcodeWidth">条码宽度(mm)</label>
                                     <input type="number" class="form-control form-control-sm" id="barcodeWidth" value="50" min="10" max="100">
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label" style="font-size: 12px;" id="barcodeHeightLabel">条码高度(mm)</label>
+                                    <label class="form-label" style="font-size: 12px;" id="barcodeHeightLabel" for="barcodeHeight">条码高度(mm)</label>
                                     <input type="number" class="form-control form-control-sm" id="barcodeHeight" value="15" min="5" max="50">
                                 </div>
                             </div>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">合并列数</label>
+                                <label class="form-label" style="font-size: 12px;" for="cellColspan">合并列数</label>
                                 <select class="form-select form-select-sm" id="cellColspan">
                                     <option value="1">1列</option>
                                     <option value="2">2列</option>
@@ -853,7 +853,7 @@
                             <hr style="margin: 12px 0;">
                             <h6 style="font-weight: bold; margin-bottom: 12px; font-size: 13px;"><i class="bi bi-palette"></i> 样式</h6>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">字体大小</label>
+                                <label class="form-label" style="font-size: 12px;" for="fontSizeSelect">字体大小</label>
                                 <select class="form-select form-select-sm" id="fontSizeSelect">
                                     <option value="10">10px</option>
                                     <option value="12" selected>12px</option>
@@ -865,40 +865,40 @@
                                 </select>
                             </div>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">字体粗细</label>
+                                <label class="form-label" style="font-size: 12px;" for="fontWeightSelect">字体粗细</label>
                                 <select class="form-select form-select-sm" id="fontWeightSelect">
                                     <option value="normal">正常</option>
                                     <option value="bold" selected>粗体</option>
                                 </select>
                             </div>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">文字颜色</label>
+                                <label class="form-label" style="font-size: 12px;" for="textColorSelect">文字颜色</label>
                                 <input type="color" class="form-control form-control-color" id="textColorSelect" value="#000000">
                             </div>
                             <div class="mb-2">
                                 <label class="form-label" style="font-size: 12px;">对齐方式</label>
                                 <div class="btn-group btn-group-sm w-100">
-                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('left')" title="左对齐"><i class="bi bi-text-left"></i></button>
-                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('center')" title="居中"><i class="bi bi-text-center"></i></button>
-                                    <button class="btn btn-outline-secondary" onclick="setTextAlign('right')" title="右对齐"><i class="bi bi-text-right"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setTextAlign" data-material-value="left" title="左对齐"><i class="bi bi-text-left"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setTextAlign" data-material-value="center" title="居中"><i class="bi bi-text-center"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setTextAlign" data-material-value="right" title="右对齐"><i class="bi bi-text-right"></i></button>
                                 </div>
                             </div>
                             <div class="mb-2">
                                 <label class="form-label" style="font-size: 12px;">垂直对齐</label>
                                 <div class="btn-group btn-group-sm w-100">
-                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('top')" title="顶部对齐"><i class="bi bi-align-top"></i></button>
-                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('middle')" title="垂直居中"><i class="bi bi-align-middle"></i></button>
-                                    <button class="btn btn-outline-secondary" onclick="setVerticalAlign('bottom')" title="底部对齐"><i class="bi bi-align-bottom"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setVerticalAlign" data-material-value="top" title="顶部对齐"><i class="bi bi-align-top"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setVerticalAlign" data-material-value="middle" title="垂直居中"><i class="bi bi-align-middle"></i></button>
+                                    <button type="button" class="btn btn-outline-secondary" data-material-action="setVerticalAlign" data-material-value="bottom" title="底部对齐"><i class="bi bi-align-bottom"></i></button>
                                 </div>
                             </div>
                             <div class="mb-2">
-                                <label class="form-label" style="font-size: 12px;">行高 (px)</label>
+                                <label class="form-label" style="font-size: 12px;" for="rowHeightInput">行高 (px)</label>
                                 <div class="input-group input-group-sm">
                                     <input type="number" class="form-control form-control-sm" id="rowHeightInput" min="20" max="200" step="5" value="30" placeholder="行高">
-                                    <button class="btn btn-outline-primary btn-sm" onclick="applyRowHeight()" title="应用行高">应用</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" data-material-action="applyRowHeight" title="应用行高">应用</button>
                                 </div>
                             </div>
-                            <button class="btn btn-sm btn-danger w-100 mb-2" onclick="deleteSelectedRow()"><i class="bi bi-trash"></i> 删除行</button>
+                            <button type="button" class="btn btn-sm btn-danger w-100 mb-2" data-material-action="deleteSelectedRow"><i class="bi bi-trash"></i> 删除行</button>
                         </div>
                         <div id="noSelection" class="text-muted text-center" style="padding: 20px;">
                             <i class="bi bi-mouse" style="font-size: 24px;"></i>
@@ -926,11 +926,11 @@
             </div>
             <div class="modal-footer">
                 <div class="form-check form-switch me-auto mb-0">
-                    <input class="form-check-input" type="checkbox" id="previewSampleToggle" checked onchange="togglePreviewSample(this.checked)">
+                    <input class="form-check-input" type="checkbox" id="previewSampleToggle" checked data-material-change="togglePreviewSample">
                     <label class="form-check-label" for="previewSampleToggle" style="font-size:13px;">示例数据（含真实条码/二维码）</label>
                 </div>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <button type="button" class="btn btn-primary" onclick="doPrint()"><i class="bi bi-printer"></i> 打印</button>
+                <button type="button" class="btn btn-primary" data-material-action="doPrint"><i class="bi bi-printer"></i> 打印</button>
             </div>
         </div>
     </div>
@@ -952,8 +952,8 @@
                         请上传 Excel 文件（.xlsx），表头需包含：物料编码、物料名称、品牌、规格、单位、分类、供应商、单价。请先下载模板参考格式。导入时按表头名称自动匹配列，列顺序不限。
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">选择文件 *</label>
-                        <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required>
+                        <label class="form-label" for="material-file-44">选择文件 *</label>
+                        <input type="file" class="form-control" name="file" accept=".xlsx,.xls" required id="material-file-44">
                     </div>
                     <div id="importResult" style="display:none;"></div>
                 </div>
@@ -1263,2657 +1263,24 @@
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/material_merge.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
-<script>
-const quickSelectData = {
-    category: [
+<script type="application/json" id="material-list-data">
+{"relations": {
+    "category": [
         {% for cat in categories %}
-        {id: {{ cat.id|tojson }}, name: {{ cat.name|tojson }}, code: {{ (cat.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {"id": {{ cat.id|tojson }}, "name": {{ cat.name|tojson }}, "code": {{ (cat.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ],
-    unit: [
+    "unit": [
         {% for unit in units %}
-        {id: {{ unit.id|tojson }}, name: {{ unit.name|tojson }}, code: {{ (unit.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {"id": {{ unit.id|tojson }}, "name": {{ unit.name|tojson }}, "code": {{ (unit.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ],
-    supplier: [
+    "supplier": [
         {% for sup in suppliers %}
-        {id: {{ sup.id|tojson }}, name: {{ sup.name|tojson }}, code: {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
+        {"id": {{ sup.id|tojson }}, "name": {{ sup.name|tojson }}, "code": {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ]
-};
-
-const quickSelectTypeByHiddenId = {
-    add_category_id: 'category',
-    edit_category_id: 'category',
-    add_unit_id: 'unit',
-    edit_unit_id: 'unit',
-    add_supplier_id: 'supplier',
-    edit_supplier_id: 'supplier'
-};
-
-const quickSelectApiByType = {
-    category: '/api/categories',
-    unit: '/api/units',
-    supplier: '/api/suppliers'
-};
-
-function normalizeQuickText(value) {
-    return String(value || '').trim().toLowerCase();
-}
-
-function quickSelectLabel(item) {
-    return item ? (item.name || item.code || '') : '';
-}
-
-function findQuickSelectItem(type, value) {
-    const normalized = normalizeQuickText(value);
-    if (!normalized) return null;
-    return (quickSelectData[type] || []).find(function(item) {
-        return normalizeQuickText(item.name) === normalized ||
-               normalizeQuickText(item.code) === normalized ||
-               String(item.id) === String(value);
-    }) || null;
-}
-
-function filterQuickSelectItems(type, keyword) {
-    const normalized = normalizeQuickText(keyword);
-    const items = quickSelectData[type] || [];
-    if (!normalized) return items.slice();
-    return items.filter(function(item) {
-        return normalizeQuickText(item.name).includes(normalized) ||
-               normalizeQuickText(item.code).includes(normalized);
-    });
-}
-
-function setQuickSelectValue(hiddenId, id) {
-    const hidden = document.getElementById(hiddenId);
-    const type = quickSelectTypeByHiddenId[hiddenId];
-    if (!hidden || !type) return;
-    const input = document.getElementById(hiddenId.replace('_id', '_input'));
-    const item = id ? (quickSelectData[type] || []).find(function(row) { return String(row.id) === String(id); }) : null;
-    hidden.value = item ? item.id : '';
-    if (input) input.value = item ? quickSelectLabel(item) : '';
-}
-
-function closeQuickSelects(exceptRoot) {
-    document.querySelectorAll('.quick-select.open').forEach(function(root) {
-        if (root !== exceptRoot) root.classList.remove('open');
-    });
-}
-
-function renderQuickSelectMenu(root, showAll) {
-    const hidden = document.getElementById(root.dataset.hiddenId);
-    const input = root.querySelector('.quick-select-input');
-    const menu = root.querySelector('.quick-select-menu');
-    const type = quickSelectTypeByHiddenId[root.dataset.hiddenId];
-    if (!hidden || !input || !menu || !type) return;
-    const matches = filterQuickSelectItems(type, showAll ? '' : input.value);
-    if (!matches.length) {
-        menu.innerHTML = '<div class="quick-select-empty">没有匹配项</div>';
-    } else {
-        menu.innerHTML = matches.map(function(item) {
-            const active = String(item.id) === String(hidden.value) ? ' active' : '';
-            const code = item.code ? '<span class="quick-code">' + escapeHtml(item.code) + '</span>' : '';
-            return '<div class="quick-select-item' + active + '" data-id="' + item.id + '">' + escapeHtml(item.name) + code + '</div>';
-        }).join('');
-    }
-    closeQuickSelects(root);
-    root.classList.add('open');
-    WMS.positionDropdown(input, menu, {minWidth: 220, maxHeight: 220});
-}
-
-function commitQuickSelectInput(root) {
-    const hidden = document.getElementById(root.dataset.hiddenId);
-    const input = root.querySelector('.quick-select-input');
-    const type = quickSelectTypeByHiddenId[root.dataset.hiddenId];
-    if (!hidden || !input || !type) return;
-    const value = input.value.trim();
-    if (!value) {
-        hidden.value = '';
-        return;
-    }
-    const item = findQuickSelectItem(type, value) || filterQuickSelectItems(type, value)[0] || null;
-    if (item) {
-        hidden.value = item.id;
-        input.value = quickSelectLabel(item);
-    } else {
-        hidden.value = '';
-    }
-}
-
-function commitQuickSelects(form) {
-    if (!form) return;
-    form.querySelectorAll('.quick-select').forEach(function(root) {
-        commitQuickSelectInput(root);
-        root.classList.remove('open');
-    });
-}
-
-
-
-function initQuickSelects() {
-    document.querySelectorAll('.quick-select').forEach(function(root) {
-        if (root.dataset.ready === '1') return;
-        root.dataset.ready = '1';
-        const hidden = document.getElementById(root.dataset.hiddenId);
-        const input = root.querySelector('.quick-select-input');
-        const toggle = root.querySelector('.quick-select-toggle');
-        const menu = root.querySelector('.quick-select-menu');
-        if (!hidden || !input || !toggle || !menu) return;
-
-        input.addEventListener('focus', function() { renderQuickSelectMenu(root, false); });
-        input.addEventListener('input', function() {
-            hidden.value = '';
-            renderQuickSelectMenu(root, false);
-        });
-        input.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                root.classList.remove('open');
-                return;
-            }
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                const active = menu.querySelector('.quick-select-item.active') || menu.querySelector('.quick-select-item');
-                if (active) setQuickSelectValue(root.dataset.hiddenId, active.dataset.id);
-                else commitQuickSelectInput(root);
-                root.classList.remove('open');
-            }
-        });
-        input.addEventListener('blur', function() {
-            setTimeout(function() {
-                if (!root.contains(document.activeElement)) {
-                    commitQuickSelectInput(root);
-                    root.classList.remove('open');
-                }
-            }, 160);
-        });
-        toggle.addEventListener('click', function() {
-            renderQuickSelectMenu(root, true);
-            input.focus();
-        });
-        menu.addEventListener('mousedown', function(event) {
-            const item = event.target.closest('.quick-select-item');
-            if (!item) return;
-            event.preventDefault();
-            setQuickSelectValue(root.dataset.hiddenId, item.dataset.id);
-            root.classList.remove('open');
-        });
-    });
-}
-
-function refreshQuickSelectData(types) {
-    return Promise.all((types || Object.keys(quickSelectApiByType)).map(function(type) {
-        return WMS.listCache.refresh(quickSelectData[type], quickSelectApiByType[type])
-            .catch(function() { return false; });
-    }));
-}
-
-window.WmsRefreshDropdowns = function() {
-    refreshQuickSelectData();
-};
-
-
-
-
-
-function setInputValueIfExists(id, value) {
-    var node = document.getElementById(id);
-    if (node) node.value = value;
-}
-
-var materialDeleteBusy = false;
-
-function getSelectedMaterialIds() {
-    return Array.from(document.querySelectorAll('#materialTable .check-item:checked'), function(cb) {
-        return cb.value;
-    });
-}
-
-function getSelectedSingleId() {
-    var ids = getSelectedMaterialIds();
-    return ids.length === 1 ? ids[0] : null;
-}
-
-function updateToolbarButtons() {
-    var count = getSelectedMaterialIds().length;
-    var hasSelection = count > 0;
-    var isSingleSelection = count === 1;
-    document.getElementById('toolbarEditBtn').disabled = !isSingleSelection;
-    document.getElementById('toolbarCopyBtn').disabled = !isSingleSelection;
-    document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
-    const remotePrintButton = document.getElementById('toolbarRemotePrintBtn');
-    remotePrintButton.disabled = !hasSelection || remotePrintButton.dataset?.runtimePaused === '1';
-    document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
-    document.getElementById('toolbarDeleteBtn').disabled = !hasSelection || materialDeleteBusy;
-    document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
-}
-
-function initToolbarActions() {
-    var table = document.getElementById('materialTable');
-    if (table) {
-        table.addEventListener('change', function(e) {
-            if (e.target.classList.contains('check-item') || e.target.id === 'checkAll') {
-                updateToolbarButtons();
-            }
-        });
-        // 初始化时更新一次
-        updateToolbarButtons();
-    }
-}
-
-function toolbarEdit() {
-    var id = getSelectedSingleId();
-    if (id) editMaterial(id);
-}
-
-function toolbarCopy() {
-    var id = getSelectedSingleId();
-    if (id) copyMaterial(id);
-}
-
-function toolbarPrint() {
-    printLabels();
-}
-
-function sendLabelsToPrintStation() {
-    var ids = getSelectedMaterialIds();
-    if (!ids.length) return;
-    WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: ids.join(',')})
-    .then(function(res) {
-        showToast(res.msg || '已发送标签到打印工作站', 'success');
-    })
-    .catch(function(err) {
-        showToast('发送打印任务失败：' + err.message, 'danger');
-    });
-}
-
-function toolbarFindImage() {
-    var id = getSelectedSingleId();
-    if (id) findMaterialImage(id);
-}
-
-// 列表缩略图点击放大预览
-function previewMaterialImage(src) {
-    if (!src) return;
-    document.getElementById('imagePreviewImg').src = src;
-    var modalEl = document.getElementById('imagePreviewModal');
-    var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
-    modal.show();
-}
-
-function showMaterialDeleteResult(result) {
-    var modalEl = document.getElementById('materialDeleteResultModal');
-    var body = document.getElementById('materialDeleteResults');
-    body.replaceChildren();
-    document.getElementById('materialDeleteSummary').textContent = '已选 ' + result.selected_count + ' 条：已删除 ' +
-        result.deleted_count + ' 条，保留 ' + result.skipped_count + ' 条，失败 ' + result.failed_count + ' 条。';
-    var labels = {deleted: '已删除', skipped: '保留', failed: '失败，已保留'};
-    (result.items || []).forEach(function(item) {
-        var row = document.createElement('tr');
-        [item.code || ('ID ' + item.id), item.name || '', labels[item.status] || '保留', item.reason || ''].forEach(function(value) {
-            var cell = document.createElement('td');
-            cell.textContent = value;
-            row.appendChild(cell);
-        });
-        body.appendChild(row);
-    });
-    modalEl._deleteReload = result.deleted_count > 0;
-    if (!modalEl._deleteResultBound) {
-        modalEl.addEventListener('hidden.bs.modal', function() {
-            if (modalEl._deleteReload) {
-                modalEl._deleteReload = false;
-                window.location.reload();
-            }
-        });
-        modalEl._deleteResultBound = true;
-    }
-    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
-}
-
-async function toolbarDelete() {
-    if (materialDeleteBusy) return;
-    var ids = getSelectedMaterialIds();
-    if (!ids.length) {
-        showToast('请先勾选要清理的物料', 'warning');
-        return;
-    }
-    materialDeleteBusy = true;
-    updateToolbarButtons();
-    try {
-        var confirmed = await showConfirm('确定清理已勾选的 ' + ids.length + ' 条物料吗？\n仅删除未使用、无库存且无引用的档案；已使用、有库存或图片的会自动保留。\n只处理本次勾选项，删除后不能在页面恢复。', {title: '删除未使用物料确认'});
-        if (!confirmed) return;
-        // Selection was captured before confirmation; never expand it to other pages or filters.
-        var result = await WMS.api.post('{{ url_for("delete_material") }}', {ids: ids});
-        showMaterialDeleteResult(result);
-    } catch (err) {
-        var result = err && err.data && err.data.data;
-        if (result && Array.isArray(result.items)) showMaterialDeleteResult(result);
-        else showToast((err && err.message) || '物料清理失败，请稍后重试', 'danger');
-    } finally {
-        materialDeleteBusy = false;
-        updateToolbarButtons();
-    }
-}
-
-// 2026-09-25：物料停用 / 启用。停用只挡「新建单据时能否选到」，历史单据、
-// 库存与报表不受影响——确认文案必须讲清这一点，否则用户不敢点。
-function toggleMaterialStatus(id, status) {
-    var label = status === 'inactive' ? '停用' : '启用';
-    var tip = status === 'inactive'
-        ? '停用后：新建单据不能再选到这个物料；\n已录入的历史单据、库存数量、台账与报表都不受影响。'
-        : '启用后：新建单据可以重新选到这个物料。';
-    if (!confirm('确定' + label + '这个物料吗？\n\n' + tip)) return;
-    WMS.api.postRaw('/material/' + id + '/set_status', {status: status}).then(function (r) {
-        if (r && r.status === 'success') {
-            window.location.reload();
-        } else {
-            showToast((r && r.msg) || label + '失败', 'danger');
-        }
-    }).catch(function (e) {
-        showToast(label + '失败：' + (e && e.message ? e.message : e), 'danger');
-    });
-}
-
-// MATERIAL-MERGE-HUMAN-001：行按钮固定被合并方；工具栏支持选1或2条，再人工核对方向。
-function mergeMaterialInto(id, sourceCode) {
-    WMS.MaterialMerge.open({id: Number(id), code: sourceCode});
-}
-function toolbarMerge() {
-    var selected = Array.from(document.querySelectorAll('#materialTable .check-item:checked')).map(function (node) {
-        return {id: Number(node.value), code: node.closest('tr').querySelector('[data-column-key="code"]').textContent.trim()};
-    });
-    if (selected.length < 1 || selected.length > 2) return;
-    WMS.MaterialMerge.open(selected[0], selected[1] || null);
-}
-
-// ==================== 列设置（显示/隐藏字段） ====================
-var MATERIAL_COL_STORAGE_KEY = 'material_col_visibility_v1';
-var MATERIAL_COL_DEFAULTS = [
-    {key: 'code',     label: '物料编码'},
-    {key: 'name',     label: '物料名称'},
-    {key: 'brand',    label: '品牌'},
-    {key: 'spec',     label: '规格'},
-    {key: 'unit',     label: '单位'},
-    {key: 'category', label: '分类'},
-    {key: 'supplier', label: '供应商'},
-    {key: 'purpose',  label: '用途'},
-    {key: 'stock',    label: '库存'},
-    {key: 'min_stock',label: '最低库存'},
-    {key: 'price',    label: '单价'},
-    {key: 'remark',   label: '备注'},
-    {key: 'status',   label: '状态'},
-    {key: 'image',    label: '图片'}
-];
-
-function loadMaterialColVisibility() {
-    try {
-        var saved = JSON.parse(localStorage.getItem(MATERIAL_COL_STORAGE_KEY) || 'null');
-        if (Array.isArray(saved) && saved.length) return new Set(saved);
-    } catch(e) {}
-    return null;
-}
-
-function saveMaterialColVisibility(hiddenSet) {
-    localStorage.setItem(MATERIAL_COL_STORAGE_KEY, JSON.stringify(Array.from(hiddenSet)));
-}
-
-function buildMaterialColOptions() {
-    var container = document.getElementById('materialColOptions');
-    if (!container) return;
-    var hidden = loadMaterialColVisibility() || new Set();
-    var html = '';
-    MATERIAL_COL_DEFAULTS.forEach(function(col) {
-        var checked = !hidden.has(col.key) ? ' checked' : '';
-        html += '<div class="form-check material-col-option">' +
-            '<input class="form-check-input" type="checkbox" id="matCol_' + col.key + '"' + checked + ' data-col-key="' + col.key + '">' +
-            '<label class="form-check-label" for="matCol_' + col.key + '">' + col.label + '</label>' +
-            '</div>';
-    });
-    container.innerHTML = html;
-
-    container.querySelectorAll('.form-check-input').forEach(function(cb) {
-        cb.addEventListener('change', function() {
-            var key = this.dataset.colKey;
-            var curHidden = loadMaterialColVisibility() || new Set();
-            if (this.checked) {
-                curHidden.delete(key);
-            } else {
-                curHidden.add(key);
-            }
-            saveMaterialColVisibility(curHidden);
-            applyMaterialColVisibility(curHidden);
-        });
-    });
-}
-
-function applyMaterialColVisibility(hiddenSet) {
-    var table = document.getElementById('materialTable');
-    if (!table) return;
-    hiddenSet = hiddenSet || loadMaterialColVisibility() || new Set();
-    // 表头
-    table.querySelectorAll('thead th[data-column-key]').forEach(function(th) {
-        var key = th.dataset.columnKey;
-        if (key === 'select') return;
-        th.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
-    });
-    // 表体
-    table.querySelectorAll('tbody tr').forEach(function(tr) {
-        tr.querySelectorAll('td[data-column-key]').forEach(function(td) {
-            var key = td.dataset.columnKey;
-            if (key === 'select') return;
-            td.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
-        });
-    });
-}
-
-function toggleMaterialColumnSettings() {
-    var panel = document.getElementById('materialColSettingsPanel');
-    if (!panel) return;
-    var isOpen = panel.classList.contains('show');
-    if (!isOpen) {
-        buildMaterialColOptions();
-    }
-    panel.classList.toggle('show');
-}
-
-function resetMaterialColumns() {
-    localStorage.removeItem(MATERIAL_COL_STORAGE_KEY);
-    buildMaterialColOptions();
-    applyMaterialColVisibility(new Set());
-    showToast('列设置已重置', 'success', 1500);
-}
-
-// 点击面板外部关闭
-document.addEventListener('click', function(e) {
-    var panel = document.getElementById('materialColSettingsPanel');
-    var btn = document.getElementById('toolbarColumnBtn');
-    if (panel && !panel.contains(e.target) && btn && !btn.contains(e.target)) {
-        panel.classList.remove('show');
-    }
-});
-
-document.addEventListener('DOMContentLoaded', function() {
-    initCheckAll('materialTable');
-    initToolbarActions();
-    applyMaterialColVisibility();
-    if (typeof setupDynamicDetailColumnControls === 'function') {
-        window.materialColumnController = setupDynamicDetailColumnControls({
-            tableSelector: '#materialTable',
-            orderKey: 'material_col_order_v1',
-            widthKey: 'material_col_widths_v1',
-            lockedColumns: ['select'],
-            minWidths: {
-                select: 50,
-                code: 120,
-                name: 140,
-                spec: 100,
-                unit: 70,
-                category: 90,
-                supplier: 110,
-                purpose: 110,
-                stock: 80,
-                min_stock: 90,
-                price: 80,
-                remark: 160,
-                image: 70
-            }
-        });
-    }
-    initQuickSelects();
-    try {
-        if (typeof BroadcastChannel !== 'undefined') {
-            var masterBc = new BroadcastChannel('wms_master_data_update');
-            masterBc.onmessage = function(event) {
-                var type = event.data && event.data.type;
-                if (type === 'unit_updated') refreshQuickSelectData(['unit']);
-                if (type === 'supplier_updated') refreshQuickSelectData(['supplier']);
-                if (type === 'category_updated') refreshQuickSelectData(['category']);
-            };
-        }
-    } catch(e) {}
-
-    var importForm = document.getElementById('importMaterialForm');
-    if (importForm) {
-        importForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            var btn = document.getElementById('importBtn');
-            var resultDiv = document.getElementById('importResult');
-            btn.disabled = true;
-            btn.textContent = '导入中...';
-            resultDiv.style.display = 'none';
-            resultDiv.innerHTML = '';
-            var formData = new FormData(this);
-            // The shared API preserves structured errors and non-JSON HTTP status.
-            WMS.api.postRaw(this.action, formData)
-            .then(function(res) {
-                btn.disabled = false;
-                btn.textContent = '导入';
-                resultDiv.style.display = 'block';
-                if (res && res.status === 'success') {
-                    var html = '<div class="alert alert-success"><i class="bi bi-check-circle"></i> ' + escapeHtml(res.msg) + '</div>';
-                    if (res.warnings) {
-                        html += '<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> ' + escapeHtml(res.warnings) + '</div>';
-                    }
-                    resultDiv.innerHTML = html;
-                    setTimeout(function() { location.reload(); }, 2000);
-                } else {
-                    var errMsg = (res && res.msg) ? res.msg : '未知错误';
-                    resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + escapeHtml(errMsg) + '</div>';
-                }
-            })
-            .catch(function(err) {
-                btn.disabled = false;
-                btn.textContent = '导入';
-                resultDiv.style.display = 'block';
-                var msg = (err && err.message) ? err.message : '请求失败，请稍后重试';
-                resultDiv.innerHTML = '<div class="alert alert-danger"><i class="bi bi-x-circle"></i> ' + escapeHtml(msg) + '</div>';
-            });
-        });
-    }
-
-    // 每页显示条数切换
-    var perPageSelect = document.getElementById('perPageSelect');
-    if (perPageSelect) {
-        perPageSelect.addEventListener('change', function() {
-            var perPage = this.value;
-            var currentUrl = new URL(window.location.href);
-            currentUrl.searchParams.set('per_page', perPage);
-            currentUrl.searchParams.set('page', '1');
-            window.location.href = currentUrl.toString();
-        });
-    }
-
-    // 表头排序点击处理
-    var sortableHeaders = document.querySelectorAll('.sortable-header');
-    sortableHeaders.forEach(function(th) {
-        th.addEventListener('click', function(e) {
-            if (e.target.closest('.col-resize')) return;
-            // 如果正在拖拽，不触发排序
-            if (this.dataset.dragging === 'true') return;
-            var sortField = this.dataset.sortable;
-            if (!sortField) return;
-            var currentSort = '{{ sort_by }}';
-            var currentOrder = '{{ sort_order }}';
-            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
-            var url = new URL(window.location.href);
-            url.searchParams.set('sort', sortField);
-            url.searchParams.set('order', newOrder);
-            url.searchParams.set('page', '1');
-            window.location.href = url.toString();
-        });
-    });
-
-    document.getElementById('addModal').addEventListener('show.bs.modal', function() {
-        window.WmsRefreshDropdowns && window.WmsRefreshDropdowns();
-    });
-    document.getElementById('editModal').addEventListener('show.bs.modal', function() {
-        window.WmsRefreshDropdowns && window.WmsRefreshDropdowns();
-    });
-
-    // 新增物料
-    var addForm = document.getElementById('addForm');
-    if (addForm) {
-        document.getElementById('addModal').addEventListener('hidden.bs.modal', function() {
-            addForm.reset();
-            setWmsDateInputValue(document.getElementById('add_expiry_date'), '');
-            ['add_category_id', 'add_unit_id', 'add_supplier_id'].forEach(function(id) { setQuickSelectValue(id, ''); });
-            document.getElementById('addModalTitle').textContent = '新增物料';
-            document.getElementById('copyHint').classList.add('d-none');
-        });
-
-        addForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            commitQuickSelects(this);
-            var formData = new FormData(this);
-            WMS.api.postRaw('{{ url_for("add_material") }}', formData)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    // 广播通知其他页面刷新物料列表
-                    try {
-                        if (typeof BroadcastChannel !== 'undefined') {
-                            var bc = new BroadcastChannel('wms_material_update');
-                            bc.postMessage({type: 'material_updated', timestamp: Date.now()});
-                            bc.close();
-                        }
-                    } catch(e) {}
-                    showToast(res.msg || '物料保存成功，正在刷新列表…', 'success', 1800);
-                    setTimeout(function(){ location.reload(); }, 500);
-                }
-                else showToast(res.msg || '保存失败', 'danger', 3600);
-            })
-            .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
-        });
-    }
-
-    // 编辑物料 - 打开编辑弹窗
-    window.editMaterial = function(id) {
-        return loadWmsMasterEditor('material', id, function(mat) {
-            document.getElementById('edit_id').value = mat.id;
-            document.getElementById('edit_code').value = mat.code;
-            document.getElementById('edit_code').setAttribute('data-original', mat.code);
-            document.getElementById('edit_name').value = mat.name;
-            document.getElementById('edit_name').setAttribute('data-original', mat.name);
-            setQuickSelectValue('edit_category_id', mat.category_id || '');
-            setQuickSelectValue('edit_unit_id', mat.unit_id || '');
-            setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
-            document.getElementById('edit_spec').value = mat.spec || '';
-            document.getElementById('edit_brand').value = mat.brand || '';
-            document.getElementById('edit_purpose').value = mat.purpose || '';
-            document.getElementById('edit_price').value = mat.price || 0;
-            setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
-            setInputValueIfExists('edit_max_stock', mat.max_stock || 0);
-            setInputValueIfExists('edit_reorder_point', mat.reorder_point || 0);
-            setWmsDateInputValue(document.getElementById('edit_expiry_date'), mat.expiry_date || '');
-            setInputValueIfExists('edit_alert_days', mat.alert_days || 30);
-            setInputValueIfExists('edit_remark', mat.remark || '');
-            var imageInput = document.getElementById('edit_image_upload');
-            if (imageInput) imageInput.value = '';
-
-            // 统一多图：加载物料档案图片（手机/电脑共用 MaterialImage 表）
-            loadEditMaterialImages(mat.id);
-
-            // 显示编辑弹窗
-            var editModal = new bootstrap.Modal(document.getElementById('editModal'));
-            editModal.show();
-        });
-    };
-
-    window.getEditMaterialContext = function(id) {
-        var modal = document.getElementById('editModal');
-        var input = document.getElementById('edit_id');
-        var state = modal && modal._wmsMasterEditor;
-        var version = state && state.version;
-        function current() {
-            return !!(state && !state.pending && state.recordId === String(id) && state.version === version &&
-                modal._wmsMasterEditor === state && modal.isConnected && input && input.isConnected &&
-                document.getElementById('editModal') === modal && document.getElementById('edit_id') === input &&
-                String(input.value) === String(id));
-        }
-        return current() ? { isCurrent: current } : null;
-    };
-
-    // 编辑物料 - 加载物料档案图片（手机/电脑统一的多图）
-    window.loadEditMaterialImages = function(id) {
-        var context = getEditMaterialContext(id);
-        var grid = document.getElementById('editMaterialImageGrid');
-        if (!context || !grid || !grid.isConnected) return;
-        var version = (loadEditMaterialImages.version || 0) + 1;
-        loadEditMaterialImages.version = version;
-        function current() {
-            return context.isCurrent() && loadEditMaterialImages.version === version && grid.isConnected &&
-                document.getElementById('editMaterialImageGrid') === grid;
-        }
-        grid.textContent = '图片加载中…';
-        return WMS.api.getRaw('/mobile/api/material_archive/' + id + '/images')
-            .then(function(res) {
-                if (!current()) return;
-                if (!res || res.status !== 'success') {
-                    grid.innerHTML = '<div class="text-muted small">图片加载失败</div>';
-                    return;
-                }
-                var images = (res.data && res.data.images) || [];
-                if (!Array.isArray(images)) throw new Error('返回的图片数据无效，请重试');
-                if (!images.length) {
-                    grid.innerHTML = '<div class="text-muted small">暂无图片</div>';
-                    return;
-                }
-                var html = '';
-                images.forEach(function(img) {
-                    html += '<div class="material-image-card">'
-                        + '<img src="' + (img.url || img.image) + '" alt="物料图片">'
-                        + '<div class="image-meta">'
-                        + '<button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteEditMaterialImage(' + img.id + ')">删除</button>'
-                        + '</div>'
-                        + '</div>';
-                });
-                grid.innerHTML = html;
-            })
-            .catch(function(err){
-                if (current()) grid.textContent = '图片加载失败：' + err.message;
-            });
-    };
-
-    // 编辑物料 - 删除一张档案图片
-    window.deleteEditMaterialImage = function(imageId) {
-        if (isWmsMasterEditPending()) return;
-        if (!confirm('确定删除这张物料图片吗？')) return;
-        var editId = document.getElementById('edit_id').value;
-        var context = getEditMaterialContext(editId);
-        if (!context) return;
-        WMS.api.delete('/mobile/api/material_archive/images/' + imageId)
-            .then(function(res) {
-                if (!context.isCurrent()) return;
-                showToast('图片已删除', 'success', 2000);
-                loadEditMaterialImages(editId);
-            })
-            .catch(function(err){ if (context.isCurrent()) showToast((err && (err.msg || err.message)) || '删除失败', 'danger', 3600); });
-    };
-
-    // 编辑物料 - 上传一张档案图片（即时上传，调用移动端统一 upload 接口）
-    window.uploadEditMaterialImage = function(input) {
-        if (!input || !input.files || !input.files.length) return;
-        if (isWmsMasterEditPending()) return;
-        var editId = document.getElementById('edit_id').value;
-        if (!editId) { showToast('请先选择要编辑的物料', 'danger'); input.value = ''; return; }
-        var context = getEditMaterialContext(editId);
-        if (!context) return;
-        var file = input.files[0];
-        var formData = new FormData();
-        formData.append('image', file);
-        showToast('正在上传图片...', 'info', 1500);
-        WMS.api.post('/mobile/api/material_archive/' + editId + '/images', formData)
-            .then(function() {
-                if (!context.isCurrent()) return;
-                showToast('图片已上传', 'success', 2000);
-                input.value = '';
-                loadEditMaterialImages(editId);
-            })
-            .catch(function(err){ if (context.isCurrent()) { showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; } });
-    };
-
-    window.copyMaterial = function(id) {
-        WMS.api.post('/material/' + id + '/copy')
-            .then(function(res) {
-                var mat = res.material;
-                var modalEl = document.getElementById('addModal');
-                    var modal = bootstrap.Modal.getInstance(modalEl);
-                    if (!modal) {
-                        modal = new bootstrap.Modal(modalEl);
-                    }
-                    modal.hide();
-                    setTimeout(function() {
-                        addForm.reset();
-                        document.getElementById('addModalTitle').textContent = '复制物料（编辑状态）';
-                        document.getElementById('copyHint').classList.remove('d-none');
-                        document.getElementById('add_code').value = mat.suggested_code || '';
-                        document.getElementById('add_code').placeholder = '系统已自动生成编号';
-                        document.getElementById('add_name').value = mat.name || '';
-                        setQuickSelectValue('add_category_id', mat.category_id || '');
-                        setQuickSelectValue('add_unit_id', mat.unit_id || '');
-                        setQuickSelectValue('add_supplier_id', mat.supplier_id || '');
-                        document.getElementById('add_spec').value = mat.spec || '';
-                        document.getElementById('add_brand').value = mat.brand || '';
-                        document.getElementById('add_purpose').value = mat.purpose || '';
-                        document.getElementById('add_price').value = mat.price || 0;
-                        setInputValueIfExists('add_min_stock', mat.min_stock || 0);
-                        setInputValueIfExists('add_max_stock', mat.max_stock || 0);
-                        setInputValueIfExists('add_reorder_point', mat.reorder_point || 0);
-                        setInputValueIfExists('add_alert_days', mat.alert_days || 30);
-                        setWmsDateInputValue(document.getElementById('add_expiry_date'), mat.expiry_date || '');
-                        setInputValueIfExists('add_remark', mat.remark || '');
-                        modal.show();
-                    }, 150);
-            })
-            .catch(function(err){ showToast((err && (err.msg || err.message)) || '复制失败', 'danger', 3600); });
-    };
-
-    var materialImageRequestGeneration = 0;
-    var materialImageContext = null;
-
-    function materialImageDomIsCurrent(context) {
-        return materialImageContext === context && context.generation === materialImageRequestGeneration
-            && context.modalEl.isConnected && context.statusEl.isConnected
-            && context.gridEl.isConnected && context.queryEl.isConnected
-            && document.getElementById('materialImageModal') === context.modalEl
-            && document.getElementById('materialImageStatus') === context.statusEl
-            && document.getElementById('materialImageGrid') === context.gridEl
-            && document.getElementById('materialImageQuery') === context.queryEl
-            && context.modalEl.dataset.materialImageId === context.materialId;
-    }
-
-    function materialImageIsCurrent(context) {
-        return context.active && materialImageDomIsCurrent(context);
-    }
-
-    window.findMaterialImage = function(id) {
-        var modalEl = document.getElementById('materialImageModal');
-        var statusEl = document.getElementById('materialImageStatus');
-        var gridEl = document.getElementById('materialImageGrid');
-        var queryEl = document.getElementById('materialImageQuery');
-        if (!modalEl || !statusEl || !gridEl || !queryEl) return;
-        var modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
-        var context = {
-            generation: ++materialImageRequestGeneration, materialId: String(id),
-            modalEl: modalEl, statusEl: statusEl, gridEl: gridEl, queryEl: queryEl,
-            active: true, saving: false, completed: false, buttons: []
-        };
-        materialImageContext = context;
-        modalEl.dataset.materialImageId = context.materialId;
-        if (!modalEl._materialImageLifecycleBound) {
-            modalEl._materialImageLifecycleBound = true;
-            ['hide.bs.modal', 'hidden.bs.modal'].forEach(function(eventName) {
-                modalEl.addEventListener(eventName, function() {
-                    if (materialImageContext && materialImageContext.modalEl === modalEl) {
-                        materialImageContext.active = false;
-                    }
-                });
-            });
-        }
-        statusEl.textContent = '正在搜索候选图片...';
-        statusEl.className = 'text-muted py-3';
-        gridEl.innerHTML = '';
-        queryEl.textContent = '';
-        modal.show();
-
-        WMS.api.getRaw('/material/' + id + '/image_candidates')
-            .then(function(res) {
-                if (!materialImageIsCurrent(context)) return;
-                if (res.status !== 'success') {
-                    statusEl.textContent = res.msg || '找图失败';
-                    statusEl.className = 'text-danger py-3';
-                    return;
-                }
-                queryEl.textContent = res.query ? ('搜索词：' + res.query) : '';
-                var candidates = res.candidates || [];
-                if (!candidates.length) {
-                    statusEl.textContent = '没有找到可用候选图，请尝试补充规格/品牌，或手动上传图片。';
-                    statusEl.className = 'text-muted py-3';
-                    return;
-                }
-                statusEl.textContent = '请选择一张确认绑定。';
-                statusEl.className = 'text-muted pb-3';
-                candidates.forEach(function(candidate) {
-                    var card = document.createElement('div');
-                    card.className = 'material-image-card';
-                    var img = document.createElement('img');
-                    img.src = candidate.thumb_url || candidate.image_url;
-                    img.alt = candidate.title || '候选图片';
-                    img.referrerPolicy = 'no-referrer';
-                    img.onerror = function() {
-                        this.src = candidate.image_url;
-                    };
-                    var meta = document.createElement('div');
-                    meta.className = 'image-meta';
-                    var title = document.createElement('div');
-                    title.className = 'image-title';
-                    title.textContent = candidate.title || candidate.source_url || '候选图片';
-                    var btn = document.createElement('button');
-                    btn.type = 'button';
-                    btn.className = 'btn btn-sm btn-primary mt-2';
-                    btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
-                    context.buttons.push(btn);
-                    btn.addEventListener('click', function() {
-                        if (!materialImageIsCurrent(context) || !btn.isConnected || context.saving || context.completed) return;
-                        context.saving = true;
-                        context.buttons.forEach(function(button) { button.disabled = true; });
-                        btn.textContent = '保存中...';
-                        WMS.api.postRaw('/material/' + id + '/image_select', {image_url: candidate.image_url})
-                        .then(function(saveRes) {
-                            if (!materialImageIsCurrent(context) || !btn.isConnected) return;
-                            if (saveRes.status === 'success') {
-                                context.completed = true;
-                                showToast('图片已保存', 'success', 2200);
-                                modal.hide();
-                                setTimeout(function() {
-                                    if (context.completed && materialImageDomIsCurrent(context)) location.reload();
-                                }, 300);
-                            } else {
-                                context.saving = false;
-                                context.buttons.forEach(function(button) { button.disabled = false; });
-                                btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
-                                showToast(saveRes.msg || '保存失败', 'danger', 3600);
-                            }
-                        })
-                        .catch(function(err) {
-                            if (!materialImageIsCurrent(context) || !btn.isConnected) return;
-                            context.saving = false;
-                            context.buttons.forEach(function(button) { button.disabled = false; });
-                            btn.innerHTML = '<i class="bi bi-check2"></i> 选用';
-                            showToast('保存失败：' + err.message, 'danger', 3600);
-                        });
-                    });
-                    meta.appendChild(title);
-                    meta.appendChild(btn);
-                    card.appendChild(img);
-                    card.appendChild(meta);
-                    gridEl.appendChild(card);
-                });
-            })
-            .catch(function(err) {
-                if (!materialImageIsCurrent(context)) return;
-                statusEl.textContent = '找图失败：' + err.message;
-                statusEl.className = 'text-danger py-3';
-            });
-    };
-
-    // 修复空分类/单位
-    window.fixEmptyFields = function() {
-        if (!confirm('将把所有空分类设为"默认分类"，空单位设为"个"，确定修复吗？')) return;
-        WMS.api.postRaw('{{ url_for("fix_empty_fields") }}', {})
-        .then(function(res) {
-            showToast(res.msg || '修复完成', res.status === 'success' ? 'success' : 'danger');
-            if (res.status === 'success') location.reload();
-        })
-        .catch(function(err){ showToast('修复失败: ' + err.message, 'danger'); });
-    };
-
-    // 删除全部物料入口已禁用，后端也会拒绝请求。
-    window.deleteAllMaterials = function() {
-        alert('线上系统已禁用删除全部物料，请走停机维护流程');
-    };
-
-    // 编辑物料 - 提交表单
-    var editForm = document.getElementById('editForm');
-    if (editForm) {
-        editForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            if (isWmsMasterEditPending()) return;
-            commitQuickSelects(this);
-            var formData = new FormData(this);
-            var id = document.getElementById('edit_id').value;
-            var originalCode = document.getElementById('edit_code').getAttribute('data-original');
-            var currentCode = document.getElementById('edit_code').value.trim();
-            var originalName = document.getElementById('edit_name').getAttribute('data-original');
-            var currentName = document.getElementById('edit_name').value.trim();
-
-            function doSubmit() {
-                // 立即关闭确认对话框的 overlay
-                var confirmOverlay = document.getElementById('cbConfirmOverlay');
-                if (confirmOverlay) {
-                    confirmOverlay.classList.remove('show');
-                }
-
-                WMS.api.postRaw('/material/edit/' + id, formData)
-                .then(function(res) {
-                    if (res.status === 'success') {
-                        // 先关闭编辑弹窗
-                        var editModalEl = document.getElementById('editModal');
-                        var editModalInstance = bootstrap.Modal.getInstance(editModalEl);
-                        if (editModalInstance) {
-                            editModalInstance.hide();
-                        }
-
-                        // 广播通知其他页面刷新物料列表
-                        try {
-                            if (typeof BroadcastChannel !== 'undefined') {
-                                var bc = new BroadcastChannel('wms_material_update');
-                                bc.postMessage({type: 'material_updated', timestamp: Date.now()});
-                                bc.close();
-                            }
-                        } catch(e) {}
-
-                        // 等待模态框完全关闭后再重新加载页面
-                        setTimeout(function() {
-                            if (res.msg && res.msg !== '物料更新成功') {
-                                showToast(res.msg, 'success', 4000);
-                                setTimeout(function(){ location.reload(); }, 1200);
-                            } else {
-                                location.reload();
-                            }
-                        }, 300);
-                    } else {
-                        showToast(res.msg || '保存失败', 'danger', 3600);
-                    }
-                })
-                .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
-            }
-
-            // 直接提交，不再弹出确认对话框
-            doSubmit();
-        });
-    }
-});
-
-// 标签打印模板相关函数
-var labelTemplateModal;
-var selectedCell = null;
-var selectedCells = [];  // 多选单元格集合（Ctrl+点击切换），含主选中 selectedCell
-var currentTemplateId = null;  // 当前载入编辑的模板ID（null=未载入，保存走新建）
-var labelTemplateGeneration = 0;
-var labelTemplateLoading = false;
-var labelTemplateLoadFailed = false;
-var labelTemplateWriteBusy = false;
-
-function __labelTemplateStatus(message) {
-    var status = document.getElementById('labelTemplateStatus');
-    if (status) status.textContent = message;
-}
-
-function __invalidateTemplateLoad() {
-    if (labelTemplateLoading) {
-        document.getElementById('templateSelect').value = '';
-        document.getElementById('templateNameInput').value = '';
-        currentTemplateId = null;
-        __labelTemplateStatus('当前画布作为新设计，保存时新建模板');
-    }
-    labelTemplateGeneration++;
-    labelTemplateLoading = false;
-    labelTemplateLoadFailed = false;
-}
-
-function __canWriteLabelTemplate() {
-    if (labelTemplateWriteBusy) return false;
-    if (labelTemplateLoading || labelTemplateLoadFailed) {
-        __notify('请先成功加载模板，或清空后新建设计', 'warning');
-        return false;
-    }
-    return true;
-}
-
-function __runLabelTemplateWrite(action) {
-    if (!__canWriteLabelTemplate()) return;
-    labelTemplateWriteBusy = true;
-    var controls = [];
-    var modal = document.getElementById('labelTemplateModal');
-    if (modal) modal.querySelectorAll('button, input, select, textarea, [contenteditable]').forEach(function(el) {
-        controls.push({el: el, disabled: el.disabled, editable: el.getAttribute('contenteditable')});
-        if ('disabled' in el) el.disabled = true;
-        if (el.hasAttribute('contenteditable')) el.setAttribute('contenteditable', 'false');
-    });
-    return Promise.resolve().then(action).catch(function(err) {
-        __notify((err && err.message) || '模板操作失败，请稍后重试', 'danger');
-    }).finally(function() {
-        labelTemplateWriteBusy = false;
-        controls.forEach(function(item) {
-            if ('disabled' in item.el) item.el.disabled = item.disabled;
-            if (item.editable !== null) item.el.setAttribute('contenteditable', item.editable);
-        });
-    });
-}
-
-function __requireTemplateSuccess(res) {
-    if (!res || res.status !== 'success') throw new Error((res && res.msg) || '模板操作失败：服务器响应无效');
-    return res;
-}
-
-var __labelDesignerModal = document.getElementById('labelTemplateModal');
-if (__labelDesignerModal) __labelDesignerModal.addEventListener('hide.bs.modal', function(event) {
-    if (labelTemplateWriteBusy) { event.preventDefault(); return; }
-    __invalidateTemplateLoad();
-});
-// 撤销/重做历史栈（快照基于 cells 布局，恢复走 loadTemplateToEditor）
-var __undoStack = [];
-var __redoStack = [];
-var __lastSnap = null;
-var __lastPushTime = 0;
-var __applyingHistory = false;
-var currentTemplate = {
-    rows: 3,
-    cols: 2,
-    cells: [],
-    labelWidth: 60,
-    labelHeight: 40
-};
-
-// BUG-2026-09-08-001：按 DOM 实际顺序重排所有单元格的 data-row/data-col。
-// 删除行/列后残留的过期坐标若被直接序列化，打印端按声明 rows×cols 网格
-// 迭代会把越界单元格静默丢弃（字段打印不出来）。保存/草稿前统一重排，
-// 保证存下去的坐标永远等于用户当前所见布局。
-function reindexLabelCells() {
-    var table = document.getElementById('labelTable');
-    if (!table) return;
-    for (var r = 0; r < table.rows.length; r++) {
-        var row = table.rows[r];
-        var colPos = 0;
-        for (var i = 0; i < row.cells.length; i++) {
-            var cell = row.cells[i];
-            if (!cell.classList || !cell.classList.contains('label-cell')) {
-                colPos += cell.colSpan || 1;
-                continue;
-            }
-            cell.dataset.row = r;
-            cell.dataset.col = colPos;
-            colPos += cell.colSpan || 1;
-        }
-    }
-}
-
-// ==================== 撤销/重做 + 多选 + 快捷键（标签设计器可用性增强） ====================
-
-function __captureSnapshot() {
-    reindexLabelCells();
-    var cells = [];
-    document.querySelectorAll('#labelTable .label-cell').forEach(function(cell) {
-        var content = cell.querySelector('.cell-content');
-        if (!content) return;
-        var cellData = {
-            row: cell.dataset.row, col: cell.dataset.col,
-            text: content.textContent, field: content.dataset.field || '',
-            style: {
-                fontSize: content.style.fontSize, fontWeight: content.style.fontWeight,
-                color: content.style.color, textAlign: content.style.textAlign,
-                verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
-            },
-            colSpan: cell.colSpan
-        };
-        if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
-            cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
-            cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
-        }
-        cells.push(cellData);
-    });
-    var rowHeights = [];
-    var table = document.getElementById('labelTable');
-    for (var i = 0; i < table.rows.length; i++) {
-        rowHeights.push(parseInt(table.rows[i].style.height) || 30);
-    }
-    return {
-        rows: currentTemplate.rows, cols: currentTemplate.cols,
-        labelWidth: currentTemplate.labelWidth, labelHeight: currentTemplate.labelHeight,
-        cells: cells, rowHeights: rowHeights
-    };
-}
-
-function __pushUndo() {
-    var snap = __captureSnapshot();
-    var now = Date.now();
-    if (__lastSnap && JSON.stringify(__lastSnap) !== JSON.stringify(snap)) {
-        // 800ms 内的连续变更（如文本逐字输入）合并为一个撤销点
-        if (now - __lastPushTime > 800) {
-            __undoStack.push(__lastSnap);
-            if (__undoStack.length > 50) __undoStack.shift();
-            __redoStack = [];
-            __lastPushTime = now;
-        }
-    }
-    __lastSnap = snap;
-}
-
-function __resetHistory() {
-    __undoStack = [];
-    __redoStack = [];
-    __lastSnap = null;
-    __lastPushTime = 0;
-    __pushUndo();  // 记录初始快照
-}
-
-function __afterHistoryApply() {
-    selectedCells = [];
-    selectedCell = null;
-    document.getElementById('cellProperties').style.display = 'none';
-    document.getElementById('noSelection').style.display = 'block';
-    document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
-}
-
-function undoTemplate() {
-    if (labelTemplateWriteBusy) return;
-    __invalidateTemplateLoad();
-    if (!__undoStack.length) return;
-    __redoStack.push(__lastSnap);
-    __lastSnap = __undoStack.pop();
-    __applyingHistory = true;
-    loadTemplateToEditor(__lastSnap);
-    __applyingHistory = false;
-    __afterHistoryApply();
-}
-
-function redoTemplate() {
-    if (labelTemplateWriteBusy) return;
-    __invalidateTemplateLoad();
-    if (!__redoStack.length) return;
-    __undoStack.push(__lastSnap);
-    __lastSnap = __redoStack.pop();
-    __applyingHistory = true;
-    loadTemplateToEditor(__lastSnap);
-    __applyingHistory = false;
-    __afterHistoryApply();
-}
-
-function __getTargetCells() {
-    if (selectedCells && selectedCells.length) return selectedCells;
-    return selectedCell ? [selectedCell] : [];
-}
-
-function clearSelectedCells() {
-    if (labelTemplateWriteBusy) return;
-    var cells = __getTargetCells();
-    if (!cells.length) { __notify('请先点击选中单元格（Ctrl+点击可多选）', 'warning'); return; }
-    cells.forEach(function(cell) {
-        var content = cell.querySelector('.cell-content');
-        if (content) {
-            content.textContent = '';
-            content.dataset.field = '';
-            delete content.dataset.barcodeWidth;
-            delete content.dataset.barcodeHeight;
-        }
-    });
-    saveTemplateToStorage();
-    __refreshCellDraggable();
-}
-
-// 字段搜索：按名称/标签/字段名过滤左侧字段
-(function() {
-    var input = document.getElementById('fieldSearchInput');
-    if (!input) return;
-    input.addEventListener('input', function() {
-        var q = this.value.trim().toLowerCase();
-        document.querySelectorAll('.field-item').forEach(function(item) {
-            var text = (item.textContent + ' ' + (item.dataset.label || '') + ' ' + (item.dataset.field || '')).toLowerCase();
-            item.style.display = (!q || text.indexOf(q) >= 0) ? '' : 'none';
-        });
-    });
-})();
-
-// 快捷键：Ctrl+Z 撤销 / Ctrl+Y 或 Ctrl+Shift+Z 重做 / Delete 清空选中（文本编辑时不劫持）
-document.addEventListener('keydown', function(e) {
-    var modal = document.getElementById('labelTemplateModal');
-    if (!modal || !modal.classList.contains('show')) return;
-    var ae = document.activeElement;
-    var editing = ae && (ae.isContentEditable || ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
-    var key = e.key;
-    if ((e.ctrlKey || e.metaKey) && !editing && (key === 'z' || key === 'Z')) {
-        e.preventDefault();
-        if (e.shiftKey) { redoTemplate(); } else { undoTemplate(); }
-    } else if ((e.ctrlKey || e.metaKey) && !editing && (key === 'y' || key === 'Y')) {
-        e.preventDefault();
-        redoTemplate();
-    } else if (!editing && (key === 'Delete' || key === 'Backspace') && __getTargetCells().length) {
-        e.preventDefault();
-        clearSelectedCells();
-    }
-});
-
-// 将当前编辑器状态自动保存为草稿（localStorage），防止误关闭丢失未保存的设计
-function saveTemplateToStorage() {
-    if (labelTemplateLoading && !labelTemplateWriteBusy) __invalidateTemplateLoad();
-    try {
-        var table = document.getElementById('labelTable');
-        if (!table) return;
-        __pushUndo();
-        reindexLabelCells();
-        var cells = [];
-        table.querySelectorAll('.label-cell').forEach(function(cell) {
-            var content = cell.querySelector('.cell-content');
-            if (!content) return;
-            var cellData = {
-                row: cell.dataset.row,
-                col: cell.dataset.col,
-                text: content.textContent,
-                field: content.dataset.field || '',
-                style: {
-                    fontSize: content.style.fontSize,
-                    fontWeight: content.style.fontWeight,
-                    color: content.style.color,
-                    textAlign: content.style.textAlign,
-                    verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
-                },
-                colSpan: cell.colSpan
-            };
-            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
-                cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
-                cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
-            }
-            cells.push(cellData);
-        });
-        var rowHeights = [];
-        for (var i = 0; i < table.rows.length; i++) {
-            rowHeights.push(parseInt(table.rows[i].style.height) || 30);
-        }
-        var draft = {
-            rows: currentTemplate.rows,
-            cols: currentTemplate.cols,
-            labelWidth: currentTemplate.labelWidth,
-            labelHeight: currentTemplate.labelHeight,
-            cells: cells,
-            rowHeights: rowHeights
-        };
-        localStorage.setItem('labelTemplateDraft', JSON.stringify(draft));
-    } catch (e) {
-        console.warn('标签模板草稿保存失败:', e);
-    }
-}
-
-// 无任何已保存模板时，恢复上次未保存的草稿
-function restoreTemplateDraft(afterWrite) {
-    if (labelTemplateWriteBusy && !afterWrite) return;
-    __invalidateTemplateLoad();
-    currentTemplateId = null;
-    document.getElementById('templateSelect').value = '';
-    document.getElementById('templateNameInput').value = '';
-    try {
-        var raw = localStorage.getItem('labelTemplateDraft');
-        if (!raw) return;
-        var draft = JSON.parse(raw);
-        if (draft && draft.cells && draft.cells.length > 0) {
-            loadTemplateToEditor(draft);
-        }
-    } catch (e) {
-        console.warn('标签模板草稿恢复失败:', e);
-    }
-}
-
-function openLabelTemplate() {
-    if (labelTemplateWriteBusy) return;
-    labelTemplateModal = new bootstrap.Modal(document.getElementById('labelTemplateModal'));
-    labelTemplateModal.show();
-
-    // 重置选中状态
-    selectedCell = null;
-    selectedCells = [];
-    document.getElementById('cellProperties').style.display = 'none';
-    document.getElementById('noSelection').style.display = 'block';
-    document.querySelectorAll('.label-cell').forEach(c => c.classList.remove('selected'));
-
-    // 重置委托标志，确保每次打开都能正确绑定事件
-    var table = document.getElementById('labelTable');
-    if (table) table._dragDelegated = false;
-
-    // 加载模板列表
-    loadTemplateList();
-
-    initTemplateDragDrop();
-    // 同步画布物理尺寸与缩放占位（AA5）
-    updateCanvasSize();
-}
-
-// ==================== 画布内拖动字段 + 双击插入（标签设计器可用性增强 AA4） ====================
-var __cellDragSrc = null;  // 画布内被拖拽的源单元格（区别于从字段面板拖入）
-
-function __ensureCellContent(cell) {
-    var content = cell.querySelector('.cell-content');
-    if (!content) {
-        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-        content = cell.querySelector('.cell-content');
-    }
-    return content;
-}
-
-// 读取/写入单元格的可移动数据（不含 colSpan，避免破坏网格结构）
-function __cellData(cell) {
-    var c = cell.querySelector('.cell-content');
-    return {
-        text: c ? c.textContent : '',
-        field: c ? (c.dataset.field || '') : '',
-        bw: c ? (c.dataset.barcodeWidth || '') : '',
-        bh: c ? (c.dataset.barcodeHeight || '') : '',
-        fontSize: c ? c.style.fontSize : '',
-        fontWeight: c ? c.style.fontWeight : '',
-        color: c ? c.style.color : '',
-        textAlign: c ? c.style.textAlign : '',
-        verticalAlign: cell.style.verticalAlign || ''
-    };
-}
-
-function __applyCellData(cell, d) {
-    var c = __ensureCellContent(cell);
-    c.textContent = d.text;
-    c.dataset.field = d.field;
-    if (d.bw) { c.dataset.barcodeWidth = d.bw; } else { delete c.dataset.barcodeWidth; }
-    if (d.bh) { c.dataset.barcodeHeight = d.bh; } else { delete c.dataset.barcodeHeight; }
-    c.style.fontSize = d.fontSize || '12px';
-    c.style.fontWeight = d.fontWeight || 'normal';
-    c.style.color = d.color || '#000000';
-    c.style.textAlign = d.textAlign || 'left';
-    cell.style.verticalAlign = d.verticalAlign || '';
-}
-
-function __swapCells(a, b) {
-    var da = __cellData(a);
-    var db = __cellData(b);
-    __applyCellData(a, db);
-    __applyCellData(b, da);
-}
-
-function __cellHasContent(cell) {
-    var c = cell.querySelector('.cell-content');
-    return !!(c && (c.dataset.field || c.textContent.trim()));
-}
-
-// 让有内容的单元格可拖拽（编辑时临时禁用，避免与文本光标冲突）
-function __refreshCellDraggable() {
-    document.querySelectorAll('#labelTable .label-cell').forEach(function(cell) {
-        var editing = document.activeElement && cell.contains(document.activeElement);
-        cell.draggable = __cellHasContent(cell) && !editing;
-    });
-}
-
-// 双击字段：插入到当前选中格（无选中则第一个空格）
-function insertFieldToSelection(field, label) {
-    var target = selectedCell;
-    if (!target) {
-        var cells = document.querySelectorAll('#labelTable .label-cell');
-        for (var i = 0; i < cells.length; i++) {
-            if (!__cellHasContent(cells[i])) { target = cells[i]; break; }
-        }
-    }
-    if (!target) { __notify('没有可用的空单元格，请先插入行/列或点击选中单元格', 'warning'); return; }
-    var content = __ensureCellContent(target);
-    content.textContent = '[' + label + ']';
-    content.dataset.field = field;
-    if (field === 'qrcode' && !content.dataset.barcodeWidth) {
-        content.dataset.barcodeWidth = '25';
-        content.dataset.barcodeHeight = '25';
-    }
-    document.querySelectorAll('.label-cell').forEach(function(x) { x.classList.remove('selected'); });
-    target.classList.add('selected');
-    selectedCell = target;
-    selectedCells = [target];
-    updateCellProperties();
-    saveTemplateToStorage();
-    __refreshCellDraggable();
-}
-
-function initTemplateDragDrop() {
-    var table = document.getElementById('labelTable');
-    if (!table) return;
-
-    // 字段拖拽源 + 双击插入：使用事件委托绑定到父容器，避免重复绑定
-    var fieldPanel = table.closest('.modal-body');
-    if (fieldPanel && !fieldPanel._fieldDragBound) {
-        fieldPanel._fieldDragBound = true;
-        fieldPanel.addEventListener('dragstart', function(e) {
-            var item = e.target.closest('.field-item');
-            if (!item) return;
-            e.dataTransfer.effectAllowed = 'copy';
-            e.dataTransfer.setData('text/plain', JSON.stringify({
-                field: item.dataset.field,
-                label: item.dataset.label
-            }));
-        });
-        // 双击字段插入到选中单元格
-        fieldPanel.addEventListener('dblclick', function(e) {
-            var item = e.target.closest('.field-item');
-            if (!item) return;
-            insertFieldToSelection(item.dataset.field, item.dataset.label);
-        });
-    }
-
-    // 表格拖拽事件：先移除旧监听器再添加，确保不重复
-    if (table._dragHandlers) {
-        table.removeEventListener('dragover', table._dragHandlers.dragover);
-        table.removeEventListener('dragleave', table._dragHandlers.dragleave);
-        table.removeEventListener('drop', table._dragHandlers.drop);
-        table.removeEventListener('click', table._dragHandlers.click);
-        table.removeEventListener('dragstart', table._dragHandlers.dragstart);
-        table.removeEventListener('dragend', table._dragHandlers.dragend);
-        table.removeEventListener('focusin', table._dragHandlers.focusin);
-        table.removeEventListener('focusout', table._dragHandlers.focusout);
-    }
-
-    table._dragHandlers = {
-        // 画布内拖动：拖动有内容的单元格
-        dragstart: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (!cell || !__cellHasContent(cell)) return;
-            __cellDragSrc = cell;
-            e.dataTransfer.effectAllowed = 'move';
-            try { e.dataTransfer.setData('text/plain', '__cell_move__'); } catch (err) {}
-        },
-        dragend: function() {
-            __cellDragSrc = null;
-            document.querySelectorAll('.label-cell.drag-over').forEach(function(c) { c.classList.remove('drag-over'); });
-            __refreshCellDraggable();
-        },
-        // 编辑时禁用拖拽，失焦后恢复
-        focusin: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (cell) cell.draggable = false;
-        },
-        focusout: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (cell) cell.draggable = __cellHasContent(cell);
-        },
-        dragover: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (!cell) return;
-            e.preventDefault();
-            e.dataTransfer.dropEffect = __cellDragSrc ? 'move' : 'copy';
-            document.querySelectorAll('.label-cell.drag-over').forEach(function(c) { c.classList.remove('drag-over'); });
-            cell.classList.add('drag-over');
-        },
-        dragleave: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (cell && !cell.contains(e.relatedTarget)) {
-                cell.classList.remove('drag-over');
-            }
-        },
-        drop: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (!cell) return;
-            e.preventDefault();
-            cell.classList.remove('drag-over');
-            // 画布内移动/交换字段
-            if (__cellDragSrc) {
-                if (__cellDragSrc !== cell) {
-                    __swapCells(__cellDragSrc, cell);
-                    saveTemplateToStorage();
-                }
-                __cellDragSrc = null;
-                __refreshCellDraggable();
-                return;
-            }
-            // 从字段面板拖入
-            try {
-                var raw = e.dataTransfer.getData('text/plain');
-                if (!raw || raw === '__cell_move__') return;
-                var data = JSON.parse(raw);
-                var content = __ensureCellContent(cell);
-                content.textContent = '[' + data.label + ']';
-                content.dataset.field = data.field;
-                if (data.field === 'qrcode' && !content.dataset.barcodeWidth) {
-                    content.dataset.barcodeWidth = '25';
-                    content.dataset.barcodeHeight = '25';
-                }
-                saveTemplateToStorage();
-                __refreshCellDraggable();
-            } catch(err) { console.error('drop error', err); }
-        },
-        click: function(e) {
-            var cell = e.target.closest('.label-cell');
-            if (!cell) return;
-            if (e.ctrlKey || e.metaKey) {
-                // Ctrl+点击：切换多选
-                var idx = selectedCells.indexOf(cell);
-                if (idx >= 0) { selectedCells.splice(idx, 1); cell.classList.remove('selected'); }
-                else { selectedCells.push(cell); cell.classList.add('selected'); }
-                selectedCell = cell;
-            } else {
-                selectedCells = [cell];
-                document.querySelectorAll('.label-cell').forEach(function(c) { c.classList.remove('selected'); });
-                cell.classList.add('selected');
-                selectedCell = cell;
-            }
-            updateCellProperties();
-        }
-    };
-
-    table.addEventListener('dragstart', table._dragHandlers.dragstart);
-    table.addEventListener('dragend', table._dragHandlers.dragend);
-    table.addEventListener('focusin', table._dragHandlers.focusin);
-    table.addEventListener('focusout', table._dragHandlers.focusout);
-    table.addEventListener('dragover', table._dragHandlers.dragover);
-    table.addEventListener('dragleave', table._dragHandlers.dragleave);
-    table.addEventListener('drop', table._dragHandlers.drop);
-    table.addEventListener('click', table._dragHandlers.click);
-
-    __refreshCellDraggable();
-}
-
-function updateCellProperties() {
-    if (!selectedCell) return;
-    var content = selectedCell.querySelector('.cell-content');
-    if (!content) return;
-    document.getElementById('cellProperties').style.display = 'block';
-    document.getElementById('noSelection').style.display = 'none';
-    document.getElementById('cellText').value = content.textContent;
-    document.getElementById('cellField').value = content.dataset.field || '';
-    document.getElementById('cellColspan').value = selectedCell.colSpan || 1;
-
-    // 条码/二维码宽高设置显示/隐藏（AA3：二维码也可控尺寸）
-    var barcodeSettings = document.getElementById('barcodeSizeSettings');
-    var field = content.dataset.field || '';
-    if (field === 'barcode' || field === 'qrcode') {
-        barcodeSettings.style.display = 'block';
-        var isQr = (field === 'qrcode');
-        document.getElementById('barcodeWidthLabel').textContent = isQr ? '二维码宽度(mm)' : '条码宽度(mm)';
-        document.getElementById('barcodeHeightLabel').textContent = isQr ? '二维码高度(mm)' : '条码高度(mm)';
-        var defW = isQr ? '25' : '50';
-        var defH = isQr ? '25' : '15';
-        document.getElementById('barcodeWidth').value = content.dataset.barcodeWidth || defW;
-        document.getElementById('barcodeHeight').value = content.dataset.barcodeHeight || defH;
-    } else {
-        barcodeSettings.style.display = 'none';
-    }
-
-    // 同步左侧样式工具的值到当前单元格的实际样式
-    var curFontSize = content.style.fontSize ? parseInt(content.style.fontSize) : 12;
-    var fontSizeSelect = document.getElementById('fontSizeSelect');
-    if (fontSizeSelect) fontSizeSelect.value = curFontSize;
-
-    var curFontWeight = content.style.fontWeight || 'normal';
-    var fontWeightSelect = document.getElementById('fontWeightSelect');
-    if (fontWeightSelect) fontWeightSelect.value = curFontWeight;
-
-    var curColor = content.style.color || '#000000';
-    var textColorSelect = document.getElementById('textColorSelect');
-    if (textColorSelect) {
-        // 将 rgb() 颜色转为 hex
-        if (curColor.startsWith('rgb')) {
-            var rgb = curColor.match(/\d+/g);
-            if (rgb) {
-                curColor = '#' + rgb.map(function(x){ return ('0'+parseInt(x).toString(16)).slice(-2); }).join('');
-            }
-        }
-        textColorSelect.value = curColor;
-    }
-
-    // 显示选中单元格位置（行/列/跨列）
-    var posInfo = document.getElementById('cellPosInfo');
-    if (posInfo) {
-        var prow = parseInt(selectedCell.dataset.row) + 1;
-        var pcol = parseInt(selectedCell.dataset.col) + 1;
-        posInfo.textContent = '行 ' + prow + '，列 ' + pcol + (selectedCell.colSpan > 1 ? '（跨 ' + selectedCell.colSpan + ' 列）' : '');
-    }
-
-    // 同步行高
-    var row = selectedCell.parentElement;
-    if (row && row.tagName === 'TR') {
-        var curHeight = parseInt(row.style.height) || 30;
-        var rowHeightInput = document.getElementById('rowHeightInput');
-        if (rowHeightInput) rowHeightInput.value = curHeight;
-    }
-}
-
-var cellTextInput = document.getElementById('cellText');
-if (cellTextInput) {
-    cellTextInput.addEventListener('input', function() {
-        if (selectedCell) {
-            selectedCell.querySelector('.cell-content').textContent = this.value;
-            saveTemplateToStorage();
-        }
-    });
-}
-
-var cellFieldSelect = document.getElementById('cellField');
-if (cellFieldSelect) {
-    cellFieldSelect.addEventListener('change', function() {
-        if (selectedCell && this.value) {
-            var labels = {
-                code: '物料编码', name: '物料名称', brand: '品牌', spec: '规格', unit_name: '单位',
-                category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
-                qrcode: '二维码', date: '日期', supplier_name: '供应商'
-            };
-            var content = selectedCell.querySelector('.cell-content');
-            content.textContent = '[' + (labels[this.value] || this.value) + ']';
-            content.dataset.field = this.value;
-
-            // 显示/隐藏条码/二维码宽高设置（AA3：切换字段时给二维码补默认尺寸）
-            if (this.value === 'barcode' || this.value === 'qrcode') {
-                if (this.value === 'qrcode' && !content.dataset.barcodeWidth) {
-                    content.dataset.barcodeWidth = '25';
-                    content.dataset.barcodeHeight = '25';
-                }
-                updateCellProperties();  // 复用统一逻辑刷新尺寸面板与标签
-            } else {
-                document.getElementById('barcodeSizeSettings').style.display = 'none';
-            }
-
-            saveTemplateToStorage();
-        }
-    });
-}
-
-// 条码/二维码宽度变化（AA3：对二维码同样生效）
-var barcodeWidthInput = document.getElementById('barcodeWidth');
-if (barcodeWidthInput) {
-    barcodeWidthInput.addEventListener('input', function() {
-        if (selectedCell) {
-            var content = selectedCell.querySelector('.cell-content');
-            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
-                content.dataset.barcodeWidth = this.value;
-                saveTemplateToStorage();
-            }
-        }
-    });
-}
-
-// 条码/二维码高度变化（AA3：对二维码同样生效）
-var barcodeHeightInput = document.getElementById('barcodeHeight');
-if (barcodeHeightInput) {
-    barcodeHeightInput.addEventListener('input', function() {
-        if (selectedCell) {
-            var content = selectedCell.querySelector('.cell-content');
-            if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
-                content.dataset.barcodeHeight = this.value;
-                saveTemplateToStorage();
-            }
-        }
-    });
-}
-
-var cellColspanSelect = document.getElementById('cellColspan');
-if (cellColspanSelect) {
-    cellColspanSelect.addEventListener('change', function() {
-        if (selectedCell) {
-            selectedCell.colSpan = parseInt(this.value);
-            saveTemplateToStorage();
-        }
-    });
-}
-
-function insertRow() {
-    var table = document.getElementById('labelTable');
-    var newRowIndex = table.rows.length; // 新行索引
-    var row = table.insertRow(-1);
-    row.style.height = '30px';
-
-    // 计算实际列数
-    var actualCols = 0;
-    for (var i = 0; i < table.rows[0].cells.length; i++) {
-        actualCols += table.rows[0].cells[i].colSpan || 1;
-    }
-
-    for (var i = 0; i < actualCols; i++) {
-        var cell = row.insertCell(-1);
-        cell.className = 'label-cell';
-        cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
-        cell.dataset.row = newRowIndex;
-        cell.dataset.col = i;
-        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-    }
-    currentTemplate.rows++;
-    currentTemplate.cols = actualCols;
-    initTemplateDragDrop();
-    saveTemplateToStorage();
-}
-
-function insertCol() {
-    var table = document.getElementById('labelTable');
-    var newColIndex = 0;
-
-    // 计算实际列数
-    for (var i = 0; i < table.rows[0].cells.length; i++) {
-        newColIndex += table.rows[0].cells[i].colSpan || 1;
-    }
-
-    for (var i = 0; i < table.rows.length; i++) {
-        var row = table.rows[i];
-        var cell = row.insertCell(-1);
-        cell.className = 'label-cell';
-        cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
-        cell.dataset.row = i;
-        cell.dataset.col = newColIndex;
-        cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-    }
-    currentTemplate.cols++;
-    initTemplateDragDrop();
-    saveTemplateToStorage();
-}
-
-function deleteSelectedRow() {
-    if (selectedCell) {
-        var row = selectedCell.parentElement;
-        var table = document.getElementById('labelTable');
-        if (row && row.tagName === 'TR' && table.rows.length > 1) {
-            row.parentElement.removeChild(row);
-            currentTemplate.rows--;
-            selectedCell = null;
-            document.getElementById('cellProperties').style.display = 'none';
-            document.getElementById('noSelection').style.display = 'block';
-            saveTemplateToStorage();
-        } else if (table.rows.length <= 1) {
-            __notify('至少需要保留一行', 'warning');
-        }
-    }
-}
-
-function deleteRow() {
-    var table = document.getElementById('labelTable');
-    if (table.rows.length <= 1) {
-        __notify('至少需要保留一行', 'warning');
-        return;
-    }
-
-    var rowIndex = table.rows.length - 1; // 默认删除最后一行
-    if (selectedCell) {
-        var row = selectedCell.parentElement;
-        if (row && row.tagName === 'TR') {
-            rowIndex = row.rowIndex;
-        }
-    }
-
-    table.deleteRow(rowIndex);
-    currentTemplate.rows--;
-    selectedCell = null;
-    document.getElementById('cellProperties').style.display = 'none';
-    document.getElementById('noSelection').style.display = 'block';
-    saveTemplateToStorage();
-}
-
-function deleteCol() {
-    var table = document.getElementById('labelTable');
-
-    // 计算实际列数（考虑跨列）
-    var actualCols = 0;
-    for (var i = 0; i < table.rows[0].cells.length; i++) {
-        actualCols += table.rows[0].cells[i].colSpan || 1;
-    }
-
-    if (actualCols <= 1) {
-        __notify('至少需要保留一列', 'warning');
-        return;
-    }
-
-    var colIndex = actualCols - 1; // 默认删除最后一列
-    if (selectedCell) {
-        // 计算选中单元格的实际列索引
-        var tempIndex = 0;
-        for (var i = 0; i < selectedCell.cellIndex; i++) {
-            tempIndex += table.rows[0].cells[i].colSpan || 1;
-        }
-        colIndex = tempIndex + (selectedCell.colSpan || 1) - 1;
-    }
-
-    // 从后往前遍历每行，删除指定列
-    for (var i = 0; i < table.rows.length; i++) {
-        var row = table.rows[i];
-
-        // 计算该行的实际列索引
-        var currentColIndex = 0;
-        var targetCellIndex = -1;
-        for (var j = 0; j < row.cells.length; j++) {
-            var span = row.cells[j].colSpan || 1;
-            if (currentColIndex + span > colIndex) {
-                targetCellIndex = j;
-                break;
-            }
-            currentColIndex += span;
-        }
-
-        if (targetCellIndex >= 0 && row.cells[targetCellIndex]) {
-            var cell = row.cells[targetCellIndex];
-            if (cell.colSpan > 1) {
-                // 合并单元格：减少跨度，如果只剩1则删除
-                cell.colSpan--;
-                if (cell.colSpan === 1) {
-                    row.deleteCell(targetCellIndex);
-                }
-            } else {
-                row.deleteCell(targetCellIndex);
-            }
-        }
-    }
-
-    currentTemplate.cols--;
-    selectedCell = null;
-    document.getElementById('cellProperties').style.display = 'none';
-    document.getElementById('noSelection').style.display = 'block';
-    saveTemplateToStorage();
-}
-
-function setTextAlign(align) {
-    if (selectedCell) {
-        selectedCell.querySelector('.cell-content').style.textAlign = align;
-        saveTemplateToStorage();
-    }
-}
-
-// 垂直对齐（标签设计器可用性增强 AA3）：作用于 td 的 vertical-align，支持多选
-function setVerticalAlign(align) {
-    var cells = __getTargetCells();
-    if (!cells.length) {
-        __notify('请先点击选中单元格（Ctrl+点击可多选）', 'warning');
-        return;
-    }
-    cells.forEach(function(cell) {
-        cell.style.verticalAlign = align;
-        var content = cell.querySelector('.cell-content');
-        if (content) content.style.verticalAlign = align;
-    });
-    saveTemplateToStorage();
-}
-
-function applyFontSizeToCell(cell, sizeVal) {
-    var content = cell.querySelector('.cell-content');
-    if (!content) return;
-    var px = parseInt(sizeVal);
-    content.style.fontSize = px + 'px';
-    // 自动撑高行，避免大字体被截断
-    var row = cell.parentElement;
-    if (row && row.tagName === 'TR') {
-        var minH = Math.max(px + 10, 30);
-        row.style.height = minH + 'px';
-        // 同步行高输入框
-        var rowHeightInput = document.getElementById('rowHeightInput');
-        if (rowHeightInput) rowHeightInput.value = minH;
-    }
-}
-
-function applyRowHeight() {
-    var cells = __getTargetCells();
-    if (!cells.length) {
-        __notify('请先点击选中一个单元格', 'warning');
-        return;
-    }
-    var input = document.getElementById('rowHeightInput');
-    var h = parseInt(input.value);
-    if (!h || h < 20) { h = 20; input.value = 20; }
-    if (h > 200) { h = 200; input.value = 200; }
-    var applied = false;
-    cells.forEach(function(cell) {
-        var row = cell.parentElement;
-        if (row && row.tagName === 'TR') { row.style.height = h + 'px'; applied = true; }
-    });
-    if (applied) { saveTemplateToStorage(); }
-}
-
-document.addEventListener('DOMContentLoaded', function() {
-    var fontSizeSelect = document.getElementById('fontSizeSelect');
-    if (fontSizeSelect) {
-        fontSizeSelect.addEventListener('change', function() {
-            var cells = __getTargetCells();
-            if (!cells.length) return;
-            cells.forEach(function(cell) { applyFontSizeToCell(cell, fontSizeSelect.value); });
-            saveTemplateToStorage();
-        });
-    }
-
-    var fontWeightSelect = document.getElementById('fontWeightSelect');
-    if (fontWeightSelect) {
-        fontWeightSelect.addEventListener('change', function() {
-            var cells = __getTargetCells();
-            if (!cells.length) return;
-            cells.forEach(function(cell) {
-                var content = cell.querySelector('.cell-content');
-                if (content) content.style.fontWeight = fontWeightSelect.value;
-            });
-            saveTemplateToStorage();
-        });
-    }
-
-    var textColorSelect = document.getElementById('textColorSelect');
-    if (textColorSelect) {
-        textColorSelect.addEventListener('input', function() {
-            var cells = __getTargetCells();
-            if (!cells.length) return;
-            cells.forEach(function(cell) {
-                var content = cell.querySelector('.cell-content');
-                if (content) content.style.color = textColorSelect.value;
-            });
-            saveTemplateToStorage();
-        });
-    }
-});
-
-function changeLabelSize() {
-    var size = document.getElementById('labelSizeSelect').value;
-    var customSizeDiv = document.getElementById('customSize');
-    var canvas = document.getElementById('labelCanvas');
-
-    if (size === 'custom') {
-        customSizeDiv.style.display = 'inline';
-    } else {
-        customSizeDiv.style.display = 'none';
-        var sizes = { small: { w: 40, h: 20 }, medium: { w: 60, h: 40 }, large90: { w: 90, h: 50 }, large: { w: 100, h: 50 } };
-        currentTemplate.labelWidth = sizes[size].w;
-        currentTemplate.labelHeight = sizes[size].h;
-        updateCanvasSize();
-    }
-}
-
-function applyCustomSize() {
-    currentTemplate.labelWidth = parseInt(document.getElementById('customWidth').value) || 60;
-    currentTemplate.labelHeight = parseInt(document.getElementById('customHeight').value) || 40;
-    updateCanvasSize();
-}
-
-function updateCanvasSize() {
-    var canvas = document.getElementById('labelCanvas');
-    var scale = 4;
-    canvas.style.width = (currentTemplate.labelWidth * scale) + 'px';
-    canvas.style.height = (currentTemplate.labelHeight * scale) + 'px';
-    __syncZoomWrap();
-}
-
-// ==================== 画布缩放 / 全屏（标签设计器可用性增强 AA5） ====================
-var canvasZoom = 1;
-var CANVAS_BASE_SCALE = 4;  // 画布基础像素/毫米（与 updateCanvasSize 一致）
-
-function __syncZoomWrap() {
-    var canvas = document.getElementById('labelCanvas');
-    var wrap = document.getElementById('labelCanvasZoomWrap');
-    if (!canvas || !wrap) return;
-    // transform 不影响布局，offsetWidth/Height 始终是未缩放的基础尺寸
-    var baseW = canvas.offsetWidth || (currentTemplate.labelWidth * CANVAS_BASE_SCALE);
-    var baseH = canvas.offsetHeight || (currentTemplate.labelHeight * CANVAS_BASE_SCALE);
-    canvas.style.transform = 'scale(' + canvasZoom + ')';
-    canvas.style.transformOrigin = 'top left';
-    // 预留缩放后的占位，保证视口滚动区域正确
-    wrap.style.width = Math.round(baseW * canvasZoom) + 'px';
-    wrap.style.height = Math.round(baseH * canvasZoom) + 'px';
-    var lbl = document.getElementById('canvasZoomLabel');
-    if (lbl) lbl.textContent = Math.round(canvasZoom * 100) + '%';
-}
-
-function setCanvasZoom(z) {
-    canvasZoom = Math.max(0.4, Math.min(3, z));
-    __syncZoomWrap();
-}
-
-function zoomCanvas(delta) { setCanvasZoom(canvasZoom + delta); }
-function resetCanvasZoom() { setCanvasZoom(1); }
-
-function fitCanvasZoom() {
-    var viewport = document.getElementById('labelCanvasViewport');
-    if (!viewport) return;
-    var baseW = currentTemplate.labelWidth * CANVAS_BASE_SCALE;
-    var avail = viewport.clientWidth - 40;
-    if (baseW > 0 && avail > 0) setCanvasZoom(avail / baseW);
-}
-
-function toggleDesignerFullscreen() {
-    var dlg = document.querySelector('#labelTemplateModal .modal-dialog');
-    if (!dlg) return;
-    dlg.classList.toggle('modal-fullscreen');
-    var viewport = document.getElementById('labelCanvasViewport');
-    if (viewport) viewport.style.maxHeight = dlg.classList.contains('modal-fullscreen') ? '78vh' : '52vh';
-    setTimeout(fitCanvasZoom, 200);
-}
-
-// 收集当前画布为模板布局对象（新建/更新共用，标签设计器可用性增强 AA2）
-function __collectTemplateData() {
-    reindexLabelCells();  // BUG-2026-09-08-001：序列化前重排坐标，杜绝越界残留
-    var cells = [];
-    document.querySelectorAll('.label-cell').forEach(function(cell) {
-        var content = cell.querySelector('.cell-content');
-        if (!content) return;
-        var cellData = {
-            row: cell.dataset.row,
-            col: cell.dataset.col,
-            text: content.textContent,
-            field: content.dataset.field || '',
-            style: {
-                fontSize: content.style.fontSize,
-                fontWeight: content.style.fontWeight,
-                color: content.style.color,
-                textAlign: content.style.textAlign,
-                verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || ''
-            },
-            colSpan: cell.colSpan
-        };
-        if (content.dataset.field === 'barcode' || content.dataset.field === 'qrcode') {
-            cellData.barcodeWidth = content.dataset.barcodeWidth || (content.dataset.field === 'qrcode' ? '25' : '50');
-            cellData.barcodeHeight = content.dataset.barcodeHeight || (content.dataset.field === 'qrcode' ? '25' : '15');
-        }
-        cells.push(cellData);
-    });
-
-    var rowHeights = [];
-    var table = document.getElementById('labelTable');
-    for (var i = 0; i < table.rows.length; i++) {
-        rowHeights.push(parseInt(table.rows[i].style.height) || 30);
-    }
-
-    return {
-        rows: currentTemplate.rows,
-        cols: currentTemplate.cols,
-        cells: cells,
-        rowHeights: rowHeights,
-        labelWidth: currentTemplate.labelWidth,
-        labelHeight: currentTemplate.labelHeight
-    };
-}
-
-function __notify(msg, type) {
-    if (typeof showToast === 'function') { showToast(msg, type || 'info'); }
-    else { alert(msg); }  // allow-alert
-}
-
-// LABEL-FIX-2026-09-29-004：尺寸选择器为 custom 时，保存前先把输入框的值
-// 同步进 currentTemplate，避免用户改了数字没点「应用」导致保存尺寸与界面不符
-function __syncCustomSizeBeforeSave() {
-    var sizeSelect = document.getElementById('labelSizeSelect');
-    if (sizeSelect && sizeSelect.value === 'custom') {
-        applyCustomSize();
-    }
-}
-
-// 保存：已载入模板则原地更新（含尺寸），否则按"另存为"新建
-function saveTemplate() {
-    if (!__canWriteLabelTemplate()) return;
-    try { __syncCustomSizeBeforeSave(); }
-    catch (err) { __notify(err.message || '标签尺寸无效', 'danger'); return; }
-    if (currentTemplateId) { return updateExistingTemplate(); }
-    return saveAsTemplate();
-}
-
-// 新建成功回包没有 id，使用提交时的唯一名称在列表中定位。
-function __templateNameForSave() {
-    var input = document.getElementById('templateNameInput');
-    var name = input.value.trim();
-    if (!name) {
-        input.focus();
-        __notify('请输入模板名称', 'warning');
-        return null;
-    }
-    return name;
-}
-
-function saveAsTemplate() {
-    if (!__canWriteLabelTemplate()) return;
-    var templateName = __templateNameForSave();
-    if (!templateName) return;
-    return __runLabelTemplateWrite(function() {
-        __syncCustomSizeBeforeSave();
-        var templateData = __collectTemplateData();
-        var dbData = new FormData();
-        dbData.append('name', templateName);
-        dbData.append('width', currentTemplate.labelWidth);
-        dbData.append('height', currentTemplate.labelHeight);
-        dbData.append('cols', currentTemplate.cols);
-        dbData.append('rows', currentTemplate.rows);
-        dbData.append('layout', JSON.stringify(templateData));
-        return WMS.api.postRaw('/label_template/add', dbData).then(__requireTemplateSuccess).then(function() {
-            try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
-            __notify('模板"' + templateName + '"已保存', 'success');
-            return loadTemplateList({name: templateName}, true);
-        });
-    });
-}
-
-function updateExistingTemplate() {
-    return __runLabelTemplateWrite(function() {
-        var templateData = __collectTemplateData();
-        var templateId = currentTemplateId;
-        if (!templateId) throw new Error('请先加载要更新的模板');
-        var payload = {
-            layout: templateData,
-            width: currentTemplate.labelWidth,
-            height: currentTemplate.labelHeight,
-            cols: currentTemplate.cols,
-            rows: currentTemplate.rows
-        };
-        return WMS.api.postRaw('/label_template/' + templateId + '/save_layout', payload)
-        .then(__requireTemplateSuccess).then(function() {
-            try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
-            __notify('模板已更新', 'success');
-            return loadTemplateList({id: templateId}, true);
-        });
-    });
-}
-
-function setDefaultTemplate() {
-    if (!__canWriteLabelTemplate()) return;
-    var templateId = currentTemplateId;
-    if (!templateId) { __notify('请先选择要设为默认的模板', 'warning'); return; }
-    return __runLabelTemplateWrite(function() {
-        return WMS.api.postRaw('/label_template/' + templateId + '/set_default', null)
-        .then(__requireTemplateSuccess).then(function() {
-            __notify('已设为默认模板', 'success');
-            return loadTemplateList({id: templateId}, true);
-        });
-    });
-}
-
-// 列表与详情共用代次，任何新选择或本地设计均使旧回包失效。
-function loadTemplateList(preferred, afterWrite) {
-    if (labelTemplateWriteBusy && !afterWrite) return;
-    var generation = ++labelTemplateGeneration;
-    labelTemplateLoading = true;
-    labelTemplateLoadFailed = false;
-    currentTemplateId = null;
-    document.getElementById('templateNameInput').value = '';
-    var select = document.getElementById('templateSelect');
-    select.innerHTML = '<option value="">-- 加载中... --</option>';
-    __labelTemplateStatus('正在加载模板列表…');
-    return WMS.api.getRaw('/label_template/api/list').then(function(res) {
-        if (generation !== labelTemplateGeneration) return;
-        __requireTemplateSuccess(res);
-        if (!Array.isArray(res.templates)) throw new Error('模板列表响应无效');
-        select.innerHTML = '<option value="">-- 选择模板 / 新设计 --</option>';
-        var selected = null;
-        res.templates.forEach(function(t) {
-            var opt = document.createElement('option');
-            opt.value = t.id;
-            opt.textContent = t.name + ' (' + t.width + 'x' + t.height + 'mm)';
-            select.appendChild(opt);
-            if (preferred && ((preferred.id != null && String(preferred.id) === String(t.id)) ||
-                (preferred.name != null && preferred.name === t.name))) selected = t;
-        });
-        if (!selected && preferred) throw new Error('操作已成功，但列表中未找到该模板，请重新选择');
-        if (!selected) selected = res.templates.find(function(t) { return t.is_default; }) || res.templates[0];
-        if (!selected) {
-            labelTemplateLoading = false;
-            restoreTemplateDraft(afterWrite);
-            __labelTemplateStatus('暂无已保存模板，可编辑并保存新设计');
-            return;
-        }
-        return switchTemplateById(selected.id, afterWrite);
-    }).catch(function(err) {
-        if (generation !== labelTemplateGeneration) return;
-        labelTemplateLoading = false;
-        labelTemplateLoadFailed = true;
-        select.innerHTML = '<option value="">-- 加载失败，请重开设计器重试 --</option>';
-        __labelTemplateStatus('加载模板列表失败：' + err.message);
-        __notify('加载模板列表失败：' + err.message, 'danger');
-    });
-}
-
-function switchTemplate() {
-    var select = document.getElementById('templateSelect');
-    if (labelTemplateWriteBusy) {
-        select.value = currentTemplateId == null ? '' : currentTemplateId;
-        return;
-    }
-    return switchTemplateById(select.value);
-}
-
-function switchTemplateById(templateId, afterWrite) {
-    if (labelTemplateWriteBusy && !afterWrite) return;
-    var generation = ++labelTemplateGeneration;
-    var nameInput = document.getElementById('templateNameInput');
-    var select = document.getElementById('templateSelect');
-    currentTemplateId = null;
-    nameInput.value = '';
-    select.value = templateId || '';
-    labelTemplateLoadFailed = false;
-    labelTemplateLoading = !!templateId;
-    if (!templateId) {
-        __labelTemplateStatus('当前画布作为新设计，保存时新建模板');
-        return;
-    }
-    __labelTemplateStatus('正在加载所选模板，完成前不能保存…');
-    return WMS.api.getRaw('/label_template/api/' + encodeURIComponent(templateId) + '/detail')
-    .then(function(res) {
-        if (generation !== labelTemplateGeneration) return;
-        __requireTemplateSuccess(res);
-        if (!res.template || String(res.template.id) !== String(templateId)) throw new Error('模板详情响应无效');
-        loadTemplateToEditor(res.template);
-        nameInput.value = res.template.name || '';
-        currentTemplateId = res.template.id;
-        labelTemplateLoading = false;
-        __labelTemplateStatus('已载入模板：' + nameInput.value);
-    }).catch(function(err) {
-        if (generation !== labelTemplateGeneration) return;
-        labelTemplateLoading = false;
-        labelTemplateLoadFailed = true;
-        __labelTemplateStatus('加载模板失败：' + err.message);
-        __notify('加载模板失败：' + err.message, 'danger');
-    });
-}
-
-function __labelFieldKey(field) {
-    var aliases = {unit: 'unit_name', category: 'category_name', supplier: 'supplier_name'};
-    return Object.prototype.hasOwnProperty.call(aliases, field) ? aliases[field] : field;
-}
-
-function __labelFieldText(field) {
-    var labels = {code: '物料编码', name: '物料名称', spec: '规格', brand: '品牌',
-        unit_name: '单位', category_name: '分类', supplier_name: '供应商',
-        stock: '库存', price: '单价', barcode: '条码', qrcode: '二维码', date: '日期'};
-    return '[' + (Object.prototype.hasOwnProperty.call(labels, field) ? labels[field] : field) + ']';
-}
-
-// 加载模板到编辑器
-function loadTemplateToEditor(template) {
-    var layout = template.layout || template;
-    function dimension(values, fallback, integer) {
-        for (var i = 0; i < values.length; i++) {
-            var value = Number(values[i]);
-            if (Number.isFinite(value) && value > 0 && (!integer || Number.isInteger(value))) return value;
-        }
-        return fallback;
-    }
-    currentTemplate = {
-        rows: dimension([layout.rows, template.rows], 3, true),
-        cols: dimension([layout.cols, template.cols], 2, true),
-        labelWidth: dimension([layout.width, layout.labelWidth, template.width, template.labelWidth], 60),
-        labelHeight: dimension([layout.height, layout.labelHeight, template.height, template.labelHeight], 40)
-    };
-
-    var sizeSelect = document.getElementById('labelSizeSelect');
-    var customSizeDiv = document.getElementById('customSize');
-    if (sizeSelect) {
-        var w = currentTemplate.labelWidth, h = currentTemplate.labelHeight;
-        if (w === 40 && h === 20) { sizeSelect.value = 'small'; }
-        else if (w === 60 && h === 40) { sizeSelect.value = 'medium'; }
-        else if (w === 90 && h === 50) { sizeSelect.value = 'large90'; }
-        else if (w === 100 && h === 50) { sizeSelect.value = 'large'; }
-        else {
-            sizeSelect.value = 'custom';
-            if (customSizeDiv) customSizeDiv.style.display = 'inline';
-            var cwInput = document.getElementById('customWidth');
-            var chInput = document.getElementById('customHeight');
-            if (cwInput) cwInput.value = w;
-            if (chInput) chInput.value = h;
-        }
-    }
-
-    var table = document.getElementById('labelTable');
-    table.innerHTML = '';
-    table._dragDelegated = false;
-
-    // 创建行
-    for (var r = 0; r < currentTemplate.rows; r++) {
-        var row = table.insertRow(-1);
-        var rh = (layout.rowHeights && layout.rowHeights[r]) ? layout.rowHeights[r] : 30;
-        row.style.height = rh + 'px';
-    }
-
-    if (layout.cells && layout.cells.length > 0) {
-        layout.cells.forEach(function(cellData) {
-            var r = parseInt(cellData.row);
-            var c = parseInt(cellData.col);
-            if (r >= 0 && r < table.rows.length) {
-                var row = table.rows[r];
-                // 确保该行有足够的单元格
-                while (row.cells.length <= c) {
-                    var newCell = row.insertCell(-1);
-                    newCell.className = 'label-cell';
-                    newCell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
-                    newCell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-                }
-                var cell = row.cells[c];
-                cell.dataset.row = r;
-                cell.dataset.col = c;
-
-                {
-                    cell.innerHTML = '';
-                    var content = document.createElement('span');
-                    content.className = 'cell-content';
-                    content.setAttribute('contenteditable', 'true');
-                    content.style.cssText = 'display: block; overflow: hidden; white-space: normal; word-break: break-all;';
-                    var cellStyle = cellData.style || {};
-                    content.style.fontSize = (parseFloat(cellStyle.fontSize) || 12) + 'px';
-                    content.style.fontWeight = cellStyle.fontWeight || 'normal';
-                    content.style.color = cellStyle.color || '#000';
-                    content.style.textAlign = cellStyle.textAlign || 'left';
-                    var fieldKey = __labelFieldKey(cellData.field || '');
-                    content.textContent = cellData.text == null || cellData.text === ''
-                        ? (fieldKey ? __labelFieldText(fieldKey) : '') : String(cellData.text);
-                    cell.appendChild(content);
-                    content.dataset.field = fieldKey;
-                    // 恢复垂直对齐（AA3）
-                    if (cellData.style && cellData.style.verticalAlign) {
-                        cell.style.verticalAlign = cellData.style.verticalAlign;
-                        content.style.verticalAlign = cellData.style.verticalAlign;
-                    }
-                    // 恢复条码/二维码宽高（AA3：含二维码）
-                    if (cellData.field === 'barcode' || cellData.field === 'qrcode') {
-                        content.dataset.barcodeWidth = cellData.barcodeWidth || (cellData.field === 'qrcode' ? '25' : '50');
-                        content.dataset.barcodeHeight = cellData.barcodeHeight || (cellData.field === 'qrcode' ? '25' : '15');
-                    }
-                    if (cellData.colSpan > 1) cell.colSpan = cellData.colSpan;
-                }
-            }
-        });
-    } else {
-        // 创建空白的单元格
-        for (var r = 0; r < currentTemplate.rows; r++) {
-            var row = table.rows[r];
-            for (var c = 0; c < currentTemplate.cols; c++) {
-                var cell = row.insertCell(-1);
-                cell.className = 'label-cell';
-                cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
-                cell.dataset.row = r;
-                cell.dataset.col = c;
-                cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-            }
-        }
-    }
-
-    // 补齐每行缺失的单元格
-    for (var r = 0; r < table.rows.length; r++) {
-        var row = table.rows[r];
-        var usedCols = 0;
-        for (var ci = 0; ci < row.cells.length; ci++) {
-            usedCols += (row.cells[ci].colSpan || 1);
-        }
-        while (usedCols < currentTemplate.cols) {
-            var cell = row.insertCell(-1);
-            cell.className = 'label-cell';
-            cell.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
-            cell.dataset.row = r;
-            cell.dataset.col = row.cells.length - 1;
-            cell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
-            usedCols++;
-        }
-    }
-
-    initTemplateDragDrop();
-    updateCanvasSize();  // 让画布反映模板宽高比并同步缩放占位（AA5）
-    if (!__applyingHistory) { __resetHistory(); }
-}
-
-// 删除模板
-function deleteTemplate() {
-    if (!__canWriteLabelTemplate()) return;
-    var templateId = currentTemplateId;
-    if (!templateId) { __notify('请选择要删除的模板', 'warning'); return; }
-    return __runLabelTemplateWrite(function() {
-        if (!confirm('确定要删除该模板吗？')) return;
-        return WMS.api.postRaw('/label_template/' + templateId + '/delete', null)
-        .then(__requireTemplateSuccess).then(function() {
-            currentTemplateId = null;
-            document.getElementById('templateNameInput').value = '';
-            __notify('模板已删除', 'success');
-            return loadTemplateList(null, true);
-        });
-    });
-}
-
-function clearTemplate() {
-    if (labelTemplateWriteBusy) return;
-    if (confirm('确定清空当前模板吗？（可用 Ctrl+Z 撤销）')) {
-        __invalidateTemplateLoad();
-        var table = document.getElementById('labelTable');
-        var newCell = document.createElement('td');
-        newCell.className = 'label-cell';
-        newCell.setAttribute('style', 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;');
-        newCell.setAttribute('data-row', '0');
-        newCell.setAttribute('data-col', '0');
-        newCell.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;">点击输入内容或拖拽字段</span>';
-
-        var newRow = document.createElement('tr');
-        newRow.style.height = '30px';
-        newRow.appendChild(newCell);
-
-        table.innerHTML = '';
-        table.appendChild(newRow);
-        table._dragDelegated = false; // 重置委托标志
-
-        currentTemplate.rows = 1;
-        currentTemplate.cols = 1;
-        selectedCell = null;
-        document.getElementById('cellProperties').style.display = 'none';
-        document.getElementById('noSelection').style.display = 'block';
-        // 清空后视为新设计：保存走"另存为"，避免误覆盖已载入模板（AA2/AA5）
-        currentTemplateId = null;
-        document.getElementById('templateSelect').value = '';
-        document.getElementById('templateNameInput').value = '';
-        initTemplateDragDrop();
-        // AA5：把清空前快照入撤销栈并写草稿，使清空可撤销
-        saveTemplateToStorage();
-    }
-}
-
-// ==================== 所见即所得预览/打印（标签设计器可用性增强 AA1） ====================
-// 设计器内置预览/打印此前只输出占位文字（条码/二维码渲染成「[条码]」文本），
-// 与真实批量打印页（print_batch_labels.html，渲染 <img>）严重脱节。
-// 这里统一改为：文本字段填示例值、条码/二维码渲染真实图片，做到所见即所得。
-
-// 示例数据（预览/打印用，可在预览弹窗切换回占位符）
-var labelSampleData = {
-    code: 'MAT-0001',
-    name: '深沟球轴承 6204-2RS',
-    spec: '内径20×外径47×厚14',
-    unit_name: '套',
-    category_name: '轴承',
-    stock: '128',
-    price: '¥12.50',
-    barcode: 'MAT-0001',
-    qrcode: 'MAT-0001',
-    date: '2026-09-10',
-    supplier_name: '鑫达五金'
-};
-var previewUseSample = true;
-
-function togglePreviewSample(checked) {
-    previewUseSample = !!checked;
-    __renderPreview();
-}
-
-// 序列化当前画布为统一模型（预览/打印复用），保证两处渲染一致
-function __buildLabelModel() {
-    reindexLabelCells();
-    var table = document.getElementById('labelTable');
-    var cells = [];
-    var rowHeights = [];
-    var maxRow = -1;
-    if (table) {
-        for (var r = 0; r < table.rows.length; r++) {
-            rowHeights.push(parseInt(table.rows[r].style.height) || 30);
-        }
-        table.querySelectorAll('.label-cell').forEach(function(cell) {
-            var content = cell.querySelector('.cell-content');
-            if (!content) return;
-            var cd = {
-                row: parseInt(cell.dataset.row) || 0,
-                col: parseInt(cell.dataset.col) || 0,
-                colSpan: cell.colSpan || 1,
-                text: content.textContent,
-                field: content.dataset.field || '',
-                style: {
-                    fontSize: content.style.fontSize || '12px',
-                    fontWeight: content.style.fontWeight || 'normal',
-                    color: content.style.color || '#000000',
-                    textAlign: content.style.textAlign || 'left',
-                    verticalAlign: content.style.verticalAlign || cell.style.verticalAlign || 'middle'
-                }
-            };
-            if (cd.field === 'barcode' || cd.field === 'qrcode') {
-                cd.barcodeWidth = content.dataset.barcodeWidth || '';
-                cd.barcodeHeight = content.dataset.barcodeHeight || '';
-            }
-            if (cd.row > maxRow) maxRow = cd.row;
-            cells.push(cd);
-        });
-    }
-    return {
-        rows: Math.max(currentTemplate.rows, maxRow + 1),
-        cols: currentTemplate.cols,
-        labelWidth: currentTemplate.labelWidth,
-        labelHeight: currentTemplate.labelHeight,
-        cells: cells,
-        rowHeights: rowHeights
-    };
-}
-
-function __escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
-// 生成单个单元格的内部 HTML（条码/二维码输出真实图片，文本字段填示例值）
-// opts: { scale, unit('px'|'mm'), useSample, labelWidth, labelHeight, origin }
-function __cellInnerHtml(cd, opts) {
-    var field = __labelFieldKey(cd.field || '');
-    var scale = opts.scale || 4;
-
-    function codeImgHtml(kind, value) {
-        var wMm, hMm, src;
-        if (kind === 'barcode') {
-            wMm = parseInt(cd.barcodeWidth) || 50;
-            hMm = parseInt(cd.barcodeHeight) || 15;
-            wMm = Math.min(wMm, opts.labelWidth * 0.9);
-            src = opts.origin + '/api/barcode/' + encodeURIComponent(value);
-        } else {
-            if (cd.barcodeWidth) {
-                wMm = parseInt(cd.barcodeWidth);
-                hMm = parseInt(cd.barcodeHeight) || wMm;
-            } else {
-                wMm = Math.min(opts.labelWidth * 0.4, opts.labelHeight * 0.5);
-                hMm = wMm;
-            }
-            var pxSize = Math.max(100, Math.min(400, Math.round(wMm * 3.78)));
-            src = opts.origin + '/api/qrcode/' + encodeURIComponent(value) + '?size=' + pxSize;
-        }
-        var wCss = opts.unit === 'mm' ? (wMm + 'mm') : (Math.round(wMm * scale) + 'px');
-        var hCss = opts.unit === 'mm' ? (hMm + 'mm') : (Math.min(Math.round(hMm * scale), opts.maxHeight || Infinity) + 'px');
-        return '<img src="' + src + '" alt="' + __escapeHtml(value) + '" style="width:' + wCss + ';height:' + hCss + ';display:block;max-width:100%;image-rendering:pixelated;">';
-    }
-
-    if (field === 'barcode' || field === 'qrcode') {
-        if (opts.useSample) {
-            return codeImgHtml(field, labelSampleData[field] || labelSampleData.code);
-        }
-        return __escapeHtml(cd.text); // 占位模式：显示 [条码]/[二维码] 文本
-    }
-    var txt = cd.text;
-    if (opts.useSample && field && labelSampleData[field] !== undefined) {
-        txt = labelSampleData[field];
-    }
-    return __escapeHtml(txt);
-}
-
-// 仅渲染预览内容（不弹窗），供预览按钮与示例切换复用
-function __renderPreview() {
-    var preview = document.getElementById('previewContent');
-    if (!preview) return;
-    var scale = 4;  // 预览放大倍数
-    var model = __buildLabelModel();
-    var labelWidth = model.labelWidth * scale;
-    var labelHeight = model.labelHeight * scale;
-
-    var byRow = {};
-    model.cells.forEach(function(cd) { (byRow[cd.row] = byRow[cd.row] || []).push(cd); });
-
-    var totalHeight = model.rowHeights.slice(0, model.rows).reduce(function(sum, height) { return sum + (Number(height) || 30); }, 0);
-    var html = '<table id="previewLabel" style="width:' + labelWidth + 'px;height:' + labelHeight + 'px;border:1px solid #000;background:white;table-layout:fixed;border-collapse:collapse;"><tbody>';
-    for (var r = 0; r < model.rows; r++) {
-        var rowHeight = totalHeight > 0 ? (model.rowHeights[r] || 30) / totalHeight * (labelHeight - 1) : (labelHeight - 1) / model.rows;
-        html += '<tr style="height:' + rowHeight + 'px;">';
-        var rowCells = (byRow[r] || []).sort(function(a, b) { return a.col - b.col; });
-        rowCells.forEach(function(cd) {
-            var fs = parseInt(cd.style.fontSize) || 12;
-            html += '<td' + (cd.colSpan > 1 ? ' colspan="' + cd.colSpan + '"' : '') +
-                ' style="border:0.3px solid #ccc;padding:2px;vertical-align:' + (cd.style.verticalAlign || 'middle') +
-                ';overflow:hidden;word-break:break-all;font-size:' + (fs * 25.4 / 72 * scale) + 'px;font-weight:' + cd.style.fontWeight +
-                ';color:' + cd.style.color + ';text-align:' + cd.style.textAlign + ';">' +
-                __cellInnerHtml(cd, { scale: scale, unit: 'px', maxHeight: Math.max(1, rowHeight - 5), useSample: previewUseSample, labelWidth: model.labelWidth, labelHeight: model.labelHeight, origin: location.origin }) +
-                '</td>';
-        });
-        html += '</tr>';
-    }
-    html += '</tbody></table>';
-    preview.innerHTML = html;
-
-    var tog = document.getElementById('previewSampleToggle');
-    if (tog) tog.checked = previewUseSample;
-}
-
-function previewLabel() {
-    __renderPreview();
-    new bootstrap.Modal(document.getElementById('previewModal')).show();
-}
-
-function printLabels() {
-    var selected = getSelectedMaterialIds();
-
-    if (selected.length === 0) {
-        __notify('请先选择要打印标签的物料（勾选表格中的复选框）', 'warning');
-        return;
-    }
-
-    window.open('{{ url_for("print_batch_labels") }}?ids=' + selected.join(','), '_blank');
-}
-
-function printSingleLabel(id) {
-    window.open('{{ url_for("print_batch_labels") }}?ids=' + id, '_blank');
-}
-
-function doPrint() {
-    // 与预览同一数据模型渲染，条码/二维码输出真实图片（绝对地址，兼容 about:blank 打印窗）
-    var model = __buildLabelModel();
-    var scale = 4;
-    var w = model.labelWidth;
-    var h = model.labelHeight;
-
-    var byRow = {};
-    model.cells.forEach(function(cd) { (byRow[cd.row] = byRow[cd.row] || []).push(cd); });
-
-    var totalPx = 0;
-    for (var i = 0; i < model.rowHeights.length; i++) { totalPx += model.rowHeights[i]; }
-
-    var printWindow = window.open('', '', 'width=600,height=400');
-    printWindow.document.write('<!DOCTYPE html><html><head><title>标签打印</title>');
-    printWindow.document.write('<style>');
-    printWindow.document.write('@page { size: ' + w + 'mm ' + h + 'mm; margin: 0; }');
-    printWindow.document.write('@media print { body { margin: 0; } }');
-    printWindow.document.write('body { margin: 0; }');
-    printWindow.document.write('table { width: ' + w + 'mm; height: ' + h + 'mm; border-collapse: collapse; table-layout: fixed; }');
-    printWindow.document.write('td { border: 0.3px solid #000; padding: 1mm; overflow: hidden; word-break: break-all; }');
-    printWindow.document.write('</style></head><body>');
-    printWindow.document.write('<table>');
-    for (var r = 0; r < model.rows; r++) {
-        var rhPx = model.rowHeights[r] || 30;
-        var rhMm = totalPx > 0 ? (rhPx / totalPx * h) : (h / model.rows);
-        printWindow.document.write('<tr style="height: ' + rhMm.toFixed(2) + 'mm;">');
-        var rowCells = (byRow[r] || []).sort(function(a, b) { return a.col - b.col; });
-        rowCells.forEach(function(cd) {
-            var fs = parseInt(cd.style.fontSize) || 12;
-            printWindow.document.write('<td' + (cd.colSpan > 1 ? ' colspan="' + cd.colSpan + '"' : '') +
-                ' style="vertical-align:' + (cd.style.verticalAlign || 'middle') + ';font-size:' + fs + 'pt;font-weight:' + cd.style.fontWeight +
-                ';color:' + cd.style.color + ';text-align:' + cd.style.textAlign + ';">' +
-                __cellInnerHtml(cd, { scale: scale, unit: 'mm', useSample: previewUseSample, labelWidth: w, labelHeight: h, origin: location.origin }) +
-                '</td>');
-        });
-        printWindow.document.write('</tr>');
-    }
-    printWindow.document.write('</table>');
-    // 等待条码/二维码图片加载后再唤起打印，避免打印出空白图
-    printWindow.document.write('<script>window.onload = function() { setTimeout(function(){ window.print(); }, 400); };<\/script>');
-    printWindow.document.write('</body></html>');
-    printWindow.document.close();
-}
+}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
 </script>
+<script src="{{ url_for('static', filename='js/pages/material-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

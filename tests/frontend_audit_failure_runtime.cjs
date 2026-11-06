@@ -8,8 +8,8 @@ function node(value=''){return {value,hidden:false,disabled:false,textContent:''
 const flush=()=>new Promise(r=>setImmediate(r));
 (async()=>{
  if(scenario.startsWith('material-empty-')){
-  const source=read('app/templates/material.html'),start=source.indexOf('    window.fixEmptyFields ='),end=source.indexOf('    // 删除全部物料入口',start),messages=[];let reloads=0;
-  const ctx={window:{},confirm:()=>true,showToast:(m,t)=>messages.push({m,t}),location:{reload(){reloads++;}},WMS:{api:{postRaw:()=>scenario.endsWith('error')?Promise.reject(Error('缺少计量单位，尚未修改物料')):Promise.resolve({status:'success',msg:'已修复 1 条物料的空字段'})}}};
+  const source=read('app/static/js/pages/material-list.js'),start=source.indexOf('    window.fixEmptyFields ='),end=source.indexOf('    // 删除全部物料入口',start),messages=[];let reloads=0;
+  const ctx={materialPageData:{urls:{fix:'/material/fix_empty_fields'}},window:{},confirm:()=>true,showToast:(m,t)=>messages.push({m,t}),location:{reload(){reloads++;}},WMS:{api:{postRaw:()=>scenario.endsWith('error')?Promise.reject(Error('缺少计量单位，尚未修改物料')):Promise.resolve({status:'success',msg:'已修复 1 条物料的空字段'})}}};
   vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);ctx.window.fixEmptyFields();await flush();await flush();
   assert.equal(reloads,scenario.endsWith('error')?0:1);assert.equal(messages.length,1);assert.equal(messages[0].t,scenario.endsWith('error')?'danger':'success');return;
  }

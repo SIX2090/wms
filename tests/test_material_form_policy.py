@@ -55,7 +55,7 @@ def test_apply_material_script_policy(material_client):
     assert 'id="appSidebar"' in html and 'id="wmsBreadcrumb"' in html
 
 
-@pytest.mark.parametrize('url', ['/material/add', '/material/add?embedded=0', '/login?embedded=1', '/material?embedded=1'])
+@pytest.mark.parametrize('url', ['/supplier', '/supplier?embedded=0', '/login?embedded=1', '/customer?embedded=1'])
 def test_unmigrated_pages_keep_original_policy(material_client, url):
     response = material_client.get(url)
     assert response.status_code == (302 if url.startswith('/login') else 200)
@@ -63,11 +63,11 @@ def test_unmigrated_pages_keep_original_policy(material_client, url):
 
 
 @pytest.mark.parametrize(('url', 'inline_actions'), [
-    ('/material/add?embedded=1', False), ('/material/add?embedded=0', True),
-    ('/material/add', True), ('/material?embedded=1', True),
+    ('/material/add?embedded=1', False), ('/material/add?embedded=0', False),
+    ('/material/add', False), ('/material?embedded=1', False),
     ('/in_order/add?type=product&embedded=1', True), ('/in_order/add?type=product', True),
 ])
-def test_shell_inline_handler_scope_matches_enforced_pilot(material_client, url, inline_actions):
+def test_shell_inline_handler_scope_matches_migrated_pages(material_client, url, inline_actions):
     response = material_client.get(url)
     assert response.status_code == 200
     html = response.get_data(as_text=True)

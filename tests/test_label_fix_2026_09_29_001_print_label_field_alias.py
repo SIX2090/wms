@@ -5,6 +5,7 @@
 不再静默打印成空白（A12）；date 字段所需 now 由后端 print_labels 传入。
 """
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -14,7 +15,7 @@ ROUTE = ROOT / "app" / "routes" / "label_barcode.py"
 
 
 def _designer_fields():
-    text = DESIGNER.read_text(encoding="utf-8")
+    text = material_page_source()
     return set(re.findall(r'data-field="([^"]+)"\s+data-label="', text))
 
 

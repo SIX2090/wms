@@ -3,7 +3,7 @@ const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
 const root = process.argv[2] || path.resolve(__dirname, '..');
-const html = fs.readFileSync(path.join(root, 'app/templates/material.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'app/static/js/pages/material-list.js'), 'utf8');
 let start = html.indexOf('    var materialImageRequestGeneration = 0;');
 if (start < 0) start = html.indexOf('    window.findMaterialImage = function(id) {');
 const end = html.indexOf('    // 修复空分类/单位', start);

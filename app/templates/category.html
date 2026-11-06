@@ -114,7 +114,7 @@
         <div class="category-tree">
             {% for row in category_rows %}
             {% set cat = row.category %}
-            <a class="category-tree-row" href="javascript:void(0)" onclick="editCategory({{ cat.id }})" style="padding-left: {{ 8 + row.level * 18 }}px;">
+            <a class="category-tree-row" href="#" role="button" data-master-edit="{{ cat.id }}" style="padding-left: {{ 8 + row.level * 18 }}px;">
                 <span class="category-tree-code">{{ cat.code }}</span>
                 <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }} category-folder"></i>
                 <span class="category-tree-name">{{ cat.name }}</span>
@@ -131,8 +131,8 @@
             <input type="hidden" name="embedded" value="1">
             {% endif %}
             <div class="col-md-10">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索分类编码、分类名称" value="{{ filters.search }}" data-ks="category" data-ks-put="code" data-ks-submit="1">
+                <label class="form-label small text-muted mb-1" for="category-search-1">关键词</label>
+                <input type="text" name="search" class="form-control form-control-sm" placeholder="搜索分类编码、分类名称" value="{{ filters.search }}" data-ks="category" data-ks-put="code" data-ks-submit="1" id="category-search-1">
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill">筛选</button>
@@ -167,10 +167,10 @@
                     <td><span class="category-level-badge lv{{ row.level + 1 }}" title="根分类到当前共 {{ row.level + 1 }} 层">{{ row.level + 1 }} 级</span></td>
                     <td>{{ cat.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="editCategory({{ cat.id }})">
+                        <button type="button" class="btn btn-sm btn-outline-primary" data-master-edit="{{ cat.id }}">
                             <i class="bi bi-pencil"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('{{ url_for('delete_category') }}', {{ cat.id }})">
+                        <button type="button" class="btn btn-sm btn-outline-danger" data-master-delete="{{ cat.id }}">
                             <i class="bi bi-trash"></i>
                         </button>
                     </td>
@@ -196,11 +196,11 @@
                 <input type="hidden" id="editId" name="id">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">分类编码 *</label>
+                        <label class="form-label" for="editCode">分类编码 *</label>
                         <input type="text" class="form-control" id="editCode" name="code" required placeholder="如 CAT-001">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">上级分类</label>
+                        <label class="form-label" for="editParentId">上级分类</label>
                         <select class="form-select" id="editParentId" name="parent_id">
                             <option value="">根分类</option>
                             {% for option in parent_options %}
@@ -209,7 +209,7 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">分类名称 *</label>
+                        <label class="form-label" for="editName">分类名称 *</label>
                         <input type="text" class="form-control" id="editName" name="name" required>
                     </div>
                 </div>
@@ -233,12 +233,12 @@
             <form id="addForm">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">分类编码 *</label>
-                        <input type="text" class="form-control" name="code" required placeholder="如 CAT-001">
+                        <label class="form-label" for="category-code-5">分类编码 *</label>
+                        <input type="text" class="form-control" name="code" required placeholder="如 CAT-001" id="category-code-5">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">上级分类</label>
-                        <select class="form-select" name="parent_id">
+                        <label class="form-label" for="category-parent_id-6">上级分类</label>
+                        <select class="form-select" name="parent_id" id="category-parent_id-6">
                             <option value="">根分类</option>
                             {% for option in parent_options %}
                             <option value="{{ option.id }}">{{ option.label }}</option>
@@ -246,8 +246,8 @@
                         </select>
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">分类名称 *</label>
-                        <input type="text" class="form-control" name="name" required>
+                        <label class="form-label" for="category-name-7">分类名称 *</label>
+                        <input type="text" class="form-control" name="name" required id="category-name-7">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -261,94 +261,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initCheckAll('categoryTable');
-
-    // 新增分类
-    var addForm = document.getElementById('addForm');
-    if (addForm) {
-        addForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            var formData = new FormData(this);
-            WMS.api.postRaw('{{ url_for("add_category") }}', formData)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    notifyMasterDataChanged('category_updated');
-                    location.reload();
-                }
-                else showToast(res.msg, 'danger');
-            })
-            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
-        });
-    }
-
-    // 编辑分类
-    window.editCategory = function(id) {
-        return loadWmsMasterEditor('category', id, function(cat) {
-            document.getElementById('editId').value = cat.id;
-            document.getElementById('editCode').value = cat.code;
-            document.getElementById('editName').value = cat.name;
-            var parentSelect = document.getElementById('editParentId');
-            parentSelect.value = cat.parent_id || '';
-            Array.from(parentSelect.options).forEach(function(option) {
-                option.disabled = option.value === String(cat.id);
-            });
-            var editModal = new bootstrap.Modal(document.getElementById('editModal'));
-            editModal.show();
-        });
-    };
-
-    var editForm = document.getElementById('editForm');
-    if (editForm) {
-        editForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            if (isWmsMasterEditPending()) return;
-            var id = document.getElementById('editId').value;
-            var formData = new FormData(this);
-            WMS.api.postRaw('/category/edit/' + id, formData)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    notifyMasterDataChanged('category_updated');
-                    location.reload();
-                }
-                else showToast(res.msg, 'danger');
-            })
-            .catch(function(err){ showToast('保存失败: ' + err.message, 'danger'); });
-        });
-    }
-
-    // 导入分类
-    var importForm = document.getElementById('importForm');
-    if (importForm) {
-        importForm.addEventListener('submit', function(e) {
-            e.preventDefault();
-            var formData = new FormData(this);
-            WMS.api.postRaw('{{ url_for("import_category") }}', formData)
-            .then(function(res) {
-                if (res.status === 'success') {
-                    notifyMasterDataChanged('category_updated');
-                    showToast(res.msg || '导入成功', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                } else {
-                    showToast(res.msg, 'danger');
-                }
-            })
-            .catch(function(err){ showToast('导入失败: ' + err.message, 'danger'); });
-        });
-    }
-});
-
-function notifyMasterDataChanged(type) {
-    try {
-        if (typeof BroadcastChannel !== 'undefined') {
-            var bc = new BroadcastChannel('wms_master_data_update');
-            bc.postMessage({type: type, timestamp: Date.now()});
-            bc.close();
-        }
-    } catch(e) {}
-}
-</script>
+<script type="application/json" id="category-page-data">{"add": {{ url_for("add_category")|tojson }}, "import": {{ url_for("import_category")|tojson }}, "delete": {{ url_for("delete_category")|tojson }}}</script>
+<script src="{{ url_for('static', filename='js/pages/material-category.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 
 <!-- 导入弹窗 -->
 <div class="modal fade" id="importModal">
@@ -362,8 +276,8 @@ function notifyMasterDataChanged(type) {
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="modal-body">
                     <div class="mb-3">
-                        <label class="form-label">选择 Excel 文件</label>
-                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required>
+                        <label class="form-label" for="category-file-8">选择 Excel 文件</label>
+                        <input type="file" name="file" class="form-control" accept=".xlsx,.xls" required id="category-file-8">
                         <div class="form-text">请先下载模板，按模板格式填写后导入。支持分类编码+分类名称两列格式</div>
                     </div>
                 </div>

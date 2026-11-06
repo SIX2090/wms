@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from tests.material_page_source import material_page_source
 
 import pytest
 
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
     'unrelated_checkbox', 'changed_selection',
 ])
 def test_material_toolbar_selected_print_runtime(scenario):
-    source = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    source = material_page_source()
     toolbar = source[source.index('var materialDeleteBusy = false;'):
                      source.index('function toolbarFindImage()')]
     printing = source[source.index('function printLabels()'):source.index('function doPrint()')]
@@ -44,7 +45,7 @@ const document={getElementById:id=>nodes[id],querySelectorAll:s=>{
  if(s==='.check-item:checked')return [...boxes,outsider].filter(b=>b.checked);
  throw Error('Unexpected selector '+s);
 }};
-const ctx=vm.createContext({document,window:{open:(...args)=>opened.push(args)},
+const ctx=vm.createContext({materialPageData:{urls:{printBatch:'/label/batch_print'}},document,window:{open:(...args)=>opened.push(args)},
  WMS:{api:{post:async(url,body)=>{posts.push({url,body});return {msg:'queued'}}}},
  showToast:(...args)=>toasts.push(args),__notify:(...args)=>toasts.push(args)});
 vm.runInContext(p.check_all+'\n'+p.toolbar+'\n'+p.printing,ctx);

@@ -71,7 +71,7 @@
         <div class="print-header">
             <h2><i class="bi bi-printer"></i> 打印物料档案</h2>
             <div class="print-actions">
-                <button class="btn btn-primary" onclick="window.print()">
+                <button class="btn btn-primary" id="materialArchivePrintButton" type="button">
                     <i class="bi bi-printer"></i> 打印
                 </button>
                 <a class="btn" href="/material">返回</a>
@@ -138,6 +138,10 @@
         </div>
     </div>
 
-    {% if not request.args.get('autoprint') %}<script>window.print();</script>{% endif %}
-    {% include '_autoprint_script.html' %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script type="application/json" id="material-archive-data">{"autoprint": {{ (request.args.get('autoprint') or '')|tojson }}, "copies": {{ request.args.get('copies', 1)|int|tojson }}}</script>
+<script src="{{ url_for('static', filename='js/pages/material-archive.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

@@ -5,6 +5,7 @@
 则先调用 applyCustomSize()，杜绝「改了数字没点应用」导致界面与存库尺寸不一致。
 """
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ def _fn_body(text, name, span=700):
 
 
 def test_save_template_syncs_custom_size():
-    text = PAGE.read_text(encoding="utf-8")
+    text = material_page_source()
     for fn in ("saveTemplate", "saveAsTemplate"):
         body = _fn_body(text, fn)
         assert "__syncCustomSizeBeforeSave" in body, \
@@ -28,7 +29,7 @@ def test_save_template_syncs_custom_size():
 def test_sync_guarded_by_custom_check():
     """同步必须带 custom 条件守卫——否则会把预设尺寸（如 90x50）误用
     customWidth/customHeight 输入框里的残留值覆盖。"""
-    text = PAGE.read_text(encoding="utf-8")
+    text = material_page_source()
     body = _fn_body(text, "__syncCustomSizeBeforeSave")
     assert "applyCustomSize" in body, "同步函数未调用 applyCustomSize()"
     i = body.find("applyCustomSize")
@@ -38,7 +39,7 @@ def test_sync_guarded_by_custom_check():
 
 def test_helper_defined_before_use():
     """helper 必须先定义后使用（脚本同文件顺序执行，函数声明提升但保持显式顺序）。"""
-    text = PAGE.read_text(encoding="utf-8")
+    text = material_page_source()
     i_def = text.find("function __syncCustomSizeBeforeSave()")
     i_use = text.find("function saveTemplate()")
     assert 0 < i_def < i_use, "helper 定义必须位于 saveTemplate 之前"

@@ -30,6 +30,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tests.material_page_source import material_page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "app"
@@ -99,7 +100,7 @@ def test_print_page_grid_covers_actual_cell_coords():
 
 def test_designer_reindex_before_serialize():
     """T4：设计器序列化（保存/草稿）前按 DOM 实际顺序重排坐标。"""
-    src = DESIGNER_TEMPLATE.read_text(encoding='utf-8')
+    src = material_page_source()
     # 重排函数存在且按 DOM 行/列（含 colSpan）重写 data-row/data-col
     assert 'function reindexLabelCells()' in src
     assert 'cell.dataset.row = r;' in src

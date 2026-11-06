@@ -21,6 +21,8 @@ def page_source(page):
 def page_scripts(page):
     chunks = []
     for match in re.finditer(r'<script([^>]*)>(.*?)</script>', page_source(page), re.S):
+        if 'application/json' in match.group(1):
+            continue
         asset = re.search(r"filename=['\"]([^'\"]+)", match.group(1))
         chunks.append((ROOT / 'app/static' / asset.group(1)).read_text(encoding='utf-8') if asset else match.group(2))
     return '\n'.join(chunks)
@@ -92,6 +94,7 @@ const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.pa
 let ready=[],requests=[],messages=[],nativeAlerts=0,nativeConfirms=0,reloads=0,confirmCalls=0;
 function field(a={}){return Object.assign({value:'7',checked:true,files:[{name:'audit.xlsx'}],dataset:{id:'7'},style:{},innerHTML:'',disabled:false,handlers:{},options:[{value:'',disabled:false}],classList:{add(){},remove(){}},addEventListener(t,fn){this.handlers[t]=fn;},checkValidity:()=>true,reportValidity(){},reset(){},getAttribute(k){return this[k]||'';},focus(){},select(){}},a);}
 const nodes={};Object.entries(p.nodes).forEach(([id,a])=>nodes[id]=field({...a,value:'7'}));
+if(['category','unit'].includes(p.page))nodes[p.page+'-page-data'].textContent=JSON.stringify({add:'/'+p.page+'/add',import:'/'+p.page+'/import',delete:'/'+p.page+'/delete'});
 Object.entries(p.forms).forEach(([id,fields])=>{if(!nodes[id])return;const items=fields.map(a=>{const f=a.id&&nodes[a.id]||field(a);if(a.type==='file')f.files=[{name:'audit.xlsx'}];return f;});items.forEach(f=>{if(f.name)items[f.name]=f;});nodes[id].elements=items;nodes[id].querySelector=s=>{const m=s.match(/name=["']?([^"'\]]+)/);return m&&items[m[1]]||items.find(x=>s.includes('file')&&x.type==='file')||field();};nodes[id].action=nodes[id].action||'/audit-import';});
 const importResult=field();
 const meta={content:'fixture-token',getAttribute:()=> 'fixture-token'};

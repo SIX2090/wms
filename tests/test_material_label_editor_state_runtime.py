@@ -2,6 +2,7 @@
 from html.parser import HTMLParser
 import json
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import shutil
 import subprocess
 
@@ -19,7 +20,7 @@ class Nodes(HTMLParser):
 
 PROGRAM=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
-const calls=[],pending=[],messages=[],prompts=[],store=new Map();let focused=0;
+const calls=[],pending=[],messages=[],prompts=[],store=new Map(),delegates={};let focused=0;
 class El {
  constructor(tag,attrs={}){this.tagName=tag.toUpperCase();this.attrs={...attrs};this.dataset=new Proxy({}, {set:(target,key,value)=>{target[key]=String(value);return true;}});this.children=[];this.events={};this.style={fontSize:'',fontWeight:'',color:'',textAlign:'',verticalAlign:''};this._text='';this._html='';this._value=attrs.value??null;this.className=attrs.class||'';this.colSpan=1;this.disabled=false;this.classList={contains:c=>this.className.split(' ').includes(c),add:c=>{if(!this.className.split(' ').includes(c))this.className+=' '+c;},remove:c=>this.className=this.className.split(' ').filter(x=>x!==c).join(' ')};for(const[k,v]of Object.entries(attrs))if(k.startsWith('data-'))this.dataset[k.slice(5).replace(/-([a-z])/g,(_,x)=>x.toUpperCase())]=v;}
  get value(){if(this._value!==null)return this._value;if(this.tagName==='SELECT'){const option=this.children.find(n=>n.selected)||this.children[0];return option?option.value:'';}return '';}
@@ -32,15 +33,15 @@ class El {
  get innerHTML(){return this._html+this.children.map(n=>n.innerHTML||n.textContent).join('');}
  set textContent(v){this._text=String(v??'');this._html='';this.children=[];}get textContent(){return this._text+this._html.replace(/<[^>]*>/g,'')+this.children.map(n=>n.textContent).join('');}
  querySelectorAll(selector){const selectors=selector.split(',').map(s=>s.trim().split(' ').at(-1));const matches=n=>selectors.some(name=>name.startsWith('.')?n.classList.contains(name.slice(1)):name.startsWith('[')?n.hasAttribute(name.slice(1,-1)):n.tagName.toLowerCase()===name);return this.children.flatMap(n=>[...(matches(n)?[n]:[]),...n.querySelectorAll(selector)]);}
- querySelector(s){return this.querySelectorAll(s)[0]||null;}closest(){return null;}contains(n){return this===n||this.children.some(c=>c.contains(n));}
+ querySelector(s){return this.querySelectorAll(s)[0]||null;}closest(s){return s.startsWith('[')&&this.hasAttribute(s.slice(1,-1))?this:null;}contains(n){return this===n||this.children.some(c=>c.contains(n));}
  addEventListener(k,fn){(this.events[k]??=[]).push(fn);}removeEventListener(k,fn){this.events[k]=(this.events[k]||[]).filter(f=>f!==fn);}focus(){if(!this.disabled)focused++;}
  setAttribute(k,v){this.attrs[k]=String(v);if(k.startsWith('data-'))this.dataset[k.slice(5).replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=String(v);}
  hasAttribute(k){return Object.prototype.hasOwnProperty.call(this.attrs,k);}removeAttribute(k){delete this.attrs[k];}getAttribute(k){return this.attrs[k]??null;}
 }
 const nodes=p.nodes.map(([tag,a])=>new El(tag,a)),ids=Object.fromEntries(nodes.filter(n=>n.attrs.id).map(n=>[n.attrs.id,n]));
 ids.labelTemplateModal.children=nodes.filter(n=>n!==ids.labelTemplateModal);
-const document={activeElement:null,getElementById:id=>ids[id]||null,createElement:tag=>new El(tag),querySelectorAll:s=>s.includes('.label-cell')?ids.labelTable.querySelectorAll(s):[],querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:null,addEventListener(){}};
-const ctx={document,Headers,FormData,console:{warn(){}},localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)},showToast:(message,type)=>messages.push({message,type}),alert:()=>assert.fail('production toast exists'),confirm:message=>{prompts.push(message);return p.scenario!=='cancel';},setTimeout(){},bootstrap:{Modal:class{show(){}}},fetch:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({url,resolve,reject}));}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);
+const document={activeElement:null,getElementById:id=>ids[id]||null,createElement:tag=>new El(tag),querySelectorAll:s=>s.includes('.label-cell')?ids.labelTable.querySelectorAll(s):[],querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:null,addEventListener(k,fn){(delegates[k]??=[]).push(fn);}};
+const ctx={document,Headers,FormData,console:{warn(){}},localStorage:{getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)},showToast:(message,type)=>messages.push({message,type}),alert:()=>assert.fail('production toast exists'),confirm:message=>{prompts.push(message);return p.scenario!=='cancel';},setTimeout(){},bootstrap:{Modal:class{show(){}}},fetch:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({url,resolve,reject}));}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);if(p.actions)vm.runInContext(p.actions,ctx);
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
 const list='/label_template/api/list',detail=id=>'/label_template/api/'+id+'/detail';
 function tmpl(id,missingStyle=false,literal=false){const width=id==='A'?40:id==='B'?90:60;return{id,name:'template-'+id,width,height:id==='B'?50:20,rows:1,cols:1,layout:{rows:1,cols:1,labelWidth:width,labelHeight:id==='B'?50:20,rowHeights:[45],cells:[{row:0,col:0,text:literal?'<img src=x onerror=fixture()>literal-'+id:'canvas-'+id,field:'name',colSpan:1,...(missingStyle?{}:{style:{fontSize:'15px',fontWeight:'bold',verticalAlign:'middle'}})}]}};}
@@ -49,7 +50,7 @@ function response(body,s){const status=s==='http_success'?500:s==='http'?400:s==
 async function finish(url,body,s='success'){const r=pending.find(n=>n.url===url&&!n.done);assert(r,'pending '+url);r.done=true;if(s==='network')r.reject(Error('fixture offline'));else r.resolve(response(body,s));await settle();}
 const postCalls=()=>calls.filter(c=>c.options.method==='POST');
 function select(id){ids.templateSelect.value=id;vm.runInContext(ids.templateSelect.attrs.onchange||'switchTemplate()',ctx);}
-function click(name){const button=nodes.find(n=>n.attrs.onclick===name+'()');assert(button,'real '+name+' button');vm.runInContext(button.attrs.onclick,ctx);}
+function click(name){const button=nodes.find(n=>n.attrs['data-material-action']===name);assert(button,'real '+name+' button');assert(delegates.click?.length,'real page click delegate');for(const listener of delegates.click)listener({target:button,preventDefault(){}});}
 function rendered(id,text='canvas-'+id){assert.equal(ctx.currentTemplateId,id,'loaded identity follows current choice');assert.equal(ids.templateNameInput.value,'template-'+id);assert.equal(ids.labelTable.textContent,text,'actual editor table follows current choice');assert.equal(ids.labelCanvas.style.width,(id==='A'?160:id==='B'?360:240)+'px');assert.equal(ids.labelTable.rows[0].style.height,'45px');const content=ids.labelTable.querySelector('.cell-content');assert.equal(content.dataset.field,'name');}
 async function ready(id='A'){ctx.loadTemplateList();await finish(list,{status:'success',templates:entries});if(id!=='A')select(id);await finish(detail(id),{status:'success',template:tmpl(id)});}
 function state(){return JSON.stringify({id:ctx.currentTemplateId,name:ids.templateNameInput.value,text:ids.labelTable.textContent,width:ids.labelCanvas.style.width});}
@@ -92,13 +93,14 @@ async function refreshSelection(target){await finish(list,{status:'success',temp
 
 
 def run(action,scenario='success',source_override=None):
-    template=(ROOT/'app/templates/material.html').read_text(encoding='utf-8')
+    template=material_page_source()
     start=template.index('// 标签打印模板相关函数')
     end=template.index('// ==================== 所见即所得预览',start)
     source=source_override if source_override is not None else template[start:end]
     nodes=Nodes(template[template.index('<div class="modal fade" id="labelTemplateModal"'):template.index('<script>',template.index('<div class="modal fade" id="labelTemplateModal"'))]).nodes
     node=shutil.which('node');assert node,'Node required for real label editor'
-    payload=dict(action=action,scenario=scenario,nodes=nodes,source=source,api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'))
+    actions=template[template.index('const materialPageActions = {'):template.index("document.addEventListener('keydown', function(event)", template.index('const materialPageActions = {'))]
+    payload=dict(action=action,scenario=scenario,nodes=nodes,source=source,actions=actions,api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'))
     result=subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM],input=json.dumps(payload),capture_output=True,text=True,encoding='utf-8',timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
 

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
+from tests.material_page_source import material_page_source
 
 import pytest
 
@@ -17,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
     ('name', '物料名称', 'name'), ('unit', '单位', 'unit_name'),
     ('category', '分类', 'category_name'), ('supplier', '供应商', 'supplier_name')])
 def test_legacy_field_only_cells_load_as_visible_editable_bindings(field, label, canonical):
-    template = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    template = material_page_source()
     source = template[template.index('// 标签打印模板相关函数'):
                       template.index('// ==================== 所见即所得预览')]
     start = template.index('<div class="modal fade" id="labelTemplateModal"')
@@ -67,7 +68,7 @@ class PrintStructure(HTMLParser):
 
 
 def test_real_label_preview_keeps_table_structure_and_fits_label_height():
-    template = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    template = material_page_source()
     source = template[template.index('function __escapeHtml('):template.index('function previewLabel()')]
     alias = re.search(r'function __labelFieldKey\([^)]*\) \{.*?\n\}', template, re.S)
     if alias:

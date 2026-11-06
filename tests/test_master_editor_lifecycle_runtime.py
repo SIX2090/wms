@@ -72,7 +72,9 @@ def sources(kind):
     path = ROOT / f'app/templates/{kind}.html'
     html = path.read_text(encoding='utf-8')
     external = kind in ('employee', 'warehouse', 'department')
-    page = (ROOT / f'app/static/js/pages/{kind}.js').read_text(encoding='utf-8') if external else html
+    assets = {'category': 'material-category.js', 'unit': 'material-unit.js', 'material': 'material-list.js'}
+    page = ((ROOT / ('app/static/js/pages/' + assets[kind])).read_text(encoding='utf-8')
+            if kind in assets else (ROOT / f'app/static/js/pages/{kind}.js').read_text(encoding='utf-8') if external else html)
     marker = (f'window.edit{kind.capitalize()} = function(id)' if kind in ('category', 'material')
               else f'function edit{kind.capitalize()}(id)')
     # Use the same brace-aware source extraction for local and external scripts.

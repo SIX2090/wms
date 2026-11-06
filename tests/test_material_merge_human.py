@@ -1,5 +1,6 @@
 """MATERIAL-MERGE-HUMAN-001: operator selection/confirmation, never production data."""
 from pathlib import Path
+from tests.material_page_source import material_page_source
 
 import pytest
 from tests import test_material_merge as legacy
@@ -150,7 +151,7 @@ def test_material_merge_candidates_pagination_search_and_inactive_selection(clie
 
 
 def test_material_merge_modal_replaces_prompt_and_requires_explicit_selection():
-    template = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    template = material_page_source()
     start = template.index('function mergeMaterialInto(')
     end = template.index('// ==================== 列设置', start)
     assert 'window.prompt' not in template[start:end]

@@ -1,6 +1,6 @@
 const fs = require('fs'), path = require('path'), vm = require('vm'), assert = require('node:assert/strict');
 const root = process.argv[2];
-const html = fs.readFileSync(path.join(root, 'app/templates/material.html'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'app/static/js/pages/material-list.js'), 'utf8');
 const start = html.indexOf('var materialDeleteBusy = false;');
 const end = html.indexOf('// 2026-09-25：物料停用', start);
 assert(start >= 0 && end > start);
@@ -28,7 +28,7 @@ function fixture() {
         createElement(tag) { return new Element(tag); },
     };
     const modal = { visible:false, show(){this.visible=true;}, hide(){this.visible=false;nodes.get('materialDeleteResultModal').dispatch('hidden.bs.modal');} };
-    const ctx = {document, console, FormData:class{}, Promise, Error, JSON, URLSearchParams,
+    const ctx = {materialPageData:{urls:{delete:'/material/delete'}},document, console, FormData:class{}, Promise, Error, JSON, URLSearchParams,
         setTimeout, showToast(...args){notices.push(args);},
         showConfirm(message, options){return new Promise(resolve=>confirmations.push({message,options,resolve}));},
         location:{reload(){reloads++;}},

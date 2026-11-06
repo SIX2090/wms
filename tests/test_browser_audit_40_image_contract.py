@@ -2,6 +2,7 @@ from tests.audit_regressions.conftest import audit_boundaries
 from tests.audit_regressions.support import evidence_dir
 """006/007 local HTTP and pure front-end dispatch, never real image/search I/O."""
 from pathlib import Path
+from tests.material_page_source import material_page_source
 import copy
 import html
 import io
@@ -173,7 +174,7 @@ def test_invalid_selection_url_is_rejected_without_dns_or_transport(image_case,m
 
 
 def test_toolbar_and_row_dispatch_same_implementation_with_correct_id():
-    source=(ROOT/'app/templates/material.html').read_text(encoding='utf-8')
+    source=material_page_source()
     functions=[]
     for name in ('getSelectedMaterialIds','getSelectedSingleId','toolbarFindImage'):
         start=source.index('function '+name+'(');opening=source.index('{',start);depth=0
@@ -181,7 +182,7 @@ def test_toolbar_and_row_dispatch_same_implementation_with_correct_id():
             depth+=(source[end]=='{')-(source[end]=='}')
             if depth==0:break
         functions.append(source[start:end+1])
-    assert 'onclick="findMaterialImage({{ mat.id }})"' in source
+    assert 'data-material-action="findMaterialImage" data-material-id="{{ mat.id }}"' in source
     program=r'''const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('fs').readFileSync(0,'utf8'));
 let selected=[],calls=[];const ctx={document:{querySelectorAll(){return selected.map(value=>({value}));}},findMaterialImage(id){calls.push(String(id));}};vm.createContext(ctx);vm.runInContext(p.source,ctx);
 for(const ids of [[],['17','18']]){selected=ids;ctx.toolbarFindImage();assert.equal(calls.length,0);}

@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from pathlib import Path
+from tests.material_page_source import material_page_source
 
 import pytest
 from tests.test_master_editor_lifecycle_runtime import shared_helpers, take
@@ -40,7 +41,7 @@ def closing(source, start):
 def requests():
     calls = []
     for page in ['material', 'mobile_scan']:
-        source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+        source = material_page_source() if page == 'material' else (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
         for match in re.finditer(r'(?m)^\s*(?:return\s+)?((?:fetch|csrfFetch|WMS\.api\.(?:getRaw|postRaw))\s*\()', source):
             start = match.start(1)
             end = closing(source, source.index('(', start))
@@ -68,7 +69,7 @@ const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(pr
 class FormData{append(){}}
 const formData=new FormData(),body=p.scenario==='array'?[{id:7}]:{status:p.scenario==='multiple'?'multiple':'success',msg:'literal failure',data:{id:7,matches:[{code:'M1'}]},page:2,total_pages:4,warnings:['warning']};
 const controller=new AbortController();
-const ctx={FormData,Headers,AbortController,controller,document:{querySelector:()=>({content:'fixture-csrf'})},location:{href:'original'},confirm:()=>{expired++;return true;},setTimeout(){},
+const ctx={materialPageData:{urls:{add:'/fixture-endpoint',fix:'/fixture-endpoint',delete:'/fixture-endpoint'}},FormData,Headers,AbortController,controller,document:{querySelector:()=>({content:'fixture-csrf'})},location:{href:'original'},confirm:()=>{expired++;return true;},setTimeout(){},
  crypto:{randomUUID:()=> 'fixture-intent'},btn:{dataset:{requestId:'fixture-intent'}},
  status:'inactive',id:7,currentTemplateId:7,templateId:7,type:'unit',quickSelectApiByType:{unit:'/fixture/units'},lookupUrl:'/fixture/lookup?warehouse=A',undo:{checkId:7},mode:'in',lines:[{material_code:'M1',quantity:2}],warehouseInput:{value:'A'},remarkInput:{value:'note'},selectedMaterial:{id:7},wh:'A',cid:7,url:'/fixture/list?page=1',qs:'&warehouse=A',formData,dbData:formData,payload:{code:'M1',quantity:2},candidate:{image_url:'/fixture/image.jpg'},
  csrfHeaders:x=>x||{},tokenHeader:()=>({}),
@@ -97,7 +98,7 @@ let request;const ctx={FormData,document:{querySelector:()=>({content:'csrf'})},
 
 @pytest.mark.parametrize('page', ['material', 'mobile_scan'])
 def test_pages_use_shared_transport_for_all_legacy_requests(page):
-    source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    source = material_page_source() if page == 'material' else (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
     scripts = '\n'.join(re.findall(r'<script[^>]*>(.*?)</script>', source, re.S))
     scripts = re.sub(r'//[^\n]*|/\*.*?\*/', '', scripts, flags=re.S)
     assert not re.search(r'(?<![\w.])(?:fetch|csrfFetch)\s*\(', scripts)
@@ -106,7 +107,7 @@ def test_pages_use_shared_transport_for_all_legacy_requests(page):
 @pytest.mark.parametrize('form_id', ['addForm', 'editForm'])
 @pytest.mark.parametrize('scenario', ['success', 'business', 'http', 'html', 'expired', 'network'])
 def test_material_forms_keep_multipart_and_failure_feedback(form_id, scenario):
-    source = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    source = material_page_source()
     marker = source.index(form_id + ".addEventListener('submit'")
     end = closing(source, source.index('(', marker))
     callback = source[source.index('function(e)', marker):end - 1]
@@ -115,7 +116,7 @@ def test_material_forms_keep_multipart_and_failure_feedback(form_id, scenario):
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);let sent=[],messages=[],timers=[],hidden=0;
 class FormData{constructor(form){this.owner=form.id;}}
 const fields={edit_id:{value:'7'},edit_code:{value:'M1',getAttribute:()=> 'M1'},edit_name:{value:'Fixture',getAttribute:()=> 'Fixture'}};
-const ctx={document:{getElementById:id=>fields[id]||null,querySelector:()=>({content:'fixture-csrf'})},FormData,Headers,commitQuickSelects(){},showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),confirm:()=>true,location:{href:'original'},bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
+const ctx={materialPageData:{urls:{add:'/material/add'}},document:{getElementById:id=>fields[id]||null,querySelector:()=>({content:'fixture-csrf'})},FormData,Headers,commitQuickSelects(){},showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),confirm:()=>true,location:{href:'original'},bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
 fetch:(u,o)=>{sent.push({u,o});return p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:!['http','html','expired'].includes(p.scenario),status:p.scenario==='http'?400:p.scenario==='html'?503:p.scenario==='expired'?401:200,json:()=>p.scenario==='html'?Promise.reject(SyntaxError('HTML')):Promise.resolve({status:['http','business'].includes(p.scenario)?'error':'success',msg:['http','business'].includes(p.scenario)?'fixture failure':'saved'})});}};
 ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.helper,ctx);vm.runInContext('var handler='+p.callback+';',ctx);
 (async()=>{ctx.handler.call({id:p.form},{preventDefault(){}});await new Promise(r=>setImmediate(r));assert.equal(sent.length,1);assert.equal(sent[0].u,p.form==='addForm'?'/material/add':'/material/edit/7');assert(sent[0].o.body instanceof FormData);assert.equal(sent[0].o.body.owner,p.form);const h=new Headers(sent[0].o.headers);assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert(!h.has('Content-Type'));
@@ -127,7 +128,7 @@ else {assert.equal(timers.length,0,'failure must not refresh and discard input')
 
 @pytest.mark.parametrize('scenario', ['http', 'html', 'network'])
 def test_material_image_errors_are_visible_literal_text(scenario):
-    source = (ROOT / 'app/templates/material.html').read_text(encoding='utf-8')
+    source = material_page_source()
     start = source.index('window.loadEditMaterialImages = function(id)')
     callback = source[source.index('function(id)', start):source.index('\n    };', start) + 6]
     context = take(source, 'window.getEditMaterialContext = function(id)') if 'window.getEditMaterialContext = function(id)' in source else ''
