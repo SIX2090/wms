@@ -46,3 +46,5 @@
 生产回退/状态证据集中在原私有`product_receipt_live_20261105`目录的contract-project-*文件；浏览器结果、已登记身份及实际制品测试在本聊天`product-contract-fix/verified-browser`、verified-identity.json、verified-production-preflight.log及public/。原audit03、product_receipt、audit04及operations目录仍含现役监护宿主或回退依赖，不作临时目录清理。
 
 本回执同步前，另一聊天纯文档推进main至ab74aa63956c7e66ee0101b902c7dde2155fb044，app/scripts/tools差异为空，WMS CI42021402936、AI42021402682均success后安全快进。原21份未提交外观修改保留，本次只更新本审计与007条目；回执按自身精确提交另验文档CI，不改已运行制品身份。
+
+2026-11-06补记：用户批准一次受控监护预算重置和原任务重启后，08:37核实真实running/0、PID10860，程序/配置/数据不变；前文running/3为昨日交接时状态。当前预算收尾与普通下一次启动隔离验收见[维护回执](2026-11-06-monitor-budget-reset.md)，没有把重置参数永久加入自动任务。
