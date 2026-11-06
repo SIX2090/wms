@@ -116,43 +116,51 @@
                 <table class="table order-table mb-0" id="itemTable">
                     <thead>
                         <tr>
-                            <th>序号</th>
-                            <th>物料编码</th>
-                            <th>品牌</th>
-                            <th>物料名称</th>
-                            <th>规格</th>
-                            <th>单位</th>
-                            <th class="text-end">当前库存</th>
-                            <th>数量</th>
-                            <th>单价</th>
-                            <th>金额</th>
-                            <th>备注</th>
+                            <th data-column-key="row_no">序号</th>
+                            <th data-column-key="material_code">物料编码</th>
+                            <th data-column-key="brand">品牌</th>
+                            <th data-column-key="material_name">物料名称</th>
+                            <th data-column-key="spec">规格</th>
+                            <th data-column-key="unit">单位</th>
+                            <th data-column-key="stock" class="text-end">当前库存</th>
+                            <th data-column-key="quantity">数量</th>
+                            <th data-column-key="price">单价</th>
+                            <th data-column-key="amount">金额</th>
+                            <th data-column-key="remark">备注</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in order.items %}
                         <tr>
-                            <td>{{ loop.index }}</td>
-                            <td>{{ item.material.code if item.material else '-' }}</td>
-                            <td>{{ item.material.brand if item.material and item.material.brand else '-' }}</td>
-                            <td>{{ item.material.name if item.material else '-' }}</td>
-                            <td>{{ item.material.spec if item.material else '-' }}</td>
-                            <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
-                            <td class="text-end">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if item.material and warehouse_stock is not none else '-' }}</td>
-                            <td>{{ (item.quantity)|quantity }}</td>
-                            <td>¥{{ "%.2f"|format(item.price or 0) }}</td>
-                            <td>¥{{ "%.2f"|format(item.amount or 0) }}</td>
-                            <td>{{ item.remark or '' }}</td>
+                            <td data-column-key="row_no">{{ loop.index }}</td>
+                            <td data-column-key="material_code">{{ item.material.code if item.material else '-' }}</td>
+                            <td data-column-key="brand">{{ item.material.brand if item.material and item.material.brand else '-' }}</td>
+                            <td data-column-key="material_name">{{ item.material.name if item.material else '-' }}</td>
+                            <td data-column-key="spec">{{ item.material.spec if item.material else '-' }}</td>
+                            <td data-column-key="unit">{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
+                            <td data-column-key="stock" class="text-end">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if item.material and warehouse_stock is not none else '-' }}</td>
+                            <td data-column-key="quantity">{{ (item.quantity)|quantity }}</td>
+                            <td data-column-key="price">¥{{ "%.2f"|format(item.price or 0) }}</td>
+                            <td data-column-key="amount">¥{{ "%.2f"|format(item.amount or 0) }}</td>
+                            <td data-column-key="remark">{{ item.remark or '' }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="10" class="text-center text-muted">暂无明细</td></tr>
+                        <tr><td colspan="11" class="text-center text-muted">暂无明细</td></tr>
                         {% endfor %}
                     </tbody>
                     <tfoot>
-                        <tr>
-                            <td colspan="8" class="text-end"><strong>合计：</strong></td>
-                            <td><strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</strong></td>
-                            <td></td>
+                        <tr class="total-row">
+                            <td data-column-key="row_no"><strong>合计：</strong></td>
+                            <td data-column-key="material_code"></td>
+                            <td data-column-key="brand"></td>
+                            <td data-column-key="material_name"></td>
+                            <td data-column-key="spec"></td>
+                            <td data-column-key="unit"></td>
+                            <td data-column-key="stock"></td>
+                            <td data-column-key="quantity">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                            <td data-column-key="price"></td>
+                            <td data-column-key="amount"><strong>¥{{ "%.2f"|format(order.total_amount or 0) }}</strong></td>
+                            <td data-column-key="remark"></td>
                         </tr>
                     </tfoot>
                 </table>

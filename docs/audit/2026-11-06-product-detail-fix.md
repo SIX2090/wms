@@ -35,8 +35,12 @@
 
 证据在本聊天 visualizations 工作目录：product-detail-before.log、product-detail-candidate.log、product-detail-adjacent.log、product-convert-confirmation.log、detail-rollback-proof/acceptance.json 及 product-detail-browser.log。截图为 C:\wms\output\playwright\product-detail-fields-fixed.png 和 product-detail-sorted-fixed.png。
 
-精确目标完整 CI 仍待本批后续验收。推送前已核实远端基线 64204eaf829a0fafe7b6263c149aa18751dd9a9f：WMS CI 42162621929、AI 42162621893 成功；Android 42131949898 为成功祖先，Android 输入无变化，原生门禁通过。**生产需重启 WMS 服务生效**；当前线上仍为原登记制品，尚未切换本批修正，也未操作生产单据、库存或账号。上线须按既有规则另行明确授权，并复核监护预算。
+推送前已核实远端基线 64204eaf829a0fafe7b6263c149aa18751dd9a9f：WMS CI 42162621929、AI 42162621893 成功；Android 42131949898 为成功祖先，Android 输入无变化，原生门禁通过。**生产需重启 WMS 服务生效**；当前线上仍为原登记制品，尚未切换本批修正，也未操作生产单据、库存或账号。上线须按既有规则另行明确授权，并复核监护预算。
+
+后续代码交付验收：a81c493b8a1183c138f3555d72300999debdd540 已实际推送，WMS CI 42199567456、AI 42199567432 均成功；Android成功祖先及输入无变证明通过，原生目标门禁 ok=true。完整业务 CI 已验收，生产仍未切换。
 
 ## 后续任务
 
-用户要求本批完成后，逐类检查全 WMS 的列表、新增、编辑、详情及打印是否使用匹配的业务字段、栏目目标、列顺序、排序和下推类型。该全面检查尚未完成；本次局部修正和测试数量不能作为全系统一致性结论，也不将其他聊天已暂停的整改冒称完成。
+用户要求本批完成后，逐类检查全 WMS 的列表、新增、编辑、详情及打印是否使用匹配的业务字段、栏目目标、列顺序、排序和下推类型。本次局部修正和测试数量不能作为全系统一致性结论，也不将其他聊天已暂停的整改冒称完成。
+
+产品批次 CI 完成后已执行桌面业务单据专项：21类、40个详情渲染及消费点追踪。确认的同根因遗漏另批修正；其余独立业务问题及检查边界见[详情一致性报告](2026-11-06-document-detail-consistency.md)，不据此宣称手机、全部打印模板或全系统所有功能已验收。

@@ -409,7 +409,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ 15 if order.status == 'pending' else 13 }}" class="empty-state">
+                        <td colspan="{{ 16 if order.status == 'pending' else 14 }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
@@ -418,15 +418,25 @@
                 </tbody>
                 <tfoot>
                     <tr class="total-row">
-                        <td colspan="{{ 6 if order.status == 'pending' else 5 }}"></td>
-                        <td class="text-end">合计：</td>
-                        <td class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
-                        <td></td>
-                        <td class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
-                        <td></td>
-                        <td></td>
+                        <td data-column-key="row_no">合计：</td>
                         {% if order.status == 'pending' %}
-                        <td></td>
+                        <td data-column-key="selection"></td>
+                        {% endif %}
+                        <td data-column-key="material_code"></td>
+                        <td data-column-key="brand"></td>
+                        <td data-column-key="material_name"></td>
+                        <td data-column-key="spec"></td>
+                        <td data-column-key="contract_no"></td>
+                        <td data-column-key="project_name"></td>
+                        <td data-column-key="unit"></td>
+                        <td data-column-key="stock"></td>
+                        <td data-column-key="quantity" class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                        <td data-column-key="price"></td>
+                        <td data-column-key="amount" class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        <td data-column-key="remark"></td>
+                        <td data-column-key="label"></td>
+                        {% if order.status == 'pending' %}
+                        <td data-column-key="actions"></td>
                         {% endif %}
                     </tr>
                 </tfoot>

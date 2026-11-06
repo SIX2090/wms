@@ -3697,8 +3697,8 @@ function insertGlobalActionBar() {
         var actionLabel = item.key === 'settings' ? (module.printTemplateUrl ? '打印设置' : '栏目设置') : item.label;
         if (item.key === 'settings' && !module.printTemplateUrl) {
             var settingsTable = module.tableId && document.getElementById(module.tableId);
-            // Shared document forms can place linked scan history before the business grid.
-            if (!settingsTable) settingsTable = document.getElementById('docTable');
+            // Saved document details can place linked history before their business grid.
+            if (!settingsTable) settingsTable = document.getElementById('itemTable') || document.getElementById('docTable');
             if (settingsTable) btn.setAttribute('data-field-settings-table', settingsTable.id);
         }
         // 页面显式声明合并动作时，顶部只替换保存入口，其余工具及翻页保持。
