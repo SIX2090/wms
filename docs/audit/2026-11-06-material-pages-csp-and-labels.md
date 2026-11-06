@@ -54,3 +54,12 @@
 浏览器驱动中的图标名称定位、异步复制回填、弹窗动画和默认启用筛选条件均按真实页面修正；它们不登记为产品BUG。最终23组操作全部通过，正常业务CSP违规0、页面脚本异常0。另设一组明确的负向对照：动态内联事件被Chrome实际阻止，收到恰好1次script-src-attr违规，单独登记为intentionalCspControl，不混入正常业务计数。只读账号使用独立浏览器上下文并携带有效CSRF，三个写入请求均返回403。结束时只读核对合成库：库存总量仍20、流水仍2条、流水合计20，未生成越权物料。
 
 证据目录：C:/Users/Administrator/Documents/Codex/2026-11-06/wms-phase05a，含baseline.xml、new-contract-before.xml、r8-control.json、r8-baseline-control.xml、unified-first.xml、browser-probe.json及browser-acceptance.json。生产生效、实体设备、真实外发不在这些软件结果内。
+
+
+## 交付验收回执（2026-11-06）
+
+本批代码已统一推送为[9ed64878bde67c4946a85ce49d31db53e7524651](https://github.com/SIX2090/wms/commit/9ed64878bde67c4946a85ce49d31db53e7524651)，本地与origin/main一致，完整Git tree为eeae2de0e3afbce2c55162b336a7b2727e2a4398。普通Git凭据管理器旧路径失效后，通过已连接GitHub工具创建准确blob和完整tree，以6883b038为预期父提交非强制更新main；保留本地bundle，fetch核对后仅在整树一致、工作区干净时对齐API生成的提交历史。
+
+精确目标的[WMS CI42157805758](https://github.com/SIX2090/wms/actions/runs/42157805758)及[WMS AI Verification42157805757](https://github.com/SIX2090/wms/actions/runs/42157805757)均completed/success。完整CI包含三个单元测试分片、四个验证分片、静态检查、隔离冒烟及真实Chrome；docs-checks在本次全量分支按既有策略跳过，聚合门禁成功。Android复用[42131949898](https://github.com/SIX2090/wms/actions/runs/42131949898)成功记录，已核实f0998c0b为目标祖先且Android源码和工作流输入无差异。
+
+本批05-A代码交付完成，05-B至05-E未纳入本批完成范围。本回执只修改文档，应用文件保持与上述完整CI源码一致，并按文档分级策略验收回执提交。**生产尚未部署本批，生产需重启 WMS 服务生效**；现役制品base.html、material.html有现场覆盖，上线须保留其有效改动并验收实际制品。硬件和真实外发未作为本次通过项。
