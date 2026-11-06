@@ -152,9 +152,10 @@ def register_export_routes(app):
         ws.title = '入库单'
         ws.append(['单据编号', '日期', '业务类型', '用途', '供应商', '客户', '仓库', '库位', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '客供', '合同编号', '工程名称', '状态', '备注'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
-        type_alias = {'purchase_in': '采购入库', 'product_in': '产品入库', 'other_in': '其他入库'}
+        type_alias = {'purchase_in': '采购入库', 'product_in': '产品入库',
+                      'other_in': '其他入库', 'sales_return': '销售退货入库'}
         business_type_filter = type_alias.get((request.args.get('type') or '').strip(), (request.args.get('business_type') or '').strip())
-        if business_type_filter not in ('采购入库', '产品入库', '其他入库'):
+        if business_type_filter not in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
             business_type_filter = ''
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()

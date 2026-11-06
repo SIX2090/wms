@@ -30,7 +30,7 @@ def test_approval_completed_and_other_statuses(bom_case):
 def test_query_form_preserves_embedded_mode(bom_case, monkeypatch, path, embedded):
     import app as wms
     client, _ = bom_case
-    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *args: True)
+    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *args, **kwargs: True)
     response = client.get(path, query_string={'embedded': '1'} if embedded else {})
     assert response.status_code == 200
     soup = BeautifulSoup(response.data, 'html.parser')

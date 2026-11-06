@@ -11,7 +11,7 @@ import app as wms
 def case(monkeypatch):
     monkeypatch.setitem(wms.app.config, 'TESTING', True)
     monkeypatch.setitem(wms.app.config, 'WTF_CSRF_ENABLED', False)
-    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *a: True)
+    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *a, **kw: True)
     with wms.app.app_context():
         wms.db.session.remove()
         wms.db.drop_all()

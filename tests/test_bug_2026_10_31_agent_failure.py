@@ -10,7 +10,7 @@ def test_agent_step_failure_is_persisted_and_not_reported_completed(kind,monkeyp
         wms.db.drop_all();wms.db.create_all()
         user=wms.User(username='SYNTHETIC-AGENT',password_hash='unusable-test-hash',role='admin',must_change_password=False)
         wms.db.session.add(user);wms.db.session.commit()
-        monkeypatch.setattr(wms,'_ai_capability_allowed',lambda *_:True)
+        monkeypatch.setattr(wms,'_ai_capability_allowed',lambda *_,**kwargs:True)
         monkeypatch.setattr(wms,'inventory_alert_enabled',lambda:False)
         monkeypatch.setattr(wms,'build_purchase_order_todo_summary',lambda:{})
         def fail(*_,**__):raise RuntimeError('SYNTHETIC STEP FAILURE')

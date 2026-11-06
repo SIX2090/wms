@@ -190,7 +190,7 @@ def test_real_isolated_backend_empty_envelope_is_accepted(monkeypatch):
     import app as wms
     with wms.app.app_context():
         wms.db.drop_all(); wms.db.create_all()
-        monkeypatch.setattr(wms, '_ai_capability_allowed', lambda capability: True)
+        monkeypatch.setattr(wms, '_ai_capability_allowed', lambda capability, **kwargs: True)
         with wms.app.test_request_context('/api/ai/demand_forecast', method='POST', json={'forecast_days': 30}):
             response = wms.api_demand_forecast.__wrapped__()
             assert response.status_code == 200

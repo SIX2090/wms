@@ -147,7 +147,7 @@ def test_remove_builtin_stock_price_columns(builtin):
 
 @pytest.mark.parametrize('kind', ['warehouse_patrol', 'purchase_followup'])
 def test_disabled_alerts_are_reported_as_not_scanned(case, monkeypatch, kind):
-    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *_: True)
+    monkeypatch.setattr(wms, '_ai_capability_allowed', lambda *_, **kwargs: True)
     monkeypatch.setattr(wms, 'inventory_alert_enabled', lambda: False)
     monkeypatch.setattr(wms, 'build_purchase_order_todo_summary', lambda: {})
     with wms.app.test_request_context():
