@@ -184,7 +184,7 @@
                 <button class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()">
                     <i class="bi bi-robot"></i> AI异常分析
                 </button>
-                <a href="/out_order?business_type={{ (order.business_type or '领料单')|urlencode }}{% if request.args.get('embedded') == '1' %}&amp;embedded=1{% endif %}" class="btn btn-sm btn-outline-secondary">
+                <a href="/out_order" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
             </div>
@@ -347,7 +347,7 @@
             </div>
         </div>
         <div class="table-responsive" data-quantity-summary="itemTable" data-quantity-selector=".material-qty-field, [data-field=quantity]" data-material-selector=".material-code-field">
-            <table class="table order-table mb-0" id="itemTable" data-business-type="{{ order.business_type or '领料单' }}" data-detail-sort{% if box_numbers %} data-field-settings-key="product_sales_out_detail_v1"{% endif %}>
+            <table class="table order-table mb-0" id="itemTable" data-detail-sort{% if box_numbers %} data-field-settings-key="product_sales_out_detail_v1"{% endif %}>
                 <thead>
                     <tr>
                         <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="row_no" data-default-label="序">序<div class="resize-handle"></div></th>

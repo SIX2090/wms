@@ -595,7 +595,6 @@
                 <p>欢迎回来，{{ current_user.username }}。这里优先展示待完成单据、快捷开单入口和最近操作，方便你连续做单。</p>
             </div>
             <div class="hero-action-grid">
-                {% if current_user.role in ['admin', 'warehouse'] %}
                 <a href="/in_order/add" class="hero-action-card">
                     <div class="hero-action-top">
                         <span class="hero-action-icon in"><i class="bi bi-box-arrow-in-down"></i></span>
@@ -616,7 +615,6 @@
                         <span>领料和销售发货快速处理。</span>
                     </div>
                 </a>
-                {% endif %}
                 <a href="/purchase_order?status=open" class="hero-action-card">
                     <div class="hero-action-top">
                         <span class="hero-action-icon todo"><i class="bi bi-truck"></i></span>
@@ -640,28 +638,24 @@
             <a href="/purchase_order?status=open" class="btn btn-sm btn-outline-primary">处理待入库</a>
         </div>
         <div class="section-body business-flow">
-            {% if current_user.role in ['admin', 'purchase'] %}
             <a class="flow-step" href="/purchase_request/add">
                 <div class="flow-icon" style="background:#f59e0b;"><i class="bi bi-cart-plus"></i></div>
                 <strong>采购申请</strong>
                 <span>补货、备料、临时采购先录申请</span>
                 <span class="flow-count">{{ pending_purchase }}</span>
             </a>
-            {% endif %}
             <a class="flow-step" href="/purchase_order">
                 <div class="flow-icon" style="background:#4f46e5;"><i class="bi bi-bag-check"></i></div>
                 <strong>采购单</strong>
                 <span>由申请下推或手工创建采购单</span>
                 <span class="flow-count">{{ purchase_order_summary.open_count }}</span>
             </a>
-            {% if current_user.role in ['admin', 'warehouse'] %}
             <a class="flow-step" href="/in_order/add">
                 <div class="flow-icon" style="background:#16a34a;"><i class="bi bi-box-arrow-in-down"></i></div>
                 <strong>采购入库</strong>
                 <span>选采购单带入明细，再保存入库</span>
                 <span class="flow-count">{{ pending_in }}</span>
             </a>
-            {% endif %}
             <a class="flow-step" href="/stock_query">
                 <div class="flow-icon" style="background:#0891b2;"><i class="bi bi-box-seam"></i></div>
                 <strong>库存台账</strong>
@@ -766,7 +760,6 @@
             </div>
         </div>
         <div class="section-body quick-grid">
-            {% if current_user.role in ['admin', 'warehouse'] %}
             <a href="/in_order/add" class="quick-link in">
                 <div class="icon"><i class="bi bi-box-arrow-in-down"></i></div>
                 <strong>采购入库</strong>
@@ -777,14 +770,11 @@
                 <strong>领料单</strong>
                 <span>直接进入领料单页面，适合高频领料和发货。</span>
             </a>
-            {% endif %}
-            {% if current_user.role in ['admin', 'purchase'] %}
             <a href="/purchase_request/add" class="quick-link purchase">
                 <div class="icon"><i class="bi bi-cart-plus"></i></div>
                 <strong>采购申请</strong>
                 <span>补货、备料或紧急采购时可快速发起申请。</span>
             </a>
-            {% endif %}
             <a href="/stock_query" class="quick-link stock">
                 <div class="icon"><i class="bi bi-box-seam"></i></div>
                 <strong>查物料库存</strong>

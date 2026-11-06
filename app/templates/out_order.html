@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% import "_list_macros.html" as list_macros %}
-{% set business_label = {'销售出库': '销售出库单', '其他出库': '其他出库单', '采购退货出库': '采购退货出库单'}.get(filters.business_type, '领料单') %}
 {% block title %}{{ page_title or '领料明细' }}{% endblock %}
 
 {% block content %}
@@ -14,10 +13,10 @@
         </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchOutOrderAction('/out_order/batch_delete', '请选择要删除的{{ business_label }}', '确认删除选中的{{ business_label }}？')">
+            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchOutOrderAction('/out_order/batch_delete', '请选择要删除的领料单', '确认删除选中的领料单？')">
                 <i class="bi bi-trash"></i> 删除已选
             </button>
-            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchOutOrderAction('/out_order/batch_complete', '请选择要完成的{{ business_label }}', '确认完成选中的{{ business_label }}？完成后会扣减库存。')">
+            <button type="button" class="btn btn-outline-success btn-sm" onclick="batchOutOrderAction('/out_order/batch_complete', '请选择要完成的领料单', '确认完成选中的领料单？完成后会扣减库存。')">
                 <i class="bi bi-check2-circle"></i> 完成已选
             </button>
             <a href="/export/template/out_order" class="btn btn-outline-secondary btn-sm"><i class="bi bi-download"></i> 下载模板</a>
@@ -31,8 +30,6 @@
             <a href="/other_out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他出库</a>
             {% elif filters.business_type == '采购退货出库' %}
             <a href="/out_order/add?type=purchase_return" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增采购退货出库</a>
-            {% elif filters.business_type == '销售出库' %}
-            <a href="/out_order/add?type=sale" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增销售出库</a>
             {% else %}
             <a href="/out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增领料单</a>
             {% endif %}
@@ -51,7 +48,7 @@
    右上角才会出现既有的「新增采购退货出库」按钮。 #}
 {% set _emb = request.args.get('embedded') == '1' %}
 <ul class="nav nav-pills mb-3" id="outOrderTypeTabs">
-    <li class="nav-item"><a class="nav-link {% if not filters.business_type or filters.business_type == '领料单' %}active{% endif %}" href="/out_order{{ '?embedded=1' if _emb }}">领料单</a></li>
+    <li class="nav-item"><a class="nav-link {% if not filters.business_type %}active{% endif %}" href="/out_order{{ '?embedded=1' if _emb }}">领料单</a></li>
     <li class="nav-item"><a class="nav-link {% if filters.business_type == '销售出库' %}active{% endif %}" href="/out_order?type=sale{{ '&embedded=1' if _emb }}">销售出库</a></li>
     <li class="nav-item"><a class="nav-link {% if filters.business_type == '其他出库' %}active{% endif %}" href="/out_order?type=other_out{{ '&embedded=1' if _emb }}">其他出库</a></li>
     <li class="nav-item"><a class="nav-link {% if filters.business_type == '采购退货出库' %}active{% endif %}" href="/out_order?type=purchase_return{{ '&embedded=1' if _emb }}">采购退货</a></li>
@@ -102,7 +99,7 @@
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
                 {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.contract_no or filters.project_name %}
-                <a href="/out_order?business_type={{ filters.business_type|urlencode }}{% if request.args.get('embedded') == '1' %}&amp;embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                <a href="{{ '/other_out_order' if filters.business_type == '其他出库' else '/out_order' }}{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
         </form>
@@ -117,9 +114,9 @@
                 <tr>
                     <th data-column-key="chk" width="56" class="text-center">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
                     <th data-column-key="row_no" width="70">序号</th>
-                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">{{ {'销售出库': '销售出库单号', '其他出库': '其他出库单号', '采购退货出库': '退货出库单号'}.get(filters.business_type, '领料单号') }} {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">{{ '退货出库单号' if filters.business_type == '采购退货出库' else '领料单号' }} {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="date" data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-column-key="customer" data-sortable="customer" class="sortable-header">{{ {'销售出库': '客户', '其他出库': '客户/领用单位', '采购退货出库': '退货供应商'}.get(filters.business_type, '领料部门') }} {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="customer" data-sortable="customer" class="sortable-header">{{ '退货供应商' if filters.business_type == '采购退货出库' else '领料部门' }} {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="material_code">物料编号</th>
                     <th data-column-key="material_name">物料名称</th>
                     <th data-column-key="spec">规格</th>
@@ -177,7 +174,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="17" class="text-center text-muted">暂无{{ business_label }}明细</td></tr>
+                <tr><td colspan="17" class="text-center text-muted">暂无{{ '其他出库' if filters.business_type == '其他出库' else ('采购退货出库' if filters.business_type == '采购退货出库' else '领料') }}明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>

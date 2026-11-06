@@ -6,7 +6,7 @@ const ROOT=process.argv[2];assert(ROOT,'Repository root is required');
 const app=fs.readFileSync(ROOT+'/app/static/js/app.js','utf8').replace(/\r\n/g,'\n');
 const api=fs.readFileSync(ROOT+'/app/static/js/api.js','utf8').replace(/\r\n/g,'\n');
 const base=fs.readFileSync(ROOT+'/app/templates/base.html','utf8').replace(/\r\n/g,'\n');
-const names=['isWmsEmbeddedPage','withEmbeddedParam','getCurrentRecordId','buildModuleUrl','preserveEmbeddedUrl','openUrl','getDocumentBusinessType','getDocumentNavigationApiUrl','fetchDocumentNavigation','getDocumentDetailUrl','openDocumentById','findDocumentRow','navigateDocument','formatDocumentStatus','renderDocumentSearchResults','showDocumentSearchModal','escapeHtml'];
+const names=['isWmsEmbeddedPage','withEmbeddedParam','getCurrentRecordId','buildModuleUrl','preserveEmbeddedUrl','openUrl','getDocumentNavigationApiUrl','fetchDocumentNavigation','getDocumentDetailUrl','openDocumentById','findDocumentRow','navigateDocument','formatDocumentStatus','renderDocumentSearchResults','showDocumentSearchModal','escapeHtml'];
 function extract(name){const a=app.indexOf('function '+name+'(');assert(a>=0,'actual helper exists: '+name);const b=app.indexOf('\nfunction ',a+10);return app.slice(a,b<0?undefined:b);}
 const a=base.indexOf('    (function() {\n        var csrfToken =');assert(a>=0,'actual base interceptor');
 const baseLayer=base.slice(a,base.indexOf('    })();',a)+'    })();'.length);

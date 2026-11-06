@@ -2144,15 +2144,12 @@ function openAdd(module) {
         if (target && window.bootstrap) new bootstrap.Modal(target).show();
         return;
     }
-    var businessType = getDocumentBusinessType(module);
-    var addTypes = module.key === 'in_order'
-        ? { '采购入库': 'purchase_in', '产品入库': 'product', '其他入库': 'other_in', '销售退货入库': 'sales_return' }
-        : module.key === 'out_order'
-            ? { '领料单': 'requisition', '销售出库': 'sale', '其他出库': 'other_out', '采购退货出库': 'purchase_return' }
-            : {};
-    if (addTypes[businessType]) {
-        openUrl(preserveEmbeddedUrl(module.addUrl + '?type=' + addTypes[businessType]));
-        return;
+    if (module.key === 'in_order') {
+        var businessType = new URLSearchParams(window.location.search).get('business_type') || '';
+        if (businessType === '产品入库') {
+            openUrl('/in_order/add?type=product');
+            return;
+        }
     }
     openUrl(module.addUrl || module.listUrl);
 }
@@ -2624,25 +2621,10 @@ function smartShare(module) {
         });
 }
 
-function getDocumentBusinessType(module) {
-    if (!module || ['in_order', 'out_order'].indexOf(module.key) === -1) return '';
-    var table = document.getElementById('itemTable');
-    if (table && table.dataset && table.dataset.businessType) return table.dataset.businessType;
-    var field = document.querySelector('[name="business_type"]');
-    if (field && field.value) return field.value;
-    var params = new URLSearchParams(window.location.search);
-    var aliases = module.key === 'in_order'
-        ? { purchase_in: '采购入库', product: '产品入库', product_in: '产品入库', other_in: '其他入库', sales_return: '销售退货入库' }
-        : { requisition: '领料单', sale: '销售出库', sales: '销售出库', other_out: '其他出库', purchase_return: '采购退货出库', return_out: '采购退货出库' };
-    return aliases[params.get('type')] || params.get('business_type') || '';
-}
-
 function getDocumentNavigationApiUrl(module, keyword) {
     var params = new URLSearchParams();
     var currentId = getCurrentRecordId();
     if (currentId) params.set('current_id', currentId);
-    var businessType = getDocumentBusinessType(module);
-    if (businessType) params.set('business_type', businessType);
     if (keyword) params.set('q', keyword);
     var query = params.toString();
     return '/api/document_navigation/' + encodeURIComponent(module.key) + (query ? '?' + query : '');

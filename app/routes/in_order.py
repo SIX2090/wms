@@ -407,7 +407,7 @@ def register_in_order_routes(app):
     @login_required
     def in_order_list():
         from sqlalchemy.orm import joinedload
-        from app import (InOrder, InOrderItem, Material, PurchaseOrderItem, SalesOrderItem, Supplier,
+        from app import (InOrder, InOrderItem, Material, PurchaseOrderItem, Supplier,
                          _apply_header_or_item_contract_filters, _apply_in_order_search,
                          _apply_order_partner_text_filter,
                          _apply_status_date_filters, _get_order_list_filters,
@@ -459,10 +459,8 @@ def register_in_order_routes(app):
             joinedload(InOrder.supplier),
             joinedload(InOrder.customer),
             joinedload(InOrder.source_purchase_order),
-            joinedload(InOrder.source_sales_order),
             joinedload(InOrderItem.material).joinedload(Material.unit),
             joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
-            joinedload(InOrderItem.source_sales_order_item).joinedload(SalesOrderItem.sales_order),
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
@@ -507,11 +505,6 @@ def register_in_order_routes(app):
                     if item and item.source_purchase_order_item and item.source_purchase_order_item.purchase_order
                     else order.source_purchase_order
                 ),
-                'source_sales_order': (
-                    item.source_sales_order_item.sales_order
-                    if item and item.source_sales_order_item and item.source_sales_order_item.sales_order
-                    else order.source_sales_order
-                ),
                 'quantity': item.quantity if item else 0,
                 'price': item.price if item else 0,
                 'amount': item.amount if item else 0,
@@ -540,7 +533,7 @@ def register_in_order_routes(app):
             'supplier_id': supplier_id,
             'supplier_name': supplier_name_filter,
         }
-        page_title = f'{business_type_filter}明细表' if business_type_filter else '全部入库明细表'
+        page_title = f'{business_type_filter}明细表' if business_type_filter else '采购入库单'
         # 反提交草稿身份与采购预留分开判定；无采购来源时仅提示库存已回退。
         reverted_in_order_ids = get_reverted_in_order_ids(
             [row.in_order.id for row in items if row.in_order and row.in_order.id]

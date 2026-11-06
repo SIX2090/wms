@@ -4416,10 +4416,6 @@ def inject_query_helpers():
         'material_code_editable': material_code_editable(),
         # WMS-AI-DEGRADE-001：AI 浮窗「本地规则模式」标识（大模型未配置/不可用时为 False）
         'ai_llm_active': _ai_llm_configured(),
-        # AI-C01-FIX-ROLE-UI-001-F01: keep the existing page decision for menu visibility.
-        # Menu visibility uses the page permission decision without writing access audits.
-        'ai_menu_capabilities': {capability: _ai_capability_allowed(capability, source='page', audit=False)
-                                 for capability in ('replenishment_planning', 'replenishment_smart', 'inventory_health')},
         'now': datetime.now(),
         # BUG-2026-07-28-011 修复：登录页模板用得到
         'max_login_failures': max_login_failures,
@@ -9812,7 +9808,7 @@ def _ai_record_rollout_denied_audit(decision, source='api'):
             tool_call.user_id = decision.user_id or tool_call.user_id
             tool_call.role = decision.role or tool_call.role
 
-def _ai_capability_allowed(capability, *, source='api', audit=True):
+def _ai_capability_allowed(capability, *, source='api'):
     """AI-R17-F01：能力权限判定主流程。
 
     权限判定顺序固定为：全局开关 → 功能开关 → 角色权限 → 用户白名单 → 风险级别 → 人工确认边界。
@@ -9822,13 +9818,11 @@ def _ai_capability_allowed(capability, *, source='api', audit=True):
     spec = get_ai_tool_spec(capability)
     business_endpoint = AI_CAPABILITY_BUSINESS_ENDPOINTS.get(capability)
     if not business_endpoint:
-        if audit:
-            _ai_record_capability_audit(capability, False, reason='未配置业务端点', source=source, stage='flag')
+        _ai_record_capability_audit(capability, False, reason='未配置业务端点', source=source, stage='flag')
         return False
     business_view = app.view_functions.get(business_endpoint)
     if business_view is None:
-        if audit:
-            _ai_record_capability_audit(capability, False, reason='业务端点视图缺失', source=source, stage='flag')
+        _ai_record_capability_audit(capability, False, reason='业务端点视图缺失', source=source, stage='flag')
         return False
     business_roles = getattr(business_view, '_required_roles', None)
     allowed = is_ai_capability_allowed_for_role(
@@ -9838,8 +9832,7 @@ def _ai_capability_allowed(capability, *, source='api', audit=True):
     )
     if allowed and not _ai_global_enabled():
         allowed = False
-        if audit:
-            _ai_record_capability_audit(capability, False, reason='AI 功能总开关已关闭', source=source, stage='global')
+        _ai_record_capability_audit(capability, False, reason='AI 功能总开关已关闭', source=source, stage='global')
         return False
     if allowed:
         # AI-R17-F01：传 user_id + source，由 rollout_control 按固定顺序判定并写灰度拒绝审计
@@ -9849,24 +9842,19 @@ def _ai_capability_allowed(capability, *, source='api', audit=True):
             user_id=current_user.id,
             risk_level=(spec.risk_level if spec else 'read'),
             source=source,
-            audit=audit,
         )
         if not rollout_ok:
-            if audit:
-                _ai_record_capability_audit(capability, False, reason='灰度判定拒绝', source=source, stage='allowlist')
+            _ai_record_capability_audit(capability, False, reason='灰度判定拒绝', source=source, stage='allowlist')
             return False
     if allowed and spec and spec.risk_level == 'draft' and not _ai_feature_enabled('ai_feature_drafts_enabled', True):
         allowed = False
-        if audit:
-            _ai_record_capability_audit(capability, False, reason='草稿开关已关闭', source=source, stage='risk')
+        _ai_record_capability_audit(capability, False, reason='草稿开关已关闭', source=source, stage='risk')
         return False
     if allowed and capability.endswith('_agent') and not _ai_feature_enabled('ai_feature_agents_enabled', True):
         allowed = False
-        if audit:
-            _ai_record_capability_audit(capability, False, reason='Agent 开关已关闭', source=source, stage='risk')
+        _ai_record_capability_audit(capability, False, reason='Agent 开关已关闭', source=source, stage='risk')
         return False
-    if audit:
-        _ai_record_capability_audit(capability, allowed, source=source)
+    _ai_record_capability_audit(capability, allowed, source=source)
     return allowed
 
 def _ai_permission_denied_text(capability):
@@ -12856,7 +12844,7 @@ def _ai_force_fallback():
     # AI_TASK: AI-R17-F01
     return _ai_feature_enabled('ai_force_fallback', False)
 
-def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level=None, source='api', audit=True):
+def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level=None, source='api'):
     """AI-R17-F01：按固定权限判定顺序进行灰度判定。
 
     权限判定顺序固定为：全局开关 → 功能开关 → 角色权限 → 用户白名单 → 风险级别 → 人工确认边界。
@@ -12886,7 +12874,7 @@ def _ai_capability_allowed_by_rollout(capability, role, user_id=None, risk_level
         global_enabled=_ai_global_enabled(),
     )
     # 被拒绝时写灰度拒绝审计（不阻塞主流程，仅记录）
-    if audit and not decision.allowed and has_request_context():
+    if not decision.allowed and has_request_context():
         try:
             _ai_record_rollout_denied_audit(decision, source)
         except Exception as exc:  # noqa: BLE001
@@ -26039,27 +26027,7 @@ def api_document_navigation(module_key):
 
     current_id = request.args.get('current_id', type=int)
     keyword = (request.args.get('q') or '').strip().lower()
-    model = config['model']
-    query = model.query
-    if module_key in ('in_order', 'out_order'):
-        current = db.session.get(model, current_id) if current_id else None
-        business_type = ((current.business_type or ('采购入库' if module_key == 'in_order' else '领料单'))
-                         if current else (request.args.get('business_type') or '').strip())
-        allowed_types = (('采购入库', '产品入库', '其他入库', '销售退货入库')
-                         if module_key == 'in_order' else ('领料单', '销售出库', '其他出库', '采购退货出库'))
-        if module_key == 'out_order' and business_type in ('生产出库', OUT_LEGACY_SCAN_BUSINESS_TYPE):
-            business_type = '领料单'
-        if business_type and business_type not in allowed_types:
-            return api_error('单据业务类型不正确', 400)
-        if business_type:
-            if business_type == ('采购入库' if module_key == 'in_order' else '领料单'):
-                legacy_types = [business_type, '']
-                if module_key == 'out_order':
-                    legacy_types.extend(['生产出库', OUT_LEGACY_SCAN_BUSINESS_TYPE])
-                query = query.filter(db.or_(model.business_type.in_(legacy_types), model.business_type.is_(None)))
-            else:
-                query = query.filter(model.business_type == business_type)
-    items = query.order_by(model.id.asc()).all()
+    items = config['model'].query.order_by(config['model'].id.asc()).all()
     rows = []
     for item in items:
         row = _serialize_document_nav_item(item, config)

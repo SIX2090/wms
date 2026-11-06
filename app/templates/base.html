@@ -389,7 +389,6 @@
     <div class="app-wrapper">
     <!-- 侧边栏 -->
     <nav class="sidebar" id="appSidebar">
-        {% set ai_menu_capabilities = ai_menu_capabilities|default({}) %}
         <div class="brand">
             <h4><i class="bi bi-brain"></i> 仓库管理</h4>
             <button type="button" class="mobile-sidebar-close" aria-label="关闭菜单" {% if inline_shell_actions %}onclick="closeMobileSidebar()"{% else %}data-material-shell-action="closeMobileSidebar"{% endif %}>
@@ -425,7 +424,7 @@
                     <a class="flyout-link" href="{{ url_for('mobile_scan', mode='query') }}"><i class="bi bi-search"></i> 手工查询</a>
                 </div>
             </li>
-            {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
+            {% if current_user.role in ['admin', 'warehouse'] %}
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" {% if inline_shell_actions %}onclick="toggleModuleMenu(this)"{% else %}data-material-shell-action="toggleModuleMenu"{% endif %} aria-expanded="false">
                     <span class="module-title"><i class="bi bi-bag-check"></i> 采购管理</span>
@@ -440,11 +439,9 @@
                             <a class="flyout-link" href="/purchase_request/add"><i class="bi bi-cart-plus"></i> 采购申请</a>
                             {% endif %}
                             <a class="flyout-link" href="/purchase_order/add"><i class="bi bi-bag-check"></i> 采购订单</a>
-                            {% if current_user.role in ['admin', 'warehouse'] %}
                             <a class="flyout-link" href="/in_order/add"><i class="bi bi-box-arrow-in-down"></i> 采购入库</a>
                             {# 采购退货出库：此前无菜单入口、只能靠手敲 URL，本条补上直达新增页 #}
                             <a class="flyout-link" href="/out_order/add?type=purchase_return"><i class="bi bi-arrow-return-left"></i> 采购退货</a>
-                            {% endif %}
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">报表</div>
@@ -460,15 +457,11 @@
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">AI功能</div>
-                            {% if ai_menu_capabilities.get('replenishment_planning') %}
                             <a class="flyout-link" href="/ai/replenishment"><i class="bi bi-lightning-charge"></i> 补货建议（安全库存）</a>
-                            {% endif %}
                         </div>
                     </div>
                 </div>
             </li>
-            {% endif %}
-            {% if current_user.role in ['admin', 'warehouse', 'sales'] %}
             <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" {% if inline_shell_actions %}onclick="toggleModuleMenu(this)"{% else %}data-material-shell-action="toggleModuleMenu"{% endif %} aria-expanded="false">
                     <span class="module-title"><i class="bi bi-receipt-cutoff"></i> 销售管理</span>
@@ -481,10 +474,8 @@
                             <div class="flyout-col-title">单据</div>
                             <a class="flyout-link" href="/sales/add"><i class="bi bi-plus-square"></i> 新建销售订单</a>
                             <a class="flyout-link" href="/sales/outbound_selection"><i class="bi bi-ui-checks-grid"></i> 销售出库选单</a>
-                            {% if current_user.role in ['admin', 'warehouse'] %}
                             <a class="flyout-link" href="/out_order/add?type=sale"><i class="bi bi-box-arrow-up"></i> 直接销售出库</a>
                             <a class="flyout-link" href="/after_sale_out/add"><i class="bi bi-arrow-return-left"></i> 售后出库</a>
-                            {% endif %}
                         </div>
                         <div class="flyout-col">
                             <div class="flyout-col-title">报表</div>
@@ -505,10 +496,7 @@
                         </div>
                     </div>
                 </div>
-            </li>
-            {% endif %}
-            {% if current_user.role in ['admin', 'warehouse'] %}
-            <li class="nav-item module-menu">
+            </li>            <li class="nav-item module-menu">
                 <button type="button" class="nav-link module-toggle" {% if inline_shell_actions %}onclick="toggleModuleMenu(this)"{% else %}data-material-shell-action="toggleModuleMenu"{% endif %} aria-expanded="false">
                     <span class="module-title"><i class="bi bi-box-seam"></i> 库存管理</span>
                     <i class="bi bi-chevron-right module-arrow"></i>
@@ -554,12 +542,8 @@
                         <div class="flyout-col">
                             <div class="flyout-col-title">AI 功能</div>
                             <a class="flyout-link" href="/ai/agent_tasks"><i class="bi bi-clipboard-check"></i> AI 巡检报告</a>
-                            {% if ai_menu_capabilities.get('replenishment_smart') %}
                             <a class="flyout-link" href="/ai/replenishment_smart"><i class="bi bi-stars"></i> 补货建议（周转分析）</a>
-                            {% endif %}
-                            {% if ai_menu_capabilities.get('inventory_health') %}
                             <a class="flyout-link" href="/ai/inventory_health"><i class="bi bi-heart-pulse"></i> 库存健康度</a>
-                            {% endif %}
                             <a class="flyout-link" href="/ai/document_ocr"><i class="bi bi-file-earmark-text"></i> 单据OCR识别</a>
                             <a class="flyout-link" href="/ai/supplier_evaluation"><i class="bi bi-building"></i> 供应商智能评估</a>
                             {% if location_management_enabled %}
