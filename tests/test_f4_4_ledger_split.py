@@ -455,3 +455,21 @@ POST_SPLIT_BUGS['BUG-2026-11-06-005'] = 'fixed'  # document detail follow-up; pr
 POST_SPLIT_BUGS['BUG-2026-11-06-006'] = 'fixed'  # document detail follow-up; production activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-007'] = 'fixed'  # document detail follow-up; production activation tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-06-008'] = 'fixed'  # document detail follow-up; production activation tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-009'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-010'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-011'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-012'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-013'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-014'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-015'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-016'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-06-017'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
