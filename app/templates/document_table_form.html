@@ -359,7 +359,6 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
 {% endblock %}
 
 {% block extra_js %}
-<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
@@ -914,7 +913,6 @@ function revertDocument() {
     .finally(endDocumentAction);
 }
 function showPasteModal() {
-    if (document.getElementById('pasteModal')) return;
     const modal = document.createElement('div');
     modal.id = 'pasteModal';
     modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99999;display:flex;align-items:center;justify-content:center;';
@@ -925,7 +923,7 @@ function showPasteModal() {
         <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;"><button type="button" class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">取消</button><button type="button" class="btn btn-primary" onclick="parsePastedData()">确认导入</button></div>
     </div>`;
     document.body.appendChild(modal);
-    WmsFormAccessibility.openPasteDialog(modal);
+    setTimeout(() => document.getElementById('pasteArea').focus(), 80);
 }
 async function parsePastedData() {
     const pasteArea = document.getElementById('pasteArea');

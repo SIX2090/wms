@@ -56,10 +56,3 @@ A9直接解析合同补记：新增一项直接resolve测试验证源值变化�
 
 
 纠正提交前门禁补记：八项静态门禁全部退出0（lab/b8-corrected-static-01），没有豁免/放宽规则。纠正候选按上述36完整模块752、源码33、整批19文件73旧46失败/27对照、真实Chrome30与新241页PDF完成本地验收；精确新提交完整CI待验，生产未部署。
-
-
-## B8精确目标交付闭环（2026-11-08）
-
-最终目标215469e40f527b2794cf904238199155da6a3208，父18c21ab3b08b163ad8efafefbec7e52ca54ca463，tree8b0cbbd4514c27711e2c4a0fe953f264ab0a01cd。本地与origin/main一致、工作树干净，正常本地39b89c22及bundle保留，21精确blob/full tree/parent/expected_sha、force=false发布后逐对象fetch并CAS对齐。
-
-[WMS CI42411862784](https://github.com/SIX2090/wms/actions/runs/42411862784)、[AI42411862785](https://github.com/SIX2090/wms/actions/runs/42411862785)、[Windows42412275841](https://github.com/SIX2090/wms/actions/runs/42412275841)及[Perf42411862828](https://github.com/SIX2090/wms/actions/runs/42411862828)全部completed/success。WMS CI三unit、四verify、lint、smoke、browser、changes及gate全部成功，docs-checks全量代码路径正常跳过。最新Android42311667571/8d3b4c5d成功，main两页已检查；其提交为目标祖先，原生源码/工作流零差异。证据lab/B8-exact-target-acceptance.json。本段覆盖历史待验状态：B8已代码交付，生产未部署，真实纸张/扫码仍待人工。

@@ -494,7 +494,6 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
-<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script>
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
