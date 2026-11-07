@@ -481,3 +481,4 @@ POST_SPLIT_BUGS['BUG-2026-11-07-003'] = 'fixed'  # empty entry cell hints; deliv
 
 POST_SPLIT_BUGS['BUG-2026-11-07-004'] = 'fixed'  # local acceptance complete; delivery still requires exact-target CI
 POST_SPLIT_BUGS['BUG-2026-11-07-005'] = 'fixed'  # print layout acceptance; CI and activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-07-006'] = 'fixed'  # namespace candidate verified locally; exact CI and deployment tracked separately

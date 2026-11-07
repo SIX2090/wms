@@ -229,10 +229,11 @@ def _claim_pending_job(PrintJob, workstation_id=None):
 
 
 def _resolve_print_route(job_type, warehouse_name, include_unavailable=False):
-    from app import PrintRouteRule, Warehouse
+    from app import PrintRouteRule
+    from services.warehouse_identity import resolve_warehouse_text
     warehouse = None
     if warehouse_name:
-        warehouse = Warehouse.query.filter_by(name=warehouse_name).first()
+        warehouse = resolve_warehouse_text(warehouse_name, strict=True)
     rules = PrintRouteRule.query.filter_by(business_event=job_type, enabled=True).order_by(
         PrintRouteRule.priority.asc(), PrintRouteRule.id.asc()).all()
     matching_rules = [rule for rule in rules if (
