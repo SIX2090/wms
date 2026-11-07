@@ -45,21 +45,21 @@
             {% endif %}
 
             <!-- 高频批量操作 -->
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_complete', '请选择要完成的入库单', '确认完成选中的入库单？完成后会增加库存。')" title="批量完成选中的入库单">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-document-list-action="in-order-batch-complete" title="批量完成选中的入库单">
                 <i class="bi bi-check2-circle"></i> 完成已选
             </button>
 
             <!-- 批量 / 导入导出：一排全铺开（用户偏好全摊开，不用下拉） -->
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_print', '请选择要打印的入库单', '确认打印选中的入库单？')" title="暂限选择1张入库单打印，多单合并打印暂未支持">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-document-list-action="in-order-batch-print" title="暂限选择1张入库单打印，多单合并打印暂未支持">
                 打印已选（单张）
             </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="batchInOrderAction('/in_order/batch_export', '请选择要导出的入库单', '确认导出选中的入库单？')" title="批量导出选中的入库单">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-document-list-action="in-order-batch-export" title="批量导出选中的入库单">
                 批量导出
             </button>
             <a href="/in_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&type={{ filters.type_param }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&supplier_id={{ filters.supplier_id }}&supplier_name={{ filters.supplier_name|urlencode }}" class="btn btn-outline-secondary btn-sm" title="导出当前筛选结果">
                 导出
             </a>
-            <button id="inOrderImportFileButton" type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('inOrderImportFile').click()" title="从Excel文件导入入库单">
+            <button id="inOrderImportFileButton" type="button" class="btn btn-outline-secondary btn-sm" data-document-list-action="in-order-choose-import" title="从Excel文件导入入库单">
                 导入
             </button>
             <a href="/export/template/in_order" class="btn btn-outline-secondary btn-sm" title="下载导入模板">
@@ -68,13 +68,13 @@
 
             <!-- 危险操作（右置：本工具栏位于页头最右，此按钮为组内最后） -->
             <span class="vr mx-1"></span>
-            <button type="button" class="btn btn-outline-danger btn-sm" onclick="batchInOrderAction('/in_order/batch_delete', '请选择要删除的入库单', '确认删除选中的入库单？')" title="删除选中的入库单（仅草稿状态）">
+            <button type="button" class="btn btn-outline-danger btn-sm" data-document-list-action="in-order-batch-delete" title="删除选中的入库单（仅草稿状态）">
                 <i class="bi bi-trash"></i> 删除已选
             </button>
 
             <form id="inOrderImportForm" action="/import/in_order" method="post" enctype="multipart/form-data" class="d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="file" id="inOrderImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('inOrderImportForm', 'inOrderImportFile')">
+                <input type="file" id="inOrderImportFile" aria-label="导入入库单Excel文件" name="file" accept=".xlsx,.xls" data-document-list-change="import">
             </form>
     </div>
     {% endif %}
@@ -90,22 +90,22 @@
             <input type="hidden" name="type" value="{{ filters.type_param }}">
             {% endif %}
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">仓库</label>
-                <select name="warehouse_id" class="form-select form-select-sm" required>
+                <label class="form-label small text-muted mb-1" for="inOrderFilterWarehouseId">仓库</label>
+                <select id="inOrderFilterWarehouseId" name="warehouse_id" class="form-select form-select-sm" required>
                     <option value="" {% if not filters.warehouse_id %}selected{% endif %}>请选择仓库后查询</option>
                     {% for warehouse in warehouses %}<option value="{{ warehouse.id }}" {% if filters.warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.code }} - {{ warehouse.name }}</option>{% endfor %}
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">状态</label>
-                <select name="status" class="form-select form-select-sm">
+                <label class="form-label small text-muted mb-1" for="inOrderFilterStatus">状态</label>
+                <select id="inOrderFilterStatus" name="status" class="form-select form-select-sm">
                     <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
                     <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>未审核/待完成</option>
                     <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">供应商</label>
+                <label class="form-label small text-muted mb-1" for="supplierFilterInput">供应商</label>
                 {# 统一走全局 quick-select（data-ks）：输入即展开全部匹配供应商，
                    支持键盘 ↑↓/Enter 与拼音/首字母匹配；点选回填 id 并自动筛选，
                    手工输入部分名称时由后端 supplier_name 模糊匹配 #}
@@ -113,12 +113,12 @@
                 <input type="hidden" name="supplier_id" id="supplierFilterId" value="{{ filters.supplier_id or '' }}">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">开始日期</label>
-                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+                <label class="form-label small text-muted mb-1" for="inOrderFilterDateStart">开始日期</label>
+                <input id="inOrderFilterDateStart" type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">结束日期</label>
-                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+                <label class="form-label small text-muted mb-1" for="inOrderFilterDateEnd">结束日期</label>
+                <input id="inOrderFilterDateEnd" type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
@@ -137,7 +137,7 @@
             </div>
             <div class="col-12 d-flex gap-2 align-items-end flex-wrap">
                 <div class="flex-fill" style="min-width:220px;">
-                    <label class="form-label small text-muted mb-1">关键词</label>
+                    <label class="form-label small text-muted mb-1" for="inOrderFilterSearch">关键词</label>
                     {# 物料搜索（AI-WMS-FILTER-006）：本框是**混合关键词**框，后端
                        _apply_in_order_search 按 单号/来源/目的/供应商/物料编码·名称·
                        规格·品牌/采购单号 做 or 模糊匹配；此处挂 data-ks="material"
@@ -146,22 +146,22 @@
                        单号或供应商的用法，与旁边的供应商/工程框（单选语义）不同。
                        Enter 行为遵循 quick-select 既定语义：↑↓ 高亮后 Enter 选中
                        物料并回填**物料名称**；无高亮时 Enter = 提交表单做模糊搜索。 #}
-                    <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
+                    <input id="inOrderFilterSearch" type="text" name="search" class="form-control form-control-sm" placeholder="单号/来源/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="name" autocomplete="off">
                 </div>
                 {# 高级筛选（默认折叠，减重）：合同编号/工程名称 收进 collapse，点「高级筛选▾」展开 #}
                 <div class="flex-fill collapse wms-adv-filter" style="min-width:220px;">
-                    <label class="form-label small text-muted mb-1">合同编号</label>
-                    <input type="text" name="contract_no" class="form-control form-control-sm" placeholder="模糊匹配合同号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
+                    <label class="form-label small text-muted mb-1" for="inOrderFilterContractNo">合同编号</label>
+                    <input id="inOrderFilterContractNo" type="text" name="contract_no" class="form-control form-control-sm" placeholder="模糊匹配合同号" value="{{ filters.contract_no or '' }}" data-ks="contract_no" data-ks-put="code" data-ks-submit="1">
                 </div>
                 <div class="flex-fill collapse wms-adv-filter" style="min-width:220px;">
-                    <label class="form-label small text-muted mb-1">工程名称</label>
+                    <label class="form-label small text-muted mb-1" for="projectNameFilterInput">工程名称</label>
                     <div style="position:relative;">
                         <input type="text" id="projectNameFilterInput" name="project_name" class="form-control form-control-sm" placeholder="输入关键词选择工程" autocomplete="off" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
                         <div id="projectNameDropdown" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:white;border:1px solid #d9d9d9;border-radius:4px;z-index:9999;box-shadow:0 2px 8px rgba(0,0,0,0.15);margin-top:2px;"></div>
                     </div>
                 </div>
                 <div>
-                    <label class="form-label small text-muted mb-1 d-block">&nbsp;</label>
+                    <div class="form-label small text-muted mb-1 d-block" aria-hidden="true">&nbsp;</div>
                     <a class="btn btn-outline-secondary btn-sm text-nowrap" data-bs-toggle="collapse" data-bs-target=".wms-adv-filter" role="button" aria-expanded="false">
                         高级筛选 <i class="bi bi-chevron-down"></i>
                     </a>
@@ -177,7 +177,7 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="inOrderTable">
             <thead>
                 <tr>
-                    <th data-column-key="chk" width="56" class="text-center" title="选择">选择<br><input type="checkbox" id="checkAll" title="全选当前页"></th>
+                    <th data-column-key="chk" width="56" class="text-center" title="选择">选择<br><input aria-label="全选当前页单据" type="checkbox" id="checkAll" title="全选当前页"></th>
                     <th data-column-key="row_no" width="70" title="序号">序号</th>
                     <th data-column-key="order_no" data-sortable="order_no" class="sortable-header" title="入库单号">入库单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="date" data-sortable="date" class="sortable-header" title="日期">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -202,7 +202,7 @@
             <tbody>
                 {% for item in items %}
                 <tr>
-                    <td data-column-key="chk" class="text-center"><input type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
+                    <td data-column-key="chk" class="text-center"><input aria-label="选择入库单" type="checkbox" class="check-item" value="{{ item.in_order.id }}" {% if item.in_order.status != 'pending' %}disabled title="已完成单据不能删除"{% endif %}></td>
                     <td data-column-key="row_no">{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
                     <td data-column-key="order_no"><a href="{{ url_for('in_order_detail', id=item.in_order.id) }}" target="_blank" rel="noopener">{{ item.in_order.order_no }}</a></td>
                     <td data-column-key="date">{{ item.in_order.date.strftime('%Y-%m-%d') if item.in_order.date else '' }}</td>
@@ -264,7 +264,7 @@
                         </a>
                         {{ document_print_menu('in_order', item.in_order.id, icon_only=true) }}
                         {% if current_user.role in ['admin', 'warehouse'] %}
-                        <button type="button" class="btn btn-sm btn-outline-info" title="复制单据" onclick="copyInOrder({{ item.in_order.id }})">
+                        <button type="button" class="btn btn-sm btn-outline-info" title="复制单据" data-document-list-action="in-order-copyInOrder" data-order-id="{{ item.in_order.id }}">
                             <i class="bi bi-files"></i>
                         </button>
                         {% endif %}
@@ -306,7 +306,7 @@
         <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
             <div class="d-flex align-items-center gap-2">
                 <span class="text-muted">每页显示</span>
-                <select class="form-select form-select-sm" style="width:auto" onchange="changePerPage(this.value)">
+                <select class="form-select form-select-sm" style="width:auto" data-document-list-change="page-size" aria-label="每页显示条数">
                     <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
                     <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
                     <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
@@ -384,290 +384,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    initCheckAll('inOrderTable');
-    setupResizableTable({
-        tableSelector: '.table-responsive-wrapper table',
-        tableId: 'in-order-detail-list',
-        minWidth: 70
-    });
-
-    document.querySelectorAll('.sortable-header').forEach(function(th) {
-        th.addEventListener('click', function() {
-            var sortField = this.dataset.sortable;
-            if (!sortField) return;
-            var currentSort = '{{ sort_by }}';
-            var currentOrder = '{{ sort_order }}';
-            var newOrder = (currentSort === sortField && currentOrder === 'asc') ? 'desc' : 'asc';
-            var url = new URL(window.location.href);
-            url.searchParams.set('sort', sortField);
-            url.searchParams.set('order', newOrder);
-            url.searchParams.set('page', '1');
-            window.location.href = url.toString();
-        });
-    });
-
-    // 供应商筛选：手工输入时清空已选 id，让后端走 supplier_name 模糊匹配；
-    // quick-select 点选后只派发 change 事件回填 id（不触发 input），不会被误清。
-    (function() {
-        var sfInput = document.getElementById('supplierFilterInput');
-        var sfHidden = document.getElementById('supplierFilterId');
-        if (sfInput && sfHidden) {
-            sfInput.addEventListener('input', function() { sfHidden.value = ''; });
-        }
-    })();
-
-    // 工程名称快速匹配（BUG-2026-08-29-004）：输入关键词弹出合同档案中的候选工程，
-    // 上下键/回车选择回填完整工程名；数据源 /api/contracts（工程名称+合同编号模糊）。
-    (function() {
-        var input = document.getElementById('projectNameFilterInput');
-        var dropdown = document.getElementById('projectNameDropdown');
-        if (!input || !dropdown) return;
-        var activeDropdown = null;
-        var timer = null;
-        var cache = Object.create(null);
-        var queryVersion = 0;
-        var queryActive = false;
-
-
-
-        function hideDropdown() {
-            clearTimeout(timer);
-            queryVersion++;
-            queryActive = false;
-            dropdown.style.display = 'none';
-            activeDropdown = null;
-        }
-
-        function showDropdown() {
-            WMS.positionDropdown(input, dropdown, {maxHeight: 220});
-            dropdown.style.display = 'block';
-            activeDropdown = dropdown;
-        }
-
-        function render(list) {
-            if (!list.length) {
-                dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">无匹配工程</div>';
-            } else {
-                dropdown.innerHTML = list.map(function(c, idx) {
-                    return '<div class="pf-item' + (idx === 0 ? ' active' : '') + '" data-pn="' + escapeHtml(c.project_name || '') + '" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid #f0f0f0;">'
-                        + '<span>' + escapeHtml(c.project_name || '') + '</span>'
-                        + (c.contract_no ? ' <span style="color:#999;font-size:12px;">' + escapeHtml(c.contract_no) + '</span>' : '')
-                        + '</div>';
-                }).join('');
-                var items = dropdown.querySelectorAll('.pf-item[data-pn]');
-                for (var k = 0; k < items.length; k++) {
-                    items[k].addEventListener('mousedown', function(ev) {
-                        ev.preventDefault();
-                        input.value = this.getAttribute('data-pn');
-                        hideDropdown();
-                    });
-                }
-            }
-            showDropdown();
-        }
-
-        function isCurrent(kw, version) {
-            return queryActive && version === queryVersion && input.isConnected !== false && input.value.trim() === kw;
-        }
-
-        function query(kw, version) {
-            if (!isCurrent(kw, version)) return;
-            if (cache[kw]) { render(cache[kw]); return; }
-            dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载中...</div>';
-            showDropdown();
-            WMS.api.getRaw('/api/contracts?keyword=' + encodeURIComponent(kw)).then(function(j) {
-                if (!isCurrent(kw, version)) return;
-                if (!(j && j.status === 'success' && j.data && Array.isArray(j.data.contracts) &&
-                    j.data.contracts.every(function(c) { return c && typeof c === 'object'; }))) {
-                    throw new Error('工程查询返回格式异常');
-                }
-                var list = j.data.contracts;
-                cache[kw] = list;
-                render(list);
-            }).catch(function() {
-                if (isCurrent(kw, version)) {
-                    dropdown.innerHTML = '<div style="padding:6px 10px;color:#999;">加载失败</div>';
-                    showDropdown();
-                }
-            });
-        }
-
-        function search(delayed) {
-            hideDropdown();
-            var kw = input.value.trim();
-            if (!kw) return;
-            queryActive = true;
-            var version = queryVersion;
-            if (cache[kw]) { render(cache[kw]); return; }
-            if (delayed) timer = setTimeout(function() { query(kw, version); }, 200);
-            else query(kw, version);
-        }
-
-        input.addEventListener('input', function() { search(true); });
-        input.addEventListener('focus', function() {
-            search(false);
-        });
-        input.addEventListener('blur', hideDropdown);
-        document.addEventListener('click', function(ev) {
-            if (ev.target !== input && !dropdown.contains(ev.target)) hideDropdown();
-        });
-        input.addEventListener('keydown', function(ev) {
-            if (ev.key === 'Escape') { hideDropdown(); return; }
-            if (!activeDropdown) return;
-            if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
-                ev.preventDefault();
-                var items = Array.from(dropdown.querySelectorAll('.pf-item[data-pn]'));
-                if (!items.length) return;
-                var cur = Math.max(0, items.findIndex(function(it) { return it.classList.contains('active'); }));
-                var next = (cur + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-                items[cur].classList.remove('active');
-                items[next].classList.add('active');
-                items[next].scrollIntoView({ block: 'nearest' });
-                return;
-            }
-            if (ev.key === 'Enter') {
-                var sel = dropdown.querySelector('.pf-item.active');
-                if (sel) {
-                    ev.preventDefault();
-                    input.value = sel.getAttribute('data-pn');
-                    hideDropdown();
-                }
-            }
-        });
-    })();
-
-});
-
-// 快速搜索入库单
-function changePerPage(perPage) {
-    var url = new URL(window.location.href);
-    url.searchParams.set('per_page', perPage);
-    url.searchParams.set('page', '1');
-    window.location.href = url.toString();
-}
-
-function selectedOrderIds(tableId) {
-    var ids = [];
-    document.querySelectorAll('#' + tableId + ' .check-item:checked').forEach(function(cb) {
-        if (ids.indexOf(cb.value) === -1) ids.push(cb.value);
-    });
-    return ids;
-}
-
-function batchInOrderAction(url, emptyMessage, confirmMessage) {
-    var ids = selectedOrderIds('inOrderTable');
-    if (!ids.length) {
-        showToast(emptyMessage, 'warning');
-        return;
-    }
-    const isPrint = url === '/in_order/batch_print';
-    if (isPrint && ids.length !== 1) {
-        showToast('打印已选暂限1张，请只选择一张入库单；多单合并打印暂未支持', 'warning', 5000);
-        return;
-    }
-    if (ids.length > 100) {
-        showToast('单次批量操作不能超过 100 条，请分批处理', 'warning', 5000);
-        return;
-    }
-    showConfirm(confirmMessage, {title: '批量处理入库单'}).then(function(confirmed) {
-        if (!confirmed) return;
-        if (url === '/in_order/batch_export') {
-            WMS.api.postResponse(url, {ids: ids})
-            .then(function(response) {
-                const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
-                if (!contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') &&
-                        !contentType.includes('application/octet-stream')) {
-                    return response.json().catch(function() { return {}; }).then(function(data) {
-                        throw new Error((data && data.msg) || '导出失败：服务器未返回Excel文件');
-                    });
-                }
-                const filename = filenameFromDisposition(response.headers.get('Content-Disposition'), '入库单批量导出.xlsx');
-                return response.blob().then(function(blob) {
-                    downloadBlob(blob, filename, contentType);
-                    showToast('导出成功', 'success');
-                });
-            })
-            .catch(function(error) { showToast('导出失败：' + error.message, 'danger', 5000); });
-            return;
-        }
-        WMS.api.postRaw(url, {ids: ids})
-        .then(function(data) {
-            if (data.status === 'success') {
-                if (isPrint) {
-                    if (data.redirect) window.location.href = data.redirect.replace(/\/print$/, '/print_options');
-                    else showToast('打印失败：服务器未返回打印地址', 'danger', 5000);
-                    return;
-                }
-                showToast(data.msg || '操作成功', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast(data.msg || '操作失败', 'danger', 5000);
-            }
-        })
-        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
-    });
-}
-
-async function submitDocumentImport(formId, fileId) {
-    if (submitDocumentImport.pending) return;
-    const form = document.getElementById(formId);
-    const fileInput = document.getElementById(fileId);
-    if (!form || !fileInput || !fileInput.files.length) return;
-    const selectedFile = fileInput.files[0];
-    const button = document.getElementById('inOrderImportFileButton');
-    const wasDisabled = fileInput.disabled;
-    const buttonWasDisabled = button && button.disabled;
-    let refreshing = false;
-    submitDocumentImport.pending = true;
-    try {
-        // Capture the file before disabling its form control.
-        const formData = new FormData(form);
-        fileInput.disabled = true;
-        if (button) button.disabled = true;
-        await WMS.api.postRaw(form.action, formData)
-        .then(function(data) {
-            if (data.status === 'success') {
-                refreshing = true;
-                showToast(data.msg || '导入成功', 'success', 3600);
-                setTimeout(function(){ location.reload(); }, 900);
-            } else {
-                showToast(data.msg || '导入失败', 'danger', 5000);
-            }
-        });
-    } catch (error) {
-        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
-    } finally {
-        if (fileInput.files[0] === selectedFile) fileInput.value = '';
-        if (!refreshing) {
-            submitDocumentImport.pending = false;
-            fileInput.disabled = wasDisabled;
-            if (button) button.disabled = buttonWasDisabled;
-        }
-    }
-}
-
-function copyInOrder(id) {
-    showConfirm('确定复制该入库单吗？系统会生成一张新的入库草稿，不会直接增加库存。', {title: '复制入库单'}).then(function(confirmed) {
-        if (!confirmed) return;
-        WMS.api.postRaw('/in_order/' + id + '/copy', {})
-        .then(function(data) {
-            if (data.status === 'success') {
-                showToast(data.msg || '复制成功', 'success');
-                setTimeout(function() {
-                    window.location.href = data.redirect_url || ('/in_order/' + data.id);
-                }, 500);
-            } else {
-                showToast(data.msg || '复制失败', 'danger', 5000);
-            }
-        })
-        .catch(function(error) {
-            showToast('复制失败：' + error.message, 'danger', 5000);
-        });
-    });
-}
-</script>
+<script id="inOrderListConfig" type="application/json">{"sortBy": {{ sort_by|default("id")|tojson }}, "sortOrder": {{ sort_order|default("desc")|tojson }}}</script>
+<script src="{{ url_for('static', filename='js/pages/in-order-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/pages/document-list-actions.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 
 <style>
 .sortable-header { cursor: pointer; user-select: none; white-space: nowrap; }

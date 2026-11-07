@@ -15,6 +15,7 @@ SHARED_SCRIPT_HASHES = (
 MATERIAL_SCRIPT_ENDPOINTS = frozenset({
     'material_list', 'add_material', 'category_list', 'unit.unit_list',
     'mobile_material_detail', 'print_material_archive',
+    'in_order_list', 'out_order_list', 'after_sale_out_list',
 })
 
 

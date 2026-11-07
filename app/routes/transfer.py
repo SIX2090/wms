@@ -872,8 +872,8 @@ def register_transfer_routes(app):
         return _workbook_response(
             'transfer_template.xlsx',
             '库存调拨导入模板',
-            ['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
-            [['TF24010001', '2024-01-01', '材料仓', '成品仓', 'MAT001', '示例物料', '规格A', '个', 10, 0, '']],
+            ['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注', '调出库位', '调入库位'],
+            [['TF24010001', '2024-01-01', '材料仓', '成品仓', 'MAT001', '示例物料', '规格A', '个', 10, 0, '', '', '']],
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -881,7 +881,12 @@ def register_transfer_routes(app):
     @require_role('warehouse')
     @login_required
     def import_transfer():
-        from app import (TransferOrder, TransferOrderItem, _find_or_create_material, _find_or_create_warehouse, _get_excel_cell, _get_excel_number, _import_result, _order_no_from_row, _parse_excel_date, _read_import_sheet, api_error, round_to_2_decimals, validate_excel_extension, validate_excel_size)
+        from app import (TransferOrder, TransferOrderItem, _find_or_create_material,
+                         _get_excel_cell, _get_excel_number, _import_result,
+                         _order_no_from_row, _parse_excel_date, _read_import_sheet,
+                         api_error, location_management_enabled, round_to_2_decimals,
+                         validate_excel_extension, validate_excel_size,
+                         validate_inventory_warehouse)
         from flask import request
         file = request.files.get('file')
         if not file:
@@ -895,8 +900,10 @@ def register_transfer_routes(app):
         aliases = {
             'order_no': ['单据编号', '调拨单号', '订单编号'],
             'date': ['日期'],
-            'from_location': ['调出仓库', '调出库', '源仓库'],
-            'to_location': ['调入仓库', '调入库', '目标仓库'],
+            'from_warehouse': ['调出仓库', '调出库', '源仓库', '调出仓库编码'],
+            'to_warehouse': ['调入仓库', '调入库', '目标仓库', '调入仓库编码'],
+            'from_location': ['调出库位', '源库位'],
+            'to_location': ['调入库位', '目标库位'],
             'material_code': ['物料编码', '材料编码'],
             'material_name': ['物料名称', '材料名称'],
             'spec': ['规格'],
@@ -907,9 +914,52 @@ def register_transfer_routes(app):
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
-            required = {'from_location', 'to_location', 'material_code', 'quantity'}
+            # Legacy "调出库/调入库" aliases must not capture reordered location columns.
+            for key in ('from_warehouse', 'to_warehouse'):
+                col_map.pop(key, None)
+                for idx, label in enumerate(header_row):
+                    if '库位' not in label and any(pattern in label for pattern in aliases[key]):
+                        col_map[key] = idx
+                        break
+            required = {'from_warehouse', 'to_warehouse', 'material_code', 'quantity'}
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（调出仓库、调入仓库、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
+            row_places = {}
+            order_places = {}
+            warehouses = {}
+            existing_orders = {}
+            locations_required = location_management_enabled()
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                if (not _get_excel_cell(row, col_map, 'material_code')
+                        or _get_excel_number(row, col_map, 'quantity') <= 0):
+                    continue
+                explicit_no = _get_excel_cell(row, col_map, 'order_no')
+                if explicit_no:
+                    if explicit_no not in existing_orders:
+                        existing_orders[explicit_no] = TransferOrder.query.filter_by(transfer_no=explicit_no).first() is not None
+                    if existing_orders[explicit_no]:
+                        continue
+                names = []
+                for key, label in [('from_warehouse', '调出'), ('to_warehouse', '调入')]:
+                    raw = _get_excel_cell(row, col_map, key)
+                    if raw not in warehouses:
+                        warehouse, error = validate_inventory_warehouse(raw)
+                        if error:
+                            return api_error(f'第{row_idx}行：{label}{error}')
+                        warehouses[raw] = warehouse.name
+                    names.append(warehouses[raw])
+                from_location = _get_excel_cell(row, col_map, 'from_location')
+                to_location = _get_excel_cell(row, col_map, 'to_location')
+                if locations_required and (not from_location or not to_location):
+                    return api_error(f'第{row_idx}行：库位管理已开启，请填写调出库位和调入库位')
+                if names[0] == names[1] and (not from_location or from_location == to_location):
+                    return api_error(f'第{row_idx}行：调出和调入仓库、库位不能相同')
+                place = (*names, from_location or names[0], to_location or names[1])
+                if explicit_no and explicit_no in order_places and order_places[explicit_no] != place:
+                    return api_error(f'第{row_idx}行：同一调拨单的调出、调入仓库和库位必须一致')
+                if explicit_no:
+                    order_places[explicit_no] = place
+                row_places[row_idx] = place
             orders_by_no = {}
             order_count = 0
             item_count = 0
@@ -930,17 +980,12 @@ def register_transfer_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：调拨单号 {order_no} 已存在')
                         continue
-                    from_location = _get_excel_cell(row, col_map, 'from_location')
-                    to_location = _get_excel_cell(row, col_map, 'to_location')
-                    if not from_location or not to_location or from_location == to_location:
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：调出/调入仓库不正确')
-                        continue
-                    _find_or_create_warehouse(from_location)
-                    _find_or_create_warehouse(to_location)
+                    from_warehouse, to_warehouse, from_location, to_location = row_places[row_idx]
                     order = TransferOrder(
                         transfer_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
+                        from_warehouse=from_warehouse,
+                        to_warehouse=to_warehouse,
                         from_location=from_location,
                         to_location=to_location,
                         remark=_get_excel_cell(row, col_map, 'remark'),

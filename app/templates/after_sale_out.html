@@ -12,16 +12,16 @@
             <a href="/after_sale_out/export?status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
                 <i class="bi bi-download"></i> 导出
             </a>
-            <button id="afterSaleOutImportFileButton" type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('afterSaleOutImportFile').click()">
+            <button id="afterSaleOutImportFileButton" type="button" class="btn btn-outline-info btn-sm" data-document-list-action="after-sale-out-choose-import">
                 <i class="bi bi-upload"></i> 导入
             </button>
             <a href="/after_sale_out/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
-            <button type="button" class="btn btn-outline-primary btn-sm" onclick="printAfterSaleOutList()">
+            <button type="button" class="btn btn-outline-primary btn-sm" data-document-list-action="after-sale-out-print">
                 <i class="bi bi-printer"></i> 打印
             </button>
             <form id="afterSaleOutImportForm" action="/after_sale_out/import" method="post" enctype="multipart/form-data" class="d-none">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="file" id="afterSaleOutImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('afterSaleOutImportForm', 'afterSaleOutImportFile')">
+                <input type="file" id="afterSaleOutImportFile" aria-label="导入售后出库单Excel文件" name="file" accept=".xlsx,.xls" data-document-list-change="import">
             </form>
         </div>
         {% endif %}
@@ -36,24 +36,24 @@
             <input type="hidden" name="embedded" value="1">
             {% endif %}
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">状态</label>
-                <select name="status" class="form-select form-select-sm">
+                <label class="form-label small text-muted mb-1" for="afterSaleOutFilterStatus">状态</label>
+                <select id="afterSaleOutFilterStatus" name="status" class="form-select form-select-sm">
                     <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
                     <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>待完成</option>
                     <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
                 </select>
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">开始日期</label>
-                <input type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
+                <label class="form-label small text-muted mb-1" for="afterSaleOutFilterDateStart">开始日期</label>
+                <input id="afterSaleOutFilterDateStart" type="date" name="date_start" class="form-control form-control-sm" value="{{ filters.date_start }}">
             </div>
             <div class="col-md-2">
-                <label class="form-label small text-muted mb-1">结束日期</label>
-                <input type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
+                <label class="form-label small text-muted mb-1" for="afterSaleOutFilterDateEnd">结束日期</label>
+                <input id="afterSaleOutFilterDateEnd" type="date" name="date_end" class="form-control form-control-sm" value="{{ filters.date_end }}">
             </div>
             <div class="col-md-4">
-                <label class="form-label small text-muted mb-1">关键词</label>
-                <input type="text" name="search" class="form-control form-control-sm" placeholder="单号/客户/联系人/原因/物料/待完成" value="{{ filters.search }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
+                <label class="form-label small text-muted mb-1" for="afterSaleOutFilterSearch">关键词</label>
+                <input id="afterSaleOutFilterSearch" type="text" name="search" class="form-control form-control-sm" placeholder="单号/客户/联系人/原因/物料/待完成" value="{{ filters.search }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
             </div>
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
@@ -71,7 +71,7 @@
         <table class="table table-bordered table-hover table-sm mb-0" id="afterSaleOutTable">
             <thead>
                 <tr>
-                    <th width="56" class="text-center"><input type="checkbox" id="checkAll" onclick="toggleAll()" title="全选当前页"></th>
+                    <th width="56" class="text-center"><input aria-label="全选当前页单据" type="checkbox" id="checkAll" data-document-list-change="select-all" title="全选当前页"></th>
                     <th width="70">序号</th>
                     <th data-sortable="order_no" class="sortable-header">单号 {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -86,7 +86,7 @@
             <tbody>
                 {% for order in pagination.items %}
                 <tr>
-                    <td><input type="checkbox" class="order-check check-item" value="{{ order.id }}"></td>
+                    <td><input aria-label="选择售后出库单" type="checkbox" class="order-check check-item" value="{{ order.id }}"></td>
                     <td>{{ loop.index + (pagination.page - 1) * pagination.per_page }}</td>
                     <td><a href="{{ url_for('after_sale_out_detail', id=order.id) }}" target="_blank" rel="noopener">{{ order.order_no }}</a></td>
                     <td>{{ order.date.strftime('%Y-%m-%d') if order.date else '-' }}</td>
@@ -109,14 +109,14 @@
                         </a>
                         {{ document_print_menu('after_sale_out', order.id, icon_only=true) }}
                         {% if order.status == 'pending' %}
-                        <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})" title="完成">
+                        <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" data-document-list-action="after-sale-out-completeOrder" data-order-id="{{ order.id }}" title="完成">
                             <i class="bi bi-check"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})" title="删除">
+                        <button class="btn btn-sm btn-outline-danger" data-document-list-action="after-sale-out-deleteOrder" data-order-id="{{ order.id }}" title="删除">
                             <i class="bi bi-trash"></i>
                         </button>
                         {% elif order.status == 'completed' %}
-                        <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})" title="反提交">
+                        <button class="btn btn-sm btn-outline-warning" data-document-list-action="after-sale-out-revertOrder" data-order-id="{{ order.id }}" title="反提交">
                             <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
                         {% endif %}
@@ -177,123 +177,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-document.querySelectorAll('.sortable-header').forEach(function(th) {
-    th.addEventListener('click', function() {
-        const sortField = this.dataset.sortable;
-        const url = new URL(window.location.href);
-        const currentSort = url.searchParams.get('sort');
-        const currentOrder = url.searchParams.get('order') || 'desc';
-        url.searchParams.set('sort', sortField);
-        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
-        url.searchParams.delete('page');
-        window.location.href = url.toString();
-    });
-});
-
-function toggleAll() {
-    const checkAll = document.getElementById('checkAll');
-    document.querySelectorAll('.order-check').forEach(cb => cb.checked = checkAll.checked);
-}
-
-function completeOrder(id) {
-    return WMS.runDocumentAction('completeOrder', function() {
-        return showConfirm('确认完成此售后出库单？完成后将扣减库存。').then(function(ok) {
-            if (!ok) return;
-            return WMS.api.postRaw(`/after_sale_out/${id}/complete`, {})
-            .then(data => {
-                if (data.status === 'success') {
-                    showToast('操作成功', 'success');
-                    location.reload();
-                } else {
-                    showToast('操作失败：' + data.msg, 'danger');
-                }
-            });
-        });
-    });
-}
-
-function revertOrder(id) {
-    showConfirm('确认反提交该售后出库单？反提交后库存将恢复。').then(function(ok) {
-        if (!ok) return;
-        return WMS.api.postRaw(`/after_sale_out/${id}/revert`)
-        .then(data => {
-            if (data.status === 'success') {
-                showToast(data.msg || '反提交成功', 'success');
-                location.reload();
-            } else {
-                showToast('反提交失败：' + (data.msg || '未知错误'), 'danger');
-            }
-        });
-    }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
-}
-
-function deleteOrder(id) {
-    showConfirm('确认删除此售后出库单？').then(function(ok) {
-        if (!ok) return;
-        return WMS.api.postRaw(`/after_sale_out/${id}/delete`)
-        .then(data => {
-            if (data.status === 'success') {
-                showToast('删除成功', 'success');
-                location.reload();
-            } else {
-                showToast('删除失败：' + (data.msg || '未知错误'), 'danger');
-            }
-        });
-    }).catch(function(error) { showToast('操作失败：' + error.message, 'danger'); });
-}
-
-function printAfterSaleOutList() {
-    var checked = document.querySelectorAll('.order-check:checked');
-    var ids = Array.from(checked).map(function(cb){ return cb.value; });
-    if (ids.length === 0) {
-        showToast('请先勾选要打印的售后出库单', 'warning');
-        return;
-    }
-    if (ids.length === 1) {
-        window.open('/after_sale_out/' + ids[0] + '/print', '_blank');
-        return;
-    }
-    showToast('当前仅支持逐单打印，已打开第一张', 'info', 3000);
-    window.open('/after_sale_out/' + ids[0] + '/print', '_blank');
-}
-
-async function submitDocumentImport(formId, fileId) {
-    if (submitDocumentImport.pending) return;
-    const form = document.getElementById(formId);
-    const fileInput = document.getElementById(fileId);
-    if (!form || !fileInput || !fileInput.files.length) return;
-    const selectedFile = fileInput.files[0];
-    const button = document.getElementById('afterSaleOutImportFileButton');
-    const wasDisabled = fileInput.disabled;
-    const buttonWasDisabled = button && button.disabled;
-    let refreshing = false;
-    submitDocumentImport.pending = true;
-    try {
-        // Capture the file before disabling its form control.
-        const formData = new FormData(form);
-        fileInput.disabled = true;
-        if (button) button.disabled = true;
-        await WMS.api.postRaw(form.action, formData)
-        .then(function(data) {
-            if (data.status === 'success') {
-                refreshing = true;
-                showToast(data.msg || '导入成功', 'success', 3600);
-                setTimeout(function(){ location.reload(); }, 900);
-            } else {
-                showToast(data.msg || '导入失败', 'danger', 5000);
-            }
-        });
-    } catch (error) {
-        showToast('导入失败：' + ((error && error.message) || '请求失败，请稍后重试'), 'danger', 5000);
-    } finally {
-        if (fileInput.files[0] === selectedFile) fileInput.value = '';
-        if (!refreshing) {
-            submitDocumentImport.pending = false;
-            fileInput.disabled = wasDisabled;
-            if (button) button.disabled = buttonWasDisabled;
-        }
-    }
-}
-</script>
+<script src="{{ url_for('static', filename='js/pages/after-sale-out-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+<script src="{{ url_for('static', filename='js/pages/document-list-actions.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}
