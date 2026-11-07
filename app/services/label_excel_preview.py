@@ -124,6 +124,7 @@ def build_excel_label_preview(template_path, materials, qr_base_url=None):
         for material in materials:
             item = SimpleNamespace(**material)
             filler = _Filler(order, [item], date.today().isoformat())
+            item = filler.items[0]
             prepared = {}
             for source, geometry in layout['cells']:
                 cell = copy(source)
@@ -131,7 +132,7 @@ def build_excel_label_preview(template_path, materials, qr_base_url=None):
                 result = dict(**geometry, css=_cell_css(cell), text='')
                 if image:
                     kind, scope, attr = image
-                    value = _resolve_path(item if scope == 'item' else order, attr.split('.'))
+                    value = _resolve_path(item if scope == 'item' else filler.order, attr.split('.'))
                     if kind == 'qrcode' and scope == 'item' and attr in ('code', 'barcode', 'qrcode'):
                         qr = material_label_qr(material['code'], qr_base_url)
                         result['image'] = 'data:image/png;base64,' + qr['qrcode_png']

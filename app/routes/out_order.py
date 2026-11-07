@@ -1616,7 +1616,8 @@ def register_out_order_routes(app):
     @login_required
     def print_out_order_excel(id):
         """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
-        from app import OutOrder, OutOrderPrintTemplate
+        from app import OutOrder, OutOrderPrintTemplate, api_error
+        from print_display import PrintFieldError, _field_paths, _project
         from utils import resolve_print_template
         order = OutOrder.query.get_or_404(id)
         box_numbers = get_out_order_box_numbers(order)
@@ -1629,13 +1630,17 @@ def register_out_order_routes(app):
             if template_path and os.path.exists(template_path):
                 from datetime import datetime
                 from flask import g
-                for item in order.items:
-                    item.box_no = box_numbers.get(item.id, '')
-                output = build_filled_print_excel(
-                    template_path, order,
-                    date_str=datetime.now().strftime('%Y-%m-%d'),
-                    preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
-                )
+                fields = _field_paths('item')
+                try:
+                    display_items = [_project(item, fields, {'box_no': box_numbers.get(item.id, '')})
+                                     for item in order.items]
+                    output = build_filled_print_excel(
+                        template_path, order, items=display_items,
+                        date_str=datetime.now().strftime('%Y-%m-%d'),
+                        preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
+                    )
+                except PrintFieldError as error:
+                    return api_error(str(error), 400)
                 filename = f'{template.name or _out_order_print_title(order)}_{order.order_no or id}.xlsx'
                 return send_file(
                     output,

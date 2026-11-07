@@ -432,7 +432,9 @@ def render_sales_report_excel(title, columns, rows, template_path=None, print_sc
         if builtin is None:
             raise ValueError('当前报表没有可打印的字段')
         raw = builtin.getvalue()
-    error = validate_template_file(raw)
+    from print_display import _field_paths
+    item_fields = _field_paths('item', columns=[column['field'] for column in columns])
+    error = validate_template_file(raw, item_fields=item_fields)
     if error:
         raise ValueError(error)
     workbook = load_workbook(io.BytesIO(raw), keep_links=False)
@@ -445,7 +447,7 @@ def render_sales_report_excel(title, columns, rows, template_path=None, print_sc
         for sheet in workbook.worksheets:
             if (sheet.max_row + max(0, len(items) - 1)) * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('展开后的打印内容过大，请缩小筛选范围')
-            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat()))
+            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat(), item_fields=item_fields))
             if print_scope:
                 for header in (sheet.oddHeader, sheet.evenHeader, sheet.firstHeader):
                     existing = header.center.text or ''
