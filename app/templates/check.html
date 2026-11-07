@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from '_document_print_menu.html' import document_print_menu %}
 {% import '_list_macros.html' as list_macros %}
 {% block title %}库存盘点{% endblock %}
 
@@ -110,7 +109,9 @@
                         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if check.status == 'pending' else '查看' }}" target="_blank" rel="noopener">
                             <i class="bi bi-pencil"></i>
                         </a>
-                        {{ document_print_menu('check', check.id, icon_only=true) }}
+                        <a class="btn btn-sm btn-outline-info" href="{{ url_for('print_single_check', id=check.id) }}" target="_blank" title="打印">
+                            <i class="bi bi-printer"></i>
+                        </a>
                         <button class="btn btn-sm btn-outline-success copyBtn" data-id="{{ check.id }}" title="复制">
                             <i class="bi bi-clipboard"></i>
                         </button>

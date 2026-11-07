@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}期初库存单据{% endblock %}
 
 {% block content %}
@@ -82,7 +81,6 @@
                         <td>{{ d.updated_at.strftime('%Y-%m-%d %H:%M') if d.updated_at else '' }}</td>
                         <td>
                             <a class="btn btn-sm btn-outline-primary" href="/opening_stock/{{ d.id }}"><i class="bi bi-pencil-square"></i> 打开</a>
-                            {{ document_print_menu('opening_stock', d.id, icon_only=true) }}
                             <button class="btn btn-sm btn-outline-danger" type="button" onclick='deleteDoc({{ d.id }}, {{ d.doc_no|tojson }})'><i class="bi bi-trash"></i> 删除</button>
                         </td>
                     </tr>

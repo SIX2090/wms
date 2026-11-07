@@ -27,7 +27,7 @@ class Controls(HTMLParser):
 def render(doc, role='admin', completed=False):
     source = (ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     base = '<body class="{% block body_class %}{% endblock %}">{% block content %}{% endblock %}{% block extra_js %}{% endblock %}</body>'
-    env = Environment(loader=DictLoader({'_document_print_menu.html': (ROOT/'app/templates/_document_print_menu.html').read_text(encoding='utf-8'), 'base.html': base, 'page': source}), autoescape=True)
+    env = Environment(loader=DictLoader({'base.html': base, 'page': source}), autoescape=True)
     status = ('inactive' if completed else 'active') if doc == 'bom' else ('completed' if completed else 'pending')
     return env.get_template('page').render(current_user=SimpleNamespace(role=role), doc_type=doc,
         readonly=(completed and doc != 'bom') or (doc == 'bom' and role not in ('admin', 'production')),
@@ -51,8 +51,7 @@ def test_actual_template_roles_match_existing_backend_and_preserve_print_view(do
     nodes = Controls(html).nodes
     allowed = role in (['admin','production'] if doc in ('bom','requisition') else ['admin','warehouse'])
     actions = [attrs.get('onclick','') for tag,attrs in nodes if tag=='button']
-    assert any(tag=='a' and attrs.get('href')==f'/{doc}/7/print_options'
-               and 'data-wms-document-print' in attrs for tag,attrs in nodes)
+    assert any(tag=='a' and attrs.get('href')==f'/{doc}/7/print' for tag,attrs in nodes)
     assert any(tag=='a' and attrs.get('href')==f'/{doc}' for tag,attrs in nodes)
     body = next(attrs for tag,attrs in nodes if tag=='body')
     assert ('wms-no-global-actionbar' in body['class']) == (not allowed)

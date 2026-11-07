@@ -22,7 +22,7 @@ class Controls(HTMLParser):
 
 def render(action='confirm',role='sales',status=None,shipped='pending'):
     text=(ROOT/'app/templates/sales_order_detail.html').read_text(encoding='utf-8')
-    env=Environment(loader=DictLoader({'_document_print_menu.html':(ROOT/'app/templates/_document_print_menu.html').read_text(encoding='utf-8'),'page':text,'base.html':'{% block content %}{% endblock %}'}),autoescape=True)
+    env=Environment(loader=DictLoader({'page':text,'base.html':'{% block content %}{% endblock %}'}),autoescape=True)
     from utils import format_quantity
     env.filters['quantity'] = format_quantity
     item=NS(id=13,material=NS(code='M13',name='物料',spec='',unit=None),quantity=5.25,shipped_quantity=1,price=0,tax_rate=0,untaxed_amount=0,tax_amount=0,tax_included_amount=0,amount=0,batch_no='',serial_no='',remark='')

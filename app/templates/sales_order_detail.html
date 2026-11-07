@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}销售订单 {{ order.order_no }}{% endblock %}
 
 {% block extra_css %}
@@ -34,7 +33,7 @@
             </div>
             {% if current_user.role in ['admin', 'warehouse', 'purchase', 'sales'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-                {{ document_print_menu('sales_order', order.id) }}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('print_sales_order', id=order.id) }}" target="_blank"><i class="bi bi-printer"></i> 打印订单</a>
                 <button type="button" class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()" title="AI 异常分析">
                     <i class="bi bi-robot"></i> AI 异常分析
                 </button>

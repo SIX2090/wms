@@ -23,7 +23,7 @@ class Controls(HTMLParser):
 
 def render(action):
     source=(ROOT/'app/templates/purchase_request_detail.html').read_text(encoding='utf-8')
-    env=Environment(loader=DictLoader({'_document_print_menu.html':(ROOT/'app/templates/_document_print_menu.html').read_text(encoding='utf-8'),'page':source,'base.html':'{% block content %}{% endblock %}{% block extra_js %}{% endblock %}'}),autoescape=True)
+    env=Environment(loader=DictLoader({'page':source,'base.html':'{% block content %}{% endblock %}{% block extra_js %}{% endblock %}'}),autoescape=True)
     from utils import format_quantity
     env.filters['quantity'] = format_quantity
     order=SimpleNamespace(id=7,request_no='PR7',date=date(2026,10,23),applicant='fixture',department='采购',urgency='normal',

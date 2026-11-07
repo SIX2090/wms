@@ -411,7 +411,7 @@ def _contains_order_placeholder(text):
 _KEEP = object()
 
 
-def build_filled_print_excel(template_path, order, items=None, date_str=None, *, preserve_layout=False):
+def build_filled_print_excel(template_path, order, items=None, date_str=None):
     """按订单数据填充 Excel 模板，返回可下载的 BytesIO。
 
     template_path：模板 .xlsx 的绝对路径；
@@ -421,11 +421,7 @@ def build_filled_print_excel(template_path, order, items=None, date_str=None, *,
     workbook = load_workbook(template_path)
     filler = _Filler(order, items if items is not None else order.items, date_str)
     for ws in workbook.worksheets:
-        if preserve_layout:
-            from services.report_print_preview import _fill_sheet
-            _fill_sheet(ws, filler)
-        else:
-            filler.fill(ws)
+        filler.fill(ws)
     output = io.BytesIO()
     workbook.save(output)
     output.seek(0)

@@ -39,7 +39,7 @@
     </form>
   </div></div>
 
-  <p class="text-muted small">单据统一从“打印”选择 Excel 模板，在系统内预览后打印，也可下载同一份 Excel 打印文件。从内置版式新建后可在线编辑字体、列宽和行高。</p>
+  {% if selected_code == 'purchase_request' %}<p class="text-muted small">从内置版式新建后可在线编辑字体、列宽和行高；保存并设为默认后，采购申请的“打印”使用该 Excel 模板。“普通打印”保留材料申请单原版。</p>{% endif %}
   <div class="d-flex gap-2 mb-2"><a class="btn btn-sm {% if not selected_type %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates">全部</a>{% for key,label in target_types.items() %}<a class="btn btn-sm {% if selected_type == key %}btn-primary{% else %}btn-outline-primary{% endif %}" href="/print_templates?target_type={{ key }}">{{ label }}</a>{% endfor %}</div>
   <div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>模板名称</th><th>分类</th><th>业务编码</th><th>格式</th><th>状态</th><th>更新时间</th><th class="text-end">操作</th></tr></thead><tbody>
   {% if show_purchase_request_builtin %}

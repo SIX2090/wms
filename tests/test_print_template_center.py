@@ -177,6 +177,5 @@ def test_list_print_controls_hidden_without_removing_document_print():
     root = ROOT / 'app'
     assert 'onclick="window.print()">打印</button>' not in (root / 'templates/bom.html').read_text(encoding='utf-8')
     assert "if (item.key === 'print') return false;" in (root / 'static/js/app.js').read_text(encoding='utf-8')
-    assert "document_print_menu('in_order', item.in_order.id, icon_only=true)" in (root / 'templates/in_order.html').read_text(encoding='utf-8')
-    assert "'/print_options'" in (root / 'templates/_document_print_menu.html').read_text(encoding='utf-8')
+    assert "url_for('print_in_order'" in (root / 'templates/in_order.html').read_text(encoding='utf-8')
     assert "if (manage) manage.href" in (root / 'static/js/report-workbench.js').read_text(encoding='utf-8')

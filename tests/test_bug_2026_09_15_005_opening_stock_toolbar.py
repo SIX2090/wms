@@ -157,7 +157,7 @@ class TestOpeningStockToolbarKeepsWorkingButtons:
             "resetDocument()",                 # 新增
             "saveDocument()",                  # 保存
             "/batch_import?type=opening_stock",  # 批量导入
-            "document_print_menu('opening_stock', editing_doc.id)",  # 统一单据打印
+            "window.print()",                  # 打印
             "exportRows()",                    # 导出
             "/opening_stock/import/template",  # 导入导出模板
             "addRow()",                        # 添加物料

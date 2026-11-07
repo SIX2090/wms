@@ -62,7 +62,7 @@ def test_real_jinja_role_status_buttons(role, status, embedded):
                 self.ids.append(props['id'])
     source = (ROOT / 'app/templates/purchase_order_detail.html').read_text(encoding='utf-8')
     body_slot = next(line for line in (ROOT / 'app/templates/base.html').read_text(encoding='utf-8').splitlines() if line.startswith('<body class='))
-    env = Environment(loader=DictLoader({'_document_print_menu.html': (ROOT/'app/templates/_document_print_menu.html').read_text(encoding='utf-8'), 'base.html': body_slot + '{% block content %}{% endblock %}</body>', '_list_macros.html': '{% macro operation_log_card(logs) %}{% endmacro %}', 'page': source}), autoescape=True)
+    env = Environment(loader=DictLoader({'base.html': body_slot + '{% block content %}{% endblock %}</body>', '_list_macros.html': '{% macro operation_log_card(logs) %}{% endmacro %}', 'page': source}), autoescape=True)
     order = SimpleNamespace(id=7, status=status, order_no='PO-7', date=None, supplier=None, operator=None, expected_date=None, total_amount=0, purchase_request=None, contract_no='', project_name='', remark='', created_at=None, items=[])
     html = env.get_template('page').render(request=SimpleNamespace(args={'embedded': '1'} if embedded else {}), order=order, current_user=SimpleNamespace(role=role), related_in_orders=[], warehouses=[], item_execution={}, operation_logs=[], status_label=lambda s:s, url_for=lambda name, **kw: '/'+name)
     parsed = Buttons(); parsed.feed(html)

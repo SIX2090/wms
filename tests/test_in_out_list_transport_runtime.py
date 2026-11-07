@@ -69,12 +69,12 @@ else if(p.action==='in_copy')assert.deepEqual(JSON.parse(req.o.body),{});else if
 else assert.equal(req.o.body,undefined,'single operations keep empty request body');
 const ok=['success','fallback','octet'].includes(p.scenario);
 if(ok){
- if(p.action==='in_print'){assert.equal(ctx.location.href,'/in_order/7/print_options');assert.equal(reloads,0);}
+ if(p.action==='in_print'){assert.equal(ctx.location.href,'/in_order/7/print');assert.equal(reloads,0);}
  else if(p.action==='in_export'){assert.equal(downloads.length,1);assert.equal(created.length,1);assert.equal(downloads[0].name,p.scenario==='fallback'?'入库单批量导出.xlsx':'入库单_导出.xlsx');assert.deepEqual(Buffer.from(await created[0].arrayBuffer()),bytes,'download actual workbook bytes');assert.equal(reloads,0);timers.forEach(fn=>fn());assert.deepEqual(revoked,['blob:fixture-1']);process.stdout.write(JSON.stringify({download:p.xlsx}));}
  else {assert(messages.some(m=>m.t==='success'));timers.forEach(fn=>fn());if(p.action==='in_copy')assert.equal(ctx.location.href,p.scenario==='fallback'?'/in_order/17':'/in_order/17?copied=1');else assert.equal(reloads,1);}
 }else{assert(messages.some(m=>m.t==='danger'));assert.equal(reloads,0);assert.equal(ctx.location.href,'original');assert.equal(downloads.length,0);assert.equal(created.length,0);if(['business','http','warning'].includes(p.scenario))assert(messages.some(m=>m.m.includes('fixture explanation')));
  if(p.scenario==='html'&&p.action!=='in_export')assert(messages.some(m=>m.m.includes('503')));
- scenario='success';await invoke();assert.equal(sent.length,2,'failure permits retry');if(p.action==='in_export')assert.equal(downloads.length,1);else if(p.action==='in_print')assert.equal(ctx.location.href,'/in_order/7/print_options');else assert.equal(messages.at(-1).t,'success');}
+ scenario='success';await invoke();assert.equal(sent.length,2,'failure permits retry');if(p.action==='in_export')assert.equal(downloads.length,1);else if(p.action==='in_print')assert.equal(ctx.location.href,'/in_order/7/print');else assert.equal(messages.at(-1).t,'success');}
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
     node=shutil.which('node')

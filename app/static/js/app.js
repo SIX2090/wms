@@ -1772,7 +1772,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'inOrderTable',
         deleteUrl: '/in_order/batch_delete',
         detailDeleteUrl: '/in_order/{id}/delete',
-        detailPrintUrl: '/in_order/{id}/print_options',
+        detailPrintUrl: '/in_order/{id}/print',
         detailExportUrl: '/in_order/{id}/export',
         exportUrl: '/in_order/export',
         importUrl: '/import/in_order',
@@ -1789,7 +1789,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'outOrderTable',
         deleteUrl: '/out_order/batch_delete',
         detailDeleteUrl: '/out_order/{id}/delete',
-        detailPrintUrl: '/out_order/{id}/print_options',
+        detailPrintUrl: '/out_order/{id}/print',
         detailExportUrl: '/out_order/{id}/export',
         exportUrl: '/out_order/export',
         importUrl: '/import/out_order',
@@ -1832,7 +1832,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'purchaseOrderTable',
         deleteUrl: '/purchase_order/batch_delete',
         detailDeleteUrl: '/purchase_order/{id}/delete',
-        detailPrintUrl: '/purchase_order/{id}/print_options',
+        detailPrintUrl: '/purchase_order/{id}/print',
         exportUrl: '/purchase_order/export',
         importUrl: '/purchase_order/import',
         templateUrl: '/export/template/purchase_order'
@@ -1846,7 +1846,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'transferTable',
         deleteUrl: '/transfer/batch_delete',
         detailDeleteUrl: '/transfer/{id}/delete',
-        detailPrintUrl: '/transfer/{id}/print_options',
+        detailPrintUrl: '/transfer/{id}/print',
         detailExportUrl: '/transfer/{id}/export',
         exportUrl: '/transfer/export',
         importUrl: '/transfer/import',
@@ -1874,7 +1874,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'checkTable',
         deleteUrl: '/check/batch_delete',
         detailDeleteUrl: '/check/{id}/delete',
-        detailPrintUrl: '/check/{id}/print_options',
+        detailPrintUrl: '/check/{id}/print',
         detailExportUrl: '/check/{id}/export',
         exportUrl: '/check/export',
         importUrl: '/check/import',
@@ -1904,7 +1904,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'requisitionTable',
         deleteUrl: '/requisition/batch_delete',
         detailDeleteUrl: '/requisition/{id}/delete',
-        detailPrintUrl: '/requisition/{id}/print_options',
+        detailPrintUrl: '/requisition/{id}/print',
         detailExportUrl: '/requisition/{id}/export',
         exportUrl: '/requisition/export',
         importUrl: '/requisition/import',
@@ -1991,7 +1991,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'salesOrderTable',
         deleteUrl: '/sales/batch_delete',
         detailDeleteUrl: '/sales/{id}/delete',
-        detailPrintUrl: '/sales/{id}/print_options',
+        detailPrintUrl: '/sales/{id}/print',
         exportUrl: '/sales/export',
         importUrl: '/sales/import',
         templateUrl: '/sales/download_template'
@@ -3661,12 +3661,11 @@ function insertGlobalActionBar() {
         // 行级删除走 class 委托（delProductBtn 等）不带 onclick，不会误判；
         // 侧边栏 /print_routing、/print_alerts 等导航链接不以 /print 结尾，也不会误判。
         var pageHasOwnDelete = !!document.querySelector('[onclick*="delete"], [onclick*="revert"]');
-        var pageHasOwnPrint = !!document.querySelector('[onclick*="printOrder("], a[href$="/print"]') || !!document.querySelector('[data-wms-document-print]');
+        var pageHasOwnPrint = !!document.querySelector('[onclick*="printOrder("], a[href$="/print"]');
         if (pageHasOwnDelete || pageHasOwnPrint) {
             buttons = buttons.filter(function(item) {
                 if (item.key === 'delete' && pageHasOwnDelete) return false;
                 if (item.key === 'print' && pageHasOwnPrint) return false;
-                if (item.key === 'settings' && module.printTemplateUrl && document.querySelector('[data-wms-document-print]')) return false;
                 return true;
             });
             // 清理按钮移除后产生的连续/首尾分隔线

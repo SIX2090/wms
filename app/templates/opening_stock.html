@@ -1,5 +1,4 @@
 {% extends "base.html" %}
-{% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}期初库存台账{% endblock %}
 {% block body_class %}wms-no-global-actionbar{% endblock %}
 
@@ -85,11 +84,7 @@
             <button class="tool-btn" type="button" onclick="clearEntryRows()" title="清空当前未保存的录入行"><i class="bi bi-eraser"></i> 清空录入</button>
             <span class="tool-sep"></span>
             <a class="tool-btn" href="/batch_import?type=opening_stock"><i class="bi bi-cloud-upload"></i> 批量导入</a>
-            {% if editing_doc %}
-            {{ document_print_menu('opening_stock', editing_doc.id) }}
-            {% else %}
-            <button class="tool-btn" type="button" disabled title="请先保存单据后打印"><i class="bi bi-printer"></i> 打印</button>
-            {% endif %}
+            <button class="tool-btn" type="button" onclick="window.print()"><i class="bi bi-printer"></i> 打印</button>
             <span class="tool-sep"></span>
             <button class="tool-btn" type="button" onclick="exportRows()"><i class="bi bi-download"></i> 导出</button>
             <a class="tool-btn" href="/opening_stock/import/template" download><i class="bi bi-file-spreadsheet"></i> 导入导出模板</a>

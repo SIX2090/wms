@@ -60,8 +60,8 @@ def test_report_has_one_read_only_toolbar_with_explicit_print_choices():
     for control in ["templateSelect", "templatePreviewBtn", "templatePrintBtn", "retryPrintTemplatesBtn", "printBtn"]:
         assert tree.nodes["reportPrintMenu"] in tree.nodes[control]["parents"], control
     assert tree.nodes["reportPrintMenu"]["tag"] == "details"
-    assert "下载 Excel 打印文件" in tree.nodes["templatePrintBtn"]["text"]
-    assert "网页打印" in tree.nodes["printBtn"]["text"]
+    assert "下载打印文件" in tree.nodes["templatePrintBtn"]["text"]
+    assert "标准清单打印" in tree.nodes["printBtn"]["text"]
     assert not any(label in toolbar["text"] for label in ["新增", "保存", "删除", "完成单据", "反提交"])
     assert tree.nodes["reportTableSection"] not in tree.nodes["columnSettingsBtn"]["parents"]
     assert "filterForm" in tree.nodes and "filterPanel" in tree.nodes and "reportTable" in tree.nodes

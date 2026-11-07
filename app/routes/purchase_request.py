@@ -174,8 +174,8 @@ def register_purchase_request_routes(app):
                     return send_file(output, download_name=filename, as_attachment=True,
                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
                 except Exception as exc:
-                    app.logger.warning('采购申请Excel模板暂不可用，回退网页打印：%s', exc)
-                    template_error = 'Excel模板暂不可用，已使用网页打印；请到模板中心检查并重新保存模板。'
+                    app.logger.warning('采购申请Excel模板暂不可用，回退普通打印：%s', exc)
+                    template_error = 'Excel模板暂不可用，已使用普通打印；请到模板中心检查并重新保存模板。'
         rows = [
             _material_row_common(
                 item,

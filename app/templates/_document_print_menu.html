@@ -1,9 +1,0 @@
-{% macro document_print_menu(code, id, small=true, icon_only=false) -%}
-{% set prefix = 'sales' if code == 'sales_order' else code %}
-{% set base = '/' ~ prefix ~ '/' ~ id %}
-<a class="btn btn-outline-secondary{{ ' btn-sm' if small }}" href="{{ base ~ '/print_options' }}"
-   data-wms-document-print data-document-code="{{ code }}" data-document-id="{{ id }}"
-   target="_blank" rel="noopener" aria-label="打印" title="打印">
-  <i class="bi bi-printer" aria-hidden="true"></i>{% if not icon_only %} 打印{% endif %}
-</a>
-{%- endmacro %}
