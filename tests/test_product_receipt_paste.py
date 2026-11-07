@@ -15,7 +15,8 @@ def _row(**changes):
 
 def _unit():
     with w.app.app_context():
-        w.db.session.add(w.Unit(code='TAI', name='台'))
+        w.db.session.add_all([w.Unit(code='TAI', name='台'),
+                              w.MaterialCategory(code='400', name='设备成品')])
         w.db.session.commit()
 
 
@@ -155,7 +156,8 @@ def test_resolve_product_receipt_materials(receipt_case, tmp_path, monkeypatch, 
         w.db.create_all()
         users = [w.User(username='operator-' + str(i), role='warehouse', password_hash='unused', must_change_password=False) for i in range(2)]
         warehouse = w.Warehouse(code='P-W', name='并发仓', status='active')
-        w.db.session.add_all(users + [warehouse, w.Unit(code='TAI', name='台')])
+        w.db.session.add_all(users + [warehouse, w.Unit(code='TAI', name='台'),
+                                     w.MaterialCategory(code='400', name='设备成品')])
         w.db.session.commit()
         ids, wid = [u.id for u in users], warehouse.id
         w.db.session.remove()
@@ -173,6 +175,7 @@ def test_resolve_product_receipt_materials(receipt_case, tmp_path, monkeypatch, 
         with w.app.app_context():
             assert w.Material.query.count() == (1 if same_material else 2)
             assert {m.code for m in w.Material.query.all()} == ({'400001'} if same_material else {'400001', '400002'})
+            assert {m.category.code for m in w.Material.query.all()} == {'400'}
             assert {o.operator_id for o in w.InOrder.query.all()} == set(ids)
             assert w.InOrderItem.query.count() == 2 and w.StockTransaction.query.count() == 0
             w.db.session.remove()

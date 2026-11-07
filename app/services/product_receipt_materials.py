@@ -21,7 +21,7 @@ def resolve_product_receipt_materials(items):
     SQLite therefore serializes matching and allocation across both operators.
     Box numbers deliberately remain receipt-line data and never enter the key.
     """
-    from app import Material, Unit, _material_dedupe_expr, _material_dedupe_key
+    from app import Material, MaterialCategory, Unit, _material_dedupe_expr, _material_dedupe_key
     resolved = []
     for index, item in enumerate(items, 1):
         try:
@@ -62,6 +62,9 @@ def resolve_product_receipt_materials(items):
             unit_record = Unit.query.filter_by(name=unit).first()
             if unit_record is None:
                 raise ValueError(f'第 {index} 行单位“{unit}”不存在，请先在基础资料中建立单位')
+            category = MaterialCategory.query.filter_by(code='400').first()
+            if category is None:
+                raise ValueError('未找到“400 设备成品”分类，请先在物料分类中建立后再保存')
             # String order is numeric order for these fixed-width ASCII codes.
             codes = db.session.query(Material.code).filter(
                 Material.code >= '400001', Material.code <= '999999',
@@ -70,7 +73,8 @@ def resolve_product_receipt_materials(items):
             number = int(last) + 1
             if number > 999999:
                 raise ValueError('六位产品物料编号已用满，请联系管理员处理')
-            material = Material(code=str(number), name=name, spec=spec, unit_id=unit_record.id)
+            material = Material(code=str(number), name=name, spec=spec,
+                                unit_id=unit_record.id, category_id=category.id)
             db.session.add(material)
             db.session.flush()
         resolved.append(dict(item, code=material.code))

@@ -42,7 +42,8 @@ def main():
         unit = m.Unit(code='PR-U', name='台')
         customer = m.Customer(code='PR-C', name='产品测试客户')
         warehouse = m.Warehouse(code='PR-W', name='产品测试仓', is_default=True, status='active')
-        session.add_all([user, unit, customer, warehouse, m.Supplier(code='PR-S', name='测试供应商')])
+        session.add_all([user, unit, customer, warehouse, m.Supplier(code='PR-S', name='测试供应商'),
+                         m.MaterialCategory(code='400', name='设备成品')])
         session.flush()
         session.add(m.Material(code='PR-M', name='低压配电柜', spec='GGD-001', unit_id=unit.id, stock=0, price=12.34))
         session.commit()

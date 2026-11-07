@@ -473,3 +473,5 @@ POST_SPLIT_BUGS['BUG-2026-11-06-015'] = 'fixed'  # menu/document correction; exa
 POST_SPLIT_BUGS['BUG-2026-11-06-016'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
 
 POST_SPLIT_BUGS['BUG-2026-11-06-017'] = 'fixed'  # menu/document correction; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-07-001'] = 'fixed'  # product master category; CI and production tracked separately
