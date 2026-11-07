@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% import '_list_macros.html' as ui %}
 {% block title %}委外单详情 - {{ order.order_no }}{% endblock %}
 
@@ -77,9 +78,7 @@
                 </div>
             </div>
             <div class="d-flex gap-2 flex-wrap">
-                <a href="{{ url_for('print_subcontract', id=order.id) }}" target="_blank" class="btn-order btn-order-secondary btn-order-sm">
-                    <i class="bi bi-printer"></i> 打印
-                </a>
+                {{ document_print_menu('subcontract', order.id) }}
                 {% if current_user.role in ['admin', 'production'] %}
                 <button class="btn-order btn-order-info btn-order-sm" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据

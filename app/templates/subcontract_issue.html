@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% import '_list_macros.html' as list_macros %}
 
 {% block title %}委外发料单{% endblock %}
@@ -108,7 +109,7 @@
                             <td>{{ issue.operator.username if issue.operator else '' }}</td>
                             <td>
                                 <button class="btn btn-info btn-sm" onclick="showDetail('{{ issue.id }}')">详情</button>
-                                <a class="btn btn-outline-primary btn-sm" href="{{ url_for('print_subcontract_issue', id=issue.id) }}" target="_blank">打印</a>
+                                {{ document_print_menu('subcontract_issue', issue.id, icon_only=true) }}
                                 {% if issue.status == 'pending' %}
                                 <button data-document-action="completeIssue" class="btn btn-success btn-sm" onclick="completeIssue('{{ issue.id }}')">完成</button>
                                 {% elif issue.status == 'completed' %}

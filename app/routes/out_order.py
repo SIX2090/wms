@@ -1596,7 +1596,7 @@ def register_out_order_routes(app):
         box_numbers = get_out_order_box_numbers(order)
         template = None if box_numbers else get_default_print_template(OutOrderPrintTemplate)
         # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
-        if template and template.template_type == 'excel':
+        if request.args.get('format') != 'html' and template and template.template_type == 'excel':
             return render_template('print_out_with_excel.html', order=order, template=template)
         return render_template('print_out.html', order=order, box_numbers=box_numbers)
 
@@ -1626,11 +1626,13 @@ def register_out_order_routes(app):
             template_path = template_file_abspath(template.excel_template_path, app.static_folder)
             if template_path and os.path.exists(template_path):
                 from datetime import datetime
+                from flask import g
                 for item in order.items:
                     item.box_no = box_numbers.get(item.id, '')
                 output = build_filled_print_excel(
                     template_path, order,
                     date_str=datetime.now().strftime('%Y-%m-%d'),
+                    preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
                 )
                 filename = f'{template.name or _out_order_print_title(order)}_{order.order_no or id}.xlsx'
                 return send_file(

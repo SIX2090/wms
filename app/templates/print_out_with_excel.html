@@ -35,13 +35,11 @@
                     </select>
                 </div>
                 <div class="mt-2">
-                    <a href="{{ url_for('print_out_order_excel', id=order.id) }}" id="printExcelLink"
-                       data-base="{{ url_for('print_out_order_excel', id=order.id) }}" class="btn btn-success">
+                    <a href="{{ url_for('document_out_order_print_file', id=order.id) }}" id="printExcelLink"
+                       data-base="{{ url_for('document_out_order_print_file', id=order.id) }}" class="btn btn-success">
                         <i class="bi bi-download"></i> 下载 Excel 打印文件
                     </a>
-                    <button class="btn btn-secondary" onclick="window.print()">
-                        <i class="bi bi-printer"></i> 打印预览
-                    </button>
+                    <a class="btn btn-secondary" id="printTemplatePreviewLink" href="/out_order/{{ order.id }}/print_preview" data-base="/out_order/{{ order.id }}/print_preview"><i class="bi bi-eye"></i> 按所选模板预览并打印</a>
                     <button class="btn btn-outline-dark" onclick="window.close()">
                         <i class="bi bi-x-lg"></i> 关闭
                     </button>
@@ -52,7 +50,7 @@
             </div>
         </div>
         <div class="alert alert-info mt-3 mb-0" style="font-size: 14px;">
-            选择上方「打印模板」后点击「下载 Excel 打印文件」，即可获得按所选模板填充好数据的 .xlsx 文件。
+            选择上方「打印模板」后点击「下载 Excel 打印文件」，即可获得按所选模板填充好数据的 .xlsx 文件；也可点击“按所选模板预览并打印”，在系统内完成打印。
         </div>
     </div>
 
@@ -63,6 +61,9 @@
             var base = link.getAttribute('data-base') || link.href.split('?')[0];
             link.setAttribute('data-base', base);
             link.href = (v && v !== '__default') ? (base + '?template_id=' + encodeURIComponent(v)) : base;
+            var preview = document.getElementById('printTemplatePreviewLink');
+            var previewBase = preview.getAttribute('data-base');
+            preview.href = (v && v !== '__default') ? previewBase + '?template_id=' + encodeURIComponent(v) : previewBase;
         }
         document.addEventListener('DOMContentLoaded', function () {
             var sel = document.getElementById('templateSelect');

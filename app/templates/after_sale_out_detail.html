@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
 {% import '_list_macros.html' as ui %}
 
@@ -21,9 +22,7 @@
         <a href="/after_sale_out" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
-        <a href="{{ url_for('print_after_sale_out', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
-            <i class="bi bi-printer"></i> 打印
-        </a>
+        {{ document_print_menu('after_sale_out', order.id) }}
         {% if current_user.role in ['admin', 'warehouse'] %}
         <button class="btn btn-outline-info" onclick="copyOrder({{ order.id }})">
             <i class="bi bi-files"></i> 复制单据

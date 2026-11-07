@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 
 {% block title %}采购申请单详情{% endblock %}
 {% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
@@ -14,11 +15,7 @@
         <a href="/purchase_request" class="btn btn-secondary">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
-        <a href="{{ url_for('print_purchase_request', id=order.id) }}" target="_blank" class="btn btn-outline-primary">
-            <i class="bi bi-printer"></i> 打印
-        </a>
-        <a href="{{ url_for('print_templates', target_type='document', target_code='purchase_request') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary">打印模板</a>
-        <a href="{{ url_for('print_purchase_request', id=order.id, format='html') }}" target="_blank" rel="noopener" class="btn btn-outline-secondary">普通打印</a>
+        {{ document_print_menu('purchase_request', order.id, small=false) }}
         {% if current_user.role in ['admin', 'purchase'] %}
         {% if (current_user.role in ['admin', 'purchase'] and order.status in ['approved', 'completed']) %}
         <button class="btn btn-primary" data-document-action="purchaseRequestDetail" data-purchase-request-action="createPurchaseOrder" onclick="createPurchaseOrder({{ order.id }})">

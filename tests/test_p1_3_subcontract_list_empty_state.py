@@ -51,6 +51,7 @@ def env():
     e.filters['quantity'] = format_quantity
     e.globals.setdefault("url_for", lambda *a, **k: "#")
     e.globals.setdefault("csrf_token", lambda: "test-csrf")
+    e.globals["document_print_menu"] = e.get_template("_document_print_menu.html").module.document_print_menu
     e.globals.setdefault("get_flashed_messages", lambda *a, **k: [])
     return e
 
