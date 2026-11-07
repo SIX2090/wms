@@ -18,8 +18,13 @@
 
 真实Chrome156.0.8078.80在明确全新lab合成文件、实际源码及独立端口上14组通过：两页2005物料分页、后页503不改输入及重试、尾段下拉/精确编码/最近使用/模板/替身剪贴板、零价、保存503输入保留及双击/工具栏共用忙锁、历史停用料刷新与编辑。实际写入均为合成草稿，库存总账、库位账、流水及账号前后不变，CSP/运行错误均0。使用菜单实际嵌入入口，不注入样式伪造可见性；先前错误入口、路由命名、Windows服务内部自连接被保护拒绝、实验HTTP队列不足造成静态连接拒绝等夹具失败均留存，不算产品回归或通过。保持出网禁令，实验服务仅允许已声明自有loopback绑定，采用两线程/128队列后所有真实资产正常到达；不改生产服务。常规驱动额外补齐正反向DNS拒绝，14个Python/SQL和5个Node拒绝及正对照通过，阈值未降低。证据：仓库外lab/b6-browser-08/acceptance.json、ready.json、control.json及output/playwright，三运行时代码哈希已记录。
 
-最终10份产品/登记/文档整批R8为32 failed/69对照、0error/skip，全部字节恢复。19个完整模块371 passed/0 failed/0 skipped；包含两份原有销售域验证脚本，其修前完整通过已从基线2c79c983的WMS CI42391920732日志确认，未重复加进本地289计数。真实编辑冲突文件测试保持两个独立连接；所有原有Python断言AST与基线相同。最终三运行时SHA256与R8及真实Chrome08完全一致；收尾仅补验证记录，不改业务字节。仓库外B6-final-local-results.json、lab/r8-b6-final-whole01、b6-final-*及B6-additional-baseline-ci.json保留全部证据。8项静态/严格台账门禁通过。另以相同产品哈希单独捕获新增/编辑可见表单截图并检查，原保存后工作台切换阶段截图不作表单展示证据；lab/b6-browser-visual09/output/playwright。推送和精确目标完整CI尚待验收，未据本地结果提前交付。
+最终10份产品/登记/文档整批R8为32 failed/69对照、0error/skip，全部字节恢复。19个完整模块371 passed/0 failed/0 skipped；包含两份原有销售域验证脚本，其修前完整通过已从基线2c79c983的WMS CI42391920732日志确认，未重复加进本地289计数。真实编辑冲突文件测试保持两个独立连接；所有原有Python断言AST与基线相同。最终三运行时SHA256与R8及真实Chrome08完全一致；收尾仅补验证记录，不改业务字节。仓库外B6-final-local-results.json、lab/r8-b6-final-whole01、b6-final-*及B6-additional-baseline-ci.json保留全部证据。8项静态/严格台账门禁通过。另以相同产品哈希单独捕获新增/编辑可见表单截图并检查，原保存后工作台切换阶段截图不作表单展示证据；lab/b6-browser-visual09/output/playwright。精确目标完整CI已验收，见下文；未生产部署。
 
 ## 生效边界
 
 生产需重启 WMS 服务生效。本计划未操作生产服务或数据库，全部账号、明细、HTTP与库存为内存或明确全新lab合成夹具；无生产DB及旁文件/别名的连接、读取、复制、校验、迁移或写入。生产部署另需具体授权且数据库禁令不解除。此批只属于改善计划B6，不代表全部改善或整个第5项完成。
+
+
+## 精确代码交付
+
+最终2d1e241a2d7c20536761a25b43adc0aad869f3b1，父提交2c79c983e564a3d839dacbc98f5bbfd644ea0837，完整tree9497bc57b8daf0c873876049d255e02305d6370f。Git Data逐14blob及完整tree/parent核验后expected_sha/force=false更新成功；原本地e11d971af096c175d5227a68c42c3bf12475cf47已bundle保留，fetch逐blob相同tree后CAS对齐，HEAD/origin一致且工作树干净。[完整WMS CI42396439961](https://github.com/SIX2090/wms/actions/runs/42396439961)及[AI42396439942](https://github.com/SIX2090/wms/actions/runs/42396439942)均completed/success，全部实质任务和gate通过，docs-checks正常按全量代码路径分流。Android最新42311667571成功，8d3b4c5d45028782f409fa16094bf678e5035faa为目标祖先，原生源码与工作流零diff；最新main两页各100运行已核对没有更近Android。代码交付完成，生产未部署，数据库及服务边界未变。
