@@ -43,7 +43,7 @@ def register_user_auth_routes(app):
     def change_own_password():
         from flask_login import current_user
         from werkzeug.security import check_password_hash, generate_password_hash
-        from app import validate_password_strength
+        from app import ApiToken, validate_password_strength
         if request.method == 'GET':
             return render_template('change_password.html')
         current_password = request.form.get('current_password') or ''
@@ -59,6 +59,9 @@ def register_user_auth_routes(app):
         try:
             current_user.password_hash = generate_password_hash(new_password)
             current_user.must_change_password = False
+            # AI-LOGIN-F01-FIX-TOKEN-REVOCATION-20261107-001: same password-event transaction.
+            ApiToken.query.filter_by(user_id=current_user.id, revoked=False).update(
+                {'revoked': True}, synchronize_session='fetch')
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -796,7 +799,7 @@ def register_user_auth_routes(app):
         import os
         from flask_login import current_user
         from werkzeug.security import generate_password_hash
-        from app import User, api_error, validate_password_strength
+        from app import User, ApiToken, api_error, validate_password_strength
         user_id = request.form.get('user_id')
         new_password = request.form.get('new_password', '').strip()
         # BUG-2026-07-28-004 修复：禁止自助重置自己密码；重置 admin 目标必须二次确认
@@ -831,6 +834,8 @@ def register_user_auth_routes(app):
         # 强制被重置用户下次登录必须改密
         user.must_change_password = True
         try:
+            ApiToken.query.filter_by(user_id=user.id, revoked=False).update(
+                {'revoked': True}, synchronize_session='fetch')
             db.session.commit()
         except Exception as e:
             db.session.rollback()

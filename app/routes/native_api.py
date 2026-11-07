@@ -944,7 +944,8 @@ def register_native_api_routes(app):
                 except Exception:
                     db.session.rollback()
                 return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
-            if not check_password_hash(user.password_hash, password):
+            credential_hash = user.password_hash
+            if not check_password_hash(credential_hash, password):
                 record_failure(rate_key, 60)
                 user.increment_failed_count(request_ip)
                 add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
@@ -955,6 +956,21 @@ def register_native_api_routes(app):
                 return api_json_error('账号或密码错误', 401)
             if user.must_change_password:
                 return api_json_error('请先通过网页登录修改初始密码', 403)
+
+            # Fence token issuance against a password event after verification.
+            # Take a short user-row write lock without rewriting any password value.
+            owned = User.query.filter_by(id=user.id, password_hash=credential_hash).update(
+                {'login_failed_count': User.login_failed_count}, synchronize_session=False)
+            if owned != 1:
+                db.session.rollback()
+                return api_json_error('凭据已变化，请重新登录', 401)
+            db.session.expire(user)
+            if not user.is_active or user.must_change_password:
+                db.session.rollback()
+                return api_json_error('账号状态已变化，请先通过网页登录核对', 403)
+            if user.is_locked_for(request_ip):
+                db.session.rollback()
+                return api_json_error('账号已锁定，请稍后重试', 423)
 
             # BUG-2026-09-19-004：令牌哈希存储，明文仅在本响应一次性返显
             from app import hash_access_token

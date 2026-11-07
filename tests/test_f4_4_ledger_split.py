@@ -484,4 +484,5 @@ POST_SPLIT_BUGS['BUG-2026-11-07-005'] = 'fixed'  # print layout acceptance; CI a
 POST_SPLIT_BUGS['BUG-2026-11-07-006'] = 'fixed'  # namespace candidate verified locally; exact CI and deployment tracked separately
 
 POST_SPLIT_BUGS['BUG-2026-11-07-007'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-07-008'] = 'fixed'  # local candidate verified; exact CI and production tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-07-008'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-07-009'] = 'fixed'  # local candidate verified; exact CI and production tracked separately

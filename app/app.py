@@ -7049,11 +7049,16 @@ def get_bearer_user():
     if not token:
         legacy = ApiToken.query.filter_by(token=token_value, revoked=False).first()
         if legacy:
-            legacy.token = hash_access_token(token_value)  # 存量明文行原位升级
             token = legacy
             token_migrated = True
     if not token or token.expires_at < datetime.now():
         return None
+    user = token.user
+    # B4: reject before migration/last-used renewal; password events revoke in their own transaction.
+    if not user or not user.is_active or getattr(user, 'must_change_password', False):
+        return None
+    if token_migrated:
+        token.token = hash_access_token(token_value)  # Eligible legacy token only; keep the existing migration.
     now = datetime.now()
     need_flush_last_used = (
         token.last_used_at is None
@@ -7069,7 +7074,7 @@ def get_bearer_user():
             db.session.commit()
         except Exception:
             db.session.rollback()
-    return token.user if token.user and token.user.is_active else None
+    return token.user if token.user and token.user.is_active and not getattr(token.user, 'must_change_password', False) else None
 
 def api_required(f):
     @wraps(f)
