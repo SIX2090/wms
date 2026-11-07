@@ -329,6 +329,7 @@ function clearMaterialFields(row) {
     if (batchInput) batchInput.value = '';
     const expiryInput = row.querySelector('.material-expiry');
     if (expiryInput) expiryInput.value = '';
+    if (typeof refreshWmsEntryCellHints === 'function') refreshWmsEntryCellHints(row);
 }
 
 function handleMaterialCodeInput(row) {
@@ -638,6 +639,7 @@ function focusNextEditable(current) {
 }
 
 function calcAmount(row) {
+    if (typeof refreshWmsEntryCellHints === 'function') refreshWmsEntryCellHints(row);
     const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
     const price = parseFloat(row.querySelector('.material-price').value) || 0;
     const amount = qty * price;

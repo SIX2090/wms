@@ -3120,6 +3120,41 @@ function registerDetailRowActions(config) {
     if (window.WmsDetailRowActions) window.WmsDetailRowActions.register(config);
 }
 
+// Keep native empty hints out of document rows without changing their values.
+function refreshWmsEntryCellHints(root) {
+    if (!root || !root.querySelectorAll) return;
+    var controls = Array.from(root.querySelectorAll('input[type="date"], select'));
+    if (root.matches && root.matches('input[type="date"], select')) controls.unshift(root);
+    controls.forEach(function(input) {
+        if (!input.closest('table.wms-entry-grid') || !input.closest('tbody td')) return;
+        var empty = input.value === '' && !(input.validity && input.validity.badInput);
+        input.classList.toggle('wms-entry-cell-empty', empty);
+    });
+}
+
+function setupWmsEntryCellHints(table) {
+    if (!table || table._wmsEntryCellHints) return;
+    table._wmsEntryCellHints = true;
+    function refresh(event) {
+        var target = event.target;
+        refreshWmsEntryCellHints(target.closest && target.closest('tr') || target);
+    }
+    ['input', 'change', 'focusin', 'focusout'].forEach(function(name) {
+        table.addEventListener(name, refresh);
+    });
+    refreshWmsEntryCellHints(table);
+    if (typeof MutationObserver === 'function') {
+        new MutationObserver(function(records) {
+            records.forEach(function(record) {
+                if (record.target.tagName === 'SELECT') refreshWmsEntryCellHints(record.target);
+                record.addedNodes.forEach(function(node) {
+                    if (node.nodeType === 1) refreshWmsEntryCellHints(node);
+                });
+            });
+        }).observe(table, {childList: true, subtree: true});
+    }
+}
+
 function initDocumentEntryMode() {
     var path = (window.location.pathname || '').replace(/\/+$/, '') || '/';
     var documentPathPatterns = [
@@ -3229,6 +3264,7 @@ function initDocumentEntryMode() {
         var wrapper = closestWrapper(table);
         var modal = table.closest('.modal');
         table.classList.add('wms-entry-grid');
+        if (typeof setupWmsEntryCellHints === 'function') setupWmsEntryCellHints(table);
         if (wrapper) wrapper.classList.add('wms-entry-grid-wrapper');
         if (modal) modal.classList.add('wms-doc-entry-modal');
         var form = table.closest('form');

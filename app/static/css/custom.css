@@ -1638,6 +1638,17 @@ body.cb-form-actionbar .wms-entry-header.page-header {
     -webkit-text-fill-color: #333;
 }
 
+/* Empty cells stay blank; their native controls remain clickable and tabbable. */
+.wms-entry-grid tbody td input:not(:focus)::placeholder,
+.wms-entry-grid tbody td textarea:not(:focus)::placeholder {
+    opacity: 0;
+}
+
+.wms-entry-grid tbody td input[type="date"].wms-entry-cell-empty:not(:focus),
+.wms-entry-grid tbody td select.wms-entry-cell-empty:not(:focus) {
+    opacity: 0 !important;
+}
+
 .wms-entry-grid .btn {
     min-width: 24px;
     height: 22px !important;
