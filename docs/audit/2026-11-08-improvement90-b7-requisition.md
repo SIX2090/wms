@@ -18,8 +18,15 @@
 
 全部调用点复查补入三账业务路径、仓库流水归属、反提交删除清流水及完成反馈四个完整模块，在整批八文件撤回下102项旧基线通过并逐字节恢复；因此完整旧基线为28模块571项，源码三模块33项另计。最终32个完整模块644 passed/0 failed/0 skipped，分12组、每组最多3模块串行；包含真实文件两连接版本冲突，保留全部原有断言。新增40契约在整批八份非测试候选物理撤回后13 failed/27对照、0error/skip，全部SHA256恢复；最终唯一运行时SHA256与R8及每组清单一致。原台账测试全部assert AST与基线相同。
 
-仓库外B7-final-local-results.json、lab/r8-b7-whole01、lab/B7-extra-baseline.json及b7-final-01至12保留实际命令、资源样本、XML及哈希；内存门槛416MiB及连续三低192MiB停止自有进程保持。八项静态门禁（差异、索引、增量A1–A14、全量A11、全仓规则硬门禁、请求封装、编码、严格AI台账）全部退出0，lab/b7-final-static-01保留日志。精确新提交完整CI尚待完成，当前未交付。B6真实交付收尾随本批登记。本批只修改后端守卫及事实文档，没有把B6浏览器验收挪作B7证据；高频领料表单真实Chrome交互在B9另验。
+仓库外B7-final-local-results.json、lab/r8-b7-whole01、lab/B7-extra-baseline.json及b7-final-01至12保留实际命令、资源样本、XML及哈希；内存门槛416MiB及连续三低192MiB停止自有进程保持。八项静态门禁（差异、索引、增量A1–A14、全量A11、全仓规则硬门禁、请求封装、编码、严格AI台账）全部退出0，lab/b7-final-static-01保留日志。精确目标完整CI已验收，代码交付完成；生产未部署。B6真实交付收尾随本批登记。本批只修改后端守卫及事实文档，没有把B6浏览器验收挪作B7证据；高频领料表单真实Chrome交互在B9另验。
 
 ## 生效边界
 
 所有账号、密码、库存、单据、HTTP与数据库均为内存或本任务明确新建lab合成夹具。没有生产DB及旁文件/别名的连接、读取、复制、校验、迁移或写入，没有生产HTTP、账号/单据/库存、服务、监护或恢复预算操作。生产部署另需本批具体授权且不解除数据库禁令。本批不代表全部改善或整个第5项完成。
+
+
+## 精确代码交付补记（2026-11-08）
+
+目标6add6bc9da483520b66e8319129302fda377804e，业务父提交c075d0d3e7eb6ced4e6e2564dc83dfc63ca269f5，基线2d1e241a2d7c20536761a25b43adc0aad869f3b1，完整tree3f30c5d9711e4721c2b515cd8c328cea195ee9b6。10文件两提交经Git Data精确blob/完整tree/parent及expected_sha/force=false发布；原本地提交已bundle，fetch逐blob/同tree后CAS对齐，本地与origin一致。
+
+[完整WMS CI42400301677](https://github.com/SIX2090/wms/actions/runs/42400301677)、[AI42400301679](https://github.com/SIX2090/wms/actions/runs/42400301679)和[Windows42400748493](https://github.com/SIX2090/wms/actions/runs/42400748493)全部completed/success，全部实质检查及gate成功。Android最近main成功42311667571，8d3b4c5d45028782f409fa16094bf678e5035faa是目标祖先，原生与工作流无变化；两页最新运行已核对。证据B7-final-local-results.json、lab/B7-exact-target-acceptance.json及lab/b7-publication/publication-proof.json。仅代码交付，不是生产生效。

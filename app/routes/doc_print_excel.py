@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from flask import abort, g, jsonify, request, send_file
 from flask_login import login_required
+from print_display import PrintFieldError
 
 from doc_print_excel import (
     DOC_EXCEL_PRINT_TYPES,
@@ -62,6 +63,8 @@ def _make_doc_print_excel_view(flask_app, target_code, model_name):
                 static_folder=flask_app.static_folder,
                 preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
             )
+        except PrintFieldError as exc:
+            return app_module.api_error(str(exc), 400)
         except Exception as exc:
             if target_code != 'purchase_request':
                 raise

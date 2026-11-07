@@ -679,28 +679,6 @@ def _template_path_or_builtin(template, static_folder, target_code):
     return _builtin_template_abspath(static_folder, target_code)
 
 
-class _OpeningStockPrintOrder:
-    """Expose the document total for printing without assigning to an ORM record."""
-
-    def __init__(self, order):
-        self._order = order
-        self.total_amount = sum(line.amount or 0 for line in order.lines)
-
-    def __getattr__(self, name):
-        return getattr(self._order, name)
-
-
-class _PurchaseReceiptPrintItem:
-    """Read-only receipt facts for both built-in and custom Excel placeholders."""
-
-    def __init__(self, item, completed_quantity):
-        self._item = item
-        self.received_quantity = completed_quantity
-
-    def __getattr__(self, name):
-        return getattr(self._item, name)
-
-
 def purchase_request_print_rows(items):
     """Adapt both master materials and manually entered request lines without writes."""
     from app import purchase_request_item_has_material
@@ -764,7 +742,10 @@ def render_purchase_request_excel(path, order, items, date_str=None):
                 '{item.' in str(cell.value or '') for cell in sheet[r])), None)
             literal_cols = [cell.column for cell in sheet[item_row] if
                 '{item.' in str(cell.value or '') and not str(cell.value).startswith('=')] if item_row else []
-            _Filler(order, padded, date_str).fill(sheet)
+            from print_display import _field_paths
+            _Filler(order, padded, date_str,
+                    order_fields=_field_paths('order', document='purchase_request'),
+                    item_fields=_field_paths('item', document='purchase_request')).fill(sheet)
             if item_row:
                 for row in sheet.iter_rows(min_row=item_row, max_row=item_row + 14):
                     for cell in row:
@@ -787,26 +768,31 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
         return None
     from datetime import datetime
     from print_fill import build_filled_print_excel
+    from print_display import _field_paths, _project
     path = _template_path_or_builtin(
         resolve_excel_template('document', target_code, template_id),
         static_folder, target_code)
     if not path:
         return None
     print_items = items if items is not None else getattr(order, 'lines' if target_code == 'opening_stock' else 'items', None)
+    order_fields = _field_paths('order', document=target_code)
+    item_fields = _field_paths('item', document=target_code)
+    overrides = {}
     if target_code == 'opening_stock':
-        order = _OpeningStockPrintOrder(order)
+        overrides['total_amount'] = sum(line.amount or 0 for line in order.lines)
+    print_order = _project(order, order_fields, overrides)
     if target_code == 'purchase_order':
         from app import build_purchase_order_execution
         execution = build_purchase_order_execution(order)
-        print_items = [_PurchaseReceiptPrintItem(item, execution.get(item.id, {}).get('completed_quantity', 0))
+        print_items = [_project(item, item_fields, {'received_quantity': execution.get(item.id, {}).get('completed_quantity', 0)})
                        for item in (print_items or [])]
     if target_code == 'purchase_request':
-        output = render_purchase_request_excel(path, order, print_items, date_str)
+        output = render_purchase_request_excel(path, print_order, print_items, date_str)
     else:
         output = build_filled_print_excel(
-            path, order, items=print_items,
+            path, print_order, items=print_items,
             date_str=date_str or datetime.now().strftime('%Y-%m-%d'),
-            preserve_layout=preserve_layout)
+            preserve_layout=preserve_layout, order_fields=order_fields, item_fields=item_fields)
     order_no = ''
     for attr in ('order_no', 'request_no', 'check_no', 'transfer_no', 'req_no', 'bom_no', 'doc_no',
                  'adjustment_no', 'issue_no', 'receive_no'):
@@ -926,6 +912,8 @@ def render_report_excel_print(report_type, title, columns, rows,
     from datetime import datetime
     from openpyxl import load_workbook
     from print_fill import _Filler, template_file_abspath  # 同包私有工具复用
+    from print_display import _field_paths
+    item_fields = _field_paths('item', columns=[column['field'] for column in columns or []])
     target_code = report_target_code(report_type)
     template = resolve_excel_template('report', target_code, template_id)
     path = None
@@ -945,7 +933,7 @@ def render_report_excel_print(report_type, title, columns, rows,
     wb = load_workbook(path)
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),
-                date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
+                date_str or datetime.now().strftime('%Y-%m-%d'), item_fields=item_fields).fill(ws)
         from services.excel_print_layout import fit_print_rows
         fit_print_rows(ws)
     output = io.BytesIO()
