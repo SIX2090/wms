@@ -532,3 +532,5 @@ Windows 预览发行由 `Windows Portable Release` 工作流生成：仅打包�
 高频录单页的标签可点击聚焦，日期使用可见输入，明细名称随栏目设置和行号更新；粘贴导入支持Tab/Escape及取消后焦点归还。B9范围和交付状态见[录单交互记录](docs/audit/2026-11-08-improvement90-b9-form-accessibility.md)。生产需重启 WMS 服务生效，本计划未部署生产。
 
 离线恢复会拒绝目标SQLite事务旁文件，并在已有后续检查点复查，保留现场不自动清理。B10的合成全模型恢复、纯事实就绪/本地通知替身和服务端性能证据见[离线运维记录](docs/audit/2026-11-08-improvement90-b10-offline-operations.md)；未增加生产监护、探测、通知或执行生产恢复，真实RTO/RPO仍待人工确认。
+
+- [90分改善计划执行回执与同权重复评（2026-11-08）](docs/audit/2026-11-08-improvement90-b11-b12-review.md)：已验候选88.14分，8/9组代码关闭；读权限政策与真实AI/终端/灾备证据待补，未部署生产。

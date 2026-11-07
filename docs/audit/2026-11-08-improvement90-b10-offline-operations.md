@@ -56,3 +56,8 @@ B10本地闭环：最终7完整模块92 passed、0failed/errors/skipped（25纯�
 
 
 B10提交前闭环：7完整模块92 passed、0fail/error/skip；源码/库存/台账3完整模块33 passed；8静态门禁全部退出0，正常hooks启用。整批7非测试文件撤回旧版59项33新契约旧失败/26对照，逐字节恢复。97表1099列的全值/结构/完整性、stock=ledger=分仓324、真实进程告警去重与恢复，以及300/3000物料两轮性能证据完整保留。300规模stock P95第二轮+11.939%/+3.14ms采样告警保留，不拿实验处理时延冒充生产SLA。精确新目标完整CI仍待；本批没有生产部署、监护或真实通知动作。
+
+
+B10最终代码交付：精确39b5c33100c1157ef1a993fb0b4d4e2bbb6b1c36，treefe132d9bd88ac5f0009a5a4ad08ecd7280c78beb。WMS42421600737、AI42421600704、Windows42422049114、Perf42421600764均completed/success；Android42419418015在bcac09b0c91014ee4f02e5c1d3c381ecd89eaf40最新成功，为目标祖先且原生/工作流差异0。原本地7a09703e bundle保留，连接器expected_sha/force=false准确10blob及完整tree发布，fetch逐blob核对后CAS对齐，main/origin同SHA且干净。7完整模块92、source33、8静态及整批59对照已闭环。生产未部署、未读写DB或旁文件、无生产HTTP/账号/服务/监护/真实通知动作。本收尾随B11/B12纯文档批提交。
+
+发布证据补正：Windows42422049114仅工作流success；因版本tag已存在，下载/构建/发布步骤全部skipped，本SHA没有新便携制品实证，不能据此上线。源码审查包另行封存。
