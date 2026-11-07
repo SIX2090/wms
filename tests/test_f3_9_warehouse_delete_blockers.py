@@ -65,6 +65,13 @@ def _mk_warehouse(code, name):
     return wh
 
 
+def _mk_legacy_warehouse(code, name):
+    """在本模块的合成内存库还原历史行；新建保护不能替代历史兼容验收。"""
+    result = db.session.execute(
+        Warehouse.__table__.insert().values(code=code, name=name))
+    return db.session.get(Warehouse, result.inserted_primary_key[0])
+
+
 def _mk_material(code="M-F39"):
     m = Material(code=code, name="F3.9物料")
     db.session.add(m)
@@ -112,7 +119,7 @@ def test_t4_name_code_collision_no_friendly_fire_sales(app_ctx):
     """A.name == B.code：B 的 ID 归属单据不得阻断 A 的删除。"""
     _reset_db()
     a = _mk_warehouse("WA", "ZC")   # A 的名称 == B 的编码
-    b = _mk_warehouse("ZC", "主仓")
+    b = _mk_legacy_warehouse("ZC", "主仓")
     c = Customer(code="C1", name="客户1")
     db.session.add(c)
     db.session.flush()
@@ -126,7 +133,7 @@ def test_t4_name_code_collision_no_friendly_fire_sales(app_ctx):
 def test_t5_name_code_collision_no_friendly_fire_txn(app_ctx):
     _reset_db()
     a = _mk_warehouse("WA", "ZC")
-    b = _mk_warehouse("ZC", "主仓")
+    b = _mk_legacy_warehouse("ZC", "主仓")
     m = _mk_material()
     db.session.add(StockTransaction(
         material_id=m.id, transaction_type="in", quantity=1,

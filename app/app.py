@@ -157,6 +157,7 @@ from ai.documents.sales_draft_validation import (
     validate_ai_only_draft,
 )
 from services.material_label import material_scan_code
+from services.warehouse_identity import WarehouseIdentityError, resolve_warehouse_text, warehouse_aliases
 # Import utility functions
 from utils import (
     round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
@@ -4624,6 +4625,9 @@ def internal_error(e):
 @app.errorhandler(Exception)
 def handle_exception(e):
     """全局异常处理"""
+    if isinstance(e, WarehouseIdentityError):
+        _db_safe_rollback()
+        return api_error(str(e))
     if isinstance(e, HTTPException):
         if wants_json_error_response():
             return jsonify({'status': 'error', 'msg': e.description or e.name}), e.code
@@ -4813,12 +4817,12 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
     qty = normalize_stock_quantity(quantity or 0)
     if qty <= 0:
         return False, '扣减数量必须大于 0', None
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
     mat = Material.query.get(material_id)
     if not mat:
         return False, '物料不存在', None
 
     if warehouse and not location_management_enabled() and not allow_negative_stock():
-        warehouse_id = resolve_inventory_warehouse_id(warehouse)
         warehouse_obj = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
         if not warehouse_obj:
             return False, '请选择有效仓库', mat
@@ -4863,7 +4867,7 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
             location=_stock_location_from_warehouse(warehouse),
             # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配），
             # 历史行由 backfill_stock_txn_warehouse_id() 幂等回填。
-            warehouse_id=resolve_inventory_warehouse_id(warehouse),
+            warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -4886,6 +4890,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
     qty = normalize_stock_quantity(quantity or 0)
     if qty <= 0:
         return False, '入库数量必须大于 0'
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
     rowcount = db.session.execute(
         sa_update(Material)
         .where(Material.id == material.id)
@@ -4901,7 +4906,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
             quantity=qty,
             location=_stock_location_from_warehouse(warehouse),
             # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
-            warehouse_id=resolve_inventory_warehouse_id(warehouse),
+            warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -4933,9 +4938,7 @@ def resolve_inventory_warehouse_id(warehouse):
         text = warehouse.strip()
         if not text:
             return None
-        wh = Warehouse.query.filter(
-            db.or_(Warehouse.name == text, Warehouse.code == text)
-        ).order_by(Warehouse.id.asc()).first()
+        wh = resolve_warehouse_text(text, strict=True)
         return wh.id if wh else None
     # 未知类型：尝试取 .id 属性，否则放弃
     return getattr(warehouse, 'id', None)
@@ -5318,9 +5321,10 @@ def is_warehouse_active(warehouse_name):
     """
     if not warehouse_name:
         return True, ''
-    wh = Warehouse.query.filter(
-        (Warehouse.name == warehouse_name) | (Warehouse.code == warehouse_name)
-    ).first()
+    try:
+        wh = resolve_warehouse_text(warehouse_name, strict=True)
+    except WarehouseIdentityError as exc:
+        return False, str(exc)
     if not wh:
         return False, f'仓库 {warehouse_name} 不存在，请先在仓库主数据中维护'
     if (wh.status or 'active') != 'active':
@@ -5374,9 +5378,10 @@ def resolve_request_warehouse(params):
         if not warehouse:
             return None, f'仓库不存在（编码: {raw_code}）'
     elif raw_name:
-        warehouse = Warehouse.query.filter(
-            db.or_(Warehouse.name == raw_name, Warehouse.code == raw_name)
-        ).order_by(Warehouse.id.asc()).first()
+        try:
+            warehouse = resolve_warehouse_text(raw_name, strict=True)
+        except WarehouseIdentityError as exc:
+            return None, str(exc)
         if not warehouse:
             return None, f'仓库不存在：{raw_name}'
 
@@ -5403,9 +5408,10 @@ def get_warehouse_stock_quantities(warehouse):
     """
     if not warehouse:
         return {}
-    warehouse_key = (warehouse.name or '').strip()
-    warehouse_code = (warehouse.code or '').strip()
-    if not warehouse_key and not warehouse_code:
+    aliases = warehouse_aliases(warehouse)
+    warehouse_key = (warehouse.name or '').strip() if (warehouse.name or '').strip() in aliases else ''
+    warehouse_code = (warehouse.code or '').strip() if (warehouse.code or '').strip() in aliases else ''
+    if not warehouse_key and not warehouse_code and warehouse.id is None:
         return {}
 
     if location_management_enabled():
@@ -5440,8 +5446,6 @@ def get_warehouse_stock_quantities(warehouse):
         # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
         # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
         loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-        if not loc_names:
-            return {}
         # C-2026-08-27：warehouse_id 外键精确聚合优先（B 治本）；未回填行
         # （warehouse_id IS NULL）退回 location 字符串兜底，避免漏掉历史流水。
         rows = (db.session.query(StockTransaction.material_id,
@@ -5696,10 +5700,8 @@ def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     normalized = (value or '').strip()
     if not normalized:
         return None
-    return Warehouse.query.filter(
-        Warehouse.status == 'active',
-        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
-    ).order_by(Warehouse.id.asc()).first()
+    warehouse = resolve_warehouse_text(normalized)
+    return warehouse if warehouse and warehouse.status == 'active' else None
 
 def validate_sales_warehouse(value=None, warehouse_id=None):
     warehouse = resolve_active_sales_warehouse(value, warehouse_id)
@@ -5729,10 +5731,8 @@ def resolve_active_inventory_warehouse(value=None, warehouse_id=None):
     normalized = (value or '').strip()
     if not normalized:
         return None
-    return Warehouse.query.filter(
-        Warehouse.status == 'active',
-        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
-    ).order_by(Warehouse.id.asc()).first()
+    warehouse = resolve_warehouse_text(normalized)
+    return warehouse if warehouse and warehouse.status == 'active' else None
 
 
 def validate_inventory_warehouse(value=None, warehouse_id=None):
@@ -7772,9 +7772,7 @@ def api_subcontract_quick_issue():
     # P0-1 / BUG-2026-08-16-009 同根因：发料预校验改仓库级口径，与扣减端
     # deduct_stock_atomic（BUG-2026-09-19-001）严格对齐——否则多仓库下
     # A 仓库存会掩护 B 仓发料：预校验按全局放行、扣减在 B 仓打负账面。
-    wh_obj = Warehouse.query.filter(
-        db.or_(Warehouse.name == warehouse.strip(), Warehouse.code == warehouse.strip())
-    ).order_by(Warehouse.id.asc()).first()
+    wh_obj = resolve_warehouse_text(warehouse, strict=True)
     if not wh_obj:
         return api_error('委外单仓库无效，请编辑委外单选择有效仓库')
     warehouse_stock = get_warehouse_stock_quantities(wh_obj)
@@ -11559,17 +11557,29 @@ def _ai_match_warehouse(text):
     text = (text or '').strip()
     if not text:
         return None
-    active = Warehouse.query.filter_by(status='active').all()
+    warehouses = Warehouse.query.all()
     upper = text.upper()
-    for wh in active:
-        if text == (wh.name or '') or (wh.code and upper == wh.code.upper()):
-            return wh
-    for wh in sorted(active, key=lambda item: len(item.name or ''), reverse=True):
-        if wh.name and wh.name in text:
-            return wh
-        if wh.code and wh.code.upper() in upper:
-            return wh
-    return None
+    exact = [wh for wh in warehouses if text == (wh.name or '') or
+             (wh.code and upper == wh.code.upper())]
+    if len(exact) > 1:
+        raise WarehouseIdentityError('仓库名称与编码存在跨仓重名或歧义，请明确仓库后重试')
+    if exact:
+        return exact[0] if (exact[0].status or 'active') == 'active' else None
+    matches = []
+    for wh in warehouses:
+        if (wh.status or 'active') != 'active':
+            continue
+        lengths = [len(alias) for alias in (wh.name, wh.code)
+                   if alias and alias.upper() in upper]
+        if lengths:
+            matches.append((max(lengths), wh))
+    if not matches:
+        return None
+    longest = max(length for length, _ in matches)
+    specific = [wh for length, wh in matches if length == longest]
+    if len(specific) > 1:
+        raise WarehouseIdentityError('仓库名称与编码存在歧义，请明确一个仓库后重试')
+    return specific[0]
 
 
 def _ai_default_warehouse():
@@ -23389,9 +23399,7 @@ def _ai_execute_intent(message, intent_payload, context=None):
         # params.warehouse 有值但 keyword 可能为空或不相关。此时按仓库列出库存物料。
         warehouse_param = str(params.get('warehouse') or '').strip()
         if warehouse_param:
-            warehouse_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == warehouse_param, Warehouse.code == warehouse_param)
-            ).order_by(Warehouse.id.asc()).first()
+            warehouse_obj = resolve_warehouse_text(warehouse_param, strict=True)
             if not warehouse_obj:
                 return _ai_json_response(f'没有找到仓库「{warehouse_param}」，可以换仓库名称或编码再试一次。')
             stock_map = get_warehouse_stock_quantities(warehouse_obj)
@@ -26576,11 +26584,11 @@ def _find_or_create_warehouse(name):
     name = (name or '').strip()
     if not name:
         return None
-    warehouse = Warehouse.query.filter_by(name=name).first() or Warehouse.query.filter_by(code=name).first()
+    warehouse = resolve_warehouse_text(name, strict=True)
     if not warehouse:
         seq = Warehouse.query.count() + 1
         code = f'WH{seq:03d}'
-        while Warehouse.query.filter_by(code=code).first():
+        while resolve_warehouse_text(code, strict=True):
             seq += 1
             code = f'WH{seq:03d}'
         warehouse = Warehouse(code=code, name=name, status='active')
@@ -29629,8 +29637,7 @@ def _warehouse_document_match_clause(column, warehouse=None,
     """
     values = []
     if warehouse is not None:
-        for v in (getattr(warehouse, 'name', None),
-                  getattr(warehouse, 'code', None)):
+        for v in warehouse_aliases(warehouse):
             v = (v or '').strip()
             if v and v not in values:
                 values.append(v)
@@ -29669,6 +29676,10 @@ def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_co
         except (TypeError, ValueError):
             wid = None
         if wid:
+            warehouse = db.session.get(Warehouse, wid)
+            if warehouse:
+                aliases = warehouse_aliases(warehouse)
+                values = [value for value in values if value in aliases]
             rows = db.session.query(LocationInventory.location).filter(
                 LocationInventory.warehouse_id == wid
             ).distinct().all()
@@ -36153,9 +36164,7 @@ def api_ai_sales_order_anomaly_analysis(id):
         wh_obj = None
         if (order.warehouse or '').strip():
             wh_key = order.warehouse.strip()
-            wh_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-            ).order_by(Warehouse.id.asc()).first()
+            wh_obj = resolve_warehouse_text(wh_key, strict=True)
         warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
         shortage_items = []
         for item in order.items:
