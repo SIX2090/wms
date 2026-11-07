@@ -176,6 +176,8 @@ def _build_out_order_excel(order, box_numbers=None):
     ws.row_dimensions[row].height = 22
 
     output = _io.BytesIO()
+    from services.excel_print_layout import fit_print_rows
+    fit_print_rows(ws)
     wb.save(output)
     output.seek(0)
     return output

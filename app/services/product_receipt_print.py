@@ -107,6 +107,8 @@ def build_product_receipt_excel(order):
         sheet.page_margins = PageMargins(left=0.3, right=0.3, top=0.3, bottom=0.3)
         if len(pages) > 1:
             sheet.oddFooter.center.text = f'第 {index} / {len(pages)} 页'
+        from services.excel_print_layout import fit_print_rows
+        fit_print_rows(sheet)
     output = BytesIO()
     workbook.save(output)
     workbook.close()
