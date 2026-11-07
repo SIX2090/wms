@@ -1,6 +1,6 @@
 # 90分改善 B4：密码事件与移动凭据失效
 
-2026-11-07确认审计A05/P2，2026-11-08纠正与验收。BUG-2026-11-07-009，唯一子项AI-LOGIN-F01-FIX-TOKEN-REVOCATION-20261107-001。开工main f37be71f54653eef5659377a79ffc109f8fa3e2c，WMS CI42387964002、AI42387964000、Windows42388397652全部成功，Android42311667571成功祖先及输入不变证明齐备。本批候选尚未推送或验收新目标完整CI。
+2026-11-07确认审计A05/P2，2026-11-08纠正与验收。BUG-2026-11-07-009，唯一子项AI-LOGIN-F01-FIX-TOKEN-REVOCATION-20261107-001。开工main f37be71f54653eef5659377a79ffc109f8fa3e2c，WMS CI42387964002、AI42387964000、Windows42388397652全部成功，Android42311667571成功祖先及输入不变证明齐备。最终代码2c79c983e564a3d839dacbc98f5bbfd644ea0837已推送并完成精确完整CI验收；生产未部署。
 
 ## 根因和全部消费点
 
@@ -29,6 +29,8 @@
 
 AI全量期间可用内存曾短时降至2696KB，但没有达到连续三次低192MiB的停止条件，进程正常0退出；没有降低阈值、关闭应用或操作生产进程。最终现有资源重新核对后再开下一验证组，不能据此声称运行全程有192MiB余量。
 
-本批只改Bearer校验、两处密码事件和原生签发；新增行A1–A14、A11全量、既有全量棘轮、raw fetch、编码、严格AI台账与差异/索引检查全部通过，精确新SHA CI待验收。INVENTORY_TRUTH按实际符号仅有两处行号移动，库存口径未变，配套定位文档独立本地提交、同批推送。证据：仓库外B4-final-local-results.json、lab/r8-b4-final-whole01、b4-final-*及b4-ai-full-01；失败、资源等待与夹具纠正原件均保留。
+本批只改Bearer校验、两处密码事件和原生签发；新增行A1–A14、A11全量、既有全量棘轮、raw fetch、编码、严格AI台账与差异/索引检查全部通过，精确新SHA CI已通过，详见下文。INVENTORY_TRUTH按实际符号仅有两处行号移动，库存口径未变，配套定位文档独立本地提交、同批推送。证据：仓库外B4-final-local-results.json、lab/r8-b4-final-whole01、b4-final-*及b4-ai-full-01；失败、资源等待与夹具纠正原件均保留。
 
-生效确认：候选阶段，未代码交付/生产部署。所有密码、令牌、账号、单据、SQLite及HTTP均为内存/自有lab合成夹具；没有生产DB/旁文件/别名的连接/打开/读取/复制/校验/写入，没有生产HTTP、真实账号/令牌、服务、监护或恢复预算操作。生产部署另需具体授权且不解除数据库禁令。
+代码交付：Git Data准确14 blobs、完整tree bee9389973c515363af454b2de1ae4bd1c0c1462、两commit父链及expected_sha/force=false更新成功；原本地b0f1b5f/1ea705d3已bundle保存，fetch同tree逐blob核验后CAS对齐，本地与origin/main一致。业务父提交0b736db82753171add5b3587b42faf7ff9e94dff，最终2c79c983e564a3d839dacbc98f5bbfd644ea0837。[完整WMS CI42391920732](https://github.com/SIX2090/wms/actions/runs/42391920732)及[AI42391920715](https://github.com/SIX2090/wms/actions/runs/42391920715)均completed/success，所有实质检查和gate通过；docs-checks按代码全量路径正常分流跳过。Android42311667571成功，8d3b4c5d45028782f409fa16094bf678e5035faa为目标祖先，原生源码与工作流零diff。
+
+生效确认：代码已交付，未生产部署。所有密码、令牌、账号、单据、SQLite及HTTP均为内存/自有lab合成夹具；没有生产DB/旁文件/别名的连接/打开/读取/复制/校验/写入，没有生产HTTP、真实账号/令牌、服务、监护或恢复预算操作。生产部署另需具体授权且不解除数据库禁令。

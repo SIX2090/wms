@@ -486,3 +486,4 @@ POST_SPLIT_BUGS['BUG-2026-11-07-006'] = 'fixed'  # namespace candidate verified 
 POST_SPLIT_BUGS['BUG-2026-11-07-007'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-07-008'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-07-009'] = 'fixed'  # local candidate verified; exact CI and production tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-08-001'] = 'fixed'  # B6 candidate; exact CI and production recorded separately
