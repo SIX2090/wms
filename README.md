@@ -525,6 +525,3 @@ wechat_helper_token
 Windows 预览发行由 `Windows Portable Release` 工作流生成：仅打包当前 main 且通过完整 CI 的精确提交，重新下载离线依赖、验证临时副本首次安装与启动，再上传 ZIP 和 SHA256 校验文件到 [GitHub Releases](https://github.com/SIX2090/wms/releases)。发行包不含用户数据库、账号配置或密钥；自动发布不等于更新已有生产服务。相同版本标签不重复发布，后续发行需递增 `app/version.py`。
 
 2026-11-07：Windows 预览发行版本递增至 [2026.11.3](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.3)，包含本批统一打印版式、PDF明细完整性、页脚图片及标签排版修正；发行流程和验证边界见[2026.11.3发行记录](docs/audit/2026-11-07-windows-2026.11.3-release.md)。当前生产已运行相同的打印业务修正，发行新安装包不触发生产重启。
-
-
-打印模板只接受模板中心列出的展示字段，旧模板中的敏感、私有、方法或未知占位符会明确提示具体字段，需修正后再打印；合法旧字段别名保留。浏览器不支持的公式/图表继续使用原Excel文件打印。打印只读取展示副本，不改变单据或库存。B8候选验证及交付状态见[打印边界记录](docs/audit/2026-11-08-improvement90-b8-print-display.md)，生产需重启 WMS 服务生效，本计划尚未部署生产。

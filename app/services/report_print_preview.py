@@ -216,9 +216,7 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
         if content is None:
             raise ValueError('报表没有可打印的字段')
         raw = content.getvalue()
-    from print_display import _field_paths
-    item_fields = _field_paths('item', columns=[column['field'] for column in columns])
-    error = validate_template_file(raw, item_fields=item_fields)
+    error = validate_template_file(raw)
     if error:
         raise ValueError(error)
     workbook = load_workbook(io.BytesIO(raw), keep_links=False)
@@ -277,7 +275,7 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                         raise ValueError('此模板含条码或二维码图片，浏览器暂不能完整呈现，请使用 Excel 模板文件打印')
                     if not include_prices and isinstance(cell.value, str):
                         cell.value = re.sub(r'\{(?:item|order)\.[^{}]*(?:price|amount|value|cost)[^{}]*\}|\{total_amount\}', '', cell.value, flags=re.I)
-            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat(), item_fields=item_fields))
+            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat()))
             if sheet.max_row * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('打印内容过大，请缩小筛选范围后打印')
             # Print area is part of the selected template, never silently print excluded cells.

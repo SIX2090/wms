@@ -158,10 +158,7 @@ def fit_print_rows(sheet, *, strict=False):
                     width = max(1, sum(print_column_width(sheet, col)
                         for col in range(cell.column, end_column + 1)) - 8)
                     count = _line_count(text, width, size, cell.font.bold, cell.font.name)
-                # Browser font fallback and fractional page zoom can wrap a
-                # multiline cell onto one more line than the Excel estimate.
-                # Reserve that line in the generated copy, never in the template.
-                needed = math.ceil((count + (1 if count > 1 else 0)) * size * 1.2 + 3)
+                needed = math.ceil(count * size * 1.2 + 3)
                 visible_rows = [number for number in range(cell.row, end_row + 1) if print_row_height(sheet, number)]
                 if strict and needed > 409.5 * len(visible_rows):
                     raise ValueError(f'单元格 {cell.coordinate} 内容过长，请加宽列、拆分内容或调整模板后打印')

@@ -3441,8 +3441,7 @@ def register_in_order_routes(app):
     @login_required
     def print_in_order_excel(id):
         """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
-        from app import InOrder, InOrderPrintTemplate, api_error
-        from print_display import PrintFieldError
+        from app import InOrder, InOrderPrintTemplate
         from utils import resolve_print_template
         order = InOrder.query.get_or_404(id)
         if order.business_type == '产品入库' and not request.args.get('template_id', type=int):
@@ -3458,14 +3457,11 @@ def register_in_order_routes(app):
             if template_path and os.path.exists(template_path):
                 from datetime import datetime
                 from flask import g
-                try:
-                    output = build_filled_print_excel(
-                        template_path, order,
-                        date_str=datetime.now().strftime('%Y-%m-%d'),
-                        preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
-                    )
-                except PrintFieldError as error:
-                    return api_error(str(error), 400)
+                output = build_filled_print_excel(
+                    template_path, order,
+                    date_str=datetime.now().strftime('%Y-%m-%d'),
+                    preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
+                )
                 if os.path.basename(template_path) == 'builtin_in_order_default_v2.xlsx':
                     output = _retitle_builtin_in_order_excel(output, order)
                 filename = f'{template.name or _in_order_print_title(order)}_{order.order_no or id}.xlsx'
