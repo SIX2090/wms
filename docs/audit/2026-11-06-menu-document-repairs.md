@@ -56,3 +56,7 @@ AI子修复唯一ID为AI-C01-FIX-ROLE-UI-001-F01。未新增AI路由、工具、
 实际git push输出`8d3b4c5d..30ba3ce5 main -> main`；HEAD、origin/main、实时远端均为`30ba3ce5aa4ac3b9797a3f69cdf5b7a0ee79da20`。该SHA的[WMS CI42315911094](https://github.com/SIX2090/wms/actions/runs/42315911094)及[AI42315911096](https://github.com/SIX2090/wms/actions/runs/42315911096)均completed/success，三个单测分片、四脚本分片、静态、浏览器、隔离冒烟及gate全部通过。最近Android运行[42311667571](https://github.com/SIX2090/wms/actions/runs/42311667571)对应8d3b4c5d成功；对象齐全、为当前目标祖先、两个构建输入路径无变化。正式`python scripts/check_ci_green.py --target-sha 30ba3ce5aa4ac3b9797a3f69cdf5b7a0ee79da20 --json`返回0、ok=true。
 
 BUG-2026-11-06-009至017的软件修复及既有AI能力子修复已验收。收尾仅同步本记录、BUG状态、AI完成记录和索引，未修改业务代码；收尾提交自身仍按规则验收CI。生产数据库未连接或修改，未部署、未重启生产，生产现场生效尚未验收。
+
+## 2026-11-07 09:01生产生效
+
+用户明确批准7cc09441固定制品的分类修正及本批菜单/单据入口修正随同上线，已通过原WMS-Warehouse任务普通重启一次。实际后台/UI为7cc09441、制品2d3aa6df，PID14856唯一8080，任务定义不变，监护running/3且没有重置预算。本机与公网健康、登录及静态资源检查通过，100表数据与结构前后一致；没有生产业务单据、账号或历史数据操作。原30ba3ce5业务修正已包含在本次制品且完整CI通过，BUG009至017及AI-C01-FIX-ROLE-UI-001-F01生效状态同步。此前“生产未部署”为代码交付阶段快照；最终证据见[生产回执](2026-11-07-product-receipt-category.md)。
