@@ -270,6 +270,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 {% if current_user.role in ['admin', 'production'] %}
 {% include '_requisition_bom_picker.html' %}
 <script src="{{ url_for('static', filename='js/requisition-bom.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>

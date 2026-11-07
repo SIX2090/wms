@@ -1569,3 +1569,60 @@ A9直接解析合同补记：新增一项直接resolve测试验证源值变化�
 
 
 纠正提交前门禁补记：八项静态门禁全部退出0（lab/b8-corrected-static-01），没有豁免/放宽规则。纠正候选按上述36完整模块752、源码33、整批19文件73旧46失败/27对照、真实Chrome30与新241页PDF完成本地验收；精确新提交完整CI待验，生产未部署。
+
+
+## B8精确目标交付闭环（2026-11-08）
+
+最终目标215469e40f527b2794cf904238199155da6a3208，父18c21ab3b08b163ad8efafefbec7e52ca54ca463，tree8b0cbbd4514c27711e2c4a0fe953f264ab0a01cd。本地与origin/main一致、工作树干净，正常本地39b89c22及bundle保留，21精确blob/full tree/parent/expected_sha、force=false发布后逐对象fetch并CAS对齐。
+
+[WMS CI42411862784](https://github.com/SIX2090/wms/actions/runs/42411862784)、[AI42411862785](https://github.com/SIX2090/wms/actions/runs/42411862785)、[Windows42412275841](https://github.com/SIX2090/wms/actions/runs/42412275841)及[Perf42411862828](https://github.com/SIX2090/wms/actions/runs/42411862828)全部completed/success。WMS CI三unit、四verify、lint、smoke、browser、changes及gate全部成功，docs-checks全量代码路径正常跳过。最新Android42311667571/8d3b4c5d成功，main两页已检查；其提交为目标祖先，原生源码/工作流零差异。证据lab/B8-exact-target-acceptance.json。本段覆盖历史待验状态：B8已代码交付，生产未部署，真实纸张/扫码仍待人工。
+
+
+## 已修复并纳入回归（B9本地候选，精确CI待验）
+
+### BUG-2026-11-08-004: 高频录单标签与动态明细缺少名称、导入对话框未收回焦点
+
+- 状态：已修复（本地验证）；A09/P2，90分改善B9候选，精确新目标完整CI验收前不计代码交付。
+- 同根因历史：查BUG-2026-11-03-007栏目设置、BUG-2026-11-05-101入口名称及既有字段设置无障碍/列表日期关联记录；现有功能不重复开发，修复剩余高频录单消费点。
+- 根因：可见label未关联控件、日期插件隐藏原输入、动态明细缺可读名称；自建粘贴导入框未限制/归还焦点，快速取消后的延迟聚焦可能空引用。
+- 修复：九模板共用显式引入外置名称/焦点模块，标签指向日期可见替身，动态行用当前列名和行号；保留显式名称、只读/禁用/required。粘贴单实例、Tab圈定/Escape取消与归还，盘点风险确认同边界，Bootstrap保持现有圈定。业务键盘/防重/字段设置复用，不动接口与库存。
+- 同类点已排查：调拨/盘点/领料/调整/采购申请/采购订单/销售新增编辑、共享BOM及三列表筛选/模态，嵌入iframe和返回。低频未迁移页及实体读屏/设备不冒充完成。
+- 回归：真实Chrome23组（21已成功组按相同10产品哈希复用+2续验），全部标签/日期/动态行、Tab/Enter/Escape、取消无副作用、栏目保存刷新重置、嵌入返回、503保留内容/双击一次/真实重试成功，CSP/runtime/外源零；97表仅3预期编辑表改变。完整模块/整批R8/静态及精确CI见后续闭环，全部原断言保留。
+- 生效确认：仅禁网内存或本任务新建且精确白名单合成库；生产需重启 WMS 服务生效，本批未部署。任何生产数据库、旁文件、别名读写或生产HTTP/账号/库存单据/服务/监护/恢复预算均无操作。[B9记录](../../audit/2026-11-08-improvement90-b9-form-accessibility.md)。
+
+
+## B9本地闭环（2026-11-08）
+
+最终17完整模块504 passed、0failed/errors/skipped；原16完整模块476项断言和文件逐字节不变。其中11模块旧基线307 passed，扩入5相邻模块169 passed在最终整个15非测试候选物理撤回后实际执行，故总旧基线476 passed。最终28正确契约在同次整批撤回为28 failed；169原对照全部通过，0error/skip，15文件全部SHA256逐字节恢复。候选504与Chrome23组的10产品哈希相同；两真实截图已查看。保留所有原断言和初始驱动失败，不把跳过当通过。
+
+证据：B9-candidate-results.json、lab/r8-b9-whole-final01/proof.json、lab/b9-form-browser-04和05-rest/acceptance.json。源码/台账三模块33项、8静态及正常hooks随后补证；本段未声称精确CI或生产生效。实际浏览器只编辑一次自有合成销售单，97表中3预期表改变，其他94表完全相同。
+
+
+B9台账登记补记：源码/台账首次32通过、1失败，原因是新增BUG004尚未加入拆分后的显式登记集合，原历史unknown计数多1。整个15非测试候选再次物理撤回，旧源码三完整模块33通过后逐字节恢复；仅补新BUG004的固定状态映射和本地修复状态说明，原历史分布常量/断言完全不变。产品10文件、504项运行和Chrome23组字节不变；候选源码33项仍须完整重验，不把首次失败记为通过。
+
+
+B9源码门禁闭环：新增登记还需处于“已修复”章节，现有月报按最近一/二级标题而非状态行分类；第二次32通过/1失败保留。已补正确章节并保留原分布常量与全部断言，新登记仅增加一项固定映射，原文件是新增行前缀且全部assert AST一致。最终源码/库存/台账3完整模块33 passed、0skip（lab/b9-source-03）。产品10文件、完整17模块504项、整批15文件28旧失败/169对照和真实Chrome23组哈希不变；后续8静态/正常hooks/精确新CI仍须验收。
+
+
+B9提交前门禁：8项静态全部退出0，正常pre-commit仍启用；源码/库存/台账33 passed，17完整模块504 passed、0skip，整批15非测试撤回197项为28旧失败/169对照，所有字节恢复。Chrome23组按10产品精确哈希闭环。仅新BUG显式登记增加一行，旧断言/常量完全不变。精确新目标完整CI待验，生产未部署。
+
+
+## B9完整CI失败、整批撤回与纠正（2026-11-08）
+
+首目标88225cac9abc23ead5d8f60f45e24aee87a7a452（正常本地953cab47、treeae929b12）经17精确blob/full tree/parent/expected_sha force=false发布并fetch同tree CAS；完整WMS CI42416051471失败，unit1领料传输33fail/5259pass34skip，unit2盘点列表41与数量输入30合计71fail/3831pass23skip。其他unit0/4verify/lint/smoke/browser及AI/Perf成功不能抵消104失败，Windows正常跳过。没有宣称交付或部署。
+
+立即整个17文件正常revert，本地0815948c与failed/revert bundles保留；以失败目标为父、已验收B8完整tree8b0cbbd4非强制发布575aee9925662c8d79e9f2a05087825e5e9457f5。fetch核对14旧blob、3删除及完整tree、CAS对齐，工作树干净；未reset/stash/强推。回退精确WMS42416715534、AI42416715519、Windows42417114970及Perf42416715527全部success，Android最新42311667571/8d3b4c5d祖先与输入无差异，恢复门禁后才纠正重放。lab/b9-ci-whole-revert、b9-revert-publication、B9-revert-exact-ci.json存证。
+
+根因是三个测试消费者先在raw HTML定位offset，callback却从page_source展开外置JS后的源码提取，执行错函数：领料误选到排序的URL代码，盘点列表和数量监听同根。全仓排查callback(start_at)消费点后，本批九模板受影响仅contract_requisition/check_list/quantity_input_rounding三个模块；其他in/out详情未新增脚本不夹带修改。精确重放17文件后仅这三个既有测试改用现成tests.frontend_page_source.page_source统一定位与提取；全部Python assert AST和Node完整断言程序字符串均相同，不补URL全局、不放宽断言。
+
+增加五完整消费者旧基线367 passed（205+162），故旧21完整模块843项。纠正三消费253项已完整通过；最终22完整模块871项、整批15非测试R8450项（28旧失败/422对照）、源码33、8静态及新精确CI仍须后续补证，不能把预计数当通过。10产品SHA256与失败目标及已成功Chrome23组完全相同，严格复用23组，不无故重复已成功UI。B9仍为候选、生产未部署，生产需重启 WMS 服务生效。
+
+
+## B9纠正候选本地闭环（2026-11-08）
+
+最终22完整模块871 passed、0failed/errors/skipped，含原17/504完整重跑及新增5消费367，旧完整21模块843项。纠正三个完整消费者253 passed，Python原assert AST与Node完整断言程序字符串逐一相同。最终15非测试候选整批物理撤回到575aee99：原5相邻169及纠正3消费253全部通过，新增正确契约28 failed、0error/skip，总450项28旧失败/422对照，15文件全部SHA256逐字节恢复。旧未纠正消费104失败严格复用精确失败CI42416051471，三个旧测试与10产品字节均匹配，未删除或放宽原断言。
+
+10产品SHA与failed882/已验Chrome23组相同，严格复用真实23组及两截图目视，未无故重跑成功交互。产品/测试最终字节均已实际执行；源码33、8静态、正常hooks及精确新CI随后补证。证据B9-corrected-candidate-results.json、lab/r8-b9-corrected-whole01/proof.json及B9-corrected-local-results.json。仍未交付、未部署生产。
+
+
+B9纠正提交前闭环：源码/库存/台账3完整模块33 passed（lab/b9-corrected-source-01），8静态门禁全部退出0（lab/b9-corrected-static-01），正常hooks仍启用。20文件整批候选含全部10产品/全部原断言和3取源修正；22完整模块871 passed、0skip；全15非测试撤回450项28旧失败/422对照全部字节恢复。Chrome23组与产品精确同哈希复用。精确新目标完整CI待验；生产未部署，本批不冒充整个第5项或90分目标完成。

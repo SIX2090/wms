@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 
+from tests.frontend_page_source import page_source
 from tests.test_frontend_remaining_page_transport import callback
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ CASES += [('batch', 'empty'), ('import', 'empty')]
 
 
 def handler_for(action):
-    source = (ROOT / 'app/templates/check.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates/check.html')
     if action in ['delete', 'revert', 'batch', 'copy']:
         marker = {'delete': 'const delBtns', 'revert': 'const revertBtns', 'batch': "batchDeleteBtn.addEventListener('click'", 'copy': 'const copyBtns'}[action]
         return callback('check', 'async function()', source.index(marker))
