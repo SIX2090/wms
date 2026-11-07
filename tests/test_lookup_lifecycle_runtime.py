@@ -5,7 +5,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,7 +15,7 @@ def lookup_source(page):
         pos = text.index('// ==================== 合同编号 / 工程名称 快速匹配')
         return text[text.index('(function(global)', pos):text.index('})(window);', pos) + 11]
     filename, marker = ('in_order.html', 'projectNameFilterInput') if page == 'project' else ('out_order_add.html', 'pickerInput')
-    text = page_source(ROOT / 'app/templates' / filename)
+    text = (ROOT / 'app/templates' / filename).read_text(encoding='utf-8')
     pos = text.index("getElementById('" + marker + "')")
     start = text.rindex('(function()', 0, pos)
     end = text.index('})();', pos) + 5

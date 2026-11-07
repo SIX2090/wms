@@ -767,8 +767,8 @@ def register_after_sale_out_routes(app):
         return _workbook_response(
             'after_sale_out_template.xlsx',
             '售后出库导入模板',
-            ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注', '仓库', '库位'],
-            [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '', '', '']],
+            ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
+            [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '']],
         )
 
     @app.route('/after_sale_out/download_template')
@@ -778,8 +778,8 @@ def register_after_sale_out_routes(app):
         return _workbook_response(
             'after_sale_out_template.xlsx',
             '售后出库导入模板',
-            ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注', '仓库', '库位'],
-            [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '', '', '']],
+            ['单据编号', '日期', '客户', '联系人', '电话', '售后原因', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '备注'],
+            [['ASO24010001', '2024-01-01', '示例客户', '李四', '13800138000', '售后换货', 'MAT001', '示例物料', '规格A', '个', 1, 0, '']],
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -790,8 +790,7 @@ def register_after_sale_out_routes(app):
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, _find_or_create_customer,
                          _find_or_create_material, _get_excel_cell, _get_excel_number,
                          _import_result, _order_no_from_row, _parse_excel_date,
-                         _read_import_sheet, api_error, location_management_enabled,
-                         resolve_request_warehouse, round_to_2_decimals,
+                         _read_import_sheet, api_error, round_to_2_decimals,
                          validate_excel_extension, validate_excel_size)
         from flask_login import current_user
         file = request.files.get('file')
@@ -817,47 +816,12 @@ def register_after_sale_out_routes(app):
             'quantity': ['数量'],
             'price': ['单价', '价格'],
             'remark': ['备注'],
-            'warehouse': ['仓库', '仓库名称', '仓库编码'],
-            'location': ['库位', '库位名称', '库位编码'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
             required = {'customer', 'material_code', 'quantity'}
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（客户、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
-            # Validate all new row places before creating customer/material masters or drafts.
-            # Old 13-column files use the configured active default, never a blank warehouse.
-            row_places = {}
-            order_places = {}
-            warehouses = {}
-            existing_orders = {}
-            locations_required = location_management_enabled()
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if (not _get_excel_cell(row, col_map, 'customer')
-                        or not _get_excel_cell(row, col_map, 'material_code')
-                        or _get_excel_number(row, col_map, 'quantity') <= 0):
-                    continue
-                explicit_no = _get_excel_cell(row, col_map, 'order_no')
-                if explicit_no:
-                    if explicit_no not in existing_orders:
-                        existing_orders[explicit_no] = AfterSaleOutOrder.query.filter_by(order_no=explicit_no).first() is not None
-                    if existing_orders[explicit_no]:
-                        continue
-                warehouse_value = _get_excel_cell(row, col_map, 'warehouse')
-                if warehouse_value not in warehouses:
-                    warehouse, error = resolve_request_warehouse({'warehouse': warehouse_value})
-                    if error:
-                        return api_error(f'第{row_idx}行：{error}')
-                    warehouses[warehouse_value] = warehouse.name
-                location = _get_excel_cell(row, col_map, 'location')
-                if locations_required and not location:
-                    return api_error(f'第{row_idx}行：库位管理已开启，请填写库位')
-                place = (warehouses[warehouse_value], location)
-                if explicit_no and explicit_no in order_places and order_places[explicit_no] != place:
-                    return api_error(f'第{row_idx}行：同一售后出库单的仓库、库位必须一致')
-                if explicit_no:
-                    order_places[explicit_no] = place
-                row_places[row_idx] = place
             orders_by_no = {}
             order_count = 0
             item_count = 0
@@ -890,8 +854,6 @@ def register_after_sale_out_routes(app):
                         phone=phone,
                         reason=_get_excel_cell(row, col_map, 'reason'),
                         remark=_get_excel_cell(row, col_map, 'remark'),
-                        warehouse=row_places[row_idx][0],
-                        location=row_places[row_idx][1],
                         status='pending',
                         operator_id=current_user.id,
                         total_amount=0,

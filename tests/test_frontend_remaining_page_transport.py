@@ -6,14 +6,13 @@ import shutil
 import subprocess
 
 import pytest
-from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def callback(page, marker, start_at=0):
     path = ROOT / ('app/static/js/pages/material-add.js' if page == 'material_add' else f'app/templates/{page}.html')
-    source = page_source(path) if path.suffix == '.html' else path.read_text(encoding='utf-8')
+    source = path.read_text(encoding='utf-8')
     start = source.index(marker, start_at)
     brace = source.index('{', start)
     depth, quote, escaped = 0, None, False

@@ -88,6 +88,5 @@ def test_picker_exact_empty_and_auth_contracts_are_preserved(picker_client, enti
 def test_custom_picker_uses_existing_viewport_helper(page, expected):
     assets = {'material_add.html': 'material-add.js', 'material.html': 'material-list.js'}
     path = ROOT / ('app/static/js/pages/' + assets[page] if page in assets else 'app/templates/' + page)
-    from tests.frontend_page_source import page_source
-    source = page_source(path) if path.suffix == '.html' else path.read_text(encoding='utf-8')
+    source = path.read_text(encoding='utf-8')
     assert all(call in source for call in expected)

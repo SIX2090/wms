@@ -758,9 +758,8 @@ def register_adjustment_routes(app):
         from flask_login import current_user
         from app import (AdjustmentOrder, AdjustmentOrderItem, _find_or_create_material,
                          _get_excel_cell, _get_excel_number, _import_result, _order_no_from_row,
-                         _parse_excel_date, _read_import_sheet, api_error,
-                         location_management_enabled, resolve_request_warehouse,
-                         validate_excel_extension, validate_excel_size)
+                         _parse_excel_date, _read_import_sheet, api_error, validate_excel_extension,
+                         validate_excel_size)
         file = request.files.get('file')
         if not file:
             return api_error('请选择要导入的库存调整文件')
@@ -779,8 +778,7 @@ def register_adjustment_routes(app):
             'spec': ['规格'],
             'unit': ['单位'],
             'quantity': ['数量'],
-            'warehouse': ['仓库', '仓库名称', '仓库编码'],
-            'location': ['库位', '位置', '库位名称', '库位编码'],
+            'location': ['库位', '位置'],
             'reason': ['原因'],
             'remark': ['备注'],
         }
@@ -789,36 +787,6 @@ def register_adjustment_routes(app):
             required = {'adjustment_type', 'material_code', 'quantity'}
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（调整类型、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
-            # Check every new draft before any master data or document is written.
-            row_warehouses = {}
-            order_warehouses = {}
-            warehouses = {}
-            existing_orders = {}
-            locations_required = location_management_enabled()
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if (not _get_excel_cell(row, col_map, 'material_code')
-                        or _get_excel_number(row, col_map, 'quantity') <= 0):
-                    continue
-                explicit_no = _get_excel_cell(row, col_map, 'order_no')
-                if explicit_no:
-                    if explicit_no not in existing_orders:
-                        existing_orders[explicit_no] = AdjustmentOrder.query.filter_by(adjustment_no=explicit_no).first() is not None
-                    if existing_orders[explicit_no]:
-                        continue
-                warehouse_value = _get_excel_cell(row, col_map, 'warehouse')
-                if warehouse_value not in warehouses:
-                    warehouse, error = resolve_request_warehouse({'warehouse': warehouse_value})
-                    if error:
-                        return api_error(f'第{row_idx}行：{error}')
-                    warehouses[warehouse_value] = warehouse.name
-                warehouse_name = warehouses[warehouse_value]
-                if locations_required and not _get_excel_cell(row, col_map, 'location'):
-                    return api_error(f'第{row_idx}行：库位管理已开启，请填写库位')
-                if explicit_no and explicit_no in order_warehouses and order_warehouses[explicit_no] != warehouse_name:
-                    return api_error(f'第{row_idx}行：同一库存调整单的仓库必须一致')
-                if explicit_no:
-                    order_warehouses[explicit_no] = warehouse_name
-                row_warehouses[row_idx] = warehouse_name
             orders_by_no = {}
             order_count = 0
             item_count = 0
@@ -848,7 +816,6 @@ def register_adjustment_routes(app):
                         adjustment_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         adjustment_type=adjustment_type,
-                        warehouse=row_warehouses[row_idx],
                         source_type='import',
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',

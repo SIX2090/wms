@@ -20,17 +20,12 @@ import os
 import re
 import sys
 from pathlib import Path
-from verify_wms_bugs import function_body, routes_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_PY = routes_source()
+APP_PY = (ROOT / "app/app.py").read_text(encoding="utf-8")
 IN_ORDER_HTML = (ROOT / "app/templates/in_order.html").read_text(encoding="utf-8")
 OUT_ORDER_HTML = (ROOT / "app/templates/out_order.html").read_text(encoding="utf-8")
-if "filename='js/pages/in-order-list.js'" in IN_ORDER_HTML:
-    IN_ORDER_HTML += (ROOT / 'app/static/js/pages/in-order-list.js').read_text(encoding='utf-8')
-if "filename='js/pages/out-order-list.js'" in OUT_ORDER_HTML:
-    OUT_ORDER_HTML += (ROOT / 'app/static/js/pages/out-order-list.js').read_text(encoding='utf-8')
 
 
 FAILURES: list[str] = []
@@ -59,11 +54,15 @@ def extract_function(source: str, name: str) -> str:
 def extract_route_block(source: str, route_pattern: str, func_name: str) -> str:
     """从 @app.route(route_pattern) 开始提取到 def func_name 之后的下一个 @app.route/def。"""
     route_match = re.search(
-        rf"@app\.route\({route_pattern}.*?\n[ \t]*def\s+{re.escape(func_name)}\s*\(", source, re.S
+        rf"@app\.route\({route_pattern}.*?\ndef\s+{re.escape(func_name)}\s*\(", source, re.S
     )
     if not route_match:
         return ""
-    return function_body(source, func_name)
+    body_start = route_match.end()
+    next_match = re.search(r"^(@app\.route|^def\s+\w+\s*\()", source[body_start:], re.M)
+    if next_match:
+        return source[route_match.start(): body_start + next_match.start()]
+    return source[route_match.start():]
 
 
 # ==================== 静态校验：后端 ====================

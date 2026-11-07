@@ -23,7 +23,6 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from tests.frontend_page_source import page_source
 from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,7 +52,7 @@ def _app_ctx():
         yield
 
 
-TPL = page_source(ROOT / "app" / "templates" / "in_order.html")
+TPL = (ROOT / "app" / "templates" / "in_order.html").read_text(encoding="utf-8")
 
 
 def _uid():
