@@ -67,7 +67,7 @@
 6. 已提交并推送 GitHub；未推送的本地改动不得标记完成。
 
 <!-- AI_TASK: AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001 -->
-2026-11-07 AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001：既有原生幂等装饰器全部9消费点的A01/B2子修复，关联AI-ASSISTANT-MOBILE-001、AI-VOICE-INTENT-001、AI-VOICE-OUT-F01；复用既有收据表，内容指纹、请求所有权及业务/结果原子提交，不新增模型、工具、路由、权限、开关或schema。状态：待验收；28个完整模块393 passed、真实文件并发7 passed，AI原70脚本清单全部成功，整批R8旧产品24失败/2对照和并发6失败/1对照、逐字节恢复齐备。原AI能力标记保持，最终静态与精确新目标完整CI待验收，不代表完成或生产生效；详见B2专项及BUG-2026-11-07-007。
+2026-11-07 AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001：B2原生9消费点代码已交付，目标1dd7388558d1775814aea78e7e9cb20f59e16cd1；WMS CI42386094902和AI42386094820均completed/success，全部实质分片及gate成功，Windows42386510483成功。28完整模块393 passed、真实文件并发7 passed、AI full70与整批R8证据齐备；无schema、新AI能力或权限扩张，未生产部署；详见B2专项及本月完成记录。
 
 <!-- AI_TASK: AI-C01-FIX-WAREHOUSE-NAMESPACE-20261107-001 -->
 2026-11-07 AI-C01-FIX-WAREHOUSE-NAMESPACE-20261107-001：既有AI-C01仓库文本消费点的A02子修复，关联B1和BUG-2026-11-07-006。代码已交付：8db506ccfb66542211b375b662d5680e24a9c4c4，WMS CI42377215120、AI42377215211均completed/success；Android42311667571成功且祖先/输入无差异。首轮完整失败及整批回退保留；33不同模块450通过、合成文件双连接3通过、AI full70通过，未生产部署。完整证据与限制见docs/audit/2026-11-07-improvement90-b1-warehouse-identity.md及本月AI完成记录。
@@ -83,7 +83,8 @@
 
 | 优先级 | 子项编号 | 状态 | 范围 |
 |---|---|---|---|
-| P1 | AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001 | 待验收 | 2026-11-07，A01/B2原生9消费点的请求所有权、内容指纹及业务/结果原子提交；既有能力标记不变，唯一修复ID见通用服务文档注释，未通过新目标完整CI前不标完成；BUG-2026-11-07-007 |
+| P1 | AI-SEC-F01-FIX-PASSIVE-HEALTH-20261107-001 | 待验收 | 2026-11-07，B3/A03现役手册及被动身份工具子修复；BUG-2026-11-07-008，无新AI能力/权限/模型/schema，精确新CI待验收 |
+| P1 | AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001 | 已完成 | B2代码1dd7388558d1775814aea78e7e9cb20f59e16cd1已推送、精确完整CI42386094902/AI42386094820成功；未生产部署，详见本月完成分片 |
 | P1 | AI-C01-FIX-WAREHOUSE-NAMESPACE-20261107-001 | 已完成 | B1仓库文本歧义修复；8db506ccfb66542211b375b662d5680e24a9c4c4已推送且WMS CI42377215120/AI42377215211完整成功，生产未部署；完成记录见本月分片 |
 | P1 | AI-BROWSER-AUDIT-FIX-20261031-003 | 已完成 | 第16/18轮仪表盘完成口径与共享助手历史去重/单次渲染；BUG-2026-10-31-025至027；不新增能力 |
 | P1 | AI-BROWSER-AUDIT-FIX-20261031-002 | 已完成 | 第9至11轮供应商/预测关联、外层审计助手、验收回显及OCR时序子修复；BUG-2026-10-31-018至022；不新增能力 |

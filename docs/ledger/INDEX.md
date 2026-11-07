@@ -195,6 +195,7 @@
 | AI-DEPLOY-F01-FIX-06 | ai | completions-2026-11.md |
 | AI-C01-FIX-ROLE-UI-001-F01 | ai | completions-2026-11.md |
 | AI-C01-FIX-WAREHOUSE-NAMESPACE-20261107-001 | ai | completions-2026-11.md |
+| AI-ASSISTANT-MOBILE-001-FIX-IDEMPOTENCY-20261107-001 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -770,6 +771,7 @@
 | BUG-2026-11-07-005 | bugs | entries-2026-11.md |
 | BUG-2026-11-07-006 | bugs | entries-2026-11.md |
 | BUG-2026-11-07-007 | bugs | entries-2026-11.md |
+| BUG-2026-11-07-008 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
