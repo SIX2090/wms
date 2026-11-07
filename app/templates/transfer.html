@@ -395,3 +395,7 @@ async function submitDocumentImport(formId, fileId) {
 }
 </script>
 {% endblock %}
+
+{% block extra_js %}
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
+{% endblock %}
