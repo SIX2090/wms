@@ -25,3 +25,13 @@
 ## 生效确认
 
 生产尚未部署，本次未修改生产物料、库存、账号或服务。后端服务需部署并重启后生效，待精确目标CI及单独上线授权。
+
+## 精确代码CI与待上线制品
+
+源码 `7cc09441d1702c6531f1ac9b1b6194848d6e8f92` 已实际推送main，本地HEAD、origin/main和实时远端完全一致。[WMS CI 42319825609](https://github.com/SIX2090/wms/actions/runs/42319825609)及[WMS AI Verification 42319825705](https://github.com/SIX2090/wms/actions/runs/42319825705)均completed/success；[Android APK Build 42311667571](https://github.com/SIX2090/wms/actions/runs/42311667571)成功SHA `8d3b4c5d45028782f409fa16094bf678e5035faa`为目标祖先，Android源码和构建工作流输入差异为空。代码交付已验收，前文“待精确目标CI”为此前阶段记录。
+
+固定制品 `2d3aa6df31ca0da46e603c6dda9dc21b5d5317edb88ded1f7359567a7732c7e9` 位于 `C:\wms_releases\20261107_product_category_7cc09441`，12,330文件、40覆盖文件、34项固定依赖；按Git对象构建，不打包工作区未提交界面改动。相对当前aaf30bd2生产制品，除本次分类服务外，还包括main已验收但未上线的[菜单与单据入口修正](2026-11-06-menu-document-repairs.md)，未将该附带范围默认为已获上线批准。
+
+线上100表一致性备份完整性ok；待上线制品的只读启动预检确认源码、UI、依赖、配置指纹及schema匹配，无监听、无结构或业务数据写入，原启动动作保持不变；现有六项持久目录映射复用，未新建生产数据目录。受限证据位于 `C:\wms_backups\product_category_20261107_7cc09441`，不提交私有启动配置或凭据。
+
+2026-11-07 08:50（北京时间）当前生产仍为aaf30bd2、PID2828、唯一8080、健康GET200，监护running/2。发布动作、最终停服备份和一次普通重启须等本次具体授权；不补列、不回填历史物料、不重置预算。本文档提交不改变固定业务制品。
