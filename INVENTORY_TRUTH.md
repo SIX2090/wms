@@ -169,7 +169,7 @@ ok, err = apply_stock_delta(
 | 批 3 | out_order + after_sale_out（5 路由） | ✅ |
 | 批 4 | subcontract 网页版（6 路由） | ✅ |
 | **批 5** | **mobile 4 处 + native_api 2 处 + 委外快速收货老 API 1 处** | **✅（2026-09-25）** |
-| 批 6（待评估） | `requisition.py` 扣减侧（语义不同，见下） | ⏳ |
+| 批 6 | `requisition.py` 完成/反提交两侧 | ✅（2026-11-08按现有代码及合成回归核实，未重新开发） |
 
 > **批 5 的额外收获**：收敛侦察发现 **BUG-2026-09-20-008 的 R6 结论不完备**——
 > 它漏掉了 `app/app.py` 的**老 API** `api_subcontract_quick_receive`
@@ -177,10 +177,12 @@ ok, err = apply_stock_delta(
 > 双轨实现时，排查只覆盖了其中一套**。教训：R6 排查必须按**路由**而非按
 > **文件**清点，双轨实现要两套都查。
 
-> **`requisition.py` 为何单列**：其扣减侧直接调 `deduct_location_inventory_atomic`，
-> **绕过** `update_location_inventory` 的「无库位记录且不允许负库存即失败」检查
-> （BUG-2026-08-04-002 口径）。收敛到入口会**改变失败语义**（从"静默建负账"
-> 变为"显式报错"），属净行为变更，按 R8 单独评估，不夹带。
+> **批6的历史评估与2026-11-08核实**：早期单列是因扣减侧直接调
+> `deduct_location_inventory_atomic`，可能绕过 `update_location_inventory` 的
+> 「无库位记录且不允许负库存即失败」检查（BUG-2026-08-04-002），改变该失败
+> 语义必须按R8单独评估。当前 `complete_requisition` 与 `revert_requisition`
+> 已经调用 `apply_stock_delta`，并保留正数量、单位、仓库/库位和失败回滚校验；
+> 本次只据实际代码及多仓完成/反提交回归修正进度，不改库存入口或历史数据。
 
 ### 2.1.1 业务单据的库存流入/流出路径（新增单据类型必登记）
 

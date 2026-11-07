@@ -7,6 +7,7 @@
 > 2026-10-25 校订：按用户要求，改为每批代码修改及验证完成后统一提交推送；atomic action 保留为批内分析与验证单位，不再要求逐项 commit + push。CI 全绿门禁、逐项回归与生产边界保持。
 > 2026-11-01 校订：按单人直接在 main 开发的实际流程，采用逐项本地提交、相关任务分批推送、批次精确目标完整 CI；替代下方原“每批仅一个 commit”的节奏。R8、生产、费用、凭据及删除恢复边界不变。
 > 2026-11-04 环境更新：用户确认目前两人使用WMS、各自独立账号；开发人数与业务使用人数分别记录，不改变main提交流程。多人权限、请求隔离和同单编辑冲突须重新评估。
+> 2026-11-08 事实校订：按现有工单领料完成/反提交路由及合成回归，修正状态权威表的反提交能力记录；不新增状态、权限或业务操作授权。
 
 ## 目录
 
@@ -58,7 +59,7 @@
 | 盘点单 InventoryCheck | pending / completed | ✅（须其调整单未提交，`check.py:634`） | ✅ | 差异自动生成调整单 |
 | 扫码盘点 Scan | pending / completed / void | — | — | void 作废留痕（INV-REVERT-001） |
 | 售后出库 AfterSaleOut | pending / completed | ✅ | ✅ | |
-| 工单领料 Requisition | pending / completed | — | ✅ | |
+| 工单领料 Requisition | pending / completed | ✅ | ✅ | 现有 `revert_requisition` 按原仓库回退；2026-11-08核实 |
 | 期初库存单 OpeningStockDoc | active | — | ✅（逐行回冲，见 INVENTORY_TRUTH §2.1.2） | 多单据汇总口径 |
 | 采购申请 PurchaseRequest | pending / approved / rejected / completed | — | — | 有审批态 |
 | 采购订单 PurchaseOrder | pending / partial / completed | — | — | 行级 received_quantity 跟踪 |
