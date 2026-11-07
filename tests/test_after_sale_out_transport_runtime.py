@@ -8,6 +8,7 @@ import subprocess
 
 import pytest
 from tests.test_frontend_remaining_page_transport import callback
+from tests.frontend_page_source import page_source
 
 ROOT=Path(__file__).resolve().parents[1]
 ACTIONS=[('after_sale_out','revertOrder'),('after_sale_out','deleteOrder'),('after_sale_out','submitDocumentImport'),
@@ -52,7 +53,7 @@ responseScenario='success';if(p.name==='submitDocumentImport')file.value='after-
 
 
 def test_only_reachable_after_sale_mutations_remain():
-    sources=[(ROOT/f'app/templates/{page}.html').read_text(encoding='utf-8') for page in ['after_sale_out','after_sale_out_detail']]
+    sources=[page_source(ROOT/f'app/templates/{page}.html') for page in ['after_sale_out','after_sale_out_detail']]
     assert not any(re.search(r'\b(?:fetch|csrfFetch)\s*\(',s) for s in sources)
     assert sum(s.count('WMS.api.postRaw(') for s in sources)==8  # Six migrated plus two existing completions.
     assert 'function batchDelete(' not in sources[0]
@@ -69,9 +70,15 @@ def test_preserved_after_sale_actions_have_real_dom_entries():
         parsed=Attributes();parsed.feed((ROOT/f'app/templates/{page}.html').read_text(encoding='utf-8'))
         actions=' '.join(value or '' for name,value in parsed.attrs if name in ['onclick','onchange'])
         assert 'batchDelete(' not in actions
-        assert 'revertOrder(' in actions and 'deleteOrder(' in actions
-        if page=='after_sale_out_detail':assert 'copyOrder(' in actions
+        if page=='after_sale_out_detail':
+            assert 'revertOrder(' in actions and 'deleteOrder(' in actions
+            assert 'copyOrder(' in actions
         else:
-            assert 'submitDocumentImport(' in actions
+            assert ('data-document-list-action','after-sale-out-revertOrder') in parsed.attrs
+            assert ('data-document-list-action','after-sale-out-deleteOrder') in parsed.attrs
+            assert ('data-document-list-action','after-sale-out-completeOrder') in parsed.attrs
+            assert ('data-document-list-change','import') in parsed.attrs
+            source=page_source(ROOT/f'app/templates/{page}.html')
+            assert all('function '+name+'(' in source for name in ['revertOrder','deleteOrder','completeOrder','submitDocumentImport'])
             assert ('id','afterSaleOutImportForm') in parsed.attrs
             assert ('id','afterSaleOutImportFile') in parsed.attrs

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = 'in_order out_order after_sale_out transfer check adjustment subcontract subcontract_issue subcontract_receive purchase_order purchase_request'.split()
@@ -26,7 +27,7 @@ def test_list_import_lifecycle_preserves_file_and_single_dispatch(page, scenario
     payload = {
         'page': page,
         'scenario': scenario,
-        'html': (template_dir / f'{page}.html').read_text(encoding='utf-8'),
+        'html': page_source(template_dir / f'{page}.html'),
         'api': (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
     }
     result = subprocess.run(

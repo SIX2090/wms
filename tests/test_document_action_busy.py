@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 HANDLERS = [('in_order_detail', 'completeOrder'), ('out_order_detail', 'completeOrder'),
@@ -32,7 +33,7 @@ def test_completion_busy_state(page, name, scenario):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    source = (ROOT / ('app/templates/'+page+'.html')).read_text(encoding='utf-8')
+    source = page_source(ROOT / ('app/templates/'+page+'.html'))
     helper = ROOT / 'app/static/js/document-action.js'
     payload = dict(function=re.sub(r'\{\{.*?\}\}', '0', _function(source, name)),
         submit=_function(source, 'submitForm') if page == 'adjustment_add' else '',
