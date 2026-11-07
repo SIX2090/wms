@@ -783,6 +783,8 @@
 | B9本地闭环 | bugs | entries-2026-11.md |
 | B9完整CI失败、整批撤回与纠正 | bugs | entries-2026-11.md |
 | B9纠正候选本地闭环 | bugs | entries-2026-11.md |
+| B9精确目标代码交付 | bugs | entries-2026-11.md |
+| BUG-2026-11-08-005 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

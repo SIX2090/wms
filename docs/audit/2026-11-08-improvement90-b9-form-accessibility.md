@@ -56,3 +56,10 @@ B9提交前门禁：8项静态全部退出0，正常pre-commit仍启用；源码
 
 
 B9纠正提交前闭环：源码/库存/台账3完整模块33 passed（lab/b9-corrected-source-01），8静态门禁全部退出0（lab/b9-corrected-static-01），正常hooks仍启用。20文件整批候选含全部10产品/全部原断言和3取源修正；22完整模块871 passed、0skip；全15非测试撤回450项28旧失败/422对照全部字节恢复。Chrome23组与产品精确同哈希复用。精确新目标完整CI待验；生产未部署，本批不冒充整个第5项或90分目标完成。
+
+
+## B9精确目标代码交付（2026-11-08）
+
+最终bcac09b0c91014ee4f02e5c1d3c381ecd89eaf40，父575aee99，treef6ac1d65d6a50bd7dd38588744fe61c8adffb287；本地/远端一致且干净。正常本地50cf43d1及bundle保留，20精确blob（14原SHA复用+6新）/完整tree/parent/expected_sha force=false发布并逐对象fetch、CAS对齐。
+
+[WMS CI42418212956](https://github.com/SIX2090/wms/actions/runs/42418212956)、[AI42418213035](https://github.com/SIX2090/wms/actions/runs/42418213035)、[Windows42418513830](https://github.com/SIX2090/wms/actions/runs/42418513830)及[Perf42418212952](https://github.com/SIX2090/wms/actions/runs/42418212952)全部completed/success，三unit/四verify/lint/smoke/browser/changes/gate成功；docs-checks全量代码分流正常跳过。最新Android42311667571/8d3b4c5d成功，main两页及祖先/原生源码/工作流零差异已核实。B9-corrected-exact-target-acceptance.json与local-results已code_delivered=true，覆盖之前待验状态。871本地、33源码、450整批R8及23Chrome证据完整；不冒充生产上线、整个第5项或90分达标。

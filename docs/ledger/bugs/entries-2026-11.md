@@ -1626,3 +1626,31 @@ B9提交前门禁：8项静态全部退出0，正常pre-commit仍启用；源码
 
 
 B9纠正提交前闭环：源码/库存/台账3完整模块33 passed（lab/b9-corrected-source-01），8静态门禁全部退出0（lab/b9-corrected-static-01），正常hooks仍启用。20文件整批候选含全部10产品/全部原断言和3取源修正；22完整模块871 passed、0skip；全15非测试撤回450项28旧失败/422对照全部字节恢复。Chrome23组与产品精确同哈希复用。精确新目标完整CI待验；生产未部署，本批不冒充整个第5项或90分目标完成。
+
+
+## B9精确目标代码交付（2026-11-08）
+
+最终bcac09b0c91014ee4f02e5c1d3c381ecd89eaf40，父575aee99，treef6ac1d65d6a50bd7dd38588744fe61c8adffb287；本地/远端一致且干净。正常本地50cf43d1及bundle保留，20精确blob（14原SHA复用+6新）/完整tree/parent/expected_sha force=false发布并逐对象fetch、CAS对齐。
+
+[WMS CI42418212956](https://github.com/SIX2090/wms/actions/runs/42418212956)、[AI42418213035](https://github.com/SIX2090/wms/actions/runs/42418213035)、[Windows42418513830](https://github.com/SIX2090/wms/actions/runs/42418513830)及[Perf42418212952](https://github.com/SIX2090/wms/actions/runs/42418212952)全部completed/success，三unit/四verify/lint/smoke/browser/changes/gate成功；docs-checks全量代码分流正常跳过。最新Android42311667571/8d3b4c5d成功，main两页及祖先/原生源码/工作流零差异已核实。B9-corrected-exact-target-acceptance.json与local-results已code_delivered=true，覆盖之前待验状态。871本地、33源码、450整批R8及23Chrome证据完整；不冒充生产上线、整个第5项或90分达标。
+
+
+## 已修复并纳入回归（B10本地候选，精确CI待验）
+
+### BUG-2026-11-08-005: 离线恢复未拒绝目标SQLite事务旁文件
+
+- 状态：已修复（本地候选）；完整R8及精确新CI待验，不计代码交付。
+- 同根因历史：查BUG-2026-10-16-001离线恢复、BUG-2026-10-17-008备份目录和BUG-2026-11-05-001独立执行状态；现有snapshot已拒绝旁文件，restore消费点尚未覆盖。
+- 根因：restore仅查同文件/维护锁/OS打开状态，没有在无目标主文件或后续阶段拒绝-wal/-shm/-journal；实际Lab基线返回0并删除目标标记。
+- 修复：开头及两处已有后续复查同步拒绝目标事务旁文件，保留文件不删除；原schema/integrity/lease/占用/暂存/留底保持。补不带任何IO的就绪与告警状态转换，仅用于获授权事实和本地接收替身，不挂生产探测或通知任务。
+- 同类点已排查：在线snapshot/离线restore、确认后/留底后、源WAL可读、同源拒绝、实际闲置连接/独立进程、磁盘满模拟、现有备份状态和轻量liveness；不改变生产schema或恢复预算。
+- 回归：真实97表1099列合成snapshot/restore全部列值和完整性一致，库存三口径324相等；候选旁文件return3/目标未创建/标记保留；原11恢复模块断言未改全通过，新增8拒绝/晚到保护与25纯就绪检查通过。持久checkpoint跨实际新进程0重复、3恢复、0外发；性能全部样本/10%标记据实记录。全批门禁与交付后续补证。
+- 生效确认：仅任务Lab自建合成文件或内存，原生产DB/旁文件/别名与生产HTTP/账号/库存单据/服务/监护/恢复预算均无操作。未部署生产；异机/介质/RTO/RPO/实际通知待人工。[B10记录](../../audit/2026-11-08-improvement90-b10-offline-operations.md)。
+
+
+B10本地闭环：最终7完整模块92 passed、0failed/errors/skipped（25纯就绪、8目标旁文件、原恢复11、liveness4、性能统计11、原生原子26、真实文件并发7）。原5模块及全部断言逐字节保持，f4只新增BUG005固定登记且旧assert AST相同。整批7非测试文件物理撤回bcac，原恢复11旧基线、health4/perf11对照全通过；新33正确契约旧版全部失败，0error/skip，总59项33旧失败/26对照。全部文件SHA256逐字节恢复。
+
+两产品哈希与97表1099列演练、实际进程checkpoint及两规模性能测量相同，未无故重复成功对照。原生内存/文件已按各自边界完整分开重跑，最终结果无错误/跳过，初始混组拒绝记录保留。后续源码/台账33、8静态、正常hooks及精确新CI仍待；本地通过不等于代码交付，更不等于生产生效。证据B10-final-suite-results.json、lab/r8-b10-whole01/proof.json。
+
+
+B10提交前闭环：7完整模块92 passed、0fail/error/skip；源码/库存/台账3完整模块33 passed；8静态门禁全部退出0，正常hooks启用。整批7非测试文件撤回旧版59项33新契约旧失败/26对照，逐字节恢复。97表1099列的全值/结构/完整性、stock=ledger=分仓324、真实进程告警去重与恢复，以及300/3000物料两轮性能证据完整保留。300规模stock P95第二轮+11.939%/+3.14ms采样告警保留，不拿实验处理时延冒充生产SLA。精确新目标完整CI仍待；本批没有生产部署、监护或真实通知动作。
