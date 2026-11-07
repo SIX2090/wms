@@ -193,6 +193,7 @@
 | AI-SEC-FIX-SECRET-FAIL-CLOSED-20261104-001 | ai | completions-2026-11.md |
 | AI-DEPLOY-F01-FIX-05 | ai | completions-2026-11.md |
 | AI-DEPLOY-F01-FIX-06 | ai | completions-2026-11.md |
+| AI-C01-FIX-ROLE-UI-001-F01 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |

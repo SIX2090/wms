@@ -48,3 +48,11 @@ AI子修复唯一ID为AI-C01-FIX-ROLE-UI-001-F01。未新增AI路由、工具、
 首轮WMS CI最终failure：unit-tests-shard-0有19项替身关键字兼容失败（4183 passed），unit-tests-shard-2另有10项INVENTORY_TRUTH函数行号漂移断言失败（4211 passed）；第三单测分片、四脚本分片、静态、浏览器及隔离冒烟均成功。已读取两个失败job的实际日志。纠正同时按实际符号位置更新库存权威文档的全部相关定位行号（含两处历史回填函数旧引用），保留22项符号/行号断言；此处只同步文档定位，没有执行回填、修改库存函数或连接生产库。纠正完成后仍需获准推送并核验精确新SHA完整CI，不能把首轮红灯当作已通过。
 
 推送基线替代证明：匿名check_ci_green.py因HTTP403限流未能核实，使用已连接GitHub读取main最近30条与第二页，WMS CI [42225303639](https://github.com/SIX2090/wms/actions/runs/42225303639)、AI [42225303634](https://github.com/SIX2090/wms/actions/runs/42225303634)均completed/success且完整SHA为aaf30bd2027618c44e4466f35f09abb9eee29c2f；Android最近运行[42131949898](https://github.com/SIX2090/wms/actions/runs/42131949898)为f0998c0b93ce5365e1f41f060ab183633ac1b367，completed/success。Git对象齐全、Android提交为aaf祖先，两个受保护构建输入路径无差异；推送前仍重新核对实时main及本批路径。本批不新增或修改Android构建输入。
+
+## 2026-11-07 推送与代码CI验收
+
+用户明确授权“两个纠正提交推送到 main”。本次在已知远端8d3b4c5d的WMS CI失败时，按这次具体授权单次设置WMS_SKIP_CI_GATE=1，推送cfc8e68e整批撤回及30ba3ce5完整重放；进程结束后恢复原环境变量。此为明确纠正授权，不冒用查询故障例外，也未把实际失败当作绿色。
+
+实际git push输出`8d3b4c5d..30ba3ce5 main -> main`；HEAD、origin/main、实时远端均为`30ba3ce5aa4ac3b9797a3f69cdf5b7a0ee79da20`。该SHA的[WMS CI42315911094](https://github.com/SIX2090/wms/actions/runs/42315911094)及[AI42315911096](https://github.com/SIX2090/wms/actions/runs/42315911096)均completed/success，三个单测分片、四脚本分片、静态、浏览器、隔离冒烟及gate全部通过。最近Android运行[42311667571](https://github.com/SIX2090/wms/actions/runs/42311667571)对应8d3b4c5d成功；对象齐全、为当前目标祖先、两个构建输入路径无变化。正式`python scripts/check_ci_green.py --target-sha 30ba3ce5aa4ac3b9797a3f69cdf5b7a0ee79da20 --json`返回0、ok=true。
+
+BUG-2026-11-06-009至017的软件修复及既有AI能力子修复已验收。收尾仅同步本记录、BUG状态、AI完成记录和索引，未修改业务代码；收尾提交自身仍按规则验收CI。生产数据库未连接或修改，未部署、未重启生产，生产现场生效尚未验收。
