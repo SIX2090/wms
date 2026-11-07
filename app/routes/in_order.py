@@ -2270,8 +2270,9 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                from services.warehouse_identity import resolve_warehouse_text
-                wh_obj = resolve_warehouse_text(wh_key, strict=True)
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
             # F2.12 BUG-C（审计 §1.4）：仓库级库存快照**按行现取**，不在循环外只算一次。
             # 原实现 `warehouse_stock = get_warehouse_stock_quantities(wh_obj)` 在删除/
             # 新增/改量三路写入之间复用同一份陈旧快照——同一张单里同物料多行时，前一行
@@ -2611,8 +2612,9 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                from services.warehouse_identity import resolve_warehouse_text
-                wh_obj = resolve_warehouse_text(wh_key, strict=True)
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             # BUG-2026-10-17-013-F01：同一物料同单多行时，必须按物料合计校验，
             # 否则每行都拿扣减前快照判"够不够"，多行合计可把单仓扣成负账（审计 I2）。
@@ -3205,8 +3207,9 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                from services.warehouse_identity import resolve_warehouse_text
-                wh_obj = resolve_warehouse_text(wh_key, strict=True)
+                wh_obj = Warehouse.query.filter(
+                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
+                ).order_by(Warehouse.id.asc()).first()
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             stock_insufficient = False
             # BUG-2026-10-17-013-F01：按物料合计校验，避免多行同物料各拿一次快照

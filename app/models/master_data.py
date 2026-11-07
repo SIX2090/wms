@@ -8,8 +8,6 @@ ARCH-MODELS-01（2026-09-15）自 app/app.py 模型区迁入，类定义逐字�
 
 from db import db
 from datetime import datetime
-from sqlalchemy import event, inspect
-from sqlalchemy.orm import Session
 
 __all__ = [
     'Contract',
@@ -99,19 +97,6 @@ class Warehouse(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.now)  # Created time
     # M-03：默认仓标识，便于入库/出库默认带出仓库
     is_default = db.Column(db.Boolean, default=False, nullable=False)
-
-
-@event.listens_for(Session, 'before_flush')
-def check_warehouse_namespace(session, flush_context, instances):
-    """Cover every ORM producer without adding schema or startup repair work."""
-    changed = [record for record in session.new.union(session.dirty)
-               if isinstance(record, Warehouse) and record not in session.deleted and
-               (record in session.new or
-                inspect(record).attrs.code.history.has_changes() or
-                inspect(record).attrs.name.history.has_changes())]
-    if changed:
-        from services.warehouse_identity import validate_warehouse_namespace
-        validate_warehouse_namespace(session, changed)
 
 
 class Department(db.Model):

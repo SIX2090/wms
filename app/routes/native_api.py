@@ -3393,8 +3393,9 @@ def register_native_api_routes(app):
         warehouse_code = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
         if not warehouse_code:
             return api_json_error('请选择仓库', 400)
-        from services.warehouse_identity import resolve_warehouse_text
-        warehouse = resolve_warehouse_text(warehouse_code)
+        warehouse = Warehouse.query.filter(
+            (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+        ).first()
         if not warehouse:
             return api_json_error(f'仓库不存在：{warehouse_code}', 400)
         if (warehouse.status or 'active') != 'active':
@@ -3586,8 +3587,9 @@ def register_native_api_routes(app):
             warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
             warehouse = None
             if warehouse_code:
-                from services.warehouse_identity import resolve_warehouse_text
-                warehouse = resolve_warehouse_text(warehouse_code)
+                warehouse = Warehouse.query.filter(
+                    (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+                ).first()
                 if warehouse is None:
                     return api_json_error(f'仓库不存在：{warehouse_code}', 400)
                 if (warehouse.status or 'active') != 'active':
@@ -3747,8 +3749,9 @@ def register_native_api_routes(app):
         warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
         warehouse = None
         if warehouse_code:
-            from services.warehouse_identity import resolve_warehouse_text
-            warehouse = resolve_warehouse_text(warehouse_code)
+            warehouse = Warehouse.query.filter(
+                (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
+            ).first()
             if warehouse is None:
                 return api_json_error(f'仓库不存在：{warehouse_code}', 400)
             if (warehouse.status or 'active') != 'active':

@@ -148,8 +148,8 @@ def _check_period_movement_alerts(check):
          ))
          .group_by(StockTransaction.material_id))
     # 按仓库过滤：warehouse_id 与本盘点单仓库一致；历史脏数据 NULL 不计入
-    from services.warehouse_identity import resolve_warehouse_text
-    wh = resolve_warehouse_text(check.warehouse, strict=True)
+    from app import Warehouse
+    wh = Warehouse.query.filter_by(name=check.warehouse).first()
     if wh is not None:
         q = q.filter(StockTransaction.warehouse_id == wh.id)
     rows = q.all()

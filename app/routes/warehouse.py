@@ -23,8 +23,6 @@ from flask_login import login_required
 
 from db import db
 from utils import require_role
-from services.warehouse_identity import WarehouseIdentityError, lock_warehouse_namespace
-from sqlalchemy.exc import OperationalError
 
 
 # no-test:reason=路由注册辅助函数，能力由 warehouse_* 各路由测试覆盖
@@ -78,9 +76,6 @@ def register_warehouse_routes(app):
         try:
             db.session.add(warehouse)
             db.session.commit()
-        except WarehouseIdentityError as exc:
-            db.session.rollback()
-            return api_error(str(exc))
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'新增仓库失败: {e}')
@@ -121,12 +116,6 @@ def register_warehouse_routes(app):
             SubcontractIssue, SubcontractReceive,
         )
         from sqlalchemy import case, or_
-        try:
-            lock_warehouse_namespace(db.session)
-            db.session.expire_all()
-        except OperationalError:
-            db.session.rollback()
-            return jsonify(status='error', msg='仓库档案正在保存，请稍后重试'), 503
         warehouse = db.session.get(Warehouse, id)
         if not warehouse:
             return jsonify({'status': 'error', 'msg': '仓库不存在'}), 404
@@ -201,9 +190,6 @@ def register_warehouse_routes(app):
                         synchronize_session=False
                     )
             db.session.commit()
-        except WarehouseIdentityError as exc:
-            db.session.rollback()
-            return api_error(str(exc))
         except Exception as e:
             db.session.rollback()
             current_app.logger.error(f'编辑仓库失败: {e}')
@@ -379,7 +365,7 @@ def register_warehouse_routes(app):
             if skip:
                 msg += f'，跳过 {skip} 条（重复或格式错误）'
             return jsonify({'status': 'success', 'msg': msg, 'count': count})
-        except (MasterImportError, WarehouseIdentityError) as exc:
+        except MasterImportError as exc:
             db.session.rollback()
             return api_error(str(exc))
         except Exception:

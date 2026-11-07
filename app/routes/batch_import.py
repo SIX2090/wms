@@ -889,8 +889,9 @@ def register_batch_import_routes(app):
                 wh_code = _v(row, 'warehouse')
                 warehouse = None
                 if wh_code:
-                    from services.warehouse_identity import resolve_warehouse_text
-                    warehouse = resolve_warehouse_text(wh_code)
+                    warehouse = Warehouse.query.filter(
+                        (Warehouse.code == wh_code) | (Warehouse.name == wh_code)
+                    ).first()
                     if not warehouse:
                         errors.append(f'第 {row_no} 行：仓库 [{wh_code}] 不存在')
                         skipped += 1
