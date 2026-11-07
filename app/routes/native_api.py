@@ -3533,6 +3533,8 @@ def register_native_api_routes(app):
         try:
             # 解析物料行：能匹配建档物料则使用建档物料；
             # 未匹配时若启用自动建档则按 name/spec/unit 自动建档，否则拦截。
+            from services.native_request_idempotency import activate_native_business_transaction
+            activate_native_business_transaction()
             matched = []
             unmatched = []
             auto_created = []

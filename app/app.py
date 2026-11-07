@@ -4658,6 +4658,11 @@ def generate_order_no(prefix='NO'):
     if prefix == 'OUT':
         prefix = 'OU'
 
+    # Native requests must hold the database transaction before reading the last
+    # formal number; take this lock before the process-local numbering mutex.
+    from services.native_request_idempotency import activate_native_business_transaction
+    activate_native_business_transaction()
+
     # BUG-2026-08-16-020：SQLite 下 with_for_update 是 no-op，并发取号可能撞号，
     # 而撞号在调用方 INSERT/commit 时才暴露（约束兜底但用户吃 500）。
     # 这里用进程内互斥锁把「读末号 + 算新号」串行化，单进程（WMS 常见部署）
@@ -7092,62 +7097,9 @@ def api_role_required(*roles):
     return decorator
 
 def mobile_api_idempotent(endpoint):
-    """Replay a successful native mobile submission when a client retries it."""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(user, *args, **kwargs):
-            payload = request.get_json(silent=True) or {}
-            if not isinstance(payload, dict):
-                return api_json_error('请求数据必须为JSON对象', 400)
-            request_key = (
-                request.headers.get('X-Idempotency-Key')
-                or payload.get('request_id')
-                or ''
-            )
-            if not isinstance(request_key, str):
-                return api_json_error('幂等请求号必须为字符串', 400)
-            request_key = request_key.strip()
-            if request_key:
-                if len(request_key) > 120:
-                    return api_json_error('幂等请求号不能超过120个字符', 400)
-                existing = MobileApiRequest.query.filter_by(
-                    user_id=user.id,
-                    endpoint=endpoint,
-                    request_key=request_key,
-                ).first()
-                if existing:
-                    try:
-                        replay_payload = json.loads(existing.response_json)
-                    except (TypeError, ValueError):
-                        replay_payload = {'status': 'error', 'success': False, 'msg': '历史响应无法读取'}
-                    return jsonify(replay_payload), existing.status_code
-
-            response = f(user, *args, **kwargs)
-            if not request_key:
-                return response
-
-            response_obj = response[0] if isinstance(response, tuple) else response
-            status_code = response[1] if isinstance(response, tuple) and len(response) > 1 else response_obj.status_code
-            if not 200 <= status_code < 300:
-                return response
-            response_payload = response_obj.get_json(silent=True) or {}
-            try:
-                db.session.add(MobileApiRequest(
-                    user_id=user.id,
-                    endpoint=endpoint,
-                    request_key=request_key,
-                    status_code=status_code,
-                    response_json=json.dumps(response_payload, ensure_ascii=False),
-                ))
-                db.session.commit()
-            except Exception:
-                # The business transaction has already committed. A failed audit
-                # record must not turn a successful warehouse operation into an error.
-                db.session.rollback()
-                app.logger.exception('Mobile idempotency record failed')
-            return response
-        return decorated_function
-    return decorator
+    """Native clients share fenced content replay and atomic business/result commits."""
+    from services.native_request_idempotency import native_request_idempotent
+    return native_request_idempotent(endpoint)
 
 def web_or_api_required(f):
     @wraps(f)
