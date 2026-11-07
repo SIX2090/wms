@@ -19,7 +19,7 @@
 # - 模板解析/填充失败时 render_doc_excel_print 回退内置模板；正常必有结果。
 from __future__ import annotations
 
-from flask import abort, jsonify, request, send_file
+from flask import abort, g, jsonify, request, send_file
 from flask_login import login_required
 
 from doc_print_excel import (
@@ -31,6 +31,8 @@ from doc_print_excel import (
 
 # target_code → (URL 前缀, app 模块中的模型名)
 _DOC_ROUTE_MODELS = {
+    'bom': ('bom', 'BOM'),
+    'opening_stock': ('opening_stock', 'OpeningStockDoc'),
     'purchase_request': ('purchase_request', 'PurchaseRequest'),
     'check': ('check', 'InventoryCheck'),
     'transfer': ('transfer', 'TransferOrder'),
@@ -58,12 +60,13 @@ def _make_doc_print_excel_view(flask_app, target_code, model_name):
                 target_code, order,
                 template_id=request.args.get('template_id', type=int),
                 static_folder=flask_app.static_folder,
+                preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
             )
         except Exception as exc:
             if target_code != 'purchase_request':
                 raise
             flask_app.logger.warning('采购申请Excel模板无法读取：%s', exc)
-            return app_module.api_error('Excel模板无法读取，请在模板中心重新保存，或使用普通打印', 400)
+            return app_module.api_error('Excel模板无法读取，请在模板中心重新保存，或使用网页打印', 400)
         if result is None:
             abort(404)
         output, filename = result
@@ -74,6 +77,8 @@ def _make_doc_print_excel_view(flask_app, target_code, model_name):
 
 def register_doc_print_excel_routes(app):
     """注册全模块单据 Excel 模板打印路由（endpoint 统一 doc_print_excel_*）。"""
+    from routes.document_print import register_document_print_routes
+    register_document_print_routes(app)
     for target_code, (prefix, model_name) in _DOC_ROUTE_MODELS.items():
         view = login_required(_make_doc_print_excel_view(
             app, target_code, model_name))

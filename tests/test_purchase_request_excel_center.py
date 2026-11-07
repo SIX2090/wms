@@ -92,7 +92,11 @@ def test_center_entry_and_excel_print_do_not_create_template_records(case):
         response = client.get(path)
         assert response.status_code == 200
         assert '采购申请' in response.get_data(as_text=True)
-        assert '打印模板' in response.get_data(as_text=True)
+        if path.endswith(str(oid)):
+            assert f'/purchase_request/{oid}/print_options' in response.get_data(as_text=True)
+            assert client.get(f'/purchase_request/{oid}/print_options').status_code == 200
+        else:
+            assert '打印模板' in response.get_data(as_text=True)
     html = client.get('/print_templates?target_type=document&target_code=purchase_request').get_data(as_text=True)
     assert '材料申请单' in html and '新建并在线编辑' in html
     response = client.get(f'/purchase_request/{oid}/print_excel')
@@ -173,7 +177,7 @@ def test_bad_excel_template_keeps_plain_print_available(case):
     assert 'Excel模板暂不可用' in plain.get_data(as_text=True)
     assert '材料申请单' in plain.get_data(as_text=True)
     excel = client.get(f'/purchase_request/{oid}/print_excel')
-    assert excel.status_code == 400 and '普通打印' in excel.get_json()['msg']
+    assert excel.status_code == 400 and '网页打印' in excel.get_json()['msg']
 
 
 def test_uploaded_logo_and_footer_survive_request_pagination(tmp_path):

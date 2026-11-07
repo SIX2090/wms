@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
 {% import '_list_macros.html' as ui %}
 {% block title %}{{ (order.business_type ~ '单') if order.business_type in ['产品入库', '销售退货入库'] else '入库单' }}详情 - {{ order.order_no }}{% endblock %}
@@ -191,9 +192,7 @@
                 </button>
                 {% endif %}
                 {% endif %}
-                <button class="btn btn-sm btn-outline-secondary" onclick="printOrder()">
-                    <i class="bi bi-printer"></i> 打印
-                </button>
+                {{ document_print_menu('in_order', order.id) }}
                 <button class="btn btn-sm btn-outline-primary" onclick="sendToPrintStation('in_order', {{ order.id }})" title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送到已启动的桌面打印工作站' }}" {% if runtime_external_paused %}disabled{% endif %}>
                     <i class="bi bi-printer-fill"></i> 发送打印{{ '（暂停）' if runtime_external_paused else '' }}
                 </button>
@@ -1547,7 +1546,7 @@ function doDeleteIn(id, showToastFn) {
 
 // ==================== 打印 ====================
 function printOrder() {
-    window.open('/in_order/{{ order.id }}/print', '_blank');
+    window.open('/in_order/{{ order.id }}/print_options', '_blank');
 }
 
 function sendToPrintStation(jobType, targetId) {

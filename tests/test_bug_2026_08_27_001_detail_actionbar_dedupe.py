@@ -65,18 +65,20 @@ def test_t3_detail_templates_provide_own_actions():
     """详情页自带按钮存在，全局按钮去重后页面功能不缺失。"""
     cases = {
         # 模板: (必须含有的页面级动作特征)
-        "out_order_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', 'onclick="printOrder()'),
-        "in_order_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', 'onclick="printOrder()'),
-        "after_sale_out_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', "url_for('print_after_sale_out'"),
-        "purchase_order_detail.html": ('onclick="deletePurchaseOrder(', "url_for('print_purchase_order'"),
-        "sales_order_detail.html": ('delete', "url_for('print_sales_order'"),
-        "purchase_request_detail.html": ("url_for('print_purchase_request'",),
-        "subcontract_detail.html": ('onclick="deleteOrder(',),
+        "out_order_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', "document_print_menu('out_order', order.id)"),
+        "in_order_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', "document_print_menu('in_order', order.id)"),
+        "after_sale_out_detail.html": ('onclick="deleteOrder(', 'onclick="revertOrder(', "document_print_menu('after_sale_out', order.id)"),
+        "purchase_order_detail.html": ('onclick="deletePurchaseOrder(', "document_print_menu('purchase_order', order.id)"),
+        "sales_order_detail.html": ('delete', "document_print_menu('sales_order', order.id)"),
+        "purchase_request_detail.html": ("document_print_menu('purchase_request', order.id, small=false)",),
+        "subcontract_detail.html": ('onclick="deleteOrder(', "document_print_menu('subcontract', order.id)"),
     }
     for tpl, markers in cases.items():
         content = _read(TEMPLATES / tpl)
         for marker in markers:
             assert marker in content, f"{tpl} 缺少页面级动作标记 {marker!r}"
+    shared = _read(TEMPLATES / "_document_print_menu.html")
+    assert 'data-wms-document-print' in shared and "'/print_options'" in shared
 
 
 def test_t4_sidebar_print_nav_not_ending_with_print():

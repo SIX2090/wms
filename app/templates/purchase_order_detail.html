@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% import '_list_macros.html' as ui %}
 {% block title %}采购单详情{% endblock %}
 {% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
@@ -36,9 +37,7 @@
             {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
                 <a href="/purchase_order" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> 返回列表</a>
-                <a href="{{ url_for('print_purchase_order', id=order.id) }}" target="_blank" class="btn btn-sm btn-outline-primary">
-                    <i class="bi bi-printer"></i> 打印
-                </a>
+                {{ document_print_menu('purchase_order', order.id) }}
                 {% if current_user.role in ['admin', 'purchase'] %}
                 <button class="btn btn-sm btn-outline-info" onclick="copyPurchaseOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制

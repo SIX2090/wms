@@ -37,6 +37,30 @@ from openpyxl.utils import get_column_letter
 # totals: 'quantity' 输出 {total_quantity}；'amount' 输出 {total_amount}（模型须有 total_amount）
 
 DOC_EXCEL_PRINT_TYPES = {
+    'bom': {
+        'label': 'BOM清单',
+        'header': [('BOM编号', 'bom_no'), ('产品编码', 'product_code'),
+                   ('产品名称', 'product_name'), ('版本', 'version'),
+                   ('总成本', 'total_cost'), ('备注', 'remark')],
+        'columns': [('物料编码', 'material.code', 12), ('物料名称', 'material.name', 20),
+                    ('规格', 'material.spec', 14), ('单位', 'unit.name', 6),
+                    ('用量', 'quantity', 8), ('单位成本', 'unit_cost', 10),
+                    ('成本金额', 'total_cost', 10), ('用途', 'usage', 14),
+                    ('备注', 'remark', 14)],
+        'totals': ('quantity',),
+    },
+    'opening_stock': {
+        'label': '期初库存单',
+        'header': [('单据编号', 'doc_no'), ('建账日期', 'date'),
+                   ('仓库', 'warehouse.name'), ('备注', 'remark'),
+                   ('操作人', 'operator.username')],
+        'columns': [('物料编码', 'material.code', 12), ('物料名称', 'material.name', 20),
+                    ('规格', 'material.spec', 14), ('单位', 'material.unit.name', 6),
+                    ('仓库', 'warehouse.name', 12), ('库位', 'location', 12),
+                    ('数量', 'quantity', 8), ('单价', 'price', 10),
+                    ('金额', 'amount', 10), ('备注', 'remark', 14)],
+        'totals': ('quantity', 'amount'),
+    },
     'purchase_request': {
         'label': '采购申请单',
         'header': [('申请编号', 'request_no'), ('日期', 'date'),
@@ -655,6 +679,17 @@ def _template_path_or_builtin(template, static_folder, target_code):
     return _builtin_template_abspath(static_folder, target_code)
 
 
+class _OpeningStockPrintOrder:
+    """Expose the document total for printing without assigning to an ORM record."""
+
+    def __init__(self, order):
+        self._order = order
+        self.total_amount = sum(line.amount or 0 for line in order.lines)
+
+    def __getattr__(self, name):
+        return getattr(self._order, name)
+
+
 class _PurchaseReceiptPrintItem:
     """Read-only receipt facts for both built-in and custom Excel placeholders."""
 
@@ -743,7 +778,7 @@ def render_purchase_request_excel(path, order, items, date_str=None):
 
 
 def render_doc_excel_print(target_code, order, items=None, template_id=None,
-                           static_folder=None, date_str=None):
+                           static_folder=None, date_str=None, preserve_layout=False):
     """按注册表填充单据 Excel 模板，返回 (BytesIO, 文件名)；未注册返回 None。"""
     spec = DOC_EXCEL_PRINT_TYPES.get(target_code)
     if spec is None or order is None:
@@ -755,7 +790,9 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
         static_folder, target_code)
     if not path:
         return None
-    print_items = items if items is not None else getattr(order, 'items', None)
+    print_items = items if items is not None else getattr(order, 'lines' if target_code == 'opening_stock' else 'items', None)
+    if target_code == 'opening_stock':
+        order = _OpeningStockPrintOrder(order)
     if target_code == 'purchase_order':
         from app import build_purchase_order_execution
         execution = build_purchase_order_execution(order)
@@ -766,9 +803,10 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
     else:
         output = build_filled_print_excel(
             path, order, items=print_items,
-            date_str=date_str or datetime.now().strftime('%Y-%m-%d'))
+            date_str=date_str or datetime.now().strftime('%Y-%m-%d'),
+            preserve_layout=preserve_layout)
     order_no = ''
-    for attr in ('order_no', 'request_no', 'check_no', 'transfer_no', 'req_no',
+    for attr in ('order_no', 'request_no', 'check_no', 'transfer_no', 'req_no', 'bom_no', 'doc_no',
                  'adjustment_no', 'issue_no', 'receive_no'):
         value = getattr(order, attr, None)
         if value:

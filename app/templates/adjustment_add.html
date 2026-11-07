@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}{{ page_title or '库存调整单' }}{% endblock %}
 
 {% block extra_css %}
@@ -254,9 +255,7 @@
             <button type="button" class="btn btn-outline-warning btn-sm" data-document-action="revertAdjustment" onclick="revertAdjustment()">反提交</button>
             {% endif %}
             {% if adjustment %}
-            <a href="{{ url_for('print_adjustment', id=adjustment.id) }}" target="_blank" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-printer"></i> 打印
-            </a>
+            {{ document_print_menu('adjustment', adjustment.id) }}
             {% endif %}
             <a data-wms-back href="/adjustment" class="btn btn-secondary btn-sm">
                 <i class="bi bi-arrow-left"></i> 返回列表

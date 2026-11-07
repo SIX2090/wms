@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import shutil
 import subprocess
 
-from jinja2 import Template
+from jinja2 import Environment, FileSystemLoader, Template
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +28,8 @@ def test_work_order_single_button(existing):
     source=(ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     header=source.split('{% block content %}',1)[1].split('<div class="doc-body">',1)[0]
     declarations=source.split('{% block title %}',1)[0].split('\n',1)[1]
-    rendered=Template(declarations+header).render(current_user=SimpleNamespace(role='production'),readonly=False,doc_type='requisition',can_save=True,can_complete=existing,complete_url='/complete/0')
+    env=Environment(loader=FileSystemLoader(ROOT/'app/templates'))
+    rendered=env.from_string(declarations+header).render(current_user=SimpleNamespace(role='production'),readonly=False,doc_type='requisition',can_save=True,can_complete=existing,complete_url='/complete/0')
     assert rendered.count('保存并完成领料') == 1
     assert 'submitForm(false)' not in rendered
     assert 'completeDocument()' not in rendered

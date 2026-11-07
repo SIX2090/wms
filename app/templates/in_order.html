@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}{{ page_title or '采购入库单' }}{% endblock %}
 {# 本页自带完整工具栏（新增/完成已选/更多/删除已选），opt-out 全局工具栏注入，
    避免 Tab 嵌入模式下「全局栏 + 页面栏」两套并存。见 app.js insertGlobalActionBar。 #}
@@ -261,9 +262,7 @@
                         <a href="{{ url_for('in_order_detail', id=item.in_order.id) }}" class="btn btn-sm btn-outline-primary" title="查看详情" target="_blank" rel="noopener">
                             <i class="bi bi-eye"></i>
                         </a>
-                        <a href="{{ url_for('print_in_order', id=item.in_order.id) }}" target="_blank" class="btn btn-sm btn-outline-secondary" title="打印">
-                            <i class="bi bi-printer"></i>
-                        </a>
+                        {{ document_print_menu('in_order', item.in_order.id, icon_only=true) }}
                         {% if current_user.role in ['admin', 'warehouse'] %}
                         <button type="button" class="btn btn-sm btn-outline-info" title="复制单据" onclick="copyInOrder({{ item.in_order.id }})">
                             <i class="bi bi-files"></i>
@@ -597,7 +596,7 @@ function batchInOrderAction(url, emptyMessage, confirmMessage) {
         .then(function(data) {
             if (data.status === 'success') {
                 if (isPrint) {
-                    if (data.redirect) window.location.href = data.redirect;
+                    if (data.redirect) window.location.href = data.redirect.replace(/\/print$/, '/print_options');
                     else showToast('打印失败：服务器未返回打印地址', 'danger', 5000);
                     return;
                 }

@@ -39,8 +39,8 @@
     <nav class="print-toolbar" aria-label="打印操作">
         <button type="button" onclick="window.print()">打印</button>
         <button type="button" onclick="window.close()">关闭</button>
-        <a href="{{ url_for('doc_print_excel_purchase_request', id=request_id) }}" target="_blank" rel="noopener">Excel模板打印</a>
-        <a href="{{ url_for('print_templates', target_type='document', target_code='purchase_request') }}" target="_blank" rel="noopener">打印模板</a>
+        <a href="{{ url_for('doc_print_excel_purchase_request', id=request_id) }}" target="_blank" rel="noopener">下载 Excel 打印文件</a>
+        <a href="{{ url_for('print_templates', target_type='document', target_code='purchase_request') }}" target="_blank" rel="noopener">模板设置</a>
         <a href="{{ url_for('purchase_request_detail', id=request_id) }}" target="_blank" rel="noopener">返回</a>
         <span>采购申请单 {{ request_no }}</span>
     </nav>

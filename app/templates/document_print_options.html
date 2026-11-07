@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}{{ title }} · 打印{% endblock %}
+{% block body_class %}{{ super() }} embedded-page wms-no-global-actionbar{% endblock %}
+{% block content %}
+<div class="card"><div class="card-body">
+  <h2 class="h5">{{ title }} · 打印</h2>
+  <p class="text-muted">单号：{{ number }}</p>
+  {% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
+  <form method="get" action="{{ preview_url }}" target="_blank">
+    <label class="form-label" for="documentPrintTemplate">Excel 打印模板</label>
+    <select id="documentPrintTemplate" class="form-select mb-3" name="template_id">
+      <option value="">默认版式（未设置模板时使用内置版式）</option>
+      {% for template in templates %}
+      <option value="{{ template.id }}" {% if selected_id == template.id|string %}selected{% endif %} {% if not template.available %}disabled{% endif %}>{{ template.name }}{{ '（默认）' if template.is_default else '' }}{{ '（文件不可用）' if not template.available else '' }}</option>
+      {% endfor %}
+    </select>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="submit" class="btn btn-primary" id="documentTemplatePreview">预览并打印</button>
+      <button type="submit" class="btn btn-outline-success" formaction="{{ download_url.split('?')[0] }}">下载 Excel 打印文件</button>
+      <a class="btn btn-outline-secondary" href="{{ settings_url }}" target="_blank" rel="noopener">模板设置</a>
+    </div>
+  </form>
+  <p class="text-muted small mt-3 mb-0">选择模板后可在系统内预览，再打开浏览器打印窗口确认打印机、纸张和份数。含 Excel 公式、图表等无法准确呈现的版式会给出提示，可改用下载文件打印。</p>
+</div></div>
+{% endblock %}

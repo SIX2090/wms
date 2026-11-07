@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from '_document_print_menu.html' import document_print_menu %}
 {% set document_role_allowed = current_user.role in (['admin', 'production'] if doc_type in ['bom', 'requisition'] else ['admin', 'warehouse']) %}
 {% set readonly = readonly or not document_role_allowed %}
 {% set can_save = can_save and document_role_allowed %}
@@ -77,7 +78,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             <button type="button" class="btn btn-warning btn-sm" onclick="revertDocument()"><i class="bi bi-arrow-counterclockwise"></i> {{ revert_label or '反提交' }}</button>
             {% endif %}
             {% if order_id and doc_type in ['bom', 'requisition', 'transfer', 'check'] %}
-            <a href="{{ detail_url }}/{{ order_id }}/print" target="_blank" rel="noopener" class="btn btn-outline-primary btn-sm"><i class="bi bi-printer"></i> 打印</a>
+            {{ document_print_menu(doc_type, order_id) }}
             {% endif %}
             <a data-wms-back href="{{ list_url }}" class="btn btn-secondary btn-sm"><i class="bi bi-arrow-left"></i> 返回列表</a>
         </div>
