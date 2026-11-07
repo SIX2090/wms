@@ -4,7 +4,7 @@ from __future__ import annotations
 import io
 import math
 import re
-from copy import copy, deepcopy
+from copy import copy
 from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +15,6 @@ from openpyxl.utils import get_column_letter, range_boundaries
 
 from doc_print_excel import generate_report_builtin_template
 from print_fill import _Filler, _color_to_hex, _has_item_placeholder, validate_template_file
-from services.excel_print_layout import print_cell_width, print_column_width, print_row_height
 
 MAX_PREVIEW_ROWS = 5000
 MAX_PREVIEW_CELLS = 150000
@@ -61,11 +60,10 @@ def _cell_css(cell):
         horizontal = 'right' if isinstance(cell.value, (int, float)) else 'left'
     parts.append('text-align:' + horizontal)
     parts.append('vertical-align:' + {'center': 'middle', 'top': 'top', 'bottom': 'bottom'}.get(alignment.vertical, 'middle'))
-    parts.append('--excel-vertical-align:' + {'top': 'flex-start', 'bottom': 'flex-end'}.get(alignment.vertical, 'center'))
     parts.append('white-space:' + ('pre-wrap' if alignment.wrap_text else 'pre'))
     for edge in ('top', 'bottom', 'left', 'right'):
         side = getattr(cell.border, edge)
-        if side is not None and side.style:
+        if side.style:
             style = 'dashed' if 'dash' in side.style.lower() else ('dotted' if side.style == 'dotted' else 'solid')
             width = 2 if side.style in ('medium', 'thick', 'double') else 1
             parts.append('border-%s:%dpx %s %s' % (edge, width, style, _color_to_hex(side.color) or '#333333'))
@@ -133,17 +131,12 @@ def _fill_sheet(sheet, filler):
         count = max(1, len(filler.items))
         delta = count - capacity
         source = [(cell.value, copy(cell._style)) for cell in sheet[detail]]
-        dimensions = {row: copy(dimension) for row, dimension in sheet.row_dimensions.items() if row >= detail}
-        images = [(image, deepcopy(image.anchor)) for image in sheet._images]
         for merged in merges:
             if merged.min_row < detail <= merged.max_row or (merged.min_row == detail and merged.max_row > detail):
                 raise ValueError('明细行跨行合并暂不支持浏览器预览，请使用 Excel 模板文件打印')
             if merged.min_row == merged.max_row == detail:
                 new_merges.extend((merged.min_col, detail + offset, merged.max_col, detail + offset)
                                   for offset in range(count))
-            elif detail < merged.min_row < detail + capacity:
-                if merged.max_row >= detail + capacity:
-                    raise ValueError('明细示例区跨行合并到页脚，请调整模板后打印')
             else:
                 shift = delta if merged.min_row > detail else 0
                 new_merges.append((merged.min_col, merged.min_row + shift,
@@ -155,27 +148,6 @@ def _fill_sheet(sheet, filler):
         filler.fill(sheet)
         if not filler.items and capacity > 1:
             sheet.delete_rows(detail + 1, capacity - 1)
-        for image, anchor in images:
-            if isinstance(anchor, str):
-                match = re.fullmatch(r'([A-Z]+)(\d+)', anchor)
-                if match and int(match[2]) >= detail + capacity:
-                    anchor = f'{match[1]}{int(match[2]) + delta}'
-            else:
-                for marker in (getattr(anchor, '_from', None), getattr(anchor, 'to', None)):
-                    if marker is not None and marker.row + 1 >= detail + capacity:
-                        marker.row += delta
-            image.anchor = anchor
-        # openpyxl moves cell values, but not row dimensions, on insert/delete.
-        for row in list(sheet.row_dimensions):
-            if row >= detail:
-                del sheet.row_dimensions[row]
-        for row, dimension in dimensions.items():
-            targets = range(detail, detail + count) if row == detail else (
-                [row + delta] if row >= detail + capacity else [])
-            for target in targets:
-                moved = copy(dimension)
-                moved.index = target
-                sheet.row_dimensions[target] = moved
         for offset in range(count):
             for index, (value, style) in enumerate(source, 1):
                 cell = sheet.cell(detail + offset, index)
@@ -195,8 +167,6 @@ def _fill_sheet(sheet, filler):
             sheet.print_area = areas
     else:
         filler.fill(sheet)
-    from services.excel_print_layout import fit_print_rows
-    fit_print_rows(sheet)
 
 
 def build_report_print_preview(title, columns, rows, template_path=None, include_prices=True):
@@ -245,7 +215,10 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                 sheet.page_setup.paperSize = '9'
                 # Keep readable column proportions; use the extra width of A4
                 # landscape when the generated columns exceed portrait space.
-                natural_width = sum(print_column_width(sheet, col) for col in range(1, sheet.max_column + 1))
+                natural_width = sum(_number(sheet.column_dimensions[get_column_letter(col)].width,
+                                            13, 1, 80) * 7
+                                    for col in range(1, sheet.max_column + 1)
+                                    if not sheet.column_dimensions[get_column_letter(col)].hidden)
                 sheet.page_setup.orientation = ('landscape' if natural_width > (210 - 20.32) * 96 / 25.4
                                                 else 'portrait')
                 for edge in ('top', 'bottom', 'left', 'right'):
@@ -265,10 +238,6 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                 raise ValueError('此模板含图片或图表，浏览器暂不能完整呈现，请使用 Excel 模板文件打印')
             for cells in sheet.iter_rows():
                 for cell in cells:
-                    if builtin_layout and cell.row > 1:
-                        font = copy(cell.font)
-                        font.sz = 9
-                        cell.font = font
                     if cell.data_type == 'f':
                         raise ValueError('此模板含 Excel 公式，浏览器无法重新计算；请下载 Excel 模板文件后打印')
                     if isinstance(cell.value, str) and re.search(r'\{img_(?:barcode|qrcode):', cell.value):
@@ -296,29 +265,19 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                                if (r, c) != (merged.min_row, merged.min_col))
             rendered_rows = []
             for row in range(top, bottom + 1):
-                if not print_row_height(sheet, row):
+                if sheet.row_dimensions[row].hidden:
                     continue
                 cells = []
                 for col in range(left, right + 1):
-                    if (row, col) in skipped or not print_column_width(sheet, col):
+                    if (row, col) in skipped or sheet.column_dimensions[get_column_letter(col)].hidden:
                         continue
                     cell = sheet.cell(row, col)
                     rowspan, colspan = anchors.get((row, col), (1, 1))
-                    end_row, end_col = row + rowspan - 1, col + colspan - 1
-                    if (row, col) not in anchors and isinstance(cell.value, str) and cell.value:
-                        available = print_cell_width(sheet, cell, right)
-                        used = print_column_width(sheet, col)
-                        while end_col < right and used + print_column_width(sheet, end_col + 1) <= available:
-                            end_col += 1
-                            used += print_column_width(sheet, end_col)
-                            skipped.add((row, end_col))
-                    colspan = sum(bool(print_column_width(sheet, number)) for number in range(col, end_col + 1))
-                    rowspan = sum(bool(print_row_height(sheet, number)) for number in range(row, end_row + 1))
                     css = _cell_css(cell)
                     if builtin_layout and row > 1:
                         css += ';font-size:9pt'
                     cells.append(dict(text=_display_value(cell), css=css, rowspan=rowspan, colspan=colspan))
-                rendered_rows.append(dict(cells=cells, height=print_row_height(sheet, row),
+                rendered_rows.append(dict(cells=cells, height=_number(sheet.row_dimensions[row].height, 16, 8, 400),
                                           is_header=bool(builtin_layout and row <= 2)))
             margins = sheet.page_margins
             papers = {'1': 'Letter', '5': 'Legal', '8': 'A3', '9': 'A4', '11': 'A5'}
@@ -329,8 +288,8 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                                       'A3': (297, 420), 'A4': (210, 297), 'A5': (148, 210)}[paper]
             if sheet.page_setup.orientation == 'landscape':
                 page_width, page_height = page_height, page_width
-            widths = [print_column_width(sheet, col)
-                      for col in range(left, right + 1) if print_column_width(sheet, col)]
+            widths = [_number(sheet.column_dimensions[get_column_letter(col)].width, 13, 1, 80) * 7
+                      for col in range(left, right + 1) if not sheet.column_dimensions[get_column_letter(col)].hidden]
             sheets.append(dict(name=sheet.title, page_name='reportSheet%d' % index, is_builtin=bool(builtin_layout),
                 page_width=page_width, page_height=page_height,
                 paper=paper, orientation='landscape' if sheet.page_setup.orientation == 'landscape' else 'portrait',

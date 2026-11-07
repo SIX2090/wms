@@ -311,8 +311,6 @@ def _build_in_order_excel(order):
             source['order_no'] for source in _in_order_sales_sources(order))).font = body_font
 
     output = _io.BytesIO()
-    from services.excel_print_layout import fit_print_rows
-    fit_print_rows(ws)
     wb.save(output)
     output.seek(0)
     return output

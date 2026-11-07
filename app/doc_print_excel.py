@@ -770,8 +770,6 @@ def render_purchase_request_excel(path, order, items, date_str=None):
                     for cell in row:
                         if cell.column in literal_cols and isinstance(cell.value, str):
                             cell.data_type = 's'
-            from services.excel_print_layout import fit_print_rows
-            fit_print_rows(sheet)
     output = io.BytesIO()
     wb.save(output)
     wb.close()
@@ -850,8 +848,6 @@ def render_table_excel_print(target_code, sheet_rows, template_id=None,
     for ws in wb.worksheets:
         _Filler(order, filler_rows.get(ws.title, []),
                 date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
-        from services.excel_print_layout import fit_print_rows
-        fit_print_rows(ws)
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -946,8 +942,6 @@ def render_report_excel_print(report_type, title, columns, rows,
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),
                 date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
-        from services.excel_print_layout import fit_print_rows
-        fit_print_rows(ws)
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -987,8 +981,6 @@ def render_label_excel_print(target_code, rows, template_id=None,
     for ws in wb.worksheets:
         _Filler(order, normalized,
                 date_str or datetime.now().strftime('%Y-%m-%d')).fill(ws)
-        from services.excel_print_layout import fit_print_rows
-        fit_print_rows(ws)
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)

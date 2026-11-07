@@ -426,8 +426,6 @@ def build_filled_print_excel(template_path, order, items=None, date_str=None, *,
             _fill_sheet(ws, filler)
         else:
             filler.fill(ws)
-            from services.excel_print_layout import fit_print_rows
-            fit_print_rows(ws)
     output = io.BytesIO()
     workbook.save(output)
     output.seek(0)

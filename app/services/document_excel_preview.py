@@ -9,7 +9,6 @@ from openpyxl import load_workbook
 from print_fill import validate_template_file
 from services.label_excel_preview import _sheet_layout
 from services.report_print_preview import _cell_css, _display_value, _print_bounds
-from services.excel_print_layout import fit_print_rows, print_row_height
 
 _PAPERS={'1':('Letter',215.9,279.4),'5':('Legal',215.9,355.6),
          '8':('A3',297,420),'9':('A4',210,297),'11':('A5',148,210)}
@@ -57,7 +56,6 @@ def _sheet_pages(sheet):
         raise ValueError('模板含条件格式，浏览器不能可靠计算，请使用 Excel 文件打印')
     if sheet.col_breaks.brk or sheet.HeaderFooter.differentOddEven or sheet.HeaderFooter.differentFirst:
         raise ValueError('模板含分栏分页或不同页眉页脚，请使用 Excel 文件打印')
-    fit_print_rows(sheet, strict=True)
     try:layout=_sheet_layout(sheet)
     except ValueError as exc:raise ValueError(str(exc).replace('标签','单据')) from exc
     if any(o['top']<0 or o['left']<0 or o['top']+o['height']>layout['content_height']+.01
@@ -107,7 +105,7 @@ def _sheet_pages(sheet):
         raise ValueError('重复标题在打印区域之外，请使用 Excel 文件打印或调整模板')
     manual=[]
     for marker in sheet.row_breaks.brk:
-        y=sum(print_row_height(sheet, row)*96/72
+        y=sum(0 if sheet.row_dimensions[row].hidden else float(sheet.row_dimensions[row].height or 15)*96/72
               for row in range(top,marker.id+1))
         if y in cuts:manual.append(y)
         elif 0<y<layout['content_height']:raise ValueError('手动分页截断合并单元格或图片，请调整模板')
