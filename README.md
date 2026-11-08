@@ -522,7 +522,7 @@ wechat_helper_token
 
 2026-11-05：新发布包包含 `wms-release.json`，绑定源码来源、覆盖清单、全部封存文件、Python与固定依赖；启动前验证，拒绝文件缺失、篡改、额外注入及解释器/依赖漂移。管理员在“系统参数 → 发布与运行状态”查看完整身份及非敏感配置指纹。未登记清单的旧部署明确显示未登记；不把本地Git提交当成线上完整身份。受保护部署会在微信和设备入口显示暂停状态，停止设备认领及外部发送，普通部署保留原业务开关。制作、核验与恢复边界见[发布身份及暂停状态](docs/RELEASE_IDENTITY.md)。生产需重启 WMS 服务生效；新包发行不自动切换现有生产。
 
-Windows 预览发行由 `Windows Portable Release` 工作流生成：仅打包当前 main 且通过完整 CI 的精确提交，重新下载离线依赖、验证临时副本首次安装与启动，再上传 ZIP 和 SHA256 校验文件到 [GitHub Releases](https://github.com/SIX2090/wms/releases)。发行包不含用户数据库、账号配置或密钥；自动发布不等于更新已有生产服务。同版本标签仅在已发布资产、源码祖先、实际构建输入及完整摘要全部核实一致时复用；输入变化或旧资产缺少证明则拒绝，须递增 `app/version.py`，不覆盖旧资产或移动旧标签。新发行额外保存来源证明和真实隔离运行回执；详见[制品版本绑定](docs/audit/2026-11-08-next-n2-windows-binding.md)。
+Windows 预览发行由 `Windows Portable Release` 工作流生成：仅打包当前 main 且通过完整 CI 的精确提交，重新下载离线依赖、验证临时副本首次安装与启动，再上传 ZIP 和 SHA256 校验文件到 [GitHub Releases](https://github.com/SIX2090/wms/releases)。发行包不含用户数据库、账号配置或密钥；自动发布不等于更新已有生产服务。相同版本标签不重复发布，后续发行需递增 `app/version.py`。
 
 2026-11-07：Windows 预览发行版本递增至 [2026.11.3](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.3)，包含本批统一打印版式、PDF明细完整性、页脚图片及标签排版修正；发行流程和验证边界见[2026.11.3发行记录](docs/audit/2026-11-07-windows-2026.11.3-release.md)。当前生产已运行相同的打印业务修正，发行新安装包不触发生产重启。
 
