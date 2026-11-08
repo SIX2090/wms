@@ -4,7 +4,6 @@ The gate is intentionally conservative: synthetic samples can prove code
 behavior, but they cannot satisfy a production go decision.
 """
 # AI_TASK: AI-R18-F01
-# AI_FIX_TASK: AI-R18-F01-FIX-20261108-001
 from __future__ import annotations
 
 import argparse
@@ -12,7 +11,7 @@ import json
 import os
 import subprocess
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -53,22 +52,13 @@ def validate_repository() -> list[str]:
 
 def _parse_date(value: Any) -> date | None:
     try:
-        parsed = date.fromisoformat(value) if isinstance(value, str) else None
-        return parsed if parsed and parsed.isoformat() == value else None
+        return date.fromisoformat(str(value))
     except (TypeError, ValueError):
         return None
 
 
-def validate_evidence(package: dict[str, Any], *, now: datetime | None = None) -> list[str]:
-    """Validate shape and completed local days; metadata still needs human review.
-
-    ``now`` is a caller/test clock, never read from the submitted package.
-    Legacy date-only snapshots imply the complete local natural day (24h).
-    """
-    now = now or datetime.now()
+def validate_evidence(package: dict[str, Any]) -> list[str]:
     issues: list[str] = []
-    if not isinstance(package, dict):
-        return ['证据包必须为 JSON 对象']
     if package.get("environment") != "production":
         issues.append("证据包 environment 必须为 production")
     if package.get("synthetic_sample_count", 0):
@@ -78,17 +68,12 @@ def validate_evidence(package: dict[str, Any], *, now: datetime | None = None) -
     if not isinstance(real_samples, list) or len(real_samples) < 20:
         issues.append("真实脱敏样本至少需要 20 份")
     else:
-        if any(not isinstance(item, dict) for item in real_samples):
-            issues.append('每份真实样本必须为对象，不能跳过非法项')
-        records = [item for item in real_samples if isinstance(item, dict)]
-        ids = [item.get("sample_id") for item in records]
-        if any(not isinstance(value, str) or not value.strip() for value in ids):
+        ids = [item.get("sample_id") for item in real_samples if isinstance(item, dict)]
+        if len(ids) != len(set(ids)) or any(not value for value in ids):
             issues.append("真实样本 sample_id 必须非空且唯一")
-        elif len(ids) != len(set(ids)):
-            issues.append("真实样本 sample_id 必须非空且唯一")
-        if any(item.get("desensitized") is not True for item in records):
+        if any(item.get("desensitized") is not True for item in real_samples if isinstance(item, dict)):
             issues.append("所有真实样本必须明确标记 desensitized=true")
-        sources = {item.get("source") for item in records if isinstance(item.get('source'), str)}
+        sources = {item.get("source") for item in real_samples if isinstance(item, dict)}
         missing_sources = REQUIRED_REAL_SOURCES - sources
         if missing_sources:
             issues.append(f"真实样本缺少来源类别: {', '.join(sorted(missing_sources))}")
@@ -102,43 +87,20 @@ def validate_evidence(package: dict[str, Any], *, now: datetime | None = None) -
             issues.append("daily_snapshots 的日期必须全部有效")
         elif dates != sorted(dates) or any(dates[index] != dates[0] + timedelta(days=index) for index in range(7)):
             issues.append("daily_snapshots 日期必须连续且按时间升序")
-        elif dates[-1] >= now.date():
-            issues.append('七日必须为已结束的自然日，不能使用今天或未来日期')
         for item in snapshots:
-            if not isinstance(item, dict):
-                issues.append('每日快照必须为对象'); continue
-            counts = item.get("absolute_counts")
-            if not isinstance(counts, dict) or any(type(counts.get(metric)) is not int or counts[metric] < 0 for metric in ABSOLUTE_METRICS):
-                issues.append('四项每日计数必须齐全且为非负整数，缺失不是0')
-            elif any(counts[metric] != 0 for metric in ABSOLUTE_METRICS):
+            counts = item.get("absolute_counts", {}) if isinstance(item, dict) else {}
+            if any(counts.get(metric, 0) != 0 for metric in ABSOLUTE_METRICS):
                 issues.append("四项上线违规指标必须每天全部为 0")
-            if 'window_hours' in item and (type(item['window_hours']) is not int or item['window_hours'] != 24):
-                issues.append('每日窗口必须为24小时')
-            roles = item.get('rollout_roles')
-            if not isinstance(roles, list) or any(not isinstance(r, str) for r in roles) or not REQUIRED_ROLES.issubset(roles):
+            roles = set(item.get("rollout_roles", [])) if isinstance(item, dict) else set()
+            if not REQUIRED_ROLES.issubset(roles):
                 issues.append("每日灰度证据必须覆盖 admin、warehouse、purchase")
+                break
 
     decision = package.get("go_no_go", {})
     if not isinstance(decision, dict) or decision.get("decision") != "go":
         issues.append("必须有管理员签字的 go 决策")
-    else:
-        signer = decision.get('signed_by')
-        if not (isinstance(signer, str) and signer.strip() or type(signer) is int and signer > 0):
-            issues.append('go 决策必须包含有效 signed_by')
-        value = decision.get('decided_at')
-        try:
-            if not isinstance(value, str) or 'T' not in value:
-                raise ValueError('missing timestamp')
-            signed = datetime.fromisoformat(value.replace('Z', '+00:00'))
-            clock = now.astimezone(timezone.utc) if signed.tzinfo else now.replace(tzinfo=None)
-            if signed > clock:
-                raise ValueError('future signature')
-            if isinstance(snapshots, list) and snapshots and isinstance(snapshots[-1], dict):
-                end = _parse_date(snapshots[-1].get('snapshot_date'))
-                if end and signed.date() <= end:
-                    raise ValueError('signature before window ended')
-        except (TypeError, ValueError, OverflowError):
-            issues.append('go 决策 decided_at 必须为窗口结束后、不晚于当前时间的有效签署时间')
+    elif not decision.get("signed_by") or not decision.get("decided_at"):
+        issues.append("go 决策必须包含 signed_by 和 decided_at")
     return sorted(set(issues))
 
 

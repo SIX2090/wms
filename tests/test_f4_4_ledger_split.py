@@ -496,6 +496,3 @@ POST_SPLIT_BUGS['BUG-2026-11-08-004'] = 'fixed'  # B9 local acceptance; exact CI
 POST_SPLIT_BUGS['BUG-2026-11-08-005'] = 'fixed'  # B10 local evidence; exact CI and production tracked separately
 
 POST_SPLIT_BUGS['BUG-2026-11-08-006'] = 'fixed'  # N2 local candidate; exact CI/runtime release acceptance separate
-
-POST_SPLIT_BUGS['BUG-2026-11-08-007'] = 'fixed'  # N3 candidate; exact CI tracked separately
-POST_SPLIT_BUGS['BUG-2026-11-08-008'] = 'fixed'  # N3 same-batch receipt semantics

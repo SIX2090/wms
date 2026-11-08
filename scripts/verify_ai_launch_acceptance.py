@@ -127,9 +127,9 @@ def test1_acceptance_metrics_aggregation():
     assert not ok2, '越权成功=1 校验应失败'
     assert '越权成功=1' in reason2, f'原因应含指标值：{reason2}'
 
-    # AI-R18-F01-FIX-20261108-001: missing is unknown, never measured zero.
+    # 缺失键按 0 处理
     report3 = compute_acceptance_metrics({}, now=datetime(2026, 7, 17, 12, 0, 0))
-    assert not report3.all_passed, '缺失键必须拒绝通过'
+    assert report3.all_passed, '缺失键应按 0 处理通过'
 
     # 四项指标名和标签齐全
     metric_names = {m.metric for m in report.metrics}

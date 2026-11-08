@@ -1,14 +1,13 @@
 {% extends "base.html" %}
 <!-- AI_TASK: AI-R18-F02 -->
 <!-- AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001 -->
-<!-- AI_FIX_TASK: AI-R18-F01-FIX-20261108-001 -->
 {% block title %}AI七日验收{% endblock %}
 {% block content %}
 <div class="container-fluid px-3">
     <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
         <div>
             <h1 class="h5 mb-1">AI七日验收</h1>
-            <div class="text-muted small">采集、构建证据包和 go/no-go 签署均保留管理员人工确认。七日证据默认截至昨日；今日快照仅供观察，结束后须重新采集。质量指标分母为0表示未覆盖。</div>
+            <div class="text-muted small">只读查看验收数据；采集、构建证据包和 go/no-go 签署均保留管理员人工确认。</div>
         </div>
         <div class="d-flex gap-2">
             <a class="btn btn-outline-secondary btn-sm" href="/ai/prelaunch"><i class="bi bi-arrow-left"></i> 上线预检</a>
@@ -62,7 +61,7 @@
     const render = () => {
         const rows = $('snapshotRows'); rows.textContent = '';
         if (!state.snapshots.length) { const row = rows.insertRow(); const cell = row.insertCell(); cell.colSpan = 5; cell.className = 'text-center text-muted py-3'; cell.textContent = '暂无真实验收快照'; return; }
-        state.snapshots.forEach((item) => { const row = rows.insertRow(); const roleZh = {'admin': '管理员', 'warehouse': '仓库', 'purchase': '采购', 'sales': '销售'}; const counts = ['unauthorized_success', 'duplicate_drafts', 'auto_submit', 'low_confidence_unconfirmed'].map((key) => { const value = item.absolute_counts?.[key]; return Number.isInteger(value) && value >= 0 ? value : '未测得'; }).join(' / '); [item.snapshot_date, counts, (item.rollout_roles || []).map((r) => roleZh[r] || r).join(', '), `${item.window_hours || 0} 小时`, item.all_absolute_zero ? '四项为 0' : '存在异常或未测得'].forEach((value) => row.insertCell().textContent = value); row.cells[4].className = item.all_absolute_zero ? 'text-success' : 'text-danger'; });
+        state.snapshots.forEach((item) => { const row = rows.insertRow(); const roleZh = {'admin': '管理员', 'warehouse': '仓库', 'purchase': '采购', 'sales': '销售'}; [item.snapshot_date, Object.values(item.absolute_counts || {}).join(' / '), (item.rollout_roles || []).map((r) => roleZh[r] || r).join(', '), `${item.window_hours || 0} 小时`, item.all_absolute_zero ? '四项为 0' : '存在异常'].forEach((value) => row.insertCell().textContent = value); row.cells[4].className = item.all_absolute_zero ? 'text-success' : 'text-danger'; });
         $('snapshotCount').textContent = state.snapshots.length; $('latestSnapshot').textContent = state.snapshots[0]?.snapshot_date || '-'; $('zeroDays').textContent = `${state.snapshots.filter((item) => item.all_absolute_zero).length} / 7`;
     };
     // AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-002
