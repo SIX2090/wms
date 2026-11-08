@@ -1,5 +1,11 @@
 # N2：Windows 制品与源码版本绑定（2026-11-08）
 
+最新验收：纠正提交 `23a3cb9833bf3d70bc4c50e3eebf39d698cdff92` 已交付，WMS CI [42436401220](https://github.com/SIX2090/wms/actions/runs/42436401220)、AI [42436401197](https://github.com/SIX2090/wms/actions/runs/42436401197)完整成功；Android42419418015/bcac09b0为已证祖先且原生/工作流输入无差异。Windows [42436767504](https://github.com/SIX2090/wms/actions/runs/42436767504)的实际下载、构建、一次性安装启动与发布均成功，非跳过。
+
+发行 [windows-v2026.11.4](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.4) 的实际标签/source均为上述完整SHA，公开prerelease，四资产齐全。ZIP97129431字节，SHA256 `9a3c7a5c1ff76732fd020870aa1ccef66a2c298e2348fa1f7a4b9883707164b9`；输入指纹 `eb0690ad99a26d3a3b4ff8e83456d7b8c2c941e9c8f8af6772753caabfbf97ab`。已实际下载四资产并核对API摘要、来源与运行回执、ZIP中全部7356清单文件，运行时Python3.11.9。封存于本轮任务目录 `artifacts/windows-v2026.11.4-01/`，完整逐文件哈希在wms-release.json，结论在封存核验.json。未本机安装或访问生产。
+
+纠正本地106项、源码33项、8静态通过；整批8非测试文件撤回75项=35新契约旧失败+40原对照通过，全部字节恢复。首推89a56b49完整CI真实回归、整批正常revert至567b56da、恢复全绿与完整重放记录全部保留。以下候选/待验字样是当时记录，以本段最终验收为准。有效纯文档复用的实际工作流回执在本轮最终文档批核实，不以未执行步骤预报成功。
+
 本批目标是修复“已有同版本标签便跳过构建却显示成功”的证据缺口。历史 main 6c542a94 的 Windows 42422669555 为成功，但下载、构建、发布步骤均跳过；实际 windows-v2026.11.3 来源 c0d0cb78，不能当成后来代码的新安装包。历史发行不删除、不覆盖、不移动。
 
 ## 范围与行为

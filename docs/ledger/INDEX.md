@@ -786,6 +786,9 @@
 | B9精确目标代码交付 | bugs | entries-2026-11.md |
 | BUG-2026-11-08-005 | bugs | entries-2026-11.md |
 | BUG-2026-11-08-006 | bugs | entries-2026-11.md |
+| BUG-2026-11-08-007 | bugs | entries-2026-11.md |
+| BUG-2026-11-08-008 | bugs | entries-2026-11.md |
+| BUG-2026-11-08-009 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

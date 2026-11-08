@@ -657,6 +657,7 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
@@ -1682,6 +1683,7 @@ function refreshDepartments(options) {
 
 // ==================== Excel粘贴导入 ====================
 function showPasteModal() {
+    if (document.getElementById('pasteModal')) return;
     const modal = document.createElement('div');
     modal.id = 'pasteModal';
     modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
@@ -1697,7 +1699,7 @@ function showPasteModal() {
         </div>
     `;
     document.body.appendChild(modal);
-    setTimeout(() => document.getElementById('pasteArea').focus(), 100);
+    WmsFormAccessibility.openPasteDialog(modal);
 }
 
 async function parsePastedData() {

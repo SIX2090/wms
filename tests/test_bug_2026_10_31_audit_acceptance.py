@@ -31,7 +31,7 @@ def seed_snapshots(days=7, gap=False, violation=0):
     for offset in range(days):
         counts={key:0 for key in ALL_ACCEPTANCE_METRICS}
         if offset==0:counts[ALL_ACCEPTANCE_METRICS[0]]=violation
-        target=date.today()-timedelta(days=offset+(1 if gap and offset==6 else 0))
+        target=date.today()-timedelta(days=offset+1+(1 if gap and offset==6 else 0))
         wms.db.session.add(wms.AIAcceptanceDailySnapshot(snapshot_date=target.isoformat(),absolute_counts=json.dumps(counts),
             quality_metrics=json.dumps({key:{'numerator':8,'denominator':10,'rate':0.8} for key in ALL_METRICS}),
             rollout_user_count=1,rollout_role_count=3,rollout_roles='["admin","warehouse","purchase"]',

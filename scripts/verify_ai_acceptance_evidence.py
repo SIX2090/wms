@@ -135,7 +135,7 @@ def _make_quality_metrics_with_data() -> dict[str, dict]:
 
 def test1_daily_snapshot_construction():
     """测试1：每日快照构造正确性 + 四项绝对指标全 0 判定。"""
-    now = datetime(2026, 7, 18, 12, 0, 0)
+    now = datetime(2026, 7, 19, 12, 0, 0)  # Complete synthetic natural-day windows.
     # 全 0 快照
     snap = build_daily_snapshot(
         snapshot_date='2026-07-18',
@@ -164,15 +164,15 @@ def test1_daily_snapshot_construction():
     )
     assert not snap2.all_absolute_zero, '越权成功=1 应 all_absolute_zero=False'
 
-    # 缺失键补 0
+    # AI-R18-F01-FIX-20261108-001: retain missing data, never manufacture zeros.
     snap3 = build_daily_snapshot(
         snapshot_date='2026-07-18',
         absolute_counts={},
         quality_metrics={},
         now=now,
     )
-    assert snap3.all_absolute_zero, '缺失键应补 0 后 all_absolute_zero=True'
-    assert all(v == 0 for v in snap3.absolute_counts.values()), '缺失键应补 0'
+    assert not snap3.all_absolute_zero, '缺失计数不得为 all_absolute_zero=True'
+    assert snap3.absolute_counts == {}, '缺失计数保留缺失，不得补0'
 
     # to_dict 可序列化
     d = snap.to_dict()
@@ -186,7 +186,7 @@ def test1_daily_snapshot_construction():
 
 def test2_seven_consecutive_days_zero():
     """测试2：连续七天四项绝对指标每日为 0 校验。"""
-    now = datetime(2026, 7, 18, 12, 0, 0)
+    now = datetime(2026, 7, 19, 12, 0, 0)  # Complete synthetic natural-day windows.
     # 7 天连续全 0
     snapshots = []
     for i in range(7):
@@ -303,7 +303,7 @@ def test4_low_confidence_unconfirmed():
 
 def test5_evidence_reproducible():
     """测试5：验收数据可复算（分子分母时间窗口筛选条件齐全）。"""
-    now = datetime(2026, 7, 18, 12, 0, 0)
+    now = datetime(2026, 7, 19, 12, 0, 0)  # Complete synthetic natural-day windows.
     # 可复算的证据包
     snapshots = []
     for i in range(7):
@@ -389,7 +389,7 @@ def test5_evidence_reproducible():
 
 def test6_go_no_go_decision():
     """测试6：go/no-go 结论校验（任一非0必须no-go+签字+原因）。"""
-    now = datetime(2026, 7, 18, 12, 0, 0)
+    now = datetime(2026, 7, 19, 12, 0, 0)  # Sign after all seven natural days have ended.
     # 全 0 + go + 签字 → 通过
     snapshots_all_zero = []
     for i in range(7):
@@ -484,7 +484,7 @@ def test6_go_no_go_decision():
 
 def test7_evidence_package_completeness():
     """测试7：证据包完整性校验（灰度矩阵+回滚记录+四类样本清单）。"""
-    now = datetime(2026, 7, 18, 12, 0, 0)
+    now = datetime(2026, 7, 19, 12, 0, 0)  # Complete synthetic natural-day windows.
     snapshots = []
     for i in range(7):
         d = (datetime(2026, 7, 12) + timedelta(days=i)).strftime('%Y-%m-%d')
@@ -596,6 +596,16 @@ def test8_e2e_api_closure():
 
     # admin 采集 7 天快照
     _login(client, admin_id)
+    # These are explicit synthetic audit observations, not current config or real users.
+    with app.app_context():
+        run = wms_app.AIRun(user_id=admin_id, request_id='f02-synthetic-coverage', request_hash='synthetic', endpoint='synthetic')
+        wms_app.db.session.add(run); wms_app.db.session.flush()
+        for i in range(7):
+            for role in ('admin', 'warehouse', 'purchase'):
+                wms_app.db.session.add(wms_app.AIToolCall(ai_run_id=run.id, user_id=users[role], role=role,
+                    tool_name='read', permission_allowed=True, status='completed',
+                    created_at=datetime(2026, 7, 12, 12) + timedelta(days=i)))
+        wms_app.db.session.commit()
     for i in range(7):
         d = (datetime(2026, 7, 12) + timedelta(days=i)).strftime('%Y-%m-%d')
         resp = client.post('/api/ai/acceptance/daily_snapshot', json={'date': d})
