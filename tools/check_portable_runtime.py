@@ -2,14 +2,19 @@
 import argparse
 from contextlib import contextmanager
 import hashlib
+import json
 import os
 from pathlib import Path
+import re
 import shutil
 import socket
 import subprocess
 import tempfile
 import time
 import urllib.request
+
+RECEIPT_CHECKS = ['dependencies', 'manifest', 'imports', 'fresh_initialization',
+                  'existing_database_preserved', 'guarded_startup', 'chinese_login', 'footer_css']
 
 
 @contextmanager
@@ -36,6 +41,7 @@ def verify_package(package):
         raise ValueError('Distribution contains a database; do not publish it.')
     if not (package / 'python/python.exe').is_file():
         raise ValueError('Embedded Python is missing.')
+    identity = json.loads((package / 'wms-release.json').read_text(encoding='utf-8-sig'))
     with disposable_directory() as temporary:
         root = Path(temporary) / 'WMS'
         shutil.copytree(package, root)
@@ -87,9 +93,31 @@ def verify_package(package):
                 proc.terminate()
                 proc.wait(timeout=20)
     print('PASS: embedded imports, no Flasgger, fresh initialization, existing database preservation, guarded startup, Chinese login and footer CSS.')
+    return dict(success=True, source_sha=identity['source_sha'],
+                artifact_id=identity['artifact_id'], checks=RECEIPT_CHECKS)
+
+
+def write_runtime_receipt(path, result):
+    """Write once, only after the actual disposable installation checks pass."""
+    if (not isinstance(result, dict) or result.get('success') is not True or
+            not re.fullmatch(r'[0-9a-f]{40}', str(result.get('source_sha', ''))) or
+            not re.fullmatch(r'[0-9a-f]{64}', str(result.get('artifact_id', ''))) or
+            result.get('checks') != RECEIPT_CHECKS):
+        raise ValueError('No complete runtime validation result.')
+    with Path(path).open('x', encoding='utf-8') as stream:
+        json.dump(result, stream, indent=2)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--package', required=True)
+    parser.add_argument('--receipt', type=Path)
+    args = parser.parse_args(argv)
+    result = verify_package(args.package)
+    if args.receipt:
+        write_runtime_receipt(args.receipt, result)
+    return 0
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--package', required=True)
-    verify_package(parser.parse_args().package)
+    raise SystemExit(main())
