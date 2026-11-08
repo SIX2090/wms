@@ -1,7 +1,5 @@
 # 库存真相（INVENTORY_TRUTH.md）
 
-> 2026-11-08：随N3验收证据子修复同步回填函数定位行号，库存业务规则不变。
-
 > 2026-11-08：随 B4 凭据失效闭环同步源码行号；库存规则与生产数据库不变。
 
 > 2026-11-07：随 B2 原生请求事务和取号前保护同步源码行号；库存规则与生产数据库不变。
@@ -270,7 +268,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29880`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:29870`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
