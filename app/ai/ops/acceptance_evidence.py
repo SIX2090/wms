@@ -2,6 +2,7 @@
 
 # AI_TASK: AI-R17-F02
 # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-001
+# AI_FIX_TASK: AI-R18-F01-FIX-20261108-001
 
 台账 13.2 节验收要求：
 1. 四项绝对指标（越权成功/重复草稿/自动提交/低置信度未确认建单）连续七天每日为 0。
@@ -22,6 +23,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import math
 from typing import Any, Optional
 
 # 复用 AI-R17 的四项绝对指标口径
@@ -33,6 +35,7 @@ from ai.ops.launch_acceptance import (
     METRIC_DUPLICATE_DRAFTS,
     METRIC_LOW_CONFIDENCE_UNCONFIRMED,
     METRIC_UNAUTHORIZED_SUCCESS,
+    valid_absolute_counts,
 )
 
 # 复用 AI-R15 的七项质量指标口径
@@ -93,7 +96,8 @@ class DailyMetricSnapshot:
     @property
     def all_absolute_zero(self) -> bool:
         """当日四项绝对指标是否全为 0。"""
-        return all(self.absolute_counts.get(m, 0) == 0 for m in ALL_ACCEPTANCE_METRICS)
+        return valid_absolute_counts(self.absolute_counts) and all(
+            self.absolute_counts[m] == 0 for m in ALL_ACCEPTANCE_METRICS)
 
 
 @dataclass(frozen=True)
@@ -213,7 +217,7 @@ def build_daily_snapshot(
 
     Args:
         snapshot_date: 日期字符串 YYYY-MM-DD。
-        absolute_counts: 四项绝对指标计数（缺失键按 0）。
+        absolute_counts: 四项绝对指标计数；缺失保留缺失，不转换类型。
         quality_metrics: 七项质量指标聚合（每项含 numerator/denominator/rate）。
         rollout_user_count: 当日灰度用户数。
         rollout_role_count: 当日灰度角色数。
@@ -224,17 +228,10 @@ def build_daily_snapshot(
     """
     if now is None:
         now = datetime.now()
-    # 补齐缺失的绝对指标键
-    full_absolute = {m: int(absolute_counts.get(m, 0)) for m in ALL_ACCEPTANCE_METRICS}
-    # 补齐缺失的质量指标键
-    full_quality: dict[str, dict[str, Any]] = {}
-    for m in ALL_QUALITY_METRICS:
-        entry = quality_metrics.get(m, {})
-        full_quality[m] = {
-            'numerator': int(entry.get('numerator', 0)),
-            'denominator': int(entry.get('denominator', 0)),
-            'rate': float(entry.get('rate', 0.0)),
-        }
+    # Preserve diagnostic snapshots without manufacturing successful measures.
+    full_absolute = dict(absolute_counts) if isinstance(absolute_counts, dict) else {}
+    full_quality = {m: dict(entry) if isinstance(entry, dict) else {}
+                    for m, entry in quality_metrics.items()} if isinstance(quality_metrics, dict) else {}
     return DailyMetricSnapshot(
         snapshot_date=snapshot_date,
         absolute_counts=full_absolute,
@@ -314,15 +311,18 @@ def build_evidence_package(
 def _compute_seven_day_summary(snapshots: list[DailyMetricSnapshot]) -> dict[str, Any]:
     """计算七天汇总。"""
     # 绝对指标七天总和
-    absolute_totals: dict[str, int] = {m: 0 for m in ALL_ACCEPTANCE_METRICS}
-    for s in snapshots:
-        for m in ALL_ACCEPTANCE_METRICS:
-            absolute_totals[m] += s.absolute_counts.get(m, 0)
+    absolute_totals = {m: (sum(s.absolute_counts[m] for s in snapshots)
+                          if all(valid_absolute_counts(s.absolute_counts) for s in snapshots) else None)
+                       for m in ALL_ACCEPTANCE_METRICS}
     # 质量指标七天加权平均
     quality_summary: dict[str, dict[str, Any]] = {}
     for m in ALL_QUALITY_METRICS:
-        total_num = sum(s.quality_metrics.get(m, {}).get('numerator', 0) for s in snapshots)
-        total_den = sum(s.quality_metrics.get(m, {}).get('denominator', 0) for s in snapshots)
+        entries = [s.quality_metrics.get(m) for s in snapshots]
+        if not all(_quality_entry_valid(e) for e in entries):
+            quality_summary[m] = {'numerator': None, 'denominator': None, 'rate': None}
+            continue
+        total_num = sum(e['numerator'] for e in entries)
+        total_den = sum(e['denominator'] for e in entries)
         rate = total_num / total_den if total_den > 0 else 0.0
         quality_summary[m] = {
             'numerator': total_num,
@@ -330,7 +330,7 @@ def _compute_seven_day_summary(snapshots: list[DailyMetricSnapshot]) -> dict[str
             'rate': round(rate, 6),
         }
     # 连续七天全 0 校验
-    all_zero = all(absolute_totals[m] == 0 for m in ALL_ACCEPTANCE_METRICS)
+    all_zero = bool(snapshots) and all(s.all_absolute_zero for s in snapshots)
     return {
         'absolute_totals': absolute_totals,
         'quality_summary': quality_summary,
@@ -341,10 +341,17 @@ def _compute_seven_day_summary(snapshots: list[DailyMetricSnapshot]) -> dict[str
 
 # ===== 校验函数 =====
 
+def _quality_entry_valid(entry: Any) -> bool:
+    return (isinstance(entry, dict)
+            and type(entry.get('numerator')) is int and type(entry.get('denominator')) is int
+            and 0 <= entry['numerator'] <= entry['denominator']
+            and type(entry.get('rate')) in (int, float) and math.isfinite(entry['rate']))
+
 def validate_seven_consecutive_days_zero(
     snapshots: list[DailyMetricSnapshot],
     *,
     required_days: int = DEFAULT_EVIDENCE_DAYS,
+    now: Optional[datetime] = None,
 ) -> tuple[bool, str]:
     """校验连续七天四项绝对指标每日均为 0。
 
@@ -352,16 +359,37 @@ def validate_seven_consecutive_days_zero(
     """
     if len(snapshots) < required_days:
         return False, f'快照数量不足：需要 {required_days} 天，实际 {len(snapshots)} 天'
-    # 取最近 required_days 天
-    recent = sorted(snapshots, key=lambda s: s.snapshot_date)[-required_days:]
+    now = now or datetime.now()
+    try:
+        if len({s.snapshot_date for s in snapshots}) != len(snapshots):
+            return False, '快照日期重复，不能凑足七天'
+        recent = sorted(snapshots, key=lambda s: s.snapshot_date)[-required_days:]
+        dates = [datetime.strptime(s.snapshot_date, '%Y-%m-%d') for s in recent]
+        if any(d.strftime('%Y-%m-%d') != s.snapshot_date for d, s in zip(dates, recent)):
+            return False, '快照日期格式错误'
+    except (TypeError, ValueError, AttributeError):
+        return False, '每日快照或日期格式错误'
+    if dates[-1].date() >= now.date():
+        return False, '必须使用已结束的自然日，今天或未来日期不能验收'
     # 检查日期连续性
     for i in range(1, len(recent)):
-        prev_date = datetime.strptime(recent[i - 1].snapshot_date, '%Y-%m-%d')
-        curr_date = datetime.strptime(recent[i].snapshot_date, '%Y-%m-%d')
+        prev_date, curr_date = dates[i - 1], dates[i]
         if (curr_date - prev_date).days != 1:
             return False, f'日期不连续：{recent[i - 1].snapshot_date} → {recent[i].snapshot_date}'
     # 检查每日四项全 0
     for s in recent:
+        if type(s.window_hours) is not int or s.window_hours != 24:
+            return False, f'{s.snapshot_date} 每日窗口必须为24小时'
+        try:
+            captured = datetime.fromisoformat(s.generated_at)
+            window_end = datetime.strptime(s.snapshot_date, '%Y-%m-%d') + timedelta(days=1)
+            # Local natural-day snapshots use the application's existing naive local clock.
+            if captured.tzinfo is not None or captured < window_end or captured > now:
+                return False, f'{s.snapshot_date} 采集时间不在完整窗口结束后，须重新采集'
+        except (TypeError, ValueError):
+            return False, f'{s.snapshot_date} 采集时间格式错误'
+        if not valid_absolute_counts(s.absolute_counts):
+            return False, f'{s.snapshot_date} 四项绝对计数缺失或类型错误（必须为非负整数）'
         if not s.all_absolute_zero:
             nonzero = {
                 m: s.absolute_counts.get(m, 0)
@@ -381,7 +409,7 @@ def validate_evidence_reproducible(
     """
     for s in package.daily_snapshots:
         # 检查时间窗口
-        if s.window_hours <= 0:
+        if type(s.window_hours) is not int or s.window_hours != 24:
             return False, f'{s.snapshot_date} window_hours={s.window_hours} 非法'
         # 检查筛选条件追溯
         if not s.filter_applied:
@@ -389,8 +417,8 @@ def validate_evidence_reproducible(
         # 检查质量指标分子分母齐全
         for m in ALL_QUALITY_METRICS:
             entry = s.quality_metrics.get(m, {})
-            if 'numerator' not in entry or 'denominator' not in entry:
-                return False, f'{s.snapshot_date} 质量指标 {m} 缺少分子或分母'
+            if not _quality_entry_valid(entry):
+                return False, f'{s.snapshot_date} 质量指标 {m} 缺少有效分子、分母或rate'
             num = entry.get('numerator', 0)
             den = entry.get('denominator', 0)
             expected_rate = num / den if den > 0 else 0.0
@@ -406,16 +434,18 @@ def validate_evidence_reproducible(
         return False, '七天汇总缺少 absolute_totals'
     if 'quality_summary' not in summary:
         return False, '七天汇总缺少 quality_summary'
+    if summary != _compute_seven_day_summary(list(package.daily_snapshots)):
+        return False, '七天汇总与每日原始分子、分母或绝对计数不一致'
     return True, '验收数据可复算：分子分母时间窗口筛选条件齐全'
 
 
-def validate_go_no_go(package: AcceptanceEvidencePackage) -> tuple[bool, str]:
+def validate_go_no_go(package: AcceptanceEvidencePackage, *, now: Optional[datetime] = None) -> tuple[bool, str]:
     """校验 go/no-go 结论正确性。
 
     验收要求：任一绝对指标非 0 必须 no-go 并建立子修复项。
     """
     summary = package.seven_day_summary
-    all_zero = summary.get('all_absolute_zero', False)
+    all_zero = bool(package.daily_snapshots) and all(s.all_absolute_zero for s in package.daily_snapshots)
     decision = package.go_no_go_decision
     # 任一非 0 必须 no-go
     if not all_zero and decision == GO_DECISION:
@@ -424,8 +454,19 @@ def validate_go_no_go(package: AcceptanceEvidencePackage) -> tuple[bool, str]:
         }
         return False, f'绝对指标非 0 时不得 go：{nonzero}'
     # go 决策必须有管理员签字
-    if decision == GO_DECISION and package.decided_by is None:
+    if decision == GO_DECISION and (type(package.decided_by) is not int or package.decided_by <= 0):
         return False, 'go 决策缺少管理员签字（decided_by 为空）'
+    if decision == GO_DECISION:
+        clock = now or datetime.now()
+        try:
+            if not isinstance(package.decided_at, str) or 'T' not in package.decided_at:
+                raise ValueError('missing signature time')
+            signed = datetime.fromisoformat(package.decided_at)
+            compare_now = clock.astimezone(signed.tzinfo) if signed.tzinfo else clock.replace(tzinfo=None)
+            if signed > compare_now or signed.date() <= datetime.strptime(package.end_date, '%Y-%m-%d').date():
+                raise ValueError('signature outside completed window')
+        except (ValueError, TypeError):
+            return False, 'go 决策缺少有效签字时间（须在窗口结束后且不晚于当前时间）'
     # no-go 决策必须有原因
     if decision == NO_GO_DECISION and not package.decision_reason:
         return False, 'no-go 决策缺少原因说明'
@@ -447,15 +488,19 @@ def validate_rollout_matrix_complete(
     if not package.rollout_role_matrix:
         return False, '灰度角色矩阵为空'
     # 至少覆盖 admin/warehouse/purchase 三个核心角色
-    roles = {r[0] for r in package.rollout_role_matrix}
+    if any(len(r) != 2 or not isinstance(r[0], str) or type(r[1]) is not bool for r in package.rollout_role_matrix):
+        return False, '灰度角色矩阵格式错误'
+    roles = {r[0] for r in package.rollout_role_matrix if r[1] is True}
     required_roles = {'admin', 'warehouse', 'purchase'}
     missing = required_roles - roles
     if missing:
         return False, f'灰度角色矩阵缺少核心角色：{missing}'
     # 每日快照应有灰度信息
     for s in package.daily_snapshots:
-        if s.rollout_role_count == 0:
-            return False, f'{s.snapshot_date} 灰度角色数为 0'
+        if (type(s.rollout_user_count) is not int or s.rollout_user_count <= 0
+                or type(s.rollout_role_count) is not int or s.rollout_role_count != len(set(s.rollout_roles))
+                or not required_roles.issubset(s.rollout_roles)):
+            return False, f'{s.snapshot_date} 实际灰度用户/角色覆盖不足或计数不一致'
     return True, '灰度用户/角色矩阵完整'
 
 
@@ -499,12 +544,12 @@ def validate_sample_lists_present(
 
 
 def validate_all_evidence(
-    package: AcceptanceEvidencePackage, *, include_decision: bool = True,
+    package: AcceptanceEvidencePackage, *, include_decision: bool = True, now: Optional[datetime] = None,
 ) -> tuple[bool, list[str]]:
     """一次性多项校验验收证据包。"""
     failures: list[str] = []
     # validate_seven_consecutive_days_zero 接收快照列表，其他校验器接收 package
-    ok, reason = validate_seven_consecutive_days_zero(list(package.daily_snapshots))
+    ok, reason = validate_seven_consecutive_days_zero(list(package.daily_snapshots), now=now)
     if not ok:
         failures.append(reason)
     for validator in (
@@ -514,7 +559,10 @@ def validate_all_evidence(
         validate_rollback_evidence_present,
         validate_sample_lists_present,
     ):
-        ok, reason = validator(package)  # type: ignore[arg-type]
+        try:
+            ok, reason = validator(package, now=now) if validator is validate_go_no_go else validator(package)
+        except (TypeError, ValueError, AttributeError, KeyError):
+            ok, reason = False, '证据字段结构错误，不能验收'
         if not ok:
             failures.append(reason)
     if failures:

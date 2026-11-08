@@ -17122,7 +17122,7 @@ def _parse_iso_cutoff(iso_str: str):
 
 # ===== AI-R15 业务质量指标和版本对比 ORM adapter =====
 
-def _ai_bq_query_samples(filter_dict=None):
+def _ai_bq_query_samples(filter_dict=None, *, strict=False):
     """AI-R15 查询业务质量样本（按天 + 维度聚合）。
 
     样本聚合单元：(day, role, source, model, prompt_hash, schema_version)
@@ -17273,8 +17273,20 @@ def _ai_bq_query_samples(filter_dict=None):
             ))
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R15 查询样本异常: {exc}')
+        if strict:
+            raise
         return []
     return samples
+
+def _ai_registered_duplicate_drafts(start, end):
+    """AI-R18-F01-FIX-20261108-001: registered document identities, not replays."""
+    from ai.ops.launch_acceptance import count_duplicate_draft_receipts
+    records = AIDraftIdempotency.query.filter(
+        AIDraftIdempotency.created_at < end,
+        AIDraftIdempotency.status.in_(('completed', 'replayed')),
+    ).all()  # Full receipt population; earlier first identity is needed for this window.
+    return count_duplicate_draft_receipts(records, start, end)
+
 
 def _ai_r17_acceptance_counts(window_hours=168):
     """AI-R17 ORM adapter：查询上线验收四项指标的绝对计数。
@@ -17282,8 +17294,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
     复用现有检测逻辑（不重复发明）：
     - 越权成功：AIToolCall permission_allowed=False 且 status in (completed/success/authorized)
       （与 _ai_ops_metrics 的 unauthorized_success 口径一致）
-    - 重复草稿：AIDraftIdempotency status='replayed' 表示被幂等拦截的重复请求
-      （与 AI-R01 幂等标记一致）
+    - 重复草稿：同一任务登记不同草稿身份的额外数量；合法重放不算落单
     - 自动提交：AIToolCall tool_name 命中 AUTO_SUBMIT_FORBIDDEN_ACTIONS 的次数
       （与 AI-R13 budget_control.validate_no_auto_submit 口径一致）
     - 低置信度未确认建单：AIDocumentJob status='draft_created' 且存在低置信度未确认字段
@@ -17300,15 +17311,12 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 越权成功计数异常: {exc}')
-        counts['unauthorized_success'] = 0
+        counts['unauthorized_success'] = None
     try:
-        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
-            AIDraftIdempotency.created_at >= cutoff,
-            AIDraftIdempotency.status == 'replayed',
-        ).count()
+        counts['duplicate_drafts'] = _ai_registered_duplicate_drafts(cutoff, datetime.now())
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 重复草稿计数异常: {exc}')
-        counts['duplicate_drafts'] = 0
+        counts['duplicate_drafts'] = None
     try:
         counts['auto_submit'] = AIToolCall.query.filter(
             AIToolCall.created_at >= cutoff,
@@ -17316,7 +17324,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 自动提交计数异常: {exc}')
-        counts['auto_submit'] = 0
+        counts['auto_submit'] = None
     try:
         # 低置信度未确认建单：草稿已创建但其行项存在低置信度字段
         from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
@@ -17324,6 +17332,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
             AIDocumentItem.created_at >= cutoff,
             AIDocumentItem.confidence.isnot(None),
             AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
+            or_(AIDocumentItem.confirmation_status.is_(None), AIDocumentItem.confirmation_status == 'pending'),
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= cutoff,
@@ -17332,7 +17341,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 低置信度未确认建单计数异常: {exc}')
-        counts['low_confidence_unconfirmed'] = 0
+        counts['low_confidence_unconfirmed'] = None
     return counts
 
 def _ai_f02_query_daily_counts(target_date):
@@ -17354,16 +17363,12 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 越权成功单日计数异常: {exc}')
-        counts['unauthorized_success'] = 0
+        counts['unauthorized_success'] = None
     try:
-        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
-            AIDraftIdempotency.created_at >= day_start,
-            AIDraftIdempotency.created_at < day_end,
-            AIDraftIdempotency.status == 'replayed',
-        ).count()
+        counts['duplicate_drafts'] = _ai_registered_duplicate_drafts(day_start, day_end)
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 重复草稿单日计数异常: {exc}')
-        counts['duplicate_drafts'] = 0
+        counts['duplicate_drafts'] = None
     try:
         counts['auto_submit'] = AIToolCall.query.filter(
             AIToolCall.created_at >= day_start,
@@ -17372,7 +17377,7 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 自动提交单日计数异常: {exc}')
-        counts['auto_submit'] = 0
+        counts['auto_submit'] = None
     try:
         from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
         low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
@@ -17380,6 +17385,7 @@ def _ai_f02_query_daily_counts(target_date):
             AIDocumentItem.created_at < day_end,
             AIDocumentItem.confidence.isnot(None),
             AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
+            or_(AIDocumentItem.confirmation_status.is_(None), AIDocumentItem.confirmation_status == 'pending'),
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= day_start,
@@ -17389,7 +17395,7 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 低置信度未确认建单单日计数异常: {exc}')
-        counts['low_confidence_unconfirmed'] = 0
+        counts['low_confidence_unconfirmed'] = None
     return counts
 
 def _ai_f02_query_daily_quality(target_date):
@@ -17408,7 +17414,7 @@ def _ai_f02_query_daily_quality(target_date):
             # Shared quality filters include their end point. Keep this
             # natural-day consumer strictly before the following midnight.
             'time_end': (day_end - timedelta(microseconds=1)).isoformat(),
-        })
+        }, strict=True)
         # ORM adapter returns QualitySample counters, not per-metric dicts.
         metrics = compute_business_quality(samples).metrics
         for metric in ALL_METRICS:
@@ -17420,18 +17426,22 @@ def _ai_f02_query_daily_quality(target_date):
             }
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 单日质量指标查询异常: {exc}')
-        for metric in ALL_METRICS:
-            result[metric] = {'numerator': 0, 'denominator': 0, 'rate': 0.0}
+        result = {}  # Missing measurements must remain unknown, not synthetic zeros.
     return result
 
-def _ai_f02_query_rollout_info():
-    """AI-R17-F02 ORM adapter：查询当前灰度用户/角色信息。"""
+def _ai_f02_query_rollout_info(target_date=None):
+    """Observed tool audit users/roles in the same natural day, not configured roles."""
     try:
-        mode = _ai_rollout_mode()
-        allowed_ids = _ai_allowed_user_ids()
-        roles = ('admin', 'warehouse', 'purchase') if mode != 'off' else ()
+        start = datetime.strptime(target_date or datetime.now().strftime('%Y-%m-%d'), '%Y-%m-%d')
+        rows = db.session.query(AIToolCall.user_id, AIToolCall.role).filter(
+            AIToolCall.created_at >= start, AIToolCall.created_at < start + timedelta(days=1),
+            AIToolCall.permission_allowed.is_(True),
+            AIToolCall.status.in_(('completed', 'success', 'authorized')),
+            AIToolCall.user_id.isnot(None),
+        ).distinct().all()
+        roles = tuple(sorted({row.role for row in rows if row.role}))
         return {
-            'user_count': len(allowed_ids),
+            'user_count': len({row.user_id for row in rows}),
             'role_count': len(roles),
             'roles': roles,
         }
@@ -34551,7 +34561,7 @@ def api_ai_acceptance_daily_snapshot():
         # 采集质量指标
         quality_metrics = _ai_f02_query_daily_quality(target_date)
         # 采集灰度信息
-        rollout_info = _ai_f02_query_rollout_info()
+        rollout_info = _ai_f02_query_rollout_info(target_date)
         # 构造快照
         snapshot = build_daily_snapshot(
             snapshot_date=target_date,
@@ -34561,7 +34571,13 @@ def api_ai_acceptance_daily_snapshot():
             rollout_role_count=rollout_info['role_count'],
             rollout_roles=rollout_info['roles'],
             window_hours=24,
-            filter_applied={'date': target_date, 'source': 'daily_snapshot'},
+            filter_applied={'date': target_date, 'source': 'daily_snapshot',
+                            'time_start': target_date + 'T00:00:00',
+                            'time_end_exclusive': (datetime.strptime(target_date, '%Y-%m-%d') + timedelta(days=1)).isoformat(),
+                            'role': '', 'model': '', 'prompt_hash': '', 'schema_version': '',
+                            'absolute_reference': 'AIToolCall/AIDraftIdempotency/AIDocumentJob/AIDocumentItem',
+                            'duplicate_scope': 'registered distinct draft identities; replay is interception only',
+                            'role_reference': 'AIToolCall permitted successful rows in this day'},
             now=datetime.now(),
         )
         # 持久化（同一日期覆盖更新）
@@ -34607,6 +34623,7 @@ def api_ai_acceptance_daily_snapshot():
 def api_ai_acceptance_daily_snapshots():
     """AI-R17-F02：查询每日快照列表。"""
     import json as _json_f02
+    from ai.ops.launch_acceptance import valid_absolute_counts
     # AI_TASK: AI-R17-F02
     try:
         limit = request.args.get('limit', 30, type=int)
@@ -34625,7 +34642,7 @@ def api_ai_acceptance_daily_snapshots():
                 'window_hours': row.window_hours,
                 'filter_applied': _json_f02.loads(row.filter_applied) if row.filter_applied else {},
                 'generated_at': row.generated_at.isoformat() if row.generated_at else '',
-                'all_absolute_zero': all(
+                'all_absolute_zero': valid_absolute_counts(_json_f02.loads(row.absolute_counts)) and all(
                     v == 0 for v in _json_f02.loads(row.absolute_counts).values()
                 ),
             })
@@ -34662,7 +34679,7 @@ def api_ai_acceptance_evidence_package():
             payload = AcceptanceEvidenceInput.model_validate(json_object_body())
         except (ValueError, TypeError):
             return jsonify({'status': 'error', 'msg': '验收参数格式不正确，请检查日期和1至30天的整数天数'}), 400
-        end_date = payload.end_date or datetime.now().strftime('%Y-%m-%d')
+        end_date = payload.end_date or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         days = payload.days
         # 从 DB 取最近 days 天的快照
         end_dt = datetime.strptime(end_date, '%Y-%m-%d')
@@ -34693,8 +34710,8 @@ def api_ai_acceptance_evidence_package():
         # 采集回滚记录
         rollback_events = _ai_f02_query_rollback_events(start_date, end_date)
         # 灰度角色矩阵
-        rollout_info = _ai_f02_query_rollout_info()
-        role_matrix = [(r, r in rollout_info['roles']) for r in ('admin', 'warehouse', 'purchase', 'production', 'user')]
+        observed_roles = {role for snap in daily_snapshots for role in snap.rollout_roles}
+        role_matrix = [(r, r in observed_roles) for r in ('admin', 'warehouse', 'purchase', 'production', 'user')]
         # 初步判定 go/no-go（待管理员签字）
         ok_seven, reason_seven = validate_seven_consecutive_days_zero(daily_snapshots, required_days=days)
         initial_decision = 'pending'

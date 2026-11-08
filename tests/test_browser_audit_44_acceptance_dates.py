@@ -69,7 +69,7 @@ def acceptance_case(tmp_path,monkeypatch):
         session['_user_id']=str(actor_id);session['_fresh']=True;session['csrf_token']='qa44-public-csrf'
     client.environ_base.update(HTTP_ACCEPT='application/json',HTTP_X_REQUESTED_WITH='XMLHttpRequest',
         HTTP_X_CSRFTOKEN=URLSafeTimedSerializer(m.app.secret_key,salt='wtf-csrf-token').dumps('qa44-public-csrf'))
-    monkeypatch.setattr(m,'_ai_f02_query_rollout_info',lambda:{
+    monkeypatch.setattr(m,'_ai_f02_query_rollout_info',lambda *args:{
         'user_count':1,'role_count':3,'roles':('admin','warehouse','purchase')})
     monkeypatch.setattr(m,'_ai_f02_query_rollback_events',lambda start,end:[
         RollbackEvidence('QA44-'+action,action,actor_id,'admin',end+'T10:00:00',end+'T10:01:00',60)
@@ -112,7 +112,7 @@ def test_default_local_date_switches_at_midnight_and_same_date_recollect_updates
     assert [r.status_code for r in (first,second,third)]==[200,200,200]
     assert [r.json['snapshot']['snapshot_date'] for r in (first,second,third)]==['2026-10-31','2026-11-01','2026-11-01']
     package=case['client'].post('/api/ai/acceptance/evidence_package',json={'days':7})
-    assert package.status_code==200 and package.json['package']['end_date']=='2026-11-01'
+    assert package.status_code==200 and package.json['package']['end_date']=='2026-10-31'
     with m.app.app_context():assert m.AIAcceptanceDailySnapshot.query.count()==2
     assert unchanged_rows()==before
     record('local-midnight-default',{'injected_local_times':['2026-10-31T23:59:59','2026-11-01T00:00:00','2026-11-01T00:00:01'],
@@ -136,7 +136,8 @@ def test_absolute_metrics_use_half_open_local_natural_day(acceptance_case):
             m.AIDocumentItem(job_id=job_id,line_no=1,confidence=0.2,created_at=at)])
     before=unchanged_rows()
     snapshots={day:collect(case,day)['absolute_counts'] for day in ('2026-10-31','2026-11-01','2026-11-02')}
-    assert snapshots=={day:{metric:count for metric in ALL_ACCEPTANCE_METRICS}
+    # Legacy replay markers are intercepted requests, not duplicate business documents.
+    assert snapshots=={day:{metric:(0 if metric == 'duplicate_drafts' else count) for metric in ALL_ACCEPTANCE_METRICS}
         for day,count in [('2026-10-31',1),('2026-11-01',2),('2026-11-02',1)]}
     assert unchanged_rows()==before
     record('absolute-natural-day',{'counts':snapshots,'all_other_rows_unchanged':True})
@@ -165,8 +166,9 @@ def test_quality_day_excludes_next_midnight_at_actual_query_boundary(acceptance_
         feedback(case['actor'],DAY+timedelta(days=1,microseconds=-1)),
         feedback(case['actor'],DAY+timedelta(days=1))])
     original=m._ai_bq_query_samples;observed=[]
-    def observe(filters=None):
-        samples=original(filters)
+    def observe(filters=None, **kwargs):
+        assert kwargs == {'strict': True}
+        samples=original(filters, **kwargs)
         observed.append({'filter':filters,'sample_dates':[sample.occurred_at for sample in samples]})
         return samples
     monkeypatch.setattr(m,'_ai_bq_query_samples',observe)  # Observe real query, no sample substitution.
