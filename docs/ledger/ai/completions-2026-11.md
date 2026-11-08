@@ -33,3 +33,9 @@
 | AI-SEC-F01-FIX-PASSIVE-HEALTH-20261107-001 | 2026-11-07 | `f37be71f54653eef5659377a79ffc109f8fa3e2c` | BUG-2026-11-07-008；现役手册与被动任务/进程/程序清单身份工具，无新AI能力、schema或服务/监护修改 | 4完整模块54 passed/0 skipped；13文件整批R8为8失败/4旧日志对照、SHA256恢复；WindowsPowerShell5.1真实被动管道及解析通过；原断言保留 | [WMS CI42387964002](https://github.com/SIX2090/wms/actions/runs/42387964002)与[AI42387964000](https://github.com/SIX2090/wms/actions/runs/42387964000)精确目标completed/success、全部实质检查及gate成功，Windows42388397652成功；Android42311667571成功祖先/输入不变，完整tree/parent/16文件及CAS对齐、原本地提交bundle保存 | 仅OS元数据及程序清单；没有生产DB、HTTP、账号/令牌或服务/监护预算操作。未生产部署，2026-11-08随下一相关批次收尾。 |
 
 | AI-LOGIN-F01-FIX-TOKEN-REVOCATION-20261107-001 | 2026-11-08 | `2c79c983e564a3d839dacbc98f5bbfd644ea0837` | BUG-2026-11-07-009，既有本人改密/管理员重置同事务撤销目标ApiToken、Bearer强制改密拒绝、在途旧密码签发竞争封口；无新AI能力/权限/路由/模型/开关/schema | 15完整模块168 passed，独立真实文件竞争2 passed，原AI70全过；整批11文件旧5失败/10对照及file2失败，全部字节恢复；原断言保留 | 已推送，WMS CI42391920732、AI42391920715精确匹配completed/success，Android42311667571成功祖先且原生/工作流输入未变，本地origin一致；[凭据记录](../../audit/2026-11-08-improvement90-b4-credential-lifecycle.md) | 代码交付，未生产部署；无生产DB/HTTP、真实账号密码令牌、服务、监护或预算操作，不改变Web已有会话策略 |
+
+## 2026-11-08 既有验收证据维护的生产生效补记
+
+维护子项 `AI-R18-F01-FIX-20261108-001`（BUG-2026-11-08-007/008）随 `00ae746b3ff5f2cf3f0d045186689a9f791d0bef` 已完成代码交付和本次明确授权的生产代码切换。复用既有 AI-R18-F01、AI-R17、AI-R17-F02、AI-R18-F02，不新增 AI 能力或任务完成声明，不改变实际代码归属、权限、路由、工具、模型、开关或 schema。代码、消费者、完整本地与整批 R8 证据见任务冻结回执；[WMS CI42455482446](https://github.com/SIX2090/wms/actions/runs/42455482446)、[AI42455482479](https://github.com/SIX2090/wms/actions/runs/42455482479)、Windows42455775874精确目标成功，Android42419418015成功祖先且构建输入零差异。
+
+2026-11-08 16:23，生产需重启 WMS 服务生效，已执行；运行后端/UI精确匹配、PID9860。仅允许受保护启动必要读取，代理无生产数据库连接、迁移、业务数据修改或生产HTTP测试。真实20份、七日、实际角色覆盖和人工签署仍NO-GO。[生产回执](../../audit/2026-11-08-deploy-00ae746b.md)覆盖此前候选阶段的生产未部署快照；本次不将现场验收或整个90分目标标记为完成。
