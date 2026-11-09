@@ -116,7 +116,14 @@ def _warehouse(text):
         return None, None
     hits = []
     for warehouse in w.get_active_warehouses():
-        if any(alias and len(alias) >= 2 and alias in text for alias in (warehouse.name, warehouse.code)):
+        aliases = [alias for alias in (warehouse.name, warehouse.code)
+                   if alias and len(alias) >= 2 and alias in text]
+        if aliases:
+            for alias in aliases:
+                try:
+                    w.resolve_warehouse_text(alias, strict=True)
+                except w.WarehouseIdentityError as exc:
+                    return None, str(exc)
             hits.append(warehouse)
     if len(hits) > 1:
         # A shorter warehouse name may be contained in the longer one.

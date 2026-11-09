@@ -518,9 +518,8 @@ def register_transfer_routes(app):
                 from_wh_obj = None
                 if (transfer.from_warehouse or '').strip():
                     wh_key = transfer.from_warehouse.strip()
-                    from_wh_obj = Warehouse.query.filter(
-                        db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                    ).order_by(Warehouse.id.asc()).first()
+                    from services.warehouse_identity import resolve_warehouse_text
+                    from_wh_obj = resolve_warehouse_text(wh_key, strict=True)
                 if from_wh_obj:
                     src_stock = get_warehouse_stock_quantities(from_wh_obj)
                     required = {}

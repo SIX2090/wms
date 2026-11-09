@@ -155,11 +155,13 @@ def test_official_renderer_uses_new_label_even_when_legacy_template_is_default()
   assert(!calls.some(c=>c.url===detail('A')),'official label must not silently load the old layout');
   const card=ids.labelsContainer.children[0];
   assert.equal(card.style.width,'90mm');assert.equal(card.style.height,'50mm');
-  const left=card.children[0].children[0];
-  assert.equal(left.children.length,3);assert.equal(left.children[0].children[0].textContent,'C/&');
-  assert.equal(left.children[0].children[1].textContent,'品牌甲');
-  assert.equal(left.children[1].textContent,'<img src=x onerror=bad()>fixture material');
-  assert.equal(left.children[2].textContent,'型号/规格');
+  const inner=card.children[0],code=inner.children[0],left=inner.children[1];
+  assert.equal(code.textContent,'C/&');
+  assert(code.className.includes('label-material-code'));
+  assert.equal(left.children.length,2);
+  assert.equal(left.children[0].textContent,'<img src=x onerror=bad()>fixture material');
+  assert.equal(left.children[1].textContent,'型号/规格');
+  assert(!all(card,'div').some(node=>node.className.includes('label-material-brand')));
   const images=all(card,'img');assert.equal(images.length,1);assert.equal(images[0].src,'data:image/png;base64,fixture-png');
   select('A');await finish(detail('A'),{status:'success',template:template('A')});
   assert.equal(ids.labelsContainer.children[0].style.width,'40mm','custom template remains selectable');
@@ -215,10 +217,10 @@ def test_builtin_label_empty_fields_are_blank_in_real_renderer(value):
  if(p.action==='empty_label'){
   await finish(excel,{status:'success',templates:[]});
   await finish(list,{status:'success',templates:[]});
-  const card=ids.labelsContainer.children[0],left=card.children[0].children[0];
+  const card=ids.labelsContainer.children[0],inner=card.children[0],left=inner.children[1];
   assert.equal(card.style.width,'90mm');assert.equal(card.style.height,'50mm');
-  const fields=[...left.children[0].children,left.children[1],left.children[2]];
-  assert.equal(fields.length,4);
+  const fields=[inner.children[0],...left.children];
+  assert.equal(fields.length,3);
   for(const field of fields)assert.equal(field.textContent,p.expected);
   assert.equal(all(card,'img')[0].src,'data:image/png;base64,fixture-png');
   return;

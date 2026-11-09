@@ -32,12 +32,13 @@ from copy import copy
 from datetime import datetime
 
 from openpyxl import load_workbook
+from print_display import PrintFieldError, _PrintFields, _field_paths, _project
 
 _PLACEHOLDER_RE = re.compile(r'\{([^{}]+)\}')
 # 明细扩展时判断"明细块结束边界"用到的订单级占位符前缀
 _ORDER_LEVEL_HINTS = ('{total_', '{order.', '{print_date}', '{today}')
 
-# 合法占位符：order.* / item.* 为通配（按属性路径解析），其余为显式白名单
+# 字段路径必须属于展示白名单；不允许 ORM 属性或方法遍历。
 _EXPLICIT_TOKENS = ('total_quantity', 'total_amount', 'print_date', 'today')
 
 # 图片占位符（PRINT-TEMPLATE-F04）：{img_barcode:item.barcode} /
@@ -52,11 +53,17 @@ _MAX_TEMPLATE_ROWS = 2000
 _MAX_TEMPLATE_COLS = 100
 
 
-def _is_supported_placeholder(token):
-    if token.startswith('order.') or token.startswith('item.') \
-            or token in _EXPLICIT_TOKENS:
+def _is_supported_placeholder(token, *, order_fields=None, item_fields=None):
+    if token in _EXPLICIT_TOKENS:
         return True
-    return bool(_IMG_PLACEHOLDER_RE.match(token))
+    image = _IMG_PLACEHOLDER_RE.fullmatch(token)
+    if image:
+        token = token.split(':', 1)[1]
+    scope, separator, path = token.partition('.')
+    if not separator or scope not in ('order', 'item'):
+        return False
+    fields = order_fields if scope == 'order' else item_fields
+    return path in (fields if fields is not None else _field_paths(scope))
 
 
 def _has_item_placeholder(text):
@@ -126,7 +133,7 @@ def _embed_placeholder_image(ws, row, col, kind, data, fallback_text):
         ws.row_dimensions[row].height = 40 if kind == 'barcode' else 58
 
 
-def validate_template_file(raw: bytes) -> str:
+def validate_template_file(raw: bytes, *, order_fields=None, item_fields=None) -> str:
     """校验上传的打印模板原始字节，返回错误信息；合法则返回空串。
 
     覆盖三类问题：
@@ -159,8 +166,8 @@ def validate_template_file(raw: bytes) -> str:
                 for cell in row:
                     if isinstance(cell.value, str):
                         for token in _PLACEHOLDER_RE.findall(cell.value):
-                            if not _is_supported_placeholder(token):
-                                return '模板包含不支持的占位符 {%s}，请使用 order.* / item.* / %s' % (
+                            if not _is_supported_placeholder(token, order_fields=order_fields, item_fields=item_fields):
+                                return '模板包含不支持的占位符 {%s}，请使用模板中心列出的展示字段或 %s' % (
                                     token, ' / '.join(_EXPLICIT_TOKENS))
     finally:
         workbook.close()
@@ -207,26 +214,20 @@ def _fmt(value):
 
 
 def _resolve_path(obj, parts):
-    for part in parts:
-        if obj is None:
-            return None
-        if isinstance(obj, dict):
-            # 报表/列表平铺 dict 行（PRINT-TEMPLATE-F04 报表模板打印）
-            attr = obj.get(part)
-        else:
-            attr = getattr(obj, part, None)
-        if callable(attr):
-            attr = attr()
-        obj = attr
-    return obj
+    if not isinstance(obj, _PrintFields):
+        raise PrintFieldError('模板只能读取批准的展示字段快照')
+    return obj.resolve('.'.join(parts))
 
 
 class _Filler:
     """对单个工作表执行占位符填充与明细行扩展。"""
 
-    def __init__(self, order, items, date_str):
-        self.order = order
-        self.items = items or []
+    def __init__(self, order, items, date_str, *, order_fields=None, item_fields=None):
+        self.order_fields = order_fields if order_fields is not None else (
+            order.fields if isinstance(order, _PrintFields) else _field_paths('order'))
+        self.item_fields = item_fields if item_fields is not None else _field_paths('item')
+        self.order = _project(order, self.order_fields)
+        self.items = tuple(_project(item, self.item_fields) for item in (items or []))
         self.date_str = date_str or datetime.now().strftime('%Y-%m-%d')
 
     # ---------- 解析 ----------
@@ -237,9 +238,9 @@ class _Filler:
         if _IMG_PLACEHOLDER_RE.match(token):
             return _KEEP  # 图片占位符由 _embed 阶段单独处理
         if token == 'total_quantity':
-            return _fmt(sum(_num(i.quantity) for i in self.items))
+            return _fmt(sum(_num(_resolve_path(i, ['quantity'])) for i in self.items))
         if token == 'total_amount':
-            return self.order.total_amount
+            return _fmt(_resolve_path(self.order, ['total_amount']))
         if token in ('print_date', 'today'):
             return self.date_str
         if token.startswith('order.'):
@@ -248,7 +249,7 @@ class _Filler:
 
     def item_value(self, token, item):
         if token.startswith('item.'):
-            return _fmt(_resolve_path(item, token.split('.')[1:]))
+            return _fmt(_resolve_path(_project(item, self.item_fields), token.split('.')[1:]))
         if _IMG_PLACEHOLDER_RE.match(token):
             return _KEEP  # 图片占位符由 _embed 阶段单独处理
         return self.order_value(token)
@@ -280,6 +281,13 @@ class _Filler:
 
     # ---------- 填充 ----------
     def fill(self, ws):
+        # Validate even empty detail blocks before they can erase a bad token.
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str):
+                    for token in _PLACEHOLDER_RE.findall(cell.value):
+                        if not _is_supported_placeholder(token, order_fields=self.order_fields, item_fields=self.item_fields):
+                            raise PrintFieldError('模板包含不支持的占位符 {%s}，请使用模板中心列出的展示字段' % token)
         max_row = ws.max_row or 1
         max_col = ws.max_column or 1
 
@@ -411,7 +419,8 @@ def _contains_order_placeholder(text):
 _KEEP = object()
 
 
-def build_filled_print_excel(template_path, order, items=None, date_str=None, *, preserve_layout=False):
+def build_filled_print_excel(template_path, order, items=None, date_str=None, *, preserve_layout=False,
+                             order_fields=None, item_fields=None):
     """按订单数据填充 Excel 模板，返回可下载的 BytesIO。
 
     template_path：模板 .xlsx 的绝对路径；
@@ -419,17 +428,21 @@ def build_filled_print_excel(template_path, order, items=None, date_str=None, *,
     items：默认取 order.items，也可显式传入。
     """
     workbook = load_workbook(template_path)
-    filler = _Filler(order, items if items is not None else order.items, date_str)
-    for ws in workbook.worksheets:
-        if preserve_layout:
-            from services.report_print_preview import _fill_sheet
-            _fill_sheet(ws, filler)
-        else:
-            filler.fill(ws)
-            from services.excel_print_layout import fit_print_rows
-            fit_print_rows(ws)
-    output = io.BytesIO()
-    workbook.save(output)
+    try:
+        filler = _Filler(order, items if items is not None else order.items, date_str,
+                         order_fields=order_fields, item_fields=item_fields)
+        for ws in workbook.worksheets:
+            if preserve_layout:
+                from services.report_print_preview import _fill_sheet
+                _fill_sheet(ws, filler)
+            else:
+                filler.fill(ws)
+                from services.excel_print_layout import fit_print_rows
+                fit_print_rows(ws)
+        output = io.BytesIO()
+        workbook.save(output)
+    finally:
+        workbook.close()
     output.seek(0)
     return output
 
@@ -680,7 +693,7 @@ def _validate_grid_value(value):
             return '单元格文本过长，单格最多 32767 字符'
         for token in _PLACEHOLDER_RE.findall(value):
             if not _is_supported_placeholder(token):
-                return '模板包含不支持的占位符 {%s}，请使用 order.* / item.* / %s' % (
+                return '模板包含不支持的占位符 {%s}，请使用模板中心列出的展示字段或 %s' % (
                     token, ' / '.join(_EXPLICIT_TOKENS))
         return ''
     return '不支持的单元格值类型'

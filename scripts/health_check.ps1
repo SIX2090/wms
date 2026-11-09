@@ -1,202 +1,96 @@
 ﻿<#
 .SYNOPSIS
-    WMS 部署后健康检查脚本
+    被动核对封存制品、计划任务和监听进程；不探测HTTP或数据库。
 .DESCRIPTION
-    验证服务状态、端口监听、接口响应、日志生成等 10 项检查。
-    输出检查结果与异常告警。
-    AI-SEC-F01
-.PARAMETER InstallDir
-    WMS 安装目录，默认 C:\wms
-.PARAMETER Port
-    WMS 服务端口，默认 8080
-.PARAMETER ServiceName
-    nssm 服务名称，默认 WMS
-.EXAMPLE
-    .\health_check.ps1
-.EXAMPLE
-    .\health_check.ps1 -InstallDir E:\wms -Port 8080
+    AI-SEC-F01 既有运维入口的 BUG-2026-11-07-008/B3 修复。
+    身份通过不代表业务健康或完整文件校验。无启停、安装、备份或恢复操作。
 #>
 param(
-    [string]$InstallDir = "C:\wms",
+    [string]$InstallDir = '',
     [int]$Port = 8080,
-    [string]$ServiceName = "WMS"
+    [string]$TaskName = 'WMS-Warehouse',
+    [string]$ExpectedSourceSha = '',
+    [string]$ExpectedPython = '',
+    [string]$ExpectedEntry = '',
+    [string]$EntryArguments = '',
+    [string]$ValidatorPython = '',
+    [switch]$IncludeLogMetadata
 )
 
-$ErrorActionPreference = "SilentlyContinue"
-$results = @()
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+$env:PYTHONIOENCODING = 'utf-8'
 
-function Add-Check {
-    param([string]$Name, [string]$Status, [string]$Detail)
-    $script:results += [PSCustomObject]@{
-        CheckNo  = $script:results.Count + 1
-        Name     = $Name
-        Status   = $Status
-        Detail   = $Detail
-    }
-}
-
-Write-Host "=" * 60
-Write-Host "WMS 部署后健康检查 (AI-SEC-F01)"
-Write-Host "安装目录: $InstallDir"
-Write-Host "端口: $Port"
-Write-Host "服务名: $ServiceName"
-Write-Host "=" * 60
-Write-Host ""
-
-# 1. nssm 服务状态
-$svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
-if ($svc) {
-    if ($svc.Status -eq 'Running') {
-        Add-Check "nssm 服务状态" "PASS" "服务 $ServiceName 正在运行"
-    } else {
-        Add-Check "nssm 服务状态" "FAIL" "服务 $ServiceName 状态为 $($svc.Status)，预期 Running"
-    }
-} else {
-    Add-Check "nssm 服务状态" "FAIL" "服务 $ServiceName 不存在"
-}
-
-# 2. 服务进程存在
-$proc = Get-Process -Name python -ErrorAction SilentlyContinue
-if ($proc) {
-    Add-Check "Python 进程" "PASS" "发现 $($proc.Count) 个 python 进程 (PID: $($proc.Id -join ','))"
-} else {
-    Add-Check "Python 进程" "FAIL" "未发现 python 进程，服务可能未启动"
-}
-
-# 3. 端口监听
-$conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-if ($conn) {
-    Add-Check "端口监听" "PASS" "端口 $Port 正在监听 (PID: $($conn.OwningProcess | Select-Object -First 1))"
-} else {
-    Add-Check "端口监听" "FAIL" "端口 $Port 未监听"
-}
-
-# 4. HTTP 本机响应
-try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/login" -UseBasicParsing -TimeoutSec 10
-    if ($resp.StatusCode -eq 200) {
-        Add-Check "HTTP 响应" "PASS" "http://127.0.0.1:$Port/login 返回 200"
-    } else {
-        Add-Check "HTTP 响应" "WARN" "返回状态码 $($resp.StatusCode)，预期 200"
-    }
-} catch {
-    Add-Check "HTTP 响应" "FAIL" "无法访问 http://127.0.0.1:$Port/login : $($_.Exception.Message)"
-}
-
-# 5. 登录页内容
-try {
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/login" -UseBasicParsing -TimeoutSec 10
-    if ($resp.Content -match 'login' -or $resp.Content -match '登录') {
-        Add-Check "登录页内容" "PASS" "页面包含登录表单"
-    } else {
-        Add-Check "登录页内容" "WARN" "页面内容未包含 'login' 关键字"
-    }
-} catch {
-    Add-Check "登录页内容" "FAIL" "无法获取页面内容"
-}
-
-# 6. 数据库文件存在
-$dbPath = Join-Path $InstallDir "app\instance\inventory.db"
-if (Test-Path $dbPath) {
-    $dbSize = (Get-Item $dbPath).Length
-    Add-Check "数据库文件" "PASS" "数据库存在: $dbPath ($([math]::Round($dbSize/1KB, 1)) KB)"
-} else {
-    # 尝试备用路径
-    $dbPath2 = Join-Path $InstallDir "instance\inventory.db"
-    if (Test-Path $dbPath2) {
-        Add-Check "数据库文件" "PASS" "数据库存在: $dbPath2"
-    } else {
-        Add-Check "数据库文件" "FAIL" "数据库文件不存在: $dbPath"
-    }
-}
-
-# 7. 应用日志生成
-# AUDIT-FULL-20261016-001-F09：app/config.py 的 LOG_FILE 锚定在 app/logs/app.log
-# （仓库布局与便携包一致），历史文档/部署按扁平 logs/app.log 排查，导致误报"日志不存在"。
-# 这里同时探测两种布局，取最近写入的那个；都不存在才判失败。
-$logCandidates = @(
-    (Join-Path $InstallDir "app\logs\app.log"),
-    (Join-Path $InstallDir "logs\app.log")
-)
-$logPath = $null
-foreach ($candidate in $logCandidates) {
-    if (Test-Path $candidate) {
-        if ($null -eq $logPath -or (Get-Item $candidate).LastWriteTime -gt (Get-Item $logPath).LastWriteTime) {
-            $logPath = $candidate
+# Optional file metadata only; preserve both supported log layouts and newest choice.
+function Get-WmsLogMetadata {
+    param([string]$InstallDir)
+    $logCandidates = @(
+        (Join-Path $InstallDir "app\logs\app.log"),
+        (Join-Path $InstallDir "logs\app.log")
+    )
+    $logPath = $null
+    foreach ($candidate in $logCandidates) {
+        if (Test-Path -LiteralPath $candidate) {
+            if ($null -eq $logPath -or (Get-Item -LiteralPath $candidate).LastWriteTime -gt (Get-Item -LiteralPath $logPath).LastWriteTime) {
+                $logPath = $candidate
+            }
         }
     }
-}
-if ($null -ne $logPath) {
-    $logSize = (Get-Item $logPath).Length
-    if ($logSize -gt 0) {
-        Add-Check "应用日志" "PASS" "日志文件存在且非空: $logPath ($([math]::Round($logSize/1KB, 1)) KB)"
-    } else {
-        Add-Check "应用日志" "WARN" "日志文件存在但为空: $logPath"
+    if ($null -ne $logPath) {
+        $item = Get-Item -LiteralPath $logPath
+        return @{ path=$logPath; last_write=$item.LastWriteTime.ToString('o'); bytes=$item.Length }
     }
-} else {
-    Add-Check "应用日志" "FAIL" "日志文件不存在: $($logCandidates -join ' / ')"
+    return $null
 }
 
-# 8. SECRET_KEY 持久化
-$secretPath = Join-Path $InstallDir "app\instance\secret_key"
-if (Test-Path $secretPath) {
-    Add-Check "SECRET_KEY" "PASS" "secret_key 文件已持久化"
-} else {
-    $secretPath2 = Join-Path $InstallDir "instance\secret_key"
-    if (Test-Path $secretPath2) {
-        Add-Check "SECRET_KEY" "PASS" "secret_key 文件已持久化"
-    } else {
-        Add-Check "SECRET_KEY" "WARN" "secret_key 文件不存在（首次启动可能尚未生成）"
+try {
+    # Missing expectations fail before collecting system state or reading any file.
+    foreach ($value in @($InstallDir,$ExpectedPython,$ExpectedEntry,$ValidatorPython)) {
+        if (!$value -or ![IO.Path]::IsPathRooted($value)) { throw '请明确制品、解释器及入口绝对路径' }
     }
-}
-
-# 9. auto_update 日志
-$stdoutLog = Join-Path $InstallDir "logs\service_stdout.log"
-if (Test-Path $stdoutLog) {
-    $autoUpdateLine = Select-String -Path $stdoutLog -Pattern "AUTO_UPDATE" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($autoUpdateLine) {
-        Add-Check "auto_update 日志" "PASS" "发现自动更新记录"
-    } else {
-        Add-Check "auto_update 日志" "WARN" "service_stdout.log 存在但未找到 AUTO_UPDATE 记录（可能已跳过）"
+    if ($ExpectedSourceSha -cnotmatch '^[0-9a-f]{40}$' -or !$TaskName.Trim() -or $Port -lt 1 -or $Port -gt 65535) {
+        throw '请明确完整来源SHA、计划任务名及有效端口'
     }
-} else {
-    Add-Check "auto_update 日志" "WARN" "service_stdout.log 不存在（nssm 可能未配置 stdout 重定向）"
-}
-
-# 10. 防火墙规则
-$fwRule = Get-NetFirewallRule -DisplayName "WMS*" -ErrorAction SilentlyContinue
-if ($fwRule) {
-    Add-Check "防火墙规则" "PASS" "发现 $($fwRule.Count) 条 WMS 防火墙规则"
-} else {
-    Add-Check "防火墙规则" "WARN" "未发现 WMS 防火墙规则（如由 Nginx 统一管理可忽略）"
-}
-
-# 输出结果
-Write-Host ""
-Write-Host "=" * 60
-Write-Host "检查结果汇总"
-Write-Host "=" * 60
-$results | Format-Table -AutoSize
-
-$passCount = ($results | Where-Object { $_.Status -eq 'PASS' }).Count
-$failCount = ($results | Where-Object { $_.Status -eq 'FAIL' }).Count
-$warnCount = ($results | Where-Object { $_.Status -eq 'WARN' }).Count
-
-Write-Host ""
-Write-Host "通过: $passCount | 失败: $failCount | 警告: $warnCount | 总计: $($results.Count)"
-Write-Host ""
-
-if ($failCount -gt 0) {
-    Write-Host "[!!!] 存在 $failCount 项失败检查，部署可能异常！" -ForegroundColor Red
-    Write-Host "失败项详情:"
-    $results | Where-Object { $_.Status -eq 'FAIL' } | ForEach-Object {
-        Write-Host "  - $($_.Name): $($_.Detail)" -ForegroundColor Red
+    $task = Get-ScheduledTask -TaskName $TaskName
+    if (@($task).Count -ne 1) { throw '计划任务不唯一' }
+    $allProcesses = @(Get-CimInstance Win32_Process)
+    $processMap = @{}
+    foreach ($row in $allProcesses) { $processMap[[int]$row.ProcessId] = $row }
+    $listeners = @(Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq $Port | Select-Object -ExpandProperty OwningProcess -Unique)
+    $rows = @()
+    $seen = @{}
+    foreach ($listenerPid in $listeners) {
+        $currentId = [int]$listenerPid
+        for ($depth=0; $depth -lt 32 -and $currentId -gt 0; $depth++) {
+            if ($seen.ContainsKey($currentId)) { break }
+            $seen[$currentId] = $true
+            $row = $processMap[$currentId]
+            if (!$row) { break }
+            $ticks = $null
+            if ($row.CreationDate) { $ticks = $row.CreationDate.ToUniversalTime().Ticks }
+            $rows += @{pid=[int]$row.ProcessId; ppid=[int]$row.ParentProcessId; executable=$row.ExecutablePath; command=$row.CommandLine; created_ticks=$ticks}
+            $currentId = [int]$row.ParentProcessId
+        }
     }
-    exit 1
-} elseif ($warnCount -gt 0) {
-    Write-Host "[!] 存在 $warnCount 项警告，建议检查。" -ForegroundColor Yellow
-    exit 0
-} else {
-    Write-Host "[OK] 全部检查通过。" -ForegroundColor Green
-    exit 0
+    $packet = @{
+        expected = @{release_root=$InstallDir; source_sha=$ExpectedSourceSha; python=$ExpectedPython; entry=$ExpectedEntry; entry_arguments=$EntryArguments; task_name=$TaskName; port=$Port}
+        snapshot = @{
+            port=$Port; listeners=@($listeners); processes=@($rows)
+            task=@{name=$task.TaskName; state=[string]$task.State; actions=@($task.Actions | ForEach-Object { @{execute=$_.Execute; arguments=$_.Arguments} })}
+        }
+    }
+    $validator = Join-Path $PSScriptRoot '..\tools\passive_wms_identity.py'
+    $raw = $packet | ConvertTo-Json -Depth 8 -Compress
+    $output = $raw | & $ValidatorPython -I -B -X utf8 $validator
+    $code = $LASTEXITCODE
+    if ($code -notin @(0,1,2)) { throw '身份校验器未正常完成' }
+    $result = $output | ConvertFrom-Json
+    if ($IncludeLogMetadata) { $result | Add-Member -NotePropertyName log_metadata -NotePropertyValue (Get-WmsLogMetadata $InstallDir) }
+    $result | ConvertTo-Json -Depth 6 -Compress
+    exit $code
+} catch {
+    # Never print raw process commands, task arguments, secrets or database paths.
+    @{identity_verified=$false; failures=@('身份资料缺失或查询失败，请按现役手册核对参数和权限'); database_access=$false; http_request=$false; service_action=$false} | ConvertTo-Json -Compress
+    exit 2
 }

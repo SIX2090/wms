@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 
 from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -185,6 +186,11 @@ def register_sales_routes(app):
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：客户、物料编码或数量无效')
                     continue
+                known_material = Material.query.filter_by(code=material_code).first()
+                if known_material and (known_material.status or 'active') != 'active':
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：物料 {material_code} 已停用，不能新增销售明细')
+                    continue
                 order = orders_by_no.get(order_no)
                 if not order:
                     existing = SalesOrder.query.filter_by(order_no=order_no).first()
@@ -211,7 +217,7 @@ def register_sales_routes(app):
                     db.session.flush()
                     orders_by_no[order_no] = order
                     order_count += 1
-                material = Material.query.filter_by(code=material_code).first() or _find_or_create_material(material_code, _get_excel_cell(row, col_map, 'material_name'), _get_excel_cell(row, col_map, 'spec'), _get_excel_cell(row, col_map, 'unit'), warnings=warnings)
+                material = known_material or _find_or_create_material(material_code, _get_excel_cell(row, col_map, 'material_name'), _get_excel_cell(row, col_map, 'spec'), _get_excel_cell(row, col_map, 'unit'), warnings=warnings)
                 if not material:
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
@@ -518,8 +524,9 @@ def register_sales_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Customer, Employee, Material, generate_sales_order_no,
-                         get_active_warehouses, serialize_material_without_stock)
-        return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material_without_stock(material) for material in Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
+                         get_active_warehouses, material_selectable_filter,
+                         serialize_material_without_stock)
+        return render_template('sales_order_add.html', order_no=generate_sales_order_no(), order_date=date.today().isoformat(), customers=Customer.query.order_by(Customer.code.asc()).all(), warehouses=get_active_warehouses(), materials=[serialize_material_without_stock(material) for material in Material.query.options(joinedload(Material.unit)).filter(material_selectable_filter(False)).order_by(Material.code.asc()).all()], employees=Employee.query.order_by(Employee.id.asc()).all(), default_tax_rate=0.13)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/sales/add', methods=['POST'])
@@ -580,6 +587,9 @@ def register_sales_routes(app):
                 if not material or quantity <= 0:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+                if (material.status or 'active') != 'active':
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': '物料已停用，不能新增销售明细'}), 400
                 price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
                 tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
                 if tax_rate < 0:
@@ -664,7 +674,8 @@ def register_sales_routes(app):
     @login_required
     def sales_order_edit_page(id):
         from sqlalchemy.orm import joinedload
-        from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem, Warehouse)
+        from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem, Warehouse,
+                         material_selectable_filter, serialize_material_without_stock)
         order = SalesOrder.query.options(joinedload(SalesOrder.items).joinedload(SalesOrderItem.material).joinedload(Material.unit)).get_or_404(id)
         if order.status != 'draft':
             flash('仅草稿状态的销售订单可修改，请先反确认或新建订单', 'warning')
@@ -672,10 +683,11 @@ def register_sales_routes(app):
         customers = Customer.query.order_by(Customer.code.asc()).all()
         employees = Employee.query.order_by(Employee.id.asc()).all()
         warehouses = Warehouse.query.order_by(Warehouse.id.asc()).all()
-        materials = Material.query.order_by(Material.code.asc()).all()
-        material_list = [{'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else '', 'price': float(m.price or 0)} for m in materials]
+        materials = Material.query.options(joinedload(Material.unit)).filter(
+            material_selectable_filter(False)).order_by(Material.code.asc()).all()
+        material_list = [serialize_material_without_stock(m) for m in materials]
         # 已有明细项转 JSON 供前端回填
-        existing_items = [{'code': item.material.code if item.material else '', 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
+        existing_items = [{'code': item.material.code if item.material else '', 'material': serialize_material_without_stock(item.material) if item.material else None, 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
         return render_template('sales_order_edit.html', order=order, customers=customers, employees=employees, warehouses=warehouses, materials=materials, material_list=material_list, existing_items=existing_items, default_tax_rate=0.13)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -725,6 +737,8 @@ def register_sales_routes(app):
             order.contract_no = (payload.get('contract_no') or '').strip() or None
             order.project_name = (payload.get('project_name') or '').strip() or None
             # 删除旧明细，重建新明细（草稿状态无出库记录，可安全重建）
+            # 旧客户端没有行ID：按原关联行数保留历史停用料，不能借历史料再增行。
+            historical_material_rows = Counter(item.material_id for item in order.items)
             SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
             db.session.flush()
             for data in items:
@@ -733,6 +747,11 @@ def register_sales_routes(app):
                 if not material or quantity <= 0:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+                if (material.status or 'active') != 'active':
+                    if historical_material_rows[material.id] <= 0:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'msg': '物料已停用，只能保留本单原有关联行，不能新增'}), 400
+                    historical_material_rows[material.id] -= 1
                 price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
                 tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
                 if tax_rate < 0:

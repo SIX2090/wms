@@ -481,3 +481,23 @@ POST_SPLIT_BUGS['BUG-2026-11-07-003'] = 'fixed'  # empty entry cell hints; deliv
 
 POST_SPLIT_BUGS['BUG-2026-11-07-004'] = 'fixed'  # local acceptance complete; delivery still requires exact-target CI
 POST_SPLIT_BUGS['BUG-2026-11-07-005'] = 'fixed'  # print layout acceptance; CI and activation tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-07-006'] = 'fixed'  # namespace candidate verified locally; exact CI and deployment tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-07-007'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-07-008'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-07-009'] = 'fixed'  # local candidate verified; exact CI and production tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-08-001'] = 'fixed'  # B6 candidate; exact CI and production recorded separately
+POST_SPLIT_BUGS['BUG-2026-11-08-002'] = 'fixed'  # B7 exact code CI accepted; production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-08-003'] = 'fixed'  # B8 candidate; exact delivery and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-08-004'] = 'fixed'  # B9 local acceptance; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-08-005'] = 'fixed'  # B10 local evidence; exact CI and production tracked separately
+
+POST_SPLIT_BUGS['BUG-2026-11-08-006'] = 'fixed'  # N2 local candidate; exact CI/runtime release acceptance separate
+
+POST_SPLIT_BUGS['BUG-2026-11-08-007'] = 'fixed'  # N3 candidate; exact CI tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-08-008'] = 'fixed'  # N3 same-batch receipt semantics
+POST_SPLIT_BUGS['BUG-2026-11-08-009'] = 'fixed'  # N7 local list return regression; exact CI tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-09-002'] = 'fixed'  # Windows version conflict; exact release acceptance tracked separately

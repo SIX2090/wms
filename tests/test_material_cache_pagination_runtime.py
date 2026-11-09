@@ -9,7 +9,16 @@ import pytest
 from tests.test_in_order_material_search_runtime import function
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = ['out_order_add', 'document_table_form', 'adjustment_add']
+PAGES = ['out_order_add', 'document_table_form', 'adjustment_add', 'sales_order_add', 'sales_order_edit']
+
+
+def refresh_source(source, page):
+    if page.startswith('sales_order') and 'function refreshMaterials(' not in source:
+        # Execute the real former click consumer in the physical old-version rehearsal.
+        from tests.test_sales_collection_boundary_runtime import _block
+        marker = "document.getElementById('refreshMaterialsBtn').addEventListener('click', "
+        return _block(source, marker).replace(marker + 'function()', 'function refreshMaterials()', 1)
+    return function(source, 'refreshMaterials')
 
 
 @pytest.mark.parametrize('page', PAGES)
@@ -20,7 +29,7 @@ def test_refresh_fetches_every_page_before_replacing_cache(page, action):
     program = r"""
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 const calls=[],pending=[],messages=[],button={disabled:false,innerHTML:'刷新物料'};
-const ctx={document:{querySelector:s=>s.startsWith('meta')?{content:'token'}:button},FormData:class{},URLSearchParams,
+const ctx={document:{querySelector:s=>s.startsWith('meta')?{content:'token'}:button,getElementById:()=>({textContent:''})},FormData:class{},URLSearchParams,
  fetch:(url,options)=>{calls.push({url,options});return new Promise((resolve,reject)=>pending.push({resolve,reject}));},
  showToast:(message,type)=>messages.push({message,type}),notifyMaterialRefresh:(message,type,silent)=>{if(!silent)messages.push({message,type});}};ctx.window=ctx;
 vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext('const materials=[{id:9999,code:"KEEP",name:"已选物料"}];',ctx);if(p.asset)vm.runInContext(p.asset,ctx);vm.runInContext(p.refresh,ctx);
@@ -52,7 +61,7 @@ async function finish(index,items,total=items.length,page=1,error=null){let data
     binary = shutil.which('node')
     assert binary, 'Node.js is required for material cache runtime tests'
     result = subprocess.run([binary, '--max-old-space-size=64', '-e', program],
-                            input=json.dumps(dict(page=page, action=action, refresh=function(source, 'refreshMaterials'),
+                            input=json.dumps(dict(page=page, action=action, refresh=refresh_source(source, page),
                                                   api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
                                                   asset=asset.read_text(encoding='utf-8') if asset.exists() else '')),
                             capture_output=True, text=True, encoding='utf-8', timeout=20)

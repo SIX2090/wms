@@ -477,9 +477,8 @@ def register_after_sale_out_routes(app):
             # （warehouse_id/location 全空），仓库级必然查不到，回退全局口径，避免
             # "有库存却拒绝完成"（BUG-2026-08-18-002 同类，R2 历史脏数据兼容）。
             wh_name = (order.warehouse or '').strip()
-            wh_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == wh_name, Warehouse.code == wh_name)
-            ).order_by(Warehouse.id.asc()).first() if wh_name else None
+            from services.warehouse_identity import resolve_warehouse_text
+            wh_obj = resolve_warehouse_text(wh_name, strict=True) if wh_name else None
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
             # BUG-2026-10-17-013-F01：按物料合计校验，避免多行同物料逐行通过、
             # 合计超过单仓库存（审计 I2）。

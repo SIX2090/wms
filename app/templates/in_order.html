@@ -384,6 +384,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script defer data-user-id="{{ current_user.get_id() }}" src="{{ url_for('static', filename='js/pages/document-list-scroll.js') }}"></script>
 <script id="inOrderListConfig" type="application/json">{"sortBy": {{ sort_by|default("id")|tojson }}, "sortOrder": {{ sort_order|default("desc")|tojson }}}</script>
 <script src="{{ url_for('static', filename='js/pages/in-order-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/pages/document-list-actions.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>

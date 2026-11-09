@@ -2,6 +2,14 @@
 
 > 2026-11-09：按整改后的实际源码同步函数与单仓短路定位；仅更新引用。
 
+> 2026-11-08：随N3验收证据子修复同步回填函数定位行号，库存业务规则不变。
+
+> 2026-11-08：随 B4 凭据失效闭环同步源码行号；库存规则与生产数据库不变。
+
+> 2026-11-07：随 B2 原生请求事务和取号前保护同步源码行号；库存规则与生产数据库不变。
+
+> 2026-11-07：随 B1 仓库唯一解析修复同步源码行号；库存规则、回填逻辑及生产数据库均未改动。
+
 > 2026-11-05：随部署暂停策略同步源码行号；库存真相、仓库归属及写入规则不变。
 
 > 2026-11-04：随双账号单据版本保护同步源码行号；库存精度及写入规则未改变。
@@ -100,10 +108,10 @@
 
 | 函数 | 位置 | 作用 | 同步库位账？ |
 |---|---|---|---|
-| `deduct_stock_atomic` | `app/app.py:5110` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
-| `add_stock` | `app/app.py:5178` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8783` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
-| `add_stock_transaction` | `app/app.py:5452` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
+| `deduct_stock_atomic` | `app/app.py:5119` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
+| `add_stock` | `app/app.py:5187` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
+| `_apply_opening_stock_balance` | `app/app.py:8737` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `add_stock_transaction` | `app/app.py:5460` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
 `app/services/warehouse_stock_service.py` 的三个入口，按语义选：
@@ -123,9 +131,9 @@ BUG-2026-09-20-008 型静默账实分裂的温床，`tests/test_p1_7_convergence
 
 | 函数 | 位置 | 作用 |
 |---|---|---|
-| `add_location_inventory_atomic` | `app/app.py:5309` | 原子增加库位数量（自动建账） |
-| `deduct_location_inventory_atomic` | `app/app.py:5394` | 原子扣减库位数量 |
-| `update_location_inventory` | `app/app.py:5247` | 分发器：按 delta 正负调用上面两个 |
+| `add_location_inventory_atomic` | `app/app.py:5317` | 原子增加库位数量（自动建账） |
+| `deduct_location_inventory_atomic` | `app/app.py:5402` | 原子扣减库位数量 |
+| `update_location_inventory` | `app/app.py:5255` | 分发器：按 delta 正负调用上面两个 |
 
 > 📌 **行号会漂移**：本文件里的 `app/app.py:NNNN` 只是定位提示，
 > 以**函数名**为准。`tests/test_inventory_truth_line_refs.py` 会自动校验本文件的
@@ -165,7 +173,7 @@ ok, err = apply_stock_delta(
 | 批 3 | out_order + after_sale_out（5 路由） | ✅ |
 | 批 4 | subcontract 网页版（6 路由） | ✅ |
 | **批 5** | **mobile 4 处 + native_api 2 处 + 委外快速收货老 API 1 处** | **✅（2026-09-25）** |
-| 批 6（待评估） | `requisition.py` 扣减侧（语义不同，见下） | ⏳ |
+| 批 6 | `requisition.py` 完成/反提交两侧 | ✅（2026-11-08按现有代码及合成回归核实，未重新开发） |
 
 > **批 5 的额外收获**：收敛侦察发现 **BUG-2026-09-20-008 的 R6 结论不完备**——
 > 它漏掉了 `app/app.py` 的**老 API** `api_subcontract_quick_receive`
@@ -173,10 +181,12 @@ ok, err = apply_stock_delta(
 > 双轨实现时，排查只覆盖了其中一套**。教训：R6 排查必须按**路由**而非按
 > **文件**清点，双轨实现要两套都查。
 
-> **`requisition.py` 为何单列**：其扣减侧直接调 `deduct_location_inventory_atomic`，
-> **绕过** `update_location_inventory` 的「无库位记录且不允许负库存即失败」检查
-> （BUG-2026-08-04-002 口径）。收敛到入口会**改变失败语义**（从"静默建负账"
-> 变为"显式报错"），属净行为变更，按 R8 单独评估，不夹带。
+> **批6的历史评估与2026-11-08核实**：早期单列是因扣减侧直接调
+> `deduct_location_inventory_atomic`，可能绕过 `update_location_inventory` 的
+> 「无库位记录且不允许负库存即失败」检查（BUG-2026-08-04-002），改变该失败
+> 语义必须按R8单独评估。当前 `complete_requisition` 与 `revert_requisition`
+> 已经调用 `apply_stock_delta`，并保留正数量、单位、仓库/库位和失败回滚校验；
+> 本次只据实际代码及多仓完成/反提交回归修正进度，不改库存入口或历史数据。
 
 ### 2.1.1 业务单据的库存流入/流出路径（新增单据类型必登记）
 
@@ -262,7 +272,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30423`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30400`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -277,7 +287,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 这两处是当前系统里**唯一**允许口径切换的地方，改动前必须理解其条件：
 
-**(a) 单仓库短路**（`app/app.py:5738`，`get_warehouse_stock_quantities` 内）
+**(a) 单仓库短路**（`app/app.py:5749`，`get_warehouse_stock_quantities` 内）
 
 ```python
 if Warehouse.query.count() == 1:
@@ -287,7 +297,7 @@ if Warehouse.query.count() == 1:
 > ⚠️ **这是定时炸弹**：一旦系统新增第二个仓库，所有历史 NULL-location 流水的归属语义**瞬间改变**。
 > 新增仓库前必须先在测试库验证该分支退出后的库存数值是否连续。
 
-**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:5951`）
+**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:5960`）
 
 仅当"该物料**全部**流水都无法归属"时，才允许回退全局 `material.stock` 口径；
 只要存在**任意一条**可归属流水，就必须保持仓库级严格校验。
@@ -425,8 +435,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:30423`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30423`，符合 §3.2）——
+> （`app/app.py:30400`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30400`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

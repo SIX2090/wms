@@ -106,124 +106,17 @@ def stage_document_response(payload):
 
 
 def native_document_idempotent(endpoint):
-    """Native business writes and their exact successful response share one commit."""
-    def _decorate(view):
-        @wraps(view)
-        def _wrapped(user, *args, **kwargs):
-            from app import api_json_error
-            payload = request.get_json(silent=True) or {}
-            if not isinstance(payload, dict):
-                return api_json_error('请求数据必须为JSON对象', 400)
-            key = request.headers.get('X-Idempotency-Key') or payload.get('request_id')
-            if key is None:
-                key = ''
-            if not isinstance(key, str):
-                return api_json_error('幂等请求号必须为字符串', 400)
-            key = key.strip()
-            if not key:
-                return view(user, *args, **kwargs)
-            if len(key) > 120:
-                return api_json_error('幂等请求号不能超过120个字符', 400)
-            try:
-                content = {name: value for name, value in payload.items() if name != 'request_id'}
-                fingerprint = hashlib.sha256(json.dumps(
-                    {'payload':content, 'path':request.path, 'method':request.method,
-                     'query':request.query_string.decode('latin1')},
-                    sort_keys=True, ensure_ascii=False, allow_nan=False,
-                    separators=(',', ':')).encode('utf-8')).hexdigest()
-            except (ValueError, TypeError, UnicodeError):
-                return api_json_error('请求数据包含无效数值或字符', 400)
-
-            def _replay(existing):
-                try:
-                    saved = json.loads(existing.response_json)
-                    if not isinstance(saved, dict) or not 100 <= existing.status_code <= 599:
-                        raise ValueError('Invalid native receipt')
-                except (TypeError, ValueError):
-                    return api_json_error('历史保存响应无法确认，请人工核对原单据', 503)
-                if 'fingerprint' in saved and 'response' in saved:
-                    if saved['fingerprint'] != fingerprint:
-                        return api_json_error('本次请求已保存其他内容，请使用原单据核对', 409)
-                    saved = saved['response']
-                # Old native receipts contain the response itself; do not guess their payload.
-                return jsonify(saved), existing.status_code
-
-            actor_id = user.id
-            if getattr(g, 'web_document_receipt', None) is not None:
-                return api_json_error('保存事务不能重复嵌套，请稍后重试', 500)
-            db.session.rollback()
-            existing = MobileApiRequest.query.filter_by(
-                user_id=actor_id, endpoint=endpoint, request_key=key).first()
-            if existing is not None:
-                return _replay(existing)
-            receipt = MobileApiRequest(user_id=actor_id, endpoint=endpoint, request_key=key,
-                                       status_code=0, response_json='')
-            try:
-                db.session.add(receipt)
-                db.session.flush()
-            except IntegrityError:
-                db.session.rollback()
-                existing = MobileApiRequest.query.filter_by(
-                    user_id=actor_id, endpoint=endpoint, request_key=key).first()
-                if existing is None:
-                    return api_json_error('保存请求未能确认，请稍后重试', 503)
-                return _replay(existing)
-            except OperationalError:
-                db.session.rollback()
-                return api_json_error('保存暂时繁忙，请保留输入并重试', 503)
-
-            session = db.session()
-            staged = None
-            committed = None
-
-            def _before_commit(active):
-                nonlocal staged
-                if active is not session or inspect(receipt).session is not session:
-                    raise RuntimeError('Native receipt was detached before business commit')
-                if receipt.status_code != 200:
-                    raise RuntimeError('Native response must be staged before business commit')
-                saved = json.loads(receipt.response_json)
-                if saved.get('fingerprint') != fingerprint or not isinstance(saved.get('response'), dict):
-                    raise RuntimeError('Native response receipt does not match this request')
-                staged = saved['response']
-
-            def _after_commit(active):
-                nonlocal committed
-                # Releasing a SAVEPOINT is not a durable business commit.
-                if active is session and not active.in_nested_transaction():
-                    committed = staged
-
-            g.web_document_receipt = (receipt, fingerprint)
-            g.native_document_session = session
-            event.listen(session, 'before_commit', _before_commit)
-            event.listen(session, 'after_commit', _after_commit)
-            try:
-                response = view(user, *args, **kwargs)
-                if committed is not None:
-                    return jsonify(committed), 200
-                response_object = response[0] if isinstance(response, tuple) else response
-                code = response[1] if isinstance(response, tuple) else response_object.status_code
-                if 200 <= code < 300:
-                    return api_json_error('保存事务未完成，请保留输入并重试', 500)
-                return response
-            except Exception:
-                if committed is not None:
-                    return jsonify(committed), 200
-                from flask import current_app
-                current_app.logger.exception('Native atomic document save failed')
-                return api_json_error('保存未完成，请保留输入并重试', 500)
-            finally:
-                event.remove(session, 'before_commit', _before_commit)
-                event.remove(session, 'after_commit', _after_commit)
-                db.session.rollback()
-                g.pop('native_document_session', None)
-                g.pop('web_document_receipt', None)
-        return _wrapped
-    return _decorate
+    """Compatibility entrypoint for the unified fenced native request transaction."""
+    from services.native_request_idempotency import native_request_idempotent
+    return native_request_idempotent(endpoint)
 
 
 def begin_native_document_write():
     """Keep a flushed native claim; otherwise obtain the existing SQLite write lock."""
+    if db.session().info.get('native_request') is not None:
+        from services.native_request_idempotency import activate_native_business_transaction
+        activate_native_business_transaction()
+        return
     active = getattr(g, 'native_document_session', None)
     if active is not None:
         pending = getattr(g, 'web_document_receipt', None)

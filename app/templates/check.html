@@ -216,6 +216,8 @@
 {% endblock %}
 
 {% block extra_js %}
+<script defer data-user-id="{{ current_user.get_id() }}" src="{{ url_for('static', filename='js/pages/document-list-scroll.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script>
 // 全选/反选
 document.addEventListener('DOMContentLoaded', function() {

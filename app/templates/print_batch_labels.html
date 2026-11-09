@@ -95,13 +95,14 @@
             .label-inner-table td { border: none !important; padding: 0.3mm !important; }
         }
 
-        .label-simple { height: 100%; padding: 2mm; display: grid; grid-template-columns: 54mm 30mm; gap: 2mm; color: #000; }
-        .label-material-text { min-width: 0; min-height: 0; display: grid; grid-template-rows: 1fr 2fr 2fr; }
-        .label-material-header { display: grid; grid-template-columns: 3fr 2fr; gap: 1mm; min-height: 0; }
-        .label-material-field { min-width: 0; min-height: 0; display: flex; align-items: center; font-size: 11pt; line-height: 1.2; }
+        .label-simple { height: 100%; padding: 2mm; display: grid; grid-template-columns: 54mm 30mm; grid-template-rows: 8mm 30mm 8mm; column-gap: 2mm; color: #000; }
+        .label-material-text { grid-column: 1; grid-row: 2 / 4; min-width: 0; min-height: 0; display: grid; grid-template-rows: 1fr 1fr; }
+        .label-material-field { min-width: 0; min-height: 0; display: flex; align-items: flex-start; font-size: 14pt; font-weight: bold; line-height: 1.2; overflow: hidden; }
         .label-material-field span { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
-        .label-material-name { font-size: 13pt; font-weight: bold; }
-        .label-material-qr { display: flex; align-items: center; justify-content: center; }
+        .label-material-code { grid-column: 2; grid-row: 1; align-items: center; justify-content: center; }
+        .label-material-name { padding-top: 2.5mm; }
+        .label-material-spec { padding-top: 1mm; }
+        .label-material-qr { grid-column: 2; grid-row: 2; display: flex; align-items: flex-start; justify-content: center; }
         .label-material-qr img { width: 30mm; height: 30mm; image-rendering: pixelated; }
         #labelPrintToolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
         #excelExportOptions { width:100%; font-size:13px; color:#666; }
@@ -625,7 +626,7 @@
     function renderMaterialLabels() {
         var W = 90, H = 50;
         document.getElementById('labelPageSize').textContent = '@page { size: 90mm 50mm; margin: 0; }';
-        document.getElementById('sizeInfo').textContent = '90×50mm · 三行高度1:2:2 · 微信/WMS共用二维码';
+        document.getElementById('sizeInfo').textContent = '90×50mm · 编号置于二维码上方 · 名称/规格/编号同字号加粗';
         document.documentElement.style.setProperty('--label-width', W + 'mm');
         document.documentElement.style.setProperty('--label-height', H + 'mm');
 
@@ -640,8 +641,6 @@
             inner.className = 'label-simple';
             var text = document.createElement('div');
             text.className = 'label-material-text';
-            var header = document.createElement('div');
-            header.className = 'label-material-header';
             function addField(parent, className, value) {
                 var field = document.createElement('div');
                 field.className = 'label-material-field ' + className;
@@ -650,9 +649,7 @@
                 field.appendChild(span);
                 parent.appendChild(field);
             }
-            addField(header, 'label-material-code', mat.code);
-            addField(header, 'label-material-brand', mat.brand);
-            text.appendChild(header);
+            addField(inner, 'label-material-code', mat.code);
             addField(text, 'label-material-name', mat.name);
             addField(text, 'label-material-spec', mat.spec);
             inner.appendChild(text);
@@ -666,13 +663,19 @@
             card.appendChild(inner);
             container.appendChild(card);
         });
-        // Fit wrapped text inside its reserved row; preserve the physical 1:2:2 ratio.
-        if (container.querySelectorAll) container.querySelectorAll('.label-material-field').forEach(function(field) {
-            var span = field.firstElementChild;
-            var size = parseFloat(window.getComputedStyle(field).fontSize);
-            while (span && field.clientHeight && (span.scrollHeight > field.clientHeight || span.scrollWidth > field.clientWidth) && size > 8) {
-                size -= 0.5;
-                field.style.fontSize = size + 'px';
+        // Fit long fields together so code, name and specification retain the same font size.
+        if (container.querySelectorAll) container.querySelectorAll('.label-simple').forEach(function(label) {
+            var fields = Array.from(label.querySelectorAll('.label-material-field'));
+            var size = fields.length ? parseFloat(window.getComputedStyle(fields[0]).fontSize) : 0;
+            function overflows(field) {
+                var span = field.firstElementChild;
+                var style = window.getComputedStyle(field);
+                var height = field.clientHeight - parseFloat(style.paddingTop || 0) - parseFloat(style.paddingBottom || 0);
+                return span && height > 0 && (span.scrollHeight > height || span.scrollWidth > field.clientWidth);
+            }
+            while (size > 1 && fields.some(overflows)) {
+                size = Math.max(1, size - 0.5);
+                fields.forEach(function(field) { field.style.fontSize = size + 'px'; });
             }
         });
         setPrintState(MATERIALS.length ? 'ready' : 'empty');

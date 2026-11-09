@@ -947,7 +947,8 @@ def register_native_api_routes(app):
                 except Exception:
                     db.session.rollback()
                 return api_json_error(f'账号已锁定，请 {remaining_min} 分钟后再试', 423)
-            if not check_password_hash(user.password_hash, password):
+            credential_hash = user.password_hash
+            if not check_password_hash(credential_hash, password):
                 record_failure(rate_key, 60)
                 user.increment_failed_count(request_ip)
                 add_login_log(status='failed', username=username, user=user, fail_reason='api_failed')
@@ -958,6 +959,21 @@ def register_native_api_routes(app):
                 return api_json_error('账号或密码错误', 401)
             if user.must_change_password:
                 return api_json_error('请先通过网页登录修改初始密码', 403)
+
+            # Fence token issuance against a password event after verification.
+            # Take a short user-row write lock without rewriting any password value.
+            owned = User.query.filter_by(id=user.id, password_hash=credential_hash).update(
+                {'login_failed_count': User.login_failed_count}, synchronize_session=False)
+            if owned != 1:
+                db.session.rollback()
+                return api_json_error('凭据已变化，请重新登录', 401)
+            db.session.expire(user)
+            if not user.is_active or user.must_change_password:
+                db.session.rollback()
+                return api_json_error('账号状态已变化，请先通过网页登录核对', 403)
+            if user.is_locked_for(request_ip):
+                db.session.rollback()
+                return api_json_error('账号已锁定，请稍后重试', 423)
 
             # BUG-2026-09-19-004：令牌哈希存储，明文仅在本响应一次性返显
             from app import hash_access_token
@@ -3422,9 +3438,8 @@ def register_native_api_routes(app):
         warehouse_code = (payload.get('warehouse_code') or payload.get('warehouse') or '').strip()
         if not warehouse_code:
             return api_json_error('请选择仓库', 400)
-        warehouse = Warehouse.query.filter(
-            (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
-        ).first()
+        from services.warehouse_identity import resolve_warehouse_text
+        warehouse = resolve_warehouse_text(warehouse_code)
         if not warehouse:
             return api_json_error(f'仓库不存在：{warehouse_code}', 400)
         if (warehouse.status or 'active') != 'active':
@@ -3573,6 +3588,8 @@ def register_native_api_routes(app):
         try:
             # 解析物料行：能匹配建档物料则使用建档物料；
             # 未匹配时若启用自动建档则按 name/spec/unit 自动建档，否则拦截。
+            from services.native_request_idempotency import activate_native_business_transaction
+            activate_native_business_transaction()
             matched = []
             unmatched = []
             auto_created = []
@@ -3626,9 +3643,8 @@ def register_native_api_routes(app):
             warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
             warehouse = None
             if warehouse_code:
-                warehouse = Warehouse.query.filter(
-                    (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
-                ).first()
+                from services.warehouse_identity import resolve_warehouse_text
+                warehouse = resolve_warehouse_text(warehouse_code)
                 if warehouse is None:
                     return api_json_error(f'仓库不存在：{warehouse_code}', 400)
                 if (warehouse.status or 'active') != 'active':
@@ -3791,9 +3807,8 @@ def register_native_api_routes(app):
         warehouse_code = (req.warehouse_code or req.warehouse or '').strip()
         warehouse = None
         if warehouse_code:
-            warehouse = Warehouse.query.filter(
-                (Warehouse.code == warehouse_code) | (Warehouse.name == warehouse_code)
-            ).first()
+            from services.warehouse_identity import resolve_warehouse_text
+            warehouse = resolve_warehouse_text(warehouse_code)
             if warehouse is None:
                 return api_json_error(f'仓库不存在：{warehouse_code}', 400)
             if (warehouse.status or 'active') != 'active':

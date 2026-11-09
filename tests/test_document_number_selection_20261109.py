@@ -77,10 +77,22 @@ def main():
         @classmethod
         def now(cls, tz=None):
             return cls(2026, 11, 9, tzinfo=tz)
-    env = {**models, 'datetime': Clock, 'db': types.SimpleNamespace(cast=cast, Integer=Integer, func=func),
+    env = {**models, 'datetime': Clock, 'db': types.SimpleNamespace(session=session, cast=cast, Integer=Integer, func=func),
            '_order_no_generation_lock': threading.Lock()}
     import re
     env['re'] = re
+    # Execute the real activation guard against the synthetic session. No native
+    # request is active here; its no-op path must not import the WMS application.
+    guard_tree = ast.parse((root / 'app/services/native_request_idempotency.py').read_text(encoding='utf-8'))
+    guard_node = next(n for n in guard_tree.body if isinstance(n, ast.FunctionDef)
+                      and n.name == 'activate_native_business_transaction')
+    native_module = types.ModuleType('services.native_request_idempotency')
+    native_module.__dict__['db'] = env['db']
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[guard_node], type_ignores=[])),
+                 '<real-native-activation-synthetic-session>', 'exec'), native_module.__dict__)
+    services = types.ModuleType('services'); services.__path__ = []
+    sys.modules['services'] = services
+    sys.modules['services.native_request_idempotency'] = native_module
     exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),
                  '<real-number-functions-synthetic-db>', 'exec'), env)
 

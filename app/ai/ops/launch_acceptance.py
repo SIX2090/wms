@@ -1,6 +1,7 @@
 """AI-R17 真实用户灰度、回滚演练和上线验收。
 
 # AI_TASK: AI-R17
+# AI_FIX_TASK: AI-R18-F01-FIX-20261108-001
 
 本模块是 AI-R17 的纯逻辑+依赖注入模块，职责是聚合"上线验收四项指标"和编排
 "灰度演练 / 回滚演练"的结果校验，本身不依赖 Flask/ORM，CI 无 DB 时可直接传入
@@ -17,7 +18,7 @@
   自动提交 validate_no_auto_submit 已存在于 app/ai/agents/budget_control.py，
   低置信度 has_unconfirmed_low_confidence_fields 已存在于
   app/ai/documents/document_confirmation.py，
-  重复草稿 status='replayed' 已存在于 AIDraftIdempotency，
+  合法重复请求由 AIDraftIdempotency 拦截，不能视为重复落单，
   本模块不重新发明单项检测，仅做四项绝对计数的统一聚合校验。
 - business_quality.py 的 7 指标是比率口径（rate），本模块的四项是绝对计数口径
   （count，验收阈值为 0），两者可共存不冲突。
@@ -35,7 +36,10 @@ METRIC_UNAUTHORIZED_SUCCESS = 'unauthorized_success'
 """越权成功数：AIToolCall permission_allowed=False 且 status in (completed/success/authorized)。"""
 
 METRIC_DUPLICATE_DRAFTS = 'duplicate_drafts'
-"""重复草稿数：AIDraftIdempotency status='replayed' 表示被幂等拦截的重复请求。"""
+"""重复草稿数：同一用户/能力/文档任务登记了不同业务草稿身份的额外数量。
+
+合法 replay 只返回同一草稿，属于拦截率分子，不是本指标。
+"""
 
 METRIC_AUTO_SUBMIT = 'auto_submit'
 """自动提交数：AIToolCall 审计中 action 命中 AUTO_SUBMIT_FORBIDDEN_ACTIONS 的次数。"""
@@ -83,7 +87,7 @@ class AcceptanceMetric:
 
     @property
     def passed(self) -> bool:
-        return self.count <= self.threshold
+        return type(self.count) is int and self.count >= 0 and self.count == self.threshold == 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -109,7 +113,9 @@ class LaunchAcceptanceReport:
 
     @property
     def all_passed(self) -> bool:
-        return all(m.passed for m in self.metrics)
+        return (len(self.metrics) == len(ALL_ACCEPTANCE_METRICS)
+                and {m.metric for m in self.metrics} == set(ALL_ACCEPTANCE_METRICS)
+                and all(m.passed for m in self.metrics))
 
     @property
     def failed_metrics(self) -> tuple[AcceptanceMetric, ...]:
@@ -210,7 +216,7 @@ def compute_acceptance_metrics(
 
     Args:
         counts: 四项指标的绝对计数，键为 ALL_ACCEPTANCE_METRICS 中的 metric 名。
-                缺失的键按 0 处理。由 app.py 的 ORM adapter 查询填充。
+                缺失/查询失败保留为 None，不授予通过。由 ORM adapter 查询填充。
         window_hours: 采集窗口（默认 168 小时 = 7 天）。
         now: 注入当前时间（可复算），None 时用 datetime.now()。
 
@@ -222,7 +228,7 @@ def compute_acceptance_metrics(
         metrics.append(AcceptanceMetric(
             metric=metric_name,
             label=METRIC_LABELS[metric_name],
-            count=int(counts.get(metric_name, 0)),
+            count=counts.get(metric_name) if isinstance(counts, dict) else None,
             threshold=0,
             window_hours=window_hours,
         ))
@@ -231,6 +237,40 @@ def compute_acceptance_metrics(
         window_hours=window_hours,
         generated_at=now or datetime.now(),
     )
+
+
+def valid_absolute_counts(counts: Any) -> bool:
+    """All four measurements must be explicitly present, nonnegative integers."""
+    return isinstance(counts, dict) and all(
+        type(counts.get(name)) is int and counts[name] >= 0
+        for name in ALL_ACCEPTANCE_METRICS)
+
+
+def count_duplicate_draft_receipts(records, start: datetime, end: datetime) -> Optional[int]:
+    """Count extra distinct registered documents, not intercepted requests.
+
+    Adapter supplies successful receipts before ``end``, including older first
+    receipts so a duplicate in this half-open window has a reproducible origin.
+    This measures the existing receipt register, not unrecorded business writes.
+    Missing successful receipt identity is unknown (None), never measured zero.
+    """
+    identities = {}
+    duplicates = 0
+    for row in sorted(records, key=lambda item: (item.created_at, item.id)):
+        if row.status not in ('completed', 'replayed') or row.created_at >= end:
+            continue
+        if not row.draft_type or type(row.draft_id) is not int or row.draft_id <= 0:
+            if row.status == 'replayed':
+                continue  # Legacy interception-only marker, no created document.
+            return None
+        key = (row.user_id, row.capability,
+               ('job', row.document_job_id) if row.document_job_id else ('key', row.idempotency_key))
+        seen = identities.setdefault(key, set())
+        identity = (row.draft_type, row.draft_id)
+        if seen and identity not in seen and row.created_at >= start:
+            duplicates += 1
+        seen.add(identity)
+    return duplicates
 
 
 def validate_zero_violation(report: LaunchAcceptanceReport) -> tuple[bool, str]:

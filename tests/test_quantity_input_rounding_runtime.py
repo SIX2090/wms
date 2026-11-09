@@ -7,6 +7,7 @@ import subprocess
 
 import pytest
 
+from tests.frontend_page_source import page_source
 from tests.test_frontend_remaining_page_transport import callback
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,7 @@ CASES = [('0.015', '0.02'), ('0.005', '0.01'), ('1.005', '1.01'),
 
 
 def listeners(page, event, kind):
-    source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}.html')
     field = '.adjust-qty' if page == 'adjustment_add' else '.material-' + ('qty' if kind == 'quantity' else 'price')
     marker = (r"(?:row|newRow)\.querySelector\('" + re.escape(field) + r"'\)\.addEventListener\('" + event + "', "
               if page != 'document_table_form' else re.escape(f"input.addEventListener('{event}', "))

@@ -243,6 +243,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script src="{{ url_for('static', filename='js/product-receipt-contract.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
@@ -1411,6 +1412,7 @@ function refreshWarehouses(options) {
 
 // ==================== Excel粘贴导入 ====================
 function showPasteModal() {
+    if (document.getElementById('pasteModal')) return;
     const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
     if (isProductIn) { WMS.ProductReceiptGrid.showPasteModal(); return; }
     const modal = document.createElement('div');
@@ -1438,7 +1440,7 @@ function showPasteModal() {
         ['M002', '200', '3.00'].join('\t'),
         ['M003', '50', '10.00', 'B20260903', '2026年12月31日'].join('\t'),
     ].join('\n');
-    setTimeout(() => pasteArea.focus(), 100);
+    WmsFormAccessibility.openPasteDialog(modal);
 }
 
 async function parsePastedData() {

@@ -108,7 +108,9 @@ def build_stock_excel_print(title, rows, include_prices=True, template_path=None
         raw = path.read_bytes()
     else:
         raw = generate_report_builtin_template(title, columns).getvalue()
-    error = validate_template_file(raw)
+    from print_display import _field_paths
+    item_fields = _field_paths('item', columns=[column['field'] for column in columns])
+    error = validate_template_file(raw, item_fields=item_fields)
     if error:
         raise ValueError(error)
     workbook = load_workbook(io.BytesIO(raw), keep_links=False)
@@ -125,7 +127,7 @@ def build_stock_excel_print(title, rows, include_prices=True, template_path=None
                 continue
             if (sheet.max_row + max(0, len(items) - 1)) * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('展开后的打印内容过大，请缩小筛选范围')
-            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat()))
+            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat(), item_fields=item_fields))
             if sheet.max_row * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('打印内容过大，请缩小筛选范围')
         output = io.BytesIO()

@@ -8,6 +8,7 @@ import subprocess
 
 import pytest
 
+from tests.frontend_page_source import page_source
 from tests.test_frontend_remaining_page_transport import callback
 from tests.test_master_editor_lifecycle_runtime import shared_helpers
 
@@ -22,7 +23,7 @@ def action_source(action):
     if action.startswith('contract_'):
         name = dict(contract_import='submitImport', contract_add='submitAdd', contract_edit='submitEdit', contract_delete='deleteContract', contract_batch='deleteSelectedContracts')[action]
         return callback('contract', 'function ' + name + '('), name
-    source = (ROOT / 'app/templates/requisition.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates/requisition.html')
     marker = "document.querySelectorAll('." + {'req_revert':'revert-btn', 'req_delete':'delete-btn', 'req_complete':'complete-btn'}[action] + "')"
     offset = source.index(".addEventListener('click'", source.index(marker))
     return 'var probe = ' + callback('requisition', 'function()', offset), 'probe'

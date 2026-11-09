@@ -96,8 +96,9 @@ def test_post_commit_exception_is_recovered_from_atomic_native_receipt(money_cas
     c=money_case;w=c.w;endpoint,body,headers=target(c,kind)
     session=w.db.session();commit=session.commit;fired=[]
     def lose_result():
+        finalizing = session.info.get('native_request', {}).get('finalizing', False)
         commit()
-        if not fired:
+        if finalizing and not fired:
             fired.append(True)
             raise RuntimeError('synthetic response lost after commit')
     monkeypatch.setattr(session,'commit',lose_result)
@@ -123,15 +124,16 @@ def test_native_key_cannot_silently_replay_different_payload(money_case,kind):
 
 
 @pytest.mark.parametrize('kind', KINDS)
-def test_legacy_native_receipts_keep_the_original_response(money_case,kind):
+def test_legacy_native_receipts_keep_the_original_record_for_manual_confirmation(money_case,kind):
     c=money_case;w=c.w;endpoint,body,headers=target(c,kind)
     expected={'status':'success','success':True,'message':'synthetic legacy','msg':'synthetic legacy','data':{'id':42}}
     w.db.session.add(w.MobileApiRequest(user_id=c.ids['user'],endpoint=kind,
         request_key=headers['X-Idempotency-Key'],status_code=200,response_json=json.dumps(expected)))
     w.db.session.commit();before=snapshot(c)
     result=c.client.post(endpoint,json=body,headers=headers)
-    assert result.status_code==200 and result.json==expected,result.json
+    assert result.status_code==409 and '核对' in result.json['msg'],result.json
     assert snapshot(c)==before
+    assert json.loads(w.MobileApiRequest.query.one().response_json)==expected
 
 
 @pytest.mark.parametrize('enabled',[False,True])
@@ -210,9 +212,9 @@ def test_all_native_decorator_consumers_validate_keys_before_entering_the_view(m
         pytest.fail('Invalid request key reached the business or AI view')
     wrapped=w.mobile_api_idempotent(endpoint)(must_not_run)
     with w.app.test_request_context(json={'request_id':key}):
-        response=wrapped(user)
-        assert isinstance(response,tuple) and response[1]==400
-        assert response[0].get_json()['msg']=='幂等请求号必须为字符串'
+        response=w.app.make_response(wrapped(user))
+        assert response.status_code==400
+        assert response.get_json()['msg']=='幂等请求号必须为字符串'
 
 
 @pytest.mark.parametrize('fail',[False,True])
@@ -286,13 +288,14 @@ def test_native_retry_after_dbapi_commit_result_is_lost_keeps_one_business_write
     c=money_case;w=c.w;endpoint,body,headers=target(c,kind)
     engine=w.db.engine;commit=engine.dialect.do_commit;fired=[]
     def lose_dbapi_result(connection):
+        finalizing = w.db.session().info.get('native_request', {}).get('finalizing', False)
         commit(connection)
-        if not fired:
+        if finalizing and not fired:
             fired.append(True)
             raise RuntimeError('synthetic DBAPI commit result lost')
     monkeypatch.setattr(engine.dialect,'do_commit',lose_dbapi_result)
     first=c.client.post(endpoint,json=body,headers=headers)
-    assert fired and first.status_code>=500,first.json
+    assert fired and first.status_code==200,first.json
     after=snapshot(c)
     model=w.InOrder if kind=='inbound' else w.OutOrder
     ident=model.query.one().id
@@ -304,11 +307,17 @@ def test_native_retry_after_dbapi_commit_result_is_lost_keeps_one_business_write
 
 
 @pytest.mark.parametrize('kind',KINDS)
-def test_native_unstaged_success_cannot_commit_business_without_its_response(money_case,monkeypatch,kind):
-    import routes.native_api as native
+def test_native_response_serialization_failure_keeps_business_and_receipt_atomic(money_case,monkeypatch,kind):
+    import services.native_request_idempotency as native
     c=money_case;endpoint,body,headers=target(c,kind);before=snapshot(c)
-    monkeypatch.setattr(native,'stage_document_response',lambda *_args:None,raising=False)
+    original=native.make_response;fired=[]
+    def fail_first_response(*args,**kwargs):
+        if not fired:
+            fired.append(True)
+            raise RuntimeError('synthetic response serialization failure after business writes')
+        return original(*args,**kwargs)
+    monkeypatch.setattr(native,'make_response',fail_first_response)
     result=c.client.post(endpoint,json=body,headers=headers)
-    assert result.status_code in (500,503),result.json
+    assert fired and result.status_code in (500,503),result.json
     assert snapshot(c)==before
     assert c.w.MobileApiRequest.query.count()==0

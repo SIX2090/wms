@@ -52,7 +52,17 @@ def race(path,payloads,keys):
         result=client.post(path,json=payloads[i],headers={'Authorization':'Bearer owned-native-race-token','X-Idempotency-Key':keys[i]})
         return result.status_code,result.json
     with ThreadPoolExecutor(max_workers=4) as pool:
-        return list(pool.map(send,range(4)))
+        replies=list(pool.map(send,range(4)))
+    assert any(status==200 for status,_ in replies),replies
+    assert all(status in (200,409,503) for status,_ in replies),replies
+    # The fenced lease can answer 503 while another owner is active. Once all
+    # owners returned, retry only those responses with their original content/key.
+    for i,(status,_) in enumerate(replies):
+        if status==503:
+            result=w.app.test_client().post(path,json=payloads[i],headers={
+                'Authorization':'Bearer owned-native-race-token','X-Idempotency-Key':keys[i]})
+            replies[i]=(result.status_code,result.json)
+    return replies
 
 def same(path,body,key):
     replies=race(path,[body]*4,[key]*4)

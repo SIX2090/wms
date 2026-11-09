@@ -138,6 +138,9 @@ def main(argv: list[str]) -> int:
     if not backup.is_file() or backup == target or (target.exists() and os.path.samefile(backup, target)):
         print('[restore] 备份不存在或与目标为同一文件，拒绝恢复。', file=sys.stderr)
         return 2
+    if any(Path(str(target) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
+        print('[restore] 目标库存在SQLite事务旁文件，拒绝恢复；请保留文件并人工确认服务已停止。', file=sys.stderr)
+        return 3
     lease = None
     try:
         lease = acquire_database_lease(target)
@@ -158,8 +161,8 @@ def main(argv: list[str]) -> int:
             if not _integrity_ok(prepared) or _schema_error(prepared):
                 print('[restore] 暂存快照校验失败，目标库未改动。', file=sys.stderr)
                 return 2
-            if _db_locked(target):
-                print('[restore] 确认后目标被重新打开，拒绝恢复。', file=sys.stderr)
+            if _db_locked(target) or any(Path(str(target) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
+                print('[restore] 确认后目标被重新打开或出现事务旁文件，拒绝恢复。', file=sys.stderr)
                 return 3
             if target.exists():
                 safety = str(target) + '.before_restore_' + datetime.now().strftime('%Y%m%d_%H%M%S_%f')
@@ -167,8 +170,8 @@ def main(argv: list[str]) -> int:
                 if not _integrity_ok(safety):
                     raise OSError('恢复前留底校验失败，目标库未改动')
                 print(f'[restore] 当前库已留底: {safety}')
-            if _db_locked(target):
-                print('[restore] 留底期间目标被重新打开，拒绝恢复。', file=sys.stderr)
+            if _db_locked(target) or any(Path(str(target) + suffix).exists() for suffix in ('-wal', '-shm', '-journal')):
+                print('[restore] 留底期间目标被重新打开或出现事务旁文件，拒绝恢复。', file=sys.stderr)
                 return 3
             _snapshot(prepared, target)
             if not _integrity_ok(target) or _schema_error(target):

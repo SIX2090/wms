@@ -627,6 +627,8 @@ textarea.form-control {
 {% endblock %}
 
 {% block extra_js %}
+<script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
+<script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config['STATIC_VERSION'] }}"></script>
 <script>
 (function() {
     var materials = {{ material_list|tojson }};
@@ -799,10 +801,13 @@ textarea.form-control {
         body.appendChild(row);
 
         var codeInput = row.querySelector('.material-code');
-        if (existing.code) { codeInput.value = existing.code; fillRow(row, findMaterial(existing.code)); }
+        if (existing.code) { codeInput.value = existing.code; fillRow(row, existing.material || findMaterial(existing.code)); }
         codeInput.addEventListener('input', function() {
             var material = findMaterial(codeInput.value);
-            if (material) { fillRow(row, material); } else { row.querySelector('.name').value = ''; row.querySelector('.spec').value = ''; row.querySelector('.unit').value = ''; }
+            if (!material && existing.material && codeInput.value.trim().toLowerCase() === String(existing.code).toLowerCase()) {
+                material = existing.material;
+            }
+            if (material) { codeInput.value = material.code; fillRow(row, material); } else { row.querySelector('.name').value = ''; row.querySelector('.spec').value = ''; row.querySelector('.unit').value = ''; }
             showDropdown(row);
             recalc();
         });
@@ -1039,6 +1044,10 @@ textarea.form-control {
         try { templates = JSON.parse(localStorage.getItem(SALES_TEMPLATE_KEY) || '[]'); } catch (e) { templates = []; }
         var template = templates[Number(index)];
         if (!template || !template.items) return;
+        if (!Array.isArray(template.items) || template.items.some(function(item) { return !findMaterial(item.code); })) {
+            document.getElementById('entryStatus').textContent = '模板包含不存在或停用的物料，请先更新模板；当前明细已保留';
+            return;
+        }
         body.innerHTML = '';
         template.items.forEach(function(item) {
             addRow({
@@ -1060,27 +1069,21 @@ textarea.form-control {
         document.getElementById('entryStatus').textContent = '已加载模板，请核对后保存';
     });
 
-    document.getElementById('refreshMaterialsBtn').addEventListener('click', function() {
-        // BUG-2026-09-25-003 修复：原 '/api/materials?limit=5000' 后端无此路由（404），
-        // 且 .then 里 data 为错误页 HTML 仍提示"刷新成功"。改走真实存在的
-        // /api/material/all（app.py:23984，返回 {status, success, data:[...]}，
-        // 上限 1000 条），并显式判断 HTTP 状态与 success 字段，失败不再谎报成功。
-        fetch('/api/material/all', { headers: { 'Accept': 'application/json' } })
-            .then(function(r) {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            })
-            .then(function(data) {
-                if (Array.isArray(data)) materials = data;
-                else if (data && Array.isArray(data.items)) materials = data.items;
-                else if (data && Array.isArray(data.data)) materials = data.data;
-                else throw new Error('响应结构不可识别');
-                document.getElementById('entryStatus').textContent = '物料列表已刷新（' + materials.length + '）';
-            })
-            .catch(function() {
-                document.getElementById('entryStatus').textContent = '刷新物料失败，请稍后重试';
-            });
-    });
+    function refreshMaterials() {
+        var button = document.querySelector('#refreshMaterialsBtn');
+        if (button) button.disabled = true;
+        return WMS.materialCache.refresh(materials, WMS.materialCache.warehouseFromForm()).then(function(applied) {
+            if (!applied) return;
+            document.getElementById('entryStatus').textContent = '物料列表已刷新（' + materials.length + '）';
+            showToast('物料列表已刷新', 'success');
+        }).catch(function(error) {
+            document.getElementById('entryStatus').textContent = '刷新物料失败，已保留原列表和明细，请重试：' + error.message;
+            showToast('刷新失败：' + error.message, 'danger');
+        }).finally(function() {
+            if (button && !WMS.materialCache.isRefreshing(materials)) button.disabled = false;
+        });
+    }
+    document.getElementById('refreshMaterialsBtn').addEventListener('click', refreshMaterials);
 
     document.getElementById('batchUpdateBtn').addEventListener('click', function() {
         var field = window.prompt('批量修改字段：qty / price / tax_rate', 'price');

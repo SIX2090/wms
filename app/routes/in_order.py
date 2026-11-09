@@ -2271,9 +2271,8 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                wh_obj = Warehouse.query.filter(
-                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                ).order_by(Warehouse.id.asc()).first()
+                from services.warehouse_identity import resolve_warehouse_text
+                wh_obj = resolve_warehouse_text(wh_key, strict=True)
             # F2.12 BUG-C（审计 §1.4）：仓库级库存快照**按行现取**，不在循环外只算一次。
             # 原实现 `warehouse_stock = get_warehouse_stock_quantities(wh_obj)` 在删除/
             # 新增/改量三路写入之间复用同一份陈旧快照——同一张单里同物料多行时，前一行
@@ -2613,9 +2612,8 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                wh_obj = Warehouse.query.filter(
-                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                ).order_by(Warehouse.id.asc()).first()
+                from services.warehouse_identity import resolve_warehouse_text
+                wh_obj = resolve_warehouse_text(wh_key, strict=True)
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             # BUG-2026-10-17-013-F01：同一物料同单多行时，必须按物料合计校验，
             # 否则每行都拿扣减前快照判"够不够"，多行合计可把单仓扣成负账（审计 I2）。
@@ -3208,9 +3206,8 @@ def register_in_order_routes(app):
             wh_obj = None
             if (order.warehouse or '').strip():
                 wh_key = order.warehouse.strip()
-                wh_obj = Warehouse.query.filter(
-                    db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-                ).order_by(Warehouse.id.asc()).first()
+                from services.warehouse_identity import resolve_warehouse_text
+                wh_obj = resolve_warehouse_text(wh_key, strict=True)
             warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
             stock_insufficient = False
             # BUG-2026-10-17-013-F01：按物料合计校验，避免多行同物料各拿一次快照
@@ -3445,7 +3442,8 @@ def register_in_order_routes(app):
     @login_required
     def print_in_order_excel(id):
         """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
-        from app import InOrder, InOrderPrintTemplate
+        from app import InOrder, InOrderPrintTemplate, api_error
+        from print_display import PrintFieldError
         from utils import resolve_print_template
         order = InOrder.query.get_or_404(id)
         if order.business_type == '产品入库' and not request.args.get('template_id', type=int):
@@ -3461,11 +3459,14 @@ def register_in_order_routes(app):
             if template_path and os.path.exists(template_path):
                 from datetime import datetime
                 from flask import g
-                output = build_filled_print_excel(
-                    template_path, order,
-                    date_str=datetime.now().strftime('%Y-%m-%d'),
-                    preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
-                )
+                try:
+                    output = build_filled_print_excel(
+                        template_path, order,
+                        date_str=datetime.now().strftime('%Y-%m-%d'),
+                        preserve_layout=bool(getattr(g, 'document_excel_layout', False)),
+                    )
+                except PrintFieldError as error:
+                    return api_error(str(error), 400)
                 if os.path.basename(template_path) == 'builtin_in_order_default_v2.xlsx':
                     output = _retitle_builtin_in_order_excel(output, order)
                 filename = f'{template.name or _in_order_print_title(order)}_{order.order_no or id}.xlsx'

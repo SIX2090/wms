@@ -158,6 +158,7 @@ from ai.documents.sales_draft_validation import (
     validate_ai_only_draft,
 )
 from services.material_label import material_scan_code
+from services.warehouse_identity import WarehouseIdentityError, resolve_warehouse_text, warehouse_aliases
 # Import utility functions
 from utils import (
     round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
@@ -4985,6 +4986,9 @@ def internal_error(e):
 @app.errorhandler(Exception)
 def handle_exception(e):
     """全局异常处理"""
+    if isinstance(e, WarehouseIdentityError):
+        _db_safe_rollback()
+        return api_error(str(e))
     if isinstance(e, HTTPException):
         if wants_json_error_response():
             return jsonify({'status': 'error', 'msg': e.description or e.name}), e.code
@@ -5014,6 +5018,11 @@ def generate_order_no(prefix='NO'):
     """Generate order number with database lock to prevent duplicates in concurrent environment."""
     if prefix == 'OUT':
         prefix = 'OU'
+
+    # Native requests must hold the database transaction before reading the last
+    # formal number; take this lock before the process-local numbering mutex.
+    from services.native_request_idempotency import activate_native_business_transaction
+    activate_native_business_transaction()
 
     # BUG-2026-08-16-020：SQLite 下 with_for_update 是 no-op，并发取号可能撞号，
     # 而撞号在调用方 INSERT/commit 时才暴露（约束兜底但用户吃 500）。
@@ -5117,12 +5126,12 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
     qty = normalize_stock_quantity(quantity or 0)
     if qty <= 0:
         return False, '扣减数量必须大于 0', None
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
     mat = Material.query.get(material_id)
     if not mat:
         return False, '物料不存在', None
 
     if warehouse and not location_management_enabled() and not allow_negative_stock():
-        warehouse_id = resolve_inventory_warehouse_id(warehouse)
         warehouse_obj = db.session.get(Warehouse, warehouse_id) if warehouse_id else None
         if not warehouse_obj:
             return False, '请选择有效仓库', mat
@@ -5167,7 +5176,7 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
             location=_stock_location_from_warehouse(warehouse),
             # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配），
             # 历史行由 backfill_stock_txn_warehouse_id() 幂等回填。
-            warehouse_id=resolve_inventory_warehouse_id(warehouse),
+            warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -5190,6 +5199,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
     qty = normalize_stock_quantity(quantity or 0)
     if qty <= 0:
         return False, '入库数量必须大于 0'
+    warehouse_id = resolve_inventory_warehouse_id(warehouse)
     rowcount = db.session.execute(
         sa_update(Material)
         .where(Material.id == material.id)
@@ -5205,7 +5215,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
             quantity=qty,
             location=_stock_location_from_warehouse(warehouse),
             # B-2026-08-27：写入端统一落 warehouse_id（外键精确匹配）。
-            warehouse_id=resolve_inventory_warehouse_id(warehouse),
+            warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
             operator_id=current_user.id if current_user.is_authenticated else None,
@@ -5237,9 +5247,7 @@ def resolve_inventory_warehouse_id(warehouse):
         text = warehouse.strip()
         if not text:
             return None
-        wh = Warehouse.query.filter(
-            db.or_(Warehouse.name == text, Warehouse.code == text)
-        ).order_by(Warehouse.id.asc()).first()
+        wh = resolve_warehouse_text(text, strict=True)
         return wh.id if wh else None
     # 未知类型：尝试取 .id 属性，否则放弃
     return getattr(warehouse, 'id', None)
@@ -5622,9 +5630,10 @@ def is_warehouse_active(warehouse_name):
     """
     if not warehouse_name:
         return True, ''
-    wh = Warehouse.query.filter(
-        (Warehouse.name == warehouse_name) | (Warehouse.code == warehouse_name)
-    ).first()
+    try:
+        wh = resolve_warehouse_text(warehouse_name, strict=True)
+    except WarehouseIdentityError as exc:
+        return False, str(exc)
     if not wh:
         return False, f'仓库 {warehouse_name} 不存在，请先在仓库主数据中维护'
     if (wh.status or 'active') != 'active':
@@ -5678,9 +5687,10 @@ def resolve_request_warehouse(params):
         if not warehouse:
             return None, f'仓库不存在（编码: {raw_code}）'
     elif raw_name:
-        warehouse = Warehouse.query.filter(
-            db.or_(Warehouse.name == raw_name, Warehouse.code == raw_name)
-        ).order_by(Warehouse.id.asc()).first()
+        try:
+            warehouse = resolve_warehouse_text(raw_name, strict=True)
+        except WarehouseIdentityError as exc:
+            return None, str(exc)
         if not warehouse:
             return None, f'仓库不存在：{raw_name}'
 
@@ -5707,9 +5717,10 @@ def get_warehouse_stock_quantities(warehouse):
     """
     if not warehouse:
         return {}
-    warehouse_key = (warehouse.name or '').strip()
-    warehouse_code = (warehouse.code or '').strip()
-    if not warehouse_key and not warehouse_code:
+    aliases = warehouse_aliases(warehouse)
+    warehouse_key = (warehouse.name or '').strip() if (warehouse.name or '').strip() in aliases else ''
+    warehouse_code = (warehouse.code or '').strip() if (warehouse.code or '').strip() in aliases else ''
+    if not warehouse_key and not warehouse_code and warehouse.id is None:
         return {}
 
     if location_management_enabled():
@@ -5744,8 +5755,6 @@ def get_warehouse_stock_quantities(warehouse):
         # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
         # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
         loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-        if not loc_names:
-            return {}
         # C-2026-08-27：warehouse_id 外键精确聚合优先（B 治本）；未回填行
         # （warehouse_id IS NULL）退回 location 字符串兜底，避免漏掉历史流水。
         rows = (db.session.query(StockTransaction.material_id,
@@ -6000,10 +6009,8 @@ def resolve_active_sales_warehouse(value=None, warehouse_id=None):
     normalized = (value or '').strip()
     if not normalized:
         return None
-    return Warehouse.query.filter(
-        Warehouse.status == 'active',
-        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
-    ).order_by(Warehouse.id.asc()).first()
+    warehouse = resolve_warehouse_text(normalized)
+    return warehouse if warehouse and warehouse.status == 'active' else None
 
 def validate_sales_warehouse(value=None, warehouse_id=None):
     warehouse = resolve_active_sales_warehouse(value, warehouse_id)
@@ -6033,10 +6040,8 @@ def resolve_active_inventory_warehouse(value=None, warehouse_id=None):
     normalized = (value or '').strip()
     if not normalized:
         return None
-    return Warehouse.query.filter(
-        Warehouse.status == 'active',
-        db.or_(Warehouse.name == normalized, Warehouse.code == normalized),
-    ).order_by(Warehouse.id.asc()).first()
+    warehouse = resolve_warehouse_text(normalized)
+    return warehouse if warehouse and warehouse.status == 'active' else None
 
 
 def validate_inventory_warehouse(value=None, warehouse_id=None):
@@ -7377,11 +7382,16 @@ def get_bearer_user():
     if not token:
         legacy = ApiToken.query.filter_by(token=token_value, revoked=False).first()
         if legacy:
-            legacy.token = hash_access_token(token_value)  # 存量明文行原位升级
             token = legacy
             token_migrated = True
     if not token or token.expires_at < datetime.now():
         return None
+    user = token.user
+    # B4: reject before migration/last-used renewal; password events revoke in their own transaction.
+    if not user or not user.is_active or getattr(user, 'must_change_password', False):
+        return None
+    if token_migrated:
+        token.token = hash_access_token(token_value)  # Eligible legacy token only; keep the existing migration.
     now = datetime.now()
     need_flush_last_used = (
         token.last_used_at is None
@@ -7397,7 +7407,7 @@ def get_bearer_user():
             db.session.commit()
         except Exception:
             db.session.rollback()
-    return token.user if token.user and token.user.is_active else None
+    return token.user if token.user and token.user.is_active and not getattr(token.user, 'must_change_password', False) else None
 
 def api_required(f):
     @wraps(f)
@@ -7425,63 +7435,9 @@ def api_role_required(*roles):
     return decorator
 
 def mobile_api_idempotent(endpoint):
-    """Replay a successful native mobile submission when a client retries it."""
-    if endpoint in ('inbound', 'outbound', 'stocktake', 'opening_stock_edit', 'opening_stock', 'inbound_draft'):
-        from services.web_document_idempotency import native_document_idempotent
-        return native_document_idempotent(endpoint)
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(user, *args, **kwargs):
-            payload = request.get_json(silent=True) or {}
-            if not isinstance(payload, dict):
-                return api_json_error('请求数据必须为JSON对象', 400)
-            request_key = request.headers.get('X-Idempotency-Key') or payload.get('request_id')
-            if request_key is None:
-                request_key = ''
-            if not isinstance(request_key, str):
-                return api_json_error('幂等请求号必须为字符串', 400)
-            request_key = request_key.strip()
-            if request_key:
-                if len(request_key) > 120:
-                    return api_json_error('幂等请求号不能超过120个字符', 400)
-                existing = MobileApiRequest.query.filter_by(
-                    user_id=user.id,
-                    endpoint=endpoint,
-                    request_key=request_key,
-                ).first()
-                if existing:
-                    try:
-                        replay_payload = json.loads(existing.response_json)
-                    except (TypeError, ValueError):
-                        replay_payload = {'status': 'error', 'success': False, 'msg': '历史响应无法读取'}
-                    return jsonify(replay_payload), existing.status_code
-
-            response = f(user, *args, **kwargs)
-            if not request_key:
-                return response
-
-            response_obj = response[0] if isinstance(response, tuple) else response
-            status_code = response[1] if isinstance(response, tuple) and len(response) > 1 else response_obj.status_code
-            if not 200 <= status_code < 300:
-                return response
-            response_payload = response_obj.get_json(silent=True) or {}
-            try:
-                db.session.add(MobileApiRequest(
-                    user_id=user.id,
-                    endpoint=endpoint,
-                    request_key=request_key,
-                    status_code=status_code,
-                    response_json=json.dumps(response_payload, ensure_ascii=False),
-                ))
-                db.session.commit()
-            except Exception:
-                # The business transaction has already committed. A failed audit
-                # record must not turn a successful warehouse operation into an error.
-                db.session.rollback()
-                app.logger.exception('Mobile idempotency record failed')
-            return response
-        return decorated_function
-    return decorator
+    """Native clients share fenced content replay and atomic business/result commits."""
+    from services.native_request_idempotency import native_request_idempotent
+    return native_request_idempotent(endpoint)
 
 def web_or_api_required(f):
     @wraps(f)
@@ -8106,9 +8062,7 @@ def api_subcontract_quick_issue():
     # P0-1 / BUG-2026-08-16-009 同根因：发料预校验改仓库级口径，与扣减端
     # deduct_stock_atomic（BUG-2026-09-19-001）严格对齐——否则多仓库下
     # A 仓库存会掩护 B 仓发料：预校验按全局放行、扣减在 B 仓打负账面。
-    wh_obj = Warehouse.query.filter(
-        db.or_(Warehouse.name == warehouse.strip(), Warehouse.code == warehouse.strip())
-    ).order_by(Warehouse.id.asc()).first()
+    wh_obj = resolve_warehouse_text(warehouse, strict=True)
     if not wh_obj:
         return api_error('委外单仓库无效，请编辑委外单选择有效仓库')
     warehouse_stock = get_warehouse_stock_quantities(wh_obj)
@@ -11991,17 +11945,29 @@ def _ai_match_warehouse(text):
     text = (text or '').strip()
     if not text:
         return None
-    active = Warehouse.query.filter_by(status='active').all()
+    warehouses = Warehouse.query.all()
     upper = text.upper()
-    for wh in active:
-        if text == (wh.name or '') or (wh.code and upper == wh.code.upper()):
-            return wh
-    for wh in sorted(active, key=lambda item: len(item.name or ''), reverse=True):
-        if wh.name and wh.name in text:
-            return wh
-        if wh.code and wh.code.upper() in upper:
-            return wh
-    return None
+    exact = [wh for wh in warehouses if text == (wh.name or '') or
+             (wh.code and upper == wh.code.upper())]
+    if len(exact) > 1:
+        raise WarehouseIdentityError('仓库名称与编码存在跨仓重名或歧义，请明确仓库后重试')
+    if exact:
+        return exact[0] if (exact[0].status or 'active') == 'active' else None
+    matches = []
+    for wh in warehouses:
+        if (wh.status or 'active') != 'active':
+            continue
+        lengths = [len(alias) for alias in (wh.name, wh.code)
+                   if alias and alias.upper() in upper]
+        if lengths:
+            matches.append((max(lengths), wh))
+    if not matches:
+        return None
+    longest = max(length for length, _ in matches)
+    specific = [wh for length, wh in matches if length == longest]
+    if len(specific) > 1:
+        raise WarehouseIdentityError('仓库名称与编码存在歧义，请明确一个仓库后重试')
+    return specific[0]
 
 
 def _ai_default_warehouse():
@@ -17589,7 +17555,7 @@ def _parse_iso_cutoff(iso_str: str):
 
 # ===== AI-R15 业务质量指标和版本对比 ORM adapter =====
 
-def _ai_bq_query_samples(filter_dict=None):
+def _ai_bq_query_samples(filter_dict=None, *, strict=False):
     """AI-R15 查询业务质量样本（按天 + 维度聚合）。
 
     样本聚合单元：(day, role, source, model, prompt_hash, schema_version)
@@ -17740,8 +17706,20 @@ def _ai_bq_query_samples(filter_dict=None):
             ))
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R15 查询样本异常: {exc}')
+        if strict:
+            raise
         return []
     return samples
+
+def _ai_registered_duplicate_drafts(start, end):
+    """AI-R18-F01-FIX-20261108-001: registered document identities, not replays."""
+    from ai.ops.launch_acceptance import count_duplicate_draft_receipts
+    records = AIDraftIdempotency.query.filter(
+        AIDraftIdempotency.created_at < end,
+        AIDraftIdempotency.status.in_(('completed', 'replayed')),
+    ).all()  # Full receipt population; earlier first identity is needed for this window.
+    return count_duplicate_draft_receipts(records, start, end)
+
 
 def _ai_r17_acceptance_counts(window_hours=168):
     """AI-R17 ORM adapter：查询上线验收四项指标的绝对计数。
@@ -17749,8 +17727,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
     复用现有检测逻辑（不重复发明）：
     - 越权成功：AIToolCall permission_allowed=False 且 status in (completed/success/authorized)
       （与 _ai_ops_metrics 的 unauthorized_success 口径一致）
-    - 重复草稿：AIDraftIdempotency status='replayed' 表示被幂等拦截的重复请求
-      （与 AI-R01 幂等标记一致）
+    - 重复草稿：同一任务登记不同草稿身份的额外数量；合法重放不算落单
     - 自动提交：AIToolCall tool_name 命中 AUTO_SUBMIT_FORBIDDEN_ACTIONS 的次数
       （与 AI-R13 budget_control.validate_no_auto_submit 口径一致）
     - 低置信度未确认建单：AIDocumentJob status='draft_created' 且存在低置信度未确认字段
@@ -17767,15 +17744,12 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 越权成功计数异常: {exc}')
-        counts['unauthorized_success'] = 0
+        counts['unauthorized_success'] = None
     try:
-        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
-            AIDraftIdempotency.created_at >= cutoff,
-            AIDraftIdempotency.status == 'replayed',
-        ).count()
+        counts['duplicate_drafts'] = _ai_registered_duplicate_drafts(cutoff, datetime.now())
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 重复草稿计数异常: {exc}')
-        counts['duplicate_drafts'] = 0
+        counts['duplicate_drafts'] = None
     try:
         counts['auto_submit'] = AIToolCall.query.filter(
             AIToolCall.created_at >= cutoff,
@@ -17783,7 +17757,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 自动提交计数异常: {exc}')
-        counts['auto_submit'] = 0
+        counts['auto_submit'] = None
     try:
         # 低置信度未确认建单：草稿已创建但其行项存在低置信度字段
         from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
@@ -17791,6 +17765,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
             AIDocumentItem.created_at >= cutoff,
             AIDocumentItem.confidence.isnot(None),
             AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
+            or_(AIDocumentItem.confirmation_status.is_(None), AIDocumentItem.confirmation_status == 'pending'),
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= cutoff,
@@ -17799,7 +17774,7 @@ def _ai_r17_acceptance_counts(window_hours=168):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17 低置信度未确认建单计数异常: {exc}')
-        counts['low_confidence_unconfirmed'] = 0
+        counts['low_confidence_unconfirmed'] = None
     return counts
 
 def _ai_f02_query_daily_counts(target_date):
@@ -17821,16 +17796,12 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 越权成功单日计数异常: {exc}')
-        counts['unauthorized_success'] = 0
+        counts['unauthorized_success'] = None
     try:
-        counts['duplicate_drafts'] = AIDraftIdempotency.query.filter(
-            AIDraftIdempotency.created_at >= day_start,
-            AIDraftIdempotency.created_at < day_end,
-            AIDraftIdempotency.status == 'replayed',
-        ).count()
+        counts['duplicate_drafts'] = _ai_registered_duplicate_drafts(day_start, day_end)
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 重复草稿单日计数异常: {exc}')
-        counts['duplicate_drafts'] = 0
+        counts['duplicate_drafts'] = None
     try:
         counts['auto_submit'] = AIToolCall.query.filter(
             AIToolCall.created_at >= day_start,
@@ -17839,7 +17810,7 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 自动提交单日计数异常: {exc}')
-        counts['auto_submit'] = 0
+        counts['auto_submit'] = None
     try:
         from ai.documents.constants import LOW_CONFIDENCE_THRESHOLD
         low_conf_job_ids = db.session.query(AIDocumentItem.job_id).filter(
@@ -17847,6 +17818,7 @@ def _ai_f02_query_daily_counts(target_date):
             AIDocumentItem.created_at < day_end,
             AIDocumentItem.confidence.isnot(None),
             AIDocumentItem.confidence < LOW_CONFIDENCE_THRESHOLD,
+            or_(AIDocumentItem.confirmation_status.is_(None), AIDocumentItem.confirmation_status == 'pending'),
         ).distinct().subquery()
         counts['low_confidence_unconfirmed'] = AIDocumentJob.query.filter(
             AIDocumentJob.created_at >= day_start,
@@ -17856,7 +17828,7 @@ def _ai_f02_query_daily_counts(target_date):
         ).count()
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 低置信度未确认建单单日计数异常: {exc}')
-        counts['low_confidence_unconfirmed'] = 0
+        counts['low_confidence_unconfirmed'] = None
     return counts
 
 def _ai_f02_query_daily_quality(target_date):
@@ -17875,7 +17847,7 @@ def _ai_f02_query_daily_quality(target_date):
             # Shared quality filters include their end point. Keep this
             # natural-day consumer strictly before the following midnight.
             'time_end': (day_end - timedelta(microseconds=1)).isoformat(),
-        })
+        }, strict=True)
         # ORM adapter returns QualitySample counters, not per-metric dicts.
         metrics = compute_business_quality(samples).metrics
         for metric in ALL_METRICS:
@@ -17887,18 +17859,22 @@ def _ai_f02_query_daily_quality(target_date):
             }
     except Exception as exc:  # noqa: BLE001
         app.logger.warning(f'AI-R17-F02 单日质量指标查询异常: {exc}')
-        for metric in ALL_METRICS:
-            result[metric] = {'numerator': 0, 'denominator': 0, 'rate': 0.0}
+        result = {}  # Missing measurements must remain unknown, not synthetic zeros.
     return result
 
-def _ai_f02_query_rollout_info():
-    """AI-R17-F02 ORM adapter：查询当前灰度用户/角色信息。"""
+def _ai_f02_query_rollout_info(target_date=None):
+    """Observed tool audit users/roles in the same natural day, not configured roles."""
     try:
-        mode = _ai_rollout_mode()
-        allowed_ids = _ai_allowed_user_ids()
-        roles = ('admin', 'warehouse', 'purchase') if mode != 'off' else ()
+        start = datetime.strptime(target_date or datetime.now().strftime('%Y-%m-%d'), '%Y-%m-%d')
+        rows = db.session.query(AIToolCall.user_id, AIToolCall.role).filter(
+            AIToolCall.created_at >= start, AIToolCall.created_at < start + timedelta(days=1),
+            AIToolCall.permission_allowed.is_(True),
+            AIToolCall.status.in_(('completed', 'success', 'authorized')),
+            AIToolCall.user_id.isnot(None),
+        ).distinct().all()
+        roles = tuple(sorted({row.role for row in rows if row.role}))
         return {
-            'user_count': len(allowed_ids),
+            'user_count': len({row.user_id for row in rows}),
             'role_count': len(roles),
             'roles': roles,
         }
@@ -23823,9 +23799,7 @@ def _ai_execute_intent(message, intent_payload, context=None):
         # params.warehouse 有值但 keyword 可能为空或不相关。此时按仓库列出库存物料。
         warehouse_param = str(params.get('warehouse') or '').strip()
         if warehouse_param:
-            warehouse_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == warehouse_param, Warehouse.code == warehouse_param)
-            ).order_by(Warehouse.id.asc()).first()
+            warehouse_obj = resolve_warehouse_text(warehouse_param, strict=True)
             if not warehouse_obj:
                 return _ai_json_response(f'没有找到仓库「{warehouse_param}」，可以换仓库名称或编码再试一次。')
             stock_map = get_warehouse_stock_quantities(warehouse_obj)
@@ -26818,7 +26792,7 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
     try:
         if db.engine.dialect.name == 'sqlite':
             # A flushed document receipt already owns the SQLite write transaction.
-            if not (has_request_context() and (getattr(g, 'web_document_receipt', None) or getattr(g, 'document_edit_guard', False))):
+            if not (db.session().info.get('native_request') or (has_request_context() and (getattr(g, 'web_document_receipt', None) or getattr(g, 'document_edit_guard', False)))):
                 db.session.rollback()
                 db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
             order = db.session.get(model_cls, record_id, options=eager_loads) if eager_loads else db.session.get(model_cls, record_id)
@@ -27097,11 +27071,11 @@ def _find_or_create_warehouse(name):
     name = (name or '').strip()
     if not name:
         return None
-    warehouse = Warehouse.query.filter_by(name=name).first() or Warehouse.query.filter_by(code=name).first()
+    warehouse = resolve_warehouse_text(name, strict=True)
     if not warehouse:
         seq = Warehouse.query.count() + 1
         code = f'WH{seq:03d}'
-        while Warehouse.query.filter_by(code=code).first():
+        while resolve_warehouse_text(code, strict=True):
             seq += 1
             code = f'WH{seq:03d}'
         warehouse = Warehouse(code=code, name=name, status='active')
@@ -30150,8 +30124,7 @@ def _warehouse_document_match_clause(column, warehouse=None,
     """
     values = []
     if warehouse is not None:
-        for v in (getattr(warehouse, 'name', None),
-                  getattr(warehouse, 'code', None)):
+        for v in warehouse_aliases(warehouse):
             v = (v or '').strip()
             if v and v not in values:
                 values.append(v)
@@ -30190,6 +30163,10 @@ def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_co
         except (TypeError, ValueError):
             wid = None
         if wid:
+            warehouse = db.session.get(Warehouse, wid)
+            if warehouse:
+                aliases = warehouse_aliases(warehouse)
+                values = [value for value in values if value in aliases]
             rows = db.session.query(LocationInventory.location).filter(
                 LocationInventory.warehouse_id == wid
             ).distinct().all()
@@ -35104,7 +35081,7 @@ def api_ai_acceptance_daily_snapshot():
         # 采集质量指标
         quality_metrics = _ai_f02_query_daily_quality(target_date)
         # 采集灰度信息
-        rollout_info = _ai_f02_query_rollout_info()
+        rollout_info = _ai_f02_query_rollout_info(target_date)
         # 构造快照
         snapshot = build_daily_snapshot(
             snapshot_date=target_date,
@@ -35114,7 +35091,13 @@ def api_ai_acceptance_daily_snapshot():
             rollout_role_count=rollout_info['role_count'],
             rollout_roles=rollout_info['roles'],
             window_hours=24,
-            filter_applied={'date': target_date, 'source': 'daily_snapshot'},
+            filter_applied={'date': target_date, 'source': 'daily_snapshot',
+                            'time_start': target_date + 'T00:00:00',
+                            'time_end_exclusive': (datetime.strptime(target_date, '%Y-%m-%d') + timedelta(days=1)).isoformat(),
+                            'role': '', 'model': '', 'prompt_hash': '', 'schema_version': '',
+                            'absolute_reference': 'AIToolCall/AIDraftIdempotency/AIDocumentJob/AIDocumentItem',
+                            'duplicate_scope': 'registered distinct draft identities; replay is interception only',
+                            'role_reference': 'AIToolCall permitted successful rows in this day'},
             now=datetime.now(),
         )
         # 持久化（同一日期覆盖更新）
@@ -35160,6 +35143,7 @@ def api_ai_acceptance_daily_snapshot():
 def api_ai_acceptance_daily_snapshots():
     """AI-R17-F02：查询每日快照列表。"""
     import json as _json_f02
+    from ai.ops.launch_acceptance import valid_absolute_counts
     # AI_TASK: AI-R17-F02
     try:
         limit = request.args.get('limit', 30, type=int)
@@ -35178,7 +35162,7 @@ def api_ai_acceptance_daily_snapshots():
                 'window_hours': row.window_hours,
                 'filter_applied': _json_f02.loads(row.filter_applied) if row.filter_applied else {},
                 'generated_at': row.generated_at.isoformat() if row.generated_at else '',
-                'all_absolute_zero': all(
+                'all_absolute_zero': valid_absolute_counts(_json_f02.loads(row.absolute_counts)) and all(
                     v == 0 for v in _json_f02.loads(row.absolute_counts).values()
                 ),
             })
@@ -35215,7 +35199,7 @@ def api_ai_acceptance_evidence_package():
             payload = AcceptanceEvidenceInput.model_validate(json_object_body())
         except (ValueError, TypeError):
             return jsonify({'status': 'error', 'msg': '验收参数格式不正确，请检查日期和1至30天的整数天数'}), 400
-        end_date = payload.end_date or datetime.now().strftime('%Y-%m-%d')
+        end_date = payload.end_date or (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
         days = payload.days
         # 从 DB 取最近 days 天的快照
         end_dt = datetime.strptime(end_date, '%Y-%m-%d')
@@ -35246,8 +35230,8 @@ def api_ai_acceptance_evidence_package():
         # 采集回滚记录
         rollback_events = _ai_f02_query_rollback_events(start_date, end_date)
         # 灰度角色矩阵
-        rollout_info = _ai_f02_query_rollout_info()
-        role_matrix = [(r, r in rollout_info['roles']) for r in ('admin', 'warehouse', 'purchase', 'production', 'user')]
+        observed_roles = {role for snap in daily_snapshots for role in snap.rollout_roles}
+        role_matrix = [(r, r in observed_roles) for r in ('admin', 'warehouse', 'purchase', 'production', 'user')]
         # 初步判定 go/no-go（待管理员签字）
         ok_seven, reason_seven = validate_seven_consecutive_days_zero(daily_snapshots, required_days=days)
         initial_decision = 'pending'
@@ -36665,9 +36649,7 @@ def api_ai_sales_order_anomaly_analysis(id):
         wh_obj = None
         if (order.warehouse or '').strip():
             wh_key = order.warehouse.strip()
-            wh_obj = Warehouse.query.filter(
-                db.or_(Warehouse.name == wh_key, Warehouse.code == wh_key)
-            ).order_by(Warehouse.id.asc()).first()
+            wh_obj = resolve_warehouse_text(wh_key, strict=True)
         warehouse_stock = get_warehouse_stock_quantities(wh_obj) if wh_obj else None
         shortage_items = []
         for item in order.items:
