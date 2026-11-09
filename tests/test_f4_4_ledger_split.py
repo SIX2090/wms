@@ -500,3 +500,4 @@ POST_SPLIT_BUGS['BUG-2026-11-08-006'] = 'fixed'  # N2 local candidate; exact CI/
 POST_SPLIT_BUGS['BUG-2026-11-08-007'] = 'fixed'  # N3 candidate; exact CI tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-08-008'] = 'fixed'  # N3 same-batch receipt semantics
 POST_SPLIT_BUGS['BUG-2026-11-08-009'] = 'fixed'  # N7 local list return regression; exact CI tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-09-002'] = 'fixed'  # Windows version conflict; exact release acceptance tracked separately

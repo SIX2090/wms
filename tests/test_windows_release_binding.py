@@ -48,6 +48,19 @@ def test_select_release(candidate):
  m,plan,release,proof,*_=candidate()
  assert plan['state']=='build'
  assert m.select_release(plan['version'],B,F,release,proof)['state']=='reuse_pending_verification'
+
+def test_current_version_builds_after_14pt_label_change():
+ # The published 2026.11.5 package predates the changed label template.
+ import runpy
+ m=load();version=runpy.run_path(str(ROOT/'app/version.py'))['__version__']
+ published=dict(tag_name='windows-v2026.11.5',draft=False)
+ proof=dict(schema_version=1,version='2026.11.5',source_sha=A,
+            input_fingerprint='0'*64,archive_sha256='1'*64)
+ existing=published if m.release_names(version)['tag']==published['tag_name'] else None
+ plan=m.select_release(version,B,F,existing,proof if existing else None)
+ assert plan['state']=='build'
+ assert plan['names']['tag']!=published['tag_name']
+
 @pytest.mark.parametrize('case',['missing_proof','draft','other_inputs','other_version','bad_source','bad_digest'])
 def test_select_release_rejects_unsafe_reuse(candidate,case):
  m,plan,release,proof,*_=candidate()
