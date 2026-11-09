@@ -1,6 +1,4 @@
 """Disposable browser fixture. Never accepts a production data directory/port."""
-# 禁止在隔离能力验证完成前导入或执行。
-raise RuntimeError('浏览器测试服务已阻止：隔离能力尚未证明')
 import argparse
 import json
 import os
@@ -9,6 +7,10 @@ import sys
 import tempfile
 import threading
 import time
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.linux_test_runtime import require_subprocess_boundary
+require_subprocess_boundary()
 
 
 def main():
@@ -24,9 +26,9 @@ def main():
     repository = Path(__file__).resolve().parents[1]
     if root == temporary or not root.is_relative_to(temporary):
         parser.error('browser fixtures require a dedicated OS temporary directory')
-    if source != repository and not source.is_relative_to(root.parent):
+    if source not in (repository, Path('/opt/wms-baseline')) and not source.is_relative_to(root.parent):
         parser.error('source must be this checkout or the same owned temporary rehearsal')
-    if not 1024 <= args.port <= 65535 or args.port in (8080, 5098):
+    if args.port != 0 and not 10240 <= args.port <= 65535:
         parser.error('use an isolated ephemeral test port')
     database = root / 'synthetic.db'
     if database.exists():
@@ -128,7 +130,11 @@ def main():
 
     from waitress import create_server
     server = create_server(w.app, host='127.0.0.1', port=args.port, threads=2)
-    print(json.dumps({'ready': True, 'port': args.port, 'instance': args.instance}), flush=True)
+    port = int(server.effective_port)
+    if not 10240 <= port <= 65535:
+        server.close()
+        raise RuntimeError('OS allocated a forbidden test port')
+    print(json.dumps({'ready': True, 'port': port, 'pid': os.getpid(), 'instance': args.instance}), flush=True)
     server.run()
 
 

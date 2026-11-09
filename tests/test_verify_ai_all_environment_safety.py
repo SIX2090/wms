@@ -32,7 +32,7 @@ class TestVerifyAiAllEnvironmentSafety(TestCase):
                     self.assertNotIn(url, output.getvalue())
                     self.assertNotIn("synthetic-secret", output.getvalue())
 
-    def test_child_uses_testing_memory_and_per_script_temporary_file(self):
+    def test_child_uses_testing_memory_and_per_script_temporary_state(self):
         seen_paths = []
 
         def fake_run(*args, **kwargs):
@@ -40,8 +40,9 @@ class TestVerifyAiAllEnvironmentSafety(TestCase):
             self.assertEqual(env["FLASK_ENV"], "testing")
             self.assertEqual(env["DATABASE_URL"], "sqlite:///:memory:")
             self.assertEqual(env["AI_LEDGER_ENFORCE"], "strict")
-            path = Path(env["WMS_DATABASE_URI"].removeprefix("sqlite:///"))
-            self.assertEqual(path.name, "inventory-test.db")
+            self.assertEqual(env["WMS_DATABASE_URI"], "sqlite:///:memory:")
+            path = Path(env['LOG_FILE'])
+            self.assertEqual(path.name, "verify.log")
             self.assertTrue(path.parent.is_dir())
             seen_paths.append(path)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -50,6 +51,7 @@ class TestVerifyAiAllEnvironmentSafety(TestCase):
                                     "FLASK_ENV": "testing",
                                     "AI_LEDGER_ENFORCE": "gradual"}, clear=True), \
                 patch.object(verify_ai_all.subprocess, "run", side_effect=fake_run), \
+                patch('scripts.linux_test_runtime.require_subprocess_boundary'), \
                 redirect_stdout(StringIO()):
             for _ in range(2):
                 result = verify_ai_all.run_script("verify_ai_ledger_consistency.py")

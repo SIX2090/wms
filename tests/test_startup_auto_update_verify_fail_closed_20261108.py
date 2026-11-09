@@ -3,6 +3,8 @@ import ast
 from pathlib import Path
 import re
 import unittest
+import sys
+from unittest import mock
 from contextlib import redirect_stdout
 from io import StringIO
 
@@ -17,7 +19,10 @@ class StartupVerifySafety(unittest.TestCase):
         tree = ast.parse(TARGET.read_text(encoding='utf-8-sig'))
         node = next(item for item in tree.body if isinstance(item, ast.FunctionDef)
                     and item.name == 'test_setting_default_off_and_skip_env')
-        guarded = [item for item in node.body if isinstance(item, ast.Raise)]
+        guarded = [item for item in node.body if isinstance(item, ast.Expr)
+                   and isinstance(item.value, ast.Call)
+                   and isinstance(item.value.func, ast.Name)
+                   and item.value.func.id == 'require_isolated_test_runtime']
         imports = [item for item in ast.walk(node) if isinstance(item, ast.Import)
                    and any(alias.name == 'run_server' for alias in item.names)]
         self.assertEqual(len(guarded), 1)
@@ -26,10 +31,13 @@ class StartupVerifySafety(unittest.TestCase):
         checks = []
         namespace = {'_read': lambda _path: '', 'APP_PY_PATH': None,
                      'RUN_SERVER_PATH': None, 're': re,
+                     'sys': sys, 'ROOT': ROOT,
                      'check': lambda condition, label, failures: checks.append(label)}
         module = ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[]))
         exec(compile(module, '<synthetic-startup-verification>', 'exec'), namespace)
-        with redirect_stdout(StringIO()), self.assertRaisesRegex(RuntimeError, MESSAGE):
+        with mock.patch('scripts.verify_db_guard.require_isolated_test_runtime',
+                        side_effect=SystemExit(MESSAGE)), redirect_stdout(StringIO()), \
+                self.assertRaisesRegex(SystemExit, MESSAGE):
             namespace[node.name]([])
         self.assertEqual(len(checks), 6)
 

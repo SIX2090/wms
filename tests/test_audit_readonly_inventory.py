@@ -234,8 +234,14 @@ def test_owned_test_file_pins_file_and_parent_during_read(tmp_path):
     target.write_text('synthetic unchanged', encoding='utf-8')
     replacement.write_text('replacement', encoding='utf-8')
     with owned_test_file(target) as verified:
-        assert verified == target
         assert verified.read_text(encoding='utf-8') == 'synthetic unchanged'
+        if os.name != 'nt':
+            # POSIX pins the inode through a descriptor, not Windows share locks.
+            os.replace(replacement, target)
+            folder.rename(tmp_path / 'swapped-directory')
+            assert verified.read_text(encoding='utf-8') == 'synthetic unchanged'
+            return
+        assert verified == target
         with pytest.raises(PermissionError):
             target.write_text('must not overwrite', encoding='utf-8')
         with pytest.raises(PermissionError):

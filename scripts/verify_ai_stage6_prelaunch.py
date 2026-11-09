@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-# 当前脚本使用固定备份目录且在导入应用前没有隔离证明；保留原逻辑供后续改造。
-raise SystemExit('安全阻断：预发布验证的应用和备份目录隔离尚未证明')
-
 import os
 import sys
 from pathlib import Path
@@ -10,6 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / 'app'
+sys.path.insert(0, str(ROOT))
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
 
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['WMS_SKIP_STARTUP_DB_UPGRADE'] = '1'

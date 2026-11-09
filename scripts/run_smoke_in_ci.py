@@ -38,6 +38,8 @@ def clean_environment(root):
                            'PYTHONPATH', 'PYTHONHOME'}}
     env['FLASK_ENV'] = 'production'
     env['WMS_ALLOW_INSECURE_COOKIE'] = '1'
+    # This reference is not proof by itself; every child rechecks the kernel.
+    env['WMS_TEST_RUNTIME_PROOF'] = os.environ.get('WMS_TEST_RUNTIME_PROOF', '')
     env.update(
         DATABASE_URL='sqlite:///' + (root / 'synthetic.db').as_posix(),
         SECRET_KEY='isolated-smoke-only-secret', WECHAT_HELPER_TOKEN='isolated-smoke-only-helper',
@@ -101,15 +103,17 @@ def serve_isolated(root, listener, lease):
     if lease.pid != os.getpid():
         raise ValueError('Listener capability belongs to another child')
     lease.validate(dict(base_url=listener_url(listener), nonce=lease.nonce, pid=os.getpid()))
-    root = root.resolve(strict=True)
-    if (root.parent != Path(tempfile.gettempdir()).resolve()
+    root = Path(os.path.abspath(root))
+    if (root.parent != Path(os.path.abspath(tempfile.gettempdir()))
             or not root.name.startswith('wms-isolated-smoke-')
             or (root / 'synthetic.db').exists() or (root / 'program').exists()
             or os.environ.get('DATABASE_URL') != 'sqlite:///' + (root / 'synthetic.db').as_posix()):
         raise ValueError('Refusing reused or unowned smoke state')
-    # 对源目录做一次 is_symlink/lstat 预检不能防止检查后替换为链接。
-    # 受控源码复制及应用出站边界尚未证明前，禁止导入应用或复制任何文件。
-    raise RuntimeError('冒烟已阻止：源码复制的链接与替换竞态、应用出站隔离尚未完成安全验证')
+    # The source is immutable and contains Git blobs only; no host files/network
+    # are accessible to this process or descendants, including native libraries.
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    require_subprocess_boundary()
     # Copy program files so import-time relative files cannot modify the checkout.
     program = root / 'program'
     shutil.copytree(REPO_ROOT / 'app', program,
@@ -178,6 +182,9 @@ def run_client(root, identity_file, listener, nonce, server_pid):
 
 
 def main(argv=None):
+    sys.path.insert(0, str(REPO_ROOT))
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    require_subprocess_boundary()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serve', type=Path, help=argparse.SUPPRESS)
     parser.add_argument('--listener-stdin', action='store_true', help=argparse.SUPPRESS)

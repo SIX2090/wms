@@ -217,6 +217,7 @@ print('owned capability verified')
     def test_parent_interrupt_stops_owned_server(self):
         child = SimpleNamespace(pid=12345)
         with mock.patch.object(run_smoke_in_ci, 'start_server', return_value=child), \
+             mock.patch('scripts.linux_test_runtime.require_subprocess_boundary'), \
              mock.patch.object(run_smoke_in_ci, 'wait_ready', return_value=Path('synthetic-ready.json')), \
              mock.patch.object(run_smoke_in_ci, 'run_client', side_effect=KeyboardInterrupt), \
              mock.patch.object(run_smoke_in_ci, 'stop_server') as stop:
@@ -229,10 +230,11 @@ print('owned capability verified')
             root = Path(directory).resolve()
             identity = dict(self.identity, pid=os.getpid())
             lease = smoke_isolation.OwnedSocketLease(self.listener, identity)
-            with mock.patch.dict(os.environ, {'DATABASE_URL': 'sqlite:///' + (root / 'synthetic.db').as_posix()}), \
+            with mock.patch.dict(os.environ, {'DATABASE_URL': 'sqlite:///' + (root / 'synthetic.db').as_posix(),
+                                              'WMS_TEST_RUNTIME_PROOF': ''}), \
                  mock.patch.object(run_smoke_in_ci.shutil, 'copytree') as copy, \
                  mock.patch.object(run_smoke_in_ci.os, 'chdir', side_effect=deny) as chdir:
-                with self.assertRaisesRegex(RuntimeError, '源码复制'):
+                with self.assertRaisesRegex(SystemExit, '安全阻断'):
                     run_smoke_in_ci.serve_isolated(root, self.listener, lease)
                 copy.assert_not_called()
                 chdir.assert_not_called()

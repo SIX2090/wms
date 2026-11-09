@@ -137,7 +137,7 @@ jobs:
       # 静态回归: 历史 BUG 不再以违规形式存在
       # 86/86 PASS,改成必过 (continue-on-error: false / 移除 continue-on-error 行)
       - name: "Static regression - verify_wms_bugs"
-        run: python3 scripts/verify_wms_bugs.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/verify_wms_bugs.py
 
       # 三账恒等式门禁（BUG-2026-09-25-006）。
       #
@@ -155,7 +155,7 @@ jobs:
       #      一道永远绿灯的门禁比没有门禁更危险；
       #   4) 清除脏数据后断言恢复 rc=0。
       - name: "Inventory - 三账恒等式门禁（含反向验证）"
-        run: python3 scripts/ci_check_inventory_identity.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/ci_check_inventory_identity.py
 
       # BUG-2026-08-16-018：密钥泄露扫描（gitleaks）。
       # 曾以 continue-on-error 起步（先产出报告再收紧）。F0.4（2026-10-11）
@@ -277,7 +277,7 @@ jobs:
           VERIFY_TEST_SHARDS: '3'
           VERIFY_TEST_SHARD: '0'
           VERIFY_TEST_WORKERS: '4'
-        run: python3 scripts/run_tests_sharded.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
 
   unit-tests-shard-1:
     needs: changes
@@ -308,7 +308,7 @@ jobs:
           VERIFY_TEST_SHARDS: '3'
           VERIFY_TEST_SHARD: '1'
           VERIFY_TEST_WORKERS: '4'
-        run: python3 scripts/run_tests_sharded.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
 
   unit-tests-shard-2:
     needs: changes
@@ -339,7 +339,7 @@ jobs:
           VERIFY_TEST_SHARDS: '3'
           VERIFY_TEST_SHARD: '2'
           VERIFY_TEST_WORKERS: '4'
-        run: python3 scripts/run_tests_sharded.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
 
   # ==========================================================================
   # Job 3a-3d：verify 契约回归（178 个文件，CI-PERF-2026-09-24 起按片并行）
@@ -383,14 +383,14 @@ jobs:
           VERIFY_WORKERS: '4'
           VERIFY_SHARDS: '4'
           VERIFY_SHARD: '0'
-        run: python3 scripts/run_verify_parallel.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_verify_parallel.py
 
       - name: "Upload verify failure summary"
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-0
-          path: verify_failures_summary.md
+          path: output/verify_failures_summary.md
           if-no-files-found: ignore
           retention-days: 7
 
@@ -423,14 +423,14 @@ jobs:
           VERIFY_WORKERS: '4'
           VERIFY_SHARDS: '4'
           VERIFY_SHARD: '1'
-        run: python3 scripts/run_verify_parallel.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_verify_parallel.py
 
       - name: "Upload verify failure summary"
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-1
-          path: verify_failures_summary.md
+          path: output/verify_failures_summary.md
           if-no-files-found: ignore
           retention-days: 7
 
@@ -463,14 +463,14 @@ jobs:
           VERIFY_WORKERS: '4'
           VERIFY_SHARDS: '4'
           VERIFY_SHARD: '2'
-        run: python3 scripts/run_verify_parallel.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_verify_parallel.py
 
       - name: "Upload verify failure summary"
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-2
-          path: verify_failures_summary.md
+          path: output/verify_failures_summary.md
           if-no-files-found: ignore
           retention-days: 7
 
@@ -503,14 +503,14 @@ jobs:
           VERIFY_WORKERS: '4'
           VERIFY_SHARDS: '4'
           VERIFY_SHARD: '3'
-        run: python3 scripts/run_verify_parallel.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_verify_parallel.py
 
       - name: "Upload verify failure summary"
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: verify-failures-shard-3
-          path: verify_failures_summary.md
+          path: output/verify_failures_summary.md
           if-no-files-found: ignore
           retention-days: 7
 
@@ -544,7 +544,7 @@ jobs:
 
       # 冒烟测试：启动 WMS 服务跑 121 项全量冒烟
       - name: "Smoke test (启动服务跑 121 项)"
-        run: python3 scripts/run_smoke_in_ci.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/run_smoke_in_ci.py
 
       # CI summary
       - name: "CI summary"
@@ -583,7 +583,7 @@ jobs:
           OMP_NUM_THREADS: '1'
           PYTHONUTF8: '1'
           PYTHONIOENCODING: utf-8
-        run: node tests/material_browser_check.cjs
+        run: python3 scripts/run_ci_isolated.py -- node tests/material_browser_check.cjs
       - name: Preserve browser report and screenshots
         if: always()
         uses: actions/upload-artifact@v7

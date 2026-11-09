@@ -68,6 +68,22 @@ _test_guard = runpy.run_path(str(Path(__file__).with_name("verify_db_guard.py"))
 _require_owned_test_profile = _test_guard["require_owned_test_profile"]
 _owned_test_file = _test_guard["owned_test_file"]
 
+
+def _require_loaded_synthetic_app():
+    """Never open the default application; accept only its already-owned test DB."""
+    _require_owned_test_profile()
+    _test_guard['require_isolated_test_runtime']()
+    cached = sys.modules.get('app')
+    if cached is None or not all(hasattr(cached, key) for key in ('app', 'db')):
+        raise RuntimeError('应用尚未初始化；独立检查请使用SQLite只读命令行入口')
+    with cached.app.app_context():
+        url = cached.db.engine.url
+        if url.drivername != 'sqlite' or url.query:
+            raise SystemExit('安全阻断：已加载应用不是合成 SQLite 数据库')
+        if url.database not in (None, '', ':memory:'):
+            _test_guard['validate_owned_test_file'](url.database)
+    return cached
+
 # 浮点容差：金额/数量经 round_to_2_decimals 后允许 0.01 级误差
 DEFAULT_TOLERANCE = 0.01
 
@@ -416,7 +432,7 @@ def collect_from_app(pushdown=True):
         pushdown: `True`（默认）走 SQL 聚合下推；`False` 走旧的逐行路径。
             保留旧路径供**对照验证**与极端排障；两条路径的**累加结果**必须等价。
     """
-    raise SystemExit('安全阻断：已加载应用的数据库归属未证明')
+    _require_loaded_synthetic_app()
     import sqlalchemy as sa  # noqa: PLC0415
 
     cached = sys.modules.get('app')
@@ -460,7 +476,7 @@ def collect_from_app(pushdown=True):
 def _location_management_enabled() -> bool:
     """F3.15：读取系统设置「库位管理」开关。读不到（如纯 sqlite 直读、
     表缺失）时按「未开启」处理——宁可跳过仓级判定，也不误报。"""
-    raise SystemExit('安全阻断：已加载应用的数据库归属未证明')
+    _require_loaded_synthetic_app()
     try:
         cached = sys.modules.get('app')
         if cached is None:

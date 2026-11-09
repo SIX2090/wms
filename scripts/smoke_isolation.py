@@ -112,13 +112,25 @@ def validate_base_url(value):
 
 def read_identity(path):
     """Read the ready file emitted only after the isolated child binds its socket."""
-    path = Path(path).resolve(strict=True)
-    data = json.loads(path.read_text(encoding='utf-8'))
+    # Use the same OS-owned file lease as the other verification readers. LPAC
+    # cannot query host DOS drive mappings; lexical paths plus pinned handles
+    # prove ownership without requesting those unrelated host permissions.
+    from pathlib import Path
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from scripts.verify_db_guard import owned_test_file, validate_owned_test_file
+    path = validate_owned_test_file(path)
+    with owned_test_file(path) as pinned:
+        data = json.loads(pinned.read_text(encoding='utf-8'))
     root = path.parent
-    if (data.get('schema') != 1 or not root.name.startswith('wms-isolated-smoke-')
-            or not re.fullmatch(r'[a-f0-9]{64}', data.get('nonce', ''))
+    database = data.get('database', '') if isinstance(data, dict) else ''
+    if (not isinstance(data, dict) or type(data.get('schema')) is not int or data.get('schema') != 1
+            or not root.name.startswith('wms-isolated-smoke-')
+            or not isinstance(data.get('nonce'), str) or not re.fullmatch(r'[a-f0-9]{64}', data['nonce'])
             or type(data.get('pid')) is not int or data['pid'] <= 0
-            or Path(data.get('database', '')).resolve() != root / 'synthetic.db'):
+            or not isinstance(database, str) or not os.path.isabs(database)
+            or '..' in Path(database).parts or database.startswith(('//', '\\\\'))
+            or Path(os.path.abspath(database)) != root / 'synthetic.db'):
         raise ValueError('Missing or invalid isolated smoke identity')
     data['base_url'] = validate_base_url(data['base_url'])
     return data

@@ -80,8 +80,13 @@ def _is_pytest_style(path: str) -> bool:
 
 
 def _run_one(path: str) -> tuple[str, int, float, str]:
-    # 此 helper 可被直接调用，必须在扫描文件和启动任何子进程前阻断。
-    return path, 2, 0.0, '验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。'
+    # Direct helper calls must prove the same inherited kernel boundary.
+    try:
+        sys.path.insert(0, str(REPO_ROOT))
+        from scripts.linux_test_runtime import require_subprocess_boundary
+        require_subprocess_boundary()
+    except SystemExit as exc:
+        return path, 2, 0.0, '数据库、备份与网络隔离尚未证明：' + str(exc)
 
     # 独立 Python 脚本不经过 pytest conftest，不能继承未知数据库目标。
     env = os.environ.copy()
@@ -158,9 +163,13 @@ def main() -> int:
     if not targets:
         print('[error] 验证清单为空；不能将没有运行测试视为成功。')
         return 1
-    # 不能只凭 DATABASE_URL 断言每个独立脚本、原生库及子进程均已隔离。
-    print('[error] 验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。')
-    return 1
+    try:
+        sys.path.insert(0, str(REPO_ROOT))
+        from scripts.linux_test_runtime import require_subprocess_boundary
+        require_subprocess_boundary()
+    except SystemExit as exc:
+        print('[error] 数据库、备份与网络隔离尚未证明：' + str(exc))
+        return 1
 
     for f in skipped:
         print(f'SKIP (known failure, BUG-2026-08-16-017): {f}')
@@ -236,7 +245,8 @@ def _write_step_summary(failures, total_files: int, total_secs: float) -> None:
               f'({elapsed:.1f}s)::[{path}] {detail}', flush=True)
 
     try:
-        out_file = REPO_ROOT / 'verify_failures_summary.md'
+        out_file = REPO_ROOT / 'output' / 'verify_failures_summary.md'
+        out_file.parent.mkdir(exist_ok=True)
         out_file.write_text(body, encoding='utf-8')
         print(f'[info] 失败详情已写入 {out_file}（便于作为 artifact 取走）')
     except OSError as exc:  # noqa: BLE001

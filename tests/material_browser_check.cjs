@@ -1,6 +1,8 @@
 'use strict';
-// 禁止在隔离能力验证完成前加载驱动或启动浏览器。
-throw new Error('浏览器验证已阻止：隔离能力尚未证明');
+// Verify the real container boundary before loading drivers or opening sockets.
+const boundary = require('node:child_process').spawnSync(process.env.PYTHON || 'python',
+ ['-I', '-S', '-B', require('node:path').join(__dirname, '../scripts/linux_test_runtime.py')], {encoding:'utf8'});
+if (boundary.status !== 0) throw new Error('浏览器验证已阻止：隔离能力尚未证明；' + (boundary.stderr || ''));
 // CI-only real Chrome; every server and database is owned by an OS temp folder.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');
@@ -53,16 +55,21 @@ async function ordinarySaveControl(page) {
  return control;
 }
 function git(args){const r=spawnSync('git',args,{cwd:repo,encoding:'utf8'});check(r.status===0,'Git verification failed: '+args[0]);return r.stdout.trim();}
-async function freePort(){const server=net.createServer();await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
 async function server(source,label){
- const root=path.join(scratch,label);fs.mkdirSync(root);const port=await freePort(),instance=randomUUID();
+ const root=path.join(scratch,label);fs.mkdirSync(root);let port=0;const instance=randomUUID();
  const log=fs.createWriteStream(path.join(output,'server-'+label+'.log'));
  const child=spawn(process.env.PYTHON||'python',[path.join(repo,'tests/material_browser_server.py'),'--root',root,'--source-root',source,'--port',String(port),'--instance',instance],{cwd:repo,stdio:['ignore','pipe','pipe'],windowsHide:true});
  child.stderr.on('data',data=>log.write(data));let buffer='',ready=false;
  await new Promise((resolve,reject)=>{
   const timer=setTimeout(()=>reject(Error('Isolated server startup timed out')),45000);
   child.once('error',reject);child.once('exit',code=>{if(!ready){clearTimeout(timer);reject(Error('Isolated server exited '+code));}});
-  child.stdout.on('data',data=>{log.write(data);buffer+=data.toString();if(buffer.includes('"ready": true')&&buffer.includes(instance)){ready=true;clearTimeout(timer);resolve();}});
+  child.stdout.on('data',data=>{log.write(data);buffer+=data.toString();let end;
+   while((end=buffer.indexOf('\n'))>=0){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);let receipt;
+    try{receipt=JSON.parse(line);}catch{continue;}
+    if(receipt.ready===true&&receipt.instance===instance&&receipt.pid===child.pid&&Number.isInteger(receipt.port)&&receipt.port>=10240&&receipt.port<=65535){
+     port=receipt.port;ready=true;clearTimeout(timer);resolve();}
+   }
+  });
  }).catch(error=>{child.kill();throw error;});
  return {origin:'http://127.0.0.1:'+port,instance,root,async close(){if(child.exitCode===null){child.kill();await new Promise(resolve=>{child.once('exit',resolve);setTimeout(resolve,5000);});}log.end();}};
 }
@@ -177,7 +184,7 @@ async function exercise(browser,fixture,migrated){
   check(await otherPage.locator('#unitIdHidden').inputValue()!=='','Saved unit was not persistent for another account');await other.close();
   await page.getByRole('link',{name:/返回$/}).click();await page.waitForURL(url=>url.pathname==='/material');record.returnNavigation=true;
  }
- const state=await (await page.request.get(fixture.origin+'/__lab/state',{headers:{'X-Lab-Instance':fixture.instance}})).json();
+ const state=await (await page.request.get(fixture.origin+'/__lab/state',{headers:{'X-Lab-Instance':fixture.instance},maxRedirects:0})).json();
  check(state.stock===25&&state.location_stock===25&&state.transaction_stock===25,'Entry actions changed inventory');
  check(state.inbound.every(r=>r.status==='pending')&&state.outbound.every(r=>r.status==='pending'),'Ordinary save completed a document');
  for(const code of ['CI-MATERIAL','BENCH-'+label+'-0'])check(state.materials.filter(r=>r.code===code).length===1,'Duplicate material rows');
@@ -188,16 +195,13 @@ async function exercise(browser,fixture,migrated){
 (async()=>{
  let browser,fixture;
  try{
-  proof.sha=git(['rev-parse','HEAD']);
-  let base=process.env.WMS_BROWSER_BASELINE||'';
-  if(!/^[0-9a-f]{40}$/.test(base)||/^0+$/.test(base))base=git(['rev-parse','HEAD^']);
-  check(spawnSync('git',['merge-base','--is-ancestor',base,'HEAD'],{cwd:repo}).status===0,'Browser baseline is not an ancestor');
-  const migratedBefore=spawnSync('git',['cat-file','-e',base+':app/static/js/pages/material-add.js'],{cwd:repo}).status===0;
-  browser=await chromium.launch({channel:'chrome',headless:true});proof.browser=browser.version();
+  const request=JSON.parse(fs.readFileSync('/opt/wms-ci-request.json','utf8'));
+  proof.sha=request.sha;const base=request.baseline;
+  check(/^[0-9a-f]{40}$/.test(base),'Missing exact baseline checked by source exporter');
+  const migratedBefore=fs.existsSync('/opt/wms-baseline/app/static/js/pages/material-add.js');
+  browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true});proof.browser=browser.version();
   if(!migratedBefore){
-   const old=path.join(scratch,'old-source');fs.mkdirSync(old);const archive=path.join(scratch,'old-source.tar');
-   check(spawnSync('git',['archive','--format=tar','--output',archive,base,'app'],{cwd:repo}).status===0,'Cannot archive accepted baseline');
-   check(spawnSync('tar',['-xf',archive,'-C',old]).status===0,'Cannot extract owned baseline');
+   const old=path.join(scratch,'old-source');fs.cpSync('/opt/wms-baseline',old,{recursive:true,errorOnExist:true,force:false});
    proof.physicalBaseline=base;fixture=await server(old,'baseline-data');await exercise(browser,fixture,false);await fixture.close();fixture=null;
   }else proof.baselineNote='Parent already migrated;current regression remains mandatory. Earlier R8 baseline evidence retained.';
   fixture=await server(repo,'current-data');await exercise(browser,fixture,true);proof.success=true;

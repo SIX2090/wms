@@ -33,6 +33,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CHECKER = ROOT / "scripts" / "verify_inventory_identity.py"
 
+
+def require_test_boundary():
+    sys.path.insert(0, str(ROOT))
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    require_subprocess_boundary()
+
 # 夹具：三个物料，覆盖三种应当成立的形态
 #   M1  三账齐全且一致            → 恒等式成立
 #   M2  多库位、三账一致          → 恒等式成立
@@ -262,6 +268,7 @@ def _json_has_waived(stdout: str) -> bool:
 
 
 def main() -> int:
+    require_test_boundary()
     python = sys.executable
     env_note = os.environ.get("VIRTUAL_ENV") or python
     print("=" * 66)

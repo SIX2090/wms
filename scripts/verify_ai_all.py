@@ -150,7 +150,9 @@ def _verification_environment(
     environment.setdefault("SECRET_KEY", "verify-ai-all-secret")
     environment.setdefault("PYTHONUTF8", "1")
     environment.setdefault("PYTHONIOENCODING", "utf-8")
-    environment["WMS_DATABASE_URI"] = f"sqlite:///{database_path.as_posix()}"
+    environment["WMS_DATABASE_URI"] = "sqlite:///:memory:"
+    environment["LOG_FILE"] = str(database_path.parent / 'verify.log')
+    environment["UPLOAD_FOLDER"] = str(database_path.parent / 'uploads')
     # 专属变量必须**强制覆盖**（而非 setdefault）：原 workflow 是直接写在
     # run: 前缀上的，等价于强制赋值，宽松的默认值不得把它盖掉。
     environment.update(SCRIPT_ENV_OVERRIDES.get(script_name, {}))
@@ -163,6 +165,13 @@ def _verification_environment(
 
 
 def run_script(name: str) -> ScriptResult:
+    sys.path.insert(0, str(ROOT))
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    try:
+        require_subprocess_boundary()
+    except SystemExit as exc:
+        print(f"FAIL {name}: {exc}", flush=True)
+        return ScriptResult(name=name, returncode=2, duration_seconds=0.0)
     path = SCRIPTS_DIR / name
     if not path.is_file():
         print(f"FAIL {name}: script does not exist", flush=True)

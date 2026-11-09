@@ -17,11 +17,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.parametrize('delayed_bind', [False, True])
+@pytest.mark.skipif(sys.platform != 'linux', reason='HTTP child boundary is validated by the Linux CI container')
 def test_browser_fixture_owns_temporary_database_and_port(delayed_bind):
-    raise RuntimeError('浏览器真实启动测试已阻止：隔离能力尚未证明')
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    require_subprocess_boundary()
     with tempfile.TemporaryDirectory(prefix='wms-browser-fixture-check-') as directory:
-        with socket.socket() as socket_:
-            socket_.bind(('127.0.0.1', 0)); port = socket_.getsockname()[1]
+        port = 0
         environment = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8', OPENBLAS_NUM_THREADS='1', OMP_NUM_THREADS='1')
         command = [sys.executable, str(ROOT / 'tests/material_browser_server.py'),
                    '--root', directory, '--source-root', str(ROOT), '--port', str(port),
@@ -63,6 +64,11 @@ def test_browser_fixture_owns_temporary_database_and_port(delayed_bind):
             while True:
                 line = lines.get(timeout=35); captured.append(line)
                 if '"ready": true' in line:
+                    receipt = json.loads(line)
+                    assert receipt['pid'] == process.pid
+                    assert receipt['instance'] == 'synthetic-fixture-check'
+                    port = receipt['port']
+                    assert 10240 <= port <= 65535
                     if delayed_bind:
                         assert json.loads(line)['probe_listening'] is True, 'Ready marker preceded listening socket'
                     break
@@ -81,8 +87,10 @@ def test_browser_fixture_owns_temporary_database_and_port(delayed_bind):
 
 
 @pytest.mark.parametrize('forbidden', ['8080', '5098'])
+@pytest.mark.skipif(sys.platform != 'linux', reason='HTTP child boundary is validated by the Linux CI container')
 def test_browser_fixture_rejects_live_ports_before_loading_app(tmp_path, forbidden):
-    raise RuntimeError('浏览器端口测试已阻止：隔离能力尚未证明')
+    from scripts.linux_test_runtime import require_subprocess_boundary
+    require_subprocess_boundary()
     result = subprocess.run([sys.executable, str(ROOT / 'tests/material_browser_server.py'), '--root', str(tmp_path),
                              '--source-root', str(ROOT), '--port', forbidden, '--instance', 'synthetic'],
                             capture_output=True, timeout=10)
@@ -103,7 +111,8 @@ def test_locked_browser_dependency_and_required_workflow():
     assert 'google-chrome --version' in commands
     assert 'npm ci --prefix tools/browser_checks --ignore-scripts' in commands
     assert 'node tests/material_browser_check.cjs' in commands
-    browser_step = next(step for step in job['steps'] if step.get('run') == 'node tests/material_browser_check.cjs')
+    browser_step = next(step for step in job['steps'] if step.get('run') ==
+                        'python3 scripts/run_ci_isolated.py -- node tests/material_browser_check.cjs')
     assert browser_step['env']['WMS_BROWSER_BASELINE'] == 'd51e84f222f3f9dc9976d28d09e96dbd3d907a3f'
     assert 'browser-material-entry' in workflow['jobs']['gate']['needs']
 

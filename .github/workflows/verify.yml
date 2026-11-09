@@ -91,10 +91,10 @@ jobs:
       # verify_ai_tool_compliance.py / verify_ai_ledger_consistency.py 确实在
       # core 清单里，故此处不重复（重复只白耗 ~20s，不加校验强度）。
       - name: Run WMS bug regression
-        run: python3 scripts/verify_wms_bugs.py
+        run: python3 scripts/run_ci_isolated.py -- python scripts/verify_wms_bugs.py
 
       - name: Run production readiness gate self-test (AI-R18-F01)
-        run: python3 scripts/verify_production_readiness.py --self-test
+        run: python3 scripts/run_ci_isolated.py -- python scripts/verify_production_readiness.py --self-test
 
   # ==========================================================================
   # Job 2：AI 核心校验套件（核心路径，改造后 ~30s）
@@ -135,7 +135,7 @@ jobs:
       - name: Run AI core verification suite
         env:
           VERIFY_AI_WORKERS: '4'
-        run: python3 scripts/verify_ai_all.py --level core
+        run: python3 scripts/run_ci_isolated.py -- python scripts/verify_ai_all.py --level core
 
   docs-checks:
     needs: changes

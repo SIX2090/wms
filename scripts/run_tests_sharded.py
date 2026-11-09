@@ -83,10 +83,13 @@ def main() -> int:
         print('\n'.join(files))
         return 0
 
-    # DB 环境变量不能约束 app、原生扩展和测试子进程的文件及网络访问；
-    # 可核验的运行期隔离完成前，不启动 pytest。保留 --list 供只读排查。
-    print('[error] 验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。')
-    return 1
+    try:
+        sys.path.insert(0, str(REPO_ROOT))
+        from scripts.linux_test_runtime import require_subprocess_boundary
+        require_subprocess_boundary()
+    except SystemExit as exc:
+        print('[error] 数据库、备份与网络隔离尚未证明：' + str(exc))
+        return 1
 
     env = os.environ.copy()
     for key in ('DATABASE_URL', 'WMS_DATABASE_URI'):

@@ -122,12 +122,18 @@ def test_wms_bugs_dynamic_entries_stop_before_side_effects(function_name):
     body = list(function.body)
     if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) and isinstance(body[0].value.value, str):
         body.pop(0)
-    assert isinstance(body[0], ast.Raise)
+    assert isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Call)
+    assert ast.unparse(body[0].value.func) == 'require_test_runtime'
     isolated = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
-    namespace = {}
+    checked = []
+    def deny_unproved_runtime():
+        checked.append(True)
+        raise SystemExit('安全阻断：未证明运行能力')
+    namespace = {'require_test_runtime': deny_unproved_runtime}
     exec(compile(isolated, '<synthetic-entry>', 'exec'), namespace)
     with pytest.raises(SystemExit, match='安全阻断'):
         namespace[function_name]()
+    assert checked == [True]
 
 
 def test_wms_bugs_preserves_static_helper_functions():
@@ -191,17 +197,19 @@ def test_inventory_identity_dynamic_entries_stop_before_access(name, args):
         assert isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Call)
         assert ast.unparse(body[0].value.func) == '_require_owned_test_profile'
     else:
-        assert isinstance(body[0], ast.Raise)
+        assert isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Call)
+        assert ast.unparse(body[0].value.func) == '_require_loaded_synthetic_app'
     module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
     calls = []
     def reject_unproved_profile():
         calls.append('profile checked')
         raise SystemExit('安全阻断：合成隔离身份未证明')
-    namespace = {'_require_owned_test_profile': reject_unproved_profile}
+    namespace = {'_require_owned_test_profile': reject_unproved_profile,
+                 '_require_loaded_synthetic_app': reject_unproved_profile}
     exec(compile(module, '<synthetic-identity-entry>', 'exec'), namespace)
     with pytest.raises(SystemExit, match='安全阻断'):
         namespace[name](*args)
-    assert calls == (['profile checked'] if name in {'main', 'collect_from_sqlite'} else [])
+    assert calls == ['profile checked']
 
 
 def test_inventory_identity_retains_calculation_and_original_sqlite_logic():

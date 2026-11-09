@@ -1,11 +1,13 @@
 """Disposable HTTP fixture for the product receipt acceptance check."""
-# 禁止在隔离能力验证完成前导入或执行。
-raise RuntimeError('浏览器测试服务已阻止：隔离能力尚未证明')
 import argparse
 import os
 from pathlib import Path
 import sys
 import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts.linux_test_runtime import require_subprocess_boundary
+require_subprocess_boundary()
 
 
 def main():
@@ -16,7 +18,7 @@ def main():
     root = args.root.resolve(strict=True)
     if root == Path(tempfile.gettempdir()).resolve() or not root.is_relative_to(Path(tempfile.gettempdir()).resolve()):
         parser.error('use a dedicated temporary directory')
-    if args.port in (8080, 5098) or not 1024 <= args.port <= 65535:
+    if not 10240 <= args.port <= 65535:
         parser.error('use an isolated port')
     database = root/'synthetic.db'
     if database.exists():

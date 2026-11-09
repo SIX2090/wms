@@ -166,8 +166,33 @@ def test_original_full_validation_payloads_are_preserved(name):
         job = copy.deepcopy(jobs[key])
         job.pop('needs', None)
         job.pop('if', None)
+        # The original payload still runs verbatim inside the new boundary.
+        # Normalize only this exact launcher; do not replace/update old hashes.
+        for step in job['steps']:
+            command = step.get('run', '')
+            prefix = 'python3 scripts/run_ci_isolated.py -- python scripts/'
+            if command.startswith(prefix):
+                step['run'] = 'python3 scripts/' + command[len(prefix):]
+            if step.get('with', {}).get('path') == 'output/verify_failures_summary.md':
+                step['with']['path'] = 'verify_failures_summary.md'
         actual = hashlib.sha256(json.dumps(job, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
         assert actual == expected, key
+
+
+@pytest.mark.parametrize('name', ['ci', 'verify'])
+def test_dynamic_validation_commands_require_the_kernel_launcher(name):
+    targets = {'verify_wms_bugs.py', 'ci_check_inventory_identity.py', 'run_tests_sharded.py',
+               'run_verify_parallel.py', 'run_smoke_in_ci.py', 'verify_ai_all.py',
+               'verify_production_readiness.py', 'material_browser_check.cjs'}
+    checked = 0
+    for job in workflow(name)['jobs'].values():
+        for step in job['steps']:
+            command = step.get('run', '')
+            if any('/' + target in command for target in targets):
+                assert command.startswith('python3 scripts/run_ci_isolated.py -- '), command
+                assert not step.get('continue-on-error')
+                checked += 1
+    assert checked == (11 if name == 'ci' else 3)
 
 
 def test_performance_advisory_never_hides_classifier_or_docs_failure():

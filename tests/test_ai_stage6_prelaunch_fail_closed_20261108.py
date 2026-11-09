@@ -9,8 +9,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGETS = (
-    (ROOT / 'scripts' / 'verify_ai_stage6_prelaunch.py', '预发布验证的应用和备份目录隔离尚未证明'),
-    (ROOT / 'scripts' / 'verify_ai_browser_e2e.py', '浏览器验证的应用和备份目录隔离尚未证明'),
+    (ROOT / 'scripts' / 'verify_ai_stage6_prelaunch.py', '安全阻断'),
+    (ROOT / 'scripts' / 'verify_ai_browser_e2e.py', '安全阻断'),
 )
 
 
@@ -27,12 +27,15 @@ class Stage6FailClosed(unittest.TestCase):
     def test_guard_is_first_executable_statement(self):
         for target, message in TARGETS:
             with self.subTest(target=target.name):
-                node = first_executable(target)
-                self.assertIsInstance(node, ast.Raise)
-                self.assertIsInstance(node.exc, ast.Call)
-                self.assertIsInstance(node.exc.func, ast.Name)
-                self.assertEqual(node.exc.func.id, 'SystemExit')
-                self.assertIn(message, node.exc.args[0].value)
+                tree = ast.parse(target.read_text(encoding='utf-8-sig'))
+                guards = [item.lineno for item in tree.body if isinstance(item, ast.Expr)
+                          and isinstance(item.value, ast.Call) and isinstance(item.value.func, ast.Name)
+                          and item.value.func.id == 'require_isolated_test_runtime']
+                imports = [item.lineno for item in tree.body if isinstance(item, ast.Import)
+                           and any(alias.name == 'app' for alias in item.names)]
+                self.assertEqual(len(guards), 1)
+                self.assertEqual(len(imports), 1)
+                self.assertLess(guards[0], imports[0])
 
     def test_import_and_main_are_blocked_before_effects(self):
         # Check the AST before executing the current version, never execute the old version.

@@ -12,12 +12,15 @@ GUARD = Path(__file__).resolve().parents[1] / 'scripts/verify_db_guard.py'
 
 def test_require_isolated_test_runtime():
     result = runpy.run_path(str(GUARD))['require_isolated_test_runtime']()
-    assert result.name == 'AC' and result.parent.name.startswith('wms.synthetic.')
+    if os.name == 'nt':
+        assert result.name == 'AC' and result.parent.name.startswith('wms.synthetic.')
+    else:
+        assert result == Path('/work/profile')
 
 
 @pytest.mark.parametrize('raw', ['', '0', '-1', '1', 'invalid', '0x10', str(2**63)])
 def test_forged_handle_is_not_a_capability(monkeypatch, raw):
-    monkeypatch.setenv('WMS_TEST_RUNTIME_HANDLE', raw)
+    monkeypatch.setenv('WMS_TEST_RUNTIME_HANDLE' if os.name == 'nt' else 'WMS_TEST_RUNTIME_PROOF', raw)
     with pytest.raises(SystemExit):
         runpy.run_path(str(GUARD))['require_isolated_test_runtime']()
 
@@ -30,7 +33,6 @@ def test_inherited_non_test_target_refused_before_app(monkeypatch, key):
 
 
 def test_copied_file_in_writable_area_is_not_proof(tmp_path, monkeypatch):
-    import msvcrt
     guard = runpy.run_path(str(GUARD))
     profile = guard['require_owned_test_profile']()
     directory = tmp_path / 'wms-supervisor-state-forged'
@@ -39,7 +41,11 @@ def test_copied_file_in_writable_area_is_not_proof(tmp_path, monkeypatch):
     fake.write_text('{}', encoding='utf-8')
     descriptor = os.open(fake, os.O_RDONLY)
     try:
-        monkeypatch.setenv('WMS_TEST_RUNTIME_HANDLE', str(msvcrt.get_osfhandle(descriptor)))
+        if os.name == 'nt':
+            import msvcrt
+            monkeypatch.setenv('WMS_TEST_RUNTIME_HANDLE', str(msvcrt.get_osfhandle(descriptor)))
+        else:
+            monkeypatch.setenv('WMS_TEST_RUNTIME_PROOF', str(fake))
         with pytest.raises(SystemExit):
             guard['require_isolated_test_runtime']()
     finally:
@@ -47,6 +53,18 @@ def test_copied_file_in_writable_area_is_not_proof(tmp_path, monkeypatch):
 
 
 def test_child_cannot_replay_parent_process_capability():
+    if os.name != 'nt':
+        code = ('import runpy;print(runpy.run_path(' + repr(str(GUARD))
+                + ')["require_isolated_test_runtime"]())')
+        process = subprocess.run([sys.executable, '-I', '-S', '-B', '-c', code],
+                                 capture_output=True, timeout=15, env=dict(os.environ))
+        # Linux capability binds the live namespace boundary, inherited by children.
+        assert process.returncode == 0 and b'/work/profile' in process.stdout, process.stderr
+        process = subprocess.run([sys.executable, '-I', '-S', '-B', '-c', code],
+                                 capture_output=True, timeout=15,
+                                 env=dict(os.environ, WMS_TEST_RUNTIME_PROOF='/synthetic/forged.json'))
+        assert process.returncode != 0 and b'/work/profile' not in process.stdout
+        return
     handle = int(os.environ['WMS_TEST_RUNTIME_HANDLE'])
     startup = subprocess.STARTUPINFO()
     startup.lpAttributeList = {'handle_list': [handle]}

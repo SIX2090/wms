@@ -6,6 +6,11 @@ from contextlib import contextmanager
 
 def require_owned_test_profile():
     """Read the real Windows LPAC token and return its private synthetic profile."""
+    if sys.platform.startswith('linux'):
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from scripts.linux_test_runtime import require_linux_boundary
+        return require_linux_boundary()
     if os.name != 'nt':
         raise SystemExit('安全阻断：此入口尚未证明当前系统的测试文件隔离')
     import ctypes as c
@@ -136,6 +141,29 @@ def owned_test_file(value):
     """Keep ordinary file and parent handles pinned throughout the read."""
     path = validate_owned_test_file(value)
     profile = require_owned_test_profile()
+    if sys.platform.startswith('linux'):
+        # openat + O_NOFOLLOW pins the actual inode, including during rename.
+        # Consumers read the held descriptor, not a raceable path alias.
+        import stat
+        handles = []
+        try:
+            parent = os.open(profile, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            handles.append(parent)
+            parts = path.relative_to(profile).parts
+            for part in parts[:-1]:
+                parent = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                handles.append(parent)
+            descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+            handles.append(descriptor)
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise SystemExit('安全阻断：测试目标不是独占普通文件')
+            from pathlib import Path
+            yield Path('/proc/self/fd') / str(descriptor)
+        finally:
+            for descriptor in reversed(handles):
+                os.close(descriptor)
+        return
     import ctypes as c
     from ctypes import wintypes as w
 
@@ -295,6 +323,11 @@ def _require_isolated_test_runtime():
 def require_isolated_test_runtime():
     """Fail closed for stale or forged native handles before any application import."""
     try:
+        if sys.platform.startswith('linux'):
+            from pathlib import Path
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+            from scripts.linux_test_runtime import require_linux_runtime
+            return require_linux_runtime()
         return _require_isolated_test_runtime()
     except (OSError, ValueError, TypeError, OverflowError):
         raise SystemExit('安全阻断：隔离运行能力无效') from None

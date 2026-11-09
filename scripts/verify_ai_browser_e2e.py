@@ -20,9 +20,6 @@ verify_ai_*.py 脚本一致）。覆盖 5 类角色（admin/warehouse/purchase/p
 """
 from __future__ import annotations
 
-# 运维页面会枚举备份；在隔离应用与备份源被证明前不执行。
-raise SystemExit('安全阻断：浏览器验证的应用和备份目录隔离尚未证明')
-
 import os
 import sys
 from pathlib import Path
@@ -30,6 +27,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / 'app'
+sys.path.insert(0, str(ROOT))
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
 
 os.environ['FLASK_ENV'] = 'testing'
 os.environ['WMS_SKIP_STARTUP_DB_UPGRADE'] = '1'
