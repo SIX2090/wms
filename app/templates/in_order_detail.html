@@ -828,7 +828,7 @@ function fillAddMaterialInfo(material, row) {
     setValue('.material-unit-field, #unit', getMaterialUnit(material));
     setValue('.material-stock-field, #stock', formatStock(material.stock));
     const priceInput = scope.querySelector('.material-price-field, #price');
-    if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+    if (priceInput && (priceInput.value === '')) {
         priceInput.value = (parseFloat(material.price) || 0).toFixed(2);
     }
     const materialIdInput = scope.querySelector('.material-id-field');
@@ -1051,7 +1051,7 @@ function calcInlineRowAmount(row) {
     const qty = parseFloat(row.querySelector('.material-qty-field')?.value) || 0;
     const price = parseFloat(row.querySelector('.material-price-field')?.value) || 0;
     const amountInput = row.querySelector('.material-amount-field');
-    if (amountInput) amountInput.value = (qty * price).toFixed(2);
+    if (amountInput) amountInput.value = (window.WMSMoney.product(qty, price)).toFixed(2);
 }
 
 function removeInlineMaterialRow(btn) {

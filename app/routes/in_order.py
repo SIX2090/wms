@@ -46,6 +46,7 @@ from flask_login import login_required
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import format_quantity, print_token_or_login_required, require_role
+from utils import round_money_product
 
 
 def get_reverted_in_order_ids(order_ids):
@@ -694,7 +695,7 @@ def register_in_order_routes(app):
                          InOrder, OperationLog, OutOrder, OutOrderItem,
                          _acquire_order_write_lock, _clean_int,
                          _in_order_push_quantities, _in_order_push_source_type,
-                         _push_target_url, generate_order_no, normalize_stock_quantity,
+                         _push_target_url, generate_order_no, get_request_ip, normalize_stock_quantity,
                          round_to_2_decimals)
         payload = request.get_json(silent=True)
         if not isinstance(payload, dict):
@@ -825,14 +826,14 @@ def register_in_order_routes(app):
                     target_item = OutOrderItem(
                         out_order_id=target.id, material_id=source_item.material_id,
                         quantity=quantity, price=price,
-                        amount=round_to_2_decimals(quantity * price),
+                        amount=round_money_product(quantity, price),
                         contract_id=source_item.contract_id, contract_no=source_item.contract_no,
                         project_name=source_item.project_name, remark=source_item.remark,
                     )
                     db.session.add(target_item)
                     db.session.flush()
                     target_items.append((source_item, quantity, target_item.id))
-                target.total_amount = round_to_2_decimals(sum(quantity * (source_item.material.price or 0) for source_item, quantity in selected))
+                target.total_amount = round_to_2_decimals(sum(round_money_product(quantity, round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0) for source_item, quantity in selected))
             else:
                 customer_id = _clean_int(payload.get('customer_id'))
                 customer = db.session.get(Customer, customer_id) if customer_id else None
@@ -856,14 +857,14 @@ def register_in_order_routes(app):
                     target_item = AfterSaleOutOrderItem(
                         after_sale_out_order_id=target.id, material_id=source_item.material_id,
                         quantity=quantity, price=price,
-                        amount=round_to_2_decimals(quantity * price),
+                        amount=round_money_product(quantity, price),
                         contract_id=source_item.contract_id, contract_no=source_item.contract_no,
                         project_name=source_item.project_name, remark=source_item.remark,
                     )
                     db.session.add(target_item)
                     db.session.flush()
                     target_items.append((source_item, quantity, target_item.id))
-                target.total_amount = round_to_2_decimals(sum(quantity * (source_item.material.price or 0) for source_item, quantity in selected))
+                target.total_amount = round_to_2_decimals(sum(round_money_product(quantity, round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0) for source_item, quantity in selected))
 
             for source_item, quantity, target_item_id in target_items:
                 db.session.add(DocumentPushLine(
@@ -877,7 +878,7 @@ def register_in_order_routes(app):
             db.session.add(OperationLog(
                 user_id=current_user.id, operation_type='单据下推',
                 operation_content=f'{source_label} {order.order_no} 下推{target_definition["label"]} {target.order_no}（草稿）',
-                target_type=target_type, target_id=target.id, ip_address=request.remote_addr,
+                target_type=target_type, target_id=target.id, ip_address=get_request_ip(),
             ))
             db.session.commit()
             return jsonify({
@@ -1371,7 +1372,7 @@ def register_in_order_routes(app):
                         price = round_to_2_decimals(item_data.get('price', 0))
                     except (TypeError, ValueError):
                         price = 0
-                    amount = round_to_2_decimals(quantity * price)
+                    amount = round_money_product(quantity, price)
                     is_customer_supplied = item_data.get('is_customer_supplied') in (True, 1, '1', 'true', 'True', 'yes', 'on')
                     if is_customer_supplied and business_type != '其他入库':
                         return jsonify({'status': 'error', 'msg': f'物料 {material.code} 只有其他入库单可以标记为客供料'}), 400
@@ -1524,7 +1525,7 @@ def register_in_order_routes(app):
             price = round_to_2_decimals(request.form.get('price', 0))
         except (TypeError, ValueError):
             return api_error('单价必须是数字')
-        amount = round_to_2_decimals(quantity * price)
+        amount = round_money_product(quantity, price)
         source_purchase_order_item_id = None
         source_item = None
         source_item_id = request.form.get('source_purchase_order_item_id', type=int)
@@ -1680,7 +1681,7 @@ def register_in_order_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     batch_no=batch_no,
                     expiry_date=expiry_date,
                     contract_id=_c_id,
@@ -1723,7 +1724,6 @@ def register_in_order_routes(app):
             return api_error('明细不属于当前入库单')
 
         material_name = item.material.name if item.material else ''
-        log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
 
         # BUG-2026-08-30-007：删除明细必须回退来源采购单行的 received_quantity，
         # 否则未入库余量被永久吞掉、后续足额收货被误拒（与 add/update 明细对称）。
@@ -1745,6 +1745,7 @@ def register_in_order_routes(app):
             app.logger.error(f'数据库操作失败: {e}')
             return jsonify({'status': 'error', 'msg': '删除失败，请稍后重试'}), 500
 
+        log_operation('编辑入库单', f'删除入库单明细：{material_name}', 'in_order', id)
         return jsonify({'status': 'success', 'msg': '删除成功'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -1788,7 +1789,7 @@ def register_in_order_routes(app):
             update_purchase_order_status(source_item.purchase_order)
         item.quantity = new_quantity
         item.price = round_to_2_decimals(request.form.get('price', item.price))
-        item.amount = round_to_2_decimals(item.quantity * item.price)
+        item.amount = round_money_product(item.quantity, item.price)
         if 'box_no' in request.form:
             item.box_no = (request.form.get('box_no') or '').strip() or None
         if 'remark' in request.form:
@@ -1918,7 +1919,7 @@ def register_in_order_routes(app):
                     source_purchase_order_item_id=item.source_purchase_order_item_id if source_item_updates else None,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     box_no=item.box_no,
                     batch_no=getattr(item, 'batch_no', None),
                     expiry_date=getattr(item, 'expiry_date', None),
@@ -2140,7 +2141,7 @@ def register_in_order_routes(app):
                     target_item = OutOrderItem(
                         out_order_id=auto_requisition.id, material_id=source_item.material_id,
                         quantity=source_item.quantity, price=price,
-                        amount=round_to_2_decimals((source_item.quantity or 0) * price),
+                        amount=round_money_product(source_item.quantity or 0, price),
                         contract_id=source_item.contract_id, contract_no=source_item.contract_no,
                         project_name=source_item.project_name, remark=source_item.remark,
                     )
@@ -2342,7 +2343,7 @@ def register_in_order_routes(app):
                     if not math.isfinite(quantity) or quantity <= 0:
                         return fail(f'物料 {material_code} 的数量必须大于0')
                     price = float(item_data.get('price', 0))
-                    amount = round_to_2_decimals(quantity * price)
+                    amount = round_money_product(quantity, price)
                     source_purchase_order_item_id = None
                     source_item_id = item_data.get('source_purchase_order_item_id')
                     if source_item_id:
@@ -2464,7 +2465,7 @@ def register_in_order_routes(app):
 
                         item.quantity = new_qty
                         item.price = new_price
-                        item.amount = round_to_2_decimals(new_qty * new_price)
+                        item.amount = round_money_product(new_qty, new_price)
                         if 'box_no' in item_data:
                             item.box_no = (item_data.get('box_no') or '').strip() or None
                         if 'remark' in item_data:
@@ -2797,7 +2798,7 @@ def register_in_order_routes(app):
                     material_id=in_item.material_id,
                     quantity=in_item.quantity,
                     price=in_item.price,
-                    amount=round_to_2_decimals(in_item.quantity * in_item.price),
+                    amount=round_money_product(in_item.quantity, in_item.price),
                     remark=in_item.remark,
                     contract_id=in_item.contract_id or in_order.contract_id,
                     contract_no=in_item.contract_no or in_order.contract_no,

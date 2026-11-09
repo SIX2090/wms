@@ -4,6 +4,10 @@
 - OCR 保存 job 时写入 low_confidence_fields；
 - 门禁在读"有无确认记录"之前先看风险标记，且异常时 fail-closed。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import sys
 from datetime import datetime
 from pathlib import Path

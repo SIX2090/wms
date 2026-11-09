@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """BUG-2026-10-17-015：B 组小项回归（预警 NULL / 无效仓库 / 批量上限）。"""
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import sys
 from datetime import date
 from pathlib import Path

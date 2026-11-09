@@ -80,6 +80,26 @@ def _is_pytest_style(path: str) -> bool:
 
 
 def _run_one(path: str) -> tuple[str, int, float, str]:
+    # 此 helper 可被直接调用，必须在扫描文件和启动任何子进程前阻断。
+    return path, 2, 0.0, '验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。'
+
+    # 独立 Python 脚本不经过 pytest conftest，不能继承未知数据库目标。
+    env = os.environ.copy()
+    for key in ('DATABASE_URL', 'WMS_DATABASE_URI'):
+        if env.get(key, '') not in ('', 'sqlite:///:memory:'):
+            return path, 2, 0.0, f'验证已阻止：{key} 不是已确认的内存数据库。'
+    if env.get('FLASK_ENV', '') not in ('', 'testing'):
+        return path, 2, 0.0, '验证已阻止：FLASK_ENV 必须为空或 testing。'
+    for key in ('PYTEST_ADDOPTS', 'PYTEST_PLUGINS', 'PYTHONPATH', 'PYTHONHOME'):
+        if env.get(key, ''):
+            return path, 2, 0.0, f'验证已阻止：请清除继承的 {key}。'
+    env['DATABASE_URL'] = 'sqlite:///:memory:'
+    env['WMS_DATABASE_URI'] = 'sqlite:///:memory:'
+    env['FLASK_ENV'] = 'testing'
+    env['WMS_SKIP_AUTO_UPDATE'] = '1'
+    # 插件自动加载早于 conftest，不能让未知插件先导入应用。
+    env['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
+    env['PYTHONNOUSERSITE'] = '1'
     cmd = (
         [sys.executable, '-m', 'pytest', path, '-q', '-p', 'no:pylama']
         if _is_pytest_style(path)
@@ -89,7 +109,7 @@ def _run_one(path: str) -> tuple[str, int, float, str]:
     try:
         proc = subprocess.run(
             cmd, capture_output=True, text=True, timeout=TIMEOUT_SEC,
-            cwd=str(REPO_ROOT),
+            cwd=str(REPO_ROOT), env=env,
         )
         out = (proc.stdout or '') + (proc.stderr or '')
         rc = proc.returncode
@@ -110,13 +130,20 @@ def main() -> int:
     # 关键路径从「全部文件 / 4 并发」降到「(全部文件/N) / 4 并发」。
     # 切片规则：按 sorted() 后的文件序号做 `index % shards == shard`，保证
     # **不重不漏**（每个文件恰好落进一片），且与文件总数无关、可任意扩展片数。
-    shard = int(os.environ.get('VERIFY_SHARD') or 0)
-    shards = int(os.environ.get('VERIFY_SHARDS') or 1)
-    if shards > 1 and not (0 <= shard < shards):
+    try:
+        shard = int(os.environ.get('VERIFY_SHARD') or 0)
+        shards = int(os.environ.get('VERIFY_SHARDS') or 1)
+        workers = int(os.environ.get('VERIFY_WORKERS') or 0) or min(4, os.cpu_count() or 2)
+    except ValueError:
+        print('[error] 分片数量、序号和工作进程数必须是整数')
+        return 1
+    if shards < 1 or not (0 <= shard < shards):
         print(f'[error] VERIFY_SHARD={shard} 越界（VERIFY_SHARDS={shards}）')
         return 1
+    if workers < 1:
+        print('[error] VERIFY_WORKERS 必须是正数或 0（自动）')
+        return 1
 
-    workers = int(os.environ.get('VERIFY_WORKERS') or 0) or min(4, os.cpu_count() or 2)
     all_files = sorted(
         os.path.relpath(p, REPO_ROOT)
         for p in glob.glob(str(REPO_ROOT / 'tests' / 'verify_*.py'))
@@ -128,6 +155,13 @@ def main() -> int:
 
     skipped = [f for f in files if f in KNOWN_FAILURES]
     targets = [f for f in files if f not in KNOWN_FAILURES]
+    if not targets:
+        print('[error] 验证清单为空；不能将没有运行测试视为成功。')
+        return 1
+    # 不能只凭 DATABASE_URL 断言每个独立脚本、原生库及子进程均已隔离。
+    print('[error] 验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。')
+    return 1
+
     for f in skipped:
         print(f'SKIP (known failure, BUG-2026-08-16-017): {f}')
 

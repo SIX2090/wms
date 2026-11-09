@@ -467,7 +467,7 @@ function fillRowData(row, data) {
     row.querySelector('.material-unit').value = data.unit_name || data.unit || '';
     row.querySelector('.material-stock').value = Number.isFinite(parseFloat(data.stock)) ? parseFloat(data.stock).toFixed(2) : '';
     row.querySelector('.material-qty').value = data.quantity || '';
-    row.querySelector('.material-price').value = data.price || '';
+    row.querySelector('.material-price').value = data.price ?? '';
     const remarkInput = row.querySelector('.material-remark');
     if (remarkInput) remarkInput.value = data.remark || '';
 }
@@ -553,7 +553,7 @@ function selectMaterial(row, code) {
     row.querySelector('.material-spec').value = material.spec || '';
     row.querySelector('.material-unit').value = material.unit ? material.unit.name : '';
     row.querySelector('.material-stock').value = Number.isFinite(parseFloat(material.stock)) ? parseFloat(material.stock).toFixed(2) : '0.00';
-    if (!row.querySelector('.material-price').value || Number(row.querySelector('.material-price').value) === 0) {
+    if (row.querySelector('.material-price').value === '') {
         row.querySelector('.material-price').value = material.price || 0;
     }
 
@@ -567,7 +567,7 @@ function selectMaterial(row, code) {
 function calcAmount(row) {
     const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
     const price = parseFloat(row.querySelector('.material-price').value) || 0;
-    row.querySelector('.material-amount').value = qty || price ? (qty * price).toFixed(2) : '';
+    row.querySelector('.material-amount').value = qty || price ? (window.WMSMoney.product(qty, price)).toFixed(2) : '';
     calcTotal();
 }
 

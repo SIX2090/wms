@@ -91,7 +91,7 @@ const ctx={body,defaultTaxRate:0.13,activeDropdown:null,
                 return buttons[id]??=(Object.assign(element(),{addEventListener:(event,fn)=>handlers[id]=fn}));
             return totals[id]??=element();
         }},window:{}};
-vm.createContext(ctx);vm.runInContext(p.script,ctx);
+vm.createContext(ctx);vm.runInContext(p.money,ctx);vm.runInContext(p.script,ctx);
 const item={code:'FREE',quantity:2,tax_rate:0,batch_no:'B1',remark:'fixture'};
 if(p.price!=='missing')item.price=p.price;
 const flush=()=>new Promise(r=>setImmediate(r));
@@ -135,6 +135,7 @@ const flush=()=>new Promise(r=>setImmediate(r));
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
     completed = subprocess.run([node, '-e', program], input=json.dumps({
+        'money': (ROOT / 'app/static/js/money.js').read_text(encoding='utf-8'),
         'script': script, 'entry': entry, 'price': price, 'expected': expected,
         'clipboard': 'FREE\t2\t' + (str(price) if price is not None else '') + '\t0\tB1',
     }), encoding='utf-8', capture_output=True, timeout=15)

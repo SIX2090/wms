@@ -75,7 +75,9 @@ def test_independent_pages_keep_tables_and_have_one_explicit_report_toolbar(page
 @pytest.mark.parametrize('scenario', ['default', 'builtin', 'failure_retry', 'all_missing', 'stale',
                    'preview_download', 'filters_changed', 'scope', 'refresh', 'stock', 'stock_all', 'export_query',
                    'menu_outside', 'menu_inside', 'menu_manage', 'menu_preview', 'menu_download',
-                   'menu_invalid', 'menu_filters', 'menu_escape', 'stock_menu_outside', 'stock_menu_preview'])
+                   'menu_invalid', 'menu_filters', 'menu_escape', 'stock_menu_outside', 'stock_menu_preview',
+                   'export_action_exportTrend', 'export_action_exportSalesReport', 'export_action_exportReport',
+                   'export_action_exportOutflow', 'export_action_fetch'])
 def test_independent_report_toolbar_runtime(scenario):
     node = shutil.which('node')
     if not node:

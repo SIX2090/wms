@@ -69,6 +69,9 @@ def test_replenishment_precision_and_summary(case, monkeypatch):
 
 
 def test_prelaunch_instance_db(case, tmp_path, monkeypatch):
+    import backup_catalog
+    # 仅验证数据库路径，不枚举工作区或生产的备份目录。
+    monkeypatch.setattr(backup_catalog, 'get_backup_sources', lambda _manual: {})
     (tmp_path / 'audit.db').write_bytes(b'fixture')
     monkeypatch.setattr(wms.app, 'instance_path', str(tmp_path))
     monkeypatch.setitem(wms.app.config, 'SQLALCHEMY_DATABASE_URI', 'sqlite:///audit.db')

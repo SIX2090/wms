@@ -37,6 +37,7 @@ from flask_login import login_required
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 def _aggregate_submitted_qty_by_item_id(rows, id_keys=('item_id', 'id'), skip_non_positive=False):
@@ -374,7 +375,7 @@ def register_purchase_order_routes(app):
                     warnings=warnings,
                 )
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 order.total_amount = round_to_2_decimals((order.total_amount or 0) + amount)
                 db.session.add(PurchaseOrderItem(
                     purchase_order_id=order.id,
@@ -584,7 +585,7 @@ def register_purchase_order_routes(app):
                     db.session.rollback()
                     return api_error(f'物料 {material.code} 的数量必须大于0')
                 price = round_to_2_decimals(parse_float_value(item_data.get('price'), material.price or 0))
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 order_total += amount
                 db.session.add(PurchaseOrderItem(
                     purchase_order_id=order.id,
@@ -805,7 +806,7 @@ def register_purchase_order_routes(app):
 
             affected_orders = set()
             for item, order, receive_qty in conversion_items:
-                price = round_to_2_decimals(item.price or (item.material.price if item.material else 0) or 0)
+                price = round_to_2_decimals(item.price if item.price is not None else ((item.material.price if item.material else 0) or 0))
                 # BUG-2026-09-18-013：把采购明细的合同编号带到入库明细行。
                 # 采购入库单的合同归属来自采购明细，不传下来则入库明细行
                 # 无法按合同溯源（且会导致同物料跨合同的行无法区分）。
@@ -815,7 +816,7 @@ def register_purchase_order_routes(app):
                     source_purchase_order_item_id=item.id,
                     quantity=receive_qty,
                     price=price,
-                    amount=round_to_2_decimals(receive_qty * price),
+                    amount=round_money_product(receive_qty, price),
                     contract_id=item.contract_id,
                     contract_no=item.contract_no,
                     project_name=item.project_name,
@@ -870,13 +871,15 @@ def register_purchase_order_routes(app):
             db.session.add(new_order)
             db.session.flush()
             total_amount = 0
+            copied_items = 0
             for item in source.items:
                 quantity = round_to_2_decimals(item.quantity or 0)
                 if quantity <= 0:
                     continue
                 price = round_to_2_decimals(item.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 total_amount += amount
+                copied_items += 1
                 db.session.add(PurchaseOrderItem(
                     purchase_order_id=new_order.id,
                     material_id=item.material_id,
@@ -887,7 +890,7 @@ def register_purchase_order_routes(app):
                     amount=amount,
                     remark=item.remark,
                 ))
-            if total_amount <= 0:
+            if copied_items == 0 or total_amount < 0:
                 db.session.rollback()
                 return api_error('原采购单没有有效数量，不能复制')
             new_order.total_amount = round_to_2_decimals(total_amount)

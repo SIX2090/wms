@@ -207,9 +207,8 @@
                 {% if log_counts.pending > 0 %}
                 <div class="alert alert-info py-2 mt-2 mb-0 small">
                     <i class="bi bi-info-circle"></i>
-                    {{ log_counts.pending }} 条「待发送」：图片已生成但尚未进入微信。消化方式：
+                    {{ log_counts.pending }} 条「待助手领取」：图片已生成，使用新版助手领取。
                     ① 助手以轮询模式启动（环境变量 <code>WMS_WECHAT_HELPER_POLL=1</code>）后自动拉取；
-                    ② 在下方分享记录中逐条点击「重发」直推。
                     {% if helper_health.online and not helper_health.poll_enabled %}
                     <br><i class="bi bi-exclamation-circle"></i> 当前助手在线但未开启轮询，待发送记录不会被自动消费。
                     {% elif not helper_health.online %}
@@ -217,16 +216,22 @@
                     {% endif %}
                 </div>
                 {% endif %}
+                {% if log_counts.legacy_pending > 0 %}
+                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.legacy_pending }} 条历史待人工核对，系统不会自动重发。</div>
+                {% endif %}
                 {% if log_counts.get('uncertain', 0) > 0 %}
                 <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                    {{ log_counts.uncertain }} 条发送中或结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
+                    {{ log_counts.uncertain }} 条结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
                 </div>
+                {% endif %}
+                {% if log_counts.get('sending', 0) > 0 %}
+                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.sending }} 条仍在发送中或占位未解除：请核对接收端并停止旧助手；当前无法自动解除占位。</div>
                 {% endif %}
                 {% if latest_log %}
                 <div class="border-bottom py-2">
                     <div class="text-muted mb-1">最近结果</div>
                     <div class="fw-semibold">{{ latest_log.order_no or '-' }}：{{ status_label(latest_log.status) }}</div>
-                    <div class="text-muted small">{{ latest_log.message or '-' }}</div>
+                    <div class="text-muted small">{{ visible_message(latest_log.status, latest_log.message) or '-' }}</div>
                 </div>
                 {% endif %}
                 <div class="alert {% if helper_health.online and helper_health.wechat_window_found %}alert-success{% elif helper_health.online %}alert-warning{% else %}alert-danger{% endif %} mt-3 mb-0">
@@ -286,7 +291,8 @@
 
             <select name="status" class="form-select form-select-sm" style="width: 110px;">
                 <option value="" {% if not log_filters.status %}selected{% endif %}>全部状态</option>
-                <option value="pending" {% if log_filters.status == 'pending' %}selected{% endif %}>待发送</option>
+                <option value="pending" {% if log_filters.status == 'pending' %}selected{% endif %}>历史待核对</option>
+                <option value="queued_v2" {% if log_filters.status == 'queued_v2' %}selected{% endif %}>待助手领取</option>
                 <option value="failed" {% if log_filters.status == 'failed' %}selected{% endif %}>失败</option>
                 <option value="sent" {% if log_filters.status == 'sent' %}selected{% endif %}>已发送</option>
                 <option value="skipped" {% if log_filters.status == 'skipped' %}selected{% endif %}>跳过</option>
@@ -359,7 +365,7 @@
                             {% endif %}
                         </td>
                         <td>
-                            <div class="wechat-log-message" title="{{ log.message or '-' }}">{{ message_summary(log.message) }}</div>
+                            <div class="wechat-log-message" title="{{ visible_message(log.status, log.message) or '-' }}">{{ message_summary(visible_message(log.status, log.message)) }}</div>
                         </td>
                         <td>
                             {% if log.image_path %}
@@ -371,7 +377,7 @@
                         </td>
                         <td>
                             {% if log.module_key == 'in_order' and log.image_path %}
-                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})" {% if runtime_external_paused %}disabled title="当前部署暂停发送"{% endif %}>
+                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})" {% if runtime_external_paused or log.status in ('sending', 'delivery_started', 'queued_v2') %}disabled title="发送中或待领取，不能同时直推"{% endif %}>
                                 <i class="bi bi-send"></i> 重发
                             </button>
                             {% else %}

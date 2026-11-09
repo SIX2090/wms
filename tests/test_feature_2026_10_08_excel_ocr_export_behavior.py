@@ -13,6 +13,10 @@
 """
 from __future__ import annotations
 
+# 直接 pytest 可绕过 conftest；应用导入与令牌夹具的数据库隔离尚未证明。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import io
 
 import pytest

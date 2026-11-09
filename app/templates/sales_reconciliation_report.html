@@ -15,6 +15,9 @@
 </div>
 
 {{ report_toolbar('reconciliation', export_url=url_for('export_sales_reconciliation_report', warehouse_id=warehouse_id), warehouse=warehouse_id) }}
+{% if warehouse_id and unknown_warehouse_note %}
+<div class="alert alert-info py-2" role="note">{{ unknown_warehouse_note }}</div>
+{% endif %}
   <div class="card mb-3">
     <div class="card-body py-2">
         <form method="get" class="row g-2 align-items-end">
@@ -55,7 +58,7 @@
     <div class="col-md-3">
         <div class="card border-0 shadow-sm">
             <div class="card-body text-center">
-                <div class="text-muted small">对账不一致</div>
+                <div class="text-muted small">不一致或待核对</div>
                 <div class="fs-3 fw-bold text-danger">{{ chart_data.summary.failed }}</div>
             </div>
         </div>
@@ -123,12 +126,14 @@
                     <tr {% if not row.ok %}class="table-danger table-danger-subtle"{% endif %}>
                         <td><a href="{{ url_for('sales_order_detail', id=row.order.id) }}" target="_blank" rel="noopener">{{ row.order.order_no }}</a></td>
                         <td>{{ row.order.warehouse or '-' }}</td>
-                        <td class="text-end">{{ (row.shipped_qty)|quantity }}</td>
-                        <td class="text-end">{{ (row.completed_qty)|quantity }}</td>
-                        <td class="text-end {% if row.quantity_diff != 0 %}text-danger fw-semibold{% endif %}">{{ (row.quantity_diff)|quantity }}</td>
-                        <td class="text-end {% if row.amount_diff != 0 %}text-danger fw-semibold{% endif %}">¥{{ "%.2f"|format(row.amount_diff) }}</td>
+                        <td class="text-end">{% if row.shipped_qty is none %}待核对{% else %}{{ (row.shipped_qty)|quantity }}{% endif %}</td>
+                        <td class="text-end">{% if row.completed_qty is none %}待核对{% else %}{{ (row.completed_qty)|quantity }}{% endif %}</td>
+                        <td class="text-end {% if row.quantity_diff is none or row.quantity_diff != 0 %}text-danger fw-semibold{% endif %}">{% if row.quantity_diff is none %}待核对{% else %}{{ (row.quantity_diff)|quantity }}{% endif %}</td>
+                        <td class="text-end {% if row.amount_diff is none or row.amount_diff != 0 %}text-danger fw-semibold{% endif %}">{% if row.amount_diff is none %}待核对{% else %}¥{{ row.amount_diff }}{% endif %}</td>
                         <td>
-                            {% if row.ok %}
+                            {% if row.amount_diff is none or row.quantity_diff is none %}
+                            <span class="badge bg-warning text-dark">待人工核对{% if row.warehouse_reason %}：{{ row.warehouse_reason }}{% endif %}</span>
+                            {% elif row.ok %}
                             <span class="badge bg-success">通过</span>
                             {% else %}
                             <span class="badge bg-danger">不一致</span>
@@ -159,7 +164,7 @@ document.addEventListener('DOMContentLoaded', function() {
             new Chart(pieCtx, {
                 type: 'doughnut',
                 data: {
-                    labels: ['通过', '不一致'],
+                    labels: ['通过', '不一致或待核对'],
                     datasets: [{
                         data: [chartData.summary.passed, chartData.summary.failed],
                         backgroundColor: ['#22C55E', '#EF4444'],
@@ -199,7 +204,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     maintainAspectRatio: false,
                     plugins: {
                         legend: { display: false },
-                        tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + ctx.raw.toFixed(2); } } }
+                        tooltip: { callbacks: { label: function(ctx) { return ctx.label + ': ' + (ctx.raw == null ? '待核对' : ctx.raw.toFixed(2)); } } }
                     },
                     scales: {
                         y: { beginAtZero: true, grid: { color: '#F3F4F6' }, ticks: { font: { size: 11 } } },

@@ -19,7 +19,7 @@ from models.wechat import WechatShareDispatch as Dispatch, WechatShareLog as Log
 from services.wechat_share_dispatch import SAFE_FAILURE_CODES
 
 _REMOVABLE = {'sent', 'failed', 'skipped'}
-_PROTECTED = {'pending', 'sending', 'uncertain', 'preparing'}
+_PROTECTED = {'pending', 'queued_v2', 'sending', 'delivery_started', 'uncertain', 'preparing'}
 
 
 class CleanupChanged(ValueError):

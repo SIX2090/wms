@@ -22,6 +22,7 @@ from flask_login import login_required
 
 from db import db
 from utils import require_role, validate_excel_extension, validate_excel_size, round_to_2_decimals
+from utils import round_money_product
 
 
 def _opening_stock_existing_summary(OpeningStock, OpeningStockDoc, material_id, warehouse_id):
@@ -289,7 +290,7 @@ def register_batch_import_routes(app):
                     prc = max(0, prc)
                     amt = max(0, amt)
                     if amt == 0:
-                        amt = round_to_2_decimals(qty * prc)
+                        amt = round_money_product(qty, prc)
                     item = OutOrderItem(
                         out_order_id=current_order.id,
                         material_id=material.id if material else None,
@@ -613,7 +614,7 @@ def register_batch_import_routes(app):
                     prc = max(0, prc)
                     amt = max(0, amt)
                     if amt == 0:
-                        amt = round_to_2_decimals(qty * prc)
+                        amt = round_money_product(qty, prc)
                     customer_supplied = get_val('customer_supplied').strip().lower() in ('是', 'yes', 'y', 'true', '1')
                     if customer_supplied and current_order.business_type != '其他入库':
                         skip += 1
@@ -925,7 +926,9 @@ def register_batch_import_routes(app):
                 # 跳过——用户改了错误行重传仍然导入不进来，且提示驴唇不对马嘴。
 
                 quantity = parse_float_value(qty_raw, None)
-                price = parse_float_value(_v(row, 'price'), 0)
+                raw_price = _v(row, 'price')
+                price = (0 if raw_price is None or not str(raw_price).strip()
+                         else parse_float_value(raw_price, None))
                 if quantity is None:
                     # BUG-2026-09-16-015：负数/非数字/空值统一落到这里，
                     # 提示要能区分，否则用户看到"无效"不知道该改什么
@@ -940,19 +943,21 @@ def register_batch_import_routes(app):
                     outcome.update(action='skip', reason=reason)
                     preview_rows.append(outcome)
                     continue
-                if price < 0:
-                    errors.append(f'第 {row_no} 行：单价不能小于 0')
+                if price is None:
+                    reason = '单价无效，必须是大于等于 0 的有限数字'
+                    errors.append(f'第 {row_no} 行：{reason}')
                     skipped += 1
-                    outcome.update(action='skip', reason='单价不能小于 0')
+                    outcome.update(action='skip', reason=reason)
                     preview_rows.append(outcome)
                     continue
-                # 本行已通过全部文件级校验，登记去重键（后续同键行才算真重复）
-                seen_keys.add(dedup_key)
 
+                row_savepoint = None
                 try:
                     quantity = normalize_stock_quantity(quantity)
                     price = round_to_2_decimals(price)
-                    amount = round_to_2_decimals(quantity * price)
+                    amount = round_money_product(quantity, price)
+                    # Only valid numeric rows reserve the file's deduplication key.
+                    seen_keys.add(dedup_key)
                     row_date = _row_date(row)
 
                     # 预检：查该 (物料,仓库) 是否已有期初（跨全部单据），
@@ -992,9 +997,12 @@ def register_batch_import_routes(app):
                         imported += 1
                     preview_rows.append(outcome)
                     row_savepoint.commit()
-                except ValueError as ve:
+                except (ArithmeticError, ValueError, OverflowError) as ve:
+                    if not isinstance(ve, ValueError):
+                        ve = ValueError('数量或金额超出可处理范围')
                     try:
-                        row_savepoint.rollback()
+                        if row_savepoint is not None:
+                            row_savepoint.rollback()
                     except Exception:  # noqa: BLE001 保存点可能已随外层回滚失效
                         pass
                     errors.append(f'第 {row_no} 行：{ve}')

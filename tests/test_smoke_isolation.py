@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import runpy
+import socket
 import sys
 import tempfile
 import subprocess
@@ -14,12 +15,22 @@ import pytest
 import requests
 from requests.adapters import BaseAdapter
 
-from scripts.smoke_isolation import IsolatedSession, read_identity, validate_base_url
+from scripts.smoke_isolation import IsolatedSession, OwnedSocketLease, read_identity, validate_base_url
 from scripts import run_smoke_in_ci as runner
 
 ROOT = Path(__file__).resolve().parents[1]
 NONCE = 'a' * 64
 BASE = 'http://127.0.0.1:49199'
+
+
+@pytest.fixture(autouse=True)
+def owned_adapter_listener(monkeypatch):
+    """Use one held synthetic listener for each in-memory adapter test."""
+    with make_owned_listener() as listener:
+        monkeypatch.setitem(globals(), 'TEST_LISTENER', listener)
+        monkeypatch.setitem(globals(), 'BASE',
+                            'http://127.0.0.1:' + str(listener.getsockname()[1]))
+        yield
 
 
 @pytest.mark.parametrize('script', ['full_smoke_test.py', 'run_smoke_in_ci.py'])
@@ -115,7 +126,9 @@ class OfflineAdapter(BaseAdapter):
 
 
 def session_with_adapter(headers, status=200):
-    session = IsolatedSession(dict(base_url=BASE, nonce=NONCE))
+    identity = dict(base_url=BASE, nonce=NONCE, pid=os.getpid())
+    lease = OwnedSocketLease(TEST_LISTENER, identity)
+    session = IsolatedSession(identity, lease)
     adapter = OfflineAdapter(headers, status)
     session.mount('http://', adapter)
     return session, adapter
@@ -158,6 +171,77 @@ def test_valid_child_identity_allows_request():
     assert adapter.calls == [BASE + '/login']
 
 
+@pytest.mark.parametrize('method', ['HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
+def test_write_requires_successful_identity_response(method):
+    session, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    with pytest.raises(ValueError, match='identity before any write'):
+        session.request(method, BASE + '/action')
+    assert adapter.calls == []
+
+    assert session.get(BASE + '/login').status_code == 200
+    assert session.request(method, BASE + '/action').status_code == 200
+    assert adapter.calls == [BASE + '/login', BASE + '/action']
+
+
+def test_bad_response_revokes_previous_identity():
+    session, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    session.get(BASE + '/login')
+    adapter.headers = {}
+    with pytest.raises(ValueError, match='identity mismatch'):
+        session.get(BASE + '/check')
+    with pytest.raises(ValueError, match='identity before any write'):
+        session.post(BASE + '/action')
+    assert adapter.calls == [BASE + '/login', BASE + '/check']
+
+
+def test_cross_origin_rejection_revokes_previous_identity():
+    session, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    session.get(BASE + '/login')
+    with pytest.raises(ValueError, match='outside'):
+        session.get('http://127.0.0.1:8080/login')
+    with pytest.raises(ValueError, match='identity before any write'):
+        session.post(BASE + '/action')
+    assert adapter.calls == [BASE + '/login']
+
+
+def test_verified_post_redirect_rejects_cross_origin_and_revokes_identity():
+    session, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    session.get(BASE + '/login')
+    adapter.status = 307
+    adapter.headers = {
+        'X-WMS-Isolated-Smoke': NONCE,
+        'Location': 'http://127.0.0.1:8080/action',
+    }
+    with pytest.raises(ValueError, match='outside'):
+        session.post(BASE + '/action')
+    with pytest.raises(ValueError, match='identity before any write'):
+        session.post(BASE + '/retry')
+    assert adapter.calls == [BASE + '/login', BASE + '/action']
+
+
+def test_identity_is_not_shared_between_sessions():
+    first, _ = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    second, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    first.get(BASE + '/login')
+    with pytest.raises(ValueError, match='identity before any write'):
+        second.post(BASE + '/action')
+    assert adapter.calls == []
+
+
+def test_transport_failure_requires_identity_again(monkeypatch):
+    session, adapter = session_with_adapter({'X-WMS-Isolated-Smoke': NONCE})
+    session.get(BASE + '/login')
+
+    def fail(*args, **kwargs):
+        raise requests.ConnectionError('synthetic network failure')
+
+    monkeypatch.setattr(adapter, 'send', fail)
+    with pytest.raises(requests.ConnectionError, match='synthetic'):
+        session.get(BASE + '/check')
+    with pytest.raises(ValueError, match='identity before any write'):
+        session.post(BASE + '/action')
+
+
 def test_csrf_redirect_to_login_is_never_login_success(monkeypatch):
     module = importlib.import_module('scripts.full_smoke_test')
     calls = []
@@ -187,29 +271,50 @@ def test_environment_discards_production_database_and_services(monkeypatch, tmp_
 
 def test_server_uses_current_interpreter_and_owned_environment(monkeypatch, tmp_path):
     captured = {}
+    child = SimpleNamespace(pid=1234, stdin=io.BytesIO())
     def popen(command, **kwargs):
         captured.update(command=command, **kwargs)
-        return 'owned-child'
+        return child
     monkeypatch.setattr(runner.subprocess, 'Popen', popen)
-    assert runner.start_server(tmp_path, io.StringIO()) == 'owned-child'
+    monkeypatch.setattr(runner, '_send_capability',
+                        lambda proc, listener, nonce, pid: captured.update(
+                            capability=(proc, listener, nonce, pid)))
+    listener = SimpleNamespace(fileno=lambda: 42)
+    assert runner.start_server(tmp_path, io.StringIO(), listener, NONCE) is child
     assert captured['command'][0] == sys.executable
-    assert captured['command'][-2:] == ['--serve', str(tmp_path)]
+    assert captured['command'][-3:] == ['--serve', str(tmp_path), '--listener-stdin']
     assert captured['env']['DATABASE_URL'].endswith('/synthetic.db')
+    assert captured['env']['WMS_ALLOW_INSECURE_COOKIE'] == '1'
+    assert captured['capability'] == (child, listener, NONCE, child.pid)
+
+
+def make_owned_listener():
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    if os.name == 'nt':
+        listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    listener.bind(('127.0.0.1', 0))
+    listener.listen(1)
+    assert listener.getsockname()[1] >= 10240
+    return listener
 
 
 def test_ready_receipt_must_match_child_pid():
-    with tempfile.TemporaryDirectory(prefix='wms-isolated-smoke-') as directory:
+    with tempfile.TemporaryDirectory(prefix='wms-isolated-smoke-') as directory, \
+            make_owned_listener() as listener:
         root = Path(directory).resolve()
-        (root / 'ready.json').write_text(json.dumps(identity(root)), encoding='utf-8')
+        receipt = identity(root)
+        receipt['base_url'] = 'http://127.0.0.1:' + str(listener.getsockname()[1])
+        (root / 'ready.json').write_text(json.dumps(receipt), encoding='utf-8')
         child = SimpleNamespace(pid=os.getpid() + 1, poll=lambda: None)
-        with pytest.raises(ValueError, match='another process'):
-            runner.wait_ready(child, root, timeout=1)
+        with pytest.raises(ValueError, match='identity changed'):
+            runner.wait_ready(child, root, listener, NONCE, timeout=1)
 
 
 def test_dead_child_never_probes_http(tmp_path):
     child = SimpleNamespace(pid=123, poll=lambda: 1)
-    with pytest.raises(RuntimeError, match='did not become ready'):
-        runner.wait_ready(child, tmp_path, timeout=1)
+    with make_owned_listener() as listener:
+        with pytest.raises(RuntimeError, match='did not become ready'):
+            runner.wait_ready(child, tmp_path, listener, NONCE, timeout=1)
 
 
 def test_existing_database_is_refused_before_application_import(monkeypatch):
@@ -218,8 +323,10 @@ def test_existing_database_is_refused_before_application_import(monkeypatch):
         database = root / 'synthetic.db'
         database.write_bytes(b'untouched sentinel')
         monkeypatch.setenv('DATABASE_URL', 'sqlite:///' + database.as_posix())
+        monkeypatch.setattr(runner, 'listener_url', lambda _listener: BASE)
+        lease = SimpleNamespace(pid=os.getpid(), nonce=NONCE, validate=lambda _identity: None)
         with pytest.raises(ValueError, match='unowned smoke state'):
-            runner.serve_isolated(root)
+            runner.serve_isolated(root, object(), lease)
         assert database.read_bytes() == b'untouched sentinel'
         assert not (root / 'program').exists()
 

@@ -2,6 +2,9 @@
 """临时诊断（用完即删）：测量下推流程相关 GET 页面耗时（LIVE DB）。"""
 from __future__ import annotations
 
+# 隔离来源、文件库及监听归属未完成验证前，禁止导入或执行本诊断。
+raise RuntimeError('诊断已阻止：尚未证明隔离数据库与自有监听服务的安全边界')
+
 import os
 import sys
 import time

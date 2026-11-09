@@ -24,8 +24,9 @@ def _prepare(tmp_path, make_db):
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(auto_update, 'APP_DIR', app_dir)
     monkeypatch.setattr(auto_update, 'ROOT_DIR', tmp_path)
-    monkeypatch.setattr(auto_update, 'log', lambda *a, **k: None)
-    return db, monkeypatch
+    messages = []
+    monkeypatch.setattr(auto_update, 'log', messages.append)
+    return db, monkeypatch, messages
 
 
 def test_backup_success_returns_true(tmp_path):
@@ -36,9 +37,9 @@ def test_backup_success_returns_true(tmp_path):
         conn.commit()
         conn.close()
 
-    _, mp = _prepare(tmp_path, make)
+    _, mp, messages = _prepare(tmp_path, make)
     try:
-        assert auto_update.backup_database() is True
+        assert auto_update.backup_database() is True, messages
         backups = list((tmp_path / 'backups').glob('before_auto_update_*.db'))
         assert len(backups) == 1
         conn = sqlite3.connect(str(backups[0]))
@@ -54,7 +55,7 @@ def test_backup_failure_returns_false(tmp_path):
     def make(db):
         db.write_bytes(b'this is not a sqlite database at all')
 
-    _, mp = _prepare(tmp_path, make)
+    _, mp, messages = _prepare(tmp_path, make)
     try:
         assert auto_update.backup_database() is False
     finally:
@@ -65,9 +66,9 @@ def test_missing_database_does_not_block(tmp_path):
     def make(db):
         db.unlink(missing_ok=True)
 
-    _, mp = _prepare(tmp_path, make)
+    _, mp, messages = _prepare(tmp_path, make)
     try:
-        assert auto_update.backup_database() is True
+        assert auto_update.backup_database() is True, messages
     finally:
         mp.undo()
 

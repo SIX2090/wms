@@ -188,12 +188,10 @@ def _parse_added_lines_for_file(diff_text: str) -> Set[int]:
     """
     added: Set[int] = set()
     new_line = 0
-    for line in diff_text.splitlines():
+    for line in diff_text.split("\n"):
         m = _HUNK_HEADER.match(line)
         if m:
             new_line = int(m.group("new_start"))
-            continue
-        if line.startswith("+++") or line.startswith("---") or line.startswith("diff "):
             continue
         if not new_line:
             continue
@@ -203,8 +201,8 @@ def _parse_added_lines_for_file(diff_text: str) -> Set[int]:
         elif line.startswith("-"):
             # 删除行不增加 new_line
             continue
-        else:
-            # 上下文行
+        elif line.startswith(" "):
+            # 上下文行；“\\ No newline at end of file”不占文件行号。
             new_line += 1
     return added
 
@@ -212,6 +210,68 @@ def _parse_added_lines_for_file(diff_text: str) -> Set[int]:
 # 全仓 staged 批量缓存：(index 指纹, 新增文件集合, {rel: 新增行号})
 # 定义在 _load_staged_index 的 docstring 之后使用，故先于它声明。
 _STAGED_INDEX_CACHE: Optional[Tuple[Tuple[str, int, int], Set[str], Dict[str, Set[int]]]] = None
+_STAGED_RENAMES: Dict[str, str] = {}
+
+
+def _parse_staged_raw_patch(data: bytes) -> Tuple[List[Tuple[str, str, str]], Dict[str, Set[int]]]:
+    """Pair NUL-delimited Git raw records with patch sections in the same diff.
+
+    A textual ``diff --git`` header is ambiguous for legal paths containing
+    `` b/``.  Never infer identity from it: use the raw destination path, and
+    require one patch section per raw record before using any added line.
+    """
+    if not data:
+        return [], {}
+    records: List[Tuple[str, str, str]] = []
+    offset = 0
+
+    def field() -> bytes:
+        nonlocal offset
+        end = data.find(b"\0", offset)
+        if end < 0:
+            raise ValueError("暂存原始差异缺少 NUL 分隔符")
+        value = data[offset:end]
+        offset = end + 1
+        return value
+
+    while True:
+        header = field()
+        if not header:
+            break
+        parts = header.split(b" ")
+        if (len(parts) != 5 or not re.fullmatch(rb":[0-7]{6}", parts[0])
+                or not re.fullmatch(rb"[0-7]{6}", parts[1])
+                or not re.fullmatch(rb"[0-9a-f]+", parts[2])
+                or not re.fullmatch(rb"[0-9a-f]+", parts[3])
+                or not re.fullmatch(rb"[A-Z][0-9]*", parts[4])):
+            raise ValueError("暂存原始差异头无效")
+        status = parts[4].decode("ascii")
+        source = field().decode("utf-8", errors="strict")
+        if not source:
+            raise ValueError("暂存原始差异路径为空")
+        target = field().decode("utf-8", errors="strict") if status[0] in ("R", "C") else source
+        if not target:
+            raise ValueError("暂存重命名目标为空")
+        records.append((status, source, target))
+
+    if not records:
+        raise ValueError("非空暂存差异没有原始记录")
+    sections: List[List[str]] = []
+    for line in data[offset:].split(b"\n"):
+        if line.startswith(b"diff --git "):
+            sections.append([])
+        elif sections:
+            sections[-1].append(line.decode("utf-8", errors="replace"))
+        elif line:
+            raise ValueError("暂存补丁缺少文件头")
+    if len(sections) != len(records):
+        raise ValueError("暂存路径数与补丁文件数不一致")
+    per_file: Dict[str, Set[int]] = {}
+    for (_, _, target), lines in zip(records, sections):
+        if target in per_file:
+            raise ValueError("暂存差异目标重复")
+        per_file[target] = _parse_added_lines_for_file("\n".join(lines))
+    return records, per_file
 
 
 def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
@@ -231,8 +291,9 @@ def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
        单文件 60s 超时线；CI 上 4 进程并行抢 IO 时必然超时（实测 rc=124）。
     2. **pre-commit 体验**：钩子每次提交都要等这条路径。
 
-    改为**一次** ``git diff --cached --unified=0``（不带 pathspec）拿到全量，
-    再按 ``diff --git a/... b/...`` 头切成每文件段。子进程数从 2N 降到 2。
+    改为**一次** ``git diff --cached --raw -z --patch --unified=0``
+    （不带 pathspec）获取 NUL 分隔的真实路径与同一差异的补丁，按顺序配对。
+    不从存在歧义的 ``diff --git`` 文本头推断路径，子进程数从 2N 降到 1。
 
     ## 缓存与正确性
 
@@ -254,40 +315,39 @@ def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
 
     new_files: Set[str] = set()
     per_file: Dict[str, Set[int]] = {}
+    _STAGED_RENAMES.clear()
 
     try:
-        result_a = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=A"],
-            cwd=str(repo_root),
-            capture_output=True,
-            text=True,
-            # BUG-2026-10-17-010：git 输出为 UTF-8；cp936 控制台下 text=True 会用
-            # 本地编码解码，中文路径/内容直接让读取线程抛 UnicodeDecodeError。
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        # ⚠️ 必须逐行反转义：core.quotePath=true 时非 ASCII 文件名在这里也是
-        # 八进制转义（"\350\257\264\346\230\216.txt"），直接与 rel 比对会永远
-        # 不相等 → 中文文件被当成「非新增」→ 新增文件的全行豁免失效。
-        new_files = {
-            _unquote_git_path(p)
-            for p in (result_a.stdout or "").split()
-            if p
-        }
-
         result = subprocess.run(
-            ["git", "diff", "--cached", "--unified=0"],
+            ["git", "diff", "--cached", "--raw", "-z", "--patch", "--unified=0",
+             "--find-renames", "--no-color", "--no-ext-diff", "--no-textconv"],
             cwd=str(repo_root),
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
             check=False,
         )
-        if result.returncode == 0 and result.stdout:
-            per_file = _split_diff_by_file(result.stdout)
-    except (FileNotFoundError, OSError):
+        if result.returncode != 0:
+            raise RuntimeError("无法读取暂存差异")
+        records, per_file = _parse_staged_raw_patch(result.stdout or b"")
+        for status, source, target in records:
+            if status.startswith("R"):
+                _STAGED_RENAMES[target] = source
+                def ledger(path):
+                    return path == "WMS_BUG_BASELINE.md" or path.startswith("docs/ledger/bugs/")
+                if ledger(target) and not ledger(source):
+                    new_files.add(target)
+                if target.startswith("scripts/") and not source.startswith("scripts/"):
+                    new_files.add(target)
+                if target.startswith("app/") and (
+                    not source.startswith("app/")
+                    or (source.startswith(("app/ai/", "app/migrations/"))
+                        and not target.startswith(("app/ai/", "app/migrations/")))
+                ):
+                    new_files.add(target)
+            elif status == "A" or status.startswith("C"):
+                new_files.add(target)
+    except (OSError, UnicodeError, ValueError, RuntimeError):
+        if _STAGED_SCAN_ACTIVE:
+            raise RuntimeError("无法读取完整暂存差异，已拒绝扫描")
         new_files, per_file = set(), {}
 
     _STAGED_INDEX_CACHE = (key, new_files, per_file)
@@ -302,10 +362,8 @@ def _load_staged_index(repo_root: Path) -> Tuple[Set[str], Dict[str, Set[int]]]:
 # 所以引号既可能落在 ``a/`` 之后，也可能落在 ``a/`` 之前。正则按两种形态
 # 分别匹配，否则中文文件名会被整体漏掉（该规则对中文文件静默失效）。
 _DIFF_HEADER = re.compile(
-    r'^diff --git '
-    r'(?:"(?P<qpath_a>(?:a/|b/)(?:[^"\\]|\\.)*)" "b/(?:[^"\\]|\\.)*"'
-    r'|"a/(?:[^"\\]|\\.)*" "(?P<qpath_b>b/(?:[^"\\]|\\.)*)"'
-    r'|a/(?P<path>.+?) b/(?P<path2>.+))'
+    r'^diff --git (?:"(?P<qpath_a>a/(?:[^"\\]|\\.)*)"|a/(?P<path>.+?)) '
+    r'(?:"(?P<qpath_b>b/(?:[^"\\]|\\.)*)"|b/(?P<path2>.+))'
 )
 
 
@@ -372,9 +430,7 @@ def _split_diff_by_file(diff_text: str) -> Dict[str, Set[int]]:
         m = _DIFF_HEADER.match(stripped)
         if m:
             # 三种形态取第一个非空分组；两侧不一致时以 b/ 侧为准（git 的真实目标）
-            raw = m.group("qpath_a") or m.group("qpath_b") or m.group("path") or ""
-            if not raw:
-                raw = m.group("path2") or ""
+            raw = m.group("qpath_b") or m.group("path2") or ""
             current = _strip_side_prefix(_unquote_git_path(raw))
             if not current:
                 continue
@@ -407,7 +463,8 @@ def get_staged_added_lines(repo_root: Path, file_path: Path) -> Set[int]:
     new_files, per_file = _load_staged_index(repo_root)
     if rel in new_files:
         try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
+            text = (_read_index_text(repo_root, file_path) if _STAGED_SCAN_ACTIVE
+                    else file_path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             return set()
         return set(range(1, text.count("\n") + 2))
@@ -427,6 +484,100 @@ def clear_staged_index_cache() -> None:
     """
     global _STAGED_INDEX_CACHE
     _STAGED_INDEX_CACHE = None
+    _STAGED_RENAMES.clear()
+_STAGED_SCAN_ACTIVE = False
+_STAGED_TEXT_CACHE: Dict[Tuple[str, str], str] = {}
+_STAGED_TEST_PATHS: Set[str] = set()
+
+
+def _prime_staged_texts(repo_root: Path, staged: Sequence[Path], include_tests: bool) -> None:
+    """Load selected index blobs in one batch; never inspect untracked tests."""
+    global _STAGED_TEST_PATHS
+    _STAGED_TEXT_CACHE.clear()
+    _STAGED_TEST_PATHS = set()
+    selected = {p.relative_to(repo_root).as_posix() for p in staged}
+    try:
+        listing = subprocess.run(
+            ["git", "ls-files", "--stage", "-z"], cwd=str(repo_root),
+            capture_output=True, check=False,
+        )
+        if listing.returncode != 0:
+            raise ValueError("git ls-files 失败")
+        blobs: Dict[str, str] = {}
+        for record in listing.stdout.split(b"\0"):
+            if not record:
+                continue
+            metadata, raw_path = record.split(b"\t", 1)
+            mode, oid, stage = metadata.split(b" ")
+            path = raw_path.decode("utf-8", errors="strict")
+            is_test = include_tests and path.startswith("tests/") and path.endswith(".py")
+            if path not in selected and not is_test:
+                continue
+            if stage != b"0" or mode not in (b"100644", b"100755"):
+                raise ValueError(f"暂存文件不是普通文件或存在冲突: {path}")
+            blob_id = oid.decode("ascii")
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", blob_id):
+                raise ValueError("无效暂存对象")
+            blobs[path] = blob_id
+            if is_test:
+                _STAGED_TEST_PATHS.add(path)
+        if selected - blobs.keys():
+            raise ValueError("暂存文件缺少索引对象")
+        object_ids = list(dict.fromkeys(blobs.values()))
+        contents: Dict[str, str] = {}
+        if object_ids:
+            result = subprocess.run(
+                ["git", "cat-file", "--batch"], cwd=str(repo_root),
+                input=("\n".join(object_ids) + "\n").encode("ascii"),
+                capture_output=True, check=False,
+            )
+            if result.returncode != 0:
+                raise ValueError("git cat-file 失败")
+            output = result.stdout
+            offset = 0
+            for oid in object_ids:
+                end = output.find(b"\n", offset)
+                if end < 0:
+                    raise ValueError("暂存对象头不完整")
+                fields = output[offset:end].split(b" ")
+                if len(fields) != 3 or fields[0].decode("ascii") != oid or fields[1] != b"blob":
+                    raise ValueError("暂存对象无效")
+                size = int(fields[2])
+                start, end = end + 1, end + 1 + size
+                if size < 0 or end >= len(output) or output[end:end + 1] != b"\n":
+                    raise ValueError("暂存对象内容不完整")
+                contents[oid] = output[start:end].decode("utf-8", errors="strict")
+                offset = end + 1
+            if offset != len(output):
+                raise ValueError("暂存对象响应多余内容")
+        for path, oid in blobs.items():
+            _STAGED_TEXT_CACHE[(str(repo_root), path)] = contents[oid]
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise RuntimeError(f"无法读取完整暂存快照: {exc}") from exc
+
+
+def _read_index_text(repo_root: Path, file_path: Path) -> str:
+    """Read the content being committed, even if the worktree has changed."""
+    rel = file_path.relative_to(repo_root).as_posix()
+    cached = _STAGED_TEXT_CACHE.get((str(repo_root), rel))
+    if cached is not None:
+        return cached
+    try:
+        result = subprocess.run(
+            ["git", "show", ":" + rel], cwd=str(repo_root), capture_output=True,
+            encoding="utf-8", errors="strict", check=False,
+        )
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError(f"无法读取暂存文件 {rel}: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(f"无法读取暂存文件 {rel}: git show 失败")
+    return result.stdout
+
+
+def _read_rule_text(repo_root: Path, file_path: Path) -> str:
+    if _STAGED_SCAN_ACTIVE:
+        return _read_index_text(repo_root, file_path)
+    return file_path.read_text(encoding="utf-8", errors="replace")
 
 
 def _all_lines(repo_root: Path, file_path: Path) -> Set[int]:
@@ -437,7 +588,7 @@ def _all_lines(repo_root: Path, file_path: Path) -> Set[int]:
     的失败语义保持一致（沉默放行，不误报）。
     """
     try:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
+        text = _read_rule_text(repo_root, file_path)
     except OSError:
         return set()
     return set(range(1, text.count("\n") + 2))
@@ -557,7 +708,7 @@ class RuleA1FormCsrf(Rule):
         violations: List[Violation] = []
         for f in files:
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             rel = str(f.relative_to(repo_root)).replace("\\", "/")
@@ -641,7 +792,7 @@ class RuleA2PostRouteCsrf(Rule):
         violations: List[Violation] = []
         for f in files:
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             rel = str(f.relative_to(repo_root)).replace("\\", "/")
@@ -699,7 +850,7 @@ class RuleA3NoConsoleLog(Rule):
             if self._is_third_party(rel):
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_js_comments(text)
@@ -755,7 +906,7 @@ class RuleA4NoDebuggerAlert(Rule):
             if self._is_third_party(rel):
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_js_comments(text)
@@ -819,7 +970,7 @@ class RuleA5NoEvalFunction(Rule):
             if self._is_third_party(rel):
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_js_comments(text)
@@ -879,7 +1030,7 @@ class RuleA6NoPrint(Rule):
             if rel in self.TOP_LEVEL_RUNNER_FILES:
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_py_comments(text)
@@ -970,7 +1121,7 @@ class RuleA7NoSqlConcat(Rule):
             if rel.startswith("app/ai/"):
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_py_comments(text)
@@ -1094,7 +1245,7 @@ class RuleA8NewRoutePydantic(Rule):
             if rel.startswith("app/ai/"):
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_py_comments(text)
@@ -1207,6 +1358,14 @@ class RuleA9NewFuncMustTest(Rule):
 
     def _tests_dir_has_test(self, name: str, tests_dir: Path) -> bool:
         """tests/ 下是否有 test_<name>.py 或包含 test_<name> 函数。"""
+        if _STAGED_SCAN_ACTIVE:
+            return (f"tests/test_{name}.py" in _STAGED_TEST_PATHS
+                    or f"tests/test_app_{name}.py" in _STAGED_TEST_PATHS
+                    or name in self._staged_test_names)
+        if hasattr(self, '_worktree_test_names'):
+            return (f"tests/test_{name}.py" in self._worktree_test_paths
+                    or f"tests/test_app_{name}.py" in self._worktree_test_paths
+                    or name in self._worktree_test_names)
         if not tests_dir.exists():
             return False
         # 1) 命名匹配的文件
@@ -1226,6 +1385,26 @@ class RuleA9NewFuncMustTest(Rule):
     def scan(self, files: Sequence[Path], repo_root: Path) -> List[Violation]:
         violations: List[Violation] = []
         tests_dir = repo_root / "tests"
+        if _STAGED_SCAN_ACTIVE:
+            self._staged_test_names = set()
+            for path in _STAGED_TEST_PATHS:
+                txt = _read_index_text(repo_root, repo_root / path)
+                self._staged_test_names.update(re.findall(
+                    r"\bdef\s+test_([A-Za-z_]\w*)\s*\(", txt))
+        else:
+            # Snapshot worktree test names once per scan. Full A9 used to reread
+            # every test for each unmatched function and could time out on Windows.
+            self._worktree_test_names = set()
+            self._worktree_test_paths = set()
+            if tests_dir.exists():
+                for path in tests_dir.rglob("*.py"):
+                    self._worktree_test_paths.add(path.relative_to(repo_root).as_posix())
+                    try:
+                        txt = path.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        continue
+                    self._worktree_test_names.update(re.findall(
+                        r"\bdef\s+test_([A-Za-z_]\w*)\s*\(", txt))
         for f in files:
             rel = str(f.relative_to(repo_root)).replace("\\", "/")
             if rel.startswith("app/ai/"):
@@ -1235,7 +1414,7 @@ class RuleA9NewFuncMustTest(Rule):
             if not added_lines:
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             stripped = strip_py_comments(text)
@@ -1331,11 +1510,13 @@ class RuleA10NoNewRouteInApp(Rule):
             if rel != "app/app.py":
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             # 仅对 git staged 的新增行强制（存量路由不报）
             added_lines = get_staged_added_lines(repo_root, f)
+            if _STAGED_SCAN_ACTIVE and rel == "app/app.py" and rel in _STAGED_RENAMES:
+                added_lines = set(range(1, text.count("\n") + 2))
             if not added_lines:
                 continue
             stripped = strip_py_comments(text)
@@ -1489,7 +1670,7 @@ class RuleA11NoRawGlobalStockCheck(Rule):
             if rel == "app/utils.py":
                 continue
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = _read_rule_text(repo_root, f)
             except OSError:
                 continue
             if self.full_scan:
@@ -1569,7 +1750,8 @@ class RuleA12NoTopLevelCtxPush(Rule):
         for f in files:
             rel = str(f.relative_to(repo_root)).replace("\\", "/")
             try:
-                text = f.read_text(encoding="utf-8", errors="replace")
+                text = (_read_index_text(repo_root, f) if _STAGED_SCAN_ACTIVE
+                        else f.read_text(encoding="utf-8", errors="replace"))
             except OSError:
                 continue
             in_dq = False  # 三双引号（\"\"\"）字符串块内
@@ -1640,7 +1822,9 @@ class RuleA13BaselineEffectConfirmation(Rule):
             if not added_lines:
                 continue
             try:
-                lines = f.read_text(encoding="utf-8", errors="replace").split("\n")
+                text = (_read_index_text(repo_root, f) if _STAGED_SCAN_ACTIVE
+                        else f.read_text(encoding="utf-8", errors="replace"))
+                lines = text.split("\n")
             except OSError:
                 continue
             for ln in sorted(added_lines):
@@ -1712,7 +1896,7 @@ class RuleA14ProductionGateConsumerOptIn(Rule):
             if not added_lines:
                 continue
             try:
-                lines = f.read_text(encoding="utf-8", errors="replace").split("\n")
+                lines = _read_rule_text(repo_root, f).split("\n")
             except OSError:
                 continue
             # 判定粒度：只看 staged 新增行里是否引入 app 引用。
@@ -1772,26 +1956,24 @@ def get_staged_files(repo_root: Path) -> List[Path]:
     """获取 git staged 的文件路径（相对 repo_root）。"""
     try:
         result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMRTU", "--find-renames", "-z"],
             cwd=str(repo_root),
             capture_output=True,
             text=True,
             encoding="utf-8",
-            errors="replace",
+            errors="strict",
             check=False,
         )
-    except (FileNotFoundError, OSError):
-        return []
+    except (OSError, UnicodeError) as exc:
+        raise RuntimeError("无法读取暂存文件列表") from exc
     if result.returncode != 0:
-        return []
+        raise RuntimeError("无法读取暂存文件列表")
     files: List[Path] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
+    for line in result.stdout.split("\0"):
         if not line:
             continue
         p = repo_root / line
-        if p.is_file():
-            files.append(p)
+        files.append(p)
     return files
 
 
@@ -2126,8 +2308,10 @@ def list_rules() -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    global _STAGED_SCAN_ACTIVE
     _configure_stdio()
     args = parse_args(argv)
+    _STAGED_SCAN_ACTIVE = args.staged
     repo_root: Path = args.repo_root.resolve()
 
     if args.list:
@@ -2168,6 +2352,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     staged_files: List[Path] = []
     if args.staged:
         staged_files = get_staged_files(repo_root)
+        selected = {f for rid in wanted
+                    for f in filter_staged_to_rule(staged_files, RULES[rid], repo_root)}
+        _prime_staged_texts(repo_root, list(selected), "a9" in wanted)
 
     results: Dict[str, List[Violation]] = {}
     files_scanned: Dict[str, int] = {}

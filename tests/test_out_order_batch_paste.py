@@ -1,4 +1,8 @@
 """BUG-2026-10-22-012: missing outbound paste route, transactional draft-only repair."""
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 from tests.document_revision_client import document_post
 from datetime import date
 from pathlib import Path

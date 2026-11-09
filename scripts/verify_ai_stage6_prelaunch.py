@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# 当前脚本使用固定备份目录且在导入应用前没有隔离证明；保留原逻辑供后续改造。
+raise SystemExit('安全阻断：预发布验证的应用和备份目录隔离尚未证明')
+
 import os
 import sys
 from pathlib import Path

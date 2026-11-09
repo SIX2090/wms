@@ -1,4 +1,8 @@
 """Actual route/permission/background-consumer checks against synthetic memory data."""
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 from pathlib import Path
 import sys
 

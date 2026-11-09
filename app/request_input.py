@@ -217,6 +217,7 @@ class ForecastInput(BaseModel):
 
 class CheckCompleteInput(BaseModel):
     force: bool = False
+    confirmation_token: StrictStr | None = Field(default=None, max_length=1024)
 
     @field_validator('force', mode='before')
     @classmethod

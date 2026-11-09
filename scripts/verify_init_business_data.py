@@ -20,6 +20,8 @@
 
 from __future__ import annotations
 
+raise SystemExit('安全阻断：该验证入口无法证明数据库或文件目标属于合成环境')
+
 import os
 import re
 import sys

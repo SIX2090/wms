@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """BUG-2026-10-17-014-F04（审计 §3.6）：价格维度默认关闭，资金类报表下线。"""
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import re
 import sys
 from pathlib import Path

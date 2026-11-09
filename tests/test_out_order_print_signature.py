@@ -9,6 +9,10 @@
 """
 from __future__ import annotations
 
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import os
 import sys
 from datetime import date

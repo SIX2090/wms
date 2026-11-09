@@ -11,6 +11,16 @@ import json
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
+
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
 
 REPO = "SIX2090/wms"
 
@@ -24,7 +34,7 @@ def api(path, token):
             "User-Agent": "fetch-via-api",
         },
     )
-    with urllib.request.urlopen(req, timeout=90) as r:
+    with open_same_origin(req, timeout=90) as r:
         raw = r.read()
     return json.loads(raw.decode("utf-8", "replace"), strict=False)
 

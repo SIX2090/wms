@@ -26,6 +26,15 @@ import time
 import urllib.error
 import urllib.request
 
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOKEN = os.environ["GH_TOKEN"]
 REPO = os.environ.get("WMS_REPO", "SIX2090/wms")
@@ -42,7 +51,8 @@ CURL_IPS = ["140.82.112.6", "20.205.243.168", "140.82.112.5", "140.82.113.5"]
 
 def _req_curl(method, path, data):
     base = [
-        "curl", "-s", "--max-time", "90",
+        # -q 必须是 curl 的第一个参数，防止用户配置启用跨域携带令牌的跳转。
+        "curl", "-q", "-s", "--max-time", "90",
         "-H", "Authorization: Bearer " + TOKEN,
         "-H", "Accept: application/vnd.github+json",
         "-X", method,
@@ -87,7 +97,7 @@ def req(method, path, payload=None, _retries=4):
     last_err = None
     for attempt in range(1, _retries + 1):
         try:
-            with urllib.request.urlopen(r, timeout=90) as resp:
+            with open_same_origin(r, timeout=90) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError:
             raise

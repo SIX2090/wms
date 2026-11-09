@@ -1,4 +1,6 @@
 """Disposable HTTP fixture for the product receipt acceptance check."""
+# 禁止在隔离能力验证完成前导入或执行。
+raise RuntimeError('浏览器测试服务已阻止：隔离能力尚未证明')
 import argparse
 import os
 from pathlib import Path

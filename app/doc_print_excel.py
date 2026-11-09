@@ -512,21 +512,12 @@ def _default_static_folder():
 
 
 def _default_db_path():
-    """解析实际 sqlite 数据库文件路径（不依赖 Flask 应用上下文）。
-
-    优先复用 app._resolve_sqlite_db_path（app.py 模块执行到本函数接线点时，
-    该函数已定义，from-import 安全）；失败回退 app 包旁 instance/inventory.db。
-    非 sqlite / 内存库返回 None（无需同步）。
-    """
+    """只返回应用已解析的 SQLite 文件；未知配置或非文件库不启动维护。"""
     try:
         from app import _resolve_sqlite_db_path
-        path = _resolve_sqlite_db_path()
-        if path:
-            return path
-    except Exception:  # noqa: BLE001 - app 尚未就绪时走回退
-        pass
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        'instance', 'inventory.db')
+        return _resolve_sqlite_db_path()
+    except Exception:  # noqa: BLE001 - 应用未就绪时保留现场，不猜数据库路径
+        return None
 
 
 def ensure_builtin_excel_doc_templates(db_path=None, static_folder=None):

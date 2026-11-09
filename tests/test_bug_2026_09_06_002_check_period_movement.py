@@ -9,10 +9,10 @@
 
 覆盖：
 T1 无动销 → 直接完成，无 confirm
-T2 期间有出入库 → status='confirm' code='period_movement'，列出变动物料
-T3 期间动销 force=1 → 跳过确认完成成功
+T2 期间有出入库 → status='confirm' code='check_risks'，列出变动物料
+T3 期间动销裸 force 不放行；确认风险令牌后完成
 T4 跨仓库流水 → 不计入本盘点单动销
-T5 frozen_at 为空（历史脏数据）→ 放行不拦截
+T5 frozen_at 为空（历史脏数据）→ 提示冻结时间未知，确认后完成
 T6 自身盘点单 reference_type='check' 的流水 → 不计入（防御）
 T7 _check_period_movement_alerts 直接调用：三种口径
 """
@@ -178,7 +178,7 @@ def test_t1_no_period_movement_completes_directly():
 
 
 def test_t2_period_movement_returns_confirm():
-    """T2: 期间有出入库 → confirm + period_movement code + samples。"""
+    """T2: 期间有出入库 → confirm + check_risks code + samples。"""
     wh_a, wh_b, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -195,8 +195,9 @@ def test_t2_period_movement_returns_confirm():
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "confirm", body
-    assert body.get("code") == "period_movement", body
-    assert body.get("count") == 2, body
+    assert body.get("code") == "check_risks", body
+    assert "本仓 2 个物料发生出入库流水" in body.get("msg", ""), body
+    assert body["risks"]["movement_count"] == 2 and body["risks"]["uncounted"] == 0, body
     samples = {s["code"]: s for s in body.get("samples") or []}
     assert "M001" in samples and samples["M001"]["net"] == -10, samples
     assert "M002" in samples and samples["M002"]["net"] == 5, samples
@@ -206,8 +207,8 @@ def test_t2_period_movement_returns_confirm():
     assert AdjustmentOrder.query.filter_by(source_type="check").count() == 0
 
 
-def test_t3_force_skips_movement_confirm():
-    """T3: force=1 跳过动销确认完成成功。"""
+def test_t3_force_requires_movement_and_uncounted_token():
+    """T3: 裸 force 不放行；确认未盘和动销风险后完成。"""
     wh_a, wh_b, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -215,9 +216,20 @@ def test_t3_force_skips_movement_confirm():
     items = _items_of(cid)
     _count_as_counted(client, cid, items[0].id, 58)  # 差异 -2
 
+    # M002 明确保留为未盘，覆盖未盘与动销同时存在；其差异仍为零。
+    items[1].counted_by = None
+    items[1].counted_at = None
+    db.session.commit()
     _write_txn(m1, wh_a, -10, "out")  # 期间动销
 
-    r = document_post(client,f"/check/{cid}/complete", json={"force": 1})
+    warning = document_post(client,f"/check/{cid}/complete", json={"force": 1})
+    assert warning.status_code == 200
+    alert = warning.get_json()
+    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
+    assert "1 行未盘" in alert.get("msg", ""), alert
+    assert "本仓 1 个物料发生出入库流水" in alert.get("msg", ""), alert
+    assert alert.get("confirmation_token"), alert
+    r = document_post(client,f"/check/{cid}/complete", json={"force": 1, "confirmation_token": alert["confirmation_token"]})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body
@@ -251,8 +263,8 @@ def test_t4_cross_warehouse_txn_excluded():
     assert body.get("status") == "success", body
 
 
-def test_t5_no_frozen_at_passes_through():
-    """T5: frozen_at 为 NULL（历史脏数据）→ 不拦截。"""
+def test_t5_no_frozen_at_requires_confirmation():
+    """T5: frozen_at 为 NULL（历史脏数据）→ 明确告警并确认。"""
     wh_a, wh_b, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -271,7 +283,11 @@ def test_t5_no_frozen_at_passes_through():
     r = document_post(client,f"/check/{cid}/complete", json={})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
-    assert body.get("status") == "success", body
+    assert body.get("status") == "confirm" and body.get("code") == "check_risks", body
+    assert "盘点冻结时间未知" in body.get("msg", ""), body
+    assert body.get("confirmation_token"), body
+    done = document_post(client,f"/check/{cid}/complete", json={"force": True, "confirmation_token": body["confirmation_token"]})
+    assert done.status_code == 200 and done.get_json().get("status") == "success", done.get_json()
 
 
 def test_t6_own_reference_excluded():

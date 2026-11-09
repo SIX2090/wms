@@ -20,7 +20,7 @@ LEASE_SECONDS = 300
 UNCERTAIN_MESSAGE = '发送结果待确认；普通执行不会再次发送。请先核对接收端，确需重发时使用强制重发（可能重复）。'
 SAFE_FAILURE_CODES = frozenset({'invalid_helper_url', 'token_not_configured', 'auth_failed',
     'invalid_wecom_webhook', 'no_receiver', 'clipboard_failed', 'wechat_window_not_found',
-    'open_contact_failed', 'paste_failed', 'focus_lost'})
+    'open_contact_failed'})
 
 
 class DispatchUnavailable(RuntimeError):
@@ -54,6 +54,14 @@ def _claim(key, force):
     values = dict(token=token, state='preparing', lease_until=now + timedelta(seconds=LEASE_SECONDS),
                   updated_at=now, log_id=None)
     with Session(db.engine, expire_on_commit=False) as session:
+        if session.bind.dialect.name != 'sqlite':
+            raise DispatchUnavailable('当前数据库暂不支持安全领取，请人工核对')
+        from sqlalchemy import text
+        session.execute(text('BEGIN IMMEDIATE'))
+        active = session.query(Log).filter_by(**key).filter(Log.status.in_(('queued_v2', 'sending', 'delivery_started'))).first()
+        if active is not None:
+            return None, {'action': 'skipped', 'log_id': active.id, 'status': 'uncertain',
+                          'message': '轮询任务正在等待或执行，不能同时直推；请先核对'}
         row = Dispatch(**key, **values)
         session.add(row)
         try:
@@ -61,9 +69,14 @@ def _claim(key, force):
             return token, None
         except IntegrityError:
             session.rollback()
+        session.execute(text('BEGIN IMMEDIATE'))
         row = session.get(Dispatch, tuple(key.values()))
         if row is None:
             raise DispatchUnavailable('分享任务领取冲突，请稍后重试；尚未发送')
+        active_log = session.get(Log, row.log_id) if row.log_id else None
+        if active_log is not None and active_log.status in ('queued_v2', 'sending', 'delivery_started'):
+            return None, {'action': 'skipped', 'log_id': row.log_id, 'status': 'uncertain',
+                          'message': '轮询任务正在等待或执行，不能同时直推；请先核对'}
         if row.state in ('preparing', 'sending') and row.lease_until > now:
             return None, _view(row)
         if row.state == 'sending' and not force:
@@ -92,7 +105,7 @@ def _claim(key, force):
         return token, None
 
 
-def _record(key, token, state, message, metadata=None):
+def _record(key, token, state, message, metadata=None, queue_for_helper=False):
     """CAS receipt and log together; stale workers cannot overwrite a new attempt."""
     with Session(db.engine, expire_on_commit=False) as session:
         row = session.get(Dispatch, tuple(key.values()))
@@ -115,7 +128,7 @@ def _record(key, token, state, message, metadata=None):
             raise DispatchUnavailable('分享任务状态已变化，本次未重复发送')
         if metadata is None and log_id:
             session.execute(update(Log).where(Log.id == log_id).values(
-                status=state, message=message[:500],
+                status='queued_v2' if queue_for_helper else state, message=message[:500],
                 sent_at=datetime.now() if state == 'sent' else None))
         _commit(session)
         return {'action': 'created', 'log_id': log_id, 'status': state, 'message': message}
@@ -155,11 +168,11 @@ def execute_share(key, metadata, prepare, deliver, force=False):
         if not force:
             with Session(db.engine) as session:
                 previous = next((log for log in session.query(Log).filter_by(**key).order_by(Log.id.desc())
-                    if log.status in ('pending', 'sent', 'sending', 'uncertain') or
+                    if log.status in ('pending', 'queued_v2', 'sent', 'sending', 'delivery_started', 'uncertain') or
                     (log.status == 'failed' and not any(
                         f'（错误码：{code}）' in (log.message or '') for code in SAFE_FAILURE_CODES))), None)
                 if previous:
-                    state = previous.status if previous.status in ('sent', 'pending') else 'uncertain'
+                    state = 'pending' if previous.status == 'queued_v2' else previous.status if previous.status in ('sent', 'pending') else 'uncertain'
                     session.execute(update(Dispatch).where(
                         *(getattr(Dispatch, k) == v for k, v in key.items()), Dispatch.token == token,
                     ).values(state=state, log_id=previous.id))
@@ -174,15 +187,21 @@ def execute_share(key, metadata, prepare, deliver, force=False):
         _record(key, token, 'sending', '正在发送；若执行中断请先核对接收端', {**metadata, **additions})
         try:
             status, code, message = deliver(data)
+            if status == 'pending' and code != 'helper_not_configured':
+                status = 'uncertain'
+                message = str(message or '') + '；发送情况请人工核对'
             # Only explicit rejection/preflight errors are safe for normal retry.
             safe = code in SAFE_FAILURE_CODES
             if status not in ('sent', 'pending'):
                 status = 'failed' if status == 'failed' and safe else 'uncertain'
             if status == 'uncertain':
                 message = UNCERTAIN_MESSAGE
+                if isinstance(code, str) and 0 < len(code) <= 64 and all(ch in 'abcdefghijklmnopqrstuvwxyz0123456789_' for ch in code):
+                    message += f'（错误码：{code}）'
             elif status == 'failed' and code not in ('ok', ''):
                 message = f'{message}（错误码：{code}）'
-            return _record(key, token, status, message)
+            return _record(key, token, status, message,
+                           queue_for_helper=status == 'pending' and code == 'helper_not_configured')
         except Exception:
             _uncertain(key, token)
             raise DispatchUnavailable(UNCERTAIN_MESSAGE) from None

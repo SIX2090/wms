@@ -244,10 +244,10 @@
         var qty = Number(qtyValue) || 0;
         var price = Number(priceValue) || 0;
         var rate = Number(rateValue) || 0;
-        var included = qty * price;
-        var untaxed = rate > 0 ? included / (1 + rate) : included;
+        var included = window.WMSMoney.product(qty, price);
+        var untaxed = rate > 0 ? window.WMSMoney.round(included / (1 + rate)) : included;
         row.querySelector('.untaxed').textContent = untaxed.toFixed(2);
-        row.querySelector('.tax').textContent = (included - untaxed).toFixed(2);
+        row.querySelector('.tax').textContent = window.WMSMoney.round(included - untaxed).toFixed(2);
         row.querySelector('.included').textContent = included.toFixed(2);
     }
     function recalc() {

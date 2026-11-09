@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @pytest.mark.parametrize('delayed_bind', [False, True])
 def test_browser_fixture_owns_temporary_database_and_port(delayed_bind):
+    raise RuntimeError('浏览器真实启动测试已阻止：隔离能力尚未证明')
     with tempfile.TemporaryDirectory(prefix='wms-browser-fixture-check-') as directory:
         with socket.socket() as socket_:
             socket_.bind(('127.0.0.1', 0)); port = socket_.getsockname()[1]
@@ -81,6 +82,7 @@ def test_browser_fixture_owns_temporary_database_and_port(delayed_bind):
 
 @pytest.mark.parametrize('forbidden', ['8080', '5098'])
 def test_browser_fixture_rejects_live_ports_before_loading_app(tmp_path, forbidden):
+    raise RuntimeError('浏览器端口测试已阻止：隔离能力尚未证明')
     result = subprocess.run([sys.executable, str(ROOT / 'tests/material_browser_server.py'), '--root', str(tmp_path),
                              '--source-root', str(ROOT), '--port', forbidden, '--instance', 'synthetic'],
                             capture_output=True, timeout=10)

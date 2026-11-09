@@ -14,7 +14,7 @@ lint_no_raw_post_fetch.py
 
 规则
 ----
-扫描 ``app/static/js/`` 下所有 ``.js`` 文件，匹配形如::
+使用固定版本的纯 Python JavaScript 解析器检查完整语法树，识别例如::
 
     fetch(url, { method: 'POST' })   # 或 PUT / DELETE / PATCH
 
@@ -26,10 +26,15 @@ F3.7（2026-10-12）起同时扫描 ``app/templates/`` 下 ``.html`` 的 ``<scri
 再定棘轮基线转 strict；``--templates-strict`` 可提前按违规处理）。
 
 白名单（即使匹配也不报错）：
-1. ``app/static/js/app.js`` 顶部 30 行内的 ``if (typeof csrfFetch !== 'function')``
-   回退定义块（含 ``csrfFetch`` 内部对 ``fetch`` 的 ``return``）。
-2. ``csrfFetch`` 函数体内部的 ``return fetch(...)`` 调用（任意文件）。
-3. 注释里的（行注释 ``//`` 与块注释 ``/* ... */`` 都会被剔除）。
+1. AGENTS 规定的统一层 ``app/static/js/app.js``、``app/static/js/api.js``
+   和 ``app/templates/base.html``。
+2. 注释、字符串和正则字面量的内容不作为可执行调用。
+
+业务文件不得通过定义名为 csrfFetch 的函数获得统一层例外。
+
+嵌套表达式、模板插值、可选调用、已识别别名和动态方法均纳入检查；
+不能证明为 GET 的 fetch options 拒绝通过。源码仅被解析，不执行。
+第三方解析器的来源、许可证与资源限制见 vendor/README.md。
 
 用法
 ----
@@ -50,7 +55,9 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
+import runpy
 from pathlib import Path
 from typing import List, Tuple
 
@@ -88,154 +95,7 @@ def _glyph(unicode_text: str, ascii_text: str) -> str:
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 SCAN_DIR = REPO_ROOT / "app" / "static" / "js"
-
-# 匹配 "裸调 fetch 发送非 GET 请求"：
-#   fetch(url, { method: 'POST' ... })
-# 说明：``[^)]*`` 排除右括号，能跨行匹配（无需 DOTALL），且已支持跨多行的
-# options 对象；method 的大小写不敏感。
-PATTERNS: List[re.Pattern] = [
-    re.compile(
-        r"\bfetch\s*\([^)]*?method\s*:\s*[\'\"]?(POST|PUT|DELETE|PATCH)\b",
-        re.IGNORECASE,
-    ),
-]
-
-# ``app.js`` 顶部多少行属于 ``csrfFetch`` 回退定义块（白名单窗口）。
-APPJS_FALLBACK_WINDOW = 30
-
-# ---------------------------------------------------------------------------
-# 注释剔除
-# ---------------------------------------------------------------------------
-
-# 块注释 /* ... */（跨行，DOTALL 开启）
-_COMMENT_BLOCK = re.compile(r"/\*.*?\*/", re.DOTALL)
-# 行注释 // ... （到换行为止）
-_COMMENT_LINE = re.compile(r"//[^\n\r]*")
-
-
-def strip_comments(text: str) -> str:
-    """
-    去掉 JS 注释（行注释 + 块注释），但**保持字符串长度不变**（用空格填充）。
-
-    这样正则匹配拿到的偏移量仍然能映射回原文，用于计算行号与取源码片段。
-    """
-    text = _COMMENT_BLOCK.sub(lambda m: " " * len(m.group(0)), text)
-    text = _COMMENT_LINE.sub(lambda m: " " * len(m.group(0)), text)
-    return text
-
-
-# ---------------------------------------------------------------------------
-# csrfFetch 函数体定位
-# ---------------------------------------------------------------------------
-
-# 简单识别以下形式的 csrfFetch 定义（覆盖声明式 + 表达式式 + 箭头函数）：
-#   function csrfFetch(url, options) { ... }
-#   const csrfFetch = function (url, options) { ... };
-#   const csrfFetch = (url, options) => { ... };
-#   window.csrfFetch = function (...) { ... };
-_CSRF_FN_DECL = re.compile(r"\bcsrfFetch\b")
-
-
-def _skip_balanced(text: str, start: int, open_ch: str, close_ch: str) -> int:
-    """
-    从 ``start``（指向 ``open_ch``）开始向后扫描，返回与之匹配的 ``close_ch``
-    之后的位置索引。若到文本末尾仍未闭合，返回 ``-1``。
-    """
-    if start >= len(text) or text[start] != open_ch:
-        return -1
-    depth = 0
-    i = start
-    n = len(text)
-    while i < n:
-        c = text[i]
-        if c == open_ch:
-            depth += 1
-        elif c == close_ch:
-            depth -= 1
-            if depth == 0:
-                return i + 1
-        i += 1
-    return -1
-
-
-def _find_function_body(text: str, name_pos: int) -> "Tuple[int, int] | None":
-    """
-    给定 ``csrfFetch`` 标识符在 text 中的起始偏移 ``name_pos``，尝试找到
-    其函数体（花括号 ``{...}``）的 ``(body_start, body_end)``，其中
-    ``body_start`` 是 ``{`` 之后第一个字符，``body_end`` 是 ``}`` 索引（包含）。
-    若判断为非函数定义或找不到匹配括号，返回 ``None``。
-    """
-    n = len(text)
-
-    # 取前后文判断是否为函数定义
-    before = text[max(0, name_pos - 12):name_pos]
-    after = text[name_pos:name_pos + 64]
-
-    is_decl = False
-    # 情形 A：function csrfFetch( ... ) { ... }
-    if re.search(r"\bfunction\s+$", before):
-        is_decl = True
-    # 情形 B：csrfFetch = function (...)  或  csrfFetch = (...) =>
-    elif re.search(r"=\s*$", before) and re.match(
-        r"\s*(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>)", after
-    ):
-        is_decl = True
-    if not is_decl:
-        return None
-
-    # 跳过参数列表：找下一个 (
-    paren = text.find("(", name_pos)
-    if paren == -1:
-        return None
-    after_paren = _skip_balanced(text, paren, "(", ")")
-    if after_paren == -1:
-        return None
-
-    # 跳过空白
-    i = after_paren
-    while i < n and text[i] in " \t\r\n":
-        i += 1
-
-    # 情形：function () { ... }  或  () => { ... }
-    if i < n and text[i] == "{":
-        brace = i
-    elif i + 1 < n and text[i] == "=" and text[i + 1] == ">":
-        # 跳过 => 后的空白
-        i += 2
-        while i < n and text[i] in " \t\r\n":
-            i += 1
-        if i >= n or text[i] != "{":
-            return None
-        brace = i
-    else:
-        return None
-
-    end = _skip_balanced(text, brace, "{", "}")
-    if end == -1:
-        return None
-    body_end = end - 1  # 指向 '}'
-    return (brace + 1, body_end)
-
-
-def find_csrf_fetch_bodies(text: str) -> List[Tuple[int, int]]:
-    """
-    扫描 text，找出所有 ``csrfFetch`` 函数体的 ``(start, end)`` 区间。
-    """
-    bodies: List[Tuple[int, int]] = []
-    for m in _CSRF_FN_DECL.finditer(text):
-        body = _find_function_body(text, m.start())
-        if body is not None:
-            bodies.append(body)
-    return bodies
-
-
-def is_inside_csrf_fetch(pos: int, bodies: List[Tuple[int, int]]) -> bool:
-    """位置 ``pos`` 是否落在任一 csrfFetch 函数体内。"""
-    for s, e in bodies:
-        if s <= pos <= e:
-            return True
-    return False
-
+_fetch_positions = runpy.run_path(str(SCRIPT_DIR / "fetch_ast.py"))["positions"]
 
 # ---------------------------------------------------------------------------
 # 文件扫描
@@ -259,43 +119,26 @@ def line_snippet(text: str, pos: int, max_len: int = 120) -> str:
 
 
 def scan_file(
-    file_path: Path, repo_root: Path
+    file_path: Path, repo_root: Path, *, text: str | None = None
 ) -> List[Tuple[int, str, str]]:
     """
     扫描单个 ``.js`` 文件，返回违规列表，每项为 ``(行号, 片段, 相对路径)``。
     """
-    try:
-        text = file_path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        # 兼容 GBK / Latin-1 等编码的极老文件
-        text = file_path.read_text(encoding="utf-8", errors="replace")
+    if text is None:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # 兼容 GBK / Latin-1 等编码的极老文件
+            text = file_path.read_text(encoding="utf-8", errors="replace")
 
     rel = str(file_path.relative_to(repo_root)).replace("\\", "/")
 
-    # 先在原文上定位 csrfFetch 函数体（位置与 strip_comments 后一致）
-    csrf_bodies = find_csrf_fetch_bodies(text)
-    # 去除注释后再做正则匹配，避免注释中的示例代码被误判
-    stripped = strip_comments(text)
-
-    violations: List[Tuple[int, str, str]] = []
-    for pattern in PATTERNS:
-        for m in pattern.finditer(stripped):
-            pos = m.start()
-            ln = line_number_at(text, pos)
-
-            # 例外 1：csrfFetch 函数体内部
-            if is_inside_csrf_fetch(pos, csrf_bodies):
-                continue
-            # 例外 2：app.js 顶部 30 行回退定义块
-            if (
-                file_path.name == "app.js"
-                and 1 <= ln <= APPJS_FALLBACK_WINDOW
-            ):
-                continue
-
-            snippet = line_snippet(text, pos)
-            violations.append((ln, snippet, rel))
-    return violations
+    # 统一 API 封装层是 AGENTS 明确规定的例外；业务文件仍做完整语法分析。
+    positions = _fetch_positions(text)
+    if rel in {"app/static/js/api.js", "app/static/js/app.js"}:
+        return []
+    return sorted({(line_number_at(text, pos), line_snippet(text, pos), rel)
+                   for pos in positions})
 
 
 def scan_repo(repo_root: Path) -> List[Tuple[int, str, str]]:
@@ -304,7 +147,7 @@ def scan_repo(repo_root: Path) -> List[Tuple[int, str, str]]:
     if not scan_dir.is_dir():
         return []
     violations: List[Tuple[int, str, str]] = []
-    for js_path in sorted(scan_dir.glob("*.js")):
+    for js_path in sorted(scan_dir.rglob("*.js")):
         violations.extend(scan_file(js_path, repo_root))
     return violations
 
@@ -321,30 +164,47 @@ _SCRIPT_BLOCK = re.compile(
 
 
 def scan_template_file(
-    file_path: Path, repo_root: Path
+    file_path: Path, repo_root: Path, *, text: str | None = None
 ) -> List[Tuple[int, str, str]]:
     """扫描单个 ``.html`` 模板内联 <script> 块的裸调非 GET fetch。"""
-    try:
-        text = file_path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        text = file_path.read_text(encoding="utf-8", errors="replace")
+    if text is None:
+        try:
+            text = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = file_path.read_text(encoding="utf-8", errors="replace")
 
     rel = str(file_path.relative_to(repo_root)).replace("\\", "/")
     violations: List[Tuple[int, str, str]] = []
+    from html.parser import HTMLParser
+
+    class ScriptAttributes(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.attrs = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag.lower() == 'script':
+                self.attrs = attrs
+
     for block in _SCRIPT_BLOCK.finditer(text):
         body_text = block.group(1)
         base = block.start(1)
-        csrf_bodies = find_csrf_fetch_bodies(body_text)
-        stripped = strip_comments(body_text)
-        for pattern in PATTERNS:
-            for m in pattern.finditer(stripped):
-                pos = m.start()
-                if is_inside_csrf_fetch(pos, csrf_bodies):
-                    continue
-                ln = line_number_at(text, base + pos)
-                snippet = line_snippet(text, base + pos)
-                violations.append((ln, snippet, rel))
-    return violations
+        attributes = ScriptAttributes()
+        attributes.feed(text[block.start():base])
+        types = [(value or '').strip().lower() for name, value in attributes.attrs
+                 if name.lower() == 'type']
+        if types == ['application/json']:
+            continue
+        try:
+            positions = _fetch_positions(body_text)
+        except RuntimeError:
+            violations.append((line_number_at(text, base), '[无法解析模板脚本，请人工核对]', rel))
+            continue
+        if rel == 'app/templates/base.html':
+            continue  # AGENTS 规定的全局 fetch/CSRF 统一封装层。
+        violations.extend((line_number_at(text, base + pos), line_snippet(text, base + pos), rel)
+                          for pos in positions)
+    return sorted(set(violations))
 
 
 def scan_templates(repo_root: Path) -> List[Tuple[int, str, str]]:
@@ -356,6 +216,61 @@ def scan_templates(repo_root: Path) -> List[Tuple[int, str, str]]:
     for html_path in sorted(scan_dir.rglob("*.html")):
         violations.extend(scan_template_file(html_path, repo_root))
     return violations
+
+
+def scan_staged(repo_root: Path) -> Tuple[List[Tuple[int, str, str]], List[Tuple[int, str, str]]]:
+    """Scan the complete index snapshot, preserving the normal JS/template scope."""
+    try:
+        listing = subprocess.run(
+            ["git", "ls-files", "--stage", "-z", "--", "app/static/js", "app/templates"],
+            cwd=repo_root, capture_output=True, check=True,
+        ).stdout
+        selected = []
+        for entry in listing.split(b"\0"):
+            if not entry:
+                continue
+            metadata, raw_path = entry.split(b"\t", 1)
+            mode, object_id, stage = metadata.split()
+            path = raw_path.decode("utf-8", errors="strict")
+            is_js = path.startswith("app/static/js/") and path.endswith(".js")
+            is_template = path.startswith("app/templates/") and path.endswith(".html")
+            if not (is_js or is_template):
+                continue
+            if stage != b"0" or mode not in (b"100644", b"100755"):
+                raise ValueError("暂存文件存在冲突或不是普通文件")
+            if not re.fullmatch(rb"[0-9a-f]{40}|[0-9a-f]{64}", object_id):
+                raise ValueError("暂存对象标识无效")
+            selected.append((path, object_id, is_js))
+        if not selected:
+            return [], []
+        payload = b"".join(oid + b"\n" for _, oid, _ in selected)
+        output = subprocess.run(["git", "cat-file", "--batch"], cwd=repo_root,
+                                input=payload, capture_output=True, check=True).stdout
+        js_violations, template_violations = [], []
+        offset = 0
+        for path, oid, is_js in selected:
+            end = output.find(b"\n", offset)
+            if end < 0:
+                raise ValueError("暂存对象响应不完整")
+            header = output[offset:end].split()
+            if len(header) != 3 or header[0] != oid or header[1] != b"blob":
+                raise ValueError("暂存对象响应无效")
+            size = int(header[2])
+            start, end = end + 1, end + 1 + size
+            if size < 0 or end >= len(output) or output[end:end + 1] != b"\n":
+                raise ValueError("暂存对象内容不完整")
+            text = output[start:end].decode("utf-8", errors="replace")
+            offset = end + 1
+            file_path = repo_root / path
+            if is_js:
+                js_violations.extend(scan_file(file_path, repo_root, text=text))
+            else:
+                template_violations.extend(scan_template_file(file_path, repo_root, text=text))
+        if offset != len(output):
+            raise ValueError("暂存对象响应多出内容")
+        return js_violations, template_violations
+    except (OSError, subprocess.SubprocessError, UnicodeError, ValueError) as exc:
+        raise RuntimeError("无法读取完整 Git 暂存快照") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -370,8 +285,7 @@ HELP_TEXT = """\
 的裸调调用并报错。
 
 白名单：
-  * csrfFetch 函数体内部的 return fetch(...)；
-  * app/static/js/app.js 顶部 30 行的 csrfFetch 回退定义块；
+  * app/static/js/app.js、app/static/js/api.js 与 app/templates/base.html 统一封装层；
   * JS 注释（// 与 /* ... */）。
 
 退出码：0 = 通过，1 = 有违规，2 = 参数错误。
@@ -402,6 +316,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default=False,
         help="模板内联 JS 违规按失败处理（默认 warn 模式，只打印不影响退出码）",
     )
+    parser.add_argument("--staged", action="store_true", help="扫描 Git 暂存快照")
     return parser.parse_args(argv)
 
 
@@ -415,8 +330,15 @@ def main(argv: List[str] | None = None) -> int:
         print(_glyph("✗", "[FAIL]") + " 当前仅支持 --check 模式", file=sys.stderr)
         return 2
 
-    violations = scan_repo(repo_root)
-    tpl_violations = scan_templates(repo_root)
+    try:
+        if args.staged:
+            violations, tpl_violations = scan_staged(repo_root)
+        else:
+            violations = scan_repo(repo_root)
+            tpl_violations = scan_templates(repo_root)
+    except RuntimeError as exc:
+        print(f"[FAIL] {exc}", file=sys.stderr)
+        return 2
 
     if tpl_violations:
         # F3.7 观察期：模板违规 warn 模式（摸清存量后转 --templates-strict 棘轮）

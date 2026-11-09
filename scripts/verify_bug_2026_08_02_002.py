@@ -14,6 +14,12 @@ BUG-2026-08-02-002 ~ 008 验证：出库单与售后出库单仓库必填且与�
 """
 from __future__ import annotations
 
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os
 import re
 import sys

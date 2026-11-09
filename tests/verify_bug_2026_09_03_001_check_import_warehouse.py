@@ -169,7 +169,11 @@ def test_t1_import_with_warehouse_column_and_can_complete():
     complete = client.post(f"/check/{check_id}/complete")
     assert complete.status_code == 200, complete.get_data(as_text=True)
     if complete.get_json().get("status") == "confirm":
-        complete = client.post(f"/check/{check_id}/complete", json={"force": 1})
+        warning = complete.get_json()
+        assert warning.get("code") == "check_risks" and warning.get("confirmation_token"), warning
+        rejected = client.post(f"/check/{check_id}/complete", json={"force": 1})
+        assert rejected.get_json().get("status") == "confirm", rejected.get_json()
+        complete = client.post(f"/check/{check_id}/complete", json={"force": 1, "confirmation_token": rejected.get_json()["confirmation_token"]})
     assert complete.get_json()["status"] == "success", complete.get_json()
     with app_module.app.app_context():
         drafts = AdjustmentOrder.query.filter_by(source_type="check", source_id=check_id).all()

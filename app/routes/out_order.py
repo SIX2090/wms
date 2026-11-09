@@ -33,6 +33,7 @@ from db import db
 from services.document_detail import get_out_order_box_numbers
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import get_default_print_template, print_token_or_login_required, require_role
+from utils import round_money_product
 
 
 def _out_order_stock_error(order):
@@ -252,7 +253,7 @@ def register_out_order_routes(app):
                     source_sales_order_item_id=None,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=item.remark,
                     contract_id=item.contract_id,
                     contract_no=item.contract_no,
@@ -868,7 +869,7 @@ def register_out_order_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=(submitted_item.get('remark') or '').strip() or None,
                     contract_id=int(submitted_item.get('contract_id')) if submitted_item.get('contract_id') else None,
                     contract_no=(submitted_item.get('contract_no') or '').strip() or None,
@@ -970,7 +971,7 @@ def register_out_order_routes(app):
                 material_id=material.id,
                 quantity=quantity,
                 price=price,
-                amount=round_to_2_decimals(quantity * price),
+                amount=round_money_product(quantity, price),
                 contract_id=item_contract_id,
                 contract_no=item_contract_no,
                 project_name=item_project_name,
@@ -1067,7 +1068,7 @@ def register_out_order_routes(app):
         try:
             item.quantity = quantity
             item.price = price
-            item.amount = round_to_2_decimals(quantity * price)
+            item.amount = round_money_product(quantity, price)
             if 'remark' in request.form:
                 item.remark = (request.form.get('remark') or '').strip() or None
             recalculate_order_total(order)
@@ -1952,8 +1953,8 @@ def register_out_order_routes(app):
                     quantity = round_to_2_decimals(values.quantity)
                     price = round_to_2_decimals(values.price)
                     product = quantity * price
-                    amount = round_to_2_decimals(product)
-                except ArithmeticError:
+                    amount = round_money_product(quantity, price)
+                except (ArithmeticError, ValueError):
                     raise ValueError(f'第{line_no}行数量、单价或金额超出有效精度范围') from None
                 if (quantity <= 0 or not math.isfinite(product)
                         or (values.price >= 1 and price == 0) or (product >= 1 and amount == 0)):

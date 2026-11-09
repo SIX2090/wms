@@ -373,6 +373,7 @@
     })();
     </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/copyright.css') }}">
+    {% include '_button_theme.html' %}
 </head>
 <body class="{% block body_class %}{% endblock %}{% if request.args.get('embedded') == '1' %} embedded-page{% endif %}">
     <header class="mobile-topbar no-print">
@@ -1001,6 +1002,7 @@
     <script src="{{ url_for('static', filename='js/api.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <script src="{{ url_for('static', filename='js/document-action.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <script src="{{ url_for('static', filename='js/dropdown-position.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    <script src="{{ url_for('static', filename='js/money.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     <!-- 主应用 JS -->
     <script src="{{ url_for('static', filename='js/app.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if strict_material_scripts|default(false) %}

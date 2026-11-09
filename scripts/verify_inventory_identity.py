@@ -17,7 +17,7 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
 
 用法
 ----
-    python scripts/verify_inventory_identity.py --db "sqlite:///c:/wms/app/instance/inventory.db"
+    仅在已核实的隔离 LPAC 内执行，--db 必须显式指向其新建合成文件库。
     python scripts/verify_inventory_identity.py --db ... --json
     python scripts/verify_inventory_identity.py --db ... --top 20
 
@@ -52,6 +52,7 @@ P2-3 要做"三账写入单点收敛"（`add_stock` / `deduct_stock_atomic` 不�
 from __future__ import annotations
 
 import os
+import runpy
 
 import argparse
 import json
@@ -62,6 +63,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
+
+_test_guard = runpy.run_path(str(Path(__file__).with_name("verify_db_guard.py")))
+_require_owned_test_profile = _test_guard["require_owned_test_profile"]
+_owned_test_file = _test_guard["owned_test_file"]
 
 # 浮点容差：金额/数量经 round_to_2_decimals 后允许 0.01 级误差
 DEFAULT_TOLERANCE = 0.01
@@ -411,6 +416,7 @@ def collect_from_app(pushdown=True):
         pushdown: `True`（默认）走 SQL 聚合下推；`False` 走旧的逐行路径。
             保留旧路径供**对照验证**与极端排障；两条路径的**累加结果**必须等价。
     """
+    raise SystemExit('安全阻断：已加载应用的数据库归属未证明')
     import sqlalchemy as sa  # noqa: PLC0415
 
     cached = sys.modules.get('app')
@@ -454,6 +460,7 @@ def collect_from_app(pushdown=True):
 def _location_management_enabled() -> bool:
     """F3.15：读取系统设置「库位管理」开关。读不到（如纯 sqlite 直读、
     表缺失）时按「未开启」处理——宁可跳过仓级判定，也不误报。"""
+    raise SystemExit('安全阻断：已加载应用的数据库归属未证明')
     try:
         cached = sys.modules.get('app')
         if cached is None:
@@ -466,57 +473,56 @@ def _location_management_enabled() -> bool:
 
 def collect_from_sqlite(uri, pushdown=True):
     """只读、一致事务读取三账及库位开关；旧仓库列缺失保留NULL归属。"""
+    _require_owned_test_profile()
     from sqlalchemy.engine import make_url
     try:
         url = make_url(uri)
-        if (url.get_backend_name() != 'sqlite' or not url.database
+        if (url.drivername != 'sqlite' or any(value is not None for value in (
+                url.host, url.username, url.password, url.port)) or not url.database
                 or url.database == ':memory:' or url.database.startswith('file:') or url.query):
             raise ValueError
     except Exception:
         raise ValueError('请使用普通SQLite文件URL；不支持内存库或带参数URI，工具会强制只读打开') from None
     path = Path(url.database)
-    if not os.path.isabs(str(path)):
-        path = APP_DIR / 'instance' / path
-    path = path.resolve()
-    if not path.is_file():
-        raise FileNotFoundError('指定数据库文件不存在')
-    with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)) as conn:
-        conn.execute('PRAGMA query_only=ON')
-        conn.execute('BEGIN')
-        tables = {row[0].lower() for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if not {'material', 'stock_transaction'}.issubset(tables):
-            raise ValueError('缺少物料或库存流水表，无法核验')
-        enabled = False
-        if 'system_setting' in tables:
-            setting = conn.execute('SELECT value FROM system_setting WHERE key=? LIMIT 1',
-                                   ('location_management_enabled',)).fetchone()
-            enabled = bool(setting and setting[0] == '1')
-        if enabled and 'location_inventory' not in tables:
-            raise ValueError('库位管理已开启但库位账表缺失，无法核验')
-        materials = conn.execute('SELECT id, code, stock FROM material').fetchall()
+    with _owned_test_file(path) as path:
+        with closing(sqlite3.connect(path.as_uri() + '?mode=ro', uri=True, timeout=5)) as conn:
+            conn.execute('PRAGMA query_only=ON')
+            conn.execute('BEGIN')
+            tables = {row[0].lower() for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {'material', 'stock_transaction'}.issubset(tables):
+                raise ValueError('缺少物料或库存流水表，无法核验')
+            enabled = False
+            if 'system_setting' in tables:
+                setting = conn.execute('SELECT value FROM system_setting WHERE key=? LIMIT 1',
+                                       ('location_management_enabled',)).fetchone()
+                enabled = bool(setting and setting[0] == '1')
+            if enabled and 'location_inventory' not in tables:
+                raise ValueError('库位管理已开启但库位账表缺失，无法核验')
+            materials = conn.execute('SELECT id, code, stock FROM material').fetchall()
 
-        def ledger_rows(table):
-            # table只来自下方两个固定内部表名，不能由用户传入。
-            if table not in tables:
-                return []
-            columns = {row[1].lower() for row in conn.execute(f'PRAGMA table_info("{table}")')}
-            if not {'material_id', 'quantity'}.issubset(columns):
-                raise ValueError('库存账表缺少物料或数量字段，无法核验')
-            warehouse = 'warehouse_id' if 'warehouse_id' in columns else 'NULL'
-            quantity = 'SUM(quantity)' if pushdown else 'quantity'
-            sql = f'SELECT material_id, {quantity}, {warehouse} FROM "{table}"'
-            if pushdown:
-                sql += f' GROUP BY material_id, {warehouse}'
-            return [(mid, float(total or 0), wid) for mid, total, wid in conn.execute(sql)]
+            def ledger_rows(table):
+                # table只来自下方两个固定内部表名，不能由用户传入。
+                if table not in tables:
+                    return []
+                columns = {row[1].lower() for row in conn.execute(f'PRAGMA table_info("{table}")')}
+                if not {'material_id', 'quantity'}.issubset(columns):
+                    raise ValueError('库存账表缺少物料或数量字段，无法核验')
+                warehouse = 'warehouse_id' if 'warehouse_id' in columns else 'NULL'
+                quantity = 'SUM(quantity)' if pushdown else 'quantity'
+                sql = f'SELECT material_id, {quantity}, {warehouse} FROM "{table}"'
+                if pushdown:
+                    sql += f' GROUP BY material_id, {warehouse}'
+                return [(mid, float(total or 0), wid) for mid, total, wid in conn.execute(sql)]
 
-        locations = ledger_rows('location_inventory')
-        transactions = ledger_rows('stock_transaction')
+            locations = ledger_rows('location_inventory')
+            transactions = ledger_rows('stock_transaction')
     return materials, locations, transactions, enabled
 
 
 def main():
+    _require_owned_test_profile()
     ap = argparse.ArgumentParser(description="库存三账恒等式校验器（P2-3 前置判据）")
-    ap.add_argument("--db", help="SQLAlchemy URL，如 sqlite:///c:/wms/app/instance/inventory.db")
+    ap.add_argument("--db", required=True, help="当前 LPAC 合成测试 profile 内的绝对 SQLite 文件 URL")
     ap.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE, help="浮点容差")
     ap.add_argument("--top", type=int, default=10, help="最多列出多少条明细")
     ap.add_argument("--json", action="store_true", help="输出 JSON（供流水线消费）")
@@ -529,13 +535,16 @@ def main():
 
     # P2-1：豁免文件加载失败 → 显式报错（rc=2），绝不静默当空名单放过（A12）
     try:
-        allowlist = (load_drift_allowlist(args.allow_drift)
-                     if args.allow_drift else None)
+        if args.allow_drift:
+            with _owned_test_file(args.allow_drift) as allow_path:
+                allowlist = load_drift_allowlist(allow_path)
+        else:
+            allowlist = None
     except DriftAllowlistError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
 
-    uri = args.db or os.environ.get('DATABASE_URL') or 'sqlite:///inventory.db'
+    uri = args.db
     try:
         materials, locations, transactions, _loc_enabled = collect_from_sqlite(
             uri, pushdown=not args.no_pushdown)

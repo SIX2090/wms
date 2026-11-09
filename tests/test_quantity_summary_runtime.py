@@ -58,6 +58,10 @@ def test_actual_entry_summary_updates_without_save(page):
         name = funcs.get(page, 'calcTotal')
         body = re.search(r'function ' + name + r'\([^)]*\)\s*\{([\s\S]*?)\n\s*\}', runtime).group(1)
         assert f"refreshQuantityTotals('{table}')" in body
-    result = subprocess.run([node, str(ROOT / 'tests/frontend_quantity_summary.cjs')],
+    # Load the exact owned script without Node's entry-path realpath traversal.
+    program = ('(function(__dirname){\n'
+               + (ROOT / 'tests/frontend_quantity_summary.cjs').read_text(encoding='utf-8')
+               + '\n})(' + json.dumps(str(ROOT / 'tests')) + ');')
+    result = subprocess.run([node, '-e', program],
                             input=json.dumps(summary), text=True, capture_output=True)
     assert result.returncode == 0, result.stdout + result.stderr

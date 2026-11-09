@@ -2,6 +2,10 @@
 """临时诊断（用完即删）：实测 下推领料单 全链路耗时，定位10秒卡顿。"""
 from __future__ import annotations
 
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import os
 import sys
 import time

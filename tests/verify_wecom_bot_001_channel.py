@@ -101,7 +101,8 @@ class TestSendWecom:
     def _run(self, tmp_path, monkeypatch, resp_payload, caption=""):
         captured = []
 
-        def fake_post(url, json=None, timeout=None, proxies=None):
+        def fake_post(url, json=None, timeout=None, proxies=None, allow_redirects=None):
+            assert allow_redirects is False
             captured.append({"url": url, "json": json, "proxies": proxies})
             return _Resp(resp_payload)
 
@@ -120,7 +121,7 @@ class TestSendWecom:
         assert call["proxies"] == {"http": None, "https": None}, "必须直连不走系统/环境代理"
         body = call["json"]
         assert body["msgtype"] == "image"
-        expected_md5 = hashlib.md5(open(image, "rb").read()).hexdigest()
+        expected_md5 = hashlib.md5(Path(image).read_bytes()).hexdigest()
         assert body["image"]["md5"] == expected_md5
         assert body["image"]["base64"], "base64 不能为空"
 
@@ -144,7 +145,7 @@ class TestSendWecom:
 class TestImageReencode:
     def test_t3_oversize_triggers_jpeg_reencode(self, tmp_path, monkeypatch):
         image = _make_png(tmp_path, size=(60, 60))
-        raw = open(image, "rb").read()
+        raw = Path(image).read_bytes()
         monkeypatch.setattr(app_module, "_WECOM_IMAGE_MAX_BYTES", 100)  # 强制触发重编码
         data = app_module._wechat_share_wecom_image_bytes(image)
         assert len(raw) > 100, "前提：原图需超过阈值"

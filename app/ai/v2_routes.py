@@ -14,6 +14,7 @@ from flask_login import current_user, login_required
 from ai.policies import require_ai_role
 from ai.providers import (
     OpenAICompatibleConfig,
+    UnsafeLLMRedirect,
     call_llm_chat,
     call_llm_intent,
     call_llm_vision,
@@ -234,7 +235,10 @@ def v2_llm_chat():
         return jsonify({'status': 'error', 'msg': 'LLM not configured'}), 503
 
     system_prompt = _resolve_debug_system_prompt(payload, '你是仓库管理系统的AI助手。')
-    reply = call_llm_chat(config, system_prompt, message)
+    try:
+        reply = call_llm_chat(config, system_prompt, message)
+    except UnsafeLLMRedirect:
+        return jsonify({'status': 'error', 'msg': '模型服务重定向超出原始服务，请求已停止'}), 502
     if not reply:
         return jsonify({'status': 'error', 'msg': 'LLM call failed'}), 502
 
@@ -256,7 +260,10 @@ def v2_llm_intent():
         return jsonify({'status': 'error', 'msg': 'LLM not configured'}), 503
 
     system_prompt = _resolve_debug_system_prompt(payload, '你是意图解析器，输出JSON。')
-    result = call_llm_intent(config, system_prompt, message)
+    try:
+        result = call_llm_intent(config, system_prompt, message)
+    except UnsafeLLMRedirect:
+        return jsonify({'status': 'error', 'msg': '模型服务重定向超出原始服务，请求已停止'}), 502
     if not result:
         return jsonify({'status': 'error', 'msg': 'LLM intent call failed'}), 502
 

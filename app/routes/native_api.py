@@ -29,9 +29,12 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+from utils import round_money_product
+from services.web_document_idempotency import begin_native_document_write, stage_document_response
 import base64
 import json
 import re
+from ai.safe_http import post as safe_ai_post
 
 from flask import jsonify, request
 
@@ -561,7 +564,7 @@ def _voice_llm_chat(prompt, force_model=None):
         'max_tokens': 1500,
     }
     try:
-        resp = _requests.post(
+        resp = safe_ai_post(
             endpoint,
             headers=headers,
             json=payload,
@@ -1109,7 +1112,7 @@ def register_native_api_routes(app):
             total_amount = 0
             for material, quantity, line in parsed:
                 price = parse_float_value(line.get('price'), material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 total_amount += amount
                 # BUG-2026-09-18-013：Android 扫码无逐行合同输入，明细继承单据表头合同号，
                 # 否则同一合同下的扫码入库明细全部丢失合同归属。
@@ -1139,8 +1142,11 @@ def register_native_api_routes(app):
             _save_evidence(evidence, 'in_order', order.id, user.id)
             enqueue_auto_print_job('in_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_inbound')
+            db.session.flush()
+            response = api_json_success({'id': order.id, 'order_no': order.order_no}, '入库提交成功')
+            stage_document_response(response.get_json())
             db.session.commit()
-            return api_json_success({'id': order.id, 'order_no': order.order_no}, '入库提交成功')
+            return response
         except Exception as e:
             db.session.rollback()
             app.logger.exception('Android inbound failed')
@@ -1232,8 +1238,7 @@ def register_native_api_routes(app):
         # 看到的是最新库存，两个并发请求不会都通过校验把同一仓扣成负数。
         # 取锁前本请求只有读操作，rollback 安全。
         if db.engine.dialect.name == 'sqlite':
-            db.session.rollback()
-            db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            begin_native_document_write()
         stock_error = _native_outbound_stock_error(parsed, warehouse)
         if stock_error:
             db.session.rollback()
@@ -1290,7 +1295,7 @@ def register_native_api_routes(app):
             total_amount = 0
             for material, quantity, line in parsed:
                 price = parse_float_value(line.get('price'), material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 total_amount += amount
                 db.session.add(OutOrderItem(
                     out_order_id=order.id,
@@ -1320,8 +1325,11 @@ def register_native_api_routes(app):
             _save_evidence(evidence, 'out_order', order.id, user.id)
             enqueue_auto_print_job('out_order', order.id, order.warehouse,
                                    created_by=user.id, source_event='scan_outbound')
+            db.session.flush()
+            response = api_json_success({'id': order.id, 'order_no': order.order_no}, '出库提交成功')
+            stage_document_response(response.get_json())
             db.session.commit()
-            return api_json_success({'id': order.id, 'order_no': order.order_no}, '出库提交成功')
+            return response
         except OperationalError:
             # F2.9：BEGIN IMMEDIATE 取写锁超时（SQLite "database is locked"）或并发
             # 写冲突——可重试的瞬时冲突，返回 409 而非 500，客户端可重试。
@@ -1443,7 +1451,6 @@ def register_native_api_routes(app):
             if error:
                 db.session.rollback()
                 return api_json_error(error, 400)
-            db.session.commit()
             data = {
                 'check_no': check.check_no,
                 'batch_no': batch.check_no,
@@ -1451,7 +1458,11 @@ def register_native_api_routes(app):
                 'adjustment_nos': [],
             }
             msg = f'盘点提交成功，已挂批次 {batch.check_no}'
-            return api_json_success(data, msg)
+            db.session.flush()
+            response = api_json_success(data, msg)
+            stage_document_response(response.get_json())
+            db.session.commit()
+            return response
         except Exception:
             db.session.rollback()
             app.logger.exception('Android stocktake failed')
@@ -3278,6 +3289,7 @@ def register_native_api_routes(app):
         缺省的按原值保留（PATCH 语义）。至少给一个，否则 400。
         """
         from app import (Material, OpeningStock, _apply_opening_stock_balance,
+                         _opening_stock_preserve_validated_line,
                          api_json_error, api_json_success, normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals)
         if line_id >= 2**63:
@@ -3298,10 +3310,8 @@ def register_native_api_routes(app):
         actor_id = user.id
         # SQLite ignores FOR UPDATE. Serialize the comparison with the stock
         # delta; a second account must not pass its check on an old snapshot.
-        db.session.rollback()
         try:
-            if db.engine.dialect.name == 'sqlite':
-                db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+            begin_native_document_write()
             opening = OpeningStock.query.filter_by(id=line_id).with_for_update().first()
         except OperationalError:
             db.session.rollback()
@@ -3319,33 +3329,49 @@ def register_native_api_routes(app):
         if not material:
             return api_json_error('物料不存在，无法调整', 400)
 
-        # 数量：缺省保留原值；显式传空串视为未填
-        if 'quantity' in payload:
-            raw_qty = payload.get('quantity')
-            if raw_qty is None or (isinstance(raw_qty, str) and not raw_qty.strip()):
-                return api_json_error('数量不能为空', 400)
-            quantity = parse_float_value(raw_qty, None)
-            if quantity is None:
-                return api_json_error(f'数量 [{raw_qty}] 无效，必须是大于等于 0 的数字', 400)
-            quantity = normalize_stock_quantity(quantity)
-        else:
-            quantity = normalize_stock_quantity(opening.quantity or 0)
-
-        # 单价：缺省保留原值，允许 0
-        if 'price' in payload:
-            raw_price = payload.get('price')
-            if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip()):
-                price = round_to_2_decimals(opening.price or 0)
+        try:
+            # 数量：缺省保留原值；显式传空串视为未填
+            if 'quantity' in payload:
+                raw_qty = payload.get('quantity')
+                if raw_qty is None or (isinstance(raw_qty, str) and not raw_qty.strip()):
+                    return api_json_error('数量不能为空', 400)
+                quantity = parse_float_value(raw_qty, None)
+                raw_quantity_for_compare = quantity
+                if quantity is None:
+                    return api_json_error(f'数量 [{raw_qty}] 无效，必须是大于等于 0 的数字', 400)
+                quantity = normalize_stock_quantity(quantity)
             else:
-                price = round_to_2_decimals(parse_float_value(raw_price, None))
-        else:
-            price = round_to_2_decimals(opening.price or 0)
+                quantity = normalize_stock_quantity(opening.quantity or 0)
+                raw_quantity_for_compare = quantity
 
-        remark = payload.get('remark')
-        remark = remark.strip() if isinstance(remark, str) else (opening.remark or '')
-        amount = round_to_2_decimals(quantity * price)
+            # 单价：缺省保留原值，允许 0
+            if 'price' in payload:
+                raw_price = payload.get('price')
+                if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip()):
+                    price = round_to_2_decimals(opening.price or 0)
+                    raw_price_for_compare = price
+                else:
+                    raw_price_for_compare = parse_float_value(raw_price, None)
+                    if raw_price_for_compare is None:
+                        raise ValueError('单价必须是大于等于 0 的有限数字')
+                    price = round_to_2_decimals(raw_price_for_compare)
+            else:
+                price = round_to_2_decimals(opening.price or 0)
+                raw_price_for_compare = price
+
+            remark = payload.get('remark')
+            remark = remark.strip() if isinstance(remark, str) else (opening.remark or '')
+            amount = round_money_product(quantity, price)
+        except (ArithmeticError, ValueError, OverflowError):
+            db.session.rollback()
+            return api_json_error('数量或单价无效，或金额超出可处理范围', 400)
 
         try:
+            checked = _opening_stock_preserve_validated_line(opening, {
+                'line_id': opening.id, '_raw_quantity': raw_quantity_for_compare,
+                '_raw_price': raw_price_for_compare, 'quantity': quantity, 'price': price, 'amount': amount,
+            }, guarded=True)
+            quantity, price, amount = checked['quantity'], checked['price'], checked['amount']
             opening, delta = _apply_opening_stock_balance(
                 opening, material, quantity, price, amount, remark,
                 opening.warehouse, opening.date,
@@ -3361,8 +3387,11 @@ def register_native_api_routes(app):
                 'delta': delta,
                 'revision': opening_line_revision(opening, actor_id),
             }
+            db.session.flush()
+            response = api_json_success(response_data, '期初库存已更新')
+            stage_document_response(response.get_json())
             db.session.commit()
-            return api_json_success(response_data, '期初库存已更新')
+            return response
         except ValueError as ve:
             # BUG-2026-08-16-002 同口径：库位账同步失败要回明确原因并整体回滚
             db.session.rollback()
@@ -3422,15 +3451,19 @@ def register_native_api_routes(app):
                 raw_qty = str(line.get('quantity') if line.get('quantity') is not None else '').strip()
                 if raw_qty == '':
                     return api_json_error(f'第 {index} 行请输入数量', 400)
-                try:
-                    quantity = float(raw_qty)
-                except (TypeError, ValueError):
-                    return api_json_error(f'第 {index} 行数量格式不正确', 400)
-                if quantity < 0:
-                    return api_json_error(f'第 {index} 行期初数量不能小于 0', 400)
+                quantity = parse_float_value(raw_qty, None)
+                if quantity is None:
+                    raise ValueError(f'第 {index} 行期初数量必须是大于等于 0 的有限数字')
                 quantity = normalize_stock_quantity(quantity)
-                price = round_to_2_decimals(parse_float_value(line.get('price'), material.price or 0))
-                amount = round_to_2_decimals(quantity * price)
+                raw_price = line.get('price')
+                if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip()):
+                    price = parse_float_value(material.price or 0, None)
+                else:
+                    price = parse_float_value(raw_price, None)
+                if price is None:
+                    raise ValueError(f'第 {index} 行单价必须是大于等于 0 的有限数字')
+                price = round_to_2_decimals(price)
+                amount = round_money_product(quantity, price)
                 remark = (line.get('remark') or '').strip() or None
 
                 opening = OpeningStock.query.filter_by(
@@ -3442,8 +3475,14 @@ def register_native_api_routes(app):
                 )
                 opening.operator_id = user.id
                 saved.append({'material_code': code, 'quantity': quantity, 'price': price})
+            db.session.flush()
+            response = api_json_success({'count': len(saved), 'lines': saved}, f'期初库存已保存，共 {len(saved)} 行')
+            stage_document_response(response.get_json())
             db.session.commit()
-            return api_json_success({'count': len(saved), 'lines': saved}, f'期初库存已保存，共 {len(saved)} 行')
+            return response
+        except (ArithmeticError, ValueError, OverflowError):
+            db.session.rollback()
+            return api_json_error('期初数量或单价无效，或金额超出可处理范围', 400)
         except Exception:
             db.session.rollback()
             app.logger.exception('Android opening stock submit failed')
@@ -3626,7 +3665,7 @@ def register_native_api_routes(app):
                 material = row['material']
                 quantity = row['quantity']
                 price = row['price']
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 total_amount += amount
                 # BUG-2026-09-18-013：明细继承表头合同号（草稿入口无逐行合同输入）。
                 _c_id, _c_no, _p_name = resolve_item_contract(order)
@@ -3642,11 +3681,11 @@ def register_native_api_routes(app):
                     project_name=_p_name,
                 ))
             order.total_amount = round_to_2_decimals(total_amount)
-            db.session.commit()
             msg = '入库草稿已生成'
             if auto_created:
                 msg += f'，同时自动建档 {len(auto_created)} 个物料'
-            return api_json_success({
+            db.session.flush()
+            response = api_json_success({
                 'order_no': order.order_no,
                 'status': 'pending',
                 'auto_created': auto_created,
@@ -3656,6 +3695,9 @@ def register_native_api_routes(app):
                     for row in matched
                 ],
             }, msg)
+            stage_document_response(response.get_json())
+            db.session.commit()
+            return response
         except Exception as e:  # noqa: BLE001
             db.session.rollback()
             app.logger.exception('Mobile inbound draft failed')
@@ -3864,7 +3906,7 @@ def register_native_api_routes(app):
                 material_id=material.id,
                 quantity=qty,
                 price=price,
-                amount=round_to_2_decimals(qty * price),
+                amount=round_money_product(qty, price),
             ))
             order.total_amount = sum(item.amount or 0 for item in order.items)
             db.session.commit()

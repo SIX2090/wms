@@ -116,7 +116,7 @@ def test_asr_call_tokenhub_payload_structure(monkeypatch):
     _enable_llm(monkeypatch)
     captured = {}
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, hooks=None):
         captured.update(url=url, headers=headers, json=json, timeout=timeout)
         return _Resp(json_data={"status": "completed",
                                 "output": {"text": "入库 10 个"}})

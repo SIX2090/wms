@@ -1,4 +1,6 @@
 'use strict';
+// 禁止在隔离能力验证完成前加载驱动或启动浏览器。
+throw new Error('浏览器验证已阻止：隔离能力尚未证明');
 // CI-only real Chrome; every server and database is owned by an OS temp folder.
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os'),net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');

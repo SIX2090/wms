@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """ARCH-OS-DOC-01 回归：generate_order_no('QS') 期初库存单据取号。
 
-根因防护：_generate_order_no_locked 的 prefix 分派链是白名单式，未登记的
-prefix 会落到 `else: last_order = None`，于是每次取号都从 0001 开始，
+根因防护：_generate_order_no_locked 的 prefix 映射是白名单式，未登记的
+prefix 会退回无历史序号，于是每次取号都从 0001 开始，
 第二条单据直接撞 opening_stock_doc.doc_no 唯一约束返回 500（用户看到的是
 "保存失败"）。本测试锁定 QS 分支的存在与正确性。
 
@@ -15,6 +15,7 @@ prefix 会落到 `else: last_order = None`，于是每次取号都从 0001 开�
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
@@ -95,14 +96,22 @@ class TestOpeningStockDocNoGeneration:
         assert again.endswith('0002'), f'上月单据不应影响本月序号：{again}'
 
     def test_t5_qs_branch_registered_in_source(self):
-        """静态锁定：QS 必须同时登记在查询分支与字段取值分支。
+        """静态锁定：QS 必须绑定正确模型、字段，并由取号查询消费。
 
         这是 R6 的回归防护——只登记一处会导致取号静默从 0001 开始。
         """
         src = (APP_DIR / 'app.py').read_text(encoding='utf-8')
-        assert "elif prefix == 'QS':" in src, 'QS 未登记在 prefix 查询分支'
-        assert 'OpeningStockDoc.doc_no.like' in src, 'QS 查询未按 doc_no 过滤'
-        assert 'last_no = last_order.doc_no' in src, 'QS 未登记在字段取值分支'
+        module = ast.parse(src)
+        generator = next(node for node in module.body
+                         if isinstance(node, ast.FunctionDef) and node.name == '_generate_order_no_locked')
+        registry = next(node.value for node in generator.body if isinstance(node, ast.Assign)
+                        and any(isinstance(target, ast.Name) and target.id == 'families' for target in node.targets))
+        entry = next(value for key, value in zip(registry.keys, registry.values)
+                     if isinstance(key, ast.Constant) and key.value == 'QS')
+        expected = ast.parse("((OpeningStockDoc, 'doc_no'),)", mode='eval').body
+        assert ast.dump(entry) == ast.dump(expected), 'QS 必须同时绑定 OpeningStockDoc 和 doc_no'
+        assert any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                   and node.func.id == '_numbering_existing_max' for node in ast.walk(generator)), '取号必须消费前缀映射'
 
     def test_t6_qs_does_not_break_other_prefixes(self):
         """QS 分支不得影响既有 prefix（回归）。"""

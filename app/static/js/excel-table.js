@@ -327,7 +327,7 @@ class ExcelTable {
         if (quantityCell && priceCell && amountCell) {
             const quantity = parseFloat(quantityCell.dataset.value || 0);
             const price = parseFloat(priceCell.dataset.value || 0);
-            const amount = quantity * price;
+            const amount = window.WMSMoney.product(quantity, price);
             amountCell.textContent = '¥' + amount.toFixed(2);
         }
 
@@ -351,7 +351,7 @@ class ExcelTable {
                 const qty = parseFloat(qtyCell.dataset.value || 0);
                 const price = parseFloat(priceCell.dataset.value || 0);
                 totalQty += qty;
-                totalAmount += qty * price;
+                totalAmount += window.WMSMoney.product(qty, price);
             }
         });
 

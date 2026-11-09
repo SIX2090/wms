@@ -132,7 +132,20 @@ def _verification_environment(
     database_path: Path, script_name: str = ""
 ) -> dict[str, str]:
     environment = os.environ.copy()
-    environment.setdefault("FLASK_ENV", "testing")
+    # 不能信任父进程传入的数据库地址；即便测试配置通常会忽略它，
+    # 某些验证脚本在导入应用时可能选择其他配置。只接受空值或内存库。
+    for key in ("DATABASE_URL", "WMS_DATABASE_URI"):
+        if environment.get(key, "") not in ("", "sqlite:///:memory:"):
+            raise ValueError(f"拒绝继承未经验证的 {key}；请清除该变量后重试。")
+    if environment.get("FLASK_ENV", "") not in ("", "testing"):
+        raise ValueError("拒绝继承非 testing 的 FLASK_ENV；请清除该变量后重试。")
+    for key in ("PYTEST_ADDOPTS", "PYTEST_PLUGINS"):
+        if environment.get(key, ""):
+            raise ValueError(f"拒绝继承 {key}；请清除该变量后重试。")
+    environment["DATABASE_URL"] = "sqlite:///:memory:"
+    environment["FLASK_ENV"] = "testing"
+    environment["PYTHONNOUSERSITE"] = "1"
+    environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     environment.setdefault("WMS_SKIP_STARTUP_DB_UPGRADE", "1")
     environment.setdefault("SECRET_KEY", "verify-ai-all-secret")
     environment.setdefault("PYTHONUTF8", "1")
@@ -142,10 +155,10 @@ def _verification_environment(
     # run: 前缀上的，等价于强制赋值，宽松的默认值不得把它盖掉。
     environment.update(SCRIPT_ENV_OVERRIDES.get(script_name, {}))
     app_dir = str(ROOT / "app")
-    existing_pythonpath = environment.get("PYTHONPATH", "")
-    environment["PYTHONPATH"] = os.pathsep.join(
-        part for part in (app_dir, existing_pythonpath) if part
-    )
+    # 仅保留既有验证脚本需要的仓库路径；继承的 Python 路径或解释器
+    # home 可在脚本代码执行前加载外部 sitecustomize，不能沿用。
+    environment.pop("PYTHONHOME", None)
+    environment["PYTHONPATH"] = app_dir
     return environment
 
 
@@ -160,10 +173,15 @@ def run_script(name: str) -> ScriptResult:
     # 否则同一时刻两个脚本会写同一个库文件，产生偶发假失败。
     with tempfile.TemporaryDirectory(prefix="wms-ai-verify-") as temp_dir:
         database_path = Path(temp_dir) / "inventory-test.db"
+        try:
+            environment = _verification_environment(database_path, name)
+        except ValueError as exc:
+            print(f"FAIL {name}: {exc}", flush=True)
+            return ScriptResult(name=name, returncode=2, duration_seconds=0.0)
         completed = subprocess.run(
             [sys.executable, str(path)],
             cwd=ROOT,
-            env=_verification_environment(database_path, name),
+            env=environment,
             capture_output=True,
             text=True,
             check=False,
@@ -218,6 +236,9 @@ def main() -> int:
     args = parser.parse_args()
 
     selected_scripts = scripts_for_level(args.level)
+    if not selected_scripts:
+        print("FAIL: 验证脚本清单为空，不能视为验证通过。")
+        return 1
     if args.list:
         print(f"WMS AI verification level: {args.level}")
         for name in selected_scripts:
@@ -230,8 +251,8 @@ def main() -> int:
     )
 
     # CI-PERF-2026-09-24：把「一个跑完再跑下一个」的串行等待换成进程池并发。
-    # **隔离模型一字未改**：仍是每个脚本一个独立 python 进程（subprocess）、
-    # 独立临时目录与独立 SQLite 库，不共享内存、不共享库文件。
+    # 每个脚本仍使用独立 python 进程、临时目录与 SQLite 库；子进程环境
+    # 额外限制继承的数据库目标与 Python／pytest 插件配置。
     # --fail-fast 语义在并发下按「已完成结果」近似：先跑完的先判，但不会取消
     # 已经在飞的任务（取消会引入不确定的中间态，宁可多跑完几个也不制造竞态）。
     if args.jobs > 0:

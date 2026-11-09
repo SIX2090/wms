@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # 延迟导入 providers（依赖 requests）
 try:
-    from ..providers import CircuitBreaker, OpenAICompatibleConfig, call_llm, get_breaker
+    from ..providers import CircuitBreaker, OpenAICompatibleConfig, UnsafeLLMRedirect, call_llm, get_breaker
     _HAS_PROVIDERS = True
 except ImportError:
     _HAS_PROVIDERS = False
@@ -26,6 +26,8 @@ except ImportError:
     class CircuitBreaker:
         pass
     class OpenAICompatibleConfig:
+        pass
+    class UnsafeLLMRedirect(Exception):
         pass
     def call_llm(*args, **kwargs):
         return None
@@ -103,6 +105,7 @@ class FallbackChain:
         """
         import time
 
+        security_blocked = False
         # 尝试主模型
         if self._primary_config and self._primary_config.configured:
             start = time.time()
@@ -126,6 +129,16 @@ class FallbackChain:
                         reason='primary returned empty',
                         latency_ms=latency,
                     ))
+            except UnsafeLLMRedirect:
+                security_blocked = True
+                self._stats['primary_failure'] += 1
+                self._fallback_records.append(FallbackRecord(
+                    timestamp=datetime.now(),
+                    from_level=FallbackLevel.PRIMARY,
+                    to_level=FallbackLevel.LOCAL_RULES,
+                    reason='请求重定向超出原始服务，已停止',
+                    latency_ms=(time.time() - start) * 1000,
+                ))
             except Exception as e:
                 latency = (time.time() - start) * 1000
                 self._stats['primary_failure'] += 1
@@ -138,7 +151,7 @@ class FallbackChain:
                 ))
 
         # 尝试备用模型
-        if self._secondary_config and self._secondary_config.configured:
+        if not security_blocked and self._secondary_config and self._secondary_config.configured:
             start = time.time()
             try:
                 result = call_llm(

@@ -17,6 +17,15 @@ import sys
 import urllib.parse
 import urllib.request
 
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
+
 WORKFLOWS = [('ci.yml', 'WMS CI'), ('verify.yml', 'WMS AI Verification')]
 SHA = re.compile(r'[0-9a-fA-F]{40}\Z')
 
@@ -48,7 +57,7 @@ def read_api(url, token):
         'Accept': 'application/vnd.github+json', 'Authorization': 'Bearer ' + token,
         'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'wms-ci-change-scope',
     })
-    with urllib.request.urlopen(request, timeout=15) as response:
+    with open_same_origin(request, timeout=15) as response:
         return json.load(response)
 
 

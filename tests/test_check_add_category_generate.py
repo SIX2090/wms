@@ -240,7 +240,10 @@ def test_t5_uncounted_rows_no_adjustment_counted_row_adjusts():
     # 5a：全部未盘 → 完成盘点：成功、无调整草稿（BUG-2026-09-06-001
     # 修复后纯 PC 录入需 force=1 显式确认；手机补盘行写 counted_at 后
     # 无需 force，本测试 5b 步骤验证该路径）
-    r_done = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    warning = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    assert warning.get_json().get("status") == "confirm" and warning.get_json().get("code") == "check_risks"
+    assert "2 行未盘" in warning.get_json().get("msg", "")
+    r_done = client.post(f"/check/{check.id}/complete", json={"force": 1, "confirmation_token": warning.get_json()["confirmation_token"]})
     assert r_done.status_code == 200, r_done.get_data(as_text=True)
     assert "无库存差异" in r_done.get_json()["msg"]
     assert AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).count() == 0
@@ -258,8 +261,11 @@ def test_t5_uncounted_rows_no_adjustment_counted_row_adjusts():
     # 不带 force 应弹 confirm（仅 m2 未盘）
     r_confirm = client.post(f"/check/{check.id}/complete")
     assert r_confirm.get_json().get("status") == "confirm"
-    assert r_confirm.get_json().get("count") == 1
-    r_done2 = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    assert r_confirm.get_json().get("code") == "check_risks"
+    assert "1 行未盘" in r_confirm.get_json().get("msg", "")
+    rejected = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    assert rejected.get_json().get("status") == "confirm"
+    r_done2 = client.post(f"/check/{check.id}/complete", json={"force": 1, "confirmation_token": rejected.get_json()["confirmation_token"]})
     assert r_done2.status_code == 200, r_done2.get_data(as_text=True)
     adjs = AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).all()
     assert len(adjs) == 1

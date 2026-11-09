@@ -2,6 +2,9 @@
 """临时诊断（用完即删）：对真实 HTTP 服务(127.0.0.1:8080) 实测下推流程耗时。"""
 from __future__ import annotations
 
+# 隔离来源、文件库及监听归属未完成验证前，禁止导入或执行本诊断。
+raise RuntimeError('诊断已阻止：尚未证明隔离数据库与自有监听服务的安全边界')
+
 import re
 import time
 import urllib.parse

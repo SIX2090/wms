@@ -25,6 +25,7 @@ from flask_login import login_required, current_user
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 # no-test:reason=路由注册辅助函数，能力由 transfer_* 各路由测试覆盖
@@ -203,7 +204,7 @@ def register_transfer_routes(app):
                     quantity=quantity,
                     unit_id=_clean_int(item_data.get('unit_id')) or material.unit_id,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=(item_data.get('remark') or '').strip() or None
                 ))
 
@@ -332,7 +333,7 @@ def register_transfer_routes(app):
                 quantity=quantity,
                 unit_id=material.unit_id,
                 price=price,
-                amount=round_to_2_decimals(quantity * price),
+                amount=round_money_product(quantity, price),
                 remark=(request.form.get('remark') or '').strip() or None
             )
             db.session.add(item)
@@ -409,7 +410,7 @@ def register_transfer_routes(app):
 
             item.quantity = quantity
             item.price = price
-            item.amount = round_to_2_decimals(quantity * price)
+            item.amount = round_money_product(quantity, price)
             if 'remark' in request.form:
                 item.remark = (request.form.get('remark') or '').strip() or None
             db.session.commit()
@@ -1010,7 +1011,7 @@ def register_transfer_routes(app):
                     quantity=quantity,
                     unit_id=material.unit_id,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=(_get_excel_cell(row, col_map, 'remark') or '').strip() or None,
                 ))
                 item_count += 1
@@ -1078,7 +1079,7 @@ def register_transfer_routes(app):
                     quantity=quantity,
                     unit_id=material.unit_id,
                     price=round_to_2_decimals(price),
-                    amount=round_to_2_decimals(quantity * price)
+                    amount=round_money_product(quantity, price)
                 )
                 db.session.add(item)
                 added += 1

@@ -28,6 +28,7 @@ def register_wechat_share_routes(app):
     @login_required
     @require_role('admin')
     def wechat_share_page():
+        from services.wechat_poll_claim import visible_message
         from app import (
             WechatShareLog,
             _wechat_share_default_config,
@@ -47,13 +48,15 @@ def register_wechat_share_routes(app):
         config = _wechat_share_default_config()
         master_enabled = _wechat_share_master_enabled()
         status_filter = (request.args.get('status') or '').strip()
-        if status_filter not in {'', 'pending', 'failed', 'sent', 'skipped', 'sending', 'uncertain'}:
+        if status_filter not in {'', 'pending', 'queued_v2', 'failed', 'sent', 'skipped', 'sending', 'delivery_started', 'uncertain'}:
             status_filter = ''
         log_limit = request.args.get('limit', 10, type=int)
         if log_limit not in {10, 20, 50}:
             log_limit = 10
         logs_query = WechatShareLog.query
-        if status_filter:
+        if status_filter == 'sending':
+            logs_query = logs_query.filter(WechatShareLog.status.in_(('sending', 'delivery_started')))
+        elif status_filter:
             logs_query = logs_query.filter(WechatShareLog.status == status_filter)
         log_total_count = logs_query.count()
         logs = logs_query.order_by(WechatShareLog.created_at.desc()).limit(log_limit).all()
@@ -62,9 +65,11 @@ def register_wechat_share_routes(app):
         helper_health = _wechat_share_get_helper_health(config)
         latest_log = next((log for log in logs if log.module_key == 'in_order'), None)
         log_counts = {
-            'pending': WechatShareLog.query.filter_by(status='pending').count(),
+            'pending': WechatShareLog.query.filter_by(status='queued_v2').count(),
+            'legacy_pending': WechatShareLog.query.filter_by(status='pending').count(),
             'failed': WechatShareLog.query.filter_by(status='failed').count(),
-            'uncertain': WechatShareLog.query.filter(WechatShareLog.status.in_(('sending', 'uncertain'))).count(),
+            'sending': WechatShareLog.query.filter(WechatShareLog.status.in_(('sending', 'delivery_started'))).count(),
+            'uncertain': WechatShareLog.query.filter_by(status='uncertain').count(),
             'sent_today': WechatShareLog.query.filter(
                 WechatShareLog.status == 'sent',
                 WechatShareLog.share_date == date.today(),
@@ -87,6 +92,7 @@ def register_wechat_share_routes(app):
             status_label=_wechat_share_log_status_label,
             trigger_label=_wechat_share_log_trigger_label,
             message_summary=_wechat_share_log_message_summary,
+            visible_message=visible_message,
             format_file_size=format_file_size,
         )
 

@@ -26,6 +26,7 @@ from flask_login import login_required
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 # no-test:reason=路由注册辅助函数，能力由 after_sale_out_* 各路由测试覆盖
@@ -394,7 +395,7 @@ def register_after_sale_out_routes(app):
                 if quantity <= 0:
                     return api_error(f'物料 {material_code} 的数量必须大于0')
                 price = parse_float_value(item_data.get('price'), material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 total_amount = round_to_2_decimals(total_amount + amount)
                 item = AfterSaleOutOrderItem(
                     after_sale_out_order_id=order.id,
@@ -667,7 +668,7 @@ def register_after_sale_out_routes(app):
             for item in source.items:
                 qty = round_to_2_decimals(item.quantity or 0)
                 price = round_to_2_decimals(item.price or 0)
-                amount = round_to_2_decimals(qty * price)
+                amount = round_money_product(qty, price)
                 db.session.add(AfterSaleOutOrderItem(
                     after_sale_out_order_id=new_order.id,
                     material_id=item.material_id,
@@ -908,7 +909,7 @@ def register_after_sale_out_routes(app):
                     warnings=warnings,
                 )
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 order.total_amount = (order.total_amount or 0) + amount
                 item_remark = (_get_excel_cell(row, col_map, 'remark') or '').strip() or None
                 db.session.add(AfterSaleOutOrderItem(

@@ -8,10 +8,12 @@ import time
 from pathlib import Path
 
 if __package__:
-    from .smoke_isolation import IsolatedSession, read_identity, validate_base_url
+    from .smoke_isolation import (IsolationError, IsolatedSession, read_identity,
+                                  receive_listener_capability, validate_base_url)
 else:
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from smoke_isolation import IsolatedSession, read_identity, validate_base_url
+    from smoke_isolation import (IsolationError, IsolatedSession, read_identity,
+                                 receive_listener_capability, validate_base_url)
 from urllib.parse import urljoin, urlsplit
 
 BASE = None
@@ -80,6 +82,8 @@ def get_warehouse_id():
         wid = _first_id(r.json())
         if wid:
             return wid
+    except IsolationError:
+        raise
     except Exception:
         pass
     # 无仓库则通过表单创建一个
@@ -96,25 +100,37 @@ def get_warehouse_id():
         }, allow_redirects=False)
         r = s.get(BASE + '/api/warehouses', timeout=10)
         return _first_id(r.json())
+    except IsolationError:
+        raise
     except Exception:
         return None
 
 
 def main(argv=None):
-    """Run only with the ready-file proof of a newly owned disposable server."""
-    global BASE, s, results
+    """Run only with a held listener passed by the owning launcher."""
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8', errors='backslashreplace')
     parser = argparse.ArgumentParser(description='隔离 WMS 全量冒烟测试')
     parser.add_argument('--isolation-file', required=True, help='隔离启动器生成的 ready.json')
     parser.add_argument('--base-url', help='可选；必须与隔离身份证明完全一致')
+    parser.add_argument('--listener-stdin', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    identity = read_identity(args.isolation_file)
-    if args.base_url and validate_base_url(args.base_url) != identity['base_url']:
-        parser.error('base URL does not match the owned isolated child')
+    if not args.listener_stdin:
+        parser.error('需要隔离启动器传入的监听句柄；回执文件不能单独授权请求')
+    listener, lease = receive_listener_capability(sys.stdin.buffer)
+    with listener:
+        identity = read_identity(args.isolation_file)
+        lease.validate(identity)
+        if args.base_url and validate_base_url(args.base_url) != identity['base_url']:
+            parser.error('base URL does not match the owned isolated child')
+        return _run_smoke(identity, lease)
+
+
+def _run_smoke(identity, lease):
+    global BASE, s, results
     BASE = identity['base_url']
-    s = IsolatedSession(identity)
+    s = IsolatedSession(identity, lease)
     results = []
     print(f'[smoke] owned isolated BASE = {BASE}')
     # ─────────── 1. 登录页 ───────────
@@ -268,6 +284,8 @@ def main(argv=None):
                 else:
                     note = r.text[:80].replace('\n', ' ')
             record(path, r.status_code, ok, note)
+        except IsolationError:
+            raise
         except Exception as e:
             record(path, 0, False, str(e)[:80])
 
@@ -323,6 +341,8 @@ def main(argv=None):
             if 'excel' in ct.lower() or 'spreadsheet' in ct.lower() or len(r.content) > 1000:
                 ok = True
             record(path, r.status_code, ok, note)
+        except IsolationError:
+            raise
         except Exception as e:
             record(path, 0, False, str(e)[:80])
 
@@ -367,11 +387,13 @@ def main(argv=None):
             try:
                 r.json()
                 note = 'json ok'
-            except:
+            except ValueError:
                 note = 'not json'
             if r.status_code == 401:
                 note = 'NOT LOGGED IN'
             record(path, r.status_code, ok, note)
+        except IsolationError:
+            raise
         except Exception as e:
             record(path, 0, False, str(e)[:80])
 

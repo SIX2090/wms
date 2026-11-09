@@ -229,7 +229,7 @@
                                             {% endfor %}
                                         </select>
                                     </td>
-                                    <td><input type="number" class="form-control form-control-sm" name="price" value="0" min="0" step="0.01"></td>
+                                    <td><input type="number" class="form-control form-control-sm" name="price" value="" min="0" step="0.01"></td>
                                     <td><input type="text" class="form-control form-control-sm" name="item_remark" placeholder="选填"></td>
                                     <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeItemRow(this)">删除</button></td>
                                 </tr>
@@ -314,7 +314,7 @@ function addItemRow() {
                 {% endfor %}
             </select>
         </td>
-        <td><input type="number" class="form-control form-control-sm" name="price" value="0" min="0" step="0.01"></td>
+        <td><input type="number" class="form-control form-control-sm" name="price" value="" min="0" step="0.01"></td>
         <td><input type="text" class="form-control form-control-sm" name="item_remark" placeholder="选填"></td>
         <td><button type="button" class="btn btn-sm btn-outline-danger" onclick="removeItemRow(this)">删除</button></td>
     </tr>`;
@@ -376,7 +376,8 @@ function bindMaterialInput(input) {
             if (selected.unit && selected.unit.id) {
                 $row.find('[name="unit_id"]').val(selected.unit.id);
             }
-            if (selected.price && (!$row.find('[name="price"]').val() || Number($row.find('[name="price"]').val()) === 0)) {
+            if (selected.price !== undefined && selected.price !== null && selected.price !== ''
+                && Number.isFinite(Number(selected.price)) && $row.find('[name="price"]').val() === '') {
                 $row.find('[name="price"]').val(selected.price);
             }
         } else {

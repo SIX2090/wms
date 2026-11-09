@@ -20,7 +20,7 @@
                 <i class="bi bi-printer"></i> 打印
             </button>
             <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" data-material-action="sendLabelsToPrintStation" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
-                <i class="bi bi-printer-fill"></i> 发送打印
+                <i class="bi bi-send"></i> 发送打印
             </button>
             <button type="button" class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" data-material-action="toolbarFindImage" disabled title="网上找图">
                 <i class="bi bi-image"></i> 找图
@@ -48,9 +48,9 @@
             </div>
             <div class="vr"></div>
             <button type="button" class="btn btn-warning btn-sm" data-material-action="fixEmptyFields">
-                <i class="bi bi-tools"></i> 修复空分类/单位
+                <i class="bi bi-arrow-repeat"></i> 修复空分类/单位
             </button>
-            <button type="button" class="btn btn-warning btn-sm" data-material-action="openLabelTemplate">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-material-action="openLabelTemplate">
                 <i class="bi bi-grid-3x3"></i> 标签模板
             </button>
             {# AI-CI-GREEN-005-F03：物料档案是设置最低库存/安全库存的地方，

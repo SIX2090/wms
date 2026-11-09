@@ -86,6 +86,7 @@ def check_add_stock_results_checked() -> tuple[bool, str]:
 
 def check_web_login_csrf() -> tuple[bool, str]:
     """LOGIN-CSRF-001: Web /login 必须校验 CSRF，原生 /api/login 可继续豁免。"""
+    raise SystemExit('安全阻断：动态登录验证尚未证明隔离')
     combined = routes_source()
     login_html = read_text("app/templates/login.html")
 
@@ -221,6 +222,7 @@ def check_mobile_archive_spec_wrap() -> tuple[bool, str]:
 
 
 def main() -> int:
+    raise SystemExit('安全阻断：验证子进程尚未证明隔离')
     app_py = read_text("app/app.py")
     config_py = read_text("app/config.py")
     utils_py = read_text("app/utils.py")

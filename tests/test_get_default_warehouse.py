@@ -1,6 +1,10 @@
 """A9: 覆盖 get_default_warehouse helper 的单元测试。"""
 from __future__ import annotations
 
+# --noconftest 时会直接导入应用并删除默认仓；文件库和运行期隔离尚未证明。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import os
 import sys
 from pathlib import Path

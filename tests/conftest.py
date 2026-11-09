@@ -12,13 +12,29 @@ conftest.py 先于一切测试模块导入，在此固定内存库环境，
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
+
+# 插件或 sitecustomize 预载应用或配置后，缓存可能已经选用了未知数据库。
+if "app" in sys.modules or "app.app" in sys.modules or "config" in sys.modules:
+    raise RuntimeError("测试启动已阻止：应用或配置在安全检查之前已被导入。")
+
+# pytest 主进程必须在导入 app 前拒绝未知数据库目标，不能仅依赖测试配置。
+# 文件库测试由各自隔离子进程创建；本入口不信任继承的文件路径或证明标志。
+for _database_key in ("DATABASE_URL", "WMS_DATABASE_URI"):
+    if os.environ.get(_database_key, "") not in ("", "sqlite:///:memory:"):
+        raise RuntimeError("测试启动已阻止：数据库目标必须为空或 sqlite:///:memory:。")
+for _database_key in ("DATABASE_URL", "WMS_DATABASE_URI"):
+    os.environ[_database_key] = "sqlite:///:memory:"
+
+# Only a verified, restricted runtime may import the application.
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
 
 # 审计 §3.3：app 导入期日志默认写 app/logs/app.log，测试会把生产日志淹没。
 # 测试进程改用临时日志文件；显式设置了 LOG_FILE 的环境保持不变。
 os.environ.setdefault("LOG_FILE", os.path.join(tempfile.gettempdir(), "wms_pytest_app.log"))
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
 os.environ.setdefault("WMS_DEBUG", "0")
 os.environ.setdefault("WMS_SKIP_AUTO_UPDATE", "1")
@@ -37,7 +53,6 @@ os.environ.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
 # 修复：conftest 抢先以模块语义导入 app（与所有业务测试一致），
 # 再补 __path__ 指向 APP_DIR，使 `import app.ai.xxx` /
 # `import app.fix_db_columns` 也能沿该路径解析，两种语义共存。
-import sys  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 _ROOT = Path(__file__).resolve().parent.parent

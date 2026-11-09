@@ -203,7 +203,7 @@ def test_api_request_uses_only_explicit_normal_token(scope,monkeypatch):
     def open_request(request,timeout):
         seen.append(request)
         return io.StringIO('{"total_count":0,"workflow_runs":[]}')
-    monkeypatch.setattr(scope.urllib.request,'urlopen',open_request)
+    monkeypatch.setattr(scope,'open_same_origin',open_request)
     scope.read_api('https://api.github.com/repos/SIX2090/wms/actions/runs','fixture-token')
     assert seen[0].get_header('Authorization')=='Bearer fixture-token'
     assert seen[0].get_header('Accept')=='application/vnd.github+json'

@@ -4,6 +4,10 @@
 审计 §5.4：旧端点无写锁/无幂等，网络重试会重复创建发料单并重复扣库存。
 修复后：加写锁 + 10 秒内相同明细视为重放，返回已创建单据。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import re
 import sys
 from datetime import datetime

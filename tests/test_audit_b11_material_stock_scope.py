@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """BUG-2026-10-17-015-F07（审计 B11）：单据页库存展示必须按仓库口径。"""
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import sys
 from datetime import datetime
 from pathlib import Path

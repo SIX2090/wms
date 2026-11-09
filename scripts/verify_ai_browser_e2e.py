@@ -20,6 +20,9 @@ verify_ai_*.py 脚本一致）。覆盖 5 类角色（admin/warehouse/purchase/p
 """
 from __future__ import annotations
 
+# 运维页面会枚举备份；在隔离应用与备份源被证明前不执行。
+raise SystemExit('安全阻断：浏览器验证的应用和备份目录隔离尚未证明')
+
 import os
 import sys
 from pathlib import Path

@@ -28,6 +28,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal, DecimalException, localcontext
+import math
 from typing import Any, Callable, Optional
 
 
@@ -64,6 +66,16 @@ VALID_OUTBOUND_STATUSES: frozenset[str] = frozenset({
 STOCK_COMPARE_EPSILON = 1e-6
 
 
+def _finite_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 # ---- 数据结构 ----
 
 @dataclass(frozen=True)
@@ -74,22 +86,32 @@ class SalesLineInfo:
     material_id: int
     material_code: str
     material_name: str
-    quantity: float
-    shipped_quantity: float
+    quantity: Optional[float]
+    shipped_quantity: Optional[float]
     price: float
     tax_rate: float = 0.13
 
     @property
-    def remaining_quantity(self) -> float:
-        return max(0.0, self.quantity - self.shipped_quantity)
+    def remaining_quantity(self) -> Optional[float]:
+        quantity = _finite_number(self.quantity)
+        shipped = _finite_number(self.shipped_quantity)
+        if quantity is None or shipped is None:
+            return None
+        difference = quantity - shipped
+        return max(0.0, difference) if math.isfinite(difference) else None
 
     @property
-    def tax_included_amount(self) -> float:
-        return round(self.quantity * self.price, 2)
+    def tax_included_amount(self) -> Optional[float]:
+        quantity, price = _finite_number(self.quantity), _finite_number(self.price)
+        if quantity is None or price is None:
+            return None
+        result = quantity * price
+        return round(result, 2) if math.isfinite(result) else None
 
     @property
     def is_fully_shipped(self) -> bool:
-        return self.shipped_quantity + STOCK_COMPARE_EPSILON >= self.quantity
+        quantity, shipped = _finite_number(self.quantity), _finite_number(self.shipped_quantity)
+        return quantity is not None and shipped is not None and shipped + STOCK_COMPARE_EPSILON >= quantity
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -97,11 +119,11 @@ class SalesLineInfo:
             'material_id': self.material_id,
             'material_code': self.material_code,
             'material_name': self.material_name,
-            'quantity': self.quantity,
-            'shipped_quantity': self.shipped_quantity,
-            'remaining_quantity': round(self.remaining_quantity, 6),
-            'price': self.price,
-            'tax_rate': self.tax_rate,
+            'quantity': _finite_number(self.quantity),
+            'shipped_quantity': _finite_number(self.shipped_quantity),
+            'remaining_quantity': round(self.remaining_quantity, 6) if self.remaining_quantity is not None else None,
+            'price': _finite_number(self.price),
+            'tax_rate': _finite_number(self.tax_rate),
             'tax_included_amount': self.tax_included_amount,
             'is_fully_shipped': self.is_fully_shipped,
         }
@@ -118,7 +140,7 @@ class SalesOrderInfo:
     customer_name: str
     lines: tuple[SalesLineInfo, ...]
     total_amount: float = 0.0
-    shipped_amount: float = 0.0
+    shipped_amount: Optional[float | Decimal] = None
 
     @property
     def is_draft(self) -> bool:
@@ -138,9 +160,23 @@ class SalesOrderInfo:
 
     @property
     def has_remaining(self) -> bool:
-        return any(line.remaining_quantity > STOCK_COMPARE_EPSILON for line in self.lines)
+        return any(line.remaining_quantity is not None and line.remaining_quantity > STOCK_COMPARE_EPSILON
+                   for line in self.lines)
 
     def to_dict(self) -> dict[str, Any]:
+        # 非有限数无法作为有效 JSON 金额输出；沿用数字回退并标记不可用。
+        try:
+            shipped_amount = (float(self.shipped_amount)
+                              if self.shipped_amount is not None and not isinstance(self.shipped_amount, bool)
+                              else None)
+            if shipped_amount is not None:
+                exact = Decimal(str(self.shipped_amount))
+                if (not math.isfinite(shipped_amount) or not exact.is_finite()
+                        or len(exact.as_tuple().digits) > 400 or abs(exact.as_tuple().exponent) > 400
+                        or exact.copy_abs() > Decimal('9999999999999999.99')):
+                    shipped_amount = None
+        except (DecimalException, TypeError, ValueError, OverflowError):
+            shipped_amount = None
         return {
             'order_id': self.order_id,
             'order_no': self.order_no,
@@ -149,9 +185,14 @@ class SalesOrderInfo:
             'customer_name': self.customer_name,
             'lines': [line.to_dict() for line in self.lines],
             'total_amount': self.total_amount,
-            'shipped_amount': self.shipped_amount,
+            # 兼容原接口数值类型，同时明确区分缺失与真实零值。
+            'shipped_amount': shipped_amount if shipped_amount is not None else 0.0,
+            'shipped_amount_known': shipped_amount is not None,
+            # 旧数值字段保留兼容；精确字符串避免大额 Numeric 经 float 丢分。
+            'shipped_amount_exact': str(self.shipped_amount) if shipped_amount is not None else None,
             'is_draft': self.is_draft,
             'has_remaining': self.has_remaining,
+            'quantity_known': all(line.remaining_quantity is not None for line in self.lines),
         }
 
 
@@ -169,6 +210,18 @@ class OutboundDraftInfo:
     business_type: str = '销售出库'
 
     def to_dict(self) -> dict[str, Any]:
+        lines = []
+        for line in self.lines:
+            serialized = dict(line)
+            for field in ('quantity', 'price'):
+                if field in serialized:
+                    serialized[field] = _finite_number(serialized[field])
+            amount = serialized.get('amount')
+            if isinstance(amount, Decimal):
+                serialized['amount'] = str(amount) if amount.is_finite() else None
+            elif isinstance(amount, float) and not math.isfinite(amount):
+                serialized['amount'] = None
+            lines.append(serialized)
         return {
             'outbound_id': self.outbound_id,
             'order_no': self.order_no,
@@ -176,7 +229,7 @@ class OutboundDraftInfo:
             'source_sales_order_id': self.source_sales_order_id,
             'source_sales_order_no': self.source_sales_order_no,
             'customer_name': self.customer_name,
-            'lines': list(self.lines),
+            'lines': lines,
             'business_type': self.business_type,
         }
 
@@ -254,33 +307,41 @@ class SalesReconciliationResult:
 
     order_id: int
     order_no: str
-    order_total_quantity: float
-    order_shipped_quantity: float
-    outbound_completed_quantity: float
-    inventory_delta: float
+    order_total_quantity: Optional[float]
+    order_shipped_quantity: Optional[float]
+    outbound_completed_quantity: Optional[float]
+    inventory_delta: Optional[float]
     quantity_consistent: bool
     amount_consistent: bool
-    quantity_diff: float
-    amount_diff: float
+    quantity_diff: Optional[float]
+    amount_diff: Optional[float]
     details: tuple[str, ...]
+    inventory_confirmed: Optional[bool] = None
 
     @property
     def is_reconciled(self) -> bool:
-        return self.quantity_consistent and self.amount_consistent
+        return self.quantity_consistent and self.amount_consistent and self.inventory_confirmed is not False
 
     def to_dict(self) -> dict[str, Any]:
+        try:
+            amount_diff = float(self.amount_diff) if self.amount_diff is not None else None
+            if amount_diff is not None and not math.isfinite(amount_diff):
+                amount_diff = None
+        except (TypeError, ValueError, OverflowError):
+            amount_diff = None
         return {
             'order_id': self.order_id,
             'order_no': self.order_no,
-            'order_total_quantity': round(self.order_total_quantity, 6),
-            'order_shipped_quantity': round(self.order_shipped_quantity, 6),
-            'outbound_completed_quantity': round(self.outbound_completed_quantity, 6),
-            'inventory_delta': round(self.inventory_delta, 6),
+            'order_total_quantity': round(self.order_total_quantity, 6) if self.order_total_quantity is not None else None,
+            'order_shipped_quantity': round(self.order_shipped_quantity, 6) if self.order_shipped_quantity is not None else None,
+            'outbound_completed_quantity': round(self.outbound_completed_quantity, 6) if self.outbound_completed_quantity is not None else None,
+            'inventory_delta': round(self.inventory_delta, 6) if self.inventory_delta is not None else None,
             'quantity_consistent': self.quantity_consistent,
             'amount_consistent': self.amount_consistent,
-            'quantity_diff': round(self.quantity_diff, 6),
-            'amount_diff': round(self.amount_diff, 2),
+            'quantity_diff': round(self.quantity_diff, 6) if self.quantity_diff is not None else None,
+            'amount_diff': round(amount_diff, 2) if amount_diff is not None else None,
             'details': list(self.details),
+            'inventory_confirmed': self.inventory_confirmed,
             'is_reconciled': self.is_reconciled,
         }
 
@@ -354,6 +415,8 @@ def _determine_action_requested(
     if operation == 'check_draft':
         if sales_order and sales_order.is_draft:
             return 'confirm_draft_manually'
+        if sales_order and any(line.remaining_quantity is None for line in sales_order.lines):
+            return 'review_sales_draft'
         if sales_order and sales_order.has_remaining:
             return 'create_outbound_draft_manually'
         return 'no_action_needed'
@@ -396,6 +459,10 @@ def calculate_partial_shipment(
 
         if not line:
             exceed_details.append(f'行 {line_id} 不存在')
+            continue
+
+        if line.remaining_quantity is None:
+            exceed_details.append(f'行 {line_id} 数量无效，需人工核对')
             continue
 
         if req_qty <= 0:
@@ -485,6 +552,9 @@ def validate_multiple_shipments(
         if not order_line:
             violations.append(f'物料 {material_id} 不在销售订单中')
             continue
+        if _finite_number(order_line.quantity) is None:
+            violations.append(f'物料 {material_id} 订单数量无效，需人工核对')
+            continue
         if shipped_qty > order_line.quantity + STOCK_COMPARE_EPSILON:
             violations.append(
                 f'物料 {material_id} 累计发货 {shipped_qty:.2f} '
@@ -526,65 +596,126 @@ def reconcile_sales_report(
 
     details = []
 
-    # 1. 订单总数量和已发货数量
-    order_total_qty = sum(line.quantity for line in sales_order.lines)
-    order_shipped_qty = sum(line.shipped_quantity for line in sales_order.lines)
+    def sum_quantities(values):
+        total = 0.0
+        for value in values:
+            if value is None or isinstance(value, bool):
+                return None
+            try:
+                value = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if not math.isfinite(value):
+                return None
+            total += value
+            if not math.isfinite(total):
+                return None
+        return total
 
-    # 2. 出库完成数量
-    outbound_completed_qty = 0.0
-    for outbound in outbound_drafts:
-        if outbound.status == 'completed':
-            for line in outbound.lines:
-                outbound_completed_qty += float(line.get('quantity', 0))
+    # 无法确认数量时不能用零替代或声称核对通过。
+    order_total_qty = sum_quantities(line.quantity for line in sales_order.lines)
+    order_shipped_qty = sum_quantities(line.shipped_quantity for line in sales_order.lines)
+    outbound_completed_qty = sum_quantities(
+        line.get('quantity') for outbound in outbound_drafts if outbound.status == 'completed'
+        for line in outbound.lines)
 
     # 3. 库存变动（如果提供了查询回调）
-    inventory_delta = 0.0
+    inventory_delta = None
+    inventory_confirmed = None
     if query_inventory_delta:
+        inventory_delta = 0.0
+        seen_materials = set()
         for line in sales_order.lines:
+            if line.material_id in seen_materials:
+                continue
+            seen_materials.add(line.material_id)
             try:
                 delta = query_inventory_delta(line.material_id, warehouse_id)
+                if delta is None or isinstance(delta, bool):
+                    raise ValueError('库存变动缺失')
+                delta = float(delta)
+                if not math.isfinite(delta):
+                    raise ValueError('库存变动无效')
                 inventory_delta += abs(delta)  # 出库为负，取绝对值
+                if not math.isfinite(inventory_delta):
+                    raise ValueError('库存变动超出范围')
             except Exception:
-                details.append(f'物料 {line.material_id} 库存查询失败')
+                inventory_confirmed = False
+                inventory_delta = None
+                details.append(f'物料 {line.material_id} 库存查询失败或数据无效，需人工核对')
+                break
+        if inventory_confirmed is None:
+            details.append('库存流水查询范围未确认，需人工核对')
 
     # 4. 对账
-    quantity_diff = abs(order_shipped_qty - outbound_completed_qty)
-    quantity_consistent = quantity_diff <= STOCK_COMPARE_EPSILON
+    quantity_diff = (abs(order_shipped_qty - outbound_completed_qty)
+                     if order_total_qty is not None and order_shipped_qty is not None
+                     and outbound_completed_qty is not None else None)
+    if quantity_diff is not None and not math.isfinite(quantity_diff):
+        quantity_diff = None
+    quantity_consistent = quantity_diff is not None and quantity_diff <= STOCK_COMPARE_EPSILON
 
-    # 金额对账：订单 shipped_amount vs 出库完成金额
-    order_shipped_amount = sum(
-        line.shipped_quantity * line.price for line in sales_order.lines
-    )
-    outbound_completed_amount = 0.0
-    for outbound in outbound_drafts:
-        if outbound.status == 'completed':
-            for line in outbound.lines:
-                qty = float(line.get('quantity', 0))
-                price = float(line.get('price', 0))
-                outbound_completed_amount += qty * price
+    # 使用已保存金额；行拆分或人工调整可能使数量乘单价与存档不一致。
+    # 缺失值与真实零金额不同，缺少可靠金额时只能提示人工核对。
+    def decimal_amount(value):
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            amount = Decimal(str(value))
+            if (not amount.is_finite() or not math.isfinite(float(amount))
+                    or len(amount.as_tuple().digits) > 400
+                    or abs(amount.as_tuple().exponent) > 400
+                    or amount.copy_abs() > Decimal('9999999999999999.99')):
+                return None
+        except (DecimalException, OverflowError, TypeError, ValueError):
+            return None
+        return amount
 
-    amount_diff = abs(order_shipped_amount - outbound_completed_amount)
-    amount_consistent = amount_diff <= 0.01  # 金额容差 1 分
+    order_shipped_amount = decimal_amount(sales_order.shipped_amount)
+    outbound_amounts = [decimal_amount(line.get('amount'))
+                        for outbound in outbound_drafts if outbound.status == 'completed'
+                        for line in outbound.lines]
+    amount_diff = None
+    amount_consistent = False
+    if order_shipped_amount is not None and all(value is not None for value in outbound_amounts):
+        try:
+            # 足够覆盖 Float 的全部有效指数及 Numeric(18,2) 的比较；
+            # 不得让默认 28 位精度吞掉大金额的一分差。
+            with localcontext() as context:
+                context.prec = 1000
+                outbound_completed_amount = sum(outbound_amounts, Decimal('0'))
+                exact_difference = abs(order_shipped_amount - outbound_completed_amount)
+            candidate_difference = float(exact_difference)
+            if math.isfinite(candidate_difference):
+                amount_diff = candidate_difference
+                amount_consistent = exact_difference <= Decimal('0.01')
+        except (DecimalException, OverflowError, ValueError):
+            pass
 
-    if not quantity_consistent:
+    if quantity_diff is None:
+        details.append('数量信息缺失或无效，需人工核对')
+    elif not quantity_consistent:
         details.append(
             f'数量不一致：订单已发 {order_shipped_qty:.2f} vs '
             f'出库完成 {outbound_completed_qty:.2f}，差 {quantity_diff:.2f}'
         )
 
-    if not amount_consistent:
+    if amount_diff is None:
+        details.append('金额信息缺失或无效，需人工核对')
+    elif not amount_consistent:
         details.append(
             f'金额不一致：订单已发金额 {order_shipped_amount:.2f} vs '
             f'出库完成金额 {outbound_completed_amount:.2f}，差 {amount_diff:.2f}'
         )
 
-    if inventory_delta > 0 and not quantity_consistent:
+    if (inventory_delta is not None and inventory_delta > 0 and not quantity_consistent
+            and outbound_completed_qty is not None):
         details.append(
             f'库存变动 {inventory_delta:.2f} 与出库完成量 {outbound_completed_qty:.2f} 不一致'
         )
 
-    if quantity_consistent and amount_consistent:
-        details.append('对账通过')
+    if quantity_consistent and amount_consistent and inventory_confirmed is not False:
+        details.append('数量和金额对账通过；库存未核验')
 
     return SalesReconciliationResult(
         order_id=sales_order.order_id,
@@ -598,6 +729,7 @@ def reconcile_sales_report(
         quantity_diff=quantity_diff,
         amount_diff=amount_diff,
         details=tuple(details),
+        inventory_confirmed=inventory_confirmed,
     )
 
 
@@ -646,6 +778,9 @@ def validate_shipment_not_exceed_order(
         if not line:
             return False, f'行 {line_id} 不存在'
 
+        if line.remaining_quantity is None:
+            return False, f'行 {line_id} 数量无效，需人工核对'
+
         if qty > line.remaining_quantity + STOCK_COMPARE_EPSILON:
             return (
                 False,
@@ -666,5 +801,5 @@ def validate_sales_report_consistency(
         outbound_drafts=outbound_drafts,
     )
     if result.is_reconciled:
-        return True, '销售报表一致性校验通过'
+        return True, '销售数量和金额一致；库存未核验'
     return False, '; '.join(result.details)

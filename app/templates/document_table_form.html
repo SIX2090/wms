@@ -639,7 +639,7 @@ function calcRow(row) {
     } else {
         const qty = parseFloat(row.querySelector('.line-qty')?.value) || 0;
         const price = parseFloat(row.querySelector('.line-price')?.value) || 0;
-        row.querySelector('.line-amount') && (row.querySelector('.line-amount').value = formatQty(qty * price));
+        row.querySelector('.line-amount') && (row.querySelector('.line-amount').value = formatQty(window.WMSMoney.product(qty, price)));
     }
     calcTotal();
 }
@@ -814,11 +814,19 @@ function escapeHtmlText(s){
         return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
 }
-// BUG-2026-09-06-001/002：完成前风险二次确认。后端返回 status='confirm'
-// 时不直接完成，列出风险明细由人工判断；点「仍要完成」带 force=1 重发。
-function runComplete(actionUrl, force, orderId) {
+// BUG-2026-09-06-001/002：完成前风险二次确认；盘点确认还需携带后端风险快照令牌。
+function runComplete(actionUrl, force, orderId, confirmationToken) {
     if (!documentRoleAllowed || readonly || !beginDocumentAction()) return Promise.resolve();
-    return WMS.api.postRaw(actionUrl, {force: !!force})
+    const body = {force: !!force};
+    if (docType === 'check' && force) {
+        if (typeof confirmationToken !== 'string' || !confirmationToken.trim()) {
+            endDocumentAction();
+            showToast('盘点确认信息缺失，请返回后重新完成盘点。', 'danger');
+            return Promise.resolve();
+        }
+        body.confirmation_token = confirmationToken;
+    }
+    return WMS.api.postRaw(actionUrl, body)
         .then(done => {
             if (!done) throw new Error('服务器返回无效数据');
             if (done.status === 'success') {
@@ -855,6 +863,9 @@ function runComplete(actionUrl, force, orderId) {
         .finally(endDocumentAction);
 }
 function showCompleteConfirm(payload, actionUrl, orderId) {
+    const confirmationToken = payload.confirmation_token;
+    const missingCheckToken = docType === 'check' &&
+        (typeof confirmationToken !== 'string' || !confirmationToken.trim());
     const samples = Array.isArray(payload.samples) ? payload.samples : [];
     // BUG-2026-09-06-002：动销样例带 net 字段（正负数），渲染时附加。
     const rows = samples.map(function(s){
@@ -879,15 +890,16 @@ function showCompleteConfirm(payload, actionUrl, orderId) {
     modal.innerHTML = '<div style="background:#fff;border-radius:8px;padding:22px;width:560px;max-width:92%;max-height:82vh;display:flex;flex-direction:column;">'
         + '<h5 style="margin:0 0 12px;font-size:16px;font-weight:600;">完成前请确认</h5>'
         + '<div style="color:#333;font-size:13px;line-height:1.7;margin-bottom:10px;">' + escapeHtmlText(payload.msg) + '</div>'
+        + (missingCheckToken ? '<div style="color:#b02a37;">盘点确认信息缺失，请返回后重新完成盘点。</div>' : '')
         + (rows ? '<div style="font-size:13px;color:#666;margin-bottom:6px;">涉及明细' + countLine + '：</div>'
                   + '<ul style="font-size:12px;color:#555;max-height:220px;overflow:auto;margin:0 0 12px;padding-left:20px;">' + rows + '</ul>' : '')
         + '<div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">'
         + '<button type="button" class="btn btn-secondary" onclick="document.getElementById(\'completeConfirmModal\').remove()">返回继续盘点</button>'
-        + '<button type="button" class="btn btn-success" id="forceCompleteBtn">仍要完成</button></div></div>';
+        + '<button type="button" class="btn btn-success" id="forceCompleteBtn"' + (missingCheckToken ? ' disabled' : '') + '>仍要完成</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('forceCompleteBtn').onclick = function () {
         modal.remove();
-        runComplete(actionUrl, true, orderId);
+        runComplete(actionUrl, true, orderId, confirmationToken);
     };
 }
 function completeDocument() {

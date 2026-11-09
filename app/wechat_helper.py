@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ctypes
 import io
+import ipaddress
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 from ctypes import wintypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 # cgi 模块在 Python 3.13 被移除，改用标准库 email 解析 multipart/form-data
 from email.parser import BytesParser
 from email.policy import default as default_email_policy
@@ -447,46 +448,123 @@ def helper_headers() -> dict[str, str]:
     return {"X-Wechat-Helper-Token": WMS_HELPER_TOKEN}
 
 
+def _wms_origin(url: str):
+    """返回 URL 的规范来源；拒绝用户信息和无法验证的地址。"""
+    if not isinstance(url, str) or any(ord(ch) < 32 or ord(ch) == 127 for ch in url):
+        raise ValueError("微信助手拒绝无效的 WMS 地址")
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+        if (parsed.scheme not in ("http", "https") or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or port == 0):
+            raise ValueError
+        host = parsed.hostname
+        try:
+            host = str(ipaddress.ip_address(host))
+        except ValueError:
+            pass
+        return parsed.scheme, host, port or (80 if parsed.scheme == "http" else 443)
+    except ValueError:
+        raise ValueError("微信助手拒绝无效的 WMS 地址") from None
+
+
 def absolute_wms_url(url: str) -> str:
+    if not isinstance(url, str) or url.startswith("//"):
+        raise ValueError("微信助手拒绝跨源任务地址")
+    base_origin = _wms_origin(WMS_BASE_URL)
     if url.startswith("http://") or url.startswith("https://"):
-        return url
-    return urljoin(WMS_BASE_URL + "/", url.lstrip("/"))
+        target = url
+    else:
+        target = urljoin(WMS_BASE_URL + "/", url.lstrip("/"))
+    if _wms_origin(target) != base_origin:
+        raise ValueError("微信助手拒绝跨源任务地址")
+    return target
+
+
+class _WmsSession(requests.Session):
+    """认证令牌只发往配置的 WMS 来源，包括每一跳重定向。"""
+
+    def send(self, request, **kwargs):
+        if _wms_origin(request.url) != _wms_origin(WMS_BASE_URL):
+            raise ValueError("微信助手拒绝跨源重定向")
+        return super().send(request, **kwargs)
+
+
+class _WmsReportUncertain(RuntimeError):
+    """任务结果回报未确认，停止自动轮询并等待人工核对。"""
+
+
+def _require_wms_response(response):
+    if 300 <= response.status_code < 400:
+        raise ValueError("微信助手拒绝未完成的重定向")
+    response.raise_for_status()
+
+
+def _require_wms_report_response(response):
+    _require_wms_response(response)
+    try:
+        payload = response.json()
+    except ValueError:
+        raise ValueError("微信助手回报响应无效，请人工核对") from None
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        raise ValueError("微信助手回报未确认，请人工核对")
 
 
 def poll_once() -> int:
-    tasks_url = f"{WMS_BASE_URL}/api/wechat_helper/tasks"
-    response = requests.get(tasks_url, headers=helper_headers(), params={"limit": 3}, timeout=20, proxies=_LOOPBACK_NO_PROXY)
-    response.raise_for_status()
-    payload = response.json()
-    if payload.get("status") != "success":
-        raise RuntimeError(payload.get("msg") or "task query failed")
-    tasks = payload.get("tasks") or []
-    processed = 0
-    for task in tasks:
-        task_id = task.get("id")
-        report_url = absolute_wms_url(task.get("report_url") or f"/api/wechat_helper/task/{task_id}/report")
-        try:
-            image_url = absolute_wms_url(task.get("image_url") or f"/api/wechat_helper/task/{task_id}/image")
-            image_response = requests.get(image_url, headers=helper_headers(), timeout=30, proxies=_LOOPBACK_NO_PROXY)
-            image_response.raise_for_status()
-            status, code, message = send_image_task(image_response.content, task)
-            requests.post(report_url, headers=helper_headers(), json={"status": status, "code": code, "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY).raise_for_status()
+    with _WmsSession() as session:
+        tasks_url = f"{WMS_BASE_URL}/api/wechat_helper/tasks"
+        poll_headers = {**helper_headers(), 'X-Wechat-Helper-Protocol': '2'}
+        response = session.get(tasks_url, headers=poll_headers, params={"limit": 3}, timeout=20, proxies=_LOOPBACK_NO_PROXY, allow_redirects=False)
+        _require_wms_response(response)
+        payload = response.json()
+        if payload.get("status") != "success":
+            raise RuntimeError(payload.get("msg") or "task query failed")
+        tasks = payload.get("tasks") or []
+        processed = 0
+        for task in tasks:
+            task_id = task.get("id")
+            token = task.get('claim_token')
+            if (not isinstance(task_id, int) or isinstance(task_id, bool) or task_id <= 0
+                    or not isinstance(token, str) or len(token) != 64
+                    or any(ch not in '0123456789abcdef' for ch in token)):
+                raise _WmsReportUncertain('任务领取证明无效，请人工核对')
+            claim_headers = {**helper_headers(), 'X-Wechat-Task-Claim': token}
+            report_url = absolute_wms_url(f"/api/wechat_helper/task/{task_id}/report")
+            try:
+                image_url = absolute_wms_url(f"/api/wechat_helper/task/{task_id}/image")
+                image_response = session.get(image_url, headers=claim_headers, timeout=30, proxies=_LOOPBACK_NO_PROXY, allow_redirects=False)
+                _require_wms_response(image_response)
+                status, code, message = send_image_task(image_response.content, task)
+            except Exception as exc:
+                message = f"本机微信助手发送失败：{exc}"
+                try:
+                    report_response = session.post(report_url, headers=claim_headers, json={"status": "failed", "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY, allow_redirects=False)
+                    _require_wms_report_response(report_response)
+                except Exception as report_exc:
+                    raise _WmsReportUncertain(f"任务 {task_id} 失败状态未确认，请人工核对") from report_exc
+                logger.error("[poll] task %s failed: %s", task_id, exc)
+                continue
+            try:
+                report_response = session.post(report_url, headers=claim_headers, json={"status": status, "code": code, "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY, allow_redirects=False)
+                _require_wms_report_response(report_response)
+            except Exception as exc:
+                # 图片可能已发送，回报失败不能改报 failed 或进入下一轮自动重发。
+                raise _WmsReportUncertain(f"任务 {task_id} 结果未确认，请人工核对") from exc
             processed += 1
             logger.info("[poll] task %s: %s(%s) %s", task_id, status, code, message)
-        except Exception as exc:
-            message = f"本机微信助手发送失败：{exc}"
-            try:
-                requests.post(report_url, headers=helper_headers(), json={"status": "failed", "msg": message}, timeout=20, proxies=_LOOPBACK_NO_PROXY)
-            except Exception:
-                pass
-            logger.error("[poll] task %s failed: %s", task_id, exc)
-    return processed
+        return processed
 
 
 def poll_loop() -> None:
+    global POLL_ENABLED
     while True:
         try:
             poll_once()
+        except _WmsReportUncertain as exc:
+            POLL_ENABLED = False
+            logger.error("[poll] %s；已停止自动轮询，请人工核对后再启动", exc)
+            return
         except Exception as exc:
             logger.error("[poll] %s", exc)
         time.sleep(POLL_INTERVAL)

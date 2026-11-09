@@ -60,6 +60,7 @@ import time
 import urllib.error
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlsplit
 
 AGENT_VERSION = "1.0.0"
 
@@ -113,15 +114,38 @@ def load_config(args: argparse.Namespace) -> dict:
 # ==================== HTTP ====================
 
 class _PostRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """重定向时保持 POST 方法。
+    """限定令牌的跳转目标，同时保留原 POST 方法及内容。
 
     服务器常见 http→https 301 跳转，urllib 默认跟随 301/302 会把 POST
-    降级为 GET，POST-only 的 agent API 随即返回 405。此处对 POST 请求
-    强制以 POST 重发到新地址。"""
+    降级为 GET；仅允许同源及同主机安全升级，不把令牌转发到其他服务。
+    同主机升级仅支持同端口或标准 80→443；不明端口需先修正代理配置。"""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            source = urlsplit(req.full_url)
+            target = urlsplit(newurl)
+            source_port = source.port if source.port is not None else {'http': 80, 'https': 443}.get(source.scheme)
+            target_port = target.port if target.port is not None else {'http': 80, 'https': 443}.get(target.scheme)
+            same_host = bool(source.hostname) and source.hostname == target.hostname
+            same_origin = source.scheme == target.scheme and source_port == target_port
+            safe_upgrade = (source.scheme == 'http' and target.scheme == 'https'
+                            and (source_port == target_port or (source_port, target_port) == (80, 443)))
+            safe = (source.scheme in ('http', 'https') and target.scheme in ('http', 'https')
+                    and source_port and target_port and same_host and (same_origin or safe_upgrade)
+                    and source.username is None and target.username is None)
+        except ValueError:
+            safe = False
+        if not safe:
+            log.error("打印代理拒绝不安全的服务器重定向，请核对服务器地址及协议")
+            raise urllib.error.HTTPError(req.full_url, code, '不安全的打印代理重定向', headers, fp)
         new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new_req is not None and req.get_method() == "POST":
+            # urllib 的默认处理会丢弃 POST 内容及 Content-Type；复制业务负载，
+            # Content-Length 由 urllib 根据实际数据重新计算。
+            new_req.data = req.data
+            content_type = req.get_header('Content-type')
+            if content_type is not None:
+                new_req.add_header('Content-Type', content_type)
             new_req.get_method = lambda: "POST"
         return new_req
 
@@ -150,22 +174,12 @@ def api_call(server_url: str, token: str, path: str, payload: dict | None = None
         return e.code, _parse_json(e.read())
     except urllib.error.URLError as e:
         if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
-            # Win7 等老系统根证书过期导致 https 验证失败：内部打印系统
-            # 降级为不验证证书重试一次（打警告），不阻断打印链路。
-            log.warning("SSL 证书验证失败（老系统根证书过期），降级为不验证证书重试")
-            ctx = ssl._create_unverified_context()
-            opener = urllib.request.build_opener(
-                _PostRedirectHandler, urllib.request.HTTPSHandler(context=ctx))
-            try:
-                with opener.open(req, timeout=15) as resp:
-                    return resp.status, _parse_json(resp.read())
-            except urllib.error.HTTPError as e2:
-                return e2.code, _parse_json(e2.read())
-            except (urllib.error.URLError, OSError, TimeoutError) as e2:
-                log.error("无法连接服务器 %s：%s", server_url, e2)
-                return 0, {}
+            log.error("服务器证书验证失败，请检查证书有效期、域名和系统 CA 信任链；请求已停止")
             return 0, {}
         log.error("无法连接服务器 %s：%s", server_url, e)
+        return 0, {}
+    except ValueError:
+        log.error("服务器地址或重定向地址无效，请核对打印代理配置")
         return 0, {}
     except (OSError, TimeoutError) as e:
         log.error("无法连接服务器 %s：%s", server_url, e)

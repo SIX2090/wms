@@ -1,14 +1,149 @@
 """Shared sales-report page collectors and read-only template outputs."""
 from __future__ import annotations
 
+from utils import round_money_product
 import io
+import math
 from datetime import date
+from decimal import Decimal, DecimalException, ROUND_HALF_UP, localcontext
 from pathlib import Path
 from types import SimpleNamespace
 
 from flask import current_app, flash, jsonify, redirect, request, url_for
 
 from db import db
+
+
+_RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE = (
+    '仓库归属无法确认的历史销售单可能不在当前仓库报表内，请在有权限的单据入口核对。'
+)
+
+
+def _reconciliation_amounts(order_amount, completed_amounts):
+    """Return signed amount difference and inclusive one-cent comparison.
+
+    Unknown or invalid stored amounts cannot establish reconciliation.
+    """
+    def _checked(value):
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            result = Decimal(str(value))
+            if (not result.is_finite() or not math.isfinite(float(result))
+                    or len(result.as_tuple().digits) > 400
+                    or abs(result.as_tuple().exponent) > 400
+                    or result.copy_abs() > Decimal('9999999999999999.99')):
+                return None
+            return result
+        except (DecimalException, TypeError, ValueError, OverflowError):
+            return None
+
+    header = _checked(order_amount)
+    lines = [_checked(value) for value in completed_amounts]
+    if header is None or any(value is None for value in lines):
+        return None, False
+    try:
+        with localcontext() as context:
+            context.prec = 1000
+            difference = header - sum(lines, Decimal('0'))
+            display = difference.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+            return display, difference.copy_abs() <= Decimal('0.01')
+    except (DecimalException, OverflowError, ValueError):
+        return None, False
+
+
+def _reconciliation_excel_amount(value):
+    """Keep ordinary cells numeric; use exact text beyond Excel's 15 digits."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        amount = Decimal(str(value))
+        if (not amount.is_finite() or len(amount.as_tuple().digits) > 400
+                or abs(amount.as_tuple().exponent) > 400):
+            return None
+        numeric = float(amount)
+        if not math.isfinite(numeric):
+            return None
+        if len(amount.as_tuple().digits) > 15 or Decimal(str(numeric)) != amount:
+            return format(amount, 'f')
+        return numeric
+    except (DecimalException, OverflowError, TypeError, ValueError):
+        return None
+
+
+def _reconciliation_quantities(shipped_values, completed_values, epsilon):
+    """Sum known quantities without converting missing or nonfinite values to zero."""
+    def _total(values):
+        result = 0.0
+        for value in values:
+            if value is None or isinstance(value, bool):
+                return None
+            try:
+                number = float(value)
+            except (TypeError, ValueError, OverflowError):
+                return None
+            if not math.isfinite(number):
+                return None
+            result += number
+            if not math.isfinite(result):
+                return None
+        try:
+            Decimal(str(result)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        except DecimalException:
+            return None
+        return result
+    shipped = _total(shipped_values)
+    completed = _total(completed_values)
+    if shipped is None or completed is None:
+        return shipped, completed, None, False
+    difference = shipped - completed
+    if not math.isfinite(difference):
+        return shipped, completed, None, False
+    try:
+        Decimal(str(difference)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+    except DecimalException:
+        return shipped, completed, None, False
+    return shipped, completed, difference, abs(difference) <= epsilon
+
+
+def _reconciliation_warehouse_filter(sales_order, selected):
+    """Keep explicit IDs authoritative and include legacy name or code candidates."""
+    from sqlalchemy import func
+    # SQL 标准 TRIM 默认去除普通空格；后验解析使用同一口径。
+    aliases = tuple(value.strip(' ') for value in (selected.name, selected.code)
+                    if isinstance(value, str) and value.strip(' '))
+    return db.or_(sales_order.warehouse_id == selected.id,
+                  db.and_(sales_order.warehouse_id.is_(None), func.trim(sales_order.warehouse).in_(aliases)))
+
+
+def _reconciliation_warehouse_aliases(warehouses):
+    """Build one alias map per report, retaining collisions as multiple IDs."""
+    aliases = {}
+    for warehouse in warehouses:
+        for value in (warehouse.name, warehouse.code):
+            if isinstance(value, str) and value.strip(' '):
+                aliases.setdefault(value.strip(' '), set()).add(warehouse.id)
+    return aliases
+
+
+def _reconciliation_warehouse_issue(order, selected, aliases):
+    """Only uniquely mapped names/codes can establish a shared warehouse."""
+    def _matches(value):
+        if not isinstance(value, str) or not value.strip(' '):
+            return False
+        return aliases.get(value.strip(' ')) == {selected.id}
+
+    if order.warehouse_id is not None and order.warehouse_id != selected.id:
+        return '订单仓库与筛选仓库不一致'
+    if order.warehouse_id is None:
+        if not _matches(order.warehouse):
+            return '历史订单仓库归属不明确'
+    elif order.warehouse and not _matches(order.warehouse):
+        return '订单仓库名称或编码与仓库 ID 不一致或有歧义'
+    for outbound in order.outbound_orders:
+        if outbound.status == 'completed' and not _matches(outbound.warehouse):
+            return '已完成出库单跨仓或仓库归属不明确'
+    return None
 
 
 def sales_reconciliation_context():
@@ -23,34 +158,44 @@ def sales_reconciliation_context():
         orders = []
     else:
         query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
-        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+        query = query.filter(_reconciliation_warehouse_filter(SalesOrder, selected_warehouse))
         orders = query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
+    aliases = _reconciliation_warehouse_aliases(Warehouse.query.all()) if selected_warehouse else {}
     rows = []
     for order in orders:
         completed_orders = [outbound for outbound in order.outbound_orders if outbound.status == 'completed']
-        completed_qty = 0
-        completed_amount = 0
+        warehouse_reason = _reconciliation_warehouse_issue(order, selected_warehouse, aliases)
+        completed_quantities = []
+        completed_amounts = []
         inventory_qty = 0
-        for outbound in completed_orders:
+        for outbound in completed_orders if not warehouse_reason else ():
             for item in outbound.items:
                 if item.source_sales_order_item_id:
                     source = db.session.get(SalesOrderItem, item.source_sales_order_item_id)
                     if not source or source.sales_order_id != order.id:
                         continue
-                completed_qty += float(item.quantity or 0)
-                completed_amount += float(item.amount or 0)
+                completed_quantities.append(item.quantity)
+                completed_amounts.append(item.amount)
                 inventory_qty += abs(float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == outbound.id, StockTransaction.material_id == item.material_id, StockTransaction.transaction_type == 'out').scalar() or 0))
-        shipped_qty = sum((float(item.shipped_quantity or 0) for item in order.items))
-        shipped_amount = float(order.shipped_amount or 0)
-        rows.append({'order': order, 'shipped_qty': round_to_2_decimals(shipped_qty), 'completed_qty': round_to_2_decimals(completed_qty), 'inventory_qty': round_to_2_decimals(inventory_qty), 'quantity_diff': round_to_2_decimals(shipped_qty - completed_qty), 'amount_diff': round_to_2_decimals(shipped_amount - completed_amount), 'ok': abs(shipped_qty - completed_qty) <= STOCK_COMPARE_EPSILON and abs(shipped_amount - completed_amount) <= 0.01})
+        shipped_qty, completed_qty, quantity_diff, quantity_ok = _reconciliation_quantities(
+            (item.shipped_quantity for item in order.items), completed_quantities, STOCK_COMPARE_EPSILON)
+        amount_diff, amount_ok = _reconciliation_amounts(order.shipped_amount, completed_amounts)
+        if warehouse_reason:
+            completed_qty, quantity_diff, amount_diff, quantity_ok, amount_ok, inventory_qty = None, None, None, False, False, None
+        rows.append({'order': order, 'shipped_qty': round_to_2_decimals(shipped_qty) if shipped_qty is not None else None,
+                     'completed_qty': round_to_2_decimals(completed_qty) if completed_qty is not None else None,
+                     'inventory_qty': round_to_2_decimals(inventory_qty) if inventory_qty is not None else None,
+                     'quantity_diff': round_to_2_decimals(quantity_diff) if quantity_diff is not None else None,
+                     'amount_diff': amount_diff, 'warehouse_reason': warehouse_reason, 'ok': quantity_ok and amount_ok})
     total_orders = len(rows)
     passed_orders = sum((1 for r in rows if r['ok']))
     failed_orders = total_orders - passed_orders
-    total_shipped = sum((r['shipped_qty'] for r in rows))
-    total_completed = sum((r['completed_qty'] for r in rows))
-    total_diff = sum((abs(r['quantity_diff']) for r in rows))
-    chart_data = {'summary': {'total': total_orders, 'passed': passed_orders, 'failed': failed_orders, 'passed_pct': round(passed_orders / total_orders * 100, 1) if total_orders > 0 else 0, 'total_shipped': round(total_shipped, 2), 'total_completed': round(total_completed, 2), 'total_diff': round(total_diff, 2)}, 'warehouse_stats': {}, 'monthly_trend': []}
-    return dict(rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '', chart_data=chart_data)
+    total_shipped = _reconciliation_quantities((r['shipped_qty'] for r in rows), (), STOCK_COMPARE_EPSILON)[0]
+    total_completed = _reconciliation_quantities((r['completed_qty'] for r in rows), (), STOCK_COMPARE_EPSILON)[0]
+    total_diff = _reconciliation_quantities((abs(r['quantity_diff']) if r['quantity_diff'] is not None else None for r in rows), (), STOCK_COMPARE_EPSILON)[0]
+    chart_data = {'summary': {'total': total_orders, 'passed': passed_orders, 'failed': failed_orders, 'passed_pct': round(passed_orders / total_orders * 100, 1) if total_orders > 0 else 0, 'total_shipped': round(total_shipped, 2) if total_shipped is not None else None, 'total_completed': round(total_completed, 2) if total_completed is not None else None, 'total_diff': round(total_diff, 2) if total_diff is not None else None}, 'warehouse_stats': {}, 'monthly_trend': []}
+    return dict(rows=rows, warehouses=Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc()).all(), warehouse_id=warehouse_id or '', chart_data=chart_data,
+                unknown_warehouse_note=_RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE)
 
 
 def sales_summary_context():
@@ -122,7 +267,13 @@ def sales_summary_context():
             material_row['untaxed_amount'] += item.untaxed_amount or 0
             material_row['tax_amount'] += item.tax_amount or 0
     shipped_quantity = round_to_2_decimals(sum((item.shipped_quantity or 0 for order in orders for item in order.items)))
-    shipped_amount = round_to_2_decimals(sum(((item.shipped_quantity or 0) * (item.price or 0) for order in orders for item in order.items)))
+    # 与销售单重算口径一致：每行先舍入，再按单据和报表汇总。
+    shipped_amount = round_to_2_decimals(sum(
+        round_to_2_decimals(sum(
+            round_money_product(item.shipped_quantity or 0, item.price or 0)
+            for item in order.items
+        )) for order in orders
+    ))
     total_amount = round_to_2_decimals(sum((order.total_amount or 0 for order in orders)))
     total_untaxed = round_to_2_decimals(sum((order.untaxed_amount or 0 for order in orders)))
     total_tax = round_to_2_decimals(sum((order.tax_amount or 0 for order in orders)))
@@ -192,7 +343,7 @@ def sales_outflow_context():
             sales_item_map = {item.material_id: item for item in sales_order.items}
         for item in oo.items or []:
             material = item.material
-            line_amount = item.amount or round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+            line_amount = item.amount or round_money_product(item.quantity or 0, item.price or 0)
             sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
             tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
             untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if 1 + tax_rate > 0 else line_amount
@@ -365,7 +516,11 @@ def collect_sales_report_print(report_kind):
                 contract_no=order.contract_no or '', project_name=order.project_name or '',
                 status=sales_status_label(order.status))
             if report_kind == 'reconciliation':
-                row['result'] = '通过' if row['ok'] else '不一致'
+                row['result'] = ('待人工核对' if row['amount_diff'] is None or row['quantity_diff'] is None else
+                                 '通过' if row['ok'] else '不一致')
+                if row['warehouse_reason']:
+                    row['result'] += '：' + row['warehouse_reason']
+                row['amount_diff'] = _reconciliation_excel_amount(row['amount_diff'])
             rows.append(row)
     else:
         rows = [dict(row) for row in context['rows']]
@@ -379,6 +534,8 @@ def collect_sales_report_print(report_kind):
                     row['growth'] = '-'
     filters = context.get('filters', context)
     scope_parts = [f'仓库：{warehouse.name}（{warehouse.code}）']
+    if report_kind == 'reconciliation':
+        scope_parts.append(_RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE)
     if report_kind == 'trend':
         scope_parts.append(f"日期：{context['period_start']}起（近{context['months_back']}个月筛选）")
     else:

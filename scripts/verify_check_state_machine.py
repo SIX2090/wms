@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Verify inventory checks create reversible adjustment drafts."""
 from __future__ import annotations
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os, sys
 from datetime import date
 from pathlib import Path

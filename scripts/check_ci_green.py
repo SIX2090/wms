@@ -61,6 +61,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
+
 REPO = "SIX2090/wms"
 BRANCH = "main"
 API = "https://api.github.com"
@@ -162,7 +171,7 @@ def gh_get(path: str, token: str | None) -> dict:
         req.add_header("Authorization", f"Bearer {token}")
     # 匿名请求也要带 User-Agent，否则 GitHub 直接 403
     req.add_header("User-Agent", "wms-ci-green-check")
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with open_same_origin(req, timeout=60) as resp:
         return json.loads(resp.read().decode())
 
 

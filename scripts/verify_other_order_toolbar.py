@@ -10,6 +10,12 @@
   5. handleOtherOrderToolbar JS 函数存在
   6. CSS 类 .other-order-toolbar/.tool-btn 存在
 """
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os
 import sys
 

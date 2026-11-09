@@ -27,7 +27,7 @@ def digest(path):
 
 
 def backup_cli(source, target):
-    return subprocess.run([sys.executable, str(ROOT / 'scripts/online_backup.py'), str(source), str(target)],
+    return subprocess.run([sys.executable, '-I', '-S', '-B', '-X', 'utf8', str(ROOT / 'scripts/online_backup.py'), str(source), str(target)],
                           capture_output=True, timeout=3)
 
 
@@ -230,4 +230,15 @@ def test_create_snapshot_rechecks_destination_before_publication(tmp_path, monke
     with pytest.raises(OSError, match='发布前'):
         snapshots.create_snapshot(source, target)
     assert digest(target) == before and sidecar.read_bytes() == b'synthetic opened-during-backup'
+    assert not list(tmp_path.glob('.wms-snapshot-*'))
+
+
+def test_create_snapshot_missing_source_does_not_create_or_replace_files(tmp_path):
+    from sqlite_snapshot import create_snapshot
+    source = tmp_path / 'missing-synthetic.db'
+    target = make_database(tmp_path / 'previous-synthetic.db', 99)
+    before = digest(target)
+    with pytest.raises(FileNotFoundError):
+        create_snapshot(source, target)
+    assert not source.exists() and digest(target) == before
     assert not list(tmp_path.glob('.wms-snapshot-*'))

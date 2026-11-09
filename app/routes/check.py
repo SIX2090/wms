@@ -28,9 +28,14 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import math
+from datetime import datetime
 
-from flask import jsonify, render_template, request, send_file
-from flask_login import login_required
+from flask import current_app, jsonify, render_template, request, send_file
+from flask_login import current_user, login_required
+from itsdangerous import BadSignature, URLSafeTimedSerializer
+from sqlalchemy import String, cast
 
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
@@ -91,9 +96,20 @@ def _check_uncounted_alerts(check):
     return len(uncounted), len(rows), samples
 
 
+def _resolve_check_warehouse(value):
+    """Resolve a check warehouse without guessing across name/code collisions."""
+    from app import Warehouse
+    if not value:
+        return None
+    matches = (Warehouse.query.filter_by(name=value).all()
+               + Warehouse.query.filter_by(code=value).all())
+    warehouses = {wh.id: wh for wh in matches}
+    return next(iter(warehouses.values())) if len(warehouses) == 1 else None
+
+
 # no-test:reason=纯统计辅助，能力由 test_bug_2026_09_06_002 覆盖
 def _check_period_movement_alerts(check):
-    """统计盘点单冻结期间的本仓库本盘点单物料出入库净变动（BUG-2026-09-06-002）。
+    """统计盘点单冻结期间本仓库涉及物料的流水及出入库净变动。
 
     冻结口径下，过账后账面 = 实盘 − 期间净变动。但系统此前对盘点期间是
     否发生出入库（采购入库/销售出库/调拨/其他调整等外部单据）完全不查，
@@ -113,8 +129,9 @@ def _check_period_movement_alerts(check):
       流水来自盘点单自身（理论上不会产生，但防御性排除）；
     - 净变动按物料聚合 SUM(quantity)，quantity 本身有正负（in +，out -）。
 
-    返回 (has_movement, moved_material_count, samples[{code, name, net}])。
-    has_movement = 至少一个物料的 |net| > STOCK_COMPARE_EPSILON。
+    返回 (has_movement, moved_material_count, samples[{code, name, net}])；
+    has_movement 为 None 表示仓库不存在或名称／编码存在歧义，调用方必须拒绝完成。
+    has_movement 表示存在相关流水；等量入库和出库净额为零时也需提示。
     """
     # BUG-2026-09-06-003：本仓库 app/ 目录即包根（app.py 为顶层模块，无
     # __init__.py），`from app.utils import X` 在真实启动布局（python app.py /
@@ -123,7 +140,12 @@ def _check_period_movement_alerts(check):
     # `from app import X`（app.py 已从 utils 转导出 normalize_stock_quantity）。
     from app import StockTransaction, normalize_stock_quantity
 
-    if not check.frozen_at or not check.warehouse:
+    # 完成校验同时接受仓库名称与编码；两种匹配指向不同仓库时不能猜测。
+    wh = _resolve_check_warehouse(check.warehouse)
+    if wh is None:
+        return None, 0, []
+
+    if not check.frozen_at:
         return False, 0, []
 
     material_ids = [it.material_id for it in (check.items or []) if it.material_id]
@@ -137,7 +159,8 @@ def _check_period_movement_alerts(check):
     # 才视为"非自身"——任一为 NULL 仍判 True。
     q = (db.session.query(
             StockTransaction.material_id,
-            db.func.sum(StockTransaction.quantity).label('net'))
+            db.func.sum(StockTransaction.quantity).label('net'),
+            db.func.count(StockTransaction.id).label('movement_count'))
          .filter(StockTransaction.material_id.in_(material_ids))
          .filter(StockTransaction.created_at >= check.frozen_at)
          .filter(db.or_(
@@ -148,16 +171,13 @@ def _check_period_movement_alerts(check):
          ))
          .group_by(StockTransaction.material_id))
     # 按仓库过滤：warehouse_id 与本盘点单仓库一致；历史脏数据 NULL 不计入
-    from app import Warehouse
-    wh = Warehouse.query.filter_by(name=check.warehouse).first()
-    if wh is not None:
-        q = q.filter(StockTransaction.warehouse_id == wh.id)
+    q = q.filter(StockTransaction.warehouse_id == wh.id)
     rows = q.all()
 
     moved = []
-    for material_id, net in rows:
+    for material_id, net, movement_count in rows:
         net_n = normalize_stock_quantity(net or 0)
-        if abs(net_n) <= 1e-6:
+        if not movement_count:
             continue
         # 取物料编码/名称
         item = next((it for it in check.items if it.material_id == material_id), None)
@@ -168,6 +188,144 @@ def _check_period_movement_alerts(check):
     if not moved:
         return False, 0, []
     return True, len(moved), moved[:10]
+
+
+def _check_complete_snapshot(check, warehouse_id):
+    """Hash the complete check and relevant movement state, and summarize its risks.
+
+    Call only inside the short, isolated write transaction used to complete the check.
+    Unknown warehouse/time are reported separately and never assigned to this warehouse.
+    """
+    from app import StockTransaction, Warehouse, normalize_stock_quantity, location_management_enabled
+
+    digest = hashlib.sha256()
+
+    def _scalar(value):
+        if value is None or isinstance(value, (str, int, bool)):
+            return value
+        if hasattr(value, 'isoformat'):
+            return value.isoformat()
+        return str(value)
+
+    def _add(value):
+        digest.update(json.dumps(value, ensure_ascii=True, separators=(',', ':'),
+                                 allow_nan=False).encode('utf-8'))
+        digest.update(b'\n')
+
+    _add(['check', *[_scalar(getattr(check, key, None)) for key in (
+        'id', 'check_no', 'status', 'warehouse', 'date', 'frozen_at', 'remark', 'operator_id')],
+         _scalar(warehouse_id), bool(location_management_enabled())])
+    items = list(check.items or [])
+    materials = {}
+    for item in items:
+        material = getattr(item, 'material', None)
+        material_id = getattr(item, 'material_id', None)
+        if material_id:
+            materials.setdefault(material_id, material)
+        _add(['item', *[_scalar(getattr(item, key, None)) for key in (
+            'id', 'material_id', 'system_stock', 'actual_stock', 'difference', 'reason',
+            'area', 'counted_by', 'counted_at')],
+             _scalar(getattr(material, 'code', None)), _scalar(getattr(material, 'name', None)),
+             _scalar(getattr(material, 'unit_id', None))])
+
+    uncounted, total, uncounted_samples = _check_uncounted_alerts(check)
+    incomplete_count = sum(bool(getattr(item, 'counted_by', None)) !=
+                           bool(getattr(item, 'counted_at', None)) for item in items)
+    movement = {}
+    unknown_warehouse = unknown_time = invalid_quantity = 0
+    now = datetime.now()
+    material_ids = sorted(materials)
+    for offset in range(0, len(material_ids), 500):
+        ids = material_ids[offset:offset + 500]
+        query = (db.session.query(StockTransaction.id, StockTransaction.material_id,
+                                  StockTransaction.warehouse_id, StockTransaction.quantity,
+                                  cast(StockTransaction.created_at, String), StockTransaction.transaction_type,
+                                  StockTransaction.reference_type, StockTransaction.reference_id)
+                 .filter(StockTransaction.material_id.in_(ids))
+                 .filter(db.or_(StockTransaction.warehouse_id == warehouse_id,
+                                StockTransaction.warehouse_id.is_(None),
+                                ~StockTransaction.warehouse_id.in_(db.session.query(Warehouse.id))))
+                 .filter(db.or_(StockTransaction.reference_type != 'check',
+                                StockTransaction.reference_type.is_(None),
+                                StockTransaction.reference_id != check.id,
+                                StockTransaction.reference_id.is_(None)))
+                 .order_by(StockTransaction.id))
+        for row in query.yield_per(500):
+            tx_id, material_id, tx_warehouse, quantity, raw_created_at, tx_type, ref_type, ref_id = row
+            try:
+                created_at = datetime.fromisoformat(raw_created_at) if raw_created_at else None
+                time_unknown = created_at is None or created_at > now
+                if not time_unknown and check.frozen_at is not None and created_at < check.frozen_at:
+                    continue
+            except (TypeError, ValueError, OverflowError):
+                time_unknown = True
+            _add(['movement', *[_scalar(value) for value in row], time_unknown])
+            if tx_warehouse != warehouse_id:
+                unknown_warehouse += 1
+            if time_unknown:
+                unknown_time += 1
+            try:
+                qty = float(quantity)
+                if not math.isfinite(qty):
+                    raise ValueError('nonfinite quantity')
+            except (TypeError, ValueError, OverflowError):
+                invalid_quantity += 1
+                continue
+            if tx_warehouse == warehouse_id and not time_unknown and check.frozen_at is not None:
+                previous = movement.get(material_id, 0.0)
+                if previous is None:
+                    continue
+                net = previous + qty
+                if not math.isfinite(net):
+                    invalid_quantity += 1
+                    movement[material_id] = None
+                else:
+                    movement[material_id] = net
+    movement_samples = []
+    for material_id in sorted(movement):
+        material = materials[material_id]
+        net = None
+        if movement[material_id] is not None:
+            try:
+                net = normalize_stock_quantity(movement[material_id])
+            except (ArithmeticError, ValueError, TypeError):
+                # 极大有限数也可能超出 Decimal 量化精度，不能显示成零。
+                invalid_quantity += 1
+        movement_samples.append({'code': getattr(material, 'code', '') if material else '',
+                                 'name': getattr(material, 'name', '') if material else '',
+                                 'net': net})
+    risks = {'uncounted': uncounted, 'total': total, 'uncounted_samples': uncounted_samples,
+             'incomplete_count': incomplete_count,
+             'movement_count': len(movement), 'movement_samples': movement_samples[:10],
+             'unknown_warehouse_count': unknown_warehouse, 'unknown_time_count': unknown_time,
+             'invalid_quantity_count': invalid_quantity, 'unknown_freeze': check.frozen_at is None}
+    risks['has_risk'] = bool(uncounted or incomplete_count or movement or unknown_warehouse or unknown_time
+                             or invalid_quantity or risks['unknown_freeze'])
+    _add(['risk', *[_scalar(risks[key]) for key in (
+        'uncounted', 'total', 'incomplete_count', 'movement_count', 'unknown_warehouse_count', 'unknown_time_count',
+        'invalid_quantity_count', 'unknown_freeze')]])
+    return digest.hexdigest(), risks
+
+
+def _issue_check_confirmation(check_id, user_id, fingerprint):
+    """Sign a short-lived acknowledgment bound to the user, check and full snapshot."""
+    if not current_app.secret_key or user_id is None:
+        raise ValueError('无法签发盘点确认凭据')
+    serializer = URLSafeTimedSerializer(current_app.secret_key, salt='wms-check-complete-v1')
+    return serializer.dumps({'check_id': check_id, 'user_id': str(user_id), 'snapshot': fingerprint})
+
+
+def _accept_check_confirmation(token, check_id, user_id, fingerprint):
+    if not isinstance(token, str) or not token or len(token) > 1024 or user_id is None:
+        return False
+    if not current_app.secret_key:
+        return False
+    serializer = URLSafeTimedSerializer(current_app.secret_key, salt='wms-check-complete-v1')
+    try:
+        payload = serializer.loads(token, max_age=600)
+    except (BadSignature, TypeError, ValueError):
+        return False
+    return payload == {'check_id': check_id, 'user_id': str(user_id), 'snapshot': fingerprint}
 
 
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
@@ -547,60 +705,44 @@ def register_check_routes(app):
         if not check.warehouse:
             return api_error('盘点单未指定仓库，无法完成')
 
-        # BUG-2026-09-06-001：完成前二次确认（漏盘）。未盘行差异恒 0、不生成
-        # 调整，系统此前对"没盘"与"盘了无差异"不加区分。此处软拦截——返回
-        # status='confirm' 由前端弹窗列出未盘明细，用户确认后带 force=1 放行，
-        # 不硬阻断（账面 0 无实物等合法未盘场景仍须可完成）。
-        # 旧客户端不带 body 调用时 get_json(silent=True) 返回 None，force=False。
         from request_input import CheckCompleteInput, json_object_body
         try:
-            force = CheckCompleteInput.model_validate(json_object_body()).force
+            complete_input = CheckCompleteInput.model_validate(json_object_body())
+            force = complete_input.force
+            confirmation_token = complete_input.confirmation_token
         except (ValueError, TypeError):
-            return api_error('完成参数格式不正确，请确认 force 为布尔值')
-        if not force:
-            uncounted, total_rows, samples = _check_uncounted_alerts(check)
-            if uncounted:
-                preview = '、'.join(
-                    (s['code'] or '?') for s in samples[:5])
-                more_tip = '等' if uncounted > len(samples) else ''
-                return jsonify({
-                    'status': 'confirm',
-                    'code': 'uncounted',
-                    'msg': (f'本单共 {total_rows} 行明细，其中 {uncounted} 行尚未盘点'
-                            f'（无盘点人/时间记录）：{preview}{more_tip}。'
-                            '未盘行不会产生库存差异，请确认是否已全部盘完。'),
-                    'count': uncounted,
-                    'total': total_rows,
-                    'samples': samples,
-                })
-
-        # BUG-2026-09-06-002：冻结期间动销校验。盘点期间发生外部出入库
-        # 时，冻结口径下过账后账面 = 实盘 − 净变动，与实物可能再次偏差；
-        # 此处软拦截——返回 status='confirm' + moved + samples，让用户确认
-        # 已知情（漏盘校验已通过 force 后再走此处，或 force=1 同时放过）。
-        if not force:
-            has_movement, moved_count, moved_samples = _check_period_movement_alerts(check)
-            if has_movement:
-                preview = '、'.join(
-                    (f"{s['code'] or '?'}({s['net']:+g})" for s in moved_samples[:5]))
-                more_tip = '等' if moved_count > len(moved_samples) else ''
-                return jsonify({
-                    'status': 'confirm',
-                    'code': 'period_movement',
-                    'msg': (f'盘点期间（冻结 {check.frozen_at:%Y-%m-%d %H:%M} 起）仓库'
-                            f'"{check.warehouse}" 已发生 {moved_count} 个物料的出入库净变动：'
-                            f'{preview}{more_tip}。冻结口径下过账后账面 = 实盘 − 净变动，'
-                            f'请确认是否知晓该偏差并继续。'),
-                    'count': moved_count,
-                    'samples': moved_samples,
-                })
+            return api_error('完成参数格式不正确，请核对后重试')
+        # 其他数据库的行锁不能阻止关联流水插入；未证明隔离前保守拒绝。
+        if db.session.get_bind().dialect.name != 'sqlite':
+            db.session.rollback()
+            return api_error('当前数据库无法确保盘点风险检查的并发隔离，请联系管理员')
+        reviewed_wh = _resolve_check_warehouse(check.warehouse)
+        if reviewed_wh is None:
+            return api_error('盘点仓库不存在或名称与编码存在歧义，请先核对仓库后再完成')
+        reviewed_warehouse_id = reviewed_wh.id
+        reviewed_warehouse = check.warehouse
 
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复生成调整草稿
-            locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending', selectinload(InventoryCheck.items))
+            locked, ok = _acquire_order_write_lock(
+                InventoryCheck, id, 'pending',
+                selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material))
             if not ok:
                 return api_error('该盘点单已提交，不能重复操作')
-            check = locked
+            # rollback 后单据可能仍在 identity map；强制刷新使关联加载选项生效。
+            check = db.session.get(
+                InventoryCheck, id, populate_existing=True,
+                options=[selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material)])
+            if check is None or check.status != 'pending':
+                db.session.rollback()
+                return api_error('该盘点单已提交，不能重复操作')
+            if check.warehouse != reviewed_warehouse:
+                db.session.rollback()
+                return api_error('盘点仓库已发生变化，请重新核对后再完成')
+            locked_wh = _resolve_check_warehouse(check.warehouse)
+            if locked_wh is None or locked_wh.id != reviewed_warehouse_id:
+                db.session.rollback()
+                return api_error('盘点仓库归属已发生变化或存在歧义，请重新核对后再完成')
             from app import assert_warehouse_active
             warehouse_ok, warehouse_message = assert_warehouse_active(check.warehouse, allow_empty=False)
             if not warehouse_ok:
@@ -609,6 +751,40 @@ def register_check_routes(app):
             if not check.items:
                 db.session.rollback()
                 return api_error('盘点单没有明细，无法完成')
+            snapshot, risks = _check_complete_snapshot(check, locked_wh.id)
+            user_id = current_user.get_id()
+            confirmed = force and _accept_check_confirmation(
+                confirmation_token, check.id, user_id, snapshot)
+            if (risks['has_risk'] or confirmation_token is not None) and not confirmed:
+                messages = []
+                if risks['uncounted']:
+                    messages.append(f"共 {risks['total']} 行，其中 {risks['uncounted']} 行未盘；未盘行不会产生差异")
+                if risks['incomplete_count']:
+                    messages.append(f"{risks['incomplete_count']} 行盘点人或盘点时间缺失，归属信息不完整")
+                if risks['movement_count']:
+                    messages.append(f"冻结期间本仓 {risks['movement_count']} 个物料发生出入库流水，净额为零也可能存在动销风险")
+                if risks['unknown_warehouse_count']:
+                    messages.append(f"{risks['unknown_warehouse_count']} 条相关流水仓库归属未知")
+                if risks['unknown_time_count']:
+                    messages.append(f"{risks['unknown_time_count']} 条相关流水时间缺失或异常")
+                if risks['invalid_quantity_count']:
+                    messages.append(f"{risks['invalid_quantity_count']} 处相关流水数量或合计无法准确表示")
+                if risks['unknown_freeze']:
+                    messages.append('盘点冻结时间未知，无法确定期间流水')
+                if not messages:
+                    messages.append('当前未发现未盘或流水风险')
+                if force:
+                    messages.append('确认凭据缺失、过期或状态已变化，请重新核对')
+                response = {'status': 'confirm', 'code': 'check_risks',
+                            'msg': '；'.join(messages) + '。请核对所有风险后确认继续。',
+                            'samples': (risks['uncounted_samples'] + risks['movement_samples'])[:10],
+                            'risks': {key: risks[key] for key in (
+                                'uncounted', 'total', 'incomplete_count', 'movement_count',
+                                'unknown_warehouse_count', 'unknown_time_count',
+                                'invalid_quantity_count', 'unknown_freeze')},
+                            'confirmation_token': _issue_check_confirmation(check.id, user_id, snapshot)}
+                db.session.rollback()
+                return jsonify(response)
             drafts, error = _create_adjustment_drafts_from_check(check)
             if error:
                 db.session.rollback()

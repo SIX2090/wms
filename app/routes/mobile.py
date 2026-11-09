@@ -10,6 +10,7 @@ from flask_login import login_required
 from sqlalchemy.exc import OperationalError
 
 from utils import sync_material_primary_image
+from utils import round_money_product
 from services.material_label import material_scan_code
 from services.web_document_idempotency import mobile_document_idempotent, stage_document_response
 
@@ -558,7 +559,7 @@ def register_mobile_routes(app):
                     remark=remark or '手机端扫码提交',
                     status='completed',
                     operator_id=actor.id,
-                    total_amount=round_to_2_decimals(quantity * price),
+                    total_amount=round_money_product(quantity, price),
                 )
                 db.session.add(order)
                 db.session.flush()
@@ -567,7 +568,7 @@ def register_mobile_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                 ))
                 # P2-3：三账（①总账 + ③流水 + ②库位账）单点收敛，库位账由入口
                 # 按 location_management_enabled() 自行决定是否同步（旧实现
@@ -655,7 +656,7 @@ def register_mobile_routes(app):
                     remark=remark or '手机端扫码提交',
                     status='completed',
                     operator_id=actor.id,
-                    total_amount=round_to_2_decimals(quantity * price),
+                    total_amount=round_money_product(quantity, price),
                 )
                 db.session.add(order)
                 db.session.flush()
@@ -664,7 +665,7 @@ def register_mobile_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                 ))
                 # P2-3：三账单点收敛（同上，delta 取负走原子条件扣减）。
                 ok, error_msg = apply_stock_delta(
@@ -996,7 +997,7 @@ def register_mobile_routes(app):
                         material_id=material.id,
                         quantity=round_to_2_decimals(line.quantity),
                         price=price,
-                        amount=round_to_2_decimals(round_to_2_decimals(line.quantity) * price),
+                        amount=round_money_product(round_to_2_decimals(line.quantity), price),
                     ))
             else:
                 order = OutOrder(
@@ -1019,7 +1020,7 @@ def register_mobile_routes(app):
                         material_id=material.id,
                         quantity=round_to_2_decimals(line.quantity),
                         price=price,
-                        amount=round_to_2_decimals(round_to_2_decimals(line.quantity) * price),
+                        amount=round_money_product(round_to_2_decimals(line.quantity), price),
                         remark=(line.target or '').strip() or None,
                     ))
             order.total_amount = sum(item.amount or 0 for item in order.items)
@@ -1144,9 +1145,9 @@ def register_mobile_routes(app):
 
         # 识图限流：按当前用户（web 会话或 Bearer token）限流，每分钟最多 5 次
         from flask_login import current_user
-        from app import get_bearer_user
+        from app import get_bearer_user, get_request_ip
         _user = current_user if current_user.is_authenticated else get_bearer_user()
-        rate_key = f'user:{_user.id}' if _user else f"ip:{request.remote_addr or 'unknown'}"
+        rate_key = f'user:{_user.id}' if _user else f"ip:{get_request_ip() or 'unknown'}"
         wait = _recognize_rate_limited(rate_key)
         if wait is not None:
             return jsonify({'status': 'error', 'success': False, 'msg': f'识图过于频繁，请 {wait} 秒后再试'}), 429

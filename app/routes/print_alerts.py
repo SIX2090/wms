@@ -243,8 +243,8 @@ def push_print_alert_wechat(notification):
 
     - 开关 print_alert_wechat_enabled 默认关；开启后按
       print_alert_wechat_interval_min（默认 10 分钟）全局限流防轰炸。
-    - 直推仅限回环地址（安全红线不动，见 BUG-2026-08-11-008）；云服务器拓扑
-      直推连不上本机助手时保持 pending，由助手轮询 /api/wechat_helper/tasks 取走。
+    - 直推仅限回环地址（安全红线不动，见 BUG-2026-08-11-008）；确认未发起
+      直推时可交由助手轮询，发送结果不确定时保留结果并提示人工核对。
     - 返回 True=已建分享任务（含 pending），False=未推送（关开关/限流/渲染失败）。
     """
     from app import get_system_setting_bool, get_system_setting_int
@@ -253,46 +253,64 @@ def push_print_alert_wechat(notification):
 
     from app import WechatShareLog
     interval_min = max(1, get_system_setting_int('print_alert_wechat_interval_min', 10))
-    recent = WechatShareLog.query.filter(
-        WechatShareLog.module_key == 'print_alert',
-        WechatShareLog.created_at >= datetime.now() - timedelta(minutes=interval_min),
-    ).first()
-    if recent:
-        return False
-
-    image_path = _render_alert_image(notification)
-    if not image_path:
+    notification_id = getattr(notification, 'id', None)
+    if not isinstance(notification_id, int) or isinstance(notification_id, bool) or notification_id <= 0:
         return False
 
     import os as _os
     from app import _wechat_share_default_config, _wechat_share_send_image
+    from services.print_alert_reserve import reserve_alert, attach_alert_image, finish_alert
     config = _wechat_share_default_config()
-    status, result_code, message = _wechat_share_send_image(config, image_path)
-    # 连接级不可用（助手不在本机/未配置/地址非法）说明是云服务器拓扑，
-    # 改记 pending 交给本机助手轮询拉取；助手真实执行失败才记 failed。
+    metadata = dict(
+        config_id=config.id if config else None, module_key='print_alert', order_id=notification_id,
+        order_no=(notification.title or '')[:80], share_date=date.today(), trigger_type='auto',
+        image_path=None, image_size=0,
+        receiver_name=(config.receiver_name if config else None),
+        receiver_wechat_id=(config.receiver_wechat_id if config else None))
+    try:
+        log_id = reserve_alert(db, WechatShareLog, metadata, interval_min)
+    except Exception:
+        return False
+    if log_id is None:
+        return False
+    try:
+        image_path = _render_alert_image(notification)
+        if not image_path:
+            finish_alert(db, WechatShareLog, log_id, 'failed', '图片生成失败，尚未发送')
+            return False
+        if not _os.path.isfile(image_path):
+            finish_alert(db, WechatShareLog, log_id, 'failed', '图片不存在，尚未发送')
+            return False
+        size = _os.path.getsize(image_path)
+        if not attach_alert_image(db, WechatShareLog, log_id, image_path, size):
+            return False
+    except Exception:
+        return False
+    try:
+        status, result_code, message = _wechat_share_send_image(config, image_path)
+    except Exception:
+        status, result_code, message = 'uncertain', 'unknown', '发送结果待人工核对'
+    # 只有确定请求尚未发出的配置错误才可交给轮询。ConnectionError 也可能
+    # 发生在助手接收后，不能把 helper_offline 再放回待发送队列。
     if status == 'failed' and result_code in (
-            'helper_not_configured', 'invalid_helper_url', 'helper_offline'):
-        status = 'pending'
+            'helper_not_configured', 'invalid_helper_url'):
+        status = 'queued_v2'
         message = f'直推不可用（{result_code}），待本机微信助手轮询拉取'
+    elif status == 'pending' and result_code == 'helper_not_configured':
+        status = 'queued_v2'
+    elif status == 'failed' and result_code not in ('token_not_configured', 'auth_failed'):
+        # 一旦请求可能已到达助手，失败不等于未粘贴或未发送。
+        status = 'uncertain'
+        message = f'发送结果待人工核对：{message or "助手未确认结果"}（错误码：{result_code or "unknown"}）'
     elif status == 'failed' and result_code:
         message = f'{message}（错误码：{result_code}）'
-    log = WechatShareLog(
-        config_id=config.id if config else None,
-        module_key='print_alert',
-        order_id=0,  # 告警无业务单据，沿用 in_order_daily 的 0 占位先例
-        order_no=(notification.title or '')[:80],
-        share_date=date.today(),
-        trigger_type='auto',
-        status=status,
-        message=(message or '')[:500],
-        image_path=image_path,
-        image_size=_os.path.getsize(image_path) if _os.path.exists(image_path) else 0,
-        receiver_name=(config.receiver_name if config else None),
-        receiver_wechat_id=(config.receiver_wechat_id if config else None),
-        sent_at=datetime.now() if status == 'sent' else None,
-    )
-    db.session.add(log)
-    db.session.commit()
+    if status not in ('sent', 'failed', 'queued_v2', 'uncertain'):
+        status, message = 'uncertain', '发送结果待人工核对'
+    try:
+        finish_alert(db, WechatShareLog, log_id, status, message or '')
+    except Exception:
+        # 已提交的 sending 占位仍阻止短期自动重发。
+        pass
     return True
 
 

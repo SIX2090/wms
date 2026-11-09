@@ -9,12 +9,12 @@ system_stock、difference = 0、counted_by/counted_at 为空；完成盘点时�
 
 修复：complete_check 前置统计 counted_at 为空的行，未盘行数 > 0 时返回
 status='confirm' 二次确认（列前 10 条物料编码），用户确认后带 force=1
-放行；软拦截而非硬阻断，账面 0 无实物等合法未盘场景仍可完成。
+及当前风险快照令牌放行；软拦截而非硬阻断，账面 0 无实物等合法未盘场景仍可完成。
 
 覆盖（A仓 M001 账面 60 / M002 账面 30）：
 T1. 全部已盘 → 直接完成成功，不返回 confirm
-T2. 存在未盘行 → 返回 status='confirm'/code='uncounted'，count 与 samples 正确
-T3. force=1 → 跳过确认完成成功，仅已盘行生成调整草稿
+T2. 存在未盘行 → 返回 status='confirm'/code='check_risks'，风险数量与 samples 正确
+T3. 裸 force 不放行；确认风险令牌后完成，仅已盘行生成调整草稿
 T4. 未盘行差异恒 0 → 不产生该物料的调整明细
 T5. 旧客户端不带 JSON body 调用 → 仍走确认分支，不报错（向后兼容）
 """
@@ -163,7 +163,7 @@ def test_t1_all_counted_completes_without_confirm():
 
 
 def test_t2_uncounted_rows_return_confirm():
-    """T2: 存在未盘行 → status='confirm'，count/samples 正确且不落库存调整。"""
+    """T2: 存在未盘行 → check_risks，风险数量和 samples 正确且不落库存调整。"""
     wh, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -175,9 +175,9 @@ def test_t2_uncounted_rows_return_confirm():
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "confirm", body
-    assert body.get("code") == "uncounted", body
-    assert body.get("count") == 1, body
-    assert body.get("total") == 2, body
+    assert body.get("code") == "check_risks", body
+    assert "共 2 行，其中 1 行未盘" in body.get("msg", ""), body
+    assert body["risks"]["uncounted"] == 1 and body["risks"]["total"] == 2, body
     samples = body.get("samples") or []
     assert samples and samples[0]["code"] == "M002", body
     # 未完成：状态仍为草稿，且不生成调整草稿
@@ -186,8 +186,8 @@ def test_t2_uncounted_rows_return_confirm():
     assert AdjustmentOrder.query.filter_by(source_type="check").count() == 0
 
 
-def test_t3_force_skips_confirm_and_generates_draft():
-    """T3: force=1 → 跳过确认完成成功，仅已盘行生成调整草稿。"""
+def test_t3_force_requires_token_and_generates_draft():
+    """T3: 裸 force 不放行，持风险令牌确认后仅已盘行生成调整草稿。"""
     wh, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -195,7 +195,13 @@ def test_t3_force_skips_confirm_and_generates_draft():
     items = _items_of(cid)
     _count_as_counted(client, cid, items[0].id, 58)
 
-    r = document_post(client,f"/check/{cid}/complete", json={"force": True})
+    warning = document_post(client,f"/check/{cid}/complete", json={"force": True})
+    assert warning.status_code == 200
+    alert = warning.get_json()
+    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
+    assert "1 行未盘" in alert.get("msg", ""), alert
+    assert alert.get("confirmation_token"), alert
+    r = document_post(client,f"/check/{cid}/complete", json={"force": True, "confirmation_token": alert["confirmation_token"]})
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "success", body
@@ -219,7 +225,12 @@ def test_t4_uncounted_row_never_generates_adjustment():
     _login_web(client)
     cid = _new_check(client, ["M001", "M002"])
 
-    r = document_post(client,f"/check/{cid}/complete", json={"force": True})
+    warning = document_post(client,f"/check/{cid}/complete", json={"force": True})
+    alert = warning.get_json()
+    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
+    assert "2 行未盘" in alert.get("msg", ""), alert
+    assert alert.get("confirmation_token"), alert
+    r = document_post(client,f"/check/{cid}/complete", json={"force": True, "confirmation_token": alert["confirmation_token"]})
     body = r.get_json()
     assert body.get("status") == "success", body
     from app import AdjustmentOrder
@@ -237,7 +248,10 @@ def test_t5_legacy_call_without_body_still_confirms():
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
     assert body.get("status") == "confirm", body
-    assert body.get("count") == 1, body
+    assert body.get("code") == "check_risks", body
+    assert "1 行未盘" in body.get("msg", ""), body
+    assert body["risks"]["uncounted"] == 1 and body["risks"]["total"] == 1, body
+    assert body.get("confirmation_token"), body
 
 
 def test_t6_uncounted_helper_counts_accurately():
@@ -261,3 +275,21 @@ def test_t6_uncounted_helper_counts_accurately():
     unc, total, samples = _check_uncounted_alerts(check)
     assert (unc, total) == (1, 2), (unc, total)
     assert samples[0]["code"] == "M002"
+
+
+def test_reset_releases_rows_from_previous_synthetic_schema():
+    from sqlalchemy import inspect
+    from app import Material
+    _reset_db()
+    old = Material(code="SYN-RESET-OLD", name="旧合成行", stock=11)
+    db.session.add(old)
+    db.session.commit()
+    ident = old.id
+    assert inspect(old).persistent
+    _reset_db()
+    assert inspect(old).detached, "重建 schema 后旧 ORM 行不能继续属于当前会话"
+    fresh = Material(id=ident, code="SYN-RESET-NEW", name="新合成行", stock=22)
+    db.session.add(fresh)
+    db.session.commit()
+    found = db.session.get(Material, ident)
+    assert found is not old and found.code == "SYN-RESET-NEW" and found.stock == 22

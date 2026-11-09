@@ -27,8 +27,8 @@ WMS CI 的 `unit-tests` job 实测 ~180s（`pytest tests/ -n 4 --dist loadfile`�
     # 执行本片
     VERIFY_TEST_SHARDS=3 VERIFY_TEST_SHARD=0 python3 scripts/run_tests_sharded.py
 
-    # 默认（不分片）时等价于 `pytest tests/ -n 4 --dist loadfile`
-    # —— 即历史行为逐字节不变
+    # 默认不分片，仍使用 pytest-xdist -n 4 --dist loadfile；为隔离安全，
+    # 禁用插件自动发现，并显式加载 xdist。
 """
 from __future__ import annotations
 
@@ -48,6 +48,8 @@ def collect(shards: int, shard: int) -> list[str]:
     只收 `tests/test_*.py`——`tests/verify_*.py` 由 run_verify_parallel.py 负责，
     两者不重叠（CI 里也是两个独立 job）。
     """
+    if shards < 1 or not (0 <= shard < shards):
+        raise ValueError('分片数量和序号无效')
     all_files = sorted(
         os.path.relpath(p, REPO_ROOT)
         for p in glob.glob(str(REPO_ROOT / 'tests' / 'test_*.py'))
@@ -58,23 +60,49 @@ def collect(shards: int, shard: int) -> list[str]:
 
 
 def main() -> int:
-    shards = int(os.environ.get('VERIFY_TEST_SHARDS') or 1)
-    shard = int(os.environ.get('VERIFY_TEST_SHARD') or 0)
-    workers = int(os.environ.get('VERIFY_TEST_WORKERS') or 0) or DEFAULT_WORKERS
+    try:
+        shards = int(os.environ.get('VERIFY_TEST_SHARDS') or 1)
+        shard = int(os.environ.get('VERIFY_TEST_SHARD') or 0)
+        workers = int(os.environ.get('VERIFY_TEST_WORKERS') or 0) or DEFAULT_WORKERS
+    except ValueError:
+        print('[error] 分片数量、序号和工作进程数必须是整数')
+        return 1
 
-    if shards > 1 and not (0 <= shard < shards):
+    if shards < 1 or not (0 <= shard < shards):
         print(f'[error] VERIFY_TEST_SHARD={shard} 越界（VERIFY_TEST_SHARDS={shards}）')
+        return 1
+    if workers < 1:
+        print('[error] VERIFY_TEST_WORKERS 必须是正数或 0（自动）')
         return 1
 
     files = collect(shards, shard)
+    if not files:
+        print(f'[error] 分片 {shard}/{shards} 无测试文件，不能视为验证通过')
+        return 1
     if '--list' in sys.argv:
         print('\n'.join(files))
         return 0
 
-    if not files:
-        # 空片也算通过：分片数多于文件数时（正常不会发生）不能误判失败
-        print(f'[warn] 分片 {shard}/{shards} 无文件，跳过')
-        return 0
+    # DB 环境变量不能约束 app、原生扩展和测试子进程的文件及网络访问；
+    # 可核验的运行期隔离完成前，不启动 pytest。保留 --list 供只读排查。
+    print('[error] 验证已阻止：应用和子进程的数据库、备份与网络隔离尚未证明。')
+    return 1
+
+    env = os.environ.copy()
+    for key in ('DATABASE_URL', 'WMS_DATABASE_URI'):
+        if env.get(key, '') not in ('', 'sqlite:///:memory:'):
+            print(f'[error] 验证已阻止：{key} 不是已确认的内存数据库')
+            return 1
+    for key in ('PYTEST_ADDOPTS', 'PYTEST_PLUGINS', 'PYTHONPATH', 'PYTHONHOME'):
+        if env.get(key, ''):
+            print(f'[error] 验证已阻止：请清除继承的 {key}')
+            return 1
+    env['DATABASE_URL'] = 'sqlite:///:memory:'
+    env['WMS_DATABASE_URI'] = 'sqlite:///:memory:'
+    env['WMS_SKIP_AUTO_UPDATE'] = '1'
+    # 自动发现的插件可能在 conftest 之前导入应用；仅显式加载分片所需 xdist。
+    env['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
+    env['PYTHONNOUSERSITE'] = '1'
 
     all_count = len(collect(1, 0))
     print(
@@ -88,10 +116,10 @@ def main() -> int:
     # 不改变执行方式与隔离模型。
     cmd = [
         sys.executable, '-m', 'pytest', *files,
-        '-q', '-p', 'no:pylama',
+        '-q', '-p', 'no:pylama', '-p', 'xdist.plugin',
         '-n', str(workers), '--dist', 'loadfile',
     ]
-    return subprocess.call(cmd, cwd=str(REPO_ROOT))
+    return subprocess.call(cmd, cwd=str(REPO_ROOT), env=env)
 
 
 if __name__ == '__main__':

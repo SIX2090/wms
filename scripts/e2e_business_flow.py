@@ -10,6 +10,9 @@
 
 使用 requests.Session 保持登录态。
 """
+# 隔离数据库、服务和请求目标未完成验证前，禁止导入或执行本脚本。
+raise RuntimeError('遗留脚本已阻止：尚未证明隔离数据库与自有服务的安全边界')
+
 import json
 import re
 import sys

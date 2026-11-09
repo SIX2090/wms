@@ -109,6 +109,10 @@ def test_setting_default_off_and_skip_env(failures: list[str]) -> None:
     )
     check(skip_logic is not None, "_run_startup_auto_update() 内含 WMS_SKIP_AUTO_UPDATE 跳过逻辑", failures)
 
+    # run_server 导入期可能取得默认库租约并导入应用；内存地址不能证明其余 I/O 安全。
+    # 静态断言保留，动态验证不得静默跳过并报成功。
+    raise RuntimeError('启动自动更新验证已阻止：应用和子进程隔离尚未证明')
+
     mock_called: list[bool] = []
 
     class _MockAutoUpdate:

@@ -12,6 +12,12 @@ BUG-2026-08-02-010 回归测试：complete_adjustment / revert_adjustment 同步
 """
 from __future__ import annotations
 
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os
 import sys
 import time

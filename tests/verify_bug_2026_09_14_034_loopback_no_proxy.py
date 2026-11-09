@@ -91,7 +91,8 @@ class TestSendImageNoProxy:
         monkeypatch.setitem(app_module.app.config, "WECHAT_HELPER_TOKEN", "tok-034")
         captured = {}
 
-        def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None):
+        def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None, allow_redirects=None):
+            assert allow_redirects is False
             captured["url"] = url
             captured["proxies"] = proxies
             return _SentResponse()

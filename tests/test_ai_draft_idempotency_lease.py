@@ -3,6 +3,10 @@
 
 旧实现只写 processing 不设超时：进程崩溃后同一业务键永久返回"正在处理中"。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path

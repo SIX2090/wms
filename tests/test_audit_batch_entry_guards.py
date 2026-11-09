@@ -5,6 +5,10 @@ F01 批量完成/反审回写来源采购订单状态；
 F02 批量反审存在有效下推时拒绝（否则单据永久卡死）；
 F03 批量完成出库拒绝停用仓，且 0 成功必须返回 error 契约。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import re
 import sys
 from datetime import date

@@ -3,6 +3,10 @@
 
 审计 S3：该端点 @csrf.exempt 却接受 Web 会话鉴权，第三方站点可借登录态塞打印任务。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import sys
 from pathlib import Path
 

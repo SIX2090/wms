@@ -2,6 +2,9 @@
 """临时诊断（用完即删）：复现 下推领料单 10 秒卡顿 = SQLite 写锁竞争。
 持有一个写事务(BEGIN IMMEDIATE) 5 秒，同时实测 push POST 的阻塞时长。"""
 from __future__ import annotations
+
+# 隔离来源、文件库及监听归属未完成验证前，禁止导入或执行本诊断。
+raise RuntimeError('诊断已阻止：尚未证明隔离数据库与自有监听服务的安全边界')
 import re, sqlite3, threading, time, uuid
 import requests
 

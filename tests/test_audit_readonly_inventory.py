@@ -122,6 +122,7 @@ class NoApp(importlib.abc.MetaPathFinder):
 sys.meta_path.insert(0, NoApp())
 original = sqlite3.connect
 def only_readonly(database, *args, **kwargs):
+    Path(__file__).with_name('sqlite-was-connected').touch()
     assert kwargs.get('uri') is True and 'mode=ro' in str(database), 'READONLY_CONNECTION_REQUIRED'
     connection = original(database, *args, **kwargs)
     denied = {sqlite3.SQLITE_INSERT, sqlite3.SQLITE_UPDATE, sqlite3.SQLITE_DELETE,
@@ -194,4 +195,90 @@ def test_cli_unsupported_target_does_not_bootstrap_app(tmp_path, uri):
     database = _fixture(tmp_path / 'inventory.db')
     result, marker = _run_checker(tmp_path, database, ['--db', uri])
     assert result.returncode == 2
+    assert not marker.exists()
+
+
+def _profile_or_fail_closed(tmp_path):
+    from scripts.verify_db_guard import require_owned_test_profile, owned_test_file
+    try:
+        return require_owned_test_profile()
+    except SystemExit:
+        with pytest.raises(SystemExit, match='安全阻断'):
+            with owned_test_file(tmp_path / 'unproved.db'):
+                pytest.fail('unknown process must not acquire a file lease')
+        return None
+
+
+def test_require_owned_test_profile_ignores_forged_environment(tmp_path, monkeypatch):
+    profile = _profile_or_fail_closed(tmp_path)
+    if profile is None:
+        return
+    from scripts.verify_db_guard import require_owned_test_profile
+    monkeypatch.setenv('WMS_TEST_PROFILE', str(tmp_path / 'forged'))
+    monkeypatch.setenv('WMS_ISOLATED_TEST', '1')
+    monkeypatch.setenv('LOCALAPPDATA', str(tmp_path / 'forged-local-appdata'))
+    try:
+        after = require_owned_test_profile()
+    except SystemExit:
+        return  # An altered environment may conservatively revoke the capability.
+    assert after == profile
+
+
+def test_owned_test_file_pins_file_and_parent_during_read(tmp_path):
+    if _profile_or_fail_closed(tmp_path) is None:
+        return
+    from scripts.verify_db_guard import owned_test_file
+    folder = tmp_path / 'held'
+    folder.mkdir()
+    target, replacement = folder / 'synthetic.txt', tmp_path / 'replacement.txt'
+    target.write_text('synthetic unchanged', encoding='utf-8')
+    replacement.write_text('replacement', encoding='utf-8')
+    with owned_test_file(target) as verified:
+        assert verified == target
+        assert verified.read_text(encoding='utf-8') == 'synthetic unchanged'
+        with pytest.raises(PermissionError):
+            target.write_text('must not overwrite', encoding='utf-8')
+        with pytest.raises(PermissionError):
+            os.replace(replacement, target)
+        with pytest.raises(PermissionError):
+            folder.rename(tmp_path / 'swapped-directory')
+    assert target.read_text(encoding='utf-8') == 'synthetic unchanged'
+
+
+def test_cli_unowned_code_path_rejected_before_sqlite_connect(tmp_path):
+    if _profile_or_fail_closed(tmp_path) is None:
+        return
+    outside = ROOT / 'README.md'  # Own copied source, never a production file.
+    result, marker = _run_checker(tmp_path, outside)
+    assert result.returncode != 0 and '安全阻断' in result.stderr
+    assert not (tmp_path / 'hook/sqlite-was-connected').exists()
+    assert not marker.exists()
+
+
+def test_validate_owned_test_file_rejects_hardlink_before_connect(tmp_path):
+    if _profile_or_fail_closed(tmp_path) is None:
+        return
+    original = tmp_path / 'synthetic-hardlink-source.txt'
+    sentinel = b'synthetic hardlink sentinel; never a database'
+    original.write_bytes(sentinel)
+    alias = tmp_path / 'hardlink.db'
+    os.link(original, alias)
+    assert original.samefile(alias) and alias.stat().st_nlink == 2
+    result, marker = _run_checker(tmp_path, alias)
+    assert result.returncode != 0 and '安全阻断' in result.stderr
+    assert not (tmp_path / 'hook/sqlite-was-connected').exists()
+    assert not marker.exists()
+    assert original.read_bytes() == sentinel
+
+
+@pytest.mark.parametrize('prefix', ['sqlite+untrusted:///', 'sqlite://remote.invalid/',
+                                  'sqlite://synthetic:synthetic@remote.invalid/',
+                                  'sqlite://remote.invalid:1234/'])
+def test_cli_rejects_noncanonical_sqlite_authority_and_driver(tmp_path, prefix):
+    if _profile_or_fail_closed(tmp_path) is None:
+        return
+    database = _fixture(tmp_path / 'owned-synthetic.db')
+    result, marker = _run_checker(tmp_path, database, ['--db', prefix + database.as_posix()])
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert not (tmp_path / 'hook/sqlite-was-connected').exists()
     assert not marker.exists()

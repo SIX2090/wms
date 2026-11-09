@@ -11,9 +11,6 @@
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 
-# 默认端口 8080；如需换端口：make smoke BASE_URL=http://127.0.0.1:18080
-BASE_URL ?= http://127.0.0.1:8080
-
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -25,7 +22,7 @@ help: ## 显示本 Makefile 所有可执行 target
 	@echo ""
 	@echo "示例："
 	@echo "  make check    # 提交前：lint + 74 项 BUG 回归 + pytest"
-	@echo "  make smoke    # 改完模板/路由后：121 冒烟（需先启动 WMS 服务）"
+	@echo "  make smoke    # 使用隔离启动器；隔离证明不足时拒绝运行"
 
 .PHONY: lint
 lint: ## 跑 A1–A14 共 14 条防 BUG 规则 + 禁止裸调非 GET fetch
@@ -51,10 +48,14 @@ check: lint bugs unit ## 提交前必跑：lint + 74 项 BUG 回归 + pytest
 	@echo "✓ make check 全部通过，可以 commit"
 
 .PHONY: smoke
-smoke: ## 跑 121 项冒烟测试（需先在另一个终端启动 WMS 服务）
-	@echo ">> full_smoke_test.py (BASE_URL=$(BASE_URL))"
-	@echo "   提示：另起一个终端执行 \`$(PYTHON) app/run_server.py\`"
-	@$(PYTHON) scripts/full_smoke_test.py --base-url $(BASE_URL)
+smoke: ## 使用隔离启动器运行冒烟测试
+ifneq ($(origin BASE_URL),undefined)
+	@echo "拒绝指定 BASE_URL：冒烟测试只能使用启动器创建的隔离服务"
+	@exit 2
+else
+	@echo ">> run_smoke_in_ci.py (隔离证明不足时将拒绝运行)"
+	@$(PYTHON) -I -B -X utf8 scripts/run_smoke_in_ci.py
+endif
 
 .PHONY: ci
 ci: check smoke ## 本地模拟 GitHub Actions：check + smoke

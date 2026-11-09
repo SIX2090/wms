@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """挑战演示：登录 → 进入物料档案 → 新增物料 → 填表 → 提交 → 验证 DB"""
+# 隔离数据库、服务和请求目标未完成验证前，禁止导入或执行本脚本。
+raise RuntimeError('遗留脚本已阻止：尚未证明隔离数据库与自有服务的安全边界')
+
 import time
 import sqlite3
 from pathlib import Path

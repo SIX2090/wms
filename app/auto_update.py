@@ -10,7 +10,7 @@ AI-DEPLOY-F01 / AI-DEPLOY-F01-FIX-01 / AI-DEPLOY-F01-FIX-02:
 - 任何步骤失败都不阻断 WMS 启动，用现有代码启动保证可用性。
 - 仅做 git fetch + pull --ff-only，不做 force、不切分支。
 - 数据库迁移由 app.py 启动逻辑 + WMS_NO_DB_TOUCH.flag 控制，本脚本不干预。
-- 已跟踪文件有未提交改动时默认先放入 Git stash，再继续 pull；可用 WMS_AUTO_UPDATE_DIRTY=skip 保守地跳过更新。
+- 已跟踪文件有未提交改动时保留现场并跳过更新；不自动 stash 或恢复共享工作区。
 - 落后提交数使用 HEAD..remote/branch（真正 behind），不是两 tip 并集计数。
 - 拉取的新代码在同一次启动、import 业务模块之前生效；若进程已加载旧模块，
   需再重启一次才能用全新代码（标准 in-process 行为）。
@@ -26,6 +26,7 @@ import datetime
 import os
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
@@ -337,15 +338,27 @@ def log_pip_versions(python_exe: str) -> None:  # no-test:reason=审计日志辅
         pass
 
 
-def stash_tracked_changes() -> tuple[bool, str]:
-    """将已跟踪本地改动安全保存到 stash，避免启动更新覆盖现场修改。"""
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+def stash_tracked_changes() -> tuple[bool, str, str | None]:
+    """保存已跟踪改动并识别本次 stash，不依赖会变化的 stash@{0}。"""
+    marker = f"WMS auto-update backup {uuid.uuid4().hex}"
     code, out, err = run_git(
-        "stash", "push", "-m", f"WMS auto-update backup {stamp}"
+        "stash", "push", "-m", marker
     )
     if code != 0:
-        return False, err or out or f"git stash failed ({code})"
-    return True, out or "(no changes stashed)"
+        detail = err or out or f"git stash failed ({code})"
+        return False, f"{detail}；请检查工作区与 stash 列表，本次标识 {marker}", None
+    code, listing, err = run_git("stash", "list", "--format=%H%x09%gs")
+    if code != 0:
+        return False, f"无法识别本次 stash，请人工检查列表及标识 {marker}", None
+    matches = []
+    for line in listing.splitlines():
+        sha, sep, subject = line.partition("\t")
+        if sep and subject.endswith(": " + marker) and len(sha) in (40, 64):
+            if all(c in "0123456789abcdef" for c in sha.lower()):
+                matches.append(sha)
+    if len(matches) != 1:
+        return False, f"无法唯一识别本次 stash，请人工检查列表及标识 {marker}", None
+    return True, out or "已保存本地改动", matches[0]
 
 
 def main() -> int:
@@ -414,52 +427,27 @@ def main() -> int:
     if code != 0:
         log(f"[警告] 无法检查工作区: {err or status}")
         return 0
-    stashed_local_changes = False
     if status.strip():
-        log(f"检测到已跟踪文件有未提交改动:\n{status}")
-        if os.environ.get("WMS_AUTO_UPDATE_DIRTY", "stash").strip().lower() in (
-            "skip", "false", "0", "no"
-        ):
-            log(
-                "[警告] WMS_AUTO_UPDATE_DIRTY=skip，跳过 pull 以保留本地改动。"
-            )
-            return 0
-        ok_stash, stash_result = stash_tracked_changes()
-        if not ok_stash:
-            log(f"[警告] 无法 stash 本地改动，跳过 pull: {stash_result}")
-            return 0
-        stashed_local_changes = True
-        log(f"本地已跟踪改动已保存到 Git stash，继续更新: {stash_result}")
-        code_u, untracked, _ = run_git("status", "--porcelain", "--untracked-files=normal")
-        if code_u == 0 and untracked.strip():
-            log("（另有未跟踪文件，已忽略，不单独拦截 pull）")
-
+        log("[警告] 工作区有已跟踪的未提交改动，保留现场并跳过自动更新；请人工核对后更新。")
+        return 0
     if not backup_database():
         log("[警告] 更新前备份失败，已跳过本次代码更新（当前版本继续运行）。")
         return 0
+
+    # Backups may take time; preserve edits made while the backup was running.
+    code, status, err = run_git("status", "--porcelain", "--untracked-files=no")
+    if code != 0 or status.strip():
+        log("[警告] 备份后无法确认工作区干净，保留现场并跳过本次自动更新。")
+        return 0
+
     pre_sha = resolve_sha("HEAD") or ""
     code, out, err = run_git("pull", "--ff-only", REMOTE, BRANCH)
     if code != 0:
         log(f"[警告] git pull --ff-only 失败（不阻断启动）: {err or out}")
-        if stashed_local_changes:
-            restore_code, restore_out, restore_err = run_git("stash", "pop")
-            if restore_code == 0:
-                log(f"更新失败，已恢复本地 stash 改动: {restore_out or '(restored)'}")
-            else:
-                log(
-                    "[严重警告] 更新失败且无法恢复本地 stash，请立即执行 git stash list/pop: "
-                    f"{restore_err or restore_out}"
-                )
         if ahead > 0:
             log("提示: 本地超前远端时快进合并可能失败，需在服务器对齐历史后再更新。")
         return 0
-    if stashed_local_changes:
-        log(
-            "代码已更新；本地旧改动保留在 Git stash，未自动重新应用。"
-            "如需取回请先确认与远程代码的差异后执行 git stash list / git stash pop。"
-        )
-    else:
-        log(f"代码已更新:\n{out or '(fast-forward)'}")
+    log(f"代码已更新:\n{out or '(fast-forward)'}")
 
     post_sha = resolve_sha("HEAD") or ""
     if post_sha:

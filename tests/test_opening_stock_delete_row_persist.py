@@ -127,10 +127,13 @@ module.exports = { reset, drive };
 
 
 def _run_node(harness: Path, script: str) -> dict:
-    r = subprocess.run(
-        [NODE, "-e", f"const h = require({str(harness)!r});\n(async () => {{\n{script}\n}})();"],
-        capture_output=True, text=True, encoding="utf-8",
-    )
+    source = harness.read_text(encoding='utf-8')
+    program = ("const vm=require('node:vm'),loaded={exports:{}};"
+               + "vm.runInNewContext(" + json.dumps(source) + ","
+               + "{module:loaded,exports:loaded.exports,require,setTimeout,console},"
+               + "{timeout:1000});const h=loaded.exports;\n(async()=>{\n" + script + "\n})();")
+    r = subprocess.run([NODE, '-e', program], capture_output=True, text=True,
+                       encoding='utf-8', timeout=15)
     assert r.returncode == 0, f"node 执行失败：{r.stderr[:600]}"
     return json.loads(r.stdout)
 

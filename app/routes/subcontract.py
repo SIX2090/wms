@@ -28,6 +28,7 @@ from flask_login import login_required
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 class SubcontractProductImportRow(BaseModel):
@@ -107,7 +108,7 @@ def register_subcontract_routes(app):
                     material_id=material.id, unit_id=material.unit_id, quantity=quantity))
             db.session.flush()
             order.total_amount = round_to_2_decimals(sum(
-                (item.quantity or 0) * (item.material.price or 0) for item in order.items))
+                round_money_product(item.quantity or 0, item.material.price or 0) for item in order.items))
             db.session.commit()
             log_operation('导入委外产品', f'委外单：{order.order_no}，新增{len(prepared)}行', 'subcontract', id)
             return jsonify(status='success', count=len(prepared), msg=f'成功导入{len(prepared)}条产品明细')
@@ -361,7 +362,7 @@ def register_subcontract_routes(app):
             db.session.add(item)
             db.session.flush()
             order.total_amount = round_to_2_decimals(sum(
-                (order_item.quantity or 0) * (order_item.material.price or 0)
+                round_money_product(order_item.quantity or 0, order_item.material.price or 0)
                 for order_item in order.items
             ))
             try:
@@ -390,7 +391,7 @@ def register_subcontract_routes(app):
         db.session.delete(item)
         db.session.flush()
         order.total_amount = round_to_2_decimals(sum(
-            (order_item.quantity or 0) * (order_item.material.price or 0)
+            round_money_product(order_item.quantity or 0, order_item.material.price or 0)
             for order_item in order.items
             if order_item.id != item_id
         ))
@@ -566,7 +567,7 @@ def register_subcontract_routes(app):
                 scrap_quantity=0,
                 unit_id=material.unit_id,
                 price=price,
-                amount=round_to_2_decimals(quantity * price)
+                amount=round_money_product(quantity, price)
             ))
             # P2-3 收敛：收货入账经单点入口（BUG-2026-08-16-001 库位同步
             # 由入口内部完成，库位键 location or warehouse 与存量逐字一致）。
@@ -707,7 +708,7 @@ def register_subcontract_routes(app):
                 if qty <= 0:
                     continue
                 price = round_to_2_decimals(item.material.price if item.material and item.material.price else 0)
-                amount = round_to_2_decimals(qty * price)
+                amount = round_money_product(qty, price)
                 db.session.add(SubcontractItem(
                     subcontract_order_id=new_order.id,
                     material_id=item.material_id,
@@ -1068,7 +1069,7 @@ def register_subcontract_routes(app):
                     _get_excel_cell(row, col_map, 'unit'),
                     warnings=warnings,
                 )
-                order.total_amount = (order.total_amount or 0) + round_to_2_decimals(quantity * (material.price or 0))
+                order.total_amount = (order.total_amount or 0) + round_money_product(quantity, material.price or 0)
                 db.session.add(SubcontractItem(
                     subcontract_order_id=order.id,
                     material_id=material.id,
@@ -1969,7 +1970,7 @@ def register_subcontract_routes(app):
                     scrap_quantity=scrap_quantity,
                     unit_id=int(unit_id) if unit_id else material.unit_id,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=remarks[idx] if idx < len(remarks) else ''
                 ))
                 total_quantity += quantity
@@ -2496,7 +2497,7 @@ def register_subcontract_routes(app):
                 )
                 scrap_quantity = _get_excel_number(row, col_map, 'scrap_quantity', 0)
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 receive.total_quantity = (receive.total_quantity or 0) + quantity
                 receive.total_scrap = (receive.total_scrap or 0) + scrap_quantity
                 db.session.add(SubcontractReceiveItem(

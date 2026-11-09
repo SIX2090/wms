@@ -4,6 +4,10 @@
 审计 I2：反提交/售后/批量反审按"单次快照逐行比较"，两行 8+8 对单仓 10
 会逐行通过，合计扣成负账。
 """
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import re
 import sys
 from datetime import date, datetime

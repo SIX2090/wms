@@ -14,7 +14,7 @@ function cacheMaterial(m) {
 function findMaterialByCode(code) {
     return materialCodeIndex.get(String(code || '').trim().toLowerCase()) || null;
 }
-let rows = existingRows.length ? existingRows.slice() : [];
+let rows = existingRows.map(row => ({...row}));
 let activeCodeInput = null;
 const gridBody = document.getElementById('openingGridBody');
 const materialMenu = document.getElementById('materialMenu');
@@ -23,9 +23,23 @@ function emptyRow() {
 }
 
 function amountOf(row) {
-    const quantity = Number(row.quantity || 0);
-    const price = Number(row.price || 0);
-    return quantity * price;
+    const original = row.line_id && typeof existingRows !== 'undefined'
+        ? existingRows.find(saved => String(saved.line_id) === String(row.line_id)
+            && String(saved.material_id) === String(row.material_id)
+            && String(saved.warehouse_id) === String(row.warehouse_id)) : null;
+    const known = original && Object.prototype.hasOwnProperty.call(original, 'saved_quantity')
+        && Object.prototype.hasOwnProperty.call(original, 'saved_price');
+    const sameQuantity = known && Number(row.quantity || 0) === Number(original.quantity || 0);
+    const samePrice = known && Number(row.price || 0) === Number(original.price || 0);
+    if (sameQuantity && samePrice && original.saved_amount !== null
+            && original.saved_amount !== undefined && Number.isFinite(Number(original.saved_amount))) {
+        return Number(original.saved_amount);
+    }
+    const quantity = sameQuantity ? Number(original.saved_quantity || 0)
+        : window.WMSMoney.round(Number(row.quantity || 0));
+    const price = samePrice ? Number(original.saved_price || 0)
+        : window.WMSMoney.round(Number(row.price || 0));
+    return window.WMSMoney.product(quantity, price);
 }
 
 function warehouseOptionsHtml(selectedId) {
@@ -682,7 +696,8 @@ function selectMaterial(index, materialId) {
         material_name: material.name || '',
         spec: material.spec || '',
         unit: material.unit || '',
-        price: rows[index].price || material.price || 0,
+        price: rows[index].price !== undefined && rows[index].price !== null && rows[index].price !== ''
+            ? rows[index].price : (material.price || 0),
     };
     closeMaterialMenu();
     renderRows();
@@ -691,16 +706,24 @@ function selectMaterial(index, materialId) {
 }
 
 function collectItems() {
+    const headerWarehouse = document.getElementById('headerWarehouse')?.value || '';
     return rows
         .filter(row => row.material_id || row.material_code || row.quantity || row.price || row.remark || row.warehouse_id)
-        .map(row => ({
-            material_id: row.material_id,
-            warehouse_id: row.warehouse_id,
-            quantity: row.quantity,
-            price: row.price,
-            remark: row.remark,
-            location: (row.location || '').trim(),
-        }));
+        .map(row => {
+            const warehouse = row.warehouse_id || headerWarehouse;
+            const original = row.line_id ? existingRows.find(saved => String(saved.line_id) === String(row.line_id)
+                && String(saved.material_id) === String(row.material_id)
+                && String(saved.warehouse_id) === String(warehouse)) : null;
+            return {
+                line_id: original ? row.line_id : null,
+                material_id: row.material_id,
+                warehouse_id: row.warehouse_id,
+                quantity: row.quantity,
+                price: row.price,
+                remark: row.remark,
+                location: (row.location || '').trim(),
+            };
+        });
 }
 
 // 表头日期：作为所有明细行的默认建账日期（缺省今天）
@@ -1180,7 +1203,7 @@ function renderSummary() {
         const g = grouped[key];
         const qty = Number(row.quantity || 0);
         g.total_qty += qty;
-        g.total_amount += qty * Number(row.price || 0);
+        g.total_amount += amountOf(row);
     });
     const items = Object.values(grouped);
     if (!items.length) {

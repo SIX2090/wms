@@ -33,6 +33,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 class PurchaseRequestContractFields(BaseModel):
@@ -287,7 +288,7 @@ def register_purchase_request_routes(app):
                     db.session.flush()
 
                     for req_item in group_items:
-                        price = round_to_2_decimals(req_item.estimated_price or (req_item.material.price if req_item.material else 0) or 0)
+                        price = round_to_2_decimals(req_item.estimated_price if req_item.estimated_price is not None else ((req_item.material.price if req_item.material else 0) or 0))
                         quantity = round_to_2_decimals(selected_quantities.get(req_item.id, item_execution.get(req_item.id, {}).get('remaining_to_order', req_item.quantity or 0)))
                         if quantity <= 0:
                             continue
@@ -298,7 +299,7 @@ def register_purchase_request_routes(app):
                             quantity=quantity,
                             received_quantity=0,
                             price=price,
-                            amount=round_to_2_decimals(quantity * price),
+                            amount=round_money_product(quantity, price),
                             remark=req_item.remark or '',
                             contract_no=req_item.contract_no,
                             project_name=req_item.project_name,
@@ -344,7 +345,7 @@ def register_purchase_request_routes(app):
             db.session.flush()
 
             for req_item in push_items:
-                price = round_to_2_decimals(req_item.estimated_price or (req_item.material.price if req_item.material else 0) or 0)
+                price = round_to_2_decimals(req_item.estimated_price if req_item.estimated_price is not None else ((req_item.material.price if req_item.material else 0) or 0))
                 quantity = round_to_2_decimals(selected_quantities.get(req_item.id, item_execution.get(req_item.id, {}).get('remaining_to_order', req_item.quantity or 0)))
                 if quantity <= 0:
                     continue
@@ -355,7 +356,7 @@ def register_purchase_request_routes(app):
                     quantity=quantity,
                     received_quantity=0,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=req_item.remark or '',
                     contract_no=req_item.contract_no,
                     project_name=req_item.project_name,
@@ -590,7 +591,7 @@ def register_purchase_request_routes(app):
                     return api_error(f'物料 {material_code or item_data.get("material_name", "")} 的数量必须大于0')
 
                 estimated_price = parse_float_value(item_data.get('estimated_price'), 0)
-                estimated_amount = quantity * estimated_price
+                estimated_amount = round_money_product(quantity, estimated_price)
                 total_amount += estimated_amount
 
                 unit_id = item_data.get('unit_id')
@@ -888,7 +889,7 @@ def register_purchase_request_routes(app):
                 supplier_name = _get_excel_cell(row, col_map, 'supplier')
                 supplier = _find_or_create_supplier(supplier_name)
                 price = _get_excel_number(row, col_map, 'price', material.price or 0)
-                amount = round_to_2_decimals(quantity * price)
+                amount = round_money_product(quantity, price)
                 try:
                     fields = resolve_purchase_request_line_fields({
                         'contract_no': _get_excel_cell(row, col_map, 'contract_no'),

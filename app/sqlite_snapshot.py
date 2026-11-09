@@ -53,6 +53,12 @@ def snapshot_connection(source, destination, *, timeout=30):
 
 def create_snapshot(source, destination, *, timeout=30):
     """Read a correctly escaped file URI; do not create or modify the source."""
-    original = Path(source).resolve(strict=True)
+    # A readable file need not grant access to Windows' global DOS-device
+    # mapping (LPAC deliberately denies that query). A fully escaped absolute
+    # URI plus mode=ro opens only the existing source; stat preserves the
+    # missing-file error. snapshot_connection separately checks file identity
+    # against an existing destination, including hard links and path aliases.
+    original = Path(source).absolute()
+    original.stat()
     with closing(sqlite3.connect(original.as_uri() + '?mode=ro', uri=True, timeout=timeout)) as connection:
         snapshot_connection(connection, destination, timeout=timeout)

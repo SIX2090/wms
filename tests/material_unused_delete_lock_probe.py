@@ -1,4 +1,7 @@
 """Disposable file-DB concurrency proof, launched only by its isolated pytest wrapper."""
+# 当前文件路径归属及应用出站隔离尚未证明；不得先导入应用或创建文件库。
+raise RuntimeError('物料并发验证已阻止：隔离文件库及应用出站尚未证明')
+
 from pathlib import Path
 import json
 import os

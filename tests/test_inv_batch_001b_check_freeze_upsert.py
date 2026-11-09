@@ -257,7 +257,13 @@ def test_t4_complete_uses_frozen_baseline():
     # 若错误地用当前账面则差异 = 57 − 30 = +27（方向都反了）。
     _write_out_flow(m1, wh_a, 30)
 
-    r2 = document_post(client,f"/check/{check_id}/complete", json={"force": 1})
+    warning = document_post(client,f"/check/{check_id}/complete", json={"force": 1})
+    alert = warning.get_json()
+    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
+    assert alert["risks"]["uncounted"] == 0, alert
+    assert alert["risks"]["movement_count"] == 1, alert
+    assert "本仓 1 个物料发生出入库流水" in alert.get("msg", ""), alert
+    r2 = document_post(client,f"/check/{check_id}/complete", json={"force": 1, "confirmation_token": alert["confirmation_token"]})
     assert r2.status_code == 200, r2.get_data(as_text=True)
     body = r2.get_json()
     assert body.get("status") == "success", body

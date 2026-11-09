@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+from utils import round_money_product
 
 
 # STOCK-TRUTH-P16：下单软校验——可用量不足时返回缺口提示（不阻断）。
@@ -219,7 +220,7 @@ def register_sales_routes(app):
                 tax_rate = _get_excel_number(row, col_map, 'tax_rate') if 'tax_rate' in col_map else 0.13
                 if tax_rate <= 0:
                     tax_rate = 0.13
-                included_amount = round_to_2_decimals(quantity * price)
+                included_amount = round_money_product(quantity, price)
                 untaxed_amount = round_to_2_decimals(included_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else included_amount
                 tax_amount = round_to_2_decimals(included_amount - untaxed_amount)
                 untaxed_price = round(price / (1 + tax_rate), 4) if quantity > 0 and (1 + tax_rate) > 0 else 0
@@ -498,7 +499,7 @@ def register_sales_routes(app):
                     source_sales_order_item_id=item.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     remark=f'来源销售订单 {order.order_no}',
                 ))
                 order.shipment_order_no = outbound.order_no
@@ -588,7 +589,7 @@ def register_sales_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     tax_rate=tax_rate,
                     batch_no=(data.get('batch_no') or '').strip() or None,
                     serial_no=(data.get('serial_no') or '').strip() or None,
@@ -741,7 +742,7 @@ def register_sales_routes(app):
                     material_id=material.id,
                     quantity=quantity,
                     price=price,
-                    amount=round_to_2_decimals(quantity * price),
+                    amount=round_money_product(quantity, price),
                     tax_rate=tax_rate,
                     batch_no=(data.get('batch_no') or '').strip() or None,
                     serial_no=(data.get('serial_no') or '').strip() or None,
@@ -1614,20 +1615,33 @@ def register_sales_routes(app):
     def export_sales_reconciliation_report():
         import io
         from sqlalchemy.orm import selectinload
-        from app import SalesOrder, _require_report_warehouse, STOCK_COMPARE_EPSILON
+        from app import SalesOrder, Warehouse, _require_report_warehouse, STOCK_COMPARE_EPSILON
+        from services.sales_report_print import (_reconciliation_amounts, _reconciliation_excel_amount,
+            _reconciliation_quantities, _reconciliation_warehouse_filter, _reconciliation_warehouse_aliases,
+            _reconciliation_warehouse_issue, _RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE)
         from openpyxl import Workbook
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
             return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
         query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
-        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+        query = query.filter(_reconciliation_warehouse_filter(SalesOrder, selected_warehouse))
+        aliases = _reconciliation_warehouse_aliases(Warehouse.query.all())
         workbook = Workbook(); sheet = workbook.active; sheet.title = '销售对账'; sheet.append(['销售订单号', '仓库', '订单已发货数量', '出库完成数量', '订单已发货金额', '对账状态'])
+        workbook.create_sheet('归属说明').append([_RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE])
         for order in query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).all():
-            completed_qty = sum(float(item.quantity or 0) for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
-            completed_amount = sum(float(item.amount or 0) for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
-            ok = abs(float(order.shipped_amount or 0) - completed_amount) <= 0.01 and abs(sum(float(item.shipped_quantity or 0) for item in order.items) - completed_qty) <= STOCK_COMPARE_EPSILON
-            sheet.append([order.order_no, order.warehouse or '', sum(float(item.shipped_quantity or 0) for item in order.items), completed_qty, float(order.shipped_amount or 0), '通过' if ok else '不一致'])
+            completed_quantities = (item.quantity for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
+            shipped_qty, completed_qty, quantity_diff, quantity_ok = _reconciliation_quantities((item.shipped_quantity for item in order.items), completed_quantities, STOCK_COMPARE_EPSILON)
+            completed_amounts = (item.amount for outbound in order.outbound_orders if outbound.status == 'completed' for item in outbound.items if not item.source_sales_order_item_id or (item.source_sales_order_item and item.source_sales_order_item.sales_order_id == order.id))
+            amount_diff, amount_ok = _reconciliation_amounts(order.shipped_amount, completed_amounts)
+            warehouse_reason = _reconciliation_warehouse_issue(order, selected_warehouse, aliases)
+            if warehouse_reason:
+                completed_qty, quantity_diff, amount_diff, quantity_ok, amount_ok = None, None, None, False, False
+            ok = amount_ok and quantity_ok
+            status = '待人工核对' if amount_diff is None or quantity_diff is None else '通过' if ok else '不一致'
+            if warehouse_reason:
+                status += '：' + warehouse_reason
+            sheet.append([order.order_no, order.warehouse or '', shipped_qty, completed_qty, _reconciliation_excel_amount(order.shipped_amount), status])
         output = io.BytesIO(); workbook.save(output); output.seek(0)
         return send_file(output, download_name='sales_reconciliation.xlsx', as_attachment=True)
 
@@ -1698,7 +1712,7 @@ def register_sales_routes(app):
             sales_item_map = {item.material_id: item for item in sales_order.items} if sales_order else {}
             for item in (oo.items or []):
                 material = item.material
-                line_amount = item.amount or round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+                line_amount = item.amount or round_money_product(item.quantity or 0, item.price or 0)
                 sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
                 tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
                 untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else line_amount

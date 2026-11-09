@@ -134,6 +134,12 @@ def _bootstrap_app():
         sys.path.insert(0, app_dir)
     os.environ.setdefault("FLASK_ENV", "testing")
     os.environ.setdefault("WMS_SKIP_DB_UPGRADE", "1")
+    if __package__:
+        from .verify_db_guard import require_synthetic_memory_database
+    else:
+        from verify_db_guard import require_synthetic_memory_database
+    require_synthetic_memory_database()
+
     import app as wms_app  # type: ignore
     wms_app.app.config["WTF_CSRF_ENABLED"] = False
     wms_app.app.config["TESTING"] = True

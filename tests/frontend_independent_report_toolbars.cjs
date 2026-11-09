@@ -23,17 +23,21 @@ const fields = {warehouse_id: scenario === 'stock_all' ? '0' : '2', search: '轴
 const form = {}, calls = [], pending = [], opened = [];
 let refreshes = 0, exportCount = 0;
 const mapping = {'[data-report-template]': 'select', '[data-report-preview]': 'preview', '[data-report-download]': 'download', '[data-report-status]': 'status', '[data-report-retry]': 'retry', '[data-report-manage]': 'manage', '#refreshReportBtn': 'refresh', '#exportReportBtn': 'export', '#reportPrintMenu': 'menu'};
-const root = {dataset: {reportKind: stock ? 'stock' : summary ? 'summary' : 'outflow', exportAction: 'legacyExport', exportUrl: '/legacy-export', warehouse: fields.warehouse_id},
+const root = {dataset: {reportKind: stock ? 'stock' : summary ? 'summary' : 'outflow', exportAction: 'exportOutflow', exportUrl: '/legacy-export', warehouse: fields.warehouse_id},
     querySelector(selector) { if (selector === '[data-report-scope]') return summary ? controls.scope : null; if (selector === '[data-report-manage]' && stock) return null; assert(mapping[selector], selector); return controls[mapping[selector]]; }, querySelectorAll() { return []; }};
 if (scenario === 'export_query') {
     root.dataset.exportAction = '';
     root.dataset.exportUrl = '/sales/reconciliation/export?warehouse_id=old&format=xlsx';
 }
+if (scenario.startsWith('export_action_')) root.dataset.exportAction = scenario.slice('export_action_'.length);
 const context = {console, URL, URLSearchParams, Set,
     document: {readyState: 'complete', addEventListener(type, handler){(documentEvents[type] ||= []).push(handler);}, querySelectorAll(selector) { assert.equal(selector, '[data-report-workbench]'); return [root]; }, querySelector(selector) { assert.equal(selector, 'form[method="get"]'); return form; }, createElement(tag) { assert.equal(tag, 'option'); return new Control(); }},
     FormData: class {constructor(value) { assert.equal(value, form); } forEach(handler) { for (const [key, value] of Object.entries(fields)) handler(value, key); }},
     window: {location: {origin: 'http://isolated.test', search: '?warehouse_id=' + fields.warehouse_id + '&sort=code&order=desc&page=7&per_page=1&embedded=1&csrf_token=SECRET', reload(){refreshes++;}, assign(url){opened.push(new URL(url, 'http://isolated.test'));}},
-        legacyExport(){exportCount++;}, open(url) {opened.push(new URL(url, 'http://isolated.test'));},
+        exportOutflow(){exportCount++;}, exportTrend(){exportCount++;},
+        exportSalesReport(){exportCount++;}, exportReport(){exportCount++;},
+        fetch(){throw new Error('arbitrary global action must not execute');},
+        open(url) {opened.push(new URL(url, 'http://isolated.test'));},
         WMS: {api: {get(url) { calls.push(url); return new Promise((resolve, reject) => pending.push({resolve, reject})); }}}},
 };
 vm.createContext(context); vm.runInContext(source, context);
@@ -90,6 +94,17 @@ function reply(index, templates) { pending[index].resolve({status: 'success', te
     assert.equal(controls.select.options.find(option => option.value === '99').disabled, true);
     assert.equal(controls.select.options.find(option => option.value === '11').textContent, '<自定义>');
     if (scenario === 'default') return;
+    if (scenario.startsWith('export_action_')) {
+        await controls.export.event('click');
+        if (root.dataset.exportAction === 'fetch') {
+            assert.equal(exportCount, 0);
+            assert.equal(opened[0].pathname, '/legacy-export');
+        } else {
+            assert.equal(exportCount, 1);
+            assert.equal(opened.length, 0);
+        }
+        return;
+    }
     if (scenario === 'export_query') {
         await controls.export.event('click');
         assert.equal(opened[0].pathname, '/sales/reconciliation/export');

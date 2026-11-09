@@ -3,6 +3,12 @@
 """Verify an empty in-memory database can migrate and serve the login page."""
 from __future__ import annotations
 
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os
 import sys
 from pathlib import Path

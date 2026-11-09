@@ -702,7 +702,7 @@ function fillAddMaterialInfo(material) {
     document.getElementById('unit').value = getMaterialUnit(material);
     document.getElementById('stock').value = formatStock(material.stock);
     var priceInput = document.getElementById('price');
-    if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+    if (priceInput && (priceInput.value === '')) {
         priceInput.value = (parseFloat(material.price) || 0).toFixed(2);
     }
 }
@@ -720,7 +720,7 @@ function calcInlineRowAmount(row) {
     var qty = parseFloat(row.querySelector('.material-qty-field')?.value) || 0;
     var price = parseFloat(row.querySelector('.material-price-field')?.value) || 0;
     var amountInput = row.querySelector('.material-amount-field');
-    if (amountInput) amountInput.value = (qty * price).toFixed(2);
+    if (amountInput) amountInput.value = (window.WMSMoney.product(qty, price)).toFixed(2);
 }
 
 function renumberDetailRows() {
@@ -804,7 +804,7 @@ function fillInlineMaterialInfo(row, material) {
     row.querySelector('.material-unit-field').value = getMaterialUnit(material);
     row.querySelector('.material-stock-field').value = formatStock(material.stock);
     var priceInput = row.querySelector('.material-price-field');
-    if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+    if (priceInput && (priceInput.value === '')) {
         priceInput.value = (parseFloat(material.price) || 0).toFixed(2);
     }
     calcInlineRowAmount(row);

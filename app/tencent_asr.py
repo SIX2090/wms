@@ -20,6 +20,7 @@ import json
 from typing import Any, Dict, Optional
 
 import requests
+from ai.safe_http import post as safe_ai_post
 
 ASR_HOST = "asr.tencentcloudapi.com"
 ASR_ENDPOINT = "/"
@@ -196,7 +197,7 @@ def sentence_recognition(
     )
     url = "https://{0}{1}".format(ASR_HOST, ASR_ENDPOINT)
     try:
-        resp = requests.post(
+        resp = safe_ai_post(
             url, data=payload, headers=headers, timeout=timeout, verify=True
         )
     except requests.RequestException as e:  # 网络层失败

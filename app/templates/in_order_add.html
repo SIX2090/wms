@@ -302,7 +302,7 @@ function fillMaterialFields(row, material, options = {}) {
     row.querySelector('.material-stock').value = formatStock(material.stock);
 
     const priceInput = row.querySelector('.material-price');
-    if (priceInput && (options.forcePrice || !priceInput.value || Number(priceInput.value) === 0)) {
+    if (priceInput && (options.forcePrice || priceInput.value === '')) {
         const price = parseFloat(material.price);
         priceInput.value = Number.isFinite(price) ? price.toFixed(2) : '0.00';
     }
@@ -642,7 +642,7 @@ function calcAmount(row) {
     if (typeof refreshWmsEntryCellHints === 'function') refreshWmsEntryCellHints(row);
     const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
     const price = parseFloat(row.querySelector('.material-price').value) || 0;
-    const amount = qty * price;
+    const amount = window.WMSMoney.product(qty, price);
     row.querySelector('.material-amount').value = amount.toFixed(2);
     calcTotal();
 }

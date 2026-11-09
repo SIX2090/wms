@@ -1,7 +1,7 @@
 # 期初库存（opening_stock）域路由：register-on-app 模式，endpoint 名与 app.py 原实现一致。
 # 共享辅助函数（_opening_stock_payload_from_request / _apply_opening_stock_balance 等）仍留在 app.py，
 # 各路由函数内部延迟导入，避免模块加载期循环导入。
-from flask import abort
+from flask import abort, g
 from flask_login import login_required
 
 from utils import require_role
@@ -145,6 +145,7 @@ def register_opening_stock_routes(app):
             Material,
             OpeningStock,
             OpeningStockDoc,
+            _opening_stock_saved_number,
             date,
             get_active_warehouses,
             get_default_warehouse,
@@ -175,6 +176,9 @@ def register_opening_stock_routes(app):
             'warehouse_id': line.warehouse_id,
             'quantity': normalize_stock_quantity(line.quantity or 0),
             'price': round_to_2_decimals(line.price or 0),
+            'saved_quantity': _opening_stock_saved_number(line.quantity),
+            'saved_price': _opening_stock_saved_number(line.price),
+            'saved_amount': _opening_stock_saved_number(line.amount),
             'remark': line.remark or '',
             'date': line.date.isoformat() if line.date else '',
             'location': line.location or '',
@@ -278,6 +282,7 @@ def register_opening_stock_routes(app):
             Material,
             OpeningStock,
             _apply_opening_stock_balance,
+            _opening_stock_preserve_validated_line,
             _opening_stock_payload_from_request,
             app,
             db,
@@ -298,6 +303,9 @@ def register_opening_stock_routes(app):
             return jsonify({'status': 'error', 'msg': '期初库存编辑不能更换仓库，如需调整请到目标仓库新增'}), 400
 
         try:
+            payload = dict(payload, line_id=opening.id)
+            payload = _opening_stock_preserve_validated_line(
+                opening, payload, guarded=getattr(g, 'document_edit_guard', False))
             opening, delta = _apply_opening_stock_balance(
                 opening, payload['material'], payload['quantity'], payload['price'], payload['amount'], payload['remark'], payload['warehouse'], payload.get('date'), payload.get('location', '')
             )
@@ -341,6 +349,7 @@ def register_opening_stock_routes(app):
             _apply_opening_stock_balance,
             _opening_stock_compat_doc,
             _opening_stock_normalize_items,
+            _opening_stock_preserve_validated_line,
             _parse_opening_stock_date,
             _reverse_opening_stock_line,
             app,
@@ -432,6 +441,7 @@ def register_opening_stock_routes(app):
                     opening = OpeningStock.query.filter_by(
                         doc_id=doc.id, material_id=material.id, warehouse_id=warehouse.id
                     ).with_for_update().first()
+                    item = _opening_stock_preserve_validated_line(opening, item, guarded=getattr(g, 'document_edit_guard', False))
                     # 单头日期是权威值：明细未显式给日期时跟随单头
                     item_date = item['date'] or doc.date
                     _, delta = _apply_opening_stock_balance(
@@ -515,6 +525,7 @@ def register_opening_stock_routes(app):
             Warehouse,
             _apply_opening_stock_balance,
             _opening_stock_normalize_items,
+            _opening_stock_preserve_validated_line,
             _parse_opening_stock_date,
             _reverse_opening_stock_line,
             app,
@@ -530,10 +541,11 @@ def register_opening_stock_routes(app):
             request,
             round_to_2_decimals,
         )
-        from pydantic import BaseModel, Field, ValidationError
+        from pydantic import BaseModel, Field, StrictInt, ValidationError
 
         class OpeningStockItemIn(BaseModel):
             """期初库存明细行入参（字段类型/范围在这里定死）。"""
+            line_id: StrictInt | None = Field(default=None, gt=0, lt=2**63)
             material_id: int = Field(gt=0)
             warehouse_id: int = Field(gt=0)
             quantity: float = Field(ge=0, allow_inf_nan=False)
@@ -656,6 +668,7 @@ def register_opening_stock_routes(app):
                 opening = OpeningStock.query.filter_by(
                     doc_id=doc.id, material_id=material.id, warehouse_id=warehouse.id
                 ).with_for_update().first()
+                item = _opening_stock_preserve_validated_line(opening, item, guarded=getattr(g, 'document_edit_guard', False))
                 # 明细未显式给日期时跟随单头（用户要求"改日期"对整单生效）
                 item_date = item['date'] or doc.date
                 _, delta = _apply_opening_stock_balance(
@@ -757,6 +770,8 @@ def register_opening_stock_routes(app):
             if hints:
                 # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏
                 msg += '；注意：' + '；'.join(hints[:3])
+                if len(hints) > 3:
+                    msg += f'；另有 {len(hints) - 3} 条提示，请逐仓核对'
             return jsonify({'status': 'success', 'msg': msg, 'reversed_count': reversed_count})
         except ValueError as ve:
             db.session.rollback()
@@ -857,6 +872,8 @@ def register_opening_stock_routes(app):
             if hints:
                 # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏
                 msg += '；注意：' + '；'.join(hints[:3])
+                if len(hints) > 3:
+                    msg += f'；另有 {len(hints) - 3} 条提示，请逐仓核对'
             return jsonify({
                 'status': 'success',
                 'msg': msg,
@@ -951,6 +968,8 @@ def register_opening_stock_routes(app):
             if hints:
                 # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏
                 msg += '；注意：' + '；'.join(hints[:3])
+                if len(hints) > 3:
+                    msg += f'；另有 {len(hints) - 3} 条提示，请逐仓核对'
             return jsonify({
                 'status': 'success',
                 'msg': msg,

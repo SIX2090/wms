@@ -309,6 +309,9 @@ const existingRows = [
         unit: {{ (row.unit or '')|tojson }},
         quantity: {{ row.quantity or 0 }},
         price: {{ row.price or 0 }},
+        saved_quantity: {{ row.saved_quantity|tojson }},
+        saved_price: {{ row.saved_price|tojson }},
+        saved_amount: {{ row.saved_amount|tojson }},
         remark: {{ (row.remark or '')|tojson }},
         location: {{ (row.location or '')|tojson }}
     }{{ "," if not loop.last else "" }}

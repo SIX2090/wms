@@ -34,6 +34,15 @@ import sys
 import urllib.error
 import urllib.request
 
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
+
 REPO = "SIX2090/wms"
 BRANCH = "main"
 API = "https://api.github.com"
@@ -60,7 +69,7 @@ def _req(method: str, path: str, payload=None, retries: int = 4):
         if data:
             req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req, timeout=180) as r:
+            with open_same_origin(req, timeout=180) as r:
                 body = r.read().decode()
                 return r.status, (json.loads(body) if body else None)
         except urllib.error.HTTPError as e:

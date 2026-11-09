@@ -83,9 +83,13 @@ def test_t3_checker_is_stdlib_only():
     src = _read(CHECKER)
     imports = set(re.findall(r'^\s*(?:import|from)\s+([A-Za-z_][\w.]*)', src, re.M))
     # 只允许标准库（顶层模块名）
-    allowed = {'argparse', 'json', 'os', 'sys', 'urllib', 're', 'typing', '__future__', 'pathlib', 'subprocess'}
+    allowed = {'argparse', 'json', 'os', 'sys', 'urllib', 're', 'typing', '__future__', 'pathlib', 'subprocess', 'wms_safe_http'}
     bad = {m for m in imports if m.split('.')[0] not in allowed}
     assert not bad, f'check_ci_green.py 引入了非标准库依赖：{sorted(bad)}'
+    # 仓库内的安全重定向 helper 同样不得依赖任何外部安装包。
+    helper = _read(os.path.join(REPO, 'scripts', 'wms_safe_http.py'))
+    helper_imports = set(re.findall(r'^\s*(?:import|from)\s+([A-Za-z_][\w.]*)', helper, re.M))
+    assert all(m.split('.')[0] == 'urllib' for m in helper_imports), helper_imports
 
 
 # ------------------------------------------------- T4 三个工作流都带定时触发

@@ -13,7 +13,7 @@ import html.parser
 import logging
 import math
 from datetime import datetime, date
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
 from functools import wraps
 
 from flask import request, jsonify, current_app, has_app_context, redirect, url_for, flash
@@ -65,6 +65,32 @@ def round_to_2_decimals(value):
         return 0.0
     # str(fval) 取 float 的最短十进制表示，避免 fval*100 的二进制误差
     return float(Decimal(str(fval)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+
+
+def round_money_product(quantity, price):
+    """先乘精确十进制输入，再按既有 HALF_UP 口径舍入到分。
+
+    不接收无法表示或无法保留分值的结果；不回写历史金额。
+    """
+    left = Decimal(str(quantity))
+    right = Decimal(str(price))
+    if not left.is_finite() or not right.is_finite():
+        raise ValueError('金额数量或单价不是有限数值')
+    for value in (left, right):
+        converted = float(value)
+        if not math.isfinite(converted) or Decimal(str(converted)) != value:
+            raise ValueError('金额数量或单价超出可精确处理范围')
+    with localcontext() as context:
+        context.prec = max(80, len(left.as_tuple().digits) + len(right.as_tuple().digits) + 4)
+        amount = left * right
+        if not math.isfinite(float(amount)):
+            raise ValueError('金额超出可精确处理范围')
+        context.prec = max(context.prec, amount.adjusted() + 4)
+        rounded = amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        result = float(rounded)
+        if not math.isfinite(result) or Decimal(str(result)) != rounded:
+            raise ValueError('金额超出可精确处理范围')
+        return result
 
 
 STOCK_COMPARE_EPSILON = 1e-6

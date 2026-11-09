@@ -32,16 +32,36 @@ esac
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # 获取本次提交涉及的文件
-STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+# 关闭重命名识别，将移入规则范围的文件视为新增；NUL 分隔防止 Git 对中文、
+# 空格等路径转义后导致规则范围判断失败。命令失败时不得静默放行。
+staged_file_list=$(mktemp)
+trap 'rm -f -- "$staged_file_list"' EXIT
+git diff --cached --no-renames --name-only --diff-filter=ACMTU -z > "$staged_file_list"
+STAGED_FILES=()
+while IFS= read -r -d '' staged_file; do
+    STAGED_FILES+=("$staged_file")
+done < "$staged_file_list"
+rm -f -- "$staged_file_list"
+trap - EXIT
 
-# 仅在涉及 app/、scripts/ 下时做多规则扫描
-RELEVANT=$(echo "$STAGED_FILES" | grep -E '^(app/|scripts/)' || true)
+RELEVANT=()
+STAGED_JS=()
+for staged_file in "${STAGED_FILES[@]}"; do
+    # A12 扫 tests/；A13 扫 BUG 基线及月度分片。
+    case "$staged_file" in
+        app/*|scripts/*|tests/*|WMS_BUG_BASELINE.md|docs/ledger/bugs/*)
+            RELEVANT+=("$staged_file") ;;
+    esac
+    case "$staged_file" in
+        app/static/js/*.js) STAGED_JS+=("$staged_file") ;;
+    esac
+done
 
-if [ -z "$RELEVANT" ]; then
+if [ ${#RELEVANT[@]} -eq 0 ]; then
     exit 0
 fi
 
-# —— 解释器探测（仅在上面「有涉及 app/ 或 scripts/」时才需要）——
+# —— 解释器探测（仅在涉及上述规则扫描路径时需要）——
 # 2026-09-19：把探测后移到相关性检查之后。纯文档提交（如 docs/、根目录 .md）
 # 不再因为环境里没 Python 而被拒绝，只有真正要跑规则扫描时才需要解释器。
 #
@@ -64,7 +84,7 @@ for cand in "/usr/bin/python3" "/usr/local/bin/python3" "/usr/bin/python" \
     "/c/ERP/.venv/Scripts/python.exe" \
     py; do
     if command -v "$cand" >/dev/null 2>&1 || [ -x "$cand" ]; then
-        if "$cand" -c "import sys" >/dev/null 2>&1; then
+        if "$cand" -I -S -B -X utf8 -c "import sys" >/dev/null 2>&1; then
             WMS_PY="$cand"
             break
         fi
@@ -76,7 +96,7 @@ done
 if [ -z "$WMS_PY" ]; then
     for p in "${USERPROFILE:-$HOME}/.workbuddy/binaries/python/versions"/*/python.exe; do
         [ -x "$p" ] || continue
-        if "$p" -c "import sys" >/dev/null 2>&1; then
+        if "$p" -I -S -B -X utf8 -c "import sys" >/dev/null 2>&1; then
             WMS_PY="$p"
             break
         fi
@@ -91,7 +111,7 @@ if [ -z "$WMS_PY" ] && command -v where.exe >/dev/null 2>&1; then
         p="${p%$'\r'}"
         [ -n "$p" ] || continue
         [ -s "$p" ] || continue
-        if "$p" -c "import sys" >/dev/null 2>&1; then
+        if "$p" -I -S -B -X utf8 -c "import sys" >/dev/null 2>&1; then
             WMS_PY="$p"
             break
         fi
@@ -110,11 +130,11 @@ fi
 
 echo "[pre-commit] WMS 多规则防 BUG 检查"
 echo "[pre-commit] 待检查文件："
-echo "$RELEVANT" | sed 's/^/  /'
+printf '  %s\n' "${RELEVANT[@]}"
 echo ""
 
 # 第一步：跑 14 条规则（lint_wms_rules.py，A1–A14）
-if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
+if ! "$WMS_PY" -I -S -B -X utf8 "$REPO_ROOT/scripts/lint_wms_rules.py" --staged; then
     echo ""
     echo "[pre-commit] ✗ 提交被拒绝：发现防 BUG 规则违规"
     echo "[pre-commit] 请修复后重新提交，或用 git commit --no-verify 跳过（不推荐）"
@@ -123,12 +143,11 @@ fi
 
 # 第二步：保留历史的"裸调 fetch"检查
 # 仅在变更涉及 app/static/js/ 时才扫描（避免无谓开销）
-STAGED_JS=$(echo "$STAGED_FILES" | grep -E '^app/static/js/.*\.js$' || true)
-if [ -n "$STAGED_JS" ]; then
+if [ ${#STAGED_JS[@]} -gt 0 ]; then
     echo "[pre-commit] 二次扫描：裸调非 GET fetch"
     echo "[pre-commit] 待检查文件："
-    echo "$STAGED_JS" | sed 's/^/  /'
-    if ! "$WMS_PY" "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT"; then
+    printf '  %s\n' "${STAGED_JS[@]}"
+    if ! "$WMS_PY" -I -S -B -X utf8 "$REPO_ROOT/scripts/lint_no_raw_post_fetch.py" --repo-root "$REPO_ROOT" --staged; then
         echo ""
         echo "[pre-commit] ✗ 提交被拒绝：发现裸调非 GET fetch"
         echo "[pre-commit] 请将所有非 GET 请求改为 WMS.api.post/put/delete(url, data)（app/static/js/api.js 统一封装，自带 CSRF；勿用全局 csrfFetch 或裸 fetch）"

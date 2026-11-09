@@ -115,7 +115,14 @@
         root.querySelector('#refreshReportBtn').addEventListener('click', function () { window.location.reload(); });
         root.querySelector('#exportReportBtn').addEventListener('click', function () {
             if (!currentFilters()) return;
-            var action = window[root.dataset.exportAction];
+            var actions = {
+                exportTrend: window.exportTrend,
+                exportSalesReport: window.exportSalesReport,
+                exportReport: window.exportReport,
+                exportOutflow: window.exportOutflow
+            };
+            var action = Object.prototype.hasOwnProperty.call(actions, root.dataset.exportAction)
+                ? actions[root.dataset.exportAction] : null;
             if (typeof action === 'function') action();
             else if (root.dataset.exportUrl) {
                 var target = new URL(root.dataset.exportUrl, window.location.origin);

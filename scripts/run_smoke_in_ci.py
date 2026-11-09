@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,14 @@ import time
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WAIT_TIMEOUT_SEC = 60
+
+if __package__:
+    from .smoke_isolation import (OwnedSocketLease, encode_listener_capability,
+                                  listener_url, read_identity, receive_listener_capability)
+else:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from smoke_isolation import (OwnedSocketLease, encode_listener_capability,
+                                 listener_url, read_identity, receive_listener_capability)
 
 
 def clean_environment(root):
@@ -40,44 +49,67 @@ def clean_environment(root):
     return env
 
 
-def start_server(root, log_file):
+def _socket_child_options(listener):
+    return {'pass_fds': (listener.fileno(),)} if os.name != 'nt' else {}
+
+
+def _send_capability(proc, listener, nonce, server_pid):
+    data = encode_listener_capability(listener, proc.pid, nonce, server_pid)
+    if proc.stdin is None:
+        raise RuntimeError('Owned child has no private capability pipe')
+    proc.stdin.write(data)
+    proc.stdin.close()
+
+
+def start_server(root, log_file, listener, nonce):
     """Launch only the owned child; no connection to an existing service."""
     env = clean_environment(root)
     # Explicit production-cookie opt-in at this startup consumer (A14/R6).
     env["FLASK_ENV"] = "production"
     env["WMS_ALLOW_INSECURE_COOKIE"] = "1"
-    return subprocess.Popen(
-        [sys.executable, '-I', '-B', '-X', 'utf8', str(Path(__file__).resolve()), '--serve', str(root)],
-        cwd=str(root), env=env, stdout=log_file, stderr=subprocess.STDOUT)
+    proc = subprocess.Popen(
+        [sys.executable, '-I', '-B', '-X', 'utf8', str(Path(__file__).resolve()),
+         '--serve', str(root), '--listener-stdin'],
+        cwd=str(root), env=env, stdin=subprocess.PIPE, stdout=log_file,
+        stderr=subprocess.STDOUT, **_socket_child_options(listener))
+    try:
+        _send_capability(proc, listener, nonce, proc.pid)
+    except BaseException:
+        stop_server(proc)
+        raise
+    return proc
 
 
-def wait_ready(proc, root, timeout=WAIT_TIMEOUT_SEC):
+def wait_ready(proc, root, listener, nonce, timeout=WAIT_TIMEOUT_SEC):
     """Wait for our child's bound-socket receipt without making HTTP requests."""
-    if __package__:
-        from .smoke_isolation import read_identity
-    else:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from smoke_isolation import read_identity
+    lease = OwnedSocketLease(listener, dict(base_url=listener_url(listener), nonce=nonce, pid=proc.pid))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and proc.poll() is None:
         path = root / 'ready.json'
         if path.exists():
             identity = read_identity(path)
-            if identity['pid'] != proc.pid:
-                raise ValueError('Ready file belongs to another process')
+            lease.validate(identity)
+            if proc.poll() is not None:
+                raise RuntimeError('Owned smoke child exited before readiness')
             return path
         time.sleep(0.1)
     raise RuntimeError('Owned smoke child did not become ready')
 
 
-def serve_isolated(root):
+def serve_isolated(root, listener, lease):
     """Import a copied application only after proving the new state is empty."""
+    if lease.pid != os.getpid():
+        raise ValueError('Listener capability belongs to another child')
+    lease.validate(dict(base_url=listener_url(listener), nonce=lease.nonce, pid=os.getpid()))
     root = root.resolve(strict=True)
     if (root.parent != Path(tempfile.gettempdir()).resolve()
             or not root.name.startswith('wms-isolated-smoke-')
             or (root / 'synthetic.db').exists() or (root / 'program').exists()
             or os.environ.get('DATABASE_URL') != 'sqlite:///' + (root / 'synthetic.db').as_posix()):
         raise ValueError('Refusing reused or unowned smoke state')
+    # 对源目录做一次 is_symlink/lstat 预检不能防止检查后替换为链接。
+    # 受控源码复制及应用出站边界尚未证明前，禁止导入应用或复制任何文件。
+    raise RuntimeError('冒烟已阻止：源码复制的链接与替换竞态、应用出站隔离尚未完成安全验证')
     # Copy program files so import-time relative files cannot modify the checkout.
     program = root / 'program'
     shutil.copytree(REPO_ROOT / 'app', program,
@@ -98,16 +130,16 @@ def serve_isolated(root):
                                password_hash=generate_password_hash('admin'),
                                must_change_password=True))
         w.db.session.commit()
-    nonce = secrets.token_hex(32)  # Instance identity, never an account password.
+    nonce = lease.nonce
 
     @w.app.after_request
     def identify_smoke_response(response):
         response.headers['X-WMS-Isolated-Smoke'] = nonce
         return response
 
-    server = create_server(w.app, host='127.0.0.1', port=0, threads=4)
+    server = create_server(w.app, sockets=[listener], threads=4)
     port = int(server.effective_port)
-    if port < 10240:
+    if listener_url(listener) != f'http://127.0.0.1:{port}':
         server.close()
         raise ValueError('OS assigned a port outside the isolated test range')
     identity = dict(schema=1, pid=os.getpid(), nonce=nonce,
@@ -131,27 +163,49 @@ def stop_server(proc):
             proc.wait(timeout=5)
 
 
+def run_client(root, identity_file, listener, nonce, server_pid):
+    proc = subprocess.Popen(
+        [sys.executable, '-I', '-B', '-X', 'utf8', str(REPO_ROOT / 'scripts/full_smoke_test.py'),
+         '--isolation-file', str(identity_file), '--listener-stdin'],
+        cwd=str(root), env=clean_environment(root), stdin=subprocess.PIPE,
+        **_socket_child_options(listener))
+    try:
+        _send_capability(proc, listener, nonce, server_pid)
+        return proc.wait()
+    except BaseException:
+        stop_server(proc)
+        raise
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--serve', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--listener-stdin', action='store_true', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     if args.serve:
-        serve_isolated(args.serve)
+        if not args.listener_stdin:
+            parser.error('隔离服务必须接收启动器持有的监听句柄')
+        listener, lease = receive_listener_capability(sys.stdin.buffer)
+        with listener:
+            serve_isolated(args.serve, listener, lease)
         return 0
     with tempfile.TemporaryDirectory(prefix='wms-isolated-smoke-') as directory:
         root = Path(directory).resolve()
         proc = None
-        with (root / 'server.log').open('w', encoding='utf-8') as log_file:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener, \
+                (root / 'server.log').open('w', encoding='utf-8') as log_file:
             try:
-                proc = start_server(root, log_file)
-                identity_file = wait_ready(proc, root)
+                if os.name == 'nt':
+                    listener.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                listener.bind(('127.0.0.1', 0))
+                listener.listen(8)
+                listener_url(listener)
+                nonce = secrets.token_hex(32)
+                proc = start_server(root, log_file, listener, nonce)
+                identity_file = wait_ready(proc, root, listener, nonce)
                 print(f'[isolation] owned child PID={proc.pid}; fresh database={root / "synthetic.db"}',
                       flush=True)
-                result = subprocess.run(
-                    [sys.executable, '-I', '-B', '-X', 'utf8', str(REPO_ROOT / 'scripts/full_smoke_test.py'),
-                     '--isolation-file', str(identity_file)], cwd=str(root),
-                    env=clean_environment(root))
-                return result.returncode
+                return run_client(root, identity_file, listener, nonce, proc.pid)
             except (OSError, ValueError, RuntimeError) as error:
                 print(f'Isolated smoke startup refused: {error}', flush=True)
                 log_file.flush()

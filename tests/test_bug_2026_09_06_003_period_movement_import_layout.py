@@ -22,7 +22,7 @@ T1. 静态契约：全仓 app/**/*.py 禁止 `from app.<子模块> import`（app
     此类写法必然在生产炸；防同类复发）
 T2. 子进程按生产模块布局（cwd=app 目录直接 `python -c`）完成一次
     "空单+手机扫码全盘" → complete 无 force 必须 success（修复前 500）
-T3. 动销校验本体在模块布局下仍能正确命中期间流水并返回 period_movement
+T3. 动销校验本体在模块布局下仍能正确命中期间流水并返回 check_risks
 """
 from __future__ import annotations
 
@@ -86,7 +86,7 @@ print("T2_OK")
 cid2 = c.post("/check/add", data={"warehouse": "A仓", "scope": "all"}).get_json()["id"]
 chk = m.db.session.get(InventoryCheck, cid2)
 m.db.session.add(StockTransaction(material_id=mat.id, transaction_type="out", quantity=-3.0,
-    location="A仓", warehouse_id=wh.id, created_at=chk.frozen_at + timedelta(seconds=2)))
+    location="A仓", warehouse_id=wh.id, created_at=datetime.now()))
 m.db.session.commit()
 s2 = c.post("/mobile/api/scan_submit", headers=h, json={
     "mode": "check", "code": "M001", "warehouse": "A仓",
@@ -95,9 +95,14 @@ assert s2.status_code == 200, s2.get_data(as_text=True)
 r2 = c.post(f"/check/{cid2}/complete")
 b2 = r2.get_json()
 assert r2.status_code == 200, r2.get_data(as_text=True)
-assert b2.get("status") == "confirm" and b2.get("code") == "period_movement", b2
+assert b2.get("status") == "confirm" and b2.get("code") == "check_risks", b2
+assert "本仓 1 个物料发生出入库流水" in b2.get("msg", ""), b2
+assert any(row.get("code") == "M001" and row.get("net") == -3 for row in b2.get("samples", [])), b2
 r3 = c.post(f"/check/{cid2}/complete", json={"force": 1})
-assert r3.get_json().get("status") == "success", r3.get_json()
+b3 = r3.get_json()
+assert b3.get("status") == "confirm" and b3.get("code") == "check_risks", b3
+r4 = c.post(f"/check/{cid2}/complete", json={"force": 1, "confirmation_token": b3["confirmation_token"]})
+assert r4.get_json().get("status") == "success", r4.get_json()
 print("T3_OK")
 """
 

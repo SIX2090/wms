@@ -59,7 +59,8 @@ def test_location_enabled_check_requires_and_preserves_area(scene, area):
     result = _save(client, other, material, [{"area": area, "actual_stock": 98}])
     assert result["status"] == ("success" if area else "error"), result
     if area:
-        completed = document_post(client,f"/check/{result['id']}/complete", json={"force": True}).get_json()
+        # 已填写实盘且没有期间流水，不制造不存在的未盘风险。
+        completed = document_post(client,f"/check/{result['id']}/complete", json={}).get_json()
         assert completed["status"] == "success", completed
         adjustment = wms.AdjustmentOrder.query.one()
         assert adjustment.status == "pending"

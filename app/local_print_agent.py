@@ -371,9 +371,7 @@ def ensure_builtin_print_workstation(db_path: str | None = None):
         if db_path is None:
             from app import _resolve_sqlite_db_path
             db_path = _resolve_sqlite_db_path()
-            if db_path is None:
-                db_path = os.path.join(os.path.dirname(__file__), 'instance', 'inventory.db')
-        if not os.path.exists(db_path):
+        if not db_path or not os.path.exists(db_path):
             return  # 全新部署：库文件未建，交给 initialize_database/create_all + 本函数下次启动
         import sqlite3
         conn = sqlite3.connect(db_path, timeout=60)

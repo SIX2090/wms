@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """临时诊断（用完即删）：复现完整 采购入库单 -> 完成 -> 下推领料单 流程并分步计时。"""
 from __future__ import annotations
+
+# 隔离来源、文件库及监听归属未完成验证前，禁止导入或执行本诊断。
+raise RuntimeError('诊断已阻止：尚未证明隔离数据库与自有监听服务的安全边界')
 import re, time, uuid
 import requests
 

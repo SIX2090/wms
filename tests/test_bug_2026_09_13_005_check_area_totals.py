@@ -17,7 +17,11 @@ def test_check_area_totals_include_zero_difference_rows(scene, actuals, expected
             inventory_check_id=check.id, material_id=material.id, system_stock=100,
             actual_stock=actual, difference=actual - 100, area=f"Zone {index}"))
     wms.db.session.commit()
-    result = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
+    warning = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
+    assert warning["status"] == "confirm" and warning["code"] == "check_risks", warning
+    assert "盘点冻结时间未知" in warning["msg"], warning
+    assert "未盘" in warning["msg"], warning
+    result = client.post(f"/check/{check.id}/complete", json={"force": True, "confirmation_token": warning["confirmation_token"]}).get_json()
     assert result["status"] == "success", result
     adjustments = wms.AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).all()
     assert sum(row.quantity for order in adjustments for row in order.items) == expected
@@ -38,7 +42,11 @@ def test_zero_difference_area_still_participates_in_location_guard(scene):
             inventory_check_id=check.id, material_id=material.id, system_stock=100,
             actual_stock=actual, difference=actual - 100, area=area))
     wms.db.session.commit()
-    result = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
+    warning = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
+    assert warning["status"] == "confirm" and warning["code"] == "check_risks", warning
+    assert "盘点冻结时间未知" in warning["msg"], warning
+    assert "未盘" in warning["msg"], warning
+    result = client.post(f"/check/{check.id}/complete", json={"force": True, "confirmation_token": warning["confirmation_token"]}).get_json()
     assert result["status"] == "error", result
     assert wms.AdjustmentOrder.query.count() == 0
     wms.db.session.expire_all()

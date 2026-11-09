@@ -28,7 +28,9 @@ function execute(scenario) {
   const context={document:{getElementById(){return body;},createElement:makeRow}, clearProductEmptyRow(){},renumberProductRows(){},
     escapeHtml(v){return v == null ? '' : String(v);}, FormData,showToast(){},setTimeout(){},
     WMS:{api:{postRaw(url,data){payload=Object.fromEntries(data);return Promise.resolve({status:'success'});}}}};
+  context.window=context;
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/static/js/money.js'), 'utf8'), context);
   vm.runInContext('const subcontractMaterials = '+JSON.stringify(materials)+';', context);
   for (const name of ['getMaterialUnit','findSubcontractMaterial','calcInlineProductAmount','fillInlineProductMaterial','addInlineProductRow','bindInlineProductRow','readProductRowData','saveInlineProductRow']) {
     const start=source.indexOf('function '+name+'('), next=source.indexOf('\nfunction ',start+1);

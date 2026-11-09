@@ -22,6 +22,7 @@ import shutil
 import re
 import sqlite3
 import requests
+from ai.safe_http import post as safe_ai_post, UnsafeRedirect
 import ipaddress
 import socket
 import base64
@@ -177,6 +178,7 @@ from utils import (
     sanitize_print_html,
     currency_cn, from_json_filter, to_json_filter, range_filter, add_filter
 )
+from utils import round_money_product
 from notifications import init_notification_scheduler, notification_manager
 
 STOCK_COMPARE_EPSILON = 1e-6
@@ -285,8 +287,8 @@ def _opening_stock_legacy_unique_index(cursor):
             continue
         name = idx[1]
         try:
-            cursor.execute(f"PRAGMA index_info({name})")
-            cols = [row[2] for row in cursor.fetchall()]
+            cursor.execute("SELECT name FROM pragma_index_info(?, 'main') ORDER BY seqno", (name,))
+            cols = [row[0] for row in cursor.fetchall()]
         except Exception:
             continue
         if cols == ['material_id', 'warehouse_id']:
@@ -304,51 +306,405 @@ def _opening_stock_rebuild_table(cursor):
          因此 DROP/RENAME 不会触发外键级联破坏 stock_transaction 等表。
     重建后由调用方比对行数，不一致则抛异常整体回滚。
     """
-    cursor.execute("""
-        CREATE TABLE opening_stock_new (
-            id INTEGER NOT NULL PRIMARY KEY,
-            doc_id INTEGER,
-            material_id INTEGER NOT NULL,
-            warehouse_id INTEGER,
-            date DATE,
-            location VARCHAR(100) NOT NULL DEFAULT '',
-            quantity FLOAT NOT NULL DEFAULT 0,
-            price FLOAT NOT NULL DEFAULT 0,
-            amount FLOAT NOT NULL DEFAULT 0,
-            remark VARCHAR(500),
-            operator_id INTEGER,
-            created_at DATETIME,
-            updated_at DATETIME
-        )
-    """)
-    cursor.execute("""
-        INSERT INTO opening_stock_new
-            (id, doc_id, material_id, warehouse_id, date, location,
-             quantity, price, amount, remark, operator_id, created_at, updated_at)
-        SELECT id, doc_id, material_id, warehouse_id, date, location,
-               quantity, price, amount, remark, operator_id, created_at, updated_at
-        FROM opening_stock
-    """)
-    cursor.execute("DROP TABLE opening_stock")
-    cursor.execute("ALTER TABLE opening_stock_new RENAME TO opening_stock")
+    if not cursor.connection.in_transaction:
+        raise RuntimeError('期初库存重建缺少外层事务，拒绝执行')
+    if not cursor.execute(
+        "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=? COLLATE NOCASE",
+        ('opening_stock',),
+    ).fetchone():
+        raise RuntimeError('主库缺少期初库存表，拒绝重建')
+    # TEMP 对象可以遮蔽主库表；不能把已有对象当成本次迁移的临时表。
+    if cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE name=? COLLATE NOCASE "
+        "UNION ALL SELECT 1 FROM sqlite_temp_master WHERE name COLLATE NOCASE IN (?, ?) LIMIT 1",
+        ('opening_stock_new', 'opening_stock_new', 'opening_stock'),
+    ).fetchone():
+        raise RuntimeError('期初库存重建对象已存在或被临时对象遮蔽，请先人工核对')
+    if cursor.execute('PRAGMA foreign_keys').fetchone()[0]:
+        raise RuntimeError('外键约束已启用，拒绝重建期初库存表')
+    # DROP 主表也会移除附着其上的 TEMP 触发器；无法证明其安全重建时保留原表。
+    if cursor.execute(
+        "SELECT 1 FROM sqlite_temp_master WHERE type='trigger' AND tbl_name=? COLLATE NOCASE LIMIT 1",
+        ('opening_stock',),
+    ).fetchone():
+        raise RuntimeError('期初库存存在临时触发器，拒绝重建')
+    # SQLite 不支持 DROP CONSTRAINT。保留原 CREATE TABLE 的列、默认值、
+    # CHECK、外键与表选项，只移除能明确识别的旧双列 UNIQUE。
+    # 任何无法识别的定义均拒绝重建，由调用方回滚。
+    import re
+
+    ddl_row = cursor.execute(
+        "SELECT sql FROM main.sqlite_master WHERE type='table' AND name='opening_stock'"
+    ).fetchone()
+    ddl = ddl_row[0] if ddl_row else None
+    if not isinstance(ddl, str):
+        raise RuntimeError('无法读取期初库存表定义')
+    opening = ddl.find('(')
+    identifier = r'(?:"opening_stock"|`opening_stock`|\[opening_stock\]|opening_stock)'
+    if opening < 0 or not re.fullmatch(
+            r'\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?' + identifier + r'\s*',
+            ddl[:opening], flags=re.IGNORECASE):
+        raise RuntimeError('期初库存表定义无法安全识别')
+
+    parts = []
+    start = opening + 1
+    depth = 1
+    i = start
+    quote = None
+    while i < len(ddl) and depth:
+        ch = ddl[i]
+        if quote:
+            if ch == quote:
+                if quote != ']' and i + 1 < len(ddl) and ddl[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = None
+        elif ddl.startswith('--', i):
+            end = ddl.find('\n', i + 2)
+            i = len(ddl) if end < 0 else end + 1
+            continue
+        elif ddl.startswith('/*', i):
+            end = ddl.find('*/', i + 2)
+            if end < 0:
+                raise RuntimeError('期初库存表定义注释不完整')
+            i = end + 2
+            continue
+        elif ch in ("'", '"', '`', '['):
+            quote = ']' if ch == '[' else ch
+        elif ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                parts.append(ddl[start:i])
+                break
+        elif ch == ',' and depth == 1:
+            parts.append(ddl[start:i])
+            start = i + 1
+        i += 1
+    if depth or quote:
+        raise RuntimeError('期初库存表定义括号或引号不完整')
+    suffix = ddl[i + 1:].strip().rstrip(';').strip()
+    if suffix and not re.fullmatch(
+            r'(?:WITHOUT\s+ROWID|STRICT)(?:\s*,\s*(?:WITHOUT\s+ROWID|STRICT))?',
+            suffix, flags=re.IGNORECASE):
+        raise RuntimeError('期初库存表选项无法安全识别')
+
+    column_name = r'(?:{0}|"{0}"|`{0}`|\[{0}\])'
+    legacy_constraint = re.compile(
+        r'^\s*(?:CONSTRAINT\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s+)?'
+        r'UNIQUE\s*\(\s*' + column_name.format('material_id') + r'\s*,\s*'
+        + column_name.format('warehouse_id') + r'\s*\)'
+        r'(?:\s+ON\s+CONFLICT\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?\s*$',
+        re.IGNORECASE,
+    )
+    kept = [part for part in parts if not legacy_constraint.fullmatch(part)]
+    removed_constraint = len(parts) - len(kept)
+
+    # 显式索引与触发器会随 DROP TABLE 被删除，迁移后必须原样重建。
+    definitions = cursor.execute(
+        "SELECT type, name, sql FROM main.sqlite_master "
+        "WHERE tbl_name='opening_stock' AND type IN ('index','trigger') AND sql IS NOT NULL "
+        "ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name"
+    ).fetchall()
+    obsolete_indexes = set()
+    for index in cursor.execute('PRAGMA main.index_list(opening_stock)').fetchall():
+        name, unique, origin, partial = index[1], index[2], index[3], index[4]
+        if not unique:
+            continue
+        keys = cursor.execute(
+            'SELECT name, "desc", coll FROM pragma_index_xinfo(?, \'main\') WHERE "key"=1 ORDER BY seqno',
+            (name,),
+        ).fetchall()
+        if [key[0] for key in keys] != ['material_id', 'warehouse_id']:
+            continue
+        if partial or any(key[1] or str(key[2]).upper() != 'BINARY' for key in keys):
+            raise RuntimeError('期初库存含非标准唯一索引，拒绝重建')
+        if origin == 'c':
+            obsolete_indexes.add(name)
+        elif origin == 'u' and not removed_constraint:
+            raise RuntimeError('期初库存旧唯一约束无法安全识别')
+        elif origin not in ('c', 'u'):
+            raise RuntimeError('期初库存旧唯一键属于主键，不能安全移除')
+    if not removed_constraint and not obsolete_indexes:
+        raise RuntimeError('期初库存旧唯一约束无法安全识别')
+
+    columns = cursor.execute('PRAGMA main.table_xinfo(opening_stock)').fetchall()
+    if not columns or any(row[6] == 1 for row in columns):
+        raise RuntimeError('期初库存包含无法复制的隐藏列')
+    copied_columns = ['"' + row[1].replace('"', '""') + '"' for row in columns if row[6] == 0]
+    if not copied_columns:
+        raise RuntimeError('期初库存没有可复制的列')
+    if not re.search(r'\bWITHOUT\s+ROWID\b', suffix, flags=re.IGNORECASE):
+        # 隐式 rowid 可能被其他数据引用，必须保留；三个别名都被用户列遮蔽时拒绝。
+        names = {row[1].lower() for row in columns}
+        rowid = next((name for name in ('rowid', '_rowid_', 'oid') if name not in names), None)
+        if rowid is None:
+            raise RuntimeError('期初库存隐式 rowid 无法安全读取')
+        copied_columns.insert(0, '"' + rowid + '"')
+    column_list = ', '.join(copied_columns)
+
+    # AUTOINCREMENT 的已删除 ID 也受 sqlite_sequence 保护；复制现存行不能恢复该高水位。
+    sequence_table = cursor.execute(
+        "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+    ).fetchone()
+    old_sequences = (cursor.execute(
+        "SELECT seq FROM main.sqlite_sequence WHERE name=?", ('opening_stock',)
+    ).fetchall() if sequence_table else [])
+    if len(old_sequences) > 1 or any(type(row[0]) is not int or row[0] < 0 for row in old_sequences):
+        raise RuntimeError('期初库存自增序列无效，拒绝重建')
+    cursor.execute('CREATE TABLE main.opening_stock_new (' + ','.join(kept) + ')'
+                   + (' ' + suffix if suffix else ''))
+    cursor.execute('INSERT INTO main.opening_stock_new (' + column_list + ') SELECT '
+                   + column_list + ' FROM main.opening_stock')
+    cursor.execute("DROP TABLE main.opening_stock")
+    cursor.execute("ALTER TABLE main.opening_stock_new RENAME TO opening_stock")
+    if old_sequences:
+        new_sequences = cursor.execute(
+            "SELECT seq FROM main.sqlite_sequence WHERE name=?", ('opening_stock',)
+        ).fetchall()
+        if len(new_sequences) > 1 or any(type(row[0]) is not int or row[0] < 0 for row in new_sequences):
+            raise RuntimeError('期初库存重建后的自增序列无效')
+        old_sequence = old_sequences[0][0]
+        if new_sequences:
+            cursor.execute("UPDATE main.sqlite_sequence SET seq=? WHERE name=?",
+                           (max(old_sequence, new_sequences[0][0]), 'opening_stock'))
+        elif re.search(r'\bAUTOINCREMENT\b', ddl, flags=re.IGNORECASE):
+            cursor.execute("INSERT INTO main.sqlite_sequence(name, seq) VALUES (?, ?)",
+                           ('opening_stock', old_sequence))
+        else:
+            raise RuntimeError('期初库存自增序列无法安全保留')
+    for _kind, name, sql in definitions:
+        if name not in obsolete_indexes:
+            cursor.execute(sql)
+
+
+
+def _location_inventory_rebuild_table(cursor):
+    """SQLite 下重建 location_inventory 表以移除 UNIQUE(material_id, location)。
+
+    SQLite 不支持 ALTER TABLE DROP CONSTRAINT，只能走官方 12 步重建。
+    调用前置条件（调用方已保证）：
+      1. 已在 BEGIN EXCLUSIVE 事务内（本函数不自行提交）；
+      2. 连接未开启 PRAGMA foreign_keys（本项目的 sqlite3.connect 未开），
+         因此 DROP/RENAME 不会触发外键级联破坏 stock_transaction 等表。
+    失败由调用方回滚保存点；未知约束先保留原表，等待人工核对。
+    """
+    if not cursor.connection.in_transaction:
+        raise RuntimeError('库位库存重建缺少外层事务，拒绝执行')
+    if not cursor.execute(
+        "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name=? COLLATE NOCASE",
+        ('location_inventory',),
+    ).fetchone():
+        raise RuntimeError('主库缺少库位库存表，拒绝重建')
+    # TEMP 对象可以遮蔽主库表；不能把已有对象当成本次迁移的临时表。
+    if cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE name=? COLLATE NOCASE "
+        "UNION ALL SELECT 1 FROM sqlite_temp_master WHERE name COLLATE NOCASE IN (?, ?) LIMIT 1",
+        ('location_inventory_rebuild_tmp', 'location_inventory_rebuild_tmp', 'location_inventory'),
+    ).fetchone():
+        raise RuntimeError('库位库存重建对象已存在或被临时对象遮蔽，请先人工核对')
+    if cursor.execute('PRAGMA foreign_keys').fetchone()[0]:
+        raise RuntimeError('外键约束已启用，拒绝重建库位库存表')
+    # DROP 主表也会移除附着其上的 TEMP 触发器；无法证明其安全重建时保留原表。
+    if cursor.execute(
+        "SELECT 1 FROM sqlite_temp_master WHERE type='trigger' AND tbl_name=? COLLATE NOCASE LIMIT 1",
+        ('location_inventory',),
+    ).fetchone():
+        raise RuntimeError('库位库存存在临时触发器，拒绝重建')
+    # SQLite 不支持 DROP CONSTRAINT。保留原 CREATE TABLE 的列、默认值、
+    # CHECK、外键与表选项，只移除能明确识别的旧双列 UNIQUE。
+    # 任何无法识别的定义均拒绝重建，由调用方回滚。
+    import re
+
+    ddl_row = cursor.execute(
+        "SELECT sql FROM main.sqlite_master WHERE type='table' AND name='location_inventory'"
+    ).fetchone()
+    ddl = ddl_row[0] if ddl_row else None
+    if not isinstance(ddl, str):
+        raise RuntimeError('无法读取库位库存表定义')
+    # 未知列约束保守拒绝；模型的两项外键可验证并随原 DDL 保留。
+    if re.search(r'\b(?:DEFAULT|CHECK)\b', ddl, flags=re.IGNORECASE):
+        raise RuntimeError('库位库存包含复杂列约束，拒绝重建')
+    foreign_keys = cursor.execute('PRAGMA main.foreign_key_list(location_inventory)').fetchall()
+    expected_foreign_keys = {('material_id', 'material', 'id'),
+                             ('warehouse_id', 'warehouse', 'id')}
+    seen_foreign_keys = set()
+    for fk in foreign_keys:
+        mapping = (str(fk[3]).lower(), str(fk[2]).lower(), str(fk[4]).lower())
+        if (fk[1] != 0 or mapping not in expected_foreign_keys or mapping in seen_foreign_keys
+                or str(fk[5]).upper() != 'NO ACTION' or str(fk[6]).upper() != 'NO ACTION'
+                or str(fk[7]).upper() != 'NONE'):
+            raise RuntimeError('库位库存包含未知外键，拒绝重建')
+        seen_foreign_keys.add(mapping)
+    if not foreign_keys and re.search(r'\b(?:REFERENCES|FOREIGN)\b', ddl, flags=re.IGNORECASE):
+        raise RuntimeError('库位库存外键定义无法安全识别')
+    opening = ddl.find('(')
+    identifier = r'(?:"location_inventory"|`location_inventory`|\[location_inventory\]|location_inventory)'
+    if opening < 0 or not re.fullmatch(
+            r'\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?' + identifier + r'\s*',
+            ddl[:opening], flags=re.IGNORECASE):
+        raise RuntimeError('库位库存表定义无法安全识别')
+
+    parts = []
+    start = opening + 1
+    depth = 1
+    i = start
+    quote = None
+    while i < len(ddl) and depth:
+        ch = ddl[i]
+        if quote:
+            if ch == quote:
+                if quote != ']' and i + 1 < len(ddl) and ddl[i + 1] == quote:
+                    i += 2
+                    continue
+                quote = None
+        elif ddl.startswith('--', i):
+            end = ddl.find('\n', i + 2)
+            i = len(ddl) if end < 0 else end + 1
+            continue
+        elif ddl.startswith('/*', i):
+            end = ddl.find('*/', i + 2)
+            if end < 0:
+                raise RuntimeError('库位库存表定义注释不完整')
+            i = end + 2
+            continue
+        elif ch in ("'", '"', '`', '['):
+            quote = ']' if ch == '[' else ch
+        elif ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                parts.append(ddl[start:i])
+                break
+        elif ch == ',' and depth == 1:
+            parts.append(ddl[start:i])
+            start = i + 1
+        i += 1
+    if depth or quote:
+        raise RuntimeError('库位库存表定义括号或引号不完整')
+    suffix = ddl[i + 1:].strip().rstrip(';').strip()
+    if suffix and not re.fullmatch(
+            r'(?:WITHOUT\s+ROWID|STRICT)(?:\s*,\s*(?:WITHOUT\s+ROWID|STRICT))?',
+            suffix, flags=re.IGNORECASE):
+        raise RuntimeError('库位库存表选项无法安全识别')
+
+    column_name = r'(?:{0}|"{0}"|`{0}`|\[{0}\])'
+    legacy_constraint = re.compile(
+        r'^\s*(?:CONSTRAINT\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|[A-Za-z_][\w$]*)\s+)?'
+        r'UNIQUE\s*\(\s*' + column_name.format('material_id') + r'\s*,\s*'
+        + column_name.format('location') + r'\s*\)'
+        r'(?:\s+ON\s+CONFLICT\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE))?\s*$',
+        re.IGNORECASE,
+    )
+    kept = [part for part in parts if not legacy_constraint.fullmatch(part)]
+    removed_constraint = len(parts) - len(kept)
+
+    # 显式索引与触发器会随 DROP TABLE 被删除，迁移后必须原样重建。
+    definitions = cursor.execute(
+        "SELECT type, name, sql FROM main.sqlite_master "
+        "WHERE tbl_name='location_inventory' AND type IN ('index','trigger') AND sql IS NOT NULL "
+        "ORDER BY CASE type WHEN 'index' THEN 0 ELSE 1 END, name"
+    ).fetchall()
+    obsolete_indexes = set()
+    has_target_unique = False
+    for index in cursor.execute('PRAGMA main.index_list(location_inventory)').fetchall():
+        name, unique, origin, partial = index[1], index[2], index[3], index[4]
+        if not unique:
+            continue
+        keys = cursor.execute(
+            'SELECT name, "desc", coll FROM pragma_index_xinfo(?, \'main\') WHERE "key"=1 ORDER BY seqno',
+            (name,),
+        ).fetchall()
+        key_names = [key[0] for key in keys]
+        if key_names not in (['material_id', 'location'],
+                             ['material_id', 'warehouse_id', 'location']):
+            continue
+        if partial or any(key[1] or str(key[2]).upper() != 'BINARY' for key in keys):
+            raise RuntimeError('库位库存含非标准唯一索引，拒绝重建')
+        if key_names == ['material_id', 'warehouse_id', 'location']:
+            has_target_unique = True
+            continue
+        if origin == 'c':
+            obsolete_indexes.add(name)
+        elif origin == 'u' and not removed_constraint:
+            raise RuntimeError('库位库存旧唯一约束无法安全识别')
+        elif origin not in ('c', 'u'):
+            raise RuntimeError('库位库存旧唯一键属于主键，不能安全移除')
+    if not removed_constraint and not obsolete_indexes:
+        raise RuntimeError('库位库存旧唯一约束无法安全识别')
+    if not has_target_unique:
+        kept.append(' UNIQUE (material_id, warehouse_id, location)')
+
+    columns = cursor.execute('PRAGMA main.table_xinfo(location_inventory)').fetchall()
+    if not columns or any(row[6] == 1 for row in columns):
+        raise RuntimeError('库位库存包含无法复制的隐藏列')
+    copied_columns = ['"' + row[1].replace('"', '""') + '"' for row in columns if row[6] == 0]
+    if not copied_columns:
+        raise RuntimeError('库位库存没有可复制的列')
+    if not re.search(r'\bWITHOUT\s+ROWID\b', suffix, flags=re.IGNORECASE):
+        # 隐式 rowid 可能被其他数据引用，必须保留；三个别名都被用户列遮蔽时拒绝。
+        names = {row[1].lower() for row in columns}
+        rowid = next((name for name in ('rowid', '_rowid_', 'oid') if name not in names), None)
+        if rowid is None:
+            raise RuntimeError('库位库存隐式 rowid 无法安全读取')
+        copied_columns.insert(0, '"' + rowid + '"')
+    column_list = ', '.join(copied_columns)
+
+    # AUTOINCREMENT 的已删除 ID 也受 sqlite_sequence 保护；复制现存行不能恢复该高水位。
+    sequence_table = cursor.execute(
+        "SELECT 1 FROM main.sqlite_master WHERE type='table' AND name='sqlite_sequence'"
+    ).fetchone()
+    old_sequences = (cursor.execute(
+        "SELECT seq FROM main.sqlite_sequence WHERE name=?", ('location_inventory',)
+    ).fetchall() if sequence_table else [])
+    if len(old_sequences) > 1 or any(type(row[0]) is not int or row[0] < 0 for row in old_sequences):
+        raise RuntimeError('库位库存自增序列无效，拒绝重建')
+    cursor.execute('CREATE TABLE main.location_inventory_rebuild_tmp (' + ','.join(kept) + ')'
+                   + (' ' + suffix if suffix else ''))
+    cursor.execute('INSERT INTO main.location_inventory_rebuild_tmp (' + column_list + ') SELECT '
+                   + column_list + ' FROM main.location_inventory')
+    cursor.execute("DROP TABLE main.location_inventory")
+    cursor.execute("ALTER TABLE main.location_inventory_rebuild_tmp RENAME TO location_inventory")
+    if old_sequences:
+        new_sequences = cursor.execute(
+            "SELECT seq FROM main.sqlite_sequence WHERE name=?", ('location_inventory',)
+        ).fetchall()
+        if len(new_sequences) > 1 or any(type(row[0]) is not int or row[0] < 0 for row in new_sequences):
+            raise RuntimeError('库位库存重建后的自增序列无效')
+        old_sequence = old_sequences[0][0]
+        if new_sequences:
+            cursor.execute("UPDATE main.sqlite_sequence SET seq=? WHERE name=?",
+                           (max(old_sequence, new_sequences[0][0]), 'location_inventory'))
+        elif re.search(r'\bAUTOINCREMENT\b', ddl, flags=re.IGNORECASE):
+            cursor.execute("INSERT INTO main.sqlite_sequence(name, seq) VALUES (?, ?)",
+                           ('location_inventory', old_sequence))
+        else:
+            raise RuntimeError('库位库存自增序列无法安全保留')
+    for _kind, name, sql in definitions:
+        if name not in obsolete_indexes:
+            cursor.execute(sql)
 
 
 def _next_opening_stock_doc_no(cursor, group_date):
-    """迁移期裸 SQL 取号：QS + YYMM + 4 位序号（按分组日期的月份段递增）。
+    """迁移期裸 SQL 取号：QS + YYMM + 至少 4 位序号。
 
     auto_migrate_database 跑在 sqlite3 连接上，不能走 ORM 的 generate_order_no，
     这里用同一套编号规则保证与运行期生成的单号风格一致。
     """
     ym = group_date.strftime('%y%m') if group_date else datetime.now().strftime('%y%m')
-    cursor.execute(
-        "SELECT doc_no FROM opening_stock_doc WHERE doc_no LIKE ? ORDER BY doc_no DESC LIMIT 1",
-        (f'QS{ym}%',),
-    )
-    row = cursor.fetchone()
-    seq = 1
-    if row and row[0] and str(row[0])[-4:].isdigit():
-        seq = int(str(row[0])[-4:]) + 1
-    return f'QS{ym}{seq:04d}'
+    prefix = f'QS{ym}'
+    cursor.execute('SELECT doc_no FROM opening_stock_doc WHERE doc_no LIKE ?', (f'{prefix}%',))
+    highest = 0
+    for (value,) in cursor:
+        number = str(value or '')
+        suffix = number[len(prefix):] if number.startswith(prefix) else ''
+        if suffix and suffix.isdecimal():
+            # Do not silently fall back to 0001 when an oversized numeric value
+            # cannot be parsed; abort migration instead of allocating a duplicate.
+            highest = max(highest, int(suffix))
+    return f'{prefix}{highest + 1:04d}'
 
 
 def _create_opening_stock_doc_table(cursor):
@@ -454,8 +810,15 @@ def auto_migrate_database():
         # Without this transaction two workers can both observe a missing column
         # and then race to execute the same ALTER TABLE statement.
         cursor.execute('BEGIN EXCLUSIVE')
+        if cursor.execute(
+            "SELECT 1 FROM sqlite_temp_master WHERE name COLLATE NOCASE IN (?, ?) LIMIT 1",
+            ('opening_stock', 'location_inventory'),
+        ).fetchone():
+            raise RuntimeError('库存表被临时对象遮蔽，拒绝迁移')
 
         modified = False
+        from sqlite_schema_checkpoint import SchemaOnlyCheckpoint
+        schema_checkpoint = SchemaOnlyCheckpoint(conn)
 
         # BUG-2026-07-29-001: 全新空库上 out_order / in_order 等表还不存在，
         # PRAGMA table_info 返回空 columns 仍会进入 ALTER 分支并崩溃。
@@ -897,22 +1260,46 @@ def auto_migrate_database():
             if 'denied_stage' not in ai_tc_columns:
                 cursor.execute("ALTER TABLE ai_tool_call ADD COLUMN denied_stage VARCHAR(20)")
                 modified = True
-            # 拒绝审计索引（不阻塞已存在表）
-            try:
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_call_denied ON ai_tool_call(permission_allowed, created_at)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_tool_call_user_source ON ai_tool_call(user_id, source, created_at)")
-            except Exception:
-                pass
+            # 单项失败不应吞掉原因或阻止同组其余索引；迁移依旧不因此阻断启动。
+            for _index_name, _index_ddl in (
+                ('idx_ai_tool_call_denied', 'CREATE INDEX IF NOT EXISTS idx_ai_tool_call_denied ON ai_tool_call(permission_allowed, created_at)'),
+                ('idx_ai_tool_call_user_source', 'CREATE INDEX IF NOT EXISTS idx_ai_tool_call_user_source ON ai_tool_call(user_id, source, created_at)'),
+            ):
+                try:
+                    cursor.execute(_index_ddl)
+                except Exception as _index_exc:
+                    try:
+                        logging.getLogger(__name__).warning(
+                            '[DB] 迁移索引创建失败（表 ai_tool_call，索引 %s）: %s',
+                            _index_name, _index_exc,
+                        )
+                    except Exception:
+                        pass  # 日志故障不得改变迁移原有的不阻断启动行为
         # AI_TASK: AI-R17-F01 新表：回滚事件、人工降级任务、灰度审计
         # （SQLAlchemy db.create_all() 会在启动时创建缺失的表，这里只补索引兜底）
         # AI_TASK: AI-R17-F02 新表：每日验收快照、七天证据包
         # （SQLAlchemy db.create_all() 会在启动时创建缺失的表，这里只补索引兜底）
-        try:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_acceptance_snapshot_created ON ai_acceptance_daily_snapshot(created_at)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_dates ON ai_acceptance_evidence_package(start_date, end_date)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_decision ON ai_acceptance_evidence_package(go_no_go_decision)")
-        except Exception:
-            pass
+        for _index_table, _index_name, _index_ddl in (
+            ('ai_acceptance_daily_snapshot', 'idx_ai_acceptance_snapshot_created', 'CREATE INDEX IF NOT EXISTS idx_ai_acceptance_snapshot_created ON ai_acceptance_daily_snapshot(created_at)'),
+            ('ai_acceptance_evidence_package', 'idx_ai_evidence_package_dates', 'CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_dates ON ai_acceptance_evidence_package(start_date, end_date)'),
+            ('ai_acceptance_evidence_package', 'idx_ai_evidence_package_decision', 'CREATE INDEX IF NOT EXISTS idx_ai_evidence_package_decision ON ai_acceptance_evidence_package(go_no_go_decision)'),
+        ):
+            try:
+                cursor.execute(_index_ddl)
+            except Exception as _index_exc:
+                # 新库的相关表可由后续 create_all 建立，缺表属于预期路径。
+                if (isinstance(_index_exc, sqlite3.OperationalError)
+                        and str(_index_exc).lower() in (
+                            f'no such table: {_index_table}', f'no such table: main.{_index_table}',
+                        )):
+                    continue
+                try:
+                    logging.getLogger(__name__).warning(
+                        '[DB] 迁移索引创建失败（表 %s，索引 %s）: %s',
+                        _index_table, _index_name, _index_exc,
+                    )
+                except Exception:
+                    pass  # 日志故障不得改变迁移原有的不阻断启动行为
 
         cursor.execute("PRAGMA table_info(material_category)")
         cat_columns = [row[1] for row in cursor.fetchall()]
@@ -1354,87 +1741,58 @@ def auto_migrate_database():
             #   4) DROP 旧表 + RENAME _new -> location_inventory
             #   5) 重建索引
             # 整个流程包在事务里，失败回滚不破坏原表。
+            _location_rebuild_savepoint = False
             try:
+                # 按实际唯一键列识别，而不是依据名称猜测；新旧约束可同时存在。
                 _need_rebuild = False
-                # 检查旧表 schema 中是否存在 (material_id, location) 唯一约束
-                cursor.execute(
-                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='location_inventory'"
-                )
-                _ddl_row = cursor.fetchone()
-                _old_ddl = (_ddl_row[0] or '') if _ddl_row else ''
-                # 检查命名唯一约束 uix_material_location 是否存在
-                cursor.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='location_inventory'"
-                )
-                _li_index_names = {row[0] for row in cursor.fetchall()}
-                if 'uix_material_location' in _li_index_names:
-                    _need_rebuild = True
-                # 检查新约束是否已存在；若已存在则跳过
-                if 'uix_material_warehouse_location' in _li_index_names:
-                    _need_rebuild = False
-                # 兜底：表 DDL 内联 UNIQUE(material_id, location) 但未命名时，
-                # 也尝试重建一次（仅当新约束尚不存在）。
-                if not _need_rebuild and 'uix_material_warehouse_location' not in _li_index_names:
-                    _ddl_norm = _old_ddl.replace(' ', '').replace('"', '').replace("'", '').replace('\n', '').upper()
-                    _pat1 = 'UNIQUE(MATERIAL_ID,LOCATION)'
-                    _pat2 = 'UNIQUE("MATERIAL_ID","LOCATION")'.replace(' ', '').replace('"', '').upper()
-                    if _pat1 in _ddl_norm or _pat2 in _ddl_norm:
+                for _index in cursor.execute('PRAGMA main.index_list(location_inventory)').fetchall():
+                    if not _index[2]:
+                        continue
+                    _key_names = [row[0] for row in cursor.execute(
+                        'SELECT name FROM pragma_index_xinfo(?, \'main\') '
+                        'WHERE "key"=1 ORDER BY seqno', (_index[1],),
+                    ).fetchall()]
+                    if _key_names == ['material_id', 'location']:
                         _need_rebuild = True
+                        break
 
                 if _need_rebuild:
                     # SQLite 12 步表重建：begin -> create _new -> insert -> drop -> rename -> index
-                    cursor.execute("DROP TABLE IF EXISTS location_inventory_rebuild_tmp")
-                    cursor.execute("""
-                        CREATE TABLE location_inventory_rebuild_tmp (
-                            id INTEGER PRIMARY KEY,
-                            material_id INTEGER NOT NULL,
-                            warehouse_id INTEGER,
-                            location VARCHAR(100) NOT NULL,
-                            quantity FLOAT,
-                            created_at DATETIME,
-                            updated_at DATETIME,
-                            FOREIGN KEY(material_id) REFERENCES material(id),
-                            FOREIGN KEY(warehouse_id) REFERENCES warehouse(id),
-                            UNIQUE (material_id, warehouse_id, location)
-                        )
-                    """)
-                    cursor.execute("""
-                        INSERT INTO location_inventory_rebuild_tmp
-                            (id, material_id, warehouse_id, location, quantity, created_at, updated_at)
-                        SELECT id, material_id, warehouse_id, location, quantity, created_at, updated_at
-                        FROM location_inventory
-                    """)
-                    cursor.execute("DROP TABLE location_inventory")
-                    cursor.execute(
-                        "ALTER TABLE location_inventory_rebuild_tmp RENAME TO location_inventory"
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_material_id "
-                        "ON location_inventory(material_id)"
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_loc "
-                        "ON location_inventory(material_id, location)"
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_location_inventory_warehouse "
-                        "ON location_inventory(warehouse_id)"
-                    )
+                    # 独立保存点保证失败后旧表和数据整体恢复；清理临时表不能代替回滚。
+                    if not conn.in_transaction:
+                        raise RuntimeError('库位库存重建缺少外层事务，拒绝执行')
+                    if cursor.execute('PRAGMA foreign_keys').fetchone()[0]:
+                        raise RuntimeError('外键约束已启用，拒绝重建库位库存表')
+                    # 无法证明同名对象属于本次迁移，不得 DROP；TEMP 名称还可能遮蔽主库表。
+                    if cursor.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name=? COLLATE NOCASE "
+                        "UNION ALL SELECT 1 FROM sqlite_temp_master WHERE name=? COLLATE NOCASE LIMIT 1",
+                        ('location_inventory_rebuild_tmp', 'location_inventory_rebuild_tmp'),
+                    ).fetchone():
+                        raise RuntimeError('库位库存重建临时对象已存在，请先人工核对')
+                    cursor.execute("SAVEPOINT wms_location_inventory_rebuild")
+                    _location_rebuild_savepoint = True
+                    _location_inventory_rebuild_table(cursor)
+                    cursor.execute("RELEASE SAVEPOINT wms_location_inventory_rebuild")
+                    _location_rebuild_savepoint = False
                     modified = True
                     logging.getLogger(__name__).info(
                         'INV-AUDIT-002: location_inventory 唯一约束已重建为 '
                         '(material_id, warehouse_id, location)'
                     )
             except Exception as _rebuild_err:
+                schema_checkpoint.cancel()
                 # 重建失败不阻塞启动；旧约束继续生效，调用方仍会写入 warehouse_id，
                 # 但跨仓同名库位会因旧约束冲突报错——由人工介入处理。
+                if not conn.in_transaction:
+                    raise
+                if _location_rebuild_savepoint:
+                    # 若回滚保存点失败必须向外抛出，让外层回滚整个迁移事务。
+                    cursor.execute("ROLLBACK TO SAVEPOINT wms_location_inventory_rebuild")
+                    cursor.execute("RELEASE SAVEPOINT wms_location_inventory_rebuild")
                 logging.getLogger(__name__).warning(
                     'location_inventory 唯一约束重建失败，旧约束保留: %s', _rebuild_err
                 )
-                try:
-                    cursor.execute("DROP TABLE IF EXISTS location_inventory_rebuild_tmp")
-                except Exception:
-                    pass
 
         # material_image 表补建：移动端物料档案多图功能依赖此表，
         # 旧版本数据库可能没有这张表，导致上传/搜索 500。
@@ -1721,7 +2079,7 @@ def auto_migrate_database():
                 "CREATE INDEX IF NOT EXISTS idx_stock_txn_warehouse_id ON stock_transaction(warehouse_id)"
             )
 
-        if modified:
+        if modified or schema_checkpoint.persist_additions():
             conn.commit()
     except Exception as e:
         # 迁移失败必须记录日志，避免管理员无法感知迁移异常导致后续运行时才暴露问题
@@ -3384,6 +3742,9 @@ _original_drop_all = getattr(db.drop_all, "_wms_original_drop_all", db.drop_all)
 def guarded_drop_all(*args, _orig=_original_drop_all, **kwargs):
     if not app.config.get('TESTING') or app.config.get('SQLALCHEMY_DATABASE_URI') != 'sqlite:///:memory:':
         raise RuntimeError('Refusing db.drop_all outside testing in-memory database')
+    # 重建测试 schema 前释放旧 ORM 对象及登录缓存，避免跨用例复用已删除行。
+    g.pop('_login_user', None)
+    db.session.remove()
     return _orig(*args, **kwargs)
 db.drop_all = guarded_drop_all
 guarded_drop_all._wms_original_drop_all = _original_drop_all
@@ -4666,107 +5027,50 @@ def generate_order_no(prefix='NO'):
 _order_no_generation_lock = threading.Lock()
 
 
+def _numbering_existing_max(model, field_name, base):
+    """Read complete numeric suffixes; lock only the selected existing row."""
+    column = getattr(model, field_name)
+    maximum = 0
+    largest = None
+    # Do not lock the whole month while filtering malformed historical numbers.
+    for (number,) in model.query.with_entities(column).filter(column.like(base + '%')).all():
+        suffix = number[len(base):] if isinstance(number, str) and number.startswith(base) else ''
+        if not re.fullmatch(r'[0-9]+', suffix):
+            continue
+        sequence = int(suffix)  # Excessive values must fail, never fall back to 0001.
+        if largest is None or sequence > maximum:
+            maximum, largest = sequence, number
+    if largest is not None:
+        selected = model.query.filter(column == largest).with_for_update().first()
+        if selected is None:
+            raise RuntimeError('单据编号基线已变化，请重试保存')
+    return maximum
+
+
 def _generate_order_no_locked(prefix):
-    now = datetime.now()
-    year_month = now.strftime('%y%m')
-
-    max_retries = 3
-    for attempt in range(max_retries):
+    base = prefix + datetime.now().strftime('%y%m')
+    families = {
+        'IN': ((InOrder, 'order_no'),), 'PI': ((InOrder, 'order_no'),),
+        'OI': ((InOrder, 'order_no'),), 'OU': ((OutOrder, 'order_no'),),
+        'SO': ((OutOrder, 'order_no'), (SalesOrder, 'order_no')),
+        'OO': ((OutOrder, 'order_no'),), 'CK': ((InventoryCheck, 'check_no'),),
+        'CS': ((InventoryCheckScan, 'check_no'),),
+        'SC': ((SubcontractOrder, 'order_no'),), 'SUB': ((SubcontractOrder, 'order_no'),),
+        'SF': ((SubcontractIssue, 'issue_no'),),
+        'SR': ((SubcontractReceive, 'receive_no'), (InOrder, 'order_no')),
+        'PR': ((PurchaseRequest, 'request_no'), (OutOrder, 'order_no')),
+        'PO': ((PurchaseOrder, 'order_no'),), 'ASO': ((AfterSaleOutOrder, 'order_no'),),
+        'BOM': ((BOM, 'bom_no'),), 'REQ': ((ProductionRequisition, 'req_no'),),
+        'TF': ((TransferOrder, 'transfer_no'),), 'ADJ': ((AdjustmentOrder, 'adjustment_no'),),
+        'QS': ((OpeningStockDoc, 'doc_no'),),
+    }
+    for attempt in range(3):
         try:
-            if prefix in ('IN', 'PI', 'OI'):
-                last_order = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(InOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc(), InOrder.id.desc()).with_for_update().first()
-            elif prefix in ('OU', 'SO', 'OO'):
-                last_order = OutOrder.query.filter(OutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(OutOrder.id.desc()).with_for_update().first()
-            elif prefix == 'CK':
-                last_order = InventoryCheck.query.filter(InventoryCheck.check_no.like(f'{prefix}{year_month}%')).order_by(InventoryCheck.id.desc()).with_for_update().first()
-            elif prefix == 'CS':
-                last_order = InventoryCheckScan.query.filter(InventoryCheckScan.check_no.like(f'{prefix}{year_month}%')).order_by(InventoryCheckScan.id.desc()).with_for_update().first()
-            elif prefix in ('SC', 'SUB'):
-                last_order = SubcontractOrder.query.filter(SubcontractOrder.order_no.like(f'{prefix}{year_month}%')).order_by(SubcontractOrder.id.desc()).with_for_update().first()
-            elif prefix == 'SF':
-                last_order = SubcontractIssue.query.filter(SubcontractIssue.issue_no.like(f'{prefix}{year_month}%')).order_by(SubcontractIssue.id.desc()).with_for_update().first()
-            elif prefix == 'SR':
-                last_order = SubcontractReceive.query.filter(SubcontractReceive.receive_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(SubcontractReceive.receive_no, len(prefix + year_month) + 1), db.Integer).desc(), SubcontractReceive.id.desc()).with_for_update().first()
-                # SR 同时用于销售退货入库和委外收料，两类已有编号都必须避开。
-                last_return = InOrder.query.filter(InOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(InOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc(), InOrder.id.desc()).with_for_update().first()
-                def _sr_sequence(order):
-                    match = re.search(r'(\d+)$', getattr(order, 'receive_no', None) or order.order_no)
-                    return int(match.group(1)) if match else -1
-                last_order = max(
-                    (order for order in (last_order, last_return) if order is not None),
-                    key=_sr_sequence,
-                    default=None,
-                )
-            elif prefix == 'PR':
-                last_request = PurchaseRequest.query.filter(PurchaseRequest.request_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(PurchaseRequest.request_no, len(prefix + year_month) + 1), db.Integer).desc()).with_for_update().first()
-                last_return = OutOrder.query.filter(OutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(db.cast(db.func.substr(OutOrder.order_no, len(prefix + year_month) + 1), db.Integer).desc()).with_for_update().first()
-                def _pr_sequence(order):
-                    number = getattr(order, 'request_no', None) or order.order_no
-                    suffix = number[len(prefix + year_month):]
-                    return int(suffix) if suffix.isdigit() else 0
-                last_order = max((o for o in (last_request, last_return) if o is not None), key=_pr_sequence, default=None)
-            elif prefix == 'PO':
-                last_order = PurchaseOrder.query.filter(PurchaseOrder.order_no.like(f'{prefix}{year_month}%')).order_by(PurchaseOrder.id.desc()).with_for_update().first()
-            elif prefix == 'ASO':
-                last_order = AfterSaleOutOrder.query.filter(AfterSaleOutOrder.order_no.like(f'{prefix}{year_month}%')).order_by(AfterSaleOutOrder.id.desc()).with_for_update().first()
-            elif prefix == 'BOM':
-                last_order = BOM.query.filter(BOM.bom_no.like(f'{prefix}{year_month}%')).order_by(BOM.id.desc()).with_for_update().first()
-            elif prefix == 'REQ':
-                last_order = ProductionRequisition.query.filter(ProductionRequisition.req_no.like(f'{prefix}{year_month}%')).order_by(ProductionRequisition.id.desc()).with_for_update().first()
-            elif prefix == 'TF':
-                last_order = TransferOrder.query.filter(TransferOrder.transfer_no.like(f'{prefix}{year_month}%')).order_by(TransferOrder.id.desc()).with_for_update().first()
-            elif prefix == 'ADJ':
-                last_order = AdjustmentOrder.query.filter(AdjustmentOrder.adjustment_no.like(f'{prefix}{year_month}%')).order_by(AdjustmentOrder.id.desc()).with_for_update().first()
-            elif prefix == 'QS':
-                # ARCH-OS-DOC-01：期初库存单据号。不加此分支会落到 else → last_order=None
-                # → 每次从 0001 开始 → 撞 opening_stock_doc.doc_no 唯一约束 500。
-                last_order = OpeningStockDoc.query.filter(OpeningStockDoc.doc_no.like(f'{prefix}{year_month}%')).order_by(OpeningStockDoc.id.desc()).with_for_update().first()
-            else:
-                last_order = None
-
-            if last_order:
-                if prefix in ('IN', 'PI', 'OI', 'OU', 'SO', 'SE', 'PO', 'SC', 'SUB'):
-                    last_no = last_order.order_no
-                elif prefix == 'CK':
-                    last_no = last_order.check_no
-                elif prefix == 'CS':
-                    last_no = last_order.check_no
-                elif prefix == 'SF':
-                    last_no = last_order.issue_no
-                elif prefix == 'SR':
-                    last_no = getattr(last_order, 'receive_no', None) or last_order.order_no
-                elif prefix == 'PR':
-                    last_no = getattr(last_order, 'request_no', None) or last_order.order_no
-                elif prefix == 'ASO':
-                    last_no = last_order.order_no
-                elif prefix == 'BOM':
-                    last_no = last_order.bom_no
-                elif prefix == 'REQ':
-                    last_no = last_order.req_no
-                elif prefix == 'TF':
-                    last_no = last_order.transfer_no
-                elif prefix == 'ADJ':
-                    last_no = last_order.adjustment_no
-                elif prefix == 'QS':
-                    last_no = last_order.doc_no
-                else:
-                    last_no = last_order.order_no if hasattr(last_order, 'order_no') else ''
-
-                base = f"{prefix}{year_month}"
-                suffix = last_no[len(base):] if last_no and last_no.startswith(base) else ''
-                if not suffix:
-                    match = re.search(r'(\d+)$', last_no or '')
-                    suffix = match.group(1) if match else ''
-                try:
-                    seq = int(suffix) + 1
-                except (ValueError, TypeError):
-                    seq = 1
-            else:
-                seq = 1
-
-            return f"{prefix}{year_month}{seq:04d}"
-        except Exception as e:
-            if attempt == max_retries - 1:
+            maximum = max((_numbering_existing_max(model, field, base)
+                           for model, field in families.get(prefix, ())), default=0)
+            return f'{base}{maximum + 1:04d}'
+        except Exception:
+            if attempt == 2:
                 raise
             import time
             time.sleep(0.1)
@@ -6328,7 +6632,10 @@ def update_purchase_order_status(order):
             for item_id, quantity in completed_rows
         }
     for item in items:
-        item.amount = round_to_2_decimals((item.quantity or 0) * (item.price or 0))
+        # Receipt/status changes must not reprice authored historical amounts.
+        # New-order writers already set amount; only a missing legacy value is derived.
+        if item.amount is None:
+            item.amount = round_money_product(item.quantity or 0, item.price or 0)
         total_amount += item.amount or 0
         total_qty += item.quantity or 0
         received_qty += completed_by_item.get(item.id, 0)
@@ -6952,15 +7259,41 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 def get_request_ip():
-    """Return the client IP, respecting reverse proxy headers only from trusted proxies."""
-    # 仅当请求来自可信代理时才信任 X-Forwarded-For
-    trusted_proxies = current_app.config.get('TRUSTED_PROXIES', [])
+    """Resolve XFF from the trusted peer toward the first untrusted hop."""
     remote_addr = request.remote_addr or ''
-    if remote_addr in trusted_proxies:
-        forwarded_for = request.headers.get('X-Forwarded-For', '')
-        if forwarded_for:
-            return forwarded_for.split(',')[0].strip()
-    return remote_addr
+    if '%' in remote_addr:
+        return remote_addr
+    try:
+        remote_ip = ipaddress.ip_address(remote_addr)
+    except ValueError:
+        return remote_addr
+    trusted = set()
+    for configured_ip in current_app.config.get('TRUSTED_PROXIES', []) or []:
+        try:
+            configured_ip = configured_ip.strip()
+            if '%' not in configured_ip:
+                trusted.add(ipaddress.ip_address(configured_ip))
+        except (AttributeError, ValueError):
+            continue
+    if remote_ip not in trusted:
+        return remote_addr
+    forwarded_for = request.headers.get('X-Forwarded-For', '')
+    if not forwarded_for:
+        return remote_addr
+    try:
+        parts = [part.strip() for part in forwarded_for.split(',')]
+        if any('%' in part for part in parts):
+            return remote_addr
+        chain = [ipaddress.ip_address(part) for part in parts]
+    except ValueError:
+        return remote_addr
+    # 按追加顺序从最近的代理开始；遇到第一个不可信地址即停止。
+    candidate = remote_ip
+    for hop in reversed(chain):
+        if candidate not in trusted:
+            break
+        candidate = hop
+    return str(candidate)
 
 def get_next_target():
     if request.query_string:
@@ -7093,17 +7426,18 @@ def api_role_required(*roles):
 
 def mobile_api_idempotent(endpoint):
     """Replay a successful native mobile submission when a client retries it."""
+    if endpoint in ('inbound', 'outbound', 'stocktake', 'opening_stock_edit', 'opening_stock', 'inbound_draft'):
+        from services.web_document_idempotency import native_document_idempotent
+        return native_document_idempotent(endpoint)
     def decorator(f):
         @wraps(f)
         def decorated_function(user, *args, **kwargs):
             payload = request.get_json(silent=True) or {}
             if not isinstance(payload, dict):
                 return api_json_error('请求数据必须为JSON对象', 400)
-            request_key = (
-                request.headers.get('X-Idempotency-Key')
-                or payload.get('request_id')
-                or ''
-            )
+            request_key = request.headers.get('X-Idempotency-Key') or payload.get('request_id')
+            if request_key is None:
+                request_key = ''
             if not isinstance(request_key, str):
                 return api_json_error('幂等请求号必须为字符串', 400)
             request_key = request_key.strip()
@@ -7223,7 +7557,7 @@ def log_operation(operation_type, operation_content, target_type=None, target_id
             operation_content=operation_content or '',
             target_type=target_type,
             target_id=target_id,
-            ip_address=request.remote_addr if request else None
+            ip_address=get_request_ip() if request else None
         )
         db.session.add(log)
         try:
@@ -8394,7 +8728,11 @@ def _opening_stock_payload_from_request():
         quantity = float(request.form.get('quantity') or '')
     except (TypeError, ValueError):
         quantity = None
-    price = parse_float_value(request.form.get('price'), 0)
+    raw_price = request.form.get('price')
+    price = (0 if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip())
+             else parse_float_value(raw_price, None))
+    if price is None:
+        return None, '单价无效，必须是大于等于0的有限数字'
     remark = (request.form.get('remark') or '').strip()
     if not material_id:
         return None, '请选择物料'
@@ -8410,20 +8748,27 @@ def _opening_stock_payload_from_request():
         return None, f'仓库 {warehouse.name} 已停用，禁止期初建账'  # AI-OS-MW-001: 禁止停用仓库
     if quantity is None:
         return None, '请输入数量'
+    if not math.isfinite(quantity):
+        return None, '数量必须是有限数字'
     if quantity < 0:
         return None, '期初数量不能小于 0'
     if price < 0:
         return None, '单价不能小于 0'
-    return {
-        'material': material,
-        'warehouse': warehouse,
-        'date': doc_date,
-        'location': location,
-        'quantity': normalize_stock_quantity(quantity),
-        'price': round_to_2_decimals(price),
-        'amount': round_to_2_decimals(quantity * price),
-        'remark': remark or None,
-    }, None
+    try:
+        return {
+            '_raw_quantity': quantity,
+            '_raw_price': price,
+            'material': material,
+            'warehouse': warehouse,
+            'date': doc_date,
+            'location': location,
+            'quantity': normalize_stock_quantity(quantity),
+            'price': round_to_2_decimals(price),
+            'amount': round_money_product(normalize_stock_quantity(quantity), round_to_2_decimals(price)),
+            'remark': remark or None,
+        }, None
+    except (ArithmeticError, ValueError, OverflowError):
+        return None, '数量或金额超出可处理范围'
 
 def _parse_opening_stock_date(raw):
     """解析期初建账日期，非法或缺省返回当天。"""
@@ -8447,7 +8792,8 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
     导致明细行建出来不归属任何单据（首/上/下/末 永远找不到它）。
     """
     old_quantity = normalize_stock_quantity(opening.quantity or 0) if opening else 0
-    quantity_delta = normalize_stock_quantity(new_quantity - old_quantity)
+    quantity_delta = (0.0 if opening is not None and new_quantity == opening.quantity
+                      else normalize_stock_quantity(new_quantity - old_quantity))
     doc_date = doc_date or getattr(opening, 'date', None) or date.today()
     location = (location or getattr(opening, 'location', '') or '').strip()
 
@@ -8614,28 +8960,91 @@ def _opening_stock_reverse_all_lines(doc):
 
 
 def _opening_stock_negative_hint(lines):
-    """删除回冲后检查库存是否变负，返回中文提示（不阻断删除，用户已确认）。
-
-    A11：Material.stock 是库存真相字段，这里只用于**提示文案**，不参与任何
-    库存校验判定，故按规则的行内豁免标注说明用途。
-    """
+    """删除回冲后按仓库账提示，未知归属或查询失败时提示人工核对。"""
     hints = []
+    unknown_hints = []
+    unavailable_hints = []
     seen = set()
+    balances = {}
+    unavailable = set()
     for line in lines:
         material = line.material
-        if not material or material.id in seen:
+        if not material:
             continue
-        seen.add(material.id)
-        # stock-truth:reason=仅用于删除后负库存的提示文案，不做库存校验/拦截
-        current_stock = db.session.query(Material.stock).filter(
-            Material.id == material.id).scalar()
-        if current_stock is not None and current_stock < 0:
-            warehouse_name = line.warehouse.name if line.warehouse else '未指定仓库'
-            hints.append(
-                f'删除后 {material.code} 在仓库 [{warehouse_name}] 库存为 '
-                f'{normalize_stock_quantity(current_stock)}，请核对后续出库单据'
+        warehouse = line.warehouse
+        warehouse_id = warehouse.id if warehouse else None
+        key = (material.id, warehouse_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if warehouse_id is None:
+            unknown_hints.append(
+                f'删除后 {material.code} 的仓库归属未知，无法核验库存，请核对历史流水'
             )
-    return hints
+            continue
+        if warehouse_id not in balances:
+            try:
+                # 提示是附加查询；单仓查询失败只回滚保存点，不回滚已完成的回冲。
+                with db.session.begin_nested():
+                    balances[warehouse_id] = get_warehouse_stock_quantities(warehouse)
+            except Exception as exc:
+                balances[warehouse_id] = None
+                try:
+                    app.logger.warning('期初库存提示查询失败（仓库 ID=%s，错误类型=%s）',
+                                       warehouse_id, type(exc).__name__)
+                except Exception:
+                    pass
+        stock_map = balances[warehouse_id]
+        if stock_map is None:
+            if warehouse_id not in unavailable:
+                unavailable_hints.append(f'删除后仓库 [{warehouse.name}] 的库存暂时无法核验，请稍后查询')
+                unavailable.add(warehouse_id)
+            continue
+        quantity = stock_map.get(material.id, 0)
+        if quantity < 0:
+            hints.append(
+                f'删除后 {material.code} 在仓库 [{warehouse.name}] 的已归属库存为 '
+                f'{normalize_stock_quantity(quantity)}，请核对后续出库单据'
+            )
+    # 三个删除入口最多展示前三条，未知归属和核验失败必须优先显示。
+    return unavailable_hints + unknown_hints + hints
+
+
+def _opening_stock_saved_number(value):
+    if value is None:
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _opening_stock_preserve_validated_line(opening, item, *, guarded):
+    """Apply server-owned historical amounts only to an authenticated line snapshot."""
+    line_id = item.get('line_id')
+    if line_id is None:
+        return item
+    if not guarded or opening is None or line_id != opening.id:
+        raise ValueError('期初库存明细已变化，请刷新核对后重试')
+    if (opening.quantity is None or _opening_stock_saved_number(opening.quantity) is None
+            or any(value is not None and _opening_stock_saved_number(value) is None
+                   for value in (opening.price, opening.amount))):
+        raise ValueError('历史期初数量或金额无效，请先人工核对；本次未保存')
+    shown_quantity = normalize_stock_quantity(opening.quantity or 0)
+    shown_price = round_to_2_decimals(opening.price or 0)
+    quantity_unchanged = item['_raw_quantity'] == shown_quantity
+    price_unchanged = item['_raw_price'] == shown_price
+    item = dict(item)
+    if quantity_unchanged:
+        item['quantity'] = opening.quantity
+    if price_unchanged:
+        item['price'] = opening.price
+    item['amount'] = (opening.amount if quantity_unchanged and price_unchanged
+                      and opening.amount is not None else
+                      round_money_product(item['quantity'] or 0, item['price'] or 0))
+    return item
+
 
 
 def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_quantity,
@@ -8657,6 +9066,8 @@ def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_q
     seen_keys = set()
     normalized_items = []
     for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            return None, {'msg': f'第 {index} 行明细格式错误', 'code': 400}
         material_id = item.get('material_id')
         try:
             material_id = int(material_id)
@@ -8684,7 +9095,11 @@ def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_q
             return None, {'msg': f'第 {index} 行仓库 [{warehouse.name}] 已停用，禁止期初建账', 'code': 400}
 
         quantity = parse_float_value(item.get('quantity'), None)
-        price = parse_float_value(item.get('price'), 0)
+        raw_price = item.get('price')
+        price = (0 if raw_price is None or (isinstance(raw_price, str) and not raw_price.strip())
+                 else parse_float_value(raw_price, None))
+        if price is None:
+            return None, {'msg': f'第 {index} 行单价无效，必须是大于等于0的有限数字', 'code': 400}
         if quantity is None:
             # BUG-2026-09-16-015：负数/非数字/空值都会走到这里（parse_float_value
             # 对非法值统一返回 default=None），提示需覆盖三种情况，不能只说"请输入"。
@@ -8697,19 +9112,36 @@ def _opening_stock_normalize_items(items, Material, Warehouse, normalize_stock_q
         if price < 0:
             return None, {'msg': f'第 {index} 行单价不能小于 0', 'code': 400}
 
+        line_id = item.get('line_id')
+        if line_id is not None:
+            if isinstance(line_id, bool) or not isinstance(line_id, (int, str)):
+                return None, {'msg': f'第 {index} 行明细标识无效', 'code': 400}
+            try:
+                line_id = int(line_id)
+            except (ValueError, TypeError):
+                return None, {'msg': f'第 {index} 行明细标识无效', 'code': 400}
+            if not 0 < line_id < 2**63:
+                return None, {'msg': f'第 {index} 行明细标识超出范围', 'code': 400}
+
         raw_date = (item.get('date') or '').strip()
-        normalized_items.append({
-            'material': material,
-            'warehouse': warehouse,
-            # 空表示"跟随单据头日期"，由调用方补；非空则用明细自带日期
-            'date': _parse_opening_stock_date(raw_date) if raw_date else None,
-            # BUG-2026-08-16-002：期初库位（可选，空则以仓库名占位）
-            'location': ((item.get('location') or '')).strip(),
-            'quantity': normalize_stock_quantity(quantity),
-            'price': round_to_2_decimals(price),
-            'amount': round_to_2_decimals(quantity * price),
-            'remark': ((item.get('remark') or '').strip() or None),
-        })
+        try:
+            normalized_items.append({
+                'line_id': line_id,
+                '_raw_quantity': quantity,
+                '_raw_price': price,
+                'material': material,
+                'warehouse': warehouse,
+                # 空表示"跟随单据头日期"，由调用方补；非空则用明细自带日期
+                'date': _parse_opening_stock_date(raw_date) if raw_date else None,
+                # BUG-2026-08-16-002：期初库位（可选，空则以仓库名占位）
+                'location': ((item.get('location') or '')).strip(),
+                'quantity': normalize_stock_quantity(quantity),
+                'price': round_to_2_decimals(price),
+                'amount': round_money_product(normalize_stock_quantity(quantity), round_to_2_decimals(price)),
+                'remark': ((item.get('remark') or '').strip() or None),
+            })
+        except (ArithmeticError, ValueError, OverflowError):
+            return None, {'msg': f'第 {index} 行数量或金额超出可处理范围', 'code': 400}
 
     if not normalized_items:
         return None, {'msg': '请至少录入一行期初库存', 'code': 400}
@@ -10642,7 +11074,7 @@ def _ai_inventory_health_report(days=30, limit=200, risk_filter='all'):
             ai_suggestion += '；近期出库数据不足，无法估算可用天数'
         
         # 统计
-        stock_value = round_to_2_decimals(current_stock * price)
+        stock_value = round_money_product(current_stock, price)
         total_stock_value += stock_value
         
         if risk_type == 'overstock':
@@ -10994,7 +11426,7 @@ def _ai_stage4_slow_moving_report(days=90, limit=12):
     lines.append('|---|---:|---:|---|')
     for material in rows:
         unit_name = material.unit.name if material.unit else ''
-        value = round_to_2_decimals((material.stock or 0) * (material.price or 0))
+        value = round_money_product(material.stock or 0, material.price or 0)
         lines.append(
             f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
             f'{value:,.2f} | 复核需求、替代料、报废或降库存上限 |'
@@ -11502,7 +11934,7 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
     db.session.flush()
 
     for item, receive_qty in receivable_items:
-        price = round_to_2_decimals(item.price or (item.material.price if item.material else 0) or 0)
+        price = round_to_2_decimals(item.price if item.price is not None else ((item.material.price if item.material else 0) or 0))
         # BUG-2026-09-18-013：入库明细的合同归属取采购明细（业务真实来源），采购明细
         # 为空时再退回采购单表头 —— 与 resolve_item_contract 的优先级保持一致。
         # 用户明确诉求：「采购入库单有合同编号」，下推时不能丢。
@@ -11516,7 +11948,7 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
             source_purchase_order_item_id=item.id,
             quantity=receive_qty,
             price=price,
-            amount=round_to_2_decimals(receive_qty * price),
+            amount=round_money_product(receive_qty, price),
             contract_id=item_contract_id,
             contract_no=item_contract_no,
             project_name=item_project_name,
@@ -11644,7 +12076,7 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
                 material_id=material.id,
                 quantity=quantity,
                 price=price,
-                amount=round_to_2_decimals(quantity * price),
+                amount=round_money_product(quantity, price),
             ))
         recalculate_order_total(order)
         db.session.commit()
@@ -11719,7 +12151,7 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
                 material_id=material.id,
                 quantity=quantity,
                 price=price,
-                amount=round_to_2_decimals(quantity * price),
+                amount=round_money_product(quantity, price),
             ))
         recalculate_order_total(order)
         db.session.commit()
@@ -11836,7 +12268,7 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
             quantity=quantity,
             unit_id=material.unit_id,
             price=price,
-            amount=round_to_2_decimals(quantity * price),
+            amount=round_money_product(quantity, price),
         ))
     try:
         db.session.commit()
@@ -13370,14 +13802,14 @@ def _ai_call_llm_intent(message, overrides=None):
     headers = _ai_llm_headers(overrides)
     try:
         timeout = max(_ai_llm_timeout_seconds(overrides), 5)
-        response = requests.post(
+        response = safe_ai_post(
             _ai_llm_endpoint(overrides),
             headers=headers,
             json=request_payload,
             timeout=timeout,
         )
         if response.status_code == 400:
-            response = requests.post(
+            response = safe_ai_post(
                 _ai_llm_endpoint(overrides),
                 headers=headers,
                 json=payload,
@@ -13422,7 +13854,7 @@ def _ai_call_llm_chat(message):
     }
     headers = _ai_llm_headers()
     try:
-        response = requests.post(
+        response = safe_ai_post(
             _ai_llm_endpoint(),
             headers=headers,
             json=payload,
@@ -13505,7 +13937,7 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
             current_model = model_id
         
         try:
-            response = requests.post(
+            response = safe_ai_post(
                 _ai_llm_endpoint(),
                 headers=headers,
                 json=payload,
@@ -13541,6 +13973,8 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
                 reply = f'[已自动切换至 {model_name}]\n{reply}'
             return reply[:1400], extracted, ''
             
+        except UnsafeRedirect:
+            return None, None, '图片识别服务重定向超出原始服务，已停止'
         except requests.exceptions.Timeout:
             last_error = f'图片识别超时（>{vision_timeout}s）'
             app.logger.warning('AI vision %s (%s) timeout after %ss, will fallback', model_id, model_name, vision_timeout)
@@ -13605,7 +14039,7 @@ def _asr_call_tokenhub(audio_bytes, voice_format='wav'):
     if voice_format:
         payload['voice_encode_format'] = voice_format
     try:
-        response = requests.post(
+        response = safe_ai_post(
             endpoint,
             headers=_ai_llm_headers(),
             json=payload,
@@ -14235,14 +14669,14 @@ def _ai_call_llm_document_extract(message):
     request_payload = dict(payload, response_format={'type': 'json_object'})
     headers = _ai_llm_headers()
     try:
-        response = requests.post(
+        response = safe_ai_post(
             _ai_llm_endpoint(),
             headers=headers,
             json=request_payload,
             timeout=max(_ai_llm_timeout_seconds(), 20),
         )
         if response.status_code == 400:
-            response = requests.post(
+            response = safe_ai_post(
                 _ai_llm_endpoint(),
                 headers=headers,
                 json=payload,
@@ -14470,14 +14904,14 @@ def _ai_call_llm_document_vision_extract(message, images, context=None):
     request_payload = dict(payload, response_format={'type': 'json_object'})
     headers = _ai_llm_headers()
     try:
-        response = requests.post(
+        response = safe_ai_post(
             _ai_llm_endpoint(),
             headers=headers,
             json=request_payload,
             timeout=max(_ai_llm_timeout_seconds(), 60),
         )
         if response.status_code == 400:
-            response = requests.post(
+            response = safe_ai_post(
                 _ai_llm_endpoint(),
                 headers=headers,
                 json=payload,
@@ -15357,7 +15791,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 material = row['material']
                 quantity = row['quantity']
                 estimated_price = round_to_2_decimals(material.price or 0)
-                estimated_amount = round_to_2_decimals(quantity * estimated_price)
+                estimated_amount = round_money_product(quantity, estimated_price)
                 total_amount += estimated_amount
                 db.session.add(PurchaseRequestItem(
                     purchase_request_id=request_order.id,
@@ -15439,7 +15873,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                     material = row['material']
                     quantity = row['quantity']
                     price = round_to_2_decimals(material.price or 0)
-                    amount = round_to_2_decimals(quantity * price)
+                    amount = round_money_product(quantity, price)
                     total_amount += amount
                     db.session.add(InOrderItem(
                         in_order_id=order.id, material_id=material.id,
@@ -19126,7 +19560,7 @@ def _ai_create_purchase_request_draft_response(message, context=None, force=Fals
     for row in candidates:
         material = row['material']
         estimated_price = material.price or 0
-        estimated_amount = round_to_2_decimals(row['suggested_qty'] * estimated_price)
+        estimated_amount = round_money_product(row['suggested_qty'], estimated_price)
         total_amount += estimated_amount
         item = PurchaseRequestItem(
             purchase_request_id=request_order.id,
@@ -19387,7 +19821,7 @@ def _ai_smart_replenishment_report(days=30, coverage_days=30, limit=200, only_ac
             'projected_stock': projected_stock,
             'days_of_supply': days_of_supply,
             'suggested_qty': suggested_qty,
-            'estimated_amount': round_to_2_decimals(suggested_qty * (material.price or 0)),
+            'estimated_amount': round_money_product(suggested_qty, material.price or 0),
             'risk_level': risk_level,
             'risk_label': risk_label,
             'action_required': action_required,
@@ -23175,7 +23609,7 @@ def _ai_test_llm_vision(overrides=None):
     }
     headers = _ai_llm_headers(overrides)
     try:
-        response = requests.post(
+        response = safe_ai_post(
             _ai_llm_endpoint(overrides),
             headers=headers,
             json=payload,
@@ -24057,7 +24491,7 @@ def _ai_handle_chat_stream_request(payload):
     def generate():
         full_reply = []
         try:
-            with requests.post(
+            with safe_ai_post(
                 _ai_llm_endpoint(),
                 headers=headers,
                 json=payload_body,
@@ -24774,31 +25208,48 @@ _WECHAT_SHARE_CLEANUP_STATE = {'last_run_date': None}
 
 def _wechat_share_cleanup_old_images(retention_days=None):
     """清理超过保留期的分享图片，返回删除文件数。"""
+    from sqlalchemy import text
+    from sqlalchemy.orm import Session
+    from sqlalchemy.pool import StaticPool, SingletonThreadPool
+    if db.engine.dialect.name != 'sqlite':
+        raise ValueError('当前数据库暂不支持安全清理微信图片')
+    if isinstance(db.engine.pool, (StaticPool, SingletonThreadPool)):
+        raise ValueError('数据库连接池不能证明独立连接，已停止清理')
+    caller = db.session()
+    if caller.in_transaction() or caller.new or caller.dirty or caller.deleted:
+        raise ValueError('当前有未结束的业务事务，已停止清理')
     days = retention_days if retention_days is not None else _WECHAT_SHARE_IMAGE_RETENTION_DAYS
     folder = _wechat_share_output_dir()
     cutoff = datetime.now().timestamp() - days * 86400
     deleted_paths = []
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return 0
-    for name in names:
-        if not _WECHAT_SHARE_IMAGE_NAME_RE.match(name):
-            continue
-        path = os.path.join(folder, name)
+    with Session(db.engine) as cleanup_session:
+        cleanup_session.execute(text('BEGIN IMMEDIATE'))
+        active_paths = {os.path.normcase(os.path.realpath(log.image_path)) for log in
+                        cleanup_session.query(WechatShareLog).filter(WechatShareLog.status.in_(
+                        ('pending', 'queued_v2', 'sending', 'delivery_started', 'uncertain'))).all() if log.image_path}
         try:
-            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
-                os.remove(path)
-                deleted_paths.append(path)
+            names = os.listdir(folder)
         except OSError:
-            continue
-    if deleted_paths:
-        logs = WechatShareLog.query.filter(WechatShareLog.image_path.in_(deleted_paths)).all()
-        for log in logs:
-            log.image_path = None
-            log.image_size = None
-        db.session.commit()
-        app.logger.info('微信分享图片清理：删除 %d 张超过 %d 天的图片', len(deleted_paths), days)
+            return 0
+        for name in names:
+            if not _WECHAT_SHARE_IMAGE_NAME_RE.match(name):
+                continue
+            path = os.path.join(folder, name)
+            if os.path.normcase(os.path.realpath(path)) in active_paths:
+                continue
+            try:
+                if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                    os.remove(path)
+                    deleted_paths.append(path)
+            except OSError:
+                continue
+        if deleted_paths:
+            logs = cleanup_session.query(WechatShareLog).filter(WechatShareLog.image_path.in_(deleted_paths)).all()
+            for log in logs:
+                log.image_path = None
+                log.image_size = None
+            cleanup_session.commit()
+            app.logger.info('微信分享图片清理：删除 %d 张超过 %d 天的图片', len(deleted_paths), days)
     return len(deleted_paths)
 
 
@@ -24814,7 +25265,6 @@ def _wechat_share_cleanup_old_images_daily():
     try:
         return _wechat_share_cleanup_old_images()
     except Exception:
-        db.session.rollback()
         app.logger.exception('微信分享图片每日清理失败')
         return 0
 
@@ -24854,7 +25304,7 @@ _LOOPBACK_NO_PROXY = {'http': None, 'https': None}
 def _wechat_share_send_image(config, image_path):
     """直推分享图片到本机微信发送助手，返回 (status, code, message)。
 
-    status 直接写入 WechatShareLog.status：sent / pending / failed。
+    status 直接写入 WechatShareLog.status：sent / pending / failed / uncertain。
     code 为机器可读结果码：ok / helper_not_configured / invalid_helper_url /
     token_not_configured / helper_offline / helper_timeout / auth_failed /
     send_error / http_<n>，或助手端透传码（no_receiver / clipboard_failed /
@@ -24871,7 +25321,14 @@ def _wechat_share_send_image(config, image_path):
     )
     if not helper_url:
         return 'pending', 'helper_not_configured', '个人微信自动发送助手未配置，图片已生成待发送'
-    if not _wechat_share_helper_url_allowed(helper_url):
+    try:
+        parsed_helper_url = urlparse(helper_url)
+        helper_url_safe = (parsed_helper_url.username is None
+                           and parsed_helper_url.password is None
+                           and parsed_helper_url.port != 0)
+    except ValueError:
+        helper_url_safe = False
+    if not helper_url_safe or not _wechat_share_helper_url_allowed(helper_url):
         return 'failed', 'invalid_helper_url', '微信发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）'
     # BUG-2026-08-11-008：直推必须携带 helper token，否则助手端 _check_auth 一律 403。
     helper_token = str(app.config.get('WECHAT_HELPER_TOKEN') or '').strip()
@@ -24900,6 +25357,8 @@ def _wechat_share_send_image(config, image_path):
                 timeout=10,
                 # BUG-2026-09-14-034：回环直连，禁走系统/环境代理
                 proxies=_LOOPBACK_NO_PROXY,
+                # 令牌与图片不得跟随跳转，避免跨源泄漏及重复发送。
+                allow_redirects=False,
             )
 
     try:
@@ -24917,6 +25376,8 @@ def _wechat_share_send_image(config, image_path):
         app.logger.warning('微信发送助手调用失败: %s', exc)
         return 'failed', 'send_error', f'微信发送助手调用失败：{exc}'
 
+    if 300 <= response.status_code < 400:
+        return 'failed', 'helper_redirect_refused', '微信发送助手返回重定向，请核对本机助手地址后人工确认'
     if response.ok:
         try:
             payload = response.json()
@@ -24928,7 +25389,8 @@ def _wechat_share_send_image(config, image_path):
         if helper_status == 'sent':
             return 'sent', helper_code, helper_msg
         if helper_status == 'ready':
-            return 'pending', helper_code, helper_msg
+            # 已粘贴仍需人工确认；不再作为未处理任务供轮询重复取出。
+            return 'uncertain', helper_code, helper_msg
         return 'failed', helper_code if helper_code != 'ok' else 'send_failed', helper_msg
     if response.status_code == 403:
         return 'failed', 'auth_failed', '微信发送助手认证失败（token 不匹配），请检查 WECHAT_HELPER_TOKEN 配置是否一致'
@@ -25000,12 +25462,19 @@ def _wechat_share_send_wecom(webhook_url, image_path, caption=''):
     webhook_url = str(webhook_url or '').strip()
     if not webhook_url:
         return 'pending', 'wecom_not_configured', '企业微信机器人 webhook 未配置，图片已生成待发送'
-    if not _wechat_share_wecom_webhook_allowed(webhook_url):
+    try:
+        parsed_webhook = urlparse(webhook_url)
+        webhook_safe = (parsed_webhook.username is None and parsed_webhook.password is None
+                        and parsed_webhook.port in (None, 443))
+    except ValueError:
+        webhook_safe = False
+    if not webhook_safe or not _wechat_share_wecom_webhook_allowed(webhook_url):
         return 'failed', 'invalid_wecom_webhook', '企业微信机器人 webhook 仅允许官方 https://qyapi.weixin.qq.com/cgi-bin/webhook/send 地址'
 
     def _post(payload):
         # 国内 endpoint 直连，禁走系统/环境代理（同 BUG-2026-09-14-034，防代理错误路由出境被拒）
-        return requests.post(webhook_url, json=payload, timeout=10, proxies=_LOOPBACK_NO_PROXY)
+        return requests.post(webhook_url, json=payload, timeout=10, proxies=_LOOPBACK_NO_PROXY,
+                             allow_redirects=False)
 
     try:
         image_bytes = _wechat_share_wecom_image_bytes(image_path)
@@ -25020,15 +25489,18 @@ def _wechat_share_send_wecom(webhook_url, image_path, caption=''):
         }}
         response = _post(payload)
     except requests.exceptions.ConnectionError as exc:
-        app.logger.warning('企业微信机器人连接失败: %s', exc)
-        return 'failed', 'wecom_offline', f'企业微信机器人连接失败（请检查服务器能否访问 qyapi.weixin.qq.com）：{exc}'
+        # 异常文本可能含 webhook 的 key 查询参数，不写入日志或返回消息。
+        app.logger.warning('企业微信机器人连接失败（%s）', type(exc).__name__)
+        return 'failed', 'wecom_offline', '企业微信机器人连接失败，请检查服务器能否访问 qyapi.weixin.qq.com'
     except requests.exceptions.Timeout:
         app.logger.warning('企业微信机器人响应超时')
         return 'failed', 'wecom_timeout', '企业微信机器人响应超时，请稍后人工重发'
     except Exception as exc:
-        app.logger.warning('企业微信机器人调用失败: %s', exc)
-        return 'failed', 'wecom_error', f'企业微信机器人调用失败：{exc}'
+        app.logger.warning('企业微信机器人调用失败（%s）', type(exc).__name__)
+        return 'failed', 'wecom_error', '企业微信机器人调用失败，请检查配置及网络状态'
 
+    if 300 <= response.status_code < 400:
+        return 'failed', 'wecom_redirect_refused', '企业微信机器人返回重定向，请核对 webhook 后人工确认'
     try:
         result = response.json()
     except ValueError:
@@ -25219,7 +25691,7 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
         'msg': f'已处理 {len(orders)} 张今日入库单，生成 {created} 张分享图片，跳过 {skipped} 张',
         'created': created,
         'skipped': skipped,
-        'uncertain': sum(log.status in ('sending', 'uncertain') for log in logs),
+        'uncertain': sum(log.status in ('sending', 'delivery_started', 'uncertain') for log in logs),
         'log_ids': [log.id for log in logs if getattr(log, 'id', None)],
     }
 
@@ -25706,7 +26178,9 @@ def share_order_image(module_key, id):
 def _wechat_share_log_status_label(status):
     return {
         'sent': '已发送',
-        'pending': '待发送',
+        'pending': '历史待人工核对',
+        'queued_v2': '待助手领取',
+        'delivery_started': '发送中',
         'failed': '失败',
         'skipped': '跳过',
         'sending': '发送中',
@@ -25763,19 +26237,34 @@ def _wechat_helper_task_payload(log):
 def wechat_helper_tasks():
     if not _wechat_helper_authorized():
         return jsonify({'status': 'error', 'msg': 'unauthorized'}), 401
+    if request.headers.get('X-Wechat-Helper-Protocol') != '2':
+        return jsonify({'status': 'error', 'msg': '请升级微信助手后再领取任务'}), 426
+    from services.wechat_poll_claim import claim_log
 
     limit = request.args.get('limit', 5, type=int)
-    limit = max(1, min(limit or 5, 20))
+    # 一次只领取一条，回报或进程中断时不会把其他任务一并占死。
+    limit = 1
     logs = WechatShareLog.query.options(joinedload(WechatShareLog.config)).filter(
         # PRINT-ROUTING-F01-P7：print_alert 告警图片同样走轮询通道（云服务器拓扑）
         WechatShareLog.module_key.in_(['in_order', 'print_alert']),
-        WechatShareLog.status == 'pending',
+        WechatShareLog.status == 'queued_v2',
         WechatShareLog.image_path.isnot(None),
     ).order_by(WechatShareLog.created_at.asc()).limit(limit).all()
-    return jsonify({
-        'status': 'success',
-        'tasks': [_wechat_helper_task_payload(log) for log in logs],
-    })
+    tasks = []
+    try:
+        for log in logs:
+            payload = _wechat_helper_task_payload(log)
+            token = claim_log(db.session, WechatShareLog, log.id)
+            if token:
+                payload['claim_token'] = token
+                tasks.append(payload)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'error', 'msg': '领取状态未确认，请人工核对'}), 503
+    response = jsonify({'status': 'success', 'tasks': tasks})
+    response.headers['Cache-Control'] = 'no-store'
+    return response
 
 @app.route('/api/wechat_helper/task/<int:log_id>/image')
 def wechat_helper_task_image(log_id):
@@ -25783,13 +26272,25 @@ def wechat_helper_task_image(log_id):
         return jsonify({'status': 'error', 'msg': 'unauthorized'}), 401
 
     log = WechatShareLog.query.get_or_404(log_id)
-    if log.status != 'pending' or not log.image_path:
+    from services.wechat_poll_claim import claimed_message
+    if log.status != 'sending' or claimed_message(log, request.headers.get('X-Wechat-Task-Claim')) is None or not log.image_path:
         abort(404)
     base_dir = os.path.abspath(_wechat_share_output_dir())
     image_path = os.path.abspath(log.image_path)
     if not image_path.startswith(base_dir + os.sep) or not os.path.exists(image_path):
         abort(404)
     filename = os.path.basename(image_path)
+    expected_message = log.message
+    try:
+        changed = WechatShareLog.query.filter_by(id=log_id, status='sending', message=expected_message).update(
+            {'status': 'delivery_started'}, synchronize_session=False)
+        if not changed:
+            db.session.rollback()
+            abort(404)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        abort(404)
     return send_file(image_path, mimetype='image/png', as_attachment=True, download_name=filename)
 
 @app.route('/api/wechat_helper/task/<int:log_id>/report', methods=['POST'])
@@ -25799,20 +26300,40 @@ def wechat_helper_report_task(log_id):
         return jsonify({'status': 'error', 'msg': 'unauthorized'}), 401
 
     log = WechatShareLog.query.get_or_404(log_id)
+    from services.wechat_poll_claim import claimed_message
+    token = request.headers.get('X-Wechat-Task-Claim')
+    original = claimed_message(log, token)
+    if original is None:
+        return jsonify({'status': 'error', 'msg': '领取状态已变化，请人工核对'}), 409
+    expected_message = log.message
     payload = request.get_json(silent=True) or {}
     helper_status = str(payload.get('status') or '').lower()
     message = str(payload.get('msg') or payload.get('message') or '').strip()
+    if token in message:
+        return jsonify({'status': 'error', 'msg': '回报信息无法保存，请人工核对'}), 400
+    combined = original + ('\n回报：' + message if message else '')
+    if helper_status not in ('sent', 'ready'):
+        combined += '；发送情况请人工核对'
+    if len(combined) > 500:
+        return jsonify({'status': 'error', 'msg': '回报信息无法保存，请人工核对'}), 400
     if helper_status == 'sent':
-        log.status = 'sent'
-        log.sent_at = datetime.now()
-        log.message = message or '本机微信助手已发送'
-    elif helper_status in {'ready', 'pending'}:
-        log.status = 'pending'
-        log.message = message or '已粘贴到微信，等待人工确认发送'
+        values = {'status': 'sent', 'sent_at': datetime.now(),
+                  'message': combined}
+    elif helper_status == 'ready':
+        values = {'status': 'uncertain', 'message': combined}
+    elif helper_status == 'pending':
+        values = {'status': 'uncertain', 'message': combined}
     else:
-        log.status = 'failed'
-        log.message = message or '本机微信助手发送失败'
+        values = {'status': 'uncertain', 'message': combined}
     try:
+        # 状态检查和更新必须是一条 SQL，避免迟到回报覆盖已发送或待确认的结果。
+        changed = WechatShareLog.query.filter(WechatShareLog.id == log_id,
+            WechatShareLog.status.in_(('sending', 'delivery_started')),
+            WechatShareLog.message == expected_message).update(
+            values, synchronize_session=False)
+        if not changed:
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '任务状态已变化，请人工核对'}), 409
         db.session.commit()
         return jsonify({'status': 'success', 'msg': 'reported'})
     except Exception as exc:
@@ -26476,7 +26997,7 @@ def calculate_bom_cost_value(bom, refresh_unit_cost=True):
             item.unit_cost = (item.material.price if item.material else 0) or 0
         else:
             item.unit_cost = item.unit_cost or 0
-        item.total_cost = round_to_2_decimals((item.quantity or 0) * item.unit_cost)
+        item.total_cost = round_money_product(item.quantity or 0, item.unit_cost)
         total_cost += item.total_cost
     bom.total_cost = round_to_2_decimals(total_cost)
     return bom.total_cost
@@ -27499,7 +28020,7 @@ def _void_check_scan(check_id, operator_id=None):
                 operation_content=content,
                 target_type='inventory_check_scan',
                 target_id=check.id,
-                ip_address=request.remote_addr if request else None,
+                ip_address=get_request_ip() if request else None,
             ))
             db.session.commit()
         except Exception:
@@ -27823,7 +28344,7 @@ def api_purchase_order_selectable():
                 'received_quantity': round_to_2_decimals(item.received_quantity or 0),
                 'remaining_quantity': remain_qty,
                 'price': round_to_2_decimals(item.price or 0),
-                'amount': round_to_2_decimals(remain_qty * (item.price or 0)),
+                'amount': round_money_product(remain_qty, item.price or 0),
             }
             order_items.append(row)
             flat_items.append(row)
@@ -30483,9 +31004,9 @@ def _purchase_execution_row(item, today_value, completed_quantity):
         'received_quantity': received_qty,
         'remaining_quantity': remaining_qty,
         'price': price,
-        'amount': _safe_float(item.amount) or round_to_2_decimals(order_qty * price),
-        'received_amount': round_to_2_decimals(received_qty * price),
-        'remaining_amount': round_to_2_decimals(remaining_qty * price),
+        'amount': _safe_float(item.amount) or round_money_product(order_qty, price),
+        'received_amount': round_money_product(received_qty, price),
+        'remaining_amount': round_money_product(remaining_qty, price),
         'expected_date': order.expected_date.isoformat() if order.expected_date else '',
         'overdue_days': overdue_days,
         'status': order.status or '',
@@ -35578,16 +36099,7 @@ def create_sqlite_online_backup(source_path, backup_path):
 
 # ==================== Sales management ====================
 def generate_sales_order_no():
-    prefix = 'SO'
-    month = datetime.now().strftime('%y%m')
-    last = SalesOrder.query.filter(SalesOrder.order_no.like(f'{prefix}{month}%')).order_by(SalesOrder.id.desc()).first()
-    sequence = 1
-    if last:
-        try:
-            sequence = int(last.order_no[-4:]) + 1
-        except (TypeError, ValueError):
-            sequence = SalesOrder.query.filter(SalesOrder.order_no.like(f'{prefix}{month}%')).count() + 1
-    return f'{prefix}{month}{sequence:04d}'
+    return generate_order_no('SO')
 
 def sales_status_label(status):
     return {
@@ -35625,7 +36137,7 @@ def recalculate_sales_order(order):
         tax_rate = item.tax_rate if item.tax_rate is not None else 0.13
         if tax_rate < 0:
             tax_rate = 0
-        included = round_to_2_decimals(qty * price)
+        included = round_money_product(qty, price)
         untaxed = round_to_2_decimals(included / (1 + tax_rate)) if (1 + tax_rate) > 0 else included
         tax = round_to_2_decimals(included - untaxed)
         untaxed_price = round(price / (1 + tax_rate), 4) if (1 + tax_rate) > 0 and qty > 0 else 0
@@ -35640,7 +36152,7 @@ def recalculate_sales_order(order):
         total_tax += tax
         total_quantity += qty
         shipped_total_qty += item.shipped_quantity or 0
-        shipped_amount += round_to_2_decimals((item.shipped_quantity or 0) * price)
+        shipped_amount += round_money_product(item.shipped_quantity or 0, price)
     order.total_amount = round_to_2_decimals(total_included)
     order.untaxed_amount = round_to_2_decimals(total_untaxed)
     order.tax_amount = round_to_2_decimals(total_tax)
@@ -35980,7 +36492,7 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
             source_sales_order_item_id=item.id,
             quantity=remaining_quantity,
             price=item.price,
-            amount=round_to_2_decimals(remaining_quantity * (item.price or 0)),
+            amount=round_money_product(remaining_quantity, item.price or 0),
             remark=f'来源销售订单 {order.order_no}',
         ))
     order.shipment_order_no = outbound.order_no
@@ -36051,7 +36563,7 @@ def api_sales_order_selectable():
                 'shipped_quantity': round_to_2_decimals(item.shipped_quantity or 0),
                 'remaining_quantity': remaining,
                 'price': round_to_2_decimals(item.price or 0),
-                'amount': round_to_2_decimals(remaining * (item.price or 0)),
+                'amount': round_money_product(remaining, item.price or 0),
             })
     return jsonify({'status': 'success', 'items': items})
 
@@ -36214,8 +36726,8 @@ def api_ai_sales_draft_check(id):
         material_id=item.material_id,
         material_code=item.material.code if item.material else '',
         material_name=item.material.name if item.material else '',
-        quantity=float(item.quantity or 0),
-        shipped_quantity=float(item.shipped_quantity or 0),
+        quantity=float(item.quantity) if item.quantity is not None else None,
+        shipped_quantity=float(item.shipped_quantity) if item.shipped_quantity is not None else None,
         price=float(item.price or 0),
         tax_rate=float(item.tax_rate or 0.13),
     ) for item in order.items)
@@ -36227,7 +36739,7 @@ def api_ai_sales_draft_check(id):
         customer_name=order.customer.name if order.customer else '',
         lines=lines,
         total_amount=float(order.total_amount or 0),
-        shipped_amount=float(order.shipped_amount or 0),
+        shipped_amount=order.shipped_amount,
     )
     outbound_infos = []
     for outbound in order.outbound_orders:
@@ -36238,7 +36750,8 @@ def api_ai_sales_draft_check(id):
             source_sales_order_id=outbound.source_sales_order_id or order.id,
             source_sales_order_no=order.order_no,
             customer_name=outbound.customer or '',
-            lines=tuple({'material_id': item.material_id, 'quantity': float(item.quantity or 0), 'price': float(item.price or 0)} for item in outbound.items),
+            lines=tuple({'material_id': item.material_id, 'quantity': float(item.quantity) if item.quantity is not None else None, 'price': float(item.price or 0),
+                         'amount': item.amount} for item in outbound.items),
             business_type=outbound.business_type or '',
         ))
     evidence = build_sales_draft_evidence(

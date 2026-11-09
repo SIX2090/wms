@@ -3748,6 +3748,7 @@ function insertGlobalActionBar() {
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'btn btn-sm';
+        btn.setAttribute('data-wms-action', item.key);
         if (item.key === 'add') btn.setAttribute('data-wms-new', '');
         var actionLabel = item.key === 'settings' ? (module.printTemplateUrl ? '打印设置' : '栏目设置') : item.label;
         if (item.key === 'settings' && !module.printTemplateUrl) {

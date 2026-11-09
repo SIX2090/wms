@@ -41,7 +41,7 @@ def seed_locations(ids,a,b):
         wh=m.db.session.get(m.Warehouse,ids[key])
         m.db.session.add(m.LocationInventory(material_id=ids['material'],warehouse_id=wh.id,location=wh.name,quantity=quantity))
 
-def test_043_period_movement_force_only_creates_plus_two_draft(bounded):
+def test_043_period_movement_confirmed_token_only_creates_plus_two_draft(bounded):
     clients,ids,requests=bounded
     with m.app.app_context():
         check=m.db.session.get(m.InventoryCheck,ids['check']);check.check_no='QA30-043-ONLY'
@@ -54,10 +54,16 @@ def test_043_period_movement_force_only_creates_plus_two_draft(bounded):
     before=stock(ids)
     with requests():
         warning=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':False})
-        assert warning.status_code==200 and warning.json['code']=='period_movement'
-        assert warning.json['status']=='confirm' and warning.json['count']==1
+        assert warning.status_code==200 and warning.json['code']=='check_risks'
+        assert warning.json['status']=='confirm' and '本仓 1 个物料发生出入库流水' in warning.json['msg']
+        assert [(row['code'], row['net']) for row in warning.json['samples']]==[('QA27-M',3)]
+        assert warning.json.get('confirmation_token')
         assert stock(ids)==before
-        done=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':True})
+        unconfirmed=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':True})
+        assert unconfirmed.status_code==200 and unconfirmed.json['status']=='confirm'
+        assert unconfirmed.json['code']=='check_risks' and unconfirmed.json.get('confirmation_token')
+        assert stock(ids)==before
+        done=document_post(clients('warehouse'),f"/check/{ids['check']}/complete",json={'force':True,'confirmation_token':unconfirmed.json['confirmation_token']})
         assert done.status_code==200 and done.json['status']=='success',done.json
     assert stock(ids)==before and before[0]==[13,20]
     with m.app.app_context():

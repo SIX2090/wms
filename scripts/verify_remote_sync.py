@@ -23,6 +23,15 @@ import sys
 import time
 import urllib.request
 
+if __package__:
+    from .wms_safe_http import open_same_origin
+else:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from wms_safe_http import open_same_origin
+    finally:
+        sys.path.pop(0)
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -57,7 +66,7 @@ def _curl_get_chunked(path: str, token: str, ip: str) -> dict | None:
     offset = 0
     while True:
         proc = subprocess.run(
-            ["curl", "-s", "--max-time", "120",
+            ["curl", "-q", "-s", "--max-time", "120",
              "-H", "Authorization: Bearer " + token,
              "-H", "Accept: application/vnd.github+json",
              "-H", f"Range: bytes={offset}-{offset + _CHUNK_SIZE - 1}",
@@ -99,7 +108,7 @@ def _curl_get(path: str, token: str) -> dict | None:
         if "?recursive=1" in path:
             return _curl_get_chunked(path, token, ip)
         proc = subprocess.run(
-            ["curl", "-s", "--max-time", "120", "-H", "Authorization: Bearer " + token,
+            ["curl", "-q", "-s", "--max-time", "120", "-H", "Authorization: Bearer " + token,
              "-H", "Accept: application/vnd.github+json",
              "--resolve", f"api.github.com:443:{ip}",
              "-w", "\n%{http_code}",
@@ -137,7 +146,7 @@ def req(path: str, token: str) -> dict:
             r = urllib.request.Request("https://api.github.com" + path)
             r.add_header("Authorization", "Bearer " + token)
             r.add_header("Accept", "application/vnd.github+json")
-            with urllib.request.urlopen(r, timeout=120) as resp:
+            with open_same_origin(r, timeout=120) as resp:
                 return json.loads(resp.read().decode())
         except Exception as e:  # noqa: BLE001 - 网络抖动重试
             last_err = e

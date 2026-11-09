@@ -4,6 +4,8 @@
 对每个仓库调用 get_warehouse_stock_quantities，汇总后与 Material.stock 对比，
 确认关库位管理+多仓库下报表口径不再为 0 / 不串仓。
 """
+raise SystemExit('安全阻断：该验证入口无法证明数据库或文件目标属于合成环境')
+
 import os
 import sys
 from pathlib import Path

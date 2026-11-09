@@ -37,7 +37,7 @@ const elements=new Map(p.nodes.filter(([,a])=>a.id).map(([tag,a])=>[a.id,new El(
 const el=id=>{assert(elements.has(id),'actual page node '+id);return elements.get(id);};
 const document={getElementById:el,querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:null,querySelectorAll:s=>s.includes('opening-row-check')?el('openingGridBody').querySelectorAll('.opening-row-check'):[],addEventListener:(type,fn)=>(events[type]??=[]).push(fn)};
 const escape=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
-ctx={document,Headers,FormData,console,showConfirm:async()=>true,escapeHtml:escape,location:{href:'/original',reload:()=>assert.fail('no real navigation')},__OPENING_DOC__:null,WMS:{positionDropdown(){}},setTimeout:(fn,delay)=>{const timer={fn,delay,done:false};timers.push(timer);return timers.length;},clearTimeout:id=>{if(timers[id-1])timers[id-1].done=true;},showToast:(message,type)=>messages.push({message,type}),addEventListener:(type,fn)=>(events[type]??=[]).push(fn),localStorage:{getItem:()=>null,setItem(){},removeItem(){}},bootstrap:{Modal:{getInstance:()=>({hide(){}}),getOrCreateInstance:()=>({show(){}})}},fetch:(url,options)=>{calls.push({url,options,body:options.body?JSON.parse(options.body):undefined});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);
+ctx={document,Headers,FormData,console,showConfirm:async()=>true,escapeHtml:escape,location:{href:'/original',reload:()=>assert.fail('no real navigation')},__OPENING_DOC__:null,WMS:{positionDropdown(){}},setTimeout:(fn,delay)=>{const timer={fn,delay,done:false};timers.push(timer);return timers.length;},clearTimeout:id=>{if(timers[id-1])timers[id-1].done=true;},showToast:(message,type)=>messages.push({message,type}),addEventListener:(type,fn)=>(events[type]??=[]).push(fn),localStorage:{getItem:()=>null,setItem(){},removeItem(){}},bootstrap:{Modal:{getInstance:()=>({hide(){}}),getOrCreateInstance:()=>({show(){}})}},fetch:(url,options)=>{calls.push({url,options,body:options.body?JSON.parse(options.body):undefined});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(__ACTUAL_MONEY_SOURCE__,ctx);
 vm.runInContext('const LOCATION_ENABLED=false,GRID_COLSPAN=12,warehouseOptions=[{id:1,name:"WA"}],existingRows=[{material_id:"",material_code:"",material_name:"",quantity:"",price:"",warehouse_id:1},{material_id:"",material_code:"",material_name:"",quantity:"",price:"",warehouse_id:1}];',ctx);
 vm.runInContext(p.source,ctx);el('headerWarehouse').value='1';el('headerDocDate').value='2026-10-23';el('pasteDocDate').value='2026-10-23';el('headerRemark').value='fixture head';for(const fn of events.DOMContentLoaded||[])fn();
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
@@ -86,6 +86,10 @@ function paste(text='WA,M001,2,0,fixture row,2026-10-23'){el('pasteImportText').
  else{assert.equal(saves().length,0);assert(el('pasteImportFeedback').textContent.includes('失败'));}
 })().catch(error=>{process.stderr.write(error.stack);process.exitCode=1;});
 '''
+
+# Match base.html's real dependency; no stub arithmetic or relaxed assertions.
+PROGRAM = PROGRAM.replace('__ACTUAL_MONEY_SOURCE__', json.dumps(
+    (ROOT / 'app/static/js/money.js').read_text(encoding='utf-8')))
 
 
 def run(action,scenario='success',source_override=None):

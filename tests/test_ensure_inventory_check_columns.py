@@ -153,26 +153,46 @@ def test_startup_wiring_runs_with_upgrade_only_skip(tmp_path):
     # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
     env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
+    # 本用例显式验证文件库启动；testing 配置固定内存库，会覆盖 DATABASE_URL。
+    env["FLASK_ENV"] = "production"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["WMS_DATABASE_URI"] = env["DATABASE_URL"]
+    env["WMS_SKIP_STARTUP_BACKUP"] = "1"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
     env["WMS_SKIP_AUTO_UPDATE"] = "1"
     env["WMS_DEBUG"] = "0"
     env["WMS_ALLOW_AUTO_SECRET_KEY"] = "1"
 
-    result = subprocess.run(
-        [sys.executable, "-c", "import app"],
-        cwd=str(APP_DIR),
-        env=env,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=300,
-    )
-    assert result.returncode == 0, f"app import failed:\n{result.stdout}\n{result.stderr}"
+    # Verify only this fixture's fresh file before importing the app.
+    bootstrap = r"""import faulthandler, os, runpy, sys, sysconfig
+from pathlib import Path
+faulthandler.enable()
+faulthandler.dump_traceback_later(30, repeat=True)
+root=Path(sys.argv[1]);path=Path(sys.argv[2])
+guard=runpy.run_path(str(root/'scripts/verify_db_guard.py'))
+assert guard['validate_owned_test_file'](path)==path
+uri='sqlite:///'+str(path)
+assert os.environ['DATABASE_URL']==os.environ['WMS_DATABASE_URI']==uri
+assert os.environ['WMS_SKIP_STARTUP_BACKUP']=='1'
+sys.path.insert(0,str(root/'app'));sys.path.append(sysconfig.get_paths()['purelib'])
+import app
+with app.app.app_context():
+ assert os.path.normcase(os.path.abspath(app.db.engine.url.database))==os.path.normcase(str(path))
+"""
+    output_path, error_path = tmp_path / 'startup-output.txt', tmp_path / 'startup-errors.txt'
+    input_path = tmp_path / 'startup-empty-stdin.txt'
+    input_path.write_bytes(b'')
+    env['PYTHONUTF8'] = '1'
+    with input_path.open('rb') as inp, output_path.open('wb') as out, error_path.open('wb') as err:
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", "-B", "-X", "utf8", "-c", bootstrap, str(ROOT), str(db_path)],
+            cwd=str(APP_DIR), env=env, stdin=inp, stdout=out, stderr=err, timeout=90)
+    output, errors = output_path.read_text(encoding='utf-8'), error_path.read_text(encoding='utf-8')
+    assert result.returncode == 0, f"app import failed:\n{output}\n{errors}"
 
     # 补列确认日志必须出现在启动输出
-    assert "盘点域已补缺列（BUG-2026-09-05-001）" in result.stdout, (
-        f"启动输出缺少补列完成日志:\n{result.stdout}\n{result.stderr}"
+    assert "盘点域已补缺列（BUG-2026-09-05-001）" in output, (
+        f"启动输出缺少补列完成日志:\n{output}\n{errors}"
     )
 
     for table, col in _EXPECTED:

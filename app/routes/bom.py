@@ -29,6 +29,7 @@ from flask_login import login_required
 
 from db import db
 from utils import require_role
+from utils import round_money_product
 
 
 class BomSaveRequest(BaseModel):
@@ -257,7 +258,7 @@ def register_bom_routes(app):
                     quantity=quantity,
                     unit_id=unit_id,
                     unit_cost=unit_cost,
-                    total_cost=round_to_2_decimals(quantity * unit_cost),
+                    total_cost=round_money_product(quantity, unit_cost),
                     usage=(item_data.get('usage') or '').strip(),
                     remark=(item_data.get('remark') or '').strip()
                 ))
@@ -380,7 +381,7 @@ def register_bom_routes(app):
                 quantity=prepared['quantity'],
                 unit_id=prepared['unit_id'],
                 unit_cost=unit_cost,
-                total_cost=round_to_2_decimals(quantity * unit_cost),
+                total_cost=round_money_product(quantity, unit_cost),
                 usage=usage,
                 remark=remark
             )
@@ -722,14 +723,14 @@ def register_bom_routes(app):
                     existing_item.quantity = quantity
                     existing_item.unit_id = unit.id
                     existing_item.unit_cost = unit_cost
-                    existing_item.total_cost = round_to_2_decimals(quantity * unit_cost)
+                    existing_item.total_cost = round_money_product(quantity, unit_cost)
                     existing_item.usage = get_val(row, 'usage')
                     existing_item.remark = get_val(row, 'remark')
                     updated_items += 1
                 else:
                     db.session.add(BOMItem(bom_id=bom.id, material_id=material.id, quantity=quantity,
                                            unit_id=unit.id, unit_cost=unit_cost,
-                                           total_cost=round_to_2_decimals(quantity * unit_cost),
+                                           total_cost=round_money_product(quantity, unit_cost),
                                            usage=get_val(row, 'usage'), remark=get_val(row, 'remark')))
                     item_count += 1
             if not boms_by_key:

@@ -109,6 +109,7 @@ class TestLedgerReader:
             "test_lint_staged_batch_and_ledger_reader.py",
             # tmp 仓库夹具，自造台账内容，不读真实台账
             "test_lint_wms_rules_a13_golden.py",
+            "test_pre_commit_relevant_paths.py",
             # 仅在注释/文档字符串里提到该文件名，不读其内容
             "test_p2_1_drift_gate.py",
             "verify_inventory_truth_contract.py",

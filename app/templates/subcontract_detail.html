@@ -691,7 +691,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const receiveSearch = bindScMaterialInput('receiveCode', 'receiveCodeDropdown', function(m) {
         document.getElementById('receiveName').value = m.name || '';
         const priceInput = document.getElementById('receivePrice');
-        if (priceInput && !priceInput.value) priceInput.value = m.price || '';
+        if (priceInput && priceInput.value === '') priceInput.value = m.price ?? '';
     });
     const openReceiveSearchBtn = document.getElementById('openReceiveSearchBtn');
     if (openReceiveSearchBtn && receiveSearch) {
@@ -718,7 +718,7 @@ function calcInlineProductAmount(row) {
     const priceRaw = row.querySelector('.inline-product-price')?.value || '';
     const price = parseFloat(priceRaw || '0') || 0;
     const amount = row.querySelector('.inline-product-amount');
-    if (amount) amount.value = priceRaw !== '' ? (qty * price).toFixed(2) : '';
+    if (amount) amount.value = priceRaw !== '' ? (window.WMSMoney.product(qty, price)).toFixed(2) : '';
 }
 
 function fillInlineProductMaterial(row, material) {

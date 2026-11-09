@@ -17,6 +17,12 @@ BUG-2026-07-29-001~010 综合验证脚本
 使用：
   python3 scripts/verify_bug_2026_07_29_all.py
 """
+if __package__:
+    from .verify_db_guard import require_synthetic_memory_database
+else:
+    from verify_db_guard import require_synthetic_memory_database
+require_synthetic_memory_database()
+
 import os
 import re
 import sys

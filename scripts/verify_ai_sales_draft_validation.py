@@ -60,6 +60,9 @@ def _make_order(order_id: int, order_no: str, lines: list[SalesLineInfo], status
 
 
 def _make_outbound(outbound_id: int, order_no: str, status: str, source_order_id: int, lines: list[dict]) -> OutboundDraftInfo:
+    # 已完成的合成行提供已存金额，缺失金额应由专项测试检查人工核对路径。
+    lines = [dict(line, amount=line.get('amount', line.get('quantity', 0) * line.get('price', 0)))
+             for line in lines]
     return OutboundDraftInfo(
         outbound_id=outbound_id,
         order_no=order_no,

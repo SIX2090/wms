@@ -15,13 +15,13 @@ T3/T6改为严格只允许一次调用并要求人工核对；其余映射与断
 
 修复：
 - `_wechat_share_send_image` 返回 (status, code, message) 结构化三元组，
-  status ∈ {sent, pending, failed} 直接落库，code 机器可读；
+  status ∈ {sent, pending, failed, uncertain} 直接落库，code 机器可读；
 - 仅 ConnectionError（请求未到达助手、零副作用）自动重试 1 次；
   Timeout 不重试，防止重复发送。
 
 验收点：
 T1. 助手返回 error+code（focus_lost）→ failed 且 code 原样透传。
-T2. 助手返回 ready → pending（待人工确认）。
+T2. 助手返回 ready → uncertain（已粘贴，待人工确认且不重新入队）。
 T3. 首次 ConnectionError、第二次成功 → sent，且恰好请求 2 次（安全重试生效）。
 T4. Timeout → failed(helper_timeout)，仅请求 1 次（禁止重试防重复发送）。
 T5. HTTP 403 → failed(auth_failed)。
@@ -90,7 +90,8 @@ class _FakeResponse:
 def _send(config, image, monkeypatch, post_side_effect):
     calls = []
 
-    def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None):
+    def fake_post(url, data=None, files=None, headers=None, timeout=None, proxies=None, allow_redirects=None):
+        assert allow_redirects is False
         calls.append(url)
         result = post_side_effect(len(calls))
         if isinstance(result, Exception):
@@ -115,13 +116,13 @@ class TestStructuredCodeMapping:
         assert code == "focus_lost"
         assert "前台" in msg
 
-    def test_t2_helper_ready_maps_pending(self, tmp_path, monkeypatch):
-        """T2：助手 ready（已粘贴待人工确认）→ pending。"""
+    def test_t2_helper_ready_maps_uncertain(self, tmp_path, monkeypatch):
+        """T2：助手 ready（已粘贴待人工确认）不能重入待发送队列。"""
         outcome, _ = _send(
             _make_config(), _make_image(tmp_path), monkeypatch,
             lambda n: _FakeResponse({"status": "ready", "code": "ok", "msg": "已粘贴到微信会话"}),
         )
-        assert outcome[0] == "pending"
+        assert outcome[0] == "uncertain"
         assert outcome[1] == "ok"
 
     def test_t3_connection_error_never_blindly_retried(self, tmp_path, monkeypatch):
@@ -231,6 +232,7 @@ class TestStructuredCodeMapping:
             )
             db.session.commit()
             assert action == "created"
-            assert log.status == "failed"
+            assert log.status == "uncertain"
+            assert "核对" in log.message
             assert "focus_lost" in log.message
             assert WechatShareLog.query.filter_by(order_no="RK20260811001").count() == 1

@@ -18,6 +18,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import requests
+from ai.safe_http import post as safe_ai_post, UnsafeRedirect
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,10 @@ class LLMCallError(Exception):
         self.retryable = retryable
 
 
+class UnsafeLLMRedirect(LLMCallError):
+    """Security stop which must not advance to another remote model."""
+
+
 def call_llm(
     config: OpenAICompatibleConfig,
     messages: list[dict[str, object]],
@@ -221,6 +226,9 @@ def call_llm(
 
     Returns:
         模型回复文本，失败返回 None
+
+    Raises:
+        UnsafeLLMRedirect: 请求被安全策略阻断，调用方不得转发至备用远程模型。
     """
     if not config.configured:
         return None
@@ -240,7 +248,7 @@ def call_llm(
     last_error: Optional[Exception] = None
     for attempt in range(max_retries + 1):
         try:
-            response = requests.post(
+            response = safe_ai_post(
                 config.endpoint,
                 headers=headers,
                 json=payload,
@@ -260,7 +268,7 @@ def call_llm(
                 # 某些模型不支持 response_format，去掉重试
                 if response_format and attempt == 0:
                     payload_no_format = {k: v for k, v in payload.items() if k != 'response_format'}
-                    response = requests.post(
+                    response = safe_ai_post(
                         config.endpoint,
                         headers=headers,
                         json=payload_no_format,
@@ -283,7 +291,7 @@ def call_llm(
                 logger.info('Thinking model returned empty content, retrying with thinking disabled')
                 payload_no_think = {k: v for k, v in payload.items() if k != 'thinking'}
                 payload_no_think['thinking'] = {'type': 'disabled'}
-                response = requests.post(
+                response = safe_ai_post(
                     config.endpoint,
                     headers=headers,
                     json=payload_no_think,
@@ -296,6 +304,9 @@ def call_llm(
             breaker.record_success()
             return content if content else None
 
+        except UnsafeRedirect:
+            breaker.record_failure()
+            raise UnsafeLLMRedirect('请求重定向超出原始服务，已停止', retryable=False) from None
         except requests.exceptions.Timeout as exc:
             last_error = exc
             logger.warning('LLM timeout (attempt %d/%d): %s', attempt + 1, max_retries + 1, exc)
@@ -375,7 +386,7 @@ def call_llm_intent(
     system_prompt: str,
     user_message: str,
 ) -> Optional[dict]:
-    """调用 LLM 进行意图解析，返回解析后的 dict 或 None。"""
+    """调用 LLM 进行意图解析，返回解析后的 dict 或 None；安全阻断异常向上传递。"""
     messages = [
         {'role': 'system', 'content': system_prompt + _INTENT_OUTPUT_CONTRACT},
         {'role': 'user', 'content': truncate_ai_user_message(user_message)},
@@ -402,7 +413,7 @@ def call_llm_chat(
     user_message: str,
     max_reply_length: int = 1200,
 ) -> Optional[str]:
-    """调用 LLM 进行普通对话，返回回复文本或 None。"""
+    """调用 LLM 进行普通对话，返回回复文本或 None；安全阻断异常向上传递。"""
     messages = [
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': truncate_ai_user_message(user_message)},
@@ -445,6 +456,8 @@ def call_llm_vision(
             timeout_override=max(config.timeout_seconds, 30),
             mode='vision',
         )
+    except UnsafeLLMRedirect:
+        return None, None, '图片识别服务重定向超出原始服务，请求已停止'
     finally:
         _vision_semaphore.release()
     if not content:

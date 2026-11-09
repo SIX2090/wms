@@ -14,6 +14,10 @@ A1 已同步内置模板；A2 把 10 种单据的打印出口接到模板体系�
 """
 from __future__ import annotations
 
+# 直接运行时应用导入与数据库隔离尚未证明；原有测试保留。
+from scripts.verify_db_guard import require_isolated_test_runtime
+require_isolated_test_runtime()
+
 import io
 import os
 import sys
