@@ -26,4 +26,14 @@ R8物理撤回唯一产品改动app/version.py至原基线，Windows绑定完整
 
 ## 交付与生效边界
 
-精确提交的完整CI、Windows实际构建、四资产及真实运行回执待验。本批不部署生产，不重启服务，不访问生产数据库或发送生产业务请求。
+2026-11-09 15:00（北京时间）完成修复提交`9fc04d2b563217a46659d12ce023bcb6aaee3240`的实际交付验收：
+
+- [WMS CI42575466739](https://github.com/SIX2090/wms/actions/runs/42575466739)：completed/success，完整分流；单元分片4379/4490/4537 passed，共13406 passed、206 skipped。静态、安全、四回归分片、隔离冒烟及真实Chrome均通过。
+- [AI42575466850](https://github.com/SIX2090/wms/actions/runs/42575466850)：completed/success；Perf42575466799亦success。Android42529810358仍为最新成功运行，完整Git历史再次确认是目标祖先，Android源码及构建工作流无差异。
+- [Windows42576050180](https://github.com/SIX2090/wms/actions/runs/42576050180)：completed/success，plan为build，真实下载、构建、临时安装验证、草稿上传核验与发布后核验全部成功，最终记录built_verified。
+- [windows-v2026.11.6](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.6)：非draft的预览发行，实际来源9fc04d2b；ZIP、校验文件、release.json及runtime.json四资产均uploaded且有GitHub SHA256摘要。ZIP97133179字节，SHA256为`d1f19acc7e4d48795cf85451fac191c1832aff062dc88070c7d7cfeaa9e80224`；运行回执摘要`b8aa94866d7f411186ec730b6a97f45963657d22583b2ccb0869697588b2df99`。
+- 输入指纹`fb9c9a558fb225899755dbc094e65677d5508aeb04b5a3b4ec18722f03c326fd`，制品身份`7982e46e68b2154260ab8134014f9705101c1278415e6706686c494c8deabcf9`，运行清单7357文件。证据来自实际Windows日志及发行API，不把本地合成回执当真实发行。
+
+普通git push因本机配置的WorkBuddy凭据助手路径不存在而失败，未要求或提取明文凭据。改用已连接GitHub工具，以真实main基线为parent、base tree为基础，仅上传7个已验证文件；远端完整tree`0a767d4da29e8ab75667af8d66c7e9309a04b20f`与正常hooks生成的本地提交1ee63376完全一致，expected_sha匹配且force=false更新main。已保存本地提交bundle，fetch后核对parent/tree及准确变更集合，再仅对相同tree的独立检出对齐引用；HEAD与origin/main均为9fc04d2b，工作区干净，无reset/stash/新分支或伪造git push成功记录。
+
+最后只补README/台账/本记录的实际验收事实，发布输入保持上述指纹，收尾提交按既有文档契约及精确目标门禁验收，Windows应核验同输入资产后记录reused_verified。本批不部署生产，不重启服务，不访问生产数据库或发送生产业务请求。历史#105/#106保留原失败证据，新工作流成功证明修复有效。
