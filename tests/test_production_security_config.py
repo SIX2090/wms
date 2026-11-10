@@ -7,18 +7,21 @@ from config import ProductionConfig, validate_production_security_config
 
 def test_validate_production_security_config(monkeypatch):
     """A9 对应测试：生产环境禁止通过环境变量关闭 CSRF。"""
+    # BUG-2026-11-10-001：CI 隔离容器钉死 FLASK_ENV=testing，函数默认参数会隐式
+    # 读到 testing 而直接 return，导致生产门禁断言 DID NOT RAISE。所有"生产"用例
+    # 显式传 environment="production"，把环境前提写进用例，而不是改动容器边界。
     monkeypatch.setenv("WMS_ALLOW_INSECURE_COOKIE", "1")
     monkeypatch.setenv("WMS_DISABLE_CSRF", "1")
     with pytest.raises(RuntimeError, match="CSRF"):
-        validate_production_security_config()
+        validate_production_security_config(environment="production")
     monkeypatch.delenv("WMS_DISABLE_CSRF", raising=False)
-    assert validate_production_security_config() is None
+    assert validate_production_security_config(environment="production") is None
 
 
 def test_production_csrf_is_enabled_without_disable_flag(monkeypatch):
     monkeypatch.setenv("WMS_ALLOW_INSECURE_COOKIE", "1")
     monkeypatch.delenv("WMS_DISABLE_CSRF", raising=False)
-    validate_production_security_config()
+    validate_production_security_config(environment="production")
     assert ProductionConfig.WTF_CSRF_ENABLED is True
 
 
@@ -27,7 +30,7 @@ def test_production_rejects_csrf_disable_flag(monkeypatch, value):
     monkeypatch.setenv("WMS_ALLOW_INSECURE_COOKIE", "1")
     monkeypatch.setenv("WMS_DISABLE_CSRF", value)
     with pytest.raises(RuntimeError, match="CSRF"):
-        validate_production_security_config()
+        validate_production_security_config(environment="production")
 
 
 def test_non_production_config_does_not_use_production_guard(monkeypatch):
@@ -46,7 +49,7 @@ def test_production_rejects_insecure_session_cookie_without_optin(monkeypatch):
     monkeypatch.delenv("SESSION_COOKIE_SECURE", raising=False)
     monkeypatch.delenv("WMS_ALLOW_INSECURE_COOKIE", raising=False)
     with pytest.raises(RuntimeError, match="SESSION_COOKIE_SECURE"):
-        validate_production_security_config()
+        validate_production_security_config(environment="production")
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes"])
@@ -55,7 +58,7 @@ def test_production_allows_insecure_cookie_with_explicit_optin(monkeypatch, valu
     monkeypatch.delenv("WMS_DISABLE_CSRF", raising=False)
     monkeypatch.delenv("SESSION_COOKIE_SECURE", raising=False)
     monkeypatch.setenv("WMS_ALLOW_INSECURE_COOKIE", value)
-    assert validate_production_security_config() is None
+    assert validate_production_security_config(environment="production") is None
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes"])
@@ -64,7 +67,7 @@ def test_production_allows_secure_cookie_without_optin(monkeypatch, value):
     monkeypatch.delenv("WMS_DISABLE_CSRF", raising=False)
     monkeypatch.setenv("SESSION_COOKIE_SECURE", value)
     monkeypatch.delenv("WMS_ALLOW_INSECURE_COOKIE", raising=False)
-    assert validate_production_security_config() is None
+    assert validate_production_security_config(environment="production") is None
 
 
 def test_non_production_skips_insecure_cookie_guard(monkeypatch):

@@ -34,6 +34,12 @@ class PageNodes(HTMLParser):
 
 @pytest.fixture
 def page_client(monkeypatch):
+    # BUG-2026-11-10-001：CI 隔离容器是 FLASK_ENV=testing，TestingConfig 不带
+    # SECURITY_HEADERS，after_request 只写出 material_form_policy 追加的一条严格 CSP，
+    # 于是 assert len(policies) == 2 失败。这里显式注入生产安全头，使被测前提在
+    # 任意 FLASK_ENV 下一致；断言本身（含严格策略的 hash 校验）一条都不放宽。
+    from config import ProductionConfig
+    monkeypatch.setitem(w.app.config, 'SECURITY_HEADERS', dict(ProductionConfig.SECURITY_HEADERS))
     monkeypatch.setitem(w.app.config, 'TESTING', True)
     with w.app.app_context():
         assert str(w.db.engine.url) == 'sqlite:///:memory:'
