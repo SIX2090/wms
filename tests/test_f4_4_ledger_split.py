@@ -518,3 +518,8 @@ for _bug in (
 ):
     POST_SPLIT_BUGS[_bug] = 'fixed'
 del _bug
+
+# 2026-11-10 微信修复批次：新增两条「已修复」登记，逐个核对后从分布中排除，
+# STATUS_DIST_BASELINE 仍保持拆分前的 315/141/19/1（不靠调基线数值变绿）。
+POST_SPLIT_BUGS['BUG-2026-11-10-005'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-10-006'] = 'fixed'
