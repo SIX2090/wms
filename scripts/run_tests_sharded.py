@@ -36,10 +36,38 @@ import glob
 import os
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_WORKERS = 4
+
+
+def report_failures(report: Path) -> bool:
+    """Publish actual pytest failures without requiring private log download."""
+    try:
+        cases = list(ET.parse(report).getroot().iter('testcase'))
+        if not cases:
+            raise ValueError('pytest report contains no collected tests')
+    except (OSError, ET.ParseError, ValueError) as exc:
+        print('[error] 无法核实 pytest 报告：' + str(exc), flush=True)
+        return False
+    failures = []
+    for case in cases:
+        for failure in list(case):
+            if failure.tag in ('failure', 'error'):
+                name = case.get('classname', '') + '::' + case.get('name', '')
+                detail = (failure.text or failure.get('message', '')).strip()
+                failures.append((name, detail))
+    lines = [f'# Unit test failures: {len(failures)} / {len(cases)} cases', '']
+    for name, detail in failures:
+        lines.extend([name, '', '```text', detail, '```', ''])
+        # Workflow commands must escape untrusted assertion output. The XML
+        # artifact retains complete details even when annotations are truncated.
+        message = (name + '\n' + detail[:2500]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print('::error title=Unit test failure::' + message, flush=True)
+    report.with_suffix('.md').write_text('\n'.join(lines), encoding='utf-8')
+    return not failures
 
 
 def collect(shards: int, shard: int) -> list[str]:
@@ -122,7 +150,14 @@ def main() -> int:
         '-q', '-p', 'no:pylama', '-p', 'xdist.plugin',
         '-n', str(workers), '--dist', 'loadfile',
     ]
-    return subprocess.call(cmd, cwd=str(REPO_ROOT), env=env)
+    report = REPO_ROOT / 'output' / f'unit-shard-{shard}.xml'
+    report.parent.mkdir(parents=True, exist_ok=True)
+    # A failed collection must not accidentally publish an older run's XML.
+    report.unlink(missing_ok=True)
+    report.with_suffix('.md').unlink(missing_ok=True)
+    result = subprocess.call([*cmd, '--junitxml', str(report)], cwd=str(REPO_ROOT), env=env)
+    verified = report_failures(report)
+    return result if result else (0 if verified else 1)
 
 
 if __name__ == '__main__':

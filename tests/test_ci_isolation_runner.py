@@ -80,6 +80,41 @@ def test_source_files_and_test_fixtures_remain_selected():
         assert runner['source_member'](name)
 
 
+def test_export_source_preserves_inventory_without_reading_excluded_blobs(tmp_path, monkeypatch):
+    import io
+    selected_oid, excluded_oid = 'a' * 40, 'b' * 40
+    listing = (f'100644 blob {selected_oid}\tapp/app.py\0'
+               f'100644 blob {excluded_oid}\tapk_source/private.db\0').encode()
+    blob = b'# synthetic source only\n'
+    requests = []
+    class Input(io.BytesIO):
+        def write(self, data):
+            requests.append(data)
+            return super().write(data)
+    class GitBlobs:
+        def __init__(self, command, **kwargs):
+            assert command[-2:] == ['cat-file', '--batch']
+            self.stdin = Input()
+            self.stdout = io.BytesIO(f'{selected_oid} blob {len(blob)}\n'.encode() + blob + b'\n')
+        def __enter__(self):
+            return self
+        def __exit__(self, *_args):
+            self.stdin.close()
+            self.stdout.close()
+        def wait(self):
+            return 0
+    def listing_only(command, **kwargs):
+        assert command[-3:] == ['ls-tree', '-rz', 'c' * 40]
+        return subprocess.CompletedProcess(command, 0, listing)
+    monkeypatch.setitem(runner['export_source'].__globals__, 'run', listing_only)
+    monkeypatch.setattr(subprocess, 'Popen', GitBlobs)
+    count, names = runner['export_source'](tmp_path / 'synthetic-repo', 'c' * 40, tmp_path / 'source')
+    assert count == 1 and names == ['app/app.py', 'apk_source/private.db']
+    assert requests == [(selected_oid + '\n').encode()]
+    assert (tmp_path / 'source/app/app.py').read_bytes() == blob
+    assert not (tmp_path / 'source/apk_source').exists()
+
+
 def test_empty_command_fails_before_engine_access():
     with mock.patch.dict(runner['main'].__globals__, {'docker_environment': lambda: pytest.fail('engine accessed')}):
         with pytest.raises(SystemExit) as error:
@@ -87,7 +122,7 @@ def test_empty_command_fails_before_engine_access():
         assert error.value.code != 0
 
 
-def test_dispatch_positive_path_starts_explicit_synthetic_tests():
+def test_dispatch_positive_path_starts_explicit_synthetic_tests(tmp_path):
     # Unit-test the dispatch continuation separately from the real kernel probe.
     # No test app, network or subprocess is executed by these mock assertions.
     from scripts import linux_test_runtime
@@ -95,7 +130,7 @@ def test_dispatch_positive_path_starts_explicit_synthetic_tests():
     verify = runpy.run_path(str(ROOT / 'scripts/run_verify_parallel.py'))
     with mock.patch.object(linux_test_runtime, 'require_subprocess_boundary'), \
             mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(sys, 'argv', ['synthetic']), \
-            mock.patch.dict(sharded['main'].__globals__, {'collect': lambda *_: ['tests/test_synthetic.py']}), \
+            mock.patch.dict(sharded['main'].__globals__, {'collect': lambda *_: ['tests/test_synthetic.py'], 'REPO_ROOT': tmp_path}), \
             mock.patch.object(subprocess, 'call', return_value=7) as execute:
         assert sharded['main']() == 7
         assert 'tests/test_synthetic.py' in execute.call_args.args[0]

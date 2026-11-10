@@ -278,6 +278,13 @@ jobs:
           VERIFY_TEST_SHARD: '0'
           VERIFY_TEST_WORKERS: '4'
         run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
+      - name: Upload unit failure details
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-shard-0-results
+          path: output/unit-shard-0.*
+          if-no-files-found: warn
 
   unit-tests-shard-1:
     needs: changes
@@ -309,6 +316,13 @@ jobs:
           VERIFY_TEST_SHARD: '1'
           VERIFY_TEST_WORKERS: '4'
         run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
+      - name: Upload unit failure details
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-shard-1-results
+          path: output/unit-shard-1.*
+          if-no-files-found: warn
 
   unit-tests-shard-2:
     needs: changes
@@ -340,6 +354,13 @@ jobs:
           VERIFY_TEST_SHARD: '2'
           VERIFY_TEST_WORKERS: '4'
         run: python3 scripts/run_ci_isolated.py -- python scripts/run_tests_sharded.py
+      - name: Upload unit failure details
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-shard-2-results
+          path: output/unit-shard-2.*
+          if-no-files-found: warn
 
   # ==========================================================================
   # Job 3a-3d：verify 契约回归（178 个文件，CI-PERF-2026-09-24 起按片并行）

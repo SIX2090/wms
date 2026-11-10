@@ -13,14 +13,14 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize('carry', [False, True])
 @pytest.mark.parametrize('doc_type', ['requisition', 'transfer', 'check'])
 @pytest.mark.parametrize('status', ['success', 'error', 'confirm', 'network_error'])
-@pytest.mark.parametrize('mode', ['save', 'save_complete', 'complete', 'force'])
+@pytest.mark.parametrize('mode', ['save', 'save_complete', 'complete', 'force', 'force_missing'])
 def test_requisition_completion_navigation(doc_type, status, mode, carry):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required for browser callback execution')
     source = (ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     submit = 'function submitForm(completeAfterSave) {' + source.split('function submitForm(completeAfterSave) {', 1)[1].split('\nfunction escapeHtmlText', 1)[0]
-    run = 'function runComplete(actionUrl, force, orderId) {' + source.split('function runComplete(actionUrl, force, orderId) {', 1)[1].split('\nfunction showCompleteConfirm', 1)[0]
+    run = source[source.index('function runComplete('):source.index('\nfunction showCompleteConfirm')]
     helpers = source[source.index('function beginDocumentAction()'):source.index('function submitForm(')]
     api = (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')
     complete = 'function completeDocument() {' + source.split('function completeDocument() {', 1)[1].split('\nfunction revertDocument', 1)[0]
@@ -48,10 +48,15 @@ function fetch(url, options) {
     return Promise.resolve({ok:true,status:200,json:() => Promise.resolve({status})});
 }
 ''' + api + '\nconst WMS=window.WMS;\n' + helpers + f'const docType={json.dumps(doc_type)}, status={json.dumps(status)};\n' + submit + run + complete
-    script += {'save':'submitForm(false);', 'save_complete':'submitForm(true);', 'complete':'completeDocument();', 'force':"runComplete('/complete/7',true,7).catch(() => {});"}[mode]
+    script += {'save':'submitForm(false);', 'save_complete':'submitForm(true);', 'complete':'completeDocument();', 'force':"runComplete('/complete/7',true,7,'snapshot-for-this-document').catch(() => {});", 'force_missing':"runComplete('/complete/7',true,7).catch(() => {});"}[mode]
     script += '\nsetImmediate(() => process.stdout.write(JSON.stringify({url:window.location.href, confirmed, calls, issues, locked:!!submitForm.completed})));'
     result = subprocess.run([node, '-e', script], text=True, encoding='utf-8', capture_output=True, check=True)
     actual = json.loads(result.stdout)
+    if mode == 'force_missing' and doc_type == 'check':
+        assert actual['calls'] == []
+        assert actual['url'] == 'original' and actual['confirmed'] == 0
+        assert actual['locked'] is False
+        return
     if mode == 'save':
         assert actual['url'] == '/detail/7'
         assert len(actual['calls']) == 1
@@ -78,5 +83,8 @@ function fetch(url, options) {
         else:
             assert actual['issues'] == []
             assert actual['locked'] is False
-    if mode == 'force':
-        assert actual['calls'][0]['body'] == {'force':True}
+    if mode in ('force', 'force_missing'):
+        expected = {'force': True}
+        if doc_type == 'check':
+            expected['confirmation_token'] = 'snapshot-for-this-document'
+        assert actual['calls'][0]['body'] == expected

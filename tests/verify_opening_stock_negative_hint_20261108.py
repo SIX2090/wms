@@ -50,6 +50,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     source = ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig'))
     utils = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
+    identity = ast.parse((root / 'app/services/warehouse_identity.py').read_text(encoding='utf-8-sig'))
 
     def function(tree, name):
         matches = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name]
@@ -147,7 +148,11 @@ def main():
                            'synthetic_movement': (SourceDocument, lambda doc, _txn: doc.warehouse.name)},
                        'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math,
                        'datetime': datetime}
-            nodes = [function(utils, 'round_to_2_decimals'), function(utils, 'normalize_stock_quantity'),
+            aliases = function(identity, 'warehouse_aliases')
+            # Bind the real alias query to this fixture's synthetic models/session.
+            # Keep its ambiguity checks; never import application models here.
+            aliases.body = [node for node in aliases.body if not isinstance(node, ast.ImportFrom)]
+            nodes = [function(utils, 'round_to_2_decimals'), function(utils, 'normalize_stock_quantity'), aliases,
                      function(source, 'get_warehouse_stock_quantities'),
                      function(source, '_warehouse_location_filter_values'),
                      function(source, '_ledger_source_warehouse_map'),

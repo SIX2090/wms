@@ -51,6 +51,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -127,13 +128,11 @@ def _run(payload_js: str) -> dict:
     if not node:
         pytest.skip("node 不可用")
 
-    harness = ROOT / ".t006_dedupe_harness.js"
-    harness.write_text(_build_harness(payload_js), encoding="utf-8")
-    try:
+    with tempfile.TemporaryDirectory(prefix="wms-toolbar-") as directory:
+        harness = Path(directory) / "harness.js"
+        harness.write_text(_build_harness(payload_js), encoding="utf-8")
         result = subprocess.run([node, str(harness), str(APP_JS)],
                                 capture_output=True, text=True, timeout=60)
-    finally:
-        harness.unlink(missing_ok=True)
 
     assert result.returncode == 0, f"harness 执行失败:\n{result.stderr[:1500]}"
     return json.loads(result.stdout.strip().splitlines()[-1])

@@ -18,10 +18,12 @@
 """
 from __future__ import annotations
 
+import ast
 import os
 import re
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "app"
@@ -122,6 +124,9 @@ def test_setting_default_off_and_skip_env(failures: list[str]) -> None:
             mock_called.append(True)
 
     original = sys.modules.get("auto_update")
+    original_skip = os.environ.get("WMS_SKIP_AUTO_UPDATE")
+    original_server = sys.modules.get("run_server")
+    original_path = sys.path[:]
     sys.modules["auto_update"] = _MockAutoUpdate  # type: ignore[assignment]
     try:
         if "run_server" in sys.modules:
@@ -159,12 +164,19 @@ def test_setting_default_off_and_skip_env(failures: list[str]) -> None:
         finally:
             run_server._github_auto_update_setting_enabled = original_gate  # type: ignore[assignment]
     finally:
+        if original_skip is None:
+            os.environ.pop("WMS_SKIP_AUTO_UPDATE", None)
+        else:
+            os.environ["WMS_SKIP_AUTO_UPDATE"] = original_skip
+        if original_server is None:
+            sys.modules.pop("run_server", None)
+        else:
+            sys.modules["run_server"] = original_server
         if original is not None:
             sys.modules["auto_update"] = original
         else:
             sys.modules.pop("auto_update", None)
-        if str(APP_DIR) in sys.path:
-            sys.path.remove(str(APP_DIR))
+        sys.path[:] = original_path
 
 
 def test_start_wms_auto_delegates(failures: list[str]) -> None:
@@ -191,7 +203,7 @@ def test_start_wms_auto_delegates(failures: list[str]) -> None:
 
 def test_auto_update_safety_properties(failures: list[str]) -> None:
     """auto_update.py 保留安全属性"""
-    print("\n[Test 4] auto_update.py 安全属性（ff-only / 不切分支 / 脏工作区先 stash / 失败不阻断）")
+    print("\n[Test 4] auto_update.py 安全属性（ff-only / 不切分支 / 脏工作区跳过 / 失败不阻断）")
     if not AUTO_UPDATE_PATH.exists():
         check(False, f"{AUTO_UPDATE_PATH.name} 不存在", failures)
         return
@@ -210,8 +222,7 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
     has_dirty_check = "status" in text and "--porcelain" in text
     check(has_dirty_check, "工作区脏时先处理再 pull（git status --porcelain 检查）", failures)
 
-    has_stash = "stash" in text and "WMS_AUTO_UPDATE_DIRTY" in text
-    check(has_stash, "工作区脏时默认保存到 stash，支持 skip 保守模式", failures)
+    check_dirty_worktree_behavior(text, failures)
 
     # AI-DEPLOY-F01-FIX-02
     has_correct_behind = "HEAD.." in text and "rev-list" in text
@@ -232,6 +243,56 @@ def test_auto_update_safety_properties(failures: list[str]) -> None:
 
     has_backup = "backup_database" in text or "备份" in text
     check(has_backup, "更新前备份数据库", failures)
+
+
+def check_dirty_worktree_behavior(text: str, failures: list[str]) -> None:
+    """Run the actual main body with every external operation replaced by a fake.
+
+    Legacy WMS_AUTO_UPDATE_DIRTY=stash must not re-enable automatic stashing.
+    Extracting only main also keeps imports, databases and live Git out of this test.
+    """
+    node = next(n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == "main")
+    code = compile(ast.Module(body=[node], type_ignores=[]), str(AUTO_UPDATE_PATH), "exec")
+    for mode in (None, "stash", "skip", "unknown"):
+        for scenario in ("dirty", "changed_during_backup", "backup_failed", "clean"):
+            calls: list[tuple[str, ...]] = []
+            statuses = iter((" M tracked.txt" if scenario == "dirty" else "",
+                             " M tracked.txt" if scenario == "changed_during_backup" else ""))
+
+            def git(*args):
+                calls.append(args)
+                if args == ("branch", "--show-current"):
+                    return 0, "main", ""
+                if args == ("fetch", "origin", "main"):
+                    return 0, "", ""
+                if args == ("status", "--porcelain", "--untracked-files=no"):
+                    return 0, next(statuses), ""
+                if args == ("pull", "--ff-only", "origin", "main"):
+                    return 0, "synthetic fast-forward", ""
+                raise AssertionError(f"禁止意外 Git 操作：{args}")
+
+            root = MagicMock()
+            root.__truediv__.return_value.exists.return_value = True
+            backup = Mock(return_value=scenario != "backup_failed")
+            scope = dict(ROOT_DIR=root, BRANCH="main", REMOTE="origin", GIT_PIN="",
+                         log=lambda *_: None, find_git=lambda: "synthetic-git",
+                         run_git=git, resolve_sha=lambda *_: "f" * 40,
+                         count_commits=lambda ref: (True, int(ref.startswith("HEAD..")), ""),
+                         backup_database=backup, find_python=lambda: None,
+                         log_pulled_commits=lambda *_: None)
+            exec(code, scope)
+            env = {} if mode is None else {"WMS_AUTO_UPDATE_DIRTY": mode}
+            error = ""
+            try:
+                with patch.dict(os.environ, env, clear=True):
+                    result = scope["main"]()
+                assert result == 0
+                assert backup.call_count == (0 if scenario == "dirty" else 1)
+                assert sum(args[0] == "pull" for args in calls) == int(scenario == "clean")
+                assert not any(args[0] == "stash" for args in calls)
+            except Exception as exc:
+                error = f" ({type(exc).__name__}: {exc})"
+            check(not error, f"更新行为 {scenario}, legacy={mode!r}：保留现场/仅干净时快进{error}", failures)
 
 
 def test_task_marker_present(failures: list[str]) -> None:

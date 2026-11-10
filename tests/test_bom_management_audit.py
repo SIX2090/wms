@@ -35,9 +35,13 @@ def test_bom_save_updates_existing_rows_and_preserves_zero_cost(bom_case):
 def test_bom_new_duplicate_number_does_not_overwrite_existing(bom_case):
     client, ids = bom_case
     response = client.post('/bom/save_table', json=payload(ids, order_id=None))
-    assert response.status_code == 400
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()['id'] != ids['bom']
+    assert response.get_json()['order_no'] != 'BOM-AUDIT'
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).items[0].quantity == 2
+    created = db.session.get(BOM, response.get_json()['id'])
+    assert len(created.items) == 1 and created.items[0].quantity == 3
 
 
 @pytest.mark.parametrize('data', [[], {'header':[]}, {'header':{'product_code':3}, 'items':[{}]}])

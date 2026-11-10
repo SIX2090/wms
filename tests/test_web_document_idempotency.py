@@ -170,6 +170,12 @@ fail=true;await api.postRaw('/out_order/add',{items:[]}).catch(()=>{});const key
 fail=false;await api.postRaw('/out_order/add',{items:[]});assert.equal(calls.at(-1).options.headers['X-Idempotency-Key'],key);
 await api.postRaw('/out_order/add',{items:[]});assert.notEqual(calls.at(-1).options.headers['X-Idempotency-Key'],key);
 const form=new FormData();form.set('issue_no','ISSUE-1');await api.postRaw('/subcontract/issue/add',form);assert.ok(calls.at(-1).options.headers['X-Idempotency-Key']);
+for (const path of ['/bom/add','/bom/save_table']) {
+  const bom=new FormData();bom.set('bom_no','BOM-PREVIEW');
+  fail=true;await api.postRaw(path,bom).catch(()=>{});const firstKey=calls.at(-1).options.headers['X-Idempotency-Key'];assert.ok(firstKey);
+  fail=false;await api.postRaw(path,bom);assert.equal(calls.at(-1).options.headers['X-Idempotency-Key'],firstKey);
+  await api.postRaw(path,bom);assert.equal(calls.at(-1).options.headers['X-Idempotency-Key'],firstKey);
+}
 // A new page/form may legitimately reuse a deleted preview number. It needs a new identity.
 const another={...ctx, WMS:undefined};another.window=another;vm.createContext(another);vm.runInContext(fs.readFileSync(process.argv[1],'utf8'),another);
 await another.WMS.api.postRaw('/in_order/add',data);assert.notEqual(calls.at(-1).options.headers['X-Idempotency-Key'],calls[0].options.headers['X-Idempotency-Key']);

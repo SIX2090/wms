@@ -47,13 +47,14 @@ def source_member(name):
 def export_source(repo, revision, target):
     """Select source names before reading any blob; never archive excluded data."""
     listing = run(['git', '-C', str(repo), 'ls-tree', '-rz', revision], capture_output=True).stdout
-    selected = []
+    selected, tracked_paths = [], []
     for record in listing.split(b'\0'):
         if not record:
             continue
         metadata, raw_name = record.split(b'\t', 1)
         mode, kind, oid = metadata.decode('ascii').split()
         name = raw_name.decode('utf-8')
+        tracked_paths.append(name)
         if not source_member(name):
             continue
         if kind != 'blob' or mode not in ('100644', '100755'):
@@ -80,7 +81,7 @@ def export_source(repo, revision, target):
             raise ValueError('Git blob export failed')
     if not count or not (target / 'app/app.py').is_file():
         raise ValueError('empty or incomplete source snapshot')
-    return count
+    return count, tracked_paths
 
 
 def validate_inspect(record, *, container, image, nonce, proof_dir):
@@ -140,7 +141,7 @@ def main(argv=None):
         scratch = Path(temp)
         source, proof_dir = scratch / 'source', scratch / 'proof'
         source.mkdir(); proof_dir.mkdir(mode=0o755)
-        count = export_source(ROOT, sha, source)
+        count, tracked_paths = export_source(ROOT, sha, source)
         baseline = os.environ.get('WMS_BROWSER_BASELINE', '')
         if command == ['node', 'tests/material_browser_check.cjs']:
             if not re.fullmatch('[0-9a-f]{40}', baseline):
@@ -150,7 +151,12 @@ def main(argv=None):
             export_source(ROOT, baseline, old)
         else:
             (scratch / 'baseline').mkdir()
-        (scratch / 'request.json').write_text(json.dumps({'command': command, 'sha': sha, 'baseline': baseline}))
+        (scratch / 'request.json').write_text(json.dumps({
+            'command': command, 'sha': sha, 'baseline': baseline,
+            # Names come from the same ls-tree as the exported blobs. No host
+            # Git index/config/credentials enter the immutable source image.
+            'tracked_paths': tracked_paths,
+        }), encoding='utf-8')
         dockerfile = (source / 'scripts/ci-test.Dockerfile').read_text()
         (scratch / 'Dockerfile').write_text(dockerfile)
         iid = scratch / 'image-id'

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -26,15 +27,24 @@ def _login(client, user_id: int) -> None:
 
 
 def main() -> int:
+    import backup_catalog
     app = wms_app.app
     app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
 
-    backup_dir = Path(wms_app.BACKUP_DIR)
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    # The isolated source tree is read-only. This marker belongs exclusively to
+    # this test, not to the application's configured backup directory.
+    synthetic_backups = tempfile.TemporaryDirectory(prefix='wms-stage6-backups-')
+    previous_backup_dir = wms_app.BACKUP_DIR
+    previous_update_dir = backup_catalog.UPDATE_BACKUP_DIR
+    previous_daily_dir = os.environ.get('WMS_BACKUP_DIR')
+    backup_dir = Path(synthetic_backups.name)
+    wms_app.BACKUP_DIR = str(backup_dir)
+    backup_catalog.UPDATE_BACKUP_DIR = backup_dir / 'update'
+    os.environ['WMS_BACKUP_DIR'] = str(backup_dir / 'daily')
     verify_backup = backup_dir / 'stage6_verify_backup.db'
-    verify_backup.write_bytes(b'stage6 backup marker')
 
     try:
+        verify_backup.write_bytes(b'stage6 backup marker')
         with app.app_context():
             wms_app.db.create_all()
             for username in ('stage6-admin', 'stage6-warehouse'):
@@ -81,10 +91,13 @@ def main() -> int:
         assert report['passed'] + report['warned'] + report['failed'] == len(report['checks'])
         assert any(item['code'] == 'BACKUP-READY' and item['status'] == 'pass' for item in report['checks'])
     finally:
-        try:
-            verify_backup.unlink()
-        except FileNotFoundError:
-            pass
+        wms_app.BACKUP_DIR = previous_backup_dir
+        backup_catalog.UPDATE_BACKUP_DIR = previous_update_dir
+        if previous_daily_dir is None:
+            os.environ.pop('WMS_BACKUP_DIR', None)
+        else:
+            os.environ['WMS_BACKUP_DIR'] = previous_daily_dir
+        synthetic_backups.cleanup()
 
     print('PASS AI-STAGE6-PRELAUNCH: prelaunch checks, admin access, rollback readiness, and regression guidance are stable')
     return 0

@@ -11,13 +11,14 @@ BUG-2026-08-11-015 回归测试：微信分享页界面引导补充。
 1. 助手地址字段下增加发送模式说明（直推 / 轮询 / 回环地址限制）；
 2. auto_send 勾选时显示警示条（无人工确认、无法撤回），未勾选时默认隐藏，
    并由 JS change 监听实时切换；
-3. 存在 pending 记录时状态卡片显示消化引导，并按助手在线/轮询状态给出提示。
+3. queued_v2 记录显示新版助手领取引导；历史 pending 保留待人工核对。
 
 验收点：
 T1. 页面包含模式引导文案（直推 / 轮询 / WMS_WECHAT_HELPER_POLL）。
 T2. auto_send 关闭时风险提示存在但默认隐藏；开启时不带 display:none。
-T3. 无 pending 记录时不显示消化引导；有 pending 时显示引导文案。
-T4. pending 存在且助手在线但未开轮询时，提示"不会被自动消费"。
+T3. 无 queued_v2 时不显示领取引导；有 queued_v2 时显示引导文案。
+T4. queued_v2 存在且助手在线但未开轮询时，提示"不会被自动消费"。
+T5. 历史 pending 显示待人工核对，保持原状态且不引导自动重发。
 """
 from __future__ import annotations
 
@@ -123,20 +124,20 @@ class TestSharePageGuidance:
         with app_module.app.app_context():
             _setup_db()
         html = _render(_client(), monkeypatch)
-        assert "图片已生成但尚未进入微信" not in html
+        assert '条「待助手领取」' not in html
 
         with app_module.app.app_context():
             db.session.add(WechatShareLog(
                 module_key="in_order",
                 order_id=0,
-                status="pending",
+                status="queued_v2",
                 message="助手未配置，图片已生成待发送",
                 share_date=dt.date.today(),
                 created_at=dt.datetime.now(),
             ))
             db.session.commit()
         html = _render(_client(), monkeypatch)
-        assert "图片已生成但尚未进入微信" in html
+        assert '条「待助手领取」：图片已生成，使用新版助手领取' in html
         assert "重发" in html
 
     def test_t4_pending_with_online_no_poll_helper(self, monkeypatch):
@@ -149,7 +150,7 @@ class TestSharePageGuidance:
             db.session.add(WechatShareLog(
                 module_key="in_order",
                 order_id=0,
-                status="pending",
+                status="queued_v2",
                 message="待发送",
                 share_date=dt.date.today(),
                 created_at=dt.datetime.now(),
@@ -162,3 +163,19 @@ class TestSharePageGuidance:
         offline = dict(_FAKE_HEALTH_ONLINE_NO_POLL, online=False, message="助手不可用")
         html = _render(_client(), monkeypatch, health=offline)
         assert "请先启动本机微信发送助手" in html
+
+    def test_legacy_pending_requires_manual_check_and_never_looks_ready(self, monkeypatch):
+        """旧 pending 不属于可自动领取队列，必须保留人工核对提示。"""
+        from app import WechatShareLog
+        import datetime as dt
+
+        with app_module.app.app_context():
+            _setup_db()
+            db.session.add(WechatShareLog(module_key='in_order', order_id=0,
+                status='pending', message='历史待核对', share_date=dt.date.today()))
+            db.session.commit()
+        html = _render(_client(), monkeypatch)
+        assert '1 条历史待人工核对，系统不会自动重发' in html
+        assert '条「待助手领取」' not in html
+        with app_module.app.app_context():
+            assert WechatShareLog.query.one().status == 'pending'

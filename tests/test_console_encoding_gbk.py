@@ -35,8 +35,18 @@ def test_fetch_lint_survives_console_encoding(encoding):
 
 
 @pytest.mark.parametrize('encoding', ['gbk', 'utf-8'])
-def test_rule_lint_staged_survives_console_encoding(encoding):
-    result = _run(['scripts/lint_wms_rules.py', '--staged'], encoding)
+def test_rule_lint_staged_survives_console_encoding(encoding, tmp_path):
+    # The CI source image deliberately has no checkout metadata. Use our own
+    # empty index instead of relying on (or inspecting) the developer's index.
+    template = tmp_path / 'empty-template'
+    template.mkdir()
+    git_env = {key: value for key, value in os.environ.items()
+               if not key.upper().startswith('GIT_')}
+    git_env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=str(tmp_path / 'gitconfig'))
+    subprocess.run(['git', 'init', '--template', str(template), str(tmp_path / 'repository')],
+                   env=git_env, check=True, capture_output=True, timeout=30)
+    result = _run(['scripts/lint_wms_rules.py', '--staged', '--repo-root',
+                   str(tmp_path / 'repository')], encoding)
     combined = (result.stdout or '') + (result.stderr or '')
     assert 'UnicodeEncodeError' not in combined
     assert 'Traceback' not in combined

@@ -240,10 +240,10 @@ def _match_material_by_description(description, query):
     # 退化为中文外观描述匹配：物料名/规格作为外观描述的子串即命中。
     # 中文描述通常是一整段（如"红色塑料外壳继电器"），而物料名是其中的短片段（"继电器"），
     # 故用反向子串匹配（description LIKE '%'||name||'%'）。
-    from sqlalchemy import func, literal
+    from sqlalchemy import and_, literal
     return query.filter(db.or_(
-        literal(description).like(func.concat('%', Material.name, '%')),
-        literal(description).like(func.concat('%', Material.spec, '%')),
+        and_(Material.name != '', literal(description).like('%' + Material.name + '%')),
+        and_(Material.spec != '', literal(description).like('%' + Material.spec + '%')),
     )).limit(5).all()
 
 

@@ -29,6 +29,17 @@ class AIIdempotencyService:
         return jsonify({'status': 'error', 'msg': message}), status_code
 
     def replay(self, record):
+        # Authentication/role decorators run before this service, but the
+        # original handler's global and tool checks are bypassed on replay.
+        # Recheck recorded capabilities without executing tools or altering
+        # the saved response/run/audit records.
+        from app import AIToolCall, _ai_capability_allowed, _ai_global_enabled
+        if not _ai_global_enabled():
+            return self.error('AI 功能已关闭，无法读取该历史结果', 403)
+        if record.ai_run_id:
+            calls = AIToolCall.query.filter_by(ai_run_id=record.ai_run_id, permission_allowed=True).all()
+            if any(not _ai_capability_allowed(call.tool_name, audit=False) for call in calls):
+                return self.error('当前 AI 权限已变化，无法读取该历史结果，请先核对权限', 403)
         return Response(
             record.response_body or '',
             status=record.response_status or 200,

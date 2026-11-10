@@ -19,7 +19,7 @@ RUN mkdir -p /work /run/wms-proof /opt/wms/output /opt/wms/app/instance \
     /opt/wms/app/logs /opt/wms/app/backups /opt/wms/app/static/uploads
 ENV DATABASE_URL=sqlite:///:memory: WMS_DATABASE_URI=sqlite:///:memory: FLASK_ENV=testing \
     WMS_TEST_RUNTIME_PROOF=/run/wms-proof/proof.json WMS_SKIP_AUTO_UPDATE=1 \
-    WMS_SKIP_STARTUP_BACKUP=1 WMS_SKIP_STARTUP_DB_UPGRADE=1 WMS_EXTERNAL_OPERATIONS_PAUSED=1 \
+    WMS_SKIP_STARTUP_BACKUP=1 WMS_SKIP_STARTUP_DB_UPGRADE=1 WMS_EXTERNAL_OPERATIONS_PAUSED=0 \
     WMS_LOCAL_PRINT_AGENT=0 AUTO_BACKUP_ENABLED=false WMS_ALLOW_INSECURE_COOKIE=1 \
     SECRET_KEY=synthetic-ci-only-secret WECHAT_HELPER_TOKEN=synthetic-ci-only-token \
     WMS_BOOTSTRAP_PASSWORD=admin PYTHONDONTWRITEBYTECODE=1 PYTHONNOUSERSITE=1 \

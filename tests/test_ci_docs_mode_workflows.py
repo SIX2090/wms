@@ -166,6 +166,17 @@ def test_original_full_validation_payloads_are_preserved(name):
         job = copy.deepcopy(jobs[key])
         job.pop('needs', None)
         job.pop('if', None)
+        if name == 'ci' and key.startswith('unit-tests-shard-'):
+            shard = key.rsplit('-', 1)[1]
+            # The sole added step publishes diagnostics; compare it exactly,
+            # then keep the original execution payload's hash unchanged.
+            assert job['steps'].pop() == {
+                'name': 'Upload unit failure details', 'if': 'always()',
+                'uses': 'actions/upload-artifact@v7',
+                'with': {'name': f'unit-shard-{shard}-results',
+                         'path': f'output/unit-shard-{shard}.*',
+                         'if-no-files-found': 'warn'},
+            }
         # The original payload still runs verbatim inside the new boundary.
         # Normalize only this exact launcher; do not replace/update old hashes.
         for step in job['steps']:

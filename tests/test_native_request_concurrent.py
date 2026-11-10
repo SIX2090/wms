@@ -1,37 +1,60 @@
 """B2 real connections, native HTTP races, and no writer lock during model wait."""
+from contextlib import closing
 from pathlib import Path
 import sqlite3
+import tempfile
 import threading
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
+from sqlalchemy.pool import NullPool
+
+from scripts.verify_db_guard import require_isolated_test_runtime, validate_owned_test_file
 
 import app as w
 
 
 @pytest.fixture()
 def file_case(monkeypatch, request):
+    profile = require_isolated_test_runtime()
     monkeypatch.setitem(w.app.config, 'TESTING', True)
     monkeypatch.setitem(w.app.config, 'WTF_CSRF_ENABLED', False)
-    with w.app.app_context():
-        database = w.db.engine.url.database
-        if database == ':memory:':
-            pytest.skip('Requires a dedicated fresh, explicitly allowlisted synthetic SQLite file')
-        lab = Path(r'C:\Users\Administrator\Documents\Codex\2026-11-07\wms-improvement-90\lab')
-        assert Path(database).resolve().is_relative_to(lab.resolve())
-        assert Path(database).name == 'synthetic.sqlite'
-        w.db.create_all()
-        suffix = request.node.name.replace('[', '-').replace(']', '')
-        user = w.User(username=suffix, role='admin', password_hash='unused', must_change_password=False)
-        warehouse = w.Warehouse(code=suffix, name='合成仓-'+suffix, status='active')
-        material = w.Material(code=suffix, name='合成物料-'+suffix, stock=0, price=0)
-        w.db.session.add_all([user, warehouse, material])
-        w.db.session.commit()
-        uid, mid, warehouse_code, material_code = user.id, material.id, warehouse.code, material.code
-        engine = w.db.engine
-        w.db.session.remove()
-    monkeypatch.setattr(w, 'get_bearer_user', lambda: w.db.session.get(w.User, uid))
-    monkeypatch.setattr('routes.print_queue.enqueue_auto_print_job', lambda *a, **k: None)
-    return engine, database, uid, mid, warehouse_code, material_code
+    # Keep app import on the proved memory target. Only this fixture creates a
+    # fresh file inside the OS-owned profile, then binds its own engine. No
+    # inherited file URI, historical lab directory or skipped concurrency test.
+    with tempfile.TemporaryDirectory(prefix='native-concurrency-', dir=profile) as directory:
+        database = Path(directory) / 'synthetic.sqlite'
+        with database.open('xb'):
+            pass
+        assert validate_owned_test_file(database) == database
+        engine = create_engine(URL.create('sqlite', database=str(database)), poolclass=NullPool,
+                               connect_args={'timeout': 20, 'check_same_thread': False})
+        with w.app.app_context():
+            w.db.session.remove()
+            engines = w.db.engines
+            previous = engines[None]
+            assert previous.url.database == ':memory:'
+            engines[None] = engine
+        try:
+            with w.app.app_context():
+                w.db.create_all()
+                suffix = request.node.name.replace('[', '-').replace(']', '')
+                user = w.User(username=suffix, role='admin', password_hash='unused', must_change_password=False)
+                warehouse = w.Warehouse(code=suffix, name='合成仓-'+suffix, status='active')
+                material = w.Material(code=suffix, name='合成物料-'+suffix, stock=0, price=0)
+                w.db.session.add_all([user, warehouse, material])
+                w.db.session.commit()
+                uid, mid, warehouse_code, material_code = user.id, material.id, warehouse.code, material.code
+                w.db.session.remove()
+            monkeypatch.setattr(w, 'get_bearer_user', lambda: w.db.session.get(w.User, uid))
+            monkeypatch.setattr('routes.print_queue.enqueue_auto_print_job', lambda *a, **k: None)
+            yield engine, str(database), uid, mid, warehouse_code, material_code
+        finally:
+            with w.app.app_context():
+                w.db.session.remove()
+                engines[None] = previous
+            engine.dispose()
 
 
 @pytest.mark.parametrize('mode', ('same', 'changed', 'different_keys', 'user_isolation'))
@@ -178,7 +201,7 @@ def test_model_wait_does_not_hold_sqlite_writer(file_case, monkeypatch):
     thread.start()
     try:
         assert entered.wait(timeout=10)
-        with sqlite3.connect(database, timeout=0.2) as second:
+        with closing(sqlite3.connect(database, timeout=0.2)) as second:
             second.execute('UPDATE material SET price=? WHERE id=?', (1, mid))
             second.commit()
     finally:
@@ -228,7 +251,7 @@ def test_expired_http_owner_cannot_create_a_second_draft(file_case, monkeypatch)
     thread.start()
     try:
         assert entered.wait(timeout=10)
-        with sqlite3.connect(database, timeout=0.2) as second:
+        with closing(sqlite3.connect(database, timeout=0.2)) as second:
             changed = second.execute(
                 'UPDATE mobile_api_request SET created_at=? WHERE user_id=? AND endpoint=? AND request_key=?',
                 ('2000-01-01 00:00:00', uid, 'voice_out_draft', 'lease-http'))

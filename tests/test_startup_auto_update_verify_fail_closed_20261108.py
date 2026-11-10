@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import unittest
 import sys
+import runpy
 from unittest import mock
 from contextlib import redirect_stdout
 from io import StringIO
@@ -15,6 +16,19 @@ MESSAGE = '应用和子进程隔离尚未证明'
 
 
 class StartupVerifySafety(unittest.TestCase):
+    def test_check_dirty_worktree_behavior(self):
+        verify = runpy.run_path(str(TARGET))['check_dirty_worktree_behavior']
+        source = (ROOT / 'app/auto_update.py').read_text(encoding='utf-8')
+        cases = [('current', source, False),
+                 ('lost_dirty_guard', source.replace('if status.strip():', 'if False:', 1), True),
+                 ('ignored_backup_failure', source.replace('if not backup_database():', 'if False:', 1), True),
+                 ('lost_second_guard', source.replace('if code != 0 or status.strip():', 'if False:', 1), True)]
+        for name, candidate, must_fail in cases:
+            with self.subTest(name=name), redirect_stdout(StringIO()):
+                failures = []
+                verify(candidate, failures)
+                self.assertEqual(bool(failures), must_fail)
+
     def test_static_checks_run_but_dynamic_import_is_blocked(self):
         tree = ast.parse(TARGET.read_text(encoding='utf-8-sig'))
         node = next(item for item in tree.body if isinstance(item, ast.FunctionDef)

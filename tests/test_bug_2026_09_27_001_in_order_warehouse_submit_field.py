@@ -49,6 +49,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -77,15 +78,13 @@ def _run_js(harness_body: str) -> dict:
     if not node:
         pytest.skip("node 不可用")
 
-    harness = ROOT / ".t_bug_2026_09_27_001_harness.js"
     # 逐行列表拼装，不用三引号字面量（踩坑：三引号里的 \n 会被 Python 解析成真实换行）
     lines = harness_body.split("\n")
-    harness.write_text("\n".join(lines), encoding="utf-8")
-    try:
+    with tempfile.TemporaryDirectory(prefix="wms-in-order-warehouse-") as directory:
+        harness = Path(directory) / "harness.js"
+        harness.write_text("\n".join(lines), encoding="utf-8")
         result = subprocess.run([node, str(harness)],
                                 capture_output=True, text=True, timeout=60)
-    finally:
-        harness.unlink(missing_ok=True)
 
     assert result.returncode == 0, f"harness 执行失败:\n{result.stderr[:1500]}"
     return json.loads(result.stdout.strip().splitlines()[-1])

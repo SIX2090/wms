@@ -27,7 +27,13 @@ import datetime as dt
 import os
 import sys
 import time
+import sqlite3
+import uuid
 from pathlib import Path
+
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool, StaticPool
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -43,6 +49,32 @@ import app as app_module  # noqa: E402
 from app import WechatShareLog, db  # noqa: E402
 
 app_module.app.config["TESTING"] = True
+
+
+@pytest.fixture(autouse=True)
+def independent_memory_connections():
+    """Cleanup needs independent transactions; every connection remains memory-only."""
+    from scripts.verify_db_guard import require_isolated_test_runtime
+    require_isolated_test_runtime()
+    uri = 'file:wms-image-retention-' + uuid.uuid4().hex + '?mode=memory&cache=shared'
+    def connect():
+        connection = sqlite3.connect(uri, uri=True, check_same_thread=False)
+        assert all(not row[2] for row in connection.execute('PRAGMA database_list'))
+        return connection
+    anchor = connect()
+    engine = create_engine('sqlite:///:memory:', creator=connect, poolclass=NullPool)
+    with app_module.app.app_context():
+        db.session.remove()
+        original = db.engines[None]
+        db.engines[None] = engine
+    try:
+        yield
+    finally:
+        with app_module.app.app_context():
+            db.session.remove()
+            db.engines[None] = original
+        engine.dispose()
+        anchor.close()
 
 
 def _setup_db():
@@ -77,6 +109,19 @@ def _make_log(image_path):
 
 
 class TestImageRetentionCleanup:
+    def test_shared_connection_pool_is_refused_without_deleting(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(app_module, '_wechat_share_output_dir', lambda: str(tmp_path))
+        path = _make_file(tmp_path, '20260701_120000_RK20260701-0001.png', age_days=31)
+        engine = create_engine('sqlite:///:memory:', poolclass=StaticPool)
+        try:
+            with app_module.app.app_context():
+                monkeypatch.setitem(db.engines, None, engine)
+                with pytest.raises(ValueError, match='不能证明独立连接'):
+                    app_module._wechat_share_cleanup_old_images()
+            assert os.path.exists(path)
+        finally:
+            engine.dispose()
+
     def test_t1_expired_image_deleted_and_log_detached(self, tmp_path, monkeypatch):
         """T1：超期图片删除 + 日志 image_path/image_size 清空。"""
         monkeypatch.setattr(app_module, "_wechat_share_output_dir", lambda: str(tmp_path))

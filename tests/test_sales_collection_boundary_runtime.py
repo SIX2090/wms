@@ -84,7 +84,7 @@ const ctx={Headers,FormData,body,defaultTaxRate:0.13,activeDropdown:null,salesSa
         return new Promise(resolve=>pending.push(failure=>resolve({ok:!failure,status:failure?500:200,
             json:()=>Promise.resolve(failure?{status:'error',msg:'fixture server failure'}:{status:'success',id:1})})));
     }};
-ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.script,ctx);
+ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.money,ctx);vm.runInContext(p.script,ctx);
 const flush=()=>new Promise(r=>setImmediate(r));
 function populate(row) {
     row.querySelector('.material-code').value='FREE';row.querySelector('.qty').value='2';
@@ -149,6 +149,7 @@ function populate(row) {
 '''
     completed = subprocess.run([node, '-e', program], input=json.dumps({
         'script': script, 'api': (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
+        'money': (ROOT / 'app/static/js/money.js').read_text(encoding='utf-8'),
         'fields': json.loads(re.search(r'var formFields = (\[[^;]+\]);', source)[1].replace("'", '"')),
         'page': page, 'scenario': scenario, 'field': field, 'value': value,
     }), encoding='utf-8', capture_output=True, timeout=15)

@@ -26,8 +26,9 @@
 
 ## 与 CI 原逻辑的等价性（逐项对齐，不得删减）
 
-1. **分流规则同原 ci.yml**：`grep -q "def test_"` → pytest 式文件用
-   `pytest <file> -q`；否则（脚本式、顶层断言）直接 `python <file>`。
+1. **按实际收集层级分流**：模块级测试函数/测试类用 `pytest <file> -q`；
+   否则（main 内构造套件、脚本式、顶层断言）直接 `python <file>`。
+   注释、字符串和函数内部的测试不能被 pytest 收集，不能仅搜索 `def test_`。
    两种形态的信号语义都要保住：pytest 式收集 0 用例会 exit 5，
    脚本式顶层断言失败会 exit 1 —— 都算失败。
 2. **known_failures 机制保留**：清单内文件打印 SKIP 后跳过，不参与失败计数。
@@ -52,6 +53,7 @@
 """
 from __future__ import annotations
 
+import ast
 import glob
 import os
 import subprocess
@@ -70,13 +72,18 @@ KNOWN_FAILURES: list[str] = []
 
 
 def _is_pytest_style(path: str) -> bool:
-    """pytest 式（含 def test_）用 pytest 跑；脚本式用 python 直接执行。
-
-    与 CI 原 grep 判据保持一致：脚本式文件用 pytest 跑会 "no tests ran" exit 5
-    被误判失败，必须分流。
-    """
-    with open(path, encoding='utf-8', errors='replace') as fh:
-        return 'def test_' in fh.read()
+    """Only module-level tests/classes are discoverable without executing main."""
+    with open(path, encoding='utf-8-sig') as fh:
+        tree = ast.parse(fh.read(), filename=path)
+    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
+    for node in tree.body:
+        if isinstance(node, functions) and node.name.startswith('test_'):
+            return True
+        if isinstance(node, ast.ClassDef) and any(
+                isinstance(method, functions) and method.name.startswith('test_')
+                for method in node.body):
+            return True
+    return False
 
 
 def _run_one(path: str) -> tuple[str, int, float, str]:

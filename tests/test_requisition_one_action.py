@@ -134,7 +134,7 @@ main().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 def test_work_order_blocks_duplicate_save_until_navigation():
     source=(ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     submit='function submitForm(completeAfterSave) {'+source.split('function submitForm(completeAfterSave) {',1)[1].split('\nfunction escapeHtmlText',1)[0]
-    run='function runComplete(actionUrl, force, orderId) {'+source.split('function runComplete(actionUrl, force, orderId) {',1)[1].split('\nfunction showCompleteConfirm',1)[0]
+    run=source[source.index('function runComplete('):source.index('\nfunction showCompleteConfirm')]
     helpers=source[source.index('function beginDocumentAction()'):source.index('function submitForm(')]
     api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')
     script=r"""

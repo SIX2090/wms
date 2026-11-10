@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -51,6 +52,33 @@ def app_function_body(name: str) -> str:
         if body:
             return body
     return ""
+
+
+def check_numbering_complete_suffix(source: str) -> bool:
+    """Verify the real suffix reader without importing WMS or using a database."""
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    try:
+        tree = ast.parse(source)
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                    and n.name == '_numbering_existing_max')
+        scope = {'re': re}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), '<numbering-gate>', 'exec'), scope)
+        for base in ('IN2611', 'BOM2611'):
+            query = MagicMock()
+            column = MagicMock()
+            query.with_entities.return_value.filter.return_value.all.return_value = [
+                (base + suffix,) for suffix in ('9999', '10000', '0004', 'bad', '')]
+            query.filter.return_value.with_for_update.return_value.first.return_value = object()
+            model = SimpleNamespace(query=query, order_no=column)
+            if scope['_numbering_existing_max'](model, 'order_no', base) != 10000:
+                return False
+        # The checked reader must still be used by the actual allocator.
+        allocator = function_body(source, '_generate_order_no_locked')
+        return '_numbering_existing_max(' in allocator and 'last_no[-4:]' not in source
+    except (StopIteration, SyntaxError, NameError, TypeError, ValueError):
+        return False
 
 
 def check_post_forms_have_csrf() -> tuple[bool, str]:
@@ -468,7 +496,7 @@ def main() -> int:
 
     checks.append((
         "BUG-NEW-015",
-        "last_no[-4:]" not in app_py and "suffix = last_no[len(base):]" in app_py,
+        check_numbering_complete_suffix(app_py),
         "单号生成不能固定截取末尾 4 位序列",
     ))
 

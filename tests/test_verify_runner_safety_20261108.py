@@ -9,6 +9,7 @@ import runpy
 import socket
 import sqlite3
 import sys
+import tempfile
 from contextlib import redirect_stdout
 from io import StringIO
 from types import SimpleNamespace
@@ -28,13 +29,33 @@ SHARDED_MAIN = runpy.run_path(str(ROOT / 'scripts' / 'run_tests_sharded.py'))['m
 
 class VerifyRunnerSafety(unittest.TestCase):
     def setUp(self):
+        # This suite tests environment construction after the kernel check.
+        # Its children/network/DB are mocks; real capability refusal is covered
+        # by test_verification_dispatch_fail_closed_20261108 and the CI probe.
+        original_path = list(sys.path)
+        sys.path.insert(0, str(ROOT))
+        self.addCleanup(setattr, sys, 'path', original_path)
+        boundary = patch('scripts.linux_test_runtime.require_subprocess_boundary')
+        boundary.start()
+        self.addCleanup(boundary.stop)
+        directory = tempfile.TemporaryDirectory(prefix='wms-runner-report-')
+        self.addCleanup(directory.cleanup)
+        root = patch.dict(SHARDED_MAIN.__globals__, {'REPO_ROOT': Path(directory.name)})
+        root.start()
+        self.addCleanup(root.stop)
         for target in (patch.object(socket.socket, 'connect', forbidden),
                        patch.object(socket.socket, 'connect_ex', forbidden),
                        patch.object(socket, 'create_connection', forbidden),
                        patch.object(socket, 'getaddrinfo', forbidden),
-                       patch.object(sqlite3, 'connect', forbidden)):
+                       patch.object(sqlite3, 'connect', forbidden),
+                       patch('subprocess.Popen', forbidden)):
             target.start()
             self.addCleanup(target.stop)
+
+    def child_pass(self, command, **_kwargs):
+        report = Path(command[command.index('--junitxml') + 1])
+        report.write_text('<testsuite><testcase name="synthetic"/></testsuite>', encoding='utf-8')
+        return 0
 
     def invoke(self, environment):
         child = SimpleNamespace(returncode=0, stdout='verified', stderr='')
@@ -100,7 +121,7 @@ class VerifyRunnerSafety(unittest.TestCase):
                                      'PYTHONNOUSERSITE': '0'}, clear=True), \
              patch.object(sys, 'argv', ['run_tests_sharded.py']), \
              patch.dict(SHARDED_MAIN.__globals__, {'collect': lambda *_: ['tests/test_fake.py']}), \
-             patch('subprocess.call', return_value=0) as sharded, redirect_stdout(StringIO()):
+             patch('subprocess.call', side_effect=self.child_pass) as sharded, redirect_stdout(StringIO()):
             self.assertEqual(SHARDED_MAIN(), 0)
             self.assertEqual(sharded.call_args.kwargs['env']['PYTEST_DISABLE_PLUGIN_AUTOLOAD'], '1')
             self.assertEqual(sharded.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
@@ -148,7 +169,7 @@ class VerifyRunnerSafety(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=True), \
              patch.object(sys, 'argv', ['run_tests_sharded.py']), \
              patch.dict(SHARDED_MAIN.__globals__, {'collect': lambda *_: files}), \
-             patch('subprocess.call', return_value=0) as child, redirect_stdout(StringIO()):
+             patch('subprocess.call', side_effect=self.child_pass) as child, redirect_stdout(StringIO()):
             self.assertEqual(SHARDED_MAIN(), 0)
             env = child.call_args.kwargs['env']
             self.assertEqual(env['DATABASE_URL'], 'sqlite:///:memory:')

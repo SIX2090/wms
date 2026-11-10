@@ -14,6 +14,8 @@ def main():
     import datetime
     import hashlib
     import json
+    import math
+    from decimal import Decimal, ROUND_HALF_UP, localcontext
     from functools import wraps
     from pathlib import Path
     import platform
@@ -91,6 +93,23 @@ def main():
     Base.metadata.create_all(engine)
     session.execute(text('CREATE TABLE synthetic_counter (prefix TEXT PRIMARY KEY, value INTEGER NOT NULL)'))
     session.execute(text('CREATE TABLE synthetic_subcontract_receive (receive_no TEXT NOT NULL)'))
+    # This memory-only candidate must observe legacy writes when they happen:
+    # scanning live documents at the next allocation loses an inserted/deleted
+    # number. Track both shared SR sources in the same writer transaction.
+    for table, column in (('synthetic_order', 'order_no'),
+                          ('synthetic_subcontract_receive', 'receive_no')):
+        for action in ('INSERT', 'UPDATE'):
+            session.execute(text(f'''
+                CREATE TRIGGER {table}_{action.lower()}_number AFTER {action} ON {table}
+                WHEN substr(NEW.{column}, 1, 2) IN ('IN', 'PI', 'OI', 'SR')
+                  AND length(NEW.{column}) > 6
+                  AND substr(NEW.{column}, 3) NOT GLOB '*[^0-9]*'
+                BEGIN
+                  INSERT INTO synthetic_counter(prefix, value)
+                  VALUES (substr(NEW.{column}, 1, 6), CAST(substr(NEW.{column}, 7) AS INTEGER))
+                  ON CONFLICT(prefix) DO UPDATE SET value=max(value, excluded.value);
+                END
+            '''))
     session.add(Material(code='M1'))
     session.commit()
     assert all(not row[2] for row in session.execute(text('PRAGMA database_list')))
@@ -98,6 +117,7 @@ def main():
     root = Path(__file__).resolve().parents[1]
     route_tree = ast.parse((root / 'app/routes/in_order.py').read_text(encoding='utf-8-sig'))
     service_tree = ast.parse((root / 'app/services/web_document_idempotency.py').read_text(encoding='utf-8-sig'))
+    utils_tree = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
     def find(tree, name):
         matches = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == name]
         if len(matches) != 1:
@@ -147,6 +167,7 @@ db.session.flush()
     user = types.SimpleNamespace(id=1, is_authenticated=True)
     warehouse = types.SimpleNamespace(name='合成仓')
     env = {'request': request, 'g': g, 'jsonify': jsonify, 'json': json, 'hashlib': hashlib,
+           'math': math, 'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'localcontext': localcontext,
            'wraps': wraps, 'IntegrityError': IntegrityError, 'OperationalError': OperationalError,
            'db': types.SimpleNamespace(session=session), 'MobileApiRequest': Receipt, 'current_user': user,
            'app': synthetic_app, 'InOrder': Order, 'InOrderItem': Item, 'Material': Material,
@@ -157,13 +178,14 @@ db.session.flush()
            'get_default_warehouse': lambda: warehouse, 'validate_inventory_warehouse': lambda *_: (warehouse, ''),
            'location_management_enabled': lambda: False, 'is_future_date': lambda value: value > datetime.date.today(),
            'log_operation': lambda *_args: None, 'purchase_in_order_requires_order': lambda: False,
-           'recalculate_order_total': lambda _order: None, 'round_to_2_decimals': lambda value: round(float(value), 2),
+           'recalculate_order_total': lambda _order: None,
            'update_purchase_order_status': lambda *_: None, 'validate_purchase_receive_quantity': lambda *_: (True, ''),
            'validate_sales_return_quantity': lambda *_: (True, ''), 'sales_return_remaining_check': lambda *_: (True, ''),
            '_product_header_project': lambda _business, _contract, project: project,
            '_parse_item_batch_no': lambda value: (value, ''), '_parse_item_expiry_date': lambda _value: (None, ''),
            'resolve_product_receipt_materials': lambda items: items}
-    code = ast.fix_missing_locations(ast.Module(body=[find(service_tree, '_document_idempotent'),
+    code = ast.fix_missing_locations(ast.Module(body=[find(utils_tree, 'round_to_2_decimals'),
+                                find(utils_tree, 'round_money_product'), find(service_tree, '_document_idempotent'),
                                 find(service_tree, 'stage_document_response'), route], type_ignores=[]))
     exec(compile(code, '<copied-wms-route>', 'exec'), env)
     synthetic_app.add_url_rule('/in_order/add', view_func=env['_document_idempotent'](env['add_in_order'], mobile=False),
@@ -210,6 +232,22 @@ db.session.flush()
             second = self.post('b')
             self.assertEqual(second.status_code, 200)
             self.assertNotEqual(first.json['order_no'], second.json['order_no'])
+
+        def test_shared_legacy_source_delete_preserves_high_water(self):
+            base = 'SR' + datetime.datetime.now().strftime('%y%m')
+            session.execute(text('INSERT INTO synthetic_subcontract_receive VALUES (:number)'),
+                            {'number': base + '10000'})
+            session.commit()
+            session.execute(text('DELETE FROM synthetic_subcontract_receive'))
+            session.commit()
+            self.assertEqual(allocate('SR'), base + '10001')
+
+        def test_legacy_counter_change_rolls_back_with_writer(self):
+            base = 'SR' + datetime.datetime.now().strftime('%y%m')
+            session.execute(text('INSERT INTO synthetic_subcontract_receive VALUES (:number)'),
+                            {'number': base + '10000'})
+            session.rollback()
+            self.assertEqual(allocate('SR'), base + '0001')
         def test_post_allocation_validation_error_rolls_back(self):
             invalid = self.post('failure', dict(self.body, date='bad-date'))
             self.assertEqual(invalid.status_code, 400)
@@ -291,7 +329,7 @@ db.session.flush()
                                 '旧入口写入并删除的编号仍不能被复用')
 
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(FullRoute)
-    if suite.countTestCases() != 11:
+    if suite.countTestCases() != 13:
         raise RuntimeError('full route synthetic cases missing')
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     session.remove()

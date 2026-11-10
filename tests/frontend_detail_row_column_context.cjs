@@ -1,7 +1,9 @@
 'use strict';
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
-const p = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+const fs = require('node:fs');
+const path = require('node:path');
+const p = JSON.parse(fs.readFileSync(0, 'utf8'));
 function attrs(text) {
     const result = {};
     for (const m of text.matchAll(/([\w-]+)(?:="([^"]*)")?/g)) result[m[1]] = m[2] === undefined ? '' : m[2];
@@ -79,7 +81,10 @@ const ctx = {FormData, document: {
 showToast: (m, t) => messages.push({m, t}), _showToast: (m, t) => messages.push({m, t}),
 WMS: {api: {postRaw: (url, data) => { sent.push({url, fields: data.fields}); return Promise.resolve({status: 'error', msg: 'fixture'}); }}},
 setTimeout() {}, location: {reload() { throw Error('no navigation'); }}};
-vm.createContext(ctx); vm.runInContext(p.scripts, ctx);
+ctx.window = ctx;
+vm.createContext(ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../app/static/js/money.js'), 'utf8'), ctx);
+vm.runInContext(p.scripts, ctx);
 const keys = () => header.children.map(c => c.dataset.columnKey);
 function aligned(row) {
     assert.equal(row.children.length, header.children.length, 'one cell per actual rendered header');

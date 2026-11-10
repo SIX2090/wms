@@ -145,6 +145,23 @@ def native_request_idempotent(endpoint):
                 current_app.logger.exception('Native request reservation failed before business execution')
                 return _error('请求暂未保存，请保留原请求编号重试')
             if state is None:
+                if (replay is not None and 200 <= replay.status_code < 300
+                        and endpoint in ('voice_out_draft', 'voice_intent', 'assistant_chat')):
+                    # The view's capability checks do not run on a receipt hit.
+                    # Reuse those current checks before disclosing saved AI
+                    # output; keep the original receipt intact for a later
+                    # authorized retry, without executing the model again.
+                    from routes.native_api import _mobile_capability_allowed
+                    capability = 'voice_out_draft' if endpoint == 'voice_out_draft' else 'knowledge_base'
+                    allowed = _mobile_capability_allowed(
+                        user, capability, drafts=endpoint == 'voice_out_draft')
+                    body = replay.get_json(silent=True) or {}
+                    data = body.get('data') if isinstance(body, dict) else None
+                    if (allowed and endpoint == 'voice_intent' and isinstance(data, dict)
+                            and data.get('action') == 'voice_out_draft'):
+                        allowed = _mobile_capability_allowed(user, 'voice_out_draft', drafts=True)
+                    if not allowed:
+                        return _error('当前 AI 权限或功能开关已变化，无法读取该历史结果，请先核对权限', 403)
                 return replay
             session = db.session()
             session.info['native_request'] = state
