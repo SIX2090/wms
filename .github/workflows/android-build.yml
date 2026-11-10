@@ -156,34 +156,41 @@ jobs:
             app/android-native-wms/app/build/outputs/apk/release/app-release.apk
             app/android-native-wms/app/build/outputs/mapping/release/mapping.txt
 
-      # BUG-2026-08-27-008 后续：APK 自动发布到固定 Release。
+      # BUG-2026-08-27-008 后续：APK 自动发布到 Release，提供免登录、永久有效的直链。
       # 背景：Actions artifact 必须登录 GitHub 才能下载，且 90 天过期、不落部署机，
-      # 用户点"下载扫码APP"无包可下。Release 资产免登录可下、永不过期、直链固定：
-      #   https://github.com/SIX2090/wms/releases/download/android-apk-latest/wms-mobile-scan.apk
-      # 管理员从此链接下载后放内网（仓库根 app-release.apk），或配置
-      # WMS_ANDROID_APK_URL 指向该直链（外网场景）。
+      # 用户点"下载扫码APP"无包可下。
       #
-      # BUG-2026-11-10-005（2026-11-10）：tag 由 android-apk 改为 android-apk-latest。
-      # 原 tag `android-apk` 所在的 release 被仓库开启的 Immutable releases 锁定
-      # （API 实测 immutable=true，资产 updated_at 冻结在 2026-11-08），
-      # 覆盖同名资产被 GitHub 拒绝（422 Cannot delete asset from an immutable release）。
-      # GitHub 规则：关闭不可变性不追溯已锁 release，且被锁 release 用过的 tag 名
-      # 永久不可复用（删 release 也救不回），故只能换新 tag；旧 release 原样保留，
-      # 避免旧直链 404。新 tag 在关闭不可变性后创建，保持可覆盖、直链永久固定。
+      # BUG-2026-11-10-005（2026-11-10）：改为「每次构建发新版本化 tag + latest 直链」。
+      # 起因：固定 tag `android-apk` 所在的 release 被仓库 Immutable releases 锁定
+      # （REST 实测 immutable=true，资产 updated_at 冻结在 2026-11-08 后再未更新），
+      # 覆盖同名资产被拒：422 Cannot delete asset from an immutable release。
+      # GitHub 规则：关闭不可变性不追溯已锁 release；被锁 release 用过的 tag 名
+      # 永久保留（删 release 也不可复用）。
+      #
+      # 现方案不依赖任何仓库设置、也不需要关闭不可变性：
+      # immutable 只禁止「修改已发布的 release」，不禁止「创建新 release」。
+      # 因此每次构建使用全新 tag（android-apk-<run_number>），发布全新 release，
+      # 天然不受锁定影响；下载入口改用 GitHub 的 latest 别名——
+      #   https://github.com/SIX2090/wms/releases/latest/download/wms-mobile-scan.apk
+      # 该地址由 GitHub 自动 302 到「最新一个正式 release」的同名资产，永久固定。
+      # 代价：release 列表会随构建次数累积（immutable 下旧 release 无法删除），
+      # 且必须 prerelease=false + make_latest=true，否则 /latest/ 不会指向本 release。
+      # 旧 release `android-apk` 原样保留，避免旧直链 404。
       - name: Rename APK for release
         run: cp app/android-native-wms/app/build/outputs/apk/release/app-release.apk wms-mobile-scan.apk
 
-      - name: Publish APK to fixed Release
+      - name: Publish APK to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-apk-latest
-          name: Android 扫码 APP（自动构建）
+          tag_name: "android-apk-${{ github.run_number }}"
+          name: "Android 扫码 APP（自动构建 #${{ github.run_number }}）"
           body: |
-            每次 main 推送后由 Android APK Build 工作流自动构建更新（release 包，R8 瘦身，语音识别走腾讯云）。
-            直链：https://github.com/SIX2090/wms/releases/download/android-apk-latest/wms-mobile-scan.apk
+            每次 main 推送后由 Android APK Build 工作流自动构建（release 包，R8 瘦身，语音识别走腾讯云）。
+            下载直链（始终指向最新构建）：
+            https://github.com/SIX2090/wms/releases/latest/download/wms-mobile-scan.apk
           files: wms-mobile-scan.apk
-          prerelease: true
-          make_latest: false
+          prerelease: false
+          make_latest: true
 
   # ==========================================================================
   # Job 2：静态检查（原串行链上的第二段，~85s，并行后不占关键路径）
