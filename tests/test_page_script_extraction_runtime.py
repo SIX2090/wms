@@ -19,12 +19,13 @@ def render_scripts(page, edit=False, location=False, value=ATTACK):
     source = (ROOT / 'app/templates' / (page + '.html')).read_text(encoding='utf-8')
     if page == 'opening_stock':
         source = source.split('{% block extra_js %}', 1)[1].split('{% endblock %}', 1)[0]
-    # saved_quantity/saved_price/saved_amount 是编辑态行快照，模板对它们直接 tojson；
-    # 缺字段会得到 Undefined（不可 JSON 序列化）。真实行对象总带这三列，替身需补齐。
+    # saved_quantity/saved_price/saved_amount 是编辑态行快照：数量/单价未改动时
+    # amountOf 直接采用快照值。真实行对象总带这三列，替身必须给一致的真实值，
+    # 置 None 会被当成「快照为 0」而算出 0 元。
     row = SimpleNamespace(line_id=11, material_id=7, warehouse_id=2, warehouse_name=value,
                           material_code='M001', material_name=value, spec='', unit='pc',
                           quantity=3, price=2, remark=value, location='A01',
-                          saved_quantity=None, saved_price=None, saved_amount=None)
+                          saved_quantity=3, saved_price=2, saved_amount=6)
     context = dict(config={'STATIC_VERSION': 'test-v1'}, csrf_token=lambda: 'token',
                    url_for=lambda _endpoint, filename: '/static/' + filename,
                    prefix=value if page == 'print_template_editor' else 'in_order', template_id=42,
