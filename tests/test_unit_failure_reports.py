@@ -28,6 +28,20 @@ def test_report_failures_preserves_case_and_assertion(tmp_path, capsys, runner):
     assert '1 / 2 cases' in summary and 'assert 2 == 1' in summary
 
 
+def test_first_annotation_lists_every_failure(tmp_path, capsys, runner):
+    """GitHub keeps 10 error annotations per step; the first one must carry all names."""
+    cases = ''.join(f'<testcase classname="tests.m{i}" name="test_{i}"><failure>boom {i}</failure></testcase>'
+                    for i in range(12))
+    report = tmp_path / 'unit.xml'
+    report.write_text(f'<testsuite>{cases}<testcase name="ok"/></testsuite>', encoding='utf-8')
+    assert not runner['report_failures'](report)
+    errors = [line for line in capsys.readouterr().out.splitlines() if line.startswith('::error')]
+    assert len(errors) == 13
+    assert errors[0].startswith('::error title=Unit failures 12/13::')
+    assert all(f'tests.m{i}::test_{i}' in errors[0] for i in range(12))
+    assert all(e.startswith('::error title=Unit test failure::') for e in errors[1:])
+
+
 @pytest.mark.parametrize('content', [None, '', '<invalid', '<testsuites/>'])
 def test_missing_malformed_or_empty_report_is_not_success(tmp_path, runner, content):
     report = tmp_path / 'unit.xml'

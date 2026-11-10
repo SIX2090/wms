@@ -60,12 +60,20 @@ def report_failures(report: Path) -> bool:
                 detail = (failure.text or failure.get('message', '')).strip()
                 failures.append((name, detail))
     lines = [f'# Unit test failures: {len(failures)} / {len(cases)} cases', '']
+
+    def annotate(title, text):
+        # Workflow commands must escape untrusted assertion output.
+        message = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+        print(f'::error title={title}::' + message, flush=True)
+
+    if failures:
+        # GitHub keeps only the first 10 error annotations per step, and job logs
+        # need admin rights; publish the complete failing-case list first.
+        listing = '\n'.join(name for name, _ in failures)
+        annotate(f'Unit failures {len(failures)}/{len(cases)}', listing[:60000])
     for name, detail in failures:
         lines.extend([name, '', '```text', detail, '```', ''])
-        # Workflow commands must escape untrusted assertion output. The XML
-        # artifact retains complete details even when annotations are truncated.
-        message = (name + '\n' + detail[:2500]).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
-        print('::error title=Unit test failure::' + message, flush=True)
+        annotate('Unit test failure', name + '\n' + detail[:2500])
     report.with_suffix('.md').write_text('\n'.join(lines), encoding='utf-8')
     return not failures
 

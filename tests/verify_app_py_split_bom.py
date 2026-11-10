@@ -13,6 +13,7 @@ B4. save_bom_table 保存 BOM 明细成功（需物料/单位）。
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -152,7 +153,9 @@ class TestBomRegister:
         with app_module.app.app_context():
             bom = db.session.get(BOM, data["id"])
             assert bom is not None
-            assert bom.bom_no == "BOM-TEST-001"
+            # BUG-2026-11-10-004：新建首次保存由服务端分配正式号，不沿用客户端预览号。
+            assert bom.bom_no != "BOM-TEST-001"
+            assert re.fullmatch(r"BOM\d{4}\d{4,}", bom.bom_no), bom.bom_no
             assert len(bom.items) == 1
             assert bom.items[0].quantity == 2
             assert bom.total_cost == 10

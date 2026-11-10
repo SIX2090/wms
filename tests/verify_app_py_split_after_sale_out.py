@@ -25,6 +25,7 @@ S7. 复制售后出库单生成新草稿。
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -171,9 +172,12 @@ class TestAfterSaleOutRegister:
         resp = _add_after_sale_out(client, order_no="ASO-TEST-001")
         data = resp.get_json()
         assert data["status"] == "success", data
-        assert data["order_no"] == "ASO-TEST-001"
+        # BUG-2026-11-10-004：新建首次保存由服务端分配正式号，不沿用客户端预览号。
+        assert data["order_no"] != "ASO-TEST-001"
+        assert re.fullmatch(r"ASO\d{4}\d{4,}", data["order_no"]), data["order_no"]
         with app_module.app.app_context():
-            order = AfterSaleOutOrder.query.filter_by(order_no="ASO-TEST-001").first()
+            assert AfterSaleOutOrder.query.filter_by(order_no="ASO-TEST-001").first() is None
+            order = AfterSaleOutOrder.query.filter_by(order_no=data["order_no"]).first()
             assert order is not None
             assert order.customer == "测试客户"
             assert order.warehouse == "材料仓"

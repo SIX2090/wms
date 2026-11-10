@@ -13,6 +13,7 @@ P4. 新增采购订单成功（需供应商/物料/仓库）。
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -144,7 +145,9 @@ class TestPurchaseOrderRegister:
         with app_module.app.app_context():
             order = db.session.get(PurchaseOrder, data["id"])
             assert order is not None
-            assert order.order_no == "PO-TEST-001"
+            # BUG-2026-11-10-004：新建首次保存由服务端分配正式号，不沿用客户端预览号。
+            assert order.order_no != "PO-TEST-001"
+            assert re.fullmatch(r"PO\d{4}\d{4,}", order.order_no), order.order_no
             assert order.status == "pending"
             assert len(order.items) == 1
             assert order.items[0].quantity == 5

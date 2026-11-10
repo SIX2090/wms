@@ -559,6 +559,10 @@ def main():
     except DriftAllowlistError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         return 2
+    except OSError as exc:
+        # 隔离守卫会先 lstat 豁免文件路径；文件缺失/不可读同属加载失败，不能当作通过。
+        print(f"✗ 豁免文件无法读取：{exc}", file=sys.stderr)
+        return 2
 
     uri = args.db
     try:

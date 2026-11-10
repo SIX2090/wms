@@ -15,6 +15,7 @@ S3. 新增委外单成功（POST /subcontract/add），且数据库可查到。
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -143,8 +144,10 @@ class TestSubcontractRegister:
         data = resp.get_json()
         assert data["status"] == "success", data
         with app_module.app.app_context():
-            order = SubcontractOrder.query.filter_by(order_no="SC-TEST-001").first()
-            assert order is not None
+            # BUG-2026-11-10-004：新建首次保存由服务端分配正式号，不沿用客户端预览号。
+            assert SubcontractOrder.query.filter_by(order_no="SC-TEST-001").first() is None
+            order = SubcontractOrder.query.filter_by(remark="回归测试委外单").one()
+            assert re.fullmatch(r"SC\d{4}\d{4,}", order.order_no), order.order_no
             assert order.status == "pending"
             assert order.supplier_id == _SUPPLIER_ID["id"]
             assert order.contact == "张三"

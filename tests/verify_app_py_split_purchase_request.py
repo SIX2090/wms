@@ -13,6 +13,7 @@ S4. 新增采购申请成功（需物料，按 app.py add_purchase_request 真�
 from __future__ import annotations
 
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -144,7 +145,9 @@ class TestPurchaseRequestRegister:
             req = db.session.get(PurchaseRequest, data["id"])
             assert req is not None
             assert req.status == "pending"
-            assert req.request_no == "PR-TEST-001"
+            # BUG-2026-11-10-004：新建首次保存由服务端分配正式号，不沿用客户端预览号。
+            assert req.request_no != "PR-TEST-001"
+            assert re.fullmatch(r"PR\d{4}\d{4,}", req.request_no), req.request_no
             assert len(req.items) == 1
             assert req.items[0].quantity == 10
             assert req.total_amount == 50
