@@ -451,7 +451,12 @@ def test_resend_cannot_steal_an_active_normal_worker(case, monkeypatch):
     try:
         assert entered.wait(10)
         response = case['client']().post('/wechat_share/log/1/resend')
-        assert response.status_code == 200 and response.json['log_status'] == 'sending'
+        # BUG-2026-11-10-001：活跃轮询 worker 存在时，重复派发保护直接返回
+        # action='skipped' / status='uncertain'（services/wechat_share_dispatch.py:63），
+        # 语义是"结果待确认、请人工核对接收端"，不是"正在发送"。
+        # 2026-11-10 用户确认该保守状态为已批准的新语义，因此只同步状态期望；
+        # 业务实现与下方"不得重复发送 / 不得抢占活跃 worker"断言一律不动。
+        assert response.status_code == 200 and response.json['log_status'] == 'uncertain'
         assert not forbidden and len(case['calls']) == 2  # original + one active explicit attempt
         release.set()
         worker.join(10)

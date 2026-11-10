@@ -198,16 +198,16 @@
                 </div>
                 <div class="d-flex justify-content-between border-bottom py-2">
                     <span class="text-muted">今日已发送</span>
-                    <span class="fw-semibold">{{ log_counts.sent_today }} 条</span>
+                    <span class="fw-semibold">{{ log_counts.get('sent_today', 0) }} 条</span>
                 </div>
                 <div class="d-flex justify-content-between border-bottom py-2">
                     <span class="text-muted">待发送/失败</span>
-                    <span class="fw-semibold">{{ log_counts.pending }} / {{ log_counts.failed }} 条</span>
+                    <span class="fw-semibold">{{ log_counts.get('pending', 0) }} / {{ log_counts.get('failed', 0) }} 条</span>
                 </div>
-                {% if log_counts.pending > 0 %}
+                {% if log_counts.get('pending', 0) > 0 %}
                 <div class="alert alert-info py-2 mt-2 mb-0 small">
                     <i class="bi bi-info-circle"></i>
-                    {{ log_counts.pending }} 条「待助手领取」：图片已生成，使用新版助手领取。
+                    {{ log_counts.get('pending', 0) }} 条「待助手领取」：图片已生成，使用新版助手领取。
                     ① 助手以轮询模式启动（环境变量 <code>WMS_WECHAT_HELPER_POLL=1</code>）后自动拉取；
                     {% if helper_health.online and not helper_health.poll_enabled %}
                     <br><i class="bi bi-exclamation-circle"></i> 当前助手在线但未开启轮询，待发送记录不会被自动消费。
@@ -216,16 +216,18 @@
                     {% endif %}
                 </div>
                 {% endif %}
-                {% if log_counts.legacy_pending > 0 %}
-                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.legacy_pending }} 条历史待人工核对，系统不会自动重发。</div>
+                {# BUG-2026-11-10-001：log_counts 可能来自旧版上下文（缺 legacy_pending 等键），
+                   Jinja2 对 Undefined 做 > 0 比较会抛错导致整页 500；统一用 .get 兜底。 #}
+                {% if log_counts.get('legacy_pending', 0) > 0 %}
+                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.get('legacy_pending', 0) }} 条历史待人工核对，系统不会自动重发。</div>
                 {% endif %}
                 {% if log_counts.get('uncertain', 0) > 0 %}
                 <div class="alert alert-warning py-2 mt-2 mb-0 small">
-                    {{ log_counts.uncertain }} 条结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
+                    {{ log_counts.get('uncertain', 0) }} 条结果待确认：普通执行不会重发，请先核对接收端。强制重发可能产生重复消息。
                 </div>
                 {% endif %}
                 {% if log_counts.get('sending', 0) > 0 %}
-                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.sending }} 条仍在发送中或占位未解除：请核对接收端并停止旧助手；当前无法自动解除占位。</div>
+                <div class="alert alert-warning py-2 mt-2 mb-0 small">{{ log_counts.get('sending', 0) }} 条仍在发送中或占位未解除：请核对接收端并停止旧助手；当前无法自动解除占位。</div>
                 {% endif %}
                 {% if latest_log %}
                 <div class="border-bottom py-2">
@@ -308,7 +310,7 @@
             {% if log_filters.status or log_filters.limit != 10 %}
             <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">重置筛选</a>
             {% endif %}
-            {% if log_counts.failed > 0 %}
+            {% if log_counts.get('failed', 0) > 0 %}
             <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
             {% endif %}
             <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="openWechatShareCleanup()">清理历史记录</button>
