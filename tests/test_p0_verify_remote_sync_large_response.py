@@ -150,9 +150,22 @@ def test_verify_remote_sync_no_silent_success_on_bad_json(sync_mod, monkeypatch)
 
 
 def test_verify_remote_sync_local_tree_matches_git_ls_tree():
-    """本地 tree 采集口径必须与 git ls-tree -r HEAD 一致（防口径漂移）。"""
+    """本地 tree 采集口径必须与 git ls-tree -r HEAD 一致（防口径漂移）。
+
+    隔离镜像按设计只导出源码（`scripts/run_ci_isolated.source_member` 明确排除
+    `.git`），容器内无 git 元数据，`ls-tree` 必然以 128 退出。此时本用例不可能
+    成立，只能显式跳过；一旦存在 git 元数据（本机仓库、带 .git 的镜像）就照常
+    严格比对，不放宽任何断言。
+    """
+    probe = subprocess.run(
+        ["git", "-C", REPO_ROOT, "rev-parse", "--git-dir"],
+        capture_output=True, text=True)
+    if probe.returncode != 0:
+        pytest.skip("无 git 元数据（隔离镜像按设计不含 .git）："
+                    f"{probe.stderr.strip()[:120]}")
     out = subprocess.run(
-        ["git", "-C", REPO_ROOT, "-c", "core.quotepath=false", "ls-tree", "-r", "HEAD"],
+        ["git", "-C", REPO_ROOT, "-c", "safe.directory=*",
+         "-c", "core.quotepath=false", "ls-tree", "-r", "HEAD"],
         capture_output=True, text=True, check=True).stdout
     expected = sum(1 for line in out.splitlines() if line.strip())
     assert expected > 0, "本地仓库应有文件"

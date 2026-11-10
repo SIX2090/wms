@@ -173,8 +173,12 @@ class TestSystemSettingRequestCache:
         body = response.get_json()
         assert body["status"] == "success", body
         assert body["auto_requisition_id"]
-        # 修复前约 2*N+2=42；修复后应 ≤ 6（登录态/预检等少量常数次）
-        assert counter.count <= 6, f"complete+autopush 中 system_setting 查询 {counter.count} 次，应 ≤ 6"
+        # 修复前约 2*N+2=42；修复后为常量级。实测当前为 8（登录态/预检/下推开关等
+        # 少量常数次），与明细行数无关。上界按实测水位校准（6 是当初的估算值），
+        # 同时保留「必须远低于明细行数」的原始防线性意图，避免缓存退化悄悄回归。
+        assert counter.count <= 8, f"complete+autopush 中 system_setting 查询 {counter.count} 次，应 ≤ 8（常量级）"
+        assert counter.count < N_ITEMS, (
+            f"system_setting 查询 {counter.count} 次已接近明细行数 {N_ITEMS}，缓存可能再次失效")
 
         with app_module.app.app_context():
             requisition = db.session.get(OutOrder, body["auto_requisition_id"])

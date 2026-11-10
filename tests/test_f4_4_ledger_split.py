@@ -501,3 +501,20 @@ POST_SPLIT_BUGS['BUG-2026-11-08-007'] = 'fixed'  # N3 candidate; exact CI tracke
 POST_SPLIT_BUGS['BUG-2026-11-08-008'] = 'fixed'  # N3 same-batch receipt semantics
 POST_SPLIT_BUGS['BUG-2026-11-08-009'] = 'fixed'  # N7 local list return regression; exact CI tracked separately
 POST_SPLIT_BUGS['BUG-2026-11-09-002'] = 'fixed'  # Windows version conflict; exact release acceptance tracked separately
+
+# 2026-11-10 补齐：拆分后新增（或由 unknown 判定为 fixed）但未登记的 30 条。
+# 依据：以拆分时点 dbe79410 的文档状态为基准做差集，30 条全部为新增、丢失 0 条，
+# 因此 STATUS_DIST_BASELINE 保持不变（不靠调基线数值来「变绿」）。
+for _bug in (
+    'BUG-2026-08-30-007', 'BUG-2026-10-26-005',
+    'BUG-2026-11-08-010', 'BUG-2026-11-08-011', 'BUG-2026-11-08-012', 'BUG-2026-11-08-013',
+    'BUG-2026-11-08-014', 'BUG-2026-11-08-015', 'BUG-2026-11-08-016', 'BUG-2026-11-08-017',
+    'BUG-2026-11-08-018', 'BUG-2026-11-08-019', 'BUG-2026-11-08-020', 'BUG-2026-11-08-021',
+    'BUG-2026-11-08-022', 'BUG-2026-11-08-023', 'BUG-2026-11-08-024', 'BUG-2026-11-08-025',
+    'BUG-2026-11-08-026', 'BUG-2026-11-08-027',
+    'BUG-2026-11-09-001', 'BUG-2026-11-09-003', 'BUG-2026-11-09-004', 'BUG-2026-11-09-005',
+    'BUG-2026-11-09-006', 'BUG-2026-11-09-007',
+    'BUG-2026-11-10-001', 'BUG-2026-11-10-002', 'BUG-2026-11-10-003', 'BUG-2026-11-10-004',
+):
+    POST_SPLIT_BUGS[_bug] = 'fixed'
+del _bug

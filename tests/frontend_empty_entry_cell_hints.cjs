@@ -7,6 +7,10 @@ function extract(source,name){const start=source.indexOf('function '+name+'(');r
 const classList=()=>{const values=new Set();return{add:x=>values.add(x),contains:x=>values.has(x),toggle(x,on){on?values.add(x):values.delete(x);}};};
 let watched,observations=0;
 const context=vm.createContext({Array,MutationObserver:class{constructor(fn){watched=fn;}observe(target,options){observations++;assert.equal(target,table);assert.equal(options.childList,true);assert.equal(options.subtree,true);assert.equal(options.attributes,undefined);}},calcTotal(){}});
+// calcAmount 走真实金额口径（与后端 Decimal/ROUND_HALF_UP 对齐），
+// 不在这里伪造 WMSMoney，否则金额断言失去意义。
+context.window=context;
+vm.runInContext(fs.readFileSync(path.join(root,'app/static/js/money.js'),'utf8'),context);
 for(const name of ['refreshWmsEntryCellHints','setupWmsEntryCellHints'])vm.runInContext(extract(app,name),context);
 assert.equal(typeof context.refreshWmsEntryCellHints,'function','Missing shared empty-cell behavior');
 assert.equal(typeof context.setupWmsEntryCellHints,'function');

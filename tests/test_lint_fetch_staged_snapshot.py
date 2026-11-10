@@ -89,16 +89,21 @@ class FetchStagedSnapshotTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_missing_index_blob_fails_closed(self):
-        lint = runpy.run_path(str(self.root / "scripts/lint_no_raw_post_fetch.py"))
-        oid = b"a" * 40
-        listing = b"100644 " + oid + b" 0\tapp/static/js/example.js\0"
-        def fake_git(command, **_kwargs):
-            if "ls-files" in command:
-                return subprocess.CompletedProcess(command, 0, stdout=listing)
-            raise subprocess.CalledProcessError(1, command)
-        with patch.object(subprocess, "run", side_effect=fake_git):
-            with self.assertRaises(RuntimeError):
-                lint["scan_staged"](self.root)
+        # 同一 pytest 进程里其它用例可能已把真实仓库的 esprima 载入 sys.modules，
+        # fetch_ast 的「同名模块不同路径」保护会先抛错，遮蔽本用例要验证的
+        # fail-closed 语义。这里隔离模块缓存后加载，断言的仍是「读不到 index blob 必抛」。
+        with patch.dict(sys.modules):
+            sys.modules.pop("_wms_bundled_esprima", None)
+            lint = runpy.run_path(str(self.root / "scripts/lint_no_raw_post_fetch.py"))
+            oid = b"a" * 40
+            listing = b"100644 " + oid + b" 0\tapp/static/js/example.js\0"
+            def fake_git(command, **_kwargs):
+                if "ls-files" in command:
+                    return subprocess.CompletedProcess(command, 0, stdout=listing)
+                raise subprocess.CalledProcessError(1, command)
+            with patch.object(subprocess, "run", side_effect=fake_git):
+                with self.assertRaises(RuntimeError):
+                    lint["scan_staged"](self.root)
 
     def test_precommit_uses_staged_content(self):
         bash = shutil.which("bash")

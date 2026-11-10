@@ -53,6 +53,15 @@ def test_pre_push_skips_broken_python3_alias(tmp_path):
     for path in (broken, good):
         path.chmod(0o755)
 
+    # CI 的 /work 以 tmpfs 挂载（scripts/run_ci_isolated.py: nosuid,nodev，
+    # Docker tmpfs 默认还带 noexec），落在其中的临时脚本不可执行，
+    # 就无法构造「python3 是坏别名」这个场景。先探测可执行性：
+    # 能执行时照常严格验证；不能执行时显式跳过，绝不伪装成通过。
+    probe = subprocess.run([str(broken)], capture_output=True)
+    if probe.returncode != 9009:
+        pytest.skip(f"临时目录不可执行（rc={probe.returncode}）："
+                    "CI 的 /work 为 noexec 挂载，解释器别名场景无法构造")
+
     env = dict(os.environ)
     env["PATH"] = os.pathsep.join([str(broken_dir), str(good_dir), env.get("PATH", "")])
     env.pop("WMS_SKIP_CI_GATE", None)

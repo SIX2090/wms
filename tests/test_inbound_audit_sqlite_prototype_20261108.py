@@ -7,6 +7,7 @@ def main():
     import ast
     import builtins
     from decimal import Decimal, ROUND_HALF_UP
+    import ipaddress
     import math
     from pathlib import Path
     import platform
@@ -172,7 +173,9 @@ def main():
             ns = {
                 'db': types.SimpleNamespace(session=SessionProxy(self.session, fail_business)),
                 'current_user': types.SimpleNamespace(is_authenticated=True, id=1),
-                'request': types.SimpleNamespace(remote_addr='synthetic'),
+                'request': types.SimpleNamespace(remote_addr='synthetic', headers={}),
+                'ipaddress': ipaddress,
+                'current_app': types.SimpleNamespace(config={'TRUSTED_PROXIES': []}),
                 'OperationLog': log_factory,
                 'InOrder': Order,
                 'InOrderItem': Item,
@@ -182,7 +185,8 @@ def main():
                 'jsonify': lambda value: value,
                 'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math,
             }
-            funcs = [extracted('app/utils.py', 'round_to_2_decimals'),
+            funcs = [extracted('app/app.py', 'get_request_ip'),
+                     extracted('app/utils.py', 'round_to_2_decimals'),
                      extracted('app/app.py', 'log_operation'),
                      extracted('app/app.py', 'update_purchase_order_status'),
                      extracted('app/utils.py', 'recalculate_order_total'),

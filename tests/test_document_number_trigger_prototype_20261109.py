@@ -288,8 +288,17 @@ def main():
             matches = [node for node in ast.parse(source).body
                        if isinstance(node, ast.FunctionDef) and node.name == 'generate_order_no']
             self.assertEqual(len(matches), 1)
-            env = {'_order_no_generation_lock': threading.Lock(), '_generate_order_no_locked': lambda value: value}
-            exec(compile(ast.fix_missing_locations(ast.Module(body=matches, type_ignores=[])),
+            function = matches[0]
+            # 取号前会激活原生业务事务（局部 `from services...` import）。该副作用与
+            # 本用例要验证的「OUT → OU 前缀归一化」无关，且在 `-I -S` 隔离子进程里
+            # 无法 import app 侧服务。仅剥离这条 import 并注入 no-op，
+            # 别名归一化与被测取号分支仍是 app.py 的真实代码。
+            function.body = [node for node in function.body
+                             if not (isinstance(node, ast.ImportFrom)
+                                     and (node.module or '').startswith('services'))]
+            env = {'_generate_order_no_locked': lambda value: value,
+                   'activate_native_business_transaction': lambda: None}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
                          '<generator-alias>', 'exec'), env)
             self.assertEqual(env['generate_order_no']('OUT'), 'OU')
             self.assertIn(env['generate_order_no']('OUT'), sources)

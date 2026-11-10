@@ -1,5 +1,6 @@
 """Isolated source-level audit ordering regression; no WMS or database import."""
 import ast
+import ipaddress
 from pathlib import Path
 import types
 import unittest
@@ -56,7 +57,9 @@ def setup(fail_business):
     namespace = {
         'db': types.SimpleNamespace(session=session),
         'current_user': types.SimpleNamespace(is_authenticated=True, id=1),
-        'request': types.SimpleNamespace(remote_addr='synthetic'),
+        'request': types.SimpleNamespace(remote_addr='synthetic', headers={}),
+        'ipaddress': ipaddress,
+        'current_app': types.SimpleNamespace(config={'TRUSTED_PROXIES': []}),
         'OperationLog': lambda **values: values,
         'InOrder': types.SimpleNamespace(query=Lookup(order)),
         'InOrderItem': types.SimpleNamespace(query=Lookup(item)),
@@ -67,7 +70,11 @@ def setup(fail_business):
         'round_to_2_decimals': lambda value: value,
         'update_purchase_order_status': lambda _order: None,
     }
-    functions = [extract_function('app/app.py', 'log_operation'),
+    # log_operation 内部调用 get_request_ip()；不提供实现时 NameError 会被
+    # 其 try/except 吞掉，结果「删除成功但审计永不落库」——本用例正是在守这一点，
+    # 因此必须提取真实实现，而不是塞一个恒真替身。
+    functions = [extract_function('app/app.py', 'get_request_ip'),
+                 extract_function('app/app.py', 'log_operation'),
                  extract_function('app/routes/in_order.py', 'delete_in_order_item')]
     module = ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[]))
     exec(compile(module, '<synthetic source extraction>', 'exec'), namespace)

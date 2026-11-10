@@ -33,6 +33,9 @@ def env(tmp_path, monkeypatch):
         monkeypatch.setitem(wms.app.config, 'SQLALCHEMY_DATABASE_URI', 'sqlite:///' + db_path.as_posix())
         monkeypatch.setitem(wms.app.config, 'BACKUP_FOLDER', str(backup_dir))
         monkeypatch.setenv('WMS_STARTUP_BACKUP_MIN_INTERVAL_SECONDS', '600')
+        # CI 容器全局钉了 WMS_SKIP_STARTUP_BACKUP=1（禁止测试期建备份），
+        # 而本用例正是要验证备份与保留策略本身，必须在夹具里显式解禁。
+        monkeypatch.delenv('WMS_SKIP_STARTUP_BACKUP', raising=False)
         yield backup_dir
 
 

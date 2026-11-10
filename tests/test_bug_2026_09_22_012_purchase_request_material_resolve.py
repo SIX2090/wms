@@ -96,6 +96,16 @@ def _payload(items, request_no="PR-ERR-1"):
     }
 
 
+def _latest_order():
+    """取本次落库的最新采购申请单。
+
+    BUG-2026-11-10-011：保存路径已改为服务端自建单号（`generate_order_no('PR')`），
+    客户端传入的 `request_no` 会被忽略。旧断言按自定义单号回查必然取到 None，
+    这里改为按主键倒序取最新单据——校验内容（物料解析结果、金额、明细数）不变。
+    """
+    return PurchaseRequest.query.order_by(PurchaseRequest.id.desc()).first()
+
+
 class TestMaterialResolveRejected:
     """T1/T2/T3：物料解析失败必须报错且不落库。"""
 
@@ -154,7 +164,7 @@ class TestValidMaterialStillAccepted:
         body = resp.get_json()
         assert body["status"] == "success", body
         with app_module.app.app_context():
-            order = PurchaseRequest.query.filter_by(request_no="PR-OK-1").first()
+            order = _latest_order()
             assert order is not None
             items = PurchaseRequestItem.query.filter_by(purchase_request_id=order.id).all()
             assert len(items) == 1
@@ -169,7 +179,7 @@ class TestValidMaterialStillAccepted:
         body = resp.get_json()
         assert body["status"] == "success", body
         with app_module.app.app_context():
-            order = PurchaseRequest.query.filter_by(request_no="PR-OK-2").first()
+            order = _latest_order()
             assert order is not None
             items = PurchaseRequestItem.query.filter_by(purchase_request_id=order.id).all()
             assert items[0].material_id == _MAT["id"]
@@ -191,7 +201,7 @@ class TestEditAndNameOnly:
             request_no="PR-EDIT-1"))
         assert ok.get_json()["status"] == "success"
         with app_module.app.app_context():
-            order = PurchaseRequest.query.filter_by(request_no="PR-EDIT-1").first()
+            order = _latest_order()
             order_id = order.id
             before = PurchaseRequestItem.query.filter_by(purchase_request_id=order_id).count()
             assert before == 1
@@ -215,7 +225,7 @@ class TestEditAndNameOnly:
         body = resp.get_json()
         assert body["status"] == "success", body
         with app_module.app.app_context():
-            order = PurchaseRequest.query.filter_by(request_no="PR-NAME-1").first()
+            order = _latest_order()
             items = PurchaseRequestItem.query.filter_by(purchase_request_id=order.id).all()
             assert len(items) == 1
             assert items[0].material_id is None
@@ -255,7 +265,7 @@ class TestStuckDocumentHasExit:
             [{"material_id": _MAT["id"], "quantity": 5, "estimated_price": 10}],
             request_no="PR-STUCK-1"))
         with app_module.app.app_context():
-            order_id = PurchaseRequest.query.filter_by(request_no="PR-STUCK-1").first().id
+            order_id = _latest_order().id
 
         assert client.post(f"/purchase_request/{order_id}/approve",
                            json={}).get_json()["status"] == "success"
@@ -268,4 +278,4 @@ class TestStuckDocumentHasExit:
         assert client.post(f"/purchase_request/{order_id}/delete",
                            json={}).get_json()["status"] == "success"
         with app_module.app.app_context():
-            assert PurchaseRequest.query.filter_by(request_no="PR-STUCK-1").first() is None
+            assert db.session.get(PurchaseRequest, order_id) is None

@@ -9,7 +9,7 @@ import subprocess
 from types import SimpleNamespace
 
 import pytest
-from jinja2 import Environment
+from jinja2 import Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 ATTACK = '</script><img src=x onerror="globalThis.injected=1">中文&\'"'
@@ -19,9 +19,12 @@ def render_scripts(page, edit=False, location=False, value=ATTACK):
     source = (ROOT / 'app/templates' / (page + '.html')).read_text(encoding='utf-8')
     if page == 'opening_stock':
         source = source.split('{% block extra_js %}', 1)[1].split('{% endblock %}', 1)[0]
+    # saved_quantity/saved_price/saved_amount 是编辑态行快照，模板对它们直接 tojson；
+    # 缺字段会得到 Undefined（不可 JSON 序列化）。真实行对象总带这三列，替身需补齐。
     row = SimpleNamespace(line_id=11, material_id=7, warehouse_id=2, warehouse_name=value,
                           material_code='M001', material_name=value, spec='', unit='pc',
-                          quantity=3, price=2, remark=value, location='A01')
+                          quantity=3, price=2, remark=value, location='A01',
+                          saved_quantity=None, saved_price=None, saved_amount=None)
     context = dict(config={'STATIC_VERSION': 'test-v1'}, csrf_token=lambda: 'token',
                    url_for=lambda _endpoint, filename: '/static/' + filename,
                    prefix=value if page == 'print_template_editor' else 'in_order', template_id=42,
@@ -29,7 +32,12 @@ def render_scripts(page, edit=False, location=False, value=ATTACK):
                    editing_doc=SimpleNamespace(id=9, doc_no=value, date=datetime.date(2026, 10, 22), warehouse_id=2) if edit else None,
                    warehouses=[SimpleNamespace(id=2, code='WH02', name=value)],
                    location_management_enabled=location, edit_rows=[row] if edit else [])
-    return Environment(autoescape=True).from_string(source).render(**context)
+    # 模板已使用 include/extends，裸 Environment（无 loader）会报
+    # "no loader for this environment specified"。loader 指向真实模板目录，
+    # 渲染内容与线上一致，断言不变。
+    env = Environment(autoescape=True,
+                      loader=FileSystemLoader(str(ROOT / 'app/templates')))
+    return env.from_string(source).render(**context)
 
 
 def node_run(payload, scenario):

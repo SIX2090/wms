@@ -41,6 +41,9 @@ function fixture(page) {
     const context={document,FormData:FD,Event:class{constructor(type){this.type=type;}},showToast(...args){notices.push(args);},escapeHtml(value){return String(value??'');},alert(){},console,Promise,setTimeout(fn){const id=++counter;timers.set(id,fn);return id;},clearTimeout(id){timers.delete(id);},fetch(url,options){calls.push({url,options}); return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve(url==='/unit/add'?{status:'success',id:55,name:'箱'}:{status:'error',msg:'fixture stopped after payload'})});},location:{href:''},getComputedStyle(){return {};}};
     context.window=context; context.WMS={positionDropdown(){}};
     vm.createContext(context);
+    // 金额计算走真实 money.js（与后端 Decimal/ROUND_HALF_UP 对齐），
+    // 否则 window.WMSMoney 缺失会让 selectMaterial 早早抛错，遮蔽真正的身份一致性断言。
+    vm.runInContext(fs.readFileSync(root+'/app/static/js/money.js','utf8'),context);
     vm.runInContext(fs.readFileSync(root+'/app/static/js/api.js','utf8'),context);
     const source=fs.readFileSync(root+'/app/templates/'+page+'.html','utf8');
     if(page==='material_add') document.getElementById('material-add-data').textContent=JSON.stringify({units,suppliers});

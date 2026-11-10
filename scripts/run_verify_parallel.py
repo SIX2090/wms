@@ -112,6 +112,10 @@ def _run_one(path: str) -> tuple[str, int, float, str]:
     # 插件自动加载早于 conftest，不能让未知插件先导入应用。
     env['PYTEST_DISABLE_PLUGIN_AUTOLOAD'] = '1'
     env['PYTHONNOUSERSITE'] = '1'
+    # 目标文件不存在时必须「拒绝执行」而不是抛 FileNotFoundError：
+    # 直接调用（含拼错路径）不能绕过拒绝语义，也不能把崩溃当失败结果。
+    if not Path(path).is_file():
+        return path, 2, 0.0, f'验证已阻止：目标文件不存在：{path}'
     cmd = (
         [sys.executable, '-m', 'pytest', path, '-q', '-p', 'no:pylama']
         if _is_pytest_style(path)
