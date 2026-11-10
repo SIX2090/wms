@@ -150,7 +150,9 @@ def main():
             self.session.add_all([Order(id=1, status='pending', total_amount=17),
                                   Order(id=2, status='completed', total_amount=4),
                                   PurchaseOrder(id=1, status='completed', total_amount=0),
-                                  Source(id=1, purchase_order_id=1, received_quantity=7, quantity=10, price=2, amount=0),
+                                  # amount 必须给真实历史金额：现状实现只补 None（缺失）的行，
+                                  # 不会重定价已存在的金额——显式 0 会被当成「确实 0 元」保留。
+                                  Source(id=1, purchase_order_id=1, received_quantity=7, quantity=10, price=2, amount=20),
                                   Item(id=1, in_order_id=1, source_purchase_order_item_id=1, quantity=3, amount=12),
                                   Item(id=2, in_order_id=1, source_purchase_order_item_id=1, quantity=1, amount=5),
                                   Item(id=3, in_order_id=2, source_purchase_order_item_id=1, quantity=2, amount=4)])

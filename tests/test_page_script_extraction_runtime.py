@@ -62,6 +62,9 @@ const ctx={window,document,WMS:window.WMS,structuredClone,setTimeout:()=>1,clear
  showToast:(m,t)=>messages.push(m),confirm:()=>false,
  escapeHtml:v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')};
 vm.createContext(ctx);
+// 金额计算走真实 money.js（与后端 Decimal/ROUND_HALF_UP 对齐）；缺失会让
+// amountOf 直接抛 TypeError，遮蔽本用例要验证的渲染/保存断言。
+vm.runInContext(fs.readFileSync(p.money,'utf8'),ctx,{filename:p.money});
 for(const inline of p.inline)vm.runInContext(inline,ctx);
 assert.equal(ctx.injected,undefined);
 for(const filename of p.files)vm.runInContext(fs.readFileSync(filename,'utf8'),ctx,{filename});
@@ -133,4 +136,6 @@ def run_page(page, edit=False, location=False, value=ATTACK):
     assert config_index < file_index, 'Server data must exist before business script executes'
     assert all('function ' not in body for body in inline), 'Inline scripts may only inject configuration'
     assert value not in ''.join(inline) if '<' in value else True
-    node_run(dict(page=page, edit=edit, location=location, value=value, inline=inline, files=page_files), page)
+    node_run(dict(page=page, edit=edit, location=location, value=value, inline=inline,
+                  files=page_files,
+                  money=str(ROOT / 'app/static/js/money.js')), page)
