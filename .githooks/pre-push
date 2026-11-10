@@ -25,6 +25,8 @@ abort() {
 
 blocked=0
 CI_BASELINE_SHA=""
+PUSH_LOCAL_SHA=""
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 
 while read -r local_ref local_sha remote_ref remote_sha; do
     # Accept Windows CRLF pipes while validating the same full commit ID.
@@ -83,6 +85,12 @@ while read -r local_ref local_sha remote_ref remote_sha; do
             continue
         fi
         CI_BASELINE_SHA="${remote_sha}"
+        PUSH_LOCAL_SHA="${local_sha}"
+        if [[ ! "${PUSH_LOCAL_SHA}" =~ ^[0-9a-fA-F]{40}$ ]] || [ "${PUSH_LOCAL_SHA}" = "0000000000000000000000000000000000000000" ]; then
+            echo "❌ PRE-PUSH BLOCKED: 待推送本地提交SHA缺失或非法，无法核对发行版本号。" >&2
+            blocked=1
+            continue
+        fi
     fi
 done
 
@@ -97,6 +105,63 @@ fi
 # No refs are being written: allow a no-op push without network CI checks.
 if [ -z "${CI_BASELINE_SHA}" ]; then
     exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# F2.9：Windows 发行版本号门禁（2026-11-10 新增）
+#
+# 由来：BUG-2026-11-09-002 与 2026-11-10 的 Windows Portable Release #118 是同一
+# 个失效模式——app/ 或 tools/ 有改动但 app/version.py 没递增。发行工作流在 plan
+# 阶段会发现构建输入指纹（git tree 的 blob 列表哈希）与已发布版本的 proof 不一致，
+# 按设计拒绝复用旧版本号，报 "Version tag conflicts with current committed build
+# inputs."，然后下载/构建/上传全部跳过，main 上留下一个红叉。
+#
+# 这道门禁在 push 之前用纯 git 本地数据判断，不依赖网络：
+#   1) 本次推送范围内 app/、tools/、windows-release.yml 有改动，而 app/version.py
+#      没有改动 -> 阻断；
+#   2) version.py 有改动，但远端已存在同名 windows-v<版本> 标签 -> 阻断（防止回填
+#      已发布版本号导致同样的冲突）。
+# 版本号是唯一入口 app/version.py；一处递增即可，不要求每个 commit 都涨。
+# 允许 WMS_SKIP_RELEASE_VERSION_GATE=1 单次绕过（仅用于已确认本次推送无需发行时）。
+# ---------------------------------------------------------------------------
+if [ "${WMS_SKIP_RELEASE_VERSION_GATE:-0}" = "1" ]; then
+    echo "⚠️  WMS_SKIP_RELEASE_VERSION_GATE=1：本次跳过 Windows 发行版本号门禁。" >&2
+else
+    release_inputs_changed=0
+    version_bumped=0
+    while IFS= read -r changed_path; do
+        [ -n "${changed_path}" ] || continue
+        case "${changed_path}" in
+            app/version.py) version_bumped=1 ;;
+            app/*|tools/*|.github/workflows/windows-release.yml) release_inputs_changed=1 ;;
+        esac
+    done <<WMS_RELEASE_DIFF_EOF
+$(git -C "${REPO_ROOT}" diff --name-only "${CI_BASELINE_SHA}" "${PUSH_LOCAL_SHA}" 2>/dev/null || true)
+WMS_RELEASE_DIFF_EOF
+
+    if [ "${release_inputs_changed}" -eq 1 ] && [ "${version_bumped}" -eq 0 ]; then
+        echo "" >&2
+        echo "❌ PRE-PUSH BLOCKED: 本次推送改了 app/ 或 tools/，但 app/version.py 未递增。" >&2
+        echo "   后果：Windows Portable Release 会在 plan 阶段报" >&2
+        echo "         Version tag conflicts with current committed build inputs." >&2
+        echo "         并跳过下载/构建/上传，main 上留下红叉（BUG-2026-11-09-002 同型）。" >&2
+        echo "   修法：把 app/version.py 的 __version__ 递增到未发布的 20YY.MM.N（如 2026.11.7），" >&2
+        echo "         纳入本批次一起提交后再推送。" >&2
+        echo "   确认本次推送无需 Windows 发行时，才可单次使用 WMS_SKIP_RELEASE_VERSION_GATE=1" >&2
+        exit 1
+    fi
+
+    if [ "${version_bumped}" -eq 1 ]; then
+        new_version="$(git -C "${REPO_ROOT}" show "${PUSH_LOCAL_SHA}:app/version.py" 2>/dev/null \
+            | sed -n "s/^__version__[[:space:]]*=[[:space:]]*['\"]\\([^'\"]*\\)['\"].*/\\1/p" | head -n 1)"
+        if [ -n "${new_version}" ] && [ -n "$(git ls-remote --tags origin "refs/tags/windows-v${new_version}" 2>/dev/null || true)" ]; then
+            echo "" >&2
+            echo "❌ PRE-PUSH BLOCKED: 版本号 ${new_version} 已被发布（windows-v${new_version} 标签已存在）。" >&2
+            echo "   复用已发布版本号会再次触发同一 plan 阶段冲突。请继续递增到新版本号。" >&2
+            echo "   确认本次推送无需 Windows 发行时，才可单次使用 WMS_SKIP_RELEASE_VERSION_GATE=1" >&2
+            exit 1
+        fi
+    fi
 fi
 
 # ---------------------------------------------------------------------------
