@@ -5,7 +5,6 @@ from PIL import Image
 from werkzeug.datastructures import FileStorage
 
 from app import app
-from config import Config
 from utils import migrate_legacy_material_images, save_upload_image
 
 
@@ -16,8 +15,20 @@ def make_png_bytes():
 
 
 def test_material_upload_uses_flask_static_root_by_default(tmp_path, monkeypatch):
+    import importlib
+
+    import config as config_module
+
     expected_root = Path(app.root_path) / "static" / "uploads"
-    assert Path(Config.UPLOAD_FOLDER).resolve() == expected_root.resolve()
+    # BUG-2026-11-10-009：CI 容器显式导出 UPLOAD_FOLDER=/work/profile/uploads（非 root 可写目录），
+    # 导入期常量因此不等于仓库默认值。这里清掉该变量后重新求值 Config，断言的是
+    # 「未显式配置时默认落 flask static root」这条规则本身，而非 CI 的覆盖值。
+    monkeypatch.delenv("UPLOAD_FOLDER", raising=False)
+    try:
+        reloaded = importlib.reload(config_module)
+        assert Path(reloaded.Config.UPLOAD_FOLDER).resolve() == expected_root.resolve()
+    finally:
+        importlib.reload(config_module)
 
     static_root = tmp_path / "static"
     monkeypatch.setattr(app, "static_folder", str(static_root))

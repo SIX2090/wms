@@ -160,7 +160,10 @@ class ShardArgumentSafety(unittest.TestCase):
                           return_value=[str(ROOT / 'tests/verify_synthetic.py')]), \
              redirect_stdout(StringIO()):
             self.assertEqual(VERIFY['main'](), 1)
-        self.assertNotEqual(VERIFY['_run_one']('tests/verify_synthetic.py')[1], 0)
+        # BUG-2026-11-10-010：同 worker 其它用例会在模块导入期 os.chdir 到 app/，
+        # 相对路径 'tests/verify_synthetic.py' 便会 FileNotFoundError。这里用仓库绝对路径，
+        # 断言仍是「运行时隔离未证明时必须拒绝执行」。
+        self.assertNotEqual(VERIFY['_run_one'](str(ROOT / 'tests' / 'verify_synthetic.py'))[1], 0)
 
 
 if __name__ == '__main__':

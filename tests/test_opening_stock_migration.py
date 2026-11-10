@@ -108,7 +108,13 @@ def _run_migration(db_file, times=1):
     env['WMS_TEST_APP_DIR'] = str(APP_DIR)
     env['WMS_TEST_MIGRATE_TIMES'] = str(times)
     # sqlite:/// 后跟绝对路径；Windows 下用正斜杠，避免任何转义歧义
+    # BUG-2026-11-10-007：CI 容器 ENV 钉了 FLASK_ENV=testing 与 WMS_DATABASE_URI=内存库，
+    # 子进程会继承它们，auto_migrate_database() 便跑在内存库上、本用例的文件库原封不动。
+    env['FLASK_ENV'] = 'production'
+    env['WMS_NO_DB_TOUCH'] = '0'
     env['DATABASE_URL'] = 'sqlite:///' + str(db_file).replace('\\', '/')
+    env['WMS_DATABASE_URI'] = env['DATABASE_URL']
+    env['WMS_SKIP_STARTUP_BACKUP'] = '1'
     env['WMS_BOOTSTRAP_PASSWORD'] = 'admin'
     result = subprocess.run(
         [sys.executable, "-c", script],

@@ -34,6 +34,15 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app import app as flask_app  # noqa: E402
 from app import db, generate_order_no, OpeningStockDoc  # noqa: E402
+from models.core import SystemSetting  # noqa: E402
+
+SEQUENCE_KEY_LIKE = 'document_sequence:%'
+
+
+def _clear_sequences():
+    """清掉持久取号序列：删单据已不再回退序号（services/document_numbering.py）。"""
+    db.session.query(SystemSetting).filter(
+        SystemSetting.key.like(SEQUENCE_KEY_LIKE)).delete(synchronize_session=False)
 
 
 class TestOpeningStockDocNoGeneration:
@@ -46,10 +55,15 @@ class TestOpeningStockDocNoGeneration:
         # 隔离：内存库在多次测试间共享，必须清掉上一例遗留的单据，
         # 否则序号断言会受前序测试影响（首轮实现即踩此坑）。
         db.session.query(OpeningStockDoc).delete()
+        # BUG-2026-11-10-008：取号改为事务内持久序列（SystemSetting 的
+        # document_sequence:<base> 键），设计上「删单据不回退序号」。只清单据会让
+        # 序号继承前序用例，0001/0002 断言必错；这里连序列一起清，隔离才成立。
+        _clear_sequences()
         db.session.commit()
 
     def teardown_method(self):
         db.session.query(OpeningStockDoc).delete()
+        _clear_sequences()
         db.session.commit()
         db.session.remove()
         self.ctx.pop()

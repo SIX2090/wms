@@ -152,7 +152,13 @@ def test_startup_wiring_runs_with_upgrade_only_skip(tmp_path):
     # BUG-2026-11-02-016: compatibility repair is upgrade-only mode; strong no-touch forbids it.
     env["WMS_NO_DB_TOUCH"] = "0"
     env["WMS_SKIP_STARTUP_DB_UPGRADE"] = "1"
+    # BUG-2026-11-10-007：CI 容器 ENV 钉了 FLASK_ENV=testing 与 WMS_DATABASE_URI=内存库，
+    # 子进程 import app 会继承它们并覆盖本用例的文件库，补建逻辑整体跳过、日志断言全落空。
+    # 本用例显式模拟生产启动，固定 production + 文件库（同 test_ensure_inventory_check_columns）。
+    env["FLASK_ENV"] = "production"
     env["DATABASE_URL"] = f"sqlite:///{db_path}"
+    env["WMS_DATABASE_URI"] = env["DATABASE_URL"]
+    env["WMS_SKIP_STARTUP_BACKUP"] = "1"
     env["WMS_BOOTSTRAP_PASSWORD"] = "admin"
     env["WMS_SKIP_AUTO_UPDATE"] = "1"
     env["WMS_DEBUG"] = "0"

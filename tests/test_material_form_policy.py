@@ -13,6 +13,13 @@ import app as w
 
 @pytest.fixture
 def material_client(monkeypatch):
+    # BUG-2026-11-10-006：CI 隔离容器是 FLASK_ENV=testing，TestingConfig 不带
+    # SECURITY_HEADERS，after_request 只写出 material_form_policy 追加的一条严格 CSP，
+    # 于是「迁移页 2 条 / 未迁移页 1 条」的断言全部落空。这里显式注入生产安全头，
+    # 使被测前提在任意 FLASK_ENV 下一致（与 test_phase05_material_pages、
+    # test_f27_security_headers 同一做法）；断言本身一条都不放宽。
+    from config import ProductionConfig
+    monkeypatch.setitem(w.app.config, 'SECURITY_HEADERS', dict(ProductionConfig.SECURITY_HEADERS))
     monkeypatch.setitem(w.app.config, 'TESTING', True)
     with w.app.app_context():
         assert str(w.db.engine.url) == 'sqlite:///:memory:'

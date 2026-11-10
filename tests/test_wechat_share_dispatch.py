@@ -204,9 +204,18 @@ def test_unique_claim_conflict_preserves_shared_memory_connection(http_case, mon
 def test_share_menu_accepts_legacy_counts_without_claim_schema(case, monkeypatch, missing_uncertain):
     render = m.render_template
     def old_context(template, **kwargs):
-        if template == 'wechat_share.html' and missing_uncertain:
-            kwargs['log_counts'].pop('uncertain', None)
-            assert set(kwargs['log_counts']) == {'pending', 'failed', 'sent_today'}
+        if template == 'wechat_share.html':
+            # BUG-2026-11-10-011：路由后来新增 sending / legacy_pending 两个计数，
+            # 直接 pop('uncertain') 已无法得到「旧形状」，原断言必然落空。
+            # 这里显式构造旧上下文，断言它确实是旧形状，再交给真实模板渲染。
+            source = kwargs['log_counts']
+            legacy = {key: source[key] for key in ('pending', 'failed', 'sent_today')}
+            if not missing_uncertain:
+                legacy['uncertain'] = source['uncertain']
+            kwargs['log_counts'] = legacy
+            expected = {'pending', 'failed', 'sent_today'}
+            assert set(kwargs['log_counts']) == (expected if missing_uncertain
+                                                 else expected | {'uncertain'})
         return render(template, **kwargs)
     monkeypatch.setattr(m, 'render_template', old_context)
     response = case['client']().get('/wechat_share')
