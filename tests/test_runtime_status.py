@@ -29,6 +29,7 @@ def sample_app(monkeypatch, tmp_path):
     ('/print_queue/next', 'GET'), ('/print_queue/workstations/2/next', 'GET'),
     ('/print_agent/heartbeat', 'POST'), ('/wechat_share/save', 'POST'),
     ('/wechat_share/run', 'POST'), ('/wechat_share/run_now', 'POST'), ('/wechat_share/log/3/resend', 'POST'),
+    ('/wechat_share/logs/clear', 'POST'), ('/wechat_share/logs/cleanup', 'POST'),
 ])
 def test_initialize_runtime_status(sample_app, monkeypatch, path, method):
     monkeypatch.setenv('WMS_EXTERNAL_OPERATIONS_PAUSED', '1')
@@ -43,12 +44,26 @@ def test_initialize_runtime_status(sample_app, monkeypatch, path, method):
 
 @pytest.mark.parametrize('path,method', [('/print_queue/stats', 'GET'),
     ('/print_queue/station', 'GET'), ('/print_routing', 'GET'), ('/wechat_share', 'GET'),
+    ('/wechat_share/logs/cleanup_preview', 'GET'),
     ('/in_order/add', 'POST'), ('/in_order/7/print', 'GET')])
 def test_paused_runtime_keeps_reading_and_core_business_entry(sample_app, monkeypatch, path, method):
     monkeypatch.setenv('WMS_EXTERNAL_OPERATIONS_PAUSED', '1')
     runtime.initialize_runtime_status(sample_app)
     sample_app.add_url_rule(path, view_func=lambda: 'unchanged', methods=[method])
     assert sample_app.test_client().open(path, method=method).data == b'unchanged'
+
+
+@pytest.mark.parametrize('endpoint', ['clear_wechat_share_logs', 'cleanup_wechat_share_history'])
+def test_paused_runtime_blocks_share_cleanup_endpoint_names(sample_app, monkeypatch, endpoint):
+    monkeypatch.setenv('WMS_EXTERNAL_OPERATIONS_PAUSED', '1')
+    effects = []
+    runtime.initialize_runtime_status(sample_app)
+    path = '/synthetic/' + endpoint
+    sample_app.add_url_rule(path, endpoint=endpoint,
+                            view_func=lambda: effects.append('write') or 'unexpected', methods=['POST'])
+    response = sample_app.test_client().post(path)
+    assert response.status_code == 503
+    assert effects == []
 
 
 def test_standard_runtime_does_not_pause_an_existing_route(sample_app):

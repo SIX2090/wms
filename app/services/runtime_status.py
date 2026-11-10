@@ -79,10 +79,13 @@ def initialize_runtime_status(app):
         path = request.path
         device_write = path.startswith(('/print_queue/', '/print_agent/')) and request.method != 'GET'
         queue_claim = path == '/print_queue/next' or bool(re.fullmatch(r'/print_queue/workstations/\d+/next', path))
-        share_write = (path in {'/wechat_share/save', '/wechat_share/run', '/wechat_share/run_now'}
+        # 清理预览是带签名的只读选择，保持放行；两条清理 POST 会删记录/图片并改写领取保护。
+        share_write = (path in {'/wechat_share/save', '/wechat_share/run', '/wechat_share/run_now',
+                                '/wechat_share/logs/clear', '/wechat_share/logs/cleanup'}
                        or bool(re.fullmatch(r'/wechat_share/log/\d+/resend', path))
                        or request.endpoint in {'save_wechat_share_config', 'run_wechat_share_now',
-                                               'resend_wechat_share_log'})
+                                               'resend_wechat_share_log', 'clear_wechat_share_logs',
+                                               'cleanup_wechat_share_history'})
         helper = request.endpoint in {'wechat_helper_tasks', 'wechat_helper_task_image',
                                      'wechat_helper_report_task'}
         if device_write or queue_claim or share_write or helper:

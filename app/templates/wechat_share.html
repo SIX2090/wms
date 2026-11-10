@@ -311,9 +311,9 @@
             <a href="{{ url_for('wechat_share_page') }}" class="btn btn-sm btn-outline-secondary">重置筛选</a>
             {% endif %}
             {% if log_counts.get('failed', 0) > 0 %}
-            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')">清理失败</button>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="clearWechatShareLogs('failed')" {% if runtime_external_paused %}disabled title="当前部署暂停清理"{% endif %}>清理失败</button>
             {% endif %}
-            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="openWechatShareCleanup()">清理历史记录</button>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-danger" onclick="openWechatShareCleanup()" {% if runtime_external_paused %}disabled title="当前部署暂停清理"{% endif %}>清理历史记录</button>
         </form>
     </div>
     <div id="wechatCleanupPanel" class="card-body border-bottom" hidden>
@@ -325,8 +325,8 @@
                 <option value="0">全部历史记录</option>
             </select>
             <label class="form-check-label"><input id="wechatCleanupImages" type="checkbox" class="form-check-input me-1" onchange="resetWechatShareCleanupPreview()">同时清理关联图片</label>
-            <button data-wechat-write type="button" class="btn btn-sm btn-outline-primary" onclick="previewWechatShareCleanup()">预览清理数量</button>
-            <button id="wechatCleanupConfirm" data-wechat-write type="button" class="btn btn-sm btn-danger" disabled onclick="confirmWechatShareCleanup()">确认清理</button>
+            <button data-wechat-write type="button" class="btn btn-sm btn-outline-primary" onclick="previewWechatShareCleanup()" {% if runtime_external_paused %}disabled title="当前部署暂停清理"{% endif %}>预览清理数量</button>
+            <button id="wechatCleanupConfirm" data-wechat-write type="button" class="btn btn-sm btn-danger" disabled {% if runtime_external_paused %}title="当前部署暂停清理"{% endif %} onclick="confirmWechatShareCleanup()">确认清理</button>
             <button data-wechat-write type="button" class="btn btn-sm btn-outline-secondary" onclick="closeWechatShareCleanup()">收起</button>
         </div>
         <p class="small text-muted mt-2 mb-1">只清理 WMS 内的已发送、失败和跳过记录。待发送、发送中、结果待确认及正在执行任务的记录保留；保留防重复发送保护。</p>
@@ -537,7 +537,9 @@ async function previewWechatShareCleanup() {
         buttons.forEach((button, index) => { button.disabled = disabled[index]; });
         days.disabled = fieldsDisabled[0];
         images.disabled = fieldsDisabled[1];
-        document.getElementById('wechatCleanupConfirm').disabled = !wechatCleanupPlan || wechatCleanupPlan.count === 0;
+        const pausedDeployment = document.querySelector('meta[name="wms-external-operations"]');
+        const cleanupPaused = !!(pausedDeployment && pausedDeployment.content === 'paused');
+        document.getElementById('wechatCleanupConfirm').disabled = cleanupPaused || !wechatCleanupPlan || wechatCleanupPlan.count === 0;
     }
 }
 
