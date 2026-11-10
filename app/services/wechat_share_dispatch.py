@@ -19,7 +19,7 @@ from models.wechat import WechatShareDispatch as Dispatch, WechatShareLog as Log
 LEASE_SECONDS = 300
 UNCERTAIN_MESSAGE = '发送结果待确认；普通执行不会再次发送。请先核对接收端，确需重发时使用强制重发（可能重复）。'
 SAFE_FAILURE_CODES = frozenset({'invalid_helper_url', 'token_not_configured', 'auth_failed',
-    'invalid_wecom_webhook', 'no_receiver', 'clipboard_failed', 'wechat_window_not_found',
+    'invalid_wecom_webhook', 'wecom_rejected', 'no_receiver', 'clipboard_failed', 'wechat_window_not_found',
     'open_contact_failed'})
 
 
@@ -187,6 +187,15 @@ def execute_share(key, metadata, prepare, deliver, force=False):
         _record(key, token, 'sending', '正在发送；若执行中断请先核对接收端', {**metadata, **additions})
         try:
             status, code, message = deliver(data)
+            # BUG-2026-11-10-012：企业微信 webhook 返回 HTTP 200 + errcode≠0 是服务端
+            # 结构化明确拒绝（消息未被接受），属可安全普通重试的确定性失败。原码是
+            # 动态 wecom_<errcode>，命中不了固定白名单，会被一律改判 uncertain；归一为
+            # 固定码后，新结果判定、历史 failed 日志导入去重、清理 claim 保全三处共享
+            # 同一语义。仅纯数字 errcode 命中；wecom_offline/timeout/error/
+            # redirect_refused 等传输层或重定向失败可能已送达，仍保持 uncertain。
+            if (status == 'failed' and isinstance(code, str) and code.startswith('wecom_')
+                    and code[6:].isdigit()):
+                code = 'wecom_rejected'
             if status == 'pending' and code != 'helper_not_configured':
                 status = 'uncertain'
                 message = str(message or '') + '；发送情况请人工核对'

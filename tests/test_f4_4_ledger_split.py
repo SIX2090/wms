@@ -523,3 +523,5 @@ del _bug
 # STATUS_DIST_BASELINE 仍保持拆分前的 315/141/19/1（不靠调基线数值变绿）。
 POST_SPLIT_BUGS['BUG-2026-11-10-005'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-10-006'] = 'fixed'
+# 2026-11-11 企微明确拒绝归一化批次：新增 1 条「已修复」登记，逐个核对后从分布中排除。
+POST_SPLIT_BUGS['BUG-2026-11-10-012'] = 'fixed'
