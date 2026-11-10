@@ -18,6 +18,7 @@ def main():
     import json
     from pathlib import Path
     import platform
+    import secrets
     import re
     import socket
     import sqlite3
@@ -48,14 +49,24 @@ def main():
     platform.machine = lambda: 'synthetic'
     builtins.__import__ = guarded_import
     sys.path.append(sysconfig.get_paths()['purelib'])
-    from sqlalchemy import Date, Integer, String, UniqueConstraint, cast, create_engine, event, func, select, text
+    from flask import Flask, current_app, jsonify, make_response, request
+    from werkzeug.exceptions import HTTPException
+    from sqlalchemy import Date, DateTime, Integer, String, UniqueConstraint, cast, create_engine, event, func, select, text, update
     from sqlalchemy.exc import IntegrityError, OperationalError
-    from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+    from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, scoped_session, sessionmaker
 
     root = Path(__file__).resolve().parents[1]
     core = ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig'))
     route = ast.parse((root / 'app/routes/in_order.py').read_text(encoding='utf-8-sig'))
     web_service = ast.parse((root / 'app/services/web_document_idempotency.py').read_text(encoding='utf-8-sig'))
+    native_service = ast.parse((root / 'app/services/native_request_idempotency.py').read_text(encoding='utf-8-sig'))
+    session_source = ast.parse((root / 'app/db.py').read_text(encoding='utf-8-sig'))
+
+    class BindSyntheticNativeService(ast.NodeTransformer):
+        def visit_ImportFrom(self, node):
+            if node.module == 'services.native_request_idempotency':
+                return ast.copy_location(ast.Pass(), node)
+            return node
 
     def find(tree, name):
         nodes = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name]
@@ -86,6 +97,13 @@ def main():
         id: Mapped[int] = mapped_column(primary_key=True)
         order_no: Mapped[str] = mapped_column(String, unique=True)
 
+    class SystemSetting(Base):
+        __tablename__ = 'synthetic_system_setting'
+        id: Mapped[int] = mapped_column(primary_key=True)
+        key: Mapped[str] = mapped_column(String, unique=True)
+        value: Mapped[str] = mapped_column(String)
+        remark: Mapped[str] = mapped_column(String, nullable=True)
+
     class MobileApiRequest(Base):
         __tablename__ = 'synthetic_mobile_request'
         __table_args__ = (UniqueConstraint('user_id', 'endpoint', 'request_key'),)
@@ -95,6 +113,25 @@ def main():
         request_key: Mapped[str] = mapped_column(String)
         status_code: Mapped[int] = mapped_column(Integer)
         response_json: Mapped[str] = mapped_column(String)
+        created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.now)
+
+    # The current allocator eagerly builds the complete family map. All entries
+    # must exist even when this scenario only inserts inbound/outbound records.
+    other_models = {
+        name: type(name, (Base,), {
+            '__tablename__': 'synthetic_' + name.lower(),
+            'id': mapped_column(Integer, primary_key=True),
+            field: mapped_column(String),
+        }) for name, field in {
+            'InventoryCheck': 'check_no', 'InventoryCheckScan': 'check_no',
+            'SubcontractOrder': 'order_no', 'SubcontractIssue': 'issue_no',
+            'SubcontractReceive': 'receive_no', 'PurchaseRequest': 'request_no',
+            'PurchaseOrder': 'order_no', 'AfterSaleOutOrder': 'order_no',
+            'BOM': 'bom_no', 'ProductionRequisition': 'req_no',
+            'TransferOrder': 'transfer_no', 'AdjustmentOrder': 'adjustment_no',
+            'OpeningStockDoc': 'doc_no',
+        }.items()
+    }
 
     class FixedDatetime(datetime.datetime):
         @classmethod
@@ -120,14 +157,25 @@ def main():
         def setUp(self):
             self.engine = create_engine('sqlite://', creator=lambda: memory_connect(':memory:'))
             Base.metadata.create_all(self.engine)
-            self.session = Session(self.engine)
+            native_scope = {'Session': Session, 'datetime': datetime.datetime,
+                            'timedelta': datetime.timedelta, 'wraps': wraps,
+                            'hashlib': hashlib, 'json': json, 'secrets': secrets,
+                            'current_app': current_app, 'request': request,
+                            'jsonify': jsonify, 'make_response': make_response,
+                            'HTTPException': HTTPException, 'IntegrityError': IntegrityError,
+                            'MobileApiRequest': MobileApiRequest, '_LEASE_SECONDS': 120}
+            session_node = copy.deepcopy(next(n for n in session_source.body if isinstance(n, ast.ClassDef)
+                                             and n.name == '_NativeRequestSession'))
+            session_node = BindSyntheticNativeService().visit(session_node)
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[session_node], type_ignores=[])),
+                         '<real-native-session-synthetic-db>', 'exec'), native_scope)
+            self.session = scoped_session(sessionmaker(bind=self.engine, class_=native_scope['_NativeRequestSession']))
             self.assertTrue(all(row[1] in ('main', 'temp') and row[2] == ''
                                 for row in self.session.execute(text('PRAGMA database_list'))))
-            InOrder.query = self.session.query(InOrder)
-            OutOrder.query = self.session.query(OutOrder)
-            SalesOrder.query = self.session.query(SalesOrder)
-            MobileApiRequest.query = self.session.query(MobileApiRequest)
+            Base.query = self.session.query_property()
+            self.native_app = Flask('synthetic_numbering_native')
             self.env = {
+                **other_models,
                 'InOrder': InOrder, 'OutOrder': OutOrder, 'SalesOrder': SalesOrder,
                 'MobileApiRequest': MobileApiRequest, 'json': json, 'wraps': wraps,
                 'db': types.SimpleNamespace(session=self.session, cast=cast, Integer=Integer, func=func),
@@ -142,13 +190,38 @@ def main():
             }
             helpers = [node for node in core.body if isinstance(node, ast.FunctionDef)
                        and node.name == '_numbering_existing_max']
+            # The merged numbering path also activates native transaction ownership.
+            # Execute that real function against this synthetic session, not the
+            # application's unrelated Flask-SQLAlchemy session.
+            native_scope['db'] = self.env['db']
+            native_nodes = [copy.deepcopy(node) for node in native_service.body
+                            if isinstance(node, (ast.ClassDef, ast.FunctionDef))]
+            exec(compile(ast.fix_missing_locations(ast.Module(body=native_nodes, type_ignores=[])),
+                         '<synthetic-native-activation>', 'exec'), native_scope)
+            self.env['activate_native_business_transaction'] = native_scope['activate_native_business_transaction']
+            self.env['native_request_idempotent'] = native_scope['native_request_idempotent']
+            numbering_tree = ast.parse((root / 'app/services/document_numbering.py').read_text(encoding='utf-8'))
+            numbering_scope = dict(SystemSetting=SystemSetting, select=select, update=update,
+                                   IntegrityError=IntegrityError, re=re, KEY_PREFIX='document_sequence:')
+            numbering_nodes = [node for node in numbering_tree.body if isinstance(node, ast.FunctionDef)]
+            exec(compile(ast.fix_missing_locations(ast.Module(body=numbering_nodes, type_ignores=[])),
+                         '<real-numbering-service-synthetic-db>', 'exec'), numbering_scope)
+            self.env.update({name: numbering_scope[name] for name in
+                             ('preview_document_number', 'reserve_document_number')})
+            allocator = find(core, '_generate_order_no_locked')
+            allocator.body = [node for node in allocator.body if not (
+                isinstance(node, ast.ImportFrom) and node.module == 'services.document_numbering')]
+            generation = find(core, 'generate_order_no')
+            generation.body = [node for node in generation.body if not (
+                isinstance(node, ast.ImportFrom) and node.module == 'services.native_request_idempotency')]
             module = ast.fix_missing_locations(ast.Module(body=[*helpers,
-                find(core, 'generate_order_no'), find(core, '_generate_order_no_locked'),
-                find(core, 'generate_sales_order_no'), find(core, 'mobile_api_idempotent'), wrapper], type_ignores=[]))
+                generation, allocator,
+                find(core, 'generate_sales_order_no'),
+                BindSyntheticNativeService().visit(find(core, 'mobile_api_idempotent')), wrapper], type_ignores=[]))
             exec(compile(module, '<synthetic-numbering-source>', 'exec'), self.env)
 
         def tearDown(self):
-            self.session.close()
+            self.session.remove()
             self.engine.dispose()
 
         def create(self, order_no=''):
@@ -197,55 +270,43 @@ def main():
             self.assertNotEqual(first['order_no'], second['order_no'])
 
         def test_mobile_receipt_failure_then_retry_does_not_duplicate_business(self):
-            session = self.session
-            class ReceiptCommitFailsOnce:
-                def __init__(self):
-                    self.fail = True
-                def __getattr__(self, name):
-                    return getattr(session, name)
-                def commit(self):
-                    if self.fail and any(isinstance(item, MobileApiRequest) for item in session.new):
-                        self.fail = False
-                        raise RuntimeError('synthetic receipt commit failure')
-                    return session.commit()
-
-            class Response:
-                status_code = 200
-                def __init__(self, payload):
-                    self.payload = payload
-                def get_json(self, **_kwargs):
-                    return self.payload
-
-            self.env['db'].session = ReceiptCommitFailsOnce()
+            failed = [False]
+            def fail_finalization(_conn, _cursor, statement, _parameters, _context, _many):
+                update = statement.lower().split(' where ')[0]
+                if not failed[0] and update.startswith('update synthetic_mobile_request') and 'response_json' in update:
+                    failed[0] = True
+                    raise RuntimeError('synthetic receipt finalization failure')
+            event.listen(self.engine, 'before_cursor_execute', fail_finalization)
+            self.addCleanup(event.remove, self.engine, 'before_cursor_execute', fail_finalization)
             def business(_user):
-                return Response(self.create())
-
+                return jsonify(self.create())
             decorated = self.env['mobile_api_idempotent']('inbound')(business)
             user = types.SimpleNamespace(id=1)
-            first = decorated(user)
-            self.assertEqual(first.status_code, 200)
-            second = decorated(user)  # 模拟首个响应丢失后以相同 requestId 重试。
+            def send():
+                with self.native_app.test_request_context('/api/inbound', method='POST', json={},
+                                                         headers={'X-Idempotency-Key': 'synthetic-request'}):
+                    return decorated(user)
+            first = send()
+            self.assertEqual(first.status_code, 503)
+            self.assertTrue(failed[0])
+            self.assertEqual(self.session.query(InOrder).count(), 0)
+            second = send()
             self.assertEqual(second.status_code, 200)
-            self.assertEqual(len(list(session.scalars(select(InOrder.id)))), 1,
+            replay = send()  # 模拟已成功响应丢失后仍复用原请求号。
+            self.assertEqual(replay.status_code, 200)
+            self.assertEqual(replay.get_json(), second.get_json())
+            self.assertEqual(len(list(self.session.scalars(select(InOrder.id)))), 1,
                              '幂等回执失败后重试不应重复提交业务单据')
 
         def test_mobile_reused_key_with_changed_payload_must_not_succeed(self):
-            class Response:
-                status_code = 200
-                def __init__(self, payload):
-                    self.payload = payload
-                def get_json(self, **_kwargs):
-                    return self.payload
-
-            request = types.SimpleNamespace(headers={'X-Idempotency-Key': 'same-key'}, body={'items': [1]})
-            request.get_json = lambda **_kwargs: request.body
-            self.env['request'] = request
             decorated = self.env['mobile_api_idempotent']('inbound')(
-                lambda _user: Response(self.create()))
-            self.assertEqual(decorated(types.SimpleNamespace(id=1)).status_code, 200)
-            request.body = {'items': [2]}
-            _payload, status = decorated(types.SimpleNamespace(id=1))
-            self.assertEqual(status, 409, '同请求号更换业务内容必须提示冲突')
+                lambda _user: jsonify(self.create()))
+            def send(body):
+                with self.native_app.test_request_context('/api/inbound', method='POST', json=body,
+                                                         headers={'X-Idempotency-Key': 'same-key'}):
+                    return decorated(types.SimpleNamespace(id=1))
+            self.assertEqual(send({'items': [1]}).status_code, 200)
+            self.assertEqual(send({'items': [2]}).status_code, 409, '同请求号更换业务内容必须提示冲突')
             self.assertEqual(len(list(self.session.scalars(select(InOrder.id)))), 1)
 
         def test_existing_web_atomic_receipt_replays_and_rejects_changed_payload(self):

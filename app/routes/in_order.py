@@ -1265,9 +1265,8 @@ def register_in_order_routes(app):
                 if order.status != 'pending':
                     return api_error('只有待处理的入库单可以修改')
             else:
-                if not order_no:
-                    prefix = {'采购入库': 'IN', '产品入库': 'PI', '其他入库': 'OI', '销售退货入库': 'SR'}[business_type]
-                    order_no = generate_order_no(prefix)
+                prefix = {'采购入库': 'IN', '产品入库': 'PI', '其他入库': 'OI', '销售退货入库': 'SR'}[business_type]
+                order_no = generate_order_no(prefix)
 
                 order = InOrder.query.filter_by(order_no=order_no).first()
                 if order:

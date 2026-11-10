@@ -303,8 +303,7 @@ def register_subcontract_routes(app):
             if not wh_ok:
                 return api_error(wh_err)
 
-            if not order_no:
-                order_no = generate_order_no('SC')
+            order_no = generate_order_no('SC')
 
             order = SubcontractOrder(
                 order_no=order_no,
@@ -1231,8 +1230,7 @@ def register_subcontract_routes(app):
             if location_management_enabled() and not location:
                 return api_error('请输入库位')
 
-            if not issue_no:
-                issue_no = generate_order_no('SF')
+            issue_no = generate_order_no('SF')
 
             issue = SubcontractIssue(
                 issue_no=issue_no,
@@ -1920,8 +1918,7 @@ def register_subcontract_routes(app):
             if location_management_enabled() and not location:
                 return api_error('请输入库位')
 
-            if not receive_no:
-                receive_no = generate_order_no('SR')
+            receive_no = generate_order_no('SR')
 
             receive = SubcontractReceive(
                 receive_no=receive_no,

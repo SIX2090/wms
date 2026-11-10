@@ -430,7 +430,7 @@ def register_check_routes(app):
                          resolve_inventory_warehouse_id, validate_inventory_warehouse)
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
-        check_no = (data.get('order_no') or data.get('check_no') or '').strip() or generate_order_no('CK')
+        check_no = (data.get('order_no') or data.get('check_no') or '').strip()
         header = data.get('header') or {}
         items_data = data.get('items') or []
 
@@ -461,6 +461,7 @@ def register_check_routes(app):
                 check = db.session.get(InventoryCheck, order_id)
                 if not check:
                     return api_error('盘点单不存在，请刷新后重试')
+                check_no = check.check_no
                 if check.status != 'pending':
                     return api_error('只有草稿状态的盘点单可以修改')
                 duplicate = InventoryCheck.query.filter(InventoryCheck.check_no == check_no, InventoryCheck.id != order_id).first()
@@ -473,6 +474,7 @@ def register_check_routes(app):
                     return api_error('该盘点单状态已变更，请刷新后重试')
                 check = locked
             else:
+                check_no = generate_order_no('CK')
                 check = InventoryCheck.query.filter_by(check_no=check_no).first()
                 if check:
                     if check.status != 'pending':

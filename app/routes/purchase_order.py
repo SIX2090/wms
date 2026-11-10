@@ -471,7 +471,7 @@ def register_purchase_order_routes(app):
                 except (TypeError, ValueError):
                     order_id = None
 
-            order_no = (data.get('order_no') or '').strip() or generate_order_no('PO')
+            order_no = (data.get('order_no') or '').strip()
             order_date = parse_date_value(data.get('date'), date.today())
             if not order_date:
                 return api_error('采购日期格式不正确，请重新选择日期')
@@ -497,6 +497,7 @@ def register_purchase_order_routes(app):
                 order = db.session.get(PurchaseOrder, order_id)
                 if not order:
                     return api_error('采购单不存在，请刷新后重试')
+                order_no = order.order_no
                 if order.status != 'pending':
                     return api_error('只有未入库的采购单可以编辑')
                 # BUG-2026-09-22-009：编辑保存会「整批删除旧明细再按页面重建」
@@ -513,6 +514,7 @@ def register_purchase_order_routes(app):
                     return api_error('该采购单已有下游入库单，不能编辑明细。'
                                      '如需变更请先作废或删除下游入库单')
             else:
+                order_no = generate_order_no('PO')
                 order = PurchaseOrder.query.filter_by(order_no=order_no).first()
                 if order:
                     return api_error('采购单号已存在，不能重复保存')

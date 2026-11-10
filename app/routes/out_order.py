@@ -645,7 +645,7 @@ def register_out_order_routes(app):
                 except (TypeError, ValueError):
                     order_id = None
 
-            order_no = (data.get('order_no') or '').strip() or generate_order_no('OUT')
+            order_no = (data.get('order_no') or '').strip()
             order_date = parse_date_value(data.get('date'), date.today())
             if not order_date:
                 return api_error('日期格式不正确，请重新选择日期')
@@ -748,6 +748,7 @@ def register_out_order_routes(app):
                 order = db.session.get(OutOrder, order_id)
                 if not order:
                     return api_error('领料单不存在，请刷新后重试')
+                order_no = order.order_no
                 if order.status != 'pending':
                     return api_error('已完成的领料单不能修改')
                 if DocumentPushLine.query.filter_by(
@@ -759,6 +760,7 @@ def register_out_order_routes(app):
                     if source_order and source_order.warehouse_id and source_order.warehouse_id != sales_warehouse.id:
                         return jsonify({'status': 'error', 'msg': '销售出库仓库必须与来源销售订单一致'}), 400
             else:
+                order_no = generate_order_no({'销售出库': 'SO', '其他出库': 'OO', '采购退货出库': 'PR'}.get(business_type, 'OUT'))
                 order = OutOrder.query.filter_by(order_no=order_no).first()
                 if order:
                     if order.status != 'pending':

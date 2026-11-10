@@ -127,7 +127,7 @@ def register_requisition_routes(app):
                          round_to_2_decimals)
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
-        req_no = (data.get('order_no') or data.get('req_no') or '').strip() or generate_order_no('REQ')
+        req_no = (data.get('order_no') or data.get('req_no') or '').strip()
         header = data.get('header') or {}
         items_data = data.get('items') or []
 
@@ -173,6 +173,7 @@ def register_requisition_routes(app):
                 requisition = db.session.get(ProductionRequisition, order_id)
                 if not requisition:
                     return api_error('工单领料单不存在，请刷新后重试')
+                req_no = requisition.req_no
                 if requisition.status != 'pending':
                     return api_error('只有草稿状态的工单领料单可以修改')
                 duplicate = ProductionRequisition.query.filter(
@@ -182,6 +183,7 @@ def register_requisition_routes(app):
                 if duplicate:
                     return api_error('工单领料单号已存在')
             else:
+                req_no = generate_order_no('REQ')
                 requisition = ProductionRequisition.query.filter_by(req_no=req_no).first()
                 if requisition:
                     if requisition.status != 'pending':

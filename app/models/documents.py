@@ -9,6 +9,8 @@ ARCH-MODELS-01（2026-09-15）自 app/app.py 模型区迁入，类定义逐字�
 from db import db
 from datetime import datetime
 from datetime import date
+from sqlalchemy import event, inspect
+from sqlalchemy.orm import Session
 
 __all__ = [
     'AdjustmentOrder',
@@ -902,3 +904,37 @@ class SalesOrderItem(db.Model):
     sales_order = db.relationship('SalesOrder', backref='items')
     material = db.relationship('Material', backref='sales_order_items')
     contract = db.relationship('Contract', foreign_keys=[contract_id])
+
+
+@event.listens_for(Session, 'before_flush')
+def retain_document_sequences(session, flush_context, instances):
+    """Keep allocated/imported numbers after edits or deletion, in the same transaction."""
+    from services.document_numbering import retain_document_number
+    families = (
+        (InOrder, 'order_no', ('IN', 'PI', 'OI', 'SR')),
+        (OutOrder, 'order_no', ('OU', 'SO', 'OO', 'PR')),
+        (SalesOrder, 'order_no', ('SO',)),
+        (InventoryCheck, 'check_no', ('CK',)),
+        (InventoryCheckScan, 'check_no', ('CS',)),
+        (SubcontractOrder, 'order_no', ('SC', 'SUB', 'WW')),
+        (SubcontractIssue, 'issue_no', ('SF',)),
+        (SubcontractReceive, 'receive_no', ('SR',)),
+        (PurchaseRequest, 'request_no', ('PR',)),
+        (PurchaseOrder, 'order_no', ('PO',)),
+        (AfterSaleOutOrder, 'order_no', ('ASO',)),
+        (BOM, 'bom_no', ('BOM',)),
+        (ProductionRequisition, 'req_no', ('REQ',)),
+        (TransferOrder, 'transfer_no', ('TF',)),
+        (AdjustmentOrder, 'adjustment_no', ('ADJ',)),
+        (OpeningStockDoc, 'doc_no', ('QS',)),
+    )
+    for record in session.new.union(session.dirty).union(session.deleted):
+        for model, field, prefixes in families:
+            if not isinstance(record, model):
+                continue
+            history = inspect(record).attrs[field].history
+            if record in session.dirty and not history.has_changes():
+                break
+            for number in (*history.deleted, getattr(record, field)):
+                retain_document_number(session.connection(), number, prefixes)
+            break

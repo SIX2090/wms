@@ -284,7 +284,7 @@ def register_after_sale_out_routes(app):
                 except (TypeError, ValueError):
                     order_id = None
 
-            order_no = (data.get('order_no') or '').strip() or generate_order_no('ASO')
+            order_no = (data.get('order_no') or '').strip()
             order_date = parse_date_value(data.get('date'), date.today())
             if not order_date:
                 return api_error('日期格式不正确，请重新选择日期')
@@ -332,6 +332,7 @@ def register_after_sale_out_routes(app):
                 order = db.session.get(AfterSaleOutOrder, order_id)
                 if not order:
                     return api_error('售后出库单不存在，请刷新后重试')
+                order_no = order.order_no
                 if order.status != 'pending':
                     return api_error('已完成的售后出库单不能修改')
                 if DocumentPushLine.query.filter_by(
@@ -339,6 +340,7 @@ def register_after_sale_out_routes(app):
                 ).first():
                     return jsonify({'status': 'error', 'msg': '下推生成的售后出库草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
             else:
+                order_no = generate_order_no('ASO')
                 order = AfterSaleOutOrder.query.filter_by(order_no=order_no).first()
                 if order:
                     if order.status != 'pending':

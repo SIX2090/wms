@@ -125,13 +125,19 @@ def test_new_same_number_preserves_original_and_inventory(case, entry, transport
     with wms.app.app_context():
         before = snapshot(model)
     second = post(clients[1], endpoint, payload(kind, ids, number, True), transport)
-    assert second.status_code == 409, second.get_json()
-    assert second.get_json()['status'] == 'error'
-    assert '单号已存在' in second.get_json()['msg']
+    # The approved first-save policy ignores a stale preview for a new ID.
+    assert second.status_code == 200, second.get_json()
+    assert second.get_json()['status'] == 'success'
+    assert second.get_json()['id'] != first.get_json()['id']
     with wms.app.app_context():
-        assert snapshot(model) == before
-        assert model.query.count() == 1
-        assert getattr(model.query.one(), number_field) == number
+        after = snapshot(model)
+        assert after['header'][:1] == before['header']
+        assert after['items'][:len(before['items'])] == before['items']
+        for key in ('materials', 'transactions', 'locations'):
+            assert after[key] == before[key]
+        assert model.query.count() == 2
+        numbers = [getattr(row, number_field) for row in model.query.order_by(model.id)]
+        assert len(set(numbers)) == 2 and number not in numbers
         assert wms.get_warehouse_stock_quantities(db.session.get(wms.Warehouse, ids['a'])) == {
             material_id: 20 for material_id in ids['mats']}
         assert wms.get_warehouse_stock_quantities(db.session.get(wms.Warehouse, ids['b'])) == {

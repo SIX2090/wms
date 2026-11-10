@@ -28,6 +28,7 @@ from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 from utils import round_money_product
 
@@ -190,6 +191,7 @@ def register_bom_routes(app):
     @app.route('/bom/save_table', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def save_bom_table():
         from app import (BOM, BOMItem, _clean_int, _material_from_payload,
                          api_error, calculate_bom_cost_value, generate_order_no,
@@ -202,7 +204,7 @@ def register_bom_routes(app):
         except ValidationError:
             return api_error('BOM数据格式不正确，请检查表头和明细')
         order_id = _clean_int(data.get('order_id'))
-        bom_no = (data.get('order_no') or data.get('bom_no') or '').strip() or generate_order_no('BOM')
+        bom_no = (data.get('order_no') or data.get('bom_no') or '').strip()
         header = data.get('header') or {}
         items_data = data.get('items') or []
         if any(not isinstance(header.get(key, data.get(key, '')), str)
@@ -228,10 +230,12 @@ def register_bom_routes(app):
                 bom = db.session.get(BOM, order_id)
                 if not bom:
                     return api_error('BOM不存在，请刷新后重试')
+                bom_no = bom.bom_no
                 duplicate = BOM.query.filter(BOM.bom_no == bom_no, BOM.id != order_id).first()
                 if duplicate:
                     return api_error('BOM编号已存在')
             else:
+                bom_no = generate_order_no('BOM')
                 bom = BOM.query.filter_by(bom_no=bom_no).first()
                 if bom:
                     return api_error('BOM编号已存在，请打开原BOM编辑')
@@ -268,6 +272,7 @@ def register_bom_routes(app):
             calculate_bom_cost_value(bom, refresh_unit_cost=False)
             if not math.isfinite(bom.total_cost):
                 raise ValueError('BOM成本计算超出允许范围')
+            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': bom.id, 'order_no': bom.bom_no})
             db.session.commit()
             log_operation('保存BOM', f'BOM：{bom.bom_no}', 'bom', bom.id)
             return jsonify({'status': 'success', 'msg': '保存成功', 'id': bom.id, 'order_no': bom.bom_no})
@@ -284,6 +289,7 @@ def register_bom_routes(app):
     @app.route('/bom/add', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_idempotent
     def add_bom():
         from app import BOM, api_error, generate_order_no, log_operation
         try:
@@ -306,6 +312,8 @@ def register_bom_routes(app):
             )
             db.session.add(bom)
             try:
+                db.session.flush()
+                stage_document_response({'status': 'success', 'msg': 'BOM 新增成功'})
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

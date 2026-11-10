@@ -109,7 +109,7 @@ def register_transfer_routes(app):
         from flask import jsonify, request
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
-        transfer_no = (data.get('order_no') or data.get('transfer_no') or '').strip() or generate_order_no('TF')
+        transfer_no = (data.get('order_no') or data.get('transfer_no') or '').strip()
         header = data.get('header') or {}
         items_data = data.get('items') or []
         from_location = (header.get('from_location') or '').strip()
@@ -152,12 +152,14 @@ def register_transfer_routes(app):
                 transfer = db.session.get(TransferOrder, order_id)
                 if not transfer:
                     return api_error('调拨单不存在，请刷新后重试')
+                transfer_no = transfer.transfer_no
                 if transfer.status != 'pending':
                     return api_error('只有草稿状态的调拨单可以修改')
                 duplicate = TransferOrder.query.filter(TransferOrder.transfer_no == transfer_no, TransferOrder.id != order_id).first()
                 if duplicate:
                     return api_error('调拨单号已存在')
             else:
+                transfer_no = generate_order_no('TF')
                 transfer = TransferOrder.query.filter_by(transfer_no=transfer_no).first()
                 if transfer:
                     if transfer.status != 'pending':

@@ -36,8 +36,10 @@ def main():
     sqlite3.connect = sqlite3.dbapi2.connect = refuse
     platform.machine = lambda: 'synthetic'
     sys.path.append(sysconfig.get_paths()['purelib'])
-    from sqlalchemy import Column, Integer, String, create_engine, func, cast
+    from sqlalchemy import Column, Integer, String, create_engine, func, cast, select, update
     from sqlalchemy.orm import declarative_base, scoped_session, sessionmaker
+
+    from sqlalchemy.exc import IntegrityError
 
     Base = declarative_base()
     specs = {
@@ -55,6 +57,13 @@ def main():
                     'id': Column(Integer, primary_key=True), field: Column(String)})
         for name, field in specs.items()
     }
+    class SystemSetting(Base):
+        __tablename__ = 'synthetic_system_setting'
+        id = Column(Integer, primary_key=True)
+        key = Column(String, unique=True)
+        value = Column(String)
+        remark = Column(String)
+
     engine = create_engine('sqlite://', creator=lambda: original_connect(':memory:'))
     session = scoped_session(sessionmaker(bind=engine))
     Base.query = session.query_property()
@@ -93,6 +102,14 @@ def main():
     services = types.ModuleType('services'); services.__path__ = []
     sys.modules['services'] = services
     sys.modules['services.native_request_idempotency'] = native_module
+    numbering_tree = ast.parse((root / 'app/services/document_numbering.py').read_text(encoding='utf-8'))
+    numbering_module = types.ModuleType('services.document_numbering')
+    numbering_module.__dict__.update(SystemSetting=SystemSetting, select=select, update=update,
+                                     IntegrityError=IntegrityError, re=re, KEY_PREFIX='document_sequence:')
+    numbering_nodes = [node for node in numbering_tree.body if isinstance(node, ast.FunctionDef)]
+    exec(compile(ast.fix_missing_locations(ast.Module(body=numbering_nodes, type_ignores=[])),
+                 '<real-numbering-service-synthetic-db>', 'exec'), numbering_module.__dict__)
+    sys.modules['services.document_numbering'] = numbering_module
     exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),
                  '<real-number-functions-synthetic-db>', 'exec'), env)
 
@@ -110,6 +127,8 @@ def main():
     }
     class Selection(unittest.TestCase):
         def setUp(self):
+            session.rollback()
+            session.query(SystemSetting).delete()
             for model in models.values():
                 session.query(model).delete()
             session.commit()

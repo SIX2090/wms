@@ -300,9 +300,6 @@ def register_adjustment_routes(app):
             order_id = None
 
         try:
-            if not adjustment_no:
-                adjustment_no = generate_order_no('ADJ')
-
             if adjustment_type not in ('surplus', 'loss'):
                 return api_error('请选择调整类型')
 
@@ -326,6 +323,7 @@ def register_adjustment_routes(app):
                     return api_error('库存调整单不存在，请刷新后重试')
                 if adjustment.status != 'pending':
                     return api_error('只有草稿状态的调整单可以修改')
+                adjustment_no = adjustment.adjustment_no
                 same_no_order = AdjustmentOrder.query.filter(
                     AdjustmentOrder.adjustment_no == adjustment_no,
                     AdjustmentOrder.id != order_id
@@ -333,6 +331,7 @@ def register_adjustment_routes(app):
                 if same_no_order:
                     return api_error('调整单号已存在，不能重复保存')
             else:
+                adjustment_no = generate_order_no('ADJ')
                 # Check if adjustment order already exists
                 adjustment = AdjustmentOrder.query.filter_by(adjustment_no=adjustment_no).first()
                 if adjustment:

@@ -1,4 +1,4 @@
-"""BUG-2026-11-01-029: stale sales previews fail clearly without changing old data."""
+"""First-save sales numbers preserve the original draft and inventory."""
 from tests.document_revision_client import document_post
 import copy
 import json
@@ -58,14 +58,19 @@ def test_duplicate_sales_number_is_conflict_preserves_original_and_allows_fresh_
         db.session.get(wms.SalesOrder, document_id).status = state
         db.session.commit()
         before = snapshot()
+    created = {document_id}
     for _ in range(2):
         response = post(clients[1], payload(ids, number, second=True), transport)
-        assert response.status_code == 409, response.get_json()
-        assert response.get_json()['status'] == 'error'
-        assert '销售订单号已存在' in response.get_json()['msg']
-        assert '刷新' in response.get_json()['msg']
+        assert response.status_code == 200, response.get_json()
+        assert response.get_json()['status'] == 'success'
+        assert response.get_json()['id'] not in created
+        created.add(response.get_json()['id'])
         with wms.app.app_context():
-            assert snapshot() == before
+            current = snapshot()
+            assert current['sales_order'][:1] == before['sales_order']
+            assert current['sales_order_item'][:1] == before['sales_order_item']
+            for table in ('material', 'stock_transaction', 'location_inventory'):
+                assert current[table] == before[table]
     fresh = post(clients[1], payload(ids, number+'-NEW', second=True), transport)
     assert fresh.status_code == 200, fresh.get_json()
     assert fresh.get_json()['id'] != document_id
@@ -82,8 +87,10 @@ def test_duplicate_sales_number_is_conflict_preserves_original_and_allows_fresh_
 @pytest.mark.parametrize('transport', ['json', 'form'])
 def test_generated_sales_number_collision_uses_same_conflict_response(sales_case, monkeypatch, transport):
     clients, ids = sales_case
-    assert post(clients[0], payload(ids, 'SO-GENERATED'), transport).status_code == 200
-    monkeypatch.setattr(wms, 'generate_sales_order_no', lambda: 'SO-GENERATED')
+    first = post(clients[0], payload(ids, 'SO-GENERATED'), transport)
+    assert first.status_code == 200
+    assigned = first.get_json()['order_no']
+    monkeypatch.setattr(wms, 'generate_sales_order_no', lambda: assigned)
     with wms.app.app_context():
         before = snapshot()
     response = post(clients[1], payload(ids, second=True), transport)

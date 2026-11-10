@@ -474,7 +474,7 @@ def register_purchase_request_routes(app):
                 except (TypeError, ValueError):
                     request_id = None
 
-            request_no = (data.get('request_no') or '').strip() or generate_order_no('PR')
+            request_no = (data.get('request_no') or '').strip()
             request_date = parse_date_value(data.get('date'), date.today())
             if not request_date:
                 return api_error('申请日期格式不正确，请重新选择日期')
@@ -491,9 +491,11 @@ def register_purchase_request_routes(app):
                 request_order = db.session.get(PurchaseRequest, request_id)
                 if not request_order:
                     return api_error('采购申请单不存在，请刷新后重试')
+                request_no = request_order.request_no
                 if request_order.status != 'pending':
                     return api_error('只有待审批的采购申请单可以修改')
             else:
+                request_no = generate_order_no('PR')
                 request_order = PurchaseRequest.query.filter_by(request_no=request_no).first()
                 if request_order:
                     if request_order.status != 'pending':

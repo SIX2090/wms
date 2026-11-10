@@ -5019,44 +5019,41 @@ def generate_order_no(prefix='NO'):
     if prefix == 'OUT':
         prefix = 'OU'
 
-    # Native requests must hold the database transaction before reading the last
-    # formal number; take this lock before the process-local numbering mutex.
+    # The sequence is protected by the caller's database transaction. A Python
+    # mutex here can deadlock a writer needing a second number against a waiter
+    # holding the mutex while blocked on that writer's database transaction.
     from services.native_request_idempotency import activate_native_business_transaction
     activate_native_business_transaction()
 
-    # BUG-2026-08-16-020：SQLite 下 with_for_update 是 no-op，并发取号可能撞号，
-    # 而撞号在调用方 INSERT/commit 时才暴露（约束兜底但用户吃 500）。
-    # 这里用进程内互斥锁把「读末号 + 算新号」串行化，单进程（WMS 常见部署）
-    # 不再撞号；多进程仍由库表唯一约束兜底。
-    with _order_no_generation_lock:
-        return _generate_order_no_locked(prefix)
-
-
-# 模块级取号锁：串行化 read-seq+1，避免 SQLite 并发撞号
-_order_no_generation_lock = threading.Lock()
+    return _generate_order_no_locked(prefix)
 
 
 def _numbering_existing_max(model, field_name, base):
-    """Read complete numeric suffixes; lock only the selected existing row."""
+    """Read complete historical suffixes while the sequence write lock is held."""
     column = getattr(model, field_name)
     maximum = 0
-    largest = None
-    # Do not lock the whole month while filtering malformed historical numbers.
-    for (number,) in model.query.with_entities(column).filter(column.like(base + '%')).all():
+    # Locking a document here could invert the lock order of a concurrent edit
+    # or delete. The persistent sequence owns allocation and survives deletion.
+    query = model.query
+    numbers = [number for (number,) in query.with_entities(column).filter(column.like(base + '%')).all()]
+    # Respect a caller's no_autoflush block while accounting for unflushed
+    # imported numbers and edits in this same transaction.
+    numbers.extend(getattr(row, field_name) for row in query.session.new.union(query.session.dirty)
+                   if isinstance(row, model))
+    for number in numbers:
         suffix = number[len(base):] if isinstance(number, str) and number.startswith(base) else ''
         if not re.fullmatch(r'[0-9]+', suffix):
             continue
         sequence = int(suffix)  # Excessive values must fail, never fall back to 0001.
-        if largest is None or sequence > maximum:
-            maximum, largest = sequence, number
-    if largest is not None:
-        selected = model.query.filter(column == largest).with_for_update().first()
-        if selected is None:
-            raise RuntimeError('单据编号基线已变化，请重试保存')
+        if sequence > maximum:
+            maximum = sequence
     return maximum
 
 
 def _generate_order_no_locked(prefix):
+    from flask import has_request_context, request
+    from services.document_numbering import preview_document_number, reserve_document_number
+
     base = prefix + datetime.now().strftime('%y%m')
     families = {
         'IN': ((InOrder, 'order_no'),), 'PI': ((InOrder, 'order_no'),),
@@ -5065,6 +5062,7 @@ def _generate_order_no_locked(prefix):
         'OO': ((OutOrder, 'order_no'),), 'CK': ((InventoryCheck, 'check_no'),),
         'CS': ((InventoryCheckScan, 'check_no'),),
         'SC': ((SubcontractOrder, 'order_no'),), 'SUB': ((SubcontractOrder, 'order_no'),),
+        'WW': ((SubcontractOrder, 'order_no'),),  # Existing legacy subcontract prefix.
         'SF': ((SubcontractIssue, 'issue_no'),),
         'SR': ((SubcontractReceive, 'receive_no'), (InOrder, 'order_no')),
         'PR': ((PurchaseRequest, 'request_no'), (OutOrder, 'order_no')),
@@ -5073,16 +5071,17 @@ def _generate_order_no_locked(prefix):
         'TF': ((TransferOrder, 'transfer_no'),), 'ADJ': ((AdjustmentOrder, 'adjustment_no'),),
         'QS': ((OpeningStockDoc, 'doc_no'),),
     }
-    for attempt in range(3):
-        try:
-            maximum = max((_numbering_existing_max(model, field, base)
-                           for model, field in families.get(prefix, ())), default=0)
-            return f'{base}{maximum + 1:04d}'
-        except Exception:
-            if attempt == 2:
-                raise
-            import time
-            time.sleep(0.1)
+    if prefix not in families:
+        raise ValueError('不支持的单据编号前缀')
+
+    def existing_maximum():
+        maximum = max((_numbering_existing_max(model, field, base)
+                       for model, field in families[prefix]), default=0)
+        return maximum
+
+    allocate = (preview_document_number if has_request_context() and
+                request.method in ('GET', 'HEAD') else reserve_document_number)
+    return allocate(db.session, base, existing_maximum)
 
 def deduct_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
     """扣减库存，返回(是否成功, 错误信息)"""

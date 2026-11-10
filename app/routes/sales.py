@@ -560,7 +560,7 @@ def register_sales_routes(app):
             if warehouse_error:
                 return jsonify({'status': 'error', 'msg': warehouse_error}), 400
             _contract_id_raw = (payload.get('contract_id') or '').strip()
-            order_no = (payload.get('order_no') or '').strip() or generate_sales_order_no()
+            order_no = generate_sales_order_no()
             order = SalesOrder(
                 order_no=order_no,
                 customer_id=customer.id,

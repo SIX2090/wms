@@ -12,6 +12,7 @@ FAMILIES = [
     ('OU','OutOrder','order_no'), ('SO','OutOrder','order_no'), ('OO','OutOrder','order_no'),
     ('CK','InventoryCheck','check_no'), ('CS','InventoryCheckScan','check_no'),
     ('SC','SubcontractOrder','order_no'), ('SUB','SubcontractOrder','order_no'),
+    ('WW','SubcontractOrder','order_no'),
     ('SF','SubcontractIssue','issue_no'), ('SR','SubcontractReceive','receive_no'),
     ('PR','PurchaseRequest','request_no'), ('PO','PurchaseOrder','order_no'),
     ('ASO','AfterSaleOutOrder','order_no'), ('BOM','BOM','bom_no'),
@@ -66,13 +67,13 @@ def test_shared_so_prefix_sees_both_actual_tables(money_case, entry, high_model)
     unchanged_inventory(c)
 
 
-def test_lock_queries_target_one_selected_number_in_other_dialect_sql(money_case):
+def test_sequence_lock_targets_one_counter_without_locking_historical_documents(money_case):
     c = money_case;w = c.w;base = 'OU' + datetime.now().strftime('%y%m')
     add(c, 'OutOrder', 'order_no', base + '0077')
     add(c, 'OutOrder', 'order_no', base + '0004')
     captured = []
     def record(conn, clause, multiparams, params, options):
-        if getattr(clause, 'is_select', False):
+        if getattr(clause, 'is_select', False) or getattr(clause, 'is_update', False):
             captured.append(clause)
     engine = w.db.engine
     event.listen(engine, 'before_execute', record)
@@ -80,10 +81,13 @@ def test_lock_queries_target_one_selected_number_in_other_dialect_sql(money_case
         assert w.generate_order_no('OU') == base + '0078'
     finally:
         event.remove(engine, 'before_execute', record)
-    locks = [statement for statement in captured if statement._for_update_arg is not None]
-    assert len(locks) == 1
+    assert not [statement for statement in captured if getattr(statement, '_for_update_arg', None) is not None]
+    locks = [statement for statement in captured if getattr(statement, 'is_update', False)
+             and statement.table.name == 'system_setting']
+    assert len(locks) == 2  # Acquire one counter row, then advance it in this transaction.
     for dialect in (mysql.dialect(), postgresql.dialect()):
         compiled = str(locks[0].compile(dialect=dialect, compile_kwargs={'literal_binds':True}))
-        assert 'FOR UPDATE' in compiled and ' LIKE ' not in compiled
-        assert base + '0077' in compiled and base + '0004' not in compiled
+        assert 'UPDATE system_setting SET' in compiled and ' WHERE ' in compiled and ' LIKE ' not in compiled
+        assert 'document_sequence:' + base in compiled
+        assert base + '0077' not in compiled and base + '0004' not in compiled
     unchanged_inventory(c)

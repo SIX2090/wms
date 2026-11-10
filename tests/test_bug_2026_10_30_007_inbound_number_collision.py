@@ -68,10 +68,11 @@ def test_new_same_number_cannot_overwrite_draft(case, kind, prefix, transport):
     else:
         data['items_json'] = json.dumps(data.pop('items'))
         response = document_post(client,'/in_order/add', data=data)
-    assert response.status_code == 409, response.get_json()
-    assert '单号已存在' in response.get_json()['msg']
+    assert response.status_code == 200, response.get_json()
+    assert response.get_json()['order_no'] != number
+    assert response.get_json()['id'] != before[0]
     db.session.expire_all()
-    assert InOrder.query.count() == 1
+    assert InOrder.query.count() == 2
     old = db.session.get(InOrder, before[0])
     assert (old.warehouse, old.remark, old.total_amount) == (warehouses[0].name, 'original', 2)
     assert (old.date, old.operator_id) == before[2:]
@@ -93,7 +94,8 @@ def test_other_inbound_preview_advances_existing_numbers(case):
     number = 'OI' + datetime.now().strftime('%y%m') + '0001'
     db.session.add(InOrder(order_no=number, business_type='其他入库', warehouse=case[1][0].name))
     db.session.commit()
-    assert wms.generate_order_no('OI') == number[:-4] + '0002'
+    with wms.app.test_request_context('/other_in_order/add', method='GET'):
+        assert wms.generate_order_no('OI') == number[:-4] + '0002'
     response = case[0].get('/other_in_order/add')
     assert f'value="{number[:-4]}0002"' in response.get_data(as_text=True)
 
