@@ -25499,6 +25499,9 @@ def _wechat_share_helper_health_url(config):
     )
     if not helper_url:
         return ''
+    # 健康探测同样会发起 GET；复用直推通道的白名单，环境变量也不能指向外网地址。
+    if not _wechat_share_helper_url_allowed(helper_url):
+        return ''
     parsed = urlparse(helper_url)
     if not parsed.scheme or not parsed.netloc:
         return ''
