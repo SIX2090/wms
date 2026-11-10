@@ -100,3 +100,6 @@ run_wms_task.bat.bak
 .installed.flag
 # Windows 设备名残留：bash 下 > NUL 会真创建名为 NUL 的条目，git 报未跟踪
 NUL
+
+# ===== 运行时产物（如导出/任务临时目录）=====
+outputs/
