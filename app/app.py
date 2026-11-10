@@ -25645,6 +25645,7 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
     orders = _wechat_share_today_in_orders()
     created = 0
     skipped = 0
+    failed = 0
     logs = []
     # WECOM-BOT-001：企业微信机器人每机器人限 20 条/分钟，批量推送时单与单之间节流
     wecom_throttle = bool(_wechat_share_wecom_webhook())
@@ -25652,7 +25653,15 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
         if wecom_throttle and index:
             import time as _time
             _time.sleep(3)
-        log, action = _wechat_share_order(config, order, trigger_type=trigger_type, force=force)
+        # BUG-2026-11-11-001：逐单隔离。某一张入库单的图片生成/发送异常不得中断整批；
+        # execute_share 已把该单持久化为 failed/uncertain，后续单据照常处理，避免整批漏发。
+        try:
+            log, action = _wechat_share_order(config, order, trigger_type=trigger_type, force=force)
+        except Exception:
+            failed += 1
+            app.logger.exception('微信分享单张入库单异常，已跳过并继续处理其余单据: order_id=%s',
+                                getattr(order, 'id', None))
+            continue
         logs.append(log)
         if action == 'created':
             created += 1
@@ -25661,12 +25670,17 @@ def run_wechat_share_for_today(trigger_type='manual', force=False, config=None):
     db.session.commit()
 
     if not orders:
-        return {'status': 'success', 'msg': '今天没有已完成入库单', 'created': 0, 'skipped': 0, 'logs': []}
+        return {'status': 'success', 'msg': '今天没有已完成入库单', 'created': 0, 'skipped': 0,
+                'failed': 0, 'logs': []}
+    msg = f'已处理 {len(orders)} 张今日入库单，生成 {created} 张分享图片，跳过 {skipped} 张'
+    if failed:
+        msg += f'，失败 {failed} 张需人工核对'
     return {
         'status': 'success',
-        'msg': f'已处理 {len(orders)} 张今日入库单，生成 {created} 张分享图片，跳过 {skipped} 张',
+        'msg': msg,
         'created': created,
         'skipped': skipped,
+        'failed': failed,
         'uncertain': sum(log.status in ('sending', 'delivery_started', 'uncertain') for log in logs),
         'log_ids': [log.id for log in logs if getattr(log, 'id', None)],
     }
