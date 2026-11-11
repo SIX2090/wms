@@ -195,7 +195,6 @@ def register_wechat_share_routes(app):
         from services.wechat_share_dispatch import DispatchUnavailable, execute_share
         from app import (
             WechatShareLog,
-            _wechat_share_default_config,
             _wechat_share_output_dir,
             _wechat_share_send_image,
             _wechat_share_send_wecom,
@@ -208,7 +207,17 @@ def register_wechat_share_routes(app):
             request,
         )
         log = WechatShareLog.query.get_or_404(log_id)
-        config = log.config or _wechat_share_default_config()
+        # BUG-2026-11-11-002：重发必须沿用该记录自己的历史配置。配置被删除或
+        # config_id 悬空时，旧逻辑会调 _wechat_share_default_config()：库里没配置就
+        # 新建并 commit 一条 enabled=True、收件人为空的默认配置（一次「重发」凭空多出
+        # 写库副作用），库里有配置就借用任意一条别的配置（助手地址/发送人/收件人全串）。
+        # 这里 fail-closed：不猜收件人、不建配置、不发送，明确报错让人工核对。
+        config = log.config
+        if config is None:
+            return jsonify({
+                'status': 'error',
+                'msg': '该记录关联的分享配置已不存在，为避免发错接收人已停止重发；请核对微信分享设置后重新生成分享图片',
+            }), 409
         if log.module_key != 'in_order':
             return jsonify({'status': 'error', 'msg': '当前只支持重发入库单分享记录'}), 400
         if not log.image_path:
