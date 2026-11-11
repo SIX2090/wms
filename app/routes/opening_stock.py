@@ -6,6 +6,14 @@ from flask_login import login_required
 
 from utils import require_role
 
+# G-16（2026-11-11 体检缺口）：一键清空全部期初库存是**全库级不可逆**动作，
+# 原保护只有前端连点两次 confirm + 服务端 confirm=true，等于"手滑两下就清库"。
+# 服务端要求手输确认短语：点击可以连点，手输不能。
+# 不采用盘点那套 confirmation_token：它是两阶段协议（先取 token 再带 token 重提），
+# 需要为 OpeningStockDoc 另写快照指纹函数并改前端状态机，成本高一个数量级，
+# 而防误触强度与"手输短语"等价。
+OPENING_STOCK_PURGE_PHRASE = '清空全部期初库存'
+
 
 # no-test:reason=路由注册辅助函数，能力由 opening_stock_* 各路由测试覆盖
 def register_opening_stock_routes(app):
@@ -925,14 +933,21 @@ def register_opening_stock_routes(app):
             app,
             db,
             jsonify,
+            log_audit,
             log_operation,
             request,
         )
         from pydantic import BaseModel, ValidationError
 
         class OpeningStockDeleteAllRequest(BaseModel):
-            """全量删除入参：必须显式 confirm=true，服务端二次确认防误触（A8）。"""
+            """全量删除入参：显式 confirm=true + 手输确认短语（防误触，A8）。
+
+            G-16（2026-11-11）：confirm_phrase 定为**必填**。这是刻意打破旧契约——
+            旧契约只有 confirm=true，而前端是连点两次原生 confirm，误触成本极低，
+            一次"清空重来"就会把全库期初连同库存回冲全部抹掉且无留痕。
+            """
             confirm: bool
+            confirm_phrase: str = ''
 
         try:
             payload = OpeningStockDeleteAllRequest.model_validate(
@@ -941,6 +956,11 @@ def register_opening_stock_routes(app):
             return jsonify({'status': 'error', 'msg': '请确认删除操作'}), 400
         if payload.confirm is not True:
             return jsonify({'status': 'error', 'msg': '请确认删除操作'}), 400
+        if (payload.confirm_phrase or '').strip() != OPENING_STOCK_PURGE_PHRASE:
+            return jsonify({
+                'status': 'error',
+                'msg': f'请输入确认短语「{OPENING_STOCK_PURGE_PHRASE}」后再执行',
+            }), 400
 
         try:
             lines = OpeningStock.query.with_for_update().all()
@@ -958,12 +978,37 @@ def register_opening_stock_routes(app):
                 db.session.delete(line)
             docs = OpeningStockDoc.query.all()
             deleted_docs = len(docs)
+            # G-16（2026-11-11）：审计快照必须在 commit 之前。commit 后 ORM 对象
+            # 全部过期，被删对象的属性再访问会触发重新查询并失败；而且这里要记的
+            # 是"删掉了什么"，不是"还剩下什么"。
+            # 只留单号/仓库/行数，明细行内容不落审计——期初单可达上万行，
+            # 全量存 Text 会把审计表撑爆且无人阅读。
+            audit_docs = [{
+                'id': d.id,
+                'doc_no': d.doc_no or '',
+                'warehouse_id': d.warehouse_id,
+            } for d in docs]
             for doc in docs:
                 db.session.delete(doc)
             db.session.commit()
             log_operation('删除全部期初库存',
                           f'回冲 {reversed_count} 行，删除 {deleted_docs} 张单据',
                           'opening_stock', None)
+            # G-16：全库级不可逆动作必须留结构化痕迹（原来只有一条自由文本
+            # operation_log，查不出"删了哪几张单、多少行"）。
+            # target_id 传 None：本操作跨多张单据，没有单一目标（列可空）。
+            log_audit(
+                'purge_opening_stock', 'opening_stock', None,
+                target_name='全部期初库存',
+                old_data={
+                    'doc_count': deleted_docs,
+                    'line_count': reversed_count,
+                    'docs': audit_docs[:50],
+                    'docs_truncated': max(0, len(audit_docs) - 50),
+                },
+                new_data={'deleted_docs': deleted_docs, 'reversed_lines': reversed_count},
+                reason='一键清空（确认短语校验通过）',
+            )
             msg = f'已删除全部期初库存：回冲 {reversed_count} 行明细，删除 {deleted_docs} 张单据'
             if hints:
                 # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏

@@ -24,9 +24,16 @@
   T6 删除了就没有流水（BUG-2026-09-16-007）：全删后 opening 流水清零、
      不新增负向回冲流水
   T7 前端静态断言：删除全部按钮 + deleteAllOpeningStock + 端点齐全
+  T8~T11（2026-11-11 P0 闸门 G-16 新增）：确认短语契约与审计留痕
+
+G-16 说明：原保护是「前端连点两次 confirm + 服务端 confirm=true」，等于
+手滑两下就能把全库期初连同库存回冲一起抹掉，且只留一条自由文本 operation_log。
+现改为服务端强制校验手输短语「清空全部期初库存」并写结构化审计。这是**刻意
+打破旧入参契约**（T1/T3/T4/T6 的 payload 因此同步补 confirm_phrase）。
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -46,12 +53,14 @@ from app import (  # noqa: E402
     Material,
     OpeningStock,
     OpeningStockDoc,
+    OperationAudit,
     StockTransaction,
     Unit,
     User,
     Warehouse,
     db,
 )
+from routes.opening_stock import OPENING_STOCK_PURGE_PHRASE  # noqa: E402
 
 flask_app.config["TESTING"] = True
 flask_app.config["WTF_CSRF_ENABLED"] = False
@@ -130,6 +139,11 @@ class TestOpeningStockDeleteAll:
         except Exception:  # pragma: no cover - 兜底便于定位 500
             return resp.status_code, {"raw": resp.data[:300].decode("utf-8", "replace")}
 
+    @staticmethod
+    def _ok_payload():
+        """G-16 起成功调用必须带手输确认短语（旧契约只有 confirm=true）。"""
+        return {"confirm": True, "confirm_phrase": OPENING_STOCK_PURGE_PHRASE}
+
     def _seed_two_docs(self):
         """建两张单：m1@wh1=100、m2@wh2=50，制造非零库存。"""
         st1, b1 = self._save({
@@ -154,7 +168,7 @@ class TestOpeningStockDeleteAll:
         assert OpeningStock.query.count() == 2
         assert OpeningStockDoc.query.count() == 2
 
-        st, body = self._delete_all({"confirm": True})
+        st, body = self._delete_all(self._ok_payload())
         assert st == 200, body
         assert body["status"] == "success"
         assert body["reversed_count"] == 2
@@ -185,7 +199,7 @@ class TestOpeningStockDeleteAll:
     # ---- T3 空记录幂等 ----
 
     def test_t3_empty_is_success(self):
-        st, body = self._delete_all({"confirm": True})
+        st, body = self._delete_all(self._ok_payload())
         assert st == 200, body
         assert body["status"] == "success"
         assert body["reversed_count"] == 0
@@ -206,7 +220,7 @@ class TestOpeningStockDeleteAll:
         assert OpeningStock.query.filter(OpeningStock.doc_id.is_(None)).count() == 1
         assert self._stock(self.m1) == 30.0
 
-        st, body = self._delete_all({"confirm": True})
+        st, body = self._delete_all(self._ok_payload())
         assert st == 200, body
         assert OpeningStock.query.count() == 0
         assert self._stock(self.m1) == 0.0
@@ -245,7 +259,7 @@ class TestOpeningStockDeleteAll:
             StockTransaction.quantity < 0,
         ).count()
 
-        st, body = self._delete_all({"confirm": True})
+        st, body = self._delete_all(self._ok_payload())
         assert st == 200, body
 
         # 全删后流水物理清零，且不再新增任何负向回冲流水
@@ -268,3 +282,65 @@ class TestOpeningStockDeleteAllFrontend:
         assert 'onclick="deleteAllOpeningStock()"' in html, "按钮应绑定 deleteAllOpeningStock()"
         assert "/opening_stock/delete_all" in html, "应调用全量删除端点"
         assert "WMS.api.post" in html, "全量删除应走 WMS.api（禁原生 fetch）"
+
+
+class TestPurgeGuard(TestOpeningStockDeleteAll):
+    """G-16（2026-11-11）：一键清空的确认短语契约与审计留痕。
+
+    原保护（两次原生 confirm + confirm=true）在服务端等价于"一个布尔值"，
+    误触或脚本误调即可清空全库期初。改为手输短语后，服务端必须拒绝
+    "只带 confirm" 的请求，且成功时必须留下可回溯的结构化审计。
+    """
+
+    # ---- T8 缺短语被拒 ----
+
+    def test_t8_missing_phrase_rejected(self):
+        self._seed_two_docs()
+        st, body = self._delete_all({"confirm": True})
+        assert st == 400, body
+        assert "确认短语" in (body.get("msg") or ""), body
+        # 一切数据不动
+        assert OpeningStock.query.count() == 2
+        assert OpeningStockDoc.query.count() == 2
+        assert self._stock(self.m1) == 100.0
+        assert StockTransaction.query.filter(
+            StockTransaction.transaction_type == "opening").count() == 2
+
+    # ---- T9 短语错误被拒 ----
+
+    def test_t9_wrong_phrase_rejected(self):
+        self._seed_two_docs()
+        st, body = self._delete_all({"confirm": True, "confirm_phrase": "清空期初"})
+        assert st == 400, body
+        assert "确认短语" in (body.get("msg") or ""), body
+        assert OpeningStock.query.count() == 2
+
+    # ---- T10 短语正确才执行，并写审计 ----
+
+    def test_t10_correct_phrase_deletes_and_writes_audit(self):
+        self._seed_two_docs()
+        st, body = self._delete_all(self._ok_payload())
+        assert st == 200, body
+        assert body["deleted_docs"] == 2 and body["reversed_count"] == 2
+        assert OpeningStock.query.count() == 0
+        assert OpeningStockDoc.query.count() == 0
+
+        audits = OperationAudit.query.filter_by(operation="purge_opening_stock").all()
+        assert len(audits) == 1, f"应写 1 条清空审计，实际 {len(audits)}"
+        audit = audits[0]
+        assert audit.target_type == "opening_stock"
+        assert audit.target_id is None, "跨单据操作没有单一目标"
+        assert audit.username, "审计必须记录操作人"
+        old_data = json.loads(audit.old_data or "{}")
+        assert old_data["doc_count"] == 2
+        assert old_data["line_count"] == 2
+        assert len(old_data["docs"]) == 2
+        assert all(d.get("doc_no") for d in old_data["docs"])
+
+    # ---- T11 前端必须提交短语（防后端改了前端没改，界面直接 400）----
+
+    def test_t11_frontend_submits_phrase(self):
+        html = page_source(TEMPLATE)
+        assert OPENING_STOCK_PURGE_PHRASE in html, "前端应内置确认短语"
+        assert "confirm_phrase" in html, "前端提交体必须带 confirm_phrase"
+        assert "btnPurgeOpeningStock" in html, "按钮需可置灰防连点"

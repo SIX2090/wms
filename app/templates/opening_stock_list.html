@@ -12,7 +12,8 @@
             <a class="btn btn-outline-info" href="/opening_stock/progress"><i class="bi bi-clipboard-check"></i> 建账进度</a>
         </div>
         <!-- BUG-2026-09-15-008：一键删除全部已建账/已导入期初库存（物理删 + 库存回冲） -->
-        <button class="btn btn-outline-danger" type="button" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存">
+        <!-- G-16（2026-11-11）：加 id 供 JS 在执行期间置灰，防连点重复提交 -->
+        <button class="btn btn-outline-danger" type="button" id="btnPurgeOpeningStock" onclick="deleteAllOpeningStock()" title="删除全部已建账期初库存并回冲库存">
             <i class="bi bi-trash3"></i> 删除全部
         </button>
     </div>
@@ -121,21 +122,34 @@
 {% block extra_js %}
 <script>
 // BUG-2026-09-15-008：一键删除全部「已建账/已导入」期初库存（物理删除 + 库存回冲）。
-// 双确认防误触，统一走 WMS.api（业务 JS 禁原生 fetch）。
+// G-16（2026-11-11）：原保护是"连点两次 confirm"，误触成本极低；改为必须手输
+// 确认短语（服务端强制校验，前端只是同款提示）。点击可以连点，手输不能。
+// 执行期间按钮置灰，防连点重复提交。统一走 WMS.api（业务 JS 禁原生 fetch）。
+var OPENING_STOCK_PURGE_PHRASE = '清空全部期初库存';
+
 function deleteAllOpeningStock() {
     if (!window.WMS || !WMS.api) return;
     if (!confirm('【危险操作】确定删除全部期初库存吗？\n将删除所有期初明细行与单据，并把已入账的期初数量从库存中全部扣回。\n此操作不可恢复！')) return;
-    if (!confirm('请再次确认：真的要清空全部期初库存吗？')) return;
-    WMS.api.post('/opening_stock/delete_all', { confirm: true })
+    var phrase = prompt('请输入确认短语「' + OPENING_STOCK_PURGE_PHRASE + '」以继续\n（必须完全一致，此操作不可恢复）');
+    if (phrase === null) return;
+    if (phrase.trim() !== OPENING_STOCK_PURGE_PHRASE) {
+        showToast('确认短语不正确，已取消操作', 'warning', 3600);
+        return;
+    }
+    var btn = document.getElementById('btnPurgeOpeningStock');
+    if (btn) { btn.disabled = true; }
+    WMS.api.post('/opening_stock/delete_all', { confirm: true, confirm_phrase: phrase.trim() })
         .then(function(data) {
             if (data && data.status === 'success') {
                 showToast(data.msg || '已删除全部期初库存', 'success', 4200);
                 setTimeout(function() { window.location.reload(); }, 900);
             } else {
+                if (btn) { btn.disabled = false; }
                 showToast((data && data.msg) || '删除失败', 'danger', 4200);
             }
         })
         .catch(function(error) {
+            if (btn) { btn.disabled = false; }
             showToast('删除失败：' + (error && error.message ? error.message : '未知错误'), 'danger', 4200);
         });
 }
