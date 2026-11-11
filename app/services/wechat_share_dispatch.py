@@ -20,7 +20,7 @@ LEASE_SECONDS = 300
 UNCERTAIN_MESSAGE = '发送结果待确认；普通执行不会再次发送。请先核对接收端，确需重发时使用强制重发（可能重复）。'
 SAFE_FAILURE_CODES = frozenset({'invalid_helper_url', 'token_not_configured', 'auth_failed',
     'invalid_wecom_webhook', 'wecom_rejected', 'no_receiver', 'clipboard_failed', 'wechat_window_not_found',
-    'open_contact_failed', 'released_queued_v2'})
+    'open_contact_failed', 'contact_not_opened', 'released_queued_v2'})
 
 
 class DispatchUnavailable(RuntimeError):

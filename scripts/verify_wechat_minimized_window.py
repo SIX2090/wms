@@ -28,9 +28,12 @@ ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / 'app' / 'wechat_helper.py'
 
 FUNCS = ('_normal_window_size', 'capture_window_state', 'restore_window_state',
-         'activate_wechat', 'paste_image_and_optionally_send', 'find_wechat_window')
-CONSTS = ('SW_HIDE', 'SW_MINIMIZE', 'SW_RESTORE',
-          'WINDOW_STATE_NORMAL', 'WINDOW_STATE_MINIMIZED', 'WINDOW_STATE_HIDDEN')
+         'activate_wechat', 'paste_image_and_optionally_send', 'find_wechat_window',
+         # BUG-2026-11-11-006 后 activate_wechat 委托给这三个；本锁仍需能跑通
+         '_show_wechat_window', '_force_foreground', '_show_hotkey_vks')
+CONSTS = ('SW_HIDE', 'SW_SHOW', 'SW_MINIMIZE', 'SW_RESTORE',
+          'WINDOW_STATE_NORMAL', 'WINDOW_STATE_MINIMIZED', 'WINDOW_STATE_HIDDEN',
+          'WECHAT_SHOW_HOTKEY_DEFAULT', '_HOTKEY_TOKENS')
 
 SW_HIDE, SW_MINIMIZE, SW_RESTORE = 0, 6, 9
 STATE_NORMAL, STATE_MINIMIZED, STATE_HIDDEN = 'normal', 'minimized', 'hidden'
@@ -83,6 +86,7 @@ class _FakeUser32:
         self.calls = []
         self.fg_hwnd = fg_hwnd
         self.raise_show = False
+        self.deny_fg = False
 
     def IsWindowVisible(self, hwnd):
         self.calls.append(('IsWindowVisible', hwnd))
@@ -110,11 +114,38 @@ class _FakeUser32:
 
     def SetForegroundWindow(self, hwnd):
         self.calls.append(('SetForegroundWindow', hwnd))
+        if self.deny_fg:
+            return 0
+        # 真实 API 成功即成为前台窗口；_force_foreground 靠这个判定生效
+        self.fg_hwnd = hwnd
         return 1
 
     def GetForegroundWindow(self):
         self.calls.append(('GetForegroundWindow', 0))
         return self.fg_hwnd
+
+    def GetWindowThreadProcessId(self, hwnd, _pid):
+        return 4321
+
+    def AttachThreadInput(self, _a, _b, _flag):
+        return 1
+
+    def BringWindowToTop(self, hwnd):
+        if not self.deny_fg:
+            self.fg_hwnd = hwnd
+        return 1
+
+    def SwitchToThisWindow(self, hwnd, _flag):
+        if not self.deny_fg:
+            self.fg_hwnd = hwnd
+        return 1
+
+    def GetWindowRect(self, hwnd, rect_ref):
+        width = self.table.get(hwnd, {}).get('normal', (800, 600))[0]
+        height = self.table.get(hwnd, {}).get('normal', (800, 600))[1]
+        rect_ref.left, rect_ref.top = 0, 0
+        rect_ref.right, rect_ref.bottom = width, height
+        return 1
 
 
 class _Logger:
@@ -128,14 +159,18 @@ class _Logger:
     def error(self, *args, **_kwargs):
         self.errors.append(args)
 
+    def info(self, *args, **_kwargs):
+        pass
 
-def _build_ns(table, windows, fg_hwnd=1, raise_show=False, consts=None):
+
+def _build_ns(table, windows, fg_hwnd=1, raise_show=False, consts=None, deny_fg=False):
     """把真实函数体装进完全合成的命名空间。"""
     tree = _tree()
     consts = _module_consts(tree) if consts is None else consts
     defs = _defs(tree, ('_SendError',) + FUNCS)
     user32 = _FakeUser32(table, fg_hwnd)
     user32.raise_show = raise_show
+    user32.deny_fg = deny_fg
     logger = _Logger()
     calls = []
     holder = {}
@@ -148,6 +183,9 @@ def _build_ns(table, windows, fg_hwnd=1, raise_show=False, consts=None):
 
     ns = {
         'ctypes': types.SimpleNamespace(sizeof=lambda _cls: 44, byref=lambda obj: obj),
+        'wintypes': types.SimpleNamespace(RECT=types.SimpleNamespace),
+        'kernel32': types.SimpleNamespace(GetCurrentThreadId=lambda: 1111),
+        'os': types.SimpleNamespace(environ={}),
         'WINDOWPLACEMENT': _Placement,
         'user32': user32,
         'logger': logger,
@@ -157,10 +195,15 @@ def _build_ns(table, windows, fg_hwnd=1, raise_show=False, consts=None):
         'SEND_LOCK': contextlib.nullcontext(),
         'set_clipboard_dib': lambda _bytes: calls.append('clipboard'),
         '_ensure_foreground': _focus,
-        'open_contact': lambda _name: calls.append('open_contact'),
-        'hotkey': lambda *_a: calls.append('paste'),
+        'open_contact': lambda _name, _hwnd=None: calls.append('open_contact'),
+        'hotkey': lambda *keys: calls.append(
+            'paste' if tuple(keys) == (17, 86) else 'show_hotkey'),
         'press_key': lambda _key: calls.append('send'),
         'VK_CONTROL': 17, 'VK_V': 86, 'VK_RETURN': 13,
+        'VK_MENU': 0x12, 'VK_TAB': 0x09, 'VK_DOWN': 0x28, 'VK_ESCAPE': 0x1B, 'VK_F': 0x46,
+        'WECHAT_SHOW_HOTKEY_DEFAULT': 'ctrl+alt+w',
+        '_HOTKEY_TOKENS': {'ctrl': 0x11, 'control': 0x11, 'alt': 0x12, 'shift': 0x10,
+                           'win': 0x5B, 'tab': 0x09, 'enter': 0x0D, 'esc': 0x1B, 'space': 0x20},
     }
     ns.update(consts)
     body = [defs['_SendError']] + [defs[name] for name in FUNCS]
@@ -281,9 +324,10 @@ def _static_checks() -> dict:
         isinstance(n.value, ast.Tuple) and len(n.value.elts) == 2 for n in activate_returns)
     activate_src = '\n'.join(lines[activate.lineno - 1:activate.end_lineno])
     capture_line = activate_src.find('prior_state = capture_window_state(hwnd)')
-    restore_line = activate_src.find('user32.ShowWindow(hwnd, SW_RESTORE)')
+    # BUG-2026-11-11-006 后唤出动作收敛到 _show_wechat_window，捕获顺序仍必须在前
+    show_line = activate_src.find('_show_wechat_window(hwnd)')
     results['activate_captures_before_restoring'] = (
-        0 <= capture_line < restore_line)
+        0 <= capture_line < show_line)
     results['activate_mentions_minimized_or_tray'] = (
         '最小化' in activate_src and '托盘' in activate_src)
 
@@ -402,9 +446,14 @@ def _dynamic_checks() -> dict:
     results['behaviour_activate_returns_minimized_state'] = (
         activated == (6, STATE_MINIMIZED))
     order = [c for c in ns['_user32'].calls if c[0] in ('IsWindowVisible', 'IsIconic', 'ShowWindow')]
+    calls = ns['_user32'].calls
+    first_show = next((i for i, c in enumerate(calls) if c[0] == 'ShowWindow'), None)
+    first_fg = next((i for i, c in enumerate(calls) if c[0] == 'SetForegroundWindow'), None)
     results['behaviour_activate_captures_before_show'] = (
         order[:2] == [('IsWindowVisible', 6), ('IsIconic', 6)]
-        and order[2] == ('ShowWindow', 6, SW_RESTORE))
+        and ('ShowWindow', 6, SW_RESTORE) in order)
+    results['behaviour_activate_restores_before_taking_focus'] = (
+        first_show is not None and first_fg is not None and first_show < first_fg)
     results['behaviour_activate_still_brings_to_front'] = (
         ('SetForegroundWindow', 6) in ns['_user32'].calls)
 
@@ -419,9 +468,10 @@ def _dynamic_checks() -> dict:
         and getattr(raised, 'code', '') == 'wechat_window_not_found')
 
     # ---- 端到端：发送后缩回 ----
-    def send(state, auto_send=True, fg=5, receiver='张三'):
+    def send(state, auto_send=True, fg=5, receiver='张三', deny_fg=False):
         table = {5: state}
-        ns = _build_ns(table, [(5, 100, 'WeChatMainWndForPC', '微信', ICONIC_RECT)], fg_hwnd=fg)
+        ns = _build_ns(table, [(5, 100, 'WeChatMainWndForPC', '微信', ICONIC_RECT)],
+                       fg_hwnd=fg, deny_fg=deny_fg)
         error = None
         status = None
         try:
@@ -443,14 +493,13 @@ def _dynamic_checks() -> dict:
     normal = {'visible': True, 'iconic': False, 'normal': (800, 600)}
     ns, status, error = send(normal)
     results['behaviour_send_from_normal_succeeds'] = status == 'sent' and error is None
-    results['behaviour_send_from_normal_leaves_window_alone'] = _show_calls(
-        ns['_user32']) == [('ShowWindow', 5, SW_RESTORE)]
+    results['behaviour_send_from_normal_leaves_window_alone'] = _show_calls(ns['_user32']) == []
 
     ns, status, error = send(minimized, auto_send=False)
     results['behaviour_manual_confirm_still_collapses'] = (
         status == 'ready' and _last_show(ns['_user32']) == ('ShowWindow', 5, SW_MINIMIZE))
 
-    ns, status, error = send(minimized, fg=999)
+    ns, status, error = send(minimized, fg=999, deny_fg=True)
     results['behaviour_focus_lost_aborts'] = (
         isinstance(error, ns['_SendError']) and getattr(error, 'code', '') == 'focus_lost')
     results['behaviour_focus_lost_still_collapses'] = _last_show(ns['_user32']) == ('ShowWindow', 5, SW_MINIMIZE)

@@ -40,7 +40,7 @@ class WechatPastePhaseTests(unittest.TestCase):
                     'activate_wechat': lambda: (1, 'normal'),
                     'restore_window_state': lambda _hwnd, _state: None,
                     '_ensure_foreground': focus,
-                    'open_contact': lambda _name: None, 'hotkey': hotkey,
+                    'open_contact': lambda _name, _hwnd=None: None, 'hotkey': hotkey,
                     'press_key': lambda _key: self.calls.append('send'),
                     'VK_CONTROL': 17, 'VK_V': 86, 'VK_RETURN': 13,
                     'time': types.SimpleNamespace(sleep=lambda _seconds: None)}

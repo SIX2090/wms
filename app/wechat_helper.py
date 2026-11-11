@@ -57,6 +57,7 @@ psapi = ctypes.windll.psapi
 CF_DIB = 8
 GMEM_MOVEABLE = 0x0002
 SW_HIDE = 0
+SW_SHOW = 5
 SW_MINIMIZE = 6
 SW_RESTORE = 9
 
@@ -74,9 +75,21 @@ VK_CONTROL = 0x11
 VK_MENU = 0x12
 VK_RETURN = 0x0D
 VK_ESCAPE = 0x1B
+VK_TAB = 0x09
+VK_DOWN = 0x28
 VK_F = 0x46
 VK_V = 0x56
 VK_A = 0x41
+
+# 微信 4.x 把主窗口缩到托盘后，窗口仍是 WS_VISIBLE 的"空壳"，ShowWindow(SW_RESTORE)
+# 叫不出界面（真机实测：屏幕上一个像素都不画），只有微信自己的"显示/隐藏微信"
+# 全局快捷键能真正唤出。默认 Ctrl+Alt+W，用户可在微信里改，故允许环境变量覆盖
+# （BUG-2026-11-11-006）。
+WECHAT_SHOW_HOTKEY_DEFAULT = "ctrl+alt+w"
+_HOTKEY_TOKENS = {
+    "ctrl": VK_CONTROL, "control": VK_CONTROL, "alt": VK_MENU, "shift": 0x10,
+    "win": 0x5B, "tab": VK_TAB, "enter": VK_RETURN, "esc": VK_ESCAPE, "space": 0x20,
+}
 
 user32.OpenClipboard.argtypes = [wintypes.HWND]
 user32.OpenClipboard.restype = wintypes.BOOL
@@ -431,6 +444,97 @@ def restore_window_state(hwnd: int, state: str) -> None:
         logger.warning("还原微信窗口状态失败：%s", exc)
 
 
+def _show_hotkey_vks() -> tuple[int, ...]:
+    """解析"显示/隐藏微信"快捷键，默认 ctrl+alt+w；显式关闭时返回空元组。"""
+    raw = (os.environ.get("WECHAT_SHOW_HOTKEY") or WECHAT_SHOW_HOTKEY_DEFAULT).strip().lower()
+    if raw in {"", "off", "none", "0", "false", "no"}:
+        return ()
+    keys: list[int] = []
+    for token in raw.replace(" ", "").split("+"):
+        if not token:
+            continue
+        if token in _HOTKEY_TOKENS:
+            keys.append(_HOTKEY_TOKENS[token])
+        elif len(token) == 1:
+            keys.append(ord(token.upper()))
+        else:
+            logger.warning("无法识别的微信唤出快捷键片段 %r，已忽略整条快捷键", token)
+            return ()
+    return tuple(keys)
+
+
+def _force_foreground(hwnd: int) -> str | None:
+    """把窗口抢到前台，返回生效的手段名；三种手段都失败时返回 None。
+
+    SetForegroundWindow 单独用并不可靠：助手是后台进程，Windows 前台锁会静默拒绝，
+    真机上出现过"窗口已经唤出来、前台却仍是别的程序"，随后 _ensure_foreground 直接
+    中止发送（BUG-2026-11-11-006）。这里按强度递进兜底，每一档都用
+    GetForegroundWindow 实测确认，不靠返回值猜。
+    """
+    if user32.SetForegroundWindow(hwnd) and int(user32.GetForegroundWindow() or 0) == hwnd:
+        return "SetForegroundWindow"
+
+    attached = False
+    tid_self = kernel32.GetCurrentThreadId()
+    tid_target = user32.GetWindowThreadProcessId(hwnd, None)
+    try:
+        if tid_target and tid_target != tid_self:
+            attached = bool(user32.AttachThreadInput(tid_self, tid_target, True))
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    except Exception as exc:  # pragma: no cover - 仅防御 Win32 调用异常
+        logger.warning("挂线程抢前台失败：%s", exc)
+    finally:
+        if attached:
+            try:
+                user32.AttachThreadInput(tid_self, tid_target, False)
+            except Exception:  # pragma: no cover
+                pass
+    if int(user32.GetForegroundWindow() or 0) == hwnd:
+        return "AttachThreadInput"
+
+    switch = getattr(user32, "SwitchToThisWindow", None)
+    if switch is not None:
+        try:
+            switch(hwnd, True)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("SwitchToThisWindow 失败：%s", exc)
+        if int(user32.GetForegroundWindow() or 0) == hwnd:
+            return "SwitchToThisWindow"
+    return None
+
+
+def _show_wechat_window(hwnd: int) -> str:
+    """让微信主窗口真的出现在屏幕上，返回所走的分支名（便于日志与离线验证）。"""
+    if user32.IsWindowVisible(hwnd) and not user32.IsIconic(hwnd):
+        return "already_visible"
+
+    used = "restore"
+    if not user32.IsWindowVisible(hwnd):
+        # 托盘隐藏态：SW_RESTORE 只会得到一个"可见但空白"的空壳（真机实测），
+        # 必须先用微信自己的全局快捷键把它真正唤出。
+        keys = _show_hotkey_vks()
+        if keys:
+            used = "show_hotkey"
+            try:
+                hotkey(*keys)
+            except Exception as exc:
+                logger.warning("按微信唤出快捷键失败：%s", exc)
+            time.sleep(1.0)
+        if not user32.IsWindowVisible(hwnd):
+            used = "show_window"
+            user32.ShowWindow(hwnd, SW_SHOW)
+            user32.ShowWindow(hwnd, SW_RESTORE)
+            time.sleep(0.4)
+    else:
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        time.sleep(0.2)
+
+    _force_foreground(hwnd)
+    time.sleep(0.4)
+    return used
+
+
 def activate_wechat() -> tuple[int, str]:
     """把微信主窗口唤到前台，返回 (hwnd, 唤醒前的窗口形态)。
 
@@ -445,10 +549,9 @@ def activate_wechat() -> tuple[int, str]:
         )
 
     prior_state = capture_window_state(hwnd)
-    user32.ShowWindow(hwnd, SW_RESTORE)
-    time.sleep(0.2)
-    user32.SetForegroundWindow(hwnd)
-    time.sleep(0.4)
+    via = _show_wechat_window(hwnd)
+    if via != "already_visible":
+        logger.info("唤出微信主窗口：%s（唤醒前形态 %s）", via, prior_state)
     return hwnd, prior_state
 
 
@@ -465,18 +568,57 @@ def _ensure_foreground(hwnd: int) -> None:
         raise _SendError("focus_lost", "微信窗口不在前台（焦点被其他窗口抢走），已中止发送")
 
 
-def open_contact(receiver_search_key: str) -> None:
+def _search_panel_open(hwnd: int, baseline_width: int) -> bool:
+    """微信 4.x 的 Ctrl+F 在窗口右侧挂出独立搜索面板，窗口因此变宽。
+
+    真机实测：正常窗口 896x648，面板打开后变 1340x648。宽度明显大于搜索前，
+    说明面板还挂着——此时会话根本没切过去。
+    """
+    if not hwnd or baseline_width <= 0:
+        return False
+    _, _, _, _, width, _ = _window_rect(hwnd)
+    return width - baseline_width > 40
+
+
+def open_contact(receiver_search_key: str, hwnd: int | None = None) -> None:
+    """搜索并打开微信会话；打不开就抛 contact_not_opened，绝不假装成功。
+
+    微信 3.x 回车即打开会话；微信 4.x 的 Ctrl+F 是独立搜索面板，回车/下方向键
+    都不会切会话（真机实测），必须把焦点移进结果列表再回车。老代码不校验结果，
+    于是"搜索框里有名字、聊天区还停在原会话"，而调用方照样报'已发送'——
+    静默丢单（BUG-2026-11-11-006）。这里逐级尝试并用窗口宽度实测确认。
+    """
     receiver_search_key = (receiver_search_key or "").strip()
     if not receiver_search_key:
         raise RuntimeError("receiver_search_key is empty")
+
+    target = hwnd if hwnd else find_wechat_window()
+    baseline_width = _window_rect(target)[4] if target else 0
 
     hotkey(VK_CONTROL, VK_F)
     time.sleep(0.2)
     hotkey(VK_CONTROL, VK_A)
     type_text(receiver_search_key)
     time.sleep(0.8)
-    press_key(VK_RETURN)
-    time.sleep(0.8)
+
+    # (按键序列, 适用版本)：3.x 回车直开；4.x 需要先 Tab/Down 把焦点移进结果。
+    for keys in ((VK_RETURN,), (VK_TAB, VK_RETURN), (VK_DOWN, VK_RETURN), (VK_DOWN, VK_RETURN)):
+        for key in keys:
+            press_key(key)
+            time.sleep(0.45)
+        time.sleep(0.5)
+        if not target or not _search_panel_open(target, baseline_width):
+            return
+
+    # 打不开就收拾干净，别把搜索面板留给下一次发送。
+    try:
+        press_key(VK_ESCAPE)
+    except Exception:  # pragma: no cover - 仅防御
+        pass
+    raise _SendError(
+        "contact_not_opened",
+        f"未能在微信里打开「{receiver_search_key}」的会话，已中止发送（微信 4.x 搜索面板需要手动点“前往”，或检查快捷键设置）",
+    )
 
 
 def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str, auto_send: bool) -> str:
@@ -492,7 +634,7 @@ def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str
     try:
         _ensure_foreground(hwnd)
         try:
-            open_contact(receiver_search_key)
+            open_contact(receiver_search_key, hwnd)
         except _SendError:
             raise
         except Exception as exc:
