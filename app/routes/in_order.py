@@ -2212,6 +2212,10 @@ def register_in_order_routes(app):
                          allow_negative_stock, api_error,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient,
+                         # G-01（2026-11-11 体检）：本路由此前全程无 log_audit /
+                         # log_operation（同文件 delete/revert 都有），已完成单被改数
+                         # 后无法回溯"谁把 800 改成了 80"。
+                         log_audit, log_operation,
                          recalculate_order_total, resolve_item_contract,
                          round_to_2_decimals,
                          update_purchase_order_status)
@@ -2241,6 +2245,15 @@ def register_in_order_routes(app):
             return fail('请求数据格式不正确，请刷新后重试')
         items_data = data.get('items', [])
         deleted_items = data.get('deleted_items', [])
+        # G-01（2026-11-11）：改数原因。**刻意保持可选**——本接口若有外部脚本/手工
+        # API 调用，把 reason 设成必填会把存量请求全打成 400（属削减既有能力，须
+        # 单独授权）。缺省写固定文案，保证每条审计都自解释。
+        # `OperationAudit.reason` 是 String(200)（models/core.py），SQLite 不强制长度，
+        # 换库会抛 DataError 并被 log_audit 内部的 try/except 吞掉 → 表现为"审计静默
+        # 丢失"，等于这条留痕白补。故先截断。
+        _raw_reason = data.get('reason')
+        audit_reason = ((_raw_reason.strip() if isinstance(_raw_reason, str) else '')
+                        or '已完成单据改数（未填写原因）')[:200]
 
         try:
             # BUG-2026-08-04-003 修复：原代码缺少 _acquire_order_write_lock，
@@ -2279,6 +2292,18 @@ def register_in_order_routes(app):
             # 却算错"的放行（与 INVENTORY_TRUTH.md 仓库级严格口径相悖）。
 
             affected_purchase_order_ids = set()
+            # G-01（2026-11-11 体检缺口）：已完成入库单「改数量 / 改价格 / 删行」
+            # 改的是**已经入账**的库存与金额，改完账面自洽、肉眼查不出异常，
+            # 而本接口此前不留任何痕迹。审计的 old 值必须在这里快照——
+            # 进入任何写入循环之前：循环里 item 会被 db.session.delete、
+            # quantity/price 会被就地改写，事后再取只能拿到新值，
+            # 等于造一条"新值等于新值"的自证为空的审计。
+            # 失败分支（所有 fail()）不写审计：它们都 rollback 了，无可记的变更。
+            before_warehouse = order.warehouse or ''
+            before_items = {
+                it.id: {'qty': float(it.quantity or 0), 'price': float(it.price or 0)}
+                for it in order.items
+            }
             # 1. Delete detail rows and reverse their stock changes
             for item_id in deleted_items:
                 item = db.session.get(InOrderItem, item_id)
@@ -2490,6 +2515,49 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
+            # G-01（2026-11-11）：业务事务提交**之后**才留痕。log_audit /
+            # log_operation 内部各自 db.session.commit()，放在主 commit 之前会把
+            # 未完成的业务写提前提交，破坏"要么全成、要么全不成"；中途失败回滚了
+            # 业务，审计却已落库，反过来谎报成功。delete/revert 也是这个顺序。
+            # after 值走一次显式查询而不复用内存对象：commit 后 session 已过期，
+            # 且被删行只在库里"不存在"这一事实才可信。
+            try:
+                after_items = {
+                    row.id: {'qty': float(row.quantity or 0), 'price': float(row.price or 0)}
+                    for row in InOrderItem.query.filter_by(in_order_id=id).all()
+                }
+                added_rows = [{'item_id': k, **v} for k, v in after_items.items()
+                              if k not in before_items]
+                removed_rows = [{'item_id': k, **v} for k, v in before_items.items()
+                                if k not in after_items]
+                changed_rows = [
+                    {'item_id': k, 'old': before_items[k], 'new': after_items[k]}
+                    for k in after_items
+                    if k in before_items and after_items[k] != before_items[k]
+                ]
+                after_warehouse = order.warehouse or ''
+                # 无实际变更（如只点了保存）不留噪：审计表要能当"改数记录"读。
+                if added_rows or removed_rows or changed_rows or after_warehouse != before_warehouse:
+                    log_operation('修改已完成入库单', f'入库单：{order.order_no}', 'in_order', id)
+                    log_audit(
+                        'update_completed_in_order', 'in_order', id,
+                        target_name=order.order_no,
+                        old_data={'warehouse': before_warehouse, 'items': before_items},
+                        new_data={
+                            'warehouse': after_warehouse,
+                            'items': after_items,
+                            'added': added_rows,
+                            'removed': removed_rows,
+                            'changed': changed_rows,
+                            'reason': audit_reason,
+                        },
+                        reason=audit_reason,
+                    )
+            except Exception as e:
+                # 业务已提交，这里失败**不得**再返回失败给用户（会造成"系统说
+                # 没保存、实际已改"）。记日志、清会话，正常返回成功。
+                db.session.rollback()
+                app.logger.error(f'已完成入库单改数审计写入失败: order_id={id}, {e}')
             return jsonify({'status': 'success', 'msg': '保存成功'})
         except Exception as e:
             db.session.rollback()
