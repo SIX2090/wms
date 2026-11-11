@@ -379,7 +379,7 @@
                         </td>
                         <td>
                             {% if log.module_key == 'in_order' and log.image_path %}
-                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})" {% if runtime_external_paused or log.status in ('sending', 'delivery_started', 'queued_v2') %}disabled title="发送中或待领取，不能同时直推"{% endif %}>
+                            <button data-wechat-write type="button" class="btn btn-sm btn-outline-success" onclick="resendWechatShareLog({{ log.id }})" {% if runtime_external_paused or log.status in ('sending', 'delivery_started') %}disabled title="发送中，不能同时直推"{% endif %}>
                                 <i class="bi bi-send"></i> 重发
                             </button>
                             {% else %}
@@ -465,7 +465,7 @@ function runWechatShareNow(force) {
 
 function resendWechatShareLog(logId) {
     return writeWechatShare('/wechat_share/log/' + logId + '/resend', undefined, {
-        kind: 'resend', confirmation: '确认重新发送这条微信分享记录？',
+        kind: 'resend', confirmation: '确认重新发送这条微信分享记录？若该记录仍在等待助手领取，会先撤销排队（确认未发送）再重发。',
         failure: '重发失败', success: '重发请求已处理'
     });
 }

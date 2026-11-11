@@ -230,6 +230,17 @@ def register_wechat_share_routes(app):
             return jsonify({'status': 'error', 'msg': '分享图片不存在，请重新生成今日图片'}), 404
 
         try:
+            # BUG-2026-11-11-004：queued_v2 表示图片已生成但助手尚未领取
+            # （claim_log 是唯一把 queued_v2 改为 sending 的写入方），确认未发送。
+            # 该状态会被 _claim 无条件拦住（连 force 也不放行）、重发按钮禁用、
+            # 历史清理又保护它，助手不轮询时记录永久死锁。这里先以独立事务
+            # CAS 撤销排队，再走原有强制重发；撤销失败立即 fail-closed 返回。
+            if log.status == 'queued_v2':
+                from services.wechat_share_release import release_queued_share
+                released, reason = release_queued_share(db, WechatShareLog, log_id)
+                if not released:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': reason}), 409
             # BUG-2026-08-11-014：重发冻结使用日志记录的历史接收人。
             # 列表"接收人"列展示的是分享时冻结的 receiver，若重发改用当前配置
             # 接收人，实际收件人与页面展示不一致（配置中途修改后会发错人）。
