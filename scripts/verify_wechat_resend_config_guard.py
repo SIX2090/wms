@@ -82,6 +82,9 @@ def _env(code, image_dir: str, image_path: str, config, module_key='in_order',
         id=3, config=config, module_key=module_key, image_path=image_path,
         image_size=15, order_no='RK-SYNTH-1', order_id=1,
         share_date=_dt.date.today(), receiver_name='', receiver_wechat_id='',
+        # 真实 WechatShareLog 一定有 status 列。BUG-2026-11-11-004 起 resend 路由
+        # 会先判断 queued_v2；夹具补上默认非排队态，正常重发路径才能继续被验证。
+        status='failed',
     )
     for key, value in (log_overrides or {}).items():
         setattr(log, key, value)
