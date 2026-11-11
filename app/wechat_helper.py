@@ -56,7 +56,15 @@ psapi = ctypes.windll.psapi
 
 CF_DIB = 8
 GMEM_MOVEABLE = 0x0002
+SW_HIDE = 0
+SW_MINIMIZE = 6
 SW_RESTORE = 9
+
+# 发送前记录的窗口形态：用户常把微信缩到任务栏或右下角托盘，发完必须放回原样，
+# 否则助手会把窗口一直摊在桌面上挡住其他工作（BUG-2026-11-11-005）。
+WINDOW_STATE_NORMAL = "normal"
+WINDOW_STATE_MINIMIZED = "minimized"
+WINDOW_STATE_HIDDEN = "hidden"
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 PROCESS_VM_READ = 0x0010
 INPUT_KEYBOARD = 1
@@ -142,10 +150,35 @@ class INPUT(ctypes.Structure):
     _fields_ = [("type", wintypes.DWORD), ("union", INPUTUNION)]
 
 
+class WINDOWPLACEMENT(ctypes.Structure):
+    """GetWindowPlacement 返回的窗口摆放信息。
+
+    最小化窗口的 GetWindowRect 只有 160x28 左右且坐标固定在 -32000，
+    真实尺寸只能从 rcNormalPosition（还原后的矩形）读到。
+    """
+
+    _fields_ = [
+        ("length", wintypes.UINT),
+        ("flags", wintypes.UINT),
+        ("showCmd", wintypes.UINT),
+        ("ptMinPosition", wintypes.POINT),
+        ("ptMaxPosition", wintypes.POINT),
+        ("rcNormalPosition", wintypes.RECT),
+    ]
+
+
 user32.SendInput.argtypes = [wintypes.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
 user32.SendInput.restype = wintypes.UINT
 user32.GetForegroundWindow.argtypes = []
 user32.GetForegroundWindow.restype = wintypes.HWND
+user32.GetWindowPlacement.argtypes = [wintypes.HWND, ctypes.POINTER(WINDOWPLACEMENT)]
+user32.GetWindowPlacement.restype = wintypes.BOOL
+user32.IsIconic.argtypes = [wintypes.HWND]
+user32.IsIconic.restype = wintypes.BOOL
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ShowWindow.restype = wintypes.BOOL
 
 
 class _SendError(RuntimeError):
@@ -279,6 +312,24 @@ def _window_rect(hwnd: int) -> tuple[int, int, int, int, int, int]:
     return int(rect.left), int(rect.top), int(rect.right), int(rect.bottom), width, height
 
 
+def _normal_window_size(hwnd: int) -> tuple[int, int] | None:
+    """返回窗口还原后（非最小化）的宽高，读不到时返回 None。
+
+    窗口一旦被最小化，GetWindowRect 只会给出 160x28 这类虚拟小矩形（坐标 -32000），
+    拿它去比"主窗口要够大"的门禁会把微信误判成登录提示窗，导致"未找到微信主窗口"。
+    """
+    placement = WINDOWPLACEMENT()
+    placement.length = ctypes.sizeof(WINDOWPLACEMENT)
+    if not user32.GetWindowPlacement(hwnd, ctypes.byref(placement)):
+        return None
+    rect = placement.rcNormalPosition
+    width = int(rect.right - rect.left)
+    height = int(rect.bottom - rect.top)
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
 def enum_windows() -> list[tuple[int, int, str, str, tuple[int, int, int, int, int, int]]]:
     items: list[tuple[int, int, str, str, tuple[int, int, int, int, int, int]]] = []
     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -323,10 +374,18 @@ def find_wechat_window() -> int | None:
             continue
         # Ignore small login/tip windows such as "该账号已登录"; use the real main
         # chat window, which is large enough to contain the conversation list.
-        if width < 520 or height < 420:
-            continue
+        # 最小化窗口当前矩形只有 160x28（坐标 -32000），先把门禁换成"还原后"的
+        # 尺寸再判断，否则点过最小化的微信会被当成没打开。
+        measured_width, measured_height = width, height
+        if measured_width < 520 or measured_height < 420:
+            normal_size = _normal_window_size(hwnd)
+            if normal_size is None:
+                continue
+            measured_width, measured_height = normal_size
+            if measured_width < 520 or measured_height < 420:
+                continue
 
-        score = width * height
+        score = measured_width * measured_height
         if class_text == "WeChatMainWndForPC":
             score += 10_000_000
         if name == "weixin.exe":
@@ -343,19 +402,54 @@ def find_wechat_window() -> int | None:
     return candidates[0][1]
 
 
-def activate_wechat() -> int:
+def capture_window_state(hwnd: int) -> str:
+    """记录唤醒前的窗口形态，供发送结束后原样还原。"""
+    if not hwnd:
+        raise _SendError("wechat_window_not_found", "未找到微信主窗口，无法记录窗口状态")
+    # 先看可见性：最小化到任务栏的窗口 IsWindowVisible 仍为真，
+    # 而缩到托盘的窗口是隐藏的，隐藏优先按隐藏还原才不会把它塞进任务栏。
+    if not user32.IsWindowVisible(hwnd):
+        return WINDOW_STATE_HIDDEN
+    if user32.IsIconic(hwnd):
+        return WINDOW_STATE_MINIMIZED
+    return WINDOW_STATE_NORMAL
+
+
+def restore_window_state(hwnd: int, state: str) -> None:
+    """把窗口放回发送前的形态（最小化 / 托盘隐藏），正常态保持原样。
+
+    还原失败只记日志：图片可能已经发出去了，不能让收尾动作改写发送结论。
+    """
+    if not hwnd:
+        return
+    try:
+        if state == WINDOW_STATE_MINIMIZED:
+            user32.ShowWindow(hwnd, SW_MINIMIZE)
+        elif state == WINDOW_STATE_HIDDEN:
+            user32.ShowWindow(hwnd, SW_HIDE)
+    except Exception as exc:  # pragma: no cover - 仅防御 Win32 调用异常
+        logger.warning("还原微信窗口状态失败：%s", exc)
+
+
+def activate_wechat() -> tuple[int, str]:
+    """把微信主窗口唤到前台，返回 (hwnd, 唤醒前的窗口形态)。
+
+    最小化到任务栏、缩到右下角托盘的微信都能被唤起；调用方必须在发送结束后
+    用 restore_window_state() 还原，避免窗口一直挡在用户桌面上。
+    """
     hwnd = find_wechat_window()
     if not hwnd:
         raise _SendError(
             "wechat_window_not_found",
-            "未找到已打开的微信主窗口，请先登录微信并把微信主窗口打开到桌面，助手不会自动启动微信",
+            "未找到已打开的微信主窗口（最小化或缩到托盘都可以），请先登录微信，助手不会自动启动微信",
         )
 
+    prior_state = capture_window_state(hwnd)
     user32.ShowWindow(hwnd, SW_RESTORE)
     time.sleep(0.2)
     user32.SetForegroundWindow(hwnd)
     time.sleep(0.4)
-    return hwnd
+    return hwnd, prior_state
 
 
 def _ensure_foreground(hwnd: int) -> None:
@@ -394,28 +488,32 @@ def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str
         set_clipboard_dib(image_bytes)
     except Exception as exc:
         raise _SendError("clipboard_failed", f"写入剪贴板失败：{exc}") from exc
-    hwnd = activate_wechat()
-    _ensure_foreground(hwnd)
+    hwnd, prior_state = activate_wechat()
     try:
-        open_contact(receiver_search_key)
-    except _SendError:
-        raise
-    except Exception as exc:
-        raise _SendError("open_contact_failed", f"打开微信会话失败：{exc}") from exc
-    _ensure_foreground(hwnd)
-    try:
-        hotkey(VK_CONTROL, VK_V)
-    except Exception as exc:
-        raise _SendError("paste_failed", f"粘贴图片失败：{exc}") from exc
-    time.sleep(0.5)
-    if auto_send:
         _ensure_foreground(hwnd)
         try:
-            press_key(VK_RETURN)
+            open_contact(receiver_search_key)
+        except _SendError:
+            raise
         except Exception as exc:
-            raise _SendError("send_key_failed", f"回车发送失败：{exc}") from exc
-        return "sent"
-    return "ready"
+            raise _SendError("open_contact_failed", f"打开微信会话失败：{exc}") from exc
+        _ensure_foreground(hwnd)
+        try:
+            hotkey(VK_CONTROL, VK_V)
+        except Exception as exc:
+            raise _SendError("paste_failed", f"粘贴图片失败：{exc}") from exc
+        time.sleep(0.5)
+        if auto_send:
+            _ensure_foreground(hwnd)
+            try:
+                press_key(VK_RETURN)
+            except Exception as exc:
+                raise _SendError("send_key_failed", f"回车发送失败：{exc}") from exc
+            return "sent"
+        return "ready"
+    finally:
+        # 成功或失败都要收尾：用户原本把微缩在任务栏/托盘时，发完必须放回原样
+        restore_window_state(hwnd, prior_state)
 
 
 def send_image_task(image_bytes: bytes, task: dict) -> tuple[str, str, str]:

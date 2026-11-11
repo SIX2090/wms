@@ -37,7 +37,9 @@ class WechatPastePhaseTests(unittest.TestCase):
             if self.fail_paste:
                 raise RuntimeError('synthetic partial key delivery')
         self.env = {'SEND_LOCK': contextlib.nullcontext(), 'set_clipboard_dib': lambda _bytes: None,
-                    'activate_wechat': lambda: 1, '_ensure_foreground': focus,
+                    'activate_wechat': lambda: (1, 'normal'),
+                    'restore_window_state': lambda _hwnd, _state: None,
+                    '_ensure_foreground': focus,
                     'open_contact': lambda _name: None, 'hotkey': hotkey,
                     'press_key': lambda _key: self.calls.append('send'),
                     'VK_CONTROL': 17, 'VK_V': 86, 'VK_RETURN': 13,

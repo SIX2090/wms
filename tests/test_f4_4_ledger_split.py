@@ -533,3 +533,5 @@ POST_SPLIT_BUGS['BUG-2026-11-11-002'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-11-003'] = 'fixed'
 # 2026-11-11 queued_v2 人工恢复出口批次：新增 1 条「已修复」登记，历史分布基线不变。
 POST_SPLIT_BUGS['BUG-2026-11-11-004'] = 'fixed'
+# 2026-11-11 微信最小化/托盘发送批次：新增 1 条「已修复」登记，历史分布基线不变。
+POST_SPLIT_BUGS['BUG-2026-11-11-005'] = 'fixed'
