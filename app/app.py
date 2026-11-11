@@ -25289,8 +25289,8 @@ def _wechat_share_send_image(config, image_path):
     Timeout 同样不重试。持久化发送占位将这些结果标记为待确认。
     """
     helper_url = (
-        (config.helper_url or '').strip()
-        or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()
+        os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()  # BUG-2026-11-11-003 部署级覆盖优先
+        or (config.helper_url or '').strip()
     )
     if not helper_url:
         return 'pending', 'helper_not_configured', '个人微信自动发送助手未配置，图片已生成待发送'
@@ -25494,8 +25494,8 @@ def _wechat_share_deliver(config, image_path, caption=''):
 
 def _wechat_share_helper_health_url(config):
     helper_url = (
-        (config.helper_url or '').strip()
-        or os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()
+        os.environ.get('WMS_WECHAT_HELPER_URL', '').strip()  # BUG-2026-11-11-003 部署级覆盖优先
+        or (config.helper_url or '').strip()
     )
     if not helper_url:
         return ''

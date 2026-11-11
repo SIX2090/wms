@@ -138,9 +138,11 @@ def register_wechat_share_routes(app):
         config.immediate_on_complete = request.form.get('immediate_on_complete') == '1'
         config.enabled = request.form.get('enabled') == '1'
         config.auto_send = request.form.get('auto_send') == '1'
-        helper_url = (request.form.get('helper_url') or '').strip() or 'http://127.0.0.1:8765/send'
-        # BUG-2026-08-11-008：直推会携带 helper token，仅允许本机回环地址，防止 token 泄露给第三方主机
-        if not _wechat_share_helper_url_allowed(helper_url):
+        helper_url = (request.form.get('helper_url') or '').strip()
+        # BUG-2026-11-11-003：留空不再写死默认地址，否则 WMS_WECHAT_HELPER_URL 永远轮不到生效；
+        # 空值表示「未配置」，发送时由环境变量兜底，页面也会如实显示未配置状态。
+        # BUG-2026-08-11-008：填了地址时仍仅允许本机回环，防止 helper token 泄露给第三方主机。
+        if helper_url and not _wechat_share_helper_url_allowed(helper_url):
             return api_error('发送助手地址仅允许本机回环地址（http://127.0.0.1 或 http://localhost）')
         config.helper_url = helper_url
         config.updated_at = datetime.now()

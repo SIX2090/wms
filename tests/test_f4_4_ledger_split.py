@@ -529,3 +529,5 @@ POST_SPLIT_BUGS['BUG-2026-11-10-012'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-11-001'] = 'fixed'
 # 2026-11-11 重发缺配置 fail-closed 批次：新增 1 条「已修复」登记，历史分布基线不变。
 POST_SPLIT_BUGS['BUG-2026-11-11-002'] = 'fixed'
+# 2026-11-11 助手地址环境变量优先级批次：新增 1 条「已修复」登记，历史分布基线不变。
+POST_SPLIT_BUGS['BUG-2026-11-11-003'] = 'fixed'
