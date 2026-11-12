@@ -112,7 +112,7 @@
 |---|---|---|---|
 | `deduct_stock_atomic` | `app/app.py:5118` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
 | `add_stock` | `app/app.py:5186` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8736` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `_apply_opening_stock_balance` | `app/app.py:8751` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
 | `add_stock_transaction` | `app/app.py:5459` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
