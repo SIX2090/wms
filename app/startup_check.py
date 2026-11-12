@@ -79,12 +79,19 @@ def build_config_check_line(app, env_name=None):
     """生成 ``wms vX.Y.Z config-check: ...`` 启动自检行（不含敏感值）。"""
     env_name = env_name or os.environ.get('FLASK_ENV', 'production')
     db_uri = str(app.config.get('SQLALCHEMY_DATABASE_URI') or '')
+    # G10（2026-11-11 体检缺口）：初始口令是否仍是默认 'admin'，是上线最容易漏
+    # 的一项——漏了不会有任何报错，只会让第一个访问到 8080 的人拿到管理员。
+    # 这里**只告警、不阻断**：AGENTS §一 明确禁止"未设变量就拒绝启动"，也禁止
+    # 随机密码（默认 admin + 强制首次改密才是既有契约）。
+    # 不打印任何密码值，只表示"设了没有"。
+    bootstrap_pw = 'set' if os.environ.get('WMS_BOOTSTRAP_PASSWORD') else 'UNSET!(default admin)'
     parts = [
         f"env={env_name}",
         f"session_cookie={_session_cookie_state(app, env_name)}",
         f"csrf={'on' if app.config.get('WTF_CSRF_ENABLED', True) else 'OFF!'}",
         f"secret_key={_secret_key_source(app)}",
         f"db={db_uri.split(':', 1)[0] or 'unknown'}",
+        f"bootstrap_pw={bootstrap_pw}",
         "migrate=pending-init",
     ]
     return f"wms {version_string()} config-check: " + '; '.join(parts)

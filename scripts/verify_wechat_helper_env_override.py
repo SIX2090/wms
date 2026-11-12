@@ -35,7 +35,7 @@ ROUTE_NAME = 'save_wechat_share_config'
 ENV_KEY = 'WMS_WECHAT_HELPER_URL'
 LEGACY_DEFAULT = 'http://127.0.0.1:8765/send'
 LINE_ANCHOR = 'def backfill_stock_txn_warehouse_id('
-LINE_ANCHOR_EXPECTED = 30427
+LINE_ANCHOR_EXPECTED = 30442
 
 
 class _StripModuleImports(ast.NodeTransformer):

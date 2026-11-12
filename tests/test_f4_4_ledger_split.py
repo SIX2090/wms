@@ -537,3 +537,5 @@ POST_SPLIT_BUGS['BUG-2026-11-11-004'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-11-005'] = 'fixed'
 # 2026-11-11 微信 4.x 假成功/托盘唤出/抢前台批次：新增 1 条「已修复」登记，基线不变。
 POST_SPLIT_BUGS['BUG-2026-11-11-006'] = 'fixed'
+# 2026-11-12 G10 默认凭证/停用 admin 自动解锁批次：新增 1 条「已修复」登记，基线不变。
+POST_SPLIT_BUGS['BUG-2026-11-12-001'] = 'fixed'

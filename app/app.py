@@ -7141,14 +7141,29 @@ def ensure_admin_user_exists():
             app.logger.error(f'Failed to sync must_change_password for admin: {e}')
         # 仅在账号被显式 disabled 时启动期解锁；is_locked（因登录失败次数过多触发的临时锁定）
         # 应等待 locked_until 自然到期，避免攻击者通过触发重启重置锁定计数绕过暴力破解保护。
-        if user.status == 'disabled':
+        #
+        # G10（2026-11-11 体检缺口）：原来这里是**无条件**解锁——"停用 admin"
+        # 这条安全动作，只要重启一次就自动失效，等于停用不了；而停用 admin 恰恰是
+        # 账号泄露时的第一处置手段。改为显式开关，**默认不解锁**：
+        #   - 现网托管入口（run_wms_task.bat / start_wms_offline.bat 设
+        #     WMS_NO_DB_TOUCH=1）下 initialize_database() 早退，本函数根本不执行，
+        #     故改默认值对现网无即时行为变化；
+        #   - 首次部署/手工初始化路径下也不再"静默解锁"，符合"停用即停用"；
+        #   - 确有误禁需要恢复时，设 WMS_AUTO_UNLOCK_DISABLED_ADMIN=1 重启一次，
+        #     解锁后立即改回 0（下方 warning 日志可作审计证据）。
+        # 不会把人锁死在门外：user_auth 的停用保护已保证不能停用自己、且至少保留
+        # 一个启用状态的管理员（_has_other_active_admin）。
+        if user.status == 'disabled' and _env_flag('WMS_AUTO_UNLOCK_DISABLED_ADMIN'):
             user.status = 'normal'
             try:
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
                 app.logger.error(f"Failed to unlock admin account: {e}")
-            app.logger.info("Admin account unlocked (was disabled)")
+            app.logger.warning(
+                "Admin account auto-unlocked by WMS_AUTO_UNLOCK_DISABLED_ADMIN=1 "
+                "(was disabled). Unset this variable after recovery."
+            )
         return user
 
     bootstrap_password = os.environ.get('WMS_BOOTSTRAP_PASSWORD') or 'admin'

@@ -21,6 +21,8 @@
 
 ### 3. 配置检查
 - [ ] 配置LLM API密钥（环境变量或配置文件）
+- [ ] **初始管理员口令（G10，2026-11-11）**：设置 `WMS_BOOTSTRAP_PASSWORD` 为非 `admin` 的强口令；未设置时系统按既有铁律使用默认 `admin` 并强制首次登录改密（启动自检行 `config-check: ... bootstrap_pw=UNSET!(default admin)` 即为未设置告警）。**不要指望"未设置就拒绝启动"**——AGENTS §一 禁止该实现
+- [ ] **自动解锁开关（G10，2026-11-11）**：确认 `WMS_AUTO_UNLOCK_DISABLED_ADMIN` 未设置或为 `0`。设为 `1` 会让"被停用的 admin"在启动时自动恢复为可用，仅在误禁恢复时临时开启，恢复后立即改回
 - [ ] **会话 Cookie 硬门禁（BUG-2026-09-19-003）**：HTTPS 部署设置 `SESSION_COOKIE_SECURE=true`；受信内网 HTTP 部署必须显式设置 `WMS_ALLOW_INSECURE_COOKIE=1`，否则生产环境**拒绝启动**（启动日志含 RuntimeError）；显式放行后启动期会记录 CRITICAL 高危告警，属预期
 - [ ] 设置Feature Flags初始状态（建议先admin_only模式）
 - [ ] 配置熔断器参数（失败阈值、恢复时间）
