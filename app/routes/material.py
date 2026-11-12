@@ -766,6 +766,14 @@ def register_material_routes(app):
             sync_material_primary_image(material)
             db.session.commit()
 
+        # BUG-2026-11-12-001：编辑改的是 code/name/spec/brand 文本，行数与
+        # 最大 id 不变，options_api 的表指纹探测感知不到这一类写入；这里在
+        # 全部提交成功后显式失效物料候选池，让全系统筛选下拉立即按新名称/
+        # 新规格命中，不再等 300 秒 TTL。新增/删除/停启用/导入/合并均会改变
+        # 行数或最大 id，已由 _entity_pool_signature 自动探测，无需再手工失效。
+        from routes.options_api import invalidate_options_pool
+        invalidate_options_pool('material')
+
         msg = '物料更新成功'
         if cascade_info:
             msg += f'，已同步更新：{"、".join(cascade_info)}'

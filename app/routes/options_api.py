@@ -22,12 +22,21 @@ sub 仍保留（规格+品牌拼接文本），向后兼容。
 
 性能策略：
 - 候选池内存缓存（TTL 300s），拼音索引首次构建后复用
+- BUG-2026-11-12-001（新建物料下拉不显示）：候选池 TTL 内不回源，新建/删除/
+  停启用/导入/合并物料后，全系统筛选下拉最长 300 秒看不到变化。现缓存命中时
+  先做一次「表指纹」探测（行数 + 最大 id + 可入池行数，亚毫秒级），签名变化
+  立即重建候选池——覆盖一切改变行数的写入路径，无需逐写入点手工失效；
+  「不改行数的字段编辑」（改名称/规格/品牌）探测不到，由 routes/material.py
+  的物料编辑路由显式调用 invalidate_options_pool() 补位。
+- 拼音计算按文本记忆化（lru_cache）：候选池重建只回源数据库，拼音零重算，
+  签名触发重建的响应仍在毫秒级，下拉体感不受影响。
 - 数据量 > _SQL_THRESHOLD 时退化为 SQL LIKE 预过滤（保证大数据量不拖垮内存）
 - pypinyin 缺失时自动降级为纯子串匹配
 """
 from __future__ import annotations
 
 import time
+from functools import lru_cache
 from threading import Lock
 
 from flask import current_app, jsonify, request
@@ -89,8 +98,14 @@ def _model(name):
         return None
 
 
+@lru_cache(maxsize=100000)
 def _py_keys(text):
-    """返回 (全拼, 首字母)。如 电缆 -> ('dianlan', 'dl')。"""
+    """返回 (全拼, 首字母)。如 电缆 -> ('dianlan', 'dl')。
+
+    BUG-2026-11-12-001：按文本记忆化——候选池因签名变化/ TTL 到期重建时
+    只回源数据库，拼音不重算（物料名/规格等文本稳定，缓存命中率极高），
+    重建耗时从「全量拼音重算」降到「一次全表 SELECT + 字典查找」，毫秒级。
+    """
     if not text or not _HAS_PINYIN:
         return '', ''
     try:
@@ -223,13 +238,81 @@ def _sql_like_pool(entity, kw):
     return items
 
 
+def _entity_pool_signature(key):
+    """候选池底层主数据表的廉价指纹：(总行数, 最大id, 可入池行数)。
+
+    BUG-2026-11-12-001（新建物料下拉不显示）：候选池命中 300 秒 TTL 时
+    不再盲目信任缓存，先用本指纹做一次亚毫秒级探测——主数据有任何
+    「改变行数/最大id/可入池行数」的写入（新建/删除/停启用/导入/合并/
+    批量导入），签名即变化、候选池立即重建。这样无需在每个写入点手工
+    失效，天然覆盖 PC 新增、物料导入、批量导入、手机端等一切入口，
+    不会像逐点失效那样漏掉新增入口（R6 同根因漂移）。
+
+    局限（有意取舍）：不改行数的字段编辑（改名称/规格/品牌）探测不到，
+    由 routes/material.py 的物料编辑路由显式调用 invalidate_options_pool()
+    补位。探测抛异常时返回 None，调用方按「未变化」处理，绝不让下拉 500。
+    """
+    if key not in ENTITY_CONFIG:
+        return None
+    M = _model(ENTITY_CONFIG[key][0])
+    if M is None:
+        return None
+    try:
+        from db import db as _db
+        total = M.query.count()
+        max_id = _db.session.query(_db.func.max(M.id)).scalar() or 0
+        eligible = None
+        # 物料/BOM 候选池带 status 过滤（见 _build_entity_pool），停用/启用
+        # 不改变总行数与最大 id，必须用「可入池行数」这一维才能感知。
+        if key == 'material' and hasattr(M, 'status'):
+            eligible = M.query.filter(_db.or_(M.status == 'active',
+                                              M.status.is_(None),
+                                              M.status == '')).count()
+        elif key == 'bom_active':
+            eligible = M.query.filter(M.status == 'active').count()
+        return (total, max_id, eligible)
+    except Exception:
+        current_app.logger.warning('[options] 表指纹探测失败 entity=%s，沿用缓存', key,
+                                   exc_info=True)
+        return None
+
+
+def invalidate_options_pool(entity=None):
+    """显式失效候选池缓存（BUG-2026-11-12-001 配套）。
+
+    签名探测已覆盖一切改变行数的写入；本函数只用于补位「探测感知不到」
+    的场景——目前唯一已知是物料编辑改 code/name/spec/brand 文本（行数与
+    id 不变）。entity 传 None 清空全部实体（主数据极少变更，重建成本由
+    _py_keys 记忆化承担，毫秒级），传实体名只清该实体。
+    """
+    with _POOL_LOCK:
+        if entity:
+            _POOL_CACHE.pop(entity, None)
+        else:
+            _POOL_CACHE.clear()
+
+
 def _get_pool(key, kw):
     """取候选池：优先内存缓存，超阈值则走 SQL。"""
     now = time.time()
     with _POOL_LOCK:
         cached = _POOL_CACHE.get(key)
-        if cached and now - cached[0] < _POOL_TTL:
-            return cached[1], True
+    if cached and now - cached[0] < _POOL_TTL:
+        pool, sig = cached[1], cached[2]
+        # BUG-2026-11-12-001：TTL 未到也先做表指纹探测，主数据变了立即重建；
+        # 纯文本候选（TEXT_SOURCES）签名恒 None，保持纯 TTL 行为。
+        # 探测结果为 None（探测失败）按「未变化」处理：新鲜度优化绝不把
+        # 下拉打成 500 或强制慢路径，回退旧缓存（最多旧 300 秒）。
+        try:
+            current = _entity_pool_signature(key)
+        except Exception:
+            current = None
+        if sig is None or current is None or current == sig:
+            return pool, True
+        with _POOL_LOCK:
+            # 只清掉「探测时的同一份缓存」：若并发请求已先一步重建，让位。
+            if _POOL_CACHE.get(key) is cached:
+                _POOL_CACHE.pop(key, None)
 
     if key in ENTITY_CONFIG:
         M = _model(ENTITY_CONFIG[key][0])
@@ -243,8 +326,9 @@ def _get_pool(key, kw):
     else:
         pool = _build_text_pool(key)
 
+    sig = _entity_pool_signature(key) if key in ENTITY_CONFIG else None
     with _POOL_LOCK:
-        _POOL_CACHE[key] = (now, pool)
+        _POOL_CACHE[key] = (now, pool, sig)
     return pool, False
 
 
