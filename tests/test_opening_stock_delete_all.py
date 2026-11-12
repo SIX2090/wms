@@ -103,8 +103,12 @@ class TestOpeningStockDeleteAll:
         self.ctx.pop()
 
     def _wipe(self):
+        # G-16 之后每次「删除全部」成功都会写 1 条 purge_opening_stock 审计。
+        # TestPurgeGuard 继承本类，会把 T1/T3/T4/T6 连同 T8~T11 再跑一遍；
+        # 审计表若不清空，前面 8 次删除的留痕会累积到 T10 的断言里（CI #2123
+        # 实测 9 条而非 1 条）。OperationAudit 放在 User 之前删，避免外键顺序问题。
         for model in (OpeningStock, OpeningStockDoc, StockTransaction,
-                      Material, Warehouse, Unit, User):
+                      Material, Warehouse, Unit, OperationAudit, User):
             db.session.query(model).delete()
         db.session.commit()
 

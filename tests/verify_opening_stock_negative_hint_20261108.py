@@ -7,6 +7,12 @@ import os
 import subprocess
 import sys
 
+# G-16（2026-11-11）给 delete_all_opening_stock 加了「手输确认短语」与
+# 「单据 warehouse_id 审计快照」。本回归用 AST 剥装饰器后 exec 路由、明确
+# 不导入 app，因此新增的模块级名字与 ORM 字段都必须在合成夹具里补齐，
+# 否则 WMS CI #2123 / verify-shard-1 会以 NameError 亮红（产品代码无缺陷）。
+PURGE_PHRASE = '清空全部期初库存'
+
 
 def main():
     import ast
@@ -48,6 +54,9 @@ def main():
     from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
     root = Path(__file__).resolve().parents[1]
+    backend = (root / 'app/routes/opening_stock.py').read_text(encoding='utf-8-sig')
+    if f"OPENING_STOCK_PURGE_PHRASE = '{PURGE_PHRASE}'" not in backend:
+        raise AssertionError('后端确认短语已变更，请同步本合成夹具的 PURGE_PHRASE')
     source = ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig'))
     utils = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
     identity = ast.parse((root / 'app/services/warehouse_identity.py').read_text(encoding='utf-8-sig'))
@@ -97,6 +106,8 @@ def main():
         __tablename__ = 'synthetic_opening_doc'
         id: Mapped[int] = mapped_column(primary_key=True)
         doc_no: Mapped[str] = mapped_column(String)
+        # G-16 的审计快照会读 d.warehouse_id；真实单据有该列，合成夹具必须同步。
+        warehouse_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
         lines = relationship('OpeningStock', cascade='all, delete-orphan')
 
     class OpeningStock(Base):
@@ -147,7 +158,10 @@ def main():
                        '_ledger_source_warehouse_getters': lambda: {
                            'synthetic_movement': (SourceDocument, lambda doc, _txn: doc.warehouse.name)},
                        'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math,
-                       'datetime': datetime}
+                       'datetime': datetime,
+                       # G-16 新增的两个外部名字：常量与审计函数（合成环境无 app）。
+                       'OPENING_STOCK_PURGE_PHRASE': PURGE_PHRASE,
+                       'log_audit': lambda *_args, **_kwargs: None}
             aliases = function(identity, 'warehouse_aliases')
             # Bind the real alias query to this fixture's synthetic models/session.
             # Keep its ambiguity checks; never import application models here.
@@ -467,7 +481,8 @@ def main():
                 'jsonify': lambda payload: payload, 'log_operation': lambda *_args: None,
                 'app': types.SimpleNamespace(logger=types.SimpleNamespace(error=lambda *_args: None)),
                 'request': types.SimpleNamespace(get_json=lambda **_kwargs: {
-                    'line_ids': [1], 'confirm': True}),
+                    'line_ids': [1], 'confirm': True,
+                    'confirm_phrase': PURGE_PHRASE}),
             })
             route_source = ast.parse((root / 'app/routes/opening_stock.py').read_text(encoding='utf-8-sig'))
             matches = [node for node in ast.walk(route_source)
@@ -518,7 +533,8 @@ def main():
                 'jsonify': lambda payload: payload, 'log_operation': lambda *_args: None,
                 'app': types.SimpleNamespace(logger=types.SimpleNamespace(error=lambda *_args: None)),
                 'request': types.SimpleNamespace(get_json=lambda **_kwargs: {
-                    'line_ids': [1, 2, 3, 4], 'confirm': True}),
+                    'line_ids': [1, 2, 3, 4], 'confirm': True,
+                    'confirm_phrase': PURGE_PHRASE}),
             })
             route_source = ast.parse((root / 'app/routes/opening_stock.py').read_text(encoding='utf-8-sig'))
             matches = [node for node in ast.walk(route_source)
