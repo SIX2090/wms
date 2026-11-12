@@ -699,17 +699,20 @@ def check_fix8():
 
 
 # ---------------------------------------------------------------------------
-# Fix 7 (deliberately abandoned): line 379 must be byte-identical to HEAD
+# Fix 7 (deliberately abandoned): line 379 must keep the original Qt heuristic
 # ---------------------------------------------------------------------------
-def check_fix7_abandoned():
-    import subprocess
+# CI 的工作区 /opt/wms 是 checkout 产物、不带 git 历史，不能用
+# `git show HEAD:app/wechat_helper.py` 与工作区比对（本机有 .git 能过，CI 必红）。
+# 改为直接锁定期望文本，断言强度不变：既要求整行逐字相同，也要求过宽匹配
+# 仍在、且未加进程名条件。
+EXPECTED_QT_LINE = ('        has_wechat_class = "WeChat" in class_text or "Weixin" '
+                    'in class_text or class_text.startswith("Qt")')
 
+
+def check_fix7_abandoned():
     def t():
-        head_line = subprocess.run(
-            ['git', 'show', 'HEAD:app/wechat_helper.py'], cwd=ROOT,
-            capture_output=True, check=True).stdout.decode('utf-8').splitlines()[378]
         work_line = _text(HELPER_PY).splitlines()[378]
-        return (head_line == work_line
+        return (work_line == EXPECTED_QT_LINE
                 and 'class_text.startswith("Qt")' in work_line
                 and 'and is_wechat_process' not in work_line)
     _check('fix7_abandoned_line379_unchanged_qt_check_kept', t)
