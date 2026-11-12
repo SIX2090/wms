@@ -25234,12 +25234,14 @@ def _wechat_share_cleanup_old_images_daily():
     today = date.today()
     if _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] == today:
         return 0
-    _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] = today
     try:
-        return _wechat_share_cleanup_old_images()
+        deleted = _wechat_share_cleanup_old_images()
     except Exception:
+        # 失败当天不标记，下一次 scheduler 触发仍会重试。
         app.logger.exception('微信分享图片每日清理失败')
         return 0
+    _WECHAT_SHARE_CLEANUP_STATE['last_run_date'] = today
+    return deleted
 
 def _wechat_share_today_in_orders():
     return InOrder.query.options(
@@ -25346,8 +25348,9 @@ def _wechat_share_send_image(config, image_path):
         app.logger.warning('微信发送助手响应超时，不做自动重试')
         return 'failed', 'helper_timeout', '微信发送助手响应超时；为避免重复发送不做自动重试，请确认助手状态后人工重发'
     except Exception as exc:
-        app.logger.warning('微信发送助手调用失败: %s', exc)
-        return 'failed', 'send_error', f'微信发送助手调用失败：{exc}'
+        # 异常文本可能含助手地址/内部信息，不写入日志或返回消息。
+        app.logger.warning('微信发送助手调用失败（%s）', type(exc).__name__)
+        return 'failed', 'send_error', '微信发送助手调用失败，请检查本机助手状态与配置'
 
     if 300 <= response.status_code < 400:
         return 'failed', 'helper_redirect_refused', '微信发送助手返回重定向，请核对本机助手地址后人工确认'
@@ -25548,9 +25551,14 @@ def _wechat_share_get_helper_health(config):
 
     try:
         import requests
-        # BUG-2026-09-14-034：回环直连，禁走系统/环境代理
-        response = requests.get(health_url, timeout=1.5, proxies=_LOOPBACK_NO_PROXY)
-        if not response.ok:
+        # BUG-2026-09-14-034：回环直连，禁走系统/环境代理；健康探测同样禁止跟随跳转，
+        # 避免 3xx 目标地址的响应 JSON 被当成助手状态吸收。
+        response = requests.get(
+            health_url, timeout=1.5, proxies=_LOOPBACK_NO_PROXY, allow_redirects=False,
+        )
+        if 300 <= response.status_code < 400:
+            health['message'] = '微信发送助手返回重定向，请核对本机助手地址'
+        elif not response.ok:
             health['message'] = f'助手返回 HTTP {response.status_code}'
         else:
             payload = response.json()
@@ -25563,7 +25571,9 @@ def _wechat_share_get_helper_health(config):
                 'message': '助手在线' if payload.get('status') == 'ok' else (payload.get('msg') or '助手状态异常'),
             })
     except Exception as exc:
-        health['message'] = f'助手不可用：{exc}'
+        # 异常文本可能含回环地址/内部信息，不写入日志或返回消息。
+        app.logger.warning('微信助手健康探测失败（%s）', type(exc).__name__)
+        health['message'] = '助手不可用，请检查本机微信发送助手状态'
     health['checked_at'] = now
     cache.update({'url': health_url, 'at': now, 'health': dict(health)})
     return health
@@ -26202,7 +26212,11 @@ def _wechat_helper_authorized():
         request.headers.get('X-Wechat-Helper-Token')
         or ''
     ).strip()
-    return bool(expected and provided and secrets.compare_digest(expected, provided))
+    # secrets.compare_digest 的 str 版本只接受 ASCII：非 ASCII 请求头会抛 TypeError
+    # 变成 500。这里直接判定为未授权，ASCII token 仍走原来的定时安全比较。
+    if not (expected and provided and expected.isascii() and provided.isascii()):
+        return False
+    return secrets.compare_digest(expected, provided)
 
 def _wechat_helper_task_payload(log):
     return {

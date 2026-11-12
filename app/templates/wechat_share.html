@@ -119,7 +119,7 @@
                         </div>
                         <div class="col-12">
                             <label class="form-label">本机微信发送助手地址</label>
-                            <input type="text" class="form-control" name="helper_url" value="{{ share_config.helper_url or 'http://127.0.0.1:8765/send' }}" placeholder="http://127.0.0.1:8765/send">
+                            <input type="text" class="form-control" name="helper_url" value="{{ share_config.helper_url or '' }}" placeholder="http://127.0.0.1:8765/send">
                             <div class="form-text">
                                 发送模式有两种，可同时使用互不影响：① <strong>直推</strong>——生成图片后 WMS 立即推送到助手并粘贴到微信窗口；
                                 ② <strong>轮询</strong>——助手以环境变量 <code>WMS_WECHAT_HELPER_POLL=1</code> 启动后，会定时自动拉取「待发送」记录。

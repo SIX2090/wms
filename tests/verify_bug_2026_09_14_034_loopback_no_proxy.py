@@ -113,7 +113,9 @@ class TestHealthNoProxy:
         app_module._WECHAT_SHARE_HEALTH_CACHE.update({"url": "", "at": None, "health": None})
         captured = {}
 
-        def fake_get(url, timeout=None, proxies=None):
+        def fake_get(url, timeout=None, proxies=None, allow_redirects=None):
+            # 健康探测与直推一致：不跟随重定向，避免 3xx 目标响应被当成助手状态。
+            assert allow_redirects is False
             captured["url"] = url
             captured["proxies"] = proxies
             return _HealthResponse()

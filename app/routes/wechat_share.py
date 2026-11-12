@@ -186,7 +186,7 @@ def register_wechat_share_routes(app):
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('立即执行微信分享失败')
-            return jsonify({'status': 'error', 'msg': f'执行失败：{exc}'}), 500
+            return jsonify({'status': 'error', 'msg': '执行失败，请稍后重试或联系管理员'}), 500
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/wechat_share/log/<int:log_id>/resend', methods=['POST'])
@@ -285,7 +285,7 @@ def register_wechat_share_routes(app):
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('重发微信分享失败: log_id=%s', log_id)
-            return jsonify({'status': 'error', 'msg': f'重发失败：{exc}'}), 500
+            return jsonify({'status': 'error', 'msg': '重发失败，请稍后重试或联系管理员'}), 500
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/wechat_share/logs/clear', methods=['POST'])
@@ -314,7 +314,7 @@ def register_wechat_share_routes(app):
         except Exception as exc:
             db.session.rollback()
             current_app.logger.exception('清理微信分享记录失败: status=%s', clear_status)
-            return jsonify({'status': 'error', 'msg': f'清理失败：{exc}'}), 500
+            return jsonify({'status': 'error', 'msg': '清理失败，请稍后重试或联系管理员'}), 500
 
     @app.route('/wechat_share/logs/cleanup_preview')
     @login_required

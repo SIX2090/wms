@@ -602,7 +602,7 @@ def open_contact(receiver_search_key: str, hwnd: int | None = None) -> None:
     time.sleep(0.8)
 
     # (按键序列, 适用版本)：3.x 回车直开；4.x 需要先 Tab/Down 把焦点移进结果。
-    for keys in ((VK_RETURN,), (VK_TAB, VK_RETURN), (VK_DOWN, VK_RETURN), (VK_DOWN, VK_RETURN)):
+    for keys in ((VK_RETURN,), (VK_TAB, VK_RETURN), (VK_DOWN, VK_RETURN)):
         for key in keys:
             press_key(key)
             time.sleep(0.45)
@@ -622,14 +622,11 @@ def open_contact(receiver_search_key: str, hwnd: int | None = None) -> None:
 
 
 def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str, auto_send: bool) -> str:
-    # 先校验接收人再碰剪贴板/微信窗口，失败时不产生任何 UI 副作用（便于安全重试）
+    # 先校验接收人再激活微信窗口；剪贴板写入放到 Ctrl+V 紧邻之前，
+    # 避免唤出窗口 + 打开会话的几秒内被其他进程覆盖剪贴板导致粘错内容。
     receiver_search_key = (receiver_search_key or "").strip()
     if not receiver_search_key:
         raise _SendError("no_receiver", "receiver_search_key is empty")
-    try:
-        set_clipboard_dib(image_bytes)
-    except Exception as exc:
-        raise _SendError("clipboard_failed", f"写入剪贴板失败：{exc}") from exc
     hwnd, prior_state = activate_wechat()
     try:
         _ensure_foreground(hwnd)
@@ -640,6 +637,10 @@ def paste_image_and_optionally_send(image_bytes: bytes, receiver_search_key: str
         except Exception as exc:
             raise _SendError("open_contact_failed", f"打开微信会话失败：{exc}") from exc
         _ensure_foreground(hwnd)
+        try:
+            set_clipboard_dib(image_bytes)
+        except Exception as exc:
+            raise _SendError("clipboard_failed", f"写入剪贴板失败：{exc}") from exc
         try:
             hotkey(VK_CONTROL, VK_V)
         except Exception as exc:
