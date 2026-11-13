@@ -243,7 +243,7 @@ function sendLabelsToPrintStation() {
     }
     WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: ids.join(',')})
     .then(function(res) {
-        showToast(res.msg || '已发送标签到打印工作站', 'success');
+        showToast(res.msg || '已发送标签到打印工作站', (res && res.duplicate) ? 'warning' : 'success');
     })
     .catch(function(err) {
         showToast('发送打印任务失败：' + err.message, 'danger');
