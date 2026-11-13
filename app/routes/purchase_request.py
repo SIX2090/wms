@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 
-from flask import flash, jsonify, redirect, render_template, request, url_for
+from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -55,6 +55,30 @@ def resolve_purchase_request_line_fields(data):
     elif fields.project_name:
         raise ValueError('请先从合同档案选择合同编号')
     return fields
+
+
+def _request_edit_line_id(value):
+    if value is None or value == '':
+        return None
+    if type(value) is int:
+        line_id = value
+    elif (isinstance(value, str) and len(value.strip()) <= 19
+          and value.strip().isascii() and value.strip().isdigit()):
+        line_id = int(value.strip())
+    else:
+        raise ValueError('申请明细标识无效')
+    if not 0 < line_id < 2**63:
+        raise ValueError('申请明细标识无效')
+    return line_id
+
+
+def _request_edit_has_purchase(request_order):
+    from app import PurchaseOrder, PurchaseOrderItem
+    if PurchaseOrder.query.filter_by(purchase_request_id=request_order.id).first():
+        return True
+    item_ids = [item.id for item in request_order.items]
+    return bool(item_ids and PurchaseOrderItem.query.filter(
+        PurchaseOrderItem.purchase_request_item_id.in_(item_ids)).first())
 
 
 # no-test:reason=路由注册辅助函数，能力由 purchase_request_* 各路由测试覆盖
@@ -431,8 +455,10 @@ def register_purchase_request_routes(app):
                 'unit_id': item.unit_id or (unit.id if unit else None),
                 'unit_name': unit.name if unit else '',
                 'stock': float(material.stock or 0) if material else 0,
+                'line_id': item.id,
                 'quantity': float(item.quantity or 0),
-                'estimated_price': float(item.estimated_price or 0),
+                'estimated_price': float(item.estimated_price) if item.estimated_price is not None else None,
+                'estimated_amount': item.estimated_amount,
                 'supplier_id': item.supplier_id or (item.supplier.id if item.supplier else None),
                 'supplier_name': item.supplier.name if item.supplier else (item.supplier_name or ''),
                 'contract_no': item.contract_no or '',
@@ -508,6 +534,9 @@ def register_purchase_request_routes(app):
                         status='pending',
                         operator_id=current_user.id
                     )
+            if request_id and _request_edit_has_purchase(request_order):
+                db.session.rollback()
+                return api_error('采购申请已有下游采购单，不能修改')
             db.session.add(request_order)
             db.session.flush()
 
@@ -535,6 +564,7 @@ def register_purchase_request_routes(app):
             ]
 
             if not valid_items_data:
+                db.session.rollback()
                 return api_error('请至少添加一条采购明细')
 
             contract_fields = []
@@ -548,8 +578,28 @@ def register_purchase_request_routes(app):
                     db.session.rollback()
                     return api_error(f'第 {row_no} 行：{exc}')
 
+            existing_items = {item.id: item for item in request_order.items}
+            identified_edit = any('line_id' in item_data for item_data in valid_items_data)
+            line_ids = []
+            try:
+                for item_data in valid_items_data:
+                    line_ids.append(_request_edit_line_id(item_data.get('line_id')))
+            except ValueError as exc:
+                db.session.rollback()
+                return api_error(str(exc))
+            owned_ids = [line_id for line_id in line_ids if line_id is not None]
+            if (len(owned_ids) != len(set(owned_ids))
+                    or any(line_id not in existing_items for line_id in owned_ids)
+                    or (not request_id and owned_ids)):
+                db.session.rollback()
+                return api_error('申请明细标识重复或不属于当前单据，请刷新后重试')
+            if request_id and identified_edit and not getattr(g, 'document_edit_guard', None):
+                db.session.rollback()
+                return api_error('编辑状态已失效，请重新打开单据后重试', 409)
+            financial_change = not request_id or not identified_edit or set(owned_ids) != set(existing_items)
             for existing_item in list(request_order.items):
-                db.session.delete(existing_item)
+                if not identified_edit or existing_item.id not in owned_ids:
+                    db.session.delete(existing_item)
             db.session.flush()
 
             total_amount = 0
@@ -579,6 +629,7 @@ def register_purchase_request_routes(app):
                 # 或 material_code）就要求解析成功；两者都没给（仅填名称）保持
                 # 原有兼容行为，不在此处新增限制。
                 if (material_id or material_code) and material is None:
+                    db.session.rollback()
                     row_label = material_code or item_data.get('material_name') or item_data.get('code') or '(未填写)'
                     if material_id:
                         return api_error(
@@ -588,12 +639,40 @@ def register_purchase_request_routes(app):
                         f'第 {row_no} 行物料编码 {row_label} 在系统中不存在，'
                         f'请从物料列表重新选择后再保存；若要新增物料请先到「物料管理」建档')
 
+                old_item = existing_items.get(line_ids[row_no - 1]) if identified_edit else None
+                if old_item is not None and old_item.material_id != (material.id if material else None):
+                    db.session.rollback()
+                    return api_error('原申请明细不能更换物料，请新增明细后移除原行')
                 quantity = parse_float_value(item_data.get('quantity'), 0)
                 if quantity <= 0:
+                    db.session.rollback()
                     return api_error(f'物料 {material_code or item_data.get("material_name", "")} 的数量必须大于0')
 
-                estimated_price = parse_float_value(item_data.get('estimated_price'), 0)
-                estimated_amount = round_money_product(quantity, estimated_price)
+                raw_price = item_data.get('estimated_price')
+                price_missing = raw_price is None or (isinstance(raw_price, str) and not raw_price.strip())
+                if (old_item is not None and old_item.estimated_price is None and not price_missing
+                        and (isinstance(raw_price, bool) or parse_float_value(raw_price, None) is None)):
+                    db.session.rollback()
+                    return api_error('该历史明细缺少预估单价，请明确填写有效非负预估单价（可填0）')
+                estimated_price = parse_float_value(raw_price, 0)
+                quantity_unchanged = old_item is not None and quantity == old_item.quantity
+                price_unchanged = old_item is not None and (
+                    estimated_price == old_item.estimated_price if not price_missing
+                    else old_item.estimated_price is None)
+                row_financial_change = not quantity_unchanged or not price_unchanged
+                # 未报价的零额申请仍可改数量；有历史估算额但缺原价时不能猜价或清零。
+                if (old_item is not None and old_item.estimated_price is None and price_unchanged
+                        and row_financial_change and old_item.estimated_amount not in (None, 0)):
+                    db.session.rollback()
+                    return api_error('该历史明细缺少预估单价，修改数量前请明确填写预估单价（可填0）')
+                if quantity_unchanged:
+                    quantity = old_item.quantity
+                if price_unchanged:
+                    estimated_price = old_item.estimated_price
+                estimated_amount = (old_item.estimated_amount
+                    if old_item is not None and not row_financial_change and old_item.estimated_amount is not None
+                    else round_money_product(quantity, estimated_price or 0))
+                financial_change = financial_change or row_financial_change
                 total_amount += estimated_amount
 
                 unit_id = item_data.get('unit_id')
@@ -620,7 +699,7 @@ def register_purchase_request_routes(app):
                 if supplier:
                     supplier_name = supplier.name
 
-                item = PurchaseRequestItem(
+                values = dict(
                     purchase_request_id=request_order.id,
                     material_id=material.id if material else None,
                     material_name=(item_data.get('material_name') or (material.name if material else '')).strip(),
@@ -636,9 +715,16 @@ def register_purchase_request_routes(app):
                     project_name=contract_fields[row_no - 1].project_name or None,
                     remark=contract_fields[row_no - 1].remark or ''
                 )
-                db.session.add(item)
+                if old_item is not None:
+                    item = old_item
+                    for field, value in values.items():
+                        setattr(item, field, value)
+                else:
+                    item = PurchaseRequestItem(**values)
+                    db.session.add(item)
 
-            request_order.total_amount = total_amount
+            if financial_change or request_order.total_amount is None:
+                request_order.total_amount = total_amount
             try:
                 db.session.flush()
                 stage_document_response({'status': 'success', 'msg': '保存成功', 'id': request_order.id, 'request_no': request_order.request_no})

@@ -654,26 +654,30 @@ textarea.form-control {
     var activeIndex = -1;
 
     function recalcRow(row) {
-        var qty = Number(row.querySelector('.qty').value) || 0;
-        var price = Number(row.querySelector('.price').value) || 0;
+        var quantityInput = row.querySelector('.qty').value;
+        var priceInput = row.querySelector('.price').value;
+        var qty = Number(quantityInput) || 0;
+        var material = findMaterial(row.querySelector('.material-code').value);
+        if (!material && row._salesSnapshot && row.querySelector('.material-code').value.trim() === String(row._salesSnapshot.code)) {
+            material = row._salesSnapshot.material;
+        }
+        var price = String(priceInput).trim() === '' ? Number(material && material.price != null ? material.price : 0) : Number(priceInput) || 0;
         var rateInput = row.querySelector('.tax-rate').value;
         var rate = String(rateInput).trim() === '' ? defaultTaxRate : Number(rateInput) || 0;
-        var included = window.WMSMoney.product(qty, price);
-        var untaxed = rate >= 0 ? window.WMSMoney.round(included / (1 + rate)) : included;
-        var tax = window.WMSMoney.round(included - untaxed);
+        if (rate < 0) rate = 0;
         var snapshot = row._salesSnapshot;
-        function unchanged(value, saved, missingDisplay) {
-            if (saved == null && missingDisplay == null) return String(value).trim() === '';
-            var shown = saved == null ? missingDisplay : Number(saved);
-            var entered = Number(value);
-            return String(value).trim() !== '' && Number.isFinite(shown) &&
-                entered === shown;
-        }
-        row._salesFinancialUnchanged = !!snapshot &&
-            row.querySelector('.material-code').value.trim() === String(snapshot.code) &&
-            unchanged(row.querySelector('.qty').value, snapshot.quantity, 0) &&
-            unchanged(row.querySelector('.price').value, snapshot.price, null) &&
-            unchanged(row.querySelector('.tax-rate').value, snapshot.tax_rate, defaultTaxRate);
+        var sameLine = !!snapshot && row.dataset.salesLineId === String(snapshot.line_id) &&
+            row.querySelector('.material-code').value.trim() === String(snapshot.code);
+        var quantityUnchanged = sameLine && String(quantityInput).trim() !== '' && qty === Number(snapshot.quantity);
+        var priceUnchanged = sameLine && (snapshot.price == null
+            ? String(priceInput).trim() === '' : price === Number(snapshot.price));
+        var rateUnchanged = sameLine && rate === Number(snapshot.tax_rate == null ? defaultTaxRate : snapshot.tax_rate);
+        row._salesFinancialUnchanged = quantityUnchanged && priceUnchanged && rateUnchanged;
+        var included = window.WMSMoney.product(
+            quantityUnchanged ? Number(snapshot.quantity) : window.WMSMoney.round(qty),
+            priceUnchanged ? Number(snapshot.price == null ? 0 : snapshot.price) : window.WMSMoney.round(price));
+        var untaxed = window.WMSMoney.round(included / (1 + rate));
+        var tax = window.WMSMoney.round(included - untaxed);
         if (row._salesFinancialUnchanged) {
             if (snapshot.tax_included_amount != null &&
                     (Number(snapshot.tax_included_amount) !== 0 || snapshot.amount == null)) {
@@ -720,7 +724,7 @@ textarea.form-control {
         // BUG-2026-10-25-001：零单价是明确输入，仅缺失单价才使用物料默认价。
         if (material && !row.querySelector('.price').value &&
                 (!row._salesSnapshot || row.querySelector('.material-code').value.trim() !== String(row._salesSnapshot.code))) {
-            row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+            row.querySelector('.price').value = String(window.WMSMoney.round(material.price == null ? 0 : material.price));
         }
         recalc();
     }
@@ -942,10 +946,15 @@ textarea.form-control {
     document.getElementById('copyRowBtn').addEventListener('click', function() {
         var last = body.querySelector('tr:last-child');
         if (!last || !last.querySelector('.material-code').value) { return; }
+        var price = last.querySelector('.price').value;
+        if (price === '') {
+            var material = findMaterial(last.querySelector('.material-code').value);
+            if (material) price = material.price == null ? 0 : material.price;
+        }
         addRow({
             code: last.querySelector('.material-code').value,
-            quantity: last.querySelector('.qty').value,
-            price: last.querySelector('.price').value,
+            quantity: String(window.WMSMoney.round(last.querySelector('.qty').value)),
+            price: price === '' ? '' : String(window.WMSMoney.round(price)),
             tax_rate: last.querySelector('.tax-rate').value,
             batch_no: last.querySelector('.batch-no').value,
             serial_no: last.querySelector('.serial-no').value,
@@ -1093,10 +1102,13 @@ textarea.form-control {
         }
         body.innerHTML = '';
         template.items.forEach(function(item) {
+            var material = findMaterial(item.code);
+            var price = item.price;
+            if (price == null || price === '') price = material.price == null ? 0 : material.price;
             addRow({
                 code: item.code || '',
-                quantity: item.quantity || 1,
-                price: item.price,
+                quantity: String(window.WMSMoney.round(item.quantity || 1)),
+                price: String(window.WMSMoney.round(price)),
                 tax_rate: item.tax_rate != null ? item.tax_rate : defaultTaxRate,
                 batch_no: item.batch_no || '',
                 serial_no: item.serial_no || '',

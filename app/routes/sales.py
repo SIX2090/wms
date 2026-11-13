@@ -815,14 +815,20 @@ def register_sales_routes(app):
                         db.session.rollback()
                         return jsonify({'status': 'error', 'msg': '物料已停用，只能保留本单原有关联行，不能新增'}), 400
                     historical_material_rows[material.id] -= 1
-                raw_price = parse_float_value(data.get('price'), material.price or 0)
+                price_input = data.get('price')
+                price_missing = price_input is None or (isinstance(price_input, str) and not price_input.strip())
+                if (old_line is not None and old_line.price is None and not price_missing
+                        and (isinstance(price_input, bool) or parse_float_value(price_input, None) is None)):
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': '该历史明细缺少单价，请明确填写有效非负单价（可填0）'}), 400
+                raw_price = parse_float_value(price_input, material.price or 0)
                 price = round_to_2_decimals(raw_price)
                 tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
                 if tax_rate < 0:
                     tax_rate = 0
                 quantity_unchanged = same_material and _sales_edit_number_unchanged(raw_quantity, old_line.quantity)
                 price_unchanged = same_material and (
-                    (old_line.price is None and data.get('price') in (None, ''))
+                    (old_line.price is None and price_missing)
                     or (old_line.price is not None and _sales_edit_number_unchanged(raw_price, old_line.price)))
                 tax_unchanged = same_material and _sales_edit_number_unchanged(tax_rate, old_line.tax_rate, 0.13)
                 row_financial_change = not (quantity_unchanged and price_unchanged and tax_unchanged)

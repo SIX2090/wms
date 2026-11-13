@@ -91,8 +91,12 @@ if (process.argv[2] === 'ordinary') {
     for (const selector of entry.qty) cells[selector] = {value: '1.15'};
     for (const selector of entry.price) cells[selector] = {value: '3.5'};
     for (const selector of entry.amount) cells[selector] = {value: ''};
+    cells['.material-code'] = {value:'SYN-MONEY',dataset:{materialId:'1'}};
     const scope = {window: sandbox.window, docType: 'transfer', calcTotal() {}, updateTotals() {},
-                   formatQty: n => n.toFixed(2), refreshWmsEntryCellHints() {}};
+                   formatQty: n => n.toFixed(2), refreshWmsEntryCellHints() {},
+                   materials:[{id:1,code:'SYN-MONEY',price:3.5}],
+                   findMaterialByKeyword:code=>{assert.equal(code,'SYN-MONEY');return {id:1,price:3.5};},
+                   purchaseLineId:()=>null,requestFinancialUnchanged:()=>false};
     const fn = vm.runInNewContext('(' + template.slice(begin, end).trim() + ')', scope,
       {timeout:1000, contextCodeGeneration:{strings:false,wasm:false}});
     fn({classList:{contains:()=>true}, querySelector(selector) {
@@ -123,9 +127,11 @@ if (process.argv[2] === 'ordinary') {
   const end = template.indexOf('    function recalc() {', start);
   assert.ok(start >= 0 && end > start, '销售金额函数必须唯一可定位');
   assert.equal(template.indexOf('    function recalcRow(row) {', start + 1), -1);
+  sandbox.defaultTaxRate = .13;
+  sandbox.findMaterial = code=>{assert.equal(code,'SYN-MONEY');return {code,price:.5};};
   const recalcRow = vm.runInNewContext('(' + template.slice(start, end).trim() + ')', sandbox,
     {timeout: 1000, contextCodeGeneration: {strings: false, wasm: false}});
-  const cells = {'.qty': {value: '0.01'}, '.price': {value: '0.50'}, '.tax-rate': {value: '0.13'},
+  const cells = {'.material-code':{value:'SYN-MONEY'},'.qty': {value: '0.01'}, '.price': {value: '0.50'}, '.tax-rate': {value: '0.13'},
     '.untaxed': {textContent: ''}, '.tax': {textContent: ''}, '.included': {textContent: ''}};
   recalcRow({querySelector(selector) {
     assert.ok(Object.hasOwn(cells, selector), 'unexpected synthetic row query');

@@ -530,17 +530,20 @@ const materials = {{ materials|tojson }};
 const suppliers = {{ suppliers|tojson }};
 let activeDropdown = null;
 let activeSupplierDropdown = null;
+const initialTotalAmount = {{ (order.total_amount if order else none)|tojson }};
 const initialItems = [
 {% if order %}
 {% for item in order.items %}
     {
+        line_id: {{ item.id }},
+        amount: {{ item.amount|tojson }},
         material_id: {{ item.material_id }},
         material_code: {{ item.material.code|tojson if item.material else '""' }},
         material_name: {{ item.material.name|tojson if item.material else '""' }},
         spec: {{ item.material.spec|tojson if item.material else '""' }},
         unit_name: {{ item.material.unit.name|tojson if item.material and item.material.unit else '""' }},
-        quantity: {{ item.quantity or 0 }},
-        price: {{ item.price or 0 }},
+        quantity: {{ item.quantity|tojson }},
+        price: {{ item.price|tojson }},
         contract_no: {{ (item.contract_no or order.contract_no or '')|tojson }},
         project_name: {{ (item.project_name or order.project_name or '')|tojson }},
         remark: {{ (item.remark or '')|tojson }}
@@ -698,6 +701,7 @@ function findMaterialByKeyword(keyword) {
 function addNewRow(data = {}, insertBeforeRow = null) {
     const tbody = document.getElementById('materialTableBody');
     const row = document.createElement('tr');
+    row._purchaseSnapshot = data.line_id == null ? null : Object.assign({}, data);
     row.innerHTML = `
         <td class="row-num" data-column-key="row_no"></td>
         <td data-column-key="material_code">
@@ -731,6 +735,10 @@ function addNewRow(data = {}, insertBeforeRow = null) {
     }
     if (data.material_id) {
         row.querySelector('.material-code').dataset.materialId = data.material_id;
+        if (!row._purchaseSnapshot && row.querySelector('.material-price').value === '') {
+            const material = materials.find(item => String(item.id) === String(data.material_id));
+            if (material) row.querySelector('.material-price').value = String(WMSMoney.round(material.price ?? 0));
+        }
     }
     calcAmount(row);
     renumberRows();
@@ -861,7 +869,10 @@ function fillMaterial(row, material) {
     row.querySelector('.material-spec').value = material.spec || '';
     row.querySelector('.material-unit').value = getMaterialUnit(material);
     const price = row.querySelector('.material-price');
-    if (price.value === '') price.value = material.price ?? '';
+    if (price.value === '' && (!row._purchaseSnapshot ||
+            String(material.id) !== String(row._purchaseSnapshot.material_id))) {
+        price.value = material.price ?? '';
+    }
     calcAmount(row);
 }
 
@@ -873,10 +884,31 @@ function clearMaterial(row) {
     calcAmount(row);
 }
 
+function purchaseLineId(row) {
+    const snapshot = row._purchaseSnapshot;
+    return snapshot && String(row.querySelector('.material-code').dataset.materialId) === String(snapshot.material_id)
+        ? snapshot.line_id : null;
+}
+
 function calcAmount(row) {
-    const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
-    const price = parseFloat(row.querySelector('.material-price').value) || 0;
-    row.querySelector('.material-amount').value = qty || price ? (window.WMSMoney.product(qty, price)).toFixed(2) : '';
+    const rawQuantity = row.querySelector('.material-qty').value;
+    const rawPrice = row.querySelector('.material-price').value;
+    const qty = Number(rawQuantity) || 0;
+    const codeInput = row.querySelector('.material-code');
+    const material = materials.find(item => String(item.id) === String(codeInput.dataset.materialId))
+        || findMaterialByKeyword(codeInput.value);
+    const price = String(rawPrice).trim() === '' ? Number(material?.price ?? 0) : Number(rawPrice) || 0;
+    const snapshot = row._purchaseSnapshot;
+    const sameLine = purchaseLineId(row) != null;
+    const quantityUnchanged = sameLine && String(rawQuantity).trim() !== '' && qty === Number(snapshot.quantity);
+    const priceUnchanged = sameLine && (snapshot.price == null
+        ? String(rawPrice).trim() === '' : price === Number(snapshot.price));
+    row._purchaseUnchanged = quantityUnchanged && priceUnchanged;
+    const amount = row._purchaseUnchanged && snapshot.amount != null
+        ? Number(snapshot.amount) : window.WMSMoney.product(
+            quantityUnchanged ? Number(snapshot.quantity) : window.WMSMoney.round(qty),
+            priceUnchanged ? Number(snapshot.price ?? 0) : window.WMSMoney.round(price));
+    row.querySelector('.material-amount').value = qty || price ? amount.toFixed(2) : '';
     calcTotal();
 }
 
@@ -886,6 +918,16 @@ function calcTotal() {
     document.querySelectorAll('#materialTableBody tr').forEach(row => {
         total += parseFloat(row.querySelector('.material-amount').value) || 0;
     });
+    if (typeof initialItems !== 'undefined' && typeof initialTotalAmount !== 'undefined') {
+        const populated = Array.from(document.querySelectorAll('#materialTableBody tr')).filter(row =>
+            row.querySelector('.material-code').value.trim());
+        const originalIds = initialItems.map(item => String(item.line_id)).sort().join(',');
+        const currentIds = populated.map(row => String(purchaseLineId(row))).sort().join(',');
+        if (initialTotalAmount != null && populated.length === initialItems.length &&
+                originalIds === currentIds && populated.every(row => row._purchaseUnchanged)) {
+            total = Number(initialTotalAmount);
+        }
+    }
     document.getElementById('totalAmount').textContent = formatMoney(total);
 }
 
@@ -908,8 +950,8 @@ function rowData(row) {
         material_name: row.querySelector('.material-name').value,
         spec: row.querySelector('.material-spec').value,
         unit_name: row.querySelector('.material-unit').value,
-        quantity: row.querySelector('.material-qty').value,
-        price: row.querySelector('.material-price').value,
+        quantity: String(WMSMoney.round(row.querySelector('.material-qty').value)),
+        price: row.querySelector('.material-price').value === '' ? '' : String(WMSMoney.round(row.querySelector('.material-price').value)),
         contract_no: row.querySelector('.line-contract-no')?.value || '',
         project_name: row.querySelector('.line-project-name')?.value || '',
         remark: row.querySelector('.material-remark')?.value || ''
@@ -946,6 +988,7 @@ function copyRowAfter(row) {
 
 function collectItems() {
     return Array.from(document.querySelectorAll('#materialTableBody tr')).map(row => ({
+        line_id: purchaseLineId(row),
         material_id: row.querySelector('.material-code').dataset.materialId || (findMaterialByKeyword(row.querySelector('.material-code').value)?.id || null),
         material_code: findMaterialByKeyword(row.querySelector('.material-code').value)?.code || row.querySelector('.material-code').value.trim(),
         quantity: row.querySelector('.material-qty').value,

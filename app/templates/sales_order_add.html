@@ -246,7 +246,7 @@
         var qty = Number(qtyValue) || 0;
         var price = Number(priceValue) || 0;
         var rate = Number(rateValue) || 0;
-        var included = window.WMSMoney.product(qty, price);
+        var included = window.WMSMoney.product(window.WMSMoney.round(qty), window.WMSMoney.round(price));
         var untaxed = rate > 0 ? window.WMSMoney.round(included / (1 + rate)) : included;
         row.querySelector('.untaxed').textContent = untaxed.toFixed(2);
         row.querySelector('.tax').textContent = window.WMSMoney.round(included - untaxed).toFixed(2);
@@ -270,7 +270,7 @@
         row.querySelector('.name').value = material ? material.name || '' : '';
         row.querySelector('.spec').value = material ? material.spec || '' : '';
         row.querySelector('.unit').value = unitName(material);
-        if (material && !row.querySelector('.price').value) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        if (material && !row.querySelector('.price').value) row.querySelector('.price').value = String(window.WMSMoney.round(material.price == null ? 0 : material.price));
         if (material && !row.querySelector('.tax-rate').value && defaultTaxRate != null && defaultTaxRate !== '') row.querySelector('.tax-rate').value = defaultTaxRate;
         recalc();
     }
@@ -404,6 +404,10 @@
         if (copyFrom) {
             codeInput.value = copyFrom.querySelector('.material-code').value;
             ['qty','price','tax-rate','batch-no','serial-no','line-contract-no','line-project-name','line-remark'].forEach(function(cls) { row.querySelector('.' + cls).value = copyFrom.querySelector('.' + cls).value; });
+            row.querySelector('.qty').value = String(window.WMSMoney.round(row.querySelector('.qty').value));
+            if (row.querySelector('.price').value !== '') {
+                row.querySelector('.price').value = String(window.WMSMoney.round(row.querySelector('.price').value));
+            }
             fillRow(row, findMaterial(codeInput.value));
         }
         if (window.WMS && window.WMS.ContractAutocomplete) {
@@ -614,8 +618,8 @@
         template.items.forEach(function(item) {
             var row = addRow();
             row.querySelector('.material-code').value = item.code || '';
-            row.querySelector('.qty').value = item.quantity || 1;
-            row.querySelector('.price').value = item.price || 0;
+            row.querySelector('.qty').value = String(window.WMSMoney.round(item.quantity || 1));
+            row.querySelector('.price').value = String(window.WMSMoney.round(item.price || 0));
             row.querySelector('.tax-rate').value = item.tax_rate != null ? item.tax_rate : defaultTaxRate;
             row.querySelector('.batch-no').value = item.batch_no || '';
             row.querySelector('.serial-no').value = item.serial_no || '';
