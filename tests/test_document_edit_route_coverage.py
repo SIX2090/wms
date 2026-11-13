@@ -44,14 +44,16 @@ def test_registered_document_writes_all_reach_revision_check():
     from services.document_edit_guard import DOCUMENTS, NEW_DOCUMENT_INTENTS, guarded_document_write
     domains = {'in_order','out_order','after_sale_out','check','transfer','adjustment',
                'purchase_request','purchase_order','sales','requisition','subcontract',
-               'subcontract_issue','subcontract_receive','opening_stock'}
+               'subcontract_issue','subcontract_receive','opening_stock','bom'}
     new_intents = {'copy_in_order','copy_in_order_to_out','convert_in_order_to_out_order',
                    'create_in_order_push','copy_out_order','copy_check','copy_transfer',
                    'copy_after_sale_out_order','copy_purchase_order','copy_sales_order','copy_subcontract',
-                   'create_purchase_order_from_request','create_in_order_from_purchase_order','create_sales_outbound_draft'}
+                   'create_purchase_order_from_request','create_in_order_from_purchase_order','create_sales_outbound_draft',
+                   'create_requisition_from_bom'}
     assert set(DOCUMENTS) == domains
     assert set(NEW_DOCUMENT_INTENTS) == new_intents
     checked = set()
+    bom_checked = set()
     for rule in w.app.url_map.iter_rules():
         if 'POST' not in rule.methods or rule.rule.strip('/').split('/')[0] not in domains:
             continue
@@ -66,8 +68,22 @@ def test_registered_document_writes_all_reach_revision_check():
             response = make_response(guarded_document_write(lambda: jsonify(status='unexpected-handler-call')))
             assert response.status_code == 409, (rule.endpoint, rule.rule, response.json)
         checked.add(rule.endpoint)
+        if rule.rule.strip('/').split('/')[0] == 'bom':
+            bom_checked.add((rule.endpoint, rule.rule))
     assert {'update_check_item','quick_issue_subcontract','quick_receive_subcontract',
-            'update_in_order','update_out_order','update_opening_stock_doc_date'} <= checked
+            'update_in_order','update_out_order','update_opening_stock_doc_date',
+            'update_bom','add_bom_item','add_bom_item_alias','delete_bom_item','delete_bom_item_alias',
+            'delete_bom','delete_bom_alias','calculate_bom_cost'} <= checked
+    assert {
+        ('update_bom', '/bom/<int:id>/update'),
+        ('add_bom_item', '/bom/<int:id>/item/add'),
+        ('add_bom_item_alias', '/bom/<int:id>/add_item'),
+        ('delete_bom_item', '/bom/<int:id>/item/<int:item_id>/delete'),
+        ('delete_bom_item_alias', '/bom/<int:id>/delete_item/<int:item_id>'),
+        ('delete_bom', '/bom/<int:id>/delete'),
+        ('delete_bom_alias', '/bom/delete/<int:id>'),
+        ('calculate_bom_cost', '/bom/<int:id>/calculate_cost'),
+    } <= bom_checked
 
 
 @pytest.mark.parametrize('action,quantity,expected', [('issue',6,14),('receive',4,24)])

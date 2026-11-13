@@ -58,11 +58,11 @@ class MoneyConsumerTests(unittest.TestCase):
         self.env.update({name: 1.15 for name in ('quantity', 'qty', 'current_stock', 'receive_qty',
                         'suggested_qty', 'remain_qty', 'order_qty', 'received_qty',
                         'remaining_qty', 'remaining_quantity', 'remaining', 'new_qty')})
-        self.env.update(price=3.5, prc=3.5, estimated_price=3.5, unit_cost=3.5, new_price=3.5,
+        self.env.update(price=3.5, prc=3.5, estimated_price=3.5, unit_cost=3.5, cost=3.5, new_price=3.5,
                         item=item, order_item=item, in_item=item, line=item,
                         source_item=types.SimpleNamespace(quantity=1.15, material=item),
                         material=types.SimpleNamespace(stock=1.15, price=3.5),
-                        row={'suggested_qty': 1.15})
+                        row={'suggested_qty': 1.15}, prepared={'quantity': 1.15, 'unit_cost': 3.5})
 
     def test_selected_real_money_consumers_use_exact_decimal_product(self):
         checked = 0
@@ -84,9 +84,28 @@ class MoneyConsumerTests(unittest.TestCase):
                     checked += 1
         self.assertGreater(checked, 60)
 
+    def test_bom_new_line_constructor_cost_uses_prepared_quantity(self):
+        tree = ast.parse((ROOT / 'app/routes/bom.py').read_text(encoding='utf-8-sig'))
+        route = next(node for node in ast.walk(tree)
+                     if isinstance(node, ast.FunctionDef) and node.name == 'add_bom_item')
+        constructors = [node for node in ast.walk(route) if isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name) and node.func.id == 'BOMItem']
+        self.assertEqual(len(constructors), 1)
+        fields = {keyword.arg: keyword.value for keyword in constructors[0].keywords}
+        self.assertTrue({'quantity', 'unit_cost', 'total_cost'} <= fields.keys())
+        # The actual constructor must store and price the same prepared new row;
+        # using the raw 1.005 here would produce 3.52 instead of 3.54.
+        self.env.update(quantity=1.005, unit_cost=3.5, prepared={'quantity': 1.01, 'unit_cost': 3.5})
+        expression = ast.Expression(body=ast.Dict(
+            keys=[ast.Constant(value=name) for name in ('quantity', 'unit_cost', 'total_cost')],
+            values=[fields[name] for name in ('quantity', 'unit_cost', 'total_cost')]))
+        actual = eval(compile(ast.fix_missing_locations(expression), '<synthetic-bom-constructor>', 'eval'), self.env)
+        self.assertEqual(actual, {'quantity': 1.01, 'unit_cost': 3.5, 'total_cost': 3.54})
+        self.assertEqual(self.env['round_money_product'](self.env['quantity'], self.env['unit_cost']), 3.52)
+
 
 if __name__ == '__main__':
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(MoneyConsumerTests)
-    if suite.countTestCases() != 1:
+    if suite.countTestCases() != 2:
         raise SystemExit('synthetic test list must be explicit and nonempty')
     raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
