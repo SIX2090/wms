@@ -60,6 +60,7 @@ def main():
     source = ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig'))
     utils = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
     identity = ast.parse((root / 'app/services/warehouse_identity.py').read_text(encoding='utf-8-sig'))
+    stock_service = ast.parse((root / 'app/services/warehouse_stock_service.py').read_text(encoding='utf-8-sig'))
 
     def function(tree, name):
         matches = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name]
@@ -173,9 +174,19 @@ def main():
                      function(source, '_filter_txn_list_by_warehouse_scope'),
                      function(source, 'update_location_inventory'),
                      function(source, 'deduct_location_inventory_atomic'),
+                     function(source, '_opening_stock_line_transaction_ids'),
                      function(source, '_reverse_opening_stock_line'),
                      function(source, '_opening_stock_reverse_all_lines'),
                      function(source, '_opening_stock_negative_hint')]
+            nodes.extend(function(stock_service, name) for name in
+                         ('_recorded_quantity_matches', '_reverse_recorded_opening_stock'))
+            # Bind real source functions to only these synthetic models. Runtime
+            # imports would otherwise load the guarded application on this host.
+            for node in nodes:
+                for child in ast.walk(node):
+                    if hasattr(child, 'body') and isinstance(child.body, list):
+                        child.body = [part for part in child.body if not isinstance(part, ast.ImportFrom)
+                                      or part.module not in ('app', 'services.warehouse_stock_service')]
             exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),
                          '<synthetic-opening-source>', 'exec'), self.ns)
 
@@ -193,7 +204,10 @@ def main():
                 lines.append(line)
                 self.session.add(line)
                 self.session.add(StockTransaction(material_id=1, warehouse_id=warehouse_id,
-                    location=None, quantity=quantity, reference_type='opening_stock', reference_id=number))
+                    # The real opening writer records its original warehouse
+                    # placeholder even when the saved physical bin is empty.
+                    location=self.session.get(Warehouse, warehouse_id).name if warehouse_id else None,
+                    quantity=quantity, reference_type='opening_stock', reference_id=number))
             for warehouse_id, quantity in movements:
                 self.session.add(StockTransaction(material_id=1, warehouse_id=warehouse_id,
                     location=None, quantity=quantity, reference_type='synthetic_movement', reference_id=1))
@@ -312,6 +326,23 @@ def main():
             hints = self.reverse(self.seed([(1, 2)], [(1, 1), (2, 7)], [(1, 3), (2, 7)]))
             self.assertEqual(hints, [])
             self.assertEqual(self.session.query(LocationInventory).filter_by(warehouse_id=1).one().quantity, 1)
+
+        def test_missing_original_placeholder_refuses_instead_of_guessing_current_name(self):
+            self.location_enabled = True
+            lines = self.seed([(1, 2)], [(1, 1), (2, 7)], [(1, 3), (2, 7)])
+            self.session.query(StockTransaction).filter_by(reference_type='opening_stock').one().location = None
+            self.session.commit()
+            before = (self.session.get(Material, 1).stock,
+                      self.session.query(StockTransaction).count(),
+                      [row.quantity for row in self.session.query(LocationInventory).order_by(LocationInventory.id)])
+            ok, message = self.ns['_reverse_opening_stock_line'](lines[0])
+            self.assertFalse(ok)
+            self.assertIn('原库位缺失', message)
+            self.session.rollback()
+            after = (self.session.get(Material, 1).stock,
+                     self.session.query(StockTransaction).count(),
+                     [row.quantity for row in self.session.query(LocationInventory).order_by(LocationInventory.id)])
+            self.assertEqual(after,before)
 
         def test_location_failure_rollback_keeps_stock_and_transactions(self):
             self.location_enabled = True
@@ -563,7 +594,7 @@ def main():
             self.route_with_many_hints('delete_all_opening_stock')
 
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(OpeningHintRegression)
-    if suite.countTestCases() != 26:
+    if suite.countTestCases() != 27:
         raise SystemExit('期初提示测试清单不完整或为空')
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     raise SystemExit(0 if result.wasSuccessful() else 1)

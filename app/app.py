@@ -8853,6 +8853,32 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
     return opening, quantity_delta
 
 
+def _opening_stock_line_transaction_ids(line):
+    """Select proven line IDs under the caller transaction; ambiguous legacy rows stay intact."""
+    fields = ('doc_id', 'material_id', 'warehouse_id', 'location', 'quantity', 'remark', 'updated_at')
+    previous = tuple(getattr(line, field, None) for field in fields)
+    connection = db.session.connection()
+    if connection.dialect.name == 'sqlite':
+        # Existing order/edit helpers roll back before locking and cannot be
+        # reused inside a multi-line reversal. Keep every caller-owned write.
+        driver = connection.connection.driver_connection
+        if not driver.in_transaction:
+            connection.exec_driver_sql('BEGIN IMMEDIATE')
+    db.session.refresh(line, with_for_update=True)
+    if tuple(getattr(line, field, None) for field in fields) != previous:
+        return [], '期初明细已发生变化，请刷新核对后重试；本次未删除'
+    rows = StockTransaction.query.filter_by(
+        reference_type='opening_stock', reference_id=line.id,
+        material_id=line.material_id,
+    ).populate_existing().with_for_update().all()
+    if line.id == line.material_id and any(
+            getattr(row, 'remark', None) == '新增物料初始库存' for row in rows):
+        # A free-form remark, matching amount/actor/time or a best-effort audit
+        # is not a structural link to an individual transaction.
+        return [], '期初流水与历史物料初始库存来源可能重叠，无法安全区分，请先人工核对；本次未删除'
+    return [row.id for row in rows], ''
+
+
 def _reverse_opening_stock_line(line, reason='期初删除回冲'):
     """删除期初明细行前的库存回冲 + 流水清理（ARCH-OS-DOC-01 / BUG-2026-09-16-007）。
 
@@ -8879,37 +8905,8 @@ def _reverse_opening_stock_line(line, reason='期初删除回冲'):
     不在这里提交事务——由调用方统一 commit/rollback，保证"删单据 + 回冲
     + 清流水"是一个原子操作。
     """
-    material = line.material
-    warehouse = line.warehouse
-    delta = -normalize_stock_quantity(line.quantity or 0)
-
-    # 删除了就没有流水：无论当前数量是否为零（如先建 5 再改成 0 的行仍残留
-    # +5/-5 两条编辑流水），都物理删除该明细行的全部库存流水（建账 +N 与历次
-    # 编辑差额），不再追加 -N 回冲流水，台账不留指向已删除明细行的悬挂引用。
-    StockTransaction.query.filter_by(
-        reference_type='opening_stock', reference_id=line.id
-    ).delete(synchronize_session=False)
-
-    if not material or abs(delta) <= STOCK_COMPARE_EPSILON:
-        return True, ''
-
-    db.session.execute(
-        sa_update(Material)
-        .where(Material.id == material.id)
-        .values(stock=Material.stock + delta)
-    )
-    db.session.expire(material, ['stock'])
-
-    # 开启库位管理时同步回冲库位账（与 _apply_opening_stock_balance 对称）。
-    # 库位库存不足时返回失败，由调用方整体 rollback，绝不静默成功。
-    if location_management_enabled() and warehouse:
-        effective_location = (line.location or '').strip() or (warehouse.name or '').strip()
-        if effective_location:
-            ok_inv, msg_inv = update_location_inventory(
-                material, effective_location, delta, warehouse=warehouse)
-            if not ok_inv:
-                return False, msg_inv
-    return True, ''
+    from services.warehouse_stock_service import _reverse_recorded_opening_stock
+    return _reverse_recorded_opening_stock(line)
 
 
 def _opening_stock_reverse_all_lines(doc):
@@ -28741,6 +28738,7 @@ TRANSACTION_TYPE_LABELS = {
 }
 REFERENCE_TYPE_LABELS = {
     'opening_stock': '期初库存',
+    'material_initial': '物料初始库存',
     'in_order': '入库单',
     'out_order': '领料单',
     'transfer': '调拨单',
@@ -29200,8 +29198,14 @@ def _report_detail_url(endpoint, doc_id):
     except Exception:
         return ''
 
-def _report_reference_info(reference_type, reference_id, fallback_no='', opening_lines=None, warehouse_id=None, material_id=None):
+def _report_reference_info(reference_type, reference_id, fallback_no='', opening_lines=None, warehouse_id=None, material_id=None, source_remark=None):
+    if reference_type == 'material_initial':
+        material = db.session.get(Material, reference_id) if reference_id else None
+        label = f'物料初始库存 {material.code}' if material and (not material_id or material.id == material_id) else '物料初始库存'
+        return label, ''
     if reference_type == 'opening_stock':
+        if source_remark == '新增物料初始库存' and (material_id is None or material_id == reference_id):
+            return '历史建账记录（来源待核对）', ''
         fallback = f'期初记录 #{reference_id}' if reference_id else '期初库存'
         line = (opening_lines.get(reference_id) if opening_lines is not None
                 else db.session.get(OpeningStock, reference_id) if reference_id else None)
@@ -30257,6 +30261,9 @@ def _ledger_source_warehouse_map(transactions):
     for t in transactions:
         if (t.location or '').strip():
             continue
+        if (t.reference_type == 'opening_stock' and t.reference_id == t.material_id
+                and getattr(t, 'remark', None) == '新增物料初始库存'):
+            continue
         if not t.reference_type or not t.reference_id:
             continue
         by_type.setdefault(t.reference_type, []).append(t)
@@ -30274,6 +30281,8 @@ def _ledger_source_warehouse_map(transactions):
         for t in txns:
             doc = doc_map.get(t.reference_id)
             if doc is None:
+                continue
+            if ref_type == 'opening_stock' and getattr(doc, 'material_id', None) != t.material_id:
                 continue
             wh = getter(doc, t)
             if wh:
@@ -30375,6 +30384,9 @@ def _ledger_document_date_map(transactions):
     for t in transactions:
         if not t.reference_type or not t.reference_id:
             continue
+        if (t.reference_type == 'opening_stock' and t.reference_id == t.material_id
+                and getattr(t, 'remark', None) == '新增物料初始库存'):
+            continue
         by_type.setdefault(t.reference_type, []).append(t)
     if not by_type:
         return result
@@ -30389,6 +30401,8 @@ def _ledger_document_date_map(transactions):
             doc_map[d.id] = d
         for t in txns:
             doc = doc_map.get(t.reference_id)
+            if ref_type == 'opening_stock' and doc is not None and getattr(doc, 'material_id', None) != t.material_id:
+                continue
             if doc is not None and getattr(doc, 'date', None) is not None:
                 result[t.id] = doc.date
     return result
@@ -30766,6 +30780,7 @@ def _collect_ledger_rows(filters):
             transaction.reference_id,
             f"{transaction.reference_type or 'txn'}-{transaction.reference_id or transaction.id}",
             opening_lines=opening_lines, warehouse_id=wid, material_id=material_id,
+            source_remark=transaction.remark,
         )
         rows.append({
             'date': txn_date.isoformat() if txn_date else '',

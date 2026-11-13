@@ -9,7 +9,7 @@ BUG-2026-08-04-009 回归测试：新增物料带初始库存时补审计流水
 
 修复：
   物料创建并提交后，若 initial_stock > 0，追加一条 StockTransaction
-  （transaction_type='opening'，reference_type='opening_stock'），
+  （transaction_type='opening'，reference_type='material_initial'），
   与期初库存调整语义一致。
 
 测试：
@@ -93,7 +93,7 @@ class TestBug20260804009AddMaterialStockAudit:
             txns = StockTransaction.query.filter_by(material_id=mat.id).all()
             assert len(txns) == 1, "应生成一条审计流水"
             assert txns[0].transaction_type == "opening"
-            assert txns[0].reference_type == "opening_stock"
+            assert txns[0].reference_type == "material_initial"
             assert txns[0].quantity == 100
 
     def test_T2_zero_initial_stock_no_transaction(self):
@@ -144,5 +144,5 @@ class TestBug20260804009AddMaterialStockAudit:
             assert txn.transaction_type == "opening"
             assert txn.material_id == mat.id
             assert txn.quantity == 500
-            assert txn.reference_type == "opening_stock"
+            assert txn.reference_type == "material_initial"
             assert txn.reference_id == mat.id

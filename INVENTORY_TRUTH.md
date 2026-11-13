@@ -245,8 +245,21 @@ ok, err = apply_stock_delta(
 | 修改单据日期 | **不动账**（只改 `date`，同步该单全部明细行） |
 
 > ⚠️ **只删行不回冲 = 库存虚高**，且不会有任何报错——账面静默变错是最难查的一类。
-> 删单/删行统一走 `_reverse_opening_stock_line`，它同时写 `opening` 反向流水
-> （`StockTransaction`）并同步库位账，保证三账一致（§2.1 的"两层同时写"）。
+> 删单/删行统一走 `_reverse_opening_stock_line`。按既定“删除了就没有流水”口径，
+> 它回冲总账/原库位，并物理删除该行已证明归属的建账及历次差额流水，不追加反向流水。
+>
+> **历史数量逆向的内部例外（BUG-2026-11-08-015）**：既有期初逆向入口委托库存服务
+> 私有 `_reverse_recorded_opening_stock`，在004来源分类取得的同一短写事务内重新核对
+> 原流水ID、物料、原仓库/库位、行数量与净流水。只对这些服务器端已存原数量施加
+> 精确反向增量，不经过普通输入的两位 `normalize_stock_quantity`。普通三服务的新增
+> 输入规范保持不变；路由不能传任意精度开关或裸数量来调用此能力，也不能散落裸SQL。
+> Float校验只容许8个ULP且绝对不超过1e-9的表示误差，不能使用0.01三账提示容差。
+> 总账/流水或本次原仓的库位/流水不一致、来源重叠、缺失原位置、原数量无法以当前
+> Float余额可逆表达时明确拒绝，由调用方整体回滚；不替其他行平账、不追溯迁移。
+> 004已证来源且原仓为NULL、关闭库位时，仅逆向总账及自身未知流水，原仓仍为NULL；
+> 开库位但原位置缺证时拒绝，不按当前仓名或默认仓猜测。其他仓既存库位差异保持原样，
+> 不作为放宽本仓校验的依据；批量任一行失败仍由caller回滚全批。SQLite锁与回滚有
+> 合成双连接/真实DML故障证据，其他数据库并发和完整应用验收必须单独实跑。
 
 ### 2.2 读取端的口径选择
 | 场景 | 应读 | 函数 | 说明 |
@@ -274,7 +287,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30442`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30456`）幂等回填历史行。
 - **兼容读取**：查询时 `warehouse_id == X` **OR**（`warehouse_id IS NULL` AND `location IN (仓库名/编码/库位名)`）。
 
 ### 3.2 铁律：不猜
@@ -437,8 +450,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:30442`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30442`，符合 §3.2）——
+> （`app/app.py:30456`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30456`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

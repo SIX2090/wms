@@ -27,6 +27,135 @@ from __future__ import annotations
 LEDGER_EPS = 0.01
 
 
+def _recorded_quantity_matches(actual, expected, *operands):
+    """Float 表示误差边界；绝不沿用普通三账检查的 0.01 容差。"""
+    import math
+
+    values = (actual, expected, *operands)
+    if not all(math.isfinite(value) for value in values):
+        return False
+    tolerance = min(1e-9, 8 * max(math.ulp(value) for value in values))
+    return abs(actual - expected) <= tolerance
+
+
+def _reverse_recorded_opening_stock(line):
+    """仅供既有期初逆向入口使用；已落原数量不再量化，失败由调用方回滚。"""
+    from decimal import Decimal, localcontext
+    import math
+    from sqlalchemy import update
+
+    from app import (LocationInventory, Material, StockTransaction, Warehouse,
+                     _opening_stock_line_transaction_ids,
+                     allow_negative_location_stock, db, location_management_enabled)
+
+    # 分类本身取得 SQLite 短写锁或刷新调用方已有事务，不能跨事务复用证明。
+    transaction_ids, error = _opening_stock_line_transaction_ids(line)
+    if error:
+        return False, error
+    rows = (StockTransaction.query.filter(StockTransaction.id.in_(transaction_ids))
+            .populate_existing().with_for_update().all()) if transaction_ids else []
+    if len(rows) != len(transaction_ids) or any(
+            row.reference_type != 'opening_stock' or row.reference_id != line.id
+            or row.material_id != line.material_id for row in rows):
+        return False, '期初流水来源已变化，无法安全回冲，请刷新核对后重试'
+    try:
+        quantity = float(line.quantity)
+        recorded = [float(row.quantity) for row in rows]
+        if not all(math.isfinite(value) for value in (quantity, *recorded)):
+            raise ValueError('nonfinite')
+        with localcontext() as context:
+            context.prec = 1000
+            net = float(sum((Decimal(str(value)) for value in recorded), Decimal(0)))
+    except (TypeError, ValueError, OverflowError):
+        return False, '期初数量或流水包含无效数值，无法安全回冲'
+    if not _recorded_quantity_matches(net, quantity, *recorded):
+        return False, '期初数量与已落流水净额不一致，无法安全回冲，请先人工核对'
+    if not rows and quantity == 0:
+        return True, ''
+    warehouse_id = line.warehouse_id
+    location_on = location_management_enabled()
+    if ((warehouse_id is None and location_on)
+            or (warehouse_id is not None and db.session.get(Warehouse, warehouse_id) is None)
+            or any(row.warehouse_id != warehouse_id for row in rows)):
+        return False, '期初原仓库归属缺失或冲突，无法安全回冲，请先人工核对'
+    material = (Material.query.filter_by(id=line.material_id)
+                .populate_existing().with_for_update().one_or_none())
+    if material is None:
+        return False, '期初物料不存在，无法安全回冲'
+    all_rows = (StockTransaction.query.filter_by(material_id=material.id)
+                .populate_existing().with_for_update().all())
+    try:
+        before = float(material.stock)
+        ledger_values = [float(row.quantity) for row in all_rows]
+        ledger_total = math.fsum(ledger_values)
+    except (TypeError, ValueError, OverflowError):
+        return False, '库存账包含无效数值，无法安全回冲'
+    if not _recorded_quantity_matches(before, ledger_total, *ledger_values):
+        return False, '物料总账与流水账不一致，无法安全回冲，请先人工核对'
+    changes = []
+    if location_on:
+        # 显式库位是不可改的期初行字段；空库位只接受原流水保存的占位键。
+        # 不按现在的仓库名称、默认仓库或其他库位余额推测历史物理位置。
+        positions = {}
+        explicit_location = (line.location or '').strip()
+        for row in rows:
+            location = explicit_location or (row.location or '').strip()
+            if not location:
+                return False, '期初原库位缺失，无法安全回冲，请先人工核对'
+            positions.setdefault(location, []).append(float(row.quantity))
+        locations = (LocationInventory.query.filter_by(material_id=material.id, warehouse_id=warehouse_id)
+                     .populate_existing().with_for_update().all())
+        try:
+            location_values = [float(row.quantity) for row in locations]
+            warehouse_total = math.fsum(location_values)
+            transaction_total = math.fsum(float(row.quantity) for row in all_rows
+                                          if row.warehouse_id == warehouse_id)
+        except (TypeError, ValueError, OverflowError):
+            return False, '库位账包含无效数值，无法安全回冲'
+        if not _recorded_quantity_matches(warehouse_total, transaction_total,
+                                          *location_values, *ledger_values):
+            return False, '期初库位账与总账或原仓流水不一致，无法安全回冲，请先人工核对'
+        for location, values in positions.items():
+            matches = [row for row in locations if row.warehouse_id == warehouse_id
+                       and row.location == location]
+            if len(matches) != 1:
+                return False, '期初原库位记录缺失或重复，无法安全回冲，请先人工核对'
+            current = float(matches[0].quantity)
+            with localcontext() as context:
+                context.prec = 1000
+                delta = -float(sum((Decimal(str(value)) for value in values), Decimal(0)))
+            after = current + delta
+            if ((delta != 0 and after == current)
+                    or not _recorded_quantity_matches(after - current, delta, current, after)):
+                return False, '期初原数量超出当前库位 Float 可逆精度，无法安全回冲'
+            if (delta < 0 and after < 0 and not _recorded_quantity_matches(after, 0, current, delta)
+                    and not allow_negative_location_stock()):
+                return False, '期初原库位库存不足，无法安全回冲'
+            changes.append((matches[0], current, delta))
+    after = before - net
+    if ((net != 0 and after == before)
+            or not _recorded_quantity_matches(before - after, net, before, after)):
+        return False, '期初原数量超出当前总账 Float 可逆精度，无法安全回冲'
+    result = db.session.execute(update(Material).where(
+        Material.id == material.id, Material.stock == before).values(stock=Material.stock - net))
+    if result.rowcount != 1:
+        return False, '物料库存已变化，请刷新核对后重试'
+    for location, current, delta in changes:
+        result = db.session.execute(update(LocationInventory).where(
+            LocationInventory.id == location.id, LocationInventory.quantity == current
+        ).values(quantity=LocationInventory.quantity + delta))
+        if result.rowcount != 1:
+            return False, '库位库存已变化，请刷新核对后重试'
+        db.session.expire(location, ['quantity'])
+    if rows:
+        count = StockTransaction.query.filter(StockTransaction.id.in_(transaction_ids)).delete(
+            synchronize_session=False)
+        if count != len(transaction_ids):
+            return False, '期初流水已变化，请回滚后重新核对'
+    db.session.expire(material, ['stock'])
+    return True, ''
+
+
 def three_ledger_guard_enabled() -> bool:
     """三账运行时校验开关。
 

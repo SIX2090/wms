@@ -394,6 +394,7 @@ def register_material_routes(app):
                     initial_stock,
                     warehouse=_default_wh,
                     location=_loc,
+                    reference_type='material_initial',
                     reference_id=material.id,
                     remark='新增物料初始库存',
                 )

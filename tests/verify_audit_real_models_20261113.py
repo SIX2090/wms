@@ -87,17 +87,21 @@ def main():
         for child in ast.walk(node):
             if hasattr(child, 'body') and isinstance(child.body, list):
                 child.body = [part for part in child.body if not isinstance(part, ast.ImportFrom)
-                              or part.module not in ('app', 'db', 'models.master_data')]
+                              or part.module not in ('app', 'db', 'models.master_data', 'services.warehouse_stock_service')]
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
                      'source-function:' + filename + ':' + name, 'exec'), ns)
 
     for name in ('round_to_2_decimals', 'round_money_product', 'normalize_stock_quantity', 'recalculate_order_total'):
         extract('app/utils.py', name)
     extract('app/services/warehouse_identity.py', 'warehouse_aliases')
+    for name in ('_recorded_quantity_matches', '_reverse_recorded_opening_stock'):
+        extract('app/services/warehouse_stock_service.py', name)
+    ns['allow_negative_location_stock'] = lambda: False
     for name in ('update_purchase_order_status', 'log_operation', '_ledger_source_warehouse_getters',
                  '_ledger_source_warehouse_map', '_filter_txn_list_by_warehouse_scope',
                  '_warehouse_location_filter_values', 'get_warehouse_stock_quantities',
-                 '_opening_stock_negative_hint', '_reverse_opening_stock_line', '_apply_scan_to_batch'):
+                 '_opening_stock_negative_hint', '_opening_stock_line_transaction_ids',
+                 '_reverse_opening_stock_line', '_apply_scan_to_batch'):
         extract('app/app.py', name)
     for name in ('delete_in_order_item', 'in_order_item_delete_alias'):
         extract('app/routes/in_order.py', name)

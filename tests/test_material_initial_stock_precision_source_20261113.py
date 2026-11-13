@@ -127,9 +127,9 @@ def main():
     suite.body.extend(extra)
     counts = [n for n in ast.walk(original) if isinstance(n, ast.Compare) and isinstance(n.left, ast.Call)
               and isinstance(n.left.func, ast.Attribute) and n.left.func.attr == 'countTestCases']
-    if len(extra) != 14 or len(counts) != 1 or counts[0].comparators[0].value != 26:
+    if len(extra) != 14 or len(counts) != 1 or counts[0].comparators[0].value != 27:
         raise AssertionError('Explicit original and additional method lists changed')
-    counts[0].comparators[0] = ast.Constant(value=40)
+    counts[0].comparators[0] = ast.Constant(value=41)
     constants = [n for n in tree.body if isinstance(n, ast.Assign)]
     imports = [n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom))]
     namespace = {'__file__': __file__}
