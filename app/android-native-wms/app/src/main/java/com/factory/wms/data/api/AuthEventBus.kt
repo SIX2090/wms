@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * NavGraph 重复跳转登录页、AuthViewModel 重复登出，产生 UI 抖动 / 状态混乱。
  */
 object AuthEventBus {
-    private val _unauthorizedEvents = MutableSharedFlow<Long>(extraBufferCapacity = 1)
+    private val _unauthorizedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     private val unauthorizedSignaled = AtomicBoolean(false)
 
@@ -21,7 +21,7 @@ object AuthEventBus {
     fun notifyUnauthorized() {
         // 已经通知过的 401 直接忽略，避免同一令牌失效期间重复消费
         if (unauthorizedSignaled.compareAndSet(false, true)) {
-            _unauthorizedEvents.tryEmit(RetrofitClient.sessionSnapshot().generation)
+            _unauthorizedEvents.tryEmit(Unit)
         }
     }
 

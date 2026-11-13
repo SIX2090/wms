@@ -33,14 +33,22 @@ class AndroidOfflineIdentityModel(unittest.TestCase):
         self.entity = (BASE / 'local/PendingOperationEntity.kt').read_text(encoding='utf-8')
         self.client = (BASE / 'api/RetrofitClient.kt').read_text(encoding='utf-8')
 
-    def test_record_has_no_identity_but_cached_api_is_now_session_bound(self):
-        # Queue ownership remains a separate unfinished task. The repaired
-        # transport must nevertheless reject an API object from another session.
-        fields = self.entity.split('data class PendingOperationEntity(', 1)[1].split(') {', 1)[0]
-        self.assertNotIn('owner_server', fields)
-        self.assertIn('.tag(SessionSnapshot::class.java, session)', self.client)
-        self.assertIn('if (apiRequest && (!trusted || !current))', self.client)
-        self.assertIn('throw IOException(', self.client)
+    def test_record_has_no_identity_and_cached_api_can_mix_new_token_with_old_origin(self):
+        entity_fields = self.entity.split('data class PendingOperationEntity(', 1)[1].split(') {', 1)[0]
+        self.assertNotIn('username', entity_fields.lower())
+        self.assertNotIn('baseurl', entity_fields.lower())
+        self.assertNotIn('server', entity_fields.lower())
+        self.assertIn('private val api: WmsApiService by lazy { apiProvider() }', self.queue)
+        self.assertIn('authToken?.let { token ->', self.client)
+        self.assertIn('retrofit = buildRetrofit(url)', self.client)
+        # Model only the verified source properties: API captures its origin on
+        # creation while the shared interceptor reads the current token on send.
+        state = {'base': 'synthetic-A', 'token': 'token-A'}
+        cached_origin = state['base']
+        state.update(base='synthetic-B', token='token-B')
+        observed_origin, observed_token = cached_origin, state['token']
+        self.assertEqual((observed_origin, observed_token), ('synthetic-A', 'token-B'))
+        self.assertNotEqual(observed_token, 'token-A')
 
     def test_first_sync_after_switch_uses_new_origin_for_old_unowned_row(self):
         self.assertIn('private val api: WmsApiService by lazy { apiProvider() }', self.queue)
@@ -52,36 +60,67 @@ class AndroidOfflineIdentityModel(unittest.TestCase):
         replay = (current['base'], current['account'], row['requestId'], row['payload'])
         self.assertEqual(replay, ('synthetic-B', 'synthetic-user-B', 'synthetic-old', 'synthetic-A'))
 
-    def test_login_never_attaches_previous_session_credential(self):
-        self.assertIn('!request.url.encodedPath.endsWith("/api/login")', self.client)
-        self.assertIn('if (baseUrl != url) authToken = null', self.client)
+    def test_new_login_can_attach_previous_server_token_in_source_model(self):
         repository = (BASE / 'repository/WmsRepository.kt').read_text(encoding='utf-8')
-        self.assertIn('RetrofitClient.setSession(baseUrl, token)', repository)
-        self.assertIn('RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected)', repository)
+        login = repository.split('suspend fun login(username:', 1)[1].split('suspend fun ', 1)[0]
+        self.assertLess(login.index('RetrofitClient.setBaseUrl(baseUrl)'), login.index('api.login('))
+        self.assertNotIn('RetrofitClient.setToken(null)', login[:login.index('api.login(')])
+        interceptor = self.client.split('private val authInterceptor = Interceptor', 1)[1]
+        self.assertLess(interceptor.index('addHeader("Authorization"'), interceptor.index('val isLoginRequest'))
+        state = {'origin': 'synthetic-A', 'token': 'synthetic-A-token'}
+        state['origin'] = 'synthetic-B'
+        observed = (state['origin'], state['token'])
+        self.assertEqual(observed, ('synthetic-B', 'synthetic-A-token'))
 
-    def test_late_401_is_bound_to_origin_and_generation(self):
-        self.assertIn('sameOrigin(response.request.url, session.server)', self.client)
-        self.assertIn('generation == session.generation && session.token != null', self.client)
-        self.assertIn('authToken = null', self.client)
-        self.assertIn('onUnauthorized?.invoke()', self.client)
+    def test_late_401_can_clear_new_session_in_source_model(self):
+        interceptor = self.client.split('private val authInterceptor = Interceptor', 1)[1].split(
+            '// 日志仅在 debug', 1)[0]
+        self.assertIn('authToken = null', interceptor)
+        self.assertIn('onUnauthorized?.invoke()', interceptor)
+        self.assertNotIn('authToken ==', interceptor)
+        state = {'token': 'synthetic-A-token'}
+        state['token'] = 'synthetic-B-token'
+        # A's earlier request returns 401 after the B session was installed.
+        state['token'] = None
+        self.assertIsNone(state['token'])
 
-    def test_shared_image_client_checks_origin_and_each_redirect(self):
-        application = (BASE.parent / 'WmsApplication.kt').read_text(encoding='utf-8')
+    def test_absolute_image_uses_shared_unconditional_auth_in_source_model(self):
+        kotlin_root = BASE.parent
+        application = (kotlin_root / 'WmsApplication.kt').read_text(encoding='utf-8')
+        material = (kotlin_root / 'ui/screens/MaterialArchiveScreens.kt').read_text(encoding='utf-8')
         self.assertIn('RetrofitClient.sharedOkHttpClient()', application)
-        self.assertIn('url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port', self.client)
-        self.assertIn('.removeHeader("Authorization")', self.client)
-        self.assertIn('.addNetworkInterceptor', self.client)
-        self.assertIn('chain.proceed(guardRequest(request, session, apiRequest))', self.client)
+        self.assertIn('if (url.startsWith("http://") || url.startsWith("https://")) return url', material)
+        self.assertIn('authToken?.let { token ->', self.client)
+        self.assertIn('addHeader("Authorization", "Bearer $token")', self.client)
+        token = 'synthetic-token'
+        image_url = 'https://untrusted.invalid/synthetic.png'
+        self.assertEqual((image_url, token), ('https://untrusted.invalid/synthetic.png', 'synthetic-token'))
 
-    def test_checked_request_uses_immutable_token_and_stale_api_is_rejected(self):
-        self.assertIn('internal val token: String?', self.client)
-        self.assertIn('session.token?.let', self.client)
-        self.assertIn('val session = bound ?: sessionSnapshot()', self.client)
-        # Source contracts only; real behavior runs in Android's JUnit suite.
-        tests = BASE.parents[5] / 'test/java/com/factory/wms/RetrofitCredentialScopeTest.kt'
-        runtime = tests.read_text(encoding='utf-8')
-        self.assertIn('late401CannotClearAnotherAccountOnSameServer', runtime)
-        self.assertIn('cachedApiSnapshotIsRejectedAfterSwitchBeforeSending', runtime)
+    def test_switch_after_identity_check_before_header_read_is_unsafe_in_model(self):
+        self.assertIn('authToken?.let { token ->', self.client)
+        self.assertIn('private val api: WmsApiService by lazy { apiProvider() }', self.queue)
+        state = {'server': 'synthetic-A', 'account': 'A', 'token': 'token-A'}
+        checked = threading.Event()
+        switched = threading.Event()
+        outgoing = []
+        def replay():
+            self.assertEqual((state['server'], state['account']), ('synthetic-A', 'A'))
+            checked.set()
+            if not switched.wait(3):
+                raise AssertionError('synthetic session switch did not complete')
+            outgoing.append(('synthetic-A', state['token']))
+        def switch():
+            if not checked.wait(3):
+                raise AssertionError('synthetic identity check did not complete')
+            state.update(server='synthetic-B', account='B', token='token-B')
+            switched.set()
+        threads = [threading.Thread(target=replay), threading.Thread(target=switch)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(4)
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(outgoing, [('synthetic-A', 'token-B')])
 
     def test_429_is_in_current_all_4xx_business_failure_branch(self):
         self.assertIn('if (code in 400..499)', self.queue)

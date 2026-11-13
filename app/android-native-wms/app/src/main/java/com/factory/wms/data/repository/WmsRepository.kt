@@ -26,8 +26,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import retrofit2.Response
 import java.util.UUID
 
@@ -133,7 +131,6 @@ class WmsRepository(
     }
 
     companion object {
-        private val authenticationMutex = Mutex()
         /**
          * 服务端已给出明确业务原因的错误（如「请选择进行中的盘点单」）。
          *
@@ -350,38 +347,37 @@ class WmsRepository(
      * 已登录/已还原时调用为零开销 no-op，可安全重复调用。
      */
     suspend fun ensureSession() {
-        val expected = RetrofitClient.sessionSnapshot()
-        if (expected.server.isNotBlank()) return
+        if (RetrofitClient.getBaseUrl().isNotBlank()) return
         val savedBaseUrl = getSavedBaseUrl()
         if (savedBaseUrl.isNullOrBlank()) return
         val savedToken = getSavedToken()
-        RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected)
+        if (!savedToken.isNullOrBlank()) {
+            RetrofitClient.setToken(savedToken)
+        }
+        RetrofitClient.setBaseUrl(savedBaseUrl)
     }
 
     suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
-        authenticationMutex.withLock {
-            // Token stored in EncryptedSharedPreferences
-            // 写失败不阻断登录：内存态 token 已足够本次会话使用，仅"下次冷启动需重新登录"。
-            try {
-                encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)?.apply()
-            } catch (e: Exception) {
-                android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
-            }
-            // Non-sensitive data stored in DataStore
-            withDataStoreFallback(Unit) {
-                context.dataStore.edit {
-                    it[KEY_BASE_URL] = baseUrl
-                    it[KEY_USERNAME] = username
-                    it[KEY_ROLE] = role
-                }
-            }
-            RetrofitClient.setSession(baseUrl, token)
+        // Token stored in EncryptedSharedPreferences
+        // 写失败不阻断登录：内存态 token 已足够本次会话使用，仅"下次冷启动需重新登录"。
+        try {
+            encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)?.apply()
+        } catch (e: Exception) {
+            android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
         }
+        // Non-sensitive data stored in DataStore
+        withDataStoreFallback(Unit) {
+            context.dataStore.edit {
+                it[KEY_BASE_URL] = baseUrl
+                it[KEY_USERNAME] = username
+                it[KEY_ROLE] = role
+            }
+        }
+        RetrofitClient.setToken(token)
+        RetrofitClient.setBaseUrl(baseUrl)
     }
 
-    suspend fun logout(expectedGeneration: Long? = null): Boolean = authenticationMutex.withLock {
-        if (expectedGeneration != null &&
-            RetrofitClient.sessionSnapshot().generation != expectedGeneration) return@withLock false
+    suspend fun logout() {
         // P2-E: 同步 commit 清空加密 SharedPreferences，确保 token 在闪存上被覆写，
         // 避免物理文件残留加密 token（虽然无法解出明文，但减少攻击面）。
         // logout() 流程必须先清空本地凭据，再清空 DataStore + RetrofitClient 内存。
@@ -407,7 +403,6 @@ class WmsRepository(
         // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
         withDataStoreFallback(Unit) { context.dataStore.edit { it.clear() } }
         RetrofitClient.setToken(null)
-        true
     }
 
     suspend fun getUsername(): String? {
