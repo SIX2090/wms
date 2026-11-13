@@ -168,6 +168,7 @@ def sales_reconciliation_context():
         completed_quantities = []
         completed_amounts = []
         inventory_qty = 0
+        inventory_keys = set()
         for outbound in completed_orders if not warehouse_reason else ():
             for item in outbound.items:
                 if item.source_sales_order_item_id:
@@ -176,7 +177,12 @@ def sales_reconciliation_context():
                         continue
                 completed_quantities.append(item.quantity)
                 completed_amounts.append(item.amount)
-                inventory_qty += abs(float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == outbound.id, StockTransaction.material_id == item.material_id, StockTransaction.transaction_type == 'out').scalar() or 0))
+                # One material may occupy several detail rows, while this query
+                # already sums every transaction for the document/material pair.
+                inventory_key = (outbound.id, item.material_id)
+                if inventory_key not in inventory_keys:
+                    inventory_keys.add(inventory_key)
+                    inventory_qty += abs(float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == outbound.id, StockTransaction.material_id == item.material_id, StockTransaction.transaction_type == 'out').scalar() or 0))
         shipped_qty, completed_qty, quantity_diff, quantity_ok = _reconciliation_quantities(
             (item.shipped_quantity for item in order.items), completed_quantities, STOCK_COMPARE_EPSILON)
         amount_diff, amount_ok = _reconciliation_amounts(order.shipped_amount, completed_amounts)

@@ -6,46 +6,36 @@
 ------------
 既有性能报告只是 AI 组件微基准（benchmark_performance.py，p95 0.0005–0.03ms），
 证明不了业务接口快慢。本脚本对 10 个最高频业务 GET 接口做**低压并发**压测，
-输出 ``scripts/perf_baseline.json``；``--compare`` 模式与既有基线对比，
+输出 ``output/perf_current.json``；``--compare`` 模式与既有基线对比，
 回归超阈值打印 ``::warning::``（**阈值告警而非硬门禁**，退出码恒 0，除非压测
 装置本身失败）。
 
 用法
 ----
-    python scripts/perf_baseline.py                 # 全量压测并写基线 JSON
-    python scripts/perf_baseline.py --seconds 2     # 缩短每接口压测时长（CI 用）
-    python scripts/perf_baseline.py --compare scripts/perf_baseline.json
-    python scripts/perf_baseline.py --compare ... --strict   # 本地自查：回归即 exit 1
+    python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py                 # 全量压测并写基线 JSON
+    python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py --seconds 2     # 缩短每接口压测时长（CI 用）
+    python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py --compare scripts/perf_baseline.json
+    python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py --compare ... --strict   # 本地自查：回归即 exit 1
 
 设计要点
 --------
-* **自包含**：临时目录建 SQLite 文件库 + 确定性种子数据（1 默认仓 + 300 物料
+* **自包含**：新建合成内存库 + 确定性种子数据（1 默认仓 + 300 物料
   + 300 条期初流水），不碰生产 ``c:\\wms`` 数据；waitress 后台线程起真实 HTTP
   服务（不是 test_client），测量值含完整 WSGI/模板/SQL 链路。
 * **低压**：并发 2、每接口默认 3 秒（10 接口约 30 秒，符合 P2-1 的"30 秒低压"），
   先 1 次热身再计时。
 * **零新依赖**：requests/waitress 均已在 app/requirements.txt；统计用标准库。
 * A14 合规：本脚本引用 app，显式 opt-in 生产硬门禁（WMS_ALLOW_INSECURE_COOKIE=1，
-  内存/临时库 + HTTP 本地回环，与 tests/conftest.py 同模式）。
+  经内核证明的合成内存库 + 自有 HTTP 回环，与 tests/conftest.py 同模式）。
 """
 from __future__ import annotations
 
-# A14（R6 机械化）：scripts/ 下引用 app 必须显式放行生产硬门禁。
-# 必须在任何 app 导入之前设置（本文件 app 导入全部延迟到函数内）。
-import os
-
-os.environ.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
-os.environ.setdefault("WMS_SKIP_AUTO_UPDATE", "1")
-os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
-os.environ.setdefault("WMS_DEBUG", "0")
-
 import argparse
+import os
 import json
 import platform
-import socket
 import statistics
 import sys
-import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -53,8 +43,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
 
 # ---------------------------------------------------------------------------
 # 压测目标：10 个最高频业务 GET 接口（P2-1：库存查询/出入库列表/物料搜索/
@@ -84,6 +72,8 @@ WARMUP_REQUESTS = 1           # 每接口热身请求数（JIT/连接池预热�
 # （绝对值小的接口避免百分比噪声；绝对值大的接口避免绝对值噪声）。
 ALERT_REL_PCT = 50.0
 ALERT_ABS_MS = 50.0
+MEASUREMENT_PROFILE = "sqlite-memory-waitress-v2"
+LEGACY_PROFILE = "sqlite-file-waitress-v1"
 
 
 # ---------------------------------------------------------------------------
@@ -144,20 +134,37 @@ def regression_alerts(baseline_eps, current_eps, rel_pct=ALERT_REL_PCT, abs_ms=A
     return alerts
 
 
+def compare_measurement_profiles(baseline, current):
+    """Never turn changed storage/transport conditions into a performance PASS."""
+    base_profile = baseline.get('measurement_profile', LEGACY_PROFILE)
+    current_profile = current.get('measurement_profile', LEGACY_PROFILE)
+    if base_profile != current_profile:
+        return dict(status='incomparable', baseline_profile=base_profile,
+                    current_profile=current_profile, alerts=[])
+    baseline_endpoints, current_endpoints = baseline.get('endpoints', {}), current.get('endpoints', {})
+    if not set(baseline_endpoints).intersection(current_endpoints):
+        return dict(status='incomparable', baseline_profile=base_profile,
+                    current_profile=current_profile, reason='no shared measured targets', alerts=[])
+    alerts = regression_alerts(baseline_endpoints, current_endpoints)
+    return dict(status='regression' if alerts else 'no_regression',
+                baseline_profile=base_profile, current_profile=current_profile, alerts=alerts)
+
+
 # ---------------------------------------------------------------------------
 # 压测装置（Flask app + waitress + 种子数据，全部延迟导入 app）
 # ---------------------------------------------------------------------------
-def _free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _seed_database(app_mod, db):
     """确定性种子：1 默认仓 + 300 物料（含库存阈值，预警页有数据）+ 300 期初流水。"""
+    from perf_runtime import require_runtime
+    require_runtime()
+    os.environ.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')
     from app import Material, MaterialCategory, StockTransaction, Supplier, Unit, User, Warehouse
 
     with app_mod.app_context():
+        if str(db.engine.url) != 'sqlite:///:memory:':
+            raise ValueError('安全阻断：性能造数只允许新建内存库')
+        if any(row[2] for row in db.session.execute(db.text('PRAGMA database_list'))):
+            raise ValueError('安全阻断：性能造数不能附加文件库')
         wh = Warehouse.query.filter_by(is_default=True).first()
         if wh is None:
             wh = Warehouse(code="WH01", name="主仓库", type="raw", status="active", is_default=True)
@@ -205,32 +212,42 @@ def _seed_database(app_mod, db):
         return wh
 
 
-def _login_session(base_url):
-    """按 _bench_big.py 同款流程登录 admin，返回带会话的 requests.Session。"""
-    import re
-
-    import requests
-
-    s = requests.Session()
-    r = s.get(f"{base_url}/login", timeout=30)
-    m = re.search(r'name="csrf_token"[^>]*value="([^"]+)"', r.text)
-    if not m:
-        raise RuntimeError("登录页未找到 csrf_token（登录流程变更？）")
-    r = s.post(f"{base_url}/login", data={
-        "username": "admin", "password": "admin",
-        "csrf_token": m.group(1), "usage_consent": "1", "login_mode": "admin",
-    }, timeout=30, allow_redirects=True)
-    if "/login" in (r.url or "") and r.status_code == 200:
-        raise RuntimeError("登录失败：响应仍停留在登录页")
-    return s
+def _login_session(server):
+    """Authenticate only a server capability created by this owned runtime."""
+    from perf_runtime import OwnedPerfHTTP
+    if type(server) is not OwnedPerfHTTP:
+        raise ValueError('安全阻断：需要本次自有性能服务能力')
+    session = server.session()
+    response = session.get(server.base_url + '/login', timeout=30, allow_redirects=False)
+    if response.status_code != 200:
+        raise RuntimeError('合成登录页不可用')
+    response = session.post(server.base_url + '/login', data={
+        'username': server.username, 'password': server.password,
+        'usage_consent': '1', 'login_mode': 'admin',
+    }, timeout=30, allow_redirects=False)
+    if response.status_code not in (200, 302):
+        raise RuntimeError('合成账号登录失败')
+    if session.get(server.base_url + '/', timeout=30, allow_redirects=False).status_code != 200:
+        raise RuntimeError('合成账号登录状态未生效')
+    return session
 
 
 def _measure_endpoint(session, base_url, path, seconds, concurrency):
     """单接口：热身后在 seconds 秒内以 concurrency 个worker 循环发请求，收集延迟。"""
+    from perf_runtime import relative_target, require_runtime
+    require_runtime()
+    from scripts.smoke_isolation import IsolationError, IsolatedSession
+    if not isinstance(session, IsolatedSession):
+        raise IsolationError('安全阻断：需要自有监听与 nonce 保护的会话')
+    relative_target(path)
+    if base_url != session.base_url:
+        raise ValueError('安全阻断：请求目标与自有监听能力不符')
     errors = 0
     for _ in range(WARMUP_REQUESTS):
         try:
-            session.get(base_url + path, timeout=30)
+            session.get(base_url + path, timeout=30, allow_redirects=False)
+        except IsolationError:
+            raise
         except Exception:  # noqa: BLE001 —— 热身失败也继续，正式测量会记 errors
             pass
 
@@ -243,8 +260,10 @@ def _measure_endpoint(session, base_url, path, seconds, concurrency):
         while time.monotonic() < stop_at:
             t0 = time.monotonic()
             try:
-                resp = session.get(base_url + path, timeout=30)
+                resp = session.get(base_url + path, timeout=30, allow_redirects=False)
                 ok = resp.status_code == 200
+            except IsolationError:
+                raise
             except Exception:  # noqa: BLE001 —— 网络异常计入 errors，不中断压测
                 ok = False
             dt = (time.monotonic() - t0) * 1000.0
@@ -264,68 +283,29 @@ def _measure_endpoint(session, base_url, path, seconds, concurrency):
 
 
 def run_benchmark(seconds, concurrency):
-    """起临时库 + waitress 真实服务，压测全部接口，返回结果字典。"""
-    tmpdir = tempfile.mkdtemp(prefix="wms_perf_")
-    os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(tmpdir, "perf.db").replace("\\", "/")
-
-    from app import app as flask_app, db as _db, initialize_database  # noqa: PLC0415
-
-    with flask_app.app_context():
-        initialize_database()
-    _seed_database(flask_app, _db)
-
-    port = _free_port()
-    base_url = f"http://127.0.0.1:{port}"
-
-    from waitress import serve  # noqa: PLC0415
-
-    server_thread = threading.Thread(
-        target=serve,
-        args=(flask_app,),
-        kwargs={"host": "127.0.0.1", "port": port, "threads": 4,
-                "channel_timeout": 30, "cleanup_interval": 5},
-        daemon=True,
-    )
-    server_thread.start()
-
-    # 等服务就绪（最多 15 秒）
-    import requests
-
-    ready = False
-    for _ in range(150):
-        try:
-            if requests.get(f"{base_url}/login", timeout=2).status_code == 200:
-                ready = True
-                break
-        except Exception:  # noqa: BLE001 —— 服务未就绪时连接拒绝属预期，继续等
-            time.sleep(0.1)
-    if not ready:
-        raise RuntimeError("waitress 15 秒内未就绪，压测装置失败")
-
-    session = _login_session(base_url)
-
+    """Measure real waitress HTTP in the authentic, network-none test container."""
+    if not 0 < seconds <= 30 or not 1 <= concurrency <= 4:
+        raise ValueError('性能窗口必须为 (0,30] 秒，并发必须为 1 至 4')
+    from perf_runtime import initialize_synthetic_app, OwnedPerfHTTP
+    w, username, password = initialize_synthetic_app()
+    _seed_database(w.app, w.db)
     results = {}
-    for ep in ENDPOINTS:
-        stats = _measure_endpoint(session, base_url, ep["path"], seconds, concurrency)
-        stats["label"] = ep["label"]
-        stats["path"] = ep["path"]
-        results[ep["key"]] = stats
-        print(f"  {ep['label']:<24} p95={stats['p95_ms']:>8.2f}ms  "
-              f"mean={stats['mean_ms']:>8.2f}ms  n={stats['count']}  err={stats['errors']}",
-              flush=True)
+    with OwnedPerfHTTP(w, username, password) as server:
+        session = _login_session(server)
+        for endpoint in ENDPOINTS:
+            stats = _measure_endpoint(session, server.base_url, endpoint['path'], seconds, concurrency)
+            if stats['count'] == 0:
+                raise RuntimeError(f"性能端点 {endpoint['key']} 没有成功样本，错误数={stats['errors']}")
+            stats.update(label=endpoint['label'], path=endpoint['path'])
+            results[endpoint['key']] = stats
+            print(f"  {endpoint['label']:<24} p95={stats['p95_ms']:>8.2f}ms  "
+                  f"mean={stats['mean_ms']:>8.2f}ms n={stats['count']} err={stats['errors']}", flush=True)
     return results
 
 
 def _git_sha():
-    import subprocess
-
-    try:
-        return subprocess.run(
-            ["git", "rev-parse", "--short=12", "HEAD"],
-            capture_output=True, text=True, cwd=str(ROOT), check=True,
-        ).stdout.strip()
-    except Exception:  # noqa: BLE001 —— 无 git 环境时基线仍可生成，sha 记 unknown
-        return "unknown"
+    from perf_runtime import source_sha
+    return source_sha()
 
 
 def main():
@@ -334,7 +314,7 @@ def main():
                     help=f"每接口压测秒数（默认 {DEFAULT_SECONDS}，10 接口约 30s）")
     ap.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
                     help=f"并发 worker 数（默认 {DEFAULT_CONCURRENCY}，低压）")
-    ap.add_argument("--output", default=str(ROOT / "scripts" / "perf_baseline.json"),
+    ap.add_argument("--output", default=str(ROOT / "output" / "perf_current.json"),
                     help="基线 JSON 输出路径")
     ap.add_argument("--compare", metavar="BASELINE_JSON",
                     help="与既有基线对比：回归超阈值打 ::warning::（告警非门禁）")
@@ -342,30 +322,44 @@ def main():
                     help="对比出现回归时退出码 1（本地自查用；CI 不加此旗标）")
     args = ap.parse_args()
 
+    from perf_runtime import require_runtime, output_path
+    require_runtime()
+    out_path = output_path(args.output, 'perf_current.json')
+    if args.compare and Path(args.compare).absolute() != ROOT / 'scripts' / 'perf_baseline.json':
+        raise ValueError('安全阻断：只能对比只读源码内置性能基线')
+
     print(f"WMS 业务接口压测基线：{len(ENDPOINTS)} 接口 × {args.seconds}s × 并发 {args.concurrency}",
           flush=True)
     current = run_benchmark(args.seconds, args.concurrency)
 
     payload = {
-        "version": 1,
+        "version": 2,
+        "measurement_profile": MEASUREMENT_PROFILE,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "git_sha": _git_sha(),
         "platform": f"{platform.system()} {platform.release()}",
         "python": platform.python_version(),
         "config": {"seconds": args.seconds, "concurrency": args.concurrency,
-                   "seed_materials": SEED_MATERIALS},
-        "note": "绝对值与机器相关，跨机对比只看相对回归量级；告警阈值见 ALERT_* 常量。",
+                   "seed_materials": SEED_MATERIALS, "database": "synthetic sqlite memory",
+                   "transport": "owned waitress HTTP"},
+        "note": "绝对值与机器与存储模式相关，旧文件库基线与本次内存库不能视为同口径；告警阈值见 ALERT_* 常量。",
         "endpoints": current,
     }
-    out_path = Path(args.output)
+    baseline = json.loads(Path(args.compare).read_text(encoding='utf-8')) if args.compare else None
+    payload['comparison'] = (compare_measurement_profiles(baseline, payload) if baseline is not None
+                             else dict(status='not_requested', alerts=[]))
     out_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\n基线已写入: {out_path}", flush=True)
 
     if not args.compare:
         return 0
 
-    baseline = json.loads(Path(args.compare).read_text(encoding="utf-8"))
-    alerts = regression_alerts(baseline.get("endpoints", {}), current)
+    comparison = payload['comparison']
+    if comparison['status'] == 'incomparable':
+        print('::warning::性能口径不可比：' + str(comparison['baseline_profile']) + ' -> '
+              + str(comparison['current_profile']) + '；未作性能通过或回归判定。', flush=True)
+        return 2 if args.strict else 0
+    alerts = comparison['alerts']
     print(f"\n与基线（{baseline.get('generated_at')} @{baseline.get('git_sha')}）对比：", flush=True)
     for key, cur in current.items():
         base = baseline.get("endpoints", {}).get(key)

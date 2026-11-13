@@ -6,7 +6,7 @@
 perf_baseline.py（P2-1）只覆盖 10 个只读 GET 列表接口，本脚本补导出侧基线，
 为 C2–C5 修复提供"修复前耗时/内存"对照（R8 第 1 条：修复前基线）。
 
-测量目标（登录态，隔离 SQLite 临时库，不碰生产/测试内存库）：
+测量目标（登录态，隔离 SQLite 合成内存库，仅限新建合成内存库）：
   E1 GET  /report/stock/print          库存 Excel 导出（Material.query.all() 全量）
   E2 GET  /report/inout/export          出入库 Excel 导出（单据 .all() 聚合）
   E3 GET  /report/supplier/print_excel  供应商报表模板导出（:220 Supplier.query.all()）
@@ -17,9 +17,9 @@ perf_baseline.py（P2-1）只覆盖 10 个只读 GET 列表接口，本脚本补
 记录：耗时（均值/最大，重复 R 次）、tracemalloc 峰值、响应字节数。
 
 用法：
-  python scripts/perf_export_baseline.py                 # 默认 2000 物料 × 3 轮
-  python scripts/perf_export_baseline.py --materials 5000 --rounds 3
-  python scripts/perf_export_baseline.py --out scripts/perf_export_baseline.json
+  python scripts/run_ci_isolated.py -- python scripts/perf_export_baseline.py                 # 默认 2000 物料 × 3 轮
+  python scripts/run_ci_isolated.py -- python scripts/perf_export_baseline.py --materials 5000 --rounds 3
+  python scripts/run_ci_isolated.py -- python scripts/perf_export_baseline.py --out output/perf_export_current.json
 
 A14 合规：本脚本引用 app，显式 opt-in 生产硬门禁（WMS_ALLOW_INSECURE_COOKIE=1，
 同 scripts/perf_baseline.py 先例，见 AGENTS.md §六 A14 / R6）。
@@ -29,9 +29,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
-import os
 import sys
-import tempfile
 import time
 import tracemalloc
 from datetime import date
@@ -39,48 +37,29 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
-sys.path.insert(0, str(APP_DIR))
-# 记录启动目录（os.chdir 之前的 cwd）——--out 相对路径按用户启动目录解析
-LAUNCH_CWD = Path.cwd()
-os.chdir(APP_DIR)
-
-# A14（R6 机械化）：scripts/ 下引用 app 必须显式放行生产硬门禁。
-os.environ.setdefault("WMS_ALLOW_INSECURE_COOKIE", "1")
-os.environ.setdefault("WMS_SKIP_AUTO_UPDATE", "1")
-os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
-os.environ.setdefault("WMS_DEBUG", "0")
-# 独立临时文件库：导出基线需要真实磁盘库（内存库造数几千物料反而先测出
-# 造数开销），且绝不指向生产 DATABASE_URL。
-_TMP_DB = tempfile.mkdtemp(prefix="wms_perf_export_")
-_DB_PATH = str(Path(_TMP_DB) / "perf_export.db").replace("\\", "/")
-os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
-os.environ["WMS_DATABASE_URI"] = f"sqlite:///{_DB_PATH}"
-
-from werkzeug.security import generate_password_hash  # noqa: E402
-
-import app as app_module  # noqa: E402
-from app import (InOrder, InOrderItem, Material, Supplier,  # noqa: E402
-                 Unit, User, Warehouse, db)
-
 D1 = date(2026, 9, 1)
 
 
-def seed(n_materials: int) -> dict:
+def seed(w, n_materials: int) -> dict:
     """造数：n 物料（各配独立供应商）+ 分类/单位/双仓 + 每物料 1 张已完成入库单。"""
-    with app_module.app.app_context():
-        # 注意：全新临时库（tempfile.mkdtemp 每次新路径），无需 drop_all——
+    from perf_runtime import assert_memory_app
+    assert_memory_app(w)
+    if not 1 <= n_materials <= 10000:
+        raise ValueError('合成物料数必须为 1 至 10000')
+    InOrder, InOrderItem, Material = w.InOrder, w.InOrderItem, w.Material
+    Supplier, Unit, User, Warehouse, db = w.Supplier, w.Unit, w.User, w.Warehouse, w.db
+    with w.app.app_context():
+        # 本次内核隔离进程的新内存库，无需 drop_all——
         # guarded_drop_all 也只放行 TESTING+内存库，此处空库直接建表即可。
         db.create_all()
         wh_a = Warehouse(code="WHA", name="仓库A", is_default=True, status="active")
         wh_b = Warehouse(code="WHB", name="仓库B", is_default=False, status="active")
         unit = Unit(code="PCS", name="个")
-        user = User(username="admin",
-                    password_hash=generate_password_hash("admin"),
-                    role="admin", must_change_password=False)
+        user = User.query.filter_by(role="admin").order_by(User.id.desc()).first()
         from sqlalchemy import inspect as sa_inspect
         cat_cls = sa_inspect(Material).relationships["category"].mapper.class_
         cat = cat_cls(code="CAT1", name="电气")
-        db.session.add_all([wh_a, wh_b, unit, user, cat])
+        db.session.add_all([wh_a, wh_b, unit, cat])
         db.session.commit()
         wh_a_id = wh_a.id
         unit_id = unit.id
@@ -121,21 +100,33 @@ def seed(n_materials: int) -> dict:
     return {"warehouse_id": wh_a_id, "n": n_materials}
 
 
-def login(client):
-    client.post("/login", data={"username": "admin", "password": "admin"})
+def login(w, client, username, password):
+    from perf_runtime import assert_memory_app
+    assert_memory_app(w)
+    if client.application is not w.app:
+        raise ValueError('安全阻断：客户端不属于本次合成应用')
+    response = client.post('/login', data={'username': username, 'password': password}, follow_redirects=False)
+    with client.session_transaction() as session:
+        if response.status_code not in (200, 302) or not session.get('_user_id'):
+            raise RuntimeError('合成账号登录失败')
 
 
-def measure(client, method, url, rounds: int) -> dict:
+def measure(w, client, method, url, rounds: int) -> dict:
     """对单个端点重复测量：耗时 + tracemalloc 峰值 + 响应大小。"""
+    from perf_runtime import assert_memory_app, relative_target
+    assert_memory_app(w)
+    relative_target(url)
+    if client.application is not w.app or method not in ('GET', 'POST') or not 1 <= rounds <= 10:
+        raise ValueError('安全阻断：导出客户端、方法或轮数无效')
     times, peak_bytes, resp_len, status = [], 0, 0, 0
     for r in range(rounds):
         gc.collect()
         tracemalloc.start()
         t0 = time.perf_counter()
         if method == "GET":
-            resp = client.get(url)
+            resp = client.get(url, follow_redirects=False)
         else:
-            resp = client.post(url, data={"warehouse": "仓库A", "keyword": "M"})
+            resp = client.post(url, data={"warehouse": "仓库A", "keyword": "M"}, follow_redirects=False)
         elapsed = time.perf_counter() - t0
         _, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
@@ -157,22 +148,21 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--materials", type=int, default=2000)
     parser.add_argument("--rounds", type=int, default=3)
-    parser.add_argument("--out", default=str(ROOT / "scripts" / "perf_export_baseline.json"))
+    parser.add_argument("--out", default=str(ROOT / "output" / "perf_export_current.json"))
     args = parser.parse_args()
-    # --out 相对路径按启动目录解析（本脚本 os.chdir(APP_DIR) 已切换 cwd，
-    # 直接写相对路径会落到 app/ 下并因目录不存在而崩溃——2026-09-30 实测踩坑）。
-    if not Path(args.out).is_absolute():
-        args.out = str((LAUNCH_CWD / args.out).resolve())
+    from perf_runtime import initialize_synthetic_app, output_path
+    if not 1 <= args.materials <= 10000 or not 1 <= args.rounds <= 10:
+        parser.error('物料数必须为 1 至 10000，轮数必须为 1 至 10')
+    out_path = output_path(args.out, 'perf_export_current.json')
+    w, username, password = initialize_synthetic_app()
 
     print(f"[seed] 造数 {args.materials} 物料（各配独立供应商+1 张已完成入库单）...")
     t0 = time.perf_counter()
-    ctx = seed(args.materials)
+    ctx = seed(w, args.materials)
     print(f"[seed] 完成，{time.perf_counter() - t0:.1f}s，仓库A id={ctx['warehouse_id']}")
 
-    client = app_module.app.test_client()
-    app_module.app.config["TESTING"] = True
-    app_module.app.config["WTF_CSRF_ENABLED"] = False
-    login(client)
+    client = w.app.test_client()
+    login(w, client, username, password)
 
     wid = ctx["warehouse_id"]
     endpoints = [
@@ -188,7 +178,8 @@ def main() -> int:
         "date": time.strftime("%Y-%m-%d %H:%M:%S"),
         "materials": args.materials,
         "rounds": args.rounds,
-        "db": "sqlite temp file",
+        "db": "synthetic sqlite memory",
+        "measurement_profile": "sqlite-memory-flask-test-client-export-v2",
     }, "endpoints": {}}
     print(f"\n[measure] 每端点 {args.rounds} 轮：")
     for key, method, url in endpoints:
@@ -196,14 +187,14 @@ def main() -> int:
                  "E2_inout_export": "出入库 Excel 导出",
                  "E3_supplier_print_excel": "供应商报表模板导出",
                  "E4_query_search": "全局搜索（无 LIMIT）"}[key]
-        r = measure(client, method, url, args.rounds)
+        r = measure(w, client, method, url, args.rounds)
         results["endpoints"][key] = {"label": label, "method": method,
                                       "url": url, **r}
         print(f"  {key:<24} {label:<18} status={r['status']} "
               f"mean={r['mean_s']}s max={r['max_s']}s "
               f"peak_mem={r['peak_mem_mb']}MB resp={r['resp_kb']}KB")
 
-    Path(args.out).write_text(json.dumps(results, ensure_ascii=False, indent=2),
+    out_path.write_text(json.dumps(results, ensure_ascii=False, indent=2),
                               encoding="utf-8")
     print(f"\n[out] 基线已写入 {args.out}")
     return 0

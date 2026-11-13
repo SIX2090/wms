@@ -67,31 +67,22 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r app/requirements-test.txt
-
-      - name: Create required directories
-        run: |
-          mkdir -p app/logs app/instance app/uploads logs
-
       # --seconds 2：CI 上缩短单接口测量窗口（10 接口约 20s+启动开销）；
-      # 基线 JSON 写 /tmp 不覆盖仓库基线（基线更新是显式的人为动作：
+      # 基线 JSON 写本次隔离 output 不覆盖仓库基线（基线更新是显式的人为动作：
       # 本地 python scripts/perf_baseline.py 全量跑后 commit）。
       - name: "Perf baseline compare (alarm-only, P2-1)"
         run: >
-          python scripts/perf_baseline.py
+          python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py
           --seconds 2
           --compare scripts/perf_baseline.json
-          --output /tmp/perf_current.json
+          --output output/perf_current.json
 
       - name: "Upload current perf result"
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: perf-current
-          path: /tmp/perf_current.json
+          path: output/perf_current.json
           if-no-files-found: ignore
           retention-days: 30
 
