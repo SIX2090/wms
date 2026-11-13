@@ -36167,7 +36167,14 @@ def recalculate_sales_order(order, *, recalculate_amounts=True):
             tax_rate = item.tax_rate if item.tax_rate is not None else 0.13
             if tax_rate < 0:
                 tax_rate = 0
-            included = round_money_product(qty, price)
+            # 历史同义含税字段只补缺失，沿详情/打印的主字段及旧0占位兼容约定。
+            stored_included = None
+            if not recalculate_amounts:
+                stored_included = item.tax_included_amount
+                if not stored_included and item.amount is not None:
+                    stored_included = item.amount
+            included = (float(stored_included) if not recalculate_amounts and stored_included is not None
+                        else round_money_product(qty, price))
             untaxed = round_to_2_decimals(included / (1 + tax_rate)) if (1 + tax_rate) > 0 else included
             tax = round_to_2_decimals(included - untaxed)
             untaxed_price = round(price / (1 + tax_rate), 4) if (1 + tax_rate) > 0 and qty > 0 else 0
@@ -36181,7 +36188,7 @@ def recalculate_sales_order(order, *, recalculate_amounts=True):
                 item.tax_included_amount = included
             if recalculate_amounts or item.amount is None:
                 item.amount = included  # 兼容旧逻辑：amount = 含税金额
-        total_included += float(item.tax_included_amount or 0)
+        total_included += float(item.tax_included_amount or item.amount or 0)
         total_untaxed += float(item.untaxed_amount or 0)
         total_tax += float(item.tax_amount or 0)
         item.shipped_quantity = min(max(item.shipped_quantity or 0, 0), qty)

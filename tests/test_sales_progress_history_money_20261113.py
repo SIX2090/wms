@@ -102,7 +102,9 @@ def test_progress_refresh_fills_only_missing_fields_and_preserves_zero(money_cas
     line = w.db.session.get(w.SalesOrderItem, iid)
     order = w.db.session.get(w.SalesOrder, oid)
     assert (line.amount, line.tax_included_amount, line.untaxed_amount, line.tax_amount) == (
-        Decimal('4.03'), Decimal('7.77'), Decimal('0'), Decimal('.52'))
+        Decimal('7.77'), Decimal('7.77'), Decimal('0'), Decimal('.52'))
+    # Persisted primary 7.77 must supply the missing compatibility amount.
+    assert (line.quantity, line.price) == (1.15, 3.5)
     assert line.untaxed_price == 3.0973
     assert (order.total_amount, order.untaxed_amount, order.tax_amount, order.remaining_amount) == (
         Decimal('9.99'), Decimal('3.50'), Decimal('.52'), Decimal('9.99'))

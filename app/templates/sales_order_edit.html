@@ -634,6 +634,7 @@ textarea.form-control {
     var materials = {{ material_list|tojson }};
     var defaultTaxRate = {{ default_tax_rate|default(0.13) }};
     var existingItems = {{ existing_items|tojson }};
+    var originalFinancialHeader = {{ {'included': order.total_amount, 'untaxed': order.untaxed_amount, 'tax': order.tax_amount}|tojson }};
     var editUrl = "{{ url_for('sales_order_edit', id=order.id) }}";
     var orderId = {{ order.id }};
     var body = document.getElementById('materialTableBody');
@@ -655,11 +656,34 @@ textarea.form-control {
     function recalcRow(row) {
         var qty = Number(row.querySelector('.qty').value) || 0;
         var price = Number(row.querySelector('.price').value) || 0;
-        var rate = Number(row.querySelector('.tax-rate').value) || 0;
+        var rateInput = row.querySelector('.tax-rate').value;
+        var rate = String(rateInput).trim() === '' ? defaultTaxRate : Number(rateInput) || 0;
         var included = window.WMSMoney.product(qty, price);
         var untaxed = rate >= 0 ? window.WMSMoney.round(included / (1 + rate)) : included;
+        var tax = window.WMSMoney.round(included - untaxed);
+        var snapshot = row._salesSnapshot;
+        function unchanged(value, saved, missingDisplay) {
+            if (saved == null && missingDisplay == null) return String(value).trim() === '';
+            var shown = saved == null ? missingDisplay : Number(saved);
+            var entered = Number(value);
+            return String(value).trim() !== '' && Number.isFinite(shown) &&
+                entered === shown;
+        }
+        row._salesFinancialUnchanged = !!snapshot &&
+            row.querySelector('.material-code').value.trim() === String(snapshot.code) &&
+            unchanged(row.querySelector('.qty').value, snapshot.quantity, 0) &&
+            unchanged(row.querySelector('.price').value, snapshot.price, null) &&
+            unchanged(row.querySelector('.tax-rate').value, snapshot.tax_rate, defaultTaxRate);
+        if (row._salesFinancialUnchanged) {
+            if (snapshot.tax_included_amount != null &&
+                    (Number(snapshot.tax_included_amount) !== 0 || snapshot.amount == null)) {
+                included = Number(snapshot.tax_included_amount);
+            } else if (snapshot.amount != null) included = Number(snapshot.amount);
+            if (snapshot.untaxed_amount != null) untaxed = Number(snapshot.untaxed_amount);
+            if (snapshot.tax_amount != null) tax = Number(snapshot.tax_amount);
+        }
         row.querySelector('.untaxed').textContent = untaxed.toFixed(2);
-        row.querySelector('.tax').textContent = window.WMSMoney.round(included - untaxed).toFixed(2);
+        row.querySelector('.tax').textContent = tax.toFixed(2);
         row.querySelector('.included').textContent = included.toFixed(2);
     }
     function recalc() {
@@ -671,6 +695,19 @@ textarea.form-control {
             totals.tax += Number(row.querySelector('.tax').textContent) || 0;
             totals.included += Number(row.querySelector('.included').textContent) || 0;
         });
+        if (typeof originalFinancialHeader !== 'undefined' && typeof existingItems !== 'undefined') {
+            var populated = Array.from(body.querySelectorAll('tr')).filter(function(row) {
+                return row.querySelector('.material-code').value.trim() !== '';
+            });
+            var originalIds = existingItems.map(function(item) { return String(item.line_id); }).sort().join(',');
+            var currentIds = populated.map(function(row) { return row.dataset.salesLineId || ''; }).sort().join(',');
+            if (populated.every(function(row) { return row._salesFinancialUnchanged; }) &&
+                    populated.length === existingItems.length && originalIds === currentIds) {
+                ['untaxed', 'tax', 'included'].forEach(function(field) {
+                    if (originalFinancialHeader[field] != null) totals[field] = Number(originalFinancialHeader[field]);
+                });
+            }
+        }
         document.getElementById('totalUntaxed').textContent = totals.untaxed.toFixed(2);
         document.getElementById('totalTax').textContent = totals.tax.toFixed(2);
         document.getElementById('totalIncluded').textContent = totals.included.toFixed(2);
@@ -681,7 +718,10 @@ textarea.form-control {
         row.querySelector('.spec').value = material ? material.spec || '' : '';
         row.querySelector('.unit').value = unitName(material);
         // BUG-2026-10-25-001：零单价是明确输入，仅缺失单价才使用物料默认价。
-        if (material && !row.querySelector('.price').value) row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        if (material && !row.querySelector('.price').value &&
+                (!row._salesSnapshot || row.querySelector('.material-code').value.trim() !== String(row._salesSnapshot.code))) {
+            row.querySelector('.price').value = Number(material.price || 0).toFixed(2);
+        }
         recalc();
     }
 
@@ -775,6 +815,8 @@ textarea.form-control {
     function addRow(existing) {
         existing = existing || {};
         var row = document.createElement('tr');
+        row.dataset.salesLineId = existing.line_id == null ? '' : String(existing.line_id);
+        row._salesSnapshot = existing.line_id == null ? null : Object.assign({}, existing);
         row.innerHTML =
             '<td data-column-key="row_no" class="row-num row-no"></td>' +
             '<td data-column-key="material_code">' +
@@ -827,6 +869,7 @@ textarea.form-control {
         formFields.forEach(function(name) { var node = document.querySelector('[name="' + name + '"]'); data[name] = node ? node.value : ''; });
         data.items = Array.from(body.querySelectorAll('tr')).map(function(row, index) {
             var item = {
+                line_id: row.dataset.salesLineId || null,
                 code: row.querySelector('.material-code').value.trim(),
                 quantity: row.querySelector('.qty').value,
                 price: row.querySelector('.price').value,

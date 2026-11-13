@@ -148,7 +148,9 @@ class SalesProgressMoneyContract(unittest.TestCase):
         line.amount = line.untaxed_amount = None
         order.tax_amount = None
         self.env['recalculate_sales_order'](order, recalculate_amounts=False)
-        self.assertEqual((line.amount, line.untaxed_amount), (4.03, 3.57))
+        # The recorded primary 7.77, rather than a new 4.03 product, owns missing aliases.
+        self.assertEqual((line.amount, line.untaxed_amount), (7.77, 6.88))
+        self.assertEqual((line.quantity, line.price), (1.15, 3.5))
         self.assertEqual((line.tax_included_amount, line.tax_amount, line.untaxed_price),
                          (Decimal('7.77'), Decimal('.52'), 3.0435))
         self.assertEqual((order.total_amount, order.untaxed_amount, order.tax_amount),

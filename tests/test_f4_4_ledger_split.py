@@ -281,13 +281,22 @@ class TestQueryLedgerCli:
 class TestShardIntegrity:
     def test_unified_index_targets_exist(self):
         """统一索引的每一行都指向真实存在的分片（≤2 次读取的前提）。"""
+        import re
         index = (LEDGER / 'INDEX.md').read_text(encoding='utf-8')
         rows = [l for l in index.splitlines() if l.startswith('| ') and not l.startswith('| 条目')]
         assert len(rows) > 600
+        indexed_ids = set()
         for line in rows:
             cols = [c.strip() for c in line.split('|')]
             tid, cat, shard = cols[1], cols[2], cols[3]
+            indexed_ids.add(tid)
             assert (LEDGER / cat / shard).exists(), f'索引悬空: {tid} -> {cat}/{shard}'
+        heading_ids = set()
+        for shard in BUG_SHARDS.glob('*.md'):
+            heading_ids.update(re.findall(
+                r'^#{2,4}\s+(BUG-\d{4}-\d{2}-\d{2}-\d{3})(?=[:：\s])',
+                shard.read_text(encoding='utf-8'), re.M))
+        assert heading_ids <= indexed_ids, f'新增BUG缺少查询索引: {sorted(heading_ids - indexed_ids)}'
 
     def test_main_files_no_longer_carry_history(self):
         """git diff 噪声目标：主文件体积低于上限。"""
@@ -545,3 +554,5 @@ POST_SPLIT_BUGS['BUG-2026-11-13-001'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-002'] = 'fixed'
 
 POST_SPLIT_BUGS['BUG-2026-11-13-003'] = 'fixed'
+# Archive-section parser compatibility only; delivery remains the entry's exact CI status.
+POST_SPLIT_BUGS['BUG-2026-11-13-005'] = 'fixed'

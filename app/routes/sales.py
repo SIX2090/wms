@@ -25,14 +25,14 @@ from __future__ import annotations
 import json
 from collections import Counter
 
-from flask import flash, jsonify, redirect, render_template, request, send_file, url_for
+from flask import flash, g, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 from sqlalchemy.exc import IntegrityError
 
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
-from utils import round_money_product
+from utils import parse_float_value, round_money_product, round_to_2_decimals
 
 
 # STOCK-TRUTH-P16：下单软校验——可用量不足时返回缺口提示（不阻断）。
@@ -107,6 +107,40 @@ def _sales_analysis_stock(order, cache):
                 cache[stock_key] = get_warehouse_stock_quantities(warehouse)
             cache[key] = cache[stock_key]
     return cache[key]
+
+
+def _sales_edit_line_id(value):
+    if value is None or value == '':
+        return None
+    if type(value) is int:
+        line_id = value
+    elif (isinstance(value, str) and len(value.strip()) <= 19
+          and value.strip().isascii() and value.strip().isdigit()):
+        line_id = int(value.strip())
+    else:
+        raise ValueError('销售明细标识无效')
+    if not 0 < line_id < 2**63:
+        raise ValueError('销售明细标识无效')
+    return line_id
+
+
+def _sales_edit_number_unchanged(value, saved, missing_display=0):
+    historical = parse_float_value(saved, None) if saved is not None else None
+    if saved is not None and historical is None:
+        raise ValueError('历史销售数量或单价无效，请先核对')
+    shown = historical if saved is not None else missing_display
+    return value == shown
+
+
+def _sales_edit_financial_values(quantity, price, tax_rate, *, included_amount=None):
+    rate = tax_rate if tax_rate is not None else 0.13
+    rate = max(rate, 0)
+    included = (round_money_product(quantity or 0, price or 0) if included_amount is None
+                else float(included_amount))
+    untaxed = round_to_2_decimals(included / (1 + rate))
+    return {'amount': included, 'tax_included_amount': included, 'untaxed_amount': untaxed,
+            'tax_amount': round_to_2_decimals(included - untaxed),
+            'untaxed_price': round((price or 0) / (1 + rate), 4) if quantity > 0 else 0}
 
 
 def register_sales_routes(app):
@@ -685,7 +719,7 @@ def register_sales_routes(app):
             material_selectable_filter(False)).order_by(Material.code.asc()).all()
         material_list = [serialize_material_without_stock(m) for m in materials]
         # 已有明细项转 JSON 供前端回填
-        existing_items = [{'code': item.material.code if item.material else '', 'material': serialize_material_without_stock(item.material) if item.material else None, 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
+        existing_items = [{'line_id': item.id, 'amount': item.amount, 'tax_included_amount': item.tax_included_amount, 'untaxed_amount': item.untaxed_amount, 'tax_amount': item.tax_amount, 'code': item.material.code if item.material else '', 'material': serialize_material_without_stock(item.material) if item.material else None, 'quantity': item.quantity, 'price': item.price, 'tax_rate': item.tax_rate, 'batch_no': item.batch_no or '', 'serial_no': item.serial_no or '', 'remark': item.remark or '', 'contract_id': item.contract_id, 'contract_no': item.contract_no or order.contract_no or '', 'project_name': item.project_name or order.project_name or ''} for item in order.items]
         return render_template('sales_order_edit.html', order=order, customers=customers, employees=employees, warehouses=warehouses, materials=materials, material_list=material_list, existing_items=existing_items, default_tax_rate=0.13)
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -694,7 +728,8 @@ def register_sales_routes(app):
     @login_required
     def sales_order_edit(id):
         from datetime import date, datetime
-        from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem,
+        from app import (Customer, Employee, InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
+                         SalesOrder, SalesOrderItem, STOCK_COMPARE_EPSILON,
                          log_operation, parse_float_value, recalculate_sales_order,
                          round_to_2_decimals, validate_sales_warehouse)
         order = SalesOrder.query.get_or_404(id)
@@ -711,6 +746,31 @@ def register_sales_routes(app):
                 items = json.loads(items or '[]')
             if not items:
                 return jsonify({'status': 'error', 'msg': '请至少保留一条销售明细'}), 400
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise ValueError('销售明细格式不正确')
+            original_rows = list(order.items)
+            original_by_id = {item.id: item for item in original_rows}
+            original_ids = list(original_by_id)
+            # 草稿异常保留了下游或已发记录时，不得改行身份/数量或拆掉来源链。
+            linked = (any((item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON for item in original_rows)
+                      or OutOrder.query.filter(db.or_(OutOrder.source_sales_order_id == order.id,
+                          OutOrder.purpose == f'来源销售订单 {order.order_no}')).first()
+                      or InOrder.query.filter_by(source_sales_order_id=order.id).first())
+            if original_ids and not linked:
+                linked = (OutOrderItem.query.filter(OutOrderItem.source_sales_order_item_id.in_(original_ids)).first()
+                          or InOrderItem.query.filter(InOrderItem.source_sales_order_item_id.in_(original_ids)).first())
+            if linked:
+                return jsonify({'status': 'error', 'msg': '销售订单已有发货或关联出入库单，请先核对关联单据，不能编辑明细'}), 409
+            identified = any('line_id' in data for data in items)
+            submitted_ids = []
+            if identified:
+                if not getattr(g, 'document_edit_guard', False):
+                    return jsonify({'status': 'error', 'msg': '缺少销售单据版本，请刷新后重试'}), 409
+                for data in items:
+                    line_id = _sales_edit_line_id(data.get('line_id'))
+                    if line_id is not None and (line_id not in original_by_id or line_id in submitted_ids):
+                        return jsonify({'status': 'error', 'msg': '销售明细归属或标识已变化，请刷新后重试'}), 400
+                    submitted_ids.append(line_id)
             salesperson_id = int(payload.get('salesperson_id') or 0) if payload.get('salesperson_id') else None
             if salesperson_id and not db.session.get(Employee, salesperson_id):
                 salesperson_id = None
@@ -734,41 +794,89 @@ def register_sales_routes(app):
             order.contract_id = int(_edit_contract_id) if _edit_contract_id else None
             order.contract_no = (payload.get('contract_no') or '').strip() or None
             order.project_name = (payload.get('project_name') or '').strip() or None
-            # 删除旧明细，重建新明细（草稿状态无出库记录，可安全重建）
-            # 旧客户端没有行ID：按原关联行数保留历史停用料，不能借历史料再增行。
-            historical_material_rows = Counter(item.material_id for item in order.items)
-            SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
-            db.session.flush()
-            for data in items:
+            # 新页面使用已签名单据中的行ID；旧无ID请求仍是明确整单替换，不猜物料匹配。
+            historical_material_rows = Counter(item.material_id for item in original_rows)
+            if not identified:
+                SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
+                db.session.flush()
+            final_rows = []
+            financial_change = identified and set(filter(None, submitted_ids)) != set(original_by_id)
+            for row_index, data in enumerate(items):
+                old_line = original_by_id.get(submitted_ids[row_index]) if identified else None
                 material = Material.query.filter_by(code=(data.get('code') or data.get('material_code') or '').strip()).first()
-                quantity = round_to_2_decimals(parse_float_value(data.get('quantity'), 0))
-                if not material or quantity <= 0:
+                raw_quantity = parse_float_value(data.get('quantity'), None)
+                quantity = round_to_2_decimals(raw_quantity)
+                if not material or raw_quantity is None:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+                same_material = old_line is not None and old_line.material_id == material.id
                 if (material.status or 'active') != 'active':
-                    if historical_material_rows[material.id] <= 0:
+                    if (identified and not same_material) or (not identified and historical_material_rows[material.id] <= 0):
                         db.session.rollback()
                         return jsonify({'status': 'error', 'msg': '物料已停用，只能保留本单原有关联行，不能新增'}), 400
                     historical_material_rows[material.id] -= 1
-                price = round_to_2_decimals(parse_float_value(data.get('price'), material.price or 0))
+                raw_price = parse_float_value(data.get('price'), material.price or 0)
+                price = round_to_2_decimals(raw_price)
                 tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
                 if tax_rate < 0:
                     tax_rate = 0
-                db.session.add(SalesOrderItem(
-                    sales_order_id=order.id,
-                    material_id=material.id,
-                    quantity=quantity,
-                    price=price,
-                    amount=round_money_product(quantity, price),
-                    tax_rate=tax_rate,
-                    batch_no=(data.get('batch_no') or '').strip() or None,
-                    serial_no=(data.get('serial_no') or '').strip() or None,
-                    remark=(data.get('remark') or '').strip() or None,
-                    contract_id=int(data.get('contract_id')) if data.get('contract_id') else None,
-                    contract_no=(data.get('contract_no') or '').strip() or None,
-                    project_name=(data.get('project_name') or '').strip() or None,
-                ))
-            recalculate_sales_order(order)
+                quantity_unchanged = same_material and _sales_edit_number_unchanged(raw_quantity, old_line.quantity)
+                price_unchanged = same_material and (
+                    (old_line.price is None and data.get('price') in (None, ''))
+                    or (old_line.price is not None and _sales_edit_number_unchanged(raw_price, old_line.price)))
+                tax_unchanged = same_material and _sales_edit_number_unchanged(tax_rate, old_line.tax_rate, 0.13)
+                row_financial_change = not (quantity_unchanged and price_unchanged and tax_unchanged)
+                if old_line is not None and old_line.price is None and price_unchanged and row_financial_change:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': '该历史明细缺少单价，修改数量或税率前请明确填写单价（可填0）'}), 400
+                if quantity_unchanged:
+                    quantity = old_line.quantity
+                if quantity <= 0:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': '物料编码不存在或数量无效'}), 400
+                if price_unchanged:
+                    price = old_line.price
+                if tax_unchanged:
+                    tax_rate = old_line.tax_rate
+                line = old_line or SalesOrderItem(sales_order_id=order.id, material_id=material.id,
+                                                  quantity=quantity, price=price, tax_rate=tax_rate)
+                line.material_id = material.id
+                line.quantity = quantity
+                line.price = price
+                line.tax_rate = tax_rate
+                financial_fields = ('amount', 'tax_included_amount', 'untaxed_amount', 'tax_amount', 'untaxed_price')
+                if row_financial_change or any(getattr(line, field) is None for field in financial_fields):
+                    stored_included = line.tax_included_amount
+                    if not stored_included and line.amount is not None:
+                        stored_included = line.amount
+                    values = _sales_edit_financial_values(quantity, price, tax_rate,
+                        included_amount=stored_included if not row_financial_change else None)
+                    for field, value in values.items():
+                        if row_financial_change or getattr(line, field) is None:
+                            setattr(line, field, value)
+                line.batch_no = (data.get('batch_no') or '').strip() or None
+                line.serial_no = (data.get('serial_no') or '').strip() or None
+                line.remark = (data.get('remark') or '').strip() or None
+                if 'contract_id' in data or old_line is None:
+                    line.contract_id = int(data.get('contract_id')) if data.get('contract_id') else None
+                line.contract_no = (data.get('contract_no') or '').strip() or None
+                line.project_name = (data.get('project_name') or '').strip() or None
+                if old_line is None:
+                    db.session.add(line)
+                final_rows.append(line)
+                financial_change = financial_change or row_financial_change
+            if identified:
+                for old_line in original_rows:
+                    if old_line.id not in submitted_ids:
+                        db.session.delete(old_line)
+                # 元数据编辑保留历史头行差异；确实改了明细财务时，按保留/新算的行金额合计。
+                if financial_change:
+                    order.total_amount = round_to_2_decimals(sum(float(line.tax_included_amount or line.amount or 0) for line in final_rows))
+                    order.untaxed_amount = round_to_2_decimals(sum(float(line.untaxed_amount or 0) for line in final_rows))
+                    order.tax_amount = round_to_2_decimals(sum(float(line.tax_amount or 0) for line in final_rows))
+                recalculate_sales_order(order, recalculate_amounts=False)
+            else:
+                recalculate_sales_order(order)
             # STOCK-TRUTH-P16：改单软校验（提示不阻断），响应携带 warnings。草稿本不占用，
             # exclude 自身仅作防御（未来放开已确认订单编辑时口径自动正确）。
             qty_by_material_id = {}
