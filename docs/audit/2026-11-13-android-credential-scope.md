@@ -1,5 +1,16 @@
 # Android 凭据来源与会话切换修复（2026-11-13）
 
+## 最终代码验收
+
+用户单次授权后，实际非强制推送输出为 `14cc64c6..f965aa51 main -> main`；本地 HEAD、origin/main 及实时远端完整 SHA 均为 `f965aa51a5eaf54614e6bf132e4b770a6beeff64`。
+
+- [WMS CI 43384903948](https://github.com/SIX2090/wms/actions/runs/43384903948)：精确目标 completed/success，三个主单测分片、四个 verify、静态、smoke、browser 及 gate 全部成功。
+- [AI 43384903930](https://github.com/SIX2090/wms/actions/runs/43384903930)：精确目标 completed/success。
+- [Android 43384903895](https://github.com/SIX2090/wms/actions/runs/43384903895)：精确目标 build、unit-test、lint 全部 success。unit-test 131750980075 日志逐项确认 RetrofitCredentialScopeTest 新增 11 项 PASSED，BUILD SUCCESSFUL；未复用 14cc64c6 的运行结果。
+- [性能基线 43384903995](https://github.com/SIX2090/wms/actions/runs/43384903995)：success。Windows Portable Release 43385765454 在本补记时仍运行，不能预记成功。
+
+本补记仅更新文档；产品代码验收目标始终为上述 f965aa51。当前文档提交另验所选文档检查与 gate。代码修复交付不等于 APK 已在设备安装或生产业务已验收，未部署、重启或访问生产数据库。
+
 对应 BUG-2026-11-08-014，兼作 11-08-012 队列归属修复的传输层前置。基线 `b7eb809d7f51c59569de30c332ba01649854202b`；WMS CI 43380025639 与 AI 43380025585 为精确 success，Android 43331615930/3652607a 为祖先且源码/工作流输入未变。没有生产数据库、凭据、HTTP、打印、微信或部署操作。
 
 ## 根因与改动
