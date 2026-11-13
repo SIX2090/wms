@@ -109,6 +109,21 @@ def main():
         env['reserve_alert'], env['attach_alert_image'], env['finish_alert'])
     parent = types.ModuleType('services'); parent.__path__ = []
 
+    def wait_for_memory_begin(operation, *args):
+        # Shared-cache memory SQLite returns SQLITE_LOCKED immediately, unlike
+        # a file connection's busy-timeout wait. Retry only an unsuccessful
+        # BEGIN; never replay a statement/commit or a possibly delivered send.
+        deadline = time.monotonic() + 5
+        while True:
+            try:
+                return operation(*args)
+            except OperationalError as exc:
+                if ((getattr(exc.orig, 'sqlite_errorcode', 0) & 0xff) != sqlite3.SQLITE_LOCKED
+                        or (exc.statement or '').strip().upper() != 'BEGIN IMMEDIATE'
+                        or time.monotonic() >= deadline):
+                    raise
+                time.sleep(0.005)
+
     class ConcurrentClaimTests(unittest.TestCase):
         def setUp(self):
             with Session(engine) as session:
@@ -193,8 +208,10 @@ def main():
             def render(_notification): return '/synthetic/alert.png'
             def synchronized_reserve(*args):
                 barrier.wait(timeout=5)
-                return env['reserve_alert'](*args)
+                return wait_for_memory_begin(env['reserve_alert'], *args)
             service.reserve_alert = synchronized_reserve
+            service.attach_alert_image = lambda *args: wait_for_memory_begin(env['attach_alert_image'], *args)
+            service.finish_alert = lambda *args: wait_for_memory_begin(env['finish_alert'], *args)
             entry_env = {'db': types.SimpleNamespace(engine=engine), 'datetime': datetime,
                          'date': datetime, 'timedelta': timedelta, '_render_alert_image': render}
             # The copied entry uses date.today(); synthesize a proper date provider.
@@ -214,11 +231,67 @@ def main():
             self.assertEqual(errors, [])
             self.assertEqual(delivered, ['synthetic'])
             service.reserve_alert = env['reserve_alert']
+            service.attach_alert_image = env['attach_alert_image']
+            service.finish_alert = env['finish_alert']
             with Session(engine) as session:
                 self.assertEqual(session.query(AlertLog).count(), 1)
                 self.assertEqual(session.query(AlertLog).one().status, 'sent')
                 self.assertEqual(session.query(AlertLog).one().image_path, '/synthetic/alert.png')
                 self.assertEqual(session.query(AlertLog).one().image_size, 1)
+
+        def test_memory_begin_wait_handles_a_real_owned_writer_lock(self):
+            locked, release = threading.Event(), threading.Event()
+            failures, blocked = [], []
+            def holder():
+                try:
+                    with Session(engine) as session:
+                        session.execute(text('BEGIN IMMEDIATE'))
+                        locked.set()
+                        if not release.wait(timeout=5):
+                            raise AssertionError('owned lock was not released')
+                        session.rollback()
+                except Exception as exc:
+                    failures.append(exc)
+            worker = threading.Thread(target=holder)
+            worker.start()
+            self.assertTrue(locked.wait(timeout=5))
+            db = types.SimpleNamespace(engine=engine)
+            def reserve():
+                try:
+                    return env['reserve_alert'](db, AlertLog, {'module_key':'print_alert',
+                        'order_id':1, 'order_no':'合成受控写锁'}, 10)
+                except OperationalError as exc:
+                    blocked.append(exc)
+                    release.set()
+                    raise
+            try:
+                try:
+                    ident = wait_for_memory_begin(reserve)
+                except OperationalError as exc:
+                    self.fail('owned shared-memory BEGIN contention escaped before any send: ' + str(exc))
+            finally:
+                release.set()
+                worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(failures, [])
+            self.assertTrue(blocked, 'the first real BEGIN must actually meet the held lock')
+            self.assertTrue(all((exc.statement or '').strip().upper() == 'BEGIN IMMEDIATE' for exc in blocked))
+            with Session(engine) as session:
+                self.assertEqual(session.query(AlertLog).count(), 1)
+                self.assertEqual(session.get(AlertLog, ident).status, 'sending')
+
+        def test_memory_wait_never_replays_commit_or_other_sql(self):
+            for statement in ('COMMIT', 'UPDATE synthetic_alert_log SET status = ?', 'SELECT * FROM synthetic_alert_log'):
+                with self.subTest(statement=statement):
+                    calls = []
+                    error = sqlite3.OperationalError('synthetic locked')
+                    error.sqlite_errorcode = sqlite3.SQLITE_LOCKED
+                    def fail():
+                        calls.append(statement)
+                        raise OperationalError(statement, {}, error)
+                    with self.assertRaises(OperationalError):
+                        wait_for_memory_begin(fail)
+                    self.assertEqual(calls, [statement])
 
         def test_old_sending_and_uncertain_alerts_do_not_become_retryable(self):
             with Session(engine) as session:
@@ -275,7 +348,7 @@ def main():
                                  '不同通知不应因复用的 ID 被永久误挡')
 
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ConcurrentClaimTests)
-    if suite.countTestCases() != 8: raise SystemExit('synthetic test list incomplete')
+    if suite.countTestCases() != 10: raise SystemExit('synthetic test list incomplete')
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     engine.dispose()
     anchor.close()

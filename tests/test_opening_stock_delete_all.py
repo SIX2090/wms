@@ -50,6 +50,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app import app as flask_app  # noqa: E402
 from app import (  # noqa: E402
+    LocationInventory,
     Material,
     OpeningStock,
     OpeningStockDoc,
@@ -58,6 +59,7 @@ from app import (  # noqa: E402
     Unit,
     User,
     Warehouse,
+    _apply_opening_stock_balance,
     db,
 )
 from routes.opening_stock import OPENING_STOCK_PURGE_PHRASE  # noqa: E402
@@ -107,7 +109,7 @@ class TestOpeningStockDeleteAll:
         # TestPurgeGuard 继承本类，会把 T1/T3/T4/T6 连同 T8~T11 再跑一遍；
         # 审计表若不清空，前面 8 次删除的留痕会累积到 T10 的断言里（CI #2123
         # 实测 9 条而非 1 条）。OperationAudit 放在 User 之前删，避免外键顺序问题。
-        for model in (OpeningStock, OpeningStockDoc, StockTransaction,
+        for model in (OpeningStock, OpeningStockDoc, StockTransaction, LocationInventory,
                       Material, Warehouse, Unit, OperationAudit, User):
             db.session.query(model).delete()
         db.session.commit()
@@ -212,14 +214,11 @@ class TestOpeningStockDeleteAll:
     # ---- T4 历史直连行（doc_id 为 NULL）也被删并回冲 ----
 
     def test_t4_orphan_lines_removed_and_reversed(self):
-        # 直接造一条 doc_id 为 NULL 的历史台账行，并把库存加上去
-        orphan = OpeningStock(
-            doc_id=None, material_id=self.m1.id, warehouse_id=self.wh1.id,
-            quantity=30, price=1, amount=30, remark="历史直连",
+        # 孤儿仅指doc_id缺失；历史建账仍须有原数量流水及按开关同步的库位账。
+        orphan, _delta = _apply_opening_stock_balance(
+            None, self.m1, 30, 1, 30, "历史直连",
+            warehouse=self.wh1, doc_id=None,
         )
-        db.session.add(orphan)
-        m1 = db.session.get(Material, self.m1.id)
-        m1.stock = 30.0
         db.session.commit()
         assert OpeningStock.query.filter(OpeningStock.doc_id.is_(None)).count() == 1
         assert self._stock(self.m1) == 30.0
@@ -228,6 +227,22 @@ class TestOpeningStockDeleteAll:
         assert st == 200, body
         assert OpeningStock.query.count() == 0
         assert self._stock(self.m1) == 0.0
+
+    def test_t4b_orphan_without_recorded_source_is_rejected_atomically(self):
+        orphan = OpeningStock(doc_id=None, material_id=self.m1.id, warehouse_id=self.wh1.id,
+            quantity=30, price=1, amount=30, remark="合成缺证孤儿")
+        db.session.add(orphan)
+        self.m1.stock = 30.0
+        db.session.commit()
+        st, body = self._delete_all(self._ok_payload())
+        assert st == 400, body
+        assert "净额不一致" in body["msg"]
+        assert self._stock(self.m1) == 30.0
+        assert db.session.get(OpeningStock, orphan.id) is not None
+        assert OpeningStock.query.count() == 1
+        assert OpeningStockDoc.query.count() == 0
+        assert StockTransaction.query.count() == 0
+        assert LocationInventory.query.count() == 0
 
     # ---- T5 未登录被拦截 ----
 

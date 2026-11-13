@@ -6,6 +6,8 @@ calls use the fresh application's test_client and never open a listening socket.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,57 @@ ROOT = Path(__file__).resolve().parents[1]
 def _check(condition, message):
     if not condition:
         raise RuntimeError('合成诊断失败：' + message)
+
+
+def _detail_content(html, order_no, expected_materials):
+    """Verify actual business cells, not text hidden in scripts or another page."""
+    class Page(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.in_title=False
+            self.title=[]
+            self.depth=0
+            self.in_body=False
+            self.row=None
+            self.cell=None
+            self.materials=[]
+
+        def handle_starttag(self, tag, attributes):
+            attributes=dict(attributes)
+            if tag=='title': self.in_title=True
+            if tag=='table' and (self.depth or attributes.get('id')=='itemTable'):
+                self.depth+=1
+            if self.depth==1 and tag=='tbody': self.in_body=True
+            if self.depth==1 and self.in_body and tag=='tr': self.row={}
+            if self.depth==1 and self.in_body and tag=='td' and self.row is not None:
+                self.cell={'colCode':'code','colName':'name','material_code':'code',
+                           'material_name':'name'}.get(attributes.get('data-column-key'))
+                if self.cell: self.row[self.cell]=''
+
+        def handle_data(self, data):
+            if self.in_title: self.title.append(data)
+            if self.depth==1 and self.in_body and self.cell and self.row is not None:
+                self.row[self.cell]+=data
+
+        def handle_endtag(self, tag):
+            if tag=='title': self.in_title=False
+            if self.depth==1 and self.in_body and tag=='tr':
+                if self.row is not None and 'code' in self.row and 'name' in self.row:
+                    self.materials.append(tuple(' '.join(self.row[key].split()) for key in ('code','name')))
+                self.row=None
+                self.cell=None
+            if tag=='td': self.cell=None
+            if self.depth==1 and tag=='tbody':
+                self.in_body=False
+                self.row=None
+                self.cell=None
+            if tag=='table' and self.depth: self.depth-=1
+
+    page=Page();page.feed(html);page.close()
+    _check(order_no in ''.join(page.title).split(),'详情页未展示当前合成单号')
+    _check(bool(expected_materials) and Counter(page.materials)==Counter(expected_materials),
+           '详情页未完整展示当前合成物料编码和名称')
+    return dict(document_verified=True,verified_material_rows=len(page.materials))
 
 
 def diagnose(rows):
@@ -59,6 +112,7 @@ def diagnose(rows):
         w.db.session.commit()
         material_ids = [material.id for material in materials]
         material_codes = [material.code for material in materials]
+        material_content = [(material.code, material.name) for material in materials]
         supplier_id, warehouse_name, username = supplier.id, warehouse.name, user.username
         client = w.app.test_client()
 
@@ -92,6 +146,9 @@ def diagnose(rows):
         _check(source.status == 'completed' and len(source.items) == rows, '来源状态或明细数异常')
         stock_after_inbound = sum(float(w.db.session.get(w.Material, mid).stock) for mid in material_ids)
         _check(stock_after_inbound == rows * 2, '入库库存变化异常')
+        source_number=source.order_no
+        source_page=request('render_inbound_detail','get',f'/in_order/{source_id}')
+        stages[-1].update(_detail_content(source_page.get_data(as_text=True),source_number,material_content))
         request('render_push', 'get', f'/in_order/{source_id}/push')
         payload = dict(target_type='requisition', request_id='diag-' + nonce,
                        department_id=None, picker='合成诊断员', purpose='合成诊断',
@@ -105,6 +162,9 @@ def diagnose(rows):
                '同请求重放产生不同目标')
         w.db.session.expire_all()
         target = w.db.session.get(w.OutOrder, target_id)
+        target_number=target.order_no
+        target_page=request('render_target_detail','get',f'/out_order/{target_id}')
+        stages[-1].update(_detail_content(target_page.get_data(as_text=True),target_number,material_content))
         target_count = w.OutOrder.query.count()
         target_quantity = sum(float(item.quantity) for item in target.items)
         stock_after_push = sum(float(w.db.session.get(w.Material, mid).stock) for mid in material_ids)

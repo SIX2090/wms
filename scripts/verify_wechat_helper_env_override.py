@@ -34,8 +34,6 @@ APP_FUNCTIONS = ('_wechat_share_helper_url_allowed', '_wechat_share_send_image',
 ROUTE_NAME = 'save_wechat_share_config'
 ENV_KEY = 'WMS_WECHAT_HELPER_URL'
 LEGACY_DEFAULT = 'http://127.0.0.1:8765/send'
-LINE_ANCHOR = 'def backfill_stock_txn_warehouse_id('
-LINE_ANCHOR_EXPECTED = 30442
 
 
 class _StripModuleImports(ast.NodeTransformer):
@@ -256,9 +254,11 @@ def _static_checks(app_source: Path, route_source: Path) -> dict:
         results[f'{name}_still_uses_strip'] = (
             'strip' in first and 'strip' in second)
 
-    results['line_anchor_unchanged_30413'] = any(
-        i == LINE_ANCHOR_EXPECTED and line.startswith(LINE_ANCHOR)
-        for i, line in enumerate(app_text.splitlines(), 1))
+    anchors = [node.lineno for node in ast.parse(app_text).body
+               if isinstance(node, ast.FunctionDef) and node.name == 'backfill_stock_txn_warehouse_id']
+    results['inventory_truth_matches_current_source_anchor'] = (
+        len(anchors) == 1 and f'`app/app.py:{anchors[0]}`' in
+        _source_text(ROOT / 'INVENTORY_TRUTH.md'))
     results['send_image_keeps_loopback_whitelist'] = any(
         isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
         and n.func.id == '_wechat_share_helper_url_allowed'

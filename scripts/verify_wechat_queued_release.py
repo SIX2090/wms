@@ -181,12 +181,11 @@ def _static_checks() -> dict:
     _check(r, 'template_still_posts_to_resend_path',
            lambda: "'/wechat_share/log/' + logId + '/resend'" in template)
 
-    app_lines = _text(APP_PY).splitlines()
-    _check(r, 'app_py_line_anchor_zero_drift',
-           lambda: any(line.startswith('def backfill_stock_txn_warehouse_id(') for line in app_lines)
-           and next(i for i, line in enumerate(app_lines, 1)
-                    if line.startswith('def backfill_stock_txn_warehouse_id(')) == 30442)
-    _check(r, 'inventory_truth_line_ref_unchanged', lambda: 'app/app.py:30442' in _text(DOC))
+    anchors = [node.lineno for node in _tree(APP_PY).body
+               if isinstance(node, ast.FunctionDef) and node.name == 'backfill_stock_txn_warehouse_id']
+    _check(r, 'app_py_source_anchor_is_unique', lambda: len(anchors) == 1)
+    _check(r, 'inventory_truth_matches_current_source_anchor',
+           lambda: len(anchors) == 1 and f'`app/app.py:{anchors[0]}`' in _text(DOC))
     pause = _text(PAUSE_SRC)
     _check(r, 'pause_guard_still_covers_resend_path',
            lambda: "r'/wechat_share/log/\\d+/resend'" in pause

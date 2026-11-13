@@ -47,6 +47,38 @@ class SyntheticPushDiagnosticSourceTests(unittest.TestCase):
         self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                              and node.func.attr == 'drop_all' for node in ast.walk(tree)))
 
+    def test_detail_content_accepts_current_business_cells_and_html_escaping(self):
+        module=load_diagnostic()
+        for code_key,name_key in (('colCode','colName'),('material_code','material_name')):
+            page=(f'<title>单据详情 - IN-X</title><table id="itemTable"><tbody><tr>'
+                  f'<td data-column-key="{code_key}">D&amp;A</td>'
+                  f'<td data-column-key="{name_key}">合成&lt;物料&gt;</td></tr></tbody>'
+                  f'<tfoot><tr><td data-column-key="{code_key}"></td>'
+                  f'<td data-column-key="{name_key}"></td></tr></tfoot></table>')
+            self.assertEqual(module._detail_content(page,'IN-X',[('D&A','合成<物料>')]),
+                             dict(document_verified=True,verified_material_rows=1))
+
+    def test_detail_content_rejects_login_empty_shell_wrong_identity_and_rows(self):
+        module=load_diagnostic()
+        row='<tr><td data-column-key="material_code">M-OWN</td><td data-column-key="material_name">合成物料</td></tr>'
+        title='<title>单据详情 - IN-X</title>'
+        cases=[
+            '<title>登录</title><form>login</form>',
+            title+'<script>const order="IN-X";const material="M-OWN 合成物料";</script>',
+            '<title>单据详情 - IN-X0</title><table id="itemTable"><tbody>'+row+'</tbody></table>',
+            title+'<table id="unrelated"><tbody>'+row+'</tbody></table>',
+            title+'<table id="itemTable"><tfoot>'+row+'</tfoot></table>',
+            title+'<table id="itemTable"><tbody>'+row.replace('M-OWN','M-OTHER')+'</tbody></table>',
+            title+'<table id="itemTable"><tbody>'+row.replace('合成物料','其他物料')+'</tbody></table>',
+            title+'<table id="itemTable"><tbody>'+row+row+'</tbody></table>',
+        ]
+        for page in cases:
+            with self.subTest(page=page),self.assertRaises(RuntimeError):
+                module._detail_content(page,'IN-X',[('M-OWN','合成物料')])
+        with self.assertRaises(RuntimeError):
+            module._detail_content(title+'<table id="itemTable"><tbody>'+row+'</tbody></table>','IN-X',
+                                   [('M-OWN','合成物料'),('M-MISSING','另一物料')])
+
     def test_invalid_size_rejected_before_guard_or_application(self):
         module = load_diagnostic()
         for rows in (0, -1, 501, 1.5, True, None, '1'):
@@ -107,8 +139,12 @@ def test_actual_synthetic_push_reports_stages_stock_draft_and_replay():
         assert report['rows'] == rows
         assert report['transport'] == 'flask-test-client' and report['database'] == 'sqlite:///:memory:'
         assert [stage['stage'] for stage in report['stages']] == [
-            'save_inbound', 'complete_inbound', 'render_push', 'push_draft', 'replay_push']
+            'save_inbound', 'complete_inbound', 'render_inbound_detail', 'render_push',
+            'push_draft', 'replay_push', 'render_target_detail']
         assert all(stage['http_status'] == 200 and stage['elapsed_ms'] >= 0 for stage in report['stages'])
+        details=[stage for stage in report['stages'] if stage['stage'] in ('render_inbound_detail','render_target_detail')]
+        assert len(details)==2
+        assert all(stage['document_verified'] is True and stage['verified_material_rows']==rows for stage in details)
         assert report['source_status'] == 'completed' and report['target_status'] == 'pending'
         assert report['target_count'] == 1 and report['target_quantity'] == rows
         assert report['stock_before'] == 0 and report['stock_after_inbound'] == rows * 2

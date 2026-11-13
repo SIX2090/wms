@@ -50,6 +50,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 
 from app import app as flask_app  # noqa: E402
 from app import (  # noqa: E402
+    LocationInventory,
     Material,
     OpeningStock,
     OpeningStockDoc,
@@ -97,7 +98,7 @@ class TestOpeningStockMultiDoc:
         self.ctx.pop()
 
     def _wipe(self):
-        for model in (OpeningStock, OpeningStockDoc, StockTransaction,
+        for model in (OpeningStock, OpeningStockDoc, StockTransaction, LocationInventory,
                       Material, Warehouse, Unit, User):
             db.session.query(model).delete()
         db.session.commit()

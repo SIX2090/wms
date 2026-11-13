@@ -38,7 +38,7 @@ def test_regression_lock_covers_the_core_guards():
     required = {
         '_wechat_share_send_image_env_is_first_operand',
         '_wechat_share_helper_health_url_env_is_first_operand',
-        'line_anchor_unchanged_30413',
+        'inventory_truth_matches_current_source_anchor',
         'env_override_wins_over_persisted_default',
         'no_env_falls_back_to_config',
         'external_env_rejected',
