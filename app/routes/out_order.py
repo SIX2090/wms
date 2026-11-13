@@ -1261,7 +1261,7 @@ def register_out_order_routes(app):
                          log_audit, log_operation, recalculate_order_total,
                          sync_sales_order_shipment)
         # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'completed':
@@ -1278,21 +1278,26 @@ def register_out_order_routes(app):
             if not valid:
                 db.session.rollback()
                 return api_error(message)
-            for item in order.items:
-                if not item.material or (item.quantity or 0) <= 0:
-                    continue
-                # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成）。
-                ok, err = apply_stock_delta(
-                    item.material, item.quantity or 0,
-                    transaction_type='revert_out',
-                    reference_type='out_order',
-                    reference_id=order.id,
-                    warehouse=order.warehouse,
-                    location=order.location,
-                )
-                if not ok:
-                    db.session.rollback()
-                    return api_error(err or '库存恢复失败')
+            recorded_result = _reverse_recorded_order_stock(order)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in order.items:
+                    if not item.material or (item.quantity or 0) <= 0:
+                        continue
+                    # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成）。
+                    ok, err = apply_stock_delta(
+                        item.material, item.quantity or 0,
+                        transaction_type='revert_out',
+                        reference_type='out_order',
+                        reference_id=order.id,
+                        warehouse=order.warehouse,
+                        location=order.location,
+                    )
+                    if not ok:
+                        db.session.rollback()
+                        return api_error(err or '库存恢复失败')
             order.status = 'pending'
             sync_sales_order_shipment(order, quantity_sign=-1)
             recalculate_order_total(order)

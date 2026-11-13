@@ -38,6 +38,199 @@ def _recorded_quantity_matches(actual, expected, *operands):
     return abs(actual - expected) <= tolerance
 
 
+def _reverse_recorded_order_stock(order):
+    """已锁入/出库单的历史数量分支；普通两位返回None，交原业务路径。"""
+    from decimal import Decimal, localcontext
+    import math
+    from sqlalchemy import update
+
+    from app import (InOrder, OutOrder, LocationInventory, Material, StockTransaction,
+                     Warehouse, add_stock_transaction, allow_negative_location_stock,
+                     allow_negative_stock, db, location_management_enabled,
+                     normalize_stock_quantity, resolve_inventory_warehouse_id,
+                     _stock_location_from_warehouse)
+
+    kinds = {InOrder: ('in_order', 1, 'revert_in'),
+             OutOrder: ('out_order', -1, 'revert_out')}
+    if type(order) not in kinds:
+        return False, '该单据不支持历史数量逆向'
+    source_type, sign, transaction_type = kinds[type(order)]
+    connection = db.session.connection()
+    if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN IMMEDIATE')
+    db.session.refresh(order, with_for_update=True)
+    if order.status != 'completed':
+        return False, '单据状态已变化，不能重复反提交'
+    db.session.expire(order, ['items'])
+    items = list(order.items)
+    rows = (StockTransaction.query.filter_by(reference_type=source_type, reference_id=order.id)
+            .populate_existing().with_for_update().all())
+    try:
+        raw = [float(item.quantity) for item in items] + [float(row.quantity) for row in rows]
+    except (TypeError, ValueError, OverflowError):
+        return False, '单据或原流水数量无效，无法安全回冲'
+    if not all(math.isfinite(value) for value in raw):
+        return False, '单据或原流水数量无效，无法安全回冲'
+    if all(_recorded_quantity_matches(value, normalize_stock_quantity(value)) for value in raw):
+        return None
+
+    def _net(values):
+        with localcontext() as context:
+            context.prec = 1000
+            return float(sum((Decimal(str(value)) for value in values), Decimal(0)))
+
+    original_types = {'in', 'add_in_item', 'adjust_in_item', 'delete_in_item'} if sign>0 else {'out'}
+    if any(row.transaction_type not in original_types | {transaction_type} for row in rows):
+        return False, '历史单据流水阶段无法证明，无法安全回冲，请先人工核对'
+    last_reversal = max((row.id for row in rows if row.transaction_type==transaction_type),default=0)
+    closed = {}
+    for row in rows:
+        if row.id<=last_reversal:
+            closed.setdefault((row.material_id,row.warehouse_id),[]).append(float(row.quantity))
+    if any(not _recorded_quantity_matches(_net(values),0,*values) for values in closed.values()):
+        return False, '此前完成周期未准确回退，不能与当前周期相抵，请先人工核对'
+    rows = [row for row in rows if row.id>last_reversal]
+
+    expected = {}
+    normalized_expected = {}
+    for item in items:
+        if item.material_id is None or float(item.quantity) < 0:
+            return False, '历史单据明细缺失物料或数量方向无效，无法安全回冲'
+        expected.setdefault(item.material_id, []).append(sign * float(item.quantity))
+        normalized_expected.setdefault(item.material_id, []).append(
+            sign * normalize_stock_quantity(float(item.quantity)))
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row.material_id, []).append(row)
+    plans = []
+    location_on = location_management_enabled()
+    header_warehouse_id = resolve_inventory_warehouse_id(order.warehouse)
+    normalized_compatible = all(_recorded_quantity_matches(float(row.quantity),
+                                normalize_stock_quantity(float(row.quantity))) for row in rows)
+    use_original_path = normalized_compatible
+    for material_id in set(expected) | set(grouped):
+        original = grouped.get(material_id, [])
+        quantities = [float(row.quantity) for row in original]
+        total = _net(quantities)
+        matches_original = _recorded_quantity_matches(total, _net(expected.get(material_id, [])), *quantities)
+        matches_normalized = (normalized_compatible and _recorded_quantity_matches(total,
+                              _net(normalized_expected.get(material_id, [])), *quantities))
+        use_original_path = use_original_path and matches_normalized
+        if not matches_original and not matches_normalized:
+            return False, '历史单据数量与已落流水净额不一致，无法安全回冲，请先人工核对'
+        by_warehouse = {}
+        for row in original:
+            by_warehouse.setdefault(row.warehouse_id, []).append(row)
+        active = [(warehouse_id, source, _net([float(row.quantity) for row in source]))
+                  for warehouse_id, source in by_warehouse.items()]
+        if location_on and any(_recorded_quantity_matches(group[2],0) for group in active):
+            # 仓合计净零不证明各物理库位净零。原流水缺少行级物理键，
+            # 不能跳过这种历史来源后让草稿删除抹去其最后可核对证据。
+            return False, '历史净零仓的逐库位来源无法证明，不能安全回冲，请先人工核对'
+        active = [group for group in active if not _recorded_quantity_matches(group[2], 0)]
+        if not active:
+            continue
+        if len(active) != 1 or active[0][0] is None:
+            return False, '历史单据原仓归属缺失或冲突，无法安全回冲，请先人工核对'
+        warehouse_id, source, quantity = active[0]
+        warehouse = db.session.get(Warehouse,warehouse_id)
+        if warehouse is None:
+            return False, '历史单据原仓记录不存在，无法安全回冲'
+        if header_warehouse_id is not None and header_warehouse_id != warehouse_id:
+            return False, '历史单据头仓库与原流水归属不一致，无法安全回冲，请先人工核对'
+        if header_warehouse_id != warehouse_id:
+            # 仓改名/头文本失效时只能走原FK能力，不能返回按旧文本选仓的路径。
+            use_original_path = False
+        material = (Material.query.filter_by(id=material_id).populate_existing()
+                    .with_for_update().one_or_none())
+        if material is None:
+            return False, '历史单据物料不存在，无法安全回冲'
+        ledger = (StockTransaction.query.filter_by(material_id=material_id)
+                  .populate_existing().with_for_update().all())
+        before = float(material.stock)
+        ledger_values = [float(row.quantity) for row in ledger]
+        if not _recorded_quantity_matches(before, math.fsum(ledger_values), *ledger_values):
+            return False, '物料总账与流水账不一致，无法安全回冲，请先人工核对'
+        warehouse_values = [float(row.quantity) for row in ledger if row.warehouse_id==warehouse_id]
+        available = math.fsum(warehouse_values)
+        after_warehouse = available - quantity
+        if (quantity > 0 and after_warehouse < 0 and not _recorded_quantity_matches(after_warehouse, 0, available, quantity)
+                and not allow_negative_stock()):
+            return False, '历史单据原仓库存不足，无法安全反提交'
+        delta = -quantity
+        after = before + delta
+        if (delta != 0 and after == before) or not _recorded_quantity_matches(after-before, delta, before, after):
+            return False, '历史原数量超出总账Float可逆精度，无法安全回冲'
+        if (delta < 0 and after < 0 and not _recorded_quantity_matches(after,0,before,delta)
+                and not allow_negative_stock()):
+            # 先保留上面的原仓约束，再保留deduct_stock_atomic的额外全局门槛。
+            # 其他仓既存负数不能令本次扣减穿过总账零界，不据此调整其他仓。
+            return False, '全局库存不足，无法安全反提交；请核对各仓及未归属库存'
+        location_changes = []
+        if location_on:
+            locations = (LocationInventory.query.filter_by(material_id=material_id,warehouse_id=warehouse_id)
+                         .populate_existing().with_for_update().all())
+            values = [float(row.quantity) for row in locations]
+            if not _recorded_quantity_matches(math.fsum(values),available,*values,*warehouse_values):
+                return False, '历史原仓库位账与流水不一致，无法安全回冲，请先人工核对'
+            explicit = (order.location or '').strip()
+            by_location = {}
+            for row in source:
+                position = explicit or (row.location or '').strip()
+                if not position:
+                    return False, '历史单据原库位缺失，无法安全回冲'
+                by_location.setdefault(position, []).append(float(row.quantity))
+            for position, original_values in by_location.items():
+                position_delta = -_net(original_values)
+                if _recorded_quantity_matches(position_delta,0):
+                    continue
+                candidates = [row for row in locations if row.location==position]
+                if len(candidates)!=1:
+                    return False, '历史单据原库位记录缺失或重复，无法安全回冲'
+                location = candidates[0]
+                current = float(location.quantity)
+                after_location = current + position_delta
+                if ((position_delta != 0 and after_location == current)
+                        or not _recorded_quantity_matches(after_location-current,position_delta,current,after_location)):
+                    return False, '历史原数量超出库位Float可逆精度，无法安全回冲'
+                if (position_delta<0 and after_location<0 and not _recorded_quantity_matches(after_location,0,current,position_delta)
+                        and not allow_negative_location_stock()):
+                    return False, '历史单据原库位库存不足，无法安全回冲'
+                location_changes.append((location,current,position_delta))
+            legacy_position = (order.location or '').strip() or (
+                _stock_location_from_warehouse(order.warehouse) or '').strip()
+            if any(location.location != legacy_position for location,_current,_delta in location_changes):
+                # 仓编码/改名时旧入口的默认位可能与原流水保存的占位键不同。
+                use_original_path = False
+        plans.append((material,before,delta,warehouse,location_changes))
+    if location_on and any(value != 0 for values in closed.values() for value in values):
+        # 普通入/出库流水的location保存仓名，不是带语义标记的原bin。
+        # 闭合记录净零、当前单头或当前库位唯一都不证明旧的逐位净零。
+        # 只允许逐条数量确为零的无物理增量记录；其余缺结构来源须核对。
+        return False, '闭合历史流水缺少逐库位原始来源，不能安全回冲，请先人工核对'
+    if use_original_path:
+        # 历史明细高精度不等于库存实际高精度。只有已证明当时逐行规范
+        # 落账且原仓/库位/数量均匹配，才交还既有逐行规范回退语义。
+        return None
+    # 全单先完成来源、位置和数量核验，任何拒绝都不能留下半张单的增量。
+    for material,before,delta,warehouse,location_changes in plans:
+        result=db.session.execute(update(Material).where(Material.id==material.id,
+            Material.stock==before).values(stock=Material.stock+delta))
+        if result.rowcount!=1:
+            return False, '物料库存已变化，请回滚并刷新后重试'
+        for location,current,position_delta in location_changes:
+            result=db.session.execute(update(LocationInventory).where(LocationInventory.id==location.id,
+                LocationInventory.quantity==current).values(quantity=LocationInventory.quantity+position_delta))
+            if result.rowcount!=1:
+                return False, '库位库存已变化，请回滚并刷新后重试'
+            db.session.expire(location,['quantity'])
+        add_stock_transaction(material,delta,transaction_type,reference_type=source_type,
+            reference_id=order.id,warehouse=warehouse,location=warehouse.name,remark='历史原数量反提交')
+        db.session.expire(material,['stock'])
+    db.session.flush()
+    return True, ''
+
+
 def _reverse_recorded_opening_stock(line):
     """仅供既有期初逆向入口使用；已落原数量不再量化，失败由调用方回滚。"""
     from decimal import Decimal, localcontext
