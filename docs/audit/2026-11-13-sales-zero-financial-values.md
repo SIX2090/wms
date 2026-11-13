@@ -18,3 +18,6 @@ OutOrderItem.amount 为非空、无默认值的已存金额；不应在只读报
 - 本批 11 文件在私有源码 Git 完整正常 revert 后逐字节恢复基线，保留新回归锁时旧版 5 个错误子案例再次失败；恢复全部文件后 34 个方法通过。未在共享工作区回退；证明为本聊天目录 sales-zero-r8-proof.json 及 candidate/old/restored 日志。默认 A1–A14 为 0 违规，Git 差异格式通过。真实应用、统一推送及精确目标 CI 待验，当前尚未交付。
 
 生效确认：待人工确认。本批不连接/读取/复制/修改生产库或备份，不请求生产服务，不创建/操作真实单据，不调用模型服务、微信或打印，不部署/重启。
+
+
+2026-11-13 精确交付补证：本批已正常非强制推送至 `80aa229c0e0a5d93911f6779bebd1e0924812faa`，实际 push 输出为 `8cba9986..80aa229c main -> main`。[WMS CI 43404426373](https://github.com/SIX2090/wms/actions/runs/43404426373)、[AI 43404426310](https://github.com/SIX2090/wms/actions/runs/43404426310)、[性能 43404426431](https://github.com/SIX2090/wms/actions/runs/43404426431)、[Windows 43405181819](https://github.com/SIX2090/wms/actions/runs/43405181819) 均 completed/success。Android 复用成功祖先 8cba9986 的 43399657746，merge-base 证明及 Android 源码/workflow 零差异已核对。三个真实单元分片 5099/4951/4681 passed，16/129/57 skipped，157/699/332 subtests passed；合计 14731 passed、202 skipped、1188 subtests passed。sales_report_print 完整模块在 shard-2 执行，新增 9 实例无 skip/xfail，日志出现三组实际 Excel 实例。以上完整 CI 仅验收本子范围；BUG015 其他金额问题仍进行中，生产生效待人工确认。

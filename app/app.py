@@ -36138,13 +36138,15 @@ def sales_status_label(status):
 def sales_shipment_status_label(status):
     return {'pending': '待发货', 'partial': '部分发货', 'shipped': '已发货'}.get(status, status or '-')
 
-def recalculate_sales_order(order):
+def recalculate_sales_order(order, *, recalculate_amounts=True):
     """重新计算销售订单的金额、税额和发货状态。
 
     - price 视为含税单价；tax_included_amount = quantity * price
     - untaxed_price = price / (1 + tax_rate)；untaxed_amount = tax_included_amount / (1 + tax_rate)
     - tax_amount = tax_included_amount - untaxed_amount
     - amount 字段保留为含税金额，兼容旧逻辑
+    - 仅刷新发货进度时保留已存单头、明细金额和税额（包括 0），仅补算 None
+    - 既存单头/明细差异不自动更正；发货金额沿用数量乘单价，未发金额基于保留的单头
     """
     from sqlalchemy import inspect
     state = inspect(order, raiseerr=False)
@@ -36160,28 +36162,40 @@ def recalculate_sales_order(order):
     for item in order.items:
         qty = max(item.quantity or 0, 0)
         price = item.price or 0
-        tax_rate = item.tax_rate if item.tax_rate is not None else 0.13
-        if tax_rate < 0:
-            tax_rate = 0
-        included = round_money_product(qty, price)
-        untaxed = round_to_2_decimals(included / (1 + tax_rate)) if (1 + tax_rate) > 0 else included
-        tax = round_to_2_decimals(included - untaxed)
-        untaxed_price = round(price / (1 + tax_rate), 4) if (1 + tax_rate) > 0 and qty > 0 else 0
-        item.untaxed_price = untaxed_price
-        item.untaxed_amount = untaxed
-        item.tax_amount = tax
-        item.tax_included_amount = included
-        item.amount = included  # 兼容旧逻辑：amount = 含税金额
+        if (recalculate_amounts or item.amount is None or item.tax_included_amount is None
+                or item.untaxed_amount is None or item.tax_amount is None or item.untaxed_price is None):
+            tax_rate = item.tax_rate if item.tax_rate is not None else 0.13
+            if tax_rate < 0:
+                tax_rate = 0
+            included = round_money_product(qty, price)
+            untaxed = round_to_2_decimals(included / (1 + tax_rate)) if (1 + tax_rate) > 0 else included
+            tax = round_to_2_decimals(included - untaxed)
+            untaxed_price = round(price / (1 + tax_rate), 4) if (1 + tax_rate) > 0 and qty > 0 else 0
+            if recalculate_amounts or item.untaxed_price is None:
+                item.untaxed_price = untaxed_price
+            if recalculate_amounts or item.untaxed_amount is None:
+                item.untaxed_amount = untaxed
+            if recalculate_amounts or item.tax_amount is None:
+                item.tax_amount = tax
+            if recalculate_amounts or item.tax_included_amount is None:
+                item.tax_included_amount = included
+            if recalculate_amounts or item.amount is None:
+                item.amount = included  # 兼容旧逻辑：amount = 含税金额
+        total_included += float(item.tax_included_amount or 0)
+        total_untaxed += float(item.untaxed_amount or 0)
+        total_tax += float(item.tax_amount or 0)
         item.shipped_quantity = min(max(item.shipped_quantity or 0, 0), qty)
-        total_included += included
-        total_untaxed += untaxed
-        total_tax += tax
         total_quantity += qty
         shipped_total_qty += item.shipped_quantity or 0
         shipped_amount += round_money_product(item.shipped_quantity or 0, price)
-    order.total_amount = round_to_2_decimals(total_included)
-    order.untaxed_amount = round_to_2_decimals(total_untaxed)
-    order.tax_amount = round_to_2_decimals(total_tax)
+    if recalculate_amounts or order.total_amount is None:
+        order.total_amount = round_to_2_decimals(total_included)
+    if recalculate_amounts or order.untaxed_amount is None:
+        order.untaxed_amount = round_to_2_decimals(total_untaxed)
+    if recalculate_amounts or order.tax_amount is None:
+        order.tax_amount = round_to_2_decimals(total_tax)
+    if not recalculate_amounts:
+        total_included = float(order.total_amount or 0)
     order.shipped_amount = round_to_2_decimals(shipped_amount)
     order.remaining_amount = round_to_2_decimals(total_included - shipped_amount)
     # SALES-AUDIT-001：partial/shipped 分支同样不得覆盖 cancelled 状态，
@@ -36246,7 +36260,7 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         db.session.expire(sales_item, ['shipped_quantity'])
         affected_orders[sales_item.sales_order_id] = sales_item.sales_order
     for affected_order in affected_orders.values():
-        recalculate_sales_order(affected_order)
+        recalculate_sales_order(affected_order, recalculate_amounts=False)
     return order or next(iter(affected_orders.values()), None)
 
 def sales_outbound_remaining_check(outbound):
@@ -36491,7 +36505,7 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
         if (item.quantity or 0) - (item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON
     }
     if not remaining_by_id:
-        recalculate_sales_order(order)
+        recalculate_sales_order(order, recalculate_amounts=False)
         return None, 'completed'
     if selected_qty_by_item_id is None:
         selected_qty_by_item_id = remaining_by_id
