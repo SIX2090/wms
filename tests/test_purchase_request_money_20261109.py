@@ -28,25 +28,33 @@ class PurchaseRequestAmountTests(unittest.TestCase):
         functions = [n for n in utils.body if isinstance(n, ast.FunctionDef)
                      and n.name in ('round_to_2_decimals', 'round_money_product')]
         self.assertEqual(len(functions), 2)
-        self.env = {'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'localcontext': localcontext, 'math': math}
+        self.env = {'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'localcontext': localcontext, 'math': math,
+                    'old_item': None, 'row_financial_change': True}
         exec(compile(ast.fix_missing_locations(ast.Module(body=functions, type_ignores=[])), '<utils>', 'exec'), self.env)
         self.tree = ast.parse((ROOT / 'app/routes/purchase_request.py').read_text(encoding='utf-8-sig'))
 
-    def expression(self, field):
-        candidates = [node.value for node in ast.walk(self.tree) if isinstance(node, ast.Assign)
+    def expression(self, field, function='add_purchase_request'):
+        functions = [node for node in ast.walk(self.tree)
+                     if isinstance(node, ast.FunctionDef) and node.name == function]
+        self.assertEqual(len(functions), 1)
+        candidates = [node.value for node in ast.walk(functions[0]) if isinstance(node, ast.Assign)
                       and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
                       and node.targets[0].id == field]
         self.assertEqual(len(candidates), 1)
         return compile(ast.fix_missing_locations(ast.Expression(candidates[0])), '<request-amount>', 'eval')
 
     def test_save_matches_import_line_rounding(self):
-        self.env.update(quantity=1.15, estimated_price=3.5)
+        self.env.update(quantity=1.15, estimated_price=3.5, price=3.5)
         self.assertEqual(eval(self.expression('estimated_amount'), self.env), 4.03)
+        self.assertEqual(eval(self.expression('amount', 'import_purchase_request'), self.env), 4.03)
+        line = eval(self.expression('estimated_amount'), self.env)
+        self.assertEqual(line + line, 8.06)
 
     def test_two_half_cent_lines_are_each_rounded(self):
-        self.env.update(quantity=0.01, estimated_price=0.5)
+        self.env.update(quantity=0.01, estimated_price=0.5, price=0.5)
         line = eval(self.expression('estimated_amount'), self.env)
         self.assertEqual((line, round(line + line, 2)), (0.01, 0.02))
+        self.assertEqual(eval(self.expression('amount', 'import_purchase_request'), self.env), line)
 
 
 if __name__ == '__main__':

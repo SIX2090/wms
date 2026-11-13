@@ -8,6 +8,15 @@ const contract = populated ? 'HT-001 "项目"' : '';
 const project = populated ? '改造工程 & 二期' : '';
 const remark = populated ? '随货补说明书；请核对' : '';
 const read = name => fs.readFileSync(path.join(__dirname, '..', 'app', 'templates', name), 'utf8');
+const money = fs.readFileSync(path.join(__dirname, '..', 'app', 'static', 'js', 'money.js'), 'utf8');
+function initialize(ctx) {
+    // A browser exposes window and globals on the same object.
+    ctx.window = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(money, ctx, {timeout: 1000});
+    assert.equal(ctx.WMSMoney.round(1.005), 1.01, 'Use the real HALF_UP money helper');
+}
+
 function segment(s, start, end) {
     const a = s.indexOf(start); assert(a >= 0, start);
     const b = s.indexOf(end, a + start.length); assert(b > a, end);
@@ -25,7 +34,7 @@ const values = {'.material-code': 'M-01', '.material-name': '轴承', '.material
 if (scenario === 'purchase-copy') {
     const source = read('purchase_order_add.html'); const original = row(values);
     original.querySelector('.material-code').dataset.materialId = '11';
-    const ctx = {}; vm.createContext(ctx);
+    const ctx = {}; initialize(ctx);
     vm.runInContext(segment(source, 'function rowData(row)', 'function insertRowBefore(btn)'), ctx);
     const actual = ctx.rowData(original);
     assert.equal(actual.material_code, 'M-01'); assert.equal(actual.price, '0'); assert.equal(actual.quantity, '2');
@@ -34,7 +43,7 @@ if (scenario === 'purchase-copy') {
 } else if (scenario === 'sales-add-copy') {
     const source = read('sales_order_add.html'); const original = row(values); let copied;
     const ctx = {document: {createElement() { return copied = row(); }}, body: {appendChild() {}}, fillRow() {}, findMaterial() { return {code: 'M-01'}; }, window: {}, renumber() {}, recalc() {}};
-    vm.createContext(ctx); vm.runInContext(segment(source, 'function addRow(copyFrom)', 'function renumber()'), ctx);
+    initialize(ctx); vm.runInContext(segment(source, 'function addRow(copyFrom)', 'function renumber()'), ctx);
     ctx.addRow(original);
     assert.equal(copied.querySelector('.material-code').value, 'M-01');
     assert.equal(copied.querySelector('.price').value, '0'); assert.equal(copied.querySelector('.tax-rate').value, '0');
@@ -46,7 +55,7 @@ if (scenario === 'purchase-copy') {
     const handlers = {}; const original = row(values); const added = [];
     const template = {items: [{code: 'M-01', quantity: '2', price: '0', tax_rate: '0', batch_no: 'B-1', serial_no: 'S-1', remark, contract_no: contract, project_name: project}]};
     const ctx = {document: {getElementById(id) { return {addEventListener(type, fn) { handlers[id] = fn; }, textContent: ''}; }}, body: {querySelector() { return original; }, set innerHTML(value) {}}, localStorage: {getItem() { return JSON.stringify([template]); }}, SALES_TEMPLATE_KEY: 'qa', defaultTaxRate: .13, addRow(data) { const r = row(); added.push({data: data || {}, row: r}); return r; }, fillRow() {}, findMaterial() { return {}; }, ensureBlankRows() {}, renumber() {}, recalc() {}};
-    vm.createContext(ctx);
+    initialize(ctx);
     if (scenario === 'sales-edit-copy') {
         vm.runInContext(segment(source, "document.getElementById('copyRowBtn').addEventListener", "document.getElementById('pasteBtn').addEventListener"), ctx);
         handlers.copyRowBtn();
@@ -70,7 +79,7 @@ if (scenario === 'purchase-copy') {
     function extract(name) { const a = source.indexOf('function ' + name + '('); assert(a >= 0); const b = source.indexOf('\nfunction ', a + 1); return source.slice(a, b < 0 ? source.length : b); }
     const original = row(values); const copied = row();
     const ctx = {addNewRow() { return copied; }, calcAmount() {}, document: {querySelectorAll() { return [copied]; }}};
-    vm.createContext(ctx); vm.runInContext(extract('copyRowAfter') + '\n' + extract('collectAfterSaleOutRows'), ctx);
+    initialize(ctx); vm.runInContext(extract('copyRowAfter') + '\n' + extract('collectAfterSaleOutRows'), ctx);
     ctx.copyRowAfter(original); const result = ctx.collectAfterSaleOutRows();
     assert.equal(result.items[0].code, 'M-01'); assert.equal(result.items[0].price, 0);
     assert.equal(result.items[0].remark, remark);

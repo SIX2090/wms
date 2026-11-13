@@ -51,7 +51,9 @@ function fixture(page) {
         .replace('const units = {{ units|tojson }};','const units = '+JSON.stringify(units)+';')
         .replace('const suppliers = {{ suppliers|tojson }};','const suppliers = '+JSON.stringify(suppliers)+';')
         .replace('const materials = {{ materials|tojson }};','const materials = '+JSON.stringify(materials)+';')
-        .replace('const initialItems = {{ initial_items|default([])|tojson }};','const initialItems = [];');
+        .replace('const initialItems = {{ initial_items|default([])|tojson }};','const initialItems = [];')
+        .replace('const initialTotalAmount = {{ (order.total_amount if order else none)|tojson }};','const initialTotalAmount = null;');
+    assert(!/\{\{|\{%/.test(script), 'Synthetic page must render every Jinja expression before execution');
     vm.runInContext(script,context);
     function row() { const r=new Element(); r.fields={}; for(const key of ['material-code','material-dropdown','material-name','spec','unit-name','material-stock','quantity','estimated-price','estimated-amount','supplier-id','supplier-name','supplier-dropdown','supplier-select-btn','contract-no','project-name','line-remark']) r.fields['.'+key]=new Element(); rows.push(r);context.bindMaterialInput(r);return r; }
     function type(id,value) { const el=document.getElementById(id);el.value=value;el.dispatch('input'); }

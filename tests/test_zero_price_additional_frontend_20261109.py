@@ -14,7 +14,8 @@ VALUES = [0, '0', '', None, '2']
 CASES = [(kind, value, price) for kind in ('after_select', 'po_fill', 'receive_modal')
          for value in VALUES for price in (0, 5)]
 CASES += [(kind, value, 5) for kind in ('after_fill', 'po_add') for value in VALUES]
-assert len(CASES) == 40
+CASES += [('po_new_add', value, 5) for value in VALUES]
+assert len(CASES) == 45
 
 PROGRAM = r'''
 const vm=require('node:vm'),assert=require('node:assert/strict');
@@ -30,6 +31,8 @@ const context={document:{getElementById:id=>id==='materialTableBody'?{appendChil
  materials:[material],getMaterialUnit:()=> '件',escapeHtml:value=>String(value),
  bindRow(){},calcAmount(r){assert.equal(r,row);calcs++;},renumberRows(){},activeDropdown:null};
 context.window=context;vm.createContext(context,{codeGeneration:{strings:false,wasm:false}});
+vm.runInContext(p.money,context,{timeout:1000});
+assert.equal(context.WMSMoney.round(1.005),1.01,'Load the real HALF_UP money helper');
 vm.runInContext(p.source,context,{timeout:1000});
 const missing=p.initial===null||p.initial==='';
 let expected=missing?p.material:Number(p.initial);
@@ -37,7 +40,20 @@ if(p.kind==='after_select')context.selectMaterial(row,material.code);
 else if(p.kind==='po_fill')context.fillMaterial(row,material);
 else if(p.kind==='receive_modal')context.receiveProbe(material);
 else if(p.kind==='after_fill'){context.fillRowData(row,{material_code:material.code,quantity:7,price:p.initial});expected=missing?'':Number(p.initial);}
-else{const actual=context.addNewRow({material_id:1,material_code:material.code,quantity:7,price:p.initial});assert.equal(actual,row);assert.equal(appended,1);assert.equal(calcs,1);expected=missing?'':Number(p.initial);}
+else{
+ // addNewRow is also the saved-row renderer. Make that existing assertion's
+ // historical identity explicit, and separately exercise first-save new rows.
+ const data={material_id:1,material_code:material.code,quantity:7,price:p.initial};
+ if(p.kind==='po_add')data.line_id=77;
+ const actual=context.addNewRow(data);assert.equal(actual,row);assert.equal(appended,1);assert.equal(calcs,1);
+ if(p.kind==='po_add'){
+  assert.equal(actual._purchaseSnapshot.line_id,77);assert.equal(actual._purchaseSnapshot.price,p.initial);
+  expected=missing?'':Number(p.initial);
+ }else{
+  assert.equal(actual._purchaseSnapshot,null);
+  expected=missing?p.material:Number(p.initial);
+ }
+}
 if(expected==='')assert.equal(price.value,'','Absent saved price stays absent');
 else{assert.notEqual(price.value,'','An explicit zero must stay visible');assert.equal(Number(price.value),expected,'Real fill must preserve an explicit price');}
 assert.equal(Number(qty.value),7,'Price actions cannot change quantity');
@@ -55,7 +71,7 @@ def test_further_actual_consumers_keep_zero_and_missing_defaults(kind, initial, 
         source = 'var receiveProbe = ' + matches[0] + ';'
     else:
         page = 'after_sale_out_add' if kind.startswith('after_') else 'purchase_order_add'
-        name = {'after_fill':'fillRowData','after_select':'selectMaterial','po_fill':'fillMaterial','po_add':'addNewRow'}[kind]
+        name = {'after_fill':'fillRowData','after_select':'selectMaterial','po_fill':'fillMaterial','po_add':'addNewRow','po_new_add':'addNewRow'}[kind]
         text = (ROOT / ('app/templates/' + page + '.html')).read_text(encoding='utf-8-sig')
         matches = re.findall(r'^function ' + name + r'\b[\s\S]*?^}', text, re.M)
         assert len(matches) == 1
@@ -63,6 +79,6 @@ def test_further_actual_consumers_keep_zero_and_missing_defaults(kind, initial, 
     executable = shutil.which('node')
     assert executable, 'Real Node execution required'
     result = subprocess.run([executable, '--disable-proto=throw', '-e', PROGRAM],
-        input=json.dumps(dict(kind=kind, initial=initial, material=material, source=source)),
+        input=json.dumps(dict(kind=kind, initial=initial, material=material, source=source, money=(ROOT / 'app/static/js/money.js').read_text(encoding='utf-8-sig'))),
         text=True, encoding='utf-8', capture_output=True, timeout=15)
     assert result.returncode == 0, result.stderr

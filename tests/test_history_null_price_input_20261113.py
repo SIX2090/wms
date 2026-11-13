@@ -100,7 +100,10 @@ def test_unpriced_zero_request_remains_editable_without_quote(money_case,amount,
 @pytest.mark.parametrize('domain',DOMAINS)
 def test_known_price_keeps_previous_legacy_input_policy(money_case,domain):
     c=money_case;oid,iid,payload,path,field,snapshot,model=setup_history(c,domain,known_price=3.5)
+    before=snapshot(c,oid)
     payload['items'][0].update(quantity='2',**{field:'abc'})
     response=document_post(c.client,path,json=payload)
-    assert response.status_code==200,response.json
+    # HTTP validates before the bare handler's legacy numeric fallback.
+    assert response.status_code==400 and response.json['code']=='INVALID_DOCUMENT_INPUT',response.json
+    assert snapshot(c,oid)==before
     unchanged_inventory(c)
