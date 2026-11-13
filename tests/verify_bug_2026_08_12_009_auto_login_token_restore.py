@@ -11,13 +11,13 @@ AuthEventBus → AuthViewModel 收集后 repository.logout() 清空全部已存�
 用户每次点击图标都被迫重新输入用户名密码。
 
 修复：
-AuthViewModel.init 恢复会话分支内补 RetrofitClient.setToken(token)，
+AuthViewModel.init 恢复会话分支内补 RetrofitClient.restoreSession(baseUrl, token, expected)，
 与 login() 成功路径的 saveLoginInfo()（内部 setToken/setBaseUrl）行为对齐。
 
 验收标准：
-- T1: AuthViewModel.init 恢复分支调用 RetrofitClient.setToken(token)
+- T1: AuthViewModel.init 恢复分支调用 RetrofitClient.restoreSession(baseUrl, token, expected)
 - T2: setToken 在标记 isLoggedIn=true 之前执行（先进内存态，再进 Home 发请求）
-- T3: baseUrl 恢复逻辑保留（RetrofitClient.setBaseUrl(baseUrl)）
+- T3: baseUrl 恢复逻辑保留（RetrofitClient.restoreSession(baseUrl, token, expected)）
 - T4: 持久化层完好：WmsRepository.getSavedToken 从 EncryptedSharedPreferences 读 auth_token
 - T5: 自动跳转契约完好：LoginScreen 监听 uiState.isLoggedIn 并调 onLoginSuccess()
 - T6: 过期边界契约：AuthViewModel 收集 AuthEventBus.unauthorizedEvents 后 repository.logout()
@@ -60,8 +60,8 @@ def _init_block(src: str) -> str:
 def test_t1_init_restores_token_into_retrofit_client():
     """App 重启恢复会话时，必须把持久化 token 注入 RetrofitClient 内存态。"""
     src = _init_block(_read(AUTH_VM_FILE))
-    assert "RetrofitClient.setToken(token)" in src, (
-        "AuthViewModel.init 未调用 RetrofitClient.setToken(token)；"
+    assert "RetrofitClient.restoreSession(baseUrl, token, expected)" in src, (
+        "AuthViewModel.init 未调用 RetrofitClient.restoreSession(baseUrl, token, expected)；"
         "BUG-2026-08-12-009：重启后内存 token 为空，首个请求 401 触发强制登出，"
         "用户每次点击图标都要重新登录"
     )
@@ -71,12 +71,12 @@ def test_t1_init_restores_token_into_retrofit_client():
 def test_t2_set_token_before_marking_logged_in():
     """token 必须先注入内存态，再放行 isLoggedIn=true（Home 页随即发请求）。"""
     src = _init_block(_read(AUTH_VM_FILE))
-    idx_token = src.find("RetrofitClient.setToken(token)")
+    idx_token = src.find("RetrofitClient.restoreSession(baseUrl, token, expected)")
     idx_logged_in = src.find("isLoggedIn = true")
-    assert idx_token >= 0, "缺少 RetrofitClient.setToken(token)"
+    assert idx_token >= 0, "缺少 RetrofitClient.restoreSession(baseUrl, token, expected)"
     assert idx_logged_in >= 0, "init 恢复分支缺少 isLoggedIn = true"
     assert idx_token < idx_logged_in, (
-        "RetrofitClient.setToken(token) 必须先于 isLoggedIn=true 执行，"
+        "RetrofitClient.restoreSession(baseUrl, token, expected) 必须先于 isLoggedIn=true 执行，"
         "否则 Home 页首个请求仍可能不带 Authorization"
     )
 
@@ -85,8 +85,8 @@ def test_t2_set_token_before_marking_logged_in():
 def test_t3_base_url_restore_kept():
     """baseUrl 恢复逻辑必须保留（否则请求发到占位地址）。"""
     src = _init_block(_read(AUTH_VM_FILE))
-    assert "RetrofitClient.setBaseUrl(baseUrl)" in src, (
-        "AuthViewModel.init 缺少 RetrofitClient.setBaseUrl(baseUrl) 恢复逻辑"
+    assert "RetrofitClient.restoreSession(baseUrl, token, expected)" in src, (
+        "AuthViewModel.init 缺少 RetrofitClient.restoreSession(baseUrl, token, expected) 恢复逻辑"
     )
 
 
@@ -124,7 +124,7 @@ def test_t6_unauthorized_event_triggers_logout():
     assert "AuthEventBus.unauthorizedEvents.collect" in src, (
         "AuthViewModel 未收集 AuthEventBus.unauthorizedEvents"
     )
-    assert re.search(r"unauthorizedEvents\.collect\s*\{[\s\S]*?repository\.logout\(\)", src), (
-        "401 事件收集块内未调用 repository.logout()；"
+    assert re.search(r"unauthorizedEvents\.collect\s*\{\s*generation\s*->[\s\S]*?repository\.logout\(generation\)", src), (
+        "401 事件必须把原会话 generation 交给 repository.logout；"
         "过期 token 不应伪装成自动登录成功"
     )

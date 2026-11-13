@@ -3,10 +3,14 @@ package com.factory.wms.data.api
 import com.factory.wms.BuildConfig
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
+import java.io.IOException
 
 object RetrofitClient {
 
@@ -20,22 +24,57 @@ object RetrofitClient {
     @Volatile
     private var authToken: String? = null
 
+    private var generation: Long = 0
+
+    // Never expose token values through a data class's generated toString().
+    internal class SessionSnapshot(
+        val server: String, internal val token: String?, internal val generation: Long
+    )
+
+    internal fun sessionSnapshot(): SessionSnapshot = synchronized(lock) {
+        SessionSnapshot(baseUrl, authToken, generation)
+    }
+
+    private fun sameOrigin(url: HttpUrl, server: String): Boolean {
+        val origin = server.toHttpUrlOrNull() ?: return false
+        return url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
+    }
+
+    internal fun guardRequest(request: Request, session: SessionSnapshot, apiRequest: Boolean): Request {
+        val trusted = sameOrigin(request.url, session.server)
+        val current = synchronized(lock) { generation == session.generation }
+        if (apiRequest && (!trusted || !current)) {
+            throw IOException("登录状态或服务器已变化，请保留原请求并重新核对")
+        }
+        return request.newBuilder().removeHeader("Authorization").apply {
+            if (trusted && current && !request.url.encodedPath.endsWith("/api/login")) {
+                session.token?.let { header("Authorization", "Bearer $it") }
+            }
+        }.build()
+    }
+
     var onUnauthorized: (() -> Unit)? = null
 
     private val authInterceptor = Interceptor { chain ->
-        val newRequest = chain.request().newBuilder().apply {
-            authToken?.let { token ->
-                addHeader("Authorization", "Bearer $token")
-            }
-        }.build()
+        val request = chain.request()
+        val bound = request.tag(SessionSnapshot::class.java)
+        val session = bound ?: sessionSnapshot()
+        val newRequest = guardRequest(request, session, bound != null).newBuilder()
+            .tag(SessionSnapshot::class.java, session).build()
         val response = chain.proceed(newRequest)
         if (response.code == 401) {
             // 登录接口本身返回 401（如密码错误）不应触发"令牌失效"事件：
             // 否则会误清空已保存的 baseUrl/token 并重复跳转登录页，干扰登录流程。
             val isLoginRequest = newRequest.url.encodedPath.endsWith("/api/login")
-            if (!isLoginRequest) {
-                authToken = null
-                onUnauthorized?.invoke()
+            if (!isLoginRequest && sameOrigin(response.request.url, session.server)) {
+                synchronized(lock) {
+                    // An earlier account's response must not clear a newer login.
+                    if (generation == session.generation && session.token != null) {
+                        authToken = null
+                        generation++
+                        onUnauthorized?.invoke()
+                    }
+                }
             }
         }
         response
@@ -76,6 +115,13 @@ object RetrofitClient {
 
     private val okHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)
+        .addNetworkInterceptor { chain ->
+            // Recheck every redirect before its socket writes credentials/body.
+            val request = chain.request()
+            val session = checkNotNull(request.tag(SessionSnapshot::class.java))
+            val apiRequest = request.tag(retrofit2.Invocation::class.java) != null
+            chain.proceed(guardRequest(request, session, apiRequest))
+        }
         .addInterceptor(llmTimeoutInterceptor)
         .addInterceptor(loggingInterceptor)
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -98,20 +144,52 @@ object RetrofitClient {
 
     val apiService: WmsApiService
         get() {
-            check(baseUrl.isNotBlank()) { "服务器地址未配置，请先登录并填写服务器地址" }
-            return retrofit.create(WmsApiService::class.java)
+            return synchronized(lock) {
+                check(baseUrl.isNotBlank()) { "服务器地址未配置，请先登录并填写服务器地址" }
+                val session = sessionSnapshot()
+                val boundClient = okHttpClient.newBuilder().apply {
+                    interceptors().add(0, Interceptor { chain ->
+                        chain.proceed(chain.request().newBuilder()
+                            .tag(SessionSnapshot::class.java, session).build())
+                    })
+                }.build()
+                retrofit.newBuilder().client(boundClient).build().create(WmsApiService::class.java)
+            }
         }
 
     fun setBaseUrl(url: String) {
         synchronized(lock) {
             // 先构建新实例再发布引用，避免读到"新 baseUrl + 旧 retrofit"中间态
             retrofit = buildRetrofit(url)
+            if (baseUrl != url) authToken = null
             baseUrl = url
+            generation++
         }
     }
 
     fun setToken(token: String?) {
-        authToken = token
+        synchronized(lock) {
+            authToken = token
+            generation++
+        }
+    }
+
+    fun setSession(url: String, token: String?) {
+        synchronized(lock) {
+            val next = buildRetrofit(url)
+            retrofit = next
+            baseUrl = url
+            authToken = token
+            generation++
+        }
+    }
+
+    internal fun restoreSession(url: String, token: String?, expected: SessionSnapshot): Boolean = synchronized(lock) {
+        if (generation != expected.generation) {
+            return@synchronized !token.isNullOrBlank() && baseUrl == url && authToken == token
+        }
+        setSession(url, token)
+        true
     }
 
     fun getToken(): String? = authToken
