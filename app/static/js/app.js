@@ -4803,3 +4803,132 @@ function getRecentVisits() {
         bindAll: bindAll
     };
 })(window);
+
+// ==================== 打印任务重复提交拦截 ====================
+// 入库单详情、出库单详情、物料列表三处「发送打印」都通过 WMS.api.post('/print_queue/jobs', ...)
+// 提交，后端每收到一次请求就新建一条独立打印任务（无去重、无唯一约束），连点两下就出两张纸。
+// 这里在统一客户端层对该路径加一层短时去重锁：
+//   - 只拦截 POST /print_queue/jobs，其余路径原样透传，不影响其他接口；
+//   - 指纹 = job_type + 目标集合（target_id，或归一化排序去重后的 target_ids），
+//     因此 {job_type, target_id} 与 {job_type, target_ids} 两种载荷形态都能覆盖；
+//   - 锁在 5 秒窗口后自动释放（用户确实需要给同一张单子再打一张时不会被永久禁止）；
+//   - 请求失败立刻释放锁，允许用户直接重试。
+(function(global) {
+    var api = global.WMS && global.WMS.api;
+    if (!api || typeof api.post !== 'function') return;
+    if (api.post.__wmsPrintJobDuplicateGuard) return;  // 防止重复安装
+
+    var PRINT_JOB_SUBMIT_PATH = '/print_queue/jobs';      // 仅拦截这一个提交路径
+    var PRINT_JOB_DUPLICATE_WINDOW_MS = 5000;             // 同一任务的重复提交拦截窗口
+    var lockedPrintJobKeys = {};                          // 指纹 -> 自动释放锁的 timer id
+
+    // 去掉首尾空白，避免 "1, 2" 与 "1,2" 被当成两次不同提交。
+    function trimText(value) {
+        return value == null ? '' : String(value).replace(/^\s+|\s+$/g, '');
+    }
+
+    // target_ids 归一化：兼容数组与 "1,2,3" 逗号串，去空、去重、按数值排序后拼接。
+    function normalizePrintJobTargetIds(value) {
+        var rawItems = [];
+        if (Object.prototype.toString.call(value) === '[object Array]') {
+            rawItems = value;
+        } else if (value != null) {
+            rawItems = String(value).split(',');
+        }
+        var seen = {};
+        var ids = [];
+        for (var i = 0; i < rawItems.length; i++) {
+            var text = trimText(rawItems[i]);
+            if (!text || seen['#' + text]) continue;
+            seen['#' + text] = true;
+            ids.push(text);
+        }
+        ids.sort(function(left, right) {
+            var leftNumber = Number(left);
+            var rightNumber = Number(right);
+            if (isFinite(leftNumber) && isFinite(rightNumber) && leftNumber !== rightNumber) {
+                return leftNumber - rightNumber;
+            }
+            return left < right ? -1 : (left > right ? 1 : 0);
+        });
+        return ids.join(',');
+    }
+
+    // 构造提交指纹；缺少 job_type 或目标集合时返回空串（不做拦截，交由后端校验拒绝）。
+    function buildPrintJobSubmitKey(data) {
+        if (!data || typeof data !== 'object') return '';
+        var jobType = trimText(data.job_type);
+        if (!jobType) return '';
+        var targets = [];
+        if (trimText(data.target_id) !== '') {
+            targets.push('id=' + trimText(data.target_id));
+        }
+        var normalizedIds = normalizePrintJobTargetIds(data.target_ids);
+        if (normalizedIds) {
+            targets.push('ids=' + normalizedIds);
+        }
+        if (!targets.length) return '';
+        return jobType + '|' + targets.join('&');
+    }
+
+    function isPrintJobSubmitPath(url) {
+        return trimText(url).split('?')[0] === PRINT_JOB_SUBMIT_PATH;
+    }
+
+    // 返回 true 表示本次可以提交；false 表示窗口内已有同指纹提交，需拦截。
+    function acquirePrintJobKey(key) {
+        if (lockedPrintJobKeys[key]) return false;
+        lockedPrintJobKeys[key] = setTimeout(function() {
+            delete lockedPrintJobKeys[key];
+        }, PRINT_JOB_DUPLICATE_WINDOW_MS);
+        return true;
+    }
+
+    function releasePrintJobKey(key) {
+        var timerId = lockedPrintJobKeys[key];
+        if (timerId) clearTimeout(timerId);
+        delete lockedPrintJobKeys[key];
+    }
+
+    var originalPost = api.post;
+
+    function postWithPrintJobGuard(url, data, options) {
+        if (!isPrintJobSubmitPath(url)) {
+            return originalPost.call(api, url, data, options);
+        }
+        var key = buildPrintJobSubmitKey(data);
+        if (!key) {
+            return originalPost.call(api, url, data, options);
+        }
+        if (!acquirePrintJobKey(key)) {
+            // 重复点击：不再发第二次请求。提示由调用方既有的 .then(res => showToast(res.msg ...))
+            // 弹出这一次，此处返回同文案，避免一次点击弹两个提示。
+            return Promise.resolve({
+                status: 'success',
+                duplicate: true,
+                msg: '已发送，请勿重复点击（' + Math.round(PRINT_JOB_DUPLICATE_WINDOW_MS / 1000) + ' 秒内不会重复提交）'
+            });
+        }
+        var request;
+        try {
+            request = originalPost.call(api, url, data, options);
+        } catch (error) {
+            releasePrintJobKey(key);
+            throw error;
+        }
+        if (!request || typeof request.then !== 'function') {
+            releasePrintJobKey(key);
+            return request;
+        }
+        // 成功时保留窗口锁（由 timer 到期释放）；失败立即解锁，允许用户马上重试。
+        return request.then(function(result) {
+            return result;
+        }, function(error) {
+            releasePrintJobKey(key);
+            throw error;
+        });
+    }
+
+    postWithPrintJobGuard.__wmsPrintJobDuplicateGuard = true;
+    api.post = postWithPrintJobGuard;
+})(window);

@@ -236,7 +236,11 @@ function toolbarPrint() {
 
 function sendLabelsToPrintStation() {
     var ids = getSelectedMaterialIds();
-    if (!ids.length) return;
+    if (!ids.length) {
+        // 空选时给明确反馈：原来静默 return，用户会以为按钮失效。
+        showToast('请先勾选要打印的物料', 'warning');
+        return;
+    }
     WMS.api.post('/print_queue/jobs', {job_type: 'label', target_ids: ids.join(',')})
     .then(function(res) {
         showToast(res.msg || '已发送标签到打印工作站', 'success');

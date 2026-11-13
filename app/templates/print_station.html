@@ -78,6 +78,13 @@
                     <span class="text-muted small align-self-center">轮询间隔: <span id="intervalLabel">3</span> 秒</span>
                 </div>
 
+                <!-- 待确认提醒：认领到任务后显示，避免未点确认导致超时重打 -->
+                <div class="alert alert-info alert-kiosk py-2 mb-3" id="printConfirmHint" hidden>
+                    <i class="bi bi-info-circle"></i>
+                    <strong>打印完成后请点击「本份已出纸，确认」或「未出纸，标记失败」：</strong>
+                    不确认的话，任务 5 分钟后会被系统重新认领并再次打印（可能重复出纸）。
+                </div>
+
                 <div class="alert alert-warning" id="printResultPanel" hidden>
                     <p id="printResultText" role="status" aria-live="polite"></p>
                     <div class="d-flex gap-2 flex-wrap">
@@ -108,6 +115,7 @@
         var resultBusy = false;
         var resultPanel = document.getElementById('printResultPanel');
         var resultText = document.getElementById('printResultText');
+        var confirmHint = document.getElementById('printConfirmHint');
         var confirmPrintedBtn = document.getElementById('confirmPrintedBtn');
         var notPrintedBtn = document.getElementById('notPrintedBtn');
 
@@ -187,6 +195,7 @@
 
         function handleJob(job) {
             currentJob = job;
+            if (confirmHint) confirmHint.hidden = false;  // 任务认领后提示必须先确认出纸结果
             log('收到任务 #' + job.id + ' [' + job.job_type + '] ' + job.print_url, 'info');
             loadAndPrint(job);
         }
@@ -281,6 +290,7 @@
                 currentJob = null;
                 resultBusy = false;
                 resultPanel.hidden = true;
+                if (confirmHint) confirmHint.hidden = true;  // 结果已保存，撤销待确认提醒
                 refreshStats();
                 scheduleNext(POLL_INTERVAL);
             }).catch(function(error) {
