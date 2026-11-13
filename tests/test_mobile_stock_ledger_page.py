@@ -158,8 +158,8 @@ def test_T8_version_bumped():
     src = _read(GRADLE)
     # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 31/3.9.7（简化手机操作布局），
     # 该功能首次发布于 26/3.9.2；后续递增版本号时同步更新本基线。
-    assert 'versionCode = 32' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
-    assert 'versionName = "3.9.8"' in src
+    assert 'versionCode = 34' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
+    assert 'versionName = "3.9.10"' in src
     assert 'AI-MOB-LDG-F01' in src, '版本 changelog 注释缺失'
 
 

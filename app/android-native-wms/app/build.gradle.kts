@@ -33,8 +33,10 @@ android {
         // BUG-2026-10-30-009：入库/出库/盘点清单点数量修改，期初沿用既有编辑。
         // 3.9.6(30)=AI-MOB-VOICE-F01-UI-HIDE-001：隐藏手机端语音入口及说明。
         // 3.9.8(32)=IA-05：已有期初明细编辑携带读取版本，避免覆盖另一账号。
-        versionCode = 32
-        versionName = "3.9.8"
+        // 3.9.9(33): request credentials bound to origin/session; stale 401 isolation.
+        // 3.9.10(34): complete cold-login nonblank guard and CI correction.
+        versionCode = 34
+        versionName = "3.9.10"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 
