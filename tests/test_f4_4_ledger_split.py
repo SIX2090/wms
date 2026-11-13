@@ -557,3 +557,4 @@ POST_SPLIT_BUGS['BUG-2026-11-13-003'] = 'fixed'
 # Archive-section parser compatibility only; delivery remains the entry's exact CI status.
 POST_SPLIT_BUGS['BUG-2026-11-13-005'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-13-006'] = 'fixed'  # local candidate; exact CI and production tracked separately

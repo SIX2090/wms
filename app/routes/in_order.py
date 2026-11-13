@@ -2217,10 +2217,10 @@ def register_in_order_routes(app):
                          # 后无法回溯"谁把 800 改成了 80"。
                          log_audit, log_operation,
                          recalculate_order_total, resolve_item_contract,
-                         round_to_2_decimals,
+                         normalize_stock_quantity, round_to_2_decimals,
                          update_purchase_order_status)
         # P2-3 收敛：库存三账写入唯一入口（新增/减量/删除明细三路统一）。
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _recorded_quantity_matches
         order = InOrder.query.get_or_404(id)
         if order.status != 'completed':
             return api_error('只有已完成的入库单可以修改已入库明细')
@@ -2292,6 +2292,7 @@ def register_in_order_routes(app):
             # 却算错"的放行（与 INVENTORY_TRUTH.md 仓库级严格口径相悖）。
 
             affected_purchase_order_ids = set()
+            financial_change = False
             # G-01（2026-11-11 体检缺口）：已完成入库单「改数量 / 改价格 / 删行」
             # 改的是**已经入账**的库存与金额，改完账面自洽、肉眼查不出异常，
             # 而本接口此前不留任何痕迹。审计的 old 值必须在这里快照——
@@ -2304,10 +2305,27 @@ def register_in_order_routes(app):
                 it.id: {'qty': float(it.quantity or 0), 'price': float(it.price or 0)}
                 for it in order.items
             }
+            # 在删行触发ORM autoflush前解析真实主键，数字/字符串别名也不能
+            # 把同一行同时放进删除和修改；不据客户端原始ID猜行归属。
+            modified_item_ids = set()
+            for item_data in items_data:
+                if not item_data.get('is_new') and item_data.get('id'):
+                    modified_item = db.session.get(InOrderItem, item_data['id'])
+                    if modified_item and modified_item.in_order_id == id:
+                        modified_item_ids.add(modified_item.id)
             # 1. Delete detail rows and reverse their stock changes
+            deleted_item_ids = set()
             for item_id in deleted_items:
                 item = db.session.get(InOrderItem, item_id)
                 if item and item.in_order_id == id:
+                    if item.id in modified_item_ids:
+                        return fail('同一明细不能同时删除和修改，请刷新后重试')
+                    if item.id in deleted_item_ids:
+                        continue
+                    deleted_item_ids.add(item.id)
+                    saved_quantity = float(item.quantity or 0)
+                    if not _recorded_quantity_matches(saved_quantity, normalize_stock_quantity(saved_quantity)):
+                        return fail('历史入库明细数量超过两位精度，无法证明本行原库存及采购预留；请核对原始流水后再处理，不能直接删除')
                     if not allow_negative_stock():
                         required = item.quantity or 0
                         # BUG-2026-08-17-002：与 revert_in_order 同根因，仓库解析
@@ -2340,6 +2358,9 @@ def register_in_order_routes(app):
                         return fail(err or '库存回退失败')
                     if item.source_purchase_order_item:
                         source_item = item.source_purchase_order_item
+                        reserved = float(source_item.received_quantity or 0)
+                        if not _recorded_quantity_matches(reserved, normalize_stock_quantity(reserved)):
+                            return fail('历史采购预留数量超过两位精度，无法证明本次释放数量，请先核对原始单据')
                         source_item.received_quantity = max(
                             0,
                             round_to_2_decimals((source_item.received_quantity or 0) - (item.quantity or 0))
@@ -2347,6 +2368,7 @@ def register_in_order_routes(app):
                         if source_item.purchase_order:
                             affected_purchase_order_ids.add(source_item.purchase_order.id)
                     db.session.delete(item)
+                    financial_change = True
 
             # 2. Modify detail rows
             for item_data in items_data:
@@ -2365,6 +2387,9 @@ def register_in_order_routes(app):
                     quantity = float(item_data['quantity'])
                     if not math.isfinite(quantity) or quantity <= 0:
                         return fail(f'物料 {material_code} 的数量必须大于0')
+                    quantity = normalize_stock_quantity(quantity)
+                    if quantity <= 0:
+                        return fail(f'物料 {material_code} 的数量按两位小数计算后必须大于0')
                     price = float(item_data.get('price', 0))
                     amount = round_money_product(quantity, price)
                     source_purchase_order_item_id = None
@@ -2377,6 +2402,9 @@ def register_in_order_routes(app):
                         source_item = db.session.get(PurchaseOrderItem, source_item_id)
                         if not source_item or source_item.material_id != material.id:
                             return fail('来源采购单明细与物料不匹配')
+                        reserved = float(source_item.received_quantity or 0)
+                        if not _recorded_quantity_matches(reserved, normalize_stock_quantity(reserved)):
+                            return fail('历史采购预留数量超过两位精度，无法证明本次新增数量，请先核对原始单据')
                         remain_qty = round_to_2_decimals((source_item.quantity or 0) - (source_item.received_quantity or 0))
                         if quantity - remain_qty > STOCK_COMPARE_EPSILON:
                             return fail('新增明细数量不能大于来源采购单未下推数量')
@@ -2415,6 +2443,7 @@ def register_in_order_routes(app):
                         remark=(item_data.get('remark') or '').strip() or None
                     )
                     db.session.add(new_item)
+                    financial_change = True
                     # P2-3 收敛：新增明细入账经单点入口。
                     ok, err = apply_stock_delta(
                         material, quantity,
@@ -2436,7 +2465,22 @@ def register_in_order_routes(app):
                         if not math.isfinite(new_qty) or new_qty <= 0:
                             material_code = item.material.code if item.material else ''
                             return fail(f'物料 {material_code} 的数量必须大于0')
+                        # 已存高精度数量只允许原量不变的编辑；流水没有item外键，
+                        # 单据净额无法证明同料某一行的原落数或采购预留，不能猜测回冲。
+                        quantity_changed = not _recorded_quantity_matches(new_qty, old_qty)
+                        if quantity_changed:
+                            if not _recorded_quantity_matches(old_qty, normalize_stock_quantity(old_qty)):
+                                return fail('历史入库明细数量超过两位精度，无法证明本行原库存及采购预留；请核对原始流水后再处理，不能直接改量')
+                            new_qty = normalize_stock_quantity(new_qty)
+                            if new_qty <= 0:
+                                return fail('数量按两位小数计算后必须大于0')
+                        else:
+                            # Pure Float representation differences are not stock edits.
+                            # Keep the original line and reservation instead of rounding
+                            # a tiny delta to zero inside the inventory write service.
+                            new_qty = old_qty
                         new_price = float(item_data.get('price', 0))
+                        old_price = float(item.price or 0)
 
                         qty_diff = new_qty - old_qty
                         if qty_diff < 0:
@@ -2460,6 +2504,9 @@ def register_in_order_routes(app):
                                     return fail(f'物料 {item.material.code if item.material else "-"} 库存不足，当前库存：{current_stock:.2f}，需要：{deduct_qty:.2f}')
                         if item.source_purchase_order_item and abs(qty_diff) > STOCK_COMPARE_EPSILON:
                             source_item = item.source_purchase_order_item
+                            reserved = float(source_item.received_quantity or 0)
+                            if not _recorded_quantity_matches(reserved, normalize_stock_quantity(reserved)):
+                                return fail('历史采购预留数量超过两位精度，无法证明本次调整数量，请先核对原始单据')
                             effective_received_before = round_to_2_decimals((source_item.received_quantity or 0) - (old_qty or 0))
                             allowed_qty = round_to_2_decimals(max((source_item.quantity or 0) - effective_received_before, 0))
                             if new_qty - allowed_qty > STOCK_COMPARE_EPSILON:
@@ -2488,7 +2535,10 @@ def register_in_order_routes(app):
 
                         item.quantity = new_qty
                         item.price = new_price
-                        item.amount = round_money_product(new_qty, new_price)
+                        # 原量/原价未变时保留已存金额（包括0和历史尾差）。
+                        if new_qty != old_qty or new_price != old_price:
+                            financial_change = True
+                            item.amount = round_money_product(new_qty, new_price)
                         if 'box_no' in item_data:
                             item.box_no = (item_data.get('box_no') or '').strip() or None
                         if 'remark' in item_data:
@@ -2506,7 +2556,8 @@ def register_in_order_routes(app):
                                 return fail(_e_err)
                             item.expiry_date = _e_date
 
-            recalculate_order_total(order)
+            if financial_change or order.total_amount is None:
+                recalculate_order_total(order)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
                 update_purchase_order_status(purchase_order)
             try:
