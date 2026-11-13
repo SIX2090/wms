@@ -7,7 +7,7 @@
 配套改动（后端见 test_bug_2026_09_10_009_daily_report_warehouse_scope.py）：
 - WmsApiService.dailyReportDetail 增加 warehouse_id（仓 id 或 "all"）
 - WmsRepository.getDailyReport 透传 warehouseId（含逐页翻页，R1）
-- ReportViewModel：warehouses / selectedWarehouseId / loadWarehouses / selectWarehouse
+- ReportViewModel：warehouses / selectedWarehouseId / load / selectWarehouse
 - ReportScreens：顶部 WarehouseSelector（默认仓库 / 各仓 / 全部仓库汇总）
 - DailyReportItem 增加可空 warehouse（全部仓库模式逐行显示来源仓）
 
@@ -50,7 +50,7 @@ def test_t3_view_model_holds_warehouse_state():
     src = VM.read_text(encoding="utf-8")
     assert "val warehouses: List<WarehouseDto> = emptyList()" in src
     assert "val selectedWarehouseId: String? = null" in src
-    assert "fun loadWarehouses()" in src
+    assert "fun load()" in src
     assert "fun selectWarehouse(warehouseId: String?)" in src
     assert "state.selectedWarehouseId" in src, "load() 必须把选中仓传给 repository"
 
@@ -81,4 +81,10 @@ def test_t6_loads_warehouses_before_report():
     src = SCREEN.read_text(encoding="utf-8")
     block = src[src.index("LaunchedEffect(Unit) {"):]
     block = block[:block.index("LaunchedEffect(uiState.error)")]
-    assert block.index("loadWarehouses()") < block.index("viewModel.load()")
+    assert block.count("viewModel.load()") == 1
+    assert "loadWarehouses()" not in block
+    vm = VM.read_text(encoding="utf-8")
+    load = vm[vm.index("fun load()"):vm.index("fun selectWarehouse(")]
+    assert load.index("fetchWarehouses()") < load.index("fetchReport(")
+    assert "list.first().id?.toString()" in load
+    assert "selectedWarehouseId = nextSelected" in load

@@ -72,13 +72,8 @@ fun HomeScreen(
     // Scaffold 将内容放在状态栏下方；状态栏实际是浅色背景。
     StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())
 
-    // BUG-2026-09-10-010：首页概览的仓库切换需要仓库列表，进入首页时加载一次。
-    // BUG-2026-09-26-003：底部 Tab 用 saveState/restoreState 恢复首页时，VM 存活、
-    // loadWarehouses 早退，dashboard 停留旧值——录完单回首页"今日入库"不更新，
-    // 只能杀进程重开。effect 在恢复时重启，此处补 loadDashboard() 让数字跟上
-    // （GET 幂等，与 loadWarehouses 内部触发的刷新并发安全）。
+    // 进入／返回首页刷新一次；ViewModel 内先确定仓库，避免默认仓与选中仓重复查询。
     LaunchedEffect(Unit) {
-        homeViewModel.loadWarehouses()
         homeViewModel.loadDashboard()
     }
 

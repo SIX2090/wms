@@ -543,3 +543,5 @@ POST_SPLIT_BUGS['BUG-2026-11-12-001'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-001'] = 'fixed'
 # 2026-11-13 重复点击拦截提示由绿色改黄色批次：新增 1 条「已修复」登记，基线不变。
 POST_SPLIT_BUGS['BUG-2026-11-13-002'] = 'fixed'
+
+POST_SPLIT_BUGS['BUG-2026-11-13-003'] = 'fixed'

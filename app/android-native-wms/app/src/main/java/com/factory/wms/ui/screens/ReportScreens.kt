@@ -78,8 +78,7 @@ fun DailyReportScreen(
     // BUG-2026-08-24-006：进入报表页时才加载（ViewModel 在 App 启动时即被创建，
     // 不能依赖 init 加载）；再次进入也会按当前日期/类型刷新，保证数据不过期。
     LaunchedEffect(Unit) {
-        // BUG-2026-09-10-009：先拉可选仓库（多仓用户可切换/看全部），再查报表
-        viewModel.loadWarehouses()
+        // ViewModel 内先确定仓库，再查报表；只列真实仓库。
         viewModel.load()
     }
 

@@ -37,7 +37,7 @@ sealed class Screen(val route: String, val title: String) {
      * 多仓隔离）与 `wname` 仓库名（标题展示用，非 id 时不传也可）。
      * 仓库必须从首页带过来——列表接口在缺仓库时会回退到服务端默认仓，
      * 与用户在首页看到的口径不一致（首页默认落第一个真实仓，
-     * 见 HomeViewModel.loadWarehouses）。
+     * 见 HomeViewModel.loadDashboard）。
      */
     data object OverviewOrders : Screen("overview_orders?wid={wid}&wname={wname}", "待处理单据")
 

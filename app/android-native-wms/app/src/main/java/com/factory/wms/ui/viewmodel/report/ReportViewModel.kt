@@ -6,6 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.DailyReportData
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,86 +40,94 @@ data class ReportUiState(
     /**
      * 当前查询仓库：每日报表下拉只提供真实仓库（不含"默认仓库"/"全部仓库（汇总）"），
      * 故此处恒为仓库 id 字符串；进入报表页加载仓库后若为空则默认选中第一个仓库
-     * （见 loadWarehouses）。首页概览仍使用 null=默认仓 / "all"=全部仓库汇总语义。
+     * （见 load）。仓库列表失败时仍兼容服务端默认仓。
      */
     val selectedWarehouseId: String? = null,
     val report: DailyReportData? = null
 )
 
-class ReportViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = WmsRepository(application)
+class ReportViewModel internal constructor(
+    application: Application,
+    private val fetchWarehouses: suspend () -> Result<List<WarehouseDto>>,
+    private val fetchReport: suspend (String, String?, String?) -> Result<DailyReportData>
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, WmsRepository(application))
+
+    private constructor(application: Application, repository: WmsRepository) : this(
+        application, repository::getWarehouses, repository::getDailyReport
+    )
+
     private val _uiState = MutableStateFlow(ReportUiState())
     val uiState: StateFlow<ReportUiState> = _uiState.asStateFlow()
-
     private val apiDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    private var loadJob: Job? = null
+    private var loadingQuery: Triple<ReportType, String, String?>? = null
+    private var displayedQuery: Triple<ReportType, String, String?>? = null
+    private var requestVersion = 0L
 
     init {
-        // BUG-2026-08-24-006：不在 init 自动加载。reportViewModel 在 AppNavGraph
-        // 组合阶段（App 启动时）即被创建，此时可能尚未登录或会话尚未还原，
-        // 提前加载只会留下过期错误态，等用户首次进入报表页时弹出误导性报错。
-        // 加载统一由 DailyReportScreen 进入时触发（LaunchedEffect）。
+        // 页面进入时才查询，构造时只设置日期。
         _uiState.value = _uiState.value.copy(date = apiDateFormat.format(Date()))
     }
 
+    /** 确定仓库后加载一次，返回页面时仍刷新当天数据。 */
     fun load() {
-        // BUG-2026-09-10-003：ViewModel 在 App 启动时即被创建，date 只在 init 取一次；
-        // App 跨天未重启（Android 进程常在后台存活数日）时，进入报表页仍按旧日期查询，
-        // 表现为「今天的记录查不到」。处于今天模式时，每次加载前校正为系统当天。
         if (_uiState.value.dateIsToday) {
             val today = apiDateFormat.format(Date())
             if (today != _uiState.value.date) {
                 _uiState.value = _uiState.value.copy(date = today)
             }
         }
-        val state = _uiState.value
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null, loadError = null)
-            repository.getDailyReport(
-                state.reportType.apiType, state.date, state.selectedWarehouseId
-            ).fold(
-                onSuccess = { data ->
-                    _uiState.value = _uiState.value.copy(isLoading = false, report = data)
-                },
-                onFailure = { e ->
-                    // AI-APP-FIX-201：还没有任何报表数据时失败 → 全屏错误态；
-                    // 已有数据（翻日期/切类型失败）→ Snackbar，保留旧数据。
-                    if (_uiState.value.report == null) {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            loadError = e.message ?: "加载失败"
-                        )
-                    } else {
-                        _uiState.value = _uiState.value.copy(
-                            isLoading = false,
-                            error = e.message ?: "加载失败"
-                        )
-                    }
-                }
-            )
-        }
-    }
-
-    /** 进入报表页时加载可选仓库；已加载过则不重复请求。失败静默（不影响按默认仓查询）。 */
-    fun loadWarehouses() {
-        if (_uiState.value.warehouses.isNotEmpty()) return
-        viewModelScope.launch {
-            repository.ensureSession()
-            repository.getWarehouses().fold(
-                onSuccess = { list ->
-                    val current = _uiState.value.selectedWarehouseId
-                    // 日报下拉已去掉「默认仓库」与「全部仓库（汇总）」选项：进入页未显式
-                    // 选仓时默认落到第一个真实仓库，避免停留在已不可选的"默认仓"口径。
-                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
+        val current = _uiState.value
+        val query = Triple(current.reportType, current.date, current.selectedWarehouseId)
+        if (loadJob?.isActive == true && loadingQuery == query) return
+        loadJob?.cancel()
+        val version = ++requestVersion
+        loadingQuery = query
+        _uiState.value = current.copy(
+            isLoading = true, error = null, loadError = null,
+            report = if (displayedQuery == loadingQuery) current.report else null
+        )
+        loadJob = viewModelScope.launch {
+            try {
+                if (_uiState.value.warehouses.isEmpty()) {
+                    val list = fetchWarehouses().getOrNull()
+                    currentCoroutineContext().ensureActive()
+                    if (version != requestVersion) return@launch
+                    val selected = _uiState.value.selectedWarehouseId
+                    val nextSelected = if (selected.isNullOrBlank() && !list.isNullOrEmpty()) {
                         list.first().id?.toString()
-                    } else current
+                    } else selected
                     _uiState.value = _uiState.value.copy(
-                        warehouses = list,
-                        selectedWarehouseId = nextSelected
+                        warehouses = list.orEmpty(), selectedWarehouseId = nextSelected
                     )
-                    if (nextSelected != current) load()
-                },
-                onFailure = { /* 静默：仓库列表失败不阻断报表查询 */ }
-            )
+                }
+                val state = _uiState.value
+                val resolvedQuery = Triple(state.reportType, state.date, state.selectedWarehouseId)
+                loadingQuery = resolvedQuery
+                val data = fetchReport(
+                    state.reportType.apiType, state.date, state.selectedWarehouseId
+                ).getOrThrow()
+                currentCoroutineContext().ensureActive()
+                if (version != requestVersion) return@launch
+                displayedQuery = resolvedQuery
+                _uiState.value = _uiState.value.copy(isLoading = false, report = data)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
+                if (version != requestVersion) return@launch
+                // 同一查询刷新失败保留已有数据；新查询失败显示可重试错误。
+                if (_uiState.value.report == null) {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false, loadError = e.message ?: "加载失败"
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false, error = e.message ?: "加载失败"
+                    )
+                }
+            }
         }
     }
 

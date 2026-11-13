@@ -7,7 +7,7 @@
 配套改动（后端见 test_bug_2026_09_10_010_dashboard_warehouse_scope.py）：
 - WmsApiService.getDashboard 增加 warehouse_id（仓 id 或 "all"）
 - WmsRepository.getDashboard 透传 warehouseId，并改用 safeCall 收口错误
-- HomeViewModel：warehouses / selectedWarehouseId / loadWarehouses / selectWarehouse
+- HomeViewModel：warehouses / selectedWarehouseId / loadDashboard / selectWarehouse
 - HomeScreen：概览条标题行加 WarehouseSelector（与报表页共用组件）
 - ui/components/WarehouseSelector.kt：从报表页提取为共享组件，避免两处漂移
 
@@ -52,7 +52,7 @@ def test_t3_view_model_holds_warehouse_state():
     src = VM.read_text(encoding="utf-8")
     assert "val warehouses: List<WarehouseDto> = emptyList()" in src
     assert "val selectedWarehouseId: String? = null" in src
-    assert "fun loadWarehouses()" in src
+    assert "fun loadDashboard()" in src
     assert "fun selectWarehouse(warehouseId: String?)" in src
     # 切换仓库后必须重新拉取概览
     body = src[src.index("fun selectWarehouse("):]
@@ -96,6 +96,12 @@ def test_t6_dashboard_dto_has_warehouse():
 
 def test_t7_home_loads_warehouses_on_enter():
     src = SCREEN.read_text(encoding="utf-8")
-    assert "homeViewModel.loadWarehouses()" in src, "进入首页需加载仓库列表"
-    # 加载应先于/伴随概览查询，且不阻塞默认仓展示
-    assert "LaunchedEffect(Unit)" in src
+    start = src.index("LaunchedEffect(Unit) {")
+    entry = src[start:src.index("\n    }", start)]
+    assert entry.count("homeViewModel.loadDashboard()") == 1
+    assert "loadWarehouses()" not in entry, "页面只触发一次，仓库由加载流程内部确定"
+    vm = VM.read_text(encoding="utf-8")
+    load = vm[vm.index("fun loadDashboard()"):vm.index("fun selectWarehouse(")]
+    assert load.index("fetchWarehouses()") < load.index("fetchDashboard(warehouseId)")
+    assert "list.first().id?.toString()" in load
+    assert "selectedWarehouseId = nextSelected" in load
