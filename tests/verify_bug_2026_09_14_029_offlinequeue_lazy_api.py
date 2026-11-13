@@ -58,24 +58,26 @@ def _strip(text: str) -> str:
 
 def test_constructor_takes_provider_not_eager_api():
     src = _strip(_read(OQM))
-    assert re.search(r"constructor\([\s\S]*?apiProvider:\s*\(\)\s*->\s*WmsApiService", src), \
-        "OfflineQueueManager 构造必须收 apiProvider: () -> WmsApiService"
+    assert re.search(r"constructor\([\s\S]*?apiProvider:\s*\(RetrofitClient.SessionSnapshot\)\s*->\s*WmsApiService", src), \
+        "OfflineQueueManager 构造必须收按身份快照惰性解析的 API provider"
     # 构造参数列表里不得再有 eager 的 private val api: WmsApiService
-    ctor = src[src.find("private constructor"):src.find(") {", src.find("private constructor"))]
+    ctor = src[src.find("internal constructor"):src.find(") {", src.find("internal constructor"))]
     assert "private val api:" not in ctor, "构造期不得持有 eager api: WmsApiService"
 
 
 def test_api_resolved_lazily_inside():
     src = _strip(_read(OQM))
-    assert re.search(r"val api:\s*WmsApiService\s+by lazy\s*\{\s*apiProvider\(\)\s*\}", src), \
-        "必须用 by lazy { apiProvider() } 惰性解析 api，构造期不得解析"
+    replay = src[src.index("private suspend fun replay("):]
+    assert "val api = apiProvider(session)" in replay
+    assert "apiProvider(" not in src[:src.index("private suspend fun replay(")], "构造及初始化不得解析 API"
+    assert "by lazy" not in src, "不得缓存首次登录的 API"
 
 
 def test_getinstance_takes_provider():
     src = _strip(_read(OQM))
     gi = src[src.find("fun getInstance"):]
-    assert "apiProvider: () -> WmsApiService" in gi, "getInstance 必须收 apiProvider"
-    assert "OfflineQueueManager(context, dao, apiProvider, networkMonitor)" in gi, \
+    assert "apiProvider: (RetrofitClient.SessionSnapshot) -> WmsApiService" in gi, "getInstance 必须收 apiProvider"
+    assert "OfflineQueueManager(dao, apiProvider, networkMonitor::currentlyOnline" in gi, \
         "getInstance 必须把 apiProvider 透传给构造器"
 
 
@@ -85,7 +87,7 @@ def test_repository_passes_lazy_lambda():
     idx = src.find("val offlineQueue")
     assert idx >= 0, "WmsRepository 缺少 offlineQueue"
     block = src[idx:src.find(")", src.find("OfflineQueueManager.getInstance", idx)) + 1]
-    assert "{ api }" in block, "offlineQueue 必须传惰性 { api }，而非裸 api（裸 api 会在构造期解析）"
+    assert "{ session -> RetrofitClient.apiServiceFor(session)" in block, "必须惰性解析已核验身份的 API，构造期不得取客户端"
     # 不得再出现 getInstance(...,\n  dao,\n  api,\n ...) 的裸 api 直传
     assert not re.search(r"getInstance\([\s\S]{0,120}?dao,\s*\n\s*api\s*,", block), \
         "不得再裸传 api（会在构造 OfflineQueueManager 时急切解析）"

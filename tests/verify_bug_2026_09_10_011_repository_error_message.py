@@ -108,7 +108,8 @@ def test_t6_cascade_catch_passes_business_exception():
         "BusinessException 必须先于兜底 Exception 捕获"
     # 2) 业务拒绝原样放行，不得被包成"网络错误"
     biz_branch = body[body.index("catch (e: BusinessException)"):]
-    biz_branch = biz_branch[:biz_branch.index("catch (e: Exception)")]
+    # 只取当前 catch 的分支；后续 IOException 分支承载网络暂存逻辑。
+    biz_branch = biz_branch.split("} catch", 1)[0]
     assert "Result.failure(e)" in biz_branch, "业务拒绝应原样透传 e（保留服务端 msg）"
     assert "网络错误" not in biz_branch, "业务拒绝分支不得标注网络错误"
     # 3) 三个 submit 入口都必须走共享函数（不允许绕过）

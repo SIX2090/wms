@@ -34,18 +34,14 @@ def _read() -> str:
 
 
 def test_backup_runs_before_delete_and_restore_runs_after_rebuild():
-    """恢复路径顺序必须是：备份 → 删库 → 重建 → 回补。"""
+    """保单策略升级：自动恢复不得再删除原库；诊断备份/回补仍保留。"""
     source = _read()
-    i_backup = source.index("val backup = backupPendingOperations(appContext)")
-    i_delete = source.index("appContext.deleteDatabase(DB_NAME)")
-    i_rebuild = source.index("val rebuilt = buildDatabase(appContext)")
-    i_restore = source.index("restorePendingOperations(rebuilt, backup)")
-    assert i_backup < i_delete < i_rebuild < i_restore, (
-        "删库前必须先备份 pending_operations、重建后必须回补，"
-        "否则离线待同步单据会被静默清空（BUG-2026-09-21-005）"
-    )
-    # getDatabase 的 catch 分支必须委托到同一实现，不得另写一套漏掉备份
-    assert "rebuildPreservingQueue(appContext)" in source
+    assert "appContext.deleteDatabase(DB_NAME)" not in source
+    assert "rebuildPreservingQueue(appContext)" not in source
+    assert "原库已保留" in source
+    assert "throw e" in source
+    for field in ("owner_server", "owner_user_id", "needs_review", "next_retry_at"):
+        assert field in source
 
 
 def test_backup_bypasses_room_with_raw_readonly_sqlite():
@@ -77,7 +73,9 @@ def test_failures_are_loud_error_logs_not_silent():
 def test_eager_open_makes_recovery_branch_reachable():
     """buildDatabase 必须构建后立即打开，否则恢复分支是死代码（Room 惰性打开）。"""
     source = _read()
-    assert ".also { it.openHelper.writableDatabase }" in source
+    assert "try { it.openHelper.writableDatabase }" in source
+    assert "it.close()" in source
+    assert "throw e" in source
 
 
 def test_rebuildable_data_comment_no_longer_false():
@@ -88,7 +86,11 @@ def test_rebuildable_data_comment_no_longer_false():
 
 
 def test_existing_recovery_wording_kept_for_resilience_gate():
-    """与 test_android_startup_crash_resilience.py 的既有断言保持兼容。"""
+    """原库保留且仓库层继续降级；不再以自动清空业务数据换取启动。"""
     source = _read()
-    assert "建库失败，尝试删除本地库重建" in source
-    assert "appContext.deleteDatabase(DB_NAME)" in source
+    assert "原库已保留" in source
+    assert ".openHelperFactory(PreservingSQLiteOpenHelperFactory)" in source
+    factory = APP_DATABASE.with_name("PreservingSQLiteOpenHelperFactory.kt").read_text(encoding="utf-8")
+    assert "override fun onCorruption" in factory
+    assert "original.onCorruption" not in factory
+    assert ".allowDataLossOnRecovery(false)" in factory

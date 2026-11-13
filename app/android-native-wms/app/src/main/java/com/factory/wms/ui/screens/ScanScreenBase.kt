@@ -117,6 +117,8 @@ fun ScanScreenBase(
     offlinePendingCount: Int = 0,
     /** 重试耗尽的失败条数 */
     offlineFailedCount: Int = 0,
+    offlineSyncMessage: String? = null,
+    offlineRetryAvailable: Boolean = false,
     /** 人工重试失败记录 */
     onRetryOffline: () -> Unit = {}
 ) {
@@ -350,6 +352,8 @@ fun ScanScreenBase(
                 PendingSyncBanner(
                     pendingCount = offlinePendingCount,
                     failedCount = offlineFailedCount,
+                    message = offlineSyncMessage,
+                    canRetry = offlineRetryAvailable,
                     onRetry = onRetryOffline,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )

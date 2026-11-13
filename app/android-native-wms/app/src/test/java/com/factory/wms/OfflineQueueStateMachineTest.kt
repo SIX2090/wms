@@ -37,7 +37,7 @@ import org.robolectric.annotation.Config
  * 运行方式：`./gradlew testReleaseUnitTest`。
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31])
+@Config(sdk = [31], application = android.app.Application::class)
 class OfflineQueueStateMachineTest {
 
     private lateinit var db: AppDatabase
@@ -72,7 +72,10 @@ class OfflineQueueStateMachineTest {
         warehouseCode = "WH01",
         summary = "入库 1 项 · 主仓",
         status = status,
-        attemptCount = attemptCount
+        attemptCount = attemptCount,
+        ownerServer = "https://synthetic.example.invalid",
+        ownerUserId = 11,
+        needsReview = false
     )
 
     // ---------------------------------------------------------------
@@ -150,7 +153,7 @@ class OfflineQueueStateMachineTest {
         dao.upsert(entity("r-failed", status = PendingOperationEntity.STATUS_FAILED, attemptCount = 5))
         assertEquals(1, dao.countFailed())
 
-        dao.resetToPending("r-failed")
+        dao.resetToPending("r-failed", "https://synthetic.example.invalid", 11)
 
         assertEquals("人工重试后应重新出现在待补传列表", 1, dao.countPending())
         assertEquals("不应再计入失败", 0, dao.countFailed())

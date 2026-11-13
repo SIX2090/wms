@@ -25,14 +25,21 @@ object RetrofitClient {
     private var authToken: String? = null
 
     private var generation: Long = 0
+    private var userId: Int? = null
 
     // Never expose token values through a data class's generated toString().
     internal class SessionSnapshot(
-        val server: String, internal val token: String?, internal val generation: Long
-    )
+        val server: String, internal val token: String?, internal val generation: Long,
+        internal val userId: Int? = null
+    ) {
+        internal val ownerServer: String?
+            get() = server.toHttpUrlOrNull()?.takeIf {
+                it.username.isEmpty() && it.password.isEmpty() && it.query == null && it.fragment == null
+            }?.toString()?.trimEnd('/')
+    }
 
     internal fun sessionSnapshot(): SessionSnapshot = synchronized(lock) {
-        SessionSnapshot(baseUrl, authToken, generation)
+        SessionSnapshot(baseUrl, authToken, generation, userId)
     }
 
     private fun sameOrigin(url: HttpUrl, server: String): Boolean {
@@ -146,22 +153,28 @@ object RetrofitClient {
         get() {
             return synchronized(lock) {
                 check(baseUrl.isNotBlank()) { "服务器地址未配置，请先登录并填写服务器地址" }
-                val session = sessionSnapshot()
-                val boundClient = okHttpClient.newBuilder().apply {
-                    interceptors().add(0, Interceptor { chain ->
-                        chain.proceed(chain.request().newBuilder()
-                            .tag(SessionSnapshot::class.java, session).build())
-                    })
-                }.build()
-                retrofit.newBuilder().client(boundClient).build().create(WmsApiService::class.java)
+                apiServiceFor(sessionSnapshot())
             }
         }
+
+    internal fun apiServiceFor(session: SessionSnapshot): WmsApiService = synchronized(lock) {
+        check(generation == session.generation) { "登录状态已变化，请核对后重试" }
+        check(baseUrl.isNotBlank()) { "服务器地址未配置，请先登录并填写服务器地址" }
+        val boundClient = okHttpClient.newBuilder().apply {
+            interceptors().add(0, Interceptor { chain ->
+                chain.proceed(chain.request().newBuilder()
+                    .tag(SessionSnapshot::class.java, session).build())
+            })
+        }.build()
+        retrofit.newBuilder().client(boundClient).build().create(WmsApiService::class.java)
+    }
 
     fun setBaseUrl(url: String) {
         synchronized(lock) {
             // 先构建新实例再发布引用，避免读到"新 baseUrl + 旧 retrofit"中间态
             retrofit = buildRetrofit(url)
             if (baseUrl != url) authToken = null
+            if (baseUrl != url) userId = null
             baseUrl = url
             generation++
         }
@@ -169,26 +182,28 @@ object RetrofitClient {
 
     fun setToken(token: String?) {
         synchronized(lock) {
+            if (authToken != token || token == null) userId = null
             authToken = token
             generation++
         }
     }
 
-    fun setSession(url: String, token: String?) {
+    fun setSession(url: String, token: String?, accountId: Int? = null) {
         synchronized(lock) {
             val next = buildRetrofit(url)
             retrofit = next
             baseUrl = url
             authToken = token
+            userId = accountId?.takeIf { it > 0 && !token.isNullOrBlank() }
             generation++
         }
     }
 
-    internal fun restoreSession(url: String, token: String?, expected: SessionSnapshot): Boolean = synchronized(lock) {
+    internal fun restoreSession(url: String, token: String?, expected: SessionSnapshot, accountId: Int? = null): Boolean = synchronized(lock) {
         if (generation != expected.generation) {
-            return@synchronized !token.isNullOrBlank() && baseUrl == url && authToken == token
+            return@synchronized !token.isNullOrBlank() && baseUrl == url && authToken == token && userId == accountId
         }
-        setSession(url, token)
+        setSession(url, token, accountId)
         true
     }
 

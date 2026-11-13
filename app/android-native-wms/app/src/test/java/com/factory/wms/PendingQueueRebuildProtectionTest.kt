@@ -38,7 +38,7 @@ import java.nio.file.Files
  * 运行方式：`./gradlew testReleaseUnitTest`。
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [31])
+@Config(sdk = [31], application = android.app.Application::class)
 class PendingQueueRebuildProtectionTest {
 
     private lateinit var context: Context
@@ -332,63 +332,96 @@ class PendingQueueRebuildProtectionTest {
     // 的内部行为——该行为随 Android/Room 版本变化，属环境依赖、不可测。
     // ---------------------------------------------------------------
 
-    @Test
-    fun `rebuild preserving queue keeps pending rows`() = runBlocking {
-        plantRawDatabase(listOf(sampleEntity("req-survive")), userVersion = 2)
-
-        // BUG-2026-10-08-014 诊断：先直接验证 backup 能不能读出来，把失败点
-        // 二分定位到 backup 半区（读不出来）还是 restore 半区（读出来了但丢了）。
-        // 三次复发全是 expected:<1> but was:<0>，必须先分清数据丢在哪一步。
-        // BUG-2026-10-08-014 直连探针：绕开 AppDatabase，用与 backupPendingOperations
-        // 完全相同的原生 SQLite 路径独立读一次，确认数据是否真的落盘。
-        // 若此探针也读 0 → 种数据环节在 Robolectric 下根本没写盘（环境问题）；
-        // 若探针读 1 而 backup 读 0 → AppDatabase 读取逻辑有 bug（代码问题）。
-        val probeFile = context.getDatabasePath(dbName)
-        val probeCount = SQLiteDatabase.openDatabase(
-            probeFile.absolutePath, null, SQLiteDatabase.OPEN_READWRITE
-        ).use { probe ->
-            probe.rawQuery("SELECT COUNT(*) FROM pending_operations", null)
-                .use { c -> c.moveToFirst(); c.getLong(0) }
-        }
-        System.err.println("BUG-014-PROBE: 文件存在=${probeFile.isFile} 大小=${probeFile.length()} 直连读到行数=$probeCount")
-
-        val backup = AppDatabase.backupPendingOperations(context)
-        System.err.println("BUG-014-PROBE: backupPendingOperations 返回 ${backup.size} 行")
-        assertEquals(
-            "backupPendingOperations 必须读出刚种的 1 行（诊断性断言，定位 BUG-014 失败半区）",
-            1,
-            backup.size
-        )
-
-        val db = AppDatabase.rebuildPreservingQueue(context)
-        try {
-            val rows = db.pendingOperationDao().listAll()
-            assertEquals(
-                "删库重建后离线待同步单据必须仍在（本 BUG 的核心回归），实际=$rows",
-                1,
-                rows.size
-            )
-            assertEquals("req-survive", rows[0].requestId)
-            assertEquals("WH01", rows[0].warehouseCode)
-            assertEquals("出库 2 项 · 主仓", rows[0].summary)
-        } finally {
-            db.close()
+    private fun plantFullOldSchema(rows: List<PendingOperationEntity>, version: Int) {
+        val template = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries().build()
+        val definitions = try {
+            template.openHelper.writableDatabase.query(
+                "SELECT sql FROM sqlite_master WHERE type IN ('table','index') AND sql IS NOT NULL " +
+                    "AND tbl_name NOT IN ('room_master_table','android_metadata','sqlite_sequence') " +
+                    "AND name != 'pending_operations' ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END"
+            ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+        } finally { template.close() }
+        plantRawDatabase(rows, version)
+        SQLiteDatabase.openDatabase(context.getDatabasePath(dbName).absolutePath, null,
+            SQLiteDatabase.OPEN_READWRITE).use { raw ->
+            for (sql in definitions) raw.execSQL(sql)
+            if (version == 1) raw.execSQL("DROP TABLE pending_operations")
         }
     }
 
     @Test
-    fun `getDatabase catch delegates to rebuild preserving queue`() = runBlocking {
-        // 全链路 smoke：文件物理损坏（任何版本 SQLite 都打不开）→ getDatabase 必须
-        // 经 catch 完成删库重建并返回可用实例（损坏文件无单可保，返回空库即可）。
-        // 该用例锁死"catch 分支真实可达且产出可用库"，与 rebuildPreservingQueue
-        // 保单用例互补。
+    fun `real v2 migration retains all original states and isolates every legacy row`() = runBlocking {
+        val original = listOf("pending", "syncing", "failed").mapIndexed { i, status ->
+            sampleEntity("legacy-$i").copy(status = status, attemptCount = i, lastError = "old-$i")
+        }
+        plantFullOldSchema(original, 2)
+        val migrated = AppDatabase.getDatabase(context)
+        assertEquals(3, migrated.openHelper.writableDatabase.version)
+        assertEquals(original, migrated.pendingOperationDao().listAll())
+        migrated.pendingOperationDao().resetStuckSyncing()
+        assertEquals(original, migrated.pendingOperationDao().listAll())
+        assertTrue(migrated.pendingOperationDao().listPending().isEmpty())
+        assertEquals(3, migrated.pendingOperationDao().countFailed())
+    }
+
+    @Test
+    fun `real v1 upgrade creates v3 queue without destructive migration`() = runBlocking {
+        plantFullOldSchema(emptyList(), 1)
+        val migrated = AppDatabase.getDatabase(context)
+        assertEquals(3, migrated.openHelper.writableDatabase.version)
+        assertTrue(migrated.pendingOperationDao().listAll().isEmpty())
+    }
+
+    @Test
+    fun `open failure preserves original queue instead of rebuilding`() = runBlocking {
+        val original = sampleEntity("req-survive")
+        plantRawDatabase(listOf(original), userVersion = 2)
+        // The intentionally incomplete v2 schema must fail Room validation.
+        assertTrue(runCatching { AppDatabase.getDatabase(context) }.isFailure)
+        val rows = AppDatabase.backupPendingOperations(context)
+        assertEquals(listOf(original), rows)
+        SQLiteDatabase.openDatabase(context.getDatabasePath(dbName).absolutePath, null,
+            SQLiteDatabase.OPEN_READWRITE).use { raw ->
+            assertEquals("failed migration must roll back its schema", 2, raw.version)
+        }
+    }
+
+    @Test
+    fun `corruption cannot delete or replace original file`() {
         val dbFile = context.getDatabasePath(dbName)
         dbFile.parentFile?.mkdirs()
-        dbFile.writeBytes("corrupted-not-a-sqlite-file".toByteArray())
+        val original = "corrupted-not-a-sqlite-file".toByteArray()
+        dbFile.writeBytes(original)
+        assertTrue(runCatching { AppDatabase.getDatabase(context) }.isFailure)
+        assertTrue(dbFile.isFile)
+        org.junit.Assert.assertArrayEquals(original, dbFile.readBytes())
+    }
 
-        val db = AppDatabase.getDatabase(context)
+    @Test
+    fun `future schema downgrade failure preserves queue and version`() {
+        val original = sampleEntity("req-future")
+        plantRawDatabase(listOf(original), userVersion = 99)
+        assertTrue(runCatching { AppDatabase.getDatabase(context) }.isFailure)
+        assertEquals(listOf(original), AppDatabase.backupPendingOperations(context))
+        SQLiteDatabase.openDatabase(context.getDatabasePath(dbName).absolutePath, null,
+            SQLiteDatabase.OPEN_READWRITE).use { raw -> assertEquals(99, raw.version) }
+    }
 
-        val rows = db.pendingOperationDao().listAll()
-        assertEquals("损坏库重建后应得到空队列（数据本已不可读）", 0, rows.size)
+    @Test
+    fun `diagnostic backup and restore retain ownership review and retry metadata`() = runBlocking {
+        val original = sampleEntity("req-owned").copy(ownerServer = "https://synthetic.example.invalid",
+            ownerUserId = 11, needsReview = false, nextRetryAt = 123456789L)
+        val disk = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .allowMainThreadQueries().build()
+        try { disk.pendingOperationDao().upsert(original) } finally { disk.close() }
+        val rows = AppDatabase.backupPendingOperations(context)
+        assertEquals(listOf(original), rows)
+        val memory = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries().build()
+        try {
+            AppDatabase.restorePendingOperations(memory, rows)
+            assertEquals(listOf(original), memory.pendingOperationDao().listAll())
+        } finally { memory.close() }
     }
 }

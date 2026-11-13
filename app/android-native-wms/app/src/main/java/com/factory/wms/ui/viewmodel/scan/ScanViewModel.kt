@@ -115,7 +115,9 @@ data class ScanUiState(
     /** 待自动补传条数（断网提交已暂存）。>0 时页面提示"已保存，联网后自动提交" */
     val offlinePendingCount: Int = 0,
     /** 重试耗尽的失败条数，需人工介入 */
-    val offlineFailedCount: Int = 0
+    val offlineFailedCount: Int = 0,
+    val offlineSyncMessage: String? = null,
+    val offlineRetryAvailable: Boolean = false
 )
 
 /** 提交成功后可再次触发打印的单据信息。 */
@@ -355,6 +357,16 @@ class ScanViewModel(
             viewModelScope.launch {
                 queue.failedCount.collect { count ->
                     _uiState.value = _uiState.value.copy(offlineFailedCount = count)
+                }
+            }
+            viewModelScope.launch {
+                queue.lastSyncMessage.collect { message ->
+                    _uiState.value = _uiState.value.copy(offlineSyncMessage = message)
+                }
+            }
+            viewModelScope.launch {
+                queue.canRetry.collect { available ->
+                    _uiState.value = _uiState.value.copy(offlineRetryAvailable = available)
                 }
             }
         }

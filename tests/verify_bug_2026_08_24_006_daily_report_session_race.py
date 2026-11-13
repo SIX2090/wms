@@ -69,19 +69,23 @@ def _extract_function_body(src: str, signature: str) -> str:
 def test_t1_ensure_session_exists_and_token_before_baseurl():
     body = _extract_function_body(_src(REPO_FILE), r"suspend\s+fun\s+ensureSession\s*\(")
     assert body, "WmsRepository.ensureSession 函数未找到"
-    assert "getSavedBaseUrl()" in body, "ensureSession 必须读取持久化的 baseUrl"
+    assert "restoreSavedSession(expected)" in body
+    ensure = body
+    body = _extract_function_body(_src(REPO_FILE), r"fun\s+restoreSavedSession\s*\(")
+    assert "authenticationMutex.withLock" in _src(REPO_FILE)
+    assert "getSavedBaseUrl()" in body, "会话恢复必须读取持久化的 baseUrl"
     assert "getSavedToken()" in body, "ensureSession 必须读取持久化的 token"
     # 原先两个 setter 的先后约束已升级为同一临界区原子发布。
-    assert "RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected)" in body
+    assert "RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected, getSavedUserId())" in body
     client = _src(REPO_FILE.parent.parent / 'api' / 'RetrofitClient.kt')
     restore = _extract_function_body(client, r"fun\s+restoreSession\s*\(")
     publish = _extract_function_body(client, r"fun\s+setSession\s*\(")
     assert "generation != expected.generation" in restore
-    assert "setSession(url, token)" in restore
+    assert "setSession(url, token, accountId)" in restore
     assert "synchronized(lock)" in publish
     assert "baseUrl = url" in publish and "authToken = token" in publish
     # 已还原时必须是 no-op（guard 在最前面）
-    assert "expected.server.isNotBlank()" in body, "ensureSession 缺少「已还原则跳过」守卫"
+    assert "expected.server.isNotBlank()" in ensure, "ensureSession 缺少「已还原则跳过」守卫"
 
 
 # ---------- T2: getDailyReport 请求前必须调用 ensureSession ----------

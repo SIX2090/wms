@@ -42,7 +42,7 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                 val username = repository.getUsername()
                 val role = repository.getRole()
                 if (!baseUrl.isNullOrBlank() &&
-                    !RetrofitClient.restoreSession(baseUrl, token, expected)) return@launch
+                    !repository.restoreSavedSession(expected)) return@launch
                 if (!token.isNullOrBlank() && !baseUrl.isNullOrBlank()) {
                     // 自动登录的关键一步：进程被杀后 RetrofitClient.authToken 是内存态，
                     // 必须把持久化在 EncryptedSharedPreferences 的 token 重新注入内存，

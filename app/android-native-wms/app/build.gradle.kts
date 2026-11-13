@@ -36,8 +36,9 @@ android {
         // 3.9.9(33): request credentials bound to origin/session; stale 401 isolation.
         // 3.9.10(34): complete cold-login nonblank guard and CI correction.
         // 3.9.11(35): coalesce overview/report loading after warehouse selection.
-        versionCode = 35
-        versionName = "3.9.11"
+        // 3.9.12(36)=BUG-2026-11-08-012 队列归属、旧记录隔离及非破坏性升级。
+        versionCode = 36
+        versionName = "3.9.12"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

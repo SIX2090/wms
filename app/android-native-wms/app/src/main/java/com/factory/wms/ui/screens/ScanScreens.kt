@@ -130,6 +130,8 @@ fun InboundScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineSyncMessage = uiState.offlineSyncMessage,
+        offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             // AI-APP-FIX-105 / BUG-2026-09-26-001：非法/非正数量拦截提示，
@@ -451,6 +453,8 @@ fun OutboundScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineSyncMessage = uiState.offlineSyncMessage,
+        offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库页，非法数量拦截提示，禁止静默兜底。
@@ -1800,6 +1804,8 @@ fun StocktakeScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineSyncMessage = uiState.offlineSyncMessage,
+        offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库/出库页，非法数量拦截提示。

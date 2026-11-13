@@ -1,8 +1,8 @@
 package com.factory.wms.data.repository
 
-import android.content.Context
 import android.util.Log
 import com.factory.wms.data.api.WmsApiService
+import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.local.PendingOperationDao
 import com.factory.wms.data.local.PendingOperationEntity
 import com.factory.wms.data.model.ApiEnvelope
@@ -19,10 +19,18 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import retrofit2.Response
+import java.io.IOException
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * AI-MOB-OFFLINE-01：离线待提交作业队列管理器（入队 + 自动补传）。
@@ -54,27 +62,22 @@ import retrofit2.Response
  * 记录中文原因；达 [PendingOperationEntity.MAX_ATTEMPTS] 转 `failed` 并通过
  * [failedCount] 暴露给 UI 显式告警，交人工处理，绝不自动丢弃。
  */
-class OfflineQueueManager private constructor(
-    context: Context,
+class OfflineQueueManager internal constructor(
     private val dao: PendingOperationDao,
-    apiProvider: () -> WmsApiService,
-    private val networkMonitor: NetworkMonitor
+    private val apiProvider: (RetrofitClient.SessionSnapshot) -> WmsApiService,
+    private val currentlyOnline: () -> Boolean,
+    onlineChanges: Flow<Boolean>,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
 
-    private val appContext = context.applicationContext
     private val gson = Gson()
 
-    // BUG-2026-09-14-029：api 改为惰性解析（by lazy），**首次真正同步时才取**。
-    // 构造期绝不触碰网络层——RetrofitClient.apiService 在 baseUrl 未配置（未登录 /
-    // 全新安装 / 清除数据）时会抛 IllegalStateException，若构造期解析，ScanViewModel
-    // 同步访问 offlineQueue 即在冷启动组合期崩溃。by lazy 延迟到 replay() 首用时，
-    // 彼时用户已登录、baseUrl 已配置；即便仍为空，异常也由 doSync 的 try/catch 兜为失败。
-    private val api: WmsApiService by lazy { apiProvider() }
+    // BUG-2026-09-14-029：构造期不得解析 API，未配置服务器时也可安全创建队列。
+    // 每条补传按核验过的会话快照取得新客户端，禁止跨登录缓存首次取得的 API。
 
     /** 补传互斥：网络抖动会频繁触发 onlineChanges，不加锁会并发重放同一批记录。 */
     private val syncMutex = Mutex()
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var retryWakeup: Job? = null
 
     private val _pendingCount = MutableStateFlow(0)
 
@@ -86,6 +89,9 @@ class OfflineQueueManager private constructor(
     /** 失败条数（重试耗尽，UI 必须显式告警）。 */
     val failedCount: StateFlow<Int> = _failedCount.asStateFlow()
 
+    private val _canRetry = MutableStateFlow(false)
+    val canRetry: StateFlow<Boolean> = _canRetry.asStateFlow()
+
     private val _lastSyncMessage = MutableStateFlow<String?>(null)
 
     /** 最近一次补传结果的中文摘要（UI 提示条用）。 */
@@ -94,12 +100,14 @@ class OfflineQueueManager private constructor(
     init {
         // 启动即复位进程被杀残留的 syncing，否则这些记录永远补传不出去（静默丢数据）
         scope.launch {
-            runCatching { dao.resetStuckSyncing() }
+            try { syncMutex.withLock { dao.resetStuckSyncing() } } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _lastSyncMessage.value = "本地队列读取失败，记录已保留，请核对后重试"
+                Log.e(TAG, "队列初始化失败", e)
+                return@launch
+            }
             refreshCounts()
-        }
-        // 网络恢复自动补传
-        scope.launch {
-            networkMonitor.onlineChanges.collect { online ->
+            onlineChanges.collect { online ->
                 if (online) syncPending()
             }
         }
@@ -121,12 +129,13 @@ class OfflineQueueManager private constructor(
      *        断网时更不得回退默认仓，否则补传会落到错误仓库。
      * @return true 已确认写入本地队列；false 参数不合法或写库失败（**均不得当作已暂存**）
      */
-    suspend fun enqueue(
+    internal suspend fun enqueue(
         requestId: String,
         operationType: String,
         payload: Any,
         warehouseCode: String?,
-        summary: String
+        summary: String,
+        session: RetrofitClient.SessionSnapshot
     ): Boolean {
         // 仓库必填规则：入队前硬校验，缺失直接拒绝（不静默替换）
         if (warehouseCode.isNullOrBlank()) {
@@ -137,21 +146,39 @@ class OfflineQueueManager private constructor(
             Log.w(TAG, "拒绝入队：requestId 为空")
             return false
         }
+        if (session.ownerServer == null || session.userId == null || session.token.isNullOrBlank()) {
+            _lastSyncMessage.value = "无法核实提交账号，请保留本页并重新登录后重试"
+            return false
+        }
 
         return runCatching {
-            dao.upsert(
-                PendingOperationEntity(
+            val operation = PendingOperationEntity(
                     requestId = requestId,
                     operationType = operationType,
                     payloadJson = gson.toJson(payload),
                     warehouseCode = warehouseCode,
                     summary = summary,
-                    status = PendingOperationEntity.STATUS_PENDING
-                )
+                    status = PendingOperationEntity.STATUS_PENDING,
+                    ownerServer = session.ownerServer,
+                    ownerUserId = session.userId,
+                    needsReview = false
             )
+            if (dao.upsert(operation) == -1L) {
+                val existing = dao.getByRequestId(requestId)
+                if (existing == null || existing.needsReview ||
+                    existing.ownerServer != operation.ownerServer || existing.ownerUserId != operation.ownerUserId ||
+                    existing.payloadJson != operation.payloadJson || existing.operationType != operation.operationType ||
+                    existing.warehouseCode != operation.warehouseCode) return@runCatching false
+                if (existing.status != PendingOperationEntity.STATUS_PENDING &&
+                    existing.status != PendingOperationEntity.STATUS_SYNCING) {
+                    _lastSyncMessage.value = "原记录需人工处理，已保留原状态和失败原因，未重新入队"
+                    return@runCatching false
+                }
+            }
             refreshCounts()
             true
         }.getOrElse { e ->
+            if (e is CancellationException) throw e
             // 写库失败必须让调用方知道：不能返回 true 让 UI 谎称"已暂存"
             Log.e(TAG, "入队失败（数据未暂存，必须告知用户）: ${e.message}", e)
             false
@@ -162,18 +189,23 @@ class OfflineQueueManager private constructor(
 
     /** 手动触发补传（UI"立即重试"按钮与 App 启动时调用）。 */
     fun syncPending() {
-        scope.launch { doSync() }
+        scope.launch {
+            try { doSync() } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                Log.e(TAG, "本地同步未完成，原记录及幂等键已保留", e)
+                _lastSyncMessage.value = "本地同步未完成，记录已保留，请核对后重试"
+            }
+        }
     }
 
-    private suspend fun doSync() {
+    internal suspend fun doSync() {
         // 先确认确实在线：网络回调有系统延迟，避免空发
-        if (!networkMonitor.currentlyOnline()) {
+        if (!currentlyOnline()) {
             _lastSyncMessage.value = "当前离线，${_pendingCount.value} 条已暂存待同步"
             return
         }
 
         syncMutex.withLock {
-            val pending = runCatching { dao.listPending() }.getOrDefault(emptyList())
+            val pending = dao.listPending()
             if (pending.isEmpty()) {
                 refreshCounts()
                 return@withLock
@@ -181,28 +213,58 @@ class OfflineQueueManager private constructor(
 
             var okCount = 0
             var failCount = 0
+            var blockedCount = 0
+            var lastFailure: String? = null
+            var lastFailureOwner: PendingOperationEntity? = null
 
             for (op in pending) {
                 // 每条补传前重新确认在线：中途断网应立即停止，剩余保持 pending
-                if (!networkMonitor.currentlyOnline()) break
+                if (!currentlyOnline()) break
+                val session = RetrofitClient.sessionSnapshot()
+                if (!belongsTo(op, session)) {
+                    blockedCount++
+                    continue
+                }
 
-                runCatching { dao.markSyncing(op.requestId) }
+                if (dao.markSyncing(op.requestId) != 1) continue
 
                 val success = try {
-                    replay(op)
+                    replay(op, session)
+                } catch (e: CancellationException) {
+                    // 留 syncing 由下次启动安全复位，不把取消当成业务拒绝或另一次提交。
+                    throw e
+                } catch (e: AuthenticationRequired) {
+                    lastFailureOwner = op
+                    lastFailure = "请使用原账号重新登录或核对权限后重试：${e.message}"
+                    check(dao.markFailed(op.requestId, PendingOperationEntity.STATUS_AUTH_REQUIRED,
+                        op.attemptCount, lastFailure) == 1)
+                    failCount++
+                    continue
+                } catch (e: RetryLater) {
+                    lastFailureOwner = op
+                    lastFailure = "服务端暂时限流，稍后重试：${e.message}"
+                    markFailure(op, lastFailure, nextRetryAt = e.nextRetryAt)
+                    failCount++
+                    continue
                 } catch (e: BusinessException) {
+                    lastFailureOwner = op
+                    lastFailure = e.message
                     // 业务类失败：重试无意义，直接判失败并保留服务端给出的中文原因
                     markFailure(op, e.message ?: "服务端拒绝该请求", forceFail = true)
                     failCount++
                     continue
                 } catch (e: Exception) {
+                    lastFailureOwner = op
+                    lastFailure = e.message
                     markFailure(op, e.message ?: "网络不可用")
                     failCount++
                     continue
                 }
 
                 if (success) {
-                    runCatching { dao.deleteByRequestId(op.requestId) }
+                    if (dao.deleteByRequestId(op.requestId) != 1) {
+                        throw IOException("已收到成功响应但本地记录未清除，请核对后重试；原幂等键已保留")
+                    }
                     okCount++
                 } else {
                     // BUG-2026-09-12-008：replay 返回 false 表示"重放无意义"的确定性失败
@@ -219,8 +281,13 @@ class OfflineQueueManager private constructor(
                 }
             }
 
-            refreshCounts()
-            _lastSyncMessage.value = buildSummary(okCount, failCount, pending.size)
+            val reviewCount = refreshCounts()
+            val current = RetrofitClient.sessionSnapshot()
+            _lastSyncMessage.value = buildSummary(okCount, failCount, pending.size - blockedCount) +
+                (if (blockedCount > 0) "；$blockedCount 条归属与当前登录不符，已保留待原账号处理" else "") +
+                (if (reviewCount > 0) "；$reviewCount 条历史记录待人工核对归属，禁止自动补传" else "") +
+                (lastFailure?.takeIf { lastFailureOwner?.let { belongsTo(it, current) } == true }
+                    ?.let { "；$it" } ?: "")
         }
     }
 
@@ -232,7 +299,9 @@ class OfflineQueueManager private constructor(
      *         BUG-2026-09-12-008）——绝不可直接丢弃返回值。
      * @throws WmsRepository.BusinessException 服务端明确业务拒绝
      */
-    private suspend fun replay(op: PendingOperationEntity): Boolean {
+    private suspend fun replay(op: PendingOperationEntity, session: RetrofitClient.SessionSnapshot): Boolean {
+        check(belongsTo(op, session)) { "账号或服务器与原提交不符，已保留记录" }
+        val api = apiProvider(session)
         val response: Response<ApiEnvelope<SubmitResult>> = when (op.operationType) {
             PendingOperationEntity.TYPE_INBOUND -> {
                 val body = gson.fromJson(op.payloadJson, InboundRequest::class.java)
@@ -261,20 +330,41 @@ class OfflineQueueManager private constructor(
         // 4xx 视为业务拒绝（重试无意义），5xx / 网络异常视为临时故障（可重试）
         val code = response.code()
         val msg = runCatching {
-            response.body()?.displayMessage()
+            response.body()?.displayMessage() ?: response.errorBody()?.string()?.let {
+                gson.fromJson(it, ApiEnvelope::class.java)?.displayMessage()
+            }
         }.getOrNull() ?: "服务端返回 $code"
 
-        if (code in 400..499) {
+        if (code == 429) {
+            val now = System.currentTimeMillis()
+            val header = response.headers()["Retry-After"]
+            val deadline = header?.toLongOrNull()?.coerceIn(1, (Long.MAX_VALUE - now) / 1000)
+                ?.let { now + it * 1000 } ?: header?.let {
+                    runCatching { ZonedDateTime.parse(it, DateTimeFormatter.RFC_1123_DATE_TIME)
+                        .toInstant().toEpochMilli() }.getOrNull()
+                } ?: (now + (30_000L shl op.attemptCount.coerceIn(0, 5)))
+            throw RetryLater(msg, maxOf(now + 1000, deadline))
+        }
+        if (code == 401 || code == 403) throw AuthenticationRequired(msg)
+        if (code in 400..499 || response.isSuccessful) {
             throw BusinessException(msg)
         }
         throw Exception(msg)
     }
 
+    private fun belongsTo(op: PendingOperationEntity, session: RetrofitClient.SessionSnapshot): Boolean =
+        !op.needsReview && !session.token.isNullOrBlank() && session.userId != null &&
+            op.ownerServer != null && op.ownerServer == session.ownerServer && op.ownerUserId == session.userId
+
+    private class AuthenticationRequired(message: String) : Exception(message)
+    private class RetryLater(message: String, val nextRetryAt: Long) : Exception(message)
+
     /** 记录一次失败：累计次数，未达上限回 pending 等下次，达上限转 failed 显式告警。 */
     private suspend fun markFailure(
         op: PendingOperationEntity,
         error: String,
-        forceFail: Boolean = false
+        forceFail: Boolean = false,
+        nextRetryAt: Long = 0
     ) {
         val attempts = op.attemptCount + 1
         val exhausted = forceFail || attempts >= PendingOperationEntity.MAX_ATTEMPTS
@@ -282,14 +372,13 @@ class OfflineQueueManager private constructor(
             if (exhausted) PendingOperationEntity.STATUS_FAILED
             else PendingOperationEntity.STATUS_PENDING
 
-        runCatching {
-            dao.markFailed(
+        check(dao.markFailed(
                 requestId = op.requestId,
                 nextStatus = nextStatus,
                 attemptCount = attempts,
-                error = error
-            )
-        }.onFailure { Log.e(TAG, "标记失败状态出错: ${it.message}", it) }
+                error = error,
+                nextRetryAt = if (exhausted) 0 else nextRetryAt
+            ) == 1) { "失败状态未写入，原记录已保留" }
 
         if (exhausted) {
             Log.w(TAG, "补传放弃（已试 $attempts 次）: ${op.summary} / $error")
@@ -305,22 +394,26 @@ class OfflineQueueManager private constructor(
      * 具体原因由每条记录的 lastError 承载，UI 侧失败列表可见。
      */
     private fun buildSummary(ok: Int, fail: Int, total: Int): String = when {
+        total == 0 -> "本次没有可补传记录"
         ok == total -> "已同步 $ok 条离线记录"
         ok > 0 -> "已同步 $ok 条，$fail 条待重试"
-        else -> "$fail 条同步失败，已保留在本机待处理（详见失败列表）"
+        else -> "$fail 条同步失败，已保留在本机待处理"
     }
 
     /** 人工重试失败记录（UI"重试"按钮）。 */
     fun retryFailed(requestId: String? = null) {
         scope.launch {
-            runCatching {
-                if (requestId == null) {
-                    dao.listAll()
-                        .filter { it.isFailed }
-                        .forEach { dao.resetToPending(it.requestId) }
-                } else {
-                    dao.resetToPending(requestId)
-                }
+            val session = RetrofitClient.sessionSnapshot()
+            val server = session.ownerServer ?: return@launch
+            val userId = session.userId ?: return@launch
+            try {
+                dao.listAll().filter { it.isFailed && belongsTo(it, session) &&
+                    (requestId == null || it.requestId == requestId) }
+                    .forEach { dao.resetToPending(it.requestId, server, userId) }
+            } catch (e: CancellationException) { throw e } catch (e: Exception) {
+                _lastSyncMessage.value = "重试状态未保存，原记录已保留，请稍后再试"
+                Log.e(TAG, "人工重试未完成", e)
+                return@launch
             }
             syncPending()
         }
@@ -330,10 +423,30 @@ class OfflineQueueManager private constructor(
         _lastSyncMessage.value = null
     }
 
-    private suspend fun refreshCounts() {
-        runCatching {
+    private suspend fun refreshCounts(): Int {
+        return try {
             _pendingCount.value = dao.countPending()
             _failedCount.value = dao.countFailed()
+            val rows = dao.listAll()
+            val session = RetrofitClient.sessionSnapshot()
+            _canRetry.value = rows.any { belongsTo(it, session) && (it.isFailed || it.status == PendingOperationEntity.STATUS_PENDING) }
+            val now = System.currentTimeMillis()
+            val next = rows.filter { belongsTo(it, session) && it.status == PendingOperationEntity.STATUS_PENDING && it.nextRetryAt > now }
+                .minOfOrNull { it.nextRetryAt }
+            retryWakeup?.cancel()
+            retryWakeup = next?.let { deadline -> scope.launch {
+                delay(maxOf(1, deadline - System.currentTimeMillis()))
+                syncPending()
+            } }
+            val reviewCount = rows.count { it.needsReview }
+            _lastSyncMessage.value = if (reviewCount > 0)
+                "$reviewCount 条历史记录待人工核对归属，禁止自动补传"
+            else rows.firstOrNull { belongsTo(it, session) && it.isFailed }?.lastError
+            reviewCount
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            _lastSyncMessage.value = "本地队列读取失败，不能确认待同步数量，请保留记录并核对"
+            Log.e(TAG, "读取队列计数失败", e)
+            0
         }
     }
 
@@ -343,14 +456,14 @@ class OfflineQueueManager private constructor(
         @Volatile
         private var instance: OfflineQueueManager? = null
 
-        fun getInstance(
-            context: Context,
+        internal fun getInstance(
             dao: PendingOperationDao,
-            apiProvider: () -> WmsApiService,
+            apiProvider: (RetrofitClient.SessionSnapshot) -> WmsApiService,
             networkMonitor: NetworkMonitor
         ): OfflineQueueManager {
             return instance ?: synchronized(this) {
-                instance ?: OfflineQueueManager(context, dao, apiProvider, networkMonitor)
+                instance ?: OfflineQueueManager(dao, apiProvider, networkMonitor::currentlyOnline,
+                    networkMonitor.onlineChanges)
                     .also { instance = it }
             }
         }

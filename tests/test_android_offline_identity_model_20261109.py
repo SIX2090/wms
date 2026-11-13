@@ -33,31 +33,26 @@ class AndroidOfflineIdentityModel(unittest.TestCase):
         self.entity = (BASE / 'local/PendingOperationEntity.kt').read_text(encoding='utf-8')
         self.client = (BASE / 'api/RetrofitClient.kt').read_text(encoding='utf-8')
 
-    def test_record_has_no_identity_but_cached_api_is_now_session_bound(self):
-        # Queue ownership remains a separate unfinished task. The repaired
-        # transport must nevertheless reject an API object from another session.
+    def test_record_identity_is_explicit_and_transport_is_session_bound(self):
         fields = self.entity.split('data class PendingOperationEntity(', 1)[1].split(') {', 1)[0]
-        self.assertNotIn('owner_server', fields)
+        for column in ('owner_server', 'owner_user_id', 'needs_review'):
+            self.assertTrue(column in fields, column)
         self.assertIn('.tag(SessionSnapshot::class.java, session)', self.client)
         self.assertIn('if (apiRequest && (!trusted || !current))', self.client)
         self.assertIn('throw IOException(', self.client)
 
-    def test_first_sync_after_switch_uses_new_origin_for_old_unowned_row(self):
-        self.assertIn('private val api: WmsApiService by lazy { apiProvider() }', self.queue)
-        self.assertIn('api.submitInbound(op.requestId, body)', self.queue)
-        row = {'requestId': 'synthetic-old', 'payload': 'synthetic-A'}
-        current = {'base': 'synthetic-B', 'account': 'synthetic-user-B'}
-        # No ownership fields exist in the entity; first lazy resolution uses
-        # the current session rather than the original submitter's identity.
-        replay = (current['base'], current['account'], row['requestId'], row['payload'])
-        self.assertEqual(replay, ('synthetic-B', 'synthetic-user-B', 'synthetic-old', 'synthetic-A'))
+    def test_first_sync_checks_owner_and_never_reuses_cached_api(self):
+        self.assertTrue('by lazy { apiProvider() }' not in self.queue)
+        self.assertTrue('if (!belongsTo(op, session))' in self.queue)
+        self.assertTrue('val api = apiProvider(session)' in self.queue)
+        self.assertTrue('op.ownerServer == session.ownerServer && op.ownerUserId == session.userId' in self.queue)
 
     def test_login_never_attaches_previous_session_credential(self):
         self.assertIn('!request.url.encodedPath.endsWith("/api/login")', self.client)
         self.assertIn('if (baseUrl != url) authToken = null', self.client)
         repository = (BASE / 'repository/WmsRepository.kt').read_text(encoding='utf-8')
-        self.assertIn('RetrofitClient.setSession(baseUrl, token)', repository)
-        self.assertIn('RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected)', repository)
+        self.assertIn('RetrofitClient.setSession(baseUrl, token, userId)', repository)
+        self.assertIn('RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected, getSavedUserId())', repository)
 
     def test_late_401_is_bound_to_origin_and_generation(self):
         self.assertIn('sameOrigin(response.request.url, session.server)', self.client)
@@ -83,67 +78,44 @@ class AndroidOfflineIdentityModel(unittest.TestCase):
         self.assertIn('late401CannotClearAnotherAccountOnSameServer', runtime)
         self.assertIn('cachedApiSnapshotIsRejectedAfterSwitchBeforeSending', runtime)
 
-    def test_429_is_in_current_all_4xx_business_failure_branch(self):
-        self.assertIn('if (code in 400..499)', self.queue)
-        self.assertIn('throw BusinessException(msg)', self.queue)
-        self.assertIn('markFailure(op, e.message ?: "服务端拒绝该请求", forceFail = true)', self.queue)
-        self.assertTrue(400 <= 429 <= 499)
+    def test_429_is_retryable_before_the_business_failure_branch(self):
+        self.assertLess(self.queue.index('code == 429'), self.queue.index('if (code in 400..499'))
+        self.assertTrue('throw RetryLater(' in self.queue)
+        self.assertTrue('response.headers()["Retry-After"]' in self.queue)
+        self.assertTrue('nextRetryAt = e.nextRetryAt' in self.queue)
 
-    def test_legacy_rebuild_model_discards_review_and_requeues_unknown_owner(self):
-        database_source = (BASE / 'local/AppDatabase.kt').read_text(encoding='utf-8')
+    def test_legacy_records_are_not_reset_and_database_open_cannot_rebuild(self):
+        database = (BASE / 'local/AppDatabase.kt').read_text(encoding='utf-8')
         dao = (BASE / 'local/PendingOperationDao.kt').read_text(encoding='utf-8')
-        self.assertIn('appContext.deleteDatabase(DB_NAME)', database_source)
-        self.assertIn('restorePendingOperations(rebuilt, backup)', database_source)
-        self.assertIn('WHERE status = :pending ORDER BY created_at ASC', dao)
-        db = sqlite3.connect(':memory:')
-        self.addCleanup(db.close)
-        db.execute('CREATE TABLE pending_operations(request_id TEXT PRIMARY KEY, payload_json TEXT, '
-                   'status TEXT, attempt_count INTEGER, last_error TEXT, owner TEXT, server TEXT, '
-                   'needs_review INTEGER NOT NULL)')
-        db.execute("INSERT INTO pending_operations VALUES('synthetic-old','{\"qty\":1}',"
-                   "'pending',2,'lost response',NULL,NULL,1)")
-        # Model the old client's fixed-column backup and v2 rebuild, using only
-        # an in-memory table; the real Room downgrade cannot be run here.
-        legacy = db.execute('SELECT request_id,payload_json,status,attempt_count,last_error '
-                            'FROM pending_operations').fetchall()
-        db.execute('DROP TABLE pending_operations')
-        db.execute('CREATE TABLE pending_operations(request_id TEXT PRIMARY KEY, payload_json TEXT, '
-                   'status TEXT, attempt_count INTEGER, last_error TEXT)')
-        db.executemany('INSERT INTO pending_operations VALUES(?,?,?,?,?)', legacy)
-        self.assertEqual(db.execute("SELECT request_id FROM pending_operations WHERE status='pending'")
-                         .fetchall(), [('synthetic-old',)])
-        columns = {row[1] for row in db.execute('PRAGMA table_info(pending_operations)')}
-        self.assertNotIn('needs_review', columns)
-        self.assertEqual(db.execute('SELECT * FROM pending_operations').fetchone(), legacy[0])
+        self.assertTrue('deleteDatabase(DB_NAME)' not in database)
+        self.assertTrue('throw e' in database)
+        self.assertTrue('WHERE status = :syncing AND needs_review = 0' in dao)
+        self.assertTrue('WHERE request_id = :requestId AND needs_review = 0' in dao)
+        factory = (BASE / 'local/PreservingSQLiteOpenHelperFactory.kt').read_text(encoding='utf-8')
+        self.assertTrue('override fun onCorruption' in factory)
+        self.assertTrue('.allowDataLossOnRecovery(false)' in factory)
 
-    def test_error_response_model_loses_specific_message(self):
-        replay = self.queue.split('private suspend fun replay(', 1)[1].split('private suspend fun markFailure(', 1)[0]
-        self.assertIn('response.body()?.displayMessage()', replay)
-        self.assertNotIn('response.errorBody()', replay)
-        fake_body = None  # Retrofit error responses carry content in errorBody, not body.
-        fake_error_body = '{"status":"error","msg":"synthetic warehouse permission"}'
-        displayed = fake_body or '服务端返回 403'
-        self.assertEqual(displayed, '服务端返回 403')
-        self.assertIn('synthetic warehouse permission', fake_error_body)
+    def test_error_response_message_is_read_from_real_error_body(self):
+        replay = self.queue.split('private suspend fun replay(', 1)[1].split('private fun belongsTo(', 1)[0]
+        self.assertTrue('response.body()?.displayMessage()' in replay)
+        self.assertTrue('response.errorBody()?.string()' in replay)
+        self.assertTrue('gson.fromJson(it, ApiEnvelope::class.java)?.displayMessage()' in replay)
+        self.assertTrue('code == 401 || code == 403' in replay)
 
-    def test_source_ignores_queue_mark_and_delete_failures(self):
-        self.assertIn('runCatching { dao.markSyncing(op.requestId) }', self.queue)
-        self.assertIn('runCatching { dao.deleteByRequestId(op.requestId) }', self.queue)
-        self.assertLess(self.queue.index('runCatching { dao.markSyncing(op.requestId) }'),
-                        self.queue.index('replay(op)'))
-        dao = (BASE / 'local/PendingOperationDao.kt').read_text(encoding='utf-8')
-        self.assertIn('WHERE status = :syncing', dao)
-        self.assertIn('runCatching { dao.resetStuckSyncing() }', self.queue)
+    def test_queue_checks_storage_outcomes_and_rejects_overwrite(self):
+        self.assertTrue('if (dao.markSyncing(op.requestId) != 1)' in self.queue)
+        self.assertTrue('if (dao.deleteByRequestId(op.requestId) != 1)' in self.queue)
+        self.assertTrue('if (dao.upsert(operation) == -1L)' in self.queue)
+        self.assertTrue('existing.payloadJson != operation.payloadJson' in self.queue)
 
-    def test_source_has_generic_catch_without_cancellation_exemption(self):
+    def test_cancellation_is_not_converted_to_another_offline_operation(self):
         repository = (BASE / 'repository/WmsRepository.kt').read_text(encoding='utf-8')
         fallback = repository.split('private suspend fun submitWithOfflineFallback(', 1)[1].split(
             '/** 按作业类型写入本地操作日志', 1)[0]
-        self.assertIn('catch (e: Exception)', fallback)
-        self.assertNotIn('catch (e: CancellationException)', fallback)
-        sync = self.queue.split('private suspend fun doSync()', 1)[1].split('private suspend fun replay(', 1)[0]
-        self.assertIn('catch (e: Exception)', sync)
-        self.assertNotIn('catch (e: CancellationException)', sync)
+        self.assertTrue('catch (e: CancellationException)' in fallback)
+        self.assertLess(fallback.index('catch (e: CancellationException)'), fallback.index('catch (e: IOException)'))
+        self.assertTrue('session = session' in fallback)
+        self.assertTrue('catch (e: CancellationException)' in self.queue)
 
     def test_synthetic_migration_preserves_old_payload_and_marks_manual_review(self):
         db = sqlite3.connect(':memory:')

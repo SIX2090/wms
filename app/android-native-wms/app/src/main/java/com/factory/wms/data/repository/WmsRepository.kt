@@ -30,6 +30,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import retrofit2.Response
 import java.util.UUID
+import java.io.IOException
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "wms_settings")
 
@@ -43,8 +44,7 @@ class WmsRepository(
         get() = RetrofitClient.apiService
     // BUG-2026-09-13-023：本地数据层（Room）失败不应导致 App 无法启动。
     // 本类由 AppNavGraph 组合期的 11 个 ViewModel 同时构造，构造期抛异常 = 闪退。
-    // 本地库存物料缓存、操作日志（可重建）与离线待传队列（不可重建——
-    // 删库重建路径会备份/回补，见 AppDatabase BUG-2026-09-21-005）。
+    // 本地库存物料缓存、操作日志可重建，离线待传队列不可重建；打开失败保留原库。
     // 故降级为"无本地缓存"继续运行；离线队列在 db 为空时不可用（降级为直连模式）。
     private val db: AppDatabase? = try {
         AppDatabase.getDatabase(context)
@@ -76,9 +76,8 @@ class WmsRepository(
     val offlineQueue: OfflineQueueManager? by lazy {
         val dao = pendingOperationDao ?: return@lazy null
         OfflineQueueManager.getInstance(
-            context,
             dao,
-            { api },
+            { session -> RetrofitClient.apiServiceFor(session) },
             NetworkMonitor.getInstance(context)
         )
     }
@@ -177,6 +176,8 @@ class WmsRepository(
         private const val SECURE_PREFS_NAME = "wms_secure_prefs"
         private val KEY_BASE_URL = stringPreferencesKey("base_url")
         private val KEY_USERNAME = stringPreferencesKey("username")
+        private const val KEY_USER_ID = "owner_user_id"
+        private const val KEY_TOKEN_SERVER = "token_server"
         private val KEY_ROLE = stringPreferencesKey("role")
         // BUG-2026-09-03-003 断点续盘：盘点草稿 JSON（DataStore）
         private val KEY_STOCKTAKE_DRAFT = stringPreferencesKey("stocktake_draft")
@@ -241,6 +242,9 @@ class WmsRepository(
     }
 
     suspend fun getSavedBaseUrl(): String? {
+        // 与 token 同一次加密偏好写入的来源优先；DataStore 失败不能混用旧服务器。
+        val secured = runCatching { encryptedPrefs?.getString(KEY_TOKEN_SERVER, null) }.getOrNull()
+        if (!secured.isNullOrBlank()) return secured
         return withDataStoreFallback(null) {
             context.dataStore.data.map { it[KEY_BASE_URL] }.first()
         }
@@ -352,18 +356,30 @@ class WmsRepository(
     suspend fun ensureSession() {
         val expected = RetrofitClient.sessionSnapshot()
         if (expected.server.isNotBlank()) return
-        val savedBaseUrl = getSavedBaseUrl()
-        if (savedBaseUrl.isNullOrBlank()) return
-        val savedToken = getSavedToken()
-        RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected)
+        restoreSavedSession(expected)
     }
 
-    suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String) {
+    internal suspend fun restoreSavedSession(expected: RetrofitClient.SessionSnapshot): Boolean =
+        authenticationMutex.withLock {
+            val savedBaseUrl = getSavedBaseUrl()
+            if (savedBaseUrl.isNullOrBlank()) return@withLock false
+            val savedToken = getSavedToken()
+            val restored = RetrofitClient.restoreSession(savedBaseUrl, savedToken, expected, getSavedUserId())
+            if (restored) offlineQueue?.syncPending()
+            restored
+        }
+
+    suspend fun getSavedUserId(): Int? = runCatching {
+        encryptedPrefs?.getInt(KEY_USER_ID, 0)?.takeIf { it > 0 }
+    }.getOrNull()
+
+    suspend fun saveLoginInfo(token: String, baseUrl: String, username: String, role: String, userId: Int? = null) {
         authenticationMutex.withLock {
             // Token stored in EncryptedSharedPreferences
             // 写失败不阻断登录：内存态 token 已足够本次会话使用，仅"下次冷启动需重新登录"。
             try {
-                encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)?.apply()
+                encryptedPrefs?.edit()?.putString(KEY_TOKEN, token)
+                    ?.putString(KEY_TOKEN_SERVER, baseUrl)?.putInt(KEY_USER_ID, userId ?: 0)?.apply()
             } catch (e: Exception) {
                 android.util.Log.w("WmsRepo", "保存 token 失败（本次会话仍可用）: ${e.message}")
             }
@@ -375,8 +391,9 @@ class WmsRepository(
                     it[KEY_ROLE] = role
                 }
             }
-            RetrofitClient.setSession(baseUrl, token)
+            RetrofitClient.setSession(baseUrl, token, userId)
         }
+        offlineQueue?.syncPending()
     }
 
     suspend fun logout(expectedGeneration: Long? = null): Boolean = authenticationMutex.withLock {
@@ -429,7 +446,8 @@ class WmsRepository(
             if (response.isSuccessful) {
                 val envelope = response.body()
                 if (envelope != null && envelope.isOk() && envelope.data != null) {
-                    saveLoginInfo(envelope.data.token, baseUrl, username, envelope.data.user.role ?: "")
+                    saveLoginInfo(envelope.data.token, baseUrl, envelope.data.user.username,
+                        envelope.data.user.role ?: "", envelope.data.user.id)
                     Result.success(envelope.data)
                 } else {
                     Result.failure(Exception(envelope?.displayMessage() ?: "登录失败"))
@@ -607,7 +625,7 @@ class WmsRepository(
             lineCount = request.lines.size,
             label = "入库",
             requestId = requestId
-        ) { requestId -> api.submitInbound(requestId, request) }
+        ) { api, requestId -> api.submitInbound(requestId, request) }
     }
 
     suspend fun submitOutbound(request: OutboundRequest, requestId: String = newRequestId(), replay: Boolean = false): Result<SubmitResult> {
@@ -618,7 +636,7 @@ class WmsRepository(
             lineCount = request.lines.size,
             label = "出库",
             requestId = requestId
-        ) { requestId ->
+        ) { api, requestId ->
             if (!replay) handleResponse<OutboundPreflightResult>(api.preflightOutbound(request)).getOrThrow()
             api.submitOutbound(requestId, request)
         }
@@ -631,7 +649,7 @@ class WmsRepository(
             warehouseCode = request.warehouseCode ?: request.warehouse,
             lineCount = request.lines.size,
             label = "盘点"
-        ) { requestId -> api.submitStocktake(requestId, request) }
+        ) { api, requestId -> api.submitStocktake(requestId, request) }
     }
 
     /**
@@ -664,10 +682,13 @@ class WmsRepository(
         lineCount: Int,
         label: String,
         requestId: String = newRequestId(),
-        call: suspend (String) -> Response<ApiEnvelope<SubmitResult>>
+        call: suspend (WmsApiService, String) -> Response<ApiEnvelope<SubmitResult>>
     ): Result<SubmitResult> {
+        // 原始请求、出库预检及失败暂存共用同一身份快照，不能在挂起后借用新账号。
+        val session = RetrofitClient.sessionSnapshot()
         return try {
-            val response = call(requestId)
+            val submitApi = RetrofitClient.apiServiceFor(session)
+            val response = call(submitApi, requestId)
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = { submitResult ->
@@ -676,10 +697,12 @@ class WmsRepository(
                 onFailure = { }
             )
             result
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: BusinessException) {
             // 业务拒绝：不回退队列，原样交给 UI 展示服务端原因
             Result.failure(e)
-        } catch (e: Exception) {
+        } catch (e: IOException) {
             // 网络类失败：尝试入队暂存
             // BUG-2026-09-13-023：本地库不可用时 offlineQueue 为 null（降级为无离线能力），
             // 此时按"暂存失败"处理，明确告知用户数据未保住，绝不能谎报已暂存。
@@ -689,7 +712,8 @@ class WmsRepository(
                 operationType = operationType,
                 payload = payload,
                 warehouseCode = warehouseCode,
-                summary = "$label $lineCount 项"
+                summary = "$label $lineCount 项",
+                session = session
             )
             if (queued) {
                 Result.failure(OfflineQueuedException(label))
@@ -702,6 +726,8 @@ class WmsRepository(
                     Exception("提交失败且本地暂存未成功，请保持本页重试（原因：${e.message}）")
                 )
             }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 

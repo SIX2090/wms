@@ -54,7 +54,7 @@ def _fn_body(src: str, signature: str) -> str:
 
 def test_008_replay_false_branch_writes_back_status():
     """replay 返回 false 的分支必须调用 markFailure 回写状态，不能只 failCount++。"""
-    body = _fn_body(_read(QUEUE), "private suspend fun doSync()")
+    body = _fn_body(_read(QUEUE), "internal suspend fun doSync()")
     assert "if (success) {" in body, "doSync 应保留成功/失败分支结构"
     else_idx = body.index("} else {")
     tail = body[else_idx:]
@@ -68,7 +68,7 @@ def test_008_replay_false_branch_writes_back_status():
 
 def test_008_no_bare_failcount_in_else_branch():
     """反向断言：禁止回到"只 failCount++ 不回写"的旧写法。"""
-    body = _fn_body(_read(QUEUE), "private suspend fun doSync()")
+    body = _fn_body(_read(QUEUE), "internal suspend fun doSync()")
     else_idx = body.index("} else {")
     tail = body[else_idx:]
     tail = tail[:tail.index("\n            }")] if "\n            }" in tail else tail
@@ -295,7 +295,7 @@ def test_011_application_warms_up_offline_queue():
 
 def test_no_syncing_written_without_writeback_paths():
     """doSync 内经 markSyncing 后，每条出口都必须落回 pending/failed/删除。"""
-    body = _fn_body(_read(QUEUE), "private suspend fun doSync()")
+    body = _fn_body(_read(QUEUE), "internal suspend fun doSync()")
     assert body.count("markSyncing(") == 1, "markSyncing 应集中在一处调用，便于保证出口完整"
     # 三条出口：成功删除、业务失败回写、未知类型回写
     assert "deleteByRequestId(" in body, "成功路径应删除记录"

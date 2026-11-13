@@ -919,7 +919,9 @@ fun PendingSyncBanner(
     pendingCount: Int,
     failedCount: Int,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    message: String? = null,
+    canRetry: Boolean = true
 ) {
     if (pendingCount <= 0 && failedCount <= 0) return
 
@@ -944,22 +946,22 @@ fun PendingSyncBanner(
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (isFailed) "$failedCount 条同步失败" else "$pendingCount 条待同步",
+                if (isFailed) "$failedCount 条需处理" else "$pendingCount 条待同步",
                 color = accent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                if (isFailed) {
-                    "已重试多次仍失败，请检查网络后点「重试」，或联系管理员"
+                message ?: if (isFailed) {
+                    "记录已保留，请核对失败原因；历史归属不明的记录需联系管理员处理"
                 } else {
-                    "数据已保存，联网后自动提交，无需重做"
+                    "数据已保存，仅原账号连接原服务器时补传，无需重做"
                 },
                 color = accent.copy(alpha = 0.85f),
                 fontSize = 11.sp
             )
         }
-        if (isFailed) {
+        if (canRetry) {
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 "重试",

@@ -74,13 +74,15 @@ def test_repository_offline_queue_is_nullable_when_db_unavailable():
     assert "val queued = queue != null && queue.enqueue(" in source
 
 
-def test_app_database_recovers_by_recreating_corrupted_file():
-    """建库失败时先删库重建一次（本地库为可重建缓存）。"""
+def test_app_database_preserves_corrupted_file_and_repository_degrades():
+    """队列不可重建：打开失败保留原库，上层仍须降级而不崩溃。"""
     source = _read(APP_DATABASE)
     assert 'private const val DB_NAME = "wms_database"' in source
     assert "private fun buildDatabase(context: Context): AppDatabase" in source
-    assert "建库失败，尝试删除本地库重建" in source
-    assert "appContext.deleteDatabase(DB_NAME)" in source
+    assert "原库已保留" in source
+    assert "throw e" in source
+    assert "appContext.deleteDatabase(DB_NAME)" not in source
+    assert "本地数据库不可用，已降级为无本地缓存" in _read(REPOSITORY)
 
 
 def test_auth_view_model_init_cannot_kill_process():

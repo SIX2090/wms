@@ -68,7 +68,17 @@ object DatabaseMigrations {
      * "variable 'MIGRATION_1_2' must be initialized"（BUG-2026-09-12-006）。
      * 新增迁移时请追加到本行之前，切勿把本条上移。
      */
+    internal val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            // 不推断旧队列归属，不改原状态、失败信息或请求体。
+            db.execSQL("ALTER TABLE `pending_operations` ADD COLUMN `owner_server` TEXT")
+            db.execSQL("ALTER TABLE `pending_operations` ADD COLUMN `owner_user_id` INTEGER")
+            db.execSQL("ALTER TABLE `pending_operations` ADD COLUMN `needs_review` INTEGER NOT NULL DEFAULT 1")
+            db.execSQL("ALTER TABLE `pending_operations` ADD COLUMN `next_retry_at` INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL: Array<Migration> = arrayOf(
-        MIGRATION_1_2
+        MIGRATION_1_2, MIGRATION_2_3
     )
 }

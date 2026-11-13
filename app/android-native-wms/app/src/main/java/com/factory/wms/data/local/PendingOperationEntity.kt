@@ -21,7 +21,7 @@ import androidx.room.PrimaryKey
  * 重放时携带**同一个** `X-Idempotency-Key` 请求头，后端 `mobile_api_idempotent`
  * （见 `app/app.py`）命中历史成功记录会直接回放原响应。因此即使用户在弱网下
  * 反复点击、或补传与手动提交并发，**都不会产生重复单据**。
- * 用主键唯一约束做本地去重，同一 requestId 重复入队只会覆盖，不会新增。
+ * 用主键唯一约束做本地去重，同一 requestId 不覆盖原记录；归属或内容不符则拒绝。
  *
  * ## 边界（AGENTS.md §一 / R5）
  *
@@ -98,15 +98,30 @@ data class PendingOperationEntity(
 
     /** 最后状态变更时间。 */
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+
+    /** 创建请求时的完整服务地址及服务端用户 ID；绝不持久化令牌。 */
+    @ColumnInfo(name = "owner_server")
+    val ownerServer: String? = null,
+
+    @ColumnInfo(name = "owner_user_id")
+    val ownerUserId: Int? = null,
+
+    /** 旧无归属记录单独隔离；保留原 status/payload/requestId/错误及次数。 */
+    @ColumnInfo(name = "needs_review", defaultValue = "1")
+    val needsReview: Boolean = true,
+
+    @ColumnInfo(name = "next_retry_at", defaultValue = "0")
+    val nextRetryAt: Long = 0
 ) {
 
-    val isFailed: Boolean get() = status == STATUS_FAILED
+    val isFailed: Boolean get() = status == STATUS_FAILED || status == STATUS_AUTH_REQUIRED || needsReview
 
     companion object {
         const val STATUS_PENDING = "pending"
         const val STATUS_SYNCING = "syncing"
         const val STATUS_FAILED = "failed"
+        const val STATUS_AUTH_REQUIRED = "auth_required"
 
         const val TYPE_INBOUND = "inbound"
         const val TYPE_OUTBOUND = "outbound"
