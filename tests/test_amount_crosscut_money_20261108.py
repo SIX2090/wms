@@ -6,6 +6,7 @@ from pathlib import Path
 import socket
 import sqlite3
 import subprocess
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -93,7 +94,17 @@ class CrosscutMoneyRegression(unittest.TestCase):
 
     def test_web_after_sale_amount(self):
         expr = assignment_expression('app/routes/after_sale_out.py', 'add_after_sale_out_order', 'amount')
+        # The real assignment now distinguishes a new/revalued row from an
+        # unchanged owned row. Evaluate both with their actual local context.
+        self.scope.update(old_item=None, row_financial_change=True)
         self.assertEqual(self.evaluate(expr), self.expected_amount())
+        for recorded_amount in (0, 4.02, 7.77):
+            with self.subTest(recorded_amount=recorded_amount):
+                self.scope.update(old_item=SimpleNamespace(amount=recorded_amount),
+                                  row_financial_change=False)
+                self.assertEqual(self.evaluate(expr), recorded_amount)
+                self.scope['row_financial_change'] = True
+                self.assertEqual(self.evaluate(expr), self.expected_amount())
 
     def test_transfer_detail_amount(self):
         expr = constructor_expression('app/routes/transfer.py', 'add_transfer_item', 'TransferOrderItem', 'amount')
