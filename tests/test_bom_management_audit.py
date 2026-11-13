@@ -6,6 +6,7 @@ import re
 import pytest
 from openpyxl import load_workbook
 from app import app, db, BOM, BOMItem, Material, MaterialCategory, Unit, User
+from tests.document_revision_client import document_post
 
 
 
@@ -20,7 +21,7 @@ def payload(ids, **changes):
 
 def test_bom_save_updates_existing_rows_and_preserves_zero_cost(bom_case):
     client, ids = bom_case
-    response = client.post('/bom/save_table', json=payload(ids))
+    response = document_post(client, '/bom/save_table', json=payload(ids))
     assert response.status_code == 200
     db.session.remove()
     bom = db.session.get(BOM, ids['bom'])
@@ -34,7 +35,7 @@ def test_bom_save_updates_existing_rows_and_preserves_zero_cost(bom_case):
 
 def test_bom_new_duplicate_number_does_not_overwrite_existing(bom_case):
     client, ids = bom_case
-    response = client.post('/bom/save_table', json=payload(ids, order_id=None))
+    response = document_post(client, '/bom/save_table', json=payload(ids, order_id=None))
     assert response.status_code == 200, response.get_json()
     assert response.get_json()['id'] != ids['bom']
     assert response.get_json()['order_no'] != 'BOM-AUDIT'
@@ -47,7 +48,7 @@ def test_bom_new_duplicate_number_does_not_overwrite_existing(bom_case):
 @pytest.mark.parametrize('data', [[], {'header':[]}, {'header':{'product_code':3}, 'items':[{}]}])
 def test_bom_malformed_payload_returns_chinese_validation_error(bom_case, data):
     client, _ = bom_case
-    assert client.post('/bom/save_table', json=data).status_code == 400
+    assert document_post(client, '/bom/save_table', json=data).status_code == 400
 
 
 @pytest.mark.parametrize('quantity', [0, -1, float('inf'), float('nan')])
@@ -55,7 +56,7 @@ def test_bom_invalid_quantity_never_changes_existing_rows(bom_case, quantity):
     client, ids = bom_case
     data = payload(ids)
     data['items'][0]['quantity'] = quantity
-    assert client.post('/bom/save_table', json=data).status_code == 400
+    assert document_post(client, '/bom/save_table', json=data).status_code == 400
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).items[0].quantity == 2
 
@@ -64,7 +65,7 @@ def test_bom_cost_overflow_is_rejected_before_writing(bom_case):
     client, ids = bom_case
     data = payload(ids)
     data['items'][0].update(quantity=1e308, price=1e308)
-    assert client.post('/bom/save_table', json=data).status_code == 400
+    assert document_post(client, '/bom/save_table', json=data).status_code == 400
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).total_cost == 10
 
@@ -73,7 +74,7 @@ def test_prepare_bom_items_rejects_missing_unit_before_writing(bom_case):
     client, ids = bom_case
     data = payload(ids)
     data['items'][0]['unit_id'] = 999999
-    response = client.post('/bom/save_table', json=data)
+    response = document_post(client, '/bom/save_table', json=data)
     assert response.status_code == 400
     assert '单位' in response.get_json()['msg']
     db.session.remove()
@@ -82,7 +83,7 @@ def test_prepare_bom_items_rejects_missing_unit_before_writing(bom_case):
 
 def test_bom_add_item_uses_material_default_unit(bom_case):
     client, ids = bom_case
-    response = client.post(f"/bom/{ids['bom']}/add_item",
+    response = document_post(client, f"/bom/{ids['bom']}/add_item",
                            data={'material_code':'B-M','quantity':'1'})
     assert response.status_code == 200
     db.session.remove()
@@ -93,7 +94,7 @@ def test_bom_stale_material_id_cannot_override_typed_code(bom_case):
     client, ids = bom_case
     data = payload(ids)
     data['items'][0].update(material_id=ids['material'], code='DIFFERENT')
-    assert client.post('/bom/save_table', json=data).status_code == 400
+    assert document_post(client, '/bom/save_table', json=data).status_code == 400
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).items[0].quantity == 2
 
@@ -107,10 +108,10 @@ def test_bom_item_changes_rollback_when_cost_recalculation_fails(bom_case, monke
         raise RuntimeError('isolated cost failure')
     monkeypatch.setattr(app_module, 'calculate_bom_cost_value', fail_cost)
     if action == 'add':
-        response = client.post(f"/bom/{ids['bom']}/add_item",
+        response = document_post(client, f"/bom/{ids['bom']}/add_item",
                                data={'material_code':'B-M','quantity':'1','unit_id':ids['unit']})
     else:
-        response = client.post(f"/bom/{ids['bom']}/delete_item/{item_id}")
+        response = document_post(client, f"/bom/{ids['bom']}/delete_item/{item_id}")
     assert response.status_code >= 400
     db.session.remove()
     items = db.session.get(BOM, ids['bom']).items
@@ -134,7 +135,7 @@ def test_bom_production_permission_is_enforced(bom_case):
     user.role = 'warehouse'
     db.session.commit()
     assert client.get('/bom').status_code == 200
-    assert client.post('/bom/save_table', json=payload(ids)).status_code == 403
+    assert document_post(client, '/bom/save_table', json=payload(ids)).status_code == 403
 
 
 def test_bom_list_uses_complete_editor_and_empty_table_spans_match(bom_case):

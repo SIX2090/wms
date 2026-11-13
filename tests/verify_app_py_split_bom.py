@@ -29,6 +29,7 @@ os.environ.setdefault("WMS_DEBUG", "0")
 
 import app as app_module  # noqa: E402
 from app import db, BOM  # noqa: E402
+from tests.document_revision_client import document_post
 
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
@@ -137,7 +138,7 @@ class TestBomRegister:
         # save_bom_table 走 /bom/save_table 的 JSON 请求，需物料+单位
         client = self._setup()
         _login(client)
-        resp = client.post("/bom/save_table", json={
+        resp = document_post(client, "/bom/save_table", json={
             "order_no": "BOM-TEST-001",
             "product_code": "BP002",
             "product_name": "测试成品2",

@@ -5,6 +5,7 @@ from openpyxl import Workbook
 import app as w
 from tests.test_flow_source_limits import flow_case
 from services.stock_unit_guard import require_stock_unit
+from tests.document_revision_client import document_post
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def test_bom_save_rejects_alternate_stock_unit(unit_case):
     client, ids = unit_case
     body = dict(order_id=ids['bom'], order_no='B1', header=dict(product_code='P1', product_name='产品', version='V1', status='active'),
                 items=[dict(code='M1', quantity=2, unit_id=ids['box'], price=5)])
-    response = client.post('/bom/save_table', json=body)
+    response = document_post(client, '/bom/save_table', json=body)
     assert response.get_json()['status'] == 'error'
     assert '单位' in response.get_json()['msg']
     with w.app.app_context():

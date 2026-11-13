@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
+from tests.document_revision_client import document_post
 
 
 @pytest.fixture
@@ -119,7 +120,7 @@ def test_purchase_request_stores_each_rounded_line_before_total(money_case, quan
 
 def test_bom_cost_and_saved_line_agree_for_half_cent(money_case):
     c = money_case
-    response = c.client.post('/bom/save_table', json={
+    response = document_post(c.client, '/bom/save_table', json={
         'order_id': c.ids['bom'], 'order_no': 'BOM-AUDIT',
         'header': {'product_code': 'B-P', 'product_name': '审计产品', 'version': 'V1', 'status': 'active'},
         'items': [{'code': 'B-M', 'quantity': 1.15, 'unit_id': c.ids['unit'], 'price': 3.5}]})

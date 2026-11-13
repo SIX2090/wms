@@ -29,7 +29,7 @@ function findMaterialByCode(){return material;}
 function getMaterialUnitId(){return 1;} function getMaterialUnit(){return '个';}
 function formatQty(v){return Number(v||0).toFixed(2);} function calcRow(){}
 const window={};eval(fs.readFileSync(require('node:path').join(require('node:path').dirname(JSON.parse(process.argv[1])),'../static/js/decimal-input.js'),'utf8'));const WMS=window.WMS;
-eval(extract('collectItems')+'\n'+extract('fillMaterialFields'));
+eval(extract('bomRecordedFieldUnchanged')+'\n'+extract('collectItems')+'\n'+extract('fillMaterialFields'));
 assert.equal(collectItems().items[0].price,0);
 fillMaterialFields(row,material);assert.equal(fields['.line-price'].value,'0');
 fields['.line-price'].value='';fillMaterialFields(row,material);

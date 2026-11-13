@@ -5,6 +5,7 @@ import re
 import pytest
 from openpyxl import Workbook
 from app import app, db, BOM, BOMItem, Material, ProductionRequisition, Warehouse, User, Unit
+from tests.document_revision_client import document_post
 
 
 def warehouse(code='W-A', default=True, status='active'):
@@ -234,10 +235,10 @@ def test_legacy_header_update_validates_status_and_can_clear_remark(bom_case):
     bom = db.session.get(BOM, ids['bom'])
     bom.remark = '旧备注'
     db.session.commit()
-    assert client.post(f"/bom/{ids['bom']}/update", data={'status':'invalid'}).status_code == 400
+    assert document_post(client, f"/bom/{ids['bom']}/update", data={'status':'invalid'}).status_code == 400
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).status == 'active'
-    assert client.post(f"/bom/{ids['bom']}/update", json={'remark':'','status':'inactive'}).status_code == 200
+    assert document_post(client, f"/bom/{ids['bom']}/update", json={'remark':'','status':'inactive'}).status_code == 200
     db.session.remove()
     assert db.session.get(BOM, ids['bom']).remark == ''
     assert db.session.get(BOM, ids['bom']).status == 'inactive'
@@ -252,7 +253,7 @@ def test_bom_alternate_unit_is_rejected_without_replacing_material_unit(bom_case
     data = {'order_id':ids['bom'], 'order_no':'BOM-AUDIT',
             'header':{'product_code':'B-P','product_name':'审计产品','version':'V1','status':'active'},
             'items':[{'code':'B-M','quantity':3,'unit_id':box_id,'price':0}]}
-    response = client.post('/bom/save_table', json=data)
+    response = document_post(client, '/bom/save_table', json=data)
     assert response.status_code == 400
     assert '库存单位' in response.get_json()['msg']
     db.session.remove()

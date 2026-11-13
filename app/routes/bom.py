@@ -24,7 +24,7 @@ import math
 from zipfile import BadZipFile
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, ValidationError
 
-from flask import jsonify, render_template, request, send_file
+from flask import g, jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
@@ -69,7 +69,45 @@ def _bom_deletion_error(bom):
     return None
 
 
-def _prepare_bom_items(items):
+def _bom_line_id(value):
+    if value is None or value == '':
+        return None
+    if type(value) is int:
+        identity = value
+    elif (isinstance(value, str) and len(value.strip()) <= 19
+          and value.strip().isascii() and value.strip().isdigit()):
+        identity = int(value.strip())
+    else:
+        raise ValueError('BOM明细标识无效')
+    if not 0 < identity < 2**63:
+        raise ValueError('BOM明细标识无效')
+    return identity
+
+
+def _bom_recorded_values_known(item):
+    values = (item.quantity, item.unit_cost, item.total_cost)
+    return (all(value is not None and math.isfinite(value) for value in values)
+            and item.quantity > 0 and item.unit_cost >= 0 and item.total_cost >= 0)
+
+
+def _bom_lock_current(bom):
+    from app import BOM, _acquire_order_write_lock
+    from sqlalchemy.orm import selectinload
+    locked, ok = _acquire_order_write_lock(BOM, bom.id, bom.status, selectinload(BOM.items))
+    return locked if ok else None
+
+
+def _bom_begin_batch_write():
+    # Imports/batch commands have no single page revision. Start once, before
+    # business reads or writes; never roll back a partially processed workbook.
+    if getattr(g, 'document_edit_guard', False):
+        return
+    db.session.rollback()
+    if db.engine.dialect.name == 'sqlite':
+        db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
+
+
+def _prepare_bom_items(items, *, existing_items=None):
     from app import Unit, _material_from_payload, round_to_2_decimals
     prepared = []
     for index, raw in enumerate(items, 1):
@@ -79,13 +117,17 @@ def _prepare_bom_items(items):
         code = str(raw.get('code') or raw.get('material_code') or '').strip()
         if code and code != material.code:
             raise ValueError(f'第{index}行物料编码与所选物料不一致，请重新选择')
+        original = (existing_items.get(_bom_line_id(raw.get('line_id')))
+                    if existing_items is not None else None)
+        if original is not None and original.material_id != material.id:
+            raise ValueError('原BOM明细不能更换物料，请新增明细后移除原行')
         try:
             quantity = float(raw.get('quantity'))
             cost_value = raw.get('price')
             cost = float(material.price or 0) if cost_value in (None, '') else float(cost_value)
         except (TypeError, ValueError):
             raise ValueError(f'第{index}行数量或单价不是有效数字')
-        if not math.isfinite(quantity) or quantity <= 0 or round_to_2_decimals(quantity) <= 0:
+        if not math.isfinite(quantity) or quantity <= 0:
             raise ValueError(f'第{index}行数量必须为大于0的有效数字')
         if not math.isfinite(cost) or cost < 0:
             raise ValueError(f'第{index}行单价必须为非负有效数字')
@@ -97,8 +139,22 @@ def _prepare_bom_items(items):
             raise ValueError(f'第{index}行单位不存在，请选择有效单位')
         from services.stock_unit_guard import require_stock_unit
         unit_id = require_stock_unit(material, unit_id)
-        prepared.append(dict(material=material, quantity=round_to_2_decimals(quantity),
-                             unit_id=unit_id, unit_cost=round_to_2_decimals(cost),
+        # Unknown NULL/inconsistent legacy financial fields retain the previous
+        # calculation path; do not invent a unified historical default here.
+        known = (original is not None and _bom_recorded_values_known(original)
+                 and original.unit_id == unit_id)
+        quantity_unchanged = known and quantity == original.quantity
+        cost_unchanged = known and cost == original.unit_cost
+        quantity = original.quantity if quantity_unchanged else round_to_2_decimals(quantity)
+        cost = original.unit_cost if cost_unchanged else round_to_2_decimals(cost)
+        if quantity <= 0:
+            raise ValueError(f'第{index}行数量必须为大于0的有效数字')
+        financial_change = not (quantity_unchanged and cost_unchanged)
+        amount = (original.total_cost if not financial_change
+                  else round_money_product(quantity, cost))
+        prepared.append(dict(material=material, quantity=quantity, unit_id=unit_id,
+                             unit_cost=cost, total_cost=amount, original=original,
+                             financial_change=financial_change,
                              usage=str(raw.get('usage') or '').strip(),
                              remark=str(raw.get('remark') or '').strip()))
     if not math.isfinite(sum(row['quantity'] * row['unit_cost'] for row in prepared)):
@@ -225,7 +281,6 @@ def register_bom_routes(app):
             return api_error('请至少填写一条BOM明细')
 
         try:
-            prepared = _prepare_bom_items(items_data)
             if order_id:
                 bom = db.session.get(BOM, order_id)
                 if not bom:
@@ -235,6 +290,21 @@ def register_bom_routes(app):
                 if duplicate:
                     return api_error('BOM编号已存在')
             else:
+                bom = None
+            originals = {item.id: item for item in bom.items} if bom else {}
+            identified = any('line_id' in row for row in items_data)
+            line_ids = [_bom_line_id(row.get('line_id')) for row in items_data]
+            retained = [identity for identity in line_ids if identity is not None]
+            if (len(retained) != len(set(retained)) or any(identity not in originals for identity in retained)
+                    or (not order_id and retained)):
+                raise ValueError('BOM明细标识重复或不属于当前BOM，请刷新后重试')
+            if order_id and identified and not getattr(g, 'document_edit_guard', False):
+                db.session.rollback()
+                return api_error('编辑状态已失效，请重新打开BOM后重试', 409)
+            prepared = _prepare_bom_items(items_data, existing_items=originals if identified else None)
+            financial_change = (not order_id or not identified or set(retained) != set(originals)
+                                or any(row['financial_change'] for row in prepared))
+            if not order_id:
                 bom_no = generate_order_no('BOM')
                 bom = BOM.query.filter_by(bom_no=bom_no).first()
                 if bom:
@@ -249,27 +319,39 @@ def register_bom_routes(app):
             bom.status = status
             bom.remark = remark
             db.session.flush()
-            BOMItem.query.filter_by(bom_id=bom.id).delete()
-
+            for old_item in list(bom.items):
+                if not identified or old_item.id not in retained:
+                    db.session.delete(old_item)
+            db.session.flush()
+            final_items = []
             for item_data in prepared:
                 material = item_data['material']
                 quantity = item_data['quantity']
                 unit_id = item_data['unit_id']
                 unit_cost = item_data['unit_cost']
-                db.session.add(BOMItem(
+                values = dict(
                     bom_id=bom.id,
                     material_id=material.id,
                     quantity=quantity,
                     unit_id=unit_id,
                     unit_cost=unit_cost,
-                    total_cost=round_money_product(quantity, unit_cost),
+                    total_cost=item_data['total_cost'],
                     usage=(item_data.get('usage') or '').strip(),
                     remark=(item_data.get('remark') or '').strip()
-                ))
+                )
+                item = item_data['original']
+                if item is None:
+                    item = BOMItem(**values)
+                    db.session.add(item)
+                else:
+                    for field, value in values.items():
+                        setattr(item, field, value)
+                final_items.append(item)
 
             db.session.flush()
             db.session.expire(bom, ['items'])
-            calculate_bom_cost_value(bom, refresh_unit_cost=False)
+            if financial_change or bom.total_cost is None:
+                bom.total_cost = round_to_2_decimals(sum(item.total_cost for item in final_items))
             if not math.isfinite(bom.total_cost):
                 raise ValueError('BOM成本计算超出允许范围')
             stage_document_response({'status': 'success', 'msg': '保存成功', 'id': bom.id, 'order_no': bom.bom_no})
@@ -389,14 +471,14 @@ def register_bom_routes(app):
                 quantity=prepared['quantity'],
                 unit_id=prepared['unit_id'],
                 unit_cost=unit_cost,
-                total_cost=round_money_product(quantity, unit_cost),
+                total_cost=round_money_product(prepared['quantity'], unit_cost),
                 usage=usage,
                 remark=remark
             )
             db.session.add(item)
             db.session.flush()
             db.session.expire(bom, ['items'])
-            calculate_bom_cost_value(bom, refresh_unit_cost=False)
+            calculate_bom_cost_value(bom, refresh_unit_cost=False, preserve_recorded_costs=True)
             db.session.commit()
             return jsonify({'status': 'success', 'msg': 'BOM 明细新增成功', 'id': item.id})
         except ValueError as e:
@@ -428,7 +510,7 @@ def register_bom_routes(app):
             bom = db.session.get(BOM, id)
             if bom:
                 db.session.expire(bom, ['items'])
-                calculate_bom_cost_value(bom, refresh_unit_cost=False)
+                calculate_bom_cost_value(bom, refresh_unit_cost=False, preserve_recorded_costs=True)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
@@ -450,6 +532,9 @@ def register_bom_routes(app):
     def delete_bom(id):
         from app import BOM, BOMItem, api_error
         bom = BOM.query.get_or_404(id)
+        bom = _bom_lock_current(bom)
+        if bom is None:
+            return api_error('BOM已变化或正在保存，请刷新后重试', 409)
         error = _bom_deletion_error(bom)
         if error:
             return api_error(error)
@@ -480,7 +565,15 @@ def register_bom_routes(app):
             ids = list(dict.fromkeys(BomDeleteRequest.model_validate(request.get_json(silent=True)).ids))
         except ValidationError:
             return api_error('请选择有效的BOM编号')
-        boms = BOM.query.filter(BOM.id.in_(ids)).all()
+        try:
+            _bom_begin_batch_write()
+            query = BOM.query.filter(BOM.id.in_(ids)).order_by(BOM.id)
+            if db.engine.dialect.name != 'sqlite':
+                query = query.with_for_update()
+            boms = query.all()
+        except Exception:
+            db.session.rollback()
+            return api_error('BOM正在保存，请稍后重试', 503)
         if len(boms) != len(ids):
             return api_error('部分BOM不存在，请刷新列表')
         for bom in boms:
@@ -504,6 +597,9 @@ def register_bom_routes(app):
     def calculate_bom_cost(id):
         from app import BOM, api_error, calculate_bom_cost_value
         bom = BOM.query.get_or_404(id)
+        bom = _bom_lock_current(bom)
+        if bom is None:
+            return api_error('BOM已变化或正在保存，请刷新后重试', 409)
         try:
             total_cost = calculate_bom_cost_value(bom)
             db.session.commit()
@@ -623,6 +719,7 @@ def register_bom_routes(app):
                 except (ValueError, TypeError):
                     return default
 
+            _bom_begin_batch_write()
             boms_by_key = {}
             count = 0
             item_count = 0
@@ -679,7 +776,10 @@ def register_bom_routes(app):
                 bom = boms_by_key.get(bom_key)
                 if not bom:
                     # Only two are needed to determine whether the update target is unique.
-                    matches = BOM.query.filter_by(product_code=product_code, version=version).limit(2).all()
+                    target = BOM.query.filter_by(product_code=product_code, version=version)
+                    if db.engine.dialect.name != 'sqlite':
+                        target = target.order_by(BOM.id).with_for_update()
+                    matches = target.limit(2).all()
                     if len(matches) > 1:
                         skip += 1
                         skip_details.append(f'第{row_idx}行：产品 {product_code}/{version} 有多份BOM，无法确定更新目标')
@@ -747,7 +847,7 @@ def register_bom_routes(app):
             for bom in boms_by_key.values():
                 db.session.flush()
                 db.session.expire(bom, ['items'])
-                calculate_bom_cost_value(bom, refresh_unit_cost=False)
+                calculate_bom_cost_value(bom, refresh_unit_cost=False, preserve_recorded_costs=True)
                 if not math.isfinite(bom.total_cost):
                     raise ValueError('BOM成本计算超出允许范围，请检查数量和单价')
 
@@ -783,6 +883,9 @@ def register_bom_routes(app):
         from app import (BOM, ProductionRequisition, ProductionRequisitionItem, api_error,
                          generate_order_no, resolve_request_warehouse, location_management_enabled)
         bom = BOM.query.get_or_404(bom_id)
+        bom = _bom_lock_current(bom)
+        if bom is None:
+            return api_error('BOM已变化或正在保存，请刷新后重试', 409)
         try:
             data = BomDraftRequest.model_validate(request.get_json(silent=True) or {}).model_dump()
         except ValidationError:

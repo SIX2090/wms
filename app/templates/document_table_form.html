@@ -489,11 +489,34 @@ function rowCells(item) {
     }
     return html;
 }
+// BOM edits retain complete recorded values until the user changes that field.
+// Other shared document forms and newly added/copied rows keep their existing rules.
+function bomRecordedFieldUnchanged(row, input) {
+    const original = row._bomOriginal;
+    if (docType !== 'bom' || !original || !original.known || !input) return false;
+    if (String(row.dataset.materialId) !== String(original.material_id) ||
+        row.querySelector('.material-code').value.trim() !== original.code ||
+        String(row.querySelector('.unit-id').value) !== String(original.unit_id)) return false;
+    const key = input.classList.contains('line-qty') ? 'quantity' :
+        input.classList.contains('line-price') ? 'unit_cost' : null;
+    return key !== null && input.value.trim() !== '' &&
+        Number.isFinite(Number(input.value)) && Number(input.value) === Number(original[key]);
+}
 function createRow(item) {
     const tbody = document.getElementById('docTableBody');
     const row = tbody.insertRow();
     row.dataset.materialId = item && item.material_id ? item.material_id : '';
     row.dataset.systemStockFrozen = item && docType === 'check' ? 'true' : 'false';
+    if (docType === 'bom' && item && item.line_id) {
+        const complete = [item.quantity, item.recorded_unit_cost, item.recorded_total_cost].every(
+            value => value !== null && value !== undefined && Number.isFinite(Number(value)));
+        row._bomOriginal = {
+            line_id: item.line_id, material_id: item.material_id, code: item.code,
+            unit_id: item.unit_id, quantity: item.quantity,
+            unit_cost: item.recorded_unit_cost, total_cost: item.recorded_total_cost,
+            known: complete && Number(item.quantity) > 0 && Number(item.recorded_unit_cost) >= 0 && Number(item.recorded_total_cost) >= 0
+        };
+    }
     row.innerHTML = rowCells(item);
     if (item) {
         row.querySelector('.material-code').value = item.code || '';
@@ -517,8 +540,9 @@ function createRow(item) {
             }
             updateCheckDiff(row);
         } else {
-            row.querySelector('.line-qty').value = item.quantity ? formatQty(item.quantity) : '';
-            row.querySelector('.line-price') && (row.querySelector('.line-price').value = formatQty(item.price));
+            const recorded = row._bomOriginal;
+            row.querySelector('.line-qty').value = recorded && recorded.known ? String(recorded.quantity) : (item.quantity ? formatQty(item.quantity) : '');
+            row.querySelector('.line-price') && (row.querySelector('.line-price').value = recorded && recorded.known ? String(recorded.unit_cost) : formatQty(item.price));
             row.querySelector('.line-usage') && (row.querySelector('.line-usage').value = item.usage || '');
             row.querySelector('.line-remark') && (row.querySelector('.line-remark').value = item.remark || '');
             calcRow(row);
@@ -569,8 +593,10 @@ function bindRowEvents(row) {
             calcRow(row);
         });
         input.addEventListener('blur', function() {
-            WMS.normalizeDecimalInput(this, this.classList.contains('line-price') ? '单价' : '数量');
-            if (this.value) this.value = formatQty(this.value);
+            if (!bomRecordedFieldUnchanged(row, this)) {
+                WMS.normalizeDecimalInput(this, this.classList.contains('line-price') ? '单价' : '数量');
+                if (this.value) this.value = formatQty(this.value);
+            }
             calcRow(row);
         });
     });
@@ -640,7 +666,10 @@ function calcRow(row) {
     } else {
         const qty = parseFloat(row.querySelector('.line-qty')?.value) || 0;
         const price = parseFloat(row.querySelector('.line-price')?.value) || 0;
-        row.querySelector('.line-amount') && (row.querySelector('.line-amount').value = formatQty(window.WMSMoney.product(qty, price)));
+        const recorded = docType === 'bom' && row._bomOriginal && row._bomOriginal.known &&
+            bomRecordedFieldUnchanged(row, row.querySelector('.line-qty')) &&
+            bomRecordedFieldUnchanged(row, row.querySelector('.line-price'));
+        row.querySelector('.line-amount') && (row.querySelector('.line-amount').value = formatQty(recorded ? row._bomOriginal.total_cost : window.WMSMoney.product(qty, price)));
     }
     calcTotal();
 }
@@ -705,9 +734,9 @@ function collectItems() {
             return;
         }
         codeInput.style.borderColor = '';
-        WMS.normalizeDecimalInput(row.querySelector('.line-qty'));
+        if (!bomRecordedFieldUnchanged(row, row.querySelector('.line-qty'))) WMS.normalizeDecimalInput(row.querySelector('.line-qty'));
         WMS.normalizeDecimalInput(row.querySelector('.actual-stock'));
-        WMS.normalizeDecimalInput(row.querySelector('.line-price'), '单价');
+        if (!bomRecordedFieldUnchanged(row, row.querySelector('.line-price'))) WMS.normalizeDecimalInput(row.querySelector('.line-price'), '单价');
         const unitId = row.querySelector('.unit-id').value || getMaterialUnitId(material);
         if (docType === 'check') {
             const area = row.querySelector('.line-area').value.trim();
@@ -735,6 +764,7 @@ function collectItems() {
         }
         qtyInput.style.borderColor = '';
         items.push({
+            ...(docType === 'bom' && row._bomOriginal ? {line_id: row._bomOriginal.line_id} : {}),
             material_id: material.id,
             code: material.code,
             unit_id: unitId,

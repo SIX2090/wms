@@ -26999,13 +26999,18 @@ def debug_in_order(order_no):
 
 
 
-def calculate_bom_cost_value(bom, refresh_unit_cost=True):
+def calculate_bom_cost_value(bom, refresh_unit_cost=True, *, preserve_recorded_costs=False):
     from services.stock_unit_guard import require_stock_unit
     for item in bom.items:
         if item.material:
             require_stock_unit(item.material, item.unit_id)
     total_cost = 0
     for item in bom.items:
+        if preserve_recorded_costs and not refresh_unit_cost:
+            from routes.bom import _bom_recorded_values_known
+            if _bom_recorded_values_known(item):
+                total_cost += item.total_cost
+                continue
         if refresh_unit_cost:
             item.unit_cost = (item.material.price if item.material else 0) or 0
         else:
@@ -27503,6 +27508,9 @@ def _render_bom_form(bom=None):
             _material_line_data(item, extra={
                 'price': float(item.unit_cost if item.unit_cost is not None else (item.material.price if item.material else 0) or 0),
                 'unit_cost': float(item.unit_cost if item.unit_cost is not None else (item.material.price if item.material else 0) or 0),
+                'line_id': str(item.id),
+                'recorded_unit_cost': item.unit_cost,
+                'recorded_total_cost': item.total_cost,
                 'total_cost': float(item.total_cost or 0),
                 'usage': item.usage or '',
             }) for item in (bom.items if bom else [])

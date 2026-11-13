@@ -26,6 +26,7 @@ DOCUMENTS = {
     'purchase_request': ('PurchaseRequest', 'items', None, None),
     'purchase_order': ('PurchaseOrder', 'items', None, None),
     'sales': ('SalesOrder', 'items', None, None),
+    'bom': ('BOM', 'items', None, None),
     'requisition': ('ProductionRequisition', 'items', None, None),
     'subcontract': ('SubcontractOrder', 'items', None, None),
     'subcontract_issue': ('SubcontractIssue', 'items', None, None),
@@ -55,13 +56,15 @@ EDIT_ENDPOINTS = frozenset({
     'add_subcontract_issue_item', 'add_subcontract_receive_item',
     'edit_opening_stock', 'batch_save_opening_stock', 'save_opening_stock_doc',
     'update_opening_stock_doc_date',
+    'save_bom_table', 'update_bom', 'add_bom_item', 'add_bom_item_alias',
+    'delete_bom_item', 'delete_bom_item_alias',
 })
 NEW_DOCUMENT_INTENTS = frozenset({
     'copy_in_order', 'copy_in_order_to_out', 'convert_in_order_to_out_order',
     'create_in_order_push', 'copy_out_order', 'copy_check', 'copy_transfer',
     'copy_after_sale_out_order', 'copy_purchase_order', 'copy_sales_order', 'copy_subcontract',
     'create_purchase_order_from_request', 'create_in_order_from_purchase_order',
-    'create_sales_outbound_draft',
+    'create_sales_outbound_draft', 'create_requisition_from_bom',
 })
 
 

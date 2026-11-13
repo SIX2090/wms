@@ -37,7 +37,7 @@ def test_real_input_and_blur_preserve_typing_then_round_with_feedback(page, kind
     helper = ROOT / 'app/static/js/decimal-input.js'
     source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
     support = '\n'.join(callback(page, f'function {name}(')
-                        for name in ('formatQty', 'trimDecimalInput') if f'function {name}(' in source)
+                        for name in ('formatQty', 'trimDecimalInput', 'bomRecordedFieldUnchanged') if f'function {name}(' in source)
     if page == 'in_order_add':
         support += '\n' + callback(page, 'function formatQtyTrim(')
     program = r'''
@@ -45,7 +45,7 @@ const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(pr
 const fs=require('node:fs');
 for(let i=0;i<p.inputs.length;i++) {
  const messages=[],row={dataset:{},closest(){return this;}},input={value:'',classList:{contains:n=>n===(p.kind==='price'?'line-price':'actual-stock')}};
- const ctx={row,newRow:row,calcAmount(){},calcRow(){},calcTotal(){},showToast:(...x)=>messages.push(x)};
+ const ctx={docType:p.page==='document_table_form'?'bom':'',row,newRow:row,calcAmount(){},calcRow(){},calcTotal(){},showToast:(...x)=>messages.push(x)};
  ctx.window=ctx;ctx.WMS={};vm.createContext(ctx);
  if(fs.existsSync(p.helper))vm.runInContext(fs.readFileSync(p.helper,'utf8'),ctx);
  vm.runInContext(p.support,ctx);
@@ -122,5 +122,5 @@ assert.equal(messages.length,1,'unblurred changed quantity must also warn on sav
 '''
     result = subprocess.run([node, '-e', program, json.dumps(dict(kind=kind, original=original,
         expected=expected, helper=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8'),
-        collect=callback(page, 'function collectItems()')))], text=True, capture_output=True, encoding='utf-8')
+        collect=(callback(page, 'function bomRecordedFieldUnchanged(')+'\n' if page=='document_table_form' else '')+callback(page, 'function collectItems()')))], text=True, capture_output=True, encoding='utf-8')
     assert result.returncode == 0, result.stdout + result.stderr
