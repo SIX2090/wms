@@ -177,6 +177,27 @@ def test_original_full_validation_payloads_are_preserved(name):
                          'path': f'output/unit-shard-{shard}.*',
                          'if-no-files-found': 'warn'},
             }
+        if name == 'perf':
+            # The reviewed isolation change moves host setup into the immutable
+            # image. Check every permitted difference, retaining the old hash.
+            assert len(job['steps']) == 4
+            assert job['steps'][2] == {
+                'name': 'Perf baseline compare (alarm-only, P2-1)',
+                'run': 'python scripts/run_ci_isolated.py -- python scripts/perf_baseline.py '
+                       '--seconds 2 --compare scripts/perf_baseline.json --output output/perf_current.json\n',
+            }
+            assert job['steps'][3]['with']['path'] == 'output/perf_current.json'
+            image = (ROOT / 'scripts/ci-test.Dockerfile').read_text(encoding='utf-8')
+            assert 'RUN pip install --no-cache-dir -r /opt/requirements/requirements-test.txt' in image
+            assert 'USER 10001:10001' in image
+            job['steps'][2]['run'] = ('python scripts/perf_baseline.py --seconds 2 '
+                '--compare scripts/perf_baseline.json --output /tmp/perf_current.json\n')
+            job['steps'][3]['with']['path'] = '/tmp/perf_current.json'
+            job['steps'][2:2] = [
+                {'name': 'Install dependencies', 'run': 'python -m pip install --upgrade pip\n'
+                    'pip install -r app/requirements-test.txt\n'},
+                {'name': 'Create required directories', 'run': 'mkdir -p app/logs app/instance app/uploads logs\n'},
+            ]
         # The original payload still runs verbatim inside the new boundary.
         # Normalize only this exact launcher; do not replace/update old hashes.
         for step in job['steps']:

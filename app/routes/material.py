@@ -258,6 +258,7 @@ def register_material_routes(app):
             get_default_warehouse,
             log_audit,
             material_name_spec_exists,
+            normalize_stock_quantity,
             parse_bounded_number,
             parse_float_value,
             parse_int_value,
@@ -318,6 +319,8 @@ def register_material_routes(app):
         initial_stock = parse_bounded_number(request.form.get('stock'), 0, maximum=MAX_REASONABLE_STOCK)
         if initial_stock is None:
             return api_error(f'初始库存必须是 0 至 {MAX_REASONABLE_STOCK:,.2f} 的有限数字')
+        # Use the same business-precision quantity for total, transaction and location ledgers.
+        initial_stock = normalize_stock_quantity(initial_stock)
         initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
         if initial_price is None:
             return api_error(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')

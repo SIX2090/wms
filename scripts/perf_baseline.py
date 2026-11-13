@@ -158,13 +158,17 @@ def _seed_database(app_mod, db):
     from perf_runtime import require_runtime
     require_runtime()
     os.environ.setdefault('WMS_ALLOW_INSECURE_COOKIE', '1')
-    from app import Material, MaterialCategory, StockTransaction, Supplier, Unit, User, Warehouse
+    from app import (Material, MaterialCategory, StockTransaction, Supplier, Unit, User,
+                     Warehouse, set_system_setting)
 
     with app_mod.app_context():
         if str(db.engine.url) != 'sqlite:///:memory:':
             raise ValueError('安全阻断：性能造数只允许新建内存库')
         if any(row[2] for row in db.session.execute(db.text('PRAGMA database_list'))):
             raise ValueError('安全阻断：性能造数不能附加文件库')
+        # Measure the alert page itself; a disabled feature redirects to materials.
+        # This setting belongs only to this kernel-isolated process's memory DB.
+        set_system_setting('inventory_alert_enabled', '1')
         wh = Warehouse.query.filter_by(is_default=True).first()
         if wh is None:
             wh = Warehouse(code="WH01", name="主仓库", type="raw", status="active", is_default=True)
