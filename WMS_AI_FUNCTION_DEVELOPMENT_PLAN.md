@@ -8,6 +8,8 @@
 
 <!-- AI_TASK: AI-AUDIT-FIX-MONEY-20261109-001 -->
 
+2026-11-13 精确补证：3b2cc447完整WMS/AI/真实性能任务通过，14新建物料/实际对账等用例验收；历史编辑、逆向精度和新来源碰撞仍进行中，未把同一批各清单重复相加。
+
 2026-11-13 数量子修复：新增物料初始库存按原范围检查后统一一次两位规范供三账，40模型方法（含原26）通过、旧9断言失败；14真实应用实例待目标CI，历史逆向及历史报表两种明确口径没有擅改。详见 docs/audit/2026-11-13-material-initial-stock-precision.md；整体任务仍进行中。
 
 零税率子范围精确补证：e68ff655ff22ad59b46873df5384b7623cfc9dcd正常非强制push 1faf2436..e68ff655 main -> main；WMS CI43409238137、AI43409238090、性能43409238150 completed/success。三个单元分片4761/4928/5104 passed，42/27/133 skipped，178/212/841 subtests passed，合计14793 passed、202 skipped、1231 subtests passed；新增15实际Excel/ORM实例通过。Android成功祖先8cba9986的43399657746输入不变；Windows43410261471仍独立跟踪。整体BUG015继续进行，备注编辑及数量精度未报完成，生效确认待人工确认。

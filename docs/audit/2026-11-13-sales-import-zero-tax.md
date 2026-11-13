@@ -14,3 +14,6 @@ BUG-2026-11-08-015 的独立子范围，关联 AI-AUDIT-FIX-MONEY-20261109-001�
 
 
 本批集成验收补证：7 文件在私有 Git 源码副本整批正常逆序回退，2427 个基线源码文件精确恢复；保留新锁时旧产品仅新税率模块按预期失败，恢复候选后7个明确非空模块53方法全通过。回执 sales-import-zero-r8-proof.json；该测试清单与前批重叠，不累加为功能数。15 个真实Excel/ORM实例仍待目标隔离CI；生效确认：待人工确认。
+
+
+2026-11-13 精确统一验收：bbe8f58e 的两个已知失败已由 `3b2cc4475ee6e16669166c8d0288e95c843c76aa` 纠正，[WMS CI 43412495414](https://github.com/SIX2090/wms/actions/runs/43412495414)、[AI 43412495421](https://github.com/SIX2090/wms/actions/runs/43412495421)、[性能 43412495410](https://github.com/SIX2090/wms/actions/runs/43412495410) completed/success。三个单元分片4837/5177/4807 passed，39/28/135 skipped，178/173/904 subtests passed，合计14821 passed、202 skipped、1255 subtests passed。14新物料真实POST实例和实际性能子进程通过；十个HTTP端点均非空且err=0，四导出端点及strict不可比退出2亦通过。Android成功祖先8cba9986的43399657746输入不变。正常非强制push输出 `bbe8f58e..3b2cc447 main -> main`。Windows发行43413458951另行跟踪。旧失败记录保留，不把告警聚合绿或新内存profile解释为历史性能提升；生产生效待人工确认。

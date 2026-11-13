@@ -32,3 +32,6 @@
 
 
 本批统一验收补证：16文件在私有源码Git整批正常逆序回退，2430基线源码文件逐字节恢复；保留候选锁后，旧对账重复统计及旧性能导入副作用按预期失败；恢复后10份明确非空专项91方法通过。编码/严格AI台账/全量棘轮无新增通过（全量存量386，不是零违规）。2个实际应用方法（对账请求/collector及性能HTTP十端点+导出四端点+strict不可比）待目标LinuxCI，当前未计交付。回执 report-perf-r8-proof.json。生效确认：待人工确认。
+
+
+2026-11-13 精确统一验收：bbe8f58e 的两个已知失败已由 `3b2cc4475ee6e16669166c8d0288e95c843c76aa` 纠正，[WMS CI 43412495414](https://github.com/SIX2090/wms/actions/runs/43412495414)、[AI 43412495421](https://github.com/SIX2090/wms/actions/runs/43412495421)、[性能 43412495410](https://github.com/SIX2090/wms/actions/runs/43412495410) completed/success。三个单元分片4837/5177/4807 passed，39/28/135 skipped，178/173/904 subtests passed，合计14821 passed、202 skipped、1255 subtests passed。14新物料真实POST实例和实际性能子进程通过；十个HTTP端点均非空且err=0，四导出端点及strict不可比退出2亦通过。Android成功祖先8cba9986的43399657746输入不变。正常非强制push输出 `bbe8f58e..3b2cc447 main -> main`。Windows发行43413458951另行跟踪。旧失败记录保留，不把告警聚合绿或新内存profile解释为历史性能提升；生产生效待人工确认。

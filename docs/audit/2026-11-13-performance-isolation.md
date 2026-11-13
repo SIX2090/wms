@@ -52,3 +52,6 @@ Docker 依赖安装仍由现有只读源码构建阶段完成，运行期保持 
 
 
 本批集成最终补证：11文件正常逆序回退/恢复仅在私有源码Git进行，2436基线源码文件精确恢复；旧material输入9个数值断言及旧合成预警设置2断言失败，恢复后8份明确非空专项80方法通过。另直接执行真实工作流快照断言，ci/verify/perf三项及启动器/窗口/产物/checkout/告警策略五项故意漂移反例共8项通过；整批回退后的原快照测试对新性能隔离workflow确实失败，恢复后再次8项通过。原FULL_JOB_SNAPSHOTS哈希未改，精确校验允许的隔离launcher/容器依赖/output变化，其他payload仍全量哈希比较。bbe8f58e的WMS CI确有两项失败（perf实际预警与旧perf快照），不是拿告警gate绿灯作为通过。根因均已补具体修复，14新物料真实应用实例及性能子进程复验仍待本批精确CI。回执 material-perf-r8-proof.json；生效确认：待人工确认。
+
+
+2026-11-13 精确统一验收：bbe8f58e 的两个已知失败已由 `3b2cc4475ee6e16669166c8d0288e95c843c76aa` 纠正，[WMS CI 43412495414](https://github.com/SIX2090/wms/actions/runs/43412495414)、[AI 43412495421](https://github.com/SIX2090/wms/actions/runs/43412495421)、[性能 43412495410](https://github.com/SIX2090/wms/actions/runs/43412495410) completed/success。三个单元分片4837/5177/4807 passed，39/28/135 skipped，178/173/904 subtests passed，合计14821 passed、202 skipped、1255 subtests passed。14新物料真实POST实例和实际性能子进程通过；十个HTTP端点均非空且err=0，四导出端点及strict不可比退出2亦通过。Android成功祖先8cba9986的43399657746输入不变。正常非强制push输出 `bbe8f58e..3b2cc447 main -> main`。Windows发行43413458951另行跟踪。旧失败记录保留，不把告警聚合绿或新内存profile解释为历史性能提升；生产生效待人工确认。

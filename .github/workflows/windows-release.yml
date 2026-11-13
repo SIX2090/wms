@@ -29,6 +29,7 @@ jobs:
       OMP_NUM_THREADS: '1'
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
+      RELEASE_TRIGGER_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -41,9 +42,13 @@ jobs:
         id: release
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $sha = git rev-parse HEAD
-          $remote = gh api repos/${{ github.repository }}/git/ref/heads/main --jq '.object.sha'
-          if ($LASTEXITCODE -ne 0 -or $sha -ne $remote) { throw 'Only current accepted main may be packaged.' }
+          if ($LASTEXITCODE -ne 0 -or $sha -notmatch '^[0-9a-f]{40}$' -or $sha -ne $env:RELEASE_TRIGGER_SHA) { throw 'Checkout does not match the exact trigger SHA.' }
+          $decision = python tools/windows_release.py target --root $pwd --target-sha $sha --github-output $env:GITHUB_OUTPUT | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Release target eligibility was not verified.' }
+          if ($decision.state -eq 'stale_skipped') { exit 0 }
+          if ($decision.state -ne 'eligible') { throw 'Unexpected release target state.' }
           python scripts/check_ci_green.py --target-sha $sha --json
           if ($LASTEXITCODE -ne 0) { throw 'Full CI gate was not verified.' }
           $version = python -c "import runpy; print(runpy.run_path('app/version.py')['__version__'])"
@@ -78,9 +83,14 @@ jobs:
           python tools/windows_release.py publish --plan '${{ steps.release.outputs.work_dir }}/plan.json' --notes tools/PORTABLE_README.txt
           if ($LASTEXITCODE -ne 0) { throw 'Release publication or uploaded asset verification failed.' }
       - name: Record verified build or reuse
+        if: steps.release.outputs.state != 'stale_skipped'
         shell: pwsh
         run: |
           $plan = Get-Content -Raw '${{ steps.release.outputs.work_dir }}/plan.json' | ConvertFrom-Json
+          if ($plan.state -eq 'stale_skipped') {
+            "Windows release: stale_skipped; target: $($plan.source_sha); current main: $($plan.current_main); no stale package published." >> $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
           $state = if ($plan.state -eq 'build') { 'built_verified' } else { $plan.state }
           $source = if ($plan.reused_source_sha) { $plan.reused_source_sha } else { $plan.source_sha }
           "Windows release: $state; accepted main: $($plan.source_sha); package source: $source; tag: $($plan.names.tag)" >> $env:GITHUB_STEP_SUMMARY

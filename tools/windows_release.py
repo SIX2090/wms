@@ -202,12 +202,59 @@ def tag_commit(repository, tag):
     raise ValueError('Release tag does not resolve to a complete commit.')
 
 
-def plan_release(root, version, work, repository):
-    root = Path(root);work = Path(work);work.mkdir(parents=True, exist_ok=False)
-    source = subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'], text=True).strip()
+def target_eligibility(root, repository, source_sha, event_name='workflow_dispatch'):
+    """Discard a proved stale automatic target; never relax a packaging gate."""
+    if (not isinstance(source_sha, str) or not SHA.fullmatch(source_sha)
+            or not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository)):
+        raise ValueError('Missing exact release target or repository.')
     remote = _json_api(f'repos/{repository}/git/ref/heads/main')['object']['sha']
-    if source != remote:
+    if not isinstance(remote, str) or not SHA.fullmatch(remote):
+        raise ValueError('Current main was not verified as a complete commit SHA.')
+    result = dict(state='eligible', source_sha=source_sha, current_main=remote)
+    if source_sha == remote:
+        return result
+    if event_name != 'workflow_run':
         raise ValueError('Only current accepted main may be packaged.')
+    # main may have advanced after checkout. Fetch only its exact checked SHA;
+    # a missing object/fetch error or failed ancestry check is never a skip.
+    subprocess.run(['git', '-C', str(root), 'fetch', '--no-tags', 'origin', remote],
+                   check=True, capture_output=True, text=True)
+    relation = subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', source_sha, remote],
+                              capture_output=True, text=True)
+    if relation.returncode != 0:
+        raise ValueError('Automatic target is not a verified ancestor of current main.')
+    result['state'] = 'stale_skipped'
+    return result
+
+
+def _actions_outputs(result, path):
+    values = {key: result[key] for key in ('state', 'source_sha', 'current_main', 'version', 'work_dir') if key in result}
+    values.update(result.get('names', {}))
+    with Path(path).open('a', encoding='utf-8') as stream:
+        for key, value in values.items():
+            if '\n' in str(value) or '\r' in str(value):
+                raise ValueError('Unsafe Actions output.')
+            stream.write(key + '=' + str(value) + '\n')
+
+
+def _record_stale(result):
+    path = os.environ.get('GITHUB_STEP_SUMMARY')
+    if path:
+        with Path(path).open('a', encoding='utf-8') as stream:
+            stream.write('Windows release: stale_skipped; target: ' + result['source_sha']
+                         + '; current main: ' + result['current_main']
+                         + '; no stale package published.' + '\n')
+            if result.get('unpublished_draft'):
+                stream.write('Unpublished draft retained for review: ' + result['unpublished_draft'] + '\n')
+
+
+def plan_release(root, version, work, repository, event_name='workflow_dispatch'):
+    root = Path(root);work = Path(work)
+    source = subprocess.check_output(['git','-C',str(root),'rev-parse','HEAD'], text=True).strip()
+    eligibility = target_eligibility(root, repository, source, event_name)
+    if eligibility['state'] == 'stale_skipped':
+        return eligibility
+    work.mkdir(parents=True, exist_ok=False)
     fingerprint = build_inputs(root);names = release_names(version)
     existing = _json_api(f'repos/{repository}/releases/tags/{names["tag"]}', missing=True)
     tagged = tag_commit(repository, names['tag'])
@@ -226,6 +273,9 @@ def plan_release(root, version, work, repository):
         subprocess.run(['git','-C',str(root),'merge-base','--is-ancestor',proof['source_sha'],source],check=True)
         verify_downloads(existing,work,plan,tagged)
         plan['state'] = 'reused_verified'
+    eligibility = target_eligibility(root, repository, source, event_name)
+    if eligibility['state'] == 'stale_skipped':
+        plan.update(eligibility)
     (work/'plan.json').write_text(json.dumps(plan,indent=2),encoding='utf-8')
     return plan
 
@@ -253,12 +303,13 @@ def seal_release(plan, package, archive):
     return proof
 
 
-def publish_release(plan, notes):
+def publish_release(plan, notes, event_name='workflow_dispatch'):
     if plan['state'] != 'build':
         raise ValueError('Only newly built candidates may publish.')
     repository=plan['repository'];names=plan['names'];work=Path(plan['work_dir'])
-    if _json_api(f'repos/{repository}/git/ref/heads/main')['object']['sha'] != plan['source_sha']:
-        raise ValueError('main changed; do not publish stale package.')
+    eligibility = target_eligibility(plan['root'], repository, plan['source_sha'], event_name)
+    if eligibility['state'] == 'stale_skipped':
+        return eligibility
     if build_inputs(plan['root']) != plan['input_fingerprint']:
         raise ValueError('Committed build inputs changed.')
     _gh('release','create',names['tag'],*[str(work/names[k]) for k in ('archive','checksum','proof','runtime')],
@@ -277,8 +328,10 @@ def publish_release(plan, notes):
     if existing_tag is not None and existing_tag != plan['source_sha']:
         raise ValueError('Version tag changed during build; preserve the existing release.')
     verify_downloads(release,work,plan,plan['source_sha'],allow_draft=True)
-    if _json_api(f'repos/{repository}/git/ref/heads/main')['object']['sha'] != plan['source_sha']:
-        raise ValueError('main changed during upload; leave the candidate unpublished.')
+    eligibility = target_eligibility(plan['root'], repository, plan['source_sha'], event_name)
+    if eligibility['state'] == 'stale_skipped':
+        eligibility['unpublished_draft'] = names['tag']
+        return eligibility
     _gh('release','edit',names['tag'],'--repo',repository,'--draft=false')
     published=_json_api(f'repos/{repository}/releases/tags/{names["tag"]}')
     verify_downloads(published,work,plan,tag_commit(repository,names['tag']))
@@ -287,6 +340,7 @@ def publish_release(plan, notes):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='action',required=True)
+    p=sub.add_parser('target');p.add_argument('--root',type=Path,required=True);p.add_argument('--target-sha',required=True);p.add_argument('--github-output',type=Path,required=True)
     p=sub.add_parser('plan');p.add_argument('--root',type=Path,required=True);p.add_argument('--version',required=True);p.add_argument('--work',type=Path,required=True);p.add_argument('--github-output',type=Path,required=True)
     for action in ('seal','publish'):
         p=sub.add_parser(action);p.add_argument('--plan',type=Path,required=True)
@@ -294,17 +348,25 @@ def main(argv=None):
         else:p.add_argument('--notes',type=Path,required=True)
     args=parser.parse_args(argv)
     try:
-        if args.action=='plan':
+        event_name = os.environ.get('GITHUB_EVENT_NAME', 'workflow_dispatch')
+        if args.action in ('target', 'plan'):
             repository=os.environ.get('GITHUB_REPOSITORY','')
             if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+',repository):raise ValueError('Missing Actions repository.')
-            result=plan_release(args.root,args.version,args.work,repository)
-            with args.github_output.open('a',encoding='utf-8') as stream:
-                for k,v in dict(state=result['state'],version=result['version'],work_dir=result['work_dir'],**result['names']).items():
-                    if '\n' in str(v) or '\r' in str(v):raise ValueError('Unsafe Actions output.')
-                    stream.write(k+'='+str(v)+'\n')
+            if args.action == 'target':
+                result = target_eligibility(args.root, repository, args.target_sha, event_name)
+            else:
+                result=plan_release(args.root,args.version,args.work,repository,event_name)
+            _actions_outputs(result, args.github_output)
         else:
             plan=json.loads(args.plan.read_text(encoding='utf-8'))
-            result=seal_release(plan,args.package,args.archive) if args.action=='seal' else publish_release(plan,args.notes)
+            result=seal_release(plan,args.package,args.archive) if args.action=='seal' else publish_release(plan,args.notes,event_name)
+            if args.action == 'publish' and result.get('state') == 'stale_skipped':
+                # Prevent a discarded plan from later being treated as a built
+                # verified release or retried as a current candidate.
+                plan.update(result)
+                args.plan.write_text(json.dumps(plan, indent=2), encoding='utf-8')
+        if result.get('state') == 'stale_skipped':
+            _record_stale(result)
     except (ValueError,OSError,KeyError,TypeError,subprocess.SubprocessError,zipfile.BadZipFile) as error:
         print('[windows-release] Refused: '+str(error),file=sys.stderr);return 1
     print(json.dumps(result,ensure_ascii=True));return 0
