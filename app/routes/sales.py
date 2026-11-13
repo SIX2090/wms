@@ -223,9 +223,7 @@ def register_sales_routes(app):
                     skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
                     continue
                 price = _get_excel_number(row, col_map, 'price')
-                tax_rate = _get_excel_number(row, col_map, 'tax_rate') if 'tax_rate' in col_map else 0.13
-                if tax_rate <= 0:
-                    tax_rate = 0.13
+                tax_rate = _get_excel_number(row, col_map, 'tax_rate', default=0.13)
                 included_amount = round_money_product(quantity, price)
                 untaxed_amount = round_to_2_decimals(included_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else included_amount
                 tax_amount = round_to_2_decimals(included_amount - untaxed_amount)
