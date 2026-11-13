@@ -416,6 +416,7 @@ async function loadSourcePicker(page) {
 const materials = {{ materials|tojson }};
 const customers = {{ customers|tojson }};
 const initialItems = {{ initial_items|default([])|tojson }};
+const initialTotalAmount = {{ (order.total_amount if order else none)|tojson }};
 let activeDropdown = null;
 
 
@@ -423,6 +424,7 @@ let activeDropdown = null;
 function addNewRow(insertBeforeRow = null, data = {}) {
     const tbody = document.getElementById('materialTableBody');
     const row = document.createElement('tr');
+    row._afterSaleOriginal = data.line_id ? Object.assign({}, data) : null;
     row.innerHTML = `
         <td class="row-num" data-column-key="row_no"></td>
         <td data-column-key="material_code">
@@ -567,7 +569,12 @@ function selectMaterial(row, code) {
 function calcAmount(row) {
     const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
     const price = parseFloat(row.querySelector('.material-price').value) || 0;
-    row.querySelector('.material-amount').value = qty || price ? (window.WMSMoney.product(qty, price)).toFixed(2) : '';
+    const original = row._afterSaleOriginal;
+    const unchanged = original && row.querySelector('.material-code').value.trim() === original.material_code
+        && qty === original.quantity && price === original.price;
+    row.querySelector('.material-amount').value = unchanged && original.amount !== null
+        && original.amount !== undefined ? Number(original.amount).toFixed(2)
+        : qty || price ? (window.WMSMoney.product(qty, price)).toFixed(2) : '';
     calcTotal();
 }
 
@@ -577,6 +584,18 @@ function calcTotal() {
     document.querySelectorAll('#materialTableBody tr').forEach(row => {
         total += parseFloat(row.querySelector('.material-amount').value) || 0;
     });
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'));
+    const originalIds = initialItems.filter(item => item.line_id).map(item => String(item.line_id));
+    if (initialTotalAmount !== null && initialTotalAmount !== undefined && originalIds.length
+        && rows.length === originalIds.length && rows.every(row => {
+            const original = row._afterSaleOriginal;
+            return original && originalIds.includes(String(original.line_id))
+                && row.querySelector('.material-code').value.trim() === original.material_code
+                && Number(row.querySelector('.material-qty').value) === original.quantity
+                && Number(row.querySelector('.material-price').value) === original.price;
+        }) && new Set(rows.map(row => String(row._afterSaleOriginal.line_id))).size === originalIds.length) {
+        total = Number(initialTotalAmount);
+    }
     document.getElementById('totalAmount').textContent = '¥' + total.toFixed(2);
 }
 
@@ -645,7 +664,9 @@ function collectAfterSaleOutRows() {
         if (priceRaw !== '' && (!isFinite(price) || price < 0)) {
             errors.push({ message: '第 ' + (index + 1) + ' 行：单价不能为负数', rowIndex: index, selector: '.material-price' });
         }
-        items.push({ code, quantity: qty, price: isFinite(price) ? price : 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
+        const original = row._afterSaleOriginal;
+        const lineId = original && code === original.material_code ? original.line_id : null;
+        items.push({ line_id: lineId, code, quantity: qty, price: isFinite(price) ? price : 0, remark: (row.querySelector('.material-remark')?.value || '').trim() });
     });
     return { items: items, errors: errors };
 }

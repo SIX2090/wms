@@ -18,7 +18,7 @@ def render_page(role='warehouse', location=True, edit=False):
         DictLoader({'base.html': '<body class="{% block body_class %}{% endblock %}">{% block content %}{% endblock %}{% block extra_js %}{% endblock %}</body>'}),
         FileSystemLoader(str(ROOT / 'app/templates')),
     ]))
-    order = SimpleNamespace(location='A-01', customer='fixture', source_sales_order_id=17,
+    order = SimpleNamespace(location='A-01', customer='fixture', total_amount=9.99, source_sales_order_id=17,
                             source_out_order_id=18) if edit else None
     return env.get_template('after_sale_out_add.html').render(
         current_user=SimpleNamespace(role=role), location_management_enabled=location,
@@ -74,7 +74,7 @@ def test_actual_save_and_validation_payloads(edit, location, scenario):
     run_callback(scenario, location=location, edit=edit)
 
 
-def run_callback(scenario, role='warehouse', location=True, edit=False):
+def run_callback(scenario, role='warehouse', location=True, edit=False, line_id=None):
     html = render_page(role, location, edit)
     names = ['clearAfterSaleOutValidation', 'collectAfterSaleOutRows', 'collectAfterSaleOutErrors',
              'showAfterSaleOutValidation', 'focusAfterSaleOutError', 'submitForm']
@@ -89,6 +89,7 @@ const classList={add(){},remove(){}},inputs={};
 for(const [name,value] of Object.entries(fields))inputs[name]={value,tagName:'INPUT',type:'text',classList,getAttribute:k=>k==='name'?name:null,closest:()=>null};
 const rowValues={'.material-code':'MAT-FIXTURE','.material-qty':'2','.material-price':'3.50','.material-remark':'fixture line remark'};
 const row={classList,querySelector:s=>({value:rowValues[s]})};
+if(p.line_id!==null)row._afterSaleOriginal={line_id:p.line_id,material_code:'MAT-FIXTURE',quantity:2,price:3.5,amount:7.77};
 const required=['date','customer','warehouse_id',...(p.location?['location']:[])].map(k=>inputs[k]);
 if(mode==='validation')inputs.customer.value='';
 const buttons=[{disabled:false},{disabled:true}];
@@ -111,7 +112,7 @@ const flush=()=>new Promise(r=>setImmediate(r));
  if(['readonly','validation'].includes(mode)){assert.equal(sent.length,0);assert.equal(href,'original');if(mode==='validation')assert(list.innerHTML.includes('customer'));return;}
  assert.equal(sent.length,1);assert(buttons.every(b=>b.disabled));await ctx.submitForm();assert.equal(sent.length,1,'repeat save cannot create duplicate');
  const req=sent[0],h=new Headers(req.o.headers);assert.equal(req.u,'/after_sale_out/add');assert.equal(req.o.method,'POST');assert.equal(req.o.credentials,'same-origin');assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert.equal(h.get('Content-Type'),'application/json');assert.equal(h.get('X-Requested-With'),'XMLHttpRequest');
- assert.deepEqual(JSON.parse(req.o.body),{...fields,location:p.location?'A-01':'',items:[{code:'MAT-FIXTURE',quantity:2,price:3.5,remark:'fixture line remark'}]});
+ assert.deepEqual(JSON.parse(req.o.body),{...fields,location:p.location?'A-01':'',items:[{line_id:p.line_id,code:'MAT-FIXTURE',quantity:2,price:3.5,remark:'fixture line remark'}]});
  resolveRequest();await first;await flush();
  if(mode==='success'){
   assert.equal(messages.at(-1).t,'success');assert.equal(href,'original');assert.equal(timers.length,1);assert.equal(timers[0].delay,400);
@@ -124,7 +125,11 @@ const flush=()=>new Promise(r=>setImmediate(r));
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
     run_node(program, dict(script=script, api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
-                           scenario=scenario, role=role, location=location, edit=edit))
+                           scenario=scenario, role=role, location=location, edit=edit, line_id=line_id))
+
+
+def test_actual_edit_transport_carries_owned_original_line_id():
+    run_callback('success', edit=True, line_id=17)
 
 
 def test_actual_global_actionbar_honors_rendered_optout():

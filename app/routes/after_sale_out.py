@@ -20,13 +20,28 @@ from __future__ import annotations
 
 import json
 
-from flask import flash, jsonify, redirect, render_template, request, url_for
+from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 from utils import round_money_product
+
+
+def _after_sale_edit_line_id(value):
+    if value is None or value == '':
+        return None
+    if type(value) is int:
+        line_id = value
+    elif (isinstance(value, str) and len(value.strip()) <= 19
+          and value.strip().isascii() and value.strip().isdigit()):
+        line_id = int(value.strip())
+    else:
+        raise ValueError('售后明细标识无效')
+    if not 0 < line_id < 2**63:
+        raise ValueError('售后明细标识无效')
+    return line_id
 
 
 # no-test:reason=路由注册辅助函数，能力由 after_sale_out_* 各路由测试覆盖
@@ -140,6 +155,8 @@ def register_after_sale_out_routes(app):
             selectinload(AfterSaleOutOrder.items).joinedload(AfterSaleOutOrderItem.material).joinedload(Material.unit),
         ).get_or_404(id)
         rows = [_material_row_common(item) for item in order.items]
+        total_amount = (order.total_amount if order.total_amount is not None
+                        else sum(row.get('amount', 0) or 0 for row in rows))
         return _render_generic_document_print({
             'title': '售后出库单',
             'subtitle': 'AFTER-SALE OUTBOUND',
@@ -154,7 +171,7 @@ def register_after_sale_out_routes(app):
                 ('联系电话', order.phone or ''),
                 ('售后原因', order.reason or ''),
                 ('制单人', _operator_name(order)),
-                ('总金额', f'{order.total_amount or 0:.2f}'),
+                ('总金额', f'{total_amount:.2f}'),
             ],
             'remark': order.remark or '',
             'columns': [
@@ -168,7 +185,7 @@ def register_after_sale_out_routes(app):
                 ('remark', '备注', ''),
             ],
             'rows': rows,
-            'total_amount': order.total_amount or sum(row.get('amount', 0) or 0 for row in rows),
+            'total_amount': total_amount,
             'signatures': ['制单', '客户签收', '售后', '仓库'],
         })
 
@@ -235,8 +252,10 @@ def register_after_sale_out_routes(app):
                 'unit_name': material.unit.name if material and material.unit else '',
                 'stock': (float(edit_stock_map.get(material.id, 0) or 0) if material and edit_warehouse
                           else (float(material.stock or 0) if material else 0)),
+                'line_id': item.id,
                 'quantity': float(item.quantity or 0),
                 'price': float(item.price or 0),
+                'amount': item.amount,
                 'remark': item.remark or '',
             })
         return render_template(
@@ -381,25 +400,60 @@ def register_after_sale_out_routes(app):
                     items_data = []
 
             if not items_data:
+                db.session.rollback()
                 return api_error('请至少添加一条售后出库明细')
 
+            existing_items = {item.id: item for item in order.items}
+            identified_edit = any('line_id' in item_data for item_data in items_data)
+            try:
+                line_ids = [_after_sale_edit_line_id(item_data.get('line_id')) for item_data in items_data]
+            except ValueError as exc:
+                db.session.rollback()
+                return api_error(str(exc))
+            owned_ids = [line_id for line_id in line_ids if line_id is not None]
+            if (len(owned_ids) != len(set(owned_ids))
+                    or any(line_id not in existing_items for line_id in owned_ids)
+                    or (not order_id and owned_ids)):
+                db.session.rollback()
+                return api_error('售后明细标识重复或不属于当前单据，请刷新后重试')
+            if order_id and identified_edit and not getattr(g, 'document_edit_guard', None):
+                db.session.rollback()
+                return api_error('编辑状态已失效，请重新打开单据后重试', 409)
+            financial_change = not order_id or not identified_edit or set(owned_ids) != set(existing_items)
             for existing_item in list(order.items):
-                db.session.delete(existing_item)
+                if not identified_edit or existing_item.id not in owned_ids:
+                    db.session.delete(existing_item)
             db.session.flush()
 
             total_amount = 0
-            for item_data in items_data:
+            for row_no, item_data in enumerate(items_data):
                 material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
                 material = Material.query.filter_by(code=material_code).first()
                 if not material:
+                    db.session.rollback()
                     return api_error(f'物料 {material_code} 不存在')
+                old_item = existing_items.get(line_ids[row_no]) if identified_edit else None
+                if old_item is not None and old_item.material_id != material.id:
+                    db.session.rollback()
+                    return api_error('原售后明细不能更换物料，请新增明细后移除原行')
                 quantity = parse_float_value(item_data.get('quantity'), 0)
                 if quantity <= 0:
+                    db.session.rollback()
                     return api_error(f'物料 {material_code} 的数量必须大于0')
                 price = parse_float_value(item_data.get('price'), material.price or 0)
-                amount = round_money_product(quantity, price)
+                quantity_unchanged = old_item is not None and quantity == old_item.quantity
+                price_unchanged = old_item is not None and price == old_item.price
+                row_financial_change = not quantity_unchanged or not price_unchanged
+                if quantity_unchanged:
+                    quantity = old_item.quantity
+                if price_unchanged:
+                    price = old_item.price
+                amount = (old_item.amount
+                    if old_item is not None and not row_financial_change and old_item.amount is not None
+                    else round_money_product(quantity, price))
+                financial_change = financial_change or row_financial_change
                 total_amount = round_to_2_decimals(total_amount + amount)
-                item = AfterSaleOutOrderItem(
+                values = dict(
                     after_sale_out_order_id=order.id,
                     material_id=material.id,
                     quantity=quantity,
@@ -407,9 +461,16 @@ def register_after_sale_out_routes(app):
                     amount=amount,
                     remark=(item_data.get('remark') or '').strip() or None
                 )
-                db.session.add(item)
+                if old_item is not None:
+                    item = old_item
+                    for field, value in values.items():
+                        setattr(item, field, value)
+                else:
+                    item = AfterSaleOutOrderItem(**values)
+                    db.session.add(item)
 
-            order.total_amount = round_to_2_decimals(total_amount)
+            if financial_change or order.total_amount is None:
+                order.total_amount = round_to_2_decimals(total_amount)
             try:
                 db.session.flush()
                 stage_document_response({'status': 'success', 'msg': '保存成功', 'id': order.id, 'order_no': order.order_no})
