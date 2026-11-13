@@ -61,16 +61,16 @@ Windows未配置bash命令时可调用Git for Windows的bash，或使用等效�
 | 层级 | 实际作用 |
 |---|---|
 | pre-commit | 涉及app/scripts代码时检查A1–A14及非GET原生fetch；按规则区分新增行、白名单和豁免 |
-| pre-push | 检查main分支策略和CI全绿门禁；API工具写入不会经过本地钩子，仍须满足相同规则 |
+| pre-push | 检查main分支策略及Windows发行版本；各任务可独立推送，不因其他任务CI未完成而阻塞；API写入仍须遵守相同规则 |
 | GitHub Actions | 普通lint、A11全量、A8/A9/A10/A13/A14存量棘轮、安全扫描、隔离测试、业务冒烟及AI/Android验证 |
 
 CI入口：
 
 ```powershell
-python scripts/check_ci_green.py
+python scripts/check_ci_green.py --target-sha <本任务实际推送的完整40位SHA> --json
 ```
 
-匿名API可能限流；HTTP403不等于工作流失败，也不能当作已通过。可用连接器/Actions页面核实最新运行。三个必需工作流有每日定时触发，Android还受push路径过滤；并非每次文档提交都新建Android构建。具体触发、并行分片和结果以 `.github/workflows/` 为准。GitHub分支保护与规则集以现场核验为准，不根据旧的免费/私有仓库结论推断当前保护。
+2026-11-13 起允许多个任务同时开发、提交、推送并各自验收固定目标 SHA；一个任务的 CI 等待或失败不阻塞其他任务，文件归属及共享 Git 操作须协调。无参数检查查看实时远端 main，不代替各任务的目标验收。匿名 API 可能限流；HTTP403只表示未核实，可用连接器/Actions页面补证，不能当作已通过。三个必需工作流有每日定时触发，Android还受push路径过滤；并非每次文档提交都新建Android构建。具体规则见 [CI验证说明](docs/CI_VALIDATION_POLICY.md)。GitHub分支保护与规则集以现场核验为准。
 
 ## 主要功能
 
@@ -352,7 +352,7 @@ http://127.0.0.1:8080
 
 | 文档 | 用途 |
 |---|---|
-| `AGENTS.md` | AI 和开发代理必须遵守的最高优先级项目规则（业务铁律、atomic action、CI 全绿门禁、A1–A14、R1–R8） |
+| `AGENTS.md` | AI 和开发代理必须遵守的项目规则（业务铁律、多任务并行与各自CI验收、A1–A14、R1–R8） |
 | `WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md` | 唯一 AI 开发台账：已有能力基线、任务、依赖、验收和完成记录 |
 | `AI_PERMISSION_MATRIX.md` | AI 能力角色、风险等级和人工确认边界 |
 | `AI_ONBOARDING_PROMPT.md` | AI 新会话上手提示词 |
@@ -382,7 +382,7 @@ python3 -m compileall -q app scripts
 python3 scripts/verify_wms_bugs.py
 python3 scripts/scan_wms_risks.py
 
-# CI 全绿门禁（开工前必查）
+# 查看远端main的CI状态；交付时用--target-sha固定本任务目标
 python3 scripts/check_ci_green.py
 ```
 

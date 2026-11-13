@@ -789,14 +789,14 @@
 ## 每日使用方式
 
 ```powershell
-# ⚠️ 开工前置门禁：三个工作流全绿才能开始任何任务（AGENTS.md §三）
+# 查看远端main状态；各任务验收须另传自身完整目标SHA（2026-11-13）
 .\scripts\python.cmd scripts\check_ci_green.py
 .\scripts\python.cmd scripts\verify_wms_bugs.py
 .\scripts\python.cmd scripts\scan_wms_risks.py
 ```
 
 规则：
-- `check_ci_green.py` 是**开工前置条件**：检查 `Android APK Build` / `WMS AI Verification` / `WMS CI` 三个工作流在 `main` 上最近一次运行是否全绿。**任一非绿即不得开工**，必须先修绿。退出码 0=全绿放行，1=阻断，2=检查本身失败（同样阻断）。
+- `check_ci_green.py --target-sha <完整40位SHA>` 是**本任务交付/发布验收**：检查目标在 `main` 上三个必需工作流的最新运行，不受其他任务推进 main 影响。退出码 0=目标已绿，1=目标尚未验收，2=参数错误；非绿不阻塞其他任务开发、提交或推送。失败由本任务负责人修复或按 R8 回退，不得回退其他任务（2026-11-13 用户授权）。
 - `verify_wms_bugs.py` 失败才需要立即处理；`scan_wms_risks.py` 输出的是候选风险，必须人工判真后才能进入 BUG 修复。
 
 三个工作流均已配置**每日定时触发**（`cron: '30 18 * * *'` = 北京时间 02:30），即使当天无人推代码也会自动跑一遍，以便发现依赖撤回 / 上游镜像失效这类**时间性故障**。

@@ -1,5 +1,8 @@
 # WMS AI 唯一开发台账
 
+<!-- AI_TASK: F2.8-PARALLEL-001 -->
+2026-11-13 F2.8-PARALLEL-001（实现与验收按专项记录跟踪）：按用户要求调整既有 F2.8 推送校验及 F3.16 工作流取消策略，允许多个任务同时推进，各自验收精确目标 SHA。同步规则、共享 main 协作边界、目标查询及相邻回归；不新增业务能力或生产操作。状态与证据见 `docs/audit/2026-11-13-parallel-task-ci.md`，未核实的 CI 不得视为完成。
+
 <!-- AI_TASK: AI-MOB-OCR-F01-FIX-ATOMIC-20261109-001 -->
 2026-11-09 AI-MOB-OCR-F01-FIX-ATOMIC-20261109-001（本地修复待统一验收，未交付）：既有手机识别确认草稿及原生业务回执的子修复，关联 BUG-2026-11-08-018。入库、出库、盘点、期初新增／编辑、识别入库草稿六接口复用现有回执表与 stage_document_response，同一事务提交业务及成功响应；九个原生装饰器消费点统一拒绝非字符串请求号。旧回执保持、无请求号旧客户端不猜测请求身份。隔离实际应用及相邻 297 项、恢复候选后 110 项通过，真实私有 SQLite 文件的四线程同键／异键／异内容通过；组件精确逆向后 60 failed / 57 passed，清单重叠不相加。语音建草稿及其他 AI 处理链仍需核查，不以六接口结果宣称全部移动端幂等完成；统一编号、整批回退、提交推送、精确 CI 与生产生效仍待完成。
 
@@ -49,7 +52,7 @@
 - 开始前必须检查任务状态，并搜索现有代码、路由、工具、模型、页面、验证脚本和 Git 历史。
 - “已完成”任务禁止重新开发；已有功能出现缺陷时建立修复子项，例如 `AI-R01-F01`。
 - 新需求只有在仓库级检查确认不存在等价实现和等价任务后，才能加入本台账。
-- 没有任务编号的 AI 功能不得直接开发；默认只允许一个任务处于“开发中”。
+- 没有任务编号的 AI 功能不得直接开发；允许不同任务同时处于“开发中”，各自记录负责人、文件范围、提交和目标 CI，禁止同一能力重复实施；按 `AGENTS.md §三` 协调共享文件及 Git 操作（2026-11-13 用户授权）。
 
 ### 1.2 防止遗漏
 
@@ -63,7 +66,7 @@
 | 状态 | 含义 | 开发限制 |
 |---|---|---|
 | 待开发 | 已确认缺少完整实现 | 可以开发 |
-| 开发中 | 正由唯一任务实施 | 禁止并行重复实施 |
+| 开发中 | 由该唯一任务 ID 跟踪实施，可与其他不同任务并行 | 禁止同一能力重复实施；共享文件与 Git 操作须协调 |
 | 待验收 | 代码完成，验证或业务验收未完成 | 仅修复验收问题 |
 | 已完成 | 代码、验证、记录、提交和推送齐全 | 禁止重复开发 |
 | 暂缓 | 已记录原因和恢复条件 | 不开发 |
@@ -1516,7 +1519,7 @@ gap 公式）。生效条件：含 `app.py` / `routes/*.py` 与 Jinja 之外的 
 | P0 安全 | AI-SEC-F01 | 已完成 | SESSION_COOKIE_SECURE 修复 + 4 项 CVE 依赖升级 + 部署脚本 6 项安全加固 + 4 份审计报告 + 健康检查脚本 | AGENTS.md 密码透明性约束、AI-DEPLOY-F01 | config.py SESSION_COOKIE_SECURE=False→True（HTTPS 加密传输）+ TestingConfig 显式关闭 Secure；requirements.txt Flask 2.3.3→3.0.3（CVE-2023-30861）、cryptography 41.0.4→42.0.4（CVE-2023-50782）、urllib3 2.0.4→2.0.7（CVE-2023-43804）、Werkzeug 2.3.7→3.0.1（CVE-2023-46136）；install.bat/install_e_wms.bat 6 项加固（管理员权限校验 net session、文件日志 install_$(stamp).log、回滚机制 :do_rollback、端口 8080 预检 Get-NetTCPConnection、幂等性 .installed.flag、errorlevel 错误捕获）；docs/环境兼容性检查报告.md、docs/部署脚本审计报告.md、docs/安全基线检查报告.md、docs/部署验证与回滚手册.md、scripts/health_check.ps1 | SESSION_COOKIE_SECURE 仅 HTTPS 传输；4 项 CVE 依赖满足最低版本；install.bat/install_e_wms.bat 保留全部 37 项黄金测试断言（INSTALL_DIR/PrependPath/TargetDir/8步标记/wheelhouse/IN_PLACE_INSTALL/业务数据库保护/停止旧进程/初始化命令/WMS_ALLOW_AUTO_SECRET_KEY/密码透明性/快捷方式/exit码/包完整性/备份/运行时目录）；admin 校验缺失则 exit /b 1；端口占用则退出；关键步骤 errorlevel 失败触发回滚；密码仍走 WMS_BOOTSTRAP_PASSWORD/admin 固定默认，无随机生成器 | 2026-07-23 | [待提交] | app/config.py、app/requirements.txt、install.bat、install_e_wms.bat、docs/环境兼容性检查报告.md、docs/部署脚本审计报告.md、docs/安全基线检查报告.md、docs/部署验证与回滚手册.md、scripts/health_check.ps1 | tests/test_install_scripts_golden.py 37/37 PASS、tests/ 全套 90/90 PASS（WMS_ALLOW_AUTO_SECRET_KEY=1）| 腾讯云测试环境真实执行部署/健康检查/回滚全流程与新 PAT 加密归档属生产环境任务，沙箱无法完成，待业务环境补跑 |
 | P0 修复 | BUG-2026-07-31-002 | 已完成 | install.bat 在 RDP/终端服务会话下 PowerShell stdout 失败导致安装中止 | AI-SEC-F01 | install.bat 第 91 行用 `for /f ... powershell ... Get-Date -Format yyyyMMdd_HHmmss` 取时间戳，在远程桌面 (mstsc) 会话里 powershell.exe 的 stdout 句柄被终端服务虚拟化，会反复输出 `The system cannot write to the specified device.` 致安装停在第 1 步；改用 `wmic os get localdatetime` 取本地时间拼接 `yyyyMMdd_HHmmss` 作为 `STAMP`，并对 `wmic` 不可用时回退 `%date%+%time%` 拼装，再不可用时回退 `manual_%RANDOM%`；install_e_wms.bat 第 93 行同步修复 | install.bat 第 91 行不再含 `powershell -NoProfile -Command "Get-Date"`；`STAMP` 始终被定义；黄金测试脚本 tests/test_install_scripts_golden.py 仍 37/37 PASS；不再出现 `cannot write to the specified device` | 2026-07-31 | 4b4fb393 | install.bat、install_e_wms.bat、WMS_AI_FUNCTION_DEVELOPMENT_PLAN.md | tests/test_install_scripts_golden.py 37/37 PASS；install.bat/install_e_wms.bat 静态扫描不含 `powershell -NoProfile -Command "Get-Date"`；`wmic`/`%date%`/`%RANDOM%` 三级 fallback 全部存在 | 真实腾讯云 RDP 会话复现验证需在业务环境执行 |
 
-同一时间只允许一个子项处于“开发中”。P0 未完成前不得开始 P2，不得以页面美化、模型更换或新 Agent 名义绕过生产验收。
+允许不同子项同时处于“开发中”，分别跟踪范围、提交和目标 CI，禁止同一子项重复实施（2026-11-13 用户授权）。P0 未完成前不得开始 P2，不得以页面美化、模型更换或新 Agent 名义绕过生产验收。
 
 ## 13. 子项详细定义
 
