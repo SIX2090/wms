@@ -1731,9 +1731,9 @@ def register_sales_routes(app):
             sales_item_map = {item.material_id: item for item in sales_order.items} if sales_order else {}
             for item in (oo.items or []):
                 material = item.material
-                line_amount = item.amount or round_money_product(item.quantity or 0, item.price or 0)
+                line_amount = item.amount if item.amount is not None else round_money_product(item.quantity or 0, item.price or 0)
                 sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
-                tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
+                tax_rate = sales_item.tax_rate if sales_item is not None and sales_item.tax_rate is not None else 0.13
                 untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else line_amount
                 tax_amount = round_to_2_decimals(line_amount - untaxed_amount)
                 sheet.append([

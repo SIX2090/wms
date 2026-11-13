@@ -282,3 +282,85 @@ def test_shared_collectors_preserve_existing_pages(sales_case, path):
     response = sales_case['client'].get(path, query_string={'warehouse_id': sales_case['ids']['warehouse']})
     assert response.status_code == 200
     assert 'SO-FOREIGN' not in response.get_data(as_text=True)
+
+
+def _set_zero_financial_case(case, amount, tax_rate):
+    with m.app.app_context():
+        order = m.db.session.get(m.SalesOrder, case['ids']['order'])
+        line = order.items[0]
+        line.tax_rate = tax_rate
+        outbound = m.OutOrder.query.filter_by(source_sales_order_id=order.id).one()
+        outbound.items[0].amount = amount
+        m.db.session.commit()
+        return order.id
+
+
+def _financial_document_snapshot():
+    return (
+        m.SalesOrder.query.order_by(m.SalesOrder.id).with_entities(m.SalesOrder.id,
+            m.SalesOrder.status, m.SalesOrder.total_amount, m.SalesOrder.tax_amount,
+            m.SalesOrder.untaxed_amount, m.SalesOrder.shipped_amount).all(),
+        m.SalesOrderItem.query.order_by(m.SalesOrderItem.id).with_entities(m.SalesOrderItem.id,
+            m.SalesOrderItem.quantity, m.SalesOrderItem.price, m.SalesOrderItem.amount,
+            m.SalesOrderItem.tax_rate, m.SalesOrderItem.shipped_quantity).all(),
+        m.OutOrderItem.query.order_by(m.OutOrderItem.id).with_entities(m.OutOrderItem.id,
+            m.OutOrderItem.quantity, m.OutOrderItem.price, m.OutOrderItem.amount).all(),
+        m.StockTransaction.query.count(),
+        m.Material.query.order_by(m.Material.id).with_entities(m.Material.id, m.Material.stock).all(),
+    )
+
+
+@pytest.mark.parametrize('amount,tax_rate,untaxed,tax', [
+    (0, 0, 0, 0), (7.77, 0, 7.77, 0), (22.6, .13, 20, 2.6)])
+def test_outflow_page_and_print_source_preserve_recorded_zero(sales_case, amount, tax_rate, untaxed, tax):
+    from services.sales_report_print import sales_outflow_context
+    _set_zero_financial_case(sales_case, amount, tax_rate)
+    with m.app.test_request_context(query_string={'warehouse_id': sales_case['ids']['warehouse']}):
+        before = _financial_document_snapshot()
+        context = sales_outflow_context()
+        assert len(context['rows']) == 1
+        row = context['rows'][0]
+        assert row['warehouse'] == '销售甲仓'
+        assert (row['amount'], row['tax_rate'], row['untaxed_amount'], row['tax_amount']) == (amount, tax_rate, untaxed, tax)
+        assert (context['total_amount'], context['total_untaxed'], context['total_tax']) == (amount, untaxed, tax)
+        assert _financial_document_snapshot() == before
+    response = sales_case['client'].get('/sales/outflow_report', query_string={
+        'warehouse_id': sales_case['ids']['warehouse']})
+    assert response.status_code == 200
+    assert 'OUT-1' not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize('amount,tax_rate,untaxed,tax', [
+    (0, 0, 0, 0), (7.77, 0, 7.77, 0), (22.6, .13, 20, 2.6)])
+def test_outflow_excel_preserves_zero_and_matches_page(sales_case, amount, tax_rate, untaxed, tax):
+    _set_zero_financial_case(sales_case, amount, tax_rate)
+    with m.app.app_context():
+        before = _financial_document_snapshot()
+    response = sales_case['client'].get('/sales/outflow_report/export', query_string={
+        'warehouse_id': sales_case['ids']['warehouse']})
+    assert response.status_code == 200
+    workbook = load_workbook(io.BytesIO(response.data), data_only=True)
+    rows = list(workbook.active.values)
+    assert len(rows) == 2
+    assert rows[1][5] == '销售甲仓'
+    assert tuple(rows[1][12:16]) == (tax_rate, untaxed, tax, amount)
+    with m.app.app_context():
+        assert _financial_document_snapshot() == before
+
+
+@pytest.mark.parametrize('tax_rate,expected', [(0, 0), (None, .13), (.13, .13)])
+def test_real_ai_draft_check_preserves_zero_rate_without_document_writes(sales_case, tax_rate, expected):
+    order_id = _set_zero_financial_case(sales_case, 22.6, tax_rate)
+    with m.app.app_context():
+        # A fresh synthetic account must have the real endpoint's required role.
+        user = m.db.session.get(m.User, sales_case['ids']['user'])
+        user.role = 'warehouse'
+        m.db.session.commit()
+        before = _financial_document_snapshot()
+    response = sales_case['client'].post('/api/ai/sales/%s/draft_check' % order_id)
+    assert response.status_code == 200, response.get_json()
+    data = response.get_json()
+    assert data['status'] == 'success'
+    assert data['sales_order']['lines'][0]['tax_rate'] == expected
+    with m.app.app_context():
+        assert _financial_document_snapshot() == before

@@ -36753,7 +36753,7 @@ def api_ai_sales_draft_check(id):
         quantity=float(item.quantity) if item.quantity is not None else None,
         shipped_quantity=float(item.shipped_quantity) if item.shipped_quantity is not None else None,
         price=float(item.price or 0),
-        tax_rate=float(item.tax_rate or 0.13),
+        tax_rate=float(item.tax_rate if item.tax_rate is not None else 0.13),
     ) for item in order.items)
     sales_info = SalesOrderInfo(
         order_id=order.id,

@@ -2,6 +2,16 @@
 
 对应 BUG-2026-11-08-012。代码基线为 `8e8339403996800d522caa3ec4b6a62367bc97d6`；本任务保留此前首页/日报和并行 CI 规则提交，只处理队列及其身份、持久化和界面消费点。未连接、读取、复制或修改生产数据库、生产备份，未请求现役服务、默认 8080、真实账号或业务单据，未安装 APK、部署或重启。
 
+## 最终代码与 CI 验收
+
+实际正常推送 `8e833940..8cba9986 main -> main`，目标完整 SHA 为 `8cba9986c1809038995f10ebd47849e0b865d5af`。
+
+- [WMS CI 43399657950](https://github.com/SIX2090/wms/actions/runs/43399657950)、[AI 43399657761](https://github.com/SIX2090/wms/actions/runs/43399657761)、[Android 43399657746](https://github.com/SIX2090/wms/actions/runs/43399657746) 均精确 completed/success。
+- Android unit-test 131799056469 日志逐项确认队列 21、Compose 3、文件库保护 15、原队列状态机 8、凭据隔离 11 项全部 PASSED，无失败/跳过；build、unit-test、lint 均成功。
+- [性能基线 43399657892](https://github.com/SIX2090/wms/actions/runs/43399657892) 与 [Windows 便携包发布 43400673129](https://github.com/SIX2090/wms/actions/runs/43400673129) 均 success；代码已交付，设备安装和生产生效未操作。
+
+下文“待 CI/待提交”为代码推送前的本地验证阶段记录，保留其证据边界。本补记另随后续审计批次验收，不改变上述队列产品字节。
+
 ## 目标与改动
 
 - 新记录绑定原始提交时的完整规范化服务地址与服务端用户 ID，不持久化令牌，不按输入的用户名猜身份。带用户信息、query 或 fragment 的 URL 不可作为队列归属。旧登录缺少可证明的用户 ID 时，不能谎报已安全暂存，应保留页面并重新登录。

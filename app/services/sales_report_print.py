@@ -343,9 +343,9 @@ def sales_outflow_context():
             sales_item_map = {item.material_id: item for item in sales_order.items}
         for item in oo.items or []:
             material = item.material
-            line_amount = item.amount or round_money_product(item.quantity or 0, item.price or 0)
+            line_amount = item.amount if item.amount is not None else round_money_product(item.quantity or 0, item.price or 0)
             sales_item = sales_item_map.get(item.material_id) if sales_item_map else None
-            tax_rate = sales_item.tax_rate if sales_item and sales_item.tax_rate else 0.13
+            tax_rate = sales_item.tax_rate if sales_item is not None and sales_item.tax_rate is not None else 0.13
             untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if 1 + tax_rate > 0 else line_amount
             tax_amount = round_to_2_decimals(line_amount - untaxed_amount)
             rows.append({'out_date': oo.date, 'out_order_no': oo.order_no, 'out_order_id': oo.id, 'out_status': oo.status, 'customer': oo.customer or '', 'warehouse': oo.warehouse or '', 'material_code': material.code if material else '', 'material_name': material.name if material else '', 'spec': material.spec if material else '', 'unit': material.unit.name if material and material.unit else '', 'quantity': item.quantity or 0, 'price': item.price or 0, 'tax_rate': tax_rate, 'untaxed_amount': untaxed_amount, 'tax_amount': tax_amount, 'amount': line_amount, 'purpose': oo.purpose or '', 'remark': item.remark or oo.remark or ''})
