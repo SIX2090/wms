@@ -8,20 +8,21 @@ WMS 「CI 全绿门禁」检查器（AGENTS.md §三 硬性规则，2026-09-18 �
 
 规则
 ----
-开始任何任务前，必须确认以下三个工作流在 ``main`` 上**最近一次运行**全部为绿色：
+各任务交付/发布前，必须确认自身完整目标 SHA 在 ``main`` 上的以下工作流通过：
 
     Android APK Build      .github/workflows/android-build.yml
     WMS AI Verification    .github/workflows/verify.yml
     WMS CI                 .github/workflows/ci.yml
 
-最新失败/运行中/未核实均阻断写入和发布；只读检查与准备可继续。
-WMS CI/AI 必须对应目标SHA；旧Android绿色仅在祖先及输入路径无改证明后复用。
+失败/运行中/未核实仅阻止该目标交付或发布，不阻塞其他任务开发和推送。
+各工作流按目标 SHA 查询最新运行；后续提交不能改变本任务的验收目标。
+Android 没有目标运行时，查询最近修改 Android 输入的祖先提交并核实复用证明。
 
 用法
 ----
     python3 scripts/check_ci_green.py            # 人读输出；全绿 rc=0，非绿 rc=1
     python3 scripts/check_ci_green.py --json     # 机器读输出（供定时任务/流水线消费）
-    python3 scripts/check_ci_green.py --target-sha <40位远端基线SHA>
+    python3 scripts/check_ci_green.py --target-sha <40位本任务目标SHA>
     python3 scripts/check_ci_green.py --quiet    # 只在非绿时输出（适合 cron）
 
 退出码
@@ -42,10 +43,9 @@ Token
 --------
 * **零依赖**：仅用 Python 3 标准库，与本仓库其他 ``scripts/`` 一致，
   不引入 requests 之类新依赖（受限网络环境下装包是额外风险）。
-* **不缓存**：每次现查 GitHub API。缓存会让"昨天绿、今天红"被掩盖，
-  而本规则的**全部意义**就是"检查当下状态"。
-* **宁可阻断**：网络异常/token 失效一律 rc≠0。本门禁的失效模式必须是
-  "误报阻断"而不是"漏报放行"——后者会让人在红色基线上开工。
+* **不缓存**：每次现查指定目标的最新运行，不用旧成功掩盖同目标的新失败。
+* **验收从严**：网络异常/token 失效一律 rc≠0，不冒充目标验收通过；
+  该状态不作为其他任务开工、提交或推送的门禁（2026-11-13）。
 """
 
 from __future__ import annotations
@@ -175,8 +175,8 @@ def gh_get(path: str, token: str | None) -> dict:
         return json.loads(resp.read().decode())
 
 
-def latest_run(workflow_file: str, token: str | None) -> dict | None:
-    """取某工作流在 main 上的最近一次运行；查不到返回 None。
+def latest_run(workflow_file: str, token: str | None, target_sha: str) -> dict | None:
+    """取某工作流在 main 上指定 SHA 的最近一次运行；查不到返回 None。
 
     ⚠️ **踩过的坑（2026-09-18 实测）**：GitHub 的 workflow-runs 端点
     ``/actions/workflows/{id}/runs`` 里的 ``{id}`` 只接受
@@ -189,10 +189,10 @@ def latest_run(workflow_file: str, token: str | None) -> dict | None:
     # urlencode 兜底：文件名里若有空格等字符也能正确编码。
     wf = urllib.parse.quote(os.path.basename(workflow_file))
     # 注意：必须带 branch 过滤。不带会把其他分支（如 PR 的临时分支）的运行算进来，
-    # 得出"绿"的错误结论——本门禁只关心 main 的基线状态。
+    # 得出"绿"的错误结论——这里只接受 main 上指定目标的运行证据。
     path = (
         f"/repos/{REPO}/actions/workflows/{wf}/runs"
-        f"?branch={BRANCH}&per_page=1"
+        f"?branch={BRANCH}&head_sha={full_sha(target_sha)}&per_page=1"
     )
     data = gh_get(path, token)
     runs = data.get("workflow_runs") or []
@@ -212,6 +212,22 @@ def resolve_target_sha(token: str | None) -> str:
     """Read the current remote main on every default invocation; no local cache."""
     branch = gh_get(f"/repos/{REPO}/branches/{BRANCH}", token)
     return full_sha((branch.get("commit") or {}).get("sha"))
+
+
+def android_source_sha(target_sha: str) -> str:
+    """Find the last Android-input commit in the target's own history.
+
+    A later task's Android build must not replace this target's evidence.
+    Missing history is unverified; never fetch or guess during acceptance.
+    """
+    result = subprocess.run(
+        ["git", "--no-replace-objects", "log", "-1", "--format=%H", full_sha(target_sha), "--", *ANDROID_PATHS],
+        cwd=ROOT, capture_output=True, text=True, timeout=15,
+        env={**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0"},
+    )
+    if result.returncode != 0:
+        raise ValueError("未核实：无法查询目标自身的Android输入历史")
+    return full_sha(result.stdout.strip())
 
 
 def android_reuse_check(source_sha: str, target_sha: str) -> tuple[bool, str]:
@@ -283,7 +299,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="WMS CI 全绿门禁检查")
     ap.add_argument("--json", action="store_true", help="输出 JSON（供定时任务消费）")
     ap.add_argument("--quiet", action="store_true", help="仅在非绿时输出")
-    ap.add_argument("--target-sha", metavar="SHA", help="校验完整40位目标SHA；pre-push传远端待更新基线，不是本地待推HEAD")
+    ap.add_argument("--target-sha", metavar="SHA", help="校验本任务已推送的完整40位目标SHA；其他任务推进main不改变本目标")
     args = ap.parse_args()
     if args.target_sha:
         try:
@@ -310,7 +326,11 @@ def main() -> int:
 
     for name, wf in REQUIRED_WORKFLOWS:
         try:
-            run = latest_run(wf, token)
+            run = latest_run(wf, token, target_sha) if target_sha else None
+            if run is None and target_sha and wf == ".github/workflows/android-build.yml":
+                source_sha = android_source_sha(target_sha)
+                if source_sha != target_sha:
+                    run = latest_run(wf, token, source_sha)
             state, detail = verify_target(run, wf, target_sha)
         except urllib.error.HTTPError as exc:
             # API错误表示本次未核实；不能把403限流/404配置错误当CI实际失败
@@ -369,25 +389,24 @@ def main() -> int:
     log("=" * 66)
 
     if ok:
-        log(f"  {mark['ok']} 目标SHA的三个工作流验证通过，允许开工和写入/发布。")
+        log(f"  {mark['ok']} 目标SHA的三个工作流验证通过，可验收本任务；生产发布仍需授权。")
         log("")
         return 0
 
-    log(f"  {mark['blocked']} 门禁阻断：目标尚未确认全绿，禁止代码写入、提交、推送或发布；允许只读检查与准备：")
+    log(f"  {mark['blocked']} 验收未通过：目标尚未确认全绿，不得报告本任务交付或发布；其他独立任务可继续开发、提交和推送：")
     for r in blocked:
         log(f"     - {r['workflow']}（{r['state']}: {r['detail']}）")
         if r["html_url"]:
             log(f"       {r['html_url']}")
     if any(r["state"] == "failed" for r in blocked):
-        log("     最新工作流实际失败，请先修绿；不得用历史绿色结果替代。")
+        log("     本任务目标工作流实际失败，由本任务负责人处理；不得用历史绿色结果替代。")
     if any(r["state"] == "pending" for r in blocked):
         log("     工作流尚未完成，请等待结果；运行中不代表失败。")
     if api_error:
         log(f"  {mark['warn']}  检查过程出现 API 异常：{api_error}")
         log("     查询失败只表示未核实，不表示工作流已失败。")
         log("     可用已连接GitHub工具/Actions核对同一目标SHA的最新运行链接、SHA、状态；")
-        log("     Android旧SHA还须祖先及路径无改证明。全部核实并记录替代证据后，")
-        log("     仅本次查询故障的push可临时WMS_SKIP_CI_GATE=1；未核实不得跳过。")
+        log("     Android旧SHA还须祖先及路径无改证明；未核实不得报告交付或发布。")
     log("")
     return 1
 

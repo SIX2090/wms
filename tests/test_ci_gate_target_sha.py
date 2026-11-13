@@ -1,4 +1,4 @@
-"""Target-specific CI evidence and actual pre-push remote-baseline behavior."""
+"""Each task accepts its own SHA; another task's CI cannot block its push."""
 import importlib.util
 import json
 import os
@@ -34,7 +34,7 @@ def invoke(gate,monkeypatch,capsys,runs=None,target=TARGET):
     monkeypatch.setattr(gate,'resolve_token',lambda:None)
     if runs is None:
         runs={wf:good_run() for _,wf in gate.REQUIRED_WORKFLOWS}
-    monkeypatch.setattr(gate,'latest_run',lambda wf,token:runs[wf])
+    monkeypatch.setattr(gate,'latest_run',lambda wf,token,target_sha:runs[wf])
     monkeypatch.setattr(sys,'argv',[str(CHECKER),'--json']+(['--target-sha',target] if target else []))
     rc=gate.main()
     return rc,json.loads(capsys.readouterr().out)
@@ -86,7 +86,7 @@ def test_latest_failure_or_pending_blocks_even_when_an_older_sha(workflow,status
 
 @pytest.mark.parametrize('code',[401,403,404,429])
 def test_api_query_failure_is_unverified_not_a_failed_workflow(gate,monkeypatch,capsys,code):
-    def unavailable(wf,token):
+    def unavailable(wf,token,target_sha):
         raise urllib.error.HTTPError('https://example.invalid',code,'query unavailable',{},None)
     monkeypatch.setattr(gate,'resolve_token',lambda:None)
     monkeypatch.setattr(gate,'latest_run',unavailable)
@@ -193,14 +193,14 @@ def test_android_git_comparison_error_is_unknown(gate,monkeypatch):
     assert not ok and '未核实' in detail
 
 
-def test_pending_output_explicitly_allows_read_only_preparation(gate,monkeypatch,capsys):
+def test_pending_output_blocks_own_acceptance_and_allows_other_tasks(gate,monkeypatch,capsys):
     monkeypatch.setattr(gate,'resolve_token',lambda:None)
     monkeypatch.setattr(gate,'latest_run',lambda *args:{'status':'in_progress','conclusion':None})
     monkeypatch.setattr(sys,'argv',[str(CHECKER),'--target-sha',TARGET])
     assert gate.main()==1
     output=capsys.readouterr().out
-    assert '禁止代码写入、提交、推送或发布' in output
-    assert '允许只读检查与准备' in output
+    assert '不得报告本任务交付或发布' in output
+    assert '其他独立任务可继续开发、提交和推送' in output
     assert '不代表失败' in output
 
 
@@ -231,11 +231,10 @@ source "$1"
 
 
 @pytest.mark.parametrize('broken_alias',[False,True])
-def test_pre_push_passes_remote_baseline_not_local_unbuilt_sha(tmp_path,broken_alias):
+def test_pre_push_does_not_query_another_tasks_ci(tmp_path,broken_alias):
     result,args=hook_run(tmp_path,f'refs/heads/main {LOCAL} refs/heads/main {TARGET}\n',broken_alias=broken_alias)
     assert result.returncode==0,result.stderr
-    assert args==['scripts/check_ci_green.py','--quiet','--target-sha',TARGET]
-    assert LOCAL not in args
+    assert args is None
 
 
 def test_no_ref_updates_are_read_only_noop_without_ci_query(tmp_path):
@@ -250,8 +249,8 @@ def test_pre_push_rejects_missing_or_malformed_remote_baseline(tmp_path,remote_s
     assert '基线SHA' in result.stderr
 
 
-def test_pre_push_pending_or_unknown_gate_blocks_actual_write(tmp_path):
+def test_pre_push_does_not_wait_for_pending_or_unknown_remote_ci(tmp_path):
     result,args=hook_run(tmp_path,f'refs/heads/main {LOCAL} refs/heads/main {TARGET}\n',returncode=1)
-    assert result.returncode!=0
-    assert args[-1]==TARGET
-    assert 'CI 门禁未通过' in result.stderr
+    assert result.returncode==0,result.stderr
+    assert args is None
+    assert 'CI 门禁未通过' not in result.stderr

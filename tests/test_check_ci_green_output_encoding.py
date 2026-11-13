@@ -34,7 +34,7 @@ def _run(monkeypatch, encoding: str, conclusion: str = "success"):
     buf = io.BytesIO()
     stream = io.TextIOWrapper(buf, encoding=encoding, newline="\n")
 
-    def fake_latest_run(workflow_file, token):
+    def fake_latest_run(workflow_file, token, target_sha):
         return {
             "status": "completed",
             "conclusion": conclusion,
@@ -61,7 +61,7 @@ def test_gbk_console_reports_green_without_crash(monkeypatch):
     rc, text = _run(monkeypatch, "gbk")
     assert rc == 0
     assert "[OK]" in text
-    assert "允许开工" in text
+    assert "可验收本任务" in text
     # 降级后不应残留任何无法被 gbk 表示的字符
     assert "\u2705" not in text
 
@@ -72,7 +72,7 @@ def test_gbk_console_reports_blocked_without_crash(monkeypatch):
     assert rc == 1
     assert "[FAIL]" in text
     assert "[BLOCKED]" in text
-    assert "门禁阻断" in text
+    assert "验收未通过" in text
 
 
 def test_utf8_console_keeps_emoji(monkeypatch):

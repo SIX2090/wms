@@ -4,16 +4,16 @@ CI-GREEN-GATE-2026-09-18 回归：AGENTS.md §三「CI 全绿门禁」+ 每日�
 
 规则
 ----
-**开始任何任务前**，必须确认以下三个工作流在 `main` 上最近一次运行全部为绿色：
+2026-11-13：各任务交付前确认自身目标 SHA 的三个工作流全部通过：
 
     Android APK Build      .github/workflows/android-build.yml
     WMS AI Verification    .github/workflows/verify.yml
     WMS CI                 .github/workflows/ci.yml
 
-任一非绿 → 禁止开工，必须先修绿。
+任一非绿 → 本任务目标尚未验收；其他独立任务可以继续开发和推送。
 
 本测试锁三件事，缺一条规则就失效：
-  1. **规则条文在** —— AGENTS.md 里三个工作流名与"禁止开工"语义都在；
+  1. **规则条文在** —— AGENTS.md 保留三个工作流与各任务独立验收边界；
   2. **检查工具在且可用** —— scripts/check_ci_green.py 存在、零依赖、
      全绿 rc=0 / 非绿 rc=1、且"查不到"时**必须阻断**而不是放行；
   3. **每天真的会跑** —— 三个工作流都带 schedule 定时触发（否则当天没人推
@@ -51,7 +51,7 @@ def _read(path):
 
 # ---------------------------------------------------------- T1 规则条文
 def test_t1_agents_md_declares_gate():
-    """AGENTS.md 必须写明门禁的三个工作流名与"禁止开工"语义。"""
+    """三个工作流继续约束任务自身验收，独立任务允许并行。"""
     src = _read(AGENTS)
     assert 'CI 全绿门禁' in src, 'AGENTS.md 缺少「CI 全绿门禁」规则标题'
     assert '2026-09-18' in src, '规则未标注新增日期（本仓库要求新增规则注明日期）'
@@ -59,9 +59,9 @@ def test_t1_agents_md_declares_gate():
         assert name in src, f'AGENTS.md 未列出工作流 {name}'
         # 工作流文件名要能对上（防止写了名字但指错文件）
         assert os.path.basename(path) in src, f'AGENTS.md 未给出 {name} 的文件名'
-    # 阻断语义：必须明确"任一非绿即不得开工"
-    assert re.search(r'任一非绿[^\n]*不得开工|任一非绿[^\n]*禁止', src), \
-        'AGENTS.md 未写明"任一非绿即不得开工"的阻断语义'
+    assert '多任务并行与各自 CI 验收' in src
+    assert '均不自动阻塞其他任务的开发、提交或推送' in src
+    assert '任何任务都不能将自己的失败目标报告为完成' in src
     # 推荐的一键检查命令要写进文档，否则规则不可执行
     assert 'check_ci_green.py' in src, 'AGENTS.md 未给出 check_ci_green.py 检查命令'
 

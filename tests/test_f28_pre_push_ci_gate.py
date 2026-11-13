@@ -1,9 +1,5 @@
 # -*- coding: utf-8 -*-
-"""F2.8 回归：pre-push 接入 CI 全绿门禁。
-
-静态契约（防止门禁调用被误删）+ shell 语法检查（bash -n，不执行）。
-行为验证（CI 红时阻断）由实际 push / CI 承担，此处不做执行型测试以免依赖本机 bash。
-"""
+"""F2.8-PARALLEL-001: independent pushes retain branch and release checks."""
 from __future__ import annotations
 
 import os
@@ -17,71 +13,54 @@ ROOT = Path(__file__).resolve().parents[1]
 HOOK = ROOT / ".githooks" / "pre-push"
 
 
-def test_pre_push_invokes_ci_gate():
+def bash_binary():
+    found=shutil.which('bash')
+    if found:
+        return found
+    git=shutil.which('git')
+    if git:
+        bundled=Path(git).resolve().parent.parent/'bin/bash.exe'
+        if bundled.is_file():
+            return str(bundled)
+    pytest.skip('Bash unavailable')
+
+
+def test_pre_push_keeps_local_checks_without_global_ci_gate():
     body = HOOK.read_text(encoding="utf-8")
-    assert "check_ci_green.py" in body, "pre-push 必须调用 CI 全绿门禁脚本"
-    assert "WMS_SKIP_CI_GATE" in body, "pre-push 应提供显式逃生舱"
-    assert "PRE-PUSH BLOCKED" in body, "CI 非绿时应阻断并给出提示"
+    assert "check_ci_green.py" not in body
+    assert '${WMS_SKIP_CI_GATE' not in body
+    assert 'ALLOWED_LOCAL_BRANCH="main"' in body
+    assert 'ALLOWED_REMOTE_BRANCH="main"' in body
+    assert 'app/version.py 未递增' in body
 
 
-def test_pre_push_validates_interpreter_before_use():
-    """BUG-2026-10-17-007：解释器必须先真实执行验证，不能只看 command -v。
-
-    Windows 的 python3 常是 Microsoft Store 0 字节别名：command -v 能找到，
-    执行却返回 9009。原逻辑据此判定门禁未通过，把所有 push 都误拦。
-    """
-    body = HOOK.read_text(encoding="utf-8")
-    assert '-c "import sys"' in body, "pre-push 必须真实执行验证解释器，避免 Store 别名阻断所有 push"
-
-
-@pytest.mark.skipif(os.name == "nt", reason="Windows 的 chmod 不产生 MSYS 可执行位，行为验证交给 Linux CI")
-def test_pre_push_skips_broken_python3_alias(tmp_path):
-    """行为验证：PATH 里先放坏的 python3，钩子应跳过并改用可用的 python。"""
-    bash = shutil.which("bash")
-    if not bash:
-        pytest.skip("bash 不可用，跳过行为验证")
-
-    broken_dir = tmp_path / "broken"
-    broken_dir.mkdir()
-    broken = broken_dir / "python3"
-    broken.write_text("#!/bin/sh\nexit 9009\n", encoding="utf-8")
-
-    good_dir = tmp_path / "good"
-    good_dir.mkdir()
-    good = good_dir / "python"
-    good.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    for path in (broken, good):
-        path.chmod(0o755)
-
-    # CI 的 /work 以 tmpfs 挂载（scripts/run_ci_isolated.py: nosuid,nodev，
-    # Docker tmpfs 默认还带 noexec），落在其中的临时脚本不可执行（PermissionError），
-    # 就无法构造「python3 是坏别名」这个场景。先探测可执行性：
-    # 能执行时照常严格验证；不能执行时显式跳过，绝不伪装成通过。
-    try:
-        probe = subprocess.run([str(broken)], capture_output=True)
-    except OSError as exc:
-        pytest.skip(f"临时目录不可执行（{exc.__class__.__name__}）："
-                    "CI 的 /work 为 noexec 挂载，解释器别名场景无法构造")
-    if probe.returncode != 9009:
-        pytest.skip(f"临时目录可执行位未生效（rc={probe.returncode}）："
-                    "解释器别名场景无法构造")
-
+@pytest.mark.parametrize('local_branch,remote_branch,allowed', [
+    ('main', 'main', True),
+    ('feature/another-task', 'main', False),
+    ('main', 'feature/another-task', False),
+])
+def test_pre_push_needs_no_python_but_still_enforces_main(tmp_path,local_branch,remote_branch,allowed):
+    bash = bash_binary()
+    marker=tmp_path/'python-called.txt'
     env = dict(os.environ)
-    env["PATH"] = os.pathsep.join([str(broken_dir), str(good_dir), env.get("PATH", "")])
-    env.pop("WMS_SKIP_CI_GATE", None)
-
+    env['WMS_TEST_PYTHON_MARKER']=str(marker)
+    script='''
+python3() { printf called > "$WMS_TEST_PYTHON_MARKER"; return 99; }
+python() { printf called > "$WMS_TEST_PYTHON_MARKER"; return 99; }
+py() { printf called > "$WMS_TEST_PYTHON_MARKER"; return 99; }
+source "$1"
+'''
     proc = subprocess.run(
-        [bash, str(HOOK)], input="refs/heads/main " + "a" * 40 + " refs/heads/main " + "b" * 40 + "\n", capture_output=True, text=True,
-        cwd=str(ROOT), env=env, timeout=120,
+        [bash,'-c',script,'hook-test',str(HOOK)],
+        input=f'refs/heads/{local_branch} {"a"*40} refs/heads/{remote_branch} {"b"*40}\n',
+        capture_output=True,text=True,encoding='utf-8',cwd=ROOT,env=env,timeout=30,
     )
-    assert proc.returncode == 0, proc.stderr
-    assert "PRE-PUSH BLOCKED" not in proc.stderr
+    assert (proc.returncode==0)==allowed,proc.stderr
+    assert not marker.exists()
+    assert ('PRE-PUSH BLOCKED' in proc.stderr)==(not allowed)
 
 
 def test_pre_push_syntax_ok():
-    bash = shutil.which("bash")
-    if not bash:
-        import pytest
-        pytest.skip("bash 不可用，跳过语法检查")
+    bash = bash_binary()
     proc = subprocess.run([bash, "-n", str(HOOK)], capture_output=True, text=True)
     assert proc.returncode == 0, f"pre-push 存在语法错误: {proc.stderr}"
