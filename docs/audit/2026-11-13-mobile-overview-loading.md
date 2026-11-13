@@ -22,7 +22,15 @@
 
 ## 精确提交与 CI
 
-待本批实际提交、推送后填写。完成标准是本任务目标的 Android 编译／单测／lint、WMS CI 与 AI 验证通过，不复用其他任务或旧目标的绿。
+实际推送输出为 `cf3027a7..cedf7d78 main -> main`，代码目标为 `cedf7d783409513a3ed7ec5d9340ca01dc3a58a2`；推送时本地 HEAD、origin/main 与实时远端完全一致，后续 main 正常推进不改变此验收目标。
+
+- [Android APK Build #875](https://github.com/SIX2090/wms/actions/runs/43395806327)：精确目标 completed/success，build、lint、unit-test 全部成功。
+- [WMS CI #2136](https://github.com/SIX2090/wms/actions/runs/43395806479)：精确目标 completed/success；三片全站单测、四片 verify、规则与安全检查、隔离 smoke、browser 和 gate 全部成功。
+- [WMS AI Verification #2431](https://github.com/SIX2090/wms/actions/runs/43395806328)：精确目标 completed/success。性能基线 43395806470 同样 success。
+- Android unit-test 作业 `131786286639` 日志逐项确认 OverviewLoadingTest 的 16 项全部 PASSED，随后 BUILD SUCCESSFUL。此为实际运行证据，与本地源码检查分开登记。
+- 匿名 check_ci_green.py 查询遇到 HTTP 403 限流；已通过连接的 GitHub 工具分别读取上述三个 run，逐一核对完整目标 SHA、completed/success 和聚合 gate，未设置跳过标志或把查询失败当通过。
+
+APK 资产来自上述运行，artifact `14022368983` 关联相同 head_sha；固定发布 tag `android-apk-875`。[下载本批 APK](https://github.com/SIX2090/wms/releases/download/android-apk-875/wms-mobile-scan.apk)，25,462,963 字节，GitHub 公布 SHA-256 `05392d2524a00d98b69bf63a6b8a9c7842813c8b10f1b21f3721ebff75c16dbd`。本补记只修改文档，不改变已通过验收的 Android 产品字节。
 
 ## 生效
 
