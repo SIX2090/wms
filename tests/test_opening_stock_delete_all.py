@@ -214,12 +214,16 @@ class TestOpeningStockDeleteAll:
     # ---- T4 历史直连行（doc_id 为 NULL）也被删并回冲 ----
 
     def test_t4_orphan_lines_removed_and_reversed(self):
+        from flask_login import login_user
         # 孤儿仅指doc_id缺失；历史建账仍须有原数量流水及按开关同步的库位账。
-        orphan, _delta = _apply_opening_stock_balance(
-            None, self.m1, 30, 1, 30, "历史直连",
-            warehouse=self.wh1, doc_id=None,
-        )
-        db.session.commit()
+        # 写入入口记录真实Flask-Login操作者，需在合成请求内绑定已有测试用户。
+        with flask_app.test_request_context():
+            login_user(User.query.filter_by(username="admin").one())
+            orphan, _delta = _apply_opening_stock_balance(
+                None, self.m1, 30, 1, 30, "历史直连",
+                warehouse=self.wh1, doc_id=None,
+            )
+            db.session.commit()
         assert OpeningStock.query.filter(OpeningStock.doc_id.is_(None)).count() == 1
         assert self._stock(self.m1) == 30.0
 

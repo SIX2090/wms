@@ -7,7 +7,13 @@ import sys
 
 
 SETUP=r'''
+from flask_login import LoginManager, current_user as actual_current_user, login_user
 from sqlalchemy import case
+source_login_manager=LoginManager(app)
+@source_login_manager.user_loader
+def source_user_loader(user_id):
+    return db.session.get(ns['User'],int(user_id))
+ns['flask_app']=app
 ns['case']=case
 ns['allow_negative_stock']=lambda:False
 for name in ('_stock_location_from_warehouse','resolve_inventory_warehouse_id','add_stock_transaction',
@@ -110,9 +116,40 @@ def test_actual_orphan_positive_fixture_has_recorded_source_before_reversal(self
     self._stock=lambda material:db.session.get(ns['Material'],material.id).stock
     self._ok_payload=lambda:{'confirm':True}
     self._delete_all=self.purge_model_only
-    ns['test_t4_orphan_lines_removed_and_reversed'](self)
+    self.user.username='admin'
+    db.session.commit()
+    with patch.dict(ns,current_user=actual_current_user):
+        self.assertIsNone(actual_current_user._get_current_object())
+        try:
+            ns['test_t4_orphan_lines_removed_and_reversed'](self)
+        except AttributeError as error:
+            self.fail('Actual T4 fixture did not establish its real login request: '+str(error))
     self.assertEqual(ns['StockTransaction'].query.count(),0)
     self.assertEqual(ns['LocationInventory'].query.one().quantity,0)
+
+def test_real_login_proxy_without_request_cannot_supply_an_opening_operator(self):
+    with patch.dict(ns,current_user=actual_current_user):
+        self.assertIsNone(actual_current_user._get_current_object())
+        with self.assertRaisesRegex(AttributeError,'is_authenticated'):
+            ns['_apply_opening_stock_balance'](None,self.material,30,1,30,'合成无请求',warehouse=self.a)
+    db.session.rollback()
+    self.assertEqual(ns['OpeningStock'].query.count(),0)
+    self.assertEqual(ns['StockTransaction'].query.count(),0)
+    self.assertEqual(self.material.stock,0)
+
+def test_real_login_proxy_inside_owned_request_records_the_synthetic_user(self):
+    ns['location_management_enabled']=lambda:True
+    with app.test_request_context():
+        login_user(self.user)
+        with patch.dict(ns,current_user=actual_current_user):
+            self.assertTrue(actual_current_user.is_authenticated)
+            self.assertEqual(actual_current_user.id,self.user.id)
+            line,_=ns['_apply_opening_stock_balance'](None,self.material,30,1,30,'合成有请求',warehouse=self.a)
+            db.session.commit()
+    self.assertEqual(line.operator_id,self.user.id)
+    self.assertEqual(ns['StockTransaction'].query.one().operator_id,self.user.id)
+    self.assertEqual(self.material.stock,30)
+    self.assertEqual(ns['LocationInventory'].query.one().quantity,30)
 
 def test_missing_recorded_source_remains_rejected_without_weakening_product_guard(self):
     line=ns['OpeningStock'](material_id=self.material.id,warehouse_id=self.a.id,quantity=30,doc_id=None)
@@ -139,9 +176,9 @@ def main():
     methods=[node for node in extra if isinstance(node,ast.FunctionDef) and node.name.startswith('test_')]
     counts=[node for node in ast.walk(original) if isinstance(node,ast.Compare) and isinstance(node.left,ast.Call)
         and isinstance(node.left.func,ast.Attribute) and node.left.func.attr=='countTestCases']
-    if len(methods)!=7 or len(counts)!=1 or counts[0].comparators[0].value!=9:
+    if len(methods)!=9 or len(counts)!=1 or counts[0].comparators[0].value!=9:
         raise AssertionError('Explicit fixture method list changed or became empty')
-    counts[0].comparators[0]=ast.Constant(value=16)
+    counts[0].comparators[0]=ast.Constant(value=18)
     imports=[node for node in tree.body if isinstance(node,(ast.Import,ast.ImportFrom))]
     ns={'__file__':__file__}
     exec(compile(ast.fix_missing_locations(ast.Module(body=[*imports,original],type_ignores=[])),
