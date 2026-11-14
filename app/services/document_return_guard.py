@@ -2,6 +2,35 @@
 import re
 
 
+def completed_sales_return_check(inbound):
+    """Check persisted completed totals, including this edited order exactly once.
+
+    Caller owns the write transaction. SQLite's existing BEGIN IMMEDIATE fence
+    serializes different return documents, completion and source reversal.
+    Other dialects' current per-document row locks do not establish that
+    cross-document guarantee; their shared-source locking remains unverified.
+    """
+    from app import (SalesOrderItem, db,
+                     _sales_returned_quantity_by_source_item,
+                     round_to_2_decimals, STOCK_COMPARE_EPSILON)
+    db.session.flush()
+    # FK-based deletes/additions do not refresh an already-loaded relationship.
+    db.session.expire(inbound, ['items'])
+    source_ids = {
+        row.source_sales_order_item_id for row in inbound.items
+        if row.source_sales_order_item_id
+    }
+    returned = _sales_returned_quantity_by_source_item(list(source_ids))
+    for source in SalesOrderItem.query.filter(SalesOrderItem.id.in_(source_ids)).all():
+        shipped = round_to_2_decimals(source.shipped_quantity or 0)
+        total = returned.get(source.id, 0)
+        if total - shipped > STOCK_COMPARE_EPSILON:
+            number = source.sales_order.order_no if source.sales_order else f'item#{source.id}'
+            return False, f'已完成退货总数量 {total:.2f} 超过销售订单 {number} 的已发货数量 {shipped:.2f}'
+    # No-source and dangling historical sources retain existing compatibility.
+    return True, ''
+
+
 def sales_outbound_revert_check(outbound):
     from app import (SalesOrder, SalesOrderItem, db, _sales_returned_quantity_by_source_item,
                      round_to_2_decimals, STOCK_COMPARE_EPSILON)

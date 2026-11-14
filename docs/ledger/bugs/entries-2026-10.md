@@ -848,7 +848,7 @@ F08独立验证：隔离临时文件库、源码副本及随机端口中原完�
 ### BUG-2026-10-17-015: B 组小 P2 第一批（F01–F04）
 
 - F01 预警判定 NULL 兜底：`_alert_status_for(stock=None)` 直接比较会 TypeError 500，改为按 0 处理；回归用例 2 条。
-- F02 库存查询无效仓库：`/stock_query?warehouse_id=不存在` 旧行为静默显示全 0（像“该仓没货”），改为 400「仓库不存在或已删除」；回归用例 1 条。
+- F02 库存查询无效仓库：`/stock_query?warehouse_id=不存在` 旧行为静默显示全 0（像“该仓没货”），改为 400「仓库不存在或已删除」；回归用例 1 条。 2026-11-14补通用报表遗漏入口：不存在正ID在共用filters中拒绝，明细API及两种Excel不退化为全仓；保留停用仓历史查询和既有预览检查。沿本F02续修，验证/回退/精确CI见[本轮记录](../../audit/2026-11-14-control-point-remediation.md)。本次生效确认：待人工确认。
 - F03 批量上限：`in_order/batch_complete` 的 `select_all` 原来会把整表 pending 一次载入，现与显式 ids 对齐（>500 拒绝）；`batch_revert` 补 ids>100 与 select_all>500 上限；回归用例 2 条。
 - F04 删除死精度设置：`quantity/price/amount_decimal_places()` 全仓零调用，仅设置页展示，改了不生效；删除 3 个设置项与 3 个函数；回归用例 1 条。
 - F05（审计 I6）期初 Excel 导入逐行 SAVEPOINT：`_apply_opening_stock_balance` 多步写入中途 ValueError 时回滚该行，不再"报跳过但已落账"；相关 262 项回归通过。

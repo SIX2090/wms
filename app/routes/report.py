@@ -254,7 +254,7 @@ def register_report_routes(app):
             return jsonify({'status': 'error', 'msg': '价格维度未启用，采购价格分析已下线'}), 400
 
         try:
-            filters = _build_report_filters()
+            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'))
             # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
@@ -312,7 +312,7 @@ def register_report_routes(app):
         if definition is None:
             return api_error('Unsupported report type', 400)
         try:
-            filters = _build_report_filters()
+            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'))
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)

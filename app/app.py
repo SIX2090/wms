@@ -29084,7 +29084,7 @@ OUT_NON_REQUISITION_BUSINESS_TYPES = (
 )
 
 
-def _build_report_filters():
+def _build_report_filters(require_existing_warehouse=True):
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
     warehouse_id = _parse_positive_int(request.args.get('warehouse_id'), 0)
     warehouse_name = ''
@@ -29097,9 +29097,9 @@ def _build_report_filters():
             warehouse_code = default_wh.code or ''
     else:
         wh = Warehouse.query.get(warehouse_id)
-        if wh:
-            warehouse_name = wh.name
-            warehouse_code = wh.code or ''
+        if require_existing_warehouse and wh is None: raise ValueError('仓库不存在或已删除')
+        warehouse_name = wh.name if wh else None
+        warehouse_code = (wh.code or '') if wh else None
     raw_business_type = (request.args.get('business_type') or '').strip()
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
     # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，

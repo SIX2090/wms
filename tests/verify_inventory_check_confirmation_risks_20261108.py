@@ -138,6 +138,8 @@ def main():
 
     def make_check(counted):
         item = types.SimpleNamespace(material_id=1, material=types.SimpleNamespace(code='SYNTH', name='合成物料'),
+                                     system_stock=10, actual_stock=8 if counted else 10,
+                                     difference=-2 if counted else 0,
                                      counted_at=datetime.datetime(2020, 1, 1, 10, 2) if counted else None,
                                      counted_by=1 if counted else None)
         return types.SimpleNamespace(id=1, status='pending', items=[item], warehouse='合成仓',
@@ -164,6 +166,7 @@ def main():
             return f'{current.id}:{uncounted}:{count}:{state.get("snapshot_version", 0)}', risks
 
         env = {
+            'math': math,
             'InventoryCheck': model, 'InventoryCheckItem': types.SimpleNamespace(material=object()),
             'selectinload': lambda *_args: Loader(), '_acquire_order_write_lock': lock,
             '_create_adjustment_drafts_from_check': lambda _check: ([], None),
