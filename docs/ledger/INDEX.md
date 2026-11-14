@@ -200,6 +200,7 @@
 | AI-LOGIN-F01-FIX-TOKEN-REVOCATION-20261107-001 | ai | completions-2026-11.md |
 | 2026-11-08 | ai | completions-2026-11.md |
 | PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001 | ai | completions-2026-11.md |
+| AI-MOB-MEDIA-FIX-20261114-001 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -635,6 +636,11 @@
 | BUG-2026-10-31-025 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-027 | bugs | entries-2026-10.md |
+| BUG-2026-11-14-013 | bugs | entries-2026-11.md |
+| BUG-2026-11-14-012 | bugs | entries-2026-11.md |
+| BUG-2026-11-14-011 | bugs | entries-2026-11.md |
+| BUG-2026-11-14-010 | bugs | entries-2026-11.md |
+| BUG-2026-11-14-009 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-008 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-007 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-006 | bugs | entries-2026-11.md |
