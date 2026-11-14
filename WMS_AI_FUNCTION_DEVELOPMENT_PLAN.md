@@ -1,6 +1,6 @@
 # WMS AI 唯一开发台账
 
-2026-11-14 MOBILE-UPDATE-20261114-001：待原签名配置，当前未交付。实现提交 fd56b6dd 的 Android 189 项测试及 lint、AI 验证通过，但构建确认 WMS_FIXED_DEBUG_KEYSTORE_B64 为空，按用户“不得临时换签名”约束拒绝出包；已按 R8 完整撤回本任务三提交并证明恢复 349850df 的原树。现只保留登记和必要的发行版本前移，不保留未验收更新代码。原签名文件/Secret 需用户补充，禁止以新证书或卸载清数据绕过。实现、逆序与目标验收见 docs/audit/2026-11-14-android-app-update.md；生产、密码和真实手机均未操作。
+2026-11-14 MOBILE-UPDATE-20261114-001：用户明确同意新旧 App 并存，允许建立并备份长期固定签名，并确认将该签名保存在 SIX2090/wms 的 Actions Secret WMS_MOBILE_SIGNING_BUNDLE。新包名 com.factory.wms.mobile，名称 WMS 手机端；旧 App 和本地数据保留，新 App 不自动读取旧 App 草稿或队列。此前缺原签名的实现已按 R8 撤回；本次基于 ee24269b 重新实现；5159ab60 的三个必需CI成功，但稳定提升因路径校验误拒 SHA...main 失败，已用79d821b8/32527ca9完整回退并证明Git树恢复。重评后补真实API传输层红绿用例，恢复固定签名实现，Android递增42/3.9.18、Windows54，重新独立验收；未验收不算交付。范围、测试、完整目标 SHA、稳定发布与设备状态统一见 docs/audit/2026-11-14-android-app-update.md；生产、账号密码和真实手机操作不在授权内。
 
 <!-- AI_TASK: F2.8-PARALLEL-001 -->
 2026-11-13 F2.8-PARALLEL-001（实现与验收按专项记录跟踪）：按用户要求调整既有 F2.8 推送校验及 F3.16 工作流取消策略，允许多个任务同时推进，各自验收精确目标 SHA。同步规则、共享 main 协作边界、目标查询及相邻回归；不新增业务能力或生产操作。状态与证据见 `docs/audit/2026-11-13-parallel-task-ci.md`，未核实的 CI 不得视为完成。
