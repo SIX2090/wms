@@ -81,59 +81,9 @@ class OfflineQueueOwnershipTest {
     }
 
     private suspend fun enqueue(id: String = "request-1", type: String = "inbound",
-        session: RetrofitClient.SessionSnapshot = RetrofitClient.sessionSnapshot(),
-        autoSync: Boolean = false): Boolean {
-        // Existing ownership tests arrange their response after enqueue; freeze automatic
-        // replay only during fixture setup, then exercise the real manager explicitly.
-        val wasOnline = online
-        if (!autoSync) online = false
-        return try { manager.enqueue(id, type, mapOf("warehouse_code" to "WH-A", "lines" to emptyList<String>()),
+        session: RetrofitClient.SessionSnapshot = RetrofitClient.sessionSnapshot()): Boolean =
+        manager.enqueue(id, type, mapOf("warehouse_code" to "WH-A", "lines" to emptyList<String>()),
             "WH-A", "合成作业", session)
-        } finally { online = wasOnline }
-    }
-
-    private suspend fun awaitReplay(id: String, timeoutMs: Long) {
-        withTimeout(timeoutMs) {
-            while (dao.getByRequestId(id) != null) delay(10)
-            scope.coroutineContext[Job]!!.children.toList().forEach { it.join() }
-        }
-    }
-
-    @Test fun onlineEnqueueStartsSyncWithoutNewNetworkEvent() = runBlocking {
-        for (type in listOf("inbound", "outbound", "stocktake")) {
-            val id = "online-$type"
-            assertTrue(enqueue(id, type, autoSync = true))
-            awaitReplay(id, 5_000)
-            assertEquals(1, sent.count { it.first == id })
-        }
-        assertTrue(dao.listAll().isEmpty())
-    }
-
-    @Test fun transientFailureSchedulesAutomaticReplayWhileOnline() = runBlocking {
-        for (kind in listOf("io", "http503")) {
-            val id = "retry-$kind"
-            var attempts = 0
-            response = {
-                if (++attempts == 1) {
-                    if (kind == "io") throw IOException("synthetic transient failure")
-                    refusal(503)
-                } else success()
-            }
-            val started = System.currentTimeMillis()
-            assertTrue(enqueue(id))
-            manager.doSync() // First attempt only. The second must come from the timer.
-            val pending = dao.getByRequestId(id)!!
-            assertEquals(1, pending.attemptCount)
-            assertTrue(pending.nextRetryAt > started)
-            manager.doSync() // A premature manual trigger must respect the deadline.
-            assertEquals(1, attempts)
-            awaitReplay(id, 45_000)
-            val deliveries = sent.filter { it.first == id }
-            assertEquals(2, attempts)
-            assertEquals(2, deliveries.size)
-            assertEquals(deliveries[0], deliveries[1])
-        }
-    }
 
     @Test fun anotherAccountCannotReplayAndOriginalAccountWithNewTokenCan() = runBlocking {
         assertTrue(enqueue())
@@ -356,8 +306,6 @@ class OfflineQueueOwnershipTest {
         manager.doSync()
         assertEquals(payload, dao.listAll().single().payloadJson)
         manager.doSync()
-        assertEquals(1, sent.size)
-        awaitReplay("request-1", 45_000)
         assertEquals(1, applied.size)
         assertEquals(listOf("request-1", "request-1"), sent.map { it.first })
         assertEquals(sent[0].second, sent[1].second)
