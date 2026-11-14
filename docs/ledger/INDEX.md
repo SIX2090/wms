@@ -303,6 +303,7 @@
 | AI-R01-F01 | ai | records-2026-10.md |
 | 优先级 | ai | records-2026-10.md |
 | P1 | ai | records-2026-10.md |
+| MOBILE-UPDATE-20261114-001 | ai | records-2026-11.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |

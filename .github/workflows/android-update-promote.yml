@@ -1,0 +1,41 @@
+name: Android Stable Update Promotion
+
+on:
+  workflow_run:
+    workflows: [Android APK Build, WMS CI, WMS AI Verification]
+    types: [completed]
+    branches: [main]
+
+# Dedupe publication of one SHA. Other targets keep their own queue; clients
+# select max(versionCode) across immutable records, so creation order is irrelevant.
+concurrency:
+  group: android-stable-update-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  promote:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.repository == 'SIX2090/wms' &&
+      contains(fromJSON('["push","schedule","workflow_dispatch"]'), github.event.workflow_run.event)
+    runs-on: ubuntu-24.04
+    steps:
+      # This workflow never executes PR/fork artifacts or writes main.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Promote exact green target, otherwise retain current stable version
+        if: hashFiles('scripts/android_update_release.py') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python scripts/android_update_release.py promote --sha "$TARGET_SHA"

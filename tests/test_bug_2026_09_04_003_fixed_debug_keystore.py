@@ -6,7 +6,7 @@
 
 修复：android-build.yml 在构建前把仓库 Secret WMS_FIXED_DEBUG_KEYSTORE_B64
 还原到 ~/.android/debug.keystore，让 AGP 每次使用同一 debug 签名；Secret
-未配置时输出 warning 不阻塞构建。
+历史未配置时只输出 warning；2026-11-14 自动更新候选改为明确拒绝临时签名。
 
 本测试以静态锚点固化该修复，防止后续改 workflow 时回退。
 """
@@ -38,11 +38,14 @@ def test_secret_name_and_decode_target():
     assert "base64 -d" in src
 
 
-def test_missing_secret_degrades_to_warning():
-    """Secret 未配置时降级为 warning，不阻塞构建。"""
+def test_missing_secret_warns_and_refuses_unstable_update_candidate():
+    """自动更新候选保留明确提示，缺固定身份时拒绝临时签名。"""
     src = _workflow_text()
     assert "::warning::未配置 Secret WMS_FIXED_DEBUG_KEYSTORE_B64" in src
     assert "if [ -n \"$WMS_FIXED_DEBUG_KEYSTORE_B64\" ]" in src
+    restore = src.split('      - name: Restore fixed debug keystore', 1)[1].split('\n      - name:', 1)[0]
+    assert 'exit 1' in restore
+    assert '自动更新候选必须沿用固定签名' in restore
 
 
 def test_workflow_yaml_parses():

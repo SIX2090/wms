@@ -78,6 +78,7 @@ class OfflineQueueManager internal constructor(
     /** 补传互斥：网络抖动会频繁触发 onlineChanges，不加锁会并发重放同一批记录。 */
     private val syncMutex = Mutex()
     private var retryWakeup: Job? = null
+    private var updateWakeup: Job? = null
 
     private val _pendingCount = MutableStateFlow(0)
 
@@ -204,6 +205,18 @@ class OfflineQueueManager internal constructor(
             return
         }
 
+        val updateGate = com.factory.wms.update.businessUpdateGate
+        if (!updateGate.enterBusiness()) {
+            synchronized(updateGate) {
+                if (updateWakeup?.isActive != true) updateWakeup = scope.launch {
+                    kotlinx.coroutines.delay(1000)
+                    synchronized(updateGate) { updateWakeup = null }
+                    syncPending()
+                }
+            }
+            return
+        }
+        try {
         syncMutex.withLock {
             val pending = dao.listPending()
             if (pending.isEmpty()) {
@@ -289,6 +302,7 @@ class OfflineQueueManager internal constructor(
                 (lastFailure?.takeIf { lastFailureOwner?.let { belongsTo(it, current) } == true }
                     ?.let { "；$it" } ?: "")
         }
+        } finally { updateGate.leaveBusiness() }
     }
 
     /**
