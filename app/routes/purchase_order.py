@@ -789,7 +789,7 @@ def register_purchase_order_routes(app):
         from datetime import date
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
-        from app import (InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
+        from app import (_purchase_reservation_error, InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
                          assert_warehouse_active, generate_order_no, get_default_warehouse,
                          log_operation,
                          purchase_order_to_in_order_enabled, recalculate_order_total,
@@ -851,6 +851,10 @@ def register_purchase_order_routes(app):
                 return api_error('只能选择未入库或部分入库的采购单明细')
             receive_qty = selected_qty_by_item_id[item.id]
             material_code = item.material.code if item.material else item.material_id
+            reservation_error = _purchase_reservation_error(item)
+            if reservation_error:
+                db.session.rollback()
+                return api_error(reservation_error)
             valid_qty, qty_msg = validate_purchase_receive_quantity(item, receive_qty, material_code)
             if not valid_qty:
                 return api_error(qty_msg)

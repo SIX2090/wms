@@ -558,3 +558,8 @@ POST_SPLIT_BUGS['BUG-2026-11-13-003'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-005'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-004'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-13-006'] = 'fixed'  # local candidate; exact CI and production tracked separately
+
+# Parser registration only; local candidate, exact CI and production are separate evidence.
+POST_SPLIT_BUGS['BUG-2026-11-14-001'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-14-003'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-14-004'] = 'fixed'

@@ -140,6 +140,10 @@ def main():
 
     # Extract the actual create/edit branch, preserving its 409 and flush.
     add = find(route, 'add_in_order')
+    # The actual create/edit branch now uses the enclosing rollback helper.
+    # Bind that real helper as well; do not replace its rollback with a stub.
+    failure_helpers = [node for node in add.body if isinstance(node, ast.FunctionDef) and node.name == 'fail']
+    assert len(failure_helpers) <= 1
     candidates = [node for node in ast.walk(add) if isinstance(node, ast.If)
                   and isinstance(node.test, ast.Name) and node.test.id == 'order_id'
                   and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -217,7 +221,8 @@ def main():
             module = ast.fix_missing_locations(ast.Module(body=[*helpers,
                 generation, allocator,
                 find(core, 'generate_sales_order_no'),
-                BindSyntheticNativeService().visit(find(core, 'mobile_api_idempotent')), wrapper], type_ignores=[]))
+                BindSyntheticNativeService().visit(find(core, 'mobile_api_idempotent')),
+                *failure_helpers, wrapper], type_ignores=[]))
             exec(compile(module, '<synthetic-numbering-source>', 'exec'), self.env)
 
         def tearDown(self):

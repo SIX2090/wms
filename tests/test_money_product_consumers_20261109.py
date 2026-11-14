@@ -57,7 +57,7 @@ class MoneyConsumerTests(unittest.TestCase):
         item.material = item
         self.env.update({name: 1.15 for name in ('quantity', 'qty', 'current_stock', 'receive_qty',
                         'suggested_qty', 'remain_qty', 'order_qty', 'received_qty',
-                        'remaining_qty', 'remaining_quantity', 'remaining', 'new_qty')})
+                        'remaining_qty', 'remaining_quantity', 'remaining', 'new_qty', 'new_quantity')})
         self.env.update(price=3.5, prc=3.5, estimated_price=3.5, unit_cost=3.5, cost=3.5, new_price=3.5,
                         item=item, order_item=item, in_item=item, line=item,
                         source_item=types.SimpleNamespace(quantity=1.15, material=item),

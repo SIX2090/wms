@@ -138,7 +138,8 @@ def main():
         tree = ast.parse((ROOT / path).read_text(encoding='utf-8'))
         function = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
         function.decorator_list = []
-        function.body = [n for n in function.body if not (isinstance(n, ast.ImportFrom) and n.module == 'app')]
+        function.body = [n for n in function.body if not (isinstance(n, ast.ImportFrom) and
+                         n.module in ('app', 'services.warehouse_stock_service'))]
         return function
 
 
@@ -189,6 +190,9 @@ def main():
             }
             funcs = [extracted('app/app.py', 'get_request_ip'),
                      extracted('app/utils.py', 'round_to_2_decimals'),
+                     extracted('app/utils.py', 'normalize_stock_quantity'),
+                     extracted('app/services/warehouse_stock_service.py', '_recorded_quantity_matches'),
+                     extracted('app/app.py', '_purchase_reservation_error'),
                      extracted('app/app.py', 'log_operation'),
                      extracted('app/app.py', 'update_purchase_order_status'),
                      extracted('app/utils.py', 'recalculate_order_total'),

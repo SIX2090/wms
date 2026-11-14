@@ -6667,6 +6667,25 @@ def validate_purchase_in_order_source(order):
 def should_block_purchase_over_receive():
     return purchase_receipt_strict_order() and purchase_over_receive_control_mode() == 'forbid'
 
+def _purchase_reservation_error(source_item, saved_quantity=None):
+    """Validate a server-owned PO counter/old row before an actual reservation write."""
+    from services.warehouse_stock_service import _recorded_quantity_matches
+
+    if source_item is None:
+        return None
+    try:
+        reserved = float(source_item.received_quantity or 0)
+        if not _recorded_quantity_matches(reserved, normalize_stock_quantity(reserved)):
+            return '历史采购预留数量超过两位精度，无法证明本次变动数量，请先核对原始单据'
+        if saved_quantity is not None:
+            saved = float(saved_quantity or 0)
+            if not _recorded_quantity_matches(saved, normalize_stock_quantity(saved)):
+                return '历史入库明细数量超过两位精度，无法证明本行原采购预留，请先核对原始单据'
+    except (TypeError, ValueError, OverflowError):
+        return '历史采购预留数量无效，无法安全变动，请先核对原始单据'
+    return None
+
+
 def validate_purchase_receive_quantity(source_item, receive_qty, material_code=None):
     if not source_item or not should_block_purchase_over_receive():
         return True, None
@@ -11870,6 +11889,9 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
                 continue
         else:
             receive_qty = remain_qty
+        reservation_error = _purchase_reservation_error(item)
+        if reservation_error:
+            return None, reservation_error
         valid_qty, qty_msg = validate_purchase_receive_quantity(
             item,
             receive_qty,

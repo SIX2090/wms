@@ -96,6 +96,9 @@ def main():
     extract('app/services/warehouse_identity.py', 'warehouse_aliases')
     for name in ('_recorded_quantity_matches', '_reverse_recorded_opening_stock'):
         extract('app/services/warehouse_stock_service.py', name)
+    if any(isinstance(node, ast.FunctionDef) and node.name == '_purchase_reservation_error'
+           for node in ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig')).body):
+        extract('app/app.py', '_purchase_reservation_error')
     ns['allow_negative_location_stock'] = lambda: False
     for name in ('update_purchase_order_status', 'log_operation', '_ledger_source_warehouse_getters',
                  '_ledger_source_warehouse_map', '_filter_txn_list_by_warehouse_scope',
