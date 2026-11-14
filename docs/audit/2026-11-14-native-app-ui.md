@@ -1,6 +1,6 @@
 # 原生 Android App 界面改善（2026-11-14）
 
-任务：AI-APP-UI-FIX-20261114-001。2026-11-14 开工，2026-11-15 续验；状态：首轮 CI 的台账配套遗漏已纠正，正在补取新版本自身的完整 CI，未部署。
+任务：AI-APP-UI-FIX-20261114-001。2026-11-14 开工，2026-11-15 续验；状态：代码及真实 APK 构建已验收；文档收尾另验，生产与真实手机未部署。
 
 ## 范围与基线
 
@@ -72,7 +72,7 @@
 - 版本：首轮原生 43 / 3.9.19、WMS 2026.11.60；补充验收版本 **44 / 3.9.20、WMS 2026.11.61**。严格版本消费者同步新值，历史负例夹具保留旧值。没有重新改变数量、导航、账号或队列实现。
 - 提交批次：数量/可读性显示修复 → 输入/导航/同步状态及相邻契约 → R6 顶部汇总及实际背景补充 → AI 开发台账独立规则文档提交；整批本地验证后统一推送 main。
 - 三个代码本地检查点：`03421328264c97965b6de0d1c871fa96bf6a66c2`、`f75d7a02f37064d30c539ed623552212ca05b7be`、`4ce62b90cae80285852738e135d229d7f68ec82b`。相对基线的整体 diff 仅含本任务文件；必要回退应逆序处理本任务整批，不撤销其他任务。
-- 实际提交范围、完整目标 SHA、push 输出、三个必需工作流最新运行链接及结论：待补，当前未声明交付。
+- 首轮与补充批次的完整目标、实际 push、失败及纠正情况均保留；最终交付依据为下节 c5708563 精确代码目标及其后的文档收尾回执。
 
 ## 待确认与交付边界
 
@@ -86,4 +86,16 @@
 
 - 版本 44 的完整 release 单元测试重新执行：350 tests / 0 failures / 0 errors / 0 skipped（`version44-unit.log` / `unit-version44-summary.json`）；35 文件 / 230 项源码回归、规则 lint 0 违规。严格版本断言在旧 43 元数据上失败，恢复 44 后通过，没有放宽版本锁。
 - 含现有 ci-trigger 入口的最终任务范围 42 文件，29 个既有 / 13 个新增；隔离回退后 7 个旧源契约断言失败、42 文件哈希恢复，165 个 Android 工程文件与测量副本一致。协作索引/分类纠正保持，原历史分布不变。
-- 新末端提交的三个必需工作流及 APK 元数据：待实际推送后验收；本条不预先声明 CI 成功。
+- 新末端提交已实际推送并取得完整 CI，见下节；首轮失败记录保留。
+
+## 最终代码与构建验收（2026-11-15）
+
+- 精确目标：`c570856372bcfa0766514bf4c2f872c4ef0e8ab5`，普通 push 实际输出 `6b33d343..c5708563 main -> main`，远端 main 已核对；之前四个任务提交及协作 6b33d343 均保留，不改写历史。
+- [Android APK Build 43615763759](https://github.com/SIX2090/wms/actions/runs/43615763759)：completed/success，同一完整 SHA；真实固定签名 release APK、lint、unit-test 三个 job 全部 success；云端日志为 350 passed / 0 failed / 0 test skipped。
+- [WMS CI 43615763765](https://github.com/SIX2090/wms/actions/runs/43615763765)：completed/success，同一完整 SHA；三个 unit 分片、四个 verify 分片、静态、隔离 smoke、browser 及聚合门禁均完成。首轮 2 个失败已在完整目标复验；docs-checks 因代码分流正常 skipped，不把失败或意外跳过当通过。
+- [WMS AI Verification 43615763845](https://github.com/SIX2090/wms/actions/runs/43615763845)：completed/success，同一完整 SHA。性能工作流 43615763746 也 success。
+- 实际 APK：[候选构建 887 / attempt 1](https://github.com/SIX2090/wms/releases/tag/android-apk-887-attempt-1)，包名 `com.factory.wms.mobile`，44 / 3.9.20，minSdk 26，25,545,007 字节。元数据 commitSha 与目标一致；发布资产及元数据 SHA-256 同为 `626bbfe9c8c88b60e012b864de832cfd177d2f8137f12eed634625a44fcabcf5`。未下载到或安装真实手机。
+- 补充导航运行反证：在私有测试副本，依据旧源码首页回调建立仅执行 `navigate(route)` 的测试适配器，运行相同真实 Navigation Compose 用例，2 项均断言失败（`navigation-before.log`）；新 helper 的相同 2 项随完整 350 项通过。此适配器用于旧策略反证，不声称运行了真实账号的完整 App。
+- GitHub 连接器读取精确目标最新 main 运行作为独立验收依据；没有提取内部凭据、跳过检查或使用旧 main 绿结果。完整公共元数据保留于 `C:/wms_test_tmp/native-ui-20261114/ci-version44-final.json`。
+- 本报告及五条 BUG 状态的收尾仅改 `docs/audit/` / `docs/ledger/bugs/`；其提交自身的 WMS CI / AI CI 在最终交付回执单独核对。Android 可复用 c5708563 的成功运行，仍需证明五条输入路径无变化、祖先及对象齐全；本段不预先假定文档 CI 通过。
+- 生效确认：源码与构建验收完成；真实手机最大字号、非线性字体缩放、TalkBack、实际点击区、整页小屏及 OEM 动效仍待人工验收。生产服务、真实数据库、账号密码、真实单据、队列记录、手机安装/升级均未操作。
