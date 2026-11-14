@@ -244,10 +244,7 @@ class TestMobileOpeningStockApi:
         """S8（静态契约）：native_api 期初提交必须向 _apply_opening_stock_balance
         传 doc_id——防止后续重构再次漏参退回跨端黑洞。"""
         src = (ROOT / "app" / "routes" / "native_api.py").read_text(encoding="utf-8")
-        resolver = (ROOT / "app" / "services" / "opening_stock_legacy.py").read_text(encoding="utf-8")
-        assert "_resolve_legacy_opening(" in src, "移动端提交未解析历史行归属"
-        assert "_opening_stock_compat_doc(" in resolver, "新行/NULL行未取兼容单"
-        assert "return opening, doc, effective_date" in resolver, "已有单据归属未保留"
+        assert "_opening_stock_compat_doc(" in src, "移动端提交未取兼容单"
         assert "doc_id=compat_doc.id" in src, "移动端提交未把兼容单 id 传给入账函数"
 
 

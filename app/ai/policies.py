@@ -29,11 +29,6 @@ def require_ai_role(f):
 
 
 AI_CAPABILITY_ROLES = {
-    # AI-MOB-MEDIA-FIX-20261114-001: approved existing AI roles.
-    'material_recognition': AI_USE_ROLES,
-    'audio_transcription': AI_USE_ROLES,
-    'document_retry': AI_USE_ROLES,
-    'document_recognition': frozenset({'warehouse', 'purchase'}),
     'out_order_draft': frozenset({'warehouse'}),
     # BUG-2026-08-16-019：sales_out_draft 是已废弃别名，行为等同 after_sale_out_draft，
     # 仅为向后兼容保留。其声明的 sales 角色实际不可用——映射业务路由
@@ -80,10 +75,6 @@ AI_CAPABILITY_ROLES = {
 }
 
 AI_CAPABILITY_BUSINESS_ENDPOINTS = {
-    'material_recognition': 'mobile_recognize_material',
-    'audio_transcription': 'mobile_asr',
-    'document_retry': 'ai_document_job_retry',
-    'document_recognition': 'api_document_ocr',
     'out_order_draft': 'add_out_order',
     'sales_out_draft': 'add_after_sale_out_order',
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
@@ -119,10 +110,6 @@ AI_CAPABILITY_BUSINESS_ENDPOINTS = {
 
 
 AI_CAPABILITY_RISK_LEVELS = {
-    'material_recognition': 'read',
-    'audio_transcription': 'read',
-    'document_retry': 'read',
-    'document_recognition': 'read',
     'out_order_draft': 'draft',
     'sales_out_draft': 'draft',
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft

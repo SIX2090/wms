@@ -8803,9 +8803,9 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         db.session.add(opening)
         db.session.flush()
     else:
-        if doc_id is not None and opening.doc_id not in (None, doc_id):
-            raise ValueError('期初行已有单据归属，不能转移到其他单据')
-        if doc_id is not None: opening.doc_id = doc_id  # 仅收养 NULL，保留已有归属
+        if doc_id is not None:
+            # 历史直连行（doc_id 为空）在首次按单据编辑时归入该单据
+            opening.doc_id = doc_id
         opening.quantity = new_quantity
         opening.price = new_price
         opening.amount = new_amount
@@ -23294,10 +23294,6 @@ def ai_document_job_reopen_confirmation(id):
 @app.route('/ai/document_jobs/<int:id>/retry', methods=['POST'])
 @login_required
 def ai_document_job_retry(id):
-    from services.mobile_ai_access import _media_access_error
-    denied = _media_access_error('document_retry')
-    if denied is not None:
-        return denied
     query = AIDocumentJob.query.options(
         selectinload(AIDocumentJob.attempts),
     )
@@ -23311,13 +23307,7 @@ def ai_document_job_retry(id):
         flash('该任务没有保存可重试的OCR/文本摘要，请重新上传图片识别。', 'warning')
         return redirect(url_for('ai_document_job_detail', id=job.id))
 
-    if _ai_llm_configured():
-        denied = _media_access_error('document_retry', provider=True)
-        if denied is not None:
-            return denied
-        extracted = _ai_call_llm_document_extract(text)
-    else:
-        extracted = _ai_extract_document_from_text(text)
+    extracted = _ai_call_llm_document_extract(text) if _ai_llm_configured() else _ai_extract_document_from_text(text)
     if not extracted:
         _ai_record_document_attempt(job, 'retry', 'failed', error_message='document extraction returned no usable result')
         _ai_update_document_job(job.id, 'failed', error_message='重试识别未得到可用单据结果。')
@@ -33135,10 +33125,6 @@ def document_ocr_page():
 @web_or_api_role_required('warehouse', 'purchase')
 def api_document_ocr():
     """单据OCR识别API：上传图片，AI识别单据内容并生成入库草稿。"""
-    from services.mobile_ai_access import _media_access_error, _media_vision_attempt
-    denied = _media_access_error('document_recognition')
-    if denied is not None:
-        return denied
     if not _ai_llm_configured() or not _ai_llm_vision_enabled():
         return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
 
@@ -33298,18 +33284,12 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
             app.logger.warning(f'路由决策异常，降级走默认视觉通道: {_route_exc}')
             _routing_decision = None
 
-        # 每次实际尝试（包括重试/证据包装回退）都复核当前权限。
-        denied_responses = []
-        def _call_authorized_vision():
-            return _media_vision_attempt(
-                'document_recognition', denied_responses, prompt, [{'data_url': data_url}])
-
         # 调用视觉模型
         # AI_TASK: AI-R05
         # 重试证据保留：超时/错误JSON/不可用时可重试，即使全失败也不丢证据
         try:
             reply, extracted, error, _call_evidence = call_with_evidence(
-                _call_authorized_vision,
+                lambda: _ai_call_llm_vision(prompt, [{'data_url': data_url}]),
                 max_retries=1,
             )
             try:
@@ -33319,11 +33299,9 @@ document_type可选：in_order（入库/送货）、out_order（出库/领料）
                 pass
         except Exception as _ev_exc:  # noqa: BLE001 - 证据包裹异常降级直接调用
             app.logger.warning(f'证据包裹异常，降级直接调用: {_ev_exc}')
-            reply, extracted, error = _call_authorized_vision()
+            reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
             _call_evidence = None
 
-        if denied_responses:
-            return denied_responses[-1]
         if error:
             # 不丢证据：返回降级提示 + 路由决策 + 调用证据
             _err_resp = {

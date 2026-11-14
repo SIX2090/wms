@@ -44,9 +44,6 @@ _WAV = b"RIFF\x00\x00\x00\x00WAVEfmt \x00\x00\x00\x00\x00\x00\x00\x00data\x00\x0
 
 
 def _reset_db():
-    # Reset real process-local media limits along with each fresh synthetic DB.
-    from routes.mobile import _recognize_hits
-    _recognize_hits.clear()
     with app_module.app.app_context():
         db.drop_all()
         db.create_all()

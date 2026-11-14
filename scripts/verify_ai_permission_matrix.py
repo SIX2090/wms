@@ -20,11 +20,6 @@ from ai.tools.registry import AI_TOOL_REGISTRY
 ROLES = ('admin', 'warehouse', 'purchase', 'sales', 'production', 'user')
 
 EXPECTED = {
-    'document_retry': {'admin', 'warehouse', 'purchase', 'sales', 'production'},
-    # AI-MOB-MEDIA-FIX-20261114-001: explicit approved media capability coverage.
-    'material_recognition': {'admin', 'warehouse', 'purchase', 'sales', 'production'},
-    'audio_transcription': {'admin', 'warehouse', 'purchase', 'sales', 'production'},
-    'document_recognition': {'admin', 'warehouse', 'purchase'},
     'out_order_draft': {'admin', 'warehouse'},
     # sales_out_draft / after_sale_out_draft 策略含 sales，但业务路由 add_after_sale_out_order 仅 warehouse，运行时收窄后 sales 不可用
     'sales_out_draft': {'admin', 'warehouse'},

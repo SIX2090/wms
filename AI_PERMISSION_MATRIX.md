@@ -1,25 +1,5 @@
 # WMS AI 能力权限矩阵
 
-## 2026-11-14 媒体入口权限补齐（AI-MOB-MEDIA-FIX-20261114-001）
-
-用户明确批准：独立识物、独立音频转文字沿用 admin/warehouse/purchase/sales/production，viewer/user 禁止；二者跟随 AI 总开关及现有灰度。关闭总开关时管理员也禁止，灰度 off 对管理员的原有例外保留。
-
-| 能力键 | 既有角色范围（含 admin） | 接口 | 输出边界 |
-|---|---|---|---|
-| material_recognition | admin、warehouse、purchase、sales、production | POST /mobile/api/recognize_material | 候选物料，人工选择，不建单/扣库存 |
-| audio_transcription | admin、warehouse、purchase、sales、production | POST /mobile/api/asr | 仅文字，不等同 voice_out_draft |
-| document_retry | admin、warehouse、purchase、sales、production | POST /ai/document_jobs/<id>/retry | 保留已有任务归属；仅重试提取，人工确认边界不变 |
-| document_recognition | admin、warehouse、purchase | POST /api/ai/document_ocr、POST /api/ai/document_ocr_excel | 保留原角色及识别/人工确认/导出流程 |
-
-四项既有识别/重试能力补齐 roles/business-endpoints/risk/registry，不新增路由、模型、开关或自主 dispatcher。注册表不承诺外部模型请求幂等（idempotent=False）。共同复用现有策略和灰度计算，真实主体按既有“会话优先，否则 Bearer”解析，保留会话 CSRF；灰度名单按实际用户 ID，不能拿 AnonymousUser 判定 Bearer。
-
-实际提供方尝试前再次核对权限/总开关/灰度；OCR 重试及证据包装回退也通过该边界。拒绝写既有 AIRolloutAudit；调用尝试写既有 OperationLog 并绑定实际 user_id，仅记能力、不记图片/音频/转写/密钥/提供方原文。调用审计失败返回 503，不调用提供方。记录一次尝试不表示模型成功或计费对账完成。
-
-识物保留原进程内每用户 5 次/60 秒限流，独立 ASR 复用同一滑动窗口实现及阈值，使用独立 asr:user:<id> 键，互不消耗对方配额；超限 429，未执行提供方调用。该限流不声称跨进程共享或供应商实际账单上限。语音旧客户端在只读角色、总开关关闭或灰度拒绝时现在收到 403，这是本次批准的兼容变化；正常音频验证、腾讯优先、TokenHub 回退和同音纠正保留。
-
-本批代码/回退/CI/生产状态分别见 [第二批验收记录](docs/audit/2026-11-14-media-opening-remediation.md)。
-
-
 ## 权限原则
 
 - `admin` 可以使用全部 AI 能力，但提交、审核、完成、反审、作废、删除和恢复备份仍必须走人工业务页面。
@@ -108,5 +88,3 @@
 ## 2026-11-03 工作台草稿队列（AI-R10-F02）
 
 `GET /ai/drafts` 仅允许已登录 admin/warehouse 查看 processing 状态的幂等草稿记录，按每页30条分页；其他角色拒绝访问（财务浏览器请求由既有全局门禁重定向首页，JSON请求403）。只显示记录编号、草稿类型、来源及时间，不展示请求载荷/凭据，不触发草稿生成、确认、提交、删除或外发。该入口是仓库工作台既有未完成草稿链接的只读落点，不增加AI工具权限。
-
-文档任务重试依据现有 AI_USE_ROLES 的“消耗 LLM 计费端点”规则补齐 document_retry；该任务本就要求登录并核对归属，继续保留非管理员只能访问本人任务、管理员可处理他人任务的既定范围。只读 viewer/user 不再触发付费重试，总开关/灰度在重试时重新判定。识别 AI 功能开关 ai_feature_vision_enabled 和 LLM vision 配置由现有 _ai_llm_vision_enabled 保留检查，关闭仍返回既有 400，不把已存在的正面防护再改成新政策。

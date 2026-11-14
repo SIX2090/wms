@@ -21,7 +21,7 @@ def source():
 
 
 PROGRAM = r'''
-const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
+const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(process.argv[1]);
 const requests=[],events=[],handlers={},toasts=[],timers=[];
 const modal={};
 const fields={cbGlobalImportModal:modal,cbGlobalImportFile:{disabled:false,files:p.mode==='no-file'?[]:[{name:'fixture.xlsx'}]},cbGlobalImportSubmit:{disabled:false,addEventListener:(event,fn)=>handlers[event]=fn}};
@@ -64,7 +64,7 @@ def run(path, embedded='none', mode='success'):
     node=shutil.which('node')
     if not node:pytest.skip('Node.js required')
     payload=dict(source=source(),path=path,embedded=embedded,mode=mode,api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'))
-    result=subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM],input=json.dumps(payload),capture_output=True,text=True,timeout=20)
+    result=subprocess.run([node,'--max-old-space-size=64','-e',PROGRAM,json.dumps(payload)],capture_output=True,text=True,timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
 
 
