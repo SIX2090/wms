@@ -1,6 +1,6 @@
 # 原生 Android App 界面改善（2026-11-14）
 
-任务：AI-APP-UI-FIX-20261114-001。2026-11-14 开工，2026-11-15 本地验证完成；状态：待整批推送及精确目标 CI，未交付、未部署。
+任务：AI-APP-UI-FIX-20261114-001。2026-11-14 开工，2026-11-15 续验；状态：首轮 CI 的台账配套遗漏已纠正，正在补取新版本自身的完整 CI，未部署。
 
 ## 范围与基线
 
@@ -56,16 +56,20 @@
 - 补充 R6 实测：四种旧汇总卡 × 四档字号 × 四类值，共 64 项，55 failed / 9 passed，均为实际 TextLayout 溢出断言，非编译失败（`summary-before.log`）。测试副本只将既有 Row 原样提取为可调用函数，原布局和业务值未改。随后修复顶部布局，并补半透明控件背景回归；最终整模块需重跑，不能沿用 285 项作为补充改动的通过证明。
 - 补充候选首轮 350 tests，346 passed / 4 failed：两倍字号长汇总仍溢出。保留全部原断言，改用明确权重的两列 Row 并设置数字行高，局部 64 项全部通过（`summary-fixed.log`）；真实视图 PNG 已检查。四段原汇总 Row 与 Git 基线提取体规范化逐字一致，记录 `summary-extraction-proof.json`。
 - 相邻源码回归：35 个文件 / 230 项通过，0 deferred/unresolved；覆盖普通函数、unittest 类和已有参数化站点，包含显式页面版本断言、通用提取器及语音预填消费者。新增汇总布局和半透明控件接线契约在旧源上均断言失败。仅内存 SQLite 的既有迁移测试，无服务端 app 导入或生产库访问。此结果不代替真实组件与 Android 编译。
-- R8 整批回退/恢复：最终私有快照覆盖 41 个本任务文件，28 个既有文件退回 Git 基线、13 个新增文件移除，再逐字节恢复 41 个候选哈希。7 个新增源码接线契约在旧源上均产生断言失败；实际数量函数与旧汇总提取体也核对原实现。165 个 Android 工程文件与最终测试副本逐字一致，仅私有 `gradle.properties` 的代理/资源限制例外。证明在 `r8-byte-proof.json` / `scope-manifest.json`，早期五个数量函数核对保留于 `r8-stage1-proof.json`；未在共享工作目录撤销任何任务文件。
+- R8 整批回退/恢复：首轮私有快照覆盖 41 个本任务文件，28 个既有文件退回 Git 基线、13 个新增文件移除，再逐字节恢复 41 个候选哈希。7 个新增源码接线契约在旧源上均产生断言失败；实际数量函数与旧汇总提取体也核对原实现。165 个 Android 工程文件与最终测试副本逐字一致，仅私有 `gradle.properties` 的代理/资源限制例外。证明在 `r8-byte-proof.json` / `scope-manifest.json`，早期五个数量函数核对保留于 `r8-stage1-proof.json`；未在共享工作目录撤销任何任务文件。
 - 本地 lint 曾因 Maven/Google TLS 握手失败，无法取得 `com.android.tools.lint:lint-gradle:31.7.3`；未关闭 TLS 验证或修改仓库依赖。真实 release 签名不在测试副本中，未临时生成密钥或以 debug 签名冒充 release。最终精确目标 Android CI 的构建、lint、完整单元测试均须验收。
 - 首页概览标签/附注的既有单行契约保留，未删除或放宽原测试；逐卡入口名称保持完整换行。未把本次改善扩大为首页信息结构重做。
 - 最终完整版本：`testReleaseUnitTest --no-daemon --console=plain` **350 tests / 0 failures / 0 errors / 0 skipped**（`full-final-unit.log` / `unit-final-summary.json`），包含原 189 项与新增 161 项；不得把不同检查点计数相加作为总数。相邻 35 文件 / 230 项、规则 lint 0 违规、严格 AI 台账、UTF-8 编码和提交钩子通过。
 - Compose BOM `2024.12.01` 实际解析 `androidx.compose.ui:ui-android:1.7.6`。本机 `WindowRecomposer_androidKt` 字节码可见对 `animator_duration_scale` 的监听及 `Settings.Global.getFloat` 初始化（`compose-duration-scale.txt`）；这证明内置接线，不证明真实设备或所有自定义动画实际表现，未另加动画开关。
-- 精确目标 CI：待推送后补，不以本地单元测试当作 release APK 构建成功。
+- 首轮目标 `b9e141ae534d745bb304b4423217f2bace8dddaa` 实际普通 push 成功：`50b9c6ff..b9e141ae main -> main`，远端已核对。其 [Android APK Build 43613618156](https://github.com/SIX2090/wms/actions/runs/43613618156) 的 build/lint/unit-test 全部 success，云端日志确认 350 项通过、0 测试失败/跳过；[AI Verification 43613618170](https://github.com/SIX2090/wms/actions/runs/43613618170) success。但 [WMS CI 43613618202](https://github.com/SIX2090/wms/actions/runs/43613618202) 有 2 个台账测试失败，**首轮整批不算交付**。
+- 根因：新增五条月度 BUG 后遗漏 `docs/ledger/INDEX.md` 和 `tests/test_f4_4_ledger_split.py` 的 POST_SPLIT_BUGS 显式注册。历史 315/141/19/1 不能随新条目改变。共享任务随后提交 `6b33d3434e95390ea23eb86f7119d1350af4cd31` 补齐两者，未放宽原断言。本任务独立导出两份各 1,286 个源码/文档的隔离副本，完整 F4.4 模块及 LedgerReader 相邻：旧目标 **2 failed / 14 passed**，修正目标 **16 passed**（`ledger-independent-proof.json`），无生产 DB 或 app 导入。
+- CI 失败后再次整批回退验证：在私有副本逆向应用本任务 41 文件的精确差异，13 个新增文件移除，7 个旧源契约均断言失败，再恢复 45 个文件全部哈希一致，其中 4 个独立协作文件不变。共享文档的相邻修改使普通上下文反向补丁拒绝应用，因此仅在隔离副本使用逐行校验的零上下文差异；没有覆盖共享 main 或撤销协作提交。证据 `post-ci-whole-recovery-proof.json`。
+- 修正目标 [WMS CI 43614206019](https://github.com/SIX2090/wms/actions/runs/43614206019) / [AI Verification 43614206127](https://github.com/SIX2090/wms/actions/runs/43614206127) 均 success。Android 五个构建/发布输入路径与成功祖先 b9e141ae 无差异，219 个 tree/blob 对象齐全。但现行自动检查仅查最后一个 Android 输入提交 4ce62b90，该中间提交没有单独运行，导致附加 [Windows 发布门禁 43614901162](https://github.com/SIX2090/wms/actions/runs/43614901162) 报 Android 运行缺失；没有把此失败当通过。
+- 连接器无 workflow-dispatch 能力，本机无 gh，浏览器控制收到 `GetCursorPos: access denied`，未绕过权限。使用仓库现有 `ci-trigger.txt` 入口补取末端提交自身的 APK 构建，同时正常递增发行版本；不改 CI 检查脚本，不跳过门禁。
 
 ## 提交与生效记录
 
-- 版本：原生 `versionCode=43` / `versionName=3.9.19`；按发行门禁同步 WMS `2026.11.60`。严格版本消费者同步新值，历史负例夹具保留旧值。
+- 版本：首轮原生 43 / 3.9.19、WMS 2026.11.60；补充验收版本 **44 / 3.9.20、WMS 2026.11.61**。严格版本消费者同步新值，历史负例夹具保留旧值。没有重新改变数量、导航、账号或队列实现。
 - 提交批次：数量/可读性显示修复 → 输入/导航/同步状态及相邻契约 → R6 顶部汇总及实际背景补充 → AI 开发台账独立规则文档提交；整批本地验证后统一推送 main。
 - 三个代码本地检查点：`03421328264c97965b6de0d1c871fa96bf6a66c2`、`f75d7a02f37064d30c539ed623552212ca05b7be`、`4ce62b90cae80285852738e135d229d7f68ec82b`。相对基线的整体 diff 仅含本任务文件；必要回退应逆序处理本任务整批，不撤销其他任务。
 - 实际提交范围、完整目标 SHA、push 输出、三个必需工作流最新运行链接及结论：待补，当前未声明交付。
@@ -77,3 +81,9 @@
 - 没有把 36/40/44dp 可视尺寸直接当作实际命中区违规。
 - 数量、亮暗主题及错误交互必须取得真实组件测试结果；源码字符串检查仅补消费点接线，不替代布局和编译。
 - 代码交付与生产/手机安装分开记录。生效确认：待人工确认；本任务未部署或安装。
+
+## 3.9.20 补充验收
+
+- 版本 44 的完整 release 单元测试重新执行：350 tests / 0 failures / 0 errors / 0 skipped（`version44-unit.log` / `unit-version44-summary.json`）；35 文件 / 230 项源码回归、规则 lint 0 违规。严格版本断言在旧 43 元数据上失败，恢复 44 后通过，没有放宽版本锁。
+- 含现有 ci-trigger 入口的最终任务范围 42 文件，29 个既有 / 13 个新增；隔离回退后 7 个旧源契约断言失败、42 文件哈希恢复，165 个 Android 工程文件与测量副本一致。协作索引/分类纠正保持，原历史分布不变。
+- 新末端提交的三个必需工作流及 APK 元数据：待实际推送后验收；本条不预先声明 CI 成功。
