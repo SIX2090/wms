@@ -101,13 +101,10 @@ def test_signing_validation_rejects_silent_debug_fallback() -> None:
     )
 
 
-def test_ci_explicitly_opts_into_debug_signing() -> None:
-    """T7（F3.12）：CI 构建 release 必须显式设置 WMS_ALLOW_DEBUG_SIGNED_RELEASE=1。"""
-    m = re.search(
-        r"- name: Build Release APK \(R8 瘦身\)(.*?)\n\s*- name:", CI, re.S)
+def test_ci_requires_fixed_formal_release_signing() -> None:
+    """T7: approved parallel App requires a fixed formal signer before assemble."""
+    m = re.search(r"- name: Build Release APK \(R8 瘦身\)(.*?)\n\s*- name:", CI, re.S)
     assert m, "CI 未找到 Build Release APK 步骤"
-    step = m.group(1)
-    assert 'WMS_ALLOW_DEBUG_SIGNED_RELEASE: "1"' in step, (
-        "CI 的 assembleRelease 必须显式设置 WMS_ALLOW_DEBUG_SIGNED_RELEASE=1，"
-        "否则 F3.12 后构建必炸"
-    )
+    assert "WMS_ALLOW_DEBUG_SIGNED_RELEASE" not in m.group(1)
+    assert "secrets.WMS_MOBILE_SIGNING_BUNDLE" in CI
+    assert CI.index("python scripts/prepare_android_signing.py") < CI.index("./gradlew assembleRelease")
