@@ -16,13 +16,18 @@ def web_document_idempotent(view):
     return _document_idempotent(view, mobile=False)
 
 
+def web_document_command_idempotent(view):
+    """Replay one explicit copy/push intent; a new key remains a new command."""
+    return _document_idempotent(view, mobile=False, command=True)
+
+
 def mobile_document_idempotent(view):
     """H5 session/Bearer requests share atomic receipts with web saves."""
     return _document_idempotent(view, mobile=True)
 
 
 # no-test:reason=Shared implementation exercised through both public decorators.
-def _document_idempotent(view, *, mobile):
+def _document_idempotent(view, *, mobile, command=False):
     """Claim a request before business writes; receipt commits with the document."""
     @wraps(view)
     def _wrapped(*args, **kwargs):
@@ -49,12 +54,14 @@ def _document_idempotent(view, *, mobile):
                 editing = int(identity or 0) > 0
             except (TypeError, ValueError):
                 editing = False
-            if editing and not mobile:
+            if editing and not mobile and not command:
                 return view(*args, **kwargs)
             payload = {k: v for k, v in payload.items() if k != 'csrf_token'}
             if mobile:
                 payload.pop('request_id', None)
                 payload = {'payload': payload, 'path': request.path}
+        if command:
+            payload = {'payload': payload, 'path': request.path, 'view_args': request.view_args or {}}
         fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False,
                                                  separators=(',', ':')).encode()).hexdigest()
         if mobile and not current_user.is_authenticated:
@@ -62,7 +69,8 @@ def _document_idempotent(view, *, mobile):
             user_id = get_bearer_user().id
         else:
             user_id = current_user.id
-        endpoint = ('mobile:' if mobile else 'web:') + view.__name__
+        endpoint_name = (request.endpoint or view.__name__) if command else view.__name__
+        endpoint = ('mobile:' if mobile else 'web:') + endpoint_name
         # Authentication may have opened a read transaction. Start the claim without
         # upgrading a stale SQLite snapshot; this decorator runs before business writes.
         db.session.rollback()

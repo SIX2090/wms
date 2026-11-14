@@ -31,7 +31,8 @@ from flask_login import login_required
 
 from db import db
 from services.document_detail import get_out_order_box_numbers
-from services.web_document_idempotency import web_document_idempotent, stage_document_response
+from services.web_document_idempotency import (web_document_idempotent,
+                                                   web_document_command_idempotent, stage_document_response)
 from utils import get_default_print_template, print_token_or_login_required, require_role
 from utils import round_money_product
 
@@ -190,6 +191,7 @@ def register_out_order_routes(app):
     @app.route('/out_order/<int:id>/copy', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_command_idempotent
     def copy_out_order(id):
         """复制领料/出库单为新草稿（不带销售来源关联，避免半关联脏数据）。"""
         from datetime import date
@@ -266,15 +268,11 @@ def register_out_order_routes(app):
                 return api_error('原出库单没有有效数量，不能复制')
 
             recalculate_order_total(new_order)
+            response_payload = {'status': 'success', 'msg': '复制成功，已生成新的出库草稿', 'id': new_order.id, 'order_no': new_order.order_no, 'redirect_url': url_for('out_order_detail', id=new_order.id)}
+            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制出库单', f'{source.order_no} -> {new_order.order_no}', 'out_order', new_order.id)
-            return jsonify({
-                'status': 'success',
-                'msg': '复制成功，已生成新的出库草稿',
-                'id': new_order.id,
-                'order_no': new_order.order_no,
-                'redirect_url': url_for('out_order_detail', id=new_order.id),
-            })
+            return jsonify(response_payload)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'复制出库单失败: {e}')
