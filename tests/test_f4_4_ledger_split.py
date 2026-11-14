@@ -565,4 +565,4 @@ POST_SPLIT_BUGS['BUG-2026-11-14-003'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-14-004'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-14-005'] = 'fixed'  # archive parser only; runtime/CI/activation tracked separately
 
-POST_SPLIT_BUGS['BUG-2026-11-14-006'] = 'fixed'  # parser only; exact CI and production tracked separately
+POST_SPLIT_BUGS['BUG-2026-11-14-006'] = 'open'  # parser only; exact CI and production tracked separately

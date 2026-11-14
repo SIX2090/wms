@@ -1923,11 +1923,16 @@ function createInOrderFromPurchaseOrderSelection() {
 
     const warehouseInput = document.querySelector('[name="warehouse_id"]');
     const remarkInput = document.querySelector('[name="remark"]');
-    WMS.api.postRaw('/purchase_order/create_in_order_from_selection', {
-        warehouse_id: warehouseInput ? warehouseInput.value : '',
-        remark: remarkInput ? remarkInput.value : '',
-        items: items
+    fetch('/purchase_order/create_in_order_from_selection', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            warehouse_id: warehouseInput ? warehouseInput.value : '',
+            remark: remarkInput ? remarkInput.value : '',
+            items: items
+        })
     })
+    .then(res => res.json())
     .then(data => {
         if (data.status === 'success') {
             window.location.href = data.redirect_url || ('/in_order/' + data.id);

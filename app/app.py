@@ -11868,8 +11868,6 @@ def _ai_purchase_order_from_context_or_message(message, context=None):
     return None
 
 def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', submitted_qty_by_id=None):
-    from flask import g, has_request_context
-    _web_command_receipt = has_request_context() and getattr(g, 'web_document_receipt', None)
     if not purchase_order_to_in_order_enabled():
         return None, '系统已关闭采购订单下推入库单'
     if order.status == 'completed':
@@ -11904,8 +11902,7 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
         receivable_items.append((item, receive_qty))
     if not receivable_items:
         update_purchase_order_status(order)
-        if not _web_command_receipt:
-            db.session.commit()
+        db.session.commit()
         return None, '该采购单没有可入库数量'
 
     in_order = InOrder(
@@ -11947,13 +11944,6 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
 
     recalculate_order_total(in_order)
     update_purchase_order_status(order)
-    if _web_command_receipt:
-        from services.web_document_idempotency import stage_document_response
-        stage_document_response({
-            'status': 'success', 'msg': '采购入库单生成成功',
-            'id': in_order.id, 'order_no': in_order.order_no,
-            'redirect_url': url_for('in_order_detail', id=in_order.id),
-        })
     db.session.commit()
     log_operation('采购单下推采购入库单', f'{order.order_no} -> {in_order.order_no}', 'in_order', in_order.id)
     return in_order, None

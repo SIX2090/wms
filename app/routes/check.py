@@ -38,8 +38,7 @@ from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import String, cast
 
 from db import db
-from services.web_document_idempotency import (web_document_idempotent,
-                                                   web_document_command_idempotent, stage_document_response)
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
 
@@ -985,7 +984,6 @@ def register_check_routes(app):
     @app.route('/check/<int:id>/copy', methods=['POST'])
     @require_role('warehouse')
     @login_required
-    @web_document_command_idempotent
     def copy_check(id):
         from datetime import datetime
         from flask_login import current_user
@@ -1025,11 +1023,9 @@ def register_check_routes(app):
                 db.session.add(new_item)
             if check.items:
                 new_check.frozen_at = datetime.now()
-            response_payload = {'status': 'success', 'msg': '复制成功'}
-            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制盘点单', f'从 {check.check_no} 复制为 {new_check.check_no}', 'check', new_check.id)
-            return jsonify(response_payload)
+            return jsonify({'status': 'success', 'msg': '复制成功'})
         except Exception as e:
             db.session.rollback()
             return api_error('复制失败，请稍后重试')

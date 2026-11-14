@@ -26,8 +26,7 @@ from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
-from services.web_document_idempotency import (web_document_idempotent,
-                                                   web_document_command_idempotent, stage_document_response)
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 from utils import round_money_product
 
@@ -660,7 +659,6 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/<int:id>/copy', methods=['POST'])
     @require_role('production')
     @login_required
-    @web_document_command_idempotent
     def copy_subcontract(id):
         """复制委外加工单为新草稿（不复制发料/收货关联，避免脏数据）。"""
         from datetime import date
@@ -721,11 +719,15 @@ def register_subcontract_routes(app):
                 total_amount = round_to_2_decimals(total_amount + amount)
 
             new_order.total_amount = total_amount
-            response_payload = {'status': 'success', 'msg': '复制成功，已生成新的委外单草稿', 'id': new_order.id, 'order_no': new_order.order_no, 'redirect_url': url_for('subcontract_detail', id=new_order.id)}
-            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制委外单', f'{source.order_no} -> {new_order.order_no}', 'subcontract', new_order.id)
-            return jsonify(response_payload)
+            return jsonify({
+                'status': 'success',
+                'msg': '复制成功，已生成新的委外单草稿',
+                'id': new_order.id,
+                'order_no': new_order.order_no,
+                'redirect_url': url_for('subcontract_detail', id=new_order.id),
+            })
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'复制委外单失败: {e}')

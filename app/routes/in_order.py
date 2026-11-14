@@ -44,7 +44,7 @@ from flask import abort, flash, jsonify, redirect, render_template, request, sen
 from flask_login import login_required
 
 from db import db
-from services.web_document_idempotency import web_document_idempotent, web_document_command_idempotent, stage_document_response
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import format_quantity, print_token_or_login_required, require_role
 from utils import round_money_product
 
@@ -1854,53 +1854,44 @@ def register_in_order_routes(app):
     def copy_in_order_to_out(id):
         """Copy an inbound order into a draft outbound order."""
         from datetime import date
-        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no)
+        from app import (InOrder, OutOrder, OutOrderItem, generate_order_no)
         in_order = InOrder.query.get_or_404(id)
         if in_order.business_type == '产品入库':
             return convert_in_order_to_out_order(id)
-        @web_document_command_idempotent
-        def _copy_in_order_to_out_command():
-            in_order = InOrder.query.get_or_404(id)
-            if in_order.business_type == '产品入库':
-                return api_error('来源单据已变化，请刷新后重试', 409)
-            order_no = generate_order_no('OU')
-            out_order = OutOrder(
-                order_no=order_no,
-                date=date.today(),
-                customer=in_order.supplier.name if in_order.supplier else '',
-                purpose=in_order.purpose or '',
-                business_type='领料单',
-                warehouse=in_order.warehouse or '',
-                status='pending'
+        order_no = generate_order_no('OU')
+        out_order = OutOrder(
+            order_no=order_no,
+            date=date.today(),
+            customer=in_order.supplier.name if in_order.supplier else '',
+            purpose=in_order.purpose or '',
+            business_type='领料单',
+            warehouse=in_order.warehouse or '',
+            status='pending'
+        )
+        db.session.add(out_order)
+        db.session.flush()
+        for item in in_order.items:
+            out_item = OutOrderItem(
+                out_order_id=out_order.id,
+                material_id=item.material_id,
+                quantity=item.quantity,
+                price=item.price,
+                amount=item.amount,
+                remark=item.remark
             )
-            db.session.add(out_order)
-            db.session.flush()
-            for item in in_order.items:
-                out_item = OutOrderItem(
-                    out_order_id=out_order.id,
-                    material_id=item.material_id,
-                    quantity=item.quantity,
-                    price=item.price,
-                    amount=item.amount,
-                    remark=item.remark
-                )
-                db.session.add(out_item)
-            try:
-                response_payload = {'status': 'success', 'msg': '操作完成', 'out_order_id': out_order.id}
-                stage_document_response(response_payload)
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                app.logger.error(f"数据库操作失败: {e}")
-                return jsonify({"status": "error", "msg": "操作失败"}), 500
-            return jsonify(response_payload)
-        return _copy_in_order_to_out_command()
+            db.session.add(out_item)
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"数据库操作失败: {e}")
+            return jsonify({"status": "error", "msg": "操作失败"}), 500
+        return jsonify({'status': 'success', 'msg': '操作完成', 'out_order_id': out_order.id})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/in_order/<int:id>/copy', methods=['POST'])
     @require_role('warehouse')
     @login_required
-    @web_document_command_idempotent
     def copy_in_order(id):
         """Copy an inbound order into a new draft inbound order."""
         from datetime import date
@@ -2001,17 +1992,15 @@ def register_in_order_routes(app):
             for purchase_order in affected_purchase_orders:
                 update_purchase_order_status(purchase_order)
             recalculate_order_total(new_order)
-            response_payload = {
+            db.session.commit()
+            log_operation('复制入库单', f'{source.order_no} -> {new_order.order_no}', 'in_order', new_order.id)
+            return jsonify({
                 'status': 'success',
                 'msg': '复制成功，已生成新的入库草稿',
                 'id': new_order.id,
                 'order_no': new_order.order_no,
                 'redirect_url': url_for('in_order_detail', id=new_order.id),
-            }
-            stage_document_response(response_payload)
-            db.session.commit()
-            log_operation('复制入库单', f'{source.order_no} -> {new_order.order_no}', 'in_order', new_order.id)
-            return jsonify(response_payload)
+            })
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'复制入库单失败: {e}')

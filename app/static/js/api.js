@@ -96,22 +96,9 @@
     // Keep one random request identity per form intent, including transport retries.
     // Explicit edits keep their existing semantics. Unnumbered forms retain a key until success.
     var documentSavePaths = ["/bom/add", "/bom/save_table", "/in_order/add", "/out_order/add", "/adjustment/add", "/after_sale_out/add", "/check/save_table", "/check/add", "/transfer/save_table", "/transfer/add", "/purchase_request/add", "/requisition/add", "/requisition/save_table", "/purchase_order/save", "/sales/add", "/subcontract/add", "/subcontract_issue/add", "/subcontract/issue/add", "/subcontract_receive/add", "/subcontract/receive/add"];
-    // These commands create new documents; body IDs identify sources, not edits.
-    var documentCommandPaths = [
-        /^\/(?:after_sale_out|check|out_order|purchase_order|sales|subcontract|transfer)\/[1-9]\d*\/copy$/,
-        /^\/in_order\/[1-9]\d*\/(?:copy|copy_to_out)$/,
-        /^\/purchase_order\/[1-9]\d*\/create_in_order$/,
-        /^\/purchase_order\/create_in_order_from_selection$/,
-        /^\/bom\/[1-9]\d*\/create_requisition$/
-    ];
     var pendingDocumentKeys = {};
     function documentRequestKey(method, url, data) {
-        var path = url.split('?')[0];
-        var command = documentCommandPaths.some(function(pattern) { return pattern.test(path); });
-        if (method !== 'POST' || (!command && (documentSavePaths.indexOf(path) < 0 || !data))) return '';
-        // Only intent identification ignores command source IDs. The original body
-        // has already been built and is sent unchanged, including FormData and CSRF.
-        if (command) data = {};
+        if (method !== 'POST' || documentSavePaths.indexOf(url.split('?')[0]) < 0 || !data) return '';
         if (data instanceof FormData) {
             var formData = data;
             data = {};

@@ -24,8 +24,7 @@ from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
-from services.web_document_idempotency import (web_document_idempotent,
-                                                   web_document_command_idempotent, stage_document_response)
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 from utils import round_money_product
 
@@ -694,7 +693,6 @@ def register_after_sale_out_routes(app):
     @app.route('/after_sale_out/<int:id>/copy', methods=['POST'])
     @require_role('warehouse')
     @login_required
-    @web_document_command_idempotent
     def copy_after_sale_out_order(id):
         # Copy an after-sale outbound order into a new draft order.
         from datetime import date
@@ -757,11 +755,15 @@ def register_after_sale_out_routes(app):
                 return api_error('原售后出库单没有有效明细，不能复制')
 
             new_order.total_amount = total_amount
-            response_payload = {'status': 'success', 'msg': '复制成功，已生成新的售后出库草稿', 'id': new_order.id, 'order_no': new_order.order_no, 'redirect_url': url_for('after_sale_out_detail', id=new_order.id)}
-            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制售后出库单', f'{source.order_no} -> {new_order.order_no}', 'after_sale_out_order', new_order.id)
-            return jsonify(response_payload)
+            return jsonify({
+                'status': 'success',
+                'msg': '复制成功，已生成新的售后出库草稿',
+                'id': new_order.id,
+                'order_no': new_order.order_no,
+                'redirect_url': url_for('after_sale_out_detail', id=new_order.id),
+            })
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'复制售后出库单失败: {e}')

@@ -30,8 +30,7 @@ from flask_login import login_required
 from sqlalchemy.exc import IntegrityError
 
 from db import db
-from services.web_document_idempotency import (web_document_idempotent,
-                                                   web_document_command_idempotent, stage_document_response)
+from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 from utils import parse_float_value, round_money_product, round_to_2_decimals
 
@@ -1447,7 +1446,6 @@ def register_sales_routes(app):
     @app.route('/sales/<int:id>/copy', methods=['POST'])
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
-    @web_document_command_idempotent
     def copy_sales_order(id):
         from datetime import date
         from flask_login import current_user
@@ -1485,13 +1483,11 @@ def register_sales_routes(app):
                     remark=item.remark,
                 )
                 db.session.add(new_item)
-            db.session.flush()
+            db.session.commit()
             recalculate_sales_order(new_order)
-            response_payload = {'status': 'success', 'msg': f'已复制为新销售订单 {new_order.order_no}', 'id': new_order.id}
-            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制销售订单', f'从 {order.order_no} 复制到 {new_order.order_no}', 'sales_order', new_order.id)
-            return jsonify(response_payload)
+            return jsonify({'status': 'success', 'msg': f'已复制为新销售订单 {new_order.order_no}', 'id': new_order.id})
         except Exception as exc:
             db.session.rollback()
             app.logger.exception('复制销售订单失败')
