@@ -58,3 +58,13 @@ pending原量原价不变的备注编辑保留历史数量/价格/行amount和�
 最终消费点纠正：统一回归实际发现generic金额表达式缺new_quantity上下文和期初符号行号漂移。只补真实1.15量语境，保留14模块最小调用数、>60与4.03及BOM构造全部断言；INVENTORY的11符号全核，除backfill三处30464→30486，再把期初建账8751→8770。A9将原110中two-sources-later-failure/off的同一真实回滚用例等量命名test_fail，HELPERS/DELETE/UPDATE/COUNTER/EXTRA全部原常量字节不变，不增减110/170或削弱断言。最终18文件重新冻结验证。
 
 上一库存批次2ca31b2a424f0f41b25cfa9ac73617539e24268a已验收：WMS43535374656、AI43535374639、性能43535374652 completed/success，三单测合计15929 passed/203 skipped/1561 subtests passed，203新实际应用实例纳入通过；Android复用cf成功且构建输入不变另具Git证明。Windows43536216561独立验收，未当成生产上线。
+
+## 精确代码及CI验收（2026-11-14）
+
+最终产品目标38b5440c215e74a8fdc8d6c34639b5e94efd21ae，版本2026.11.43；正常push实际输出2ca31b2a..38b5440c main -> main。pre-commit0违规，pre-push保留，不强推、不绕钩子。最终18文件（加入真实generic金额测试上下文纠正）按小hunk合入，已完成188函数/测试及BOM/库存服务均保持。
+
+WMS CI43537505932、AI43537505750、性能43537505728均completed/success。三单测5557/5753/4791 passed，131/24/48 skipped，313/411/837 subtests passed：共16101 passed、203 skipped、1561 subtests passed。新增reservation110及input/ULP60真实HTTP合计170实例实际执行通过；其两份source guarded-worker也运行，较前批15929正好增加172个pytest通过节点。四verify、静态、smoke/browser及gate均success。前文“候选/待CI”保留为历史阶段，不再当当前未交付。
+
+主任务最终18文件完整R8：2508个Git文本基线blob精确恢复再恢复同一候选，前后15组专项/相邻均通过。原产品对新110为74断言失败/0初始化错误，未纠正候选对新60为38断言失败/0初始化错误。没有把缺new_quantity的旧测试初始化错误计作产品旧红。证明pending-reservation-integration-r8-proof.json。
+
+Android成功cf253742/43529573528有完整祖先及两处构建输入零差异证明（pending-38-android-proof.json）。Windows43538200056单独按实际结果验收，不等于部署。001/003/004代码及当前适用CI已验收；015整体及010诊断能力边界另核，真实设备/生产、未知拓扑和其他数据库不由本CI替代。生效确认：待人工确认。
