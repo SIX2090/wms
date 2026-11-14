@@ -116,6 +116,10 @@ def api_document_ocr_excel():
         _ai_llm_vision_enabled,
     )
 
+    from services.mobile_ai_access import _media_access_error, _media_vision_attempt
+    denied = _media_access_error('document_recognition')
+    if denied is not None:
+        return denied
     if not _ai_llm_configured() or not _ai_llm_vision_enabled():
         return jsonify({'status': 'error', 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
     if 'image' not in request.files:
@@ -156,7 +160,11 @@ def api_document_ocr_excel():
         if doc_type_hint != 'auto':
             prompt = f'提示：{DOC_TYPE_HINT_LABELS.get(doc_type_hint, "")}\n\n' + prompt
 
-        reply, extracted, error = _ai_call_llm_vision(prompt, [{'data_url': data_url}])
+        denied_responses = []
+        reply, extracted, error = _media_vision_attempt(
+            'document_recognition', denied_responses, prompt, [{'data_url': data_url}])
+        if denied_responses:
+            return denied_responses[-1]
         if error:
             return jsonify({'status': 'error', 'msg': f'视觉模型调用失败：{error}'}), 500
         if not extracted or not isinstance(extracted, dict):

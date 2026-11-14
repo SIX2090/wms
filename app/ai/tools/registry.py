@@ -369,6 +369,11 @@ def _tool(
 
 
 AI_TOOL_REGISTRY = MappingProxyType({
+    'document_retry': _tool('document_retry', 'Retry extraction of an owned document job summary under current AI access; preserve manual confirmation.', 'media_read', _object_schema({}), idempotent=False),
+    # Manual multipart endpoints only; no autonomous dispatcher or stock writes.
+    'document_recognition': _tool('document_recognition', 'Extract a user-uploaded document into reviewable candidates or an Excel file.', 'media_read', _object_schema({}), idempotent=False),
+    'material_recognition': _tool('material_recognition', 'Recognize a user-uploaded material image and return candidates for manual review.', 'media_read', _object_schema({}), idempotent=False),
+    'audio_transcription': _tool('audio_transcription', 'Transcribe user-uploaded audio; never create or submit a document.', 'media_read', _object_schema({}), idempotent=False),
     'out_order_draft': _tool('out_order_draft', 'Create an outbound material issue draft for manual review.', 'warehouse_draft', OUT_ORDER_DRAFT_SCHEMA, confirmation_required=True),
     'sales_out_draft': _tool('sales_out_draft', '[Deprecated alias of after_sale_out_draft] Create an after-sales outbound draft for manual review.', 'warehouse_draft', SALES_OUT_DRAFT_SCHEMA, confirmation_required=True),
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft 解决语义错配

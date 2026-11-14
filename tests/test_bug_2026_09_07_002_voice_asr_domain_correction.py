@@ -83,6 +83,9 @@ def test_correct_voice_asr_text():
 
 
 def _reset_db():
+    # Reset real process-local media limits along with each fresh synthetic DB.
+    from routes.mobile import _recognize_hits
+    _recognize_hits.clear()
     with app_module.app.app_context():
         db.drop_all()
         db.create_all()

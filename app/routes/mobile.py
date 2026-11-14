@@ -1154,6 +1154,10 @@ def register_mobile_routes(app):
         from flask import current_app
         from app import Material, db, joinedload, jsonify, request
         from app import _ai_call_llm_vision, _ai_llm_configured, _ai_llm_vision_enabled
+        from services.mobile_ai_access import _media_access_error
+        denied = _media_access_error('material_recognition')
+        if denied is not None:
+            return denied
         if not _ai_llm_configured() or not _ai_llm_vision_enabled():
             return jsonify({'status': 'error', 'success': False, 'msg': '请先在系统设置中启用大模型和图片识别'}), 400
 
@@ -1181,6 +1185,8 @@ def register_mobile_routes(app):
         file.seek(0, 2)
         file_size = file.tell()
         file.seek(0)
+        if file_size == 0:
+            return jsonify({'status': 'error', 'success': False, 'msg': '图片内容不能为空'}), 400
         if file_size > 10 * 1024 * 1024:
             return jsonify({'status': 'error', 'success': False, 'msg': '图片大小不能超过10MB'}), 400
 
@@ -1209,6 +1215,9 @@ def register_mobile_routes(app):
 ```
 如果完全无法识别，code/name/spec/description 留空，confidence 设为 0。'''
 
+            denied = _media_access_error('material_recognition', provider=True)
+            if denied is not None:
+                return denied
             reply, extracted, error = _ai_call_llm_vision(
                 '请识别这张图片中的物料，并输出结构化 JSON。',
                 [{'data_url': data_url}],
@@ -1287,6 +1296,14 @@ def register_mobile_routes(app):
         """
         from flask import current_app, jsonify, request
 
+        from services.mobile_ai_access import _media_access_error, _media_actor
+        denied = _media_access_error('audio_transcription')
+        if denied is not None:
+            return denied
+        wait = _recognize_rate_limited(f'asr:user:{_media_actor().id}')
+        if wait is not None:
+            return jsonify(status='error', success=False, msg=f'语音转写过于频繁，请 {wait} 秒后再试'), 429
+
         secret_id = os.environ.get('TENCENTCLOUD_SECRET_ID', '').strip()
         secret_key = os.environ.get('TENCENTCLOUD_SECRET_KEY', '').strip()
         region = os.environ.get('TENCENTCLOUD_REGION', 'ap-guangzhou').strip()
@@ -1307,10 +1324,15 @@ def register_mobile_routes(app):
         file.seek(0, 2)
         file_size = file.tell()
         file.seek(0)
+        if file_size == 0:
+            return jsonify({'status': 'error', 'success': False, 'msg': '音频内容不能为空'}), 400
         if file_size > 10 * 1024 * 1024:
             return jsonify({'status': 'error', 'success': False, 'msg': '音频大小不能超过10MB'}), 400
 
         audio_bytes = file.read()
+        denied = _media_access_error('audio_transcription', provider=True)
+        if denied is not None:
+            return denied
 
         # 分支一：腾讯云一句话识别（热词表同音增强）
         if use_tencent:

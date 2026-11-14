@@ -3457,23 +3457,29 @@ def register_native_api_routes(app):
         # BUG-2026-09-16-009：移动端提交必须归入单据——此前调
         # _apply_opening_stock_balance 漏传 doc_id，明细行 doc_id=NULL，
         # PC 端单据列表/首上下末导航永远找不到（跨端黑洞），只能整库清。
-        # 与 batch_save 兼容分支同一口径：无单写入统一归入 QSLEGACY 兼容单，
-        # 保持「同 (物料,仓库) 单行 upsert」语义不变。
-        compat_doc = _opening_stock_compat_doc(payload.get('date'), generate_order_no)
+        # 无单据号时只更新唯一匹配行并保留归属；多行拒绝猜测。
+        # 仅新行或历史 NULL 行懒建/收养到 QSLEGACY，不移动已有单据行。
+        from services.opening_stock_legacy import (
+            _OpeningOwnershipError, _begin_legacy_opening_write, _resolve_legacy_opening)
 
         try:
+            _begin_legacy_opening_write()
             saved = []
             for index, line in enumerate(lines, start=1):
                 if not isinstance(line, dict):
+                    db.session.rollback()
                     return api_json_error(f'第 {index} 行格式错误', 400)
                 code = (line.get('material_code') or line.get('code') or '').strip()
                 if not code:
+                    db.session.rollback()
                     return api_json_error(f'第 {index} 行缺少物料编码', 400)
                 material = Material.query.filter_by(code=code).first()
                 if not material:
+                    db.session.rollback()
                     return api_json_error(f'第 {index} 行物料不存在：{code}', 400)
                 raw_qty = str(line.get('quantity') if line.get('quantity') is not None else '').strip()
                 if raw_qty == '':
+                    db.session.rollback()
                     return api_json_error(f'第 {index} 行请输入数量', 400)
                 quantity = parse_float_value(raw_qty, None)
                 if quantity is None:
@@ -3490,11 +3496,10 @@ def register_native_api_routes(app):
                 amount = round_money_product(quantity, price)
                 remark = (line.get('remark') or '').strip() or None
 
-                opening = OpeningStock.query.filter_by(
-                    material_id=material.id, warehouse_id=warehouse.id
-                ).with_for_update().first()
+                opening, compat_doc, effective_date = _resolve_legacy_opening(
+                    material, warehouse, payload.get('date'), generate_order_no)
                 opening, _delta = _apply_opening_stock_balance(
-                    opening, material, quantity, price, amount, remark, warehouse, doc_date,
+                    opening, material, quantity, price, amount, remark, warehouse, effective_date,
                     doc_id=compat_doc.id,
                 )
                 opening.operator_id = user.id
@@ -3504,6 +3509,9 @@ def register_native_api_routes(app):
             stage_document_response(response.get_json())
             db.session.commit()
             return response
+        except _OpeningOwnershipError as exc:
+            db.session.rollback()
+            return api_json_error(str(exc), 400)
         except (ArithmeticError, ValueError, OverflowError):
             db.session.rollback()
             return api_json_error('期初数量或单价无效，或金额超出可处理范围', 400)

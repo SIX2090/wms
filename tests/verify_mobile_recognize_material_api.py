@@ -140,6 +140,10 @@ class TestMobileRecognizeMaterialApi(unittest.TestCase):
             _seed_admin()
 
     def setUp(self):
+        # Helpers below replace provider/config functions; restore each real
+        # function so the final disabled-vision case cannot poison ASR tests.
+        for name in ('_ai_call_llm_vision', '_ai_llm_configured', '_ai_llm_vision_enabled'):
+            self.addCleanup(setattr, app_module, name, getattr(app_module, name))
         from app import Material
         with app_module.app.app_context():
             Material.query.delete()

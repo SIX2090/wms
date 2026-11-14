@@ -1,5 +1,12 @@
 # WMS AI 唯一开发台账
 
+## 2026-11-14 媒体入口既有能力子修复
+
+| 任务编号 | 状态 | 范围与验收 |
+|---|---|---|
+| AI-MOB-MEDIA-FIX-20261114-001 | 进行中，待统一推送及精确目标 CI | 对照 AI-MOB-REC-F01、AI-MOB-VOICE-F01、AI-LLM-GATE-002 与 BUG-2026-08-16-013，全仓查重无等价子修复。按用户明确决策补独立识物/ASR 实际主体权限、总开关和灰度；同根 OCR 两入口保留原较窄角色并补灰度/重试门禁，文档任务重试依既有 AI_USE_ROLES 补同一计费边界且保留任务归属；仅补登记现有媒体能力，不新增自主业务动作、角色、提供方或数据库迁移。隔离合成提供方专项、相邻、整批逆序回退和目标 CI 分别验收，生产未操作。详见 docs/audit/2026-11-14-media-opening-remediation.md，完成记录在目标 CI 验收后登记。 |
+
+
 2026-11-14 PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001：既有PRINT-TEMPLATE-F01/F04文件生命周期子修复，关联BUG-2026-11-14-007。代码目标35edea5f227084105b0dd1b16f60dfad88eab76c的完整CI已通过：全站16407 passed/203 skipped、1636子案例；HTTP冒烟122/122，AI验证成功，Android成功祖先输入一致。三类模板删除/失败回收及测试静态目录隔离；不新增能力/权限/模型。本地301项、整批逆向22失败/15对照及恢复37项通过。生产未部署，文档收口另验本提交，详见docs/audit/2026-11-14-print-template-file-lifecycle.md。
 
 2026-11-14 MOBILE-UPDATE-20261114-001：用户明确同意新旧 App 并存，允许建立并备份长期固定签名，并确认将该签名保存在 SIX2090/wms 的 Actions Secret WMS_MOBILE_SIGNING_BUNDLE。新包名 com.factory.wms.mobile，名称 WMS 手机端；旧 App 和本地数据保留，新 App 不自动读取旧 App 草稿或队列。此前缺原签名的实现已按 R8 撤回；本次基于 ee24269b 重新实现；5159ab60 的三个必需CI成功，但稳定提升因路径校验误拒 SHA...main 失败，已用79d821b8/32527ca9完整回退并证明Git树恢复。重评后补真实API传输层红绿用例，恢复固定签名实现，Android递增42/3.9.18、Windows54，重新独立验收；未验收不算交付。范围、测试、完整目标 SHA、稳定发布与设备状态统一见 docs/audit/2026-11-14-android-app-update.md；生产、账号密码和真实手机操作不在授权内。

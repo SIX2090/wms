@@ -342,9 +342,9 @@ def register_opening_stock_routes(app):
           · 新前端提交 {doc_id, date, warehouse_id, remark, items:[...]}。
         两代必须同时正确，因此：
 
-        - 无 doc_id：懒创建一张「兼容单」并归入，保持原「同 (物料,仓库) 只有
-          一行、重复保存即覆盖」的 upsert 语义。老测试断言 len(recs)==1 与
-          date 覆盖行为依赖这一点，不能改成每次新建行。
+        - 无 doc_id：唯一匹配时保留已有单据归属；多个匹配提示明确单据。
+          仅新行/历史 NULL 行懒建兼容单；QSLEGACY 保留历史逐行改日期习惯。
+          不能取第一行、转移归属或把合法跨单明细合并。
         - 有 doc_id：单据内按 (doc_id, 物料, 仓库) 行级 upsert，并把提交集中
           不存在的旧行回冲后删除——这就是用户要的「导入的单据可改明细」。
         """
@@ -398,14 +398,17 @@ def register_opening_stock_routes(app):
 
             if doc_id is None:
                 # ---- 兼容分支：老调用方，保持单行 upsert 语义 ----
-                doc = _opening_stock_compat_doc(data.get('date'), generate_order_no)
+                from services.opening_stock_legacy import _begin_legacy_opening_write, _resolve_legacy_opening
+                _begin_legacy_opening_write()
+                doc = None
+                affected_docs = {}
                 for item in normalized_items:
-                    item['doc_id'] = doc.id
                     material = item['material']
                     warehouse = item['warehouse']
-                    opening = OpeningStock.query.filter_by(
-                        material_id=material.id, warehouse_id=warehouse.id
-                    ).with_for_update().first()
+                    opening, doc, effective_date = _resolve_legacy_opening(
+                        material, warehouse, item['date'] or data.get('date'), generate_order_no)
+                    item['doc_id'] = doc.id
+                    affected_docs[doc.id] = doc
                     _, delta = _apply_opening_stock_balance(
                         opening,
                         material,
@@ -414,12 +417,13 @@ def register_opening_stock_routes(app):
                         item['amount'],
                         item['remark'],
                         warehouse,
-                        item['date'],
+                        effective_date,
                         item.get('location', ''),
                         doc_id=doc.id,
                     )
                     if opening is None or abs(delta) > STOCK_COMPARE_EPSILON:
                         changed_count += 1
+                doc = next(iter(affected_docs.values())) if len(affected_docs) == 1 else None
                 msg = f'期初库存已保存，共 {len(normalized_items)} 行'
             else:
                 # ---- 单据分支：行级 upsert + 差集删除（可改明细） ----
