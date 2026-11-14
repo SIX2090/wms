@@ -106,7 +106,7 @@ class OfflineQueueManager internal constructor(
                 Log.e(TAG, "队列初始化失败", e)
                 return@launch
             }
-            refreshCounts()
+            syncMutex.withLock { refreshCounts() }
             onlineChanges.collect { online ->
                 if (online) syncPending()
             }
@@ -175,8 +175,8 @@ class OfflineQueueManager internal constructor(
                     return@runCatching false
                 }
             }
-            refreshCounts()
-            true
+            syncMutex.withLock { refreshCounts() }
+            true.also { if (currentlyOnline()) syncPending() }
         }.getOrElse { e ->
             if (e is CancellationException) throw e
             // 写库失败必须让调用方知道：不能返回 true 让 UI 谎称"已暂存"
@@ -371,13 +371,13 @@ class OfflineQueueManager internal constructor(
         val nextStatus =
             if (exhausted) PendingOperationEntity.STATUS_FAILED
             else PendingOperationEntity.STATUS_PENDING
-
+        val retryAt = if (nextRetryAt > 0) nextRetryAt else System.currentTimeMillis() + (30_000L shl op.attemptCount.coerceIn(0, 5))
         check(dao.markFailed(
                 requestId = op.requestId,
                 nextStatus = nextStatus,
                 attemptCount = attempts,
                 error = error,
-                nextRetryAt = if (exhausted) 0 else nextRetryAt
+                nextRetryAt = if (exhausted) 0 else retryAt
             ) == 1) { "失败状态未写入，原记录已保留" }
 
         if (exhausted) {
