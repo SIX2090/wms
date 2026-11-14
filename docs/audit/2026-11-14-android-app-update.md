@@ -7,7 +7,20 @@
 **功能尚未交付。** 已实现并测试的更新代码因缺少原签名材料，未能通过完整 Android 构建门禁，
 已按 R8 整批撤回。当前仓库恢复原 Android 39 / 3.9.15 行为，没有启用自动更新。
 本次回退的 Windows 发行版本前移为 2026.11.52，仅用于满足已有版本不可复用门禁，
-不表示手机更新功能完成。回退目标完整 CI 待推送后核验。
+不表示手机更新功能完成。回退目标完整 CI 已通过，证据如下；签名前置条件仍未满足。
+
+回退目标 `4d9e4f86e32e9be22347ddfe2f410e00604157e7` 实际正常推送为
+`fd56b6dd..4d9e4f86 main -> main`，本地 HEAD、origin/main 和实时远端一致。
+
+| 回退验收 | 运行 | 结果 |
+|---|---|---|
+| Android APK Build | [43567672542](https://github.com/SIX2090/wms/actions/runs/43567672542) | completed/success，原 Android 39/3.9.15 构建 |
+| WMS CI | [43567672637](https://github.com/SIX2090/wms/actions/runs/43567672637) | completed/success |
+| WMS AI Verification | [43567672566](https://github.com/SIX2090/wms/actions/runs/43567672566) | completed/success |
+| 性能记录 | [43567672635](https://github.com/SIX2090/wms/actions/runs/43567672635) | completed/success |
+
+这些结果证明回退基线恢复，不代表撤回的自动更新功能已完成。
+本次收口仅修改两份 Markdown，其自身提交按文档分流独立验收，不借旧绿冒充本提交通过。
 
 ## 原始目标与实现快照
 
@@ -32,8 +45,8 @@
 - 精确实现 SHA 的 Android CI：unit-test 实际 **189 项 PASSED**，lint 成功；
   [Android 43566988062](https://github.com/SIX2090/wms/actions/runs/43566988062) 整体失败原因见下。
 - [AI 43566988179](https://github.com/SIX2090/wms/actions/runs/43566988179) completed/success。
-  [WMS CI 43566988091](https://github.com/SIX2090/wms/actions/runs/43566988091) 的最终状态另行核验；
-  不能以静态、冒烟和浏览器子任务通过代替完整目标成功。
+  [WMS CI 43566988091](https://github.com/SIX2090/wms/actions/runs/43566988091) 最终 completed/success；
+  Android 构建门禁仍失败，因此整个功能目标不算验收。
 - 发布协议 11 项 unittest 和 6 模块源码/协议相邻共 64 项通过；严格 AI 台账、规则和编码检查通过。
   这些不替代实际 Android 构建或完整 Flask 测试。
 - 合成签名 APK 经实际 aapt/apksigner 生成元数据；样本仅为无代码测试包，不含真实发行私钥。
