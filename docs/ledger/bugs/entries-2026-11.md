@@ -2,7 +2,7 @@
 
 ### BUG-2026-11-14-006: 复制与来源下推同请求重试会重复新建草稿并再次占用预留
 
-- 状态：纠正候选已修复；失败目标2fd6dd67已按R8整批回退，最终纠正SHA完整CI仍待验收，不宣称交付完成。
+- 状态：代码、精确目标完整CI及Windows包已验收；最终57df192705a37b593ef0e1a3690a01e2f126ee72。生产生效仍待人工确认。
 - 根因及历史：原20网页保存已有原子回执，native/AI已有保护；9复制、采购选单/按单下推及BOM转领料12命令缺同请求回执。全局NEW_DOCUMENT_INTENTS只是跳过编辑revision，锁也不等于成功回放。关联11-08-018/11-10-004统一编号与请求幂等计划、11-14-001/003预留；本项不同于单号高水位或累计限额，不按12入口重复登记12BUG。
 - 实证：真实require_role/login/Pydantic/单据守卫后，同一synthetic key的copy入库/PO选单/按单下推会多一ID、预留1.01到2.02再3.03；另8复制+BOM也实证同key重复。不同key人工新意图、无key旧客户端行为保留，不用两个无key独立点击冒充重复请求BUG。
 - 修复：复用现有回执表及事务；薄command入口绑定实际endpoint、源path/view_args、payload，源id不误当编辑；异源异内容409，角色在replay前。实际成功payload在既有业务commit前stage。core失败无可收行时不提前提交status0，原内部/AI无claim语义保持。sales复制先flush，真实recalc及stage后唯一commit；产品copy_to_out在claim前委托原DocumentPushLine/锁协议，普通分支claim后再读并拒来源变更，原无ID响应不加字段。
@@ -14,6 +14,18 @@
 
 
 - CI纠正：2fd6dd67221e9aecb309db98e6a75ef947ea3e99 的WMS43550436159出现3失败/2收集错误。已整批撤回本任务，保留Android005/39及独立批次；Windows48兼容回退后纠正49。两处动态生成辅助函数改为私有名，保留161实际用例；旧选单夹具加载真实api.js，保留14项原有断言，不用恒真API替身。封闭pytest在显式非空3文件中旧177收集/172通过/3失败/2错误，新175实际执行全绿须留证；旧产品业务红证据18/11/84/4与相同业务源码哈希保留。本批再做整批逆序回退和恢复验证；精确SHA CI、生产生效分别待验，生产未操作。生效确认：待人工确认。
+
+
+**精确代码、CI 与包验收（2026-11-14）**
+
+最终纠正提交 `57df192705a37b593ef0e1a3690a01e2f126ee72`，Windows `2026.11.49`。原 `2fd6dd67` 的三项旧选单夹具失败及两个模块级生成器收集错误已按 R8 整批撤回（兼容回退提交 `36dbbf73a6be5f57e4ab3e15c6c7a4c94ccd0a52`、版本48），然后修正真实依赖并恢复本任务。未撤销已验收的 Android005、39/3.9.15 或其他任务。
+
+- 纠正验证：封闭真实 pytest 显式3文件，旧177收集/172通过/3失败/2错误，新175全部通过；仅去掉两个误泄漏的全局辅助函数，161命令VM及14原选单有效测试标识、原业务断言全部保留。旧选单加载真实 `api.js`，无恒真API替身。20相邻组、5静态门禁及整批27文件逆序/恢复通过；2,515个回退基线源码blob、整树和逐文件哈希一致，13个业务文件与原候选相同。
+- [WMS CI 43552705263](https://github.com/SIX2090/wms/actions/runs/43552705263) completed/success：unit分片6051/5504/4785通过，共16340通过、203跳过、1561子测试通过；静态、四verify、smoke、browser、gate全部success。新增52+22实际HTTP实例随该精确目标的标准Linux隔离分片通过，宿主未import/collect/run完整WMS。
+- [AI 43552705307](https://github.com/SIX2090/wms/actions/runs/43552705307) 和 [性能 43552705234](https://github.com/SIX2090/wms/actions/runs/43552705234) completed/success。Android [43548469707](https://github.com/SIX2090/wms/actions/runs/43548469707) 的完整成功SHA `aa982156adb5007581775490ebbe32825024e5d4` 是最终目标祖先，`app/android-native-wms/` 与 `.github/workflows/android-build.yml` 零差异；不是声称本次重新构建APK。
+- [Windows 43553284658](https://github.com/SIX2090/wms/actions/runs/43553284658) completed/success，日志实际 `built_verified`，不是陈旧任务跳过。[windows-v2026.11.49](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.49) 已发布，目标完整57df提交；4资产齐全。ZIP 97,268,305字节，SHA256 `34c3b21765507e23e8d27ac80c0a885dd15e27a8bf420abd0bd254a717328ce7`。
+- 实际普通push先 `2fd6dd67..36dbbf73 main -> main`，后 `36dbbf73..57df1927 main -> main`，均退出0，远端完整SHA已反查一致；未跳过钩子、未force。原无关两删除/两未跟踪文件保留。测试数、入口数、注册标题数不换算BUG修复数。
+- 代码与CI已验收；生产数据库/备份、账号、业务单据、现役服务、微信/打印、部署和迁移未操作。模板变更，生产需重启 WMS 服务生效；本任务没有重启。生效确认：待人工确认。其他数据库实际竞争、物理设备和生产业务生效仍各自待证，不称全WMS无BUG。
 
 **2026-11-14两批精确验收收口**：27b77d88规则与2ca31b2a历史库存已正常push，WMS43535374656/AI43535374639/性能43535374652/Windows43536216561 success，15929通过/203跳过/1561子测试；四域40+调拨51+调整112真实应用共203通过。采购预留001/003/004随后38b5440c正常push，WMS43537505932/AI43537505750/性能43537505728 success，16101通过/203跳过/1561子测试，110+60真实HTTP通过。新增BUG只按3个独立根因计，测试/工作包/台账189个唯一标题不是本轮修复数；015子范围及010诊断收口分别跟踪，不宣布全WMS无BUG。没有生产数据库/备份/服务操作；生效确认：待人工确认。
 

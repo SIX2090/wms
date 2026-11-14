@@ -15,3 +15,15 @@
 独立20个Node VM实例：12真实postRaw命令响应丢失/同key重试/成功后新key，另8个真实模板函数的空选、零、非数、超量、成功、网络、业务/HTTP错误。旧模板同20应4断言失败/16正常对照/0初始化错误，新20通过；恢复候选后141+20共161 VM检查通过，与已有59相邻分开报告。
 
 本追加为模板变更，生产需重启 WMS 服务生效；本任务没有重启、部署或访问生产。组件3文件独立Git逆序/恢复与最终whole批R8分别核对。生效确认：待人工确认。
+
+
+## 精确代码、CI 与包验收（2026-11-14）
+
+最终纠正提交 `57df192705a37b593ef0e1a3690a01e2f126ee72`，Windows `2026.11.49`。原 `2fd6dd67` 的三项旧选单夹具失败及两个模块级生成器收集错误已按 R8 整批撤回（兼容回退提交 `36dbbf73a6be5f57e4ab3e15c6c7a4c94ccd0a52`、版本48），然后修正真实依赖并恢复本任务。未撤销已验收的 Android005、39/3.9.15 或其他任务。
+
+- 纠正验证：封闭真实 pytest 显式3文件，旧177收集/172通过/3失败/2错误，新175全部通过；仅去掉两个误泄漏的全局辅助函数，161命令VM及14原选单有效测试标识、原业务断言全部保留。旧选单加载真实 `api.js`，无恒真API替身。20相邻组、5静态门禁及整批27文件逆序/恢复通过；2,515个回退基线源码blob、整树和逐文件哈希一致，13个业务文件与原候选相同。
+- [WMS CI 43552705263](https://github.com/SIX2090/wms/actions/runs/43552705263) completed/success：unit分片6051/5504/4785通过，共16340通过、203跳过、1561子测试通过；静态、四verify、smoke、browser、gate全部success。新增52+22实际HTTP实例随该精确目标的标准Linux隔离分片通过，宿主未import/collect/run完整WMS。
+- [AI 43552705307](https://github.com/SIX2090/wms/actions/runs/43552705307) 和 [性能 43552705234](https://github.com/SIX2090/wms/actions/runs/43552705234) completed/success。Android [43548469707](https://github.com/SIX2090/wms/actions/runs/43548469707) 的完整成功SHA `aa982156adb5007581775490ebbe32825024e5d4` 是最终目标祖先，`app/android-native-wms/` 与 `.github/workflows/android-build.yml` 零差异；不是声称本次重新构建APK。
+- [Windows 43553284658](https://github.com/SIX2090/wms/actions/runs/43553284658) completed/success，日志实际 `built_verified`，不是陈旧任务跳过。[windows-v2026.11.49](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.49) 已发布，目标完整57df提交；4资产齐全。ZIP 97,268,305字节，SHA256 `34c3b21765507e23e8d27ac80c0a885dd15e27a8bf420abd0bd254a717328ce7`。
+- 实际普通push先 `2fd6dd67..36dbbf73 main -> main`，后 `36dbbf73..57df1927 main -> main`，均退出0，远端完整SHA已反查一致；未跳过钩子、未force。原无关两删除/两未跟踪文件保留。测试数、入口数、注册标题数不换算BUG修复数。
+- 代码与CI已验收；生产数据库/备份、账号、业务单据、现役服务、微信/打印、部署和迁移未操作。模板变更，生产需重启 WMS 服务生效；本任务没有重启。生效确认：待人工确认。其他数据库实际竞争、物理设备和生产业务生效仍各自待证，不称全WMS无BUG。
