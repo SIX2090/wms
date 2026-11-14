@@ -36,7 +36,7 @@ val OnSurface: Color
     @ReadOnlyComposable
     get() = MaterialTheme.colorScheme.onSurface
 
-/** 次级文本 → colorScheme.onSurfaceVariant（亮 6B7280 / 暗 A1A1AA）。 */
+/** 次级文本 → colorScheme.onSurfaceVariant（亮 4B5563 / 暗 A1A1AA）。 */
 val OnSurfaceVariant: Color
     @Composable
     @ReadOnlyComposable

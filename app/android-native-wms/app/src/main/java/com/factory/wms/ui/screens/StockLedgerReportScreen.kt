@@ -64,6 +64,7 @@ import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.components.WmsPullToRefreshBox
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Error
 import com.factory.wms.ui.theme.Primary
@@ -201,8 +202,7 @@ fun StockLedgerReportScreen(
                                     sub,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    softWrap = true
                                 )
                             }
                         }
@@ -591,7 +591,7 @@ private fun LedgerSummaryCell(
 }
 
 @Composable
-private fun StockLedgerItemRow(item: StockLedgerItem) {
+internal fun StockLedgerItemRow(item: StockLedgerItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -600,14 +600,13 @@ private fun StockLedgerItemRow(item: StockLedgerItem) {
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 // 单据类型 + 单号（台账溯源主信息）
                 Text(
                     listOfNotNull(
@@ -636,30 +635,31 @@ private fun StockLedgerItemRow(item: StockLedgerItem) {
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
             // 入/出量 + 行后结存（台账核心：running balance）
-            // AI-APP-FIX-403：数字列单行省略 + tnum 等宽数字（本列已右对齐）
-            Column(horizontalAlignment = Alignment.End) {
+            // 数量使用完整行，保留全部数字、单位与正负号，并支持系统大字体。
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                 val hasIn = item.inQuantity > 0
                 val hasOut = item.outQuantity > 0
                 Text(
-                    when {
+                    quantityDisplayText(when {
                         hasIn -> "+" + formatQty(item.inQuantity)
                         hasOut -> "-" + formatQty(item.outQuantity)
                         else -> "—"
-                    },
+                    }),
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    softWrap = true,
                     color = if (hasOut && !hasIn) Error else Success
                 )
                 Text(
-                    "结存 " + formatQty(item.balanceQuantity),
-                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    quantityDisplayText("结存 " + formatQty(item.balanceQuantity)),
+                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End,
+                    softWrap = true,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

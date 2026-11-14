@@ -705,7 +705,7 @@ fun ObjectRecognizeScreen(
                                         "AI 提取信息",
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = CardPink
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -809,7 +809,7 @@ fun ObjectRecognizeScreen(
                                         onClick = { onQueryStock(material.code) },
                                         modifier = Modifier.align(Alignment.End)
                                     ) {
-                                        Text("查该物料库存", color = CardPink)
+                                        Text("查该物料库存", color = MaterialTheme.colorScheme.onSurface)
                                         Spacer(modifier = Modifier.width(2.dp))
                                         Icon(
                                             Icons.Outlined.ChevronRight,
@@ -978,7 +978,7 @@ fun StocktakeRecognizeScreen(
                                         "AI 提取信息",
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = CardPurple
+                                        color = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))

@@ -22,3 +22,6 @@ fun formatQty(value: Double): String {
 
 /** 可空版本：null 显示占位符（与 [com.factory.wms.util.formatQuantity] 的 "? → -" 口径一致）。 */
 fun formatQty(value: Double?): String = value?.let { formatQty(it) } ?: "-"
+
+/** 仅展示：允许在千分位后换行，避免长数字把末组与小数部分拆开。 */
+fun quantityDisplayText(text: String): String = text.replace(",", ",\u200B")

@@ -56,6 +56,7 @@ import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.components.WmsPullToRefreshBox
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Error
@@ -369,7 +370,7 @@ private fun InOutSummaryCell(
 }
 
 @Composable
-private fun InOutDetailItemRow(item: InOutDetailItem) {
+internal fun InOutDetailItemRow(item: InOutDetailItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -378,14 +379,13 @@ private fun InOutDetailItemRow(item: InOutDetailItem) {
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "${item.materialName.orEmpty()}（${item.materialCode.orEmpty()}）",
                     fontWeight = FontWeight.SemiBold,
@@ -420,22 +420,20 @@ private fun InOutDetailItemRow(item: InOutDetailItem) {
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
             // 带符号数量：入库 +绿 / 出库 -红（direction 与服务端口径一致）
             val isOut = item.direction == "out" || item.quantity < 0
             val qtyText = (if (isOut) "-" else "+") +
                 formatQty(kotlin.math.abs(item.quantity)) +
                 (item.unit?.takeIf { it.isNotBlank() }?.let { " $it" } ?: "")
             Text(
-                qtyText,
+                quantityDisplayText(qtyText),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
-                // AI-APP-FIX-403：数字列单行省略 + 固定右栏宽 + tnum 等宽数字
+                // 数量使用完整行，保留全部数字、单位与正负号，并支持系统大字体。
                 style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                 textAlign = TextAlign.End,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(110.dp),
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth(),
                 color = if (isOut) Error else Success
             )
         }

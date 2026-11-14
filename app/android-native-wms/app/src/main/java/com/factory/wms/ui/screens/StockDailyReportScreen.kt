@@ -55,6 +55,7 @@ import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.components.WmsPullToRefreshBox
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.theme.Success
@@ -312,7 +313,7 @@ private fun StockDailySummaryCell(label: String, value: String) {
 }
 
 @Composable
-private fun StockDailyItemRow(item: StockDailyItem) {
+internal fun StockDailyItemRow(item: StockDailyItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -321,14 +322,13 @@ private fun StockDailyItemRow(item: StockDailyItem) {
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     "${item.name}（${item.code}）",
                     fontWeight = FontWeight.SemiBold,
@@ -360,19 +360,17 @@ private fun StockDailyItemRow(item: StockDailyItem) {
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(8.dp))
             // 结存：零库存用弱化色，区别于有库存
             // AI-APP-FIX-403：浮点不能直接 == 0.0（0.1+0.2 类误差会让零库存显绿）；
             // 数字列：单行省略 + 右对齐 + tnum 等宽数字，行间读数不跳位
             Text(
-                "${formatQty(item.stock)} ${item.unit.orEmpty()}".trim(),
+                quantityDisplayText("${formatQty(item.stock)} ${item.unit.orEmpty()}".trim()),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                 textAlign = TextAlign.End,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(110.dp),
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth(),
                 color = if (kotlin.math.abs(item.stock) < 0.0001) {
                     MaterialTheme.colorScheme.onSurfaceVariant
                 } else {

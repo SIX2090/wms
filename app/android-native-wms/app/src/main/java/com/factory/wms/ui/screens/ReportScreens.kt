@@ -55,6 +55,7 @@ import com.factory.wms.ui.components.WmsErrorState
 import com.factory.wms.ui.components.WmsListSkeleton
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.Primary
@@ -289,7 +290,7 @@ private fun SummaryCell(label: String, value: String) {
 }
 
 @Composable
-private fun DailyReportItemRow(
+internal fun DailyReportItemRow(
     item: DailyReportItem,
     isPurchase: Boolean
 ) {
@@ -302,12 +303,11 @@ private fun DailyReportItemRow(
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            Row(
+            Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         "${item.materialName}（${item.materialCode}）",
                         fontWeight = FontWeight.SemiBold,
@@ -328,18 +328,16 @@ private fun DailyReportItemRow(
                         )
                     }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
                 // 手机端报表不显示金额（用户需求：隐藏单价/金额、操作人、单据编号）
-                // AI-APP-FIX-403：数字列单行省略 + 固定右栏宽 + tnum 等宽数字
+                // 数量使用完整行，保留全部数字、单位与正负号，并支持系统大字体。
                 Text(
-                    "${formatQty(item.quantity)} ${item.unit}",
+                    quantityDisplayText("${formatQty(item.quantity)} ${item.unit}"),
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp,
                     style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                     textAlign = TextAlign.End,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.width(110.dp),
+                    softWrap = true,
+                    modifier = Modifier.fillMaxWidth(),
                     color = Primary
                 )
             }

@@ -214,7 +214,7 @@ fun HomeScreen(
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
-                                Primary,
+                                Primary.readableOn(Color.White),
                                 PrimaryDark
                             )
                         )
@@ -242,8 +242,8 @@ fun HomeScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 todayDate,
-                                color = Color.White.copy(alpha = 0.7f),
-                                fontSize = 13.sp
+                                color = Color.White,
+                                fontSize = 14.sp
                             )
                         }
                         IconButton(onClick = { showLogoutDialog = true }) {
@@ -354,6 +354,12 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Text(
+                        if (row == 0) "入库、出库与库存查询" else "盘点、期初、档案与报表",
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 Row(
                     modifier = Modifier
@@ -372,7 +378,7 @@ fun HomeScreen(
                                 onClick = { onNavigate(card.screen) }
                             )
                         } else {
-                            // 13 张卡 3 列末行只 1 张：不补占位会被 spacedBy 拉变形
+                            // 14 张卡 3 列末行 2 张：保留末列占位，避免卡片宽度跳变。
                             Spacer(modifier = Modifier.width(cardWidth))
                         }
                     }
@@ -432,14 +438,14 @@ fun FunctionCardItem(
         ) {
             Icon(
                 card.icon, contentDescription = null,
-                tint = card.gradient.first(), modifier = Modifier.size(28.dp)
+                tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(28.dp)
             )
             // 完整名称可换行，随系统字体增大；不再用固定高度裁掉半行文字。
             Text(
                 card.title,
                 color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Medium,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 textAlign = TextAlign.Center
             )
         }

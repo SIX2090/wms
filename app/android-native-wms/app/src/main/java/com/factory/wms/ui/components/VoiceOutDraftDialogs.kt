@@ -159,10 +159,9 @@ private fun HeardCard(state: VoiceOutDraftUiState) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "解析出：${parsedBits.joinToString("，")}",
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     color = OnSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = true
                 )
             }
         }
@@ -175,7 +174,7 @@ private fun DegradedBadge() {
         Text(
             "模糊匹配",
             fontSize = 11.sp,
-            color = CardAmberDark,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }

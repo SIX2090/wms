@@ -36,21 +36,21 @@ internal val PaletteCardBackground = Color.White
 
 // ── On Surface ──
 internal val PaletteOnSurface = Color(0xFF111827)
-internal val PaletteOnSurfaceVariant = Color(0xFF6B7280)
-internal val PaletteTextSecondary = Color(0xFF9CA3AF)
+internal val PaletteOnSurfaceVariant = Color(0xFF4B5563)
+internal val PaletteTextSecondary = Color(0xFF5B6575)
 
 // ── Divider / Border ── 柔和分隔线与描边（AI-APP-UI-001）
 internal val PaletteDividerSoft = Color(0xFFE9EBF0)
 internal val PaletteBorderSoft = Color(0xFFE2E5EA)
 
 // ── Status ──（亮色版；暗色版见 SemanticColors.kt DarkSemanticColors）
-internal val PaletteSuccess = Color(0xFF10B981)
+internal val PaletteSuccess = Color(0xFF047857)
 internal val PaletteSuccessContainer = Color(0xFFD1FAE5)
-internal val PaletteWarning = Color(0xFFF59E0B)
+internal val PaletteWarning = Color(0xFF92400E)
 internal val PaletteWarningContainer = Color(0xFFFFF3CD)
-internal val PaletteError = Color(0xFFEF4444)
+internal val PaletteError = Color(0xFFB91C1C)
 internal val PaletteErrorContainer = Color(0xFFFEE2E2)
-internal val PaletteInfo = Color(0xFF3B82F6)
+internal val PaletteInfo = Color(0xFF1D4ED8)
 internal val PaletteInfoContainer = Color(0xFFDBEAFE)
 
 // ── Card Gradients ── 模块渐变 accent（FIX-301：亮暗均保留，不映射）
@@ -100,6 +100,6 @@ internal val DarkSurfaceVariant = Color(0xFF27272A)
 internal val DarkBackground = Color(0xFF0F0F11)
 internal val DarkOnSurface = Color(0xFFF4F4F5)
 internal val DarkOnSurfaceVariant = Color(0xFFA1A1AA)
-internal val DarkOnSurfaceSecondary = Color(0xFF71717A)
+internal val DarkOnSurfaceSecondary = Color(0xFFA1A1AA)
 internal val DarkDividerSoft = Color(0xFF2E2E33)
 internal val DarkBorderSoft = Color(0xFF3A3A40)

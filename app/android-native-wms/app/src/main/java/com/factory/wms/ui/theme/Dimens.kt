@@ -36,7 +36,7 @@ object WmsDimens {
 
     // ── 按钮高度 ──
     val ButtonHeightPrimary = 52.dp
-    val ButtonHeightSecondary = 46.dp
+    val ButtonHeightSecondary = 48.dp
 
     // ── 卡片内边距 ──
     val CardPadding = 16.dp

@@ -35,10 +35,15 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -60,6 +65,7 @@ import com.factory.wms.ui.theme.SurfaceVariant
 import com.factory.wms.ui.theme.Warning
 import com.factory.wms.ui.theme.WarningContainer
 import com.factory.wms.ui.theme.wmsColors
+import com.factory.wms.ui.theme.readableOn
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -96,7 +102,7 @@ fun WmsTopBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     // 白色顶栏 → 深色状态栏图标（显式声明，防止从渐变头部页面返回后图标颜色残留）
-    StatusBarIconEffect(darkIcons = true)
+    StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 2.dp
@@ -156,6 +162,7 @@ fun WmsGradientHeader(
     onBack: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
+    val headerColor = accent.readableOn(Color.White)
     // 深色模块色渐变头部 → 浅色状态栏图标（修复深色图标压在深蓝/深紫渐变上不可读）
     StatusBarIconEffect(darkIcons = false)
     Box(
@@ -163,7 +170,7 @@ fun WmsGradientHeader(
             .fillMaxWidth()
             .background(
                 brush = Brush.linearGradient(
-                    colors = listOf(accent.lighten(0.08f), accent.darken(0.74f))
+                    colors = listOf(headerColor, headerColor.darken(0.74f))
                 )
             )
     ) {
@@ -208,8 +215,8 @@ fun WmsGradientHeader(
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         subtitle,
-                        color = Color.White.copy(alpha = 0.75f),
-                        fontSize = 12.sp,
+                        color = Color.White,
+                        fontSize = 14.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -243,8 +250,8 @@ fun WmsCard(
             .shadow(
                 elevation = 3.dp,
                 shape = shape,
-                ambientColor = OnSurface.copy(alpha = 0.06f),
-                spotColor = OnSurface.copy(alpha = 0.08f)
+                ambientColor = Color.Black.copy(alpha = 0.06f),
+                spotColor = Color.Black.copy(alpha = 0.08f)
             )
             .then(clickModifier),
         shape = shape,
@@ -364,11 +371,12 @@ fun WmsPrimaryButton(
             if (haptic) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onClick()
         },
-        modifier = modifier.height(50.dp),
+        modifier = modifier.heightIn(min = 50.dp),
         enabled = enabled && !loading,
         shape = RoundedCornerShape(14.dp),
         colors = ButtonDefaults.buttonColors(
-            containerColor = color,
+            containerColor = color.readableOn(Color.White),
+            contentColor = Color.White,
             disabledContainerColor = color.copy(alpha = 0.35f)
         ),
         elevation = ButtonDefaults.buttonElevation(
@@ -401,21 +409,22 @@ fun WmsOutlinedActionButton(
     color: Color = Primary,
     enabled: Boolean = true
 ) {
+    val textColor = color.readableOn(CardBackground)
     OutlinedButton(
         onClick = onClick,
-        modifier = modifier.height(46.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
         shape = RoundedCornerShape(12.dp),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
         border = ButtonDefaults.outlinedButtonBorder.copy(
             brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.35f))
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = color)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
             Spacer(modifier = Modifier.width(6.dp))
         }
-        Text(text, color = color, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        Text(text, color = textColor, fontWeight = FontWeight.Medium, fontSize = 14.sp)
     }
 }
 
@@ -427,9 +436,11 @@ fun WmsPillBadge(
     activeColor: Color = Primary,
     active: Boolean = true
 ) {
+    val background = if (active) activeColor.copy(alpha = 0.12f).compositeOver(CardBackground) else SurfaceVariant
+    val foreground = if (active) activeColor.readableOn(background) else OnSurfaceVariant
     Surface(
         shape = RoundedCornerShape(20.dp),
-        color = if (active) activeColor.copy(alpha = 0.12f) else SurfaceVariant
+        color = background
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -439,16 +450,16 @@ fun WmsPillBadge(
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (active) activeColor else OnSurfaceVariant,
+                    tint = foreground,
                     modifier = Modifier.size(14.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
             }
             Text(
                 text,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = if (active) activeColor else OnSurfaceVariant
+                color = foreground
             )
         }
     }
@@ -921,17 +932,20 @@ fun PendingSyncBanner(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
     message: String? = null,
-    canRetry: Boolean = true
+    canRetry: Boolean = true,
+    needsReview: Boolean = false,
+    readError: Boolean = false
 ) {
-    if (pendingCount <= 0 && failedCount <= 0) return
+    if (pendingCount <= 0 && failedCount <= 0 && !needsReview && !readError) return
 
-    val isFailed = failedCount > 0
+    val isFailed = failedCount > 0 || needsReview || readError
     val container = if (isFailed) ErrorContainer else WarningContainer
-    val accent = if (isFailed) Error else Warning
+    val accent = (if (isFailed) Error else Warning).readableOn(container)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite }
             .clip(RoundedCornerShape(10.dp))
             .background(container)
             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -946,33 +960,36 @@ fun PendingSyncBanner(
         Spacer(modifier = Modifier.width(8.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                if (isFailed) "$failedCount 条需处理" else "$pendingCount 条待同步",
+                when {
+                    readError -> "离线状态暂不可用"
+                    pendingCount > 0 && failedCount > 0 -> "$pendingCount 条待同步 · $failedCount 条需处理"
+                    failedCount > 0 -> "$failedCount 条需处理"
+                    pendingCount > 0 -> "$pendingCount 条待同步"
+                    else -> "历史记录需核对"
+                },
                 color = accent,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                message ?: if (isFailed) {
+                if (readError) {
+                    "不能确认本地记录状态，请保留记录并核对"
+                } else if (needsReview) {
+                    "存在历史归属待核对记录，禁止自动补传；请联系管理员处理"
+                } else message ?: if (isFailed) {
                     "记录已保留，请核对失败原因；历史归属不明的记录需联系管理员处理"
                 } else {
                     "数据已保存，仅原账号连接原服务器时补传，无需重做"
                 },
-                color = accent.copy(alpha = 0.85f),
-                fontSize = 11.sp
+                color = accent,
+                fontSize = 14.sp
             )
         }
-        if (canRetry) {
+        if (canRetry && !readError) {
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                "重试",
-                color = accent,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onRetry() }
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            )
+            TextButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("重试", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }

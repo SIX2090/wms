@@ -120,7 +120,7 @@ class QueueOwnershipContract(unittest.TestCase):
         self.assertIn('queue.lastSyncMessage.collect', viewmodel)
         self.assertIn('queue.canRetry.collect', viewmodel)
         banner = (ui / 'components/WmsComponents.kt').read_text(encoding='utf-8').split('fun PendingSyncBanner(', 1)[1]
-        self.assertIn('if (canRetry)', banner)
+        self.assertIn('if (canRetry && !readError)', banner)
         self.assertNotIn('已重试多次仍失败，请检查网络', banner)
 
 

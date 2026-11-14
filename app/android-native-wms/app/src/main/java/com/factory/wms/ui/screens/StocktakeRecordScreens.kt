@@ -49,8 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.StocktakeRecordDetailData
@@ -63,6 +65,8 @@ import com.factory.wms.ui.components.WmsPillBadge
 import com.factory.wms.ui.components.WmsPullToRefreshBox
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
+import com.factory.wms.ui.theme.readableOn
 import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.CardAmber
@@ -341,7 +345,7 @@ private fun StocktakeRecordCard(record: StocktakeRecordDto, onClick: (() -> Unit
                     "差异 ${diff} 条",
                     style = MaterialTheme.typography.bodySmall,
                     fontWeight = if (diff > 0) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (diff > 0) CardAmber else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (diff > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 if (!record.batchNo.isNullOrBlank()) {
                     Spacer(Modifier.width(12.dp))
@@ -520,25 +524,27 @@ private fun StocktakeRecordDetailDialog(
 
 /** 明细行：编码+名称（+规格/区域）｜账面 → 实盘 → 差异（差异行琥珀色高亮）。 */
 @Composable
-private fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
+internal fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
     val isDiff = item.isDiff == true
+    val background = if (isDiff) CardAmber.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.surface)
+        else MaterialTheme.colorScheme.surface
+    val differenceColor = CardAmber.readableOn(background)
     Surface(
         shape = RoundedCornerShape(10.dp),
-        color = if (isDiff) CardAmber.copy(alpha = 0.08f)
-        else MaterialTheme.colorScheme.surface
+        color = background
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
                     item.materialCode.orEmpty(),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isDiff) CardAmber else Primary,
+                    color = if (isDiff) differenceColor else Primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -557,22 +563,25 @@ private fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
                     )
                 }
             }
-            Spacer(Modifier.width(10.dp))
             val unit = item.unit.orEmpty()
-            Column(horizontalAlignment = Alignment.End) {
+            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                 Text(
-                    "账面 ${formatQty(item.systemStock ?: 0.0)}$unit → 实盘 ${formatQty(item.actualStock ?: 0.0)}$unit",
-                    style = MaterialTheme.typography.bodySmall,
+                    quantityDisplayText("账面 ${formatQty(item.systemStock ?: 0.0)}$unit → 实盘 ${formatQty(item.actualStock ?: 0.0)}$unit"),
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    softWrap = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End
                 )
                 val diff = item.difference ?: 0.0
                 Text(
-                    (if (diff > 0) "+" else "") + formatQty(diff),
+                    quantityDisplayText((if (diff > 0) "+" else "") + formatQty(diff)),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (isDiff) CardAmber else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1
+                    color = if (isDiff) differenceColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    softWrap = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End
                 )
             }
         }

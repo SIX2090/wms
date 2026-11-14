@@ -36,7 +36,7 @@ data class WmsSemanticColors(
     val divider: Color,
     /** 描边（亮 E2E5EA / 暗 3A3A40）。 */
     val border: Color,
-    /** 三级弱化文本（亮 9CA3AF / 暗 71717A）。 */
+    /** 次级说明文本：亮暗主题下均可在常用表面阅读。 */
     val textSecondary: Color,
     /** 模块色 Chip 选中底 alpha：暗色下 0.14 几乎看不见，提升到 0.24。 */
     val accentWashAlpha: Float,
