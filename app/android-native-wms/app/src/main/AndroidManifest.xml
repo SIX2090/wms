@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -17,7 +19,7 @@
         android:name=".WmsApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="WMS扫码"
+        android:label="WMS 手机端"
         android:supportsRtl="true"
         android:theme="@style/Theme.WmsScan"
         android:networkSecurityConfig="@xml/network_security_config">
@@ -37,6 +39,8 @@
           用 FileProvider 暴露给 AsyncImage 加载，避免 MediaStore.insertImage 在 API 29+
           返回 null 引发 NPE。authority 必须等于 BuildConfig.APPLICATION_ID + ".fileprovider"。
         -->
+        <receiver android:name=".update.UpdateInstallReceiver" android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
