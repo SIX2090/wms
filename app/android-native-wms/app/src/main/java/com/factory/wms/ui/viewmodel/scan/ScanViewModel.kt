@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
+import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
 import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Job
@@ -116,6 +117,8 @@ data class ScanUiState(
     val offlinePendingCount: Int = 0,
     /** 重试耗尽的失败条数，需人工介入 */
     val offlineFailedCount: Int = 0,
+    val offlineNeedsReview: Boolean = false,
+    val offlineReadError: Boolean = false,
     val offlineSyncMessage: String? = null,
     val offlineRetryAvailable: Boolean = false
 )
@@ -350,23 +353,16 @@ class ScanViewModel(
         val queue = repository.offlineQueue
         if (queue != null) {
             viewModelScope.launch {
-                queue.pendingCount.collect { count ->
-                    _uiState.value = _uiState.value.copy(offlinePendingCount = count)
-                }
-            }
-            viewModelScope.launch {
-                queue.failedCount.collect { count ->
-                    _uiState.value = _uiState.value.copy(offlineFailedCount = count)
-                }
-            }
-            viewModelScope.launch {
-                queue.lastSyncMessage.collect { message ->
-                    _uiState.value = _uiState.value.copy(offlineSyncMessage = message)
-                }
-            }
-            viewModelScope.launch {
-                queue.canRetry.collect { available ->
-                    _uiState.value = _uiState.value.copy(offlineRetryAvailable = available)
+                queue.displayState.collect { snapshot ->
+                    val display = snapshot.forSession(RetrofitClient.sessionSnapshot())
+                    _uiState.value = _uiState.value.copy(
+                        offlinePendingCount = display.pendingCount,
+                        offlineFailedCount = display.failedCount,
+                        offlineNeedsReview = display.needsReview,
+                        offlineReadError = display.readError,
+                        offlineSyncMessage = display.message,
+                        offlineRetryAvailable = display.canRetry
+                    )
                 }
             }
         }

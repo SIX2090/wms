@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,6 +48,7 @@ import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
 import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.util.toPositiveQtyOrNull
+import com.factory.wms.ui.util.toQtyOrNull
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,12 +61,12 @@ fun InboundScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
-    var showScannerDialog by remember { mutableStateOf(false) }
+    var showScannerDialog by rememberSaveable { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
     // BUG-2026-09-18-008：供应商下拉（选填）弹窗开关
     var showSupplierDialog by remember { mutableStateOf(false) }
-    var manualCode by remember { mutableStateOf("") }
-    var manualQty by remember { mutableStateOf("1") }
+    var manualCode by rememberSaveable { mutableStateOf("") }
+    var manualQty by rememberSaveable { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -130,6 +132,8 @@ fun InboundScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineNeedsReview = uiState.offlineNeedsReview,
+        offlineReadError = uiState.offlineReadError,
         offlineSyncMessage = uiState.offlineSyncMessage,
         offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
@@ -315,10 +319,10 @@ fun InboundScreen(
                     if (uiState.inboundRemark.isNotBlank()) {
                         add("备注：${uiState.inboundRemark}" to 2)
                     }
-                    add("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}" to 1)
+                    add("共 ${uiState.scanLines.size} 种物料，数量 ${formatQuantity(uiState.totalQuantity)}" to Int.MAX_VALUE)
                     if (wh != null) add("确认提交入库？" to 1)
                 }
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     lines.forEach { (line, maxLines) ->
                         Text(line, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
                     }
@@ -350,13 +354,13 @@ fun OutboundScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
-    var showScannerDialog by remember { mutableStateOf(false) }
+    var showScannerDialog by rememberSaveable { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
     // 2026-09-12 领料部门/领料人下拉对话框
     var showDepartmentDialog by remember { mutableStateOf(false) }
     var showEmployeeDialog by remember { mutableStateOf(false) }
-    var manualCode by remember { mutableStateOf("") }
-    var manualQty by remember { mutableStateOf("1") }
+    var manualCode by rememberSaveable { mutableStateOf("") }
+    var manualQty by rememberSaveable { mutableStateOf("1") }
     var acknowledgedPrintTargetId by remember { mutableStateOf<Int?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -453,6 +457,8 @@ fun OutboundScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineNeedsReview = uiState.offlineNeedsReview,
+        offlineReadError = uiState.offlineReadError,
         offlineSyncMessage = uiState.offlineSyncMessage,
         offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
@@ -760,8 +766,8 @@ fun StockQueryScreen(
     onPrefillConsumed: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var manualCode by remember { mutableStateOf("") }
-    var showScannerDialog by remember { mutableStateOf(false) }
+    var manualCode by rememberSaveable { mutableStateOf("") }
+    var showScannerDialog by rememberSaveable { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
     // AI-MOB-STOCK-F01：扫码（单个物料详情）/ 列表（按仓分页浏览）两种模式
     var listMode by remember { mutableStateOf(false) }
@@ -1705,12 +1711,12 @@ fun StocktakeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSubmitDialog by remember { mutableStateOf(false) }
-    var showScannerDialog by remember { mutableStateOf(false) }
+    var showScannerDialog by rememberSaveable { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
     // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单
     var showCheckOrderDialog by remember { mutableStateOf(false) }
-    var manualCode by remember { mutableStateOf("") }
-    var manualQty by remember { mutableStateOf("1") }
+    var manualCode by rememberSaveable { mutableStateOf("") }
+    var manualQty by rememberSaveable { mutableStateOf("1") }
     var stocktakeArea by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -1804,12 +1810,14 @@ fun StocktakeScreen(
         // AI-MOB-OFFLINE-01：断网提交已暂存条数 / 失败条数 / 人工重试
         offlinePendingCount = uiState.offlinePendingCount,
         offlineFailedCount = uiState.offlineFailedCount,
+        offlineNeedsReview = uiState.offlineNeedsReview,
+        offlineReadError = uiState.offlineReadError,
         offlineSyncMessage = uiState.offlineSyncMessage,
         offlineRetryAvailable = uiState.offlineRetryAvailable,
         onRetryOffline = { viewModel.retryOfflineSync() },
         onManualAdd = {
             // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库/出库页，非法数量拦截提示。
-            val qty = manualQty.toPositiveQtyOrNull()
+            val qty = manualQty.toQtyOrNull(allowZero = true)
             if (manualCode.isNotBlank() && qty != null) {
                 addOrConfirmStocktakeLine(
                     ScanLine(
@@ -1823,12 +1831,12 @@ fun StocktakeScreen(
                 showScannerDialog = false
             } else if (manualCode.isNotBlank()) {
                 scope.launch {
-                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                    snackbarHostState.showSnackbar("请输入大于或等于 0 的有效数量", duration = SnackbarDuration.Short)
                 }
             }
         },
         onScanBarcode = { barcode ->
-            val qty = manualQty.toPositiveQtyOrNull()
+            val qty = manualQty.toQtyOrNull(allowZero = true)
             if (qty != null) {
                 addOrConfirmStocktakeLine(
                     ScanLine(
@@ -1841,7 +1849,7 @@ fun StocktakeScreen(
                 manualQty = "1"
             } else {
                 scope.launch {
-                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                    snackbarHostState.showSnackbar("请输入大于或等于 0 的有效数量", duration = SnackbarDuration.Short)
                 }
             }
         },

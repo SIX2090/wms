@@ -39,6 +39,7 @@ import com.factory.wms.ui.components.ScanLocationSelector
 import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
 import com.factory.wms.util.formatQuantity
 import com.factory.wms.util.ScanFeedback
+import com.factory.wms.ui.util.quantityInputError
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -117,6 +118,8 @@ fun ScanScreenBase(
     offlinePendingCount: Int = 0,
     /** 重试耗尽的失败条数 */
     offlineFailedCount: Int = 0,
+    offlineNeedsReview: Boolean = false,
+    offlineReadError: Boolean = false,
     offlineSyncMessage: String? = null,
     offlineRetryAvailable: Boolean = false,
     /** 人工重试失败记录 */
@@ -340,20 +343,22 @@ fun ScanScreenBase(
                 scanFeedback?.let { message ->
                     Text(
                         text = message,
-                        color = gradient,
+                        color = MaterialTheme.colorScheme.onSurface,
                         style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     )
                 }
 
                 // AI-MOB-OFFLINE-01：离线待同步横幅。
-                // 四个扫码页（入库/出库/盘点/查库存）共用本基类，在此渲染一次即全覆盖。
+                // 入库、出库、盘点共用本基类；库存查询等其他页面由导航层显示。
                 // 仅在有暂存/失败记录时显示，正常在线提交时完全不占空间。
                 PendingSyncBanner(
                     pendingCount = offlinePendingCount,
                     failedCount = offlineFailedCount,
                     message = offlineSyncMessage,
                     canRetry = offlineRetryAvailable,
+                    needsReview = offlineNeedsReview,
+                    readError = offlineReadError,
                     onRetry = onRetryOffline,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
@@ -544,11 +549,11 @@ fun ScanScreenBase(
                                         ) {
                                             Text(
                                                 "× ${formatQuantity(line.quantity)}",
-                                                color = gradient,
+                                                color = MaterialTheme.colorScheme.onSurface,
                                                 fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
-                                            Text("修改", color = gradient, fontSize = 10.sp)
+                            Text("修改", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
                                         }
                                     }
                                     IconButton(
@@ -718,7 +723,7 @@ fun ScanScreenBase(
                 Text("添加物料", fontWeight = FontWeight.SemiBold)
             },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     // AI-MOB-ADD-KEYWORD-01：输入框与「查库存」同口径——支持
                     // 名称/规格/品牌关键词模糊联想，不再只认物料编码。
                     // 后端 /api/material/search 本就按 code|name|spec|brand 四字段
@@ -784,7 +789,7 @@ fun ScanScreenBase(
                                                     material.code.orEmpty(),
                                                     style = MaterialTheme.typography.titleSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = submitColor
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 if (!material.name.isNullOrBlank()) {
                                                     Spacer(modifier = Modifier.width(8.dp))
@@ -853,6 +858,11 @@ fun ScanScreenBase(
                             value = manualQty,
                             onValueChange = onManualQtyChange,
                             label = { Text("数量") },
+                            isError = quantityInputError(manualQty, allowZeroQuantity) != null,
+                            supportingText = {
+                                Text(quantityInputError(manualQty, allowZeroQuantity)
+                                    ?: if (allowZeroQuantity) "实盘数量可为 0，支持小数" else "数量必须大于 0，支持小数")
+                            },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
@@ -898,7 +908,7 @@ fun ScanScreenBase(
             confirmButton = {
                 Button(
                     onClick = onManualAdd,
-                    enabled = manualCode.isNotBlank(),
+                    enabled = manualCode.isNotBlank() && quantityInputError(manualQty, allowZeroQuantity) == null,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = submitColor)
                 ) {

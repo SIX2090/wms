@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,8 +65,8 @@ fun OpeningStockScreen(
     val scope = rememberCoroutineScope()
     var showDateDialog by remember { mutableStateOf(false) }
     var showWarehouseDialog by remember { mutableStateOf(false) }
-    var manualCode by remember { mutableStateOf("") }
-    var manualQty by remember { mutableStateOf("1") }
+    var manualCode by rememberSaveable { mutableStateOf("") }
+    var manualQty by rememberSaveable { mutableStateOf("1") }
     // BUG-2026-09-16-010：点行改数量——已录入行不再只能删了重扫
     var editLineIndex by remember { mutableStateOf<Int?>(null) }
     var editQty by remember { mutableStateOf("") }
@@ -305,7 +306,7 @@ fun OpeningStockScreen(
                             (if (delta > 0) "本仓该物料库存将增加 " else "本仓该物料库存将减少 ")
                                 + formatQuantity(kotlin.math.abs(delta)),
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (delta > 0) CardCyan else Error
+                            color = if (delta > 0) Success else Error
                         )
                     }
                 }
@@ -354,7 +355,7 @@ fun OpeningStockScreen(
             shape = RoundedCornerShape(20.dp),
             title = { Text("添加期初物料", fontWeight = FontWeight.SemiBold) },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     // AI-MOB-ADD-KEYWORD-01：与查库存同口径——支持名称/规格/品牌
                     // 关键词模糊联想，不再只认物料编码。
                     OutlinedTextField(
@@ -422,7 +423,7 @@ fun OpeningStockScreen(
                                                     material.code.orEmpty(),
                                                     style = MaterialTheme.typography.titleSmall,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = CardCyan
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 if (!material.name.isNullOrBlank()) {
                                                     Spacer(modifier = Modifier.width(8.dp))
@@ -485,6 +486,9 @@ fun OpeningStockScreen(
                             shape = RoundedCornerShape(12.dp),
                             // AI-APP-FIX-105：非法/非正数量即时标红，配合"添加"按钮禁用。
                             isError = manualQty.toPositiveQtyOrNull() == null,
+                            supportingText = {
+                                Text(if (manualQty.toPositiveQtyOrNull() == null) "请输入大于 0 的有效数量" else "数量必须大于 0，支持小数")
+                            },
                             // AI-MOB-SCAN-UX-01：数量框弹数字键盘。
                             // 这里不绑 onDone 加行：本对话框的"添加"按钮有 enabled = 编码非空
                             // 的前置条件（见下方 confirmButton），回车直接提交会绕过该校验。
@@ -782,7 +786,7 @@ private fun OpeningStockLineCard(
                     .background(CardCyan.copy(alpha = 0.12f)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("${index + 1}", color = CardCyan, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("${index + 1}", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -823,7 +827,7 @@ private fun OpeningStockLineCard(
                 Text(
                     "× ${formatQuantity(line.quantity)}",
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    color = CardCyan,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -871,7 +875,7 @@ private fun DatePickerDialogComposable(
                     "${datePicker.year}年${datePicker.month + 1}月${datePicker.day}日",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
-                    color = CardCyan
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 // 年份
@@ -911,7 +915,7 @@ private fun YearRow(state: DatePickerDialogState) {
     ) {
         FilledIconButton(
             onClick = { state.year-- },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一年", tint = CardCyan) }
@@ -924,7 +928,7 @@ private fun YearRow(state: DatePickerDialogState) {
         )
         FilledIconButton(
             onClick = { state.year++ },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowRight, "下一年", tint = CardCyan) }
@@ -940,7 +944,7 @@ private fun MonthRow(state: DatePickerDialogState) {
     ) {
         FilledIconButton(
             onClick = { state.month = (state.month + 11) % 12 },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一月", tint = CardCyan) }
@@ -953,7 +957,7 @@ private fun MonthRow(state: DatePickerDialogState) {
         )
         FilledIconButton(
             onClick = { state.month = (state.month + 1) % 12 },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowRight, "下一月", tint = CardCyan) }
@@ -971,7 +975,7 @@ private fun DayRow(state: DatePickerDialogState) {
     ) {
         FilledIconButton(
             onClick = { if (state.day > 1) state.day-- },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowLeft, "前一天", tint = CardCyan) }
@@ -984,7 +988,7 @@ private fun DayRow(state: DatePickerDialogState) {
         )
         FilledIconButton(
             onClick = { if (state.day < daysInMonth) state.day++ },
-            modifier = Modifier.size(40.dp),
+            modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
         ) { Icon(Icons.Filled.KeyboardArrowRight, "后一天", tint = CardCyan) }
@@ -1327,7 +1331,7 @@ private fun BuiltItemsSection(
                 Text(
                     "点击行可修改",
                     style = MaterialTheme.typography.bodySmall,
-                    color = CardCyan
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
@@ -1489,7 +1493,7 @@ private fun BuiltItemCard(item: OpeningStockDto, onClick: () -> Unit) {
                 Text(
                     formatQuantity(item.quantity ?: 0.0),
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    color = CardCyan,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold
                 )

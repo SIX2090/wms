@@ -144,7 +144,8 @@ check('T7a NavGraph 持共享预填状态',
       'var voicePrefillLines by remember' in nav)
 check('T7b 建单成功回调设置预填并跳转',
       'voicePrefillLines = lines' in nav and
-      'navController.navigate(Screen.Outbound.route)' in nav)
+      'navController.navigatePrimary(Screen.Outbound.route)' in nav and
+      'launchSingleTop = true' in nav and 'restoreState = true' in nav)
 check('T7c OutboundScreen 消费预填',
       'LaunchedEffect(voicePrefillLines)' in read(SCREENS))
 check('T7d 消费后立即清空（防重复累加）',

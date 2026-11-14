@@ -40,8 +40,9 @@ android {
         // 3.9.14(38): R8 rollback of BUG-2026-11-14-005; retain v3 schema/ownership protection.
         // 3.9.15(39): BUG-2026-11-14-005 queue wakeup with complete version-test binding.
         // 3.9.18(42): parallel mobile App, fixed signing and verified in-app updates.
-        versionCode = 42
-        versionName = "3.9.18"
+        // 3.9.19(43): readable quantities, persistent input errors and scoped queue status.
+        versionCode = 43
+        versionName = "3.9.19"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

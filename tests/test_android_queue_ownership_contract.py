@@ -117,10 +117,13 @@ class QueueOwnershipContract(unittest.TestCase):
         self.assertEqual(screens.count('offlineSyncMessage = uiState.offlineSyncMessage'), 3)
         self.assertEqual(screens.count('offlineRetryAvailable = uiState.offlineRetryAvailable'), 3)
         viewmodel = (ui / 'viewmodel/scan/ScanViewModel.kt').read_text(encoding='utf-8')
-        self.assertIn('queue.lastSyncMessage.collect', viewmodel)
-        self.assertIn('queue.canRetry.collect', viewmodel)
+        self.assertIn('queue.displayState.collect', viewmodel)
+        self.assertIn('snapshot.forSession(RetrofitClient.sessionSnapshot())', viewmodel)
+        self.assertIn('offlineSyncMessage = display.message', viewmodel)
+        self.assertIn('offlineRetryAvailable = display.canRetry', viewmodel)
         banner = (ui / 'components/WmsComponents.kt').read_text(encoding='utf-8').split('fun PendingSyncBanner(', 1)[1]
         self.assertIn('if (canRetry && !readError)', banner)
+        self.assertIn('TextButton(onClick = onRetry', banner)
         self.assertNotIn('已重试多次仍失败，请检查网络', banner)
 
 

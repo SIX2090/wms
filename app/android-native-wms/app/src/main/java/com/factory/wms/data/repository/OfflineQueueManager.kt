@@ -10,6 +10,8 @@ import com.factory.wms.data.model.InboundRequest
 import com.factory.wms.data.model.OutboundRequest
 import com.factory.wms.data.model.StocktakeRequest
 import com.factory.wms.data.model.SubmitResult
+import com.factory.wms.data.model.QueueDisplayState
+import com.factory.wms.data.model.queueDisplayState
 import com.factory.wms.data.repository.WmsRepository.Companion.BusinessException
 import com.factory.wms.util.NetworkMonitor
 import com.google.gson.Gson
@@ -97,6 +99,9 @@ class OfflineQueueManager internal constructor(
 
     /** 最近一次补传结果的中文摘要（UI 提示条用）。 */
     val lastSyncMessage: StateFlow<String?> = _lastSyncMessage.asStateFlow()
+
+    private val _displayState = MutableStateFlow(QueueDisplayState())
+    internal val displayState: StateFlow<QueueDisplayState> = _displayState.asStateFlow()
 
     init {
         // 启动即复位进程被杀残留的 syncing，否则这些记录永远补传不出去（静默丢数据）
@@ -443,6 +448,7 @@ class OfflineQueueManager internal constructor(
             _failedCount.value = dao.countFailed()
             val rows = dao.listAll()
             val session = RetrofitClient.sessionSnapshot()
+            _displayState.value = queueDisplayState(rows, session)
             _canRetry.value = rows.any { belongsTo(it, session) && (it.isFailed || it.status == PendingOperationEntity.STATUS_PENDING) }
             val now = System.currentTimeMillis()
             val next = rows.filter { belongsTo(it, session) && it.status == PendingOperationEntity.STATUS_PENDING && it.nextRetryAt > now }
@@ -458,6 +464,9 @@ class OfflineQueueManager internal constructor(
             else rows.firstOrNull { belongsTo(it, session) && it.isFailed }?.lastError
             reviewCount
         } catch (e: CancellationException) { throw e } catch (e: Exception) {
+            val session = RetrofitClient.sessionSnapshot()
+            _displayState.value = QueueDisplayState(session.ownerServer, session.userId,
+                session.generation, readError = true)
             _lastSyncMessage.value = "本地队列读取失败，不能确认待同步数量，请保留记录并核对"
             Log.e(TAG, "读取队列计数失败", e)
             0

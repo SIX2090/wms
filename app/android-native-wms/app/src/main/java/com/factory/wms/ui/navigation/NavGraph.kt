@@ -5,6 +5,7 @@ import com.factory.wms.BuildConfig
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -36,12 +37,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.factory.wms.data.api.AuthEventBus
+import com.factory.wms.data.api.RetrofitClient
+import com.factory.wms.ui.components.GlobalQueueStatus
 import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
@@ -71,6 +75,16 @@ private val bottomTabRoutes = setOf(
     Screen.StockQuery.route,
     Screen.Profile.route
 )
+
+/** All first-level entry points share one saved back stack per destination. */
+internal fun NavHostController.navigatePrimary(route: String) {
+    require(route in bottomTabRoutes)
+    navigate(route) {
+        popUpTo(Screen.Home.route) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
 
 /** 底部 Tab 定义。 */
 private data class BottomTab(
@@ -165,19 +179,20 @@ fun AppNavGraph() {
         Scaffold(
             containerColor = com.factory.wms.ui.theme.Background,
             bottomBar = {
-                if (showBottomBar) {
-                    WmsBottomBar(
-                        currentRoute = currentRoute,
-                        tabs = bottomTabs(),
-                        onTabSelected = { screen ->
-                            navController.navigate(screen.route) {
-                                // 单实例 back stack：切 Tab 收敛到首页后复用已保存状态
-                                popUpTo(Screen.Home.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
+                Column {
+                    if (authState.isLoggedIn && currentRoute != Screen.Login.route &&
+                        currentRoute !in setOf(Screen.Inbound.route, Screen.Outbound.route, Screen.Stocktake.route)) {
+                        GlobalQueueStatus(RetrofitClient.sessionSnapshot())
+                    }
+                    if (showBottomBar) {
+                        WmsBottomBar(
+                            currentRoute = currentRoute,
+                            tabs = bottomTabs(),
+                            onTabSelected = { screen ->
+                                navController.navigatePrimary(screen.route)
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         ) { innerPadding ->
@@ -207,20 +222,24 @@ fun AppNavGraph() {
                         authViewModel = authViewModel,
                         homeViewModel = homeViewModel,
                         onNavigate = { screen ->
-                            // 下钻路由需要从首页带上当前仓库（后端按仓隔离，
-                            // 缺仓库会回退服务端默认仓，与首页口径不一致）
-                            navController.navigate(
-                                when (screen) {
-                                    Screen.OverviewOrders, Screen.OverviewAlerts -> {
-                                        val wid = homeViewModel.uiState.value.selectedWarehouseId.orEmpty()
-                                        val wname = homeViewModel.uiState.value.dashboard?.warehouse.orEmpty()
-                                        screen.route
-                                            .replace("{wid}", encodeQueryValue(wid))
-                                            .replace("{wname}", encodeQueryValue(wname))
+                            if (screen.route in bottomTabRoutes) {
+                                navController.navigatePrimary(screen.route)
+                            } else {
+                                // 下钻路由需要从首页带上当前仓库（后端按仓隔离，
+                                // 缺仓库会回退服务端默认仓，与首页口径不一致）
+                                navController.navigate(
+                                    when (screen) {
+                                        Screen.OverviewOrders, Screen.OverviewAlerts -> {
+                                            val wid = homeViewModel.uiState.value.selectedWarehouseId.orEmpty()
+                                            val wname = homeViewModel.uiState.value.dashboard?.warehouse.orEmpty()
+                                            screen.route
+                                                .replace("{wid}", encodeQueryValue(wid))
+                                                .replace("{wname}", encodeQueryValue(wname))
+                                        }
+                                        else -> screen.route
                                     }
-                                    else -> screen.route
-                                }
-                            )
+                                )
+                            }
                         },
                         onLogout = {
                             navController.navigate(Screen.Login.route) {
@@ -309,7 +328,7 @@ fun AppNavGraph() {
                         // AI-APP-FIX-507：识别结果 CTA——预填编码跳查库存
                         onQueryStock = { code ->
                             stockQueryPrefillCode = code
-                            navController.navigate(Screen.StockQuery.route)
+                            navController.navigatePrimary(Screen.StockQuery.route)
                         }
                     )
                 }
@@ -452,9 +471,7 @@ fun AppNavGraph() {
                     // 语音建单成功 → 预填出库页并跳过去核对（提交/完成仍由人工在出库页执行）
                     voicePrefillLines = lines
                     voiceDraftOrderNo = orderNo.takeIf { it.isNotBlank() }
-                    navController.navigate(Screen.Outbound.route) {
-                        launchSingleTop = true
-                    }
+                    navController.navigatePrimary(Screen.Outbound.route)
                 }
             )
         }
