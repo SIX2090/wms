@@ -38,8 +38,9 @@ android {
         // 3.9.11(35): coalesce overview/report loading after warehouse selection.
         // 3.9.12(36)=BUG-2026-11-08-012 队列归属、旧记录隔离及非破坏性升级。
         // 3.9.14(38): R8 rollback of BUG-2026-11-14-005; retain v3 schema/ownership protection.
-        versionCode = 38
-        versionName = "3.9.14"
+        // 3.9.15(39): BUG-2026-11-14-005 queue wakeup with complete version-test binding.
+        versionCode = 39
+        versionName = "3.9.15"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

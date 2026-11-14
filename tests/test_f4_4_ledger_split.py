@@ -563,3 +563,4 @@ POST_SPLIT_BUGS['BUG-2026-11-13-006'] = 'fixed'  # local candidate; exact CI and
 POST_SPLIT_BUGS['BUG-2026-11-14-001'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-14-003'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-14-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-14-005'] = 'fixed'  # archive parser only; runtime/CI/activation tracked separately

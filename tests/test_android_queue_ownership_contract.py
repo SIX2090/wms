@@ -79,6 +79,24 @@ class QueueOwnershipContract(unittest.TestCase):
         self.assertIn('response.headers()["Retry-After"]', source)
         self.assertIn('STATUS_AUTH_REQUIRED', source)
 
+    def test_online_enqueue_wakes_sync_after_persistence(self):
+        source = self.read('repository/OfflineQueueManager.kt')
+        body = source.split('internal suspend fun enqueue(', 1)[1].split(
+            'fun syncPending()', 1)[0]
+        body = re.sub(r'/\*.*?\*/|//[^\n]*', '', body, flags=re.S)
+        self.assertRegex(body, r'if\s*\(currentlyOnline\(\)\)\s*syncPending\(\)')
+        self.assertLess(body.index('dao.upsert(operation)'), body.index('syncPending()'))
+
+    def test_transient_failure_deadline_is_connected_to_existing_timer(self):
+        source = self.read('repository/OfflineQueueManager.kt')
+        failure = source.split('private suspend fun markFailure(', 1)[1].split(
+            'private fun buildSummary', 1)[0]
+        self.assertIn('val retryAt = if (nextRetryAt > 0) nextRetryAt else', failure)
+        self.assertIn('System.currentTimeMillis() +', failure)
+        self.assertIn('nextRetryAt = if (exhausted) 0 else retryAt', failure)
+        self.assertIn('it.nextRetryAt > now', source)
+        self.assertIn('delay(maxOf(1, deadline - System.currentTimeMillis()))', source)
+
     def test_unknown_rows_cannot_be_claimed_reset_or_silently_replaced(self):
         source = self.read('local/PendingOperationDao.kt')
         self.assertIn('OnConflictStrategy.IGNORE', source)
@@ -108,5 +126,5 @@ class QueueOwnershipContract(unittest.TestCase):
 
 if __name__ == '__main__':
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(QueueOwnershipContract)
-    assert suite.countTestCases() == 9
+    assert suite.countTestCases() == 11
     raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
