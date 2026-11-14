@@ -451,6 +451,11 @@
 - 最新隔离回归（2026-11-09）：与本项相关的 29 文件 320 passed、208 warnings；完整迁移与结构检查点另 43 passed、32 个子案例通过。两组清单不重叠，共 363 项通过；日志与运行身份见 `docs/audit/2026-11-09-local-appcontainer-validation.md`。不代表全部整改、全站、其他数据库方言、完整 CI 或生产生效已验收。
 - 受限读取入口补证：`verify_inventory_identity.py` 的 CLI 与显式文件读取 helper 仅在真实 Windows LPAC 合成 profile 中放行，以原生只读租约固定普通文件及祖先，拒绝重解析点、硬链接、越界、伪造环境和非普通 SQLite URI；SQLite 为 mode=ro／query_only。普通进程及缓存 app helper 的阻断保留，跨系统通用提供器及其他脚本仍未恢复。只读核查专项 70 项已包含在 320 项内。
 
+- 2026-11-14有限TCP后续候选（Windows2026.11.50）：保留旧LIVE/默认8080/任意URL/真实账号入口的首条拒绝，新单一 `diagnose_synthetic_push_tcp.py --scenario inbound-push-tcp --rows 1|25` 只在已有Linux真隔离、全新字面内存库、随机高位回环监听/nonce与自有会话下运行。复用OwnedPerfHTTP/IsolatedSession和详情行验证，不改公共runtime或业务路由；helper自身再次核OS、owned server/session/lease/identity/nonce/thread，不能靠外层调用者证明隔离。
+- 本次新增有限能力：实际TCP七业务阶段（保存/完成/来源详情/下推页/下推/重放/目标详情），单列3身份、2协议页面和2安全拒绝请求及总耗时。真实CSRF启用，缺CSRF400、伪造revision409；目标草稿唯一、库存/双仓归属/来源分配不变量和监听线程关闭分别断言。不输出凭据/nonce/任意目标，不把test-client耗时改标签充TCP。
+- 当前验证：组件4文件精确冻结/逆序回退/恢复及LF应用通过；独立无app/conftest的真实封闭pytest9项与23子测试通过，拒绝探针仅执行固定自有子进程。根任务再做6文件统一回退/静态/相邻回归。真实1/25行TCP两例仅交新精确SHA标准Linux隔离CI；未验前保持待交付，不报告已完成。旧红是该有限能力缺失，不冒称旧业务产品失败。其余锁时序、独立CRUD/工具栏、全菜单/移动截图等历史能力按实际需要处理，不按17/34旧分类宣称全恢复。
+- 本项不改变006精确57代码/CI/Windows49的已验收记录；无生产数据库/备份/账号/现役服务、打印/微信、部署/迁移或重启操作。生效确认：待人工确认。
+
 ### BUG-2026-11-08-011: 入库明细删除失败仍可能留下删除成功的操作日志
 
 - 最新验收：1faf2436 精确WMS CI/AI通过；新增4实际应用请求对提交失败、日志插入失败及两URL别名验证通过，其他驱动及间接消费完整性限制保留。生效确认：待人工确认。
