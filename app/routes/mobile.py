@@ -705,11 +705,6 @@ def register_mobile_routes(app):
                     actual_raw = data.get('quantity')
                 if actual_raw is None or str(actual_raw).strip() == '':
                     return jsonify({'status': 'error', 'success': False, 'msg': '请输入盘点数量'}), 400
-                from request_input import StockDocumentItemInput
-                try:
-                    StockDocumentItemInput.model_validate({'actual_stock': actual_raw})
-                except (ValueError, TypeError):
-                    return jsonify({'status': 'error', 'success': False, 'msg': '实际库存必须是有限数字'}), 400
                 actual_stock = round_to_2_decimals(parse_float_value(actual_raw, 0))
                 # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
                 warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
@@ -1088,13 +1083,6 @@ def register_mobile_routes(app):
                 order = locked
                 if not order.items:
                     return jsonify({'status': 'error', 'success': False, 'msg': '入库草稿没有明细，无法确认'}), 400
-                # This endpoint accepts existing PC drafts as well as scan drafts.
-                if order.business_type == '销售退货入库':
-                    from app import sales_return_remaining_check
-                    valid, message = sales_return_remaining_check(order)
-                    if not valid:
-                        db.session.rollback()
-                        return jsonify({'status': 'error', 'success': False, 'msg': message}), 400
                 for item in order.items:
                     if item.material:
                         # P2-3：三账单点收敛；库位键沿用单据的

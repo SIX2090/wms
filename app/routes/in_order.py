@@ -2620,12 +2620,6 @@ def register_in_order_routes(app):
                                 return fail(_e_err)
                             item.expiry_date = _e_date
 
-            # BUG-2026-09-22-006: completed-edit was a missing return-gate consumer.
-            if order.business_type == '销售退货入库':
-                from services.document_return_guard import completed_sales_return_check
-                valid, message = completed_sales_return_check(order)
-                if not valid:
-                    return fail(message)
             if financial_change or order.total_amount is None:
                 recalculate_order_total(order)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():

@@ -29097,9 +29097,9 @@ def _build_report_filters():
             warehouse_code = default_wh.code or ''
     else:
         wh = Warehouse.query.get(warehouse_id)
-        if wh is None: raise ValueError('仓库不存在或已删除')
-        warehouse_name = wh.name
-        warehouse_code = wh.code or ''
+        if wh:
+            warehouse_name = wh.name
+            warehouse_code = wh.code or ''
     raw_business_type = (request.args.get('business_type') or '').strip()
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
     # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，

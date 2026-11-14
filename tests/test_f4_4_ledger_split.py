@@ -569,4 +569,3 @@ POST_SPLIT_BUGS['BUG-2026-11-14-006'] = 'fixed'  # parser only; exact CI and pro
 
 # 2026-11-14 模板生命周期子修复；仅归档分类，CI及生产生效另行验收。
 POST_SPLIT_BUGS['BUG-2026-11-14-007'] = 'fixed'
-POST_SPLIT_BUGS['BUG-2026-11-14-008'] = 'fixed'  # parser only; exact CI and activation tracked separately

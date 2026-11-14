@@ -1378,15 +1378,6 @@ def register_native_api_routes(app):
         if not isinstance(lines, list) or not lines:
             return api_json_error('盘点明细不能为空')
 
-        from request_input import StockDocumentItemInput
-        for index, line in enumerate(lines, start=1):
-            try:
-                if not isinstance(line, dict):
-                    raise ValueError('明细格式不正确')
-                StockDocumentItemInput.model_validate({'actual_stock': line.get('actual_stock')})
-            except (ValueError, TypeError):
-                return api_json_error(f'第 {index} 行实际库存必须是有限数字', 400)
-
         # BUG-2026-08-11-021：扫码盘点仓库必填，未填写时自动带入默认仓库
         warehouse = (payload.get('warehouse') or payload.get('warehouse_code') or '').strip()
         if not warehouse:

@@ -183,16 +183,12 @@ def check_print_health():
             PrintJob.created_at < cutoff,
             PrintJob.source_event.in_(AUTO_PRINT_SOURCE_EVENTS),
         ).order_by(PrintJob.created_at.asc()).limit(200).all()
+        for job in stale_auto:
+            job.status = 'cancelled'
+            job.error_msg = '提交后自动打印已停用，滞留任务由巡检自动作废'
         if stale_auto:
-            stats['auto_cancelled'] = PrintJob.query.filter(
-                PrintJob.id.in_([job.id for job in stale_auto]),
-                PrintJob.status == 'pending',
-                PrintJob.created_at < cutoff,
-                PrintJob.source_event.in_(AUTO_PRINT_SOURCE_EVENTS),
-            ).update({'status': 'cancelled',
-                      'error_msg': '提交后自动打印已停用，滞留任务由巡检自动作废'},
-                     synchronize_session=False)
             db.session.commit()
+            stats['auto_cancelled'] = len(stale_auto)
 
     if not _print_alert_enabled():
         return stats
