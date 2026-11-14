@@ -419,6 +419,8 @@
 
 ### BUG-2026-11-08-010: 独立测试与诊断脚本可在导入或运行时直接访问现有数据
 
+- **当前结论（2026-11-14）**：安全门禁及本次有限TCP 1/25行能力均已精确交付；代码6d22ea2a、完整CI和Windows50包已验收。其余历史诊断能力按实际需要选择，生产生效待人工确认；以下旧候选/待CI文字保留阶段追溯，最终证据见本条末尾。
+
 - 采购有限诊断候选：复用既有真实内核/新内存初始化与_check，只接受purchase-receipt固定合成场景；12真实路由阶段/7快照区分申请下单、预留已推、实收待收、双仓和执行报表，反提交/重完成不双计。新5方法及相邻合计24安全检查过，实际应用子进程待本批CI。34旧入口逐项核查3已有安全等价、17仍有缺口、14废弃保历史，这是入口分类不是BUG数；不把阻断或源码映射算功能恢复。详见 ../../audit/2026-11-13-legacy-diagnostic-capabilities.md，生效确认：待人工确认。
 
 - 最新验收：3b2cc447精确WMS/AI/真实性能任务均success，14821 passed/202 skipped/1255 subtests passed。性能/对账和14新建物料实例已实跑；尚未修的诊断、历史编辑/数量及新发现来源碰撞另列，不宣称全系统完成。生效确认：待人工确认。
@@ -451,10 +453,20 @@
 - 最新隔离回归（2026-11-09）：与本项相关的 29 文件 320 passed、208 warnings；完整迁移与结构检查点另 43 passed、32 个子案例通过。两组清单不重叠，共 363 项通过；日志与运行身份见 `docs/audit/2026-11-09-local-appcontainer-validation.md`。不代表全部整改、全站、其他数据库方言、完整 CI 或生产生效已验收。
 - 受限读取入口补证：`verify_inventory_identity.py` 的 CLI 与显式文件读取 helper 仅在真实 Windows LPAC 合成 profile 中放行，以原生只读租约固定普通文件及祖先，拒绝重解析点、硬链接、越界、伪造环境和非普通 SQLite URI；SQLite 为 mode=ro／query_only。普通进程及缓存 app helper 的阻断保留，跨系统通用提供器及其他脚本仍未恢复。只读核查专项 70 项已包含在 320 项内。
 
-- 2026-11-14有限TCP后续候选（Windows2026.11.50）：保留旧LIVE/默认8080/任意URL/真实账号入口的首条拒绝，新单一 `diagnose_synthetic_push_tcp.py --scenario inbound-push-tcp --rows 1|25` 只在已有Linux真隔离、全新字面内存库、随机高位回环监听/nonce与自有会话下运行。复用OwnedPerfHTTP/IsolatedSession和详情行验证，不改公共runtime或业务路由；helper自身再次核OS、owned server/session/lease/identity/nonce/thread，不能靠外层调用者证明隔离。
+- 2026-11-14有限TCP后续交付（Windows2026.11.50）：保留旧LIVE/默认8080/任意URL/真实账号入口的首条拒绝，新单一 `diagnose_synthetic_push_tcp.py --scenario inbound-push-tcp --rows 1|25` 只在已有Linux真隔离、全新字面内存库、随机高位回环监听/nonce与自有会话下运行。复用OwnedPerfHTTP/IsolatedSession和详情行验证，不改公共runtime或业务路由；helper自身再次核OS、owned server/session/lease/identity/nonce/thread，不能靠外层调用者证明隔离。
 - 本次新增有限能力：实际TCP七业务阶段（保存/完成/来源详情/下推页/下推/重放/目标详情），单列3身份、2协议页面和2安全拒绝请求及总耗时。真实CSRF启用，缺CSRF400、伪造revision409；目标草稿唯一、库存/双仓归属/来源分配不变量和监听线程关闭分别断言。不输出凭据/nonce/任意目标，不把test-client耗时改标签充TCP。
-- 当前验证：组件4文件精确冻结/逆序回退/恢复及LF应用通过；独立无app/conftest的真实封闭pytest9项与23子测试通过，拒绝探针仅执行固定自有子进程。根任务再做6文件统一回退/静态/相邻回归。真实1/25行TCP两例仅交新精确SHA标准Linux隔离CI；未验前保持待交付，不报告已完成。旧红是该有限能力缺失，不冒称旧业务产品失败。其余锁时序、独立CRUD/工具栏、全菜单/移动截图等历史能力按实际需要处理，不按17/34旧分类宣称全恢复。
+- 当前验证：组件4文件精确冻结/逆序回退/恢复及LF应用通过；独立无app/conftest的真实封闭pytest9项与23子测试通过，拒绝探针仅执行固定自有子进程。根任务再做6文件统一回退/静态/相邻回归。真实1/25行TCP两例已通过精确6d22ea2a的标准Linux隔离CI；仅将该有限能力登记交付，其余历史能力仍按实际需要处理。旧红是该有限能力缺失，不冒称旧业务产品失败。其余锁时序、独立CRUD/工具栏、全菜单/移动截图等历史能力按实际需要处理，不按17/34旧分类宣称全恢复。
 - 本项不改变006精确57代码/CI/Windows49的已验收记录；无生产数据库/备份/账号/现役服务、打印/微信、部署/迁移或重启操作。生效确认：待人工确认。
+
+
+**2026-11-14有限TCP精确验收：代码、CI和包分别确认。**
+
+- 最终代码 `6d22ea2a020f137311e42f3178e14e25dd34c5a2`（Windows2026.11.50）已普通push，实际输出 `95a5d02c..6d22ea2a main -> main`，退出0并反查远端完整SHA一致；没有跳过钩子或force。6文件整批逆序回退/恢复覆盖2523基线源码blob，整树/逐文件一致；5静态门禁、5相邻组、9真实封闭源码pytest/23子测试通过。
+- [WMS CI43556101954](https://github.com/SIX2090/wms/actions/runs/43556101954)、[AI43556101983](https://github.com/SIX2090/wms/actions/runs/43556101983)、[性能43556102055](https://github.com/SIX2090/wms/actions/runs/43556102055)均completed/success；所有unit、静态、4verify、smoke、browser、gate成功。unit5958+5662+4731=16351通过，203跳过，1584子测试通过；较前批新增9源码+2真实TCP=11测试、23子断言，跳过数未增加。
+- 新增 `test_synthetic_push_tcp_runtime_20261114.py` 的1/25行两例属于分片2、没有skip分支/跳过夹具，随该精确目标标准Linux隔离完整运行。每例七业务阶段、三认证、两协议读取、两安全拒绝均记录实际状态/时间；严格验证CSRF400、伪造revision409、来源/目标详情真实行、同请求重放唯一草稿、双仓库存不变和自有监听/线程关闭。宿主未import/collect/run完整WMS或发TCP请求，源码测试不充当真实TCP证据。
+- [Windows43556841082](https://github.com/SIX2090/wms/actions/runs/43556841082) completed/success，日志实际 `built_verified`；[windows-v2026.11.50](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.50) 已发布并绑定完整6d目标，四资产齐全。ZIP 97267685字节，SHA256 `45c9805ccb50db049500f5f76e6a64a376c968227c5db3dabd9b5bed7e32febf`。Android成功祖先 `aa982156adb5007581775490ebbe32825024e5d4` /43548469707 的39/3.9.15与相关工作流路径到6d零差异；未声称重新构建APK或现场安装。
+- 010仅增加并验收这一有限TCP能力，旧34危险入口继续拒绝；独立锁时序、额外CRUD/菜单/截图等历史能力须按真实需要选择，未将17/34历史分类宣称全部恢复。006代码57及Windows49的已验收历史保留，当前不再有本批已知失败未处理；不保证整个WMS没有潜在缺陷。
+- 没有生产数据库/备份、真实账号/业务单据、现役服务、微信/打印、部署/重启或迁移操作。代码、CI与包已验收，生产生效仍待人工确认；原两删除/两未跟踪工作保留。生效确认：待人工确认。
 
 ### BUG-2026-11-08-011: 入库明细删除失败仍可能留下删除成功的操作日志
 
