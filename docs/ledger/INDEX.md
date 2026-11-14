@@ -635,6 +635,7 @@
 | BUG-2026-10-31-025 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-027 | bugs | entries-2026-10.md |
+| BUG-2026-11-14-008 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-007 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-006 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-005 | bugs | entries-2026-11.md |

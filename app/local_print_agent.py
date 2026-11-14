@@ -537,7 +537,11 @@ def _claim_and_print(base_url, browser):
     log.info('内置代理开始打印任务 #%s：%s 份数=%s 目标打印机=%s',
              job.id, job.job_type, job.copies, target_printer or '（默认）')
     if not browser:
-        mark_job_printed(job, False, '服务器本机未找到支持静默打印的 Edge/Chrome 浏览器')
+        saved = mark_job_printed(job, False, '服务器本机未找到支持静默打印的 Edge/Chrome 浏览器')
+        if not saved:
+            log.warning('任务 #%s 租约已失效，本轮结果未保存', job.id)
+            return {'job_id': job.id, 'ok': False, 'msg': '任务已重新认领或租约失效',
+                    'result_saved': False}
         return {'job_id': job.id, 'ok': False, 'msg': 'no browser'}
     switched_from = ''
     if target_printer:
@@ -546,11 +550,21 @@ def _claim_and_print(base_url, browser):
             switched_from = ''  # 已是目标打印机或切换失败：无需/无法恢复
     try:
         ok = print_url_via_browser(browser, url, PRINT_TIMEOUT)
-        mark_job_printed(job, ok, '' if ok else f'浏览器打印超时（{PRINT_TIMEOUT}s）')
+        saved = mark_job_printed(job, ok, '' if ok else f'浏览器打印超时（{PRINT_TIMEOUT}s）')
+        if not saved:
+            log.warning('任务 #%s 租约已失效，本轮结果未保存', job.id)
+            return {'job_id': job.id, 'ok': False, 'msg': '任务已重新认领或租约失效',
+                    'result_saved': False}
         return {'job_id': job.id, 'ok': ok}
     except Exception as e:  # noqa: BLE001 代理线程不允许因单任务异常退出
+        if _is_db_locked(e):
+            raise  # 外层 _agent_loop 已有低频重试及中文节流告警，不刷 traceback。
         log.exception('任务 #%s 处理异常', job.id)
-        mark_job_printed(job, False, f'内置代理异常：{e}')
+        saved = mark_job_printed(job, False, f'内置代理异常：{e}')
+        if not saved:
+            log.warning('任务 #%s 租约已失效，本轮结果未保存', job.id)
+            return {'job_id': job.id, 'ok': False, 'msg': '任务已重新认领或租约失效',
+                    'result_saved': False}
         return {'job_id': job.id, 'ok': False, 'msg': str(e)}
     finally:
         if switched_from:
