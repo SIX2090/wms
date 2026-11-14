@@ -35,7 +35,7 @@ from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
-from services.web_document_idempotency import web_document_idempotent, stage_document_response
+from services.web_document_idempotency import web_document_idempotent, web_document_command_idempotent, stage_document_response
 from utils import require_role
 from utils import round_money_product
 
@@ -785,6 +785,7 @@ def register_purchase_order_routes(app):
     @app.route('/purchase_order/create_in_order_from_selection', methods=['POST'])
     @require_role('warehouse', 'purchase')
     @login_required
+    @web_document_command_idempotent
     def create_in_order_from_purchase_order_selection():
         from datetime import date
         from flask_login import current_user
@@ -904,15 +905,17 @@ def register_purchase_order_routes(app):
             recalculate_order_total(in_order)
             for order in affected_orders:
                 update_purchase_order_status(order)
-            db.session.commit()
-            log_operation('采购单选单生成采购入库单', f'{", ".join(purchase_order_nos)} -> {in_order.order_no}', 'in_order', in_order.id)
-            return jsonify({
+            response_payload = {
                 'status': 'success',
                 'msg': '采购入库单生成成功',
                 'id': in_order.id,
                 'order_no': in_order.order_no,
                 'redirect_url': url_for('in_order_detail', id=in_order.id),
-            })
+            }
+            stage_document_response(response_payload)
+            db.session.commit()
+            log_operation('采购单选单生成采购入库单', f'{", ".join(purchase_order_nos)} -> {in_order.order_no}', 'in_order', in_order.id)
+            return jsonify(response_payload)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'采购单选单生成采购入库单失败: {e}')
@@ -922,6 +925,7 @@ def register_purchase_order_routes(app):
     @app.route('/purchase_order/<int:id>/copy', methods=['POST'])
     @require_role('purchase')
     @login_required
+    @web_document_command_idempotent
     def copy_purchase_order(id):
         from datetime import date
         from flask_login import current_user
@@ -971,15 +975,11 @@ def register_purchase_order_routes(app):
                 db.session.rollback()
                 return api_error('原采购单没有有效数量，不能复制')
             new_order.total_amount = round_to_2_decimals(total_amount)
+            response_payload = {'status': 'success', 'msg': '复制成功', 'id': new_order.id, 'order_no': new_order.order_no, 'redirect_url': url_for('purchase_order_edit_page', id=new_order.id)}
+            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制采购单', f'{source.order_no} -> {new_order.order_no}', 'purchase_order', new_order.id)
-            return jsonify({
-                'status': 'success',
-                'msg': '复制成功',
-                'id': new_order.id,
-                'order_no': new_order.order_no,
-                'redirect_url': url_for('purchase_order_edit_page', id=new_order.id),
-            })
+            return jsonify(response_payload)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'复制采购单失败: {e}')
@@ -989,6 +989,7 @@ def register_purchase_order_routes(app):
     @app.route('/purchase_order/<int:id>/create_in_order', methods=['POST'])
     @require_role('warehouse', 'purchase')
     @login_required
+    @web_document_command_idempotent
     def create_in_order_from_purchase_order(id):
         from sqlalchemy.orm import joinedload
         from app import (PurchaseOrder, PurchaseOrderItem, _create_in_order_from_purchase_order_core,

@@ -28,7 +28,8 @@ from flask import g, jsonify, render_template, request, send_file
 from flask_login import login_required
 
 from db import db
-from services.web_document_idempotency import web_document_idempotent, stage_document_response
+from services.web_document_idempotency import (web_document_idempotent,
+                                                   web_document_command_idempotent, stage_document_response)
 from utils import require_role
 from utils import round_money_product
 
@@ -878,6 +879,7 @@ def register_bom_routes(app):
     @app.route('/bom/<int:bom_id>/create_requisition', methods=['POST'])
     @require_role('production')
     @login_required
+    @web_document_command_idempotent
     def create_requisition_from_bom(bom_id):
         from flask_login import current_user
         from app import (BOM, ProductionRequisition, ProductionRequisitionItem, api_error,
@@ -926,9 +928,11 @@ def register_bom_routes(app):
                 db.session.add(ProductionRequisitionItem(
                     requisition_id=requisition.id, material_id=item['material'].id,
                     quantity=item['quantity'], unit_id=item['unit_id']))
+            response_payload = {'status': 'success', 'id': requisition.id}
+            stage_document_response(response_payload)
             db.session.commit()
         except Exception as e:
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        return jsonify({'status': 'success', 'id': requisition.id})
+        return jsonify(response_payload)

@@ -37,7 +37,8 @@ def execute(action, scenario):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    payload = {'action': action, 'scenario': scenario, 'source': function(SOURCE.read_text(encoding='utf-8'), action)}
+    payload = {'action': action, 'scenario': scenario, 'source': function(SOURCE.read_text(encoding='utf-8'), action),
+               'api': (ROOT / 'app/static/js/api.js').read_text(encoding='utf-8')}
     program = r'''
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(process.argv[1]);let messages=[],alerts=0,focused='',calls=[],removed=false,lines=[],header=null;
 function input(id,value){return {value,focus(){focused=id;},getAttribute:()=> '5'};}
@@ -51,7 +52,7 @@ function addNewRow(){const values={};lines.push({dataset:{},querySelector:s=>val
 const remark=input('remark','');const fields={warehouse_id:input('warehouse','2'),remark};
 const body={querySelectorAll:()=>[]};
 const document={querySelectorAll:()=>checked,querySelector:s=>s.includes('tr:last-child')?lines.at(-1):s.includes('.po-select-row')?selected:fields[s.match(/name="([^"]+)"/)?.[1]]||null,getElementById:id=>id==='materialTableBody'?body:id==='purchaseOrderSelectModal'?{remove(){removed=true;}}:null};
-const ctx={document,purchaseOrderSelectableMap:map,showToast:(m,t)=>messages.push({m,t}),alert:()=>alerts++,findEmptyRow:()=>null,addNewRow,findMaterialByCode:()=>null,formatQtyTrim:String,formatPurchaseQty:n=>Number(n).toFixed(2),calcAmount(){},renumberRows(){},calcTotal(){},setHeaderSupplier:(id,name)=>header={id,name},location:{href:'original'},fetch:(url,opts)=>{calls.push({url,opts});return p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:true,json:()=>Promise.resolve(p.scenario==='failure'?{status:'error',msg:'fixture failure'}:{status:'success',id:9,redirect_url:'/in_order/9'})});}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.source,ctx);
+const ctx={document,FormData:class {},purchaseOrderSelectableMap:map,showToast:(m,t)=>messages.push({m,t}),alert:()=>alerts++,findEmptyRow:()=>null,addNewRow,findMaterialByCode:()=>null,formatQtyTrim:String,formatPurchaseQty:n=>Number(n).toFixed(2),calcAmount(){},renumberRows(){},calcTotal(){},setHeaderSupplier:(id,name)=>header={id,name},location:{href:'original'},fetch:(url,opts)=>{calls.push({url,opts});return p.scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:true,json:()=>Promise.resolve(p.scenario==='failure'?{status:'error',msg:'fixture failure'}:{status:'success',id:9,redirect_url:'/in_order/9'})});}};ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.source,ctx);
 (async()=>{ctx[p.action]();await new Promise(r=>setImmediate(r));assert.equal(alerts,0,'no blocking native alert');
 const invalid=['empty','zero','nan','over','mixed'].includes(p.scenario);
 if(invalid){assert.equal(calls.length,0);assert.equal(lines.length,0);assert.equal(header,null);assert.equal(removed,false);assert.equal(messages.length,1);assert.equal(messages[0].t,'danger');assert(focused,'focus input or selection');assert.equal(ctx.location.href,'original');}

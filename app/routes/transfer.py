@@ -23,7 +23,8 @@ from flask import flash, jsonify, redirect, render_template, request, url_for, s
 from flask_login import login_required, current_user
 
 from db import db
-from services.web_document_idempotency import web_document_idempotent, stage_document_response
+from services.web_document_idempotency import (web_document_idempotent,
+                                                   web_document_command_idempotent, stage_document_response)
 from utils import require_role
 from utils import round_money_product
 
@@ -669,6 +670,7 @@ def register_transfer_routes(app):
     @app.route('/transfer/<int:id>/copy', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_command_idempotent
     def copy_transfer(id):
         from app import (TransferOrder, TransferOrderItem, api_error, generate_order_no, log_operation)
         from flask import jsonify
@@ -701,9 +703,11 @@ def register_transfer_routes(app):
                     remark=item.remark
                 )
                 db.session.add(new_item)
+            response_payload = {'status': 'success', 'msg': '复制成功'}
+            stage_document_response(response_payload)
             db.session.commit()
             log_operation('复制调拨单', f'从 {transfer.transfer_no} 复制为 {new_transfer.transfer_no}', 'transfer', new_transfer.id)
-            return jsonify({'status': 'success', 'msg': '复制成功'})
+            return jsonify(response_payload)
         except Exception as e:
             db.session.rollback()
             return api_error('复制失败，请稍后重试')
