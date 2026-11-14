@@ -13,6 +13,11 @@ from ai.tools.registry import AI_TOOL_REGISTRY, validate_ai_tool_input
 
 
 VALID_PAYLOADS = {
+    # Manual upload/retry capabilities have no autonomous JSON input handler.
+    'material_recognition': {},
+    'audio_transcription': {},
+    'document_recognition': {},
+    'document_retry': {},
     'out_order_draft': {'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     'sales_out_draft': {'customer_id': 1, 'warehouse_id': 1, 'items': [{'material_id': 1, 'quantity': 2}]},
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft

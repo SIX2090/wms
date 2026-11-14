@@ -593,6 +593,21 @@ def main() -> int:
             f'LLM 计费端点 {_fn} 必须走能力门禁 _ai_capability_allowed({_cap})',
         ))
 
+    # AI-MOB-MEDIA-FIX-20261114-001: session/Bearer media share actual-actor gates.
+    for _fn, _cap in {
+        'mobile_recognize_material': 'material_recognition',
+        'mobile_asr': 'audio_transcription',
+        'ai_document_job_retry': 'document_retry',
+        'api_document_ocr': 'document_recognition',
+        'api_document_ocr_excel': 'document_recognition',
+    }.items():
+        _body = function_body(_routes_src, _fn)
+        checks.append((
+            'AI-LLM-GATE-002',
+            bool(_body) and f"_media_access_error('{_cap}')" in _body,
+            f'媒体端点 {_fn} 必须使用实际主体的能力/总开关/灰度门禁',
+        ))
+
     # AI-DEDUP-REPLENISH-001：补货报告唯一实现在 _ai_smart_replenishment_report，
     # _ai_replenishment_report 只允许是委托适配层，防止同逻辑两处实现再次发散。
     _legacy_body = function_body(read_text('app/app.py'), '_ai_replenishment_report')
