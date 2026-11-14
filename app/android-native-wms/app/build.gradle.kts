@@ -10,7 +10,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.factory.wms.mobile"
+        applicationId = "com.factory.wms"
         minSdk = 26
         targetSdk = 35
         // BUG-2026-09-14-027：versionCode 自 14 起被冻结，导致多次发版都显示 3.8.0、
@@ -39,9 +39,8 @@ android {
         // 3.9.12(36)=BUG-2026-11-08-012 队列归属、旧记录隔离及非破坏性升级。
         // 3.9.14(38): R8 rollback of BUG-2026-11-14-005; retain v3 schema/ownership protection.
         // 3.9.15(39): BUG-2026-11-14-005 queue wakeup with complete version-test binding.
-        // 3.9.17(41): parallel mobile App, fixed signing and verified in-app updates.
-        versionCode = 41
-        versionName = "3.9.17"
+        versionCode = 39
+        versionName = "3.9.15"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 
@@ -207,8 +206,6 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
-    // Verify the APK cryptographically before giving it to the system installer.
-    implementation("com.android.tools.build:apksig:8.7.3")
 
     // CameraX
     val cameraxVersion = "1.4.1"

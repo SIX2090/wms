@@ -74,19 +74,19 @@ def test_t1b_android_build_job_name_preserved_for_keystore_regression():
     """**关键**：job 名 `build` 不能改，否则 BUG-2026-09-04-003 回归静默失效。
 
     tests/test_bug_2026_09_04_003_fixed_debug_keystore.py::test_workflow_yaml_parses
-    直接断言 `data["jobs"]["build"]["steps"]` 里有「Restore fixed mobile signing」。
+    直接断言 `data["jobs"]["build"]["steps"]` 里有「Restore fixed debug keystore」。
     改名会让它 KeyError 或断言失败——即回归失效，故在此显式锁死这个耦合。
     """
     data = _load(ANDROID)
     assert "build" in data["jobs"], "job 名 build 被改掉了（keystore 回归会失效）"
     names = [s.get("name", "") for s in data["jobs"]["build"]["steps"]]
-    assert "Restore fixed mobile signing (BUG-2026-09-04-003)" in names, (
-        "build job 里丢了「Restore fixed mobile signing」步骤"
+    assert "Restore fixed debug keystore (BUG-2026-09-04-003)" in names, (
+        "build job 里丢了「Restore fixed debug keystore」步骤"
     )
     # 还原必须仍在构建之前（原测试的顺序断言依赖这一点）
     src = _read(ANDROID)
     build_job = src[src.index("  build:"):src.index("  lint:")]
-    assert build_job.index("Restore fixed mobile signing") < build_job.index(
+    assert build_job.index("Restore fixed debug keystore") < build_job.index(
         "Build Release APK"
     ), "还原 keystore 必须发生在构建之前"
 

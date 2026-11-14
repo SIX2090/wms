@@ -23,9 +23,6 @@ on:
     paths:
       - 'app/android-native-wms/**'
       - '.github/workflows/android-build.yml'
-      - '.github/workflows/android-update-promote.yml'
-      - 'scripts/android_update_release.py'
-      - 'scripts/prepare_android_signing.py'
   workflow_dispatch:
   # CI-GREEN-GATE-2026-09-18：每日定时跑一次，落实 AGENTS.md §三「CI 全绿门禁」
   # 的"每天检查一次"。没定时触发时，只要当天没人推代码就不会有新的运行记录，
@@ -57,7 +54,7 @@ on:
 #
 # ⚠️ job 名 `build` 不能改：tests/test_bug_2026_09_04_003_fixed_debug_keystore.py
 # 的 test_workflow_yaml_parses 直接断言 `data["jobs"]["build"]["steps"]` 中包含
-# 「Restore fixed mobile signing (BUG-2026-09-04-003)」步骤，改名会让该回归失效。
+# 「Restore fixed debug keystore (BUG-2026-09-04-003)」步骤，改名会让该回归失效。
 #
 # ⚠️ Gradle 缓存（CI-PERF-2026-09-24）：三个 job 各自拉一次 Android 环境是拆分的
 # 固有成本，用 actions/cache 缓存 ~/.gradle/caches 与 ~/.gradle/wrapper 抵消大部分
@@ -111,15 +108,40 @@ jobs:
           sed -i '/systemProp.https.proxyPort/d' gradle.properties
           sed -i '/# Proxy settings/d' gradle.properties
 
-      # MOBILE-UPDATE-20261114-001: new parallel App uses one pinned, backed-up identity.
-      # Missing/malformed credentials fail closed; never generate a release signer on runner.
-      - name: Restore fixed mobile signing (BUG-2026-09-04-003)
+      # BUG-2026-09-04-003：修复「每次 CI 构建签名都不同」。根因：release 变体在
+      # 未配置 WMS_STORE_FILE 时回退 debug 签名，而 runner 上的 debug.keystore 是
+      # 构建时临时生成的（实测 #285 产物证书有效期起点=本次构建时刻），导致任意
+      # 旧版本都无法被新包覆盖安装（签名冲突，用户每次必须卸载重装）。
+      # 修复（方案B）：仓库 Secret WMS_FIXED_DEBUG_KEYSTORE_B64 存一份固定
+      # debug.keystore（PKCS12，alias androiddebugkey / 密码 android，仅用于
+      # 内部测试签名，正式 keystore 仍绝不上传），构建前还原到 ~/.android/
+      # 让 AGP 每次用同一签名；Secret 未配置时仅告警不阻塞构建。
+      - name: Restore fixed debug keystore (BUG-2026-09-04-003)
         env:
-          WMS_MOBILE_SIGNING_BUNDLE: ${{ secrets.WMS_MOBILE_SIGNING_BUNDLE }}
-        run: python scripts/prepare_android_signing.py
+          WMS_FIXED_DEBUG_KEYSTORE_B64: ${{ secrets.WMS_FIXED_DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          if [ -n "$WMS_FIXED_DEBUG_KEYSTORE_B64" ]; then
+            printf '%s' "$WMS_FIXED_DEBUG_KEYSTORE_B64" | base64 -d > ~/.android/debug.keystore
+            echo "已还原固定 debug.keystore（跨构建签名稳定）"
+          else
+            echo "::warning::未配置 Secret WMS_FIXED_DEBUG_KEYSTORE_B64，本次构建签名仍为 runner 临时生成（跨构建不稳定）"
+          fi
 
+      # AI-MOB-APK-001（2026-08-29）：移除 sherpa-onnx 离线语音打包（APK 瘦身）。
+      # 原因：CloudAsrVoiceSttEngine.isAvailable() 恒为 true，引擎链永远走云端
+      # （腾讯云 ASR，密钥已配置），sherpa 模型约 70MB + AAR 的 .so 一次都不会被用到。
+      # 保留 -Pwms.sherpa 开关与 downloadSherpa* task，需要离线语音时给 gradlew 加回
+      # -Pwms.sherpa=true 并恢复下载步骤即可。
+      # 方案A：用 assembleRelease 做编译验证（Debug 无需签名，避免 release keystore 缺失
+      # 导致构建在签名配置阶段即失败，从而真正走到 Kotlin 编译，暴露语法/依赖问题）。
+      # F3.12：CI 内部测试包**显式**选择 debug 签名（WMS_ALLOW_DEBUG_SIGNED_RELEASE=1），
+      # 配合上面还原的固定 debug.keystore，跨构建签名稳定、可覆盖安装；
+      # 未显式设置时 release 构建直接失败（不再静默回退）。
       - name: Build Release APK (R8 瘦身)
         working-directory: app/android-native-wms
+        env:
+          WMS_ALLOW_DEBUG_SIGNED_RELEASE: "1"
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Upload APK
@@ -144,36 +166,24 @@ jobs:
       # 现方案不依赖任何仓库设置、也不需要关闭不可变性：
       # immutable 只禁止「修改已发布的 release」，不禁止「创建新 release」。
       # 因此每次构建使用全新 tag（android-apk-<run_number>），发布全新 release，
-      # 天然不受锁定影响；历史下载入口曾使用 GitHub 的 latest 别名——
+      # 天然不受锁定影响；下载入口改用 GitHub 的 latest 别名——
       #   https://github.com/SIX2090/wms/releases/latest/download/wms-mobile-scan.apk
-      # 2026-11-14：latest 保留给既有人工下载入口；自动更新仅读取三工作流已验收的稳定记录。
+      # 该地址由 GitHub 自动 302 到「最新一个正式 release」的同名资产，永久固定。
       # 代价：release 列表会随构建次数累积（immutable 下旧 release 无法删除），
-      # 候选保持 prerelease=false + make_latest=true，兼容既有 /latest/download 人工直链。
+      # 且必须 prerelease=false + make_latest=true，否则 /latest/ 不会指向本 release。
       # 旧 release `android-apk` 原样保留，避免旧直链 404。
       - name: Rename APK for release
         run: cp app/android-native-wms/app/build/outputs/apk/release/app-release.apk wms-mobile-scan.apk
 
-      - name: Verify candidate APK and generate bound metadata
-        env:
-          TARGET_SHA: ${{ github.sha }}
-          RUN_NUMBER: ${{ github.run_number }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
-        run: >-
-          python scripts/android_update_release.py candidate
-          --apk wms-mobile-scan.apk
-          --aapt "$ANDROID_HOME/build-tools/35.0.0/aapt"
-          --apksigner "$ANDROID_HOME/build-tools/35.0.0/apksigner"
-          --sha "$TARGET_SHA" --run-number "$RUN_NUMBER" --run-attempt "$RUN_ATTEMPT"
-          --output android-update-candidate.json
-
       - name: Publish APK to Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "android-apk-${{ github.run_number }}-attempt-${{ github.run_attempt }}"
-          target_commitish: ${{ github.sha }}
-          name: "WMS 手机端（候选构建 #${{ github.run_number }}）"
-          # Candidate metadata is not stable until all three workflows pass.
-          body_path: android-update-candidate.json
+          tag_name: "android-apk-${{ github.run_number }}"
+          name: "Android 扫码 APP（自动构建 #${{ github.run_number }}）"
+          body: |
+            每次 main 推送后由 Android APK Build 工作流自动构建（release 包，R8 瘦身，语音识别走腾讯云）。
+            下载直链（始终指向最新构建）：
+            https://github.com/SIX2090/wms/releases/latest/download/wms-mobile-scan.apk
           files: wms-mobile-scan.apk
           prerelease: false
           make_latest: true

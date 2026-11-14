@@ -121,14 +121,6 @@ object RetrofitClient {
     }
 
     private val okHttpClient = OkHttpClient.Builder()
-        .addInterceptor { chain ->
-            // Cover every native write endpoint, including drafts and opening stock.
-            // Primary submit/replay also hold a lease through local persistence below.
-            val write = chain.request().method !in listOf("GET", "HEAD", "OPTIONS")
-            val gate = com.factory.wms.update.businessUpdateGate
-            if (write && !gate.enterBusiness()) throw IOException("正在安装更新，请稍后重试；当前内容已保留")
-            try { chain.proceed(chain.request()) } finally { if (write) gate.leaveBusiness() }
-        }
         .addInterceptor(authInterceptor)
         .addNetworkInterceptor { chain ->
             // Recheck every redirect before its socket writes credentials/body.
