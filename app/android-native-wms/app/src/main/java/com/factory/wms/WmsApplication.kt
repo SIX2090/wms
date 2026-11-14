@@ -18,8 +18,6 @@ import java.io.File
 
 class WmsApplication : Application(), ImageLoaderFactory {
 
-    internal val appUpdates by lazy { com.factory.wms.update.AppUpdateManager(this) }
-
     /**
      * 进程级协程作用域，仅用于启动期的后台预热。
      *
@@ -39,10 +37,6 @@ class WmsApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         installCrashLogger()
-        // Recover an installation lease before any queued business request can start.
-        runCatching { appUpdates.recover() }.onFailure {
-            Log.w(TAG, "更新状态暂不可用，可继续使用当前版本", it)
-        }
         RetrofitClient.onUnauthorized = {
             AuthEventBus.notifyUnauthorized()
         }

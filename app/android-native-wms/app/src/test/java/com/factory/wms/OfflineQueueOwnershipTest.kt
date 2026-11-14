@@ -371,23 +371,6 @@ class OfflineQueueOwnershipTest {
         assertTrue(dao.listAll().isEmpty())
     }
 
-    @Test fun updateInstallationDefersReplayAndRetainsRealRoomRowsAndIdentity() = runBlocking {
-        assertTrue(enqueue("update-in", "inbound"))
-        assertTrue(enqueue("update-out", "outbound"))
-        assertTrue(enqueue("update-count", "stocktake"))
-        val before = dao.listAll().associateBy { it.requestId }
-        val gate = com.factory.wms.update.businessUpdateGate
-        assertTrue(gate.beginInstall())
-        try {
-            manager.doSync()
-            assertTrue(sent.isEmpty())
-            assertEquals(before, dao.listAll().associateBy { it.requestId })
-        } finally { gate.endInstall() }
-        manager.doSync()
-        assertEquals(before.keys, sent.map { it.first }.toSet())
-        assertTrue(dao.listAll().isEmpty())
-    }
-
     @Test fun cancellationDoesNotConsumeRetryOrCreateAnotherOperation() = runBlocking {
         assertTrue(enqueue())
         response = { throw CancellationException("synthetic cancellation") }

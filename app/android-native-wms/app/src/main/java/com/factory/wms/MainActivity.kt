@@ -34,16 +34,6 @@ import com.factory.wms.ui.theme.WmsTheme
 import java.io.File
 
 class MainActivity : ComponentActivity() {
-    override fun onResume() {
-        super.onResume()
-        runCatching { (application as WmsApplication).appUpdates.foreground(this) }
-    }
-
-    override fun onPause() {
-        runCatching { (application as WmsApplication).appUpdates.foreground(null) }
-        super.onPause()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()

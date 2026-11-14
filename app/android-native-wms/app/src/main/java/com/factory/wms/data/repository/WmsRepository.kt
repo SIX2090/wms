@@ -685,9 +685,6 @@ class WmsRepository(
         call: suspend (WmsApiService, String) -> Response<ApiEnvelope<SubmitResult>>
     ): Result<SubmitResult> {
         // 原始请求、出库预检及失败暂存共用同一身份快照，不能在挂起后借用新账号。
-        val updateGate = com.factory.wms.update.businessUpdateGate
-        if (!updateGate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
-        try {
         val session = RetrofitClient.sessionSnapshot()
         return try {
             val submitApi = RetrofitClient.apiServiceFor(session)
@@ -732,7 +729,6 @@ class WmsRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
-        } finally { updateGate.leaveBusiness() }
     }
 
     /** 按作业类型写入本地操作日志（在线成功路径；离线补传成功由队列侧不再重复记）。 */

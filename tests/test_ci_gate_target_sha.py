@@ -158,8 +158,7 @@ def test_android_old_green_reuses_only_proved_unchanged_ancestor(gate,monkeypatc
     assert android['head_sha_full']==source
 
 
-@pytest.mark.parametrize('path',['app/android-native-wms/fixture.txt','.github/workflows/android-build.yml',
-                                '.github/workflows/android-update-promote.yml','scripts/android_update_release.py'])
+@pytest.mark.parametrize('path',['app/android-native-wms/fixture.txt','.github/workflows/android-build.yml'])
 def test_android_or_build_workflow_change_rejects_old_build(gate,monkeypatch,capsys,history,path):
     repo,source,_,commit=history
     target=commit(path,'changed Android inputs')

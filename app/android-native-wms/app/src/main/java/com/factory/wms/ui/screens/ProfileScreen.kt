@@ -30,8 +30,6 @@ import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.util.ScanFeedback
-import com.factory.wms.WmsApplication
-import com.factory.wms.update.AppUpdatePanel
 
 /** "我的"页：账号信息、服务器信息、语音指令说明、退出登录。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,9 +43,6 @@ fun ProfileScreen(
     // AI-MOB-SCAN-UX-01：扫码声音/震动反馈开关。
     // 初值取 ScanFeedback 的内存缓存（进程启动时已 warmUp），避免首帧闪烁成默认值。
     val context = LocalContext.current
-    val appUpdates = remember(context) {
-        runCatching { (context.applicationContext as? WmsApplication)?.appUpdates }.getOrNull()
-    }
     var scanFeedbackEnabled by remember { mutableStateOf(ScanFeedback.enabled) }
 
     Scaffold(
@@ -163,7 +158,6 @@ fun ProfileScreen(
                     value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
                     showDivider = false
                 )
-                appUpdates?.let { AppUpdatePanel(it) }
             }
 
             if (BuildConfig.VOICE_UI_ENABLED) {
