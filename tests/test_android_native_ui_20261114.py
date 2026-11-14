@@ -96,3 +96,28 @@ def test_all_primary_entry_points_use_saved_navigation_and_input():
         source = read("ui/screens/" + filename)
         assert 'var manualCode by rememberSaveable { mutableStateOf("") }' in source
         assert 'var manualQty by rememberSaveable { mutableStateOf("1") }' in source
+
+
+def test_report_summaries_wrap_without_competing_for_one_row():
+    for filename, name, count in (
+        ("ReportScreens.kt", "DailyReportSummaryContent", 3),
+        ("InOutDetailReportScreen.kt", "InOutSummaryContent", 3),
+        ("StockDailyReportScreen.kt", "StockDailySummaryContent", 4),
+        ("StockLedgerReportScreen.kt", "LedgerSummaryContent", 4),
+    ):
+        source = read("ui/screens/" + filename)
+        assert "fun " + name + "(" in source, filename
+        body = function(source, name)
+        assert "Column(" in body
+        assert body.count("Row(Modifier.fillMaxWidth()") == 2
+        assert body.count("modifier = Modifier.weight(1f)") == count
+        assert "quantityDisplayText(value)" in source
+        assert "containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)" in source
+
+
+def test_white_gradient_controls_use_shared_dark_scrim():
+    assert "Color.Black.copy(alpha = 0.12f)" in read("ui/theme/Color.kt")
+    home = read("ui/screens/HomeScreen.kt")
+    header = function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")
+    assert home.count(".background(GradientControlScrim)") == 2
+    assert ".background(GradientControlScrim)" in header

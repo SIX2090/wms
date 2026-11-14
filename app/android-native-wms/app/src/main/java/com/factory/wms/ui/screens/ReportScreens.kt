@@ -1,5 +1,8 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.theme.readableOn
+import androidx.compose.ui.graphics.compositeOver
+import com.factory.wms.data.model.DailyReportSummary
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,7 +65,6 @@ import com.factory.wms.ui.theme.Primary
 import com.factory.wms.ui.viewmodel.report.ReportType
 import com.factory.wms.ui.viewmodel.report.ReportViewModel
 import java.util.Locale
-
 /**
  * 每日明细报表页：按日期查看采购入库 / 领料单明细。
  * 服务端：GET /api/mobile/report/daily_detail
@@ -75,14 +77,12 @@ fun DailyReportScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-
     // BUG-2026-08-24-006：进入报表页时才加载（ViewModel 在 App 启动时即被创建，
     // 不能依赖 init 加载）；再次进入也会按当前日期/类型刷新，保证数据不过期。
     LaunchedEffect(Unit) {
         // ViewModel 内先确定仓库，再查报表；只列真实仓库。
         viewModel.load()
     }
-
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             // AI-APP-FIX-201：此处只剩"带数据刷新失败"的瞬态错误（首屏失败走
@@ -91,7 +91,6 @@ fun DailyReportScreen(
             viewModel.clearError()
         }
     }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
@@ -129,7 +128,6 @@ fun DailyReportScreen(
                 onResetToday = { viewModel.resetToday() },
                 onDateSelected = { viewModel.setDate(it) }
             )
-
             // ── 类型切换 ──
             Row(
                 modifier = Modifier
@@ -146,9 +144,7 @@ fun DailyReportScreen(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(8.dp))
-
             // ── 仓库选择（BUG-2026-09-10-009）──
             // 多仓用户此前只能看系统默认仓，录在其他仓的单据"查不到"。
             // 用户需求：日报下拉只列真实仓库，去掉「默认仓库」与「全部仓库（汇总）」，
@@ -162,9 +158,7 @@ fun DailyReportScreen(
                 allowAll = false,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
-
             Spacer(modifier = Modifier.height(10.dp))
-
             // ── 汇总卡 ──
             uiState.report?.let { report ->
                 Card(
@@ -173,24 +167,14 @@ fun DailyReportScreen(
                         .padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = Primary.copy(alpha = 0.08f)
+                        containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        SummaryCell("单据", "${report.summary.orderCount}")
-                        SummaryCell("明细", "${report.summary.itemCount}")
-                        SummaryCell("总数量", formatQty(report.summary.quantity))
-                    }
+                    DailyReportSummaryContent(report.summary)
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
-
             // ── 明细列表 / 加载 / 空态 / 错误态 ──
             Box(modifier = Modifier.fillMaxSize()) {
                 when {
@@ -252,7 +236,6 @@ fun DailyReportScreen(
         }
     }
 }
-
 /**
  * 空态副文案：在「当日暂无X明细」标题之外补充可行动线索；无线索时返回 null
  * （调用方给默认副文案）。诊断字段来自服务端 diagnostics，旧版后端无该节点时
@@ -273,13 +256,17 @@ private fun emptyStateHint(report: DailyReportData?): String? {
 }
 
 @Composable
-private fun SummaryCell(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun SummaryCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            value,
+            quantityDisplayText(value),
+            modifier = Modifier.fillMaxWidth(),
+            softWrap = true,
+            textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
-            color = Primary
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            color = Primary.readableOn(Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background))
         )
         Text(
             label,
@@ -375,3 +362,19 @@ internal fun DailyReportItemRow(
  */
 
 // AI-APP-FIX-403：数量格式化统一为 ui/util/Format.kt 的 formatQty（千分位）
+
+@Composable
+internal fun DailyReportSummaryContent(summary: DailyReportSummary) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SummaryCell("单据", "${summary.orderCount}", modifier = Modifier.weight(1f))
+            SummaryCell("明细", "${summary.itemCount}", modifier = Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            SummaryCell("总数量", formatQty(summary.quantity), modifier = Modifier.weight(1f))
+        }
+    }
+}

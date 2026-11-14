@@ -11,6 +11,8 @@ val PrimaryLight = Color(0xFF7B8FF7)
 val PrimaryDark = Color(0xFF2D3FBF)
 internal val PalettePrimaryContainer = Color(0xFFE8ECFD)
 val OnPrimary = Color.White
+// Darken translucent controls on white-text gradients; a white wash lowers contrast.
+internal val GradientControlScrim = Color.Black.copy(alpha = 0.12f)
 val OnPrimaryContainer = Color(0xFF0E1A6B)
 
 // ── Secondary ── Warm Amber（模块/徽标点缀色，亮暗通用，不参与令牌映射）

@@ -1,5 +1,8 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.theme.readableOn
+import androidx.compose.ui.graphics.compositeOver
+import com.factory.wms.data.model.StockLedgerSummary
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -74,7 +77,6 @@ import com.factory.wms.ui.viewmodel.report.InOutDetailDateLogic
 import com.factory.wms.ui.viewmodel.report.StockLedgerRangeLogic
 import com.factory.wms.ui.viewmodel.report.StockLedgerReportViewModel
 import java.util.Calendar
-
 /**
  * 库存台账页（AI-MOB-LDG-F01）。
  * 服务端：GET /api/mobile/report/stock_ledger（只读，零写操作）。
@@ -94,13 +96,11 @@ fun StockLedgerReportScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     var showMaterialPicker by remember { mutableStateOf(false) }
-
     // BUG-2026-08-24-006 模式：进入页面才加载（ViewModel 在 App 启动时即被创建）；
     // 只预载仓库列表——物料未选定前不发起台账查询（单一物料口径）。
     LaunchedEffect(Unit) {
         viewModel.loadWarehouses()
     }
-
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             // AI-APP-FIX-201：此处只剩"带数据刷新/翻页失败"的瞬态错误（首屏失败
@@ -109,7 +109,6 @@ fun StockLedgerReportScreen(
             viewModel.clearError()
         }
     }
-
     // 滚动接近底部（倒数第 3 行进入可视区）自动翻页
     val shouldLoadMore by remember {
         derivedStateOf {
@@ -121,7 +120,6 @@ fun StockLedgerReportScreen(
     LaunchedEffect(shouldLoadMore) {
         if (shouldLoadMore) viewModel.loadMore()
     }
-
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Background,
@@ -149,7 +147,6 @@ fun StockLedgerReportScreen(
                 allowAll = false,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
-
             // ── 物料选择卡（台账按单一物料查询，AI-OS-LD-001 口径）──
             Card(
                 modifier = Modifier
@@ -216,7 +213,6 @@ fun StockLedgerReportScreen(
                     }
                 }
             }
-
             // ── 日期范围（默认全部流水；开始空白=全部，结束空白=今天）──
             val todayStr = remember { InOutDetailDateLogic.today() }
             val context = LocalContext.current
@@ -275,9 +271,7 @@ fun StockLedgerReportScreen(
                     )
                 }
             }
-
             Spacer(modifier = Modifier.height(8.dp))
-
             // ── 汇总卡（期初/入/出/期末，基于过滤后全集，不随分页缩小，R1）──
             uiState.summary?.let { summary ->
                 Card(
@@ -286,21 +280,11 @@ fun StockLedgerReportScreen(
                         .padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(14.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = Primary.copy(alpha = 0.08f)
+                        containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        LedgerSummaryCell("期初", formatQty(summary.openingBalance))
-                        LedgerSummaryCell("入库", formatQty(summary.totalInQuantity), Success)
-                        LedgerSummaryCell("出库", formatQty(summary.totalOutQuantity), Error)
-                        LedgerSummaryCell("期末结存", formatQty(summary.endingBalance), Primary)
-                    }
+                    LedgerSummaryContent(summary)
                 }
                 if (uiState.truncated) {
                     Text(
@@ -314,7 +298,6 @@ fun StockLedgerReportScreen(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
-
             // ── 明细列表 / 加载 / 空态 / 错误态 ──
             // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
             // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
@@ -410,7 +393,6 @@ fun StockLedgerReportScreen(
             }
         }
     }
-
     // ── 物料搜索对话框（走既有 /api/material/search，点选即查询台账）──
     if (showMaterialPicker) {
         AlertDialog(
@@ -573,14 +555,19 @@ private fun LedgerDateNavRow(
 private fun LedgerSummaryCell(
     label: String,
     value: String,
-    valueColor: androidx.compose.ui.graphics.Color = Primary
+    valueColor: androidx.compose.ui.graphics.Color = Primary,
+    modifier: Modifier = Modifier
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
-            value,
+            quantityDisplayText(value),
+            modifier = Modifier.fillMaxWidth(),
+            softWrap = true,
+            textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
-            color = valueColor
+            style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+            color = valueColor.readableOn(Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background))
         )
         Text(
             label,
@@ -663,6 +650,23 @@ internal fun StockLedgerItemRow(item: StockLedgerItem) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+        }
+    }
+}
+
+@Composable
+internal fun LedgerSummaryContent(summary: StockLedgerSummary) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LedgerSummaryCell("期初", formatQty(summary.openingBalance), modifier = Modifier.weight(1f))
+            LedgerSummaryCell("入库", formatQty(summary.totalInQuantity), Success, modifier = Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            LedgerSummaryCell("出库", formatQty(summary.totalOutQuantity), Error, modifier = Modifier.weight(1f))
+            LedgerSummaryCell("期末结存", formatQty(summary.endingBalance), Primary, modifier = Modifier.weight(1f))
         }
     }
 }

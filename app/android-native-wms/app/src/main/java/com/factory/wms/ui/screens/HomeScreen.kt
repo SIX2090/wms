@@ -251,7 +251,7 @@ fun HomeScreen(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.15f)),
+                                    .background(GradientControlScrim),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -300,7 +300,7 @@ fun HomeScreen(
                                 contentColor = Color.White,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(16.dp))
-                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .background(GradientControlScrim)
                             )
                         }
                     }

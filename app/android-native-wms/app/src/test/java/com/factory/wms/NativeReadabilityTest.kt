@@ -2,6 +2,7 @@ package com.factory.wms
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.lerp
 import com.factory.wms.ui.components.darken
 import com.factory.wms.ui.theme.*
 import org.junit.Assert.*
@@ -53,5 +54,17 @@ class NativeReadabilityTest {
         assertEquals(PalettePrimary, PalettePrimary.readableOn(Color.White))
         val foreground = Color.Black.copy(alpha = 0.5f)
         assertEquals(contrast(foreground, Color.White), contrastRatio(foreground, Color.White).toDouble(), 0.001)
+    }
+
+    @Test fun translucentHeaderControlsKeepWhiteTextAndNecessaryIconsReadable() {
+        for (accent in listOf(PalettePrimary, PrimaryLight, CardGreen, CardOrange, CardPurple, CardCyan)) {
+            val start = accent.readableOn(Color.White)
+            for (step in 0..10) {
+                val gradient = lerp(start, start.darken(0.74f), step / 10f)
+                val control = GradientControlScrim.compositeOver(gradient)
+                assertTrue(contrast(Color.White, control) >= 4.499)
+                assertTrue(contrast(Color.White.copy(alpha = 0.9f), control) >= 3.0)
+            }
+        }
     }
 }

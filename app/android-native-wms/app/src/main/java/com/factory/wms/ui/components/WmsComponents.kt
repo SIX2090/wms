@@ -66,6 +66,7 @@ import com.factory.wms.ui.theme.Warning
 import com.factory.wms.ui.theme.WarningContainer
 import com.factory.wms.ui.theme.wmsColors
 import com.factory.wms.ui.theme.readableOn
+import com.factory.wms.ui.theme.GradientControlScrim
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -188,7 +189,7 @@ fun WmsGradientHeader(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.16f)),
+                            .background(GradientControlScrim),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
