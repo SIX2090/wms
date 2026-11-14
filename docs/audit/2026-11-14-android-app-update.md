@@ -9,7 +9,7 @@
 Actions Secret `WMS_MOBILE_SIGNING_BUNDLE`。GitHub 页面已显示 Repository secret added。
 这是对原方案“沿用旧签名、首次覆盖安装”的明确变更，不尝试覆盖签名不兼容的旧 App。
 
-本阶段已按下述稳定提升失败执行完整 R8 回退并重评，纠正后本地验证完成，尚未用新目标 SHA 验收。不能将前一阶段成功测试或旧绿视为交付。
+**本阶段代码、适用本地验证、完整目标 CI 与稳定发布均已完成。** 真实手机尚未安装，设备验收单独待确认。下文保留中途稳定提升失败及完整 R8 纠正证据，不把失败阶段写成成功。
 Android 42 / 3.9.18；Windows 2026.11.54 为本批发行版本。
 
 ## 使用方式与数据边界
@@ -68,7 +68,27 @@ APK 经大小、哈希、包名、版本、minSdk 和 apksig 密码学签名验�
   固定正式签名约束，去除发布绿灯判断的变异会使行为测试失败，恢复后通过。
 - 私有正式签名 assembleRelease 成功（含真实 R8 压缩和签名）。aapt/apksigner 核实新包名、41/3.9.17、minSdk26、上述固定证书；本地 APK 25,545,011 字节，SHA-256 `b6b897104cd7b77bfb94e5c86304e8645a21729e29bd8344321042ca57a8c44d`。本地核验元数据使用明确合成提交占位，不作为发行来源凭据；CI 将对实际提交重建并绑定元数据。完整目标 CI 尚未核实。
 完整 Flask 测试交给真实隔离 CI，宿主不直接 import app、不伪造隔离标志。
-纠正后完整目标 SHA、实际 push 输出、三个工作流链接和稳定记录待本阶段验收回填。
+纠正后代码目标 `0d1f798930e336c8b3ab055e2855047fa5e7d45c`，实际正常 push
+`5159ab60..0d1f7989 main -> main`；当时本地/origin/main/实时远端一致。
+本批39个文件（含范围登记）在私有main仓库再次整批revert/恢复，逐字节核对通过。
+
+| 精确代码目标验收 | 运行 | 结论 |
+|---|---|---|
+| Android APK Build | [43574253341](https://github.com/SIX2090/wms/actions/runs/43574253341) | completed/success；实际R8正式签名APK，远端189项PASSED，lint成功 |
+| WMS CI | [43574253315](https://github.com/SIX2090/wms/actions/runs/43574253315) | completed/success，全量隔离测试、规则、冒烟及浏览器检查 |
+| WMS AI Verification | [43574253316](https://github.com/SIX2090/wms/actions/runs/43574253316) | completed/success |
+| 稳定提升 | [43574863365](https://github.com/SIX2090/wms/actions/runs/43574863365) | completed/success，实际生成42稳定记录 |
+| 性能记录 | [43574253340](https://github.com/SIX2090/wms/actions/runs/43574253340) | completed/success |
+
+稳定记录：[android-mobile-stable-v42-0d1f798930e336c8b3ab055e2855047fa5e7d45c](https://github.com/SIX2090/wms/releases/tag/android-mobile-stable-v42-0d1f798930e336c8b3ab055e2855047fa5e7d45c)。
+实际JSON body的verificationRuns逐一绑定以上三个required运行及attempt1，target_commitish与commitSha均为该完整代码目标。
+
+首次安装固定APK：[WMS 手机端 3.9.18](https://github.com/SIX2090/wms/releases/download/android-apk-885-attempt-1/wms-mobile-scan.apk)。
+APK 25,545,011字节，SHA-256 `1ec483336199755bf962d143cf62801923ffdaedcbb0bd0bc9edec47e21fe80e`。
+已独立下载，经实际aapt/apksigner核对包名、42/3.9.18、minSdk26、中文桌面名称及固定证书，大小/哈希与API资产摘要和稳定清单一致。
+
+本次收口仅修改本专项和月度AI记录，自身提交按精确目标另验；Android输入保持代码目标一致，以对象完整、祖先关系和零差异证明复用。
+Windows Portable Release属于独立产物，不把其状态冒充上述required验收或生产部署。
 
 ### 稳定提升失败与完整 R8 纠正
 
