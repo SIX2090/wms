@@ -2,10 +2,11 @@
 
 ### PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001：既有打印模板文件生命周期子修复
 
-- 状态：本地候选已验证，目标CI待验收，生产未部署；关联BUG-2026-11-14-007，父任务PRINT-TEMPLATE-F01/F04。
+- 状态：代码目标35edea5f227084105b0dd1b16f60dfad88eab76c已实际push并通过完整CI；生产未部署，文档收口另验。关联BUG-2026-11-14-007，父任务PRINT-TEMPLATE-F01/F04。
 - 范围：三类模板删除后引用核对、创建/部分写入失败回收、pytest静态文件隔离。保留独立模板、内置模板、共享文件和原权限；不新增AI能力、路由、模型或配置。
 - 验证：修前164 passed；20模块205 passed/43 warnings；旧代码22 failed/15对照passed，规则0违规；最终23模块301 passed/43 warnings、严格AI台账通过。Windows完整verify的新旧共同隔离能力失败已留证，不计通过；用户授权完整冒烟/全站交本批GitHub Linux隔离CI，提交钩子保持。
 - 备份：现有备份隔离恢复及97表逐表比对通过；现有旧业务备份不能证明当前恢复点。本轮不连接生产数据库，不重启、不部署、不批量清理历史文件。
+- CI：WMS43581392135、AI43581392093成功；16407 passed/203 skipped/1636子案例，完整HTTP122/122。Android成功祖先0d1f7989的43574253341输入不变；未把本地共同隔离失败当通过。
 - 证据：[专项记录](../../audit/2026-11-14-print-template-file-lifecycle.md)。生效确认：待人工确认。
 
 ### MOBILE-UPDATE-20261114-001：Android App 自动更新

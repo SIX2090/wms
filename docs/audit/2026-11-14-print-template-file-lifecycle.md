@@ -52,4 +52,17 @@ pytest session静态目录拷贝至真实隔离profile临时目录，排除原up
 
 DEVELOPMENT_RULES.md §1.3原要求路由变更推送前完成隔离full_smoke_test.py；当前run_smoke_in_ci.py显式要求Linux隔离，Windows不满足。2026-11-14用户明确答复“允许本批由GitHub隔离CI验收完整冒烟”，允许本批先提交推送候选再验收完整冒烟/全站；没有授权部署、重启或生产数据操作，没有改项目永久规则或放宽脚本校验。
 
-目标完整SHA、实际push和本目标WMS CI/WMS AI Verification/Android复用证明待回填。未完成目标验收前不称交付完成；即使代码CI通过，生产生效仍待人工确认。历史文件清理及Git维护不在本批执行。
+代码目标完整SHA、实际push及CI证据见下节补证；代码CI通过后生产生效仍待人工确认。历史文件清理及Git维护不在本批执行。
+
+## 代码目标验收补证
+
+实际正常push输出为`3a4ac4c3..35edea5f main -> main`；origin/main及远端refs/heads/main均核对为35edea5f227084105b0dd1b16f60dfad88eab76c。提交钩子保持，精确15文件暂存内容与冻结输入逐一核对，提交blob与实测文件仅Git换行规范化差异。
+
+- [WMS CI 43581392135](https://github.com/SIX2090/wms/actions/runs/43581392135)：completed/success。三片分别5224/5612/5571 passed，48/133/22 skipped，864/273/499子案例，合计16407 passed、203 skipped、1636子案例；不把skip和warning算通过。四个verify分片、真实Chrome、静态检查和gate均成功。
+- [WMS AI Verification 43581392093](https://github.com/SIX2090/wms/actions/runs/43581392093)：completed/success，本地受限的历史完整验证已在真实Linux隔离CI成功。
+- HTTP冒烟job132406751802：真实隔离随机端口，日志`Results: 122/122 passed, 0 failed`，不是只检查源码字符串；没有访问生产8080。
+- 目标没有Android APK Build记录；[成功祖先43574253341](https://github.com/SIX2090/wms/actions/runs/43574253341)完整SHA为0d1f798930e336c8b3ab055e2855047fa5e7d45c，Git对象存在、merge-base --is-ancestor成功，至本目标的app/android-native-wms/和.github/workflows/android-build.yml差异均为空；没有用旧成功掩盖目标失败。
+- WMS Perf Baseline43581392065成功，属于告警/性能证据，不取代必需验收。
+- 所有15文件在私有目录精确逆向至3a4ac4c3（新增文件移出）后，再加入新测试探针：22 failed/15对照passed；逐字节恢复候选，37 passed。没有逆向共享main或触碰他人改动。
+
+可复查的小型证据已另存用户文档目录`C:/Users/Administrator/Documents/Codex/2026-11-14/wms-space-governance-35edea5f`，不复制生产数据库和运行环境；隔离恢复工作副本仍保留在原私有目录。代码已验收不代表生产已部署。当前文档收口须核验自身精确目标CI，不能拿35edea5f旧绿代替；生产生效继续待人工确认。
