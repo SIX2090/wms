@@ -1,5 +1,7 @@
 # WMS AI 唯一开发台账
 
+2026-11-14 PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001：既有PRINT-TEMPLATE-F01/F04文件生命周期子修复，关联BUG-2026-11-14-007；本地205项通过、逆向22项失败/15对照通过，目标CI待验收，生产未部署。三类模板删除、创建失败回收及测试静态目录隔离；不新增能力/权限/模型。完整冒烟经用户授权由本批Linux隔离CI验收，详见docs/audit/2026-11-14-print-template-file-lifecycle.md。
+
 2026-11-14 MOBILE-UPDATE-20261114-001：用户明确同意新旧 App 并存，允许建立并备份长期固定签名，并确认将该签名保存在 SIX2090/wms 的 Actions Secret WMS_MOBILE_SIGNING_BUNDLE。新包名 com.factory.wms.mobile，名称 WMS 手机端；旧 App 和本地数据保留，新 App 不自动读取旧 App 草稿或队列。此前缺原签名的实现已按 R8 撤回；本次基于 ee24269b 重新实现；5159ab60 的三个必需CI成功，但稳定提升因路径校验误拒 SHA...main 失败，已用79d821b8/32527ca9完整回退并证明Git树恢复。重评后补真实API传输层红绿用例，恢复固定签名实现，Android递增42/3.9.18、Windows54，重新独立验收；未验收不算交付。范围、测试、完整目标 SHA、稳定发布与设备状态统一见 docs/audit/2026-11-14-android-app-update.md；生产、账号密码和真实手机操作不在授权内。
 
 <!-- AI_TASK: F2.8-PARALLEL-001 -->

@@ -126,3 +126,18 @@ def bom_case(monkeypatch):
         assert client.post('/login', data={'username':'bom-audit','password':'fixture-only'}).status_code == 302
         yield client, ids
         db.session.remove()
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolated_static_folder(tmp_path_factory):
+    """测试上传与生成文件写入临时静态目录，避免累积到源码/生产上传目录。"""
+    import shutil
+    original = _wms_app.app.static_folder
+    target = tmp_path_factory.mktemp('wms-static') / 'static'
+    shutil.copytree(original, target, ignore=shutil.ignore_patterns('uploads', '__pycache__'))
+    (target / 'uploads' / 'print_templates').mkdir(parents=True)
+    _wms_app.app.static_folder = str(target)
+    try:
+        yield target
+    finally:
+        _wms_app.app.static_folder = original

@@ -20,6 +20,7 @@ from flask_login import login_required
 from pydantic import BaseModel, field_validator
 
 from db import db
+from print_template_files import _discard_unreferenced_template_file
 from utils import require_role
 
 TARGET_TYPES = {
@@ -226,16 +227,23 @@ def register_print_template_center_routes(app):
         filename = 'custom_%s_%s.xlsx' % (
             req.target_code, datetime.now().strftime('%Y%m%d%H%M%S%f'))
         dest = os.path.join(app.static_folder, rel_dir, filename)
-        shutil.copyfile(source, dest)
-        model = _model()
-        template = model(
-            name=req.name, target_type=req.target_type,
-            target_code=req.target_code, template_type='excel',
-            excel_template_path=f'/static/uploads/print_templates/{filename}',
-            is_default=False)
-        db.session.add(template)
-        db.session.commit()
-        return redirect(f'/global_print_template/{template.id}/edit')
+        try:
+            shutil.copyfile(source, dest)
+            model = _model()
+            template = model(
+                name=req.name, target_type=req.target_type,
+                target_code=req.target_code, template_type='excel',
+                excel_template_path=f'/static/uploads/print_templates/{filename}',
+                is_default=False)
+            db.session.add(template)
+            db.session.commit()
+            return redirect(f'/global_print_template/{template.id}/edit')
+        except Exception:
+            db.session.rollback()
+            _discard_unreferenced_template_file(
+                f'/static/uploads/print_templates/{filename}', app.static_folder)
+            app.logger.exception('打印模板新建失败')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
 
     @app.route('/print_templates/upload', methods=['POST'])
     @login_required
@@ -257,14 +265,21 @@ def register_print_template_center_routes(app):
             return jsonify({'status': 'error', 'msg': error}), 400
         upload.stream.seek(0)
         from app import save_print_template_file
-        path = save_print_template_file(upload, 'global', app.static_folder)
-        is_default = request.form.get('is_default') == '1'
-        if is_default:
-            model.query.filter_by(target_type=target_type, target_code=target_code, is_default=True).update({'is_default': False})
-        template = model(name=name, target_type=target_type, target_code=target_code, template_type='excel', excel_template_path=path, is_default=is_default)
-        db.session.add(template)
-        db.session.commit()
-        return redirect(url_for('print_templates'))
+        path = ''
+        try:
+            path = save_print_template_file(upload, 'global', app.static_folder)
+            is_default = request.form.get('is_default') == '1'
+            if is_default:
+                model.query.filter_by(target_type=target_type, target_code=target_code, is_default=True).update({'is_default': False})
+            template = model(name=name, target_type=target_type, target_code=target_code, template_type='excel', excel_template_path=path, is_default=is_default)
+            db.session.add(template)
+            db.session.commit()
+            return redirect(url_for('print_templates'))
+        except Exception:
+            db.session.rollback()
+            _discard_unreferenced_template_file(path, app.static_folder)
+            app.logger.exception('打印模板上传失败')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
 
     @app.route('/print_templates/<int:template_id>/set_default', methods=['POST'])
     @login_required
@@ -300,6 +315,13 @@ def register_print_template_center_routes(app):
         template = db.session.get(model, template_id)
         if template is None:
             return jsonify({'status': 'error', 'msg': '模板不存在'}), 404
-        db.session.delete(template)
-        db.session.commit()
+        path = template.excel_template_path
+        try:
+            db.session.delete(template)
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('打印模板删除失败')
+            return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
+        _discard_unreferenced_template_file(path, app.static_folder)
         return jsonify({'status': 'success'})

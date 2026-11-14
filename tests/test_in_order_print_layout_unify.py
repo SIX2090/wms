@@ -120,5 +120,5 @@ def test_builtin_managed_copy_upgrades_to_v2(tmp_path):
             "SELECT excel_template_path FROM in_order_print_template WHERE is_default=1"
         ).fetchone()[0]
     assert path.endswith('builtin_in_order_default_v2.xlsx'), path
-    abspath = APP_DIR / 'static' / 'uploads' / 'print_templates' / 'builtin_in_order_default_v2.xlsx'
+    abspath = Path(m.app.static_folder) / 'uploads' / 'print_templates' / 'builtin_in_order_default_v2.xlsx'
     assert abspath.exists()

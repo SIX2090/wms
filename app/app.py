@@ -6463,7 +6463,7 @@ def _ensure_builtin_excel_template_file(table):
         return None
     src_name, dst_name = spec
     try:
-        static_root = os.path.join(os.path.dirname(__file__), 'static')
+        static_root = app.static_folder
         src = os.path.join(static_root, 'templates', src_name)
         if not os.path.exists(src):
             return None
@@ -36084,10 +36084,12 @@ def create_print_template(model, prefix):
     if validate_msg:
         return api_error(validate_msg)
 
-    excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
+    excel_template_path = ''
+    from print_template_files import _discard_unreferenced_template_file
     html_template_content = ''
 
     try:
+        excel_template_path = save_print_template_file(excel_file, prefix, app.static_folder)
         if is_default:
             for template in model.query.filter_by(is_default=True).all():
                 template.is_default = False
@@ -36104,12 +36106,15 @@ def create_print_template(model, prefix):
             db.session.commit()
         except Exception as e:
             db.session.rollback()
+            _discard_unreferenced_template_file(excel_template_path, app.static_folder)
             app.logger.error(f'数据库操作失败: {e}')
             return jsonify({'status': 'error', 'msg': '操作失败'}), 500
         return jsonify({'status': 'success', 'id': template.id})
     except Exception as e:
         db.session.rollback()
-        return api_error('操作失败，请稍后重试')
+        _discard_unreferenced_template_file(excel_template_path, app.static_folder)
+        app.logger.exception('打印模板创建失败')
+        return jsonify({'status': 'error', 'msg': '操作失败，请稍后重试'}), 500
 
 def set_default_print_template(model, template_id):
     template = model.query.get_or_404(template_id)
@@ -36124,10 +36129,13 @@ def set_default_print_template(model, template_id):
         return api_error('操作失败，请稍后重试')
 
 def delete_print_template(model, template_id):
+    from print_template_files import _discard_unreferenced_template_file
     template = model.query.get_or_404(template_id)
+    template_path = template.excel_template_path
     try:
         db.session.delete(template)
         db.session.commit()
+        _discard_unreferenced_template_file(template_path, app.static_folder)
         return jsonify({'status': 'success'})
     except Exception as e:
         db.session.rollback()

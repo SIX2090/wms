@@ -565,7 +565,13 @@ def save_print_template_file(file_storage, prefix, static_folder):
     os.makedirs(absolute_dir, exist_ok=True)
 
     absolute_path = os.path.join(absolute_dir, filename)
-    file_storage.save(absolute_path)
+    try:
+        file_storage.save(absolute_path)
+    except Exception:
+        from print_template_files import _discard_unreferenced_template_file
+        _discard_unreferenced_template_file(
+            f'/static/uploads/print_templates/{filename}', static_folder)
+        raise
     from flask import url_for
     return url_for('static', filename=f'uploads/print_templates/{filename}')
 

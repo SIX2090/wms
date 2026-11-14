@@ -86,13 +86,13 @@ def test_builtin_templates_get_excel_file(tmp_path):
         assert path and path.endswith(expect_name), f"{table} 未回填: {path}"
         assert path.startswith('/static/uploads/print_templates/')
         from print_fill import template_file_abspath
-        abspath = template_file_abspath(path, str(STATIC_ROOT))
+        abspath = template_file_abspath(path, m.app.static_folder)
         assert os.path.exists(abspath), f"文件不存在: {abspath}"
 
     # 填充引擎可直接使用回填的模板
     from print_fill import build_filled_print_excel, template_file_abspath
     path = _get_path(db_path, 'in_order_print_template')
-    abspath = template_file_abspath(path, str(STATIC_ROOT))
+    abspath = template_file_abspath(path, m.app.static_folder)
 
     class _FakeOrder:
         order_no = 'IN26080001'

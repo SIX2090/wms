@@ -303,6 +303,7 @@
 | AI-R01-F01 | ai | records-2026-10.md |
 | 优先级 | ai | records-2026-10.md |
 | P1 | ai | records-2026-10.md |
+| PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001 | ai | records-2026-11.md |
 | MOBILE-UPDATE-20261114-001 | ai | records-2026-11.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
@@ -634,6 +635,7 @@
 | BUG-2026-10-31-025 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-027 | bugs | entries-2026-10.md |
+| BUG-2026-11-14-007 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-006 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-005 | bugs | entries-2026-11.md |
 | BUG-2026-11-14-001 | bugs | entries-2026-11.md |
