@@ -1527,7 +1527,7 @@ def register_subcontract_routes(app):
         from app import (SubcontractIssue, _acquire_order_write_lock,
                          api_error, log_operation)
         # P2-3 收敛：反提交经同一入口，delta 取正与发料严格对称。
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         issue = SubcontractIssue.query.get_or_404(id)
         if issue.status != 'completed':
             return api_error('只有已发料的委外发料单可以反提交')
@@ -1537,22 +1537,27 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外发料单已反提交，不能重复操作')
             issue = locked
-            for item in issue.items:
-                if item.material:
-                    # P2-3 收敛：库存恢复经单点入口（库位恢复由入口内部完成，
-                    # 库位键与完成端严格对称）。
-                    ok, err = apply_stock_delta(
-                        item.material, item.quantity or 0,
-                        transaction_type='revert_subcontract_issue',
-                        reference_type='subcontract_issue',
-                        reference_id=issue.id,
-                        remark=f'反提交委外发料 {issue.issue_no}',
-                        warehouse=issue.warehouse,
-                        location=issue.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存恢复失败')
+            recorded_result = _reverse_recorded_order_stock(issue)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in issue.items:
+                    if item.material:
+                        # P2-3 收敛：库存恢复经单点入口（库位恢复由入口内部完成，
+                        # 库位键与完成端严格对称）。
+                        ok, err = apply_stock_delta(
+                            item.material, item.quantity or 0,
+                            transaction_type='revert_subcontract_issue',
+                            reference_type='subcontract_issue',
+                            reference_id=issue.id,
+                            remark=f'反提交委外发料 {issue.issue_no}',
+                            warehouse=issue.warehouse,
+                            location=issue.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(err or '库存恢复失败')
             issue.status = 'pending'
             db.session.commit()
             log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
@@ -2210,7 +2215,7 @@ def register_subcontract_routes(app):
         from app import (SubcontractReceive, _acquire_order_write_lock, api_error,
                          log_operation)
         # P2-3 收敛：反提交经同一入口，delta 取负与收货严格对称。
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'completed':
             return api_error('只有已入库的委外收货单可以反提交')
@@ -2220,23 +2225,28 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外收货单已反提交，不能重复操作')
             receive = locked
-            for item in receive.items:
-                if item.material:
-                    # P2-3 收敛：库存回退经单点入口，delta 取负（与收货对称），
-                    # 库位回退由入口内部完成。
-                    ok, error_msg = apply_stock_delta(
-                        item.material,
-                        -(item.quantity or 0),
-                        transaction_type='revert_subcontract_receive',
-                        reference_type='subcontract_receive',
-                        reference_id=receive.id,
-                        remark=f'反提交委外收货 {receive.receive_no}',
-                        warehouse=receive.warehouse,
-                        location=receive.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(error_msg or '库存回退失败')
+            recorded_result = _reverse_recorded_order_stock(receive)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in receive.items:
+                    if item.material:
+                        # P2-3 收敛：库存回退经单点入口，delta 取负（与收货对称），
+                        # 库位回退由入口内部完成。
+                        ok, error_msg = apply_stock_delta(
+                            item.material,
+                            -(item.quantity or 0),
+                            transaction_type='revert_subcontract_receive',
+                            reference_type='subcontract_receive',
+                            reference_id=receive.id,
+                            remark=f'反提交委外收货 {receive.receive_no}',
+                            warehouse=receive.warehouse,
+                            location=receive.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(error_msg or '库存回退失败')
             receive.status = 'pending'
             db.session.commit()
             log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)

@@ -533,7 +533,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, _acquire_order_write_lock, api_error,
                          log_operation)
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_adjustment_stock
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'completed':
             return api_error('只有已完成的调整单可以反提交')
@@ -546,38 +546,43 @@ def register_adjustment_routes(app):
             # BUG-2026-08-02-010 修复：反提交时对称回退库位库存（与 complete 方向相反）。
             # P2-3 收敛后库位同步由 apply_stock_delta 内部按 location_management_enabled()
             # 自动判定，本函数不再直接使用 use_location。
-            for item in adjustment.items:
-                if not item.material_id:
-                    continue
-                quantity = item.quantity or 0
-                # P2-3 收敛：反提交经同一入口，delta 取负（complete +q → revert -q；
-                # complete -q → revert +q），与完成端严格对称。
-                if quantity > 0:
-                    ok, err = apply_stock_delta(
-                        item.material, -quantity,
-                        transaction_type='revert_adjustment_in',
-                        reference_type='adjustment',
-                        reference_id=adjustment.id,
-                        remark=f'反提交库存调整 {adjustment.adjustment_no}',
-                        warehouse=adjustment.warehouse,
-                        location=item.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err)
-                elif quantity < 0:
-                    ok, err = apply_stock_delta(
-                        item.material, -quantity,
-                        transaction_type='revert_adjustment_out',
-                        reference_type='adjustment',
-                        reference_id=adjustment.id,
-                        remark=f'反提交库存调整 {adjustment.adjustment_no}',
-                        warehouse=adjustment.warehouse,
-                        location=item.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err)
+            recorded_result = _reverse_recorded_adjustment_stock(adjustment)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in adjustment.items:
+                    if not item.material_id:
+                        continue
+                    quantity = item.quantity or 0
+                    # P2-3 收敛：反提交经同一入口，delta 取负（complete +q → revert -q；
+                    # complete -q → revert +q），与完成端严格对称。
+                    if quantity > 0:
+                        ok, err = apply_stock_delta(
+                            item.material, -quantity,
+                            transaction_type='revert_adjustment_in',
+                            reference_type='adjustment',
+                            reference_id=adjustment.id,
+                            remark=f'反提交库存调整 {adjustment.adjustment_no}',
+                            warehouse=adjustment.warehouse,
+                            location=item.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(err)
+                    elif quantity < 0:
+                        ok, err = apply_stock_delta(
+                            item.material, -quantity,
+                            transaction_type='revert_adjustment_out',
+                            reference_type='adjustment',
+                            reference_id=adjustment.id,
+                            remark=f'反提交库存调整 {adjustment.adjustment_no}',
+                            warehouse=adjustment.warehouse,
+                            location=item.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(err)
             adjustment.status = 'pending'
             db.session.commit()
             log_operation('反提交库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)

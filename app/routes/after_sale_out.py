@@ -604,7 +604,7 @@ def register_after_sale_out_routes(app):
         from app import (AfterSaleOutOrder, _acquire_order_write_lock, api_error,
                          log_operation)
         # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         from sqlalchemy.orm import selectinload
         try:
             order = AfterSaleOutOrder.query.get_or_404(id)
@@ -618,23 +618,28 @@ def register_after_sale_out_routes(app):
                 return jsonify({'status': 'error', 'msg': '该售后出库单状态已变化，不能重复反提交'}), 409
             order = locked
 
-            for item in order.items:
-                if item.material and (item.quantity or 0) > 0:
-                    # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成，
-                    # 库位键口径与存量逐字一致）。
-                    ok, err = apply_stock_delta(
-                        item.material,
-                        item.quantity or 0,
-                        transaction_type='revert_after_sale_out',
-                        reference_type='after_sale_out_order',
-                        reference_id=order.id,
-                        remark=f'反提交售后出库 {order.order_no}',
-                        warehouse=order.warehouse,
-                        location=order.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存恢复失败')
+            recorded_result = _reverse_recorded_order_stock(order)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in order.items:
+                    if item.material and (item.quantity or 0) > 0:
+                        # P2-3 收敛：库存还原经单点入口（库位还原由入口内部完成，
+                        # 库位键口径与存量逐字一致）。
+                        ok, err = apply_stock_delta(
+                            item.material,
+                            item.quantity or 0,
+                            transaction_type='revert_after_sale_out',
+                            reference_type='after_sale_out_order',
+                            reference_id=order.id,
+                            remark=f'反提交售后出库 {order.order_no}',
+                            warehouse=order.warehouse,
+                            location=order.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(err or '库存恢复失败')
 
             order.status = 'pending'
             db.session.commit()

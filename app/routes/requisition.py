@@ -682,7 +682,7 @@ def register_requisition_routes(app):
         """工单领料单撤销"""
         from sqlalchemy.orm import selectinload
         # P1-7②（2026-09-25）：库存写入改经 apply_stock_delta 单点入口
-        from services.warehouse_stock_service import apply_stock_delta
+        from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         from app import (ProductionRequisition, _acquire_order_write_lock,
                          api_error, log_operation)
         requisition = ProductionRequisition.query.get_or_404(id)
@@ -696,21 +696,26 @@ def register_requisition_routes(app):
                 return api_error('该工单领料单已撤销，不能重复操作')
             requisition = locked
             # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
-            for item in requisition.items:
-                if item.material and (item.quantity or 0) > 0:
-                    # P1-7②（2026-09-25）：与 complete 对称，恢复也走唯一入口
-                    ok, err = apply_stock_delta(
-                        item.material, item.quantity or 0,
-                        transaction_type='revert_requisition',
-                        reference_type='requisition',
-                        reference_id=requisition.id,
-                        remark=f'撤销工单领料单 {requisition.req_no}',
-                        warehouse=requisition.warehouse,
-                        location=requisition.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存恢复失败')
+            recorded_result = _reverse_recorded_order_stock(requisition)
+            if recorded_result is not None and not recorded_result[0]:
+                db.session.rollback()
+                return api_error(recorded_result[1])
+            if recorded_result is None:
+                for item in requisition.items:
+                    if item.material and (item.quantity or 0) > 0:
+                        # P1-7②（2026-09-25）：与 complete 对称，恢复也走唯一入口
+                        ok, err = apply_stock_delta(
+                            item.material, item.quantity or 0,
+                            transaction_type='revert_requisition',
+                            reference_type='requisition',
+                            reference_id=requisition.id,
+                            remark=f'撤销工单领料单 {requisition.req_no}',
+                            warehouse=requisition.warehouse,
+                            location=requisition.location,
+                        )
+                        if not ok:
+                            db.session.rollback()
+                            return api_error(err or '库存恢复失败')
 
             requisition.status = 'pending'
             try:
