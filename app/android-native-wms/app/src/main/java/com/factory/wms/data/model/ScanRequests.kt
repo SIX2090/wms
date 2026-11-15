@@ -167,5 +167,7 @@ data class StocktakeDraft(
     @SerializedName("warehouse_name") val warehouseName: String? = null,
     /** INV-BATCH-001-E：上次所选盘点单（恢复后自动回选，仍进行中才可提交） */
     @SerializedName("check_id") val checkId: Long? = null,
-    val lines: List<ScanLine> = emptyList()
+    val lines: List<ScanLine> = emptyList(),
+    val requestId: String? = null,
+    val selectedArea: String? = null
 )

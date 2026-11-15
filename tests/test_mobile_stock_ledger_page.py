@@ -108,7 +108,10 @@ def test_T4_viewmodel_query_guards():
     assert 'loadWarehouses()' not in init_m.group(1), 'init 不得自动加载'
     # 查询双必填：仓库 + 物料（缺一不发请求）
     assert re.search(r'val warehouseId = s\.selectedWarehouseId \?: return', src)
-    assert re.search(r'val material = s\.selectedMaterial \?: return', src)
+    assert 's.selectedWarehouseId == null || s.selectedMaterial?.code == null' in src
+    refresh = src.split('fun refresh() {', 1)[1].split('/**', 1)[0]
+    assert refresh.index('return') < refresh.index('loadPage(')
+    assert 'pageJob?.cancel()' in refresh and 'items = emptyList()' in refresh
     # loadMore 分页守卫
     assert 'if (s.isLoading || s.isLoadingMore || !pager.hasMore || !s.queried) return' in src
     # 复用既有分页状态机
@@ -156,10 +159,10 @@ def test_T7_home_entry_card():
 
 def test_T8_version_bumped():
     src = _read(GRADLE)
-    # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 52/3.9.28（用户要求App名称统一WMS），
+    # 版本号随每次发版递增（BUG-2026-09-14-027）：当前基线 53/3.9.29（用户要求App名称统一WMS），
     # 该功能首次发布于 26/3.9.2；后续递增版本号时同步更新本基线。
-    assert 'versionCode = 52' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
-    assert 'versionName = "3.9.28"' in src
+    assert 'versionCode = 53' in src, 'versionCode 未递增（无法覆盖安装，BUG-2026-09-14-027）'
+    assert 'versionName = "3.9.29"' in src
     assert 'AI-MOB-LDG-F01' in src, '版本 changelog 注释缺失'
 
 

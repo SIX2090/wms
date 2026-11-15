@@ -592,6 +592,16 @@ POST_SPLIT_BUGS['BUG-2026-11-15-004'] = 'fixed'  # archive classification only; 
 POST_SPLIT_BUGS['BUG-2026-11-15-006'] = 'fixed'  # Code registration only; exact CI and activation remain separate.
 POST_SPLIT_BUGS['BUG-2026-11-15-008'] = 'fixed'  # Parser classification only; target CI and device activation remain separate.
 
-# Native audit registrations: archive classification only; exact CI/delivery remains in task receipt.
+# Native audit registrations: archive parser classification only; exact CI/delivery remains in the task receipt.
+POST_SPLIT_BUGS['BUG-2026-11-15-009'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-010'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-011'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-012'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-013'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-014'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-15-015'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-016'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-017'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-018'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-15-019'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-15-020'] = 'fixed'

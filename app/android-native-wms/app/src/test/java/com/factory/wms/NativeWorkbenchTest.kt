@@ -67,7 +67,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
     private val models = mutableListOf<ViewModel>()
     private var focusManager: FocusManager? = null
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
-    private val warehouse = WarehouseDto(1, "WH-SYNTH", "合成一号仓")
+    private val warehouse = WarehouseDto(1, "WH-SYNTH", "合成一号仓", isDefault = true)
     private val item = DailyReportItem(1, "SYNTH-1", "2026-11-15", "M-6204", "深沟球轴承",
         quantity = 120.0, unit = "套", price = 0.0, amount = 0.0, operator = "合成账号", remark = "", spec = "6204-2RS")
 

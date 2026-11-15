@@ -41,6 +41,7 @@ class ScanQuantityEditTest {
         DataStoreTestReset.resetWmsSettingsDataStore()
         val app = ApplicationProvider.getApplicationContext<Application>()
         repository = WmsRepository(app)
+        RetrofitClient.setSession("http://127.0.0.1:9/", "synthetic-quantity-owner", 91)
         vm = ScanViewModel(app)
     }
 
@@ -262,8 +263,7 @@ class ScanQuantityEditTest {
         val server = MockWebServer()
         server.start()
         try {
-            RetrofitClient.setBaseUrl(server.url("/").toString())
-            RetrofitClient.setToken("test-token")
+            RetrofitClient.setSession(server.url("/").toString(), "test-token", 91)
             seedState(ScanUiState(
                 scanLines = listOf(line()), totalQuantity = 1.0,
                 selectedWarehouse = WarehouseDto(id = 1, code = "WH02", name = "第二仓"),

@@ -39,7 +39,7 @@ data class ReportUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     /**
      * 当前查询仓库：每日报表下拉只提供真实仓库（不含"默认仓库"/"全部仓库（汇总）"），
-     * 故此处恒为仓库 id 字符串；进入报表页加载仓库后若为空则默认选中第一个仓库
+     * 故此处恒为仓库 id 字符串；进入报表页加载仓库后若为空则使用系统配置的默认仓库仓库
      * （见 load）。仓库列表失败时仍兼容服务端默认仓。
      */
     val selectedWarehouseId: String? = null,
@@ -96,13 +96,14 @@ class ReportViewModel internal constructor(
                     if (version != requestVersion) return@launch
                     val selected = _uiState.value.selectedWarehouseId
                     val nextSelected = if (selected.isNullOrBlank() && !list.isNullOrEmpty()) {
-                        list.first().id?.toString()
+                        list.singleOrNull { it.isDefault }?.id?.toString()
                     } else selected
                     _uiState.value = _uiState.value.copy(
                         warehouses = list.orEmpty(), selectedWarehouseId = nextSelected
                     )
                 }
                 val state = _uiState.value
+                check(!state.selectedWarehouseId.isNullOrBlank()) { "请先选择仓库；系统未配置有效默认仓库" }
                 val resolvedQuery = Triple(state.reportType, state.date, state.selectedWarehouseId)
                 loadingQuery = resolvedQuery
                 val data = fetchReport(

@@ -94,9 +94,9 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
                 onSuccess = { list ->
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
-                        // 默认选中第一个仓库（与出库页 loadWarehouses 行为一致）
+                        // 使用系统配置的默认仓库仓库（与出库页 loadWarehouses 行为一致）
                         selectedWarehouse = _uiState.value.selectedWarehouse
-                            ?: list.firstOrNull()
+                            ?: list.singleOrNull { it.isDefault }
                     )
                 },
                 onFailure = { /* 仓库加载失败不阻塞建单，建单时会再报具体错误 */ }
@@ -136,7 +136,10 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
                 dryRun = true
             )
             repository.createVoiceOutDraft(request).fold(
-                onSuccess = { result -> applyPreview(result) },
+                onSuccess = { result ->
+                    applyPreview(result)
+                    repository.acknowledgeNativeWrite("voice_out_draft:${request.dryRun}")
+                },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
                         loading = false,
@@ -255,6 +258,7 @@ class VoiceOutDraftViewModel(application: Application) : AndroidViewModel(applic
                         createdLines = lines,
                         error = null
                     )
+                    repository.acknowledgeNativeWrite("voice_out_draft:${request.dryRun}")
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(

@@ -10,6 +10,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import com.factory.wms.data.api.RetrofitClient
 
 /**
  * 盘点记录回查（AI-MOB-CHECK-F01）。
@@ -46,6 +50,11 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
     private val _uiState = MutableStateFlow(StocktakeRecordUiState())
     val uiState: StateFlow<StocktakeRecordUiState> = _uiState.asStateFlow()
 
+    private var listVersion = 0L
+    private var detailVersion = 0L
+    private var listJob: Job? = null
+    private var detailJob: Job? = null
+
     init {
         // BUG-2026-08-24-006：ViewModel 在 App 启动导航图组合阶段即被创建，
         // 此时可能尚未登录/会话未还原，不能在 init 拉数据（会留下过期错误态）。
@@ -66,13 +75,17 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
     /** 切换「已作废」视图：重新从第 1 页拉取。 */
     fun toggleVoided() {
         if (_uiState.value.isLoading) return
-        _uiState.value = _uiState.value.copy(showVoided = !_uiState.value.showVoided)
+        _uiState.value = _uiState.value.copy(showVoided = !_uiState.value.showVoided,
+            records = emptyList(), total = 0, page = 1, totalPages = 0)
         load()
     }
 
     private fun fetch(page: Int, append: Boolean) {
         val state = _uiState.value
-        viewModelScope.launch {
+        listJob?.cancel()
+        val version = ++listVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        listJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(
                 isLoading = true,
                 error = null,
@@ -80,12 +93,15 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
             )
             // 服务端 status 缺省为 completed；显式传 void 才看已作废记录
             val status = if (state.showVoided) "void" else "completed"
-            repository.loadStocktakeRecords(
+            val response = repository.loadStocktakeRecords(
                 warehouse = null, // 回看本人全部经手记录（跨仓），不做仓库过滤
                 status = status,
                 page = page,
                 pageSize = state.pageSize
-            ).fold(
+            )
+            currentCoroutineContext().ensureActive()
+            if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { data ->
                     val merged = if (append) state.records + data.items else data.items
                     _uiState.value = _uiState.value.copy(
@@ -132,8 +148,14 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
             detailError = null,
             detailTargetId = id
         )
-        viewModelScope.launch {
-            repository.loadStocktakeRecordDetail(id).fold(
+        detailJob?.cancel()
+        val version = ++detailVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        detailJob = viewModelScope.launch {
+            val response = repository.loadStocktakeRecordDetail(id)
+            currentCoroutineContext().ensureActive()
+            if (version != detailVersion || _uiState.value.detailTargetId != id || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { data ->
                     _uiState.value = _uiState.value.copy(
                         detail = data,
@@ -152,6 +174,7 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
 
     /** 关闭明细对话框。 */
     fun clearDetail() {
+        detailJob?.cancel(); detailVersion++
         _uiState.value = _uiState.value.copy(
             detail = null,
             detailLoading = false,

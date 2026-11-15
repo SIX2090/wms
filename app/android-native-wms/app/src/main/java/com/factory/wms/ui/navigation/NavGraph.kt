@@ -132,8 +132,7 @@ internal fun bottomTabs(): List<BottomTab> = listOf(
 )
 
 @Composable
-fun AppNavGraph() {
-    val navController = rememberNavController()
+fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
     // BUG-2026-09-14-032（本次修复的根因）：此处**不得**再饿汉创建全部 ViewModel。
     //
@@ -344,9 +343,11 @@ fun AppNavGraph() {
                     )
                 }
 
-                composable(Screen.StocktakeRecognize.route) {
+                composable(Screen.StocktakeRecognize.route) { entry ->
                     val aiViewModel: AiViewModel = viewModel()
-                    val stocktakeViewModel: ScanViewModel = viewModel(key = "stocktake", factory = ScanViewModel.Factory)
+                    val stocktakeOwner = remember(entry) { navController.getBackStackEntry(Screen.Stocktake.route) }
+                    val stocktakeViewModel: ScanViewModel = viewModel(viewModelStoreOwner = stocktakeOwner,
+                        key = "stocktake", factory = ScanViewModel.Factory)
                     StocktakeRecognizeScreen(
                         aiViewModel = aiViewModel,
                         scanViewModel = stocktakeViewModel,
