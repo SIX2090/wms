@@ -546,42 +546,42 @@
     <section class="mobile-scan-launch" aria-label="手机扫码入口">
         <div class="mobile-scan-launch-title">
             <h2>手机端</h2>
-            <span>扫码请用APP</span>
+            <a href="{{ url_for('mobile_home') }}" target="_top">打开手机端首页</a>
         </div>
         <div class="mobile-scan-grid">
             <a class="mobile-app-entry" href="{{ url_for('mobile_app_download') }}">
                 <i class="bi bi-phone"></i>
                 <div>
                     <strong>下载扫码APP</strong>
-                    <span>浏览器不支持稳定扫码，APP 支持连续扫码入库、出库、查询、盘点</span>
+                    <span>浏览器和原生 APP 均可扫码，按使用习惯选择</span>
                 </div>
             </a>
             <a class="mobile-scan-entry in" href="{{ url_for('mobile_scan', mode='in') }}">
                 <i class="bi bi-box-arrow-in-down"></i>
                 <div>
-                    <strong>手工入库</strong>
-                    <span>手机浏览器输入物料编码入库</span>
+                    <strong>入库</strong>
+                    <span>摄像头扫码 / 手工录入</span>
                 </div>
             </a>
             <a class="mobile-scan-entry out" href="{{ url_for('mobile_scan', mode='out') }}">
                 <i class="bi bi-box-arrow-up"></i>
                 <div>
-                    <strong>手工出库</strong>
-                    <span>手机浏览器输入物料编码出库</span>
+                    <strong>出库</strong>
+                    <span>摄像头扫码 / 手工录入</span>
                 </div>
             </a>
             <a class="mobile-scan-entry query" href="{{ url_for('mobile_scan', mode='query') }}">
                 <i class="bi bi-search"></i>
                 <div>
-                    <strong>手工查询</strong>
+                    <strong>查库存</strong>
                     <span>查库存和物料信息</span>
                 </div>
             </a>
             <a class="mobile-scan-entry check" href="{{ url_for('mobile_scan', mode='check') }}">
                 <i class="bi bi-clipboard-check"></i>
                 <div>
-                    <strong>手工盘点</strong>
-                    <span>输入物料编码录入实盘数</span>
+                    <strong>盘点</strong>
+                    <span>扫码或手工录入实盘数</span>
                 </div>
             </a>
         </div>

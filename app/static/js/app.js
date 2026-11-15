@@ -3942,7 +3942,8 @@ document.addEventListener('DOMContentLoaded', function() {
         window.WmsTabs.updateActiveMenu(currentPath + window.location.search);
     }
 
-    if (!isWmsEmbeddedPage()) {
+    if (!isWmsEmbeddedPage() && !document.body.classList.contains('mobile-app-page')) {
+        // 手机端使用直接页面导航，保留桌面多标签工作区。
         // 启用多开菜单
         if (!isMobileViewport()) enableMultiOpenMenus();
 

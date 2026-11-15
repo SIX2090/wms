@@ -52,7 +52,7 @@ const flush=()=>new Promise(r=>setImmediate(r));
  }
  if(scenario.startsWith('scanner-')){
   const source=read('app/templates/mobile_scan.html'),messages=[],timers=[],scanner=node(),video=node();scanner.hidden=true;
-  const ctx={barcodeScanner:scanner,barcodeVideo:video,zxingCodeReader:null,scanCode:node(),setStatus:(m,t)=>messages.push({m,t}),lookupMaterial(){},setTimeout:f=>timers.push(f),Map};
+  const ctx={window:{isSecureContext:true},barcodeScanner:scanner,barcodeVideo:video,zxingCodeReader:null,scanCode:node(),setStatus:(m,t)=>messages.push({m,t}),lookupMaterial(){},setTimeout:f=>timers.push(f),Map};
   if(scenario!=='scanner-missing')ctx.ZXing={BrowserMultiFormatReader:class{reset(){}decodeFromVideoDevice(){return Promise.reject({name:'NotAllowedError'});}},BarcodeFormat:{},DecodeHintType:{}};
   vm.createContext(ctx);vm.runInContext(fn(source,'stopBarcodeScanner')+'\n'+fn(source,'startBarcodeScanner'),ctx);ctx.startBarcodeScanner();
   if(scenario==='scanner-missing'){assert(messages.some(x=>/库加载失败/.test(x.m)));return;}
