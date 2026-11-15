@@ -196,5 +196,3 @@
 | 验证 | records-2026-09.md |
 | AI-PROMPT-V2-2026-10-04 | records-2026-10.md |
 
-
-| AI-APP-AUDIT-FIX-20261115-001 | records-2026-11.md |

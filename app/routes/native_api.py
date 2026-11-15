@@ -3134,7 +3134,7 @@ def register_native_api_routes(app):
         warehouses = Warehouse.query.filter_by(status='active').order_by(Warehouse.code.asc(), Warehouse.id.asc()).all()
         return api_json_success({
             'items': [
-                {'id': w.id, 'code': w.code or '', 'name': w.name or '', 'is_default': bool(w.is_default)}
+                {'id': w.id, 'code': w.code or '', 'name': w.name or ''}
                 for w in warehouses
             ]
         })
