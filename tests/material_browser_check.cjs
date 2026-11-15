@@ -190,6 +190,35 @@ async function exercise(browser,fixture,migrated){
  for(const code of ['CI-MATERIAL','BENCH-'+label+'-0'])check(state.materials.filter(r=>r.code===code).length===1,'Duplicate material rows');
  check(state.units.filter(r=>r.code==='CI-UNIT').length===1,'Duplicate unit rows');record.state=state;
  if(migrated)check(state.materials.filter(r=>r.code==='CI-KEYBOARD'&&r.unit_id===2).length===1,'Ordinary keyboard save did not persist the selected unit');
+ if(migrated){
+  record.h5=[];record.stage='h5-native-navigation';
+  for(const width of [320,375,414]){
+   await page.setViewportSize({width,height:820});
+   await page.goto(fixture.origin+'/mobile');
+   const nav=page.getByRole('navigation',{name:'手机端主导航',exact:true});
+   await nav.waitFor({state:'visible'});
+   check(await nav.locator('a').count()===5,'H5 main navigation lost an entry');
+   const layout=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,
+    nav:document.querySelector('.h5-app-nav').getBoundingClientRect().toJSON(),
+    cards:[...document.querySelectorAll('.h5-function-card')].map(e=>e.getBoundingClientRect().toJSON())}));
+   check(layout.scroll<=layout.width+1,'H5 home overflows phone viewport');
+   check(layout.cards.length===9&&layout.cards.every(c=>c.width>0&&c.x>=-1&&c.right<=layout.width+1),'H5 home cards are clipped');
+   await page.screenshot({path:path.join(output,'h5-home-'+width+'.png'),fullPage:true});
+   await nav.getByRole('link',{name:'入库',exact:true}).click();
+   await page.waitForURL(url=>url.pathname==='/mobile/scan'&&url.searchParams.get('mode')==='in');
+   check(await page.locator('#barcodeBtn').isVisible()&&await page.locator('#cameraBtn').isVisible(),'H5 camera or recognition entry is hidden');
+   check(await page.getByRole('navigation',{name:'手机端主导航',exact:true}).locator('[aria-current="page"]').getAttribute('data-mobile-tab')==='in','H5 active tab is wrong');
+   await page.getByRole('navigation',{name:'手机端主导航',exact:true}).getByRole('link',{name:'我的',exact:true}).click();
+   await page.waitForURL(url=>url.pathname==='/mobile/me');
+   check(await page.locator('.h5-profile-account').innerText().then(text=>text.includes('browser-a')),'H5 account does not match the authenticated actor');
+   await page.getByRole('navigation',{name:'手机端主导航',exact:true}).getByRole('link',{name:'首页',exact:true}).click();
+   await page.waitForURL(url=>url.pathname==='/mobile'||url.pathname==='/mobile/');
+   await page.locator('.h5-function-card').filter({hasText:'物料档案'}).click();
+   await page.waitForURL(url=>url.pathname==='/material'&&url.searchParams.get('mobile')==='1');
+   check(await page.getByRole('navigation',{name:'手机端主导航',exact:true}).isVisible(),'H5 chrome was lost on material navigation');
+   record.h5.push({width,layout,navigation:true});
+  }
+ }
  check(record.pageErrors.length===0,'Unexpected page script error');await context.close();
 }
 (async()=>{
