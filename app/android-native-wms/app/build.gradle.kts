@@ -41,8 +41,9 @@ android {
         // 3.9.15(39): BUG-2026-11-14-005 queue wakeup with complete version-test binding.
         // 3.9.18(42): parallel mobile App, fixed signing and verified in-app updates.
         // 3.9.19(43): readable quantities, persistent input errors and scoped queue status.
-        versionCode = 44
-        versionName = "3.9.20"
+        // 3.9.21(45): calm workbench, material hierarchy and adaptive reports.
+        versionCode = 45
+        versionName = "3.9.21"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

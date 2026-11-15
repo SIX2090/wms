@@ -1,5 +1,7 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.components.WmsMaterialIdentity
+import com.factory.wms.ui.components.WmsQuantityText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -759,7 +761,7 @@ fun OpeningStockScreen(
 }
 
 @Composable
-private fun OpeningStockLineCard(
+internal fun OpeningStockLineCard(
     line: OpeningStockLine,
     index: Int,
     onClick: () -> Unit,
@@ -769,76 +771,25 @@ private fun OpeningStockLineCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        shape = MaterialTheme.shapes.medium,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(CardCyan.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("${index + 1}", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("物料 ${index + 1}", style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariant)
+            WmsMaterialIdentity(line.materialCode, line.materialName, line.materialBrand, line.materialSpec)
+            line.price?.let {
+                Text("单价: ¥${"%.2f".format(it)}", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    line.materialCode,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val materialDetails = listOfNotNull(
-                    line.materialName?.takeIf { it.isNotBlank() },
-                    line.materialBrand?.takeIf { it.isNotBlank() },
-                    line.materialSpec?.takeIf { it.isNotBlank() }
-                ).joinToString()
-                if (materialDetails.isNotBlank()) {
-                    Text(
-                        materialDetails,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+            HorizontalDivider(color = DividerSoft)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("点击修改", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                    WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.fillMaxWidth())
                 }
-                line.price?.let {
-                    Text(
-                        "单价: ¥${"%.2f".format(it)}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                IconButton(onClick = onRemove, modifier = Modifier.size(WmsDimens.TouchTargetMin)) {
+                    Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
                 }
-            }
-            // 数量胶囊
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = CardCyan.copy(alpha = 0.10f)
-            ) {
-                Text(
-                    "× ${formatQuantity(line.quantity)}",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            IconButton(
-                onClick = onRemove,
-                // AI-APP-FIX-109：36dp 低于 48dp 最小触控目标（WmsDimens.TouchTargetMin），
-                // 戴手套点不中、误触相邻数量胶囊，放大到 48dp。
-                modifier = Modifier.size(WmsDimens.TouchTargetMin)
-            ) {
-                Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(18.dp))
             }
         }
     }

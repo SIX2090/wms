@@ -333,7 +333,7 @@ fun AssistantChatScreen(
                         Icon(
                             Icons.Outlined.DeleteSweep,
                             contentDescription = "清空对话",
-                            tint = Color.White
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }

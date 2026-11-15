@@ -25,10 +25,10 @@ object WmsDimens {
     val Space3xl = 32.dp
 
     // ── 圆角阶梯 ──
-    val CornerSm = 10.dp
-    val CornerMd = 14.dp
-    val CornerLg = 18.dp
-    val CornerXl = 22.dp
+    val CornerSm = 8.dp
+    val CornerMd = 12.dp
+    val CornerLg = 16.dp
+    val CornerXl = 24.dp
 
     // ── 触控目标 ──
     // Android 无障碍指南最小 48dp。现场作业戴手套，低于此值误触率明显上升。
@@ -42,7 +42,7 @@ object WmsDimens {
     val CardPadding = 16.dp
 
     // ── 页面水平边距 ──
-    val PagePaddingHorizontal = 20.dp
+    val PagePaddingHorizontal = 16.dp
 }
 
 /**

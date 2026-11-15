@@ -1,368 +1,108 @@
 package com.factory.wms.ui.screens
 
-import androidx.compose.animation.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
 import com.factory.wms.ui.components.StatusBarIconEffect
+import com.factory.wms.ui.components.WmsPrimaryButton
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoginScreen(
-    viewModel: AuthViewModel,
-    onLoginSuccess: () -> Unit
-) {
+fun LoginScreen(viewModel: AuthViewModel, onLoginSuccess: () -> Unit) {
     val uiState by viewModel.uiState.collectAsState()
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    var baseUrl by remember { mutableStateOf(uiState.baseUrl.ifEmpty { BuildConfig.DEFAULT_SERVER_URL }) }
-    var showPassword by remember { mutableStateOf(false) }
-    val focusManager = LocalFocusManager.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val haptics = LocalHapticFeedback.current
-
-    // 深蓝渐变背景 → 浅色状态栏图标（修复深色图标在深色背景上不可读）
-    StatusBarIconEffect(darkIcons = false)
-
-    // 当已保存的服务器地址变化时，同步到输入框
-    LaunchedEffect(uiState.baseUrl) {
-        if (uiState.baseUrl.isNotEmpty() && baseUrl != uiState.baseUrl) {
-            baseUrl = uiState.baseUrl
-        }
-    }
-
+    StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.background.luminance() > 0.5f)
     LaunchedEffect(uiState.isLoggedIn) {
-        if (uiState.isLoggedIn) {
-            onLoginSuccess()
-        }
+        if (uiState.isLoggedIn) onLoginSuccess()
     }
-
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             viewModel.clearError()
         }
     }
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = Background) { padding ->
+        LoginForm(uiState.baseUrl.ifEmpty { BuildConfig.DEFAULT_SERVER_URL }, uiState.isLoading,
+            Modifier.padding(padding), onLogin = viewModel::login)
+    }
+}
 
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) }
-    ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Primary,
-                            Color(0xFF2D3FBF),
-                            Color(0xFF1A237E)
-                        )
-                    )
-                )
-        ) {
-            // Decorative circles
-            Box(
-                modifier = Modifier
-                    .size(220.dp)
-                    .offset(x = (-80).dp, y = (-80).dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.04f))
-            )
-            Box(
-                modifier = Modifier
-                    .size(160.dp)
-                    .align(Alignment.TopEnd)
-                    .offset(x = 40.dp, y = (-40).dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.05f))
-            )
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .align(Alignment.BottomStart)
-                    .offset(x = (-40).dp, y = 40.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.03f))
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    // AI-APP-UI-002：键盘弹起 / 小屏 / 大字体场景下登录卡片可能被顶出
-                    // 屏幕（原先整体不可滚，点不到登录按钮）。加垂直滚动 + imePadding，
-                    // 内容短时仍居中，内容超高时可滚动访问。
-                    .verticalScroll(rememberScrollState())
-                    .imePadding()
-                    .padding(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                // Logo（白色描边圆角方块 + 内层淡色衬底，更有层次感）
-                Box(
-                    modifier = Modifier
-                        .size(92.dp)
-                        .clip(RoundedCornerShape(26.dp))
-                        .background(Color.White.copy(alpha = 0.10f))
-                        .padding(5.dp)
-                        .clip(RoundedCornerShape(21.dp))
-                        .background(Color.White.copy(alpha = 0.16f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Warehouse,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(46.dp)
-                    )
+/** 测试直接操作真实登录表单；不会构造仓库、账号或请求。 */
+@Composable
+internal fun LoginForm(initialBaseUrl: String, isLoading: Boolean, modifier: Modifier = Modifier,
+    onLogin: (String, String, String) -> Unit) {
+    var username by rememberSaveable { mutableStateOf("") }
+    // 密码只驻留当前组合，不写入可保存状态。
+    var password by remember { mutableStateOf("") }
+    var baseUrl by rememberSaveable { mutableStateOf(initialBaseUrl) }
+    var showPassword by remember { mutableStateOf(false) }
+    var showConnection by rememberSaveable { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    LaunchedEffect(initialBaseUrl) { if (initialBaseUrl.isNotBlank()) baseUrl = initialBaseUrl }
+    val loginEnabled = !isLoading && username.isNotBlank() && password.isNotBlank()
+    val login = {
+        focusManager.clearFocus()
+        if (loginEnabled) onLogin(username, password, baseUrl)
+    }
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding()
+        .padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Outlined.Warehouse, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
+            Text("WMS 仓库管理", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("入库 · 出库 · 盘点 · 识物", style = MaterialTheme.typography.bodyLarge, color = OnSurfaceVariant)
+        }
+        Surface(color = CardBackground, shape = MaterialTheme.shapes.large) {
+            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("登录工作台", style = MaterialTheme.typography.titleLarge)
+                OutlinedTextField(username, { username = it }, label = { Text("用户名") },
+                    leadingIcon = { Icon(Icons.Outlined.Person, null) }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }))
+                OutlinedTextField(password, { password = it }, label = { Text("密码") },
+                    leadingIcon = { Icon(Icons.Outlined.Lock, null) }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium,
+                    visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailingIcon = { IconButton(onClick = { showPassword = !showPassword }) {
+                        Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                            if (showPassword) "隐藏密码" else "显示密码")
+                    } }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { login() }))
+                WmsPrimaryButton("登录", login, Modifier.fillMaxWidth(), loading = isLoading, enabled = loginEnabled)
+                HorizontalDivider(color = DividerSoft)
+                TextButton(onClick = { showConnection = !showConnection }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Outlined.Dns, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (showConnection) "收起连接设置" else "连接设置")
+                    Icon(if (showConnection) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Text(
-                    "WMS 仓库管理",
-                    color = Color.White,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                Text(
-                    // BUG-2026-09-18-007：功能范围陈述，"扫码"只修饰入库一项会让人以为
-                    // 其余能力也要扫码才能用（实际出库/盘点/期初均可手工录入）。
-                    "入库 · 出库 · 盘点 · 识物",
-                    color = Color.White.copy(alpha = 0.75f),
-                    fontSize = 14.sp,
-                    letterSpacing = 1.sp
-                )
-
-                Spacer(modifier = Modifier.height(44.dp))
-
-                // Login card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(24.dp),
-                    // AI-APP-FIX-303：登录卡底色随主题（亮白/暗深灰）——硬编码白卡
-                    // 会让暗色模式下 OnSurface 变浅文本压白底不可读
-                    colors = CardDefaults.cardColors(containerColor = CardBackground),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(24.dp)
-                    ) {
-                        Text(
-                            "登录",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = OnSurface
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Server URL
-                        OutlinedTextField(
-                            value = baseUrl,
-                            onValueChange = { baseUrl = it },
-                            label = { Text("服务器地址") },
-                            placeholder = { Text("http://192.168.1.100:5000") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Dns,
-                                    null,
-                                    tint = Primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Uri,
-                                imeAction = ImeAction.Next
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Primary,
-                                focusedLabelColor = Primary,
-                                unfocusedBorderColor = BorderSoft,
-                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = CardBackground
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Username
-                        OutlinedTextField(
-                            value = username,
-                            onValueChange = { username = it },
-                            label = { Text("用户名") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Person,
-                                    null,
-                                    tint = Primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Next
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onNext = { focusManager.moveFocus(FocusDirection.Down) }
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Primary,
-                                focusedLabelColor = Primary,
-                                unfocusedBorderColor = BorderSoft,
-                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = CardBackground
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Password
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = { password = it },
-                            label = { Text("密码") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Outlined.Lock,
-                                    null,
-                                    tint = Primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            visualTransformation = if (showPassword) VisualTransformation.None
-                                else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                IconButton(onClick = { showPassword = !showPassword }) {
-                                    Icon(
-                                        if (showPassword) Icons.Outlined.VisibilityOff
-                                        else Icons.Outlined.Visibility,
-                                        contentDescription = if (showPassword) "隐藏密码" else "显示密码",
-                                        tint = OnSurfaceVariant
-                                    )
-                                }
-                            },
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Password,
-                                imeAction = ImeAction.Done
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onDone = {
-                                    focusManager.clearFocus()
-                                    if (username.isNotBlank() && password.isNotBlank()) {
-                                        viewModel.login(username, password, baseUrl)
-                                    }
-                                }
-                            ),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Primary,
-                                focusedLabelColor = Primary,
-                                unfocusedBorderColor = BorderSoft,
-                                unfocusedContainerColor = SurfaceVariant.copy(alpha = 0.35f),
-                                focusedContainerColor = CardBackground
-                            )
-                        )
-
-                        Spacer(modifier = Modifier.height(28.dp))
-
-                        // Login button（主色渐变，按压有层次感）
-                        val loginEnabled = !uiState.isLoading && username.isNotBlank() && password.isNotBlank()
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(54.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(
-                                    brush = Brush.horizontalGradient(
-                                        colors = listOf(Primary, PrimaryDark)
-                                    ),
-                                    alpha = if (loginEnabled) 1f else 0.4f
-                                )
-                                .clickable(enabled = loginEnabled) {
-                                    // 触觉确认：仓库现场嘈杂/戴手套，按下有无生效靠体感
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.login(username, password, baseUrl)
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (uiState.isLoading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Text(
-                                    "登 录",
-                                    color = Color.White,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 2.sp
-                                )
-                            }
-                        }
-                    }
+                // 保留服务器可配置能力，收起不清空地址，也不保存或更改真实账号凭据。
+                if (showConnection) {
+                    OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("服务器地址") },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, shape = MaterialTheme.shapes.medium,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }))
                 }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                Text(
-                    "v${BuildConfig.VERSION_NAME} · 专为仓库作业设计",
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 12.sp,
-                    textAlign = TextAlign.Center,
-                    letterSpacing = 0.5.sp
-                )
             }
         }
+        Text("v${BuildConfig.VERSION_NAME} · 专为仓库作业设计", style = MaterialTheme.typography.bodyMedium,
+            color = OnSurfaceVariant, modifier = Modifier.align(Alignment.CenterHorizontally))
     }
 }

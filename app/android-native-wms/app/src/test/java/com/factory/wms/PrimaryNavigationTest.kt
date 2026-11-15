@@ -56,7 +56,7 @@ class PrimaryNavigationTest {
         }
         compose.waitForIdle()
     }
-    @After fun after() { activity.pause().stop().destroy() }
+    @After fun after() { disposeComposeActivity(activity) }
 
     @Test fun repeatedEntryHasOneDestinationAndReturnsHome() {
         for (screen in listOf(Screen.Inbound, Screen.Outbound, Screen.StockQuery)) {

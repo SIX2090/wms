@@ -46,6 +46,6 @@ class AppUpdatePanelTest {
             compose.onNodeWithText("检查更新").performClick()
             assertEquals(2, checks)
             compose.onNodeWithText("安装更新").assertDoesNotExist()
-        } finally { scope.cancel(); controller.pause().stop().destroy() }
+        } finally { scope.cancel(); disposeComposeActivity(controller) }
     }
 }

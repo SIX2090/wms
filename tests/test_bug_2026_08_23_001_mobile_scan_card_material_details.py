@@ -45,28 +45,13 @@ def test_scan_card_renders_five_material_fields():
 
 
 def test_detail_line_order_is_name_brand_spec():
-    """T2：详情行顺序 名称 → 品牌 → 规格（用户要求的阅读顺序）。"""
-    m = re.search(
-        r"val materialDetails = listOfNotNull\((.*?)\)\.joinToString\(\)",
-        SCAN_SCREEN_BASE,
-        re.DOTALL,
-    )
-    assert m, "ScanScreenBase 缺少 materialDetails 拼接"
-    body = m.group(1)
-    i_name = body.index("material_name")
-    i_brand = body.index("material_brand")
-    i_spec = body.index("material_spec")
-    assert i_name < i_brand < i_spec, "字段顺序应为 名称/品牌/规格"
-
-    # 期初库存页保持同一顺序
-    m2 = re.search(
-        r"val materialDetails = listOfNotNull\((.*?)\)\.joinToString\(\)",
-        OPENING_STOCK,
-        re.DOTALL,
-    )
-    assert m2, "OpeningStockScreen 缺少 materialDetails 拼接"
-    body2 = m2.group(1)
-    assert body2.index("materialName") < body2.index("materialBrand") < body2.index("materialSpec")
+    # 2026-11-15 名称、编码、品牌规格分层，四个身份字段仍按同一语义传给公共视图。
+    assert "WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)" in SCAN_SCREEN_BASE
+    assert "WmsMaterialIdentity(line.materialCode, line.materialName, line.materialBrand, line.materialSpec)" in OPENING_STOCK
+    component = (ANDROID / "ui/components/WmsRecordContent.kt").read_text(encoding="utf-8")
+    assert 'name?.takeIf' in component and '"编码 $code"' in component
+    assert component.index('brand?.takeIf') < component.index('spec?.takeIf')
+    assert "softWrap = true" in component and "TextOverflow.Ellipsis" not in component
 
 
 def test_add_scan_line_enriches_material_details():

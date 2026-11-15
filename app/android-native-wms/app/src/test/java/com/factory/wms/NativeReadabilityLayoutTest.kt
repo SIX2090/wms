@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.*
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalDensity
@@ -46,7 +49,7 @@ class NativeReadabilityLayoutTest {
         for (index in 0 until content.childCount) {
             (content.getChildAt(index) as? androidx.compose.ui.platform.ComposeView)?.disposeComposition()
         }
-        activity.pause().stop().destroy()
+        disposeComposeActivity(activity)
     }
 
     @Test fun primaryActionCanGrowInsteadOfClippingLargeText() {
@@ -80,6 +83,63 @@ class NativeReadabilityLayoutTest {
 
     @Test fun lightBadgeTextUsesReadableColor() = checkBadgeText(false)
     @Test fun darkBadgeTextUsesReadableColor() = checkBadgeText(true)
+
+    private fun checkMaterialTextRoles(dark: Boolean) {
+        var captured: ColorScheme? = null
+        activity.get().setContent { WmsTheme(darkTheme = dark) {
+            val scheme = MaterialTheme.colorScheme
+            SideEffect { captured = scheme }
+            Text("主题文字角色")
+        } }
+        compose.waitForIdle()
+        val c = requireNotNull(captured)
+        for ((name, foreground, background) in listOf(
+            Triple("primary", c.onPrimary, c.primary),
+            Triple("primaryContainer", c.onPrimaryContainer, c.primaryContainer),
+            Triple("secondary", c.onSecondary, c.secondary),
+            Triple("secondaryContainer", c.onSecondaryContainer, c.secondaryContainer),
+            Triple("tertiary", c.onTertiary, c.tertiary),
+            Triple("tertiaryContainer", c.onTertiaryContainer, c.tertiaryContainer),
+            Triple("surface", c.onSurface, c.surface),
+            Triple("surfaceVariant", c.onSurfaceVariant, c.surfaceVariant),
+            Triple("background", c.onBackground, c.background),
+            Triple("error", c.onError, c.error),
+            Triple("errorContainer", c.onErrorContainer, c.errorContainer)
+        )) {
+            assertTrue("$name text contrast in dark=$dark: ${contrastRatio(foreground, background)} ($foreground / $background)",
+                contrastRatio(foreground, background) >= 4.5f)
+        }
+    }
+
+    @Test fun lightMaterialTextRolesStayReadable() = checkMaterialTextRoles(false)
+    @Test fun darkMaterialTextRolesStayReadable() = checkMaterialTextRoles(true)
+
+    private fun checkLoadingAction(dark: Boolean) {
+        activity.get().setContent { WmsTheme(darkTheme = dark) {
+            androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.surface) {
+            Box(Modifier.width(240.dp)) {
+                WmsPrimaryButton("正在保存", {}, loading = true, color = CardBlue,
+                    modifier = Modifier.testTag("busy"), haptic = false)
+            }
+            }
+        } }
+        compose.onNodeWithTag("busy").assertIsNotEnabled()
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText("正在保存", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val bounds = compose.onNodeWithTag("busy").getUnclippedBoundsInRoot()
+        val view = activity.get().window.decorView
+        val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+        compose.runOnIdle { view.draw(android.graphics.Canvas(bitmap)) }
+        // Sample actual rendered fill away from label, spinner and rounded corners.
+        val background = androidx.compose.ui.graphics.Color(bitmap.getPixel(
+            ((bounds.left.value + bounds.right.value) / 2).toInt(), bounds.top.value.toInt() + 4))
+        assertTrue("Loading text contrast=${contrastRatio(layouts.single().layoutInput.style.color, background)} on actual fill $background",
+            contrastRatio(layouts.single().layoutInput.style.color, background) >= 4.5f)
+    }
+
+    @Test fun lightLoadingActionRemainsReadable() = checkLoadingAction(false)
+    @Test fun darkLoadingActionRemainsReadable() = checkLoadingAction(true)
 
 
 }

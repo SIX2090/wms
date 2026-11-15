@@ -109,15 +109,24 @@ def test_report_summaries_wrap_without_competing_for_one_row():
         assert "fun " + name + "(" in source, filename
         body = function(source, name)
         assert "Column(" in body
-        assert body.count("Row(Modifier.fillMaxWidth()") == 2
-        assert body.count("modifier = Modifier.weight(1f)") == count
+        if filename == "ReportScreens.kt":
+            assert "measurer.measure(quantity" in body
+            assert "if (inline)" in body and "} else {" in body
+            assert body.count("modifier = Modifier.weight(1f)") == count * 2
+        else:
+            assert body.count("Row(Modifier.fillMaxWidth()") == 2
+            assert body.count("modifier = Modifier.weight(1f)") == count
         assert "quantityDisplayText(value)" in source
         assert "containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)" in source
 
 
-def test_white_gradient_controls_use_shared_dark_scrim():
+def test_surface_headers_use_matching_theme_foregrounds():
+    # 2026-11-15 改为中性表面头部；保留其他深底消费者的 scrim，禁止白字落浅底。
     assert "Color.Black.copy(alpha = 0.12f)" in read("ui/theme/Color.kt")
-    home = read("ui/screens/HomeScreen.kt")
+    for body in (function(read("ui/screens/HomeScreen.kt"), "HomeWorkbench"),
+                 function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")):
+        assert 'Color.White' not in body
+        assert 'MaterialTheme.colorScheme' in body
     header = function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")
-    assert home.count(".background(GradientControlScrim)") == 2
-    assert ".background(GradientControlScrim)" in header
+    assert 'color = MaterialTheme.colorScheme.surface' in header
+    assert 'color = MaterialTheme.colorScheme.onSurface' in header

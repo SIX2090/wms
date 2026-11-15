@@ -51,6 +51,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.InOutDetailItem
+import com.factory.wms.ui.components.WmsAdaptiveRecord
 import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.components.WmsDateNavRow
 import com.factory.wms.ui.components.WmsEmptyState
@@ -359,11 +360,11 @@ private fun InOutSummaryCell(
 internal fun InOutDetailItemRow(item: InOutDetailItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier
@@ -371,56 +372,57 @@ internal fun InOutDetailItemRow(item: InOutDetailItem) {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "${item.materialName.orEmpty()}（${item.materialCode.orEmpty()}）",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // spec 可空（BUG-2026-08-24-007），必须 isNullOrBlank 判空
-                if (!item.spec.isNullOrBlank()) {
-                    Text(
-                        item.spec,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                // 类型标签 + 时间 + 操作人 + 库位（可空字段逐项判空拼接）
-                val meta = listOfNotNull(
-                    item.transactionTypeLabel?.takeIf { it.isNotBlank() },
-                    item.createdAt?.takeIf { it.isNotBlank() },
-                    item.operator?.takeIf { it.isNotBlank() },
-                    item.location?.takeIf { it.isNotBlank() }?.let { "库位 $it" }
-                ).joinToString(" · ")
-                if (meta.isNotBlank()) {
-                    Text(
-                        meta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
             // 带符号数量：入库 +绿 / 出库 -红（direction 与服务端口径一致）
             val isOut = item.direction == "out" || item.quantity < 0
             val qtyText = (if (isOut) "-" else "+") +
                 formatQty(kotlin.math.abs(item.quantity)) +
                 (item.unit?.takeIf { it.isNotBlank() }?.let { " $it" } ?: "")
-            Text(
-                quantityDisplayText(qtyText),
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                // 数量使用完整行，保留全部数字、单位与正负号，并支持系统大字体。
-                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                textAlign = TextAlign.End,
-                softWrap = true,
-                modifier = Modifier.fillMaxWidth(),
-                color = if (isOut) Error else Success
+            WmsAdaptiveRecord(
+                quantityText = qtyText,
+                identity = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "${item.materialName.orEmpty()}（${item.materialCode.orEmpty()}）",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                        // spec 可空（BUG-2026-08-24-007），必须 isNullOrBlank 判空
+                        if (!item.spec.isNullOrBlank()) {
+                            Text(
+                                item.spec,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        // 类型标签 + 时间 + 操作人 + 库位（可空字段逐项判空拼接）
+                        val meta = listOfNotNull(
+                            item.transactionTypeLabel?.takeIf { it.isNotBlank() },
+                            item.createdAt?.takeIf { it.isNotBlank() },
+                            item.operator?.takeIf { it.isNotBlank() },
+                            item.location?.takeIf { it.isNotBlank() }?.let { "库位 $it" }
+                        ).joinToString(" · ")
+                        if (meta.isNotBlank()) {
+                            Text(
+                                meta,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                quantity = {
+                    Text(
+                        quantityDisplayText(qtyText),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        // 数量使用完整行，保留全部数字、单位与正负号，并支持系统大字体。
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                        textAlign = TextAlign.End,
+                        softWrap = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (isOut) Error else Success
+                    )
+                }
             )
         }
     }

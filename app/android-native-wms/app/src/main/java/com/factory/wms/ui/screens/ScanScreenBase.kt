@@ -29,6 +29,8 @@ import com.factory.wms.ui.components.ScannerDialog
 // AI-APP-FIX-405：拍照 launcher 迁至 ui/components/CameraLauncher.kt，此处需显式导入
 import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
 import com.factory.wms.ui.components.WmsExpandableSection
+import com.factory.wms.ui.components.WmsMaterialIdentity
+import com.factory.wms.ui.components.WmsQuantityText
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.components.WmsOutlinedActionButton
@@ -491,84 +493,39 @@ fun ScanScreenBase(
                             contentType = { _, _ -> "scan_line" }
                         ) { index, line ->
                             Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateItem(),
-                                shape = RoundedCornerShape(16.dp),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                                modifier = Modifier.fillMaxWidth().animateItem(),
+                                shape = MaterialTheme.shapes.medium,
                                 colors = CardDefaults.cardColors(containerColor = CardBackground)
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            line.material_code,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        val materialDetails = listOfNotNull(
-                                            line.material_name?.takeIf { it.isNotBlank() },
-                                            line.material_brand?.takeIf { it.isNotBlank() },
-                                            line.material_spec?.takeIf { it.isNotBlank() }
-                                        ).joinToString()
-                                        if (materialDetails.isNotBlank()) {
-                                            Text(
-                                                materialDetails,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                // 完整规格用于区分相似物料，不省略尾部型号。
-                                                softWrap = true
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    // 扫码/手动加入的行均可直接修改确切数量。
-                                    Surface(
-                                        onClick = {
-                                            val text = formatQuantity(line.quantity)
-                                            editedQuantity = TextFieldValue(text, selection = TextRange(0, text.length))
-                                            quantityError = null
-                                            pendingQuantityEdit = line
-                                        },
-                                        enabled = !isLoading && scanState.pendingSubmissionId == null,
-                                        modifier = Modifier.heightIn(min = 48.dp).semantics {
-                                            contentDescription = "修改数量：${line.material_code} ${line.location_code.orEmpty()}"
-                                        },
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = gradient.copy(alpha = 0.10f)
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
+                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)
+                                    HorizontalDivider(color = DividerSoft)
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Surface(
+                                            onClick = {
+                                                val text = formatQuantity(line.quantity)
+                                                editedQuantity = TextFieldValue(text, selection = TextRange(0, text.length))
+                                                quantityError = null
+                                                pendingQuantityEdit = line
+                                            },
+                                            enabled = !isLoading && scanState.pendingSubmissionId == null,
+                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
+                                                contentDescription = "修改数量：${line.material_code} ${line.location_code.orEmpty()}"
+                                            },
+                                            shape = MaterialTheme.shapes.small,
+                                            color = MaterialTheme.colorScheme.surfaceVariant
                                         ) {
-                                            Text(
-                                                "× ${formatQuantity(line.quantity)}",
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontSize = 13.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                            Text("修改", color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+                                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                                Text("点击修改", style = MaterialTheme.typography.bodyMedium,
+                                                    color = OnSurfaceVariant)
+                                                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.fillMaxWidth())
+                                            }
                                         }
-                                    }
-                                    IconButton(
-                                        onClick = { pendingRemoval = line },
-                                        enabled = !isLoading,
-                                        // AI-APP-UI-002：36dp 低于 48dp 最小触控目标，
-                                        // 戴手套点不中还会误触到旁边的数量胶囊。
-                                        modifier = Modifier.size(48.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Outlined.Close,
-                                            "移除",
-                                            tint = OnSurfaceSecondary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
+                                        IconButton(onClick = { pendingRemoval = line }, enabled = !isLoading,
+                                            modifier = Modifier.size(WmsDimens.TouchTargetMin)) {
+                                            Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
+                                        }
                                     }
                                 }
                             }
@@ -588,8 +545,8 @@ fun ScanScreenBase(
                     ) {
                         WmsEmptyState(
                             icon = Icons.Outlined.QrCodeScanner,
-                            title = "暂无扫描记录",
-                            subtitle = "点击下方按钮扫码或手动添加",
+                            title = "开始添加物料",
+                            subtitle = "扫码或手工录入，添加后核对数量",
                             accentColor = gradient,
                             compact = true
                         )
@@ -688,6 +645,21 @@ fun ScanScreenBase(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        if (scanLines.isEmpty()) {
+                        WmsPrimaryButton(
+                            text = "扫码添加",
+                            onClick = {
+                                // 每次打开相机都从 0 起算本轮的"已扫 N 件"，
+                                // 否则上一轮的计数会串到本轮，与清单对不上。
+                                continuousScanCount = 0
+                                lastScannedCode = null
+                                showCameraScanner = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Outlined.QrCodeScanner,
+                            color = submitColor
+                        )
+                        } else {
                         WmsOutlinedActionButton(
                             text = "扫码添加",
                             onClick = {
@@ -701,6 +673,7 @@ fun ScanScreenBase(
                             icon = Icons.Outlined.QrCodeScanner,
                             color = submitColor
                         )
+                        }
                         WmsOutlinedActionButton(
                             text = "手动添加",
                             onClick = onShowScanner,

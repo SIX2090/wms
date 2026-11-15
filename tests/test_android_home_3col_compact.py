@@ -15,8 +15,8 @@
 2026-10-30 用户要求简化布局：三列及全部入口保留；固定高度、半悬浮断言
 按新规格替换为内容自适应和正常文档流断言，并新增 Compose 真实测量回归。
 
-本测试为结构断言（沙箱无 Kotlin SDK，无法真编译），与
-verify_android_startup_crash_safety.py 同一模式。
+2026-11-15 用户授权改为分组工作台；旧几何约束按新规格更新。
+本测试只验证消费者接线，实际编译、点击与字体测量见 NativeWorkbenchTest / CompactLayoutTest。
 """
 
 from pathlib import Path
@@ -53,19 +53,21 @@ def _extract_function(source: str, signature: str) -> str:
 # ① 卡片网格：3 列
 # ---------------------------------------------------------------------------
 
-def test_grid_is_three_columns():
+def test_home_groups_prioritize_primary_tasks():
+    # 2026-11-15 用户授权改为分组工作台；十四个入口的真实点击由 NativeWorkbenchTest 验证。
     src = _read()
-    assert "row * 3 + col" in src, "网格未改为 3 列（row * 3 + col）"
-    assert "row * 2 + col" not in src, "仍残留 2 列索引（row * 2 + col）"
-    assert "(cards.size + 2) / 3" in src, "rowCount 未按 3 列计算"
+    for group in ("开始作业", "查询与报表", "资料与工具"):
+        assert f'HomeSectionTitle("{group}")' in src
+    assert 'HomePrimaryTask(cards[0]' in src and 'HomePrimaryTask(cards[1]' in src
+    assert 'HomeEntryRow(cards[2]' in src
 
 
-def test_grid_last_row_has_placeholder():
-    """末行补 Spacer 占位——13 张卡 3 列末行只 1 张，不补会被拉变形。"""
+def test_secondary_inventory_actions_share_available_width():
+    # 新版不用三列末行占位；两张次级作业卡按相同权重布局，内容决定高度。
     src = _read()
-    assert "Spacer(modifier = Modifier.width(cardWidth))" in src, (
-        "缺少末行占位 Spacer，末行单卡会被 spacedBy 拉变形"
-    )
+    assert 'listOf(cards[3], cards[4]).forEach' in src
+    assert 'FunctionCardItem(card, Modifier.weight(1f)' in src
+    assert 'HomeEntryRow(card)' in src
 
 
 # ---------------------------------------------------------------------------
@@ -93,12 +95,13 @@ def test_card_title_wraps_without_redundant_subtitle():
 # ③ 今日概览条：四格对齐
 # ---------------------------------------------------------------------------
 
-def test_overview_items_single_line():
+def test_overview_values_adapt_without_truncation():
     src = _read()
-    body = _extract_function(src, "private fun OverviewItemCell(")
-    # label 和 sub 两个 Text 都应有 maxLines = 1
-    count = body.count("maxLines = 1")
-    assert count >= 2, f"OverviewItemCell 内 maxLines=1 只出现 {count} 次，label 或 sub 未限制单行"
+    body = _extract_function(src, "private fun TodayMovementCell(")
+    assert "WmsAdaptiveRecord(value" in body
+    assert "WmsQuantityText(value, Modifier.fillMaxWidth())" in body
+    assert "maxLines" not in body and "TextOverflow.Ellipsis" not in body
+    assert 'Text(label' in body and 'Text(sub' in body
 
 
 def test_overview_row_top_aligned():
@@ -119,18 +122,19 @@ def test_overview_alert_text_shortened():
 # ④ Hero 半悬浮
 # ---------------------------------------------------------------------------
 
-def test_hero_compact_padding():
+def test_workbench_uses_shared_spacing_and_scroll():
     src = _read()
-    assert ".padding(vertical = 12.dp)" in src
-    assert "padding(top = 16.dp, bottom = 48.dp)" not in src
-    assert "// Greeting + avatar" not in src
+    assert '.padding(WmsDimens.PagePaddingHorizontal)' in src
+    assert '.verticalScroll(rememberScrollState())' in src
+    assert 'Brush.verticalGradient' not in src
+    assert 'padding(top = 16.dp, bottom = 48.dp)' not in src
 
 
-def test_overview_section_offset():
+def test_overview_states_remain_in_normal_flow():
     src = _read()
-    # 成功、加载、失败三种状态均保持正常文档流，不产生 offset 虚占位。
     assert "Modifier.offset" not in src
-    assert src.count("Column(modifier = Modifier.padding(top = 12.dp))") == 3
+    for state in ('dashboard != null -> TodayOverviewBar', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+        assert state in src
 
 
 # ---------------------------------------------------------------------------

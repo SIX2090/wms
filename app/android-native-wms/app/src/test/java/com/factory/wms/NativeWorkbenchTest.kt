@@ -1,0 +1,211 @@
+package com.factory.wms
+
+import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.test.core.app.ApplicationProvider
+import com.factory.wms.data.api.RetrofitClient
+import com.factory.wms.data.model.*
+import com.factory.wms.ui.navigation.Screen
+import com.factory.wms.ui.screens.*
+import com.factory.wms.ui.theme.*
+import com.factory.wms.ui.viewmodel.auth.AuthViewModel
+import com.factory.wms.ui.viewmodel.home.HomeViewModel
+import com.factory.wms.ui.viewmodel.report.ReportViewModel
+import com.factory.wms.ui.viewmodel.scan.ScanViewModel
+import kotlinx.coroutines.cancel
+import org.junit.*
+import org.junit.Assert.*
+import org.junit.runner.RunWith
+import org.robolectric.ParameterizedRobolectricTestRunner
+import org.robolectric.ParameterizedRobolectricTestRunner.Parameters
+import org.robolectric.Robolectric
+import org.robolectric.android.controller.ActivityController
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+import java.io.File
+
+/** Production composables, synthetic data and local Robolectric storage only. No business requests. */
+@RunWith(ParameterizedRobolectricTestRunner::class)
+@Config(sdk = [31], application = Application::class, qualifiers = "w320dp-h800dp-mdpi")
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolean) {
+    companion object {
+        @JvmStatic @Parameters(name = "font={0},dark={1}")
+        fun cases() = listOf(1f, 1.3f, 1.6f, 2f).flatMap { scale ->
+            listOf(false, true).map { arrayOf<Any>(scale, it) }
+        }
+    }
+    @get:Rule val compose = createEmptyComposeRule()
+    private lateinit var activity: ActivityController<ComponentActivity>
+    private val models = mutableListOf<ViewModel>()
+    private var focusManager: FocusManager? = null
+    private val app get() = ApplicationProvider.getApplicationContext<Application>()
+    private val warehouse = WarehouseDto(1, "WH-SYNTH", "合成一号仓")
+    private val item = DailyReportItem(1, "SYNTH-1", "2026-11-15", "M-6204", "深沟球轴承",
+        quantity = 120.0, unit = "套", price = 0.0, amount = 0.0, operator = "合成账号", remark = "", spec = "6204-2RS")
+
+    @Before fun before() {
+        DataStoreTestReset.resetWmsSettingsDataStore()
+        RetrofitClient.setSession("http://127.0.0.1:9/", null, null)
+        activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+    }
+    @After fun after() {
+        // Manual Robolectric Activities own their window recomposer and text cursor jobs.
+        // Clear focus and drain lifecycle cancellation before the next parameterized case.
+        compose.runOnUiThread {
+            focusManager?.clearFocus(force = true)
+            models.forEach { it.viewModelScope.cancel() }
+            val content = activity.get().findViewById<android.view.ViewGroup>(android.R.id.content)
+            for (index in 0 until content.childCount) {
+                (content.getChildAt(index) as? androidx.compose.ui.platform.ComposeView)?.disposeComposition()
+            }
+            disposeComposeActivity(activity)
+        }
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+    }
+    private fun content(body: @Composable () -> Unit) {
+        activity.get().setContent {
+            CompositionLocalProvider(LocalDensity provides Density(1f, fontScale)) {
+                focusManager = LocalFocusManager.current
+                WmsTheme(darkTheme = dark) { Box(Modifier.fillMaxSize()) { body() } }
+            }
+        }
+    }
+    private fun capture(name: String) {
+        val directory = System.getenv("WMS_UI_SCREENSHOTS") ?: return
+        compose.waitForIdle()
+        val view = activity.get().window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnIdle { view.draw(Canvas(bitmap)) }
+        val file = File(directory, "$name-$fontScale-${if (dark) "dark" else "light"}.png")
+        file.parentFile?.mkdirs()
+        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+    }
+    private fun completeText(text: String): TextLayoutResult {
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(text, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertEquals(1, layouts.size)
+        assertFalse("Text clipped: $text, scale=$fontScale; size=${layouts.single().size}; constraints=${layouts.single().layoutInput.constraints}; widthOverflow=${layouts.single().didOverflowWidth}; heightOverflow=${layouts.single().didOverflowHeight}; paragraph=${layouts.single().multiParagraph.width}x${layouts.single().multiParagraph.height}", layouts.single().hasVisualOverflow)
+        return layouts.single()
+    }
+
+    @Test fun homeGroupsRetainAllFourteenDestinationsAndWarehouse() {
+        val auth = AuthViewModel(app).also { models += it }
+        val vm = HomeViewModel(app, { Result.success(listOf(warehouse)) }, {
+            Result.success(DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0,
+                todayOutOrders = 2, todayOutQuantity = 860.0, pendingInOrders = 2,
+                pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name, warehouseId = 1))
+        }).also { models += it }
+        val destinations = linkedMapOf("入库" to Screen.Inbound, "出库" to Screen.Outbound,
+            "查库存" to Screen.StockQuery, "盘点" to Screen.Stocktake, "期初库存" to Screen.OpeningStock,
+            "每日报表" to Screen.DailyReport, "库存日报" to Screen.StockDailyReport,
+            "出入库明细" to Screen.InOutDetailReport, "库存台账" to Screen.StockLedgerReport,
+            "盘点记录" to Screen.StocktakeRecord, "物料档案" to Screen.MaterialArchive,
+            "识别单据" to Screen.DocumentOcr, "识物" to Screen.ObjectRecognize, "AI 助手" to Screen.AssistantChat)
+        val clicked = mutableListOf<Screen>()
+        vm.loadDashboard()
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertFalse("Synthetic dashboard must be ready before measuring the view", vm.uiState.value.isLoading)
+        content { HomeScreen(auth, vm, { clicked += it }, {}) }
+        compose.onNodeWithText("当前仓库").assertIsDisplayed()
+        compose.onNodeWithText("合成一号仓").assertIsDisplayed()
+        compose.onNodeWithText("开始作业").performScrollTo().assertIsDisplayed()
+        capture("home")
+        destinations.forEach { (label, _) ->
+            compose.onNodeWithText(label).performScrollTo().performClick()
+            completeText(label)
+        }
+        compose.runOnIdle { assertEquals(destinations.values.toList(), clicked) }
+        capture("home-tools")
+        compose.onNodeWithText("待处理").performScrollTo().performClick()
+        compose.onNodeWithText("库存告警").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
+    }
+
+    @Test fun scanShowsDistinctMaterialIdentityAndReadableEditableQuantity() {
+        val vm = ScanViewModel(app).also { models += it }
+        val line = ScanLine("M-6204", 120.0, material_name = "深沟球轴承", material_brand = "合成品牌", material_spec = "6204-2RS")
+        val lines = listOf(line)
+        content { ScanScreenBase("入库", "扫码或手工录入，核对物料与数量", CardBlue, {}, lines, 120.0,
+            vm, remember { SnackbarHostState() }, false, false, {}, {}, "", "1", {}, {}, {}, {}, {}, "提交入库", CardBlue) }
+        compose.onNodeWithText("深沟球轴承").assertIsDisplayed()
+        capture("inbound")
+        completeText("编码 M-6204")
+        completeText("合成品牌 · 6204-2RS")
+        val quantity = completeText("× 120")
+        assertTrue("Quantity should dominate the edit hint", quantity.layoutInput.style.fontSize.value >= 20f)
+        capture("inbound")
+        compose.onNodeWithContentDescription("修改数量：M-6204 ").performClick()
+        compose.onNodeWithText("修改数量").assertIsDisplayed()
+        compose.onNodeWithText("取消").performClick()
+        compose.onNodeWithText("× 120").assertIsDisplayed()
+    }
+
+    @Test fun reportKeepsCompactDefaultRowsAndLargeFontDetailsReachable() {
+        val vm = ReportViewModel(app, { Result.success(listOf(warehouse)) }, { _, _, _ ->
+            Result.success(DailyReportData("2026-11-15", "purchase_in", "采购入库", DailyReportSummary(2, 2, 156.0, 0.0),
+                listOf(item, item.copy(orderId = 2, materialCode = "M-0008", materialName = "六角螺母", quantity = 36.0,
+                    spec = "M8 · 镀锌", unit = "个")), 2, 1, 50, 1, warehouse = warehouse.name))
+        }).also { models += it }
+        content { DailyReportScreen(vm, {}) }
+        val name = compose.onNodeWithText("深沟球轴承（M-6204）", useUnmergedTree = true)
+        name.performScrollTo().assertIsDisplayed()
+        completeText("120 套")
+        if (fontScale == 1f) {
+            val nameBounds = name.getUnclippedBoundsInRoot()
+            val quantityBounds = compose.onNodeWithText("120 套", useUnmergedTree = true).getUnclippedBoundsInRoot()
+            assertTrue("Ordinary quantity should align with material", quantityBounds.top <= nameBounds.top + 4.dp)
+        }
+        capture("daily-report")
+        compose.onNodeWithText("六角螺母（M-0008）").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("回到今天").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun longSpecificationAndQuantityRemainCompleteInNarrowReportRow() {
+        val spec = "6204-2RS/C3 · 高温密封型 · 内径20毫米/外径47毫米 · 必须核对尾部型号-A17"
+        val quantity = 1234567890123.5
+        val unit = "毫米/每整套（含附件）"
+        content { Box(Modifier.width(288.dp)) {
+            DailyReportItemRow(item.copy(spec = spec, quantity = quantity, unit = unit), true)
+        } }
+        completeText(spec)
+        completeText(com.factory.wms.ui.util.quantityDisplayText("${com.factory.wms.ui.util.formatQty(quantity)} $unit"))
+    }
+
+    @Test fun loginConnectionCanCollapseWithoutLosingEditedAddress() {
+        val auth = AuthViewModel(app).also { models += it }
+        content { LoginScreen(auth, {}) }
+        compose.onNodeWithText("登录").performScrollTo().assertIsNotEnabled()
+        capture("login")
+        compose.onNodeWithText("服务器地址").assertDoesNotExist()
+        compose.onNodeWithText("连接设置").performScrollTo().performClick()
+        val field = compose.onNode(hasSetTextAction() and hasText("服务器地址"))
+        field.performScrollTo().performTextReplacement("http://127.0.0.1:9/")
+        compose.onNodeWithText("收起连接设置").performScrollTo().performClick()
+        compose.onNodeWithText("服务器地址").assertDoesNotExist()
+        compose.onNodeWithText("连接设置").performScrollTo().performClick()
+        field.performScrollTo().assertTextContains("http://127.0.0.1:9/")
+        capture("login-settings")
+        field.performImeAction()
+        field.assertTextContains("http://127.0.0.1:9/")
+    }
+}

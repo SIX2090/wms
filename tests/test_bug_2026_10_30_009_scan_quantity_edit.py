@@ -26,12 +26,12 @@ def test_all_transaction_scan_screens_share_quantity_editor():
 
 def test_quantity_badge_opens_prefilled_editor_with_visible_hint():
     base = read("ui/screens/ScanScreenBase.kt")
-    badge = base.split("// 扫码/手动加入的行均可直接修改确切数量。", 1)[1].split("IconButton(", 1)[0]
+    badge = base.split("WmsMaterialIdentity(line.material_code", 1)[1].split("IconButton(", 1)[0]
     assert "onClick = {" in badge
     assert "pendingQuantityEdit = line" in badge
     assert "formatQuantity(line.quantity)" in badge
     assert "TextRange(0, text.length)" in badge
-    assert 'Text("修改"' in badge
+    assert 'Text("点击修改"' in badge
     assert "min = 48.dp" in badge
     assert "pendingSubmissionId == null" in badge
 

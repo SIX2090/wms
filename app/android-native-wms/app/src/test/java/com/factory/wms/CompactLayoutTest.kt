@@ -51,7 +51,7 @@ class CompactLayoutTest {
         controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
 
-    @After fun tearDown() { controller.pause().stop().destroy() }
+    @After fun tearDown() { disposeComposeActivity(controller) }
 
     private fun content(fontScale: Float = 1f, body: @Composable () -> Unit) {
         controller.get().setContent {

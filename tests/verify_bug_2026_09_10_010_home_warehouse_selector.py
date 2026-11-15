@@ -62,13 +62,15 @@ def test_t3_view_model_holds_warehouse_state():
 def test_t4_screen_uses_warehouse_selector():
     src = SCREEN.read_text(encoding="utf-8")
     assert "WarehouseSelector(" in src, "首页必须提供仓库切换"
-    assert "homeViewModel.selectWarehouse" in src
+    assert "homeViewModel::selectWarehouse" in src
+    assert "onSelect = onSelectWarehouse" in src
     # 当前口径标签应取服务端回传的 warehouse
     # （AI-APP-FIX 批次后状态变量名为 dashboardData，原名为 dashboard，两者同语义；
     # BUG-2026-10-04-002 标题行收进 Hero 后支持 dashboard=null 的失败态，改用安全调用 ?.）
     assert ("currentLabel = dashboardData?.warehouse" in src) \
         or ("currentLabel = dashboardData.warehouse" in src) \
-        or ("dashboard.warehouse" in src), (
+        or ("dashboard.warehouse" in src) \
+        or ("currentLabel = dashboard?.warehouse" in src), (
         "当前口径标签应取服务端回传的 warehouse"
     )
     # 用户需求：首页下拉只列真实仓库，关闭「默认仓库」与「全部仓库（汇总）」

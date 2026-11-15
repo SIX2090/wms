@@ -1,37 +1,25 @@
 package com.factory.wms.ui.screens
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalDensity
+import com.factory.wms.ui.components.WmsAdaptiveRecord
+import com.factory.wms.ui.components.WmsQuantityText
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DashboardDto
@@ -40,13 +28,14 @@ import com.factory.wms.ui.components.StatusBarIconEffect
 import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.components.WmsShimmerBox
 import com.factory.wms.ui.navigation.Screen
-import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.theme.*
+import com.factory.wms.ui.util.formatQty
+import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 data class FunctionCard(
     val title: String,
@@ -56,29 +45,8 @@ data class FunctionCard(
     val screen: Screen
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun HomeScreen(
-    authViewModel: AuthViewModel,
-    homeViewModel: HomeViewModel,
-    onNavigate: (Screen) -> Unit,
-    onLogout: () -> Unit
-) {
-    val uiState by authViewModel.uiState.collectAsState()
-    val homeUiState by homeViewModel.uiState.collectAsState()
-    var showLogoutDialog by remember { mutableStateOf(false) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    // Scaffold 将内容放在状态栏下方；状态栏实际是浅色背景。
-    StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())
-
-    // 进入／返回首页刷新一次；ViewModel 内先确定仓库，避免默认仓与选中仓重复查询。
-    LaunchedEffect(Unit) {
-        homeViewModel.loadDashboard()
-    }
-
-    val cards = remember {
-        listOf(
+internal fun homeFunctionCards(): List<FunctionCard> =
+listOf(
             FunctionCard(
                 title = "入库",
                 subtitle = "手工/扫码 · 多物料入库",
@@ -182,505 +150,232 @@ fun HomeScreen(
                 screen = Screen.AssistantChat
             )
         )
-    }
 
+@Composable
+fun HomeScreen(
+    authViewModel: AuthViewModel,
+    homeViewModel: HomeViewModel,
+    onNavigate: (Screen) -> Unit,
+    onLogout: () -> Unit
+) {
+    val uiState by authViewModel.uiState.collectAsState()
+    val homeUiState by homeViewModel.uiState.collectAsState()
+    var showLogoutDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
+    LaunchedEffect(Unit) { homeViewModel.loadDashboard() }
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
             authViewModel.clearError()
         }
     }
-
-    val dateFormat = remember { SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE) }
-    val todayDate = remember { dateFormat.format(Date()) }
-
-    Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = Background
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-        ) {
-            // 今日概览数据提前取出：Hero 内的标题行与下方卡片共用
-            val dashboardData = homeUiState.dashboard
-
-            // ── Hero Section ──
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Primary.readableOn(Color.White),
-                                PrimaryDark
-                            )
-                        )
-                    )
-                    .padding(vertical = 12.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
-                ) {
-                    // Top bar row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text(
-                                "WMS 仓库管理",
-                                color = Color.White,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                todayDate,
-                                color = Color.White,
-                                fontSize = 14.sp
-                            )
-                        }
-                        IconButton(onClick = { showLogoutDialog = true }) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .clip(CircleShape)
-                                    .background(GradientControlScrim),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Logout,
-                                    contentDescription = "退出",
-                                    tint = Color.White.copy(alpha = 0.9f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // BUG-2026-10-04-002：「今日概览」标题行收进 Hero 蓝底内。
-                    // 原设计把标题行放进 offset(-28) 的半悬浮 Column，假定行高 ≤28dp；
-                    // 仓库切换器（~32dp 高）使行高超出预留，白字下半截落到 Hero 外的
-                    // 白底上「被裁切」。标题放 Hero 内后行高任意都恒在蓝底上。
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (dashboardData == null && homeUiState.isLoading) {
-                            // 加载中：标题与切换器同形 shimmer（与骨架卡片同口径）
-                            WmsShimmerBox(modifier = Modifier.size(width = 76.dp, height = 20.dp), corner = 6.dp)
-                            Spacer(modifier = Modifier.weight(1f))
-                            WmsShimmerBox(modifier = Modifier.size(width = 96.dp, height = 32.dp), corner = 16.dp)
-                        } else {
-                            Text(
-                                "今日概览",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = Color.White
-                            )
-                            Spacer(modifier = Modifier.weight(1f))
-                            // BUG-2026-10-04-003：切换器压在 Hero 深蓝底上，
-                            // 必须白色前景 + 半透明白底 chip（与右上角退出按钮同套
-                            // Hero 控件语言），默认主题深色文字压蓝底不可读
-                            WarehouseSelector(
-                                currentLabel = dashboardData?.warehouse,
-                                warehouses = homeUiState.warehouses,
-                                selectedId = homeUiState.selectedWarehouseId,
-                                onSelect = { homeViewModel.selectWarehouse(it) },
-                                showDefaultWarehouse = false,
-                                allowAll = false,
-                                contentColor = Color.White,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(GradientControlScrim)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 今日概览卡片按正常文档流排列，不再用 offset 留下虚占位。
-            // BUG-2026-09-10-010：多仓用户此前只能看到默认仓的今日数据，
-            // 仓库切换器已收进上方 Hero 标题行（BUG-2026-10-04-002）。
-            if (dashboardData != null) {
-                Column(modifier = Modifier.padding(top = 12.dp)) {
-                    TodayOverviewBar(
-                        dashboard = dashboardData,
-                        onNavigate = onNavigate
-                    )
-                }
-            } else if (homeUiState.isLoading) {
-                // AI-APP-UI-002：数据未返回时渲染同形骨架（标题 shimmer 在 Hero 内）。
-                Column(modifier = Modifier.padding(top = 12.dp)) {
-                    DashboardOverviewSkeleton()
-                }
-            } else {
-                // BUG-2026-09-26-004：加载失败（dashboard=null 且不在加载中）此前也
-                // 落到骨架分支——shimmer 永远转下去，用户分不清"在加载"还是"坏了"，
-                // 且没有任何重试入口。渲染同形失败条：点击重试 + 切仓入口常驻
-                // （换仓本身会触发 loadDashboard，也是一条重试路径）。
-                Column(modifier = Modifier.padding(top = 12.dp)) {
-                    DashboardOverviewError(
-                        warehouses = homeUiState.warehouses,
-                        selectedId = homeUiState.selectedWarehouseId,
-                        onSelectWarehouse = { homeViewModel.selectWarehouse(it) },
-                        onRetry = { homeViewModel.loadDashboard() }
-                    )
-                }
-            }
-
-            // ── Card Grid ──
-            Spacer(modifier = Modifier.height(20.dp))
-
-            val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-            val gridSpacing = 10.dp
-            // 3 列：左右各 20dp 外边距 + 2 个间距
-            val cardWidth = (screenWidth - 40.dp - gridSpacing * 2) / 3
-            val rowCount = (cards.size + 2) / 3
-
-            for (row in 0 until rowCount) {
-                if (row == 0 || row == 1) {
-                    Text(
-                        if (row == 0) "常用操作" else "更多功能",
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        if (row == 0) "入库、出库与库存查询" else "盘点、期初、档案与报表",
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(gridSpacing)
-                ) {
-                    for (col in 0..2) {
-                        val index = row * 3 + col
-                        if (index < cards.size) {
-                            val card = cards[index]
-                            FunctionCardItem(
-                                card = card,
-                                index = index,
-                                modifier = Modifier.width(cardWidth),
-                                onClick = { onNavigate(card.screen) }
-                            )
-                        } else {
-                            // 14 张卡 3 列末行 2 张：保留末列占位，避免卡片宽度跳变。
-                            Spacer(modifier = Modifier.width(cardWidth))
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-        }
+    Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }, containerColor = Background) { padding ->
+        HomeWorkbench(
+            dashboard = homeUiState.dashboard,
+            isLoading = homeUiState.isLoading,
+            warehouses = homeUiState.warehouses,
+            selectedWarehouseId = homeUiState.selectedWarehouseId,
+            onSelectWarehouse = homeViewModel::selectWarehouse,
+            onRetry = { homeViewModel.loadDashboard() },
+            onNavigate = onNavigate,
+            onLogout = { showLogoutDialog = true },
+            modifier = Modifier.padding(padding)
+        )
     }
-
-    // Logout dialog
     if (showLogoutDialog) {
         AlertDialog(
             onDismissRequest = { showLogoutDialog = false },
-            shape = RoundedCornerShape(20.dp),
-            title = {
-                Text("退出登录", fontWeight = FontWeight.SemiBold)
-            },
+            title = { Text("退出登录") },
             text = { Text("确定要退出当前账号吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showLogoutDialog = false
-                    authViewModel.logout()
-                    onLogout()
-                }) {
-                    Text("确定退出", color = MaterialTheme.colorScheme.error)
+            confirmButton = { TextButton(onClick = {
+                showLogoutDialog = false
+                authViewModel.logout()
+                onLogout()
+            }) { Text("确定退出", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text("取消") } }
+        )
+    }
+}
+
+/** 与真实首页共用的无副作用视图；数据、仓库和导航仍由原 ViewModel 提供。 */
+@Composable
+internal fun HomeWorkbench(
+    dashboard: DashboardDto?,
+    isLoading: Boolean,
+    warehouses: List<WarehouseDto>,
+    selectedWarehouseId: String?,
+    onSelectWarehouse: (String?) -> Unit,
+    onRetry: () -> Unit,
+    onNavigate: (Screen) -> Unit,
+    onLogout: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cards = remember { homeFunctionCards() }
+    val today = remember { SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date()) }
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WmsDimens.PagePaddingHorizontal),
+        verticalArrangement = Arrangement.spacedBy(WmsDimens.SpaceLg)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("仓库工作台", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(today, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+            }
+            IconButton(onClick = onLogout) {
+                Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = OnSurfaceVariant)
+            }
+        }
+        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
+            val selector: @Composable (Modifier) -> Unit = { selectorModifier ->
+                WarehouseSelector(
+                    currentLabel = dashboard?.warehouse, warehouses = warehouses,
+                    selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
+                    showDefaultWarehouse = false, allowAll = false,
+                    contentColor = MaterialTheme.colorScheme.primary, modifier = selectorModifier
+                )
+            }
+            if (LocalDensity.current.fontScale <= 1.3f) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                    selector(Modifier.weight(1f))
+                }
+            } else {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                    selector(Modifier.fillMaxWidth())
+                }
+            }
+        }
+        when {
+            dashboard != null -> TodayOverviewBar(dashboard, onNavigate)
+            isLoading -> DashboardOverviewSkeleton()
+            else -> DashboardOverviewError(onRetry = onRetry)
+        }
+        HomeSectionTitle("开始作业")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HomePrimaryTask(cards[0], Modifier.weight(1f)) { onNavigate(cards[0].screen) }
+            HomePrimaryTask(cards[1], Modifier.weight(1f)) { onNavigate(cards[1].screen) }
+        }
+        HomeEntryRow(cards[2], showSubtitle = false) { onNavigate(cards[2].screen) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf(cards[3], cards[4]).forEach { card ->
+                FunctionCardItem(card, Modifier.weight(1f), onClick = { onNavigate(card.screen) })
+            }
+        }
+        HomeSectionTitle("查询与报表")
+        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
+            Column {
+                cards.filter { it.screen in listOf(Screen.DailyReport, Screen.StockDailyReport,
+                    Screen.InOutDetailReport, Screen.StockLedgerReport, Screen.StocktakeRecord) }.forEachIndexed { index, card ->
+                    if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = DividerSoft)
+                    HomeEntryRow(card) { onNavigate(card.screen) }
+                }
+            }
+        }
+        HomeSectionTitle("资料与工具")
+        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
+            Column {
+                listOf(cards[7], cards[5], cards[6], cards[13]).forEachIndexed { index, card ->
+                    if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = DividerSoft)
+                    HomeEntryRow(card) { onNavigate(card.screen) }
+                }
+            }
+        }
+        dashboard?.let {
+            HomeSectionTitle("今日出入库")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TodayMovementCell("今日入库", formatQty(it.todayInQuantity), "${it.todayInOrders} 单", Modifier.weight(1f)) { onNavigate(Screen.Inbound) }
+                TodayMovementCell("今日出库", formatQty(it.todayOutQuantity), "${it.todayOutOrders} 单", Modifier.weight(1f)) { onNavigate(Screen.Outbound) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun HomeSectionTitle(title: String) {
+    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun HomePrimaryTask(card: FunctionCard, modifier: Modifier, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(card.icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Text(if (card.screen == Screen.Inbound) "扫码或手工录入" else "核对物料与数量",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+@Composable
+private fun HomeEntryRow(card: FunctionCard, showSubtitle: Boolean = true, onClick: () -> Unit) {
+    Surface(onClick = onClick, color = CardBackground, shape = MaterialTheme.shapes.medium) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(card.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
+                if (showSubtitle) Text(card.subtitle, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+fun FunctionCardItem(card: FunctionCard, modifier: Modifier = Modifier, index: Int = 0, onClick: () -> Unit) {
+    Card(onClick = onClick, modifier = modifier.heightIn(min = 96.dp), shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = CardBackground)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(card.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
+    Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Top) {
+            TodayMovementCell("待处理", "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
+                "入${dashboard.pendingInOrders} · 出${dashboard.pendingOutOrders}", Modifier.weight(1f)) { onNavigate(Screen.OverviewOrders) }
+            TodayMovementCell("库存告警", "${dashboard.alertCount}", "低库存", Modifier.weight(1f)) { onNavigate(Screen.OverviewAlerts) }
+        }
+    }
+}
+
+@Composable
+private fun TodayMovementCell(label: String, value: String, sub: String, modifier: Modifier, onClick: () -> Unit) {
+    Box(modifier.clickable(onClick = onClick).heightIn(min = WmsDimens.TouchTargetMin).padding(12.dp)) {
+        WmsAdaptiveRecord(value,
+            identity = {
+                Column {
+                    Text(label, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                    Text(sub, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showLogoutDialog = false }) {
-                    Text("取消")
-                }
-            }
+            quantity = { WmsQuantityText(value, Modifier.fillMaxWidth()) }
         )
     }
 }
 
 @Composable
-fun FunctionCardItem(
-    card: FunctionCard,
-    modifier: Modifier = Modifier,
-    index: Int = 0,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 96.dp),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                card.icon, contentDescription = null,
-                tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(28.dp)
-            )
-            // 完整名称可换行，随系统字体增大；不再用固定高度裁掉半行文字。
-            Text(
-                card.title,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp,
-                textAlign = TextAlign.Center
-            )
-        }
+private fun DashboardOverviewError(onRetry: () -> Unit) {
+    OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+        Icon(Icons.Outlined.Refresh, null)
+        Spacer(Modifier.width(8.dp))
+        Text("概览加载失败，点击重试")
     }
 }
 
-/** 首页"今日概览"条：今日入库/出库（笔数与数量）+ 待处理单据 + 库存告警。 */
-@Composable
-fun TodayOverviewBar(
-    dashboard: DashboardDto,
-    onNavigate: (Screen) -> Unit
-) {
-    val items = listOf(
-        OverviewItem(
-            label = "今日入库",
-            value = formatQty(dashboard.todayInQuantity),
-            sub = "${dashboard.todayInOrders} 单",
-            icon = Icons.Outlined.ArrowDownward,
-            color = CardBlue,
-            screen = Screen.Inbound
-        ),
-        OverviewItem(
-            label = "今日出库",
-            value = formatQty(dashboard.todayOutQuantity),
-            sub = "${dashboard.todayOutOrders} 单",
-            icon = Icons.Outlined.ArrowUpward,
-            color = CardGreen,
-            screen = Screen.Outbound
-        ),
-        OverviewItem(
-            label = "待处理",
-            value = "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
-            sub = "入${dashboard.pendingInOrders}·出${dashboard.pendingOutOrders}",
-            icon = Icons.Outlined.PendingActions,
-            color = CardOrange,
-            // AI-MOB-DRILLDOWN-01：此前为 null，点了完全没反应。
-            // 现在下钻到明细列表（可再切 入库单 / 出库单）。
-            // 即使当前为 0 单也允许进入——用户需要能确认"确实是 0"，
-            // 而不是怀疑点击没生效。
-            screen = Screen.OverviewOrders
-        ),
-        OverviewItem(
-            label = "库存告警",
-            value = "${dashboard.alertCount}",
-            sub = "低库存",
-            icon = Icons.Outlined.WarningAmber,
-            // BUG-2026-09-26-003：0 告警时用中性色。红色=有问题的语义不能被
-            // 常驻的红色 0 稀释——天天看红 0，真告警时反而麻木。
-            color = if (dashboard.alertCount > 0) Error else OnSurfaceSecondary,
-            // AI-MOB-DRILLDOWN-01：此前跳查库存的空白搜索框，
-            // 用户看到数字却不知道具体是哪些物料。改跳告警明细。
-            screen = Screen.OverviewAlerts
-        )
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = CardBackground),
-        // 半悬浮由调用点 Column 统一 offset（标题+卡片一起上移），此处只加深投影
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-    ) {
-        // AI-APP-UI-002：卡片内不再重复渲染「今日概览」标题——
-        // 外层已有同名标题 + 仓库切换器，卡片内再来一遍是纯视觉冗余。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            // 四格 sub 行数不一致时（如"低库存"vs"入0·出0"）图标和数值仍顶对齐
-            verticalAlignment = Alignment.Top
-        ) {
-            items.forEach { item ->
-                OverviewItemCell(
-                    item = item,
-                    modifier = Modifier.weight(1f),
-                    onClicked = {
-                        item.screen?.let(onNavigate)
-                    }
-                )
-            }
-        }
-    }
-}
-
-/**
- * 「今日概览」失败条（BUG-2026-09-26-004）：卡片正文为"加载失败，点击重试"。
- * 标题行与仓库切换器已收进 Hero（BUG-2026-10-04-002，换仓即重试语义不变）。
- * 仅当 dashboard=null 且不在加载中时渲染（加载中走骨架，成功走真实条）。
- */
-@Composable
-private fun DashboardOverviewError(
-    warehouses: List<WarehouseDto>,
-    selectedId: String?,
-    onSelectWarehouse: (String?) -> Unit,
-    onRetry: () -> Unit
-) {
-    // warehouses/selectedId/onSelectWarehouse 参数保留：失败时 Hero 标题行的
-    // 切换器由调用方统一渲染，此处签名不变以便后续恢复卡片内切换器
-    Column {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .clickable(onClick = onRetry),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = CardBackground),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 20.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Outlined.Refresh,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "概览加载失败，点击重试",
-                    fontSize = 14.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-/**
- * 「今日概览」骨架占位（AI-APP-UI-002）：与真实卡片同形同高，
- * dashboard 加载期间布局不跳动。
- */
 @Composable
 private fun DashboardOverviewSkeleton() {
-    // 标题 shimmer 已收进 Hero（BUG-2026-10-04-002），骨架只保留卡片同形占位
-    Column {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp),
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = CardBackground),
-            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.Top
-            ) {
-                repeat(4) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 6.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        WmsShimmerBox(modifier = Modifier.size(38.dp), corner = 11.dp)
-                        Spacer(modifier = Modifier.height(7.dp))
-                        WmsShimmerBox(modifier = Modifier.size(width = 40.dp, height = 20.dp), corner = 6.dp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        WmsShimmerBox(modifier = Modifier.size(width = 48.dp, height = 12.dp), corner = 6.dp)
-                    }
-                }
-            }
-        }
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        repeat(2) { WmsShimmerBox(Modifier.weight(1f).height(80.dp)) }
     }
 }
-
-private data class OverviewItem(
-    val label: String,
-    val value: String,
-    val sub: String,
-    val icon: ImageVector,
-    val color: Color,
-    val screen: Screen?
-)
-
-@Composable
-private fun OverviewItemCell(
-    item: OverviewItem,
-    modifier: Modifier = Modifier,
-    onClicked: (() -> Unit)? = null
-) {
-    val haptics = LocalHapticFeedback.current
-    val clickModifier = if (onClicked != null) {
-        // BUG-2026-09-26-004：恢复默认 ripple。此前 indication=null 只有震动、
-        // 无任何视觉反馈，弱网/请求中用户以为没点上就连点。震动保留，涟漪补上。
-        Modifier.clickable(
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                onClicked()
-            }
-        )
-    } else {
-        Modifier
-    }
-    Column(
-        modifier = modifier
-            .padding(horizontal = 6.dp)
-            .then(clickModifier),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            item.value,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            item.label,
-            fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            item.sub,
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-            textAlign = TextAlign.Center,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-// AI-APP-FIX-403：私有 formatQty 已合并为 ui/util/Format.kt 的共享实现（千分位）

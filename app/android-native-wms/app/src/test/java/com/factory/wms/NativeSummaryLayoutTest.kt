@@ -54,7 +54,7 @@ class NativeSummaryLayoutTest(private val fontScale: Float, private val quantity
     @Before fun before() {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
-    @After fun after() { activity.pause().stop().destroy() }
+    @After fun after() { disposeComposeActivity(activity) }
 
     private fun checkQuantities(
         expected: (Double, String) -> List<String>,

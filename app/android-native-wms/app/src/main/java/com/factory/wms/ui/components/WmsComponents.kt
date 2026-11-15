@@ -51,6 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.ui.theme.WmsDimens
+import androidx.compose.ui.platform.LocalDensity
 import com.factory.wms.ui.theme.Background
 import com.factory.wms.ui.theme.CardBackground
 import com.factory.wms.ui.theme.DividerSoft
@@ -74,8 +76,7 @@ import java.util.TimeZone
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WMS 移动端共享设计组件（AI-APP-UI-001）
-// 统一全 App 的顶栏 / 卡片 / 空态 / 按钮 / 徽标 / 分组标题视觉语言，
-// 让各业务界面保持一致的精致感：柔和阴影、18-20dp 圆角、模块色渐变头部。
+// 统一顶栏、卡片、空态和操作层级：中性表面、少量模块色、内容自适应尺寸。
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** 把颜色按比例调暗（保持透明度），用于生成模块色渐变的结束色。 */
@@ -106,7 +107,7 @@ fun WmsTopBar(
     StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
     Surface(
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 2.dp
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier
@@ -132,17 +133,13 @@ fun WmsTopBar(
                     title,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Text(
                         subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -152,8 +149,8 @@ fun WmsTopBar(
 }
 
 /**
- * 模块色渐变头部：accent → accent.darken() 斜向渐变 + 装饰圆 + 白色标题。
- * 用于扫码/AI 等作业屏，让每个模块有自己的色彩识别度。
+ * 作业头部：中性表面与模块色细标识。保留历史函数名及调用接口，
+ * 返回、标题和尾部操作跟随实际表面前景，内容决定高度。
  */
 @Composable
 fun WmsGradientHeader(
@@ -163,78 +160,39 @@ fun WmsGradientHeader(
     onBack: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null
 ) {
-    val headerColor = accent.readableOn(Color.White)
-    // 深色模块色渐变头部 → 浅色状态栏图标（修复深色图标压在深蓝/深紫渐变上不可读）
-    StatusBarIconEffect(darkIcons = false)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                brush = Brush.linearGradient(
-                    colors = listOf(headerColor, headerColor.darken(0.74f))
-                )
-            )
-    ) {
-        // 装饰不参与测量，头部高度只由标题与系统安全区决定。
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+    // 沿用既有调用接口：模块色退为小面积标识，文字使用实际主题表面的前景色。
+    StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
+    Surface(color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp)
+            .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
                 IconButton(onClick = onBack) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(GradientControlScrim),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = MaterialTheme.colorScheme.onSurface)
                 }
-            } else {
-                Spacer(modifier = Modifier.width(16.dp))
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    title,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            } else Spacer(Modifier.width(8.dp))
+            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
+                .background(accent.readableOn(MaterialTheme.colorScheme.surface)))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 if (!subtitle.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(1.dp))
-                    Text(
-                        subtitle,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text(subtitle, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             trailing?.invoke()
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(Modifier.width(8.dp))
         }
     }
 }
 
-/** 统一白色圆角卡片：18dp 圆角 + 柔和阴影。 */
+/** 统一主题表面卡片：使用公共形状令牌，层级由布局与间距表达。 */
 @Composable
 fun WmsCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
-    corner: Dp = 18.dp,
+    corner: Dp = WmsDimens.CornerLg,
     containerColor: Color = CardBackground,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     content: @Composable ColumnScope.() -> Unit
@@ -247,14 +205,7 @@ fun WmsCard(
         Modifier
     }
     Card(
-        modifier = modifier
-            .shadow(
-                elevation = 3.dp,
-                shape = shape,
-                ambientColor = Color.Black.copy(alpha = 0.06f),
-                spotColor = Color.Black.copy(alpha = 0.08f)
-            )
-            .then(clickModifier),
+        modifier = modifier.then(clickModifier),
         shape = shape,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor)
@@ -331,7 +282,7 @@ fun WmsEmptyState(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             subtitle,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = OnSurfaceVariant,
             textAlign = TextAlign.Center,
             lineHeight = if (dashedBorder) 20.sp else androidx.compose.ui.unit.TextUnit.Unspecified
@@ -353,7 +304,7 @@ private fun Modifier.dashedBorderStroke(width: Dp, color: Color, corner: Dp): Mo
         )
     }
 
-/** 统一主按钮：50dp 高、14dp 圆角、模块色、支持加载态与触觉反馈。 */
+/** 统一主按钮：最小 52dp、自适应高度，支持加载态与触觉反馈。 */
 @Composable
 fun WmsPrimaryButton(
     text: String,
@@ -367,22 +318,25 @@ fun WmsPrimaryButton(
     haptic: Boolean = true
 ) {
     val haptics = LocalHapticFeedback.current
+    val buttonColor = color.readableOn(Color.White)
     Button(
         onClick = {
             if (haptic) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onClick()
         },
-        modifier = modifier.heightIn(min = 50.dp),
+        modifier = modifier.heightIn(min = WmsDimens.ButtonHeightPrimary),
         enabled = enabled && !loading,
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = ButtonDefaults.buttonColors(
-            containerColor = color.readableOn(Color.White),
+            containerColor = buttonColor,
             contentColor = Color.White,
-            disabledContainerColor = color.copy(alpha = 0.35f)
+            // 忙碌时禁用重复点击，但进度和文字仍须清楚；普通禁用态继续弱化。
+            disabledContainerColor = if (loading) buttonColor else color.copy(alpha = 0.35f),
+            disabledContentColor = if (loading) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         ),
         elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 3.dp,
-            pressedElevation = 6.dp
+            defaultElevation = 0.dp,
+            pressedElevation = 0.dp
         )
     ) {
         if (loading) {
@@ -396,7 +350,7 @@ fun WmsPrimaryButton(
             Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
             Spacer(modifier = Modifier.width(7.dp))
         }
-        Text(text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -739,7 +693,7 @@ fun WmsErrorState(
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             subtitle,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = OnSurfaceVariant
         )
         if (onRetry != null) {
@@ -781,47 +735,32 @@ fun WmsDateNavRow(
 ) {
     var showPicker by remember { mutableStateOf(false) }
 
+    val fontScale = LocalDensity.current.fontScale
     val rowContent: @Composable () -> Unit = {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = if (wrapInCard) 4.dp else 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = onPrev) {
-                // 注意：必须写 ${label}——"$label前一天" 会被 Kotlin 解析成标识符
-                // `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference
-                Icon(Icons.Filled.ChevronLeft, if (label != null) "${label}前一天" else "前一天")
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    date,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    modifier = if (onDateSelected != null)
-                        Modifier.clickable { showPicker = true } else Modifier
-                )
-                val sub = subtitle ?: label?.let { "${it}日期" }
-                if (sub != null || onResetToday != null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (sub != null) {
-                            Text(
-                                sub,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        if (onResetToday != null) {
-                            TextButton(onClick = onResetToday) {
-                                Text("回到今天", fontSize = 12.sp)
-                            }
-                        }
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val inlineReset = fontScale <= 1f && maxWidth >= 280.dp && label == null && subtitle == null
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPrev) {
+                    Icon(Icons.Filled.ChevronLeft, if (label != null) "${label}前一天" else "前一天")
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(date, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                        modifier = if (onDateSelected != null) Modifier.heightIn(min = 48.dp)
+                            .clickable { showPicker = true }.wrapContentHeight() else Modifier)
+                    val sub = subtitle ?: label?.let { "${it}日期" }
+                    if (sub != null) Text(sub, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (!inlineReset && onResetToday != null) {
+                        TextButton(onClick = onResetToday) { Text("回到今天") }
                     }
                 }
-            }
-            IconButton(onClick = onNext, enabled = nextEnabled) {
-                Icon(Icons.Filled.ChevronRight, if (label != null) "${label}后一天" else "后一天")
+                IconButton(onClick = onNext, enabled = nextEnabled) {
+                    Icon(Icons.Filled.ChevronRight, if (label != null) "${label}后一天" else "后一天")
+                }
+                if (inlineReset && onResetToday != null) {
+                    TextButton(onClick = onResetToday) { Text("回到今天") }
+                }
             }
         }
     }

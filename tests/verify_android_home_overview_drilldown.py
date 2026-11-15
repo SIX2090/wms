@@ -260,12 +260,12 @@ def test_home_screen_wires_both_entries():
     src = _p("ui/screens/HomeScreen.kt")
 
     # 「待处理单据」此前是 screen = null
-    assert "screen = Screen.OverviewOrders" in src, "待处理单据仍未接线（点了没反应）"
-    assert "screen = Screen.OverviewAlerts" in src, "库存告警未指向告警明细"
+    assert "onNavigate(Screen.OverviewOrders)" in src, "待处理单据仍未接线（点了没反应）"
+    assert "onNavigate(Screen.OverviewAlerts)" in src, "库存告警未指向告警明细"
 
     # 「库存告警」不应再跳查库存的空白搜索框
     overview_block = src[src.index("private? fun TodayOverviewBar".replace("private? ", "")):]
-    overview_block = overview_block[:overview_block.index("private data class OverviewItem")]
+    overview_block = overview_block[:overview_block.index("private fun TodayMovementCell")]
     assert "screen = Screen.StockQuery" not in overview_block, (
         "库存告警仍跳查库存——用户看到数字却不知道是哪些物料"
     )

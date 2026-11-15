@@ -14,13 +14,16 @@ def test_shared_header_has_no_measuring_decoration():
     assert ".size(140.dp)" not in header
     assert ".size(90.dp)" not in header
     assert ".statusBarsPadding()" in header
-    assert 'contentDescription = "返回"' in header
+    assert 'Icons.AutoMirrored.Filled.ArrowBack, "返回"' in header
 
 
 def test_home_and_profile_status_icons_follow_actual_safe_area_background():
     for name in ("HomeScreen.kt", "ProfileScreen.kt"):
         source = read("ui/screens/" + name)
-        assert "StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())" in source
+        if name == "HomeScreen.kt":
+            assert "StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)" in source
+        else:
+            assert "StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())" in source
         assert ".padding(padding)" in source
 
 
@@ -70,12 +73,13 @@ def test_clear_requires_confirmation_and_respects_pending_submission():
 
 def test_material_specs_are_not_truncated_and_quantity_edit_is_preserved():
     source = read("ui/screens/ScanScreenBase.kt")
-    details = source.split("if (materialDetails.isNotBlank())", 1)[1].split("// 扫码/手动加入", 1)[0]
+    assert "WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)" in source
+    details = read("ui/components/WmsRecordContent.kt").split("fun WmsQuantityText", 1)[0]
     assert "softWrap = true" in details
     assert "maxLines" not in details
     assert "pendingQuantityEdit = line" in source
     assert "viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)" in source
-    assert 'Text("修改"' in source
+    assert 'Text("点击修改"' in source
 
 
 def test_empty_submit_removed_and_search_copy_fits_one_line():
@@ -90,7 +94,8 @@ def test_empty_submit_removed_and_search_copy_fits_one_line():
 def test_home_keeps_all_destinations_and_profile_shows_selectable_full_address():
     home = read("ui/screens/HomeScreen.kt")
     assert home.count("FunctionCard(") == 15
-    assert '"常用操作" else "更多功能"' in home
+    for title in ("开始作业", "查询与报表", "资料与工具"):
+        assert f'HomeSectionTitle("{title}")' in home
     assert '"当前服务器"' not in home
     profile = read("ui/screens/ProfileScreen.kt")
     server = profile.split('ProfileSectionCard("服务器信息")', 1)[1].split('// ── 扫码设置', 1)[0]

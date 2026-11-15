@@ -34,7 +34,7 @@ fun WmsExpandableSection(
         ) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.bodyMedium)
-                Text(summary, style = MaterialTheme.typography.labelSmall,
+                Text(summary, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,

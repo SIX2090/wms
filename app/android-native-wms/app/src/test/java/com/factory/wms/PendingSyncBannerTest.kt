@@ -30,7 +30,7 @@ class PendingSyncBannerTest {
     @Before fun before() {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
-    @After fun after() { activity.pause().stop().destroy() }
+    @After fun after() { disposeComposeActivity(activity) }
 
     @Test fun legacyReviewIsVisibleAndHasNoMisleadingRetryButton() {
         val message = "3 条历史记录待人工核对归属，禁止自动补传"

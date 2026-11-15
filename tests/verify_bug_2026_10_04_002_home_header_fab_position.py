@@ -27,6 +27,8 @@
 本测试以源码结构契约锁死修复。
 """
 
+# 2026-11-15 用户授权中性工作台：旧蓝底白字约束改为实际主题表面/前景，
+# 原标题不裁切、仓库可用和语音 FAB 避让的业务与布局要求继续保留。
 from __future__ import annotations
 
 import re
@@ -58,27 +60,21 @@ def test_002_title_row_not_inside_floating_offset_column() -> None:
     ), "「今日概览」标题 Row 仍在半悬浮 offset Column 内——行高超 28dp 时白字会落到白底被裁切"
 
 
-def test_002_title_row_rendered_inside_hero() -> None:
-    """「今日概览」标题必须在 Hero 区内渲染（在问候语之后、概览卡片之前）。"""
+def test_002_title_and_warehouse_use_theme_surface() -> None:
+    # 新版工作台取消深蓝 Hero，标题和仓库均使用主题实际表面，不再依赖固定 offset。
     src = _read(HOME)
-    hero = src.find("// ── Hero Section ──")
-    title = src.find('"今日概览"')
-    card = src.find("TodayOverviewBar(")
-    hero_end = src.find("今日概览卡片")
-    assert -1 not in (hero, title, card, hero_end), "关键锚点缺失，HomeScreen 结构已变化需同步本测试"
-    assert hero < title < hero_end < card, (
-        "「今日概览」标题不在 Hero 区内（应位于 Hero Section 与半悬浮卡片之间）"
-    )
-    # 标题在 Hero 内必须是白字（蓝底上可读）
-    seg = src[title : title + 300]
-    assert "Color.White" in seg, "Hero 内的「今日概览」标题必须是白色（蓝底）"
+    assert 'Text("仓库工作台"' in src
+    assert 'Text("当前仓库"' in src
+    assert 'Surface(color = CardBackground' in src
+    assert 'contentColor = MaterialTheme.colorScheme.primary' in src
+    assert 'Modifier.offset' not in src
 
 
 def test_002_overview_states_have_no_floating_overlap() -> None:
-    """2026-10-30 用户要求紧凑布局：三态改正常流，保留标题在蓝底内的原防裁切锁。"""
     src = _read(HOME)
     assert "Modifier.offset" not in src
-    assert src.count("Column(modifier = Modifier.padding(top = 12.dp))") == 3
+    for state in ('dashboard != null -> TodayOverviewBar', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+        assert state in src
 
 
 def test_002_voice_fab_clears_bottom_bar() -> None:

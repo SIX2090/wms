@@ -43,7 +43,7 @@ class NativeEntryInteractionTest {
         for (index in 0 until content.childCount) {
             (content.getChildAt(index) as? androidx.compose.ui.platform.ComposeView)?.disposeComposition()
         }
-        activity.pause().stop().destroy()
+        disposeComposeActivity(activity)
     }
 
     @Test fun manualQuantityErrorStaysVisibleAndDonePreservesInvalidInput() {

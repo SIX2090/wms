@@ -19,6 +19,8 @@ BUG-2026-10-04-002 把「项目仓」切换器收进 Hero 蓝底后，组件仍�
 3. BUG-2026-10-04-003 必须登记台账（含「生效确认」字段，A13）。
 """
 
+# 2026-11-15 用户授权中性工作台：旧蓝底白字约束改为实际主题表面/前景，
+# 原标题不裁切、仓库可用和语音 FAB 避让的业务与布局要求继续保留。
 from __future__ import annotations
 
 import re
@@ -54,13 +56,12 @@ def test_003_selector_has_content_color_param() -> None:
     assert "tint = contentColor ?:" in src, "下拉箭头未跟随 contentColor"
 
 
-def test_003_hero_call_passes_white() -> None:
-    """HomeScreen Hero 内的调用点必须显式传白色前景（核心回归锁）。"""
+def test_003_home_selector_uses_theme_foreground_on_surface() -> None:
+    # 用户授权取消蓝色 Hero；中性卡片内使用主题 primary，亮暗真实对比另测。
     src = _read(HOME)
-    # 调用参数内部也含 `)`（如 selectWarehouse(it)），用非贪婪全字符匹配
-    assert re.search(
-        r"WarehouseSelector\([\s\S]*?contentColor\s*=\s*Color\.White", src
-    ), "Hero 深蓝底上的 WarehouseSelector 未传 contentColor = Color.White"
+    assert 'Surface(color = CardBackground' in src
+    assert 'contentColor = MaterialTheme.colorScheme.primary' in src
+    assert 'contentColor = Color.White' not in src
 
 
 def test_003_report_call_unaffected() -> None:

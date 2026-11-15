@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.StockDailyItem
+import com.factory.wms.ui.components.WmsAdaptiveRecord
 import com.factory.wms.ui.components.WarehouseSelector
 import com.factory.wms.ui.components.WmsDateNavRow
 import com.factory.wms.ui.components.WmsEmptyState
@@ -302,11 +303,11 @@ private fun StockDailySummaryCell(label: String, value: String, modifier: Modifi
 internal fun StockDailyItemRow(item: StockDailyItem) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(
             modifier = Modifier
@@ -314,53 +315,54 @@ internal fun StockDailyItemRow(item: StockDailyItem) {
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "${item.name}（${item.code}）",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // spec 可空（BUG-2026-08-24-007），必须 isNullOrBlank 判空
-                if (!item.spec.isNullOrBlank()) {
+            WmsAdaptiveRecord(
+                quantityText = "${formatQty(item.stock)} ${item.unit.orEmpty()}".trim(),
+                identity = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            "${item.name}（${item.code}）",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp
+                        )
+                        // spec 可空（BUG-2026-08-24-007），必须 isNullOrBlank 判空
+                        if (!item.spec.isNullOrBlank()) {
+                            Text(
+                                item.spec,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        val meta = listOfNotNull(
+                            item.category?.takeIf { it.isNotBlank() },
+                            item.brand?.takeIf { it.isNotBlank() }
+                        ).joinToString(" · ")
+                        if (meta.isNotBlank()) {
+                            Text(
+                                meta,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                quantity = {
+                    // 结存：零库存用弱化色，区别于有库存
+                    // AI-APP-FIX-403：浮点不能直接 == 0.0（0.1+0.2 类误差会让零库存显绿）；
+                    // 数字列：完整换行、右对齐和 tnum 等宽数字，行间读数不跳位
                     Text(
-                        item.spec,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                val meta = listOfNotNull(
-                    item.category?.takeIf { it.isNotBlank() },
-                    item.brand?.takeIf { it.isNotBlank() }
-                ).joinToString(" · ")
-                if (meta.isNotBlank()) {
-                    Text(
-                        meta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            // 结存：零库存用弱化色，区别于有库存
-            // AI-APP-FIX-403：浮点不能直接 == 0.0（0.1+0.2 类误差会让零库存显绿）；
-            // 数字列：单行省略 + 右对齐 + tnum 等宽数字，行间读数不跳位
-            Text(
-                quantityDisplayText("${formatQty(item.stock)} ${item.unit.orEmpty()}".trim()),
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
-                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
-                textAlign = TextAlign.End,
-                softWrap = true,
-                modifier = Modifier.fillMaxWidth(),
-                color = if (kotlin.math.abs(item.stock) < 0.0001) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
+                        quantityDisplayText("${formatQty(item.stock)} ${item.unit.orEmpty()}".trim()),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
+                        textAlign = TextAlign.End,
+                        softWrap = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = if (kotlin.math.abs(item.stock) < 0.0001) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
                 } else {
                     Success
+                }
+            )
                 }
             )
         }

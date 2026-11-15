@@ -487,7 +487,7 @@ private fun WmsBottomBar(
 ) {
     NavigationBar(
         containerColor = com.factory.wms.ui.theme.CardBackground,
-        tonalElevation = androidx.compose.ui.unit.Dp(8f)
+        tonalElevation = androidx.compose.ui.unit.Dp(0f)
     ) {
         tabs.forEach { tab ->
             val selected = currentRoute == tab.screen.route
