@@ -31,6 +31,9 @@ class AppUpdatePanelTest {
         context.getSharedPreferences("app_update", Context.MODE_PRIVATE).edit().clear().commit()
         var checks = 0
         val downloads = UpdateDownloadClient(UpdateDownloadClient.client().newBuilder().addInterceptor { chain ->
+            if (chain.request().url.toString() == "https://github.com/SIX2090/wms/releases/download/android-mobile-stable-channel/update.json") return@addInterceptor Response.Builder()
+                .request(chain.request()).protocol(Protocol.HTTP_1_1).code(404).message("synthetic missing channel")
+                .body("".toResponseBody()).build()
             checks++
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200)
                 .message("synthetic").body("[]".toResponseBody()).build()

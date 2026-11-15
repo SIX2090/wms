@@ -75,7 +75,8 @@ BRANCH = "main"
 API = "https://api.github.com"
 ROOT = Path(__file__).resolve().parents[1]
 ANDROID_PATHS = ("app/android-native-wms", ".github/workflows/android-build.yml",
-                 ".github/workflows/android-update-promote.yml", "scripts/android_update_release.py", "scripts/prepare_android_signing.py")
+                 ".github/workflows/android-update-promote.yml", "scripts/android_update_release.py",
+                 "scripts/android_update_channel.py", "scripts/prepare_android_signing.py")
 
 # 门禁覆盖的三个工作流（与 AGENTS.md §三 表格逐字对应）。
 # 顺序即报告顺序，按"最能反映真实编译"到"最泛的校验"排列。

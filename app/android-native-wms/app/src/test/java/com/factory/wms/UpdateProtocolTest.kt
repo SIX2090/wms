@@ -35,7 +35,8 @@ class UpdateProtocolTest {
 
     private fun client(terminal: (okhttp3.Request) -> Response): UpdateDownloadClient {
         val calls = UpdateDownloadClient.client().newBuilder().addInterceptor(Interceptor { chain ->
-            terminal(chain.request())
+            if (chain.request().url.toString() == "https://github.com/SIX2090/wms/releases/download/android-mobile-stable-channel/update.json")
+                reply(chain.request(), byteArrayOf(), 404) else terminal(chain.request())
         }).build()
         return UpdateDownloadClient(calls)
     }
