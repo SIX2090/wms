@@ -94,7 +94,7 @@ def _candidate(apk, aapt, apksigner, sha, run_number, attempt=1):
                 f"{_candidate_tag(run_number, attempt)}/wms-mobile-scan.apk", size=apk.stat().st_size,
                 sha256=digest,
                 certificateSha256=certs[0].lower(), commitSha=sha,
-                notes="WMS 手机端更新；仅在三个必需工作流全部验收成功后进入稳定通道。")
+                notes="WMS 更新；仅在三个必需工作流全部验收成功后进入稳定通道。")
     _validate_metadata(meta, sha, run_number, attempt)
     return meta
 

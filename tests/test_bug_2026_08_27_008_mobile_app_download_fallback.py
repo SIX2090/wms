@@ -54,7 +54,9 @@ class TestMobileAppDownloadFallback:
             assert resp.status_code == 200, \
                 f"无 APK 时应返回 200 说明页而非 404，实际 {resp.status_code}"
             body = resp.get_data(as_text=True)
-            assert "扫码 APP 安装包暂未部署" in body, "说明页应包含标题"
+            # User-requested WMS branding; keep the exact heading and all original fallback checks.
+            assert "<h2>WMS 安装包暂未部署</h2>" in body, "说明页应包含当前App名称和安装状态"
+            assert "<title>WMS · 下载 App</title>" in body
             assert "网页版" in body, "说明页应包含网页版扫码入口"
             assert "WMS_ANDROID_APK_URL" in body, "说明页应包含管理员配置指引"
 

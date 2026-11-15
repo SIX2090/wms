@@ -10,7 +10,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>{% block title %}仓库管理AI系统{% endblock %}</title>
+    <title>{% if h5_app %}WMS · {% endif %}{% block title %}WMS{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <!-- CSRF Token -->
     <meta name="csrf-token" content="{{ csrf_token() }}">
@@ -388,7 +388,7 @@
             <i class="bi bi-list"></i>
         </button>
         <div class="mobile-topbar-title">
-            <span>仓库管理</span>
+            <span>WMS</span>
             <small>{% block mobile_title %}{{ self.title()|striptags }}{% endblock %}</small>
         </div>
         <a class="mobile-home-link" href="/" aria-label="首页"><i class="bi bi-house"></i></a>
@@ -399,7 +399,7 @@
     <nav class="sidebar" id="appSidebar">
         {% set ai_menu_capabilities = ai_menu_capabilities|default({}) %}
         <div class="brand">
-            <h4><i class="bi bi-brain"></i> 仓库管理</h4>
+            <h4><i class="bi bi-brain"></i> WMS</h4>
             <button type="button" class="mobile-sidebar-close" aria-label="关闭菜单" {% if inline_shell_actions %}onclick="closeMobileSidebar()"{% else %}data-material-shell-action="closeMobileSidebar"{% endif %}>
                 <i class="bi bi-x-lg"></i>
             </button>
@@ -425,7 +425,7 @@
                     <div class="flyout-title">手机端</div>
                     <a class="flyout-link" href="{{ url_for('mobile_home') }}" target="_top"><i class="bi bi-grid"></i> 手机端首页</a>
                     {% if current_user.role in ['admin', 'warehouse'] %}
-                    <a class="flyout-link" href="{{ url_for('mobile_app_download') }}"><i class="bi bi-phone"></i> 下载扫码APP</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_app_download') }}"><i class="bi bi-phone"></i> 下载WMS App</a>
                     <a class="flyout-link" href="{{ url_for('mobile_scan', mode='in') }}"><i class="bi bi-box-arrow-in-down"></i> 入库</a>
                     <a class="flyout-link" href="{{ url_for('mobile_scan', mode='out') }}"><i class="bi bi-box-arrow-up"></i> 出库</a>
                     <a class="flyout-link" href="{{ url_for('mobile_scan', mode='check') }}"><i class="bi bi-clipboard-check"></i> 盘点</a>
