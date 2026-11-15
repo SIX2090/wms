@@ -11,6 +11,7 @@ Material.stock，locations 不过滤仓库。手机盘点/查询/扫码结果页
 - 传入仓库 → stock 取 get_warehouse_stock_quantities(该仓)；开启库位管理时
   locations 只返回该仓库位（含历史 NULL warehouse_id 兼容行）。
 - 未传仓库（未选仓库的查询/识物场景）→ 保持全局库存展示，向后兼容。
+- 2026-11-15 A07 校订：显式无效、停用或歧义仓库受控返回400，不得回退全局。
 已接入：/mobile/api/material_lookup 可选 warehouse 查询参数；/mobile/api/
 scan_submit mode=query（请求带仓库时）与 in/out/check 成功响应。
 
@@ -21,7 +22,7 @@ T3. lookup warehouse=仓库编码 WA → 解析为 A 仓库存 10
 T4. scan_submit mode=query + warehouse → 仓库级
 T5. scan_submit in 成功响应 material.stock=A 仓加库后数量，非全局口径
 T6. 开启库位管理双仓：lookup A 仓 locations 只含 A 仓库位、stock 按 A 仓
-T7. 传入无效仓库 → 忽略并回退全局（不报错）
+T7. material_lookup/stock_lookup 传入无效仓库 → 400，错误响应不包含库存数据
 """
 from __future__ import annotations
 
@@ -149,11 +150,15 @@ class TestLookupDisplayWarehouseStock:
         assert r.status_code == 200
         assert r.get_json()["data"]["stock"] == 10.0, "仓库编码也应解析为 A 仓账面"
 
-    def test_t7_invalid_warehouse_falls_back(self, client):
+    @pytest.mark.parametrize('endpoint', ['/mobile/api/material_lookup', '/mobile/api/stock_lookup'])
+    def test_t7_invalid_warehouse_is_rejected(self, client, endpoint):
         _scene_non_location()
-        r = client.get("/mobile/api/material_lookup?code=M001&warehouse=不存在的仓")
-        assert r.status_code == 200
-        assert r.get_json()["data"]["stock"] == 100.0, "无效仓库应忽略并回退全局，不报错"
+        r = client.get(endpoint, query_string={'code': 'M001', 'warehouse': '不存在的仓'})
+        assert r.status_code == 400, r.get_data(as_text=True)
+        payload = r.get_json()
+        assert payload['status'] == 'error'
+        assert '仓库' in payload['msg']
+        assert 'data' not in payload, '显式无效仓库不得返回全局库存数据'
 
 
 class TestScanSubmitDisplayWarehouseStock:

@@ -26956,10 +26956,10 @@ def material_search_api():
     total = filtered.count()
     materials = filtered.limit(MATERIAL_SEARCH_API_LIMIT).all()
     # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
-    _wh_obj = None
-    _wh_raw = (request.values.get('warehouse') or '').strip()
+    _wh_obj, _wh_raw = None, (request.values.get('warehouse') or '').strip()
     if _wh_raw:
         _wh_obj, _wh_err = validate_inventory_warehouse(_wh_raw)
+        if _wh_err: return api_json_error(_wh_err, 400)
     # BUG-2026-09-10-004（性能）：库存聚合与库位分布各预取一次——原实现每个物料
     # 重复一次全仓聚合 + 一次库位查询（2N 次），命中上限 100 条时高达 200+ 次
     # 查询，手机端搜索明显卡顿。现固定为 1 次聚合 + 1 次库位 IN 查询。
@@ -27011,10 +27011,10 @@ def material_info_api():
         return api_error('物料不存在')
 
     # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
-    _wh_obj = None
-    _wh_raw = (request.values.get('warehouse') or '').strip()
+    _wh_obj, _wh_raw = None, (request.values.get('warehouse') or '').strip()
     if _wh_raw:
         _wh_obj, _wh_err = validate_inventory_warehouse(_wh_raw)
+        if _wh_err: return api_json_error(_wh_err, 400)
     return jsonify({
         'status': 'success',
         'success': True,

@@ -411,14 +411,14 @@ def register_mobile_routes(app):
         keyword = (request.args.get('code') or request.args.get('q') or '').strip()
         # BUG-2026-09-03-002：查询支持可选 warehouse（仓库名/编码），返回该仓库级账面库存
         from app import validate_inventory_warehouse
-        _lk_wh = None
-        _lk_wh_raw = (request.args.get('warehouse') or '').strip()
+        _lk_wh, _lk_wh_raw = None, (request.args.get('warehouse') or '').strip()
         if request.endpoint == 'mobile_stock_lookup':
             _lk_wh, _lk_err = validate_inventory_warehouse(_lk_wh_raw)
             if not _lk_wh_raw or _lk_err:
                 return jsonify({'status': 'error', 'success': False, 'msg': _lk_err or '请选择仓库'}), 400
         if _lk_wh_raw:
             _lk_wh, _lk_err = validate_inventory_warehouse(_lk_wh_raw)
+            if _lk_err: return jsonify({'status': 'error', 'success': False, 'msg': _lk_err}), 400
         material, matches = find_mobile_material(keyword)
         if material:
             return jsonify({

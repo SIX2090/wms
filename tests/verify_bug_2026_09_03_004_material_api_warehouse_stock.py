@@ -6,16 +6,17 @@
 并按 stock 判"库存充足/不足"——多仓库下把 A+B 全仓合计当成本仓账面，
 出库/盘点前会误判（A 仓只剩 5 却显示全局 100 → 误标"库存充足"）。
 
-修复后：info/search 接受可选 warehouse（仓库名或编码）参数，命中时
-stock 取该仓 get_warehouse_stock_quantities；未传或仓库无效回退全局展示，
-不影响 Web 物料档案（/api/material/all 保持全局总库存口径）。
+当前口径（2026-11-15 A07 修订）：info/search 接受可选 warehouse（仓库名或
+编码）参数，命中时 stock 取该仓 get_warehouse_stock_quantities；显式无效、
+停用或歧义仓库必须受控拒绝，不能回退全局。未传 warehouse 的元数据查询仍
+兼容全局展示；Web 物料档案 /api/material/all 保持全局总库存口径。
 
 覆盖：
 T1. /api/material/info?code=M001&warehouse=A仓 → stock=10（全局 100）
 T2. /api/material/info?code=M001（不带仓库）→ stock=100 兼容
 T3. /api/material/search?keyword=M001&warehouse=WA（编码别名）→ stock=10
 T4. /api/material/all 保持全局口径（不传 warehouse，stock=100）
-T5. 无效仓库 → 回退全局不报错
+T5. info/search 显式无效仓库 → 400，错误响应不包含库存数据
 """
 from __future__ import annotations
 
@@ -132,7 +133,12 @@ def test_t4_all_keeps_global_total(client):
     assert data and data[0]["stock"] == 100.0, "material/all 为总库存列表，保持全局口径"
 
 
-def test_t5_invalid_warehouse_falls_back(client):
-    r = client.get("/api/material/info?code=M001&warehouse=不存在的仓")
-    assert r.status_code == 200
-    assert r.get_json()["data"]["stock"] == 100.0, "无效仓库应回退全局，不报错"
+@pytest.mark.parametrize('endpoint', ['/api/material/info', '/api/material/search'])
+def test_t5_invalid_warehouse_is_rejected(client, endpoint):
+    r = client.get(endpoint, query_string={
+        'code': 'M001', 'keyword': 'M001', 'warehouse': '不存在的仓'})
+    assert r.status_code == 400, r.get_data(as_text=True)
+    payload = r.get_json()
+    assert payload['status'] == 'error'
+    assert '仓库' in payload['msg']
+    assert 'data' not in payload, '显式无效仓库不得返回全局库存数据'

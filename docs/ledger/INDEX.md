@@ -308,6 +308,7 @@
 | 优先级 | ai | records-2026-10.md |
 | P1 | ai | records-2026-10.md |
 | MOBILE-UPDATE-20261114-001 | ai | records-2026-11.md |
+| AI-APP-AUDIT-FIX-20261115-001 | ai | records-2026-11.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |
@@ -638,6 +639,8 @@
 | BUG-2026-10-31-025 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-027 | bugs | entries-2026-10.md |
+| BUG-2026-11-15-015 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-019 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-008 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-006 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-004 | bugs | entries-2026-11.md |
