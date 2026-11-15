@@ -26,3 +26,11 @@
 ## 首次CI纠正记录
 
 34b10fbd23f2f39368a152d8ebb274700b8143d6已普通push；Android43691325242、AI43691325259、Chrome和四verify分片通过，unit0仅旧安装说明页标题断言失败（5581通过）。旧测试要求“扫码 APP 安装包暂未部署”，与用户要求WMS的新准确标题冲突。同步原测试为准确h2与title断言，状态200、网页版入口、配置、MIME、下载内容、白名单和优先级检查均保留；另加业务状态不变的新独立锁。按R8协调后完整回退首批26文件再整批纠正，不把中间红灯称作完成。
+
+## 最终代码验收
+
+最终完整代码目标 `38c1bd287555b73aa31b963b527c387d48db760d`，Windows2026.11.68、Android3.9.24(48)，名称WMS。[WMS CI43693009642](https://github.com/SIX2090/wms/actions/runs/43693009642) completed/success；[WMS AI Verification43693009625](https://github.com/SIX2090/wms/actions/runs/43693009625) completed/success；[Android APK Build43693009705](https://github.com/SIX2090/wms/actions/runs/43693009705) completed/success。
+
+31明确模块750 passed/5平台限制跳过/45子测试；5跳过包括4个Linux HTTP边界和1个低权限账号不可创建符号链接，未伪报通过。27文件逆序回退：新锁24 failed/139原对照passed，逐文件恢复全部候选后163 passed。普通push34b10fbd..38c1bd28，包含完整R8 b9ca6b42及整批纠正38c1；首轮失败及原始日志均保留。真实Chrome三宽度检查以该目标浏览器job通过为准；未取得上传截图，不冒称已人工看图或真机摄像头验收。
+
+代码、完整CI已验收；本次四文档收口自身目标另验。生产未部署或重启，生产数据库/备份未访问。实际手机安装名称、摄像头/微信/键盘/大字体仍待人工确认。
