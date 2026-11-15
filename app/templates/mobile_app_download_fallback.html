@@ -28,9 +28,9 @@
   <h2>扫码 APP 安装包暂未部署</h2>
   <p class="muted">
     服务器上还没有放置安卓安装包（APK），暂时无法直接下载。
-    您可以先用手机浏览器直接使用网页版扫码，支持浏览器扫码、库存查询和手工录入，无需安装。
+    您可以先用手机浏览器直接使用网页版扫码，功能相同、无需安装。
   </p>
-  <a class="h5-link" href="{{ url_for('mobile_home') }}">打开手机端网页版</a>
+  <a class="h5-link" href="{{ url_for('mobile_scan', mode='query') }}">使用手机浏览器扫码（网页版）</a>
   <div class="admin">
     <b>管理员部署 APP 下载的方式（任选其一）：</b>
     <ol>

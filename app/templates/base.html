@@ -1,11 +1,10 @@
-{% set h5_app = current_user.is_authenticated and request.args.get('embedded') != '1' and (request.endpoint in ('mobile_home', 'mobile_profile', 'mobile_scan', 'mobile_material_detail', 'mobile_connect') or request.args.get('mobile') == '1') -%}
 {% set inline_shell_actions = not (strict_material_scripts|default(false) or (request.endpoint == 'add_material' and request.args.get('embedded') == '1')) -%}
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="wms-external-operations" content="{{ 'paused' if runtime_external_paused else 'available' }}">
-    <meta name="viewport" content="{% if h5_app %}width=device-width, initial-scale=1.0, viewport-fit=cover{% else %}width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no{% endif %}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no">
     <!-- 禁用浏览器缓存 -->
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
@@ -327,7 +326,6 @@
     </script>
     <link href="{{ url_for('static', filename='css/shell.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/pages/shell-navigation.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
-    {% if h5_app %}<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-app.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}">{% endif %}
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 8 小时），避免长会话过期 -->
     <script>
@@ -377,12 +375,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/copyright.css') }}">
     {% include '_button_theme.html' %}
 </head>
-{% if h5_app %}
-<body class="{{ self.body_class() }} mobile-app-page">
-{% else %}
 <body class="{% block body_class %}{% endblock %}{% if request.args.get('embedded') == '1' %} embedded-page{% endif %}">
-{% endif %}
-    {% if h5_app %}{% set h5_page_title = self.mobile_title()|striptags %}{% include '_mobile_app_header.html' %}{% endif %}
     <header class="mobile-topbar no-print">
         <button type="button" class="mobile-menu-toggle" id="mobileMenuToggle" aria-controls="appSidebar" aria-expanded="false" {% if inline_shell_actions %}onclick="toggleMobileSidebar()"{% else %}data-material-shell-action="toggleMobileSidebar"{% endif %}>
             <i class="bi bi-list"></i>
@@ -422,16 +415,15 @@
                     <i class="bi bi-chevron-right module-arrow"></i>
                 </button>
                 <div class="module-flyout">
-                    <div class="flyout-title">手机端</div>
-                    <a class="flyout-link" href="{{ url_for('mobile_home') }}" target="_top"><i class="bi bi-grid"></i> 手机端首页</a>
+                    <div class="flyout-title">手机扫码</div>
                     {% if current_user.role in ['admin', 'warehouse'] %}
                     <a class="flyout-link" href="{{ url_for('mobile_app_download') }}"><i class="bi bi-phone"></i> 下载扫码APP</a>
-                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='in') }}"><i class="bi bi-box-arrow-in-down"></i> 入库</a>
-                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='out') }}"><i class="bi bi-box-arrow-up"></i> 出库</a>
-                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='check') }}"><i class="bi bi-clipboard-check"></i> 盘点</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='in') }}"><i class="bi bi-box-arrow-in-down"></i> 手工入库</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='out') }}"><i class="bi bi-box-arrow-up"></i> 手工出库</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='check') }}"><i class="bi bi-clipboard-check"></i> 手工盘点</a>
                     <div class="flyout-divider"></div>
                     {% endif %}
-                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='query') }}"><i class="bi bi-search"></i> 查库存</a>
+                    <a class="flyout-link" href="{{ url_for('mobile_scan', mode='query') }}"><i class="bi bi-search"></i> 手工查询</a>
                 </div>
             </li>
             {% if current_user.role in ['admin', 'warehouse', 'purchase'] %}
@@ -623,7 +615,7 @@
                     <div class="flyout-divider"></div>
                     <a class="flyout-link" href="/purchase_report"><i class="bi bi-clipboard-data"></i> 采购报表</a>
                     <a class="flyout-link" href="/sales/report"><i class="bi bi-bar-chart-line"></i> 销售报表</a>
-                    <a class="flyout-link" href="/mobile/scan?mode=query"><i class="bi bi-search"></i> 查库存</a>
+                    <a class="flyout-link" href="/mobile/scan?mode=query"><i class="bi bi-search"></i> 手工查询</a>
                 </div>
             </li>
             {% endif %}
@@ -872,7 +864,6 @@
     </div>
     </div><!-- end app-wrapper -->
 
-    {% if h5_app %}{% include '_mobile_app_nav.html' %}{% endif %}
     <div class="cb-toast-stack" id="cbToastStack"></div>
 
     <div class="cb-confirm-overlay" id="cbConfirmOverlay" aria-hidden="true">
@@ -1026,7 +1017,6 @@
     {% endif %}
 
     <script src="{{ url_for('static', filename='js/quantity-summary.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
-    {% if h5_app %}<script src="{{ url_for('static', filename='js/pages/mobile-app-shell.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>{% endif %}
     {% block extra_js %}{% endblock %}
 
     <!-- Flatpickr JS + 中文日期格式初始化（本地化） -->

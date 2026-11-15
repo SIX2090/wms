@@ -35,11 +35,20 @@
             <span class="mobile-scan-heading-icon"><i class="bi {{ mode_config.icon }}"></i></span>
             <div>
                 <h2>{{ mode_config.title }}</h2>
-                <p>支持摄像头扫码、拍照识物和手工录入</p>
+                <p>浏览器不做摄像头扫码，现场扫码请用手机APP</p>
             </div>
         </div>
 
-        <div class="mobile-camera-help" role="note">点击条码按钮打开摄像头扫码；也可拍照识物或输入编码查找。</div>
+        <div class="mobile-app-notice">
+            <div>
+                <strong>手机摄像头扫码请安装APP</strong>
+                <span>浏览器受 HTTP 限制，扫码不稳定；APP 支持连续扫码。</span>
+            </div>
+            <a class="btn btn-success mobile-app-download" href="{{ url_for('mobile_app_download') }}">
+                <i class="bi bi-phone"></i>
+                <span>下载APP</span>
+            </a>
+        </div>
 
         <a class="btn btn-outline-primary mobile-app-download" href="{{ url_for('mobile_connect') }}" title="手机连接配置">
             <i class="bi bi-qr-code"></i>
@@ -479,11 +488,6 @@
 
     function startBarcodeScanner() {
         if (!barcodeScanner || !barcodeVideo) return;
-
-        if (window.isSecureContext === false) {
-            setStatus('摄像头扫码需要安全连接，请使用 HTTPS 地址；也可手工输入编码', 'error');
-            return;
-        }
 
         // Check if ZXing library is available
         if (typeof ZXing === 'undefined' || !ZXing.BrowserMultiFormatReader) {
