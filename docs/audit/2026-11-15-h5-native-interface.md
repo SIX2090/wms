@@ -1,5 +1,7 @@
 # 2026-11-15 H5 与原生 App 界面及操作习惯统一
 
+当前状态：H5最终代码 `5b8bed39b038fcd05702d49a904eb9efc873bb12`（2026.11.64）已正常提交推送并通过完整精确CI；两轮失败与完整R8保留，下述阶段待验文字为历史过程。文档收口基于实际main `843ea7ec0f648da21fd7c2997e09a160f5bec33c`，保留另一任务已提交的Android改动，本次文档自身CI另验。生产未部署或重启，生效确认：待人工确认。
+
 用户目标：H5是正式手机操作入口，保留浏览器摄像头扫码，界面与原生App保持同一套导航和操作语言。不是取消H5，也不是将现有功能降级为仅下载/备用页面。
 
 基线：53b891344270363f6102e09f4ff117c4e8ea3569，main，Windows版本2026.11.61；首轮2026.11.62未通过静态契约，纠正候选2026.11.63。共享原2删除/2未跟踪文件保持；不新建分支或worktree。以下代码未验收前不表示生产生效。
@@ -52,3 +54,17 @@
 第二目标真实Chrome日志确认320/375/414三宽度均navigation=true、no_horizontal_overflow=true、account_matches=true；截图上传仍未取得文件，不宣称人工看图或真机验收。最终完整新目标CI另验，所有失败历史保留。
 
 最终冻结版本64：24个明确完整模块673 passed、4原有Linux-only skipped、9 warnings，179.54秒（wms.synthetic.9bff7a633fcc498596e4c28afba36531）。采购原116项与H517项完整执行，不跳过56个角色/状态用例。其余同类模板消费者已按源码和原回归核对；最终整批逆序、恢复及精确目标CI另列实际回执。
+
+## 最终代码验收
+
+- H5代码目标：`5b8bed39b038fcd05702d49a904eb9efc873bb12`；实际普通push `9a5e13f8..5b8bed39 main -> main`，无强推、无跳钩。22文件Git blobs逐个匹配冻结候选，正常pre-commit A1–A14零违规。另一任务后续推进main不改变该代码目标验收；当前收口仅修改四份文档，不纳入其未提交工作。
+- [WMS CI43672083322](https://github.com/SIX2090/wms/actions/runs/43672083322)：精确目标completed/success，3个unit、4个verify、静态、smoke、真实Chrome及gate均success。
+- [WMS AI Verification43672083263](https://github.com/SIX2090/wms/actions/runs/43672083263)：同一SHA completed/success，ai-core/static/gate均success；代码分流docs-checks正常skipped。
+- Android目标无APK Build，复用[c5708563的43615763759](https://github.com/SIX2090/wms/actions/runs/43615763759)实时success：源是目标祖先，五条输入路径未变，222所需Git对象完整，replace refs/lazy fetch均关闭。此证明属于H5代码目标，不替代后续并行Android新目标的构建。
+- 最终本地24完整模块673 passed、4个原Linux-only skipped、9 warnings；4个跨平台用例由完整目标CI验证。最后22文件私有副本整批逆序恢复准确53b89134，保留新锁：15 failed/118原控制passed；逐文件恢复同一候选后133 passed。专项相互重叠，不累加为总数或BUG数。
+- 原静态checker、采购详情116项原断言保持字节不变。两个Node消费者只补window环境，权限拒绝/库缺失/取消及设备释放断言不变。真实Chrome在320/375/414宽度执行导航、库存/扫码入口、我的账号及物料页跳转，日志均navigation/no_horizontal_overflow/account_matches=true。现有截图上传未取得文件，未宣称人工看图或真机验收。
+- 首轮30902085与第二轮9a5e13f8确有失败，分别完整revert为0bea41ee、f961fc8d，两次提交树均与53b89134一致；协调保护并行文件和独立补丁后再纠正，不掩盖失败历史。
+
+当前main包含另一任务的新Android提交，文档收口目标的WMS/AI及Android证据仍按其自身SHA单独验收。实际结果保存于本任务独立交付回执并在最终报告列出，不用H5代码旧绿冒充文档目标成功。
+
+生效确认：待人工确认；生产需重启WMS服务生效，本次未部署/重启/迁移，未访问生产数据库或备份、现有服务、真实凭据/单据/模型/ASR/微信/打印机。真实手机摄像头授权、取景、微信内置浏览器、软键盘和系统大字体仍需设备确认。

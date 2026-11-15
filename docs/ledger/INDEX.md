@@ -201,6 +201,7 @@
 | 2026-11-08 | ai | completions-2026-11.md |
 | PRINT-TEMPLATE-F01-FIX-FILE-LIFECYCLE-20261114-001 | ai | completions-2026-11.md |
 | AI-MOB-MEDIA-FIX-20261114-001 | ai | completions-2026-11.md |
+| AI-MOB-H5-UI-20261115-001 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
