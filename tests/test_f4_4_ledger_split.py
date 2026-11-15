@@ -590,4 +590,3 @@ POST_SPLIT_BUGS['BUG-2026-11-15-003'] = 'fixed'  # archive classification only; 
 POST_SPLIT_BUGS['BUG-2026-11-15-004'] = 'fixed'  # archive classification only; exact CI and activation are separate
 
 POST_SPLIT_BUGS['BUG-2026-11-15-006'] = 'fixed'  # Code registration only; exact CI and activation remain separate.
-POST_SPLIT_BUGS['BUG-2026-11-15-008'] = 'fixed'  # Parser classification only; target CI and device activation remain separate.

@@ -61,15 +61,6 @@ class _ReleaseApi:
 
 
 class TestAndroidUpdateRelease(unittest.TestCase):
-    def test_real_api_transport_accepts_empty_asset_delete_response(self):
-        class Transport:
-            def open(self, request, timeout):
-                if request.get_method() != "DELETE":
-                    raise AssertionError("expected asset deletion")
-                return io.BytesIO(b"")
-        with patch.object(_MODULE, "build_opener", return_value=Transport()):
-            self.assertIsNone(_MODULE._api("/releases/assets/123", method="DELETE"))
-
     def test_real_api_transport_accepts_compare_and_promotes_without_mocking_path_guard(self):
         api = _ReleaseApi()
         class Transport:

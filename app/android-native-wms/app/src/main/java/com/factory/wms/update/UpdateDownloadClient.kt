@@ -7,9 +7,6 @@ import okhttp3.Request
 import okhttp3.Response
 import java.io.File
 import java.io.IOException
-import java.net.SocketTimeoutException
-import java.net.SocketException
-import java.net.UnknownHostException
 import java.util.concurrent.TimeUnit
 
 /** Deliberately independent of RetrofitClient, its tokens, cookie jar and interceptors. */
@@ -18,8 +15,7 @@ internal class UpdateDownloadClient(private val calls: Call.Factory = client()) 
         var url = checkedUpdateUrl(address)
         repeat(6) {
             val response = calls.newCall(Request.Builder().url(url)
-                .header("Accept", if (url.host == "api.github.com")
-                    "application/vnd.github+json" else "application/octet-stream")
+                .header("Accept", "application/vnd.github+json")
                 .header("User-Agent", "WMS-Android-Updater").build()).execute()
             if (response.code in listOf(301, 302, 303, 307, 308)) {
                 val next = response.header("Location")
@@ -30,13 +26,8 @@ internal class UpdateDownloadClient(private val calls: Call.Factory = client()) 
             } else {
                 if (!response.isSuccessful) {
                     val code = response.code
-                    val limited = response.header("X-RateLimit-Remaining") == "0" || code == 429
                     response.close()
-                    throw IOException(when {
-                        limited -> "更新服务请求已限流（HTTP $code），请稍后重试或手动下载"
-                        code == 403 -> "更新服务拒绝访问（HTTP 403），请切换网络或手动下载"
-                        else -> "更新服务暂不可用（HTTP $code），可稍后重试"
-                    })
+                    throw IOException("更新服务暂不可用（HTTP $code），可稍后重试")
                 }
                 return response
             }
@@ -51,26 +42,6 @@ internal class UpdateDownloadClient(private val calls: Call.Factory = client()) 
     }
 
     fun latest(): UpdateRelease? {
-        try {
-            return retryConnection {
-                val pointer = JsonParser.parseString(json(UPDATE_CHANNEL)).asJsonObject
-                val tag = pointer["tag"].asString
-                val match = requireNotNull(Regex("android-mobile-stable-v([1-9][0-9]*)-([0-9a-f]{40})")
-                    .matchEntire(tag)) { "更新清单未指向稳定版本" }
-                val metadata = UpdateRelease.parse(json(
-                    "https://github.com/$UPDATE_REPO/releases/download/$tag/update.json"))
-                require(metadata.tag == tag && metadata.versionCode == match.groupValues[1].toLong() &&
-                    metadata.commitSha == match.groupValues[2]) { "稳定版本来源不匹配" }
-                metadata
-            }
-        } catch (_: IOException) {
-            // Older deployments may not have public files yet. Keep the original
-            // immutable-record query as a transport fallback, never a candidate/latest alias.
-        }
-        return retryConnection { latestFromApi() }
-    }
-
-    private fun latestFromApi(): UpdateRelease? {
         // matching-refs is a prefix lookup, not the first page of all repository releases.
         val refs = JsonParser.parseString(json("$UPDATE_API/git/matching-refs/tags/$STABLE_PREFIX"))
             .asJsonArray
@@ -91,10 +62,6 @@ internal class UpdateDownloadClient(private val calls: Call.Factory = client()) 
     }
 
     fun download(release: UpdateRelease, destination: File, progress: (Int) -> Unit) {
-        retryConnection { downloadOnce(release, destination, progress) }
-    }
-
-    private fun downloadOnce(release: UpdateRelease, destination: File, progress: (Int) -> Unit) {
         require(release.size in 1..MAX_APK_BYTES)
         val temporary = File(destination.parentFile, destination.name + ".part")
         try {
@@ -124,18 +91,6 @@ internal class UpdateDownloadClient(private val calls: Call.Factory = client()) 
                 java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                 java.nio.file.StandardCopyOption.ATOMIC_MOVE)
         } finally { temporary.delete() }
-    }
-
-    private fun <T> retryConnection(action: () -> T): T {
-        repeat(2) { attempt ->
-            try { return action() } catch (error: IOException) {
-                val transient = error is SocketTimeoutException || error is SocketException ||
-                    error is UnknownHostException
-                if (!transient || attempt == 1 || Thread.currentThread().isInterrupted) throw error
-                Thread.sleep(300)
-            }
-        }
-        error("更新连接重试已结束")
     }
 
     companion object {

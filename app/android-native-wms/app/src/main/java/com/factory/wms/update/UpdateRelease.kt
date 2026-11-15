@@ -10,7 +10,6 @@ import java.security.MessageDigest
 internal const val UPDATE_REPO = "SIX2090/wms"
 internal const val UPDATE_API = "https://api.github.com/repos/$UPDATE_REPO"
 internal const val STABLE_PREFIX = "android-mobile-stable-v"
-internal const val UPDATE_CHANNEL = "https://github.com/$UPDATE_REPO/releases/download/android-mobile-stable-channel/update.json"
 internal const val MAX_APK_BYTES = 150L * 1024 * 1024
 
 internal data class UpdateRelease(

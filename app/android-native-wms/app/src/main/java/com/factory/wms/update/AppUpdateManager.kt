@@ -131,13 +131,7 @@ internal class AppUpdateManager(
                 mutable.value = UpdateUiState("${release.versionName} 已准备好", ready = true)
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
-                val reason = when (e) {
-                    is java.net.SocketTimeoutException -> "连接更新服务超时，请稍后重试或切换网络"
-                    is java.net.UnknownHostException -> "无法连接更新服务，请检查网络后重试"
-                    is java.net.SocketException -> "更新连接中断，请稍后重试或切换网络"
-                    else -> e.message ?: "请稍后重试"
-                }
-                mutable.value = UpdateUiState("更新未完成：$reason")
+                mutable.value = UpdateUiState("更新未完成：${e.message ?: "请稍后重试"}")
             } finally { mutex.unlock() }
             installIfReady()
         }
