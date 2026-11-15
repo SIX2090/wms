@@ -12,10 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import com.factory.wms.data.api.RetrofitClient
 import okhttp3.MultipartBody
 
 data class MaterialArchiveUiState(
@@ -45,11 +41,6 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
     private val _uiState = MutableStateFlow(MaterialArchiveUiState())
     val uiState: StateFlow<MaterialArchiveUiState> = _uiState.asStateFlow()
 
-    private var listVersion = 0L
-    private var detailVersion = 0L
-    private var listJob: Job? = null
-    private var detailJob: Job? = null
-
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
@@ -63,14 +54,9 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun search(keyword: String = _uiState.value.keyword) {
-        listJob?.cancel()
-        val version = ++listVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        listJob = viewModelScope.launch {
+        viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, loadError = null)
             val result = repository.searchMaterialArchive(keyword)
-            currentCoroutineContext().ensureActive()
-            if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             _uiState.value = _uiState.value.copy(isLoading = false)
             result.fold(
                 onSuccess = { materials ->
@@ -90,14 +76,9 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
     }
 
     fun loadImages(materialId: Int) {
-        detailJob?.cancel()
-        val version = ++detailVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        detailJob = viewModelScope.launch {
+        viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, imagesError = null)
             val result = repository.getMaterialArchiveImages(materialId)
-            currentCoroutineContext().ensureActive()
-            if (version != detailVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             _uiState.value = _uiState.value.copy(isLoading = false)
             result.fold(
                 onSuccess = { data ->

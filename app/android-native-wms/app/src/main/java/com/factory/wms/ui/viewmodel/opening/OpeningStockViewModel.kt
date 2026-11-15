@@ -11,9 +11,6 @@ import com.factory.wms.data.model.OpeningStockUpdateRequest
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import com.factory.wms.data.api.RetrofitClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,9 +76,6 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
     // P1-C：已建账列表关键字筛选的防抖与竞态控制（同上策略）
     private var builtSearchSequence = 0
     private var builtSearchJob: Job? = null
-    private var builtLoadJob: Job? = null
-    private var builtLoadVersion = 0L
-    private var displayedBuiltQuery: Pair<Int?, String>? = null
 
     companion object {
         /** 已建账列表每页条数（与后端 MOBILE_API_PAGE_SIZE_DEFAULT 对齐） */
@@ -174,13 +168,11 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
             val result = repository.getWarehouses()
             result.fold(
                 onSuccess = { warehouses ->
-                    val selected = _uiState.value.selectedWarehouse
-                    val first = if (selected != null) warehouses.singleOrNull { it.code == selected.code }
-                        else warehouses.singleOrNull { it.isDefault }
+                    val first = warehouses.firstOrNull() ?: _uiState.value.selectedWarehouse
                     _uiState.value = _uiState.value.copy(
                         warehousesLoading = false,
                         warehouses = warehouses,
-                        selectedWarehouse = first
+                        selectedWarehouse = first ?: _uiState.value.selectedWarehouse
                     )
                     // P1-C：默认仓库就位后立刻拉已建账列表，用户打开就能看到
                     // "本仓建了什么"，不用先手动选一次仓库。
@@ -202,12 +194,10 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         val changed = _uiState.value.selectedWarehouse?.id != warehouse.id
         _uiState.value = _uiState.value.copy(selectedWarehouse = warehouse)
         if (changed) {
-            builtLoadJob?.cancel(); builtLoadVersion++
             // P1-C：切仓库后已建账列表必须重拉——列表是仓库级视角，
             // 沿用上一个仓库的数据会让用户看到串仓的记录。
             _uiState.value = _uiState.value.copy(
                 builtItems = emptyList(),
-                editingItem = null,
                 builtPage = 1,
                 builtTotalPages = 0,
                 builtTotal = 0,
@@ -244,12 +234,13 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         _uiState.value = _uiState.value.copy(lines = current, error = null)
 
         viewModelScope.launch {
-            val material = repository.getMaterialInfo(trimmed).getOrNull()?.takeIf { it.code == trimmed }
+            val material = repository.getMaterialInfo(trimmed).getOrNull()
+                ?: repository.searchMaterial(trimmed).getOrNull()?.firstOrNull()
             material?.let {
                 val enriched = _uiState.value.lines.map { existing ->
                     if (existing.materialCode == trimmed) {
                         existing.copy(
-                            materialCode = existing.materialCode,
+                            materialCode = it.code ?: existing.materialCode,
                             materialName = it.name,
                             materialSpec = it.spec,
                             materialBrand = it.brand
@@ -334,31 +325,21 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         if (!reset && state.builtPage >= state.builtTotalPages) return
 
         val nextPage = if (reset) 1 else state.builtPage + 1
-        val query = warehouse.id to state.builtKeyword
-        if (!reset && displayedBuiltQuery != query) return
-        builtLoadJob?.cancel()
-        val version = ++builtLoadVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        builtLoadJob = viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(
-                builtItems = if (reset && displayedBuiltQuery != query) emptyList() else _uiState.value.builtItems,
+        viewModelScope.launch {
+            _uiState.value = state.copy(
                 builtLoading = true,
                 builtFirstLoad = reset && state.builtItems.isEmpty(),
                 builtLoadingMore = !reset,
                 error = null,
                 builtError = if (reset) null else state.builtError
             )
-            val response = repository.getOpeningStockPage(
+            repository.getOpeningStockPage(
                 warehouseId = warehouse.id,
                 keyword = state.builtKeyword,
                 page = nextPage,
                 pageSize = BUILT_PAGE_SIZE
-            )
-            currentCoroutineContext().ensureActive()
-            if (version != builtLoadVersion || query != (_uiState.value.selectedWarehouse?.id to _uiState.value.builtKeyword) || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-            response.fold(
+            ).fold(
                 onSuccess = { data ->
-                    displayedBuiltQuery = query
                     _uiState.value = _uiState.value.copy(
                         builtLoading = false,
                         builtFirstLoad = false,
@@ -457,7 +438,6 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                         success = buildDeltaMessage(result.delta, result.quantity)
                     )
                     loadBuiltItems(reset = true)
-                    repository.acknowledgeNativeWrite("opening_stock_edit:$lineId")
                 },
                 onFailure = { e ->
                     // 失败保留弹窗，用户可直接改了重试，不用重新找这一行
@@ -523,7 +503,6 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                     )
                     // P1-C：刚建的账要立刻出现在已建账列表里，否则用户会以为没存上
                     loadBuiltItems(reset = true)
-                    repository.acknowledgeNativeWrite("opening_stock")
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(

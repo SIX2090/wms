@@ -355,10 +355,10 @@ class VoiceCommandViewModel(
      */
     private fun resolveCommand(text: String) {
         viewModelScope.launch {
-            val llmCommand = try {
+            val llmCommand = runCatching {
                 repository.understandVoiceIntent(text)
                     .fold(onSuccess = { result ->
-                        val resolved = when (result.action) {
+                        when (result.action) {
                             "navigate" -> screenByRouteKey(result.screen)?.let {
                                 VoiceCommand.Navigate(it)
                             }
@@ -369,11 +369,8 @@ class VoiceCommandViewModel(
                                 ?.let { VoiceCommand.LlmReply(it, result.cards.orEmpty()) }
                             else -> null // fallback_local / 未知 action → 本地兜底，不猜页面
                         }
-                        repository.acknowledgeNativeWrite("voice_intent")
-                        resolved
                     }, onFailure = { null })
-            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled
-            } catch (_: Exception) { null }
+            }.getOrNull()
 
             val command = llmCommand ?: parseCommand(text)
             _commands.emit(command)

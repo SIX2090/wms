@@ -43,8 +43,8 @@ android {
         // 3.9.19(43): readable quantities, persistent input errors and scoped queue status.
         // 3.9.22(46): retain complete warehouse and party identities at large font sizes.
         // 3.9.25(49): current-workbench polish, complete labels and aligned action areas.
-        versionCode = 53
-        versionName = "3.9.29"
+        versionCode = 52
+        versionName = "3.9.28"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

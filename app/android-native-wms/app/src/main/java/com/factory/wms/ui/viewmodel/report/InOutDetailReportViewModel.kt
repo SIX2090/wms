@@ -11,10 +11,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import com.factory.wms.data.api.RetrofitClient
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -85,7 +81,7 @@ data class InOutDetailReportUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     /**
      * 当前查询仓库：只提供真实仓库（仓库必填，AGENTS.md §二；与每日报表/
-     * 库存日报同模式，进入页加载仓库后使用系统配置的默认仓库）
+     * 库存日报同模式，进入页加载仓库后默认选中第一个）
      */
     val selectedWarehouseId: String? = null,
     val keyword: String = "",
@@ -107,14 +103,6 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
     private val _uiState = MutableStateFlow(InOutDetailReportUiState())
     val uiState: StateFlow<InOutDetailReportUiState> = _uiState.asStateFlow()
 
-    private var pageJob: Job? = null
-    private var queryVersion = 0L
-    private var displayedQuery: List<Any?>? = null
-    private fun pageQuery(): List<Any?> {
-        val s = _uiState.value
-        return listOf(s.selectedWarehouseId, s.startDate, s.endDate, s.direction, s.keyword)
-    }
-
     private val pager = StockDailyPager()
 
     init {
@@ -132,9 +120,9 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
             repository.getWarehouses().fold(
                 onSuccess = { list ->
                     val current = _uiState.value.selectedWarehouseId
-                    // 使用系统配置的默认仓库（与每日报表/库存日报同模式），并立即查询
+                    // 默认选中第一个真实仓库（与每日报表/库存日报同模式），并立即查询
                     val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
-                        list.singleOrNull { it.isDefault }?.id?.toString()
+                        list.first().id?.toString()
                     } else current
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
@@ -153,16 +141,9 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
         refresh()
     }
 
-    /** 编辑时使旧查询失效；仍只在点「搜索」时发送新请求。 */
+    /** 搜索框输入时只更新关键字，点「搜索」才发请求（避免逐字打满接口） */
     fun updateKeyword(keyword: String) {
-        if (_uiState.value.keyword == keyword) return
-        pageJob?.cancel()
-        queryVersion++
-        displayedQuery = null
-        pager.reset()
-        _uiState.value = _uiState.value.copy(keyword = keyword, isLoading = false,
-            isLoadingMore = false, summary = null, items = emptyList(),
-            error = null, loadError = null, queried = false, hasMore = false)
+        _uiState.value = _uiState.value.copy(keyword = keyword)
     }
 
     fun selectDirection(direction: InOutDirection) {
@@ -222,12 +203,7 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
     /** 点搜索 / 换仓 / 换方向 / 翻日期 / 下拉刷新：从第 1 页重新拉 */
     fun refresh() {
         // 仓库必填（AGENTS.md §二）：未选仓不发请求（不拉全量、不回退默认仓）
-        val warehouseId = _uiState.value.selectedWarehouseId
-        if (warehouseId == null) {
-            pageJob?.cancel(); queryVersion++; displayedQuery = null
-            _uiState.value = _uiState.value.copy(isLoading = false, isLoadingMore = false, summary = null, items = emptyList(), queried = false, hasMore = false)
-            return
-        }
+        val warehouseId = _uiState.value.selectedWarehouseId ?: return
         pager.reset()
         loadPage(warehouseId, page = 1, append = false)
     }
@@ -241,35 +217,22 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private fun loadPage(warehouseId: String, page: Int, append: Boolean) {
-        val query = pageQuery()
-        if (append && query != displayedQuery) return
-        pageJob?.cancel()
-        val version = ++queryVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        val captured = _uiState.value
-        if (!append && displayedQuery != query) {
-            _uiState.value = _uiState.value.copy(summary = null, items = emptyList(), queried = false, hasMore = false)
-        }
-        pageJob = viewModelScope.launch {
+        viewModelScope.launch {
             _uiState.value = if (append) {
                 _uiState.value.copy(isLoadingMore = true, error = null)
             } else {
                 _uiState.value.copy(isLoading = true, error = null, loadError = null)
             }
-            val s = captured
-            val response = repository.getInOutDetailReport(
+            val s = _uiState.value
+            repository.getInOutDetailReport(
                 warehouseId = warehouseId,
                 startDate = s.startDate.takeIf { it.isNotBlank() },
                 endDate = s.endDate.takeIf { it.isNotBlank() },
                 direction = s.direction.apiValue,
                 keyword = s.keyword,
                 page = page
-            )
-            currentCoroutineContext().ensureActive()
-            if (version != queryVersion || query != pageQuery() || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-            response.fold(
+            ).fold(
                 onSuccess = { data ->
-                    displayedQuery = query
                     pager.onPageLoaded(data.page, data.totalPages)
                     val merged = if (append) _uiState.value.items + data.items else data.items
                     _uiState.value = _uiState.value.copy(

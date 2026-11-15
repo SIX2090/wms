@@ -56,7 +56,7 @@ class QueueOwnershipContract(unittest.TestCase):
         source = self.read('repository/WmsRepository.kt')
         body = source.split('private suspend fun submitWithOfflineFallback(', 1)[1].split(
             '/** 按作业类型写入本地操作日志', 1)[0]
-        self.assertLess(body.index('val session = boundSession ?: RetrofitClient.sessionSnapshot()'),
+        self.assertLess(body.index('val session = RetrofitClient.sessionSnapshot()'),
                         body.index('call(submitApi, requestId)'))
         self.assertIn('val submitApi = RetrofitClient.apiServiceFor(session)', body)
         self.assertIn('session = session', body)

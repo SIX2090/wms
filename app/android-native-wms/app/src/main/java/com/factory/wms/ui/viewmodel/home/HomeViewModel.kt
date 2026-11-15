@@ -23,7 +23,7 @@ data class HomeUiState(
     val warehouses: List<WarehouseDto> = emptyList(),
     /**
      * 当前统计口径：首页下拉只提供真实仓库（不含"默认仓库"/"全部仓库（汇总）"），
-     * 故此处恒为仓库 id 字符串；进入首页加载仓库后若为空则使用系统配置的默认仓库仓库
+     * 故此处恒为仓库 id 字符串；进入首页加载仓库后若为空则默认选中第一个仓库
      * （见 loadDashboard）。日报页同口径（见 ReportViewModel）。
      */
     val selectedWarehouseId: String? = null
@@ -63,15 +63,15 @@ class HomeViewModel internal constructor(
                     if (version != requestVersion) return@launch
                     val current = _uiState.value.selectedWarehouseId
                     val nextSelected = if (current.isNullOrBlank() && !list.isNullOrEmpty()) {
-                        list.singleOrNull { it.isDefault }?.id?.toString()
+                        list.first().id?.toString()
                     } else current
                     _uiState.value = _uiState.value.copy(
                         warehouses = list.orEmpty(),
                         selectedWarehouseId = nextSelected
                     )
                 }
+                // 仓库列表失败时仍兼容服务端默认仓；下次重试会重新获取列表。
                 val warehouseId = _uiState.value.selectedWarehouseId
-                check(!warehouseId.isNullOrBlank()) { "请先选择仓库；系统未配置有效默认仓库" }
                 loadingWarehouseId = warehouseId
                 val dashboard = fetchDashboard(warehouseId).getOrThrow()
                 // Repository 可能把取消转成 Result，必须再次核对协程存活。

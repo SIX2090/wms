@@ -154,7 +154,7 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
                     _uiState.value = _uiState.value.copy(
                         warehouses = warehouses,
                         selectedWarehouse = _uiState.value.selectedWarehouse
-                            ?: warehouses.singleOrNull { it.isDefault }
+                            ?: warehouses.firstOrNull()
                     )
                 },
                 onFailure = { e ->
@@ -226,7 +226,6 @@ class AiViewModel(application: Application) : AndroidViewModel(application) {
             result.fold(
                 onSuccess = { data ->
                     _uiState.value = _uiState.value.copy(draftResult = data)
-                    repository.acknowledgeNativeWrite("inbound_draft")
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(error = e.message)

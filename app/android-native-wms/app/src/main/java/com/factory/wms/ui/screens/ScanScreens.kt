@@ -189,9 +189,6 @@ fun InboundScreen(
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             Column {
-                if (uiState.editDraftUnreadable) {
-                    UnreadableDraftRecovery("入库", uiState.pendingSubmissionId == null) { viewModel.clearScanLines() }
-                }
                 // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
                 PartySelectorCard(
                     label = "收货仓库",
@@ -522,9 +519,6 @@ fun OutboundScreen(
         onDismissPrint = { viewModel.clearSubmittedPrint() },
         header = {
             Column {
-                if (uiState.editDraftUnreadable) {
-                    UnreadableDraftRecovery("出库", uiState.pendingSubmissionId == null) { viewModel.clearScanLines() }
-                }
                 // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
                 PartySelectorCard(
                     label = "出库仓库",
@@ -1723,7 +1717,7 @@ fun StocktakeScreen(
     var showCheckOrderDialog by remember { mutableStateOf(false) }
     var manualCode by rememberSaveable { mutableStateOf("") }
     var manualQty by rememberSaveable { mutableStateOf("1") }
-    val stocktakeArea = uiState.selectedLocation
+    var stocktakeArea by remember { mutableStateOf("") }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // BUG-2026-09-03-003：盘点重复扫码须确认，防止误把已盘物料再次累加使实盘数翻倍
@@ -1761,9 +1755,11 @@ fun StocktakeScreen(
     }
 
     // BUG-2026-09-03-003 断点续盘：清单变化防抖写入本地草稿（进程被杀/误关可恢复）
-    LaunchedEffect(uiState.scanLines, uiState.selectedWarehouse, uiState.selectedCheckOrder, uiState.selectedLocation) {
-        delay(600)
-        viewModel.persistStocktakeDraft()
+    LaunchedEffect(uiState.scanLines, uiState.selectedWarehouse) {
+        if (uiState.scanLines.isNotEmpty()) {
+            delay(600)
+            viewModel.persistStocktakeDraft()
+        }
     }
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -1870,9 +1866,6 @@ fun StocktakeScreen(
         onExtraAction = onRecognize,
         header = {
             Column(modifier = Modifier.fillMaxWidth()) {
-                if (uiState.stocktakeDraftUnreadable) {
-                    UnreadableDraftRecovery("盘点", !uiState.isLoading && uiState.pendingSubmissionId == null) { viewModel.clearScanLines() }
-                }
                 // AI-APP-FIX-406：WarehouseSelectorCard 并入 PartySelectorCard（同款视觉，消除重复实现）
                 PartySelectorCard(
                     label = "盘点仓库",
@@ -1884,7 +1877,7 @@ fun StocktakeScreen(
                 )
                 OutlinedTextField(
                     value = stocktakeArea,
-                    onValueChange = { viewModel.updateStocktakeArea(it) },
+                    onValueChange = { stocktakeArea = it },
                     label = { Text("盘点库位/区域") },
                     singleLine = true,
                     // AI-APP-FIX-406：补 ImeAction（现场戴手套，回车即收键盘）
@@ -2348,30 +2341,5 @@ private fun InboundRemarkCard(
                 }
             )
         }
-    }
-}
-
-
-/** Recovery remains an explicit operator decision for all three existing edit-draft flows. */
-@Composable
-private fun UnreadableDraftRecovery(documentName: String, canClear: Boolean, onClear: () -> Unit) {
-    var confirming by remember { mutableStateOf(false) }
-    Text("原${documentName}草稿未能读取，已保留原内容；自动保存和提交已停止。",
-        color = MaterialTheme.colorScheme.error)
-    TextButton(enabled = canClear, onClick = { confirming = true }) {
-        Text("清空无法读取的${documentName}草稿")
-    }
-    if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text("清空无法读取的${documentName}草稿？") },
-            text = { Text("原草稿内容尚未读出，已保留。确认后会删除这份原草稿，请先核对归属和原始记录，再重新录入。") },
-            confirmButton = {
-                TextButton(enabled = canClear, onClick = { onClear(); confirming = false }) {
-                    Text(if (documentName == "盘点") "确认清空并重新盘点" else "确认清空并重新录入")
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text("取消") } }
-        )
     }
 }

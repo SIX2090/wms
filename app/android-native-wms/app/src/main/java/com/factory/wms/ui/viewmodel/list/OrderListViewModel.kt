@@ -10,10 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
-import com.factory.wms.data.api.RetrofitClient
 
 /**
  * 首页概览下钻列表（AI-MOB-DRILLDOWN-01）。
@@ -73,10 +69,6 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
     private val _uiState = MutableStateFlow(ListUiState())
     val uiState: StateFlow<ListUiState> = _uiState.asStateFlow()
 
-    private var listVersion = 0L
-    private var listJob: Job? = null
-    private var displayedQuery: Triple<ListKind, String, String?>? = null
-
     /**
      * 用仓库与类型初始化并立即加载。
      * 首页下钻时调用，重复调用同一 (kind, warehouseId) 不重复请求。
@@ -123,13 +115,8 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         val nextPage = if (reset) 1 else s.page + 1
-        listJob?.cancel()
-        listVersion++
-        listJob = viewModelScope.launch {
-            val query = Triple(s.kind, s.warehouseId, s.statusFilter)
+        viewModelScope.launch {
             _uiState.value = s.copy(
-                orders = if (reset && displayedQuery != query) emptyList() else s.orders,
-                alerts = if (reset && displayedQuery != query) emptyList() else s.alerts,
                 isLoading = true,
                 isFirstLoad = reset && s.alerts.isEmpty() && s.orders.isEmpty(),
                 isLoadingMore = !reset,
@@ -146,14 +133,8 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun loadAlerts(page: Int, reset: Boolean) {
         val s = _uiState.value
-        val version = listVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        val result = repository.getAlertList(warehouseId = s.warehouseId, page = page)
-        currentCoroutineContext().ensureActive()
-        if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return
-        result.fold(
+        repository.getAlertList(warehouseId = s.warehouseId, page = page).fold(
             onSuccess = { data ->
-                displayedQuery = Triple(s.kind, s.warehouseId, s.statusFilter)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isFirstLoad = false,
@@ -176,8 +157,6 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
 
     private suspend fun loadOrders(page: Int, reset: Boolean, inbound: Boolean) {
         val s = _uiState.value
-        val version = listVersion
-        val owner = RetrofitClient.sessionSnapshot()
         val result = if (inbound) {
             repository.getInOrderList(
                 warehouseId = s.warehouseId, status = s.statusFilter, page = page
@@ -187,11 +166,8 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
                 warehouseId = s.warehouseId, status = s.statusFilter, page = page
             )
         }
-        currentCoroutineContext().ensureActive()
-        if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return
         result.fold(
             onSuccess = { data ->
-                displayedQuery = Triple(s.kind, s.warehouseId, s.statusFilter)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     isFirstLoad = false,
