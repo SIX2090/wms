@@ -284,6 +284,21 @@ def find_mobile_material(keyword):
 
 # no-test:reason=路由注册辅助函数，能力由 mobile_* 各路由测试覆盖
 def register_mobile_routes(app):
+    @app.route('/mobile')
+    @app.route('/mobile/')
+    @login_required
+    def mobile_home():
+        """Mobile web entry; existing business endpoints retain their authorization."""
+        from flask import render_template
+        return render_template('mobile_home.html')
+
+    @app.route('/mobile/me')
+    @login_required
+    def mobile_profile():
+        """Show the current web account without generating credentials or changing state."""
+        from flask import render_template
+        return render_template('mobile_profile.html')
+
     @app.route('/mobile/material')
     @login_required
     def mobile_material_detail():
@@ -376,7 +391,10 @@ def register_mobile_routes(app):
             'mobile_scan.html',
             mode=mode,
             modes=MOBILE_SCAN_MODES,
-            mode_config=MOBILE_SCAN_MODES[mode],
+            mode_config={**MOBILE_SCAN_MODES[mode], 'title': {
+                'in': '入库', 'out': '出库', 'query': '查库存',
+                'check': '盘点', 'confirm': '待确认',
+            }[mode]},
             warehouses=warehouses,
             default_warehouse=(validate_inventory_warehouse(request.args.get('warehouse'))[0]
                                if request.args.get('warehouse') else get_default_warehouse()),
