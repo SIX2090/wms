@@ -215,7 +215,7 @@ internal fun HomeWorkbench(
     val today = remember { SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date()) }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WmsDimens.PagePaddingHorizontal),
-        verticalArrangement = Arrangement.spacedBy(WmsDimens.SpaceLg)
+        verticalArrangement = Arrangement.spacedBy(WmsDimens.SpaceMd)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -254,35 +254,21 @@ internal fun HomeWorkbench(
             else -> DashboardOverviewError(onRetry = onRetry)
         }
         HomeSectionTitle("开始作业")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HomePrimaryTask(cards[0], Modifier.weight(1f)) { onNavigate(cards[0].screen) }
-            HomePrimaryTask(cards[1], Modifier.weight(1f)) { onNavigate(cards[1].screen) }
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HomePrimaryTask(cards[0], Modifier.weight(1f).fillMaxHeight()) { onNavigate(cards[0].screen) }
+            HomePrimaryTask(cards[1], Modifier.weight(1f).fillMaxHeight()) { onNavigate(cards[1].screen) }
         }
         HomeEntryRow(cards[2], showSubtitle = false) { onNavigate(cards[2].screen) }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             listOf(cards[3], cards[4]).forEach { card ->
-                FunctionCardItem(card, Modifier.weight(1f), onClick = { onNavigate(card.screen) })
+                FunctionCardItem(card, Modifier.weight(1f).fillMaxHeight(), onClick = { onNavigate(card.screen) })
             }
         }
         HomeSectionTitle("查询与报表")
-        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
-            Column {
-                cards.filter { it.screen in listOf(Screen.DailyReport, Screen.StockDailyReport,
-                    Screen.InOutDetailReport, Screen.StockLedgerReport, Screen.StocktakeRecord) }.forEachIndexed { index, card ->
-                    if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = DividerSoft)
-                    HomeEntryRow(card) { onNavigate(card.screen) }
-                }
-            }
-        }
+        HomeEntryGrid(cards.filter { it.screen in listOf(Screen.DailyReport, Screen.StockDailyReport,
+            Screen.InOutDetailReport, Screen.StockLedgerReport, Screen.StocktakeRecord) }, onNavigate)
         HomeSectionTitle("资料与工具")
-        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
-            Column {
-                listOf(cards[7], cards[5], cards[6], cards[13]).forEachIndexed { index, card ->
-                    if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = DividerSoft)
-                    HomeEntryRow(card) { onNavigate(card.screen) }
-                }
-            }
-        }
+        HomeEntryGrid(listOf(cards[7], cards[5], cards[6], cards[13]), onNavigate)
         dashboard?.let {
             HomeSectionTitle("今日出入库")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -301,13 +287,34 @@ private fun HomeSectionTitle(title: String) {
 
 @Composable
 private fun HomePrimaryTask(card: FunctionCard, modifier: Modifier, onClick: () -> Unit) {
+    val outbound = card.screen == Screen.Outbound
+    val fill = if (outbound) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer
+    val foreground = if (outbound) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
     Card(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(card.icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-            Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            Text(if (card.screen == Screen.Inbound) "扫码或手工录入" else "核对物料与数量",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        colors = CardDefaults.cardColors(containerColor = fill)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Icon(card.icon, null, tint = foreground, modifier = Modifier.size(22.dp))
+                Text(card.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold, color = foreground)
+            }
+            // Keep the two-character method together when the system enlarges text.
+            Text(if (card.screen == Screen.Inbound) "扫码 / 手\u2060工" else "核对数量",
+                modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = foreground)
+        }
+    }
+}
+
+@Composable
+private fun HomeEntryGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit) {
+    val columns = if (LocalDensity.current.fontScale > 1.3f) 1 else 2
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        cards.chunked(columns).forEach { row ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { card -> FunctionCardItem(card, Modifier.weight(1f).fillMaxHeight()) { onNavigate(card.screen) } }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
         }
     }
 }
@@ -317,7 +324,7 @@ private fun HomeEntryRow(card: FunctionCard, showSubtitle: Boolean = true, onCli
     Surface(onClick = onClick, color = CardBackground, shape = MaterialTheme.shapes.medium) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(card.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(22.dp))
             Column(Modifier.weight(1f)) {
                 Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
                 if (showSubtitle) Text(card.subtitle, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
@@ -329,10 +336,10 @@ private fun HomeEntryRow(card: FunctionCard, showSubtitle: Boolean = true, onCli
 
 @Composable
 fun FunctionCardItem(card: FunctionCard, modifier: Modifier = Modifier, index: Int = 0, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier.heightIn(min = 96.dp), shape = MaterialTheme.shapes.medium,
+    Card(onClick = onClick, modifier = modifier.heightIn(min = 80.dp), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = CardBackground)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(card.icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(24.dp))
             Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
         }
     }

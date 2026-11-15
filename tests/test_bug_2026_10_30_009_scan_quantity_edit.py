@@ -31,7 +31,8 @@ def test_quantity_badge_opens_prefilled_editor_with_visible_hint():
     assert "pendingQuantityEdit = line" in badge
     assert "formatQuantity(line.quantity)" in badge
     assert "TextRange(0, text.length)" in badge
-    assert 'Text("点击修改"' in badge
+    assert 'Text("数量"' in badge
+    assert 'Icons.Outlined.Edit' in badge
     assert "min = 48.dp" in badge
     assert "pendingSubmissionId == null" in badge
 

@@ -67,7 +67,9 @@ def test_secondary_inventory_actions_share_available_width():
     src = _read()
     assert 'listOf(cards[3], cards[4]).forEach' in src
     assert 'FunctionCardItem(card, Modifier.weight(1f)' in src
-    assert 'HomeEntryRow(card)' in src
+    assert 'HomeEntryGrid(cards.filter' in src
+    assert 'cards.chunked(columns)' in src
+    assert 'LocalDensity.current.fontScale > 1.3f' in src
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +78,7 @@ def test_secondary_inventory_actions_share_available_width():
 
 def test_card_height_reduced():
     src = _read()
-    assert "heightIn(min = 96.dp)" in src
+    assert "heightIn(min = 80.dp)" in src
     assert "height(104.dp)" not in src, "固定高度会裁切放大字体"
     assert "height(168.dp)" not in src, "仍残留 168.dp 高度"
 

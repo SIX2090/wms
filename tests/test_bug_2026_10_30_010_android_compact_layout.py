@@ -79,7 +79,8 @@ def test_material_specs_are_not_truncated_and_quantity_edit_is_preserved():
     assert "maxLines" not in details
     assert "pendingQuantityEdit = line" in source
     assert "viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)" in source
-    assert 'Text("点击修改"' in source
+    assert 'Text("数量"' in source
+    assert 'Icons.Outlined.Edit' in source
 
 
 def test_empty_submit_removed_and_search_copy_fits_one_line():

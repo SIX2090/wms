@@ -8,6 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Warehouse
+import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -29,6 +31,8 @@ import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.components.PartySelectorCard
 import com.factory.wms.ui.components.PartyPickerDialog
 import com.factory.wms.ui.components.PartyPickerItem
+import com.factory.wms.ui.components.WmsPrimaryButton
+import com.factory.wms.ui.components.WmsOutlinedActionButton
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
@@ -158,6 +162,42 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.onNodeWithText("待处理").performScrollTo().performClick()
         compose.onNodeWithText("库存告警").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
+    }
+
+    @Test fun reportShortcutsStayWithinTheDefaultWorkbenchViewport() {
+        val warehouses = listOf(warehouse)
+        val data = DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0, todayOutOrders = 2,
+            todayOutQuantity = 860.0, pendingInOrders = 2, pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name)
+        content { Box(Modifier.fillMaxWidth().height(704.dp)) {
+            HomeWorkbench(data, false, warehouses, "1", {}, {}, {}, {})
+        } }
+        val shortcut = compose.onNodeWithText("库存日报")
+        if (fontScale <= 1.3f) {
+            shortcut.assertIsDisplayed()
+            val full = shortcut.getUnclippedBoundsInRoot()
+            val visible = shortcut.fetchSemanticsNode().boundsInRoot
+            assertTrue("Default report shortcut clipped", visible.bottom - visible.top + 1 >= (full.bottom - full.top).value)
+        } else {
+            shortcut.performScrollTo().assertIsDisplayed()
+        }
+        completeIdentityText("库存日报")
+    }
+
+    @Test fun pairedActionsKeepWholeLabelsAtOrdinaryFontSizes() {
+        content { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            WmsPrimaryButton("扫码添加", {}, Modifier.weight(1f), Icons.Outlined.QrCodeScanner)
+            WmsOutlinedActionButton("手动添加", {}, Modifier.weight(1f), Icons.Outlined.Edit)
+        } }
+        for (text in listOf("扫码添加", "手动添加")) {
+            completeIdentityText(text)
+            val node = compose.onNodeWithText(text)
+            node.assertIsDisplayed()
+            if (fontScale <= 1.3f) {
+                val layouts = mutableListOf<TextLayoutResult>()
+                node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertEquals("Action has an orphaned character: $text", 1, layouts.single().lineCount)
+            }
+        }
     }
 
     @Test fun selectedWarehouseAndPartyNamesRemainCompleteAndClickable() {

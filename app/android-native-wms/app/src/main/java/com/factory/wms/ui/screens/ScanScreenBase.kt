@@ -497,7 +497,7 @@ fun ScanScreenBase(
                                 shape = MaterialTheme.shapes.medium,
                                 colors = CardDefaults.cardColors(containerColor = CardBackground)
                             ) {
-                                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)
                                     HorizontalDivider(color = DividerSoft)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
@@ -516,10 +516,12 @@ fun ScanScreenBase(
                                             shape = MaterialTheme.shapes.small,
                                             color = MaterialTheme.colorScheme.surfaceVariant
                                         ) {
-                                            Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                                Text("点击修改", style = MaterialTheme.typography.bodyMedium,
-                                                    color = OnSurfaceVariant)
-                                                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.fillMaxWidth())
+                                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text("数量", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                                                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.weight(1f))
+                                                Icon(Icons.Outlined.Edit, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
                                             }
                                         }
                                         IconButton(onClick = { pendingRemoval = line }, enabled = !isLoading,
@@ -642,7 +644,7 @@ fun ScanScreenBase(
 
                     // Action buttons（AI-APP-FIX-404：扫码/手动 → WmsOutlinedActionButton）
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         if (scanLines.isEmpty()) {
@@ -655,7 +657,7 @@ fun ScanScreenBase(
                                 lastScannedCode = null
                                 showCameraScanner = true
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.QrCodeScanner,
                             color = submitColor
                         )
@@ -669,7 +671,7 @@ fun ScanScreenBase(
                                 lastScannedCode = null
                                 showCameraScanner = true
                             },
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.QrCodeScanner,
                             color = submitColor
                         )
@@ -677,7 +679,7 @@ fun ScanScreenBase(
                         WmsOutlinedActionButton(
                             text = "手动添加",
                             onClick = onShowScanner,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.Edit,
                             color = submitColor
                         )

@@ -775,7 +775,7 @@ internal fun OpeningStockLineCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("物料 ${index + 1}", style = MaterialTheme.typography.labelMedium, color = OnSurfaceVariant)
             WmsMaterialIdentity(line.materialCode, line.materialName, line.materialBrand, line.materialSpec)
             line.price?.let {
@@ -783,10 +783,10 @@ internal fun OpeningStockLineCard(
             }
             HorizontalDivider(color = DividerSoft)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("点击修改", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                    WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.fillMaxWidth())
-                }
+                Text("数量", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                Spacer(Modifier.width(8.dp))
+                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.weight(1f))
+                Icon(Icons.Outlined.Edit, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
                 IconButton(onClick = onRemove, modifier = Modifier.size(WmsDimens.TouchTargetMin)) {
                     Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
                 }

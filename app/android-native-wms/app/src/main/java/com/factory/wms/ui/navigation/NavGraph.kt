@@ -5,9 +5,13 @@ import com.factory.wms.BuildConfig
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
@@ -25,6 +29,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -33,8 +38,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
@@ -50,6 +60,7 @@ import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.Primary
+import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
 import com.factory.wms.ui.viewmodel.ai.AssistantVoiceInputViewModel
@@ -87,7 +98,7 @@ internal fun NavHostController.navigatePrimary(route: String) {
 }
 
 /** 底部 Tab 定义。 */
-private data class BottomTab(
+internal data class BottomTab(
     val screen: Screen,
     val label: String,
     val selectedIcon: ImageVector,
@@ -112,7 +123,7 @@ private fun encodeQueryValue(raw: String?): String =
     android.net.Uri.encode(raw.orEmpty()).replace("/", "%2F")
 
 @Composable
-private fun bottomTabs(): List<BottomTab> = listOf(
+internal fun bottomTabs(): List<BottomTab> = listOf(
     BottomTab(Screen.Home, "首页", Icons.Filled.Home, Icons.Outlined.Home),
     BottomTab(Screen.Inbound, "入库", Icons.Filled.ArrowDownward, Icons.Outlined.ArrowDownward),
     BottomTab(Screen.Outbound, "出库", Icons.Filled.ArrowUpward, Icons.Outlined.ArrowUpward),
@@ -480,33 +491,60 @@ fun AppNavGraph() {
 
 /** 底部 Tab 导航栏。 */
 @Composable
-private fun WmsBottomBar(
+internal fun WmsBottomBar(
     currentRoute: String?,
     tabs: List<BottomTab>,
     onTabSelected: (Screen) -> Unit
 ) {
-    NavigationBar(
-        containerColor = com.factory.wms.ui.theme.CardBackground,
-        tonalElevation = androidx.compose.ui.unit.Dp(0f)
-    ) {
-        tabs.forEach { tab ->
-            val selected = currentRoute == tab.screen.route
-            NavigationBarItem(
-                selected = selected,
-                onClick = { onTabSelected(tab.screen) },
-                icon = {
-                    Icon(
-                        imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                        contentDescription = tab.label
+    BoxWithConstraints {
+        val density = LocalDensity.current
+        val measurer = rememberTextMeasurer()
+        val labelStyle = MaterialTheme.typography.labelMedium
+        val requestedWidths = tabs.map { tab ->
+            val natural = measurer.measure(tab.label, style = labelStyle.copy(fontWeight = FontWeight.SemiBold),
+                softWrap = false).size.width
+            maxOf(WmsDimens.TouchTargetMin, with(density) { natural.toDp() } + WmsDimens.SpaceSm)
+        }
+        val totalWidth = requestedWidths.sumOf { it.value.toDouble() }.toFloat()
+        val labelWidths = requestedWidths.map { (maxWidth * (it.value / totalWidth) - WmsDimens.SpaceSm).coerceAtLeast(0.dp) }
+        val labelHeightPx = tabs.mapIndexed { index, tab ->
+            val labelConstraints = Constraints(maxWidth = with(density) { labelWidths[index].roundToPx() }.coerceAtLeast(1))
+            measurer.measure(tab.label, style = labelStyle.copy(fontWeight = FontWeight.SemiBold),
+                constraints = labelConstraints).size.height
+        }.maxOrNull() ?: 0
+        val labelHeight = with(density) { labelHeightPx.toDp() }
+        NavigationBar(
+            containerColor = com.factory.wms.ui.theme.CardBackground,
+            tonalElevation = 0.dp
+        ) {
+            tabs.forEachIndexed { index, tab ->
+                val selected = currentRoute == tab.screen.route
+                Box(Modifier.weight(requestedWidths[index].value)) {
+                this@NavigationBar.NavigationBarItem(
+                    modifier = Modifier.fillMaxWidth(),
+                    selected = selected,
+                    onClick = { onTabSelected(tab.screen) },
+                    icon = {
+                        Icon(
+                            imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
+                            contentDescription = tab.label
+                        )
+                    },
+                    label = {
+                        Box(Modifier.requiredWidth(labelWidths[index]).height(labelHeight), contentAlignment = Alignment.TopCenter) {
+                            Text(tab.label, modifier = Modifier.fillMaxWidth(), style = labelStyle,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        }
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = Primary,
+                        selectedTextColor = Primary,
+                        indicatorColor = com.factory.wms.ui.theme.PrimaryContainer
                     )
-                },
-                label = { Text(tab.label, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Primary,
-                    selectedTextColor = Primary,
-                    indicatorColor = com.factory.wms.ui.theme.PrimaryContainer
                 )
-            )
+                }
+            }
         }
     }
 }

@@ -327,6 +327,7 @@ fun WmsPrimaryButton(
         modifier = modifier.heightIn(min = WmsDimens.ButtonHeightPrimary),
         enabled = enabled && !loading,
         shape = MaterialTheme.shapes.medium,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = buttonColor,
             contentColor = Color.White,
@@ -350,11 +351,11 @@ fun WmsPrimaryButton(
             Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
             Spacer(modifier = Modifier.width(7.dp))
         }
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
     }
 }
 
-/** 统一次要（描边）按钮：46dp 高、12dp 圆角、模块色描边。 */
+/** 统一次要（描边）按钮：最小 48dp、自适应高度、模块色描边。 */
 @Composable
 fun WmsOutlinedActionButton(
     text: String,
@@ -370,6 +371,7 @@ fun WmsOutlinedActionButton(
         modifier = modifier.heightIn(min = 48.dp),
         enabled = enabled,
         shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
         border = ButtonDefaults.outlinedButtonBorder.copy(
             brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.35f))
@@ -379,7 +381,7 @@ fun WmsOutlinedActionButton(
             Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
             Spacer(modifier = Modifier.width(6.dp))
         }
-        Text(text, color = textColor, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        Text(text, color = textColor, fontWeight = FontWeight.Medium, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }
 
