@@ -18,6 +18,9 @@
 - T4 页面调用 WarehouseSelector；报表下拉关闭「默认仓库」与「全部仓库（汇总）」选项
 - T5 明细行 warehouse 字段必须可空（旧版后端不下发，Gson 置 null）
 - T6 加载顺序：进入页面先拉仓库列表再查报表
+
+2026-11-15 A11：仅在尚未选仓时采用显式唯一默认仓；无默认则等待选择，
+不按列表首项猜仓库，不发送无仓库报表请求。
 """
 from pathlib import Path
 
@@ -86,5 +89,12 @@ def test_t6_loads_warehouses_before_report():
     vm = VM.read_text(encoding="utf-8")
     load = vm[vm.index("fun load()"):vm.index("fun selectWarehouse(")]
     assert load.index("fetchWarehouses()") < load.index("fetchReport(")
-    assert "list.first().id?.toString()" in load
+    assert 'list.singleOrNull { it.isDefault }?.id?.toString()' in load
+    assert 'val selected = _uiState.value.selectedWarehouseId' in load
+    assert 'if (selected.isNullOrBlank() && !list.isNullOrEmpty())' in load
+    assert '} else selected' in load, '已有人工选择必须保留'
+    assert 'list.first()' not in load, '仓库列表顺序不代表默认配置'
+    assert load.index('check(!state.selectedWarehouseId.isNullOrBlank())') < load.index('fetchReport(')
     assert "selectedWarehouseId = nextSelected" in load
+    model = (ANDROID / 'data/model/OpeningStockModels.kt').read_text(encoding='utf-8')
+    assert '@SerializedName("is_default") val isDefault: Boolean = false' in model

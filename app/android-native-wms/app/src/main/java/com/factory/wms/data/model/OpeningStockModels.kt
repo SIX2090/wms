@@ -6,7 +6,8 @@ import com.google.gson.annotations.SerializedName
 data class WarehouseDto(
     val id: Int?,
     val code: String?,
-    val name: String?
+    val name: String?,
+    @SerializedName("is_default") val isDefault: Boolean = false
 )
 
 /** 移动端期初库存列表项。 */

@@ -45,6 +45,8 @@ import java.io.File
 @Config(sdk = [31], application = Application::class, qualifiers = "w320dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NativeShellAcceptanceTest(private val scale: Float, private val dark: Boolean) {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
+
     companion object {
         @JvmStatic @Parameters(name = "font={0},dark={1}")
         fun cases() = listOf(1f, 1.3f, 1.6f, 2f).flatMap { s -> listOf(false, true).map { arrayOf<Any>(s, it) } }
@@ -53,11 +55,10 @@ class NativeShellAcceptanceTest(private val scale: Float, private val dark: Bool
     private lateinit var activity: ActivityController<ComponentActivity>
     private var vm: ScanViewModel? = null
     @Before fun before() {
-        DataStoreTestReset.resetWmsSettingsDataStore()
         RetrofitClient.setSession("http://127.0.0.1:9/", null, null)
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
-    @After fun after() { vm?.viewModelScope?.cancel(); disposeComposeActivity(activity) }
+    @After fun after() { vm?.let { closeWmsTestViewModels(listOf(it)) }; disposeComposeActivity(activity) }
     private fun content(route: String, body: @Composable () -> Unit) {
         activity.get().setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {

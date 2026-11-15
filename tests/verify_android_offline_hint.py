@@ -49,6 +49,31 @@ def _read(p: Path) -> str:
     return p.read_text(encoding="utf-8")
 
 
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
+
+
 # ---------------------------------------------------------------------------
 # T1 + T2. DTO 字段
 # ---------------------------------------------------------------------------
@@ -84,41 +109,31 @@ def test_t2_cache_fields_have_defaults():
 # T3 + T4. Repository 分支
 # ---------------------------------------------------------------------------
 def test_t3_cache_fallback_sets_marker_and_timestamp():
-    src = _read(REPO)
-    # 定位 getMaterialInfo 的 catch 分支
-    # BUG-2026-09-13-023：materialDao 已改为可空（本地库建不出来时降级），
-    # 缓存回退改为 runCatching { materialDao?.getByCode(code) }.getOrNull()，
-    # 故此处正则放宽为"materialDao 可空调用 getByCode"，语义要求不变。
-    m = re.search(
-        r"cached\s*=\s*(?:runCatching\s*\{\s*)?materialDao\??\.getByCode\(code\)"
-        r"(?P<body>.{0,600}?)Result\.failure",
-        src, re.DOTALL,
+    body = _kotlin_function_body(_read(REPO), "getMaterialInfo")
+    assert "val session = RetrofitClient.sessionSnapshot()" in body
+    assert "listOf(session.ownerServer, session.userId, warehouseCode?.trim(), code)" in body
+    assert '"SHA-256"' in body and '"scoped:"' in body
+    fallback = body[body.index("catch (e: IOException)"):]
+    assert "materialDao?.getByCode(cacheKey)" in fallback, "缓存必须用完整来源key读取"
+    assert "cacheKey != null" in fallback
+    assert "session.generation == RetrofitClient.sessionSnapshot().generation" in fallback
+    assert "fromCache = true" in fallback, (
+        "缓存回退时必须置 fromCache = true，不能把旧库存当实时数据"
     )
-    assert m, "未找到缓存回退分支（materialDao.getByCode 后的处理）"
-    body = m.group("body")
-    assert "fromCache = true" in body, (
-        "缓存回退时必须置 fromCache = true —— 否则 UI 无法显示离线横幅，"
-        "用户会照着过期数字出库"
+    assert re.search(r"cachedAtMillis\s*=\s*cached\.lastSyncTime", fallback), (
+        "缓存回退必须带原缓存时间，显示数据有多旧"
     )
-    assert re.search(r"cachedAtMillis\s*=\s*cached\.lastSyncTime", body), (
-        "缓存回退时必须带上 cachedAtMillis = cached.lastSyncTime —— "
-        "MaterialEntity 里这个字段一直存在，就是用来表达「数据有多旧」的"
-    )
+    assert "code = code" in fallback, "内部scoped key不能冒充物料编码回到界面"
 
 
 def test_t4_network_success_path_does_not_set_cache_marker():
-    src = _read(REPO)
-    # getMaterialInfo 的网络成功分支：从请求发出到 catch 之前
-    m = re.search(
-        r"val\s+response\s*=\s*api\.materialInfo\(code,\s*warehouseCode\)"
-        r"(?P<body>.*?)catch\s*\(\s*e\s*:\s*Exception\s*\)",
-        src, re.DOTALL,
-    )
-    assert m, "无法定位 getMaterialInfo 的网络成功分支"
-    body = m.group("body")
-    assert "fromCache" not in body, (
-        "网络成功分支不得置 fromCache —— 否则离线横幅会常驻显示，"
-        "变成噪音后用户就再也不看它了（狼来了效应）"
+    body = _kotlin_function_body(_read(REPO), "getMaterialInfo")
+    network = body[:body.index("} catch")]
+    assert "RetrofitClient.apiServiceFor(session).materialInfo(code, warehouseCode)" in network
+    assert "handleResponse<MaterialDto>(response)" in network
+    assert "materialDao?.insert(dto.toEntity().copy(code = cacheKey))" in network
+    assert "fromCache" not in network, (
+        "网络成功分支不得置fromCache，正常在线不能常驻离线横幅"
     )
 
 

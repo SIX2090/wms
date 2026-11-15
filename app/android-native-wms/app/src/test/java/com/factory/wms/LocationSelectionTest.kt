@@ -45,6 +45,8 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
 class LocationSelectionTest {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
+
 
     private lateinit var context: Context
     private lateinit var repository: WmsRepository
@@ -54,7 +56,6 @@ class LocationSelectionTest {
     fun setUp() {
         // BUG-2026-10-001：委托 DataStore 是 JVM 级单例，跨沙箱复用会被毒化
         // （#762 探针实证），每方法先复位再取新实例。
-        DataStoreTestReset.resetWmsSettingsDataStore()
         context = ApplicationProvider.getApplicationContext()
         repository = WmsRepository(context)
         viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
@@ -62,6 +63,7 @@ class LocationSelectionTest {
 
     @After
     fun tearDown() {
+        if (::viewModel.isInitialized) closeWmsTestViewModels(listOf(viewModel))
         RetrofitClient.setToken(null)
         RetrofitClient.setBaseUrl("")
     }

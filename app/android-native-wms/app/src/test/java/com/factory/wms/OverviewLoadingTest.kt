@@ -41,7 +41,7 @@ class OverviewLoadingTest {
     private lateinit var application: Application
     private val stores = mutableListOf<ViewModelStore>()
     private val warehouses = listOf(
-        WarehouseDto(1, "W1", "仓库一"), WarehouseDto(2, "W2", "仓库二")
+        WarehouseDto(1, "W1", "仓库一", isDefault = true), WarehouseDto(2, "W2", "仓库二")
     )
 
     @Before fun before() {
@@ -158,7 +158,7 @@ class OverviewLoadingTest {
         assertEquals(2, model.uiState.value.dashboard?.warehouseId)
     }
 
-    @Test fun homeWarehouseFailureUsesDefaultOnceAndRetriesListLater() = runTest(dispatcher) {
+    @Test fun homeWarehouseFailureBlocksQueryAndRetriesListLater() = runTest(dispatcher) {
         var calls = 0
         val selected = mutableListOf<String?>()
         val model = keep(HomeViewModel(application, {
@@ -169,10 +169,12 @@ class OverviewLoadingTest {
             selected += id; Result.success(DashboardDto())
         }))
         model.loadDashboard(); runCurrent()
-        assertEquals(listOf<String?>(null), selected)
+        assertTrue(selected.isEmpty())
         assertFalse(model.uiState.value.isLoading)
+        assertNull(model.uiState.value.dashboard)
+        assertNotNull(model.uiState.value.error)
         model.loadDashboard(); runCurrent()
-        assertEquals(listOf(null, "1"), selected)
+        assertEquals(listOf("1"), selected)
         assertEquals(2, calls)
     }
 
@@ -293,7 +295,7 @@ class OverviewLoadingTest {
         assertFalse(model.uiState.value.isLoading)
     }
 
-    @Test fun dailyWarehouseFailureKeepsDefaultFallback() = runTest(dispatcher) {
+    @Test fun dailyWarehouseFailureBlocksUnscopedQuery() = runTest(dispatcher) {
         val selected = mutableListOf<String?>()
         val model = keep(ReportViewModel(application, {
             Result.failure(IOException("warehouse list unavailable"))
@@ -301,9 +303,9 @@ class OverviewLoadingTest {
             selected += id; Result.success(report(type, date, id))
         }))
         model.load(); runCurrent()
-        assertEquals(listOf<String?>(null), selected)
-        assertNotNull(model.uiState.value.report)
-        assertNull(model.uiState.value.loadError)
+        assertTrue(selected.isEmpty())
+        assertNull(model.uiState.value.report)
+        assertNotNull(model.uiState.value.loadError)
     }
 
     @Test fun dailyInitialFailureCanBeRetried() = runTest(dispatcher) {

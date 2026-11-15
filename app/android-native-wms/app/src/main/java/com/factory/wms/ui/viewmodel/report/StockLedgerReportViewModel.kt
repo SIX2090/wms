@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import com.factory.wms.data.api.RetrofitClient
 import java.util.Locale
 
 /**
@@ -79,7 +83,7 @@ data class StockLedgerReportUiState(
     /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
     val loadError: String? = null,
     val warehouses: List<WarehouseDto> = emptyList(),
-    /** 当前查询仓库：只提供真实仓库（仓库必填，AGENTS.md §二），默认选中第一个 */
+    /** 当前查询仓库：只提供真实仓库（仓库必填，AGENTS.md §二），仅使用系统默认仓库 */
     val selectedWarehouseId: String? = null,
     /** 物料选择：台账按单一物料查询（AI-OS-LD-001 口径），未选不查询 */
     val selectedMaterial: MaterialDto? = null,
@@ -110,6 +114,16 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
     private val _uiState = MutableStateFlow(StockLedgerReportUiState())
     val uiState: StateFlow<StockLedgerReportUiState> = _uiState.asStateFlow()
 
+    private var pageJob: Job? = null
+    private var materialSearchJob: Job? = null
+    private var materialSearchVersion = 0L
+    private var queryVersion = 0L
+    private var displayedQuery: List<Any?>? = null
+    private fun pageQuery(): List<Any?> {
+        val s = _uiState.value
+        return listOf(s.selectedWarehouseId, s.selectedMaterial?.code, s.startDate, s.endDate)
+    }
+
     private val pager = StockDailyPager()
 
     init {
@@ -124,10 +138,11 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
             repository.ensureSession()
             repository.getWarehouses().fold(
                 onSuccess = { list ->
+                    cancelMaterialSearch()
                     val current = _uiState.value.selectedWarehouseId
-                    // 默认选中第一个真实仓库（与每日报表/库存日报/出入库明细同模式）
+                    // 仅使用系统默认仓库真实仓库（与每日报表/库存日报/出入库明细同模式）
                     val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
-                        list.first().id?.toString()
+                        list.singleOrNull { it.isDefault }?.id?.toString()
                     } else current
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
@@ -141,26 +156,49 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
 
     fun selectWarehouse(warehouseId: String?) {
         if (_uiState.value.selectedWarehouseId == warehouseId) return
+        cancelMaterialSearch()
         _uiState.value = _uiState.value.copy(selectedWarehouseId = warehouseId)
         refresh()
     }
 
     // ── 物料选择（台账按单一物料查询，未选物料不发请求）──
 
+    private fun cancelMaterialSearch() {
+        materialSearchJob?.cancel()
+        materialSearchVersion++
+        _uiState.value = _uiState.value.copy(materialSuggestions = emptyList(), materialSearching = false)
+    }
+
+    private fun materialSearchQuery(): List<Any?> {
+        val state = _uiState.value
+        val code = state.selectedWarehouseId?.let { selected ->
+            state.warehouses.singleOrNull { it.id?.toString() == selected }?.code
+        }
+        return listOf(state.materialKeyword, state.selectedWarehouseId, code)
+    }
+
     fun updateMaterialKeyword(keyword: String) {
+        if (_uiState.value.materialKeyword == keyword) return
+        cancelMaterialSearch()
         _uiState.value = _uiState.value.copy(materialKeyword = keyword)
     }
 
     /** 物料搜索对话框点「搜索」：走既有 /api/material/search（四字段 LIKE） */
     fun searchMaterials() {
+        cancelMaterialSearch()
         val keyword = _uiState.value.materialKeyword.trim()
-        if (keyword.isEmpty()) {
-            _uiState.value = _uiState.value.copy(materialSuggestions = emptyList())
-            return
-        }
-        viewModelScope.launch {
+        if (keyword.isEmpty()) return
+        val query = materialSearchQuery()
+        val version = materialSearchVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        val warehouseCode = query[2] as String?
+        materialSearchJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(materialSearching = true, error = null)
-            repository.searchMaterial(keyword).fold(
+            val response = repository.searchMaterial(keyword, warehouseCode)
+            currentCoroutineContext().ensureActive()
+            if (version != materialSearchVersion || query != materialSearchQuery() ||
+                owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { list ->
                     _uiState.value = _uiState.value.copy(
                         materialSearching = false,
@@ -179,6 +217,7 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
 
     /** 选定物料并立即查询台账 */
     fun selectMaterial(material: MaterialDto) {
+        cancelMaterialSearch()
         _uiState.value = _uiState.value.copy(
             selectedMaterial = material,
             materialSuggestions = emptyList(),
@@ -189,13 +228,22 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
 
     /** 换物料：清空当前物料与结果（引导重新选择） */
     fun clearMaterial() {
+        cancelMaterialSearch()
+        pageJob?.cancel()
+        queryVersion++
+        displayedQuery = null
         pager.reset()
         _uiState.value = _uiState.value.copy(
             selectedMaterial = null,
+            isLoading = false,
+            isLoadingMore = false,
+            error = null,
+            loadError = null,
             summary = null,
             material = null,
             items = emptyList(),
             queried = false,
+            hasMore = false,
             truncated = false
         )
     }
@@ -252,9 +300,15 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
     fun refresh() {
         val s = _uiState.value
         // 仓库必填（AGENTS.md §二）+ 物料必填（AI-OS-LD-001）：缺一不发请求
-        val warehouseId = s.selectedWarehouseId ?: return
-        val material = s.selectedMaterial ?: return
-        val materialCode = material.code ?: return
+        if (s.selectedWarehouseId == null || s.selectedMaterial?.code == null) {
+            pageJob?.cancel(); queryVersion++; displayedQuery = null
+            pager.reset()
+            _uiState.value = s.copy(isLoading = false, isLoadingMore = false, summary = null,
+                material = null, items = emptyList(), queried = false, hasMore = false)
+            return
+        }
+        val warehouseId = s.selectedWarehouseId
+        val materialCode = s.selectedMaterial.code
         pager.reset()
         loadPage(warehouseId, materialCode, page = 1, append = false)
     }
@@ -269,21 +323,34 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
     }
 
     private fun loadPage(warehouseId: String, materialCode: String, page: Int, append: Boolean) {
-        viewModelScope.launch {
+        val query = pageQuery()
+        if (append && query != displayedQuery) return
+        pageJob?.cancel()
+        val version = ++queryVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        val captured = _uiState.value
+        if (!append && displayedQuery != query) {
+            _uiState.value = _uiState.value.copy(summary = null, material = null, items = emptyList(), queried = false, hasMore = false)
+        }
+        pageJob = viewModelScope.launch {
             _uiState.value = if (append) {
                 _uiState.value.copy(isLoadingMore = true, error = null)
             } else {
                 _uiState.value.copy(isLoading = true, error = null, loadError = null)
             }
-            val s = _uiState.value
-            repository.getStockLedgerReport(
+            val s = captured
+            val response = repository.getStockLedgerReport(
                 warehouseId = warehouseId,
                 materialCode = materialCode,
                 startDate = s.startDate.takeIf { it.isNotBlank() },
                 endDate = s.endDate.takeIf { it.isNotBlank() },
                 page = page
-            ).fold(
+            )
+            currentCoroutineContext().ensureActive()
+            if (version != queryVersion || query != pageQuery() || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { data ->
+                    displayedQuery = query
                     pager.onPageLoaded(data.page, data.totalPages)
                     val merged = if (append) _uiState.value.items + data.items else data.items
                     _uiState.value = _uiState.value.copy(

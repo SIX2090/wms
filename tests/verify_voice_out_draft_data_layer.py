@@ -5,13 +5,14 @@
 
 验收：
 - T1 API 契约：端点路径、幂等头、请求/响应类型与后端字段一致
-- T2 Repository：经 safeCall 统一错误映射 + newRequestId 幂等键
+- T2 Repository：经 safeCall 统一错误映射 + 持久化原请求号与原报文，重试复用
 - T3 DTO 字段：dry_run/material_code/quantity 与后端 pydantic 模型对齐
 - T4 响应字段：preview 阶段（match_status/matches/strategies_tried）
 - T5 响应字段：created 阶段（order_no/items/status）
 - T6 候选物料含 score/strategy（支撑"按相似度排序 + 向用户解释"）
 """
 from pathlib import Path
+import re
 
 ROOT = Path(__file__).resolve().parent.parent
 ANDROID = ROOT / "app/android-native-wms/app/src/main/java/com/factory/wms"
@@ -19,6 +20,31 @@ API = ANDROID / "data/api/WmsApiService.kt"
 REPO = ANDROID / "data/repository/WmsRepository.kt"
 MODELS = ANDROID / "data/model/VoiceOutDraftModels.kt"
 BACKEND = ROOT / "app/routes/native_api.py"
+
+
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
 
 
 def test_t1_api_endpoint_contract():
@@ -37,10 +63,19 @@ def test_t1_api_endpoint_contract():
 
 def test_t2_repository_uses_safe_call_and_idempotency():
     repo = REPO.read_text(encoding="utf-8")
-    idx = repo.index("createVoiceOutDraft")
-    body = repo[idx:idx + 400]
-    assert "api.voiceOutDraft(newRequestId()" in body, "必须显式传幂等键"
-    assert "safeCall" in body, "必须经 safeCall 统一错误映射"
+    body = _kotlin_function_body(repo, "createVoiceOutDraft")
+    assert 'nativeWrite("voice_out_draft:${request.dryRun}", request)' in body
+    assert "safeCall" in body, "必须经safeCall统一错误映射"
+    assert "RetrofitClient.apiServiceFor(session).voiceOutDraft(id," in body
+    assert "Gson().fromJson(json, VoiceOutDraftRequest::class.java)" in body
+    assert "newRequestId()" not in body, "人工重试不能在调用端重新生成原请求号"
+    durable = _kotlin_function_body(repo, "prepareNativeWrite")
+    assert "preferences[key]" in durable and "context.dataStore.edit" in durable
+    assert "existing.payloadJson == payloadJson" in durable
+    assert "intent = existing" in durable, "相同业务必须复用持久原请求"
+    transport = _kotlin_function_body(repo, "nativeWrite")
+    assert "call(session, intent.requestId, intent.payloadJson)" in transport
+    assert "ensureActive()" in transport
 
 
 def test_t3_request_dto_matches_backend_schema():

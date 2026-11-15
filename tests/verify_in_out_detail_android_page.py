@@ -15,6 +15,7 @@
   T7 纯逻辑单测文件存在且覆盖钳制用例。
 """
 import sys
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "app" / "android-native-wms" / "app" / "src"
@@ -31,6 +32,31 @@ routes = (MAIN / "ui" / "navigation" / "Screen.kt").read_text(encoding="utf-8")
 nav = (MAIN / "ui" / "navigation" / "NavGraph.kt").read_text(encoding="utf-8")
 gradle = (ROOT.parent / "build.gradle.kts").read_text(encoding="utf-8")
 unit_test = (TEST / "InOutDetailDateLogicTest.kt").read_text(encoding="utf-8")
+
+
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
 
 checks = []
 
@@ -63,8 +89,15 @@ check("T2c 可空字段可空声明（BUG-2026-08-24-007 防 NPE）",
 check("T2d direction 字段（in/out/zero 着色用）", '"direction") val direction: String? = null' in models)
 
 # T3 ViewModel 状态机
-check("T3a 仓库未选不发请求（仓库必填）",
-      "val warehouseId = _uiState.value.selectedWarehouseId ?: return" in vm)
+_refresh = _kotlin_function_body(vm, "refresh")
+_missing_start = _refresh.index("if (warehouseId == null)")
+_request_start = _refresh.index("loadPage(")
+_missing_guard = _refresh[_missing_start:_request_start]
+check("T3a 仓库未选时取消旧作业、清旧数据并在请求前终止（仓库必填）",
+      "val warehouseId = _uiState.value.selectedWarehouseId" in _refresh
+      and "return" in _missing_guard and "pageJob?.cancel()" in _missing_guard
+      and "items = emptyList()" in _missing_guard
+      and "isLoading = false" in _missing_guard)
 check("T3b loadMore 守卫（加载中/无更多/未查询不拉）",
       "if (s.isLoading || s.isLoadingMore || !pager.hasMore || !s.queried) return" in vm)
 check("T3c 开始日期钳制不越过结束日期", "fun shiftStart(start: String, end: String" in vm
@@ -72,8 +105,11 @@ check("T3c 开始日期钳制不越过结束日期", "fun shiftStart(start: Stri
 check("T3d 结束日期钳制上限今天、下限开始日期",
       "if (next > todayStr) next = todayStr" in vm and "if (next < start) next = start" in vm)
 check("T3e resetToday 恢复只看今天", "fun resetToday()" in vm)
-check("T3f 默认选中第一个真实仓并立即查询（与库存日报同模式）",
-      "list.first().id?.toString()" in vm and "if (nextSelected != current) refresh()" in vm)
+_warehouses = _kotlin_function_body(vm, "loadWarehouses")
+check("T3f 仅选择明确配置的唯一默认仓并查询，不把首项当默认",
+      "list.singleOrNull { it.isDefault }?.id?.toString()" in _warehouses
+      and "list.first()" not in _warehouses
+      and "if (nextSelected != current) refresh()" in _warehouses)
 
 # T4 页面 UI
 check("T4a 仓库选择无「全部仓库」（只列真实仓）",

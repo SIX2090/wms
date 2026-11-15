@@ -11,6 +11,7 @@ import com.factory.wms.data.repository.WmsRepository
 /** Share the existing queue's read-only status outside the scan screens. */
 @Composable
 internal fun GlobalQueueStatus(session: RetrofitClient.SessionSnapshot) {
+    PendingNativeWriteStatus(session)
     val context = LocalContext.current.applicationContext
     val queue = remember(context) { runCatching { WmsRepository(context).offlineQueue }.getOrNull() }
     if (queue == null) {

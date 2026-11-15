@@ -1,41 +1,86 @@
 package com.factory.wms
 
-/**
- * BUG-2026-10-001（M2' 发现）：`by preferencesDataStore` 委托是 **JVM 级单例**，
- * 跨 Robolectric 沙箱（每个 @Test 方法一个环境）复用时 DataStore actor 链会被毒化，
- * 第 4 个方法的 `saveLoginInfo`（dataStore.edit）永久挂起（CI #762 探针实证：
- * 同一时刻独立工厂实例的 edit 正常返回，仅委托单例挂死）。
- *
- * 修复口径：每个测试方法开始前反射清空委托缓存的实例，使下一个访问
- * 用**当前沙箱 filesDir** 新建 DataStore（fresh actor，与探针行为一致）。
- *
- * 反射面（androidx.datastore:datastore-preferences:1.1.1）：
- * - 委托对象：`WmsRepositoryKt.dataStore$delegate`（顶层扩展属性的静态委托字段）
- * - 委托内部缓存字段：`INSTANCE`（旧版本为 `dataStore`，双名兜底）
- * androidx 内部结构升级可能改名——失败时打印告警并跳过（测试会再次挂起从而暴露），
- * 绝不静默吞掉。
- */
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStoreFile
+import androidx.test.core.app.ApplicationProvider
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import java.io.Closeable
+import java.lang.reflect.Field
+import kotlinx.coroutines.*
+import org.junit.rules.ExternalResource
+
+/** Reset only the delegate cache; every test that uses it must separately own and close its store. */
 object DataStoreTestReset {
+    private fun slot(): Pair<Any, Field> {
+        val facade = Class.forName("com.factory.wms.data.repository.WmsRepositoryKt")
+        val delegate = facade.getDeclaredField("dataStore\$delegate").apply { isAccessible = true }.get(null)
+        val field = sequenceOf("INSTANCE", "dataStore").mapNotNull { name ->
+            runCatching { delegate.javaClass.getDeclaredField(name).apply { isAccessible = true } }.getOrNull()
+        }.firstOrNull() ?: error("PreferenceDataStoreSingletonDelegate 缓存字段未找到（androidx 结构变化？）")
+        return delegate to field
+    }
 
     fun resetWmsSettingsDataStore() {
         runCatching {
-            val facade = Class.forName("com.factory.wms.data.repository.WmsRepositoryKt")
-            val delegateField = facade.getDeclaredField("dataStore\$delegate").apply { isAccessible = true }
-            val delegate = delegateField.get(null)
-            val cls = delegate.javaClass
-            val instanceField = sequenceOf("INSTANCE", "dataStore")
-                .mapNotNull { name ->
-                    runCatching {
-                        cls.getDeclaredField(name).apply { isAccessible = true }
-                    }.getOrNull()
-                }
-                .firstOrNull()
-                ?: error("PreferenceDataStoreSingletonDelegate 缓存字段未找到（androidx 结构变化？）")
-            val old = instanceField.get(delegate)
-            instanceField.set(delegate, null)
+            val (delegate, field) = slot()
+            val old = field.get(delegate)
+            field.set(delegate, null)
             println("[DataStoreTestReset] 已复位委托单例（旧实例: $old）")
         }.onFailure {
             println("[DataStoreTestReset] 反射复位失败: ${it.javaClass.simpleName}: ${it.message}")
         }
     }
+
+    internal fun bindOwned(store: DataStore<Preferences>): () -> Unit {
+        val (delegate, field) = slot()
+        check(field.get(delegate) == null) { "DataStore fixture must reset before binding its own store" }
+        field.set(delegate, store)
+        return { if (field.get(delegate) === store) field.set(delegate, null) }
+    }
+}
+
+/** Real PreferenceDataStore, fixed sandbox file and an actor whose lifetime ends before sandbox cleanup. */
+internal class OwnedWmsSettingsDataStore(context: Context) : Closeable {
+    private val job = SupervisorJob()
+    private val scope = CoroutineScope(job + Dispatchers.IO)
+    private val file = context.applicationContext.preferencesDataStoreFile("wms_settings").canonicalFile
+    val store: DataStore<Preferences> = PreferenceDataStoreFactory.create(scope = scope, produceFile = { file })
+    private val unbind = DataStoreTestReset.bindOwned(store)
+    private var closed = false
+    override fun close() {
+        if (closed) return
+        closed = true
+        job.cancel()
+        runBlocking { job.join() }
+        unbind()
+    }
+}
+
+/** Outermost JUnit resource: close after activity/Compose/ViewModel teardown, before Robolectric deletes files. */
+class WmsSettingsDataStoreRule : ExternalResource() {
+    private var owner: OwnedWmsSettingsDataStore? = null
+    override fun before() {
+        DataStoreTestReset.resetWmsSettingsDataStore()
+        owner = OwnedWmsSettingsDataStore(ApplicationProvider.getApplicationContext())
+    }
+    override fun after() { owner?.close(); owner = null }
+}
+
+/** Raw ViewModels have no owner to clear them. Finish their Main callbacks before closing the store. */
+internal fun closeWmsTestViewModels(
+    models: Iterable<ViewModel>,
+    drainMain: () -> Unit = { org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle() }
+) {
+    val jobs = models.mapNotNull { it.viewModelScope.coroutineContext[Job] }
+    jobs.forEach { it.cancel() }
+    val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+    while (jobs.any { !it.isCompleted } && System.nanoTime() < deadline) {
+        drainMain()
+        Thread.sleep(1)
+    }
+    check(jobs.all { it.isCompleted }) { "ViewModel scopes did not finish before their DataStore fixture closed" }
 }

@@ -33,20 +33,22 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
 class ScanQuantityEditTest {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
+
     private lateinit var vm: ScanViewModel
     private lateinit var repository: WmsRepository
 
     @Before
     fun setUp() {
-        DataStoreTestReset.resetWmsSettingsDataStore()
         val app = ApplicationProvider.getApplicationContext<Application>()
         repository = WmsRepository(app)
+        RetrofitClient.setSession("http://127.0.0.1:9/", "synthetic-quantity-owner", 91)
         vm = ScanViewModel(app)
     }
 
     @After
     fun tearDown() {
-        vm.viewModelScope.cancel()
+        closeWmsTestViewModels(listOf(vm))
         RetrofitClient.setToken(null)
         RetrofitClient.setBaseUrl("")
     }
@@ -181,7 +183,7 @@ class ScanQuantityEditTest {
             assertEquals("WH01", restored.uiState.value.selectedWarehouse?.code)
             assertEquals("HD-1", restored.uiState.value.contractNo)
         } finally {
-            models.forEach { it.viewModelScope.cancel() }
+            closeWmsTestViewModels(models)
             Dispatchers.resetMain()
         }
     }
@@ -262,8 +264,7 @@ class ScanQuantityEditTest {
         val server = MockWebServer()
         server.start()
         try {
-            RetrofitClient.setBaseUrl(server.url("/").toString())
-            RetrofitClient.setToken("test-token")
+            RetrofitClient.setSession(server.url("/").toString(), "test-token", 91)
             seedState(ScanUiState(
                 scanLines = listOf(line()), totalQuantity = 1.0,
                 selectedWarehouse = WarehouseDto(id = 1, code = "WH02", name = "第二仓"),

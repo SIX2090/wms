@@ -5,7 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.model.AssistantChatResult
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,6 +57,9 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
 
     /** 服务端返回的会话。清空前一直带回，避免和另一台设备抢最新一条。 */
     private var conversationId: Long? = null
+    private var conversationVersion = 0L
+    private var intentScope = java.util.UUID.randomUUID().toString()
+    private var explicitlyStartedConversation = false
 
     fun clearError() {
         _uiState.value = _uiState.value.copy(error = null, failedDraft = null)
@@ -81,24 +86,45 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
             else -> "[图片]"
         }
 
-        _uiState.value = _uiState.value.copy(
-            // FEATURE-2026-10-07-012：图片进消息模型，气泡渲染缩略图（点击全屏查看）
-            messages = _uiState.value.messages + AssistantChatMessage(
-                text = displayText,
-                isUser = true,
-                image = image
-            ),
-            isLoading = true,
-            error = null,
-            failedDraft = null,
-            pendingImage = null,
-            pendingFile = null
-        )
+        // Check durable ownership before moving text or attachments into the sent message.
+        _uiState.value = _uiState.value.copy(isLoading = true, error = null, failedDraft = null)
         chatJob?.cancel()
+        val version = conversationVersion
+        val scopeAtSend = intentScope
+        val allowNewConversation = explicitlyStartedConversation
+        var owner = com.factory.wms.data.api.RetrofitClient.sessionSnapshot()
         chatJob = viewModelScope.launch {
+            val pending = try {
+                if (owner.server.isBlank()) {
+                    repository.ensureSession()
+                    owner = com.factory.wms.data.api.RetrofitClient.sessionSnapshot()
+                }
+                repository.pendingNativeWrites()
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (error: Exception) {
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (version != conversationVersion || owner.generation != com.factory.wms.data.api.RetrofitClient.sessionSnapshot().generation) return@launch
+                _uiState.value = _uiState.value.copy(isLoading = false,
+                    error = "无法读取原请求，请保留输入和附件后重试：${error.message}")
+                return@launch
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (version != conversationVersion || owner.generation != com.factory.wms.data.api.RetrofitClient.sessionSnapshot().generation) return@launch
+            if (!allowNewConversation && pending.any {
+                    it.operation.startsWith("assistant_chat:") && it.operation != "assistant_chat:$scopeAtSend"
+                }) {
+                _uiState.value = _uiState.value.copy(isLoading = false,
+                    error = "上次 AI 请求仍待核实，请先在待核实提示中核实原请求；输入和附件已保留。确认开始另一笔业务时可清空对话。")
+                return@launch
+            }
+            _uiState.value = _uiState.value.copy(
+                messages = _uiState.value.messages + AssistantChatMessage(text = displayText,
+                    isUser = true, image = image), pendingImage = null, pendingFile = null)
             // AUDIT-2026-10-07-009-P2：纯附件时后端要求 text 非空，补占位文案
             val requestText = trimmed.ifEmpty { "请识别附件内容" }
-            val result = repository.assistantChat(requestText, image, file, conversationId)
+            val result = repository.assistantChat(requestText, image, file, conversationId, scopeAtSend)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (version != conversationVersion || owner.generation != com.factory.wms.data.api.RetrofitClient.sessionSnapshot().generation) return@launch
             result.fold(
                 onSuccess = { data: AssistantChatResult? ->
                     data?.conversationId?.let { conversationId = it }
@@ -113,6 +139,7 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
                             actions = data?.actions.orEmpty()
                         )
                     )
+                    repository.acknowledgeNativeWrite("assistant_chat:$scopeAtSend")
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
@@ -148,6 +175,11 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
 
     /** 清空当前对话（仅清本地展示；服务端历史由后端保留）。 */
     fun clearConversation() {
+        conversationVersion++
+        explicitlyStartedConversation = true
+        intentScope = java.util.UUID.randomUUID().toString()
+        chatJob?.cancel()
+        chatJob = null
         conversationId = null
         _uiState.value = AssistantChatUiState()
     }

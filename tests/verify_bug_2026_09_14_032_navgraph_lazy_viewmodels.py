@@ -73,13 +73,50 @@ def _src() -> str:
     return NAVGRAPH.read_text(encoding="utf-8")
 
 
+
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
 def _appnavgraph_top_region(src: str) -> str:
-    """截取 AppNavGraph 函数体开头，到第一个 composable( 路由为止。"""
-    start = src.find("fun AppNavGraph()")
-    assert start != -1, "未找到 AppNavGraph() 函数"
-    first_route = src.find("composable(", start)
+    """AppNavGraph body before its first route, including signatures with default controllers."""
+    body = _kotlin_function_body(src, "AppNavGraph")
+    code = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                  lambda match: ' ' * len(match.group()), body)
+    first_route = code.find("composable(")
     assert first_route != -1, "AppNavGraph 内未找到 composable( 路由"
-    return src[start:first_route]
+    return body[:first_route]
+
+
+def test_032_body_locator_accepts_default_controller_and_nested_calls() -> None:
+    for declaration in ("fun AppNavGraph()", "fun AppNavGraph(controller: NavHostController = rememberNavController())"):
+        source = declaration + ' { val authViewModel: AuthViewModel = viewModel(); composable("home") {} }'
+        top = _appnavgraph_top_region(source)
+        assert "authViewModel" in top
+        assert "composable(" not in top
+    nested = 'fun AppNavGraph(controller: C = factory({ nested() })) { val authViewModel = vm(); composable("home") {} }'
+    assert "authViewModel" in _appnavgraph_top_region(nested)
+    misleading = 'fun AppNavGraph() { val note = "composable("; /* composable(fake) */ val authViewModel = vm(); composable("home") {} }'
+    assert "authViewModel" in _appnavgraph_top_region(misleading), "字符串或注释不能冒充路由边界"
 
 
 def test_032_no_eager_vm_creation_at_composition_root() -> None:

@@ -466,6 +466,32 @@ class TestMobileOpeningStockEdit:
         resp = anon.post("/api/opening_stock/%d" % line_id, json={"quantity": 1})
         assert resp.status_code in (401, 302), resp.status_code
 
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
+
+
+
 class TestMobileOpeningStockStaticContract:
     """静态契约：Android 侧确实接上了新接口（防止后端改了 App 没跟上）。"""
 
@@ -513,7 +539,26 @@ class TestMobileOpeningStockStaticContract:
         src = self.KOTLIN_REPO.read_text(encoding="utf-8")
         assert "suspend fun getOpeningStockPage(" in src, "仓储层需暴露分页列表方法"
         assert "suspend fun updateOpeningStock(" in src, "仓储层需暴露编辑方法"
-        assert "api.updateOpeningStock(" in src, "编辑方法必须真正调用接口"
+        body = _kotlin_function_body(src, "updateOpeningStock")
+        assert 'nativeWrite("opening_stock_edit:$lineId", request)' in body, "编辑须绑定该明细的持久业务意图"
+        assert "safeCall" in body, "编辑必须保留统一错误映射"
+        assert re.search(r'(?:RetrofitClient\.apiServiceFor\(session\)|prepared\.callApi)\.updateOpeningStock\(', body), \
+            "编辑必须真正调用绑定原会话的API，不能仅声明方法"
+        assert re.search(r'updateOpeningStock\((?:id|prepared\.requestId),\s*lineId,', body), \
+            "传输必须使用原请求号和当前明细ID"
+        assert re.search(r'Gson\(\)\.fromJson\((?:json|prepared\.payloadJson),\s*OpeningStockUpdateRequest::class\.java\)', body), \
+            "重试必须反序列化冻结报文，不能另取已编辑的请求"
+        prepare = _kotlin_function_body(src, "prepareNativeWrite")
+        assert "context.dataStore.edit" in prepare
+        assert "existing.payloadJson == payloadJson" in prepare and "intent = existing" in prepare
+        assert "preferences[key] = Gson().toJson(intent)" in prepare
+        transport = _kotlin_function_body(src, "nativeWrite")
+        assert "intent.requestId" in transport and "intent.payloadJson" in transport
+        models = self.KOTLIN_MODELS.read_text(encoding="utf-8")
+        vm = self.KOTLIN_VM.read_text(encoding="utf-8")
+        assert "val revision: String? = null" in models, "编辑请求必须保留快照revision"
+        assert "revision = item.revision" in _kotlin_function_body(vm, "submitEdit"), \
+            "界面提交必须携带所编辑行的原revision"
 
     def test_t12_viewmodel_declares_built_list_api(self):
         """VM↔Screen 配对（同类事故历史：BUG-2026-09-12-001）。

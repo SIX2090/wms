@@ -9,6 +9,9 @@
   T3 页面 UI：前后翻页箭头 + 回到今天 + 到今天禁用后翻；
   T4 空态文案与 >0 口径一致（「该仓当天无结存物料」）；
   T5 文案对齐用户口径：副标题为「各物料每日结存 · 按仓展示」。
+
+2026-11-15 A02：日期从发起前捕获的查询快照传参，响应按同一查询上下文消费。
+本文件只验证源码接线；真实 ViewModel/Retrofit 时序另由 Android 回归验收。
 """
 import sys
 from pathlib import Path
@@ -32,7 +35,16 @@ def check(name, cond):
 # T1 date 参数链路贯通
 check("T1a ApiService.stockDailyReport 带 date Query 参数", '@Query("date") date: String? = null' in api)
 check("T1b Repository.getStockDailyReport 带 date 形参并透传", "date: String? = null" in repo and "date = date?.takeIf" in repo)
-check("T1c ViewModel 调用时传 date", "date = _uiState.value.date.takeIf" in vm)
+page = vm.split('private fun loadPage(', 1)[1].split('\n    fun clearError(', 1)[0]
+check("T1c ViewModel 传捕获查询的真实 date",
+      'date = captured.date.takeIf { it.isNotBlank() }' in page
+      and page.index('val captured = _uiState.value') < page.index('pageJob = viewModelScope.launch')
+      and page.index('val captured = _uiState.value') < page.index('repository.getStockDailyReport('))
+check("T1d 旧日期响应不得覆盖新上下文",
+      'return listOf(s.selectedWarehouseId, s.date, s.keyword)' in vm
+      and 'currentCoroutineContext().ensureActive()' in page
+      and page.index('query != pageQuery()') < page.index('response.fold(')
+      and 'owner.generation != RetrofitClient.sessionSnapshot().generation' in page)
 
 # T2 日期导航状态机
 check("T2a shiftDay 存在且钳制未来", "fun shiftDay(offset: Int)" in vm and "if (next > today) return" in vm)

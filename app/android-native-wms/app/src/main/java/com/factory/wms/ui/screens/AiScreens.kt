@@ -875,6 +875,7 @@ fun StocktakeRecognizeScreen(
     onBack: () -> Unit
 ) {
     val uiState by aiViewModel.uiState.collectAsState()
+    val scanState by scanViewModel.uiState.collectAsState()
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     // 盘点实际数量（默认取识别数量，可编辑）
@@ -1192,7 +1193,8 @@ fun StocktakeRecognizeScreen(
                                 snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
                             }
                         } else {
-                            scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty))
+                            scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty,
+                                location_code = scanViewModel.uiState.value.selectedLocation.ifBlank { null }))
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar(
                                     "已加入盘点清单：$code x ${formatQuantity(qty)}",
@@ -1206,7 +1208,8 @@ fun StocktakeRecognizeScreen(
                     icon = Icons.Outlined.AddCircle,
                     color = CardPurple,
                     // 多候选未选择时 materialCode == null，按钮自然禁用（状态卡同步提示先选择）。
-                    enabled = materialCode != null
+                    enabled = materialCode != null && !scanState.isLoading &&
+                        scanState.pendingSubmissionId == null && scanState.stocktakeIdentityError == null
                 )
             }
 

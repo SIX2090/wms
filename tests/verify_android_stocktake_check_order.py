@@ -36,6 +36,31 @@ def _version_tuple(gradle: str) -> tuple:
     return tuple(int(x) for x in m.group(1).split("."))
 
 
+def _kotlin_function_body(source: str, name: str) -> str:
+    """Locate a Kotlin function body without depending on its default arguments or line count."""
+    # Mask comments and literals so parentheses/braces in them cannot end the declaration.
+    masked = re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"""[\s\S]*?"""|"(?:\\.|[^"\\])*"',
+                    lambda match: ' ' * len(match.group()), source)
+    declaration = re.search(r'\bfun\s+(?:<[^>]+>\s*)?' + re.escape(name) + r'\s*\(', masked)
+    assert declaration, f"未找到 Kotlin 函数 {name}"
+    depth = 1
+    cursor = declaration.end()
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '(') - (masked[cursor] == ')')
+        cursor += 1
+    assert depth == 0, f"{name} 参数括号未闭合"
+    opening = masked.find('{', cursor)
+    assert opening != -1, f"{name} 缺少函数体"
+    depth = 1
+    cursor = opening + 1
+    while cursor < len(masked) and depth:
+        depth += (masked[cursor] == '{') - (masked[cursor] == '}')
+        cursor += 1
+    assert depth == 0, f"{name} 函数体未闭合"
+    return source[opening:cursor]
+
+
+
 def test_model_check_id_fields():
     src = _p("data/model/ScanRequests.kt")
     assert '@SerializedName("check_id") val checkId: Long? = null' in src, "StocktakeRequest 必须携带 check_id"
@@ -68,8 +93,22 @@ def test_viewmodel_selection_and_submit_guard():
     # 换仓必须重置所选盘点单
     assert "if (changed) null else _uiState.value.selectedCheckOrder" in src
     # 断点续盘草稿带 check_id 并自动回选
-    assert "checkId = s.selectedCheckOrder?.id" in src
-    assert "private fun restoreStocktakeCheckOrder(checkId: Long)" in src
+    persist = _kotlin_function_body(src, "persistStocktakeDraftNow")
+    assert "checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId" in persist
+    restore = _kotlin_function_body(src, "maybeRestoreStocktakeDraft")
+    assert "stocktakeSourceCheckId = draft.checkId" in restore
+    assert "orders.singleOrNull { it.id == draft.checkId }" in restore
+    assert "selectedCheckOrder = check ?: CheckOrderDto(draft.checkId" in restore
+    assert "if (check == null && draft.requestId == null)" in restore
+    submit = _kotlin_function_body(src, "submitStocktake")
+    guard = submit.index("if (checkOrder == null)")
+    payload = submit.index("val request = StocktakeRequest(")
+    assert "val checkOrder = state.selectedCheckOrder" in submit
+    assert "return@launch" in submit[guard:payload], "未选盘点单必须在构造请求前终止"
+    assert "checkId = checkOrder.id" in submit[payload:]
+    selector = _kotlin_function_body(src, "selectCheckOrder")
+    assert "stocktakeSourceCheckId != order.id" in selector
+    assert "scanLines.isNotEmpty()" in selector, "恢复有内容的草稿不能静默改挂别的盘点单"
 
 
 def test_screen_ui_and_confirm_gate():

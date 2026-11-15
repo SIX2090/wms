@@ -19,6 +19,9 @@
 - T5 共享组件存在且报表页也改用它（不再各写一份）
 - T6 DashboardDto 新增 warehouse 字段（服务端回传当前口径）
 - T7 进入首页先加载仓库列表再查概览
+
+2026-11-15 A11：初选只使用服务器明确标记的唯一默认仓；保留人工选择，
+无有效默认仓时不发无仓库概览查询，不以列表顺序猜默认仓。
 """
 from pathlib import Path
 
@@ -105,5 +108,12 @@ def test_t7_home_loads_warehouses_on_enter():
     vm = VM.read_text(encoding="utf-8")
     load = vm[vm.index("fun loadDashboard()"):vm.index("fun selectWarehouse(")]
     assert load.index("fetchWarehouses()") < load.index("fetchDashboard(warehouseId)")
-    assert "list.first().id?.toString()" in load
+    assert 'list.singleOrNull { it.isDefault }?.id?.toString()' in load
+    assert 'val current = _uiState.value.selectedWarehouseId' in load
+    assert 'if (current.isNullOrBlank() && !list.isNullOrEmpty())' in load
+    assert '} else current' in load, '已有人工选择必须保留'
+    assert 'list.first()' not in load, '仓库列表顺序不代表默认配置'
+    assert load.index('check(!warehouseId.isNullOrBlank())') < load.index('fetchDashboard(warehouseId)')
     assert "selectedWarehouseId = nextSelected" in load
+    model = (ANDROID / 'data/model/OpeningStockModels.kt').read_text(encoding='utf-8')
+    assert '@SerializedName("is_default") val isDefault: Boolean = false' in model

@@ -12,6 +12,7 @@ import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
 import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,6 +58,9 @@ data class ScanUiState(
     /** AI-APP-FIX-201：盘点单加载失败的持久错误（选单弹窗内展示 + 重试） */
     val checkOrdersError: String? = null,
     val selectedCheckOrder: CheckOrderDto? = null,
+    val stocktakeIdentityError: String? = null,
+    val stocktakeDraftUnreadable: Boolean = false,
+    val editDraftUnreadable: Boolean = false,
     // 合同编号（出库选填）：输入片段快速匹配完整合同编号（如 0709 → HD260709）
     val contractNo: String = "",
     val contractSuggestions: List<ContractDto> = emptyList(),
@@ -162,6 +166,9 @@ class ScanViewModel(
     val uiState: StateFlow<ScanUiState> = _uiState.asStateFlow()
     private var materialSearchSequence = 0
     private var materialSearchJob: Job? = null
+    private var employeeRequestVersion = 0L
+    private var checkOrderRequestVersion = 0L
+    private var materialInfoVersion = 0L
     private var contractSearchSequence = 0
     private var contractSearchJob: Job? = null
     // AI-MOB-STOCK-F03（清单 P2-2）：查库存列表的防抖查询此前没有可取消的 Job。
@@ -172,9 +179,18 @@ class ScanViewModel(
     private var stockListJob: Job? = null
     private val draftMutex = Mutex()
     private val restoreMutex = Mutex()
+    private val stocktakeDraftMutex = Mutex()
+    private var stocktakeKey: String? = null
+    private var stocktakeRestoreStarted = false
+    private var stocktakeRestoreComplete = false
+    private var stocktakeDraftReadComplete = false
+    private var stocktakeSourceWarehouse: String? = null
+    private var stocktakeSourceCheckId: Long? = null
     private var editDraftKey: String? = null
     private var editDraftOperation: String? = null
     private var editDraftJob: Job? = null
+    private var editDraftRestored = false
+    private var editDraftClearJob: Job? = null
 
     private fun editDraftSnapshot(): ScanEditDraft {
         val state = _uiState.value
@@ -193,12 +209,14 @@ class ScanViewModel(
     suspend fun restoreEditDraft(operation: String) = restoreMutex.withLock {
         try {
             val key = repository.editDraftKey(operation)
-            if (key == editDraftKey) return@withLock
+            if (key == editDraftKey && editDraftRestored) return@withLock
             editDraftJob?.cancelAndJoin()
-            _uiState.value = ScanUiState(isLoading = true)
-            val draft = repository.loadEditDraft(key)
+            editDraftRestored = false
             editDraftKey = key
             editDraftOperation = operation
+            _uiState.value = ScanUiState(isLoading = true)
+            val draft = repository.loadEditDraft(key)
+            check(draft != null || !repository.hasEditDraft(key)) { "原草稿未能读取，已保留原内容，请先核对或明确清空" }
             if (draft != null) {
                 val lines = draft.lines.map {
                     it.line.copy(material_name = it.name, material_spec = it.spec, material_brand = it.brand)
@@ -217,6 +235,7 @@ class ScanViewModel(
                     else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
                 )
             }
+            editDraftRestored = true
             _uiState.value = _uiState.value.copy(isLoading = false)
             editDraftJob = viewModelScope.launch {
                 _uiState.map { editDraftSnapshot() }.distinctUntilChanged().collect {
@@ -226,12 +245,13 @@ class ScanViewModel(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Exception) {
-            _uiState.value = _uiState.value.copy(isLoading = true,
-                error = "未能安全恢复清单，请重新进入本页：${error.message}")
+            _uiState.value = _uiState.value.copy(isLoading = true, editDraftUnreadable = editDraftKey != null,
+                error = "未能安全恢复清单，原内容保持不变：${error.message}")
         }
     }
 
     internal suspend fun persistEditDraft(): Boolean = draftMutex.withLock {
+        if (_uiState.value.editDraftUnreadable) return@withLock false
         // BUG-2026-10-002：DataStore 超时已由仓库层转换为非取消型 DataStoreTimeoutException。
         // 编辑草稿必须走失败分支，绝不把未落盘清单误报为已保存。
         val key = editDraftKey ?: return@withLock false
@@ -278,13 +298,26 @@ class ScanViewModel(
         persistEditDraft()
     }
 
-    private fun draftEditingBlocked(): Boolean {
+    private fun draftEditingBlocked(allowUnreadableClear: Boolean = false): Boolean {
+        if (stocktakeKey != null && runCatching { repository.stocktakeDraftKey() }.getOrNull() != stocktakeKey) {
+            _uiState.value = _uiState.value.copy(error = "当前清单属于原账号，请重新进入本页；原草稿已保留")
+            return true
+        }
         if (_uiState.value.isLoading) return true
         if (_uiState.value.pendingSubmissionId != null) {
             _uiState.value = _uiState.value.copy(error = "上次提交结果待核实，请先点提交核实，不可改动原清单")
             return true
         }
+        if (_uiState.value.stocktakeDraftUnreadable && !allowUnreadableClear) {
+            _uiState.value = _uiState.value.copy(error = "原盘点草稿未能读取，已保留原内容；请先核对或明确清空后重新盘点")
+            return true
+        }
         return false
+    }
+
+    fun updateStocktakeArea(value: String) {
+        if (draftEditingBlocked()) return
+        _uiState.value = _uiState.value.copy(selectedLocation = value.trim())
     }
 
     fun selectLocation(value: String) {
@@ -557,9 +590,10 @@ class ScanViewModel(
         val whCode = _uiState.value.selectedWarehouse?.code
         return try {
             val exact = repository.getMaterialInfo(code, whCode)
-            if (exact.isSuccess) return true
-            val fuzzy = repository.searchMaterial(code, whCode)
-            fuzzy.getOrNull()?.isNotEmpty() ?: true
+            if (exact.isSuccess) return exact.getOrThrow().code == code
+            (exact.exceptionOrNull() as? WmsRepository.Companion.BusinessException)?.safeToEdit != true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             // 网络/服务异常 → 不拦截，交由提交环节暴露问题
             true
@@ -568,15 +602,18 @@ class ScanViewModel(
 
     /** 异步拉取物料信息补全清单行的名称/规格/品牌（扫码进入时通常只有编码）。 */
     private fun enrichScanLineMaterial(code: String) {
+        val whCode = _uiState.value.selectedWarehouse?.code
+        val owner = RetrofitClient.sessionSnapshot()
         viewModelScope.launch {
-            val whCode = _uiState.value.selectedWarehouse?.code
-            val material = repository.getMaterialInfo(code, whCode).getOrNull()
-                ?: repository.searchMaterial(code, whCode).getOrNull()?.firstOrNull()
+            val material = repository.getMaterialInfo(code, whCode).getOrNull()?.takeIf { it.code == code }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (owner.generation != RetrofitClient.sessionSnapshot().generation ||
+                whCode != _uiState.value.selectedWarehouse?.code) return@launch
             material?.let {
                 val enriched = _uiState.value.scanLines.map { existing ->
                     if (existing.material_code == code) {
                         existing.copy(
-                            material_code = it.code ?: existing.material_code,
+                            material_code = existing.material_code,
                             material_name = it.name,
                             material_spec = it.spec,
                             material_brand = it.brand
@@ -609,12 +646,43 @@ class ScanViewModel(
                 scanFeedback = "${expected.material_code} 已移除",
                 totalQuantity = current.sumOf { it.quantity }
             )
+            if (stocktakeKey != null || stocktakeRestoreStarted) persistStocktakeDraft()
         }
     }
 
     fun clearScanLines() {
-        if (draftEditingBlocked()) return
-        _uiState.value = _uiState.value.copy(scanLines = emptyList(), totalQuantity = 0.0)
+        if (_uiState.value.editDraftUnreadable) {
+            clearUnreadableEditDraft()
+            return
+        }
+        if (draftEditingBlocked(allowUnreadableClear = true)) return
+        stocktakeDraftReadComplete = true
+        _uiState.value = _uiState.value.copy(scanLines = emptyList(), totalQuantity = 0.0,
+            error = if (_uiState.value.stocktakeDraftUnreadable) null else _uiState.value.error,
+            stocktakeIdentityError = null, stocktakeDraftUnreadable = false)
+        stocktakeSourceWarehouse = null
+        stocktakeSourceCheckId = null
+        if (stocktakeKey != null || stocktakeRestoreStarted) persistStocktakeDraft()
+    }
+
+    private fun clearUnreadableEditDraft() {
+        if (editDraftClearJob?.isActive == true) return
+        editDraftClearJob = viewModelScope.launch {
+            try {
+                val operation = editDraftOperation ?: error("尚未确认原草稿类型")
+                restoreMutex.withLock {
+                    val key = editDraftKey ?: error("尚未确认原草稿归属")
+                    repository.clearOwnedEditDraft(key, operation)
+                    editDraftKey = null
+                    editDraftRestored = false
+                }
+                restoreEditDraft(operation)
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (error: Exception) {
+                _uiState.value = _uiState.value.copy(isLoading = true, editDraftUnreadable = true,
+                    error = "原草稿未清空，请保留并核对：${error.message}")
+            }
+        }
     }
 
     fun loadWarehouses() {
@@ -625,13 +693,13 @@ class ScanViewModel(
                 onSuccess = { warehouses ->
                     val selected = _uiState.value.selectedWarehouse
                     val first = if (selected != null) warehouses.firstOrNull { it.code == selected.code }
-                        ?: selected else warehouses.firstOrNull()
+                        ?: selected else if ((stocktakeRestoreStarted && !stocktakeRestoreComplete) || stocktakeSourceWarehouse != null) null else warehouses.singleOrNull { it.isDefault }
                     _uiState.value = _uiState.value.copy(
                         warehousesLoading = false,
                         warehouses = warehouses,
                         selectedWarehouse = first ?: _uiState.value.selectedWarehouse
                     )
-                    // INV-BATCH-001-E：默认选中首仓后即拉取该仓进行中盘点单
+                    // INV-BATCH-001-E：选择配置默认仓库后即拉取该仓进行中盘点单
                     if (first?.code != null) loadPendingCheckOrders()
                     loadLocationOptions()
                 },
@@ -674,9 +742,16 @@ class ScanViewModel(
 
     /** 拉取员工列表；selectedDepartment 存在时按部门过滤（联动）。 */
     fun loadEmployees() {
+        val department = _uiState.value.selectedDepartment?.id
+        val version = ++employeeRequestVersion
+        val owner = RetrofitClient.sessionSnapshot()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(employeesLoading = true)
-            repository.getEmployees(_uiState.value.selectedDepartment?.id).fold(
+            repository.getEmployees(department) .let { response ->
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (version != employeeRequestVersion || department != _uiState.value.selectedDepartment?.id || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+                response
+            }.fold(
                 onSuccess = { employees ->
                     val keep = _uiState.value.selectedEmployee
                         ?.let { sel -> employees.firstOrNull { it.id == sel.id } }
@@ -700,7 +775,9 @@ class ScanViewModel(
     /** 选择领料部门（可传 null 清除）；换部门后联动刷新员工列表。 */
     fun selectDepartment(department: DepartmentDto?) {
         if (draftEditingBlocked()) return
-        _uiState.value = _uiState.value.copy(selectedDepartment = department)
+        _uiState.value = _uiState.value.copy(selectedDepartment = department,
+            selectedEmployee = if (_uiState.value.selectedDepartment?.id == department?.id) _uiState.value.selectedEmployee else null,
+            employees = if (_uiState.value.selectedDepartment?.id == department?.id) _uiState.value.employees else emptyList())
         loadEmployees()
     }
 
@@ -761,9 +838,16 @@ class ScanViewModel(
     /** 拉取当前所选仓库的进行中盘点单列表。 */
     fun loadPendingCheckOrders() {
         val code = _uiState.value.selectedWarehouse?.code ?: return
+
+        val version = ++checkOrderRequestVersion
+        val owner = RetrofitClient.sessionSnapshot()
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(checkOrdersLoading = true, checkOrdersError = null)
-            repository.loadPendingCheckOrders(code).fold(
+            repository.loadPendingCheckOrders(code) .let { response ->
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (version != checkOrderRequestVersion || code != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+                response
+            }.fold(
                 onSuccess = { orders ->
                     val selected = _uiState.value.selectedCheckOrder
                     val keep = if (selected == null) null
@@ -771,14 +855,15 @@ class ScanViewModel(
                     _uiState.value = _uiState.value.copy(
                         checkOrdersLoading = false,
                         checkOrders = orders,
-                        selectedCheckOrder = keep
+                        selectedCheckOrder = if (_uiState.value.pendingSubmissionId != null) selected else keep
                     )
                 },
                 onFailure = { e ->
                     _uiState.value = _uiState.value.copy(
                         checkOrdersLoading = false,
                         checkOrders = emptyList(),
-                        selectedCheckOrder = null,
+                        selectedCheckOrder = if (_uiState.value.pendingSubmissionId != null || stocktakeSourceCheckId != null)
+                            _uiState.value.selectedCheckOrder else null,
                         // AI-APP-FIX-201：失败必须留在弹窗里可见（Snackbar 被弹窗
                         // 遮挡且一闪而过，用户会误以为"该仓没有进行中盘点单"）。
                         checkOrdersError = e.message ?: "加载失败"
@@ -790,11 +875,20 @@ class ScanViewModel(
 
     /** 选中一张进行中盘点单（结果统一挂到该单，由电脑端完成统一出调整草稿）。 */
     fun selectCheckOrder(order: CheckOrderDto) {
-        _uiState.value = _uiState.value.copy(selectedCheckOrder = order)
+        if (draftEditingBlocked()) return
+        if (_uiState.value.scanLines.isNotEmpty() && stocktakeSourceCheckId != null && stocktakeSourceCheckId != order.id) {
+            _uiState.value = _uiState.value.copy(error = "恢复的清单属于原盘点单，请先核对或清空后重新盘点")
+            return
+        }
+        _uiState.value = _uiState.value.copy(selectedCheckOrder = order, stocktakeIdentityError = null)
     }
 
     fun selectWarehouse(warehouse: WarehouseDto) {
         if (draftEditingBlocked()) return
+        if (stocktakeSourceWarehouse != null && _uiState.value.scanLines.isNotEmpty() && stocktakeSourceWarehouse != warehouse.code) {
+            _uiState.value = _uiState.value.copy(error = "恢复的清单属于原仓库，请先核对或清空后重新盘点")
+            return
+        }
         val changed = _uiState.value.selectedWarehouse?.code != warehouse.code
         _uiState.value = _uiState.value.copy(
             selectedWarehouse = warehouse,
@@ -1061,12 +1155,18 @@ class ScanViewModel(
      * materialExists 重复请求来判定成败。
      */
     fun searchMaterialByCode(code: String, onResult: (Boolean) -> Unit = {}) {
+        val version = ++materialInfoVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        val warehouse = _uiState.value.selectedWarehouse?.code
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val whCode = _uiState.value.selectedWarehouse?.code
             val result = repository.getMaterialInfo(code, whCode)
             result.fold(
                 onSuccess = { material ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         scannedMaterial = material,
@@ -1075,6 +1175,9 @@ class ScanViewModel(
                     onResult(true)
                 },
                 onFailure = { e ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = e.message,
@@ -1097,11 +1200,17 @@ class ScanViewModel(
     fun queryMaterialByKeyword(keyword: String) {
         val normalized = keyword.trim()
         if (normalized.isEmpty()) return
+        val version = ++materialInfoVersion
+        val owner = RetrofitClient.sessionSnapshot()
+        val warehouse = _uiState.value.selectedWarehouse?.code
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
             val whCode = _uiState.value.selectedWarehouse?.code
             repository.getMaterialInfo(normalized, whCode).fold(
                 onSuccess = { material ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         scannedMaterial = material,
@@ -1113,6 +1222,9 @@ class ScanViewModel(
                     // 精确编码未命中：回退模糊搜索，列出包含关键词的全部物料
                     repository.searchMaterial(normalized, whCode).fold(
                         onSuccess = { materials ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 scannedMaterial = null,
@@ -1121,6 +1233,9 @@ class ScanViewModel(
                             )
                         },
                         onFailure = { e ->
+                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+
                             _uiState.value = _uiState.value.copy(
                                 isLoading = false,
                                 scannedMaterial = null,
@@ -1193,6 +1308,7 @@ class ScanViewModel(
                         isLoading = false,
                         success = "入库成功！单号: ${submitResult.order_no}",
                         scanLines = emptyList(),
+                        evidence = emptyList(),
                         totalQuantity = 0.0,
                         submittedPrint = submitResult.id?.let {
                             SubmittedPrintInfo(
@@ -1212,8 +1328,10 @@ class ScanViewModel(
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             success = e.message,
+                            submittedPrint = null,
                             error = null,
-                            scanLines = emptyList(),
+                                scanLines = emptyList(),
+                            evidence = emptyList(),
                             totalQuantity = 0.0
                         )
                     } else {
@@ -1261,6 +1379,7 @@ class ScanViewModel(
                         isLoading = false,
                         success = "出库成功！单号: ${submitResult.order_no}",
                         scanLines = emptyList(),
+                        evidence = emptyList(),
                         totalQuantity = 0.0,
                         contractNo = "",
                         contractSuggestions = emptyList(),
@@ -1282,8 +1401,10 @@ class ScanViewModel(
                         _uiState.value = _uiState.value.copy(
                             isLoading = false,
                             success = e.message,
+                            submittedPrint = null,
                             error = null,
-                            scanLines = emptyList(),
+                                scanLines = emptyList(),
+                            evidence = emptyList(),
                             totalQuantity = 0.0
                         )
                     } else {
@@ -1326,7 +1447,16 @@ class ScanViewModel(
         viewModelScope.launch {
             // BUG-2026-09-12-010：防重复提交守卫（同 submitInbound）
             if (_uiState.value.isLoading) return@launch
+            if (stocktakeKey != null && runCatching { repository.stocktakeDraftKey() }.getOrNull() != stocktakeKey) {
+                _uiState.value = _uiState.value.copy(error = "当前清单属于原账号，请使用原账号恢复核实")
+                return@launch
+            }
+            val submissionOwner = RetrofitClient.sessionSnapshot()
             val state = _uiState.value
+            if (state.stocktakeIdentityError != null && state.pendingSubmissionId == null) {
+                _uiState.value = state.copy(error = state.stocktakeIdentityError)
+                return@launch
+            }
             val warehouse = state.selectedWarehouse
             if (warehouse == null) {
                 _uiState.value = _uiState.value.copy(error = "请选择仓库")
@@ -1361,7 +1491,21 @@ class ScanViewModel(
                 warehouseCode = warehouse.code,
                 checkId = checkOrder.id
             )
-            val result = repository.submitStocktake(request)
+            val stored = try { repository.pendingNativeWrites().singleOrNull { it.operation == "stocktake" } }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    _uiState.value = _uiState.value.copy(isLoading = false, error = "原请求无法读取，请保留清单：${error.message}")
+                    return@launch
+                }
+            val requestId = state.pendingSubmissionId ?: stored?.requestId ?: UUID.randomUUID().toString()
+            _uiState.value = _uiState.value.copy(pendingSubmissionId = requestId)
+            if (!persistStocktakeDraftNow()) {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = "盘点清单未安全保存，暂不提交")
+                return@launch
+            }
+            val result = repository.submitStocktake(request, requestId)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (submissionOwner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             result.fold(
                 onSuccess = { submitResult ->
                     val msg = if (submitResult.check_no != null)
@@ -1370,11 +1514,12 @@ class ScanViewModel(
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         success = msg,
+                        pendingSubmissionId = null,
                         scanLines = emptyList(),
                         totalQuantity = 0.0
                     )
                     // BUG-2026-09-03-003：提交成功即清除断点续盘草稿，防止下次进入盘点误恢复
-                    viewModelScope.launch { repository.clearStocktakeDraft() }
+                    persistStocktakeDraftNow()
                 },
                 onFailure = { e ->
                     // AI-MOB-OFFLINE-01：断网但已暂存 → 当"成功"对待，
@@ -1386,6 +1531,7 @@ class ScanViewModel(
                             isLoading = false,
                             success = e.message,
                             error = null,
+                            pendingSubmissionId = null,
                             scanLines = emptyList(),
                             totalQuantity = 0.0
                         )
@@ -1394,78 +1540,115 @@ class ScanViewModel(
                     }
                 }
             )
+            val failure = result.exceptionOrNull()
+            if (result.isSuccess || failure is OfflineQueuedException) {
+                stocktakeSourceWarehouse = null
+                stocktakeSourceCheckId = null
+            }
+            if (failure is WmsRepository.Companion.BusinessException && failure.safeToEdit)
+                _uiState.value = _uiState.value.copy(pendingSubmissionId = null)
+            persistStocktakeDraftNow()
+            if (result.isSuccess) repository.acknowledgeNativeWrite("stocktake", requestId)
         }
     }
 
     // ============ 断点续盘（BUG-2026-09-03-003） ============
 
     /** 将当前盘点清单、仓库与所选盘点单写入本地草稿（盘点页在清单变化时调用）。 */
-    fun persistStocktakeDraft() {
-        val s = _uiState.value
-        if (s.scanLines.isEmpty()) return
-        val draft = StocktakeDraft(
-            warehouseCode = s.selectedWarehouse?.code,
-            warehouseName = s.selectedWarehouse?.name,
-            checkId = s.selectedCheckOrder?.id,
-            lines = s.scanLines
-        )
-        viewModelScope.launch { repository.saveStocktakeDraft(draft) }
+    private suspend fun persistStocktakeDraftNow(): Boolean = stocktakeDraftMutex.withLock {
+        if (stocktakeRestoreStarted && !stocktakeRestoreComplete) return@withLock false
+        if (stocktakeRestoreStarted && !stocktakeDraftReadComplete) {
+            _uiState.value = _uiState.value.copy(draftSaveError = "原盘点草稿未安全读取，未自动覆盖；请先核对或明确清空")
+            return@withLock false
+        }
+        return@withLock try {
+            val currentKey = repository.stocktakeDraftKey()
+            val key = stocktakeKey ?: currentKey.also { stocktakeKey = it }
+            check(key == currentKey) { "账号已变化，原盘点草稿保持不变，请使用原账号恢复" }
+            val state = _uiState.value
+            repository.saveStocktakeDraft(StocktakeDraft(
+                warehouseCode = state.selectedWarehouse?.code ?: stocktakeSourceWarehouse,
+                warehouseName = state.selectedWarehouse?.name,
+                checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId,
+                lines = state.scanLines, requestId = state.pendingSubmissionId,
+                selectedArea = state.selectedLocation
+            ), key)
+            _uiState.value = _uiState.value.copy(draftSaveError = null)
+            true
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Exception) {
+            _uiState.value = _uiState.value.copy(draftSaveError = "盘点清单未保存，请勿退出：${error.message}")
+            false
+        }
     }
 
-    /** 主动清除本地草稿（离开盘点场景/放弃盘点时调用）。 */
+    fun persistStocktakeDraft() { viewModelScope.launch { persistStocktakeDraftNow() } }
+
     fun clearStocktakeDraft() {
-        viewModelScope.launch { repository.clearStocktakeDraft() }
+        viewModelScope.launch { stocktakeDraftMutex.withLock {
+            val key = stocktakeKey ?: repository.stocktakeDraftKey()
+            repository.clearStocktakeDraft(key)
+        } }
     }
 
-    /**
-     * 进入盘点页时尝试恢复上次未提交草稿：仅当本地有草稿且当前清单为空时恢复
-     * （含仓库，若仓库列表已加载且能匹配则一并带回），恢复后通过 success 提示。
-     */
     fun maybeRestoreStocktakeDraft() {
+        if (stocktakeRestoreStarted) return
+        stocktakeRestoreStarted = true
+        _uiState.value = _uiState.value.copy(isLoading = true)
         viewModelScope.launch {
-            val draft = repository.loadStocktakeDraft() ?: return@launch
-            if (draft.lines.isEmpty()) return@launch
-            val s = _uiState.value
-            if (s.scanLines.isNotEmpty()) return@launch
-            var newState = s.copy(
-                scanLines = draft.lines,
-                totalQuantity = draft.lines.sumOf { it.quantity }
-            )
-            if (s.selectedWarehouse == null && draft.warehouseCode != null) {
-                val match = s.warehouses.firstOrNull {
-                    it.code == draft.warehouseCode || (draft.warehouseName != null && it.name == draft.warehouseName)
+            try {
+                val key = repository.stocktakeDraftKey()
+                stocktakeKey = key
+                val draft = repository.loadStocktakeDraft(key)
+                if (draft == null || draft.lines.isEmpty()) {
+                    stocktakeDraftReadComplete = true
+                    val legacy = repository.hasUnownedStocktakeDraft()
+                    stocktakeRestoreComplete = true
+                    _uiState.value = _uiState.value.copy(isLoading = false,
+                        success = if (legacy) "本机保留历史盘点草稿，缺少账号来源，未自动恢复；请联系维护人员核对归属，勿重复录入" else null)
+                    if (_uiState.value.warehouses.isNotEmpty() && _uiState.value.selectedWarehouse == null)
+                        _uiState.value = _uiState.value.copy(selectedWarehouse = _uiState.value.warehouses.singleOrNull { it.isDefault })
+                    return@launch
                 }
-                if (match != null) newState = newState.copy(selectedWarehouse = match)
+                stocktakeSourceWarehouse = draft.warehouseCode
+                stocktakeSourceCheckId = draft.checkId
+                _uiState.value = _uiState.value.copy(scanLines = draft.lines,
+                    totalQuantity = draft.lines.sumOf { it.quantity }, selectedWarehouse = null,
+                    selectedCheckOrder = null, selectedLocation = draft.selectedArea.orEmpty(),
+                    pendingSubmissionId = draft.requestId, stocktakeDraftUnreadable = false)
+                stocktakeDraftReadComplete = true
+                val warehouses = if (_uiState.value.warehouses.isNotEmpty()) _uiState.value.warehouses
+                    else repository.getWarehouses().getOrThrow()
+                val warehouse = warehouses.singleOrNull { it.code == draft.warehouseCode }
+                _uiState.value = _uiState.value.copy(warehouses = warehouses, selectedWarehouse = warehouse)
+                if (warehouse == null) {
+                    // A pending request may already have succeeded; retain its exact warehouse for receipt verification.
+                    if (draft.requestId != null && !draft.warehouseCode.isNullOrBlank())
+                        _uiState.value = _uiState.value.copy(selectedWarehouse = WarehouseDto(null, draft.warehouseCode, draft.warehouseName))
+                    else throw IllegalStateException("原盘点仓库已停用或不存在，请保留清单核对，不可改挂其他仓库")
+                }
+                if (draft.checkId != null) {
+                    val orders = warehouse?.code?.let { repository.loadPendingCheckOrders(it).getOrThrow() }.orEmpty()
+                    val check = orders.singleOrNull { it.id == draft.checkId }
+                    if (check == null && draft.requestId == null)
+                        throw IllegalStateException("原盘点单已不在进行中列表，请保留清单核对")
+                    _uiState.value = _uiState.value.copy(checkOrders = orders,
+                        selectedCheckOrder = check ?: CheckOrderDto(draft.checkId, "待核实 #${draft.checkId}"))
+                }
+                _uiState.value = _uiState.value.copy(success = if (draft.requestId == null)
+                    "已恢复原仓库盘点清单，请核对后继续" else "已恢复待核实提交，请使用原请求核实结果")
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (error: Exception) {
+                _uiState.value = _uiState.value.copy(stocktakeIdentityError = error.message,
+                    stocktakeDraftUnreadable = stocktakeKey != null && !stocktakeDraftReadComplete,
+                    error = "盘点恢复未完成：${error.message}")
+            } finally {
+                stocktakeRestoreComplete = true
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
-            _uiState.value = newState.copy(
-                success = "已恢复上次未提交的盘点清单（${draft.lines.size} 项），请核对后继续盘点"
-            )
-            // INV-BATCH-001-E：若草稿记录了盘点单，回拉列表尝试自动回选
-            val checkId = draft.checkId
-            if (checkId != null) restoreStocktakeCheckOrder(checkId)
         }
     }
 
-    /** INV-BATCH-001-E：断点续盘按草稿记录的盘点单 id 重新拉取并回选（仍进行中才选中）。 */
-    private fun restoreStocktakeCheckOrder(checkId: Long) {
-        val code = _uiState.value.selectedWarehouse?.code ?: return
-        viewModelScope.launch {
-            repository.loadPendingCheckOrders(code).fold(
-                onSuccess = { orders ->
-                    val hit = orders.firstOrNull { it.id == checkId }
-                    _uiState.value = _uiState.value.copy(
-                        checkOrders = orders,
-                        checkOrdersLoading = false,
-                        selectedCheckOrder = hit,
-                        success = if (hit == null)
-                            "已恢复盘点清单，但原盘点单已不在进行中列表，请重新选择盘点单"
-                        else null
-                    )
-                },
-                onFailure = { }
-            )
-        }
-    }
 }
 
 /**

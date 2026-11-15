@@ -21,3 +21,13 @@
 纠正后实际源码契约9/9通过；精确84fac旧Git源码4个业务断言失败、5对照通过，0初始化错误。历史T5/T7实际函数体执行当前4/4通过、旧源码3失败+1既有受控拒绝对照通过。新真实应用invalid矩阵扩大为4接口×missing/disabled/ambiguous，仍只在已证明隔离的目标CI执行。统一索引按脚本重建，档案新增登记不更改历史状态分布基线，也不代表软件/CI/生产已验收。
 
 纠正提交/推送和完整目标CI另行验收，原失败目标不作为成功证据。原始证据见本任务 `backend-*-corrected-*.log`、`backend-r6-corrected-evidence.json`。Android其余修复未纳入本批。
+
+## 纠正目标验收回执
+
+已实际push并远端确认：`379ff0ec2aad2ca0ac48ce67cf3b94d5fe4a25a2`；提交序列为首批829aeaa8 → R8完整撤回ec036f14 → 完整纠正379ff0ec。
+
+- [WMS CI #2202](https://github.com/SIX2090/wms/actions/runs/43710500469)：completed/success；三个全站单测分片、四个业务verify分片、静态/安全/库存恒等式、隔离冒烟和真实浏览器回归及gate全部成功。
+- [WMS AI Verification #2497](https://github.com/SIX2090/wms/actions/runs/43710500481)：completed/success，gate成功。
+- Android本目标未因路径过滤创建新run；复用[Android APK Build #894](https://github.com/SIX2090/wms/actions/runs/43706012293)的成功祖先`84fac39015732d22e3e71cc77b0c071a621b7e04`。已证明祖先可达，`app/android-native-wms/`与`android-build.yml`差异为空，223个相关Git对象齐全。本批没有Android改动，不能用该旧构建验收后续Android修复。
+
+脚本查询遇HTTP403，以上已通过连接器作业/gate及Actions页面的同一完整SHA和最新运行核实；403本身未被当成成功。当前仅A07及A11服务端协议交付，12类整体尚待Android后批，生产未部署。

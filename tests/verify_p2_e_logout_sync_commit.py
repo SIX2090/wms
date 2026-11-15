@@ -9,7 +9,8 @@
 修复：
 - logout() 改为 encryptedPrefs.edit().clear().commit() 同步清空所有键值
 - 失败时仅 Log.w，不阻塞 logout 流程
-- logout() 内同时清空 DataStore 和 RetrofitClient 内存
+- logout() 内移除 DataStore 认证元数据，并清空 RetrofitClient 内存
+- 2026-11-15 A04：业务草稿/待核实请求键必须保留，不允许清空整个 DataStore
 
 验收标准：
 - T1: logout() 体内出现 encryptedPrefs.edit().clear()
@@ -17,7 +18,7 @@
 - T3: 不能再单独使用 .remove(KEY_TOKEN)（仅删一个键，残留其他键）
 - T4: 必须用 try/catch 包裹，失败不抛异常
 - T5: catch 内必须 Log.w 记录
-- T6: 之后还必须清空 DataStore + RetrofitClient.setToken(null)
+- T6: 之后移除 DataStore 的认证键、保留业务草稿 + RetrofitClient.setToken(null)
 - T7: 不能再使用 .apply() 在 logout 流程中
 """
 
@@ -141,15 +142,23 @@ def test_t5_logout_catch_logs_warning():
     assert found_log, "logout() 的 catch 子句内必须使用 Log.w/e 记录异常"
 
 
-# ---------- T6: 之后必须清空 DataStore 和 RetrofitClient.setToken(null) ----------
-def test_t6_logout_clears_datastore_and_retrofit():
-    """logout() 必须继续清空 DataStore 和 RetrofitClient.setToken(null)。"""
+# ---------- T6: 之后只清认证元数据与内存 token，不删除业务内容 ----------
+def test_t6_logout_removes_auth_metadata_preserves_drafts_and_clears_retrofit():
+    """同步凭据清除继续保留；DataStore 的业务草稿与原请求键不得随注销删除。"""
     src = _src()
     body = _extract_function_body(src, "logout")
     assert body, "logout() 函数未找到"
-    assert "dataStore.edit { it.clear() }" in body, (
-        "logout() 必须调用 context.dataStore.edit { it.clear() } 清空非敏感数据"
-    )
+    edit = re.search(r'context\.dataStore\.edit\s*\{([^}]*)\}', body, flags=re.DOTALL)
+    assert edit, 'logout() 必须移除 DataStore 中的认证元数据'
+    auth_cleanup = edit.group(1)
+    removed = re.findall(r'it\.remove\(\s*([A-Z_]+)\s*\)', auth_cleanup)
+    assert set(removed) == {'KEY_BASE_URL', 'KEY_USERNAME', 'KEY_ROLE'} and len(removed) == 3
+    remainder = re.sub(r'it\.remove\(\s*[A-Z_]+\s*\)', '', auth_cleanup)
+    assert not remainder.replace(';', '').strip(), 'DataStore 清理只能移除三个认证键，不能删除业务内容'
+    assert 'clearStocktakeDraft(' not in body and 'saveEditDraft(' not in body
+    assert 'finishNativeWrite(' not in body, '注销不能结束待核实请求'
+    assert 'RetrofitClient.sessionSnapshot().generation != expectedGeneration' in body
+    assert 'return@withLock false' in body, '旧401不得清理新账号的认证信息'
     assert "RetrofitClient.setToken(null)" in body, (
         "logout() 必须调用 RetrofitClient.setToken(null) 清空内存 token"
     )

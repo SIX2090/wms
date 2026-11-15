@@ -53,7 +53,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
 class EditDraftPersistenceTest {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
 
+
+    private val models = mutableListOf<ScanViewModel>()
     private lateinit var context: Context
     private lateinit var repository: WmsRepository
 
@@ -61,13 +64,13 @@ class EditDraftPersistenceTest {
     fun setUp() {
         // BUG-2026-10-001：委托 DataStore 是 JVM 级单例，跨沙箱复用会被毒化
         // （#762 探针实证第 4 方法挂死），每方法先复位再取新实例。
-        DataStoreTestReset.resetWmsSettingsDataStore()
         context = ApplicationProvider.getApplicationContext()
         repository = WmsRepository(context)
     }
 
     @After
     fun tearDown() {
+        closeWmsTestViewModels(models)
         // saveLoginInfo 会写 RetrofitClient 单例，复位防跨用例串扰
         com.factory.wms.data.api.RetrofitClient.setToken(null)
         com.factory.wms.data.api.RetrofitClient.setBaseUrl("")
@@ -235,7 +238,7 @@ class EditDraftPersistenceTest {
         repository.saveEditDraft(key, sampleDraft(requestId = null))
 
         // 新 ViewModel = 新进程：内存清单为空，只能从 DataStore 恢复
-        val viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
+        val viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models += it }
         viewModel.restoreEditDraft("outbound")
 
         val state = viewModel.uiState.value
@@ -262,7 +265,7 @@ class EditDraftPersistenceTest {
         // 提交中断场景：幂等键已落盘，进程被杀
         repository.saveEditDraft(key, sampleDraft(requestId = "req-interrupted"))
 
-        val viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
+        val viewModel = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models += it }
         viewModel.restoreEditDraft("inbound")
 
         val state = viewModel.uiState.value

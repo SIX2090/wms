@@ -20,6 +20,7 @@ import com.factory.wms.util.NetworkMonitor
 import com.factory.wms.data.model.*
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
@@ -133,6 +134,8 @@ class WmsRepository(
 
     companion object {
         private val authenticationMutex = Mutex()
+        private val nativeWriteMutex = Mutex()
+        internal val nativeWriteChanges = kotlinx.coroutines.flow.MutableStateFlow(0L)
         /**
          * 服务端已给出明确业务原因的错误（如「请选择进行中的盘点单」）。
          *
@@ -251,21 +254,31 @@ class WmsRepository(
     }
 
     // BUG-2026-09-03-003 断点续盘：盘点草稿持久化（DataStore JSON，进程被杀可恢复）
-    suspend fun saveStocktakeDraft(draft: StocktakeDraft) {
-        withDataStoreFallback(Unit) {
-            context.dataStore.edit { it[KEY_STOCKTAKE_DRAFT] = Gson().toJson(draft) }
+    internal fun stocktakeDraftKey(): String {
+        val owner = RetrofitClient.sessionSnapshot()
+        check(owner.ownerServer != null && owner.userId != null && !owner.token.isNullOrBlank()) { "请先使用原账号登录后恢复盘点" }
+        val scope = Gson().toJson(listOf(owner.ownerServer, owner.userId, "stocktake"))
+        return "stocktake_edit_" + java.security.MessageDigest.getInstance("SHA-256")
+            .digest(scope.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    suspend fun saveStocktakeDraft(draft: StocktakeDraft, key: String = stocktakeDraftKey()) {
+        requireDataStore {
+            context.dataStore.edit {
+                if (draft.lines.isEmpty()) it.remove(stringPreferencesKey(key))
+                else it[stringPreferencesKey(key)] = Gson().toJson(draft)
+            }
         }
     }
 
-    suspend fun loadStocktakeDraft(): StocktakeDraft? {
-        val json = withDataStoreFallback<String?>(null) {
-            context.dataStore.data.map { it[KEY_STOCKTAKE_DRAFT] }.first()
-        } ?: return null
-        return try {
-            Gson().fromJson(json, StocktakeDraft::class.java)
-        } catch (e: Exception) {
-            null
-        }
+    /** Historical rows contain no account/server identity. Preserve them for human recovery. */
+    suspend fun hasUnownedStocktakeDraft(): Boolean = requireDataStore {
+        context.dataStore.data.first()[KEY_STOCKTAKE_DRAFT] != null
+    }
+
+    suspend fun loadStocktakeDraft(key: String = stocktakeDraftKey()): StocktakeDraft? {
+        val json = requireDataStore { context.dataStore.data.first()[stringPreferencesKey(key)] } ?: return null
+        return Gson().fromJson(json, StocktakeDraft::class.java)
     }
 
     suspend fun editDraftKey(operation: String): String {
@@ -281,6 +294,24 @@ class WmsRepository(
             .digest(scope.toByteArray(Charsets.UTF_8))
             .joinToString("") { "%02x".format(it) }
         return "scan_edit_$digest"
+    }
+
+    internal suspend fun hasEditDraft(key: String): Boolean = requireDataStore {
+        context.dataStore.data.first()[stringPreferencesKey(key)] != null
+    }
+
+    /** Only a confirmed action by the same logged-in owner may discard an unreadable edit draft. */
+    internal suspend fun clearOwnedEditDraft(key: String, operation: String) = authenticationMutex.withLock {
+        val owner = RetrofitClient.sessionSnapshot()
+        check(!owner.token.isNullOrBlank() && owner.userId != null && editDraftKey(operation) == key) {
+            "账号或服务器已变化，请使用原账号核对，原草稿保持不变"
+        }
+        requireDataStore {
+            context.dataStore.edit {
+                check(owner.generation == RetrofitClient.sessionSnapshot().generation) { "账号已变化，原草稿保持不变" }
+                it.remove(stringPreferencesKey(key))
+            }
+        }
     }
 
     suspend fun saveEditDraft(key: String, draft: ScanEditDraft?) {
@@ -338,10 +369,8 @@ class WmsRepository(
         draft.copy(lines = safeLines)
     }.getOrNull()
 
-    suspend fun clearStocktakeDraft() {
-        withDataStoreFallback(Unit) {
-            context.dataStore.edit { it.remove(KEY_STOCKTAKE_DRAFT) }
-        }
+    suspend fun clearStocktakeDraft(key: String = stocktakeDraftKey()) {
+        requireDataStore { context.dataStore.edit { it.remove(stringPreferencesKey(key)) } }
     }
 
     /**
@@ -422,7 +451,7 @@ class WmsRepository(
         }
         // DataStore 清空失败同样不应阻断登出：内存态 token 一定会被清掉，
         // 最坏情况是下次冷启动仍读到旧 baseUrl（用户改一次即恢复）。
-        withDataStoreFallback(Unit) { context.dataStore.edit { it.clear() } }
+        withDataStoreFallback(Unit) { context.dataStore.edit { it.remove(KEY_BASE_URL); it.remove(KEY_USERNAME); it.remove(KEY_ROLE) } }
         RetrofitClient.setToken(null)
         true
     }
@@ -559,34 +588,51 @@ class WmsRepository(
     }
 
     suspend fun getMaterialInfo(code: String, warehouseCode: String? = null): Result<MaterialDto> {
+        val session = RetrofitClient.sessionSnapshot()
+        // Legacy cache rows have no ownership. Leave them untouched and never reuse them.
+        val cacheKey = if (session.ownerServer != null && session.userId != null && !session.token.isNullOrBlank()) {
+            val identity = Gson().toJson(listOf(session.ownerServer, session.userId, warehouseCode?.trim(), code))
+            "scoped:" + java.security.MessageDigest.getInstance("SHA-256")
+                .digest(identity.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        } else null
         return try {
             // 网络优先：查库存要求实时准确，先请求后端（已选仓库时按仓库级口径），成功后再回写本地缓存
-            val response = api.materialInfo(code, warehouseCode)
+            val response = RetrofitClient.apiServiceFor(session).materialInfo(code, warehouseCode)
             val result = handleResponse<MaterialDto>(response)
             result.fold(
                 onSuccess = { dto ->
                     // 成功后更新缓存（本地库不可用时跳过，不影响主流程）
-                    safeCache { materialDao?.insert(dto.toEntity()) }
+                    if (cacheKey != null && session.generation == RetrofitClient.sessionSnapshot().generation)
+                        safeCache { materialDao?.insert(dto.toEntity().copy(code = cacheKey)) }
                 },
                 onFailure = { }
             )
             result
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (e: IOException) {
             // 网络不可用时，回退到 Room 本地缓存
-            val cached = runCatching { materialDao?.getByCode(code) }.getOrNull()
+            val cached = try {
+                if (cacheKey != null && session.generation == RetrofitClient.sessionSnapshot().generation)
+                    materialDao?.getByCode(cacheKey) else null
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (_: Exception) { null }
             if (cached != null) {
                 // AI-MOB-OFFLINE-HINT-01：标记为缓存数据并带上写入时间。
                 // 不给标记的话，UI 无法区分"实时库存 5"与"三天前的 5"，
                 // 用户看到数字就出库 —— 这是业务风险，不是体验问题。
                 Result.success(
                     cached.toDto().copy(
+                        code = code,
                         fromCache = true,
                         cachedAtMillis = cached.lastSyncTime
                     )
                 )
             } else {
-                Result.failure(BusinessException(e.message ?: "网络错误"))
+                Result.failure(e)
             }
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -594,6 +640,7 @@ class WmsRepository(
     private suspend fun safeCache(block: suspend () -> Unit) {
         try {
             block()
+        } catch (cancelled: CancellationException) { throw cancelled
         } catch (e: Exception) {
             android.util.Log.w("WmsRepo", "本地缓存写入失败（已忽略）: ${e.message}")
         }
@@ -615,6 +662,143 @@ class WmsRepository(
                 )
             )
         }
+    }
+
+
+    private fun nativeWritePrefix(session: RetrofitClient.SessionSnapshot): String {
+        check(session.ownerServer != null && session.userId != null && !session.token.isNullOrBlank()) {
+            "无法核实原账号，请重新登录后重试；当前内容已保留"
+        }
+        val owner = Gson().toJson(listOf(session.ownerServer, session.userId))
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(owner.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+        return "native_write_${digest}_"
+    }
+
+    private fun nativeWriteKey(session: RetrofitClient.SessionSnapshot, operation: String): Preferences.Key<String> =
+        stringPreferencesKey(nativeWritePrefix(session) + operation)
+
+    suspend fun pendingNativeWrites(): List<PendingNativeWrite> {
+        val session = RetrofitClient.sessionSnapshot()
+        val prefix = nativeWritePrefix(session)
+        return requireDataStore { context.dataStore.data.first() }.asMap().filterKeys {
+            it.name.startsWith(prefix)
+        }.values.map { Gson().fromJson(it as String, PendingNativeWrite::class.java) }
+            .sortedBy { it.createdAt }
+    }
+
+    private suspend fun prepareNativeWrite(session: RetrofitClient.SessionSnapshot, operation: String,
+        payloadJson: String, preferredId: String?): PendingNativeWrite = nativeWriteMutex.withLock {
+        val key = nativeWriteKey(session, operation)
+        var intent: PendingNativeWrite? = null
+        requireDataStore {
+            context.dataStore.edit { preferences ->
+                check(session.generation == RetrofitClient.sessionSnapshot().generation) { "账号已变化，请保留内容并重新进入本页" }
+                val existing = preferences[key]?.let { Gson().fromJson(it, PendingNativeWrite::class.java) }
+                if (existing != null) {
+                    check(existing.operation == operation && existing.requestId.isNotBlank() && existing.payloadJson.isNotBlank()) {
+                        "原提交记录不完整，请保留内容并联系维护人员核对"
+                    }
+                    if (existing.payloadJson == payloadJson) intent = existing
+                    else check(false) {
+                        "上次提交结果待核实，原内容和请求号已保留；请在待核实提示中先核实原请求"
+                    }
+                }
+                if (intent == null) {
+                    intent = PendingNativeWrite(operation, preferredId ?: newRequestId(), payloadJson)
+                    preferences[key] = Gson().toJson(intent)
+                }
+            }
+        }
+        nativeWriteChanges.value++
+        checkNotNull(intent)
+    }
+
+    private suspend fun finishNativeWrite(session: RetrofitClient.SessionSnapshot, intent: PendingNativeWrite,
+        responseJson: String? = null) = nativeWriteMutex.withLock {
+        val key = nativeWriteKey(session, intent.operation)
+        requireDataStore {
+            context.dataStore.edit { preferences ->
+                val current = preferences[key]?.let { Gson().fromJson(it, PendingNativeWrite::class.java) }
+                if (current?.requestId == intent.requestId) {
+                    if (responseJson == null) preferences.remove(key)
+                    else preferences[key] = Gson().toJson(intent.copy(responseJson = responseJson))
+                }
+            }
+        }
+        nativeWriteChanges.value++
+    }
+
+    private suspend inline fun <reified T> nativeWrite(operation: String, payload: Any,
+        preferredId: String? = null,
+        crossinline call: suspend (RetrofitClient.SessionSnapshot, String, String) -> Result<T>): Result<T> {
+        val gate = com.factory.wms.update.businessUpdateGate
+        if (!gate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
+        try {
+            ensureSession()
+            val session = RetrofitClient.sessionSnapshot()
+            val intent = prepareNativeWrite(session, operation, Gson().toJson(payload), preferredId)
+            val result = call(session, intent.requestId, intent.payloadJson)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            check(session.generation == RetrofitClient.sessionSnapshot().generation) { "账号已变化，原请求已保留，请用原账号核实" }
+            if (result.isSuccess) finishNativeWrite(session, intent, Gson().toJson(result.getOrThrow()))
+            else if (result.exceptionOrNull() is OfflineQueuedException ||
+                (result.exceptionOrNull() as? BusinessException)?.safeToEdit == true) finishNativeWrite(session, intent)
+            return result
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Exception) { return Result.failure(error)
+        } finally { gate.leaveBusiness() }
+    }
+
+    suspend fun acknowledgeNativeWrite(operation: String, requestId: String? = null) {
+        val session = RetrofitClient.sessionSnapshot()
+        val intent = pendingNativeWrites().singleOrNull { it.operation == operation &&
+            (requestId == null || it.requestId == requestId) && it.responseJson != null } ?: return
+        try {
+            finishNativeWrite(session, intent)
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Exception) {
+            android.util.Log.w("WmsRepo", "回执已取得，结束标记未保存；原记录保留待核实", error)
+        }
+    }
+
+    /** Only an explicit user action can send a stored body; login and startup never replay it. */
+    suspend fun verifyPendingNativeWrite(requestId: String): Result<String> {
+        val gate = com.factory.wms.update.businessUpdateGate
+        if (!gate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后核实"))
+        try {
+            val session = RetrofitClient.sessionSnapshot()
+            val intent = pendingNativeWrites().singleOrNull { it.requestId == requestId }
+                ?: return Result.failure(BusinessException("原请求不属于当前账号，或已核实，请刷新"))
+            val boundApi = RetrofitClient.apiServiceFor(session)
+            val gson = Gson()
+            val result: Result<Any> = when {
+                intent.operation == "stocktake" -> safeCall { boundApi.submitStocktake(intent.requestId, gson.fromJson(intent.payloadJson, StocktakeRequest::class.java)) }
+                intent.operation == "opening_stock" -> safeCall { boundApi.submitOpeningStock(intent.requestId, gson.fromJson(intent.payloadJson, OpeningStockRequest::class.java)) }
+                intent.operation.startsWith("opening_stock_edit:") -> safeCall { boundApi.updateOpeningStock(intent.requestId, intent.operation.substringAfter(':').toInt(), gson.fromJson(intent.payloadJson, OpeningStockUpdateRequest::class.java)) }
+                intent.operation == "inbound_draft" -> safeCall { boundApi.createInboundDraft(intent.requestId, gson.fromJson(intent.payloadJson, InboundDraftRequest::class.java)) }
+                intent.operation.startsWith("voice_out_draft:") -> safeCall { boundApi.voiceOutDraft(intent.requestId, gson.fromJson(intent.payloadJson, VoiceOutDraftRequest::class.java)) }
+                intent.operation == "voice_intent" -> safeCall { boundApi.voiceIntent(intent.requestId, gson.fromJson(intent.payloadJson, VoiceIntentRequest::class.java)) }
+                intent.operation.startsWith("assistant_chat") -> safeCall { boundApi.assistantChat(intent.requestId, gson.fromJson(intent.payloadJson, AssistantChatRequest::class.java)) }
+                else -> Result.failure(BusinessException("未知原请求类型，记录已保留，请联系维护人员核对"))
+            }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            check(session.generation == RetrofitClient.sessionSnapshot().generation) { "账号已变化，原请求已保留，请用原账号核实" }
+            if (result.isSuccess) {
+                val json = gson.toJson(result.getOrThrow())
+                finishNativeWrite(session, intent, json)
+                val data = gson.fromJson(json, com.google.gson.JsonObject::class.java)
+                val number = listOf("order_no", "check_no").firstNotNullOfOrNull { field ->
+                    data[field]?.takeUnless { it.isJsonNull }?.asString
+                }
+                return Result.success("原请求已核实${number?.let { "：$it" }.orEmpty()}；返回原页再次点提交将读取原回执，不会重建")
+            }
+            val failure = result.exceptionOrNull()!!
+            if ((failure as? BusinessException)?.safeToEdit == true) finishNativeWrite(session, intent)
+            return Result.failure(failure)
+        } catch (cancelled: CancellationException) { throw cancelled
+        } catch (error: Exception) { return Result.failure(error)
+        } finally { gate.leaveBusiness() }
     }
 
     suspend fun submitInbound(request: InboundRequest, requestId: String = newRequestId()): Result<SubmitResult> {
@@ -642,15 +826,14 @@ class WmsRepository(
         }
     }
 
-    suspend fun submitStocktake(request: StocktakeRequest): Result<SubmitResult> {
-        return submitWithOfflineFallback(
-            operationType = PendingOperationEntity.TYPE_STOCKTAKE,
-            payload = request,
-            warehouseCode = request.warehouseCode ?: request.warehouse,
-            lineCount = request.lines.size,
-            label = "盘点"
-        ) { api, requestId -> api.submitStocktake(requestId, request) }
-    }
+    suspend fun submitStocktake(request: StocktakeRequest, requestId: String? = null): Result<SubmitResult> =
+        nativeWrite("stocktake", request, requestId) { session, id, json ->
+            val frozen = Gson().fromJson(json, StocktakeRequest::class.java)
+            submitWithOfflineFallback(PendingOperationEntity.TYPE_STOCKTAKE, frozen,
+                frozen.warehouseCode ?: frozen.warehouse, frozen.lines.size, "盘点", id, session) { api, key ->
+                api.submitStocktake(key, frozen)
+            }
+        }
 
     /**
      * AI-MOB-OFFLINE-01：提交统一入口——**网络类失败自动落离线队列**。
@@ -682,13 +865,14 @@ class WmsRepository(
         lineCount: Int,
         label: String,
         requestId: String = newRequestId(),
+        boundSession: RetrofitClient.SessionSnapshot? = null,
         call: suspend (WmsApiService, String) -> Response<ApiEnvelope<SubmitResult>>
     ): Result<SubmitResult> {
         // 原始请求、出库预检及失败暂存共用同一身份快照，不能在挂起后借用新账号。
         val updateGate = com.factory.wms.update.businessUpdateGate
         if (!updateGate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
         try {
-        val session = RetrofitClient.sessionSnapshot()
+        val session = boundSession ?: RetrofitClient.sessionSnapshot()
         return try {
             val submitApi = RetrofitClient.apiServiceFor(session)
             val response = call(submitApi, requestId)
@@ -1132,14 +1316,16 @@ class WmsRepository(
         lineId: Int,
         request: OpeningStockUpdateRequest
     ): Result<OpeningStockUpdateResult> {
-        return safeCall {
-            api.updateOpeningStock(newRequestId(), lineId, request)
+        return nativeWrite("opening_stock_edit:$lineId", request) { session, id, json ->
+            safeCall { RetrofitClient.apiServiceFor(session).updateOpeningStock(id, lineId,
+                Gson().fromJson(json, OpeningStockUpdateRequest::class.java)) }
         }
     }
 
     suspend fun submitOpeningStock(request: OpeningStockRequest): Result<String> {
-        return try {
-            val response = api.submitOpeningStock(newRequestId(), request)
+        return nativeWrite("opening_stock", request) { session, id, json ->
+        try {
+            val response = RetrofitClient.apiServiceFor(session).submitOpeningStock(id, Gson().fromJson(json, OpeningStockRequest::class.java))
             val result = handleResponse<SubmitResult>(response)
             result.fold(
                 onSuccess = {
@@ -1157,16 +1343,19 @@ class WmsRepository(
                     Result.failure(e)
                 }
             )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (e: BusinessException) {
             Result.failure(e)
         } catch (e: Exception) {
             Result.failure(Exception("网络错误: ${e.message}"))
         }
+        }
     }
 
     suspend fun createInboundDraft(request: InboundDraftRequest): Result<InboundDraftResult> {
-        return safeCall {
-            api.createInboundDraft(newRequestId(), request)
+        return nativeWrite("inbound_draft", request) { session, id, json ->
+            safeCall { RetrofitClient.apiServiceFor(session).createInboundDraft(id, Gson().fromJson(json, InboundDraftRequest::class.java)) }
         }
     }
 
@@ -1177,8 +1366,8 @@ class WmsRepository(
      * 走 safeCall 统一错误映射 + 幂等键，避免网络重试重复建单。
      */
     suspend fun createVoiceOutDraft(request: VoiceOutDraftRequest): Result<VoiceOutDraftResult> {
-        return safeCall {
-            api.voiceOutDraft(newRequestId(), request)
+        return nativeWrite("voice_out_draft:${request.dryRun}", request) { session, id, json ->
+            safeCall { RetrofitClient.apiServiceFor(session).voiceOutDraft(id, Gson().fromJson(json, VoiceOutDraftRequest::class.java)) }
         }
     }
 
@@ -1187,8 +1376,8 @@ class WmsRepository(
      * fallback（本地 contains）处理，不在此重试。
      */
     suspend fun understandVoiceIntent(text: String): Result<VoiceIntentResult> {
-        return safeCall {
-            api.voiceIntent(newRequestId(), VoiceIntentRequest(text))
+        return nativeWrite("voice_intent", VoiceIntentRequest(text)) { session, id, json ->
+            safeCall { RetrofitClient.apiServiceFor(session).voiceIntent(id, Gson().fromJson(json, VoiceIntentRequest::class.java)) }
         }
     }
 
@@ -1197,23 +1386,18 @@ class WmsRepository(
         text: String,
         image: String? = null,
         file: Pair<String, String>? = null,
-        conversationId: Long? = null
+        conversationId: Long? = null,
+        intentScope: String = "default"
     ): Result<AssistantChatResult> {
         // AUDIT-2026-10-07-P3：冷启动竞态兜底（同 getDashboard 口径）。
         // App 启动直接进 AI 聊天页发消息时，若 session 还没还原（baseUrl 空），
         // apiService getter 会抛「服务器地址未配置」——先 ensureSession 再发。
         ensureSession()
-        return safeCall {
-            api.assistantChat(
-                newRequestId(),
-                AssistantChatRequest(
-                    text = text,
-                    image = image,
-                    file = file?.first,
-                    fileName = file?.second,
-                    conversationId = conversationId
-                )
-            )
+        val payload = AssistantChatRequest(text = text, image = image, file = file?.first,
+            fileName = file?.second, conversationId = conversationId)
+        return nativeWrite("assistant_chat:$intentScope", payload) { session, id, json ->
+            safeCall { RetrofitClient.apiServiceFor(session).assistantChat(id,
+                Gson().fromJson(json, AssistantChatRequest::class.java)) }
         }
     }
 
@@ -1275,6 +1459,8 @@ class WmsRepository(
     ): Result<T> {
         return try {
             handleResponse(block())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: BusinessException) {
             Result.failure(e)
         } catch (e: Exception) {

@@ -639,6 +639,16 @@
 | BUG-2026-10-31-025 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-026 | bugs | entries-2026-10.md |
 | BUG-2026-10-31-027 | bugs | entries-2026-10.md |
+| BUG-2026-11-15-009 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-010 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-011 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-012 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-013 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-014 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-016 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-017 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-018 | bugs | entries-2026-11.md |
+| BUG-2026-11-15-020 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-015 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-019 | bugs | entries-2026-11.md |
 | BUG-2026-11-15-008 | bugs | entries-2026-11.md |

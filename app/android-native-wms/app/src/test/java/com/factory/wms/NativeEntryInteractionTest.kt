@@ -30,6 +30,8 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [31], application = Application::class, qualifiers = "w320dp-h800dp-mdpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class NativeEntryInteractionTest {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
+
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ActivityController<ComponentActivity>
     private lateinit var vm: ScanViewModel
@@ -38,7 +40,7 @@ class NativeEntryInteractionTest {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
     @After fun after() {
-        if (::vm.isInitialized) vm.viewModelScope.cancel()
+        if (::vm.isInitialized) closeWmsTestViewModels(listOf(vm))
         val content = activity.get().findViewById<android.view.ViewGroup>(android.R.id.content)
         for (index in 0 until content.childCount) {
             (content.getChildAt(index) as? androidx.compose.ui.platform.ComposeView)?.disposeComposition()
@@ -47,7 +49,6 @@ class NativeEntryInteractionTest {
     }
 
     @Test fun manualQuantityErrorStaysVisibleAndDonePreservesInvalidInput() {
-        DataStoreTestReset.resetWmsSettingsDataStore()
         vm = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
         var quantity by mutableStateOf("-1")
         var adds = 0

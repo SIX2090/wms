@@ -38,19 +38,22 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31])
 class DataStoreTimeoutTest {
+    @get:org.junit.Rule(order = Int.MIN_VALUE) val wmsSettings = WmsSettingsDataStoreRule()
 
+
+    private val models = mutableListOf<ScanViewModel>()
     private lateinit var context: Context
     private lateinit var repository: WmsRepository
 
     @Before
     fun setUp() {
-        DataStoreTestReset.resetWmsSettingsDataStore()
         context = ApplicationProvider.getApplicationContext()
         repository = WmsRepository(context, dataStoreTimeoutMs = 0L)
     }
 
     @After
     fun tearDown() {
+        closeWmsTestViewModels(models)
         RetrofitClient.setToken(null)
         RetrofitClient.setBaseUrl("")
     }
@@ -115,7 +118,7 @@ class DataStoreTimeoutTest {
         val viewModel = ScanViewModel(
             ApplicationProvider.getApplicationContext<Application>(),
             dataStoreTimeoutMs = 0L
-        )
+        ).also { models += it }
         forceDraftSubmissionState(viewModel)
 
         assertNull(viewModel.prepareDraftSubmission())
@@ -131,7 +134,7 @@ class DataStoreTimeoutTest {
         val viewModel = ScanViewModel(
             ApplicationProvider.getApplicationContext<Application>(),
             dataStoreTimeoutMs = 0L
-        )
+        ).also { models += it }
         forceDraftSubmissionState(viewModel)
 
         assertFalse(viewModel.persistEditDraft())

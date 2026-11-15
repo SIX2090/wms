@@ -11,6 +11,7 @@
 - ViewModel departments/employees/selectedDepartment/selectedEmployee 四个状态
   与 loadDepartments/loadEmployees/selectDepartment/selectEmployee，
   submitOutbound 从 state 取 departmentId/picker（不再由 UI 传文本）
+- 2026-11-15 A02：员工请求捕获部门和账号上下文，旧成功/失败不得覆盖当前选择
 - UI 两张 PartySelectorCard + 两个 PartyPickerDialog + 确认弹窗回显
 - 版本递增 versionCode ≥ 12 / versionName ≥ 3.7.1（AI-MOB 发版递增；
   3.7.2 为首页概览下钻，本文件不锁具体版本号）
@@ -25,6 +26,16 @@ GRADLE = ROOT / "app" / "android-native-wms" / "app" / "build.gradle.kts"
 
 def _p(rel: str) -> str:
     return (BASE / rel).read_text(encoding="utf-8")
+
+
+def _function_body(source: str, name: str) -> str:
+    start = source.index('{', source.index(f'fun {name}('))
+    depth = 0
+    for end in range(start, len(source)):
+        depth += (source[end] == '{') - (source[end] == '}')
+        if depth == 0:
+            return source[start:end + 1]
+    raise AssertionError(f'函数体不完整：{name}')
 
 
 def _version_code(gradle: str) -> int:
@@ -81,8 +92,21 @@ def test_viewmodel_state_and_actions():
     assert "fun loadEmployees()" in src
     assert "fun selectDepartment(department: DepartmentDto?)" in src
     assert "fun selectEmployee(employee: EmployeeDto?)" in src
-    # 选部门后联动刷新员工列表（含清除选择的情况）
-    assert "repository.getEmployees(_uiState.value.selectedDepartment?.id)" in src
+    # 选部门后联动刷新员工列表（含清除选择），请求与响应均绑定发起时的部门。
+    load = _function_body(src, 'loadEmployees')
+    assert 'val department = _uiState.value.selectedDepartment?.id' in load
+    assert 'repository.getEmployees(department)' in load
+    assert load.index('val department =') < load.index('viewModelScope.launch')
+    assert 'val version = ++employeeRequestVersion' in load
+    assert 'val owner = RetrofitClient.sessionSnapshot()' in load
+    assert 'currentCoroutineContext().ensureActive()' in load
+    for guard in ('version != employeeRequestVersion',
+                  'department != _uiState.value.selectedDepartment?.id',
+                  'owner.generation != RetrofitClient.sessionSnapshot().generation'):
+        assert guard in load, f'员工联动必须拒绝旧上下文：{guard}'
+        assert load.index(guard) < load.index('.fold('), '成功与失败消费前必须先校验上下文'
+    select = _function_body(src, 'selectDepartment')
+    assert select.index('selectedDepartment = department') < select.index('loadEmployees()')
     # 提交从 state 取值，不再依赖 UI 传入的 receiver/department 文本
     assert "fun submitOutbound() {" in src
     assert "department = state.selectedDepartment?.name" in src
