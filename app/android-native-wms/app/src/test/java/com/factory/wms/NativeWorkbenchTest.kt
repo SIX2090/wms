@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Warehouse
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -24,6 +26,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.*
 import com.factory.wms.ui.navigation.Screen
+import com.factory.wms.ui.components.PartySelectorCard
+import com.factory.wms.ui.components.PartyPickerDialog
+import com.factory.wms.ui.components.PartyPickerItem
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
@@ -108,6 +113,20 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         return layouts.single()
     }
 
+    private fun completeIdentityText(text: String) {
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(text, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val result = layouts.single()
+        // A naturally sized Text can report didOverflowWidth through paragraph
+        // rounding. Identity completeness is the actual visible character range.
+        repeat(result.lineCount) {
+            assertFalse("Identity ellipsized: $text, scale=$fontScale", result.isLineEllipsized(it))
+        }
+        assertEquals("Identity truncated: $text", text.length, result.getLineEnd(result.lineCount - 1, visibleEnd = true))
+        assertFalse("Identity height clipped: $text", result.didOverflowHeight)
+    }
+
     @Test fun homeGroupsRetainAllFourteenDestinationsAndWarehouse() {
         val auth = AuthViewModel(app).also { models += it }
         val vm = HomeViewModel(app, { Result.success(listOf(warehouse)) }, {
@@ -139,6 +158,30 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.onNodeWithText("待处理").performScrollTo().performClick()
         compose.onNodeWithText("库存告警").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
+    }
+
+    @Test fun selectedWarehouseAndPartyNamesRemainCompleteAndClickable() {
+        val value = "WH-A 合成一号仓（生产备料区域）"
+        var clicks = 0
+        content { PartySelectorCard("收货仓库", "请选择仓库", value, Icons.Outlined.Warehouse, CardBlue) { clicks++ } }
+        completeIdentityText("收货仓库")
+        completeIdentityText(value)
+        compose.onNodeWithText(value).assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(1, clicks) }
+    }
+
+    @Test fun partyPickerKeepsFullIdentityAndSelectionClearCallbacks() {
+        val entry = PartyPickerItem(7, "合成装备生产一部", "员工编号 E-0001 · 合成班组（装配备料组）")
+        val entries = listOf(entry)
+        val selected = mutableListOf<PartyPickerItem?>()
+        content { PartyPickerDialog("选择领料人", entries, 7, false, Icons.Outlined.Warehouse,
+            CardBlue, onDismiss = {}, onSelect = { selected += it }, onRetry = {}) }
+        compose.onNodeWithText(entry.title).performScrollTo().assertIsDisplayed()
+        completeIdentityText(entry.title)
+        completeIdentityText(entry.subtitle)
+        compose.onNodeWithText(entry.title).performClick()
+        compose.onNodeWithText("不选择（留空）").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf(entry, null), selected) }
     }
 
     @Test fun scanShowsDistinctMaterialIdentityAndReadableEditableQuantity() {

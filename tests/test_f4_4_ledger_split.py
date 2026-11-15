@@ -586,3 +586,5 @@ POST_SPLIT_BUGS['BUG-2026-11-15-001'] = 'fixed'  # archive classification only; 
 POST_SPLIT_BUGS['BUG-2026-11-15-002'] = 'fixed'  # archive classification only; exact CI and activation are separate
 
 POST_SPLIT_BUGS['BUG-2026-11-15-003'] = 'fixed'  # archive classification only; exact CI and activation are separate
+
+POST_SPLIT_BUGS['BUG-2026-11-15-004'] = 'fixed'  # archive classification only; exact CI and activation are separate

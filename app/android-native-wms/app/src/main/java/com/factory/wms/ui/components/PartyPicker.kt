@@ -18,7 +18,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.factory.wms.ui.theme.CardBackground
 import com.factory.wms.ui.theme.OnSurface
@@ -63,14 +62,13 @@ fun PartySelectorCard(
             }
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(label, style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
+                Text(label, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
                 Text(
                     valueText ?: placeholder,
+                    modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (valueText != null) OnSurface else OnSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = if (valueText != null) OnSurface else OnSurfaceVariant
                 )
             }
             Icon(Icons.Filled.KeyboardArrowDown, null, tint = OnSurfaceVariant, modifier = Modifier.size(20.dp))
@@ -192,18 +190,16 @@ fun PartyPickerDialog(
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         item.title,
+                                        modifier = Modifier.fillMaxWidth(),
                                         style = MaterialTheme.typography.titleSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                     if (item.subtitle.isNotBlank()) {
                                         Text(
                                             item.subtitle,
+                                            modifier = Modifier.fillMaxWidth(),
                                             style = MaterialTheme.typography.bodySmall,
-                                            color = OnSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            color = OnSurfaceVariant
                                         )
                                     }
                                 }

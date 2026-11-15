@@ -1,6 +1,6 @@
 # 原生 Android 视觉改版（2026-11-15）
 
-任务：AI-APP-UI-001-F02-VISUAL-20261115-001，延续 AI-APP-UI-001；关联 BUG-2026-11-15-002/003；设计目标 95 分以上。评分为审美评估，不是自动化测试分数；真实手机、TalkBack 与使用者验收独立登记，不用自评分替代。
+任务：AI-APP-UI-001-F02-VISUAL-20261115-001，延续 AI-APP-UI-001；关联 BUG-2026-11-15-002/003/004；设计目标 95 分以上。评分为审美评估，不是自动化测试分数；真实手机、TalkBack 与使用者验收独立登记，不用自评分替代。
 
 ## 授权、范围与基线
 
@@ -47,7 +47,20 @@
 - 原生候选本地 lintRelease 成功：0 Error、23 Warning、3 Information；末版颜色/提示变更的精确 Lint 与真实 APK 构建由目标 Android CI 再验，不把 JVM 编译冒充 APK 出包。
 - 暂存绑定使用独立 GIT_INDEX_FILE 检查本任务文件，预提交规则 0 违规，不占用共享索引。规则文件登记使用独立本地提交，相关代码统一推送。最终范围和字节清单在隔离证据中记录。
 - 共享 main 期间 H5 批次由所属任务自行完整回退/纠正；本任务四个共用文件的最小增量曾保存并释放，再基于 **5b8bed39b038fcd05702d49a904eb9efc873bb12** 合并恢复。保留 H5 的 .64、BUG-001 和所有已提交内容；本任务为 **WMS 2026.11.65 / Android 45、3.9.21**。
-- 精确提交、实际推送与目标 WMS CI / WMS AI Verification / Android APK Build 在完成后登记。
+- 首批代码 `843ea7ec0f648da21fd7c2997e09a160f5bec33c` 已实际普通 push：`5b8bed39..843ea7ec main -> main`，远端到达性已核实。[WMS CI 43673605448](https://github.com/SIX2090/wms/actions/runs/43673605448)、[WMS AI Verification 43673605422](https://github.com/SIX2090/wms/actions/runs/43673605422)、[Android APK Build 43673605478](https://github.com/SIX2090/wms/actions/runs/43673605478) 精确匹配，均 completed/success；Android 的 build/lint/unit-test 三 job 全部成功。
+- 真实 APK [候选构建 889](https://github.com/SIX2090/wms/releases/tag/android-apk-889-attempt-1) 的发布元数据、制品及构建输入均绑定上述 SHA，包名 `com.factory.wms.mobile`，45 / 3.9.21，25,545,007 字节，SHA-256 `de4fb713d21dccea6ba32e5a4d095e2bbed4877177c2d540cf6913f6250842d5`。构建证据不等于安装或手机验收。
+- 追加私有完整页面验收：320dp × 800dp、四档字体、亮暗主题的首页/入库与实际五项底部导航共 16 tests 全通过，五目标至少 48dp，文字完整且在导航区域内；入库数量滚动后完整可见，提交/扫码/手工操作可达。仅在隔离副本将导航三个 private 改 internal 以引用原始组件，没有布局适配；验完恢复字节与仓库相同。首次只滚内层的失败和盲目手势滚过头的失败日志保留；最终正确对齐内外两个滚动视口，不改产品来适配夹具。
+- 完整截图额外确认 BUG-004：已选仓库在大字体下省略，同根人员/部门主副标题也限制一行。第二批只修共用选择身份完整性，并递增为 Android 46 / 3.9.22、WMS 2026.11.66；原选择与清除逻辑不变。该批全量/R8/目标 SHA 与 CI 单独登记，不以首批旧绿代替。
+- 第二批修前基线沿用首批精确绿色快照（H5 文档父提交 fba5b44d 未改变 Android 输入）。新增 16 个选择器真实 Compose 用例初轮通过；首次逆向虽为断言失败，但进一步复核发现未填满宽度的 Text 存在段落取整导致 `didOverflowWidth` 误报，故不计作有效反证。改用实际逐行省略状态、可见字符末位和高度判定，并增加真实长副标题；旧源反证及恢复全量重新执行，不能只把 AssertionError 等同真实缺陷。源码消费点扩至 42 个模块，267 项通过；原月度历史分布和台账 CLI 等 10 项检查及严格 AI 台账保持通过。
+- 纠正判定后的第二批旧源反证完成：**16 tests / 16 failures / 0 errors / 0 skipped**，全部明确报 `Identity ellipsized`，对应长仓名或人员副标题；段落取整的初轮结果不计入有效数量。恢复该批产品文件并校验 151 个 Kotlin 源码与构建脚本与仓库逐字节一致后，复验所有原生用例并追加上述完整页面验收。
+- 恢复后第二批完整结果：仓库原生 **410 tests** 加私有真实底部导航验收 **16 tests**，共 426 / 0 failures / 0 errors / 0 skipped。私有导航只放开三个可见性以引用原组件，结束后移除私有测试并将导航恢复，151 个文件再次哈希核对相同；精确仓库编译/Lint/APK 仍由推送目标 CI 验收。
+- 用户视觉复评：明确指出第一版不如旧版美观，随后确认“还是在现版的基础上再精修”。因此保留现版基础并继续调整密度、比例与层级，不按自评分宣称达标；补充改前/现版/精修版实际渲染对照，覆盖范围与缺失状态明示。此项是体验调整，不冒充新业务缺陷。
+
+## 主要文件与交付检查
+
+- 产品：`ui/screens/HomeScreen.kt`、`ScanScreenBase.kt`、`OpeningStockScreen.kt`、`ReportScreens.kt`、`InOutDetailReportScreen.kt`、`StockDailyReportScreen.kt`、`LoginScreen.kt`、`AssistantChatScreen.kt`；`ui/components/WmsComponents.kt`、`WmsRecordContent.kt`、`WmsExpandableSection.kt`、`PartyPicker.kt`；`ui/theme/Color.kt`、`Dimens.kt`、`Theme.kt`；`ui/navigation/NavGraph.kt` 仅底部色调高度；Android 构建版本及 `app/version.py`。
+- 回归：`NativeWorkbenchTest.kt`、`NativeReadabilityLayoutTest.kt`、`ComposeActivityCleanup.kt` 与使用相同手工活动生命周期的九个测试容器；历史首页三列、蓝底白字、物料行、扫码修改、仓库筛选及版本契约按当前设计调整，业务断言保留。全部精确文件可通过本任务提交逐个查看；不包含 H5 任务的独立提交与专项记录。
+- 首批代码与两次逆向证据、第二批选择器证据分别存于 `C:/wms_test_tmp/visual-redesign-20261115/`；此目录不放账号、业务数据或数据库副本。渲染截图全部使用合成数据，不能称作手机实拍。
 
 ## 生效边界
 
