@@ -2,7 +2,8 @@
 
 Candidates are immutable APK releases. Only the privileged, main-only promotion
 workflow creates android-mobile-stable-v<code>-<sha> releases after all required runs pass.
-There is no mutable latest pointer and no write to the repository's main branch.
+This module does not maintain discovery or write the repository's main branch.
+Public discovery is published separately by android_update_channel.py.
 """
 from __future__ import annotations
 
@@ -45,7 +46,7 @@ def _api(path, *, method="GET", data=None):
         raw = response.read(4 * 1024 * 1024 + 1)
         if len(raw) > 4 * 1024 * 1024:
             raise ValueError("API response too large")
-        return json.loads(raw)
+        return json.loads(raw) if raw else None
 
 
 def _candidate_tag(run_number, attempt):

@@ -21,6 +21,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.net.SocketTimeoutException
 import java.security.MessageDigest
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -71,12 +72,17 @@ class AppUpdateManagerTest {
         var verified = 0
         var badSignature = false
         var failChecks = false
+        var timeoutChecks = false
         var currentRelease = release
         val client = UpdateDownloadClient(UpdateDownloadClient.client().newBuilder().addInterceptor { chain ->
             val request = chain.request()
+            if (request.url.toString() == "https://github.com/SIX2090/wms/releases/download/android-mobile-stable-channel/update.json") return@addInterceptor Response.Builder()
+                .request(request).protocol(Protocol.HTTP_1_1).code(404).message("synthetic missing channel")
+                .body(byteArrayOf().toResponseBody()).build()
             val content = when {
                 request.url.encodedPath.contains("matching-refs") -> {
                     checks++
+                    if (timeoutChecks) throw SocketTimeoutException("Read timed out")
                     Gson().toJson(listOf(mapOf("ref" to "refs/tags/${currentRelease.tag}"))).toByteArray()
                 }
                 request.url.host == "api.github.com" -> Gson().toJson(mapOf("draft" to false,
@@ -128,6 +134,18 @@ class AppUpdateManagerTest {
         h.failChecks = false
         manager.check(); runCurrent()
         assertEquals(2, h.checks); assertTrue(manager.state.value.ready)
+    }
+
+    @Test fun readTimeoutIsExplainedInChineseAndManualRetryCanRecover() = runTest {
+        val h = Harness(this); h.timeoutChecks = true
+        val manager = h.manager(); manager.recover(); manager.foreground(activity); runCurrent()
+        assertTrue(manager.state.value.message.contains("连接更新服务超时"))
+        assertFalse(manager.state.value.message.contains("Read timed out"))
+        assertFalse(manager.state.value.busy); assertFalse(manager.state.value.ready)
+        assertEquals(0, h.installer.created)
+        h.timeoutChecks = false
+        manager.check(); runCurrent()
+        assertTrue(manager.state.value.ready)
     }
 
     @Test fun grantedPermissionOnReturnInstallsOnceAndBlocksNewBusiness() = runTest {

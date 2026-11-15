@@ -25,6 +25,7 @@ on:
       - '.github/workflows/android-build.yml'
       - '.github/workflows/android-update-promote.yml'
       - 'scripts/android_update_release.py'
+      - 'scripts/android_update_channel.py'
       - 'scripts/prepare_android_signing.py'
   workflow_dispatch:
   # CI-GREEN-GATE-2026-09-18：每日定时跑一次，落实 AGENTS.md §三「CI 全绿门禁」

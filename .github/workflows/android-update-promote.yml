@@ -39,3 +39,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TARGET_SHA: ${{ github.event.workflow_run.head_sha }}
         run: python scripts/android_update_release.py promote --sha "$TARGET_SHA"
+
+  publish-channel:
+    needs: promote
+    runs-on: ubuntu-24.04
+    # Only discovery writes serialize. Required CI and immutable SHA promotions
+    # remain independent; superseded pending discovery jobs may be coalesced.
+    concurrency:
+      group: android-stable-public-channel
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Publish public discovery and immutable metadata for highest verified stable version
+        if: hashFiles('scripts/android_update_channel.py') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/android_update_channel.py
