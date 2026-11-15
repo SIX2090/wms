@@ -20,7 +20,7 @@ body.mobile-app-page { --h5-blue:#205bcc; --h5-text:#18283f; --h5-muted:#53647b;
 .h5-home-welcome p,.h5-profile-account p { color:var(--h5-muted); margin:0; font-size:13px; }
 .h5-pending-link { display:flex; align-items:center; justify-content:center; gap:5px; min-height:44px; color:#2052a3; background:#e7edfc; padding:8px 12px; border-radius:12px; text-decoration:none; white-space:nowrap; }
 .h5-section-title { margin:18px 0 10px; font-size:15px; font-weight:700; }
-.h5-function-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.h5-function-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
 .h5-function-card { min-width:0; padding:14px 7px 12px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:7px; border:1px solid #e2e7f0; border-radius:14px; background:#fff; text-decoration:none; color:var(--h5-text); text-align:center; }
 .h5-function-card strong { font-size:14px; line-height:1.4; overflow-wrap:anywhere; }
 .h5-function-card small { font-size:11px; line-height:1.5; color:var(--h5-muted); overflow-wrap:anywhere; }
@@ -49,11 +49,3 @@ body.mobile-app-page { --h5-blue:#205bcc; --h5-text:#18283f; --h5-muted:#53647b;
 .mobile-app-page a:focus-visible,.mobile-app-page button:focus-visible { outline:3px solid #0b65d8; outline-offset:3px; }
 @media (max-width:360px) { .h5-function-grid { gap:7px; }.h5-function-card { padding:12px 5px; }.h5-app-brand { font-size:14px; }.h5-app-header { gap:8px; } }
 @media print { .mobile-app-page { padding-bottom:0; }.h5-app-nav,.h5-app-header { display:none; } }
-
-/* Match the native workbench grouping without hiding existing H5 entrances. */
-.h5-primary-tasks .h5-function-card { align-items:flex-start; text-align:left; padding:14px; }
-.h5-primary-tasks .h5-function-card strong { font-size:19px; }
-.h5-stock-entry { margin:10px 0; }
-.h5-stock-entry .h5-function-card { display:grid; grid-template-columns:40px minmax(0,1fr); align-items:center; text-align:left; padding:12px 14px; }
-.h5-stock-entry .h5-card-icon { grid-row:span 2; }
-@media (max-width:300px) { .h5-function-grid { grid-template-columns:minmax(0,1fr); } }

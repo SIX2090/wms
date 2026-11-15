@@ -171,7 +171,7 @@ jobs:
         with:
           tag_name: "android-apk-${{ github.run_number }}-attempt-${{ github.run_attempt }}"
           target_commitish: ${{ github.sha }}
-          name: "WMS（候选构建 #${{ github.run_number }}）"
+          name: "WMS 手机端（候选构建 #${{ github.run_number }}）"
           # Candidate metadata is not stable until all three workflows pass.
           body_path: android-update-candidate.json
           files: wms-mobile-scan.apk

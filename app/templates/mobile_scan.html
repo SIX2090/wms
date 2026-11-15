@@ -17,7 +17,7 @@
         </a>
         <a class="mobile-scan-tab {% if mode == 'query' %}active{% endif %}" href="{{ url_for('mobile_scan', mode='query') }}">
             <i class="bi bi-search"></i>
-            <span>查库存</span>
+            <span>查询</span>
         </a>
         <a class="mobile-scan-tab {% if mode == 'check' %}active{% endif %}" href="{{ url_for('mobile_scan', mode='check') }}">
             <i class="bi bi-clipboard-check"></i>
@@ -570,7 +570,7 @@
             });
             } catch (error) {
                 stopBarcodeScanner();
-                setStatus('无法打开摄像头，请手动输入编码或使用WMS App', 'error');
+                setStatus('无法打开摄像头，请手动输入编码或使用WMS扫码APP', 'error');
                 return;
             }
 
@@ -589,7 +589,7 @@
                     } else if (error.message) {
                         errorMsg = error.message;
                     }
-                    setStatus(errorMsg + '，请手动输入编码或使用WMS App', 'error');
+                    setStatus(errorMsg + '，请手动输入编码或使用WMS扫码APP', 'error');
                     scanCode.focus();
                 });
             }

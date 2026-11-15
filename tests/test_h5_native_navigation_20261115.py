@@ -62,7 +62,7 @@ def test_h5_scan_preserves_controls_and_business_boundaries(http_case, mode, tit
     response = http_case[0]().get('/mobile/scan?mode=' + mode)
     assert response.status_code == 200
     text = response.get_data(as_text=True)
-    assert '<title>WMS · ' + title + '</title>' in text
+    assert '<title>' + title + '</title>' in text
     assert '手机端主导航' in text
     assert '浏览器不做摄像头扫码' not in text
     assert '手机摄像头扫码请安装APP' not in text
