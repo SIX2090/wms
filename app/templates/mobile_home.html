@@ -1,27 +1,36 @@
 {% extends 'base.html' %}
-{% block title %}手机端首页{% endblock %}
+{% block title %}首页{% endblock %}
 {% block mobile_title %}首页{% endblock %}
 {% block content %}
+{% macro card(title, description, icon, href, color, extra='') -%}
+<a class="h5-function-card {{ extra }}" href="{{ href }}"><span class="h5-card-icon {{ color }}"><i class="bi {{ icon }}" aria-hidden="true"></i></span><strong>{{ title }}</strong><small>{{ description }}</small></a>
+{%- endmacro %}
 <main class="h5-home">
-  <section class="h5-home-welcome"><div><h1>仓库作业</h1><p>{{ current_user.username }}，请选择要办理的业务</p></div><a href="{{ url_for('mobile_scan', mode='confirm') }}" class="h5-pending-link"><i class="bi bi-inbox" aria-hidden="true"></i> 待确认</a></section>
-  <h2 class="h5-section-title">常用作业</h2>
-  <div class="h5-function-grid">
-  {% for title, description, icon, href, color in [
-    ('入库', '扫码 / 手工录入', 'bi-box-arrow-in-down', url_for('mobile_scan', mode='in'), 'blue'),
-    ('出库', '扫码 / 手工录入', 'bi-box-arrow-up', url_for('mobile_scan', mode='out'), 'green'),
-    ('查库存', '按仓查看实时库存', 'bi-search', url_for('mobile_scan', mode='query'), 'orange'),
-    ('盘点', '选择盘点单后录入', 'bi-clipboard-check', url_for('mobile_scan', mode='check'), 'purple'),
-    ('期初库存', '建账 / 查看期初', 'bi-wallet2', url_for('opening_stock_list', mobile='1'), 'cyan'),
-    ('物料档案', '搜索 / 查看物料', 'bi-card-list', url_for('material_list', mobile='1'), 'orange')
-  ] %}
-    {% if title == '查库存' or current_user.role in ('admin', 'warehouse') %}<a class="h5-function-card" href="{{ href }}"><span class="h5-card-icon {{ color }}"><i class="bi {{ icon }}" aria-hidden="true"></i></span><strong>{{ title }}</strong><small>{{ description }}</small></a>{% endif %}
-  {% endfor %}
+  <section class="h5-home-welcome"><div><h1>仓库工作台</h1><p>{{ current_user.username }}</p></div><a href="{{ url_for('mobile_scan', mode='confirm') }}" class="h5-pending-link"><i class="bi bi-inbox" aria-hidden="true"></i> 待确认</a></section>
+  <h2 class="h5-section-title">开始作业</h2>
+  {% if current_user.role in ('admin', 'warehouse') %}
+  <div class="h5-function-grid h5-primary-tasks">
+    {{ card('入库', '扫码或手工录入', 'bi-box-arrow-in-down', url_for('mobile_scan', mode='in'), 'blue') }}
+    {{ card('出库', '核对物料与数量', 'bi-box-arrow-up', url_for('mobile_scan', mode='out'), 'green') }}
   </div>
-  <h2 class="h5-section-title">识别与查询</h2>
+  {% endif %}
+  <div class="h5-stock-entry">{{ card('查库存', '扫码查询 · 实时库存', 'bi-search', url_for('mobile_scan', mode='query'), 'orange') }}</div>
+  {% if current_user.role in ('admin', 'warehouse') %}
   <div class="h5-function-grid">
-    <a class="h5-function-card" href="{{ url_for('mobile_scan', mode='query') }}#cameraBtn"><span class="h5-card-icon purple"><i class="bi bi-camera" aria-hidden="true"></i></span><strong>识物</strong><small>拍照匹配物料</small></a>
-    {% if current_user.role in ('admin','warehouse','purchase') %}<a class="h5-function-card" href="/ai/document_ocr?mobile=1"><span class="h5-card-icon cyan"><i class="bi bi-file-earmark-text" aria-hidden="true"></i></span><strong>识别单据</strong><small>识别后人工核对</small></a>{% endif %}
-    <a class="h5-function-card" href="{{ url_for('report', mobile='1') }}"><span class="h5-card-icon green"><i class="bi bi-bar-chart" aria-hidden="true"></i></span><strong>报表中心</strong><small>库存 / 出入库报表</small></a>
+    {{ card('盘点', '扫码/识物 · 快速盘点', 'bi-clipboard-check', url_for('mobile_scan', mode='check'), 'purple') }}
+    {{ card('期初库存', '建账 / 查看期初', 'bi-wallet2', url_for('opening_stock_list', mobile='1'), 'cyan') }}
+  </div>
+  {% endif %}
+  <h2 class="h5-section-title">查询与报表</h2>
+  <div class="h5-function-grid">
+    {{ card('库存台账', '期初出入结存', 'bi-journal-text', url_for('report_view', report_type='ledger', mobile='1'), 'cyan') }}
+    {{ card('报表中心', '库存 / 出入库报表', 'bi-bar-chart', url_for('report', mobile='1'), 'green') }}
+  </div>
+  <h2 class="h5-section-title">资料与工具</h2>
+  <div class="h5-function-grid">
+    {% if current_user.role in ('admin', 'warehouse') %}{{ card('物料档案', '搜索 · 查看物料', 'bi-card-list', url_for('material_list', mobile='1'), 'orange') }}{% endif %}
+    {% if current_user.role in ('admin', 'warehouse', 'purchase') %}{{ card('识别单据', '识别后人工核对', 'bi-file-earmark-text', '/ai/document_ocr?mobile=1', 'cyan') }}{% endif %}
+    {{ card('识物', '拍照识别 · 智能匹配', 'bi-camera', url_for('mobile_scan', mode='query') + '#cameraBtn', 'purple') }}
   </div>
   <section class="h5-home-tip"><i class="bi bi-qr-code-scan" aria-hidden="true"></i><p>入库、出库和盘点均可使用浏览器摄像头扫码。库存变更及草稿确认以各页面提示为准。</p></section>
 </main>
