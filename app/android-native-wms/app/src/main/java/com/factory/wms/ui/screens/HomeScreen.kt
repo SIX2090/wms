@@ -20,6 +20,7 @@ import com.factory.wms.ui.components.WmsQuantityText
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.DashboardDto
@@ -213,76 +214,84 @@ internal fun HomeWorkbench(
 ) {
     val cards = remember { homeFunctionCards() }
     val today = remember { SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date()) }
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(WmsDimens.PagePaddingHorizontal),
-        verticalArrangement = Arrangement.spacedBy(WmsDimens.SpaceMd)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text("仓库工作台", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Text(today, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+    val largeFont = LocalDensity.current.fontScale > 1.2f
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        Column(Modifier.fillMaxWidth().background(Primary.readableOn(Color.White))
+            .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("WMS 仓库管理", style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("仓库工作台 · $today", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                }
+                IconButton(onClick = onLogout, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                    Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = Color.White)
+                }
             }
-            IconButton(onClick = onLogout) {
-                Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = OnSurfaceVariant)
-            }
-        }
-        Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
-            val selector: @Composable (Modifier) -> Unit = { selectorModifier ->
-                WarehouseSelector(
-                    currentLabel = dashboard?.warehouse, warehouses = warehouses,
-                    selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
-                    showDefaultWarehouse = false, allowAll = false,
-                    contentColor = MaterialTheme.colorScheme.primary, modifier = selectorModifier
-                )
-            }
-            if (LocalDensity.current.fontScale <= 1.3f) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                    selector(Modifier.weight(1f))
+            if (!largeFont) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("今日概览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                        WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
+                            selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
+                            showDefaultWarehouse = false, allowAll = false, contentColor = Color.White)
+                    }
                 }
             } else {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                    selector(Modifier.fillMaxWidth())
+                Column(Modifier.fillMaxWidth()) {
+                    Text("今日概览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                    WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
+                        selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
+                        showDefaultWarehouse = false, allowAll = false, contentColor = Color.White)
                 }
             }
         }
-        when {
-            dashboard != null -> TodayOverviewBar(dashboard, onNavigate)
-            isLoading -> DashboardOverviewSkeleton()
-            else -> DashboardOverviewError(onRetry = onRetry)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            when {
+                dashboard != null -> TodayOverviewBar(dashboard, onNavigate)
+                isLoading -> DashboardOverviewSkeleton()
+                else -> DashboardOverviewError(onRetry = onRetry)
+            }
+            HomeSectionTitle("常用操作")
+            HomeTileGrid(cards.take(3), onNavigate, largeFont)
+            HomeSectionTitle("更多功能")
+            HomeTileGrid(cards.drop(3), onNavigate, largeFont)
+            Spacer(Modifier.height(8.dp))
         }
-        HomeSectionTitle("开始作业")
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HomePrimaryTask(cards[0], Modifier.weight(1f).fillMaxHeight()) { onNavigate(cards[0].screen) }
-            HomePrimaryTask(cards[1], Modifier.weight(1f).fillMaxHeight()) { onNavigate(cards[1].screen) }
-        }
-        HomeEntryRow(cards[2], showSubtitle = false) { onNavigate(cards[2].screen) }
-        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            listOf(cards[3], cards[4]).forEach { card ->
-                FunctionCardItem(card, Modifier.weight(1f).fillMaxHeight(), onClick = { onNavigate(card.screen) })
+    }
+}
+
+@Composable
+private fun HomeTileGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit, largeFont: Boolean) {
+    val columns = if (largeFont) 2 else 3
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        cards.chunked(columns).forEach { row ->
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { card ->
+                    Card(onClick = { onNavigate(card.screen) }, modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 96.dp),
+                        shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = CardBackground)) {
+                        Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(28.dp))
+                            Spacer(Modifier.height(8.dp))
+                            Text(card.title, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, softWrap = true)
+                        }
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
-        HomeSectionTitle("查询与报表")
-        HomeEntryGrid(cards.filter { it.screen in listOf(Screen.DailyReport, Screen.StockDailyReport,
-            Screen.InOutDetailReport, Screen.StockLedgerReport, Screen.StocktakeRecord) }, onNavigate)
-        HomeSectionTitle("资料与工具")
-        HomeEntryGrid(listOf(cards[7], cards[5], cards[6], cards[13]), onNavigate)
-        dashboard?.let {
-            HomeSectionTitle("今日出入库")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TodayMovementCell("今日入库", formatQty(it.todayInQuantity), "${it.todayInOrders} 单", Modifier.weight(1f)) { onNavigate(Screen.Inbound) }
-                TodayMovementCell("今日出库", formatQty(it.todayOutQuantity), "${it.todayOutOrders} 单", Modifier.weight(1f)) { onNavigate(Screen.Outbound) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
     }
 }
 
 @Composable
 private fun HomeSectionTitle(title: String) {
-    Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 }
 
 @Composable
@@ -347,11 +356,33 @@ fun FunctionCardItem(card: FunctionCard, modifier: Modifier = Modifier, index: I
 
 @Composable
 fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
+    val entries = listOf(
+        Triple("今日入库", formatQty(dashboard.todayInQuantity), "${dashboard.todayInOrders} 单") to Screen.Inbound,
+        Triple("今日出库", formatQty(dashboard.todayOutQuantity), "${dashboard.todayOutOrders} 单") to Screen.Outbound,
+        Triple("待处理", "${dashboard.pendingInOrders + dashboard.pendingOutOrders}", "入${dashboard.pendingInOrders} · 出${dashboard.pendingOutOrders}") to Screen.OverviewOrders,
+        Triple("库存告警", "${dashboard.alertCount}", "低库存") to Screen.OverviewAlerts
+    )
+    val columns = if (LocalDensity.current.fontScale > 1.2f) 2 else 4
     Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
-        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.Top) {
-            TodayMovementCell("待处理", "${dashboard.pendingInOrders + dashboard.pendingOutOrders}",
-                "入${dashboard.pendingInOrders} · 出${dashboard.pendingOutOrders}", Modifier.weight(1f)) { onNavigate(Screen.OverviewOrders) }
-            TodayMovementCell("库存告警", "${dashboard.alertCount}", "低库存", Modifier.weight(1f)) { onNavigate(Screen.OverviewAlerts) }
+        Column(Modifier.fillMaxWidth().padding(4.dp)) {
+            entries.chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                    row.forEach { (data, screen) ->
+                        Column(Modifier.weight(1f).fillMaxHeight().clickable { onNavigate(screen) }
+                            .heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(data.second, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                                fontWeight = FontWeight.Bold, softWrap = true)
+                            Text(data.first, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant, softWrap = true)
+                            Text(data.third, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant, softWrap = true)
+                        }
+                    }
+                }
+            }
         }
     }
 }

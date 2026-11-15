@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.CheckOrderDto
@@ -50,6 +51,7 @@ import com.factory.wms.ui.util.formatQty
 import com.factory.wms.ui.util.toPositiveQtyOrNull
 import com.factory.wms.ui.util.toQtyOrNull
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -142,17 +144,21 @@ fun InboundScreen(
             // 禁止 `?: 1.0` 静默兜底（输入 "abc" 按 1 入库、"0"/负数直接放行，现场无感知即错账）。
             val qty = manualQty.toPositiveQtyOrNull()
             if (manualCode.isNotBlank() && qty != null) {
-                viewModel.addScanLine(
+                val accepted = viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = qty,
                         location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
-                manualCode = ""
-                manualQty = "1"
-                viewModel.clearMaterialSuggestions()
-                showScannerDialog = false
+                if (accepted) {
+                    manualCode = ""
+                    manualQty = "1"
+                    viewModel.clearMaterialSuggestions()
+                    showScannerDialog = false
+                } else scope.launch {
+                    snackbarHostState.showSnackbar("未能加入清单，已保留本次输入")
+                }
             } else if (manualCode.isNotBlank()) {
                 scope.launch {
                     snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
@@ -160,22 +166,8 @@ fun InboundScreen(
             }
         },
         onScanBarcode = { barcode ->
-            val qty = manualQty.toPositiveQtyOrNull()
-            if (qty != null) {
-                viewModel.addScanLine(
-                    ScanLine(
-                        material_code = barcode.trim(),
-                        quantity = qty,
-                        location_code = uiState.selectedLocation.ifBlank { null }
-                    )
-                )
-                manualCode = ""
-                manualQty = "1"
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
-                }
-            }
+            if (viewModel.addCameraScanLine(barcode, uiState.selectedLocation.ifBlank { null }))
+                ScanBarcodeResult.Added else ScanBarcodeResult.Rejected
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交入库",
@@ -469,16 +461,20 @@ fun OutboundScreen(
             // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库页，非法数量拦截提示，禁止静默兜底。
             val qty = manualQty.toPositiveQtyOrNull()
             if (manualCode.isNotBlank() && qty != null) {
-                viewModel.addScanLine(
+                val accepted = viewModel.addScanLine(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = qty,
                         location_code = uiState.selectedLocation.ifBlank { null }
                     )
                 )
-                manualCode = ""
-                manualQty = "1"
-                showScannerDialog = false
+                if (accepted) {
+                    manualCode = ""
+                    manualQty = "1"
+                    showScannerDialog = false
+                } else scope.launch {
+                    snackbarHostState.showSnackbar("未能加入清单，已保留本次输入")
+                }
             } else if (manualCode.isNotBlank()) {
                 scope.launch {
                     snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
@@ -486,22 +482,8 @@ fun OutboundScreen(
             }
         },
         onScanBarcode = { barcode ->
-            val qty = manualQty.toPositiveQtyOrNull()
-            if (qty != null) {
-                viewModel.addScanLine(
-                    ScanLine(
-                        material_code = barcode.trim(),
-                        quantity = qty,
-                        location_code = uiState.selectedLocation.ifBlank { null }
-                    )
-                )
-                manualCode = ""
-                manualQty = "1"
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
-                }
-            }
+            if (viewModel.addCameraScanLine(barcode, uiState.selectedLocation.ifBlank { null }))
+                ScanBarcodeResult.Added else ScanBarcodeResult.Rejected
         },
         onSubmitClick = { showSubmitDialog = true },
         // BUG-2026-09-18-011：按钮文案由「提交出库」改为「确认出库」。
@@ -1120,11 +1102,12 @@ fun StockQueryScreen(
                         // BUG-2026-09-18-003：徽标改两级判定（与服务端 _material_alert_status_values 同口径），
                         // 不再只比 minStock —— 低于安全库存(danger)但高于最低库存的物料此前误显示「库存充足」。
                         // 安全库存 = max(reorderPoint, minStock)；未设阈值的物料退回 充足/不足 二态（保持原行为）。
-                        val scanStock = material.stock ?: 0.0
+                        val scanStock = material.stock
                         val scanMinStock = material.minStock ?: 0.0
                         val scanSafetyStock = maxOf(material.reorderPoint ?: 0.0, scanMinStock)
                         val scanHasThreshold = scanMinStock > 0.0 || scanSafetyStock > 0.0
                         val scanBadge = when {
+                            scanStock == null -> Triple("库存未获取", MaterialTheme.colorScheme.onSurfaceVariant, MaterialTheme.colorScheme.surfaceVariant)
                             !scanHasThreshold -> if (scanStock > 0.0)
                                 Triple("库存充足", Success, SuccessContainer)
                             else Triple("库存不足", Error, ErrorContainer)
@@ -1143,22 +1126,32 @@ fun StockQueryScreen(
                                 style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = Primary,
-                                // AI-APP-FIX-508：长编码单行省略，不再把右侧状态徽标挤出屏外
                                 modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                fontFamily = FontFamily.Monospace,
+                                softWrap = true
                             )
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
                                 color = scanBadge.third
                             ) {
-                                Text(
-                                    scanBadge.first,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    color = scanBadge.second,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = when (scanBadge.first) {
+                                            "库存充足" -> Icons.Outlined.CheckCircle
+                                            "库存未获取" -> Icons.Outlined.Info
+                                            else -> Icons.Outlined.Warning
+                                        },
+                                        contentDescription = null,
+                                        tint = scanBadge.second,
+                                        modifier = Modifier.size(18.dp).testTag("stock-status-icon")
+                                    )
+                                    Text(scanBadge.first, color = scanBadge.second, fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold)
+                                }
                             }
                         }
 
@@ -1202,9 +1195,19 @@ fun StockQueryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            WmsInfoCell("库存数量", formatQuantity(material.stock ?: 0.0))
-                            WmsInfoCell("单位", material.unit ?: "-")
-                            WmsInfoCell("最低库存", formatQuantity((material.minStock ?: 0).toDouble()))
+                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("库存数量", style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(material.stock?.let(::formatQuantity) ?: "未获取",
+                                    style = MaterialTheme.typography.headlineLarge,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    softWrap = true)
+                            }
+                            WmsInfoCell("单位", material.unit ?: "-", modifier = Modifier.weight(1f))
+                            WmsInfoCell("最低库存", material.minStock?.let(::formatQuantity) ?: "未获取", modifier = Modifier.weight(1f))
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -1213,11 +1216,11 @@ fun StockQueryScreen(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
-                            WmsInfoCell("单价", "¥${"%.2f".format(material.price ?: 0.0)}")
+                            WmsInfoCell("单价", material.price?.let { "¥${"%.2f".format(it)}" } ?: "未获取")
                             // AI-CI-GREEN-005-F04：这里读的是 reorderPoint，对外叫「安全库存」，
                             // 与 PC 物料档案表单、Excel 表头保持一致（命名表见服务端
                             // models/master_data.py 的「库存阈值命名约定」）。
-                            WmsInfoCell("安全库存", formatQuantity((material.reorderPoint ?: 0).toDouble()))
+                            WmsInfoCell("安全库存", material.reorderPoint?.let(::formatQuantity) ?: "未获取")
                             WmsInfoCell("分类", material.category ?: "-")
                         }
 
@@ -1251,7 +1254,7 @@ fun StockQueryScreen(
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        formatQuantity(loc.quantity ?: 0.0),
+                                        loc.quantity?.let(::formatQuantity) ?: "未获取",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Bold,
                                         color = Primary
@@ -1296,6 +1299,7 @@ fun StockQueryScreen(
     if (showScannerDialog) {
         ScannerDialog(
             onDismiss = { showScannerDialog = false },
+            onManualInput = { showScannerDialog = false },
             // 查库存是"扫一个看一个"的场景，扫中即退出，保持旧行为不启用连续扫描。
             continuous = false,
             onBarcodeScanned = { barcode ->
@@ -1617,8 +1621,8 @@ private fun StockListSortFilterBar(
 
 /** AI-MOB-STOCK-F01：列表模式单行——编码/名称/规格 + 仓库级账面库存数量。 */
 @Composable
-private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
-    val stock = material.stock ?: 0.0
+internal fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
+    val stock = material.stock
     val minStock = material.minStock ?: 0.0
     // BUG-2026-09-18-003：安全库存 = max(reorderPoint, minStock)，与服务端 safety_stock 同口径。
     val safetyStock = maxOf(material.reorderPoint ?: 0.0, minStock)
@@ -1627,7 +1631,7 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
     // 次要灰、卡片压平，并补一个"无库存"标记。不隐藏——有时就是要确认"确实为 0"。
     // 用配色而非 alpha 实现：本文件没有 androidx.compose.ui.draw.alpha 的既有
     // 用法，不为一个无法本地编译验证的新 import 冒险。
-    val noStock = stock <= 0.0
+    val noStock = stock != null && stock <= 0.0
     val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1647,9 +1651,9 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = if (noStock) mutedColor else Primary,
-                    // AI-APP-FIX-508：长编码单行省略（同行右侧还有数量列）
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    modifier = Modifier.fillMaxWidth(),
+                    fontFamily = FontFamily.Monospace,
+                    softWrap = true
                 )
                 if (!material.name.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(2.dp))
@@ -1679,12 +1683,12 @@ private fun StockListRow(material: com.factory.wms.data.model.MaterialDto) {
             Spacer(modifier = Modifier.width(10.dp))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    formatQuantity(stock),
+                    stock?.let(::formatQuantity) ?: "未获取",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     // BUG-2026-09-18-003：两级判定——破最低库存红线=红、破安全库存预警线=黄、
                     // 其余=绿；不再只比 minStock，否则 danger 档(低于安全库存)会误显绿色。
-                    color = if (noStock) mutedColor
+                    color = if (stock == null || noStock) mutedColor
                     else if (stock <= minStock) Error
                     else if (stock <= safetyStock) Warning
                     else Success
@@ -1727,15 +1731,17 @@ fun StocktakeScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     // BUG-2026-09-03-003：盘点重复扫码须确认，防止误把已盘物料再次累加使实盘数翻倍
-    var confirmLine by remember { mutableStateOf<ScanLine?>(null) }
+    var confirmLine by remember { mutableStateOf<Pair<ScanLine, ScanLine>?>(null) }
 
-    fun addOrConfirmStocktakeLine(line: ScanLine) {
-        val exists = viewModel.uiState.value.scanLines.any { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
-        if (exists) {
-            confirmLine = line
-        } else {
-            viewModel.addScanLine(line)
-        }
+    fun addOrConfirmStocktakeLine(line: ScanLine): ScanBarcodeResult {
+        val state = viewModel.uiState.value
+        if (state.isLoading || state.pendingSubmissionId != null || state.stocktakeDraftUnreadable)
+            return ScanBarcodeResult.Rejected
+        val existing = state.scanLines.firstOrNull { it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty() }
+        return if (existing != null) {
+            confirmLine = line to existing
+            ScanBarcodeResult.NeedsConfirmation
+        } else if (viewModel.addScanLine(line)) ScanBarcodeResult.Added else ScanBarcodeResult.Rejected
     }
 
     // AI-APP-FIX-403：局部 formatStockQty 已合并为 ui/util/Format.kt 的 formatQty
@@ -1823,16 +1829,20 @@ fun StocktakeScreen(
             // AI-APP-FIX-105 / BUG-2026-09-26-001：同入库/出库页，非法数量拦截提示。
             val qty = manualQty.toQtyOrNull(allowZero = true)
             if (manualCode.isNotBlank() && qty != null) {
-                addOrConfirmStocktakeLine(
+                val outcome = addOrConfirmStocktakeLine(
                     ScanLine(
                         material_code = manualCode.trim(),
                         quantity = qty,
                         location_code = stocktakeArea.trim().ifBlank { null }
                     )
                 )
-                manualCode = ""
-                manualQty = "1"
-                showScannerDialog = false
+                if (outcome != ScanBarcodeResult.Rejected) {
+                    manualCode = ""
+                    manualQty = "1"
+                    showScannerDialog = false
+                } else scope.launch {
+                    snackbarHostState.showSnackbar("未能加入清单，已保留本次输入")
+                }
             } else if (manualCode.isNotBlank()) {
                 scope.launch {
                     snackbarHostState.showSnackbar("请输入大于或等于 0 的有效数量", duration = SnackbarDuration.Short)
@@ -1840,22 +1850,11 @@ fun StocktakeScreen(
             }
         },
         onScanBarcode = { barcode ->
-            val qty = manualQty.toQtyOrNull(allowZero = true)
-            if (qty != null) {
-                addOrConfirmStocktakeLine(
-                    ScanLine(
-                        material_code = barcode.trim(),
-                        quantity = qty,
-                        location_code = stocktakeArea.trim().ifBlank { null }
-                    )
-                )
-                manualCode = ""
-                manualQty = "1"
-            } else {
-                scope.launch {
-                    snackbarHostState.showSnackbar("请输入大于或等于 0 的有效数量", duration = SnackbarDuration.Short)
-                }
-            }
+            val code = barcode.trim()
+            if (code.isEmpty()) ScanBarcodeResult.Rejected else addOrConfirmStocktakeLine(
+                ScanLine(material_code = code, quantity = 1.0,
+                    location_code = stocktakeArea.trim().ifBlank { null })
+            )
         },
         onSubmitClick = { showSubmitDialog = true },
         submitLabel = "提交盘点",
@@ -1955,44 +1954,9 @@ fun StocktakeScreen(
         )
     }
 
-    // BUG-2026-09-03-003：盘点重复扫码确认（替换 / 累加 / 取消保持原值）
-    confirmLine?.let { line ->
-        val existingQty = viewModel.existingLineQuantity(line.material_code, line.location_code)
-        AlertDialog(
-            onDismissRequest = { confirmLine = null },
-            shape = RoundedCornerShape(20.dp),
-            title = { Text("物料已在盘点清单", fontWeight = FontWeight.SemiBold) },
-            text = {
-                Text(
-                    "${line.material_code} 已在清单中（当前：${formatQty(existingQty ?: 0.0)}）。\n" +
-                        "本次扫码：${formatQty(line.quantity)}。\n\n" +
-                        "选择「替换」以本次实盘数量为准；「累加」会把数量相加；" +
-                        "点空白处或返回保持原值。"
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.replaceScanLineQuantity(line)
-                        confirmLine = null
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = CardPurple)
-                ) {
-                    Text("替换为本次数量")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.addScanLine(line)
-                        confirmLine = null
-                    }
-                ) {
-                    Text("累加")
-                }
-            }
-        )
+    // 重复盘点必须人工选择；数量变化或存在未确认输入时不覆盖原行。
+    confirmLine?.let { (incoming, original) ->
+        StocktakeDuplicateDialog(incoming, original, viewModel) { confirmLine = null }
     }
 
     if (showSubmitDialog) {

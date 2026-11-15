@@ -100,7 +100,8 @@ def test_t5_pagination_follows_total_pages_r1():
 def test_t6_switch_warehouse_resets_list():
     vm = VM.read_text(encoding="utf-8")
     idx = vm.index("fun selectWarehouse(")
-    body = vm[idx:idx + 1500]
+    body = vm[idx:vm.index("\n    }\n", idx) + len("\n    }")]
+    assert "if (changed)" in body
     # 跨仓数据隔离：换仓后不得残留上一仓结果
     assert "clearStockList" in body or "stockListItems = emptyList()" in body
 
@@ -110,10 +111,10 @@ def test_t7_screen_has_mode_switch_and_list_section():
     assert "var listMode by remember" in screen, "缺少扫码/列表模式状态"
     assert "扫码查物料" in screen and "库存列表" in screen, "缺少模式切换入口"
     assert "private fun StockListSection(" in screen, "缺少列表区块"
-    assert "private fun StockListRow(" in screen, "缺少列表行"
+    assert "internal fun StockListRow(" in screen, "缺少列表行"
     # 列表区块必须带关键字搜索与分页加载
     idx = screen.index("private fun StockListSection(")
-    body = screen[idx:screen.index("private fun StockListRow(")]
+    body = screen[idx:screen.index("internal fun StockListRow(")]
     assert "onKeywordChange" in body and "onSubmit" in body
     assert "onLoadMore" in body
     assert "LazyColumn" in body, "列表必须用 LazyColumn 分页渲染"

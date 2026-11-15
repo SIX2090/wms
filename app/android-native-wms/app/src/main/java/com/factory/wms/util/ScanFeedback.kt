@@ -32,48 +32,60 @@ object ScanFeedback {
 
     private const val TAG = "ScanFeedback"
 
-    /** 开关存储键（与 WmsRepository 的 wms_settings DataStore 同名，共用同一个文件）。 */
+    /** 旧开关和两个独立开关均保存在本机 SharedPreferences。 */
     private const val PREFS_NAME = "wms_settings"
     private const val KEY_ENABLED = "scan_feedback_enabled"
+    private const val KEY_SOUND_ENABLED = "scan_feedback_sound_enabled"
+    private const val KEY_VIBRATION_ENABLED = "scan_feedback_vibration_enabled"
 
     /**
      * 开关的内存缓存。
      *
-     * 为什么不在每次扫码时读 DataStore：DataStore 读是挂起 IO，
+     * 为什么不在每次扫码时读取持久化设置：存储访问可能引入 IO，
      * 而扫码回调在相机分析线程上、要求"立刻"出反馈；为一次震动去做磁盘 IO
      * 会引入可感知延迟，还可能因主线程等待而卡顿。
      * 这里在 [warmUp] 时读一次进内存，之后同步判断；设置页改动时再刷新。
      * 初值 true —— 现场场景默认需要反馈，宁可没设置过也有反馈。
      */
-    @Volatile
-    var enabled: Boolean = true
+    @Volatile var soundEnabled: Boolean = true
         private set
+    @Volatile var vibrationEnabled: Boolean = true
+        private set
+    /** Compatibility for existing callers that treat feedback as a single setting. */
+    val enabled: Boolean get() = soundEnabled || vibrationEnabled
 
-    /**
-     * 预热开关状态。由 `WmsApplication` 在进程启动时调用一次，
-     * 也可在设置页改动后调用以刷新缓存。
-     */
     fun warmUp(context: Context) {
         try {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            enabled = prefs.getBoolean(KEY_ENABLED, true)
+            val legacy = prefs.getBoolean(KEY_ENABLED, true)
+            soundEnabled = prefs.getBoolean(KEY_SOUND_ENABLED, legacy)
+            vibrationEnabled = prefs.getBoolean(KEY_VIBRATION_ENABLED, legacy)
         } catch (e: Exception) {
             Log.w(TAG, "读取扫码反馈开关失败，按默认（开启）处理", e)
-            enabled = true
+            soundEnabled = true; vibrationEnabled = true
         }
     }
 
-    /** 持久化开关（设置页调用）。 */
+    fun setSoundEnabled(context: Context, value: Boolean) {
+        soundEnabled = value
+        try { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_SOUND_ENABLED, value).apply() }
+        catch (e: Exception) { Log.w(TAG, "保存扫码提示音开关失败", e) }
+    }
+
+    fun setVibrationEnabled(context: Context, value: Boolean) {
+        vibrationEnabled = value
+        try { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_VIBRATION_ENABLED, value).apply() }
+        catch (e: Exception) { Log.w(TAG, "保存扫码震动开关失败", e) }
+    }
+
+    /** Preserve the old combined API for existing callers and older preference values. */
     fun setEnabled(context: Context, value: Boolean) {
-        enabled = value
+        soundEnabled = value; vibrationEnabled = value
         try {
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean(KEY_ENABLED, value)
-                .apply()
-        } catch (e: Exception) {
-            Log.w(TAG, "保存扫码反馈开关失败", e)
-        }
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_ENABLED, value).putBoolean(KEY_SOUND_ENABLED, value)
+                .putBoolean(KEY_VIBRATION_ENABLED, value).apply()
+        } catch (e: Exception) { Log.w(TAG, "保存扫码反馈开关失败", e) }
     }
 
     /** 成功：高频短嘀（约 2.4kHz，穿透嘈杂环境）。 */
@@ -95,9 +107,8 @@ object ScanFeedback {
      * 扫中且**成功加入清单**。
      */
     fun success(context: Context) {
-        if (!enabled) return
-        playTone(TONE_SUCCESS, SUCCESS_TONE_MS)
-        vibrate(context, longArrayOf(0L, SUCCESS_VIBRATE_MS), -1)
+        if (soundEnabled) playTone(TONE_SUCCESS, SUCCESS_TONE_MS)
+        if (vibrationEnabled) vibrate(context, longArrayOf(0L, SUCCESS_VIBRATE_MS), -1)
     }
 
     /**
@@ -107,9 +118,8 @@ object ScanFeedback {
      * 不用抬头看屏幕。
      */
     fun failure(context: Context) {
-        if (!enabled) return
-        playTone(TONE_FAILURE, FAILURE_TONE_MS)
-        vibrate(context, FAILURE_VIBRATE_PATTERN, -1)
+        if (soundEnabled) playTone(TONE_FAILURE, FAILURE_TONE_MS)
+        if (vibrationEnabled) vibrate(context, FAILURE_VIBRATE_PATTERN, -1)
     }
 
     /**

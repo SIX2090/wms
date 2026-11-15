@@ -28,6 +28,10 @@ def test_actual_assistant_lifecycle(scenario):
     run('stream', scenario)
 
 
+def test_suggestion_preserves_unsent_input():
+    run('suggestion', 'success')
+
+
 def run(mode, scenario):
     source = assistant_source()
     # Expose existing closure functions only in this fixture, without replacing them.
@@ -42,7 +46,7 @@ const events={},requests=[],toasts=[],confirmations=[],unhandled=[];let resolveR
 process.on('unhandledRejection',error=>unhandled.push(error));
 function el(){const classes=new Set();return {style:{},dataset:{},attrs:{},children:[],handlers:{},value:'',disabled:false,innerHTML:'',textContent:'',scrollHeight:0,
  className:'',classList:{contains:k=>classes.has(k),add:k=>classes.add(k),remove:k=>classes.delete(k),toggle(k,on){on=on===undefined?!classes.has(k):on;if(on)classes.add(k);else classes.delete(k);return on;}},
- addEventListener(k,fn){this.handlers[k]=fn;},setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k]??null;},
+ addEventListener(k,fn){this.handlers[k]=fn;},click(){this.clicked=(this.clicked||0)+1;},setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k]??null;},
  appendChild(n){n.parent=this;this.children.push(n);},remove(){if(this.parent)this.parent.children=this.parent.children.filter(n=>n!==this);},focus(){},
  querySelector(s){return this.children.find(n=>n.className.split(' ').includes(s.slice(1)))||null;},querySelectorAll(){return [];},closest(){return null;}};}
 const ids={};for(const id of ['aiAssistantButton','aiAssistantPanel','aiAssistantClose','aiHistoryClear','aiAssistantForm','aiAssistantInput','aiAssistantMessages','aiPasteButton','aiUploadButton','aiImageInput','aiPendingAttachments','aiAssistantHideBtn'])ids[id]=el();
@@ -81,6 +85,20 @@ async function finish(){for(let i=0;i<14;i++)await flush();}
 (async()=>{
  if(p.scenario==='embedded'){assert.equal(ctx.fixtureAssistant,undefined);assert.equal(requests.length,0);assert.equal(panel.parent,undefined);return;}
  const api=ctx.fixtureAssistant;assert(api);assert.equal(requests.length,0,'do not load history before first opening');
+ if(p.mode==='suggestion'){
+  input.value='尚未发送的仓库问题';
+  const upload={textContent:'识别送货单',getAttribute(k){return k==='data-prompt'?'识别送货单':k==='data-ai-upload'?'delivery-note':null;}};
+  messages.handlers.click({target:{closest:()=>upload}});
+  assert.equal(input.value,'尚未发送的仓库问题','opening the photo picker must preserve an unsent draft');
+  assert.equal(ids.aiImageInput.clicked,1);assert.equal(requests.length,0);
+  const suggestion={textContent:'查询今日概况',getAttribute(k){return k==='data-prompt'?'查询今日概况':null;}};
+  messages.handlers.click({target:{closest:()=>suggestion}});
+  assert.equal(input.value,'尚未发送的仓库问题','sending a suggestion must preserve an unsent draft');
+  assert.equal(requests.length,1);assert.equal(requests[0].url,'/api/ai/chat/stream');
+  assert.equal(JSON.parse(requests[0].options.body).message,'查询今日概况');
+  resolveRequest();await finish();assert.equal(input.value,'尚未发送的仓库问题');return;
+ }
+
  if(p.scenario==='markdown'){const html=api.renderMarkdown('<img src=x onerror=attack()>\n**强调**\n|a|b|\n|--|--|\n|1|2|');assert(!html.includes('<img'));assert(html.includes('&lt;img'));assert(html.includes('<strong>强调</strong>'));assert(html.includes('<table>'));return;}
  if(p.scenario==='history'){
   ids.aiAssistantButton.handlers.click();assert.equal(requests[0].url,'/api/ai/conversations?limit=1');resolveRequest();await finish();

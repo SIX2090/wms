@@ -153,7 +153,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         content { HomeScreen(auth, vm, { clicked += it }, {}) }
         compose.onNodeWithText("当前仓库").assertIsDisplayed()
         compose.onNodeWithText("合成一号仓").assertIsDisplayed()
-        compose.onNodeWithText("开始作业").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("常用操作").performScrollTo().assertIsDisplayed()
         capture("home")
         destinations.forEach { (label, _) ->
             compose.onNodeWithText(label).performScrollTo().performClick()
@@ -166,7 +166,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
     }
 
-    @Test fun reportShortcutsStayWithinTheDefaultWorkbenchViewport() {
+    @Test fun reportShortcutRemainsCompleteAndReachableAfterScrolling() {
         val warehouses = listOf(warehouse)
         val data = DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0, todayOutOrders = 2,
             todayOutQuantity = 860.0, pendingInOrders = 2, pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name)
@@ -174,14 +174,11 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
             HomeWorkbench(data, false, warehouses, "1", {}, {}, {}, {})
         } }
         val shortcut = compose.onNodeWithText("库存日报")
-        if (fontScale <= 1.3f) {
-            shortcut.assertIsDisplayed()
-            val full = shortcut.getUnclippedBoundsInRoot()
-            val visible = shortcut.fetchSemanticsNode().boundsInRoot
-            assertTrue("Default report shortcut clipped", visible.bottom - visible.top + 1 >= (full.bottom - full.top).value)
-        } else {
-            shortcut.performScrollTo().assertIsDisplayed()
-        }
+        // 用户要求保留原首页三列布局，报表入口允许通过滚动完整访问。
+        shortcut.performScrollTo().assertIsDisplayed()
+        val full = shortcut.getUnclippedBoundsInRoot()
+        val visible = shortcut.fetchSemanticsNode().boundsInRoot
+        assertTrue("Report shortcut remains clipped after scrolling", visible.bottom - visible.top + 1 >= (full.bottom - full.top).value)
         completeIdentityText("库存日报")
     }
 
@@ -229,20 +226,26 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
     @Test fun scanShowsDistinctMaterialIdentityAndReadableEditableQuantity() {
         val vm = ScanViewModel(app).also { models += it }
         val line = ScanLine("M-6204", 120.0, material_name = "深沟球轴承", material_brand = "合成品牌", material_spec = "6204-2RS")
-        val lines = listOf(line)
-        content { ScanScreenBase("入库", "扫码或手工录入，核对物料与数量", CardBlue, {}, lines, 120.0,
-            vm, remember { SnackbarHostState() }, false, false, {}, {}, "", "1", {}, {}, {}, {}, {}, "提交入库", CardBlue) }
+        vm.addScanLine(line)
+        content { val state by vm.uiState.collectAsState(); ScanScreenBase("入库", "扫码或手工录入，核对物料与数量", CardBlue, {}, state.scanLines, state.totalQuantity,
+            vm, remember { SnackbarHostState() }, false, false, {}, {}, "", "1", {}, {}, {}, { com.factory.wms.ui.screens.ScanBarcodeResult.Rejected }, {}, "提交入库", CardBlue) }
         compose.onNodeWithText("深沟球轴承").assertIsDisplayed()
         capture("inbound")
         completeText("编码 M-6204")
         completeText("合成品牌 · 6204-2RS")
-        val quantity = completeText("× 120")
-        assertTrue("Quantity should dominate the edit hint", quantity.layoutInput.style.fontSize.value >= 20f)
+        val quantityLayouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithContentDescription("修改数量：M-6204 ", useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(quantityLayouts) }
+        assertEquals(1, quantityLayouts.size)
+        assertFalse("Quantity input must not clip", quantityLayouts.single().hasVisualOverflow)
+        assertTrue("Quantity should dominate the edit hint", quantityLayouts.single().layoutInput.style.fontSize.value >= 20f)
         capture("inbound")
-        compose.onNodeWithContentDescription("修改数量：M-6204 ").performClick()
-        compose.onNodeWithText("修改数量").assertIsDisplayed()
+        compose.onNodeWithContentDescription("修改数量：M-6204 ").performTextReplacement("121")
+        compose.onNodeWithText("确定数量").assertIsDisplayed()
+        compose.onNodeWithText("提交入库").assertIsNotEnabled()
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithText("× 120").assertIsDisplayed()
+        compose.onNodeWithContentDescription("修改数量：M-6204 ").assertTextContains("120")
+        compose.runOnIdle { assertEquals(120.0, vm.uiState.value.totalQuantity, 0.0) }
     }
 
     @Test fun reportKeepsCompactDefaultRowsAndLargeFontDetailsReachable() {

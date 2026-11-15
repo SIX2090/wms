@@ -159,36 +159,25 @@ def test_t6_material_exists_is_safe_on_network_failure():
 
 def test_t7_switch_exists_and_defaults_on():
     src = _read(FEEDBACK)
-    # 默认开启
-    assert re.search(r"var\s+enabled\s*:\s*Boolean\s*=\s*true", src), (
-        "反馈开关默认值必须为 true —— 现场场景默认需要反馈，"
-        "宁可没设置过也有反馈，而不是让用户先去设置里找"
-    )
-    # 两个入口都要受开关控制
+    for field in ("soundEnabled", "vibrationEnabled"):
+        assert re.search(r"@Volatile\s+var\s+" + field + r"\s*:\s*Boolean\s*=\s*true", src)
     for fn in ("success", "failure"):
         body = re.search(rf"fun\s+{fn}\s*\([^)]*\)\s*\{{(?P<b>.*?)\n    \}}", src, re.DOTALL)
         assert body, f"无法定位 {fn} 函数体"
-        assert re.search(r"if\s*\(\s*!\s*enabled\s*\)\s*return", body.group("b")), (
-            f"{fn} 未受开关控制"
-        )
-    # 内存缓存（不在扫码回调里做磁盘 IO）
-    assert re.search(r"fun\s+warmUp\s*\(", src), "缺少 warmUp（进程启动时预热开关到内存）"
-    assert "@Volatile" in src, (
-        "开关的内存缓存必须 @Volatile —— 它在启动时主线程写、扫码时相机分析线程读"
-    )
-    # Application 里确实调了 warmUp
-    assert "ScanFeedback.warmUp" in _read(APP), (
-        "WmsApplication 未调用 ScanFeedback.warmUp —— 开关会一直是默认值，改设置不生效"
-    )
+        assert "if (soundEnabled) playTone" in body.group("b")
+        assert "if (vibrationEnabled) vibrate" in body.group("b")
+    assert "fun warmUp(" in src and "ScanFeedback.warmUp" in _read(APP)
+    assert 'getBoolean(KEY_SOUND_ENABLED, legacy)' in src
+    assert 'getBoolean(KEY_VIBRATION_ENABLED, legacy)' in src
 
 
 def test_t8_profile_toggle_wired():
     src = _read(PROFILE)
-    assert "scan_feedback_enabled" in _read(FEEDBACK), "缺少持久化键"
-    assert "ScanFeedback.setEnabled" in src, (
-        "「我的」页未接线开关 —— 用户无法关闭反馈（会议室/办公室场景会嫌吵）"
-    )
-    assert re.search(r"ProfileToggleRow", src), "缺少开关行组件"
-    assert "Switch(" in src, "开关行未使用 Switch 控件"
-    # 开关行要带说明，否则用户不知道开了会怎样
-    assert re.search(r"description\s*:", src), "开关行缺少副标题说明"
+    feedback = _read(FEEDBACK)
+    assert "scan_feedback_enabled" in feedback
+    assert "scan_feedback_sound_enabled" in feedback and "scan_feedback_vibration_enabled" in feedback
+    assert "ScanFeedback.setSoundEnabled" in src and "ScanFeedback.setVibrationEnabled" in src
+    assert 'label = "扫码提示音"' in src and 'label = "扫码震动"' in src
+    assert "ProfileToggleRow" in src and "Switch(" in src
+    assert re.search(r"description\s*:", src)
+    # Actual migrated preferences, independent channels and full-row toggles are tested in Android.

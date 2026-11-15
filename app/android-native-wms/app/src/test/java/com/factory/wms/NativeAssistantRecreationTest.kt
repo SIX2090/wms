@@ -87,6 +87,7 @@ class NativeAssistantRecreationTest {
         assertEquals("original-image", reopened.uiState.value.pendingImage)
         assertEquals("original-file" to "original.txt", reopened.uiState.value.pendingFile)
         assertTrue(reopened.uiState.value.messages.isEmpty())
+        assertEquals("create original draft", reopened.uiState.value.failedDraft)
         assertEquals(original, repository.pendingNativeWrites().single())
     }
 
@@ -98,6 +99,10 @@ class NativeAssistantRecreationTest {
         val original = repository.pendingNativeWrites().single()
         server.enqueue(ok("original receipt")); vm.send("same intent")
         pump("retry receipt") { vm.uiState.value.messages.any { it.text == "original receipt" } }
+        // The message is published before the same coroutine finishes acknowledging the
+        // durable receipt. Wait for that real operation, then assert its persisted result;
+        // concurrent file reads during Windows rename can fail with a sharing violation.
+        pump("receipt handler completes") { vm.viewModelScope.coroutineContext[Job]!!.children.none { it.isActive } }
         pump("handled receipt acknowledged") { runBlocking { repository.pendingNativeWrites().isEmpty() } }
         val first = server.takeRequest(); val retry = server.takeRequest()
         assertEquals(original.requestId, first.getHeader("X-Idempotency-Key"))

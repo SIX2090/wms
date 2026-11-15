@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -105,8 +106,8 @@ fun StockDailyReportScreen(
             info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
         }
     }
-    LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) viewModel.loadMore()
+    LaunchedEffect(shouldLoadMore, uiState.queried, uiState.items.size, uiState.isLoading) {
+        if (shouldLoadMore && uiState.queried && uiState.items.isNotEmpty() && !uiState.isLoading && !uiState.isLoadingMore) viewModel.loadMore()
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -120,11 +121,18 @@ fun StockDailyReportScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
+        WmsPullToRefreshBox(
+            isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.padding(padding).fillMaxSize()
         ) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                item(key = "filters") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
             // ── 日期导航（AI-MOB-RPT-F03：可翻日期看历史收市结存；
             //    AI-APP-FIX-402：统一 WmsDateNavRow，日期可点弹 DatePicker 跳日）──
             // 「后一天」在到达今天后禁用（服务端对未来日期 400，此处前置钳制）；
@@ -135,7 +143,13 @@ fun StockDailyReportScreen(
                 onPrev = { viewModel.shiftDay(-1) },
                 onNext = { viewModel.shiftDay(1) },
                 nextEnabled = uiState.date < viewModel.today(),
-                subtitle = "数据截至 ${uiState.generatedAt ?: "--:--"}",
+                subtitle = (when {
+                    uiState.date.isBlank() -> "日期未获取"
+                    uiState.date < viewModel.today() -> "历史日期 · 收市结存"
+                    uiState.date == viewModel.today() -> "当日库存"
+                    else -> "指定日期库存"
+                }) +
+                    " · 数据截至 ${uiState.generatedAt ?: "--:--"}",
                 onResetToday = { viewModel.resetToday() },
                 onDateSelected = { viewModel.setDate(it) }
             )
@@ -166,10 +180,14 @@ fun StockDailyReportScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
-                IconButton(onClick = { viewModel.refresh() }) {
+                IconButton(onClick = { viewModel.refresh() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Icon(Icons.Outlined.Search, "搜索", tint = Primary)
                 }
             }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("物料数仅含正结存；零及负结存计入零库存，明细不展开。",
+                modifier = Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
             Spacer(modifier = Modifier.height(8.dp))
             // ── 汇总卡（基于过滤后全集，不随分页缩小，R1）──
             uiState.summary?.let { summary ->
@@ -187,38 +205,21 @@ fun StockDailyReportScreen(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
             }
-            // ── 明细列表 / 加载 / 空态 / 错误态 ──
-            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
-            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
-            WmsPullToRefreshBox(
-                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
-                onRefresh = { viewModel.refresh() },
-                modifier = Modifier.fillMaxSize()
-            ) {
-                when {
-                    // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表；
-                    // 带数据刷新保留旧列表 + 底部转圈，不闪骨架。
-                    uiState.isLoading && uiState.items.isEmpty() -> {
-                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
                     }
-                    // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
-                    // 不再落入下方"该仓当天无结存物料"的误导性空态
-                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                }
+                when {
+                    uiState.isLoading && uiState.items.isEmpty() -> item {
+                        WmsListSkeleton(modifier = Modifier.fillMaxWidth())
+                    }
+                    uiState.loadError != null && uiState.items.isEmpty() -> item {
                         WmsErrorState(
                             title = "加载失败",
                             subtitle = uiState.loadError ?: "请检查网络后重试",
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.fillMaxWidth(),
                             onRetry = { viewModel.refresh() }
                         )
                     }
-                    uiState.isLoading -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-                    uiState.queried && uiState.items.isEmpty() -> {
-                        // F03 起明细只出结存 > 0：空态须区分「该仓当天无结存物料」
-                        // 与「被关键词滤掉」，不再笼统说"物料档案为空"
+                    uiState.queried && uiState.items.isEmpty() -> item {
                         WmsEmptyState(
                             icon = Icons.Outlined.Inventory2,
                             title = if (uiState.keyword.isBlank()) "该仓当天无结存物料" else "未找到匹配物料",
@@ -227,48 +228,36 @@ fun StockDailyReportScreen(
                             } else {
                                 "「${uiState.keyword}」在该仓无匹配，换个关键词试试"
                             },
-                            modifier = Modifier.align(Alignment.Center)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    !uiState.queried -> {
-                        // 尚未查询（仓库列表未就绪）：不显示误导性空态，安静等待
-                    }
-                    else -> {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(uiState.items, key = { it.id }) { item ->
+                    uiState.queried -> {
+                        items(uiState.items, key = { it.id }) { item ->
+                            Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
                                 StockDailyItemRow(item)
                             }
-                            if (uiState.isLoadingMore) {
-                                item {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.width(24.dp).height(24.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    }
-                                }
-                            } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
-                                item {
-                                    Text(
-                                        "已加载全部 ${uiState.items.size} 条",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        }
+                        if (uiState.isLoadingMore || uiState.isLoading) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.width(24.dp).height(24.dp),
+                                        strokeWidth = 2.dp
                                     )
                                 }
+                            }
+                        } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "已加载全部 ${uiState.items.size} 条",
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }

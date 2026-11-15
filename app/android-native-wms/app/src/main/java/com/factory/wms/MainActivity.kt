@@ -11,6 +11,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.factory.wms.ui.navigation.AppNavGraph
 import com.factory.wms.ui.theme.WmsTheme
@@ -117,21 +121,23 @@ class MainActivity : ComponentActivity() {
  * 打开看到错误"的关键。崩溃堆栈里带有 version=3.8.x (versionCode)，可核对版本。
  */
 @Composable
-private fun CrashReportScreen(crashText: String, onDismiss: () -> Unit) {
+internal fun CrashReportScreen(crashText: String, onDismiss: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .padding(16.dp)
     ) {
         Text(
-            text = "应用上次异常退出",
+            text = "检测到上次异常退出",
             style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.error
+            color = MaterialTheme.colorScheme.onSurface
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "请把下面内容「截图」发给技术人员，或点「复制崩溃信息」后粘贴到微信发送。这能帮助一次定位问题，避免反复返工：",
+            text = "已保留异常信息，你可以复制后反馈给维护人员。",
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.height(12.dp))
@@ -141,19 +147,18 @@ private fun CrashReportScreen(crashText: String, onDismiss: () -> Unit) {
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surfaceVariant)
                 .verticalScroll(rememberScrollState())
-                .padding(8.dp)
+                .padding(12.dp)
         ) {
-            Text(text = crashText, style = MaterialTheme.typography.bodySmall)
+            Text(text = crashText, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
         }
         Spacer(Modifier.height(12.dp))
-        Row {
-            Button(onClick = { clipboard.setText(AnnotatedString(crashText)) }) {
-                Text("复制崩溃信息")
-            }
-            Spacer(Modifier.width(12.dp))
-            OutlinedButton(onClick = onDismiss) {
-                Text("我已记录，继续使用")
-            }
+        Button(
+            onClick = { clipboard.setText(AnnotatedString(crashText)) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        ) { Text("复制崩溃信息") }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text("我已记录，继续使用")
         }
     }
 }

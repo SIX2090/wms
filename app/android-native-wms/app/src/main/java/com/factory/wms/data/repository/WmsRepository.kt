@@ -278,8 +278,17 @@ class WmsRepository(
 
     suspend fun loadStocktakeDraft(key: String = stocktakeDraftKey()): StocktakeDraft? {
         val json = requireDataStore { context.dataStore.data.first()[stringPreferencesKey(key)] } ?: return null
-        return Gson().fromJson(json, StocktakeDraft::class.java)
+        val draft = Gson().fromJson(json, StocktakeDraft::class.java)
+        check(draft != null && quantityDraftsAreValid(draft.quantityDrafts)) { "盘点数量输入无法安全恢复，请保留原草稿核对" }
+        return draft
     }
+
+    private fun quantityDraftsAreValid(drafts: Map<String, com.factory.wms.data.model.QuantityDraft>?): Boolean =
+        runCatching {
+            drafts?.all { (key, value) ->
+                key.isNotBlank() && value.raw.length >= 0 && value.error.length >= 0 && value.expected.isFinite()
+            } ?: true
+        }.getOrDefault(false)
 
     suspend fun editDraftKey(operation: String): String {
         require(operation == "inbound" || operation == "outbound")
@@ -361,6 +370,7 @@ class WmsRepository(
      * 只做"保证不崩"的最小修复，不改业务语义。
      */
     private fun sanitizeEditDraft(draft: ScanEditDraft): ScanEditDraft? = runCatching {
+        check(quantityDraftsAreValid(draft.quantityDrafts)) { "数量输入草稿损坏" }
         // 逐行净化：material_code 为空的脏行无法定位物料，直接丢弃
         val safeLines = draft.lines.mapNotNull { entry ->
             val code = entry.line.material_code

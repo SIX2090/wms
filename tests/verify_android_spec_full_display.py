@@ -72,13 +72,11 @@ def test_opening_stock_dialog_spec_allows_two_lines():
 
 
 def test_overview_alert_row_spec_allows_two_lines():
-    """缺货预警卡片规格行必须 ≥2 行（照单领料防拿错货）。"""
     src = _strip_comments(_read(SRC / "ui" / "screens" / "OverviewListScreen.kt"))
-    block = _block_after(src, '"规格: ${item.spec}"')
-    assert re.search(r"maxLines\s*=\s*2", block), (
-        "OverviewListScreen 缺货预警规格行被改回单行/换布局了 —— "
-        "同 BUG-2026-09-12-002"
-    )
+    block = _block_after(src, '"规格：${item.spec}"')
+    assert "softWrap = true" in block
+    assert not re.search(r"maxLines\s*=\s*1\b", block)
+    assert "TextOverflow.Ellipsis" not in block
 
 
 def test_no_new_single_line_spec_truncation_in_pick_flows():

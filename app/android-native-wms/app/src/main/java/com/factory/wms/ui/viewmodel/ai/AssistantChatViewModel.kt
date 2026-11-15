@@ -62,7 +62,8 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
     private var explicitlyStartedConversation = false
 
     fun clearError() {
-        _uiState.value = _uiState.value.copy(error = null, failedDraft = null)
+        // 错误提示关闭不代表用户已经取走失败输入，草稿由 consumeFailedDraft 单独确认。
+        _uiState.value = _uiState.value.copy(error = null)
     }
 
     /** P6：UI 取走退回草稿后清标记，避免重组时反复回填。 */
@@ -104,7 +105,7 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
             } catch (error: Exception) {
                 kotlinx.coroutines.currentCoroutineContext().ensureActive()
                 if (version != conversationVersion || owner.generation != com.factory.wms.data.api.RetrofitClient.sessionSnapshot().generation) return@launch
-                _uiState.value = _uiState.value.copy(isLoading = false,
+                _uiState.value = _uiState.value.copy(isLoading = false, failedDraft = trimmed,
                     error = "无法读取原请求，请保留输入和附件后重试：${error.message}")
                 return@launch
             }
@@ -113,7 +114,7 @@ class AssistantChatViewModel(application: Application) : AndroidViewModel(applic
             if (!allowNewConversation && pending.any {
                     it.operation.startsWith("assistant_chat:") && it.operation != "assistant_chat:$scopeAtSend"
                 }) {
-                _uiState.value = _uiState.value.copy(isLoading = false,
+                _uiState.value = _uiState.value.copy(isLoading = false, failedDraft = trimmed,
                     error = "上次 AI 请求仍待核实，请先在待核实提示中核实原请求；输入和附件已保留。确认开始另一笔业务时可清空对话。")
                 return@launch
             }

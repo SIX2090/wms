@@ -126,7 +126,7 @@ class NativeQuantityLayoutTest(private val fontScale: Float, private val quantit
     }
 
     @Test fun stocktakeSystemActualAndDifferenceStayComplete() = checkQuantities(
-        expected = { q, u -> listOf("账面 0$u → 实盘 ${formatQty(q)}$u", (if (q > 0) "+" else "") + formatQty(q)) }
+        expected = { q, u -> listOf("账面 0$u → 实盘 ${formatQty(q)}$u", "差异 " + (if (q > 0) "+" else "") + formatQty(q) + u) }
     ) { q, u ->
         StocktakeRecordDetailRow(StocktakeRecordDetailItemDto(materialCode = "M-1", unit = u,
             systemStock = 0.0, actualStock = q, difference = q, isDiff = q != 0.0))

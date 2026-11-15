@@ -961,7 +961,7 @@
             const prompt = (btn.getAttribute('data-prompt') || btn.textContent || '').trim();
             if (!prompt) return;
             panel.classList.add('open');
-            input.value = '';
+            // 点击建议或打开图片选择器时，保留用户尚未发送的输入。
             if (btn.getAttribute('data-ai-upload') === 'delivery-note' && imageInput) {
                 pendingUploadPrompt = prompt;
                 imageInput.click();

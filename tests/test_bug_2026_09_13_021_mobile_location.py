@@ -7,7 +7,11 @@ ROOT = Path(__file__).resolve().parents[1] / 'app/android-native-wms/app/src/mai
 def test_outbound_location_input_and_line_binding():
     source = (ROOT / 'ui/screens/ScanScreens.kt').read_text(encoding='utf-8')
     outbound = source.split('fun OutboundScreen(', 1)[1]
-    assert outbound.count('location_code = uiState.selectedLocation.ifBlank { null }') >= 2
+    assert 'location_code = uiState.selectedLocation.ifBlank { null }' in outbound
+    assert 'viewModel.addCameraScanLine(barcode, uiState.selectedLocation.ifBlank { null })' in outbound
+    vm = (ROOT / 'ui/viewmodel/scan/ScanViewModel.kt').read_text(encoding='utf-8')
+    camera = vm.split('fun addCameraScanLine(', 1)[1].split('private fun quantityDraftKey', 1)[0]
+    assert 'location_code = location' in camera and 'return addScanLine(' in camera
     base = (ROOT / 'ui/screens/ScanScreenBase.kt').read_text(encoding='utf-8')
     assert 'ScanLocationSelector(viewModel)' in base
     selector = (ROOT / 'ui/components/ScanLocationSelector.kt').read_text(encoding='utf-8')

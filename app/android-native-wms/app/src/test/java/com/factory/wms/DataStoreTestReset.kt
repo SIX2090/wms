@@ -70,6 +70,18 @@ class WmsSettingsDataStoreRule : ExternalResource() {
     override fun after() { owner?.close(); owner = null }
 }
 
+/** App-scoped pending writes outlive individual ViewModels; drain before closing the test store. */
+internal fun drainPendingQuantityDraftWrites(drainMain: () -> Unit) {
+    val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+    while (com.factory.wms.ui.viewmodel.scan.hasPendingQuantityDraftWrites() && System.nanoTime() < deadline) {
+        drainMain()
+        Thread.sleep(1)
+    }
+    check(!com.factory.wms.ui.viewmodel.scan.hasPendingQuantityDraftWrites()) {
+        "Quantity draft writes did not finish before isolated DataStore closed"
+    }
+}
+
 /** Raw ViewModels have no owner to clear them. Finish their Main callbacks before closing the store. */
 internal fun closeWmsTestViewModels(
     models: Iterable<ViewModel>,
@@ -83,4 +95,5 @@ internal fun closeWmsTestViewModels(
         Thread.sleep(1)
     }
     check(jobs.all { it.isCompleted }) { "ViewModel scopes did not finish before their DataStore fixture closed" }
+    drainPendingQuantityDraftWrites(drainMain)
 }

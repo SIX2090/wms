@@ -54,22 +54,22 @@ def _extract_function(source: str, signature: str) -> str:
 # ---------------------------------------------------------------------------
 
 def test_home_groups_prioritize_primary_tasks():
-    # 2026-11-15 用户授权改为分组工作台；十四个入口的真实点击由 NativeWorkbenchTest 验证。
     src = _read()
-    for group in ("开始作业", "查询与报表", "资料与工具"):
-        assert f'HomeSectionTitle("{group}")' in src
-    assert 'HomePrimaryTask(cards[0]' in src and 'HomePrimaryTask(cards[1]' in src
-    assert 'HomeEntryRow(cards[2]' in src
+    assert 'HomeSectionTitle("常用操作")' in src
+    assert 'HomeSectionTitle("更多功能")' in src
+    assert 'HomeTileGrid(cards.take(3), onNavigate, largeFont)' in src
+    assert 'HomeTileGrid(cards.drop(3), onNavigate, largeFont)' in src
+    # Fourteen actual navigation callbacks are exercised in NativeHomeBaselineTest.
 
 
 def test_secondary_inventory_actions_share_available_width():
-    # 新版不用三列末行占位；两张次级作业卡按相同权重布局，内容决定高度。
     src = _read()
-    assert 'listOf(cards[3], cards[4]).forEach' in src
-    assert 'FunctionCardItem(card, Modifier.weight(1f)' in src
-    assert 'HomeEntryGrid(cards.filter' in src
-    assert 'cards.chunked(columns)' in src
-    assert 'LocalDensity.current.fontScale > 1.3f' in src
+    grid = _extract_function(src, "private fun HomeTileGrid(")
+    assert 'if (largeFont) 2 else 3' in grid
+    assert 'cards.chunked(columns)' in grid
+    assert 'Modifier.weight(1f)' in grid
+    assert 'onNavigate(card.screen)' in grid
+    assert 'heightIn(min = 96.dp)' in grid
 
 
 # ---------------------------------------------------------------------------
@@ -78,9 +78,10 @@ def test_secondary_inventory_actions_share_available_width():
 
 def test_card_height_reduced():
     src = _read()
-    assert "heightIn(min = 80.dp)" in src
-    assert "height(104.dp)" not in src, "固定高度会裁切放大字体"
-    assert "height(168.dp)" not in src, "仍残留 168.dp 高度"
+    grid = _extract_function(src, "private fun HomeTileGrid(")
+    assert "heightIn(min = 96.dp)" in grid
+    assert "height(104.dp)" not in grid, "固定高度会裁切放大字体"
+    assert "height(168.dp)" not in grid, "仍残留 168.dp 高度"
 
 
 def test_card_title_wraps_without_redundant_subtitle():
@@ -107,11 +108,11 @@ def test_overview_values_adapt_without_truncation():
 
 
 def test_overview_row_top_aligned():
-    src = _read()
-    body = _extract_function(src, "fun TodayOverviewBar(")
-    assert "verticalAlignment = Alignment.Top" in body, (
-        "概览条 Row 未顶对齐，四格 sub 行数不一致时会错位"
-    )
+    body = _extract_function(_read(), "fun TodayOverviewBar(")
+    assert 'height(IntrinsicSize.Min)' in body
+    assert '.fillMaxHeight()' in body
+    assert 'verticalAlignment = Alignment.CenterVertically' not in body
+    assert 'Text(data.second' in body and 'Text(data.first' in body and 'Text(data.third' in body
 
 
 def test_overview_alert_text_shortened():
@@ -126,10 +127,11 @@ def test_overview_alert_text_shortened():
 
 def test_workbench_uses_shared_spacing_and_scroll():
     src = _read()
-    assert '.padding(WmsDimens.PagePaddingHorizontal)' in src
-    assert '.verticalScroll(rememberScrollState())' in src
-    assert 'Brush.verticalGradient' not in src
-    assert 'padding(top = 16.dp, bottom = 48.dp)' not in src
+    body = _extract_function(src, "internal fun HomeWorkbench(")
+    assert '.verticalScroll(rememberScrollState())' in body
+    assert '.padding(horizontal = 16.dp' in body
+    assert 'Primary.readableOn(Color.White)' in body
+    assert 'Brush.verticalGradient' not in body
 
 
 def test_overview_states_remain_in_normal_flow():

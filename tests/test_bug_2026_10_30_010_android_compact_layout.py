@@ -65,7 +65,7 @@ def test_clear_requires_confirmation_and_respects_pending_submission():
     summary = source.split("// Summary bar", 1)[1].split("// Scan list", 1)[0]
     assert "onClick = { showClearConfirmation = true }" in summary
     assert "viewModel.clearScanLines()" not in summary
-    dialog = source.split("if (showClearConfirmation)", 1)[1].split("pendingQuantityEdit?.let", 1)[0]
+    dialog = source.split("if (showClearConfirmation)", 1)[1].split("if (showDiscardQuantityEdits)", 1)[0]
     assert "!isLoading && scanState.pendingSubmissionId == null" in dialog
     assert "viewModel.clearScanLines()" in dialog.split("dismissButton", 1)[0]
     assert "viewModel." not in dialog.split("dismissButton", 1)[1]
@@ -75,31 +75,35 @@ def test_material_specs_are_not_truncated_and_quantity_edit_is_preserved():
     source = read("ui/screens/ScanScreenBase.kt")
     assert "WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)" in source
     details = read("ui/components/WmsRecordContent.kt").split("fun WmsQuantityText", 1)[0]
-    assert "softWrap = true" in details
-    assert "maxLines" not in details
-    assert "pendingQuantityEdit = line" in source
-    assert "viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)" in source
-    assert 'Text("数量"' in source
-    assert 'Icons.Outlined.Edit' in source
+    assert "softWrap = true" in details and "maxLines" not in details
+    assert "ScanQuantityStepper(line = line" in source
+    assert "viewModel.setQuantityDraft(quantityKey(line), draft)" in source
+    assert "viewModel.updateScanLineQuantity(expected, quantity, allowZeroQuantity)" in source
+    stepper = read("ui/components/ScanQuantityStepper.kt")
+    assert "KeyboardType.Decimal" in stepper and "BasicTextField" in stepper
+    assert 'contentDescription = "减少数量：' in stepper and 'contentDescription = "增加数量：' in stepper
+    assert stepper.count('Modifier.size(48.dp)') >= 2 and '.heightIn(min = 48.dp)' in stepper
 
 
 def test_empty_submit_removed_and_search_copy_fits_one_line():
     base = read("ui/screens/ScanScreenBase.kt")
     actions = base.split("// Bottom actions", 1)[1].split("// Manual add dialog", 1)[0]
     assert actions.index("if (scanLines.isNotEmpty())") < actions.index("WmsPrimaryButton(")
-    assert "onClick = onSubmitClick" in actions
-    assert ".padding(horizontal = 16.dp, vertical = 8.dp)" in actions
+    assert 'viewModel.uiState.value.quantityDrafts.isEmpty()' in actions and 'onSubmitClick()' in actions
+    assert 'enabled = scanLines.isNotEmpty() && quantityDrafts.isEmpty()' in actions
     assert 'placeholder = { Text("名称 / 编码 / 规格", maxLines = 1' in read("ui/screens/ScanScreens.kt")
 
 
 def test_home_keeps_all_destinations_and_profile_shows_selectable_full_address():
     home = read("ui/screens/HomeScreen.kt")
     assert home.count("FunctionCard(") == 15
-    for title in ("开始作业", "查询与报表", "资料与工具"):
-        assert f'HomeSectionTitle("{title}")' in home
+    assert 'HomeSectionTitle("常用操作")' in home and 'HomeSectionTitle("更多功能")' in home
+    assert 'HomeTileGrid(cards.take(3)' in home and 'HomeTileGrid(cards.drop(3)' in home
     assert '"当前服务器"' not in home
     profile = read("ui/screens/ProfileScreen.kt")
     server = profile.split('ProfileSectionCard("服务器信息")', 1)[1].split('// ── 扫码设置', 1)[0]
     assert "SelectionContainer" in server and "uiState.baseUrl" in server
     assert "TextOverflow.Ellipsis" not in server
-    assert "ScanFeedback.setEnabled(context, enabled)" in profile
+    assert 'ClipData.newPlainText("服务器地址", uiState.baseUrl)' in server
+    assert 'ScanFeedback.setSoundEnabled(context, value)' in profile
+    assert 'ScanFeedback.setVibrationEnabled(context, value)' in profile

@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +32,8 @@ import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
 import com.factory.wms.ui.components.WmsExpandableSection
 import com.factory.wms.ui.components.WmsMaterialIdentity
 import com.factory.wms.ui.components.WmsQuantityText
+import com.factory.wms.ui.components.ScanQuantityStepper
+import androidx.activity.compose.BackHandler
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.components.WmsOutlinedActionButton
@@ -63,6 +66,8 @@ import android.net.Uri
 import java.io.ByteArrayOutputStream
 import android.util.Base64
 
+enum class ScanBarcodeResult { Added, NeedsConfirmation, Rejected }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanScreenBase(
@@ -83,7 +88,7 @@ fun ScanScreenBase(
     onManualCodeChange: (String) -> Unit,
     onManualQtyChange: (String) -> Unit,
     onManualAdd: () -> Unit,
-    onScanBarcode: (String) -> Unit,
+    onScanBarcode: (String) -> ScanBarcodeResult,
     onSubmitClick: () -> Unit,
     submitLabel: String,
     submitColor: Color,
@@ -130,11 +135,18 @@ fun ScanScreenBase(
     var showCameraScanner by remember { mutableStateOf(false) }
     var showClearConfirmation by remember { mutableStateOf(false) }
     var pendingRemoval by remember { mutableStateOf<ScanLine?>(null) }
-    var pendingQuantityEdit by remember { mutableStateOf<ScanLine?>(null) }
-    var editedQuantity by remember { mutableStateOf(TextFieldValue("")) }
-    var quantityError by remember { mutableStateOf<String?>(null) }
-    val haptics = LocalHapticFeedback.current
     val scanState by viewModel.uiState.collectAsState()
+    val quantityDrafts = scanState.quantityDrafts
+    fun quantityKey(line: ScanLine): String {
+        val location = line.location_code.orEmpty()
+        return "${line.material_code.length}:${line.material_code}${location.length}:$location"
+    }
+    var showDiscardQuantityEdits by remember { mutableStateOf(false) }
+    fun requestBack() {
+        if (quantityDrafts.isNotEmpty()) showDiscardQuantityEdits = true else onBack()
+    }
+    BackHandler(enabled = quantityDrafts.isNotEmpty()) { requestBack() }
+    val haptics = LocalHapticFeedback.current
     val scanFeedback = scanState.scanFeedback.takeIf { scanLines.isNotEmpty() }
     if (showClearConfirmation) {
         AlertDialog(
@@ -146,6 +158,9 @@ fun ScanScreenBase(
                     enabled = !isLoading && scanState.pendingSubmissionId == null,
                     onClick = {
                         viewModel.clearScanLines()
+                        if (viewModel.uiState.value.scanLines.isEmpty() && !viewModel.uiState.value.editDraftUnreadable) {
+                            viewModel.clearQuantityDrafts()
+                        }
                         showClearConfirmation = false
                     }
                 ) { Text("确认清空") }
@@ -155,57 +170,14 @@ fun ScanScreenBase(
             }
         )
     }
-    pendingQuantityEdit?.let { line ->
-        val quantityFocus = remember { FocusRequester() }
-        fun saveQuantity() {
-            val quantity = editedQuantity.text.trim().toDoubleOrNull()
-            if (quantity == null || !quantity.isFinite() || quantity < 0.0 ||
-                (!allowZeroQuantity && quantity == 0.0)) {
-                quantityError = if (allowZeroQuantity) "请输入大于或等于 0 的有效数量"
-                    else "请输入大于 0 的有效数量"
-                return
-            }
-            if (viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)) {
-                pendingQuantityEdit = null
-            } else {
-                quantityError = viewModel.uiState.value.error ?: "当前不可修改数量，请稍后重试"
-            }
-        }
-        AlertDialog(
-            onDismissRequest = { pendingQuantityEdit = null },
-            title = { Text("修改数量") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("${line.material_code} ${line.material_name.orEmpty()}")
-                    line.location_code?.takeIf { it.isNotBlank() }?.let { Text("库位/区域：$it") }
-                    OutlinedTextField(
-                        value = editedQuantity,
-                        onValueChange = { editedQuantity = it; quantityError = null },
-                        label = { Text("数量（确切值）") },
-                        supportingText = { Text(quantityError ?: "输入修改后的总数量，支持小数") },
-                        isError = quantityError != null,
-                        singleLine = true,
-                        modifier = Modifier.focusRequester(quantityFocus),
-                        enabled = !isLoading && scanState.pendingSubmissionId == null,
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(onDone = { saveQuantity() })
-                    )
-                    LaunchedEffect(line) { quantityFocus.requestFocus() }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !isLoading && scanState.pendingSubmissionId == null,
-                    onClick = { saveQuantity() }
-                ) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingQuantityEdit = null }) { Text("取消") }
-            }
-        )
+    if (showDiscardQuantityEdits) {
+        AlertDialog(onDismissRequest = { showDiscardQuantityEdits = false },
+            title = { Text("数量尚未确认") },
+            text = { Text("返回将放弃未确认的数量输入，已确认的数量保持不变。") },
+            confirmButton = { TextButton(onClick = {
+                viewModel.clearQuantityDrafts(); showDiscardQuantityEdits = false; onBack()
+            }) { Text("放弃输入并返回") } },
+            dismissButton = { TextButton(onClick = { showDiscardQuantityEdits = false }) { Text("继续修改") } })
     }
     pendingRemoval?.let { line ->
         AlertDialog(
@@ -218,6 +190,9 @@ fun ScanScreenBase(
                 TextButton(enabled = !isLoading, onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     viewModel.removeScanLine(line)
+                    if (viewModel.uiState.value.scanLines.none { quantityKey(it) == quantityKey(line) }) {
+                        viewModel.setQuantityDraft(quantityKey(line), null)
+                    }
                     pendingRemoval = null
                 }) { Text("确认移除") }
             },
@@ -274,7 +249,8 @@ fun ScanScreenBase(
                 title = title,
                 subtitle = subtitle,
                 accent = gradient,
-                onBack = onBack
+                onBack = ::requestBack,
+                blueBackground = true
             )
         }
     ) { padding ->
@@ -499,31 +475,21 @@ fun ScanScreenBase(
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     WmsMaterialIdentity(line.material_code, line.material_name, line.material_brand, line.material_spec)
+                                    line.location_code?.takeIf { it.isNotBlank() }?.let {
+                                        Text("库位/区域：$it", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                                    }
                                     HorizontalDivider(color = DividerSoft)
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Surface(
-                                            onClick = {
-                                                val text = formatQuantity(line.quantity)
-                                                editedQuantity = TextFieldValue(text, selection = TextRange(0, text.length))
-                                                quantityError = null
-                                                pendingQuantityEdit = line
+                                        ScanQuantityStepper(line = line, enabled = !isLoading && scanState.pendingSubmissionId == null,
+                                            allowZero = allowZeroQuantity, draft = quantityDrafts[quantityKey(line)],
+                                            onDraft = { draft ->
+                                                viewModel.setQuantityDraft(quantityKey(line), draft)
                                             },
-                                            enabled = !isLoading && scanState.pendingSubmissionId == null,
-                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics {
-                                                contentDescription = "修改数量：${line.material_code} ${line.location_code.orEmpty()}"
-                                            },
-                                            shape = MaterialTheme.shapes.small,
-                                            color = MaterialTheme.colorScheme.surfaceVariant
-                                        ) {
-                                            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Text("数量", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                                                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.weight(1f))
-                                                Icon(Icons.Outlined.Edit, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
-                                            }
-                                        }
+                                            onUpdate = { expected, quantity -> viewModel.updateScanLineQuantity(expected, quantity, allowZeroQuantity) },
+                                            accent = gradient.readableOn(CardBackground),
+                                            failureMessage = { viewModel.uiState.value.error ?: "数量未修改，请核对后重试" },
+                                            modifier = Modifier.weight(1f))
                                         IconButton(onClick = { pendingRemoval = line }, enabled = !isLoading,
                                             modifier = Modifier.size(WmsDimens.TouchTargetMin)) {
                                             Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
@@ -581,15 +547,29 @@ fun ScanScreenBase(
                     // Submit button（AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton，
                     // 触觉确认由组件内置——提交是关键动作，避免嘈杂现场重复点）
                     if (scanLines.isNotEmpty()) {
-                        WmsPrimaryButton(
-                            text = submitLabel,
-                            onClick = onSubmitClick,
-                            modifier = Modifier.fillMaxWidth(),
-                            icon = Icons.Outlined.CheckCircle,
-                            color = submitColor,
-                            loading = isLoading,
-                            enabled = scanLines.isNotEmpty()
-                        )
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(0.38f)) {
+                                Text("${scanLines.map { it.material_code }.distinct().size} 种物料",
+                                    style = MaterialTheme.typography.bodyMedium)
+                                WmsQuantityText(formatQuantity(totalQuantity))
+                                val units = scanLines.map { it.material_unit?.takeIf { unit -> unit.isNotBlank() } }
+                                val commonUnit = units.firstOrNull()?.takeIf { unit -> units.all { it == unit } }
+                                Text(commonUnit?.let { "合计（$it）" } ?: "明细数值合计",
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
+                            WmsPrimaryButton(
+                                text = submitLabel,
+                                onClick = { if (viewModel.uiState.value.quantityDrafts.isEmpty()) onSubmitClick() },
+                                modifier = Modifier.weight(0.62f),
+                                icon = Icons.Outlined.CheckCircle,
+                                color = submitColor,
+                                loading = isLoading,
+                                enabled = scanLines.isNotEmpty() && quantityDrafts.isEmpty()
+                            )
+                        }
+                        if (quantityDrafts.isNotEmpty()) Text("请先确定或取消数量修改", color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium)
                     }
 
                     if (materialSuggestionsLoading) {
@@ -637,7 +617,8 @@ fun ScanScreenBase(
                             onClick = onExtraAction,
                             modifier = Modifier.fillMaxWidth(),
                             icon = Icons.Outlined.CameraAlt,
-                            color = submitColor
+                            color = submitColor,
+                            enabled = quantityDrafts.isEmpty()
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -659,7 +640,8 @@ fun ScanScreenBase(
                             },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.QrCodeScanner,
-                            color = submitColor
+                            color = submitColor,
+                            enabled = quantityDrafts.isEmpty()
                         )
                         } else {
                         WmsOutlinedActionButton(
@@ -673,7 +655,8 @@ fun ScanScreenBase(
                             },
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.QrCodeScanner,
-                            color = submitColor
+                            color = submitColor,
+                            enabled = quantityDrafts.isEmpty()
                         )
                         }
                         WmsOutlinedActionButton(
@@ -681,7 +664,8 @@ fun ScanScreenBase(
                             onClick = onShowScanner,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.Edit,
-                            color = submitColor
+                            color = submitColor,
+                            enabled = quantityDrafts.isEmpty()
                         )
                     }
                 }
@@ -759,23 +743,24 @@ fun ScanScreenBase(
                                                 }
                                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                material.code.orEmpty(),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                softWrap = true
+                                            )
+                                            if (!material.name.isNullOrBlank()) {
                                                 Text(
-                                                    material.code.orEmpty(),
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    material.name.orEmpty(),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
-                                                if (!material.name.isNullOrBlank()) {
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        material.name.orEmpty(),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
                                             }
                                             if (specBrand.isNotBlank()) {
                                                 Spacer(modifier = Modifier.height(2.dp))
@@ -902,6 +887,7 @@ fun ScanScreenBase(
     if (showCameraScanner) {
         ScannerDialog(
             onDismiss = { showCameraScanner = false },
+            onManualInput = { showCameraScanner = false; onShowScanner() },
             continuous = true,
             scannedCount = continuousScanCount,
             lastScannedCode = lastScannedCode,
@@ -909,17 +895,21 @@ fun ScanScreenBase(
             onBarcodeScanned = { barcode ->
                 // AI-MOB-CONTINUOUS-SCAN-01：不再关弹窗，扫中即累计，
                 // 用户点"完成"才退出（onDismiss 由弹窗内部按钮触发）。
-                continuousScanCount += 1
-                lastScannedCode = barcode
-                onScanBarcode(barcode)
-                // AI-MOB-SCAN-UX-01：声音+震动反馈。
-                // 现场工人不看屏幕，靠体感分辨"这一件进去了没有"。
-                // 未建档的码用双震+低频音区分，避免一路扫下去到提交才发现有行查无此物。
-                scope.launch {
-                    if (viewModel.materialExists(barcode)) {
-                        ScanFeedback.success(context)
-                    } else {
-                        ScanFeedback.failure(context)
+                when (onScanBarcode(barcode)) {
+                    ScanBarcodeResult.Added -> {
+                        continuousScanCount += 1
+                        lastScannedCode = barcode
+                        // 仅在明细已接收后播报；档案不存在仍使用原有失败反馈。
+                        scope.launch {
+                            if (viewModel.materialExists(barcode)) ScanFeedback.success(context)
+                            else ScanFeedback.failure(context)
+                        }
+                    }
+                    // 先关闭相机，避免重复盘点确认或错误提示被取景画面遮挡。
+                    ScanBarcodeResult.NeedsConfirmation -> showCameraScanner = false
+                    ScanBarcodeResult.Rejected -> {
+                        showCameraScanner = false
+                        scope.launch { snackbarHostState.showSnackbar("本次扫码未加入清单，请检查当前作业状态") }
                     }
                 }
             }

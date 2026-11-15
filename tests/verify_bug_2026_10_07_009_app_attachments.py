@@ -210,7 +210,7 @@ def test_feature_012_bubble_thumbnail_and_viewer():
     """FEATURE-012：气泡渲染图片缩略图 + 点击全屏查看器"""
     content = _screen_content()
     # 气泡里渲染缩略图（有图时不再只有文字占位）
-    bubble_section = content[content.find('private fun AssistantMessageBubble'):content.find('private fun FullScreenImageViewer')]
+    bubble_section = content[content.find('internal fun AssistantMessageBubble'):content.find('private fun FullScreenImageViewer')]
     assert 'message.image != null' in bubble_section, '气泡不区分有无图片'
     assert 'BitmapFactory.decodeByteArray' in bubble_section, '气泡不解码图片'
     assert 'onImageClick' in bubble_section, '缩略图不可点击'

@@ -605,3 +605,12 @@ POST_SPLIT_BUGS['BUG-2026-11-15-017'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-15-018'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-15-019'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-15-020'] = 'fixed'
+
+# Android UI refinement: local code classification; exact CI and activation are separate.
+POST_SPLIT_BUGS['BUG-2026-11-16-001'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-002'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-003'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-005'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-006'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-16-007'] = 'fixed'

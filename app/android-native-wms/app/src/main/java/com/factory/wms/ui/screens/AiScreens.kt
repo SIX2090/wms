@@ -14,6 +14,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -28,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -51,7 +54,7 @@ import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.components.WmsOutlinedActionButton
 import com.factory.wms.ui.components.WmsPrimaryButton
 import com.factory.wms.ui.theme.*
-import com.factory.wms.ui.util.toPositiveQtyOrNull
+import com.factory.wms.ui.util.toQtyOrNull
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.util.formatQuantity
@@ -97,7 +100,7 @@ fun DocumentOcrScreen(
         onClearError = { viewModel.clearError() },
         emptyIcon = Icons.Outlined.Description,
         emptyTitle = "拍照或选择单据图片",
-        emptySubtitle = "支持送货单、入库单、出库单等\nAI自动识别并生成入库草稿",
+        emptySubtitle = "支持送货单、入库单、出库单等\n识别后请核对，再生成入库草稿",
         imageContentDescription = "单据图片",
         onImageChanged = { viewModel.clearOcrResult() }
     ) { imageUri, _ ->
@@ -130,6 +133,9 @@ fun DocumentOcrScreen(
             // OCR Results
             uiState.ocrResult?.let { result ->
                 Spacer(modifier = Modifier.height(20.dp))
+                Text("识别完成，请核对后生成草稿", style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -150,7 +156,7 @@ fun DocumentOcrScreen(
                                 }
                             }
                         },
-                        modifier = Modifier.height(40.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
                         color = CardTeal,
                         enabled = !uiState.isExportingExcel && imageUri != null
                     )
@@ -237,7 +243,7 @@ fun DocumentOcrScreen(
                                         "${result.items.size} 项",
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                                         color = Primary,
-                                        fontSize = 12.sp,
+                                        fontSize = 14.sp,
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
@@ -245,69 +251,7 @@ fun DocumentOcrScreen(
                             Spacer(modifier = Modifier.height(10.dp))
 
                             result.items.forEachIndexed { index, item ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(14.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = SurfaceVariant.copy(alpha = 0.5f)
-                                    ),
-                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(14.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                            Text(
-                                                item.name ?: item.code ?: "物料 ${index + 1}",
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 14.sp
-                                            )
-                                            if (!item.spec.isNullOrBlank()) {
-                                                Text(
-                                                    "规格: ${item.spec}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = OnSurfaceVariant
-                                                )
-                                            }
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(6.dp),
-                                                    color = if (item.matched == true) PrimaryContainer
-                                                    else ErrorContainer.copy(alpha = 0.6f)
-                                                ) {
-                                                    Text(
-                                                        if (item.matched == true) "已匹配" else "未建档",
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                                        color = if (item.matched == true) Primary else Error,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(PrimaryContainer),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                "x${formatQuantity(item.quantity ?: 1.0)}",
-                                                color = Primary,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
-                                }
+                                DocumentOcrItemCard(item, index)
                                 if (index < result.items.size - 1) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
@@ -383,7 +327,7 @@ fun DocumentOcrScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        "存在 $unmatchedCount 行未建档物料",
+                                        "存在 $unmatchedCount 行尚未确认匹配",
                                         style = MaterialTheme.typography.labelLarge,
                                         fontWeight = FontWeight.SemiBold,
                                         color = Error
@@ -391,7 +335,7 @@ fun DocumentOcrScreen(
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    "存在 $unmatchedCount 行未匹配到建档物料。开启自动建档后，将按识别出的名称/规格自动建立物料档案并生成入库草稿；不开启则这些行会被拦截。",
+                                    "存在 $unmatchedCount 行尚未匹配到档案。开启自动建档后，将按识别出的名称/规格自动建立物料档案并生成入库草稿；不开启则这些行会被拦截。",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = OnSurfaceVariant,
                                     lineHeight = 18.sp
@@ -499,7 +443,7 @@ fun DocumentOcrScreen(
                     // 确认生成草稿按钮（AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton）
                     Spacer(modifier = Modifier.height(20.dp))
                     WmsPrimaryButton(
-                        text = if (uiState.draftSubmitting) "生成中..." else "确认生成入库草稿",
+                        text = if (uiState.draftSubmitting) "生成中..." else "生成入库草稿",
                         onClick = {
                             if (autoCreateMaterial && unmatchedCount > 0) {
                                 showAutoCreateConfirm = true
@@ -517,7 +461,7 @@ fun DocumentOcrScreen(
                             (if (autoCreateMaterial) matchedCount + unmatchedCount > 0 else matchedCount > 0)
                     )
                     Text(
-                        "确认后生成 pending 草稿，不直接加库存，需在 WEB 端人工复核后正式入库。",
+                        "仅生成待处理草稿，不直接增加库存；须在电脑端人工核对并完成入库。",
                         modifier = Modifier.padding(top = 8.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = OnSurfaceVariant
@@ -709,13 +653,13 @@ fun ObjectRecognizeScreen(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                                extracted.code?.let { OcrResultRow("物料编码", it) }
+                                OcrResultRow("物料编码", extracted.code?.takeIf { it.isNotBlank() } ?: "未识别")
                                 extracted.name?.let { OcrResultRow("物料名称", it) }
                                 extracted.spec?.let { OcrResultRow("规格型号", it) }
                                 extracted.description?.let { OcrResultRow("外观特征", it) }
-                                extracted.quantity?.let { OcrResultRow("数量", formatQuantity(it)) }
+                                extracted.quantity?.let { OcrResultRow("数量", "约 ${formatQuantity(it)}") }
                                 extracted.confidence?.let {
-                                    OcrResultRow("置信度", "${"%.0f".format(it * 100)}%")
+                                    OcrResultRow("图像识别置信度", "${"%.0f".format(it * 100)}%")
                                 }
                             }
                         }
@@ -750,23 +694,30 @@ fun ObjectRecognizeScreen(
                                         fontWeight = FontWeight.Bold,
                                         color = Primary,
                                         fontSize = 16.sp,
-                                        // AI-APP-FIX-508：长编码单行省略，不把库存徽标挤出屏外
                                         modifier = Modifier.weight(1f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        fontFamily = FontFamily.Monospace,
+                                        softWrap = true
                                     )
+                                    val matchedStock = material.stock
+                                    val stockAvailable = matchedStock != null && matchedStock > (material.minStock ?: 0.0)
                                     Surface(
                                         shape = RoundedCornerShape(20.dp),
-                                        color = if ((material.stock ?: 0.0) > (material.minStock ?: 0.0))
-                                            SuccessContainer else ErrorContainer
+                                        color = when {
+                                            matchedStock == null -> MaterialTheme.colorScheme.surfaceVariant
+                                            stockAvailable -> SuccessContainer
+                                            else -> ErrorContainer
+                                        }
                                     ) {
                                         Text(
-                                            "库存: ${formatQuantity(material.stock ?: 0.0)}",
+                                            "库存: ${matchedStock?.let(::formatQuantity) ?: "未获取"}",
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                            fontSize = 12.sp,
+                                            fontSize = 14.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = if ((material.stock ?: 0.0) > (material.minStock ?: 0.0))
-                                                Success else Error
+                                            color = when {
+                                                matchedStock == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                stockAvailable -> Success
+                                                else -> Error
+                                            }
                                         )
                                     }
                                 }
@@ -796,7 +747,7 @@ fun ObjectRecognizeScreen(
                                         color = OnSurfaceVariant
                                     )
                                     Text(
-                                        "¥${"%.2f".format(material.price ?: 0.0)}",
+                                        material.price?.let { "¥${"%.2f".format(it)}" } ?: "未获取",
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.SemiBold,
                                         color = OnSurface
@@ -880,6 +831,49 @@ fun StocktakeRecognizeScreen(
     val coroutineScope = rememberCoroutineScope()
     // 盘点实际数量（默认取识别数量，可编辑）
     var countQty by remember { mutableStateOf("1") }
+    var duplicateLine by remember { mutableStateOf<Pair<ScanLine, Double>?>(null) }
+    var duplicateError by remember { mutableStateOf<String?>(null) }
+
+    duplicateLine?.let { (line, previous) ->
+        val sum = previous + line.quantity
+        val unit = line.material_unit?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+        AlertDialog(
+            onDismissRequest = { duplicateLine = null; duplicateError = null },
+            title = { Text("该物料已盘点") },
+            text = {
+                Column {
+                    Text("${line.material_code}｜${line.material_name.orEmpty()}")
+                    Text("原实盘：${formatQuantity(previous)}$unit；本次：${formatQuantity(line.quantity)}$unit")
+                    Text(if (sum.isFinite()) "累加后 ${formatQuantity(sum)}$unit；替换后 ${formatQuantity(line.quantity)}$unit" else "累加数量过大，请重新核对")
+                    duplicateError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        val current = scanViewModel.uiState.value.scanLines.singleOrNull {
+                            it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty()
+                        }
+                        val ok = current != null && current.quantity == previous && sum.isFinite() &&
+                            scanViewModel.updateScanLineQuantity(current, sum, allowZero = true)
+                        if (ok) { duplicateLine = null; onBack() }
+                        else duplicateError = "清单已变化或数量无效，请重新核对"
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text("累加") }
+                    TextButton(onClick = {
+                        val current = scanViewModel.uiState.value.scanLines.singleOrNull {
+                            it.material_code == line.material_code && it.location_code.orEmpty() == line.location_code.orEmpty()
+                        }
+                        val ok = current != null && current.quantity == previous &&
+                            scanViewModel.updateScanLineQuantity(current, line.quantity, allowZero = true)
+                        if (ok) { duplicateLine = null; onBack() }
+                        else duplicateError = "清单已变化，请重新核对"
+                    }, modifier = Modifier.heightIn(min = 48.dp)) { Text("替换为本次数量") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { duplicateLine = null; duplicateError = null },
+                modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } }
+        )
+    }
 
     // 识别结果带出数量时作为默认盘点数量
     LaunchedEffect(uiState.recognizedMaterial) {
@@ -899,11 +893,21 @@ fun StocktakeRecognizeScreen(
         onClearError = { aiViewModel.clearError() },
         emptyIcon = Icons.Outlined.CameraAlt,
         emptyTitle = "拍照识别物料标签",
-        emptySubtitle = "拍摄物料、标签或包装\nAI自动识别并加入盘点清单",
+        emptySubtitle = "拍摄物料、标签或包装\n识别后请人工核对并加入清单",
         imageContentDescription = "物料图片",
         onImageChanged = {
             countQty = "1"
             aiViewModel.clearRecognizedMaterial()
+        },
+        contextContent = {
+            Card(modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(12.dp)) {
+                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("盘点单：${scanState.selectedCheckOrder?.checkNo ?: "未选择"}", style = MaterialTheme.typography.bodyMedium)
+                    Text("仓库：${scanState.selectedWarehouse?.name ?: scanState.selectedWarehouse?.code ?: "未选择"}", style = MaterialTheme.typography.bodyMedium)
+                    Text("区域：${scanState.selectedLocation.ifBlank { "未选择" }}", style = MaterialTheme.typography.bodyMedium)
+                }
+            }
         }
     ) { imageUri, snackbarHostState ->
         if (imageUri != null) {
@@ -999,7 +1003,7 @@ fun StocktakeRecognizeScreen(
                 // AI-APP-FIX-104：多候选时渲染可点选列表，用户确认要盘点的物料。
                 if (matches.size > 1) {
                     Text(
-                        "识别到 ${matches.size} 个候选物料，请选择要盘点的物料",
+                        "找到 ${matches.size} 个候选物料，请人工选择",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.SemiBold,
                         color = OnSurface
@@ -1011,7 +1015,8 @@ fun StocktakeRecognizeScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(16.dp))
-                                .clickable { selectedMatchCode = material.code },
+                                .selectable(selected = selected, enabled = material.code != null, role = Role.RadioButton,
+                                    onClick = { selectedMatchCode = material.code }),
                             shape = RoundedCornerShape(16.dp),
                             border = if (selected) BorderStroke(2.dp, CardPurple) else null,
                             colors = CardDefaults.cardColors(
@@ -1042,13 +1047,9 @@ fun StocktakeRecognizeScreen(
                                         )
                                     }
                                 }
-                                if (selected) {
-                                    Icon(
-                                        Icons.Filled.CheckCircle,
-                                        contentDescription = "已选择",
-                                        tint = CardPurple,
-                                        modifier = Modifier.size(24.dp)
-                                    )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    RadioButton(selected = selected, onClick = null)
+                                    if (selected) Text("已人工选择", style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
@@ -1111,15 +1112,21 @@ fun StocktakeRecognizeScreen(
                     color = OnSurface
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+                if (result.extracted?.quantity != null) {
+                    Text("识别数量仅供参考，请人工核对实盘数量", style = MaterialTheme.typography.bodyMedium,
+                        color = OnSurfaceVariant)
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FilledIconButton(
                         onClick = {
-                            val current = countQty.toDoubleOrNull() ?: 1.0
-                            countQty = formatQuantity((current - 1).coerceAtLeast(0.0))
+                            countQty.toQtyOrNull(allowZero = true)?.let { current ->
+                                val next = java.math.BigDecimal.valueOf(current).subtract(java.math.BigDecimal.ONE).toDouble()
+                                if (next.isFinite() && next >= 0.0) countQty = formatQuantity(next)
+                            }
                         },
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = CardPurple.copy(alpha = 0.1f)
@@ -1140,8 +1147,8 @@ fun StocktakeRecognizeScreen(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        // AI-APP-FIX-105：非法/非正数量即时标红，配合添加按钮拦截提示。
-                        isError = countQty.toPositiveQtyOrNull() == null,
+                        // AI-APP-FIX-105：非法或负数量即时标红，配合添加按钮拦截提示。
+                        isError = countQty.toQtyOrNull(allowZero = true) == null,
                         // AI-MOB-SCAN-UX-01：识物盘点的实盘数量同样弹数字键盘。
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Decimal,
@@ -1155,10 +1162,12 @@ fun StocktakeRecognizeScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     FilledIconButton(
                         onClick = {
-                            val current = countQty.toDoubleOrNull() ?: 0.0
-                            countQty = formatQuantity(current + 1)
+                            countQty.toQtyOrNull(allowZero = true)?.let { current ->
+                                val next = java.math.BigDecimal.valueOf(current).add(java.math.BigDecimal.ONE).toDouble()
+                                if (next.isFinite() && next != current) countQty = formatQuantity(next)
+                            }
                         },
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
                             containerColor = CardPurple
@@ -1176,32 +1185,39 @@ fun StocktakeRecognizeScreen(
                 // 添加到盘点清单（AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton）
                 Spacer(modifier = Modifier.height(20.dp))
                 WmsPrimaryButton(
-                    text = "添加到盘点清单",
+                    text = "加入盘点清单",
                     onClick = {
                         val code = materialCode?.trim()
                         // AI-APP-FIX-105 / BUG-2026-09-26-001：非法数量必须拦截提示，
                         // 禁止 ?: 1.0 静默兜底（清空输入即按 1 盘入，现场无感知）。
                         // 注：自定义组件的命名参数 lambda 不支持参数名做 return 标签，
                         // 校验分支用 if/else 串联，不用 return@onClick 提前退出。
-                        val qty = countQty.toPositiveQtyOrNull()
+                        val qty = countQty.toQtyOrNull(allowZero = true)
                         if (code.isNullOrBlank()) {
                             coroutineScope.launch {
                                 snackbarHostState.showSnackbar("无法识别物料编码，请重试或手动添加", duration = SnackbarDuration.Short)
                             }
                         } else if (qty == null) {
                             coroutineScope.launch {
-                                snackbarHostState.showSnackbar("请输入大于 0 的有效数量", duration = SnackbarDuration.Short)
+                                snackbarHostState.showSnackbar("请输入大于或等于 0 的有效数量", duration = SnackbarDuration.Short)
                             }
                         } else {
-                            scanViewModel.addScanLine(ScanLine(material_code = code, quantity = qty,
-                                location_code = scanViewModel.uiState.value.selectedLocation.ifBlank { null }))
-                            coroutineScope.launch {
-                                snackbarHostState.showSnackbar(
-                                    "已加入盘点清单：$code x ${formatQuantity(qty)}",
-                                    duration = SnackbarDuration.Short
-                                )
+                            val selected = matches.firstOrNull { it.code == code }
+                            val line = ScanLine(material_code = code, quantity = qty,
+                                location_code = scanViewModel.uiState.value.selectedLocation.ifBlank { null },
+                                material_name = selected?.name, material_spec = selected?.spec,
+                                material_brand = selected?.brand, material_unit = selected?.unit)
+                            val previous = scanViewModel.existingLineQuantity(code, line.location_code)
+                            if (previous != null) {
+                                duplicateError = null
+                                duplicateLine = line to previous
+                            } else {
+                                scanViewModel.addScanLine(line)
+                                if (scanViewModel.existingLineQuantity(code, line.location_code) == qty) onBack()
+                                else coroutineScope.launch {
+                                    snackbarHostState.showSnackbar(scanViewModel.uiState.value.error ?: "未能加入清单，请核对后重试")
+                                }
                             }
-                            onBack()
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -1211,6 +1227,8 @@ fun StocktakeRecognizeScreen(
                     enabled = materialCode != null && !scanState.isLoading &&
                         scanState.pendingSubmissionId == null && scanState.stocktakeIdentityError == null
                 )
+                Text("加入清单后仍需提交盘点", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                WmsOutlinedActionButton("返回盘点", onClick = onBack, modifier = Modifier.fillMaxWidth(), color = CardPurple)
             }
 
             Spacer(modifier = Modifier.height(24.dp))

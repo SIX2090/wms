@@ -7,6 +7,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.PendingNativeWrite
@@ -36,19 +37,17 @@ internal fun PendingNativeWriteStatus(session: RetrofitClient.SessionSnapshot) {
         } catch (_: Exception) { readError = true }
     }
     if (rows.isEmpty() && !readError) return
-    TextButton(onClick = { showing = true }, modifier = Modifier.fillMaxWidth()) {
+    TextButton(onClick = { showing = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         Text(if (readError) "待核实提交记录暂不可读，请保留当前内容" else "${rows.size} 条提交待核实，点击查看原请求")
     }
     if (showing) AlertDialog(
         onDismissRequest = { if (!busy) showing = false },
-        title = { Text("当前账号的待核实提交") },
+        title = { Text("需要核实原提交请求") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("原内容和请求号已保留。核实会按原请求查询或完成原提交，请勿重复录入。")
                 rows.forEach { row ->
-                    Text(nativeWriteLabel(row.operation) + if (row.responseJson != null) " · 已取得回执" else " · 结果待确认")
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(enabled = !busy, onClick = {
+                    PendingNativeWriteDetails(row, busy, onVerify = {
                             busy = true
                             scope.launch {
                                 try {
@@ -57,8 +56,7 @@ internal fun PendingNativeWriteStatus(session: RetrofitClient.SessionSnapshot) {
                                         message = result.getOrElse { it.message ?: "核实未完成，原记录已保留" }
                                 } finally { busy = false }
                             }
-                        }) { Text("核实原请求") }
-                        if (row.responseJson != null) TextButton(enabled = !busy, onClick = {
+                        }, onAcknowledge = {
                             busy = true
                             scope.launch {
                                 try {
@@ -69,14 +67,28 @@ internal fun PendingNativeWriteStatus(session: RetrofitClient.SessionSnapshot) {
                                 } catch (error: Exception) { message = error.message
                                 } finally { busy = false }
                             }
-                        }) { Text("已核对，结束此请求") }
-                    }
+                        })
                 }
                 message?.let { Text(it) }
             }
         },
-        confirmButton = { TextButton(enabled = !busy, onClick = { showing = false }) { Text("返回核对") } }
+        confirmButton = { TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp), onClick = { showing = false }) { Text("返回核对") } }
     )
+}
+
+@Composable
+internal fun PendingNativeWriteDetails(row: PendingNativeWrite, busy: Boolean,
+    onVerify: () -> Unit, onAcknowledge: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("类型：${nativeWriteLabel(row.operation)}", style = MaterialTheme.typography.bodyLarge)
+        Text("请求号：${row.requestId}", fontFamily = FontFamily.Monospace,
+            style = MaterialTheme.typography.bodyMedium, softWrap = true)
+        Text(if (row.responseJson != null) "回执状态：已取得回执" else "回执状态：未收到服务器回执",
+            style = MaterialTheme.typography.bodyMedium)
+        TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp), onClick = onVerify) { Text("核实原请求") }
+        if (row.responseJson != null) TextButton(enabled = !busy, modifier = Modifier.heightIn(min = 48.dp),
+            onClick = onAcknowledge) { Text("已核对，结束此请求") }
+    }
 }
 
 internal fun nativeWriteLabel(operation: String): String = when {

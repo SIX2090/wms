@@ -96,6 +96,13 @@ fun AssistantChatScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    fun sendInput() {
+        val current = viewModel.uiState.value
+        if (current.isLoading || current.failedDraft != null ||
+            (input.isBlank() && current.pendingImage == null && current.pendingFile == null)) return
+        viewModel.send(input)
+        input = ""
+    }
     // FEATURE-2026-10-07-012：全屏查看器当前展示的图片 base64（null=关闭）
     val viewerImage = remember { mutableStateOf<String?>(null) }
 
@@ -235,12 +242,12 @@ fun AssistantChatScreen(
     }
 
     // AUDIT-2026-10-07-P6：发送失败的消息退回输入框（不覆盖用户已输入的新内容）
-    LaunchedEffect(uiState.failedDraft) {
+    LaunchedEffect(uiState.failedDraft, input) {
         uiState.failedDraft?.let { draft ->
             if (input.isBlank()) {
                 input = draft
+                viewModel.consumeFailedDraft()
             }
-            viewModel.consumeFailedDraft()
         }
     }
 
@@ -324,7 +331,7 @@ fun AssistantChatScreen(
                 accent = Primary,
                 onBack = onBack,
                 trailing = {
-                    IconButton(onClick = {
+                    IconButton(modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp), onClick = {
                         // AUDIT-2026-10-07-P5：清空前确认——误触即丢整段对话且无恢复入口
                         if (uiState.messages.isNotEmpty()) {
                             showClearConfirm = true
@@ -392,14 +399,14 @@ fun AssistantChatScreen(
                                 uiState.pendingFile != null -> "已选文件：${uiState.pendingFile?.second ?: ""}"
                                 else -> "已选图片（发送时随消息上传）"
                             },
-                            fontSize = 13.sp,
+                            fontSize = 14.sp,
                             color = OnSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         TextButton(onClick = { viewModel.clearPendingAttachments() }) {
-                            Text("移除", color = Error, fontSize = 13.sp)
+                            Text("移除", color = Error, fontSize = 14.sp)
                         }
                     }
                 }
@@ -410,136 +417,142 @@ fun AssistantChatScreen(
                 color = CardBackground,
                 tonalElevation = 2.dp
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .navigationBarsPadding(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // BUG-2026-10-07-009：+ 按钮（相机/相册/文件）
-                    var showAttachMenu by remember { mutableStateOf(false) }
-                    Box {
-                        FilledIconButton(
-                            onClick = { showAttachMenu = true },
-                            shape = RoundedCornerShape(50),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = CardBackground,
-                                contentColor = Primary
-                            )
-                        ) {
-                            Icon(
-                                Icons.Outlined.Add,
-                                contentDescription = "附件",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showAttachMenu,
-                            onDismissRequest = { showAttachMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("拍照") },
-                                onClick = {
-                                    showAttachMenu = false
-                                    cameraCapture()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("相册") },
-                                onClick = {
-                                    showAttachMenu = false
-                                    galleryLauncher.launch("image/*")
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("文件") },
-                                onClick = {
-                                    showAttachMenu = false
-                                    fileLauncher.launch("*/*")
-                                }
-                            )
-                        }
+                Column {
+                    if (uiState.failedDraft != null && input.isNotBlank()) {
+                        Text("上一条待恢复的输入已保留；请先复制当前输入并清空，以恢复上一条。",
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Spacer(Modifier.width(8.dp))
-                    if (BuildConfig.VOICE_UI_ENABLED) {
-                        // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
-                        FilledIconButton(
-                            onClick = {
-                                if (voiceState.isListening) {
-                                    voiceViewModel.stopListening()
-                                } else {
-                                    val granted = ContextCompat.checkSelfPermission(
-                                        context, Manifest.permission.RECORD_AUDIO
-                                    ) == PackageManager.PERMISSION_GRANTED
-                                    if (granted) {
-                                        voiceViewModel.startListening(context)
-                                    } else {
-                                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    }
-                                }
-                            },
-                            shape = RoundedCornerShape(50),
-                            colors = IconButtonDefaults.filledIconButtonColors(
-                                containerColor = if (voiceState.isListening) Error else CardBackground,
-                                contentColor = if (voiceState.isListening) Color.White else Primary
-                            )
-                        ) {
-                            if (voiceState.isListening) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .navigationBarsPadding()
+                            .imePadding(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // BUG-2026-10-07-009：+ 按钮（相机/相册/文件）
+                        var showAttachMenu by remember { mutableStateOf(false) }
+                        Box {
+                            FilledIconButton(
+                                modifier = Modifier.size(48.dp),
+                                onClick = { showAttachMenu = true },
+                                shape = RoundedCornerShape(50),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = CardBackground,
+                                    contentColor = Primary
                                 )
-                            } else {
+                            ) {
                                 Icon(
-                                    Icons.Outlined.Mic,
-                                    contentDescription = "语音输入",
+                                    Icons.Outlined.Add,
+                                    contentDescription = "附件",
                                     modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showAttachMenu,
+                                onDismissRequest = { showAttachMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("拍照") },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        cameraCapture()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("相册") },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        galleryLauncher.launch("image/*")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("文件") },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        fileLauncher.launch("*/*")
+                                    }
                                 )
                             }
                         }
                         Spacer(Modifier.width(8.dp))
-                    }
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { if (it.length <= 2000) input = it },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("问我任何仓库问题…", fontSize = 14.sp) },
-                        shape = RoundedCornerShape(22.dp),
-                        maxLines = 4,
-                        textStyle = MaterialTheme.typography.bodyMedium,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(
-                            onSend = {
-                                viewModel.send(input)
-                                input = ""
+                        if (BuildConfig.VOICE_UI_ENABLED) {
+                            // AI-ASSISTANT-VOICE-001：语音输入按钮——录音中变停止按钮
+                            FilledIconButton(
+                                modifier = Modifier.size(48.dp),
+                                onClick = {
+                                    if (voiceState.isListening) {
+                                        voiceViewModel.stopListening()
+                                    } else {
+                                        val granted = ContextCompat.checkSelfPermission(
+                                            context, Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (granted) {
+                                            voiceViewModel.startListening(context)
+                                        } else {
+                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                },
+                                shape = RoundedCornerShape(50),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = if (voiceState.isListening) Error else CardBackground,
+                                    contentColor = if (voiceState.isListening) Color.White else Primary
+                                )
+                            ) {
+                                if (voiceState.isListening) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Outlined.Mic,
+                                        contentDescription = "语音输入",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
-                        ),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Primary,
-                            unfocusedBorderColor = SurfaceVariant
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        OutlinedTextField(
+                            value = input,
+                            onValueChange = { if (it.length <= 2000) input = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("输入仓库问题，最多 2000 字", fontSize = 14.sp) },
+                            shape = RoundedCornerShape(22.dp),
+                            maxLines = 4,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(
+                                onSend = { sendInput() }
+                            ),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Primary,
+                                unfocusedBorderColor = SurfaceVariant
+                            )
                         )
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    FilledIconButton(
-                        onClick = {
-                            viewModel.send(input)
-                            input = ""
-                        },
-                        enabled = (input.isNotBlank() || uiState.pendingImage != null || uiState.pendingFile != null) && !uiState.isLoading,
-                        shape = RoundedCornerShape(50),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = Primary,
-                            contentColor = Color.White,
-                            disabledContainerColor = Primary.copy(alpha = 0.35f)
-                        )
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Outlined.Send,
-                            contentDescription = "发送",
-                            modifier = Modifier.size(20.dp)
-                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilledIconButton(
+                            modifier = Modifier.size(48.dp),
+                            onClick = { sendInput() },
+                            enabled = (input.isNotBlank() || uiState.pendingImage != null || uiState.pendingFile != null) &&
+                                !uiState.isLoading && uiState.failedDraft == null,
+                            shape = RoundedCornerShape(50),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Primary,
+                                contentColor = Color.White,
+                                disabledContainerColor = Primary.copy(alpha = 0.35f)
+                            )
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Outlined.Send,
+                                contentDescription = "发送",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -616,7 +629,7 @@ private fun AssistantEmptyHint() {
         Spacer(Modifier.height(6.dp))
         Text(
             "可以直接问我：",
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             color = OnSurfaceSecondary
         )
         Spacer(Modifier.height(12.dp))
@@ -650,7 +663,7 @@ private fun AssistantEmptyHint() {
 
 /** 消息气泡：用户右侧主色，助手左侧白底；助手带卡片/动作展示。 */
 @Composable
-private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: (String) -> Unit) {
+internal fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: (String) -> Unit) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (message.isUser) Alignment.End else Alignment.Start
@@ -662,7 +675,7 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
                 bottomStart = if (message.isUser) 16.dp else 4.dp,
                 bottomEnd = if (message.isUser) 4.dp else 16.dp
             ),
-            color = if (message.isUser) Primary else CardBackground,
+            color = if (message.isUser) Primary.readableOn(Color.White) else CardBackground,
             tonalElevation = if (message.isUser) 0.dp else 1.dp
         ) {
             // FEATURE-2026-10-07-012：用户图片消息渲染缩略图（点击全屏查看）
@@ -699,8 +712,8 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
                     modifier = Modifier
                         .padding(horizontal = 14.dp, vertical = 10.dp)
                         .widthIn(max = 300.dp),
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 24.sp,
                     color = if (message.isUser) Color.White else OnSurface
                 )
             }
@@ -721,18 +734,16 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
                         Text(
                             card.title ?: "",
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 14.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 16.sp,
+                            softWrap = true
                         )
                         card.meta?.let {
                             Spacer(Modifier.height(3.dp))
                             Text(
                                 it,
-                                fontSize = 12.sp,
+                                fontSize = 14.sp,
                                 color = OnSurfaceSecondary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                softWrap = true
                             )
                         }
                     }
@@ -755,8 +766,8 @@ private fun AssistantMessageBubble(message: AssistantChatMessage, onImageClick: 
                         Text(
                             action.label ?: "",
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                            fontSize = 12.sp,
-                            color = Primary,
+                            fontSize = 14.sp,
+                            color = Primary.readableOn(PrimaryContainer),
                             fontWeight = FontWeight.Medium
                         )
                     }

@@ -8,6 +8,7 @@ import com.factory.wms.data.model.OpeningStockDto
 import com.factory.wms.data.model.OpeningStockLine
 import com.factory.wms.data.model.OpeningStockRequest
 import com.factory.wms.data.model.OpeningStockUpdateRequest
+import com.factory.wms.data.model.QuantityDraft
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.data.repository.WmsRepository
 import kotlinx.coroutines.Job
@@ -35,6 +36,7 @@ data class OpeningStockUiState(
     val date: String = LocalDate.now().toString(),
     // 扫码/手动录入的行，按物料合并
     val lines: List<OpeningStockLine> = emptyList(),
+    val quantityDrafts: Map<String, QuantityDraft> = emptyMap(),
     // AI-MOB-ADD-KEYWORD-01：「添加期初物料」弹窗的关键词模糊候选
     // （与查库存同口径：名称/规格/品牌都能搜）
     val materialSuggestions: List<MaterialDto> = emptyList(),
@@ -222,12 +224,12 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         _uiState.value = _uiState.value.copy(date = date)
     }
 
-    fun addLine(code: String, quantity: Double) {
+    fun addLine(code: String, quantity: Double): Boolean {
         val trimmed = code.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty()) return false
         if (quantity < 0) {
             _uiState.value = _uiState.value.copy(error = "数量不能小于 0")
-            return
+            return false
         }
         val current = _uiState.value.lines.toMutableList()
         val existingIndex = current.indexOfFirst { it.materialCode == trimmed }
@@ -252,7 +254,8 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                             materialCode = existing.materialCode,
                             materialName = it.name,
                             materialSpec = it.spec,
-                            materialBrand = it.brand
+                            materialBrand = it.brand,
+                            materialUnit = it.unit
                         )
                     } else {
                         existing
@@ -261,14 +264,27 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                 _uiState.value = _uiState.value.copy(lines = enriched)
             }
         }
+        return true
     }
 
     fun removeLine(index: Int) {
         val current = _uiState.value.lines.toMutableList()
         if (index in current.indices) {
-            current.removeAt(index)
-            _uiState.value = _uiState.value.copy(lines = current)
+            val removed = current.removeAt(index)
+            _uiState.value = _uiState.value.copy(lines = current, quantityDrafts = _uiState.value.quantityDrafts - removed.uiId)
         }
+    }
+
+    /** Remove only the exact line and quantity shown when the edit dialog opened. */
+    fun removeLineExpected(id: String, expected: Double): Boolean {
+        val state = _uiState.value
+        if (state.isLoading || state.quantityDrafts.containsKey(id)) return false
+        val current = state.lines.toMutableList()
+        val index = current.indexOfFirst { it.uiId == id }
+        if (index < 0 || current[index].quantity != expected) return false
+        current.removeAt(index)
+        _uiState.value = state.copy(lines = current, quantityDrafts = state.quantityDrafts - id)
+        return true
     }
 
     /**
@@ -278,10 +294,27 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
      * 戴手套误触即丢一条已录行，必须给反悔通道。期间若有新行加入/删除，
      * index 可能漂移，故按 coerceIn 容错插入，不追求严格原位。
      */
-    fun restoreLine(index: Int, line: OpeningStockLine) {
+    fun restoreLine(index: Int, line: OpeningStockLine, draft: QuantityDraft? = null) {
         val current = _uiState.value.lines.toMutableList()
         current.add(index.coerceIn(0, current.size), line)
-        _uiState.value = _uiState.value.copy(lines = current)
+        val drafts = if (draft == null) _uiState.value.quantityDrafts else _uiState.value.quantityDrafts + (line.uiId to draft)
+        _uiState.value = _uiState.value.copy(lines = current, quantityDrafts = drafts)
+    }
+
+    fun setQuantityDraft(id: String, draft: QuantityDraft?) {
+        if (_uiState.value.lines.none { it.uiId == id }) return
+        val drafts = if (draft == null) _uiState.value.quantityDrafts - id else _uiState.value.quantityDrafts + (id to draft)
+        _uiState.value = _uiState.value.copy(quantityDrafts = drafts)
+    }
+
+    fun updateLineQuantityExpected(id: String, expected: Double, quantity: Double): Boolean {
+        if (_uiState.value.isLoading || !quantity.isFinite() || quantity < 0.0) return false
+        val current = _uiState.value.lines.toMutableList()
+        val index = current.indexOfFirst { it.uiId == id }
+        if (index < 0 || current[index].quantity != expected) return false
+        current[index] = current[index].copy(quantity = quantity)
+        _uiState.value = _uiState.value.copy(lines = current, error = null)
+        return true
     }
 
     /**
@@ -303,7 +336,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
     }
 
     fun clearLines() {
-        _uiState.value = _uiState.value.copy(lines = emptyList())
+        _uiState.value = _uiState.value.copy(lines = emptyList(), quantityDrafts = emptyMap())
     }
 
     // ==================================================================
@@ -433,8 +466,12 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
             _uiState.value = state.copy(error = "数量与单价不能小于 0")
             return
         }
-        val oldQuantity = item.quantity ?: 0.0
-        val oldPrice = item.price ?: 0.0
+        val oldQuantity = item.quantity
+        val oldPrice = item.price
+        if (oldQuantity == null || oldPrice == null) {
+            _uiState.value = state.copy(error = "原数量或单价未获取，请刷新后重试")
+            return
+        }
         if (newQuantity == oldQuantity && newPrice == oldPrice) {
             _uiState.value = state.copy(editingItem = null)
             return
@@ -472,11 +509,13 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
 
     /** 把差额翻译成人话：减少 40 / 增加 50。 */
     private fun buildDeltaMessage(delta: Double?, quantity: Double?): String {
-        val absDelta = kotlin.math.abs(delta ?: 0.0)
-        val suffix = "，现为 ${formatQuantityPlain(quantity ?: 0.0)}"
+        if (quantity == null) return "期初库存已更新，当前数量未获取"
+        val suffix = "，现为 ${formatQuantityPlain(quantity)}"
+        if (delta == null) return "期初库存已更新$suffix"
+        val absDelta = kotlin.math.abs(delta)
         return when {
             absDelta < 1e-9 -> "期初库存已更新$suffix"
-            (delta ?: 0.0) > 0 -> "期初已增加 ${formatQuantityPlain(absDelta)}$suffix"
+            delta > 0 -> "期初已增加 ${formatQuantityPlain(absDelta)}$suffix"
             else -> "期初已减少 ${formatQuantityPlain(absDelta)}$suffix"
         }
     }
@@ -492,6 +531,10 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
 
     fun submit() {
         val state = _uiState.value
+        if (state.quantityDrafts.isNotEmpty()) {
+            _uiState.value = state.copy(error = "请先确定或取消正在修改的数量")
+            return
+        }
         val warehouse = state.selectedWarehouse
         if (warehouse == null) {
             _uiState.value = _uiState.value.copy(error = "请选择仓库")

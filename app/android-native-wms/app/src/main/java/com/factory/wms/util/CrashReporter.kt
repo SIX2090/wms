@@ -13,33 +13,11 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * AI-MOB-CRASH-01：崩溃**上报**（在既有本地崩溃捕获之上补"自动汇聚到服务器"）。
+ * 崩溃记录辅助工具。
  *
- * ## 与既有机制的关系（增强，不是另起炉灶）
- *
- * 既有 BUG-2026-09-13-001 / BUG-2026-09-14-028 已提供**本地**崩溃闭环：
- * `WmsApplication.installCrashLogger()`（进程级唯一 UncaughtExceptionHandler）
- * 把堆栈写到 `crash/last_crash.txt`，下次启动 `MainActivity` 检测到就渲染
- * `CrashReportScreen` 让用户**手动截图/复制回传**。它的短板是：堆栈躺在设备上，
- * 要靠用户手动回传才能到开发者手里——现场不截图就永远"看不见"。
- *
- * 本类补上**自动上报**这一环：
- * - 捕获仍由既有 `installCrashLogger` 完成（它是唯一 handler，有破坏性测试
- *   `tests/verify_android_startup_crash_safety.py` 守护，不改动其注册与"不吞异常"语义）；
- *   仅在其中追加调用 [writePendingReport]，把同一份崩溃**另存一份结构化 JSON**
- *   到 `crash/pending_<ts>.json`，专供上报。
- * - [uploadPendingAsync] 在下次启动联网时把 `pending_*.json` 逐个 POST 到
- *   `api/mobile/crash_report`，成功才删，失败保留待下次——崩溃堆栈从此自动汇聚到
- *   服务器 `logs/crash_reports.log`，不再依赖用户手动回传。
- *
- * `last_crash.txt`（供 CrashReportScreen 展示 + adb 取回）与 `pending_*.json`
- * （供上报）各司其职，互不干扰。
- *
- * ## 崩溃回调里的铁律
- *
- * [writePendingReport] 在进程将死的崩溃回调里被调用，**只写本地文件**，
- * 绝不发网络 / 起协程 / 读库（不可靠且可能挂起，连"写盘"这最后一步都会丢）。
- * 网络上报全部推迟到下次启动的 [uploadPendingAsync]。
+ * 崩溃回调将信息写入本机；应用启动不自动上传。用户可以在崩溃报告页
+ * 复制 `last_crash.txt` 的内容，并自行反馈给维护人员。
+ * 结构化记录与现有上报方法保留，避免清理历史信息或改变服务端接口。
  */
 object CrashReporter {
 
@@ -93,7 +71,7 @@ object CrashReporter {
 
     /**
      * 联网时异步上传待上报崩溃。尽力而为：整体失败只记警告、不抛异常。
-     * 在 [android.app.Application.onCreate] 用进程级作用域调用一次即可。
+     * 仅供显式授权的调用方使用；应用启动不会调用此方法。
      */
     fun uploadPendingAsync(context: Context, scope: CoroutineScope) {
         val appContext = context.applicationContext

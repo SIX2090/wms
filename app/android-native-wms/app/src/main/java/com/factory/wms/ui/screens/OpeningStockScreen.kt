@@ -1,5 +1,6 @@
 package com.factory.wms.ui.screens
 
+import androidx.activity.compose.BackHandler
 import com.factory.wms.ui.components.WmsMaterialIdentity
 import com.factory.wms.ui.components.WmsQuantityText
 import androidx.compose.foundation.background
@@ -25,13 +26,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.OpeningStockDto
 import com.factory.wms.data.model.OpeningStockLine
+import com.factory.wms.data.model.QuantityDraft
+import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.components.ScannerDialog
+import com.factory.wms.ui.components.ScanQuantityStepper
 import com.factory.wms.ui.components.WarehousePickerDialog
 import com.factory.wms.ui.components.WmsEmptyState
 import com.factory.wms.ui.components.WmsErrorState
@@ -70,7 +75,8 @@ fun OpeningStockScreen(
     var manualCode by rememberSaveable { mutableStateOf("") }
     var manualQty by rememberSaveable { mutableStateOf("1") }
     // BUG-2026-09-16-010：点行改数量——已录入行不再只能删了重扫
-    var editLineIndex by remember { mutableStateOf<Int?>(null) }
+    var editLineTarget by remember { mutableStateOf<OpeningStockLine?>(null) }
+    var editLineConflict by remember { mutableStateOf(false) }
     var editQty by remember { mutableStateOf("") }
     // P1-C：已建账列表 / 编辑弹窗状态
     var tab by remember { mutableStateOf(OpeningStockTab.ENTRY) }
@@ -80,7 +86,12 @@ fun OpeningStockScreen(
     // AI-APP-FIX-109：危险操作的确认弹窗开关（清空整批 / 提交建账）。
     var showClearConfirm by remember { mutableStateOf(false) }
     var showSubmitConfirm by remember { mutableStateOf(false) }
+    var showLeaveDraftConfirm by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+    fun requestBack() {
+        if (uiState.quantityDrafts.isNotEmpty()) showLeaveDraftConfirm = true else onBack()
+    }
+    BackHandler(enabled = uiState.quantityDrafts.isNotEmpty()) { requestBack() }
 
     // AI-MOB-ADD-KEYWORD-01：弹窗关闭后清掉候选，避免下次打开时残留上一次的联想结果
     LaunchedEffect(showManualDialog) {
@@ -113,8 +124,8 @@ fun OpeningStockScreen(
     // P1-C：编辑弹窗打开时把当前值灌进输入框（每次换行都重置，避免残留上一行）
     LaunchedEffect(uiState.editingItem?.id) {
         uiState.editingItem?.let { item ->
-            editBuiltQty = formatQuantity(item.quantity ?: 0.0)
-            editBuiltPrice = formatQuantity(item.price ?: 0.0)
+            editBuiltQty = item.quantity?.let(::formatQuantity).orEmpty()
+            editBuiltPrice = item.price?.let(::formatQuantity).orEmpty()
         }
     }
 
@@ -129,7 +140,7 @@ fun OpeningStockScreen(
                     OpeningStockTab.BUILT -> "查看并修改本仓已建账明细"
                 },
                 accent = CardCyan,
-                onBack = onBack
+                onBack = { requestBack() }
             )
         }
     ) { padding ->
@@ -169,14 +180,22 @@ fun OpeningStockScreen(
                     uiState = uiState,
                     showDateDialog = { showDateDialog = true },
                     showWarehouseDialog = { showWarehouseDialog = true },
-                    onLineClick = { index, line ->
-                        editLineIndex = index
-                        editQty = formatQuantity(line.quantity)
+                    onLineClick = { _, line ->
+                        if (uiState.quantityDrafts.containsKey(line.uiId)) {
+                            scope.launch { snackbarHostState.showSnackbar("请先确定或取消正在修改的数量") }
+                        } else {
+                            editLineTarget = line
+                            editLineConflict = false
+                            editQty = formatQuantity(line.quantity)
+                        }
                     },
+                    onQuantityDraft = { id, draft -> viewModel.setQuantityDraft(id, draft) },
+                    onQuantityUpdate = { id, expected, value -> viewModel.updateLineQuantityExpected(id, expected, value) },
                     onRemoveLine = { index ->
                         // AI-APP-FIX-109 / BUG-2026-09-26-008：删行给撤销窗口——
                         // X 按钮紧邻数量胶囊，戴手套误触即丢一条已录行。
                         uiState.lines.getOrNull(index)?.let { removed ->
+                            val removedDraft = uiState.quantityDrafts[removed.uiId]
                             viewModel.removeLine(index)
                             scope.launch {
                                 val result = snackbarHostState.showSnackbar(
@@ -185,7 +204,7 @@ fun OpeningStockScreen(
                                     duration = SnackbarDuration.Short
                                 )
                                 if (result == SnackbarResult.ActionPerformed) {
-                                    viewModel.restoreLine(index, removed)
+                                    viewModel.restoreLine(index, removed, removedDraft)
                                 }
                             }
                         }
@@ -204,6 +223,16 @@ fun OpeningStockScreen(
         }
     }
 
+    if (showLeaveDraftConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLeaveDraftConfirm = false },
+            title = { Text("放弃未确认的数量？") },
+            text = { Text("仍有数量正在修改。返回后本页未提交的期初明细和未确认输入可能丢失。") },
+            confirmButton = { TextButton(onClick = { showLeaveDraftConfirm = false; onBack() }) { Text("放弃并返回") } },
+            dismissButton = { TextButton(onClick = { showLeaveDraftConfirm = false }) { Text("继续修改") } }
+        )
+    }
+
     // P1-C：已建账明细编辑弹窗——改数量/单价，服务端按差额调账
     uiState.editingItem?.let { item ->
         AlertDialog(
@@ -213,12 +242,17 @@ fun OpeningStockScreen(
                 Text(
                     "修改期初：${item.materialCode.orEmpty()}",
                     fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             },
             text = {
-                Column {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (item.quantity == null || item.price == null) {
+                        Text("原数量或单价未获取，请刷新后重试", color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
                     if (!item.materialName.isNullOrBlank() || !item.spec.isNullOrBlank()) {
                         Text(
                             listOfNotNull(
@@ -240,7 +274,8 @@ fun OpeningStockScreen(
                                 val current = editBuiltQty.toDoubleOrNull() ?: 1.0
                                 editBuiltQty = formatQuantity((current - 1).coerceAtLeast(0.0))
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
+                            enabled = item.quantity != null && item.price != null,
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = CardCyan.copy(alpha = 0.1f)
@@ -252,6 +287,7 @@ fun OpeningStockScreen(
                         OutlinedTextField(
                             value = editBuiltQty,
                             onValueChange = { editBuiltQty = it },
+                            enabled = item.quantity != null && item.price != null,
                             label = { Text("数量（确切值）") },
                             singleLine = true,
                             modifier = Modifier.weight(1f),
@@ -271,7 +307,8 @@ fun OpeningStockScreen(
                                 val current = editBuiltQty.toDoubleOrNull() ?: 0.0
                                 editBuiltQty = formatQuantity(current + 1)
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
+                            enabled = item.quantity != null && item.price != null,
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan)
                         ) {
@@ -284,6 +321,7 @@ fun OpeningStockScreen(
                     OutlinedTextField(
                         value = editBuiltPrice,
                         onValueChange = { editBuiltPrice = it },
+                        enabled = item.quantity != null && item.price != null,
                         label = { Text("单价") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
@@ -300,8 +338,8 @@ fun OpeningStockScreen(
 
                     // 差额预告：用户改之前就知道总账会怎么动（期初是账的起点，改之前要心里有数）
                     val newQty = editBuiltQty.toDoubleOrNull()
-                    val oldQty = item.quantity ?: 0.0
-                    if (newQty != null && kotlin.math.abs(newQty - oldQty) > 1e-9) {
+                    val oldQty = item.quantity
+                    if (newQty != null && oldQty != null && kotlin.math.abs(newQty - oldQty) > 1e-9) {
                         val delta = newQty - oldQty
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
@@ -325,7 +363,8 @@ fun OpeningStockScreen(
                     },
                     // 数量非法禁用、价格非法此前却静默清零——校验不对称是错账根源；
                     // 现两侧一致（合法 0 价仍允许，如赠品/试制品）。
-                    enabled = (editBuiltQty.toDoubleOrNull() ?: -1.0) >= 0.0 &&
+                    enabled = item.quantity != null && item.price != null &&
+                        (editBuiltQty.toDoubleOrNull() ?: -1.0) >= 0.0 &&
                         (editBuiltPrice.toDoubleOrNull() ?: -1.0) >= 0.0 &&
                         !uiState.updating,
                     shape = RoundedCornerShape(12.dp),
@@ -420,23 +459,23 @@ fun OpeningStockScreen(
                                                 }
                                                 .padding(horizontal = 12.dp, vertical = 10.dp)
                                         ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                material.code.orEmpty(),
+                                                modifier = Modifier.fillMaxWidth(),
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                softWrap = true
+                                            )
+                                            if (!material.name.isNullOrBlank()) {
                                                 Text(
-                                                    material.code.orEmpty(),
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    material.name.orEmpty(),
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    style = MaterialTheme.typography.bodyLarge,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis
                                                 )
-                                                if (!material.name.isNullOrBlank()) {
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        material.name.orEmpty(),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
                                             }
                                             if (specBrand.isNotBlank()) {
                                                 Spacer(modifier = Modifier.height(2.dp))
@@ -470,7 +509,7 @@ fun OpeningStockScreen(
                                 val current = manualQty.toDoubleOrNull() ?: 1.0
                                 manualQty = formatQuantity((current - 1).coerceAtLeast(0.0))
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = CardCyan.copy(alpha = 0.1f)
@@ -509,7 +548,7 @@ fun OpeningStockScreen(
                                 val current = manualQty.toDoubleOrNull() ?: 0.0
                                 manualQty = formatQuantity(current + 1)
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan)
                         ) {
@@ -545,29 +584,23 @@ fun OpeningStockScreen(
         )
     }
 
-    // BUG-2026-09-16-010：点行改数量对话框——设为确切值（与扫码累加互补）
-    editLineIndex?.let { index ->
-        val line = uiState.lines.getOrNull(index)
-        if (line != null) {
-            AlertDialog(
-                onDismissRequest = { editLineIndex = null },
-                shape = RoundedCornerShape(20.dp),
-                title = {
-                    Text(
-                        "修改数量：${line.materialCode}",
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                },
-                text = {
+    // 点击行仍可使用原有编辑弹窗；以打开时的行身份和数量防止覆盖后续扫码。
+    editLineTarget?.let { line ->
+        AlertDialog(
+            onDismissRequest = { editLineTarget = null },
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Text("修改数量：${line.materialCode}", fontWeight = FontWeight.SemiBold, softWrap = true)
+            },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         FilledIconButton(
                             onClick = {
                                 val current = editQty.toDoubleOrNull() ?: 1.0
                                 editQty = formatQuantity((current - 1).coerceAtLeast(0.0))
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(
                                 containerColor = CardCyan.copy(alpha = 0.1f)
@@ -598,48 +631,51 @@ fun OpeningStockScreen(
                                 val current = editQty.toDoubleOrNull() ?: 0.0
                                 editQty = formatQuantity(current + 1)
                             },
-                            modifier = Modifier.size(44.dp),
+                            modifier = Modifier.size(48.dp),
                             shape = RoundedCornerShape(12.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan)
                         ) {
                             Icon(Icons.Outlined.Add, "加1", tint = Color.White, modifier = Modifier.size(22.dp))
                         }
                     }
-                },
-                confirmButton = {
-                    Button(
-                        onClick = {
-                            val qty = editQty.toDoubleOrNull()
-                            if (qty != null && qty >= 0) {
-                                viewModel.updateLineQuantity(index, qty)
-                                editLineIndex = null
-                            }
-                        },
-                        enabled = (editQty.toDoubleOrNull() ?: -1.0) >= 0.0,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
-                    ) {
-                        Text("确定")
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = {
-                            viewModel.removeLine(index)
-                            editLineIndex = null
-                        }) {
-                            Text("删除该行", color = Error)
-                        }
-                        TextButton(onClick = { editLineIndex = null }) {
-                            Text("取消")
-                        }
+                    if (editLineConflict) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("物料已变化，请取消后重新打开", color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-            )
-        } else {
-            // 行已被移除（如清空后弹窗还在），直接关掉
-            editLineIndex = null
-        }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val qty = editQty.toDoubleOrNull()
+                        if (qty != null && qty >= 0) {
+                            if (!uiState.quantityDrafts.containsKey(line.uiId) &&
+                                viewModel.updateLineQuantityExpected(line.uiId, line.quantity, qty)) {
+                                editLineTarget = null
+                            } else {
+                                editLineConflict = true
+                            }
+                        }
+                    },
+                    enabled = !editLineConflict && (editQty.toDoubleOrNull() ?: -1.0) >= 0.0,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CardCyan)
+                ) { Text("确定") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        if (viewModel.removeLineExpected(line.uiId, line.quantity)) {
+                            editLineTarget = null
+                        } else {
+                            editLineConflict = true
+                        }
+                    }, enabled = !editLineConflict) { Text("删除该行", color = Error) }
+                    TextButton(onClick = { editLineTarget = null }) { Text("取消") }
+                }
+            }
+        )
     }
 
     // 日期选择对话框
@@ -673,24 +709,19 @@ fun OpeningStockScreen(
     if (showCameraScanner) {
         ScannerDialog(
             onDismiss = { showCameraScanner = false },
+            onManualInput = { showCameraScanner = false; showManualDialog = true },
             continuous = true,
             scannedCount = continuousScanCount,
             lastScannedCode = lastScannedCode,
             onBarcodeScanned = { barcode ->
                 // AI-MOB-CONTINUOUS-SCAN-01：扫中不关弹窗，连续累计，点"完成"退出。
-                continuousScanCount += 1
-                lastScannedCode = barcode
-                // AI-APP-FIX-108 / BUG-2026-09-26-007：扫码加行数量固定为 1
-                // （连续扫码 = 逐件计数，与 addLine 的累加语义自洽）。
-                // 原写法复用手动弹窗的 manualQty——弹窗里输了 5 又取消时残留值会让
-                // 接下来每扫一件加 5，静默错账。扫码与手动两条通道的数量状态必须解耦。
-                viewModel.addLine(barcode, 1.0)
-                // AI-MOB-SCAN-UX-01：声音+震动反馈（成功/失败可凭体感分辨）
-                scope.launch {
-                    if (viewModel.materialExists(barcode)) {
-                        ScanFeedback.success(context)
-                    } else {
-                        ScanFeedback.failure(context)
+                // 期初扫码始终每次加 1；只有明细接受后才计数和反馈。
+                if (viewModel.addLine(barcode, 1.0)) {
+                    continuousScanCount += 1
+                    lastScannedCode = barcode
+                    scope.launch {
+                        if (viewModel.materialExists(barcode)) ScanFeedback.success(context)
+                        else ScanFeedback.failure(context)
                     }
                 }
             }
@@ -765,7 +796,11 @@ internal fun OpeningStockLineCard(
     line: OpeningStockLine,
     index: Int,
     onClick: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    draft: QuantityDraft?,
+    onDraft: (QuantityDraft?) -> Unit,
+    onUpdate: (Double, Double) -> Boolean,
+    enabled: Boolean
 ) {
     Card(
         modifier = Modifier
@@ -783,14 +818,22 @@ internal fun OpeningStockLineCard(
             }
             HorizontalDivider(color = DividerSoft)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("数量", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                Spacer(Modifier.width(8.dp))
-                WmsQuantityText("× ${formatQuantity(line.quantity)}", Modifier.weight(1f))
-                Icon(Icons.Outlined.Edit, null, tint = OnSurfaceVariant, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.weight(1f))
                 IconButton(onClick = onRemove, modifier = Modifier.size(WmsDimens.TouchTargetMin)) {
                     Icon(Icons.Outlined.Close, "移除", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
                 }
             }
+            ScanQuantityStepper(
+                line = ScanLine(material_code = line.materialCode, quantity = line.quantity, material_unit = line.materialUnit),
+                enabled = enabled,
+                allowZero = true,
+                draft = draft,
+                onDraft = onDraft,
+                onUpdate = { expected, value -> onUpdate(expected.quantity, value) },
+                accent = CardCyan,
+                identityOverride = line.uiId,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -1014,6 +1057,8 @@ private fun EntrySection(
     showDateDialog: () -> Unit,
     showWarehouseDialog: () -> Unit,
     onLineClick: (Int, OpeningStockLine) -> Unit,
+    onQuantityDraft: (String, QuantityDraft?) -> Unit,
+    onQuantityUpdate: (String, Double, Double) -> Boolean,
     onRemoveLine: (Int) -> Unit,
     onClearLines: () -> Unit,
     onSubmit: () -> Unit,
@@ -1021,171 +1066,179 @@ private fun EntrySection(
     onManualAdd: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        // 日期 + 仓库选择
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        // 日期、汇总与明细共享滚动区域，窄屏和大字体下也可触达每一行。
+        LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedCard(
-                onClick = showDateDialog,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
-            ) {
-                Row(
+            item {
+                // 日期 + 仓库选择
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    OutlinedCard(
+                        onClick = showDateDialog,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CardCyan.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Outlined.CalendarMonth,
+                                    null,
+                                    tint = CardCyan,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("建账日期", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
+                                Text(
+                                    uiState.date,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = OnSurface
+                                )
+                            }
+                        }
+                    }
+                    OutlinedCard(
+                        onClick = showWarehouseDialog,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(CardCyan.copy(alpha = 0.12f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Warehouse,
+                                    null,
+                                    tint = CardCyan,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("仓库", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
+                                Text(
+                                    uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" } ?: "请选择",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (uiState.selectedWarehouse != null) OnSurface else OnSurfaceVariant,
+                                    softWrap = true
+                                )
+                            }
+                        }
+                    }
+                }
+
+            }
+            item {
+                // 汇总条
+                if (uiState.lines.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = CardCyan.copy(alpha = 0.06f)),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "${uiState.lines.size} 种物料",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "总计: ${formatQuantity(uiState.lines.sumOf { it.quantity })}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            FilledTonalButton(
+                                onClick = onClearLines,
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = ErrorContainer,
+                                    contentColor = Error
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("清空", fontSize = 14.sp)
+                            }
+                        }
+                    }
+                }
+
+            }
+            if (uiState.lines.isNotEmpty()) {
+                itemsIndexed(uiState.lines, key = { _, line -> line.uiId }) { index, line ->
+                    Box(Modifier.padding(horizontal = 16.dp)) {
+                        OpeningStockLineCard(
+                            line = line,
+                            index = index,
+                            onClick = { onLineClick(index, line) },
+                            onRemove = { onRemoveLine(index) },
+                            draft = uiState.quantityDrafts[line.uiId],
+                            onDraft = { onQuantityDraft(line.uiId, it) },
+                            onUpdate = { expected, value -> onQuantityUpdate(line.uiId, expected, value) },
+                            enabled = !uiState.isLoading
+                        )
+                    }
+                }
+            } else {
+                item {
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(CardCyan.copy(alpha = 0.12f)),
+                            .heightIn(min = 160.dp)
+                            .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Outlined.CalendarMonth,
-                            null,
-                            tint = CardCyan,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text("建账日期", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
-                        Text(
-                            uiState.date,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = OnSurface
+                        WmsEmptyState(
+                            icon = Icons.Outlined.QrCodeScanner,
+                            title = "暂无期初物料",
+                            subtitle = "点击下方按钮扫码或手动添加",
+                            accentColor = CardCyan
                         )
                     }
                 }
             }
-            OutlinedCard(
-                onClick = showWarehouseDialog,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.outlinedCardColors(containerColor = CardBackground)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(CardCyan.copy(alpha = 0.12f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Outlined.Warehouse,
-                            null,
-                            tint = CardCyan,
-                            modifier = Modifier.size(19.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column {
-                        Text("仓库", style = MaterialTheme.typography.labelSmall, color = OnSurfaceVariant)
-                        Text(
-                            uiState.selectedWarehouse?.let { "${it.code} ${it.name.orEmpty()}" } ?: "请选择",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (uiState.selectedWarehouse != null) OnSurface else OnSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-
-        // 汇总条
-        if (uiState.lines.isNotEmpty()) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = CardCyan.copy(alpha = 0.06f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            "${uiState.lines.size} 种物料",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            "总计: ${formatQuantity(uiState.lines.sumOf { it.quantity })}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    FilledTonalButton(
-                        onClick = onClearLines,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = ErrorContainer,
-                            contentColor = Error
-                        ),
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Icon(Icons.Outlined.Delete, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("清空", fontSize = 13.sp)
-                    }
-                }
-            }
-        }
-
-        // 明细列表 / 空态
-        if (uiState.lines.isNotEmpty()) {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                item { Spacer(modifier = Modifier.height(4.dp)) }
-                itemsIndexed(uiState.lines) { index, line ->
-                    OpeningStockLineCard(
-                        line = line,
-                        index = index,
-                        onClick = { onLineClick(index, line) },
-                        onRemove = { onRemoveLine(index) }
-                    )
-                }
-                item { Spacer(modifier = Modifier.height(8.dp)) }
-            }
-        } else {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                WmsEmptyState(
-                    icon = Icons.Outlined.QrCodeScanner,
-                    title = "暂无期初物料",
-                    subtitle = "点击下方按钮扫码或手动添加",
-                    accentColor = CardCyan
-                )
-            }
+            item { Spacer(modifier = Modifier.height(8.dp)) }
         }
 
         // 底部操作（顶部圆角浮层）
@@ -1196,15 +1249,21 @@ private fun EntrySection(
             shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
+                Text("${uiState.lines.size} 种物料 · 数量数值合计 ${formatQuantity(uiState.lines.sumOf { it.quantity })}",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                if (uiState.quantityDrafts.isNotEmpty()) {
+                    Text("请先确定或取消正在修改的数量", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
                 // AI-APP-FIX-404：自绘主按钮 → WmsPrimaryButton
                 WmsPrimaryButton(
-                    text = "提交期初建账",
+                    text = "提交建账",
                     onClick = onSubmit,
                     modifier = Modifier.fillMaxWidth(),
                     icon = Icons.Outlined.CheckCircle,
                     color = CardCyan,
                     loading = uiState.isLoading,
-                    enabled = uiState.lines.isNotEmpty() && uiState.selectedWarehouse != null
+                    enabled = uiState.lines.isNotEmpty() && uiState.selectedWarehouse != null && uiState.quantityDrafts.isEmpty()
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1388,74 +1447,35 @@ private fun BuiltItemsSection(
 }
 
 @Composable
-private fun BuiltItemCard(item: OpeningStockDto, onClick: () -> Unit) {
+internal fun BuiltItemCard(item: OpeningStockDto, onClick: () -> Unit) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    item.materialCode.orEmpty(),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                val details = listOfNotNull(
-                    item.materialName?.takeIf { it.isNotBlank() },
-                    item.spec?.takeIf { it.isNotBlank() }
-                ).joinToString("  ")
-                if (details.isNotBlank()) {
-                    Text(
-                        details,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                val meta = listOfNotNull(
-                    item.date?.takeIf { it.isNotBlank() }?.let { "建账日 $it" },
-                    item.price?.let { "单价 ¥%.2f".format(it) }
-                ).joinToString("   ")
-                if (meta.isNotBlank()) {
-                    Text(
-                        meta,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(item.materialCode?.takeIf { it.isNotBlank() } ?: "编码未获取",
+                modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium,
+                fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold, softWrap = true)
+            item.materialName?.takeIf { it.isNotBlank() }?.let { name ->
+                Text(name, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            // 期初数量胶囊
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = CardCyan.copy(alpha = 0.10f)
-            ) {
-                Text(
-                    formatQuantity(item.quantity ?: 0.0),
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            item.spec?.takeIf { it.isNotBlank() }?.let { spec ->
+                Text(spec, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
             }
-            Spacer(modifier = Modifier.width(6.dp))
-            Icon(
-                Icons.Outlined.ChevronRight,
-                "编辑",
-                tint = OnSurfaceSecondary,
-                modifier = Modifier.size(20.dp)
-            )
+            val meta = listOfNotNull(item.date?.takeIf { it.isNotBlank() }?.let { "建账日 $it" },
+                item.price?.let { "单价 ¥%.2f".format(it) } ?: "单价未获取").joinToString("   ")
+            Text(meta, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                val quantity = item.quantity?.let { q ->
+                    listOf(formatQuantity(q), item.unit.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
+                } ?: "数量未获取"
+                WmsQuantityText(quantity, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.Outlined.ChevronRight, "编辑", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
@@ -1480,7 +1500,7 @@ private fun BuiltListFooter(state: com.factory.wms.ui.viewmodel.opening.OpeningS
             // 会让用户以为点了能加载（实际靠上滑自动触发），点了没反应像坏掉。
             Text(
                 "上滑加载更多",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -1493,7 +1513,7 @@ private fun BuiltListFooter(state: com.factory.wms.ui.viewmodel.opening.OpeningS
         ) {
             Text(
                 "— 已全部加载 —",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

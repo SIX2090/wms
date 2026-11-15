@@ -75,12 +75,15 @@ def test_all_four_entry_points_share_add_scan_line():
     共用同一卡片渲染与补全逻辑。"""
     for screen in ("fun InboundScreen(", "fun OutboundScreen(", "fun StocktakeScreen("):
         assert screen in SCAN_SCREENS, f"缺少 {screen}"
-    # 每个页面的 onScanBarcode 与 onManualAdd 两个回调都指向 addScanLine
+    # 手动和扫码都保留补全链；扫码入口固定加 1，不复用手动数量。
     assert SCAN_SCREENS.count("onScanBarcode = { barcode ->") >= 3
     assert SCAN_SCREENS.count("onManualAdd = {") >= 3
-    assert SCAN_SCREENS.count("viewModel.addScanLine(") >= 6, (
-        "扫码/手动添加必须都调用 addScanLine，否则该入口没有物料详情补全"
-    )
+    assert SCAN_SCREENS.count("viewModel.addCameraScanLine(barcode,") == 2
+    camera = SCAN_VM.split("fun addCameraScanLine(", 1)[1].split("private fun quantityDraftKey", 1)[0]
+    assert "return addScanLine(ScanLine(" in camera and "quantity = 1.0" in camera
+    assert SCAN_SCREENS.count("viewModel.addScanLine(") >= 3
+    stocktake = SCAN_SCREENS.split("fun StocktakeScreen(", 1)[1]
+    assert "addOrConfirmStocktakeLine(" in stocktake and "viewModel.addScanLine(line)" in stocktake
 
 
 def test_apk_version_bumped_for_release():

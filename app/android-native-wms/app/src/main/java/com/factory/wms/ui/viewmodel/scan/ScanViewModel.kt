@@ -12,6 +12,10 @@ import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.repository.WmsRepository.Companion.OfflineQueuedException
 import com.factory.wms.util.formatQuantity
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
@@ -27,6 +31,47 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.cancelAndJoin
 import java.util.UUID
 
+/** Keep a small owner-scoped write alive across navigation destroying a screen ViewModel. */
+private object QuantityDraftWriteFence {
+    private val scope = CoroutineScope(SupervisorJob())
+    private val jobs = mutableMapOf<String, Job>()
+    private var nextVersion = 0L
+    private val recoveries = mutableMapOf<String, Pair<Long, Any>>()
+
+    fun record(key: String, snapshot: Any) = synchronized(jobs) {
+        nextVersion += 1
+        recoveries[key] = nextVersion to snapshot
+    }
+    fun recovery(key: String): Any? = synchronized(jobs) { recoveries[key]?.second }
+    fun version(key: String): Long? = synchronized(jobs) { recoveries[key]?.first }
+    fun saved(key: String, version: Long?) = synchronized(jobs) {
+        if (version != null && recoveries[key]?.first == version) recoveries.remove(key)
+    }
+    fun discard(key: String) = synchronized(jobs) { recoveries.remove(key) }
+
+    fun enqueue(key: String, write: suspend () -> Unit) {
+        synchronized(jobs) {
+            val previous = jobs[key]
+            val job = scope.launch(context = Dispatchers.Main.immediate, start = CoroutineStart.LAZY) { previous?.join(); write() }
+            jobs[key] = job
+            job.invokeOnCompletion { synchronized(jobs) { if (jobs[key] === job) jobs.remove(key) } }
+            job.start()
+        }
+    }
+
+    fun hasPendingWrites(): Boolean = synchronized(jobs) { jobs.isNotEmpty() }
+
+    suspend fun await(key: String) {
+        while (true) {
+            val job = synchronized(jobs) { jobs[key] } ?: return
+            job.join()
+        }
+    }
+}
+
+/** Test fixture must finish app-scoped writes before closing its isolated DataStore. */
+internal fun hasPendingQuantityDraftWrites(): Boolean = QuantityDraftWriteFence.hasPendingWrites()
+
 data class ScanUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -38,6 +83,7 @@ data class ScanUiState(
     val materialSuggestions: List<MaterialDto> = emptyList(),
     val materialSuggestionsLoading: Boolean = false,
     val scanLines: List<ScanLine> = emptyList(),
+    val quantityDrafts: Map<String, QuantityDraft> = emptyMap(),
     val totalQuantity: Double = 0.0,
     val scanFeedback: String? = null,
     val pendingSubmissionId: String? = null,
@@ -195,7 +241,7 @@ class ScanViewModel(
     private fun editDraftSnapshot(): ScanEditDraft {
         val state = _uiState.value
         return ScanEditDraft(
-            state.scanLines.map { DraftScanLine(it, it.material_name, it.material_spec, it.material_brand) },
+            state.scanLines.map { DraftScanLine(it, it.material_name, it.material_spec, it.material_brand, it.material_unit) },
             state.selectedWarehouse, state.selectedDepartment, state.selectedEmployee,
             state.contractNo, state.pendingSubmissionId, state.inboundBusinessType,
             state.selectedLocation, state.locationEnabled
@@ -203,23 +249,28 @@ class ScanViewModel(
             // BUG-2026-09-18-008：供应商/备注一并快照，断点续传不丢单头信息
             ,state.selectedSupplier
             ,state.inboundRemark
+            ,state.quantityDrafts
         )
     }
 
     suspend fun restoreEditDraft(operation: String) = restoreMutex.withLock {
         try {
             val key = repository.editDraftKey(operation)
+            editDraftKey?.takeIf { it != key }?.let { QuantityDraftWriteFence.await(it) }
+            QuantityDraftWriteFence.await(key)
             if (key == editDraftKey && editDraftRestored) return@withLock
             editDraftJob?.cancelAndJoin()
             editDraftRestored = false
             editDraftKey = key
             editDraftOperation = operation
             _uiState.value = ScanUiState(isLoading = true)
-            val draft = repository.loadEditDraft(key)
-            check(draft != null || !repository.hasEditDraft(key)) { "原草稿未能读取，已保留原内容，请先核对或明确清空" }
+            val storedDraft = repository.loadEditDraft(key)
+            check(storedDraft != null || !repository.hasEditDraft(key)) { "原草稿未能读取，已保留原内容，请先核对或明确清空" }
+            val recovery = QuantityDraftWriteFence.recovery(key) as? ScanEditDraft
+            val draft = recovery ?: storedDraft
             if (draft != null) {
                 val lines = draft.lines.map {
-                    it.line.copy(material_name = it.name, material_spec = it.spec, material_brand = it.brand)
+                    it.line.copy(material_name = it.name, material_spec = it.spec, material_brand = it.brand, material_unit = it.unit)
                 }
                 _uiState.value = _uiState.value.copy(
                     scanLines = lines, totalQuantity = lines.sumOf { it.quantity },
@@ -231,6 +282,8 @@ class ScanViewModel(
                     // BUG-2026-09-18-008：恢复供应商/备注（旧草稿无此字段时 Gson 给 null/空串，等价于未选）
                     selectedSupplier = draft.supplier,
                     inboundRemark = draft.inboundRemark,
+                    quantityDrafts = draft.quantityDrafts.orEmpty(),
+                    draftSaveError = if (recovery != null) "数量输入尚未保存到本机，请勿退出" else null,
                     success = if (draft.requestId == null) "已恢复上次未提交清单，请核对仓库和数量"
                     else "已恢复待核实提交，请点提交核实原请求；核实前不可修改清单"
                 )
@@ -256,7 +309,10 @@ class ScanViewModel(
         // 编辑草稿必须走失败分支，绝不把未落盘清单误报为已保存。
         val key = editDraftKey ?: return@withLock false
         try {
-            repository.saveEditDraft(key, editDraftSnapshot())
+            val version = QuantityDraftWriteFence.version(key)
+            val snapshot = editDraftSnapshot()
+            repository.saveEditDraft(key, snapshot)
+            QuantityDraftWriteFence.saved(key, version)
             _uiState.value = _uiState.value.copy(draftSaveError = null)
             true
         } catch (cancelled: CancellationException) {
@@ -268,6 +324,10 @@ class ScanViewModel(
     }
 
     internal suspend fun prepareDraftSubmission(): String? {
+        if (_uiState.value.quantityDrafts.isNotEmpty()) {
+            _uiState.value = _uiState.value.copy(error = "请先确定或取消数量修改")
+            return null
+        }
         val operation = editDraftOperation
         val currentKey = try {
             operation?.let { repository.editDraftKey(it) }
@@ -315,14 +375,23 @@ class ScanViewModel(
         return false
     }
 
+    private fun canChangeQuantityContext(changed: Boolean): Boolean {
+        if (changed && _uiState.value.quantityDrafts.isNotEmpty()) {
+            _uiState.value = _uiState.value.copy(error = "请先确定或取消数量修改")
+            return false
+        }
+        return true
+    }
+
     fun updateStocktakeArea(value: String) {
-        if (draftEditingBlocked()) return
+        if (draftEditingBlocked() || !canChangeQuantityContext(value.trim() != _uiState.value.selectedLocation)) return
         _uiState.value = _uiState.value.copy(selectedLocation = value.trim())
     }
 
     fun selectLocation(value: String) {
-        if (draftEditingBlocked()) return
         val location = value.trim()
+        val changesAnyLine = _uiState.value.scanLines.any { it.location_code.orEmpty() != location }
+        if (draftEditingBlocked() || !canChangeQuantityContext(location != _uiState.value.selectedLocation || changesAnyLine)) return
         if (location.length > 100) {
             _uiState.value = _uiState.value.copy(locationError = "库位编码最长100字")
             return
@@ -483,9 +552,39 @@ class ScanViewModel(
         )
     }
 
-    fun addScanLine(incoming: ScanLine) {
-        if (_uiState.value.isLoading) return
+    /** Retain unconfirmed text with the same account-scoped draft as the committed lines. */
+    fun setQuantityDraft(key: String, draft: QuantityDraft?) {
         if (draftEditingBlocked()) return
+        val current = _uiState.value.quantityDrafts
+        _uiState.value = _uiState.value.copy(quantityDrafts = if (draft == null) current - key else current + (key to draft))
+        scheduleQuantityDraftPersistence()
+    }
+
+    fun clearQuantityDrafts() {
+        if (draftEditingBlocked()) return
+        _uiState.value = _uiState.value.copy(quantityDrafts = emptyMap())
+        scheduleQuantityDraftPersistence()
+    }
+
+    private fun hasPendingQuantityRecovery(): Boolean {
+        val key = editDraftKey ?: stocktakeKey
+        return _uiState.value.quantityDrafts.isNotEmpty() ||
+            (key != null && QuantityDraftWriteFence.recovery(key) != null)
+    }
+
+    private fun scheduleQuantityDraftPersistence() {
+        editDraftKey?.let { key ->
+            QuantityDraftWriteFence.record(key, editDraftSnapshot())
+            QuantityDraftWriteFence.enqueue(key) { persistEditDraft() }
+        } ?: stocktakeKey?.let { key ->
+            QuantityDraftWriteFence.record(key, stocktakeDraftSnapshot())
+            QuantityDraftWriteFence.enqueue(key) { persistStocktakeDraftNow(expectedOwnerKey = key) }
+        }
+    }
+
+    fun addScanLine(incoming: ScanLine): Boolean {
+        if (_uiState.value.isLoading) return false
+        if (draftEditingBlocked()) return false
         val line = if (editDraftOperation != null) incoming.copy(location_code =
             if (_uiState.value.locationEnabled == false) null else _uiState.value.selectedLocation.ifBlank { null }) else incoming
         val current = _uiState.value.scanLines.toMutableList()
@@ -509,7 +608,23 @@ class ScanViewModel(
         if (line.material_name.isNullOrBlank() || line.material_spec.isNullOrBlank()) {
             enrichScanLineMaterial(line.material_code)
         }
+        return true
     }
+
+    /** 连续扫码每次只计一件，与手动输入中的数量互不影响。 */
+    fun addCameraScanLine(code: String, location: String?): Boolean {
+        val trimmed = code.trim()
+        if (trimmed.isEmpty()) return false
+        return addScanLine(ScanLine(material_code = trimmed, quantity = 1.0, location_code = location))
+    }
+
+    private fun quantityDraftKey(line: ScanLine): String {
+        val location = line.location_code.orEmpty()
+        return "${line.material_code.length}:${line.material_code}${location.length}:$location"
+    }
+
+    fun hasPendingQuantityDraft(line: ScanLine): Boolean =
+        _uiState.value.quantityDrafts.containsKey(quantityDraftKey(line))
 
     /** 修改清单行的确切数量；保留扫码累加语义，并拒绝覆盖打开弹窗后变化的行。 */
     fun updateScanLineQuantity(expected: ScanLine, quantity: Double, allowZero: Boolean = false): Boolean {
@@ -537,10 +652,12 @@ class ScanViewModel(
         }
         _uiState.value = _uiState.value.copy(
             scanLines = current,
+            quantityDrafts = _uiState.value.quantityDrafts - quantityDraftKey(expected),
             totalQuantity = total,
             error = null,
             scanFeedback = "${expected.material_code} 数量已修改为 ${formatQuantity(quantity)}"
         )
+        scheduleQuantityDraftPersistence()
         return true
     }
 
@@ -616,7 +733,8 @@ class ScanViewModel(
                             material_code = existing.material_code,
                             material_name = it.name,
                             material_spec = it.spec,
-                            material_brand = it.brand
+                            material_brand = it.brand,
+                            material_unit = it.unit
                         )
                     } else {
                         existing
@@ -640,12 +758,15 @@ class ScanViewModel(
             return
         }
         if (index in current.indices) {
+            val needsQuantityPersistence = hasPendingQuantityRecovery()
             current.removeAt(index)
             _uiState.value = _uiState.value.copy(
                 scanLines = current,
+                quantityDrafts = _uiState.value.quantityDrafts - quantityDraftKey(expected),
                 scanFeedback = "${expected.material_code} 已移除",
                 totalQuantity = current.sumOf { it.quantity }
             )
+            if (needsQuantityPersistence) scheduleQuantityDraftPersistence()
             if (stocktakeKey != null || stocktakeRestoreStarted) persistStocktakeDraft()
         }
     }
@@ -656,12 +777,14 @@ class ScanViewModel(
             return
         }
         if (draftEditingBlocked(allowUnreadableClear = true)) return
+        val needsQuantityPersistence = hasPendingQuantityRecovery()
         stocktakeDraftReadComplete = true
-        _uiState.value = _uiState.value.copy(scanLines = emptyList(), totalQuantity = 0.0,
+        _uiState.value = _uiState.value.copy(scanLines = emptyList(), quantityDrafts = emptyMap(), totalQuantity = 0.0,
             error = if (_uiState.value.stocktakeDraftUnreadable) null else _uiState.value.error,
             stocktakeIdentityError = null, stocktakeDraftUnreadable = false)
         stocktakeSourceWarehouse = null
         stocktakeSourceCheckId = null
+        if (needsQuantityPersistence) scheduleQuantityDraftPersistence()
         if (stocktakeKey != null || stocktakeRestoreStarted) persistStocktakeDraft()
     }
 
@@ -673,6 +796,7 @@ class ScanViewModel(
                 restoreMutex.withLock {
                     val key = editDraftKey ?: error("尚未确认原草稿归属")
                     repository.clearOwnedEditDraft(key, operation)
+                    QuantityDraftWriteFence.discard(key)
                     editDraftKey = null
                     editDraftRestored = false
                 }
@@ -875,7 +999,7 @@ class ScanViewModel(
 
     /** 选中一张进行中盘点单（结果统一挂到该单，由电脑端完成统一出调整草稿）。 */
     fun selectCheckOrder(order: CheckOrderDto) {
-        if (draftEditingBlocked()) return
+        if (draftEditingBlocked() || !canChangeQuantityContext(_uiState.value.selectedCheckOrder?.id != order.id)) return
         if (_uiState.value.scanLines.isNotEmpty() && stocktakeSourceCheckId != null && stocktakeSourceCheckId != order.id) {
             _uiState.value = _uiState.value.copy(error = "恢复的清单属于原盘点单，请先核对或清空后重新盘点")
             return
@@ -884,7 +1008,7 @@ class ScanViewModel(
     }
 
     fun selectWarehouse(warehouse: WarehouseDto) {
-        if (draftEditingBlocked()) return
+        if (draftEditingBlocked() || !canChangeQuantityContext(_uiState.value.selectedWarehouse?.code != warehouse.code)) return
         if (stocktakeSourceWarehouse != null && _uiState.value.scanLines.isNotEmpty() && stocktakeSourceWarehouse != warehouse.code) {
             _uiState.value = _uiState.value.copy(error = "恢复的清单属于原仓库，请先核对或清空后重新盘点")
             return
@@ -1453,6 +1577,10 @@ class ScanViewModel(
             }
             val submissionOwner = RetrofitClient.sessionSnapshot()
             val state = _uiState.value
+            if (state.quantityDrafts.isNotEmpty()) {
+                _uiState.value = state.copy(error = "请先确定或取消数量修改")
+                return@launch
+            }
             if (state.stocktakeIdentityError != null && state.pendingSubmissionId == null) {
                 _uiState.value = state.copy(error = state.stocktakeIdentityError)
                 return@launch
@@ -1554,25 +1682,35 @@ class ScanViewModel(
 
     // ============ 断点续盘（BUG-2026-09-03-003） ============
 
+    private fun stocktakeDraftSnapshot(): StocktakeDraft {
+        val state = _uiState.value
+        return StocktakeDraft(
+            warehouseCode = state.selectedWarehouse?.code ?: stocktakeSourceWarehouse,
+            warehouseName = state.selectedWarehouse?.name,
+            checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId,
+            lines = state.scanLines, requestId = state.pendingSubmissionId,
+            selectedArea = state.selectedLocation, quantityDrafts = state.quantityDrafts,
+            materialUnits = state.scanLines.mapNotNull { line ->
+                line.material_unit?.takeIf { it.isNotBlank() }?.let { quantityDraftKey(line) to it }
+            }.toMap()
+        )
+    }
+
     /** 将当前盘点清单、仓库与所选盘点单写入本地草稿（盘点页在清单变化时调用）。 */
-    private suspend fun persistStocktakeDraftNow(): Boolean = stocktakeDraftMutex.withLock {
+    private suspend fun persistStocktakeDraftNow(expectedOwnerKey: String? = null): Boolean = stocktakeDraftMutex.withLock {
         if (stocktakeRestoreStarted && !stocktakeRestoreComplete) return@withLock false
         if (stocktakeRestoreStarted && !stocktakeDraftReadComplete) {
             _uiState.value = _uiState.value.copy(draftSaveError = "原盘点草稿未安全读取，未自动覆盖；请先核对或明确清空")
             return@withLock false
         }
         return@withLock try {
-            val currentKey = repository.stocktakeDraftKey()
+            val currentKey = expectedOwnerKey ?: repository.stocktakeDraftKey()
             val key = stocktakeKey ?: currentKey.also { stocktakeKey = it }
             check(key == currentKey) { "账号已变化，原盘点草稿保持不变，请使用原账号恢复" }
-            val state = _uiState.value
-            repository.saveStocktakeDraft(StocktakeDraft(
-                warehouseCode = state.selectedWarehouse?.code ?: stocktakeSourceWarehouse,
-                warehouseName = state.selectedWarehouse?.name,
-                checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId,
-                lines = state.scanLines, requestId = state.pendingSubmissionId,
-                selectedArea = state.selectedLocation
-            ), key)
+            val version = QuantityDraftWriteFence.version(key)
+            val snapshot = stocktakeDraftSnapshot()
+            repository.saveStocktakeDraft(snapshot, key)
+            QuantityDraftWriteFence.saved(key, version)
             _uiState.value = _uiState.value.copy(draftSaveError = null)
             true
         } catch (cancelled: CancellationException) { throw cancelled
@@ -1585,10 +1723,14 @@ class ScanViewModel(
     fun persistStocktakeDraft() { viewModelScope.launch { persistStocktakeDraftNow() } }
 
     fun clearStocktakeDraft() {
-        viewModelScope.launch { stocktakeDraftMutex.withLock {
+        viewModelScope.launch {
             val key = stocktakeKey ?: repository.stocktakeDraftKey()
-            repository.clearStocktakeDraft(key)
-        } }
+            QuantityDraftWriteFence.await(key)
+            stocktakeDraftMutex.withLock {
+                repository.clearStocktakeDraft(key)
+                QuantityDraftWriteFence.discard(key)
+            }
+        }
     }
 
     fun maybeRestoreStocktakeDraft() {
@@ -1598,8 +1740,11 @@ class ScanViewModel(
         viewModelScope.launch {
             try {
                 val key = repository.stocktakeDraftKey()
+                QuantityDraftWriteFence.await(key)
                 stocktakeKey = key
-                val draft = repository.loadStocktakeDraft(key)
+                val storedDraft = repository.loadStocktakeDraft(key)
+                val recovery = QuantityDraftWriteFence.recovery(key) as? StocktakeDraft
+                val draft = recovery ?: storedDraft
                 if (draft == null || draft.lines.isEmpty()) {
                     stocktakeDraftReadComplete = true
                     val legacy = repository.hasUnownedStocktakeDraft()
@@ -1612,10 +1757,14 @@ class ScanViewModel(
                 }
                 stocktakeSourceWarehouse = draft.warehouseCode
                 stocktakeSourceCheckId = draft.checkId
-                _uiState.value = _uiState.value.copy(scanLines = draft.lines,
+                val restoredLines = draft.lines.map { line ->
+                    line.copy(material_unit = draft.materialUnits?.get(quantityDraftKey(line)))
+                }
+                _uiState.value = _uiState.value.copy(scanLines = restoredLines, quantityDrafts = draft.quantityDrafts.orEmpty(),
                     totalQuantity = draft.lines.sumOf { it.quantity }, selectedWarehouse = null,
                     selectedCheckOrder = null, selectedLocation = draft.selectedArea.orEmpty(),
-                    pendingSubmissionId = draft.requestId, stocktakeDraftUnreadable = false)
+                    pendingSubmissionId = draft.requestId, stocktakeDraftUnreadable = false,
+                    draftSaveError = if (recovery != null) "数量输入尚未保存到本机，请勿退出" else null)
                 stocktakeDraftReadComplete = true
                 val warehouses = if (_uiState.value.warehouses.isNotEmpty()) _uiState.value.warehouses
                     else repository.getWarehouses().getOrThrow()

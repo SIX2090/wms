@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -254,7 +255,7 @@ private fun AlertList(
         Text(
             "共 ${state.total} 项低于安全库存",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         LazyColumn(
@@ -277,72 +278,29 @@ private fun AlertList(
 }
 
 @Composable
-private fun AlertRow(item: AlertItemDto, accent: Color) {
-    val stock = item.stock ?: 0.0
-    // AI-CI-GREEN-005-F04：后端下发安全库存（计算值 = max(reorder_point, min_stock)），
-    // 告警线以它为准；minStock 只是红线，低于它属于更严重的 low 档。
-    // 命名对照表见服务端 models/master_data.py 的「库存阈值命名约定」。
-    val safetyStock = item.safetyStock ?: item.minStock ?: 0.0
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+internal fun AlertRow(item: AlertItemDto, accent: Color) {
+    val safetyStock = item.safetyStock ?: item.minStock
+    val unit = item.unit.orEmpty().takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+    fun value(number: Double?): String = number?.let { formatQuantity(it) + unit } ?: "—"
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    item.code.orEmpty(),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Primary
-                )
-                if (!item.name.isNullOrBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        item.name.orEmpty(),
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(item.code.orEmpty(), fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp, color = Primary.readableOn(CardBackground), softWrap = true)
+            if (!item.name.isNullOrBlank()) Text(item.name.orEmpty(), fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold, softWrap = true)
+            if (!item.spec.isNullOrBlank()) Text("规格：${item.spec}", fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Outlined.WarningAmber, contentDescription = null,
+                    tint = accent.readableOn(CardBackground), modifier = Modifier.size(20.dp))
+                Text("库存告警 · 缺口", fontSize = 14.sp, color = accent.readableOn(CardBackground))
             }
-            if (!item.spec.isNullOrBlank()) {
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    "规格: ${item.spec}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    // BUG-2026-09-12-002：缺货预警按单领料，规格尾部（颜色/线径）
-                    // 是防拿错货的关键，单行省略号会吞掉 → 放开到 2 行
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 缺货量放在最显眼位置——用户最关心"还差多少"
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = accent.copy(alpha = 0.12f)
-                ) {
-                    Text(
-                        "缺 ${formatQuantity(item.gap ?: 0.0)}${item.unit.orEmpty()}",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = accent
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    // 与安全库存对比：补货目标是把库存拉回预警线之上
-                    "现有 ${formatQuantity(stock)} / 安全 ${formatQuantity(safetyStock)}",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(value(item.gap), modifier = Modifier.fillMaxWidth(), fontSize = 20.sp, fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold, color = accent.readableOn(CardBackground), softWrap = true)
+            Text("现有 ${value(item.stock)}  /  安全库存 ${value(safetyStock)}", fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
         }
     }
 }
@@ -393,7 +351,7 @@ private fun OrderList(
         Text(
             "共 ${state.total} 单",
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-            fontSize = 13.sp,
+            fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         LazyColumn(
@@ -415,71 +373,32 @@ private fun OrderList(
 }
 
 @Composable
-private fun OrderRow(order: MobileOrderDto, accent: Color, inbound: Boolean) {
-    val isPending = order.status == "pending"
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+internal fun OrderRow(order: MobileOrderDto, accent: Color, inbound: Boolean) {
+    val statusText = when (order.status) {
+        "pending" -> "待处理"
+        "completed" -> "已完成"
+        else -> order.status?.takeIf { it.isNotBlank() } ?: "状态未知"
+    }
+    val statusColor = if (order.status == "pending") accent.readableOn(CardBackground) else MaterialTheme.colorScheme.onSurfaceVariant
+    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (inbound) Icons.Outlined.ArrowDownward else Icons.Outlined.ArrowUpward,
-                    null,
-                    tint = accent,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    order.orderNo.orEmpty(),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
-                    color = Primary,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                // 状态标签：待处理用强调色，已完成用中性色
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (isPending) accent.copy(alpha = 0.12f) else SuccessContainer
-                ) {
-                    Text(
-                        if (isPending) "待处理" else "已完成",
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isPending) accent else Success
-                    )
-                }
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(if (inbound) Icons.Outlined.ArrowDownward else Icons.Outlined.ArrowUpward,
+                    contentDescription = null, tint = accent.readableOn(CardBackground), modifier = Modifier.size(20.dp))
+                Text(order.orderNo?.takeIf { it.isNotBlank() } ?: "单号未知", modifier = Modifier.weight(1f),
+                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp, color = Primary.readableOn(CardBackground), softWrap = true)
             }
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    order.date.orEmpty(),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    " · ${order.itemCount ?: 0} 项",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                // 出库单显示领料部门，入库单显示供应商留空则不占位
-                if (!inbound && !order.department.isNullOrBlank()) {
-                    Text(
-                        " · ${order.department}",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        // AI-APP-FIX-506：部门名给 weight——此前无宽度约束，
-                        // 长部门名把整行静默裁切（日期/项数也被顶出屏幕）
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+            Text(statusText, fontSize = 14.sp, color = statusColor, fontWeight = FontWeight.SemiBold)
+            val date = order.date?.takeIf { it.isNotBlank() } ?: "日期未知"
+            val count = order.itemCount?.toString() ?: "—"
+            Text("$date · 明细 $count 项", fontSize = 14.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
+            if (!inbound && !order.department.isNullOrBlank()) {
+                Text("领料部门：${order.department}", fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
             }
         }
     }
@@ -505,7 +424,7 @@ private fun ListFooter(state: ListUiState) {
             // 会让用户以为点了能加载（实际靠上滑自动触发），点了没反应像坏掉。
             Text(
                 "上滑加载更多",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -518,7 +437,7 @@ private fun ListFooter(state: ListUiState) {
         ) {
             Text(
                 "— 已全部加载 —",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

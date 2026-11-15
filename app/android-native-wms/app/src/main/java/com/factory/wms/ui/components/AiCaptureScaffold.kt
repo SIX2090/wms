@@ -74,6 +74,7 @@ fun AiCaptureScaffold(
     emptySubtitle: String,
     imageContentDescription: String,
     onImageChanged: () -> Unit,
+    contextContent: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.(imageUri: Uri?, snackbarHostState: SnackbarHostState) -> Unit
 ) {
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -113,7 +114,8 @@ fun AiCaptureScaffold(
                 title = title,
                 subtitle = subtitle,
                 accent = accent,
-                onBack = onBack
+                onBack = onBack,
+                blueBackground = true
             )
         }
     ) { padding ->
@@ -124,6 +126,7 @@ fun AiCaptureScaffold(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            contextContent?.invoke()
             if (selectedImageUri != null) {
                 // 图片预览卡（右上角圆形清除按钮）
                 Card(
@@ -149,8 +152,7 @@ fun AiCaptureScaffold(
                             },
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(8.dp)
-                                .size(36.dp)
+                                .size(48.dp)
                                 .clip(CircleShape)
                                 .background(Color.Black.copy(alpha = 0.5f))
                         ) {
@@ -164,6 +166,14 @@ fun AiCaptureScaffold(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+                ImageSourcePicker(
+                    accent = accent,
+                    onCamera = { launchCamera() },
+                    onPick = { imagePicker.launch("image/*") },
+                    cameraLabel = "重新拍照",
+                    albumLabel = "从相册选择"
+                )
                 Spacer(modifier = Modifier.height(16.dp))
             } else {
                 // 虚线空态卡（AI-APP-FIX-405：WmsEmptyState dashedBorder）
@@ -205,21 +215,23 @@ fun ImageSourcePicker(
     accent: Color,
     onCamera: () -> Unit,
     onPick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cameraLabel: String = "拍照",
+    albumLabel: String = "选择图片"
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         WmsOutlinedActionButton(
-            text = "拍照",
+            text = cameraLabel,
             onClick = onCamera,
             modifier = Modifier.weight(1f),
             icon = Icons.Outlined.CameraAlt,
             color = accent
         )
         WmsOutlinedActionButton(
-            text = "选择图片",
+            text = albumLabel,
             onClick = onPick,
             modifier = Modifier.weight(1f),
             icon = Icons.Outlined.PhotoLibrary,

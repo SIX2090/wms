@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
@@ -60,6 +62,7 @@ import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.Primary
+import com.factory.wms.ui.theme.readableOn
 import com.factory.wms.ui.theme.WmsDimens
 import com.factory.wms.ui.viewmodel.ai.AiViewModel
 import com.factory.wms.ui.viewmodel.ai.AssistantChatViewModel
@@ -500,27 +503,39 @@ internal fun WmsBottomBar(
     BoxWithConstraints {
         val density = LocalDensity.current
         val measurer = rememberTextMeasurer()
-        val labelStyle = MaterialTheme.typography.labelMedium
+        val labelStyle = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp)
         val requestedWidths = tabs.map { tab ->
             val natural = measurer.measure(tab.label, style = labelStyle.copy(fontWeight = FontWeight.SemiBold),
                 softWrap = false).size.width
             maxOf(WmsDimens.TouchTargetMin, with(density) { natural.toDp() } + WmsDimens.SpaceSm)
         }
-        val totalWidth = requestedWidths.sumOf { it.value.toDouble() }.toFloat()
-        val labelWidths = requestedWidths.map { (maxWidth * (it.value / totalWidth) - WmsDimens.SpaceSm).coerceAtLeast(0.dp) }
+        // At large font scales, equal slots keep short Chinese labels readable;
+        // the longer inventory label can wrap without encroaching on another tab.
+        val allocatedWeights = if (density.fontScale >= 1.8f) {
+            List(tabs.size) { 1f }
+        } else {
+            requestedWidths.map { it.value }
+        }
+        val totalWidth = allocatedWeights.sum()
+        val labelWidths = allocatedWeights.map {
+            (maxWidth * (it / totalWidth) - WmsDimens.SpaceSm).coerceAtLeast(0.dp)
+        }
         val labelHeightPx = tabs.mapIndexed { index, tab ->
             val labelConstraints = Constraints(maxWidth = with(density) { labelWidths[index].roundToPx() }.coerceAtLeast(1))
             measurer.measure(tab.label, style = labelStyle.copy(fontWeight = FontWeight.SemiBold),
                 constraints = labelConstraints).size.height
         }.maxOrNull() ?: 0
         val labelHeight = with(density) { labelHeightPx.toDp() }
+        val navigationBackground = MaterialTheme.colorScheme.primaryContainer
+        val selectedForeground = Primary.readableOn(navigationBackground)
+        val unselectedForeground = MaterialTheme.colorScheme.onSurfaceVariant.readableOn(navigationBackground)
         NavigationBar(
-            containerColor = com.factory.wms.ui.theme.CardBackground,
+            containerColor = navigationBackground,
             tonalElevation = 0.dp
         ) {
             tabs.forEachIndexed { index, tab ->
                 val selected = currentRoute == tab.screen.route
-                Box(Modifier.weight(requestedWidths[index].value)) {
+                Box(Modifier.weight(allocatedWeights[index])) {
                 this@NavigationBar.NavigationBarItem(
                     modifier = Modifier.fillMaxWidth(),
                     selected = selected,
@@ -539,9 +554,11 @@ internal fun WmsBottomBar(
                         }
                     },
                     colors = NavigationBarItemDefaults.colors(
-                        selectedIconColor = Primary,
-                        selectedTextColor = Primary,
-                        indicatorColor = com.factory.wms.ui.theme.PrimaryContainer
+                        selectedIconColor = selectedForeground,
+                        selectedTextColor = selectedForeground,
+                        unselectedIconColor = unselectedForeground,
+                        unselectedTextColor = unselectedForeground,
+                        indicatorColor = Color.Transparent
                     )
                 )
                 }

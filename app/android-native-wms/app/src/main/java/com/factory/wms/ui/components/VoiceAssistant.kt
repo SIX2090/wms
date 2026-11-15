@@ -251,7 +251,7 @@ fun VoiceAssistantOverlay(
                                     if (!card.meta.isNullOrBlank()) {
                                         Text(
                                             card.meta,
-                                            fontSize = 12.sp,
+                                            fontSize = 14.sp,
                                             color = OnSurfaceVariant
                                         )
                                     }

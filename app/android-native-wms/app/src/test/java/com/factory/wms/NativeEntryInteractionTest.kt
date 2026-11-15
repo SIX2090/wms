@@ -55,7 +55,7 @@ class NativeEntryInteractionTest {
         activity.get().setContent { WmsTheme(darkTheme = false) {
             ScanScreenBase("入库", "合成界面验证", CardBlue, {}, emptyList(), 0.0, vm,
                 remember { SnackbarHostState() }, false, true, {}, {}, "M-1", quantity,
-                {}, { quantity = it }, { if (quantity.toPositiveQtyOrNull() != null) adds++ }, {}, {}, "提交入库", CardBlue)
+                {}, { quantity = it }, { if (quantity.toPositiveQtyOrNull() != null) adds++ }, { com.factory.wms.ui.screens.ScanBarcodeResult.Rejected }, {}, "提交入库", CardBlue)
         } }
         compose.onNodeWithText("请输入大于 0 的有效数量").assertIsDisplayed()
         compose.onNodeWithText("添加").assertIsNotEnabled()

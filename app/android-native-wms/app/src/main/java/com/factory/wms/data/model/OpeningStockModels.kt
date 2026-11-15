@@ -35,7 +35,9 @@ data class OpeningStockLine(
     val remark: String? = null,
     @Transient val materialName: String? = null,
     @Transient val materialSpec: String? = null,
-    @Transient val materialBrand: String? = null
+    @Transient val materialBrand: String? = null,
+    @Transient val materialUnit: String? = null,
+    @Transient val uiId: String = java.util.UUID.randomUUID().toString()
 )
 
 /** 期初建账提交请求。 */

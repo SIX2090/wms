@@ -10,7 +10,8 @@ data class ScanLine(
     val location_code: String? = null,
     @Transient val material_name: String? = null,
     @Transient val material_spec: String? = null,
-    @Transient val material_brand: String? = null
+    @Transient val material_brand: String? = null,
+    @Transient val material_unit: String? = null
 )
 
 data class InboundRequest(
@@ -169,5 +170,7 @@ data class StocktakeDraft(
     @SerializedName("check_id") val checkId: Long? = null,
     val lines: List<ScanLine> = emptyList(),
     val requestId: String? = null,
-    val selectedArea: String? = null
+    val selectedArea: String? = null,
+    val quantityDrafts: Map<String, QuantityDraft>? = null,
+    val materialUnits: Map<String, String>? = null
 )

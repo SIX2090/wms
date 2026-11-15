@@ -49,7 +49,9 @@ def test_manual_entry_has_persistent_error_and_respects_stocktake_zero_policy():
     assert "KeyboardActions(onDone = { onManualAdd() })" in base
     assert "manualCode.isNotBlank() && quantityInputError(manualQty, allowZeroQuantity) == null" in base
     stocktake = function(read("ui/screens/ScanScreens.kt"), "StocktakeScreen")
-    assert stocktake.count("manualQty.toQtyOrNull(allowZero = true)") == 2
+    assert stocktake.count("manualQty.toQtyOrNull(allowZero = true)") == 1
+    camera = stocktake.split("onScanBarcode = { barcode ->", 1)[1].split("onSubmitClick", 1)[0]
+    assert "quantity = 1.0" in camera and "manualQty" not in camera
     assert "allowZeroQuantity = true" in stocktake
 
 
@@ -121,12 +123,17 @@ def test_report_summaries_wrap_without_competing_for_one_row():
 
 
 def test_surface_headers_use_matching_theme_foregrounds():
-    # 2026-11-15 改为中性表面头部；保留其他深底消费者的 scrim，禁止白字落浅底。
     assert "Color.Black.copy(alpha = 0.12f)" in read("ui/theme/Color.kt")
-    for body in (function(read("ui/screens/HomeScreen.kt"), "HomeWorkbench"),
-                 function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")):
-        assert 'Color.White' not in body
-        assert 'MaterialTheme.colorScheme' in body
+    home = function(read("ui/screens/HomeScreen.kt"), "HomeWorkbench")
     header = function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")
-    assert 'color = MaterialTheme.colorScheme.surface' in header
-    assert 'color = MaterialTheme.colorScheme.onSurface' in header
+    assert 'Primary.readableOn(Color.White)' in home and 'Color.White' in home
+    assert 'if (blueBackground) Primary.readableOn(Color.White)' in header
+    if 'Surface(color = headerColor)' in header:
+        assert 'accent.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface)' in header
+        assert 'if (blueBackground) Color.White else accent.readableOn(headerColor)' in header
+    else:
+        assert 'else MaterialTheme.colorScheme.surface' in header
+        assert 'Surface(color = background)' in header
+        assert 'if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurface' in header
+    assert 'if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant' in header
+    # Real contrast and 48dp back action: NativeHeaderContrastTest on Android CI.

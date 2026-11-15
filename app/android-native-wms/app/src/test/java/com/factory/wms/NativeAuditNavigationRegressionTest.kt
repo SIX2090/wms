@@ -12,8 +12,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
@@ -82,6 +84,7 @@ class NativeAuditNavigationRegressionTest {
     }
     @After fun after(){
         disposeComposeActivity(activity)
+        drainPendingQuantityDraftWrites { main.scheduler.runCurrent(); Shadows.shadowOf(Looper.getMainLooper()).idle() }
         main.scheduler.runCurrent();stores.close()
         RetrofitClient.setSession("",null);server.shutdown();Dispatchers.resetMain()
     }
@@ -110,7 +113,7 @@ class NativeAuditNavigationRegressionTest {
                 """{"extracted":{"code":"M001","name":"Recognized M001","quantity":3},"matches":[{"id":1,"code":"M001","name":"Recognized M001","spec":"S"}],"match_count":1}""",
                 RecognizeMaterialResult::class.java))
         }
-        compose.onNodeWithText("添加到盘点清单").performScrollTo().performClick()
+        compose.onNodeWithText("加入盘点清单").performScrollTo().performClick()
         compose.waitForIdle()
         compose.runOnIdle {
             assertEquals(Screen.Stocktake.route,nav.currentDestination?.route)
@@ -121,7 +124,12 @@ class NativeAuditNavigationRegressionTest {
             assertEquals("AREA-7",parent.uiState.value.scanLines.single().location_code)
             assertEquals(3.0,parent.uiState.value.scanLines.single().quantity,0.0)
         }
-        compose.onNodeWithText("M001").assertExists()
+        // The context above the list can occupy the first viewport; verify the actual
+        // line remains visible after scrolling instead of assuming it starts onscreen.
+        compose.onNode(hasScrollAction() and hasAnyDescendant(hasText("1 行物料")), useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.ScrollBy) { scroll -> scroll(0f, 1000f) }
+        compose.waitForIdle()
+        compose.onNodeWithText("编码 M001").performScrollTo().assertIsDisplayed()
     }
     @Test fun unreadableDraftRequiresExplicitConfirmationAndCancelRetainsOriginal() {
         val application=ApplicationProvider.getApplicationContext<Application>()
@@ -149,11 +157,16 @@ class NativeAuditNavigationRegressionTest {
         compose.onNodeWithText("取消").performClick()
         assertEquals(original,runBlocking{preferences.data.first()[stringKey]})
         compose.onNodeWithText("清空无法读取的盘点草稿").performClick()
+        val existing=parent.viewModelScope.coroutineContext[Job]!!.children.toSet()
         compose.onNodeWithText("确认清空并重新盘点").performClick()
+        val clearJobs=parent.viewModelScope.coroutineContext[Job]!!.children.filterNot { it in existing }.toList()
+        assertTrue("Explicit confirmation must schedule the draft deletion", clearJobs.isNotEmpty())
         compose.waitUntil(10000) {
             main.scheduler.runCurrent();Shadows.shadowOf(Looper.getMainLooper()).idle()
-            runBlocking{preferences.data.first()[stringKey]==null}
+            clearJobs.none { it.isActive }
         }
+        assertNull(parent.uiState.value.draftSaveError)
+        assertNull(runBlocking{preferences.data.first()[stringKey]})
         compose.onNodeWithText("清空无法读取的盘点草稿").assertDoesNotExist()
         compose.runOnIdle { parent.addScanLine(ScanLine("M002",2.0,material_name="Next material",material_spec="S")) }
         assertEquals("M002",parent.uiState.value.scanLines.single().material_code)

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -82,6 +83,7 @@ fun ScannerDialog(
     /** 连续模式下最近一次扫中的条码，用于顶部回显"已加 XXX"。 */
     lastScannedCode: String? = null,
     feedbackMessage: String? = null,
+    onManualInput: () -> Unit = onDismiss,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -146,10 +148,7 @@ fun ScannerDialog(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
         hasCameraPermission = granted
-        if (!granted) {
-            Toast.makeText(context, "需要相机权限才能扫码", Toast.LENGTH_SHORT).show()
-            onDismiss()
-        }
+        cameraError = if (granted) null else "未取得相机权限"
     }
 
     LaunchedEffect(Unit) {
@@ -311,73 +310,46 @@ fun ScannerDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Fullscreen scan frame: the whole preview is the scan area.
-                // No dark mask is applied so barcodes can be recognized anywhere on screen.
+                // Visual aiming frame; CameraX analysis still uses the entire preview.
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    val scanBoxWidth = size.width
-                    val scanBoxHeight = size.height
-                    val scanBoxLeft = 0f
-                    val scanBoxTop = 0f
-
-                    val cornerLength = 48f
-                    val strokeWidth = 5f
-                    val cornerColor = Color(0xFF4361EE)
-                    val inset = 24f
-
-                    // Corner markers stay near the screen edges to delimit the fullscreen frame
-                    val left = scanBoxLeft + inset
-                    val top = scanBoxTop + inset
-                    val right = scanBoxLeft + scanBoxWidth - inset
-                    val bottom = scanBoxTop + scanBoxHeight - inset
-
-                    drawLine(cornerColor, Offset(left, top + cornerLength), Offset(left, top), strokeWidth)
-                    drawLine(cornerColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth)
-
-                    drawLine(cornerColor, Offset(right - cornerLength, top), Offset(right, top), strokeWidth)
-                    drawLine(cornerColor, Offset(right, top), Offset(right, top + cornerLength), strokeWidth)
-
-                    drawLine(cornerColor, Offset(left, bottom - cornerLength), Offset(left, bottom), strokeWidth)
-                    drawLine(cornerColor, Offset(left, bottom), Offset(left + cornerLength, bottom), strokeWidth)
-
-                    drawLine(cornerColor, Offset(right - cornerLength, bottom), Offset(right, bottom), strokeWidth)
-                    drawLine(cornerColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth)
-
-                    val lineY = top + (bottom - top - 4f) * scanLineOffset
-                    drawLine(
-                        color = Color(0xFF4361EE).copy(alpha = 0.8f),
-                        start = Offset(left + 8f, lineY),
-                        end = Offset(right - 8f, lineY),
-                        strokeWidth = 2f
+                    val width = size.width * 0.82f
+                    val height = minOf(size.height * 0.32f, 240.dp.toPx())
+                    val left = (size.width - width) / 2f
+                    val right = left + width
+                    val top = (size.height - height) / 2f
+                    val bottom = top + height
+                    val corner = minOf(32.dp.toPx(), width / 4f, height / 4f)
+                    val edges = listOf(
+                        Offset(left, top + corner) to Offset(left, top),
+                        Offset(left, top) to Offset(left + corner, top),
+                        Offset(right - corner, top) to Offset(right, top),
+                        Offset(right, top) to Offset(right, top + corner),
+                        Offset(left, bottom - corner) to Offset(left, bottom),
+                        Offset(left, bottom) to Offset(left + corner, bottom),
+                        Offset(right - corner, bottom) to Offset(right, bottom),
+                        Offset(right, bottom) to Offset(right, bottom - corner),
                     )
+                    edges.forEach { (start, end) ->
+                        drawLine(Color.Black.copy(alpha = .75f), start, end, 6.dp.toPx())
+                        drawLine(Color.White, start, end, 3.dp.toPx())
+                    }
+                    val lineY = top + height * scanLineOffset
+                    drawLine(Color.Black.copy(alpha = .7f), Offset(left + 8.dp.toPx(), lineY),
+                        Offset(right - 8.dp.toPx(), lineY), 4.dp.toPx())
+                    drawLine(Color(0xFF3559D8), Offset(left + 8.dp.toPx(), lineY),
+                        Offset(right - 8.dp.toPx(), lineY), 2.dp.toPx())
                 }
             } else if (cameraError != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Text(
-                        "摄像头不可用",
-                        color = Color.White,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        cameraError ?: "未知错误",
-                        color = Color.White.copy(alpha = 0.7f),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "请手动输入物料编码",
-                        color = Color.White.copy(alpha = 0.5f),
-                        fontSize = 13.sp
-                    )
-                }
+                ScannerUnavailableContent(
+                    onManualInput = onManualInput,
+                    onRetry = {
+                        cameraProvider?.unbindAll()
+                        camera = null
+                        isTorchOn = false
+                        if (hasCameraPermission) cameraError = null
+                        else permissionLauncher.launch(Manifest.permission.CAMERA)
+                    }
+                )
             }
 
             // Top bar
@@ -392,7 +364,7 @@ fun ScannerDialog(
                 IconButton(
                     onClick = onDismiss,
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .background(
                             Color.White.copy(alpha = 0.15f),
                             RoundedCornerShape(12.dp)
@@ -407,7 +379,9 @@ fun ScannerDialog(
                 }
 
                 Text(
-                    if (continuous && scannedCount > 0) "已扫 $scannedCount 件 · 继续扫下一件"
+                    if (cameraError != null) {
+                        if (continuous) "连续扫码" else "单次扫码"
+                    } else if (continuous && scannedCount > 0) "已扫 $scannedCount 件 · 继续扫下一件"
                     else "将条码置于框内扫描",
                     color = if (continuous && scannedCount > 0) Color(0xFF7CFFB2) else Color.White,
                     fontSize = 16.sp,
@@ -416,6 +390,7 @@ fun ScannerDialog(
 
                 // Torch toggle actually drives CameraControl.enableTorch (C1)
                 IconButton(
+                    enabled = camera != null && cameraError == null,
                     onClick = {
                         val cam = camera
                         if (cam != null && cam.cameraInfo.hasFlashUnit()) {
@@ -425,7 +400,7 @@ fun ScannerDialog(
                         }
                     },
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(48.dp)
                         .background(
                             Color.White.copy(alpha = 0.15f),
                             RoundedCornerShape(12.dp)
@@ -440,8 +415,8 @@ fun ScannerDialog(
                 }
             }
 
-            // Bottom hint / 连续扫描反馈区（AI-MOB-CONTINUOUS-SCAN-01）
-            Column(
+            // Recovery controls occupy this area in the camera-error state.
+            if (cameraError == null) Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -512,6 +487,26 @@ fun ScannerDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Visible recovery actions when camera permission or initialization is unavailable. */
+@Composable
+internal fun ScannerUnavailableContent(onManualInput: () -> Unit, onRetry: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 120.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = Color.White, modifier = Modifier.size(32.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("摄像头不可用", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        Text("无法使用摄像头，可改为手动输入编码", color = Color.White, fontSize = 16.sp,
+            textAlign = TextAlign.Center)
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = onManualInput, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("手动输入") }
+            Button(onClick = onRetry, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("重试") }
         }
     }
 }

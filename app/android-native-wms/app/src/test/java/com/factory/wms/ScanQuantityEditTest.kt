@@ -194,6 +194,149 @@ class ScanQuantityEditTest {
     @Test
     fun `outbound edits persist and restore with warehouse unchanged`() = assertEditDraftRoundTrip("outbound")
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun assertPendingQuantityRoundTrip(operation: String) = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val models = mutableListOf<ScanViewModel>()
+        try {
+            vm.viewModelScope.cancel()
+            vm = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            restoreDraft(operation)
+            vm.setQuantityDraft("4:M0011:A", QuantityDraft("12.5", 1.0, ""))
+            assertTrue(vm.persistEditDraft())
+            val recovered = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            recovered.restoreEditDraft(operation)
+            assertEquals("12.5", recovered.uiState.value.quantityDrafts["4:M0011:A"]?.raw)
+            assertEquals(1.0, recovered.uiState.value.scanLines.single().quantity, 0.0)
+            assertNull(recovered.prepareDraftSubmission())
+            repository.saveLoginInfo("token", "https://quantity.example.com", "other-user", "admin")
+            val other = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            other.restoreEditDraft(operation)
+            assertTrue(other.uiState.value.quantityDrafts.isEmpty())
+            assertTrue(other.uiState.value.scanLines.isEmpty())
+        } finally {
+            closeWmsTestViewModels(models)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun `pending inbound input remains account scoped and blocks submit`() = assertPendingQuantityRoundTrip("inbound")
+    @Test fun `pending outbound input remains account scoped and blocks submit`() = assertPendingQuantityRoundTrip("outbound")
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `immediate viewmodel destruction retains pending input`() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val models = mutableListOf<ScanViewModel>()
+        try {
+            vm.viewModelScope.cancel()
+            vm = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            restoreDraft("inbound")
+            vm.setQuantityDraft("4:M0011:A", QuantityDraft("12.5", 1.0, ""))
+            vm.viewModelScope.cancel()
+            val recovered = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            recovered.restoreEditDraft("inbound")
+            assertEquals("12.5", recovered.uiState.value.quantityDrafts["4:M0011:A"]?.raw)
+        } finally {
+            closeWmsTestViewModels(models)
+            Dispatchers.resetMain()
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `switching accounts on the same viewmodel keeps each pending input owned`() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        try {
+            vm.viewModelScope.cancel()
+            vm = ScanViewModel(ApplicationProvider.getApplicationContext<Application>())
+            restoreDraft("inbound")
+            vm.setQuantityDraft("4:M0011:A", QuantityDraft("12.5", 1.0, ""))
+            repository.saveLoginInfo("token", "https://quantity.example.com", "other-user", "admin")
+            vm.restoreEditDraft("inbound")
+            assertTrue(vm.uiState.value.scanLines.isEmpty())
+            assertTrue(vm.uiState.value.quantityDrafts.isEmpty())
+            repository.saveLoginInfo("token", "https://quantity.example.com", "qty-user", "admin")
+            vm.restoreEditDraft("inbound")
+            assertEquals("12.5", vm.uiState.value.quantityDrafts["4:M0011:A"]?.raw)
+        } finally { closeWmsTestViewModels(listOf(vm)); Dispatchers.resetMain() }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test fun `failed local save keeps unconfirmed input for original account`() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val models = mutableListOf<ScanViewModel>()
+        try {
+            vm.viewModelScope.cancel()
+            vm = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            restoreDraft("inbound")
+            assertTrue(vm.persistEditDraft())
+            val repoField = ScanViewModel::class.java.getDeclaredField("repository").also { it.isAccessible = true }
+            val failingRepository = repoField.get(vm) as WmsRepository
+            val timeout = WmsRepository::class.java.getDeclaredField("dataStoreTimeoutMs").also { it.isAccessible = true }
+            timeout.setLong(failingRepository, 0L)
+            vm.setQuantityDraft("4:M0011:A", QuantityDraft("12.5", 1.0, ""))
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (vm.uiState.value.draftSaveError == null) kotlinx.coroutines.delay(10)
+            }
+            vm.viewModelScope.cancel()
+            val recovered = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            recovered.restoreEditDraft("inbound")
+            assertEquals("12.5", recovered.uiState.value.quantityDrafts["4:M0011:A"]?.raw)
+            assertEquals(1.0, recovered.uiState.value.scanLines.single().quantity, 0.0)
+            assertNull(recovered.prepareDraftSubmission())
+            assertTrue(recovered.persistEditDraft())
+            repository.saveLoginInfo("token", "https://quantity.example.com", "different-user", "admin")
+            val other = ScanViewModel(ApplicationProvider.getApplicationContext<Application>()).also { models.add(it) }
+            other.restoreEditDraft("inbound")
+            assertTrue(other.uiState.value.scanLines.isEmpty())
+            assertTrue(other.uiState.value.quantityDrafts.isEmpty())
+        } finally { closeWmsTestViewModels(models); Dispatchers.resetMain() }
+    }
+
+    @Test fun `pending edit prevents changing its warehouse location or check order`() {
+        seedState(ScanUiState(scanLines = listOf(line()), totalQuantity = 1.0,
+            quantityDrafts = mapOf("4:M0011:A" to QuantityDraft("12.5", 1.0, "")),
+            selectedWarehouse = WarehouseDto(1, "WH1", "一号仓"), selectedLocation = "A",
+            selectedCheckOrder = CheckOrderDto(1, "PD-1")))
+        vm.selectLocation("B")
+        assertEquals("A", vm.uiState.value.scanLines.single().location_code)
+        vm.selectWarehouse(WarehouseDto(2, "WH2", "二号仓"))
+        assertEquals("WH1", vm.uiState.value.selectedWarehouse?.code)
+        vm.selectCheckOrder(CheckOrderDto(2, "PD-2"))
+        assertEquals(1L, vm.uiState.value.selectedCheckOrder?.id)
+        vm.updateStocktakeArea("B 区")
+        assertEquals("A", vm.uiState.value.selectedLocation)
+        assertEquals("12.5", vm.uiState.value.quantityDrafts["4:M0011:A"]?.raw)
+        assertEquals("请先确定或取消数量修改", vm.uiState.value.error)
+        seedState(ScanUiState(scanLines = listOf(line(location = "B")), totalQuantity = 1.0,
+            quantityDrafts = mapOf("4:M0011:B" to QuantityDraft("12.5", 1.0, "")), selectedLocation = "A"))
+        vm.selectLocation("A")
+        assertEquals("B", vm.uiState.value.scanLines.single().location_code)
+        assertEquals("12.5", vm.uiState.value.quantityDrafts["4:M0011:B"]?.raw)
+    }
+
+    @Test fun `display unit is excluded from submit payload and preserved in edit draft`() = runBlocking {
+        val withUnit = line().copy(material_unit = "件")
+        val payload = JsonParser.parseString(com.google.gson.Gson().toJson(withUnit)).asJsonObject
+        assertFalse(payload.has("material_unit"))
+        repository.saveLoginInfo("token", "https://quantity.example.com", "qty-user", "admin")
+        val key = repository.editDraftKey("inbound")
+        repository.saveEditDraft(key, ScanEditDraft(
+            listOf(DraftScanLine(withUnit, "轴承", "608", "SKF", "件")),
+            WarehouseDto(id = 1, code = "WH01", name = "主仓"), null, null, ""))
+        vm.restoreEditDraft("inbound")
+        assertEquals("件", vm.uiState.value.scanLines.single().material_unit)
+    }
+
+    @Test fun `stocktake draft keeps display units without adding fields to request lines`() = runBlocking {
+        val withUnit = line().copy(material_unit = "包")
+        val key = repository.stocktakeDraftKey()
+        repository.saveStocktakeDraft(StocktakeDraft(lines = listOf(withUnit), materialUnits = mapOf("4:M0011:A" to "包")), key)
+        val draft = repository.loadStocktakeDraft(key)!!
+        assertEquals("包", draft.materialUnits?.get("4:M0011:A"))
+        assertNull(draft.lines.single().material_unit)
+        assertFalse(JsonParser.parseString(com.google.gson.Gson().toJson(draft.lines.single())).asJsonObject.has("material_unit"))
+    }
+
     @Test
     fun `stocktake zero persists in draft without losing the material row`() = runBlocking {
         repository.clearStocktakeDraft()

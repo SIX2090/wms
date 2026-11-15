@@ -118,7 +118,7 @@ fun WmsTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -158,27 +158,29 @@ fun WmsGradientHeader(
     subtitle: String?,
     accent: Color,
     onBack: (() -> Unit)? = null,
-    trailing: (@Composable () -> Unit)? = null
+    trailing: (@Composable () -> Unit)? = null,
+    blueBackground: Boolean = false
 ) {
-    // 沿用既有调用接口：模块色退为小面积标识，文字使用实际主题表面的前景色。
-    StatusBarIconEffect(darkIcons = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
-    Surface(color = MaterialTheme.colorScheme.surface) {
+    val background = if (blueBackground) Primary.readableOn(Color.White) else MaterialTheme.colorScheme.surface
+    val foreground = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurface
+    StatusBarIconEffect(darkIcons = background.luminance() > 0.5f)
+    Surface(color = background) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp)
             .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = MaterialTheme.colorScheme.onSurface)
+                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = foreground)
                 }
             } else Spacer(Modifier.width(8.dp))
-            Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
-                .background(accent.readableOn(MaterialTheme.colorScheme.surface)))
+            if (!blueBackground) Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
+                .background(accent.readableOn(background)))
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    fontWeight = FontWeight.SemiBold, color = foreground)
                 if (!subtitle.isNullOrBlank()) {
                     Text(subtitle, style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             trailing?.invoke()
@@ -557,13 +559,13 @@ fun OfflineDataBanner(
             Text(
                 if (detail.isNullOrEmpty()) text else "$text · $detail",
                 color = Warning,
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
                 "当前无网络，显示的是本地缓存，可能不是最新库存",
-                color = Warning.copy(alpha = 0.85f),
-                fontSize = 11.sp
+                color = Warning,
+                fontSize = 14.sp
             )
         }
     }
@@ -743,7 +745,7 @@ fun WmsDateNavRow(
             val inlineReset = fontScale <= 1f && maxWidth >= 280.dp && label == null && subtitle == null
             Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onPrev) {
+                IconButton(onClick = onPrev, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Icon(Icons.Filled.ChevronLeft, if (label != null) "${label}前一天" else "前一天")
                 }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -754,14 +756,14 @@ fun WmsDateNavRow(
                     if (sub != null) Text(sub, style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!inlineReset && onResetToday != null) {
-                        TextButton(onClick = onResetToday) { Text("回到今天") }
+                        TextButton(onClick = onResetToday, modifier = Modifier.heightIn(min = 48.dp)) { Text("回到今天") }
                     }
                 }
-                IconButton(onClick = onNext, enabled = nextEnabled) {
+                IconButton(onClick = onNext, enabled = nextEnabled, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Icon(Icons.Filled.ChevronRight, if (label != null) "${label}后一天" else "后一天")
                 }
                 if (inlineReset && onResetToday != null) {
-                    TextButton(onClick = onResetToday) { Text("回到今天") }
+                    TextButton(onClick = onResetToday, modifier = Modifier.heightIn(min = 48.dp)) { Text("回到今天") }
                 }
             }
         }

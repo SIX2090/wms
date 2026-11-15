@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -120,7 +122,7 @@ fun StocktakeRecordScreen(
                 actions = {
                     // AI-APP-FIX-406：Restore → Refresh（Restore 语义是"还原"，易误解）；
                     // 加载中禁用，防连点触发并发请求
-                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading) {
+                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                         Icon(
                             Icons.Filled.Refresh,
                             "刷新",
@@ -260,150 +262,58 @@ fun StocktakeRecordScreen(
 }
 
 @Composable
-private fun StocktakeRecordCard(record: StocktakeRecordDto, onClick: (() -> Unit)? = null) {
+internal fun StocktakeRecordCard(record: StocktakeRecordDto, onClick: (() -> Unit)? = null) {
     val isVoid = record.status == "void"
-    val accent = if (isVoid) CardAmber else CardTeal
-    val diff = record.diffCount ?: 0
+    val status = when (record.status) {
+        "void" -> "已作废"
+        "completed" -> "已完成"
+        null, "" -> "状态未获取"
+        else -> "状态：${record.status}"
+    }
+    val diff = record.diffCount
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-            ),
+        modifier = Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
-        Column(Modifier.padding(14.dp)) {
-            // 单号 + 状态标签
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    record.checkNo ?: "—",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = OnSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(record.checkNo?.takeIf { it.isNotBlank() } ?: "单号未获取",
+                    modifier = Modifier.weight(1f), fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface, softWrap = true)
                 Spacer(Modifier.width(8.dp))
-                // AI-APP-FIX-406：私有 StatusTag → 统一 WmsPillBadge
-                WmsPillBadge(
-                    text = if (isVoid) "已作废" else "已完成",
-                    activeColor = if (isVoid) CardAmber else CardTeal
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 日期 / 仓库
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    record.date ?: "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!record.warehouse.isNullOrBlank()) {
-                    Spacer(Modifier.width(10.dp))
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        modifier = Modifier.size(13.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        record.warehouse,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 盘点条数 / 差异条数 / 批次
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "盘点 ${record.itemCount ?: 0} 条",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = OnSurface
-                )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "差异 ${diff} 条",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = if (diff > 0) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (diff > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (!record.batchNo.isNullOrBlank()) {
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        "批次 ${record.batchNo}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                // AI-APP-FIX-505：可下钻卡片给出箭头提示（点击卡片看差异明细）
+                WmsPillBadge(text = status, activeColor = if (isVoid) CardAmber else CardTeal,
+                    active = record.status == "completed" || isVoid)
                 if (onClick != null) {
-                    Spacer(Modifier.weight(1f))
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = "查看差异明细",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.Filled.ChevronRight, "查看盘点明细", modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-
-            // 采纳状态：批次是否完成 + 调整草稿审核结果
+            val context = listOfNotNull(record.date?.takeIf { it.isNotBlank() },
+                record.warehouse?.takeIf { it.isNotBlank() }).joinToString(" · ")
+            if (context.isNotBlank()) Text(context, style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
+            Text("盘点 ${record.itemCount?.toString() ?: "—"} 项 · 差异 ${diff?.toString() ?: "—"} 项",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (diff != null && diff > 0) FontWeight.SemiBold else FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface, softWrap = true)
+            if (!record.batchNo.isNullOrBlank()) Text("批次 ${record.batchNo}",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontFamily = FontFamily.Monospace, softWrap = true)
             if (!isVoid) {
-                Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (record.adjustmentStatus == "completed") {
-                            Icons.Filled.CheckCircle
-                        } else {
-                            Icons.Filled.Info
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = when (record.adjustmentStatus) {
-                            "completed" -> CardTeal
-                            "pending" -> CardAmber
-                            else -> CardCyan
-                        }
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        adoptionText(record),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(if (record.adjustmentStatus == "completed") Icons.Filled.CheckCircle else Icons.Filled.Info,
+                        null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.width(6.dp))
+                    Text(adoptionText(record), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, softWrap = true)
                 }
             }
-
-            if (!record.createdAt.isNullOrBlank()) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "提交时间 ${record.createdAt}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            if (!record.createdAt.isNullOrBlank()) Text("提交时间 ${record.createdAt}",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                softWrap = true)
         }
     }
 }
@@ -413,7 +323,9 @@ private fun adoptionText(record: StocktakeRecordDto): String = when {
     record.adjustmentStatus == "completed" -> "差异已审核，库存已调整"
     record.adjustmentStatus == "pending" -> "差异已生成调整草稿，等待审核"
     record.batchStatus == "pending" -> "已并入盘点批次，等待电脑端完成盘点"
-    else -> "无差异，无需调整"
+    record.diffCount == 0 -> "无差异，无需调整"
+    record.diffCount == null -> "差异状态未获取"
+    else -> "暂无采纳状态"
 }
 
 /**
@@ -437,8 +349,7 @@ private fun StocktakeRecordDetailDialog(
             Text(
                 detail?.checkNo?.let { "盘点单 $it" } ?: "盘点明细",
                 fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                softWrap = true
             )
         },
         text = {
@@ -476,8 +387,7 @@ private fun StocktakeRecordDetailDialog(
                             headerLine,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = true
                         )
                     }
                     if (!detail.remark.isNullOrBlank()) {
@@ -545,8 +455,7 @@ internal fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = if (isDiff) differenceColor else Primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = true
                 )
                 val subLine = listOfNotNull(
                     item.materialName?.takeIf { it.isNotBlank() },
@@ -558,24 +467,26 @@ internal fun StocktakeRecordDetailRow(item: StocktakeRecordDetailItemDto) {
                         subLine,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        softWrap = true
                     )
                 }
             }
             val unit = item.unit.orEmpty()
             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                val systemText = item.systemStock?.let { formatQty(it) + unit } ?: "—"
+                val actualText = item.actualStock?.let { formatQty(it) + unit } ?: "—"
                 Text(
-                    quantityDisplayText("账面 ${formatQty(item.systemStock ?: 0.0)}$unit → 实盘 ${formatQty(item.actualStock ?: 0.0)}$unit"),
+                    quantityDisplayText("账面 $systemText → 实盘 $actualText"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     softWrap = true,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.End
                 )
-                val diff = item.difference ?: 0.0
+                val diff = item.difference
+                val differenceText = diff?.let { (if (it > 0) "+" else "") + formatQty(it) + unit } ?: "—"
                 Text(
-                    quantityDisplayText((if (diff > 0) "+" else "") + formatQty(diff)),
+                    quantityDisplayText("差异 $differenceText"),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     color = if (isDiff) differenceColor else MaterialTheme.colorScheme.onSurfaceVariant,

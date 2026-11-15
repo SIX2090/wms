@@ -94,7 +94,7 @@ fun VoiceOutDraftDialog(
                 }
                 state.error?.takeIf { it.isNotBlank() }?.let { err ->
                     Spacer(Modifier.height(10.dp))
-                    Text(err, color = Error, fontSize = 13.sp)
+                    Text(err, color = Error, fontSize = 14.sp)
                 }
             }
         },
@@ -140,13 +140,13 @@ private fun HeardCard(state: VoiceOutDraftUiState) {
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
             if (state.heardText.isNotBlank()) {
-                Text("我听到：${state.heardText}", fontSize = 13.sp, color = OnSurface)
+                Text("我听到：${state.heardText}", fontSize = 14.sp, color = OnSurface)
             }
             if (state.normalizedText.isNotBlank() && state.normalizedText != state.heardText) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "我理解成：${state.normalizedText}",
-                    fontSize = 12.sp,
+                    fontSize = 14.sp,
                     color = OnSurfaceVariant
                 )
             }
@@ -173,7 +173,7 @@ private fun DegradedBadge() {
     Surface(color = CardAmber.copy(alpha = 0.14f), shape = RoundedCornerShape(6.dp)) {
         Text(
             "模糊匹配",
-            fontSize = 11.sp,
+            fontSize = 14.sp,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
@@ -185,7 +185,7 @@ private fun ParsingBody() {
     Row(verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
         Spacer(Modifier.width(10.dp))
-        Text("正在仓库里找这个物料…", fontSize = 13.sp, color = OnSurfaceVariant)
+        Text("正在仓库里找这个物料…", fontSize = 14.sp, color = OnSurfaceVariant)
     }
 }
 
@@ -202,7 +202,7 @@ private fun ChoiceBody(
         } else {
             Text(
                 "仓库里有 ${state.matches.size} 个相近物料，请点选正确的：",
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 color = OnSurfaceVariant
             )
             Spacer(Modifier.height(8.dp))
@@ -256,7 +256,7 @@ private fun ConfirmBody(
                                 material.code?.takeIf { it.isNotBlank() },
                                 material.spec?.takeIf { it.isNotBlank() }
                             ).joinToString("  ·  "),
-                            fontSize = 12.sp,
+                            fontSize = 14.sp,
                             color = OnSurfaceVariant
                         )
                     }
@@ -269,7 +269,7 @@ private fun ConfirmBody(
                     onClick = onBackToChoice,
                     contentPadding = PaddingValues(0.dp)
                 ) {
-                    Text("不是这个，重新选", fontSize = 12.sp, color = Primary)
+                    Text("不是这个，重新选", fontSize = 14.sp, color = Primary)
                 }
             }
         }
@@ -284,7 +284,7 @@ private fun ConfirmBody(
             isError = state.editableQuantity.isNotBlank() &&
                 (state.editableQuantity.toDoubleOrNull() ?: 0.0) <= 0,
             supportingText = if (state.quantity == null) {
-                { Text("语音里没说数量，请手工填写", fontSize = 11.sp) }
+                { Text("语音里没说数量，请手工填写", fontSize = 14.sp) }
             } else null,
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Decimal,
@@ -308,7 +308,7 @@ private fun ConfirmBody(
         Text(
             "将生成【领料单草稿】（待你确认），不会自动扣库存；" +
                 "提交与完成仍需你本人在出库页操作。",
-            fontSize = 11.sp,
+            fontSize = 14.sp,
             color = OnSurfaceVariant
         )
         StrategiesLine(state)
@@ -330,7 +330,7 @@ private fun NotFoundBody(
             Spacer(Modifier.width(8.dp))
             Text(
                 "仓库里没有完全对得上的物料",
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 color = OnSurfaceVariant
             )
         }
@@ -339,7 +339,7 @@ private fun NotFoundBody(
             Spacer(Modifier.height(8.dp))
             Text(
                 "下面是我找到的最接近的 ${state.matches.size} 个，若其中有你要的，可直接点选：",
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 color = OnSurface)
             Spacer(Modifier.height(8.dp))
             LazyColumn(
@@ -354,7 +354,7 @@ private fun NotFoundBody(
             Spacer(Modifier.height(8.dp))
             Text(
                 "建议：换一种说法（如只说物料名「螺丝」），或先在电脑端补建该物料档案。",
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = OnSurfaceVariant
             )
         }
@@ -374,7 +374,7 @@ private fun StrategiesLine(state: VoiceOutDraftUiState) {
         Spacer(Modifier.width(4.dp))
         Text(
             "已尝试：${state.strategiesTried.joinToString(" → ")}",
-            fontSize = 11.sp,
+            fontSize = 14.sp,
             color = OnSurfaceSecondary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
@@ -390,7 +390,7 @@ private fun EmptyCandidates() {
             tint = OnSurfaceVariant, modifier = Modifier.size(18.dp)
         )
         Spacer(Modifier.width(8.dp))
-        Text("没有候选物料", fontSize = 13.sp, color = OnSurfaceVariant)
+        Text("没有候选物料", fontSize = 14.sp, color = OnSurfaceVariant)
     }
 }
 
@@ -440,7 +440,7 @@ private fun MaterialMatchRow(
                     match.spec?.takeIf { it.isNotBlank() },
                     match.unit?.takeIf { it.isNotBlank() }
                 ).joinToString("  ·  "),
-                fontSize = 12.sp,
+                fontSize = 14.sp,
                 color = OnSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -448,7 +448,7 @@ private fun MaterialMatchRow(
         }
         match.score?.takeIf { it < 100 }?.let { score ->
             Spacer(Modifier.width(8.dp))
-            Text("$score%", fontSize = 12.sp, color = OnSurfaceSecondary)
+            Text("$score%", fontSize = 14.sp, color = OnSurfaceSecondary)
         }
     }
 }
@@ -489,15 +489,15 @@ fun VoiceDraftCreatedBanner(
                     color = OnSurface
                 )
                 if (orderNo.isNotBlank()) {
-                    Text("单号：$orderNo", fontSize = 12.sp, color = OnSurfaceVariant)
+                    Text("单号：$orderNo", fontSize = 14.sp, color = OnSurfaceVariant)
                 }
                 Text(
                     "核对无误后请手工提交，草稿不会自动扣库存。",
-                    fontSize = 11.sp,
+                    fontSize = 14.sp,
                     color = OnSurfaceVariant
                 )
             }
-            TextButton(onClick = onDismiss) { Text("知道了", fontSize = 12.sp) }
+            TextButton(onClick = onDismiss) { Text("知道了", fontSize = 14.sp) }
         }
     }
 }

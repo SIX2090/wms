@@ -13,12 +13,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
@@ -217,7 +221,7 @@ fun InOutDetailReportScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(12.dp)
                 )
-                IconButton(onClick = { viewModel.refresh() }) {
+                IconButton(onClick = { viewModel.refresh() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                     Icon(Icons.Outlined.Search, "搜索", tint = Primary)
                 }
             }
@@ -401,12 +405,21 @@ internal fun InOutDetailItemRow(item: InOutDetailItem) {
                             item.operator?.takeIf { it.isNotBlank() },
                             item.location?.takeIf { it.isNotBlank() }?.let { "库位 $it" }
                         ).joinToString(" · ")
-                        if (meta.isNotBlank()) {
-                            Text(
-                                meta,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (isOut) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                                contentDescription = if (isOut) "出库方向" else "入库方向",
+                                modifier = Modifier.size(18.dp),
+                                tint = if (isOut) Error else Success
                             )
+                            if (meta.isNotBlank()) {
+                                Text(
+                                    meta,
+                                    modifier = Modifier.weight(1f).padding(start = 4.dp),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 },

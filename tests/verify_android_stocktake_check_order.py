@@ -94,7 +94,10 @@ def test_viewmodel_selection_and_submit_guard():
     assert "if (changed) null else _uiState.value.selectedCheckOrder" in src
     # 断点续盘草稿带 check_id 并自动回选
     persist = _kotlin_function_body(src, "persistStocktakeDraftNow")
-    assert "checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId" in persist
+    snapshot = _kotlin_function_body(src, "stocktakeDraftSnapshot")
+    assert "val snapshot = stocktakeDraftSnapshot()" in persist
+    assert "repository.saveStocktakeDraft(snapshot, key)" in persist
+    assert "checkId = state.selectedCheckOrder?.id ?: stocktakeSourceCheckId" in snapshot
     restore = _kotlin_function_body(src, "maybeRestoreStocktakeDraft")
     assert "stocktakeSourceCheckId = draft.checkId" in restore
     assert "orders.singleOrNull { it.id == draft.checkId }" in restore

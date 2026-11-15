@@ -3,6 +3,7 @@ package com.factory.wms.ui.screens
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +16,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -22,7 +27,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
@@ -32,6 +36,7 @@ import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.util.ScanFeedback
 import com.factory.wms.WmsApplication
 import com.factory.wms.update.AppUpdatePanel
+import kotlinx.coroutines.launch
 
 /** "我的"页：账号信息、服务器信息、语音指令说明、退出登录。 */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,9 +53,13 @@ fun ProfileScreen(
     val appUpdates = remember(context) {
         runCatching { (context.applicationContext as? WmsApplication)?.appUpdates }.getOrNull()
     }
-    var scanFeedbackEnabled by remember { mutableStateOf(ScanFeedback.enabled) }
+    var scanSoundEnabled by remember { mutableStateOf(ScanFeedback.soundEnabled) }
+    var scanVibrationEnabled by remember { mutableStateOf(ScanFeedback.vibrationEnabled) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         containerColor = Background
     ) { padding ->
         Column(
@@ -96,15 +105,14 @@ fun ProfileScreen(
                         )
                     }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        // AI-APP-FIX-204：超长用户名截断，防止顶破头部布局
+                    Column(Modifier.weight(1f)) {
+                        // 长用户名按可用宽度换行，避免截断或挤压退出区域。
                         Text(
                             uiState.username.ifBlank { "未登录" },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 20.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = true
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                         Surface(
@@ -115,7 +123,7 @@ fun ProfileScreen(
                                 "角色 · ${uiState.role.ifBlank { "操作员" }}",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                                 color = Color.White.copy(alpha = 0.9f),
-                                fontSize = 11.sp,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -127,12 +135,22 @@ fun ProfileScreen(
 
             // ── 服务器信息 ──
             ProfileSectionCard("服务器信息") {
-                SelectionContainer {
-                    Text(
-                        uiState.baseUrl,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp)) {
+                    SelectionContainer(Modifier.fillMaxWidth()) {
+                        Text(uiState.baseUrl, modifier = Modifier.fillMaxWidth(),
+                            style = MaterialTheme.typography.bodyMedium, softWrap = true)
+                    }
+                    TextButton(onClick = {
+                        val copied = runCatching {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("服务器地址", uiState.baseUrl))
+                        }.isSuccess
+                        scope.launch { snackbar.showSnackbar(if (copied) "服务器地址已复制" else "复制失败，请长按地址复制") }
+                    }, enabled = uiState.baseUrl.isNotBlank(),
+                        modifier = Modifier.align(Alignment.End).heightIn(min = 48.dp)) {
+                        Icon(Icons.Outlined.ContentCopy, contentDescription = null)
+                        Spacer(Modifier.width(4.dp)); Text("复制")
+                    }
                 }
             }
 
@@ -140,17 +158,15 @@ fun ProfileScreen(
 
             // ── 扫码设置（AI-MOB-SCAN-UX-01）──
             ProfileSectionCard("扫码设置") {
-                ProfileToggleRow(
-                    icon = Icons.Outlined.VolumeUp,
-                    label = "扫码提示音与震动",
-                    description = "扫中给短震+提示音，未匹配给双震+警告音",
-                    checked = scanFeedbackEnabled,
-                    onCheckedChange = { enabled ->
-                        scanFeedbackEnabled = enabled
-                        ScanFeedback.setEnabled(context, enabled)
-                    },
-                    showDivider = false
-                )
+                Text("用于连续扫码时的操作反馈", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+                ProfileToggleRow(icon = Icons.Outlined.VolumeUp, label = "扫码提示音",
+                    description = "成功与失败使用不同提示音", checked = scanSoundEnabled,
+                    onCheckedChange = { value -> scanSoundEnabled = value; ScanFeedback.setSoundEnabled(context, value) })
+                ProfileToggleRow(icon = Icons.Outlined.Vibration, label = "扫码震动",
+                    description = "成功与失败使用不同震动", checked = scanVibrationEnabled,
+                    onCheckedChange = { value -> scanVibrationEnabled = value; ScanFeedback.setVibrationEnabled(context, value) },
+                    showDivider = false)
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -327,6 +343,8 @@ private fun ProfileToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -343,19 +361,19 @@ private fun ProfileToggleRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     label,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 // 副标题说明"开了会怎样"——只有开关没有说明，用户不敢乱动
                 Text(
                     description,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-            Switch(checked = checked, onCheckedChange = onCheckedChange)
+            Switch(checked = checked, onCheckedChange = null)
         }
         if (showDivider) {
             HorizontalDivider(
@@ -400,23 +418,21 @@ private fun ProfileRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 label,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
         // AI-APP-FIX-204：删除 ChevronRight 假箭头——本页所有 ProfileRow 均不可点，
         // 箭头暗示"点进去有详情"，点了没反应属于误导。
-        // value 加 weight + 右对齐：长值（如服务器地址）在自有半区内省略号截断，
-        // 不再把 label 挤没或整行溢出。
+        // 长值在自有空间换行，保持完整并避免挤压标签。
         Text(
             value,
             modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodyMedium,
             color = if (isHint) Primary else MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.End,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            softWrap = true
         )
     }
     if (showDivider) {

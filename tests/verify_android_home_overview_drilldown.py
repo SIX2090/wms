@@ -256,22 +256,13 @@ def test_screen_routes_carry_warehouse_params():
 
 
 def test_home_screen_wires_both_entries():
-    """首页两个入口必须真的指向下钻页（这是用户报的原始问题）。"""
     src = _p("ui/screens/HomeScreen.kt")
-
-    # 「待处理单据」此前是 screen = null
-    assert "onNavigate(Screen.OverviewOrders)" in src, "待处理单据仍未接线（点了没反应）"
-    assert "onNavigate(Screen.OverviewAlerts)" in src, "库存告警未指向告警明细"
-
-    # 「库存告警」不应再跳查库存的空白搜索框
-    overview_block = src[src.index("private? fun TodayOverviewBar".replace("private? ", "")):]
-    overview_block = overview_block[:overview_block.index("private fun TodayMovementCell")]
-    assert "screen = Screen.StockQuery" not in overview_block, (
-        "库存告警仍跳查库存——用户看到数字却不知道是哪些物料"
-    )
-    assert "screen = null" not in overview_block, (
-        "概览条仍存在不可点击项"
-    )
+    overview = src[src.index("fun TodayOverviewBar("):src.index("private fun TodayMovementCell(")]
+    assert 'Triple("待处理"' in overview and 'to Screen.OverviewOrders' in overview
+    assert 'Triple("库存告警"' in overview and 'to Screen.OverviewAlerts' in overview
+    assert '.clickable { onNavigate(screen) }' in overview
+    assert 'Screen.StockQuery' not in overview and 'screen = null' not in overview
+    # NativeHomeBaselineTest clicks both entries and verifies exact destinations.
 
 
 def test_navgraph_registers_destinations_with_repo_context():

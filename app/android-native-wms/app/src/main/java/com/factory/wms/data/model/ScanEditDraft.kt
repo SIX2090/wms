@@ -1,10 +1,13 @@
 package com.factory.wms.data.model
 
+data class QuantityDraft(val raw: String, val expected: Double, val error: String)
+
 data class DraftScanLine(
     val line: ScanLine,
     val name: String? = null,
     val spec: String? = null,
-    val brand: String? = null
+    val brand: String? = null,
+    val unit: String? = null
 )
 
 data class ScanEditDraft(
@@ -22,4 +25,5 @@ data class ScanEditDraft(
      *  进程被回收后必须一起恢复，否则断点续传会静默丢掉供应商关联。 */
     ,val supplier: SupplierDto? = null
     ,val inboundRemark: String = ""
+    ,val quantityDrafts: Map<String, QuantityDraft>? = null
 )

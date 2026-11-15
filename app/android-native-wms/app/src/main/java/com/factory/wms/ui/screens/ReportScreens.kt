@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -106,7 +107,7 @@ fun DailyReportScreen(
                 subtitle = "采购入库 · 领料单明细",
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading) {
+                    IconButton(onClick = { viewModel.load() }, enabled = !uiState.isLoading, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                         Icon(
                             Icons.Outlined.Refresh,
                             "刷新",

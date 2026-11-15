@@ -131,13 +131,13 @@ class NativeShellAcceptanceTest(private val scale: Float, private val dark: Bool
             ScanLine("M-0008", 36.0, material_name = "六角螺母", material_spec = "M8 · 镀锌", material_brand = "合成品牌"))
         content(Screen.Inbound.route) {
             ScanScreenBase("入库", "扫码或手工录入，核对物料与数量", CardBlue, {}, lines, 156.0,
-                model, remember { SnackbarHostState() }, false, false, {}, {}, "", "1", {}, {}, {}, {}, {}, "提交入库", CardBlue,
+                model, remember { SnackbarHostState() }, false, false, {}, {}, "", "1", {}, {}, {}, { com.factory.wms.ui.screens.ScanBarcodeResult.Rejected }, {}, "提交入库", CardBlue,
                 showEvidenceCapture = true,
                 header = { PartySelectorCard("收货仓库", "请选择仓库", "WH-A 合成一号仓", Icons.Outlined.Warehouse, CardBlue, {}) })
         }
         checkTabs()
-        compose.onNodeWithText("× 120").performScrollTo()
-        val q = compose.onNodeWithText("× 120")
+        compose.onNodeWithContentDescription("修改数量：M-6204 ").performScrollTo()
+        val q = compose.onNodeWithContentDescription("修改数量：M-6204 ")
         capture("inbound-initial")
         val outer = compose.onAllNodes(hasScrollAction()).onFirst()
         repeat(4) {

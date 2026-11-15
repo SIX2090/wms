@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +24,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.MenuBook
@@ -185,8 +189,7 @@ fun StockLedgerReportScreen(
                                 "${m.name.orEmpty()}（${m.code.orEmpty()}）",
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 15.sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                softWrap = true
                             )
                             val sub = listOfNotNull(
                                 m.spec?.takeIf { it.isNotBlank() },
@@ -205,8 +208,8 @@ fun StockLedgerReportScreen(
                         }
                     }
                     if (uiState.selectedMaterial != null) {
-                        TextButton(onClick = { viewModel.clearMaterial() }) {
-                            Text("换物料", fontSize = 12.sp)
+                        TextButton(onClick = { viewModel.clearMaterial() }, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text("换物料", fontSize = 14.sp)
                         }
                     } else {
                         Icon(Icons.Outlined.Search, "选择物料", tint = Primary)
@@ -255,8 +258,8 @@ fun StockLedgerReportScreen(
                             uiState.startDate < StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
                         onDateClick = { openLedgerDatePicker(true) },
                         trailing = {
-                            TextButton(onClick = { viewModel.resetAllDates() }) {
-                                Text("全部流水", fontSize = 12.sp)
+                            TextButton(onClick = { viewModel.resetAllDates() }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Text("全部流水", fontSize = 14.sp)
                             }
                         }
                     )
@@ -413,7 +416,7 @@ fun StockLedgerReportScreen(
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
                         )
-                        IconButton(onClick = { viewModel.searchMaterials() }) {
+                        IconButton(onClick = { viewModel.searchMaterials() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                             Icon(Icons.Outlined.Search, "搜索", tint = Primary)
                         }
                     }
@@ -483,8 +486,7 @@ private fun MaterialCandidateRow(material: MaterialDto, onClick: () -> Unit) {
                 "${material.name.orEmpty()}（${material.code.orEmpty()}）",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                softWrap = true
             )
             val sub = listOfNotNull(
                 material.spec?.takeIf { it.isNotBlank() },
@@ -495,8 +497,7 @@ private fun MaterialCandidateRow(material: MaterialDto, onClick: () -> Unit) {
                     sub,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    softWrap = true
                 )
             }
         }
@@ -520,7 +521,7 @@ private fun LedgerDateNavRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        IconButton(onClick = onPrev) {
+        IconButton(onClick = onPrev, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
             // 注意：必须用 ${label}——"$label前一天" 会被 Kotlin 解析成
             // 标识符 `label前一天`（中文是合法标识符字符）→ 编译期 Unresolved reference。
             Icon(Icons.Filled.ChevronLeft, "${label}前一天")
@@ -528,7 +529,7 @@ private fun LedgerDateNavRow(
         // 日期文本可点（onDateClick 弹日期选择器）；点击涟漪提示可选。
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(onClick = onDateClick)
+            modifier = Modifier.heightIn(min = 48.dp).clickable(onClick = onDateClick)
         ) {
             Text(
                 date,
@@ -545,7 +546,7 @@ private fun LedgerDateNavRow(
                 trailing?.invoke()
             }
         }
-        IconButton(onClick = onNext, enabled = nextEnabled) {
+        IconButton(onClick = onNext, enabled = nextEnabled, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
             Icon(Icons.Filled.ChevronRight, "${label}后一天")
         }
     }
@@ -595,16 +596,29 @@ internal fun StockLedgerItemRow(item: StockLedgerItem) {
         ) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 // 单据类型 + 单号（台账溯源主信息）
-                Text(
-                    listOfNotNull(
-                        item.referenceType?.takeIf { it.isNotBlank() },
-                        item.referenceNo?.takeIf { it.isNotBlank() }
-                    ).joinToString(" · ").ifBlank { "库存流水" },
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val hasIn = item.inQuantity > 0
+                    val hasOut = item.outQuantity > 0
+                    if (hasIn != hasOut) {
+                        Icon(
+                            imageVector = if (hasOut) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                            contentDescription = if (hasOut) "出库方向" else "入库方向",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (hasOut) Error else Success
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Text(
+                        listOfNotNull(
+                            item.referenceType?.takeIf { it.isNotBlank() },
+                            item.referenceNo?.takeIf { it.isNotBlank() }
+                        ).joinToString(" · ").ifBlank { "库存流水" },
+                        modifier = Modifier.weight(1f),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        softWrap = true
+                    )
+                }
                 // 日期 + 操作人 + 库位 + 备注（可空字段逐项判空拼接）
                 val meta = listOfNotNull(
                     item.date?.takeIf { it.isNotBlank() },
@@ -617,8 +631,7 @@ internal fun StockLedgerItemRow(item: StockLedgerItem) {
                         meta,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        softWrap = true
                     )
                 }
             }
@@ -634,7 +647,7 @@ internal fun StockLedgerItemRow(item: StockLedgerItem) {
                         else -> "—"
                     }),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp,
+                    fontSize = 16.sp,
                     style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.End,
@@ -643,11 +656,12 @@ internal fun StockLedgerItemRow(item: StockLedgerItem) {
                 )
                 Text(
                     quantityDisplayText("结存 " + formatQty(item.balanceQuantity)),
-                    style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.End,
                     softWrap = true,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }

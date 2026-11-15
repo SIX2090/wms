@@ -26,30 +26,28 @@ def test_all_transaction_scan_screens_share_quantity_editor():
 
 def test_quantity_badge_opens_prefilled_editor_with_visible_hint():
     base = read("ui/screens/ScanScreenBase.kt")
-    badge = base.split("WmsMaterialIdentity(line.material_code", 1)[1].split("IconButton(", 1)[0]
-    assert "onClick = {" in badge
-    assert "pendingQuantityEdit = line" in badge
-    assert "formatQuantity(line.quantity)" in badge
-    assert "TextRange(0, text.length)" in badge
-    assert 'Text("数量"' in badge
-    assert 'Icons.Outlined.Edit' in badge
-    assert "min = 48.dp" in badge
-    assert "pendingSubmissionId == null" in badge
+    editor = read("ui/components/ScanQuantityStepper.kt")
+    assert 'ScanQuantityStepper(line = line' in base
+    assert 'draft = quantityDrafts[quantityKey(line)]' in base
+    assert 'viewModel.setQuantityDraft(quantityKey(line), draft)' in base
+    assert 'pendingSubmissionId == null' in base
+    assert 'draft?.raw ?: formatQuantity(line.quantity)' in editor
+    assert 'KeyboardType.Decimal' in editor and 'BasicTextField' in editor
+    assert 'contentDescription = "减少数量：' in editor and 'contentDescription = "增加数量：' in editor
+    assert editor.count('Modifier.size(48.dp)') >= 2 and '.heightIn(min = 48.dp)' in editor
 
 
 def test_dialog_saves_exact_quantity_and_cancel_does_not_write():
     base = read("ui/screens/ScanScreenBase.kt")
-    editor = base.split("pendingQuantityEdit?.let { line ->", 1)[1].split("pendingRemoval?.let", 1)[0]
-    assert "viewModel.updateScanLineQuantity(line, quantity, allowZeroQuantity)" in editor
-    assert "KeyboardType.Decimal" in editor
-    assert "ImeAction.Done" in editor
-    assert "onDone = { saveQuantity() }" in editor
-    assert "onClick = { saveQuantity() }" in editor
-    assert "!quantity.isFinite()" in editor
-    assert "quantityError" in editor
-    cancel = editor.split("dismissButton = {", 1)[1]
-    assert "pendingQuantityEdit = null" in cancel
-    assert "viewModel." not in cancel
+    editor = read("ui/components/ScanQuantityStepper.kt")
+    assert 'viewModel.updateScanLineQuantity(expected, quantity, allowZeroQuantity)' in base
+    assert 'KeyboardType.Decimal' in editor and 'ImeAction.Done' in editor
+    assert 'onDone = {' in editor and 'commit(it, draft.raw)' in editor
+    assert 'Text("确定数量")' in editor and 'Text("取消")' in editor
+    assert 'raw.text.toQtyOrNull(allowZero)' in editor
+    assert 'expected = line.quantity; value = TextFieldValue(formatQuantity(line.quantity)); onDraft(null)' in editor
+    assert 'viewModel.uiState.value.quantityDrafts.isEmpty()' in base
+    # Actual edits, cancel, stale rows and rapid +/- are verified by Compose and ViewModel tests.
 
 
 def test_state_update_guards_stale_rows_and_recomputes_summary():
@@ -66,7 +64,10 @@ def test_state_update_guards_stale_rows_and_recomputes_summary():
 
 
 def test_existing_opening_editor_and_scan_accumulation_are_preserved():
-    assert "viewModel.updateLineQuantity(index, qty)" in read("ui/screens/OpeningStockScreen.kt")
+    screen = read("ui/screens/OpeningStockScreen.kt")
+    assert "viewModel.updateLineQuantityExpected(line.uiId, line.quantity, qty)" in screen
+    assert "uiState.quantityDrafts.containsKey(line.uiId)" in screen
+    assert "viewModel.removeLineExpected(line.uiId, line.quantity)" in screen
     assert "quantity = existing.quantity + line.quantity" in read("ui/viewmodel/scan/ScanViewModel.kt")
 
 

@@ -91,7 +91,7 @@ def test_t2_viewmodel_declares_update_line_quantity():
 # ---------------------------------------------------------------------------
 def test_t3_screen_line_click_opens_edit_dialog():
     src = _no_comments(_read(SCREEN))
-    assert "editLineIndex" in src, "Screen 缺少 editLineIndex 状态（点行编辑）"
+    assert "editLineTarget" in src, "Screen 缺少编辑目标快照（点行编辑）"
     # 行卡片接收 onClick 且内部 clickable
     assert re.search(r"fun\s+OpeningStockLineCard\s*\([^)]*onClick\s*:\s*\(\)\s*->\s*Unit", src, flags=re.DOTALL), (
         "OpeningStockLineCard 缺少 onClick 参数"
@@ -101,9 +101,11 @@ def test_t3_screen_line_click_opens_edit_dialog():
         "行卡片未接 clickable——点击无响应"
     )
     # 弹窗确认接线 ViewModel
-    assert "viewModel.updateLineQuantity(" in src, (
-        "编辑弹窗未接线 viewModel.updateLineQuantity"
+    assert "viewModel.updateLineQuantityExpected(line.uiId, line.quantity, qty)" in src, (
+        "编辑弹窗未按原行身份和原数量安全更新"
     )
+    assert "viewModel.removeLineExpected(line.uiId, line.quantity)" in src, "删除必须校验原行"
+    assert "uiState.quantityDrafts.containsKey(line.uiId)" in src, "未确认行内输入不得被覆盖"
 
 
 # ---------------------------------------------------------------------------

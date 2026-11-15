@@ -100,15 +100,6 @@ class NativeAuditRegressionTest {
         pumpUntil("request coroutines complete") { vm.viewModelScope.coroutineContext[Job]!!.children.none { it.isActive } }
     }
     private fun settle() { repeat(50) { main.scheduler.runCurrent(); shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10) } }
-    private fun awaitDraftRemoved() {
-        val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(8)
-        while(System.nanoTime()<deadline) {
-            main.scheduler.runCurrent();shadowOf(Looper.getMainLooper()).idle()
-            if(runBlocking{repo.loadStocktakeDraft()==null}) return
-            Thread.sleep(10)
-        }
-        // The caller asserts the retained draft, so an old implementation fails on business data.
-    }
     private fun material(code:String):MaterialDto = Gson().fromJson(
         """{"id":1,"code":"$code","name":"Audit $code","spec":"x","stock":7}""",MaterialDto::class.java)
     private fun seedLogin()=runBlocking { repo.saveLoginInfo("synthetic-audit-token",server.url("/").toString(),"auditor","warehouse",91) }
@@ -207,9 +198,17 @@ class NativeAuditRegressionTest {
     }
     @Test fun emptyStocktakeDeletesPersistedDraft()=runBlocking {
         val vm=keep(ScanViewModel(application));seed(vm,ScanUiState(selectedWarehouse=b,scanLines=listOf(line())))
-        vm.persistStocktakeDraft();pumpUntil("draft saved"){runBlocking{repo.loadStocktakeDraft()!=null}}
+        val beforeSave=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
+        vm.persistStocktakeDraft()
+        val saveJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot { it in beforeSave }.toList()
+        assertTrue("Save must schedule persistence",saveJobs.isNotEmpty())
+        pumpUntil("draft save completed"){saveJobs.none { it.isActive }}
+        assertNotNull(repo.loadStocktakeDraft())
+        val beforeClear=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         vm.clearScanLines();vm.persistStocktakeDraft()
-        awaitDraftRemoved()
+        val clearJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot { it in beforeClear }.toList()
+        assertTrue("Clearing must schedule persistence",clearJobs.isNotEmpty())
+        pumpUntil("draft clear completed"){clearJobs.none { it.isActive }}
         assertTrue(vm.uiState.value.scanLines.isEmpty());assertNull(repo.loadStocktakeDraft())
     }
     @Test fun queuedStocktakeClearsCorrespondingDraft()=runBlocking {
@@ -218,9 +217,12 @@ class NativeAuditRegressionTest {
         server.shutdown();serverClosed=true
         val vm=keep(ScanViewModel(application))
         seed(vm,ScanUiState(selectedWarehouse=a,selectedCheckOrder=CheckOrderDto(1L,"CHECK-A"),scanLines=listOf(line())))
+        val beforeSubmit=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         vm.submitStocktake()
+        val submitJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot { it in beforeSubmit }.toList()
+        assertTrue("Submission must be scheduled",submitJobs.isNotEmpty())
         pumpUntil("queued and page cleared"){vm.uiState.value.scanLines.isEmpty()&&vm.uiState.value.success!=null}
-        awaitDraftRemoved()
+        pumpUntil("queued submission persistence completed"){submitJobs.none { it.isActive }}
         assertNull(repo.loadStocktakeDraft())
     }
     @Test fun stocktakeRetryKeepsOriginalRequestKey()=runBlocking {
@@ -518,11 +520,19 @@ class NativeAuditRegressionTest {
         val (store,key,_)=seedUnreadableOwnedStocktake()
         val vm=keep(ScanViewModel(application));vm.maybeRestoreStocktakeDraft()
         pumpUntil("bad draft read reported"){!vm.uiState.value.isLoading&&vm.uiState.value.error!=null}
+        val existingBeforeClear=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         vm.clearScanLines()
-        pumpUntil("explicit raw draft deletion completed"){runBlocking{store.data.first()[key]==null}}
+        val clearJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot{it in existingBeforeClear}.toList()
+        assertTrue("Explicit clear must schedule real persistence",clearJobs.isNotEmpty())
+        pumpUntil("explicit raw draft deletion completed"){clearJobs.none{it.isActive}}
+        assertNull(vm.uiState.value.draftSaveError)
         assertNull(store.data.first()[key])
+        val existingBeforeSave=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         vm.addScanLine(line("M002"));vm.persistStocktakeDraft()
-        pumpUntil("new draft after explicit clear"){runBlocking{repo.loadStocktakeDraft()?.lines?.singleOrNull()?.material_code=="M002"}}
+        val saveJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot{it in existingBeforeSave}.toList()
+        assertTrue("New draft must schedule real persistence",saveJobs.isNotEmpty())
+        pumpUntil("new draft after explicit clear"){saveJobs.none{it.isActive}}
+        assertNull(vm.uiState.value.draftSaveError)
         assertEquals("M002",repo.loadStocktakeDraft()?.lines?.single()?.material_code)
     }
 
@@ -547,8 +557,13 @@ class NativeAuditRegressionTest {
     private suspend fun explicitEditDraftClearAllowsRecapture(operation:String) {
         val(store,key,_)=seedUnreadableEditDraft(operation)
         val vm=keep(ScanViewModel(application));vm.restoreEditDraft(operation)
+        val existingBeforeClear=vm.viewModelScope.coroutineContext[Job]!!.children.toSet()
         vm.clearScanLines()
-        pumpUntil("$operation explicit clear completes"){runBlocking{store.data.first()[key]==null}&&!vm.uiState.value.isLoading}
+        val clearJobs=vm.viewModelScope.coroutineContext[Job]!!.children.filterNot{it in existingBeforeClear}.toList()
+        assertTrue("$operation explicit clear must schedule real work",clearJobs.isNotEmpty())
+        pumpUntil("$operation explicit clear completes"){clearJobs.none{it.isActive}}
+        assertFalse("$operation restore after clear must complete",vm.uiState.value.isLoading)
+        assertNull("$operation original unreadable draft must be removed",store.data.first()[key])
         vm.addScanLine(line("M002"))
         var saved=false
         val attempt=vm.viewModelScope.launch{saved=vm.persistEditDraft()}
