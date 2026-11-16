@@ -123,6 +123,12 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
             todayOutQuantity = 84.0, pendingInOrders = 5, pendingOutOrders = 3, alertCount = 3, warehouse = warehouse.name)
         content(Screen.Home.route) { HomeWorkbench(data, false, list, "1", {}, {}, {}, {}) }
         checkTabs()
+        if (scale <= 1.3f) {
+            val top = listOf("今日入库", "今日出库", "待处理", "库存告警").map {
+                compose.onNodeWithText(it).getUnclippedBoundsInRoot().top.value
+            }
+            assertTrue("360dp overview should show four columns at ordinary font sizes", top.max() - top.min() < 1f)
+        }
         capture("home")
     }
     @Test fun inboundQuantityAndActionsRemainReachableWithActualBottomBar() {

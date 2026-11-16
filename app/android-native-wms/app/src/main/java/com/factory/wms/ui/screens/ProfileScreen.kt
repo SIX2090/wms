@@ -161,10 +161,10 @@ fun ProfileScreen(
                 Text("用于连续扫码时的操作反馈", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
                 ProfileToggleRow(icon = Icons.Outlined.VolumeUp, label = "扫码提示音",
-                    description = "成功与失败使用不同提示音", checked = scanSoundEnabled,
+                    description = "区分成功与失败", checked = scanSoundEnabled,
                     onCheckedChange = { value -> scanSoundEnabled = value; ScanFeedback.setSoundEnabled(context, value) })
                 ProfileToggleRow(icon = Icons.Outlined.Vibration, label = "扫码震动",
-                    description = "成功与失败使用不同震动", checked = scanVibrationEnabled,
+                    description = "区分成功与失败", checked = scanVibrationEnabled,
                     onCheckedChange = { value -> scanVibrationEnabled = value; ScanFeedback.setVibrationEnabled(context, value) },
                     showDivider = false)
             }

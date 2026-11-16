@@ -213,8 +213,11 @@ internal fun HomeWorkbench(
     modifier: Modifier = Modifier
 ) {
     val cards = remember { homeFunctionCards() }
-    val today = remember { SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date()) }
-    val largeFont = LocalDensity.current.fontScale > 1.2f
+    val today = remember {
+        SimpleDateFormat("MM月dd日 EEEE", Locale.CHINESE).format(Date())
+            .replace("星期", "星\u2060期\u2060")
+    }
+    val largeFont = LocalDensity.current.fontScale > 1.6f
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(Modifier.fillMaxWidth().background(Primary.readableOn(Color.White))
             .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -236,7 +239,8 @@ internal fun HomeWorkbench(
                         Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
                         WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
                             selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
-                            showDefaultWarehouse = false, allowAll = false, contentColor = Color.White)
+                            showDefaultWarehouse = false, allowAll = false, contentColor = Color.White,
+                            modifier = Modifier.background(Color.Black.copy(alpha = 0.12f), MaterialTheme.shapes.medium))
                     }
                 }
             } else {
@@ -245,11 +249,12 @@ internal fun HomeWorkbench(
                     Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
                     WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
                         selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
-                        showDefaultWarehouse = false, allowAll = false, contentColor = Color.White)
+                        showDefaultWarehouse = false, allowAll = false, contentColor = Color.White,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.12f), MaterialTheme.shapes.medium))
                 }
             }
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
                 dashboard != null -> TodayOverviewBar(dashboard, onNavigate)
@@ -267,14 +272,14 @@ internal fun HomeWorkbench(
 
 @Composable
 private fun HomeTileGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit, largeFont: Boolean) {
-    val columns = if (largeFont) 2 else 3
+    val columns = 3
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         cards.chunked(columns).forEach { row ->
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { card ->
                     Card(onClick = { onNavigate(card.screen) }, modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 96.dp),
                         shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = CardBackground)) {
-                        Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.Center,
+                        Column(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 10.dp), verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally) {
                             Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(28.dp))
                             Spacer(Modifier.height(8.dp))
@@ -359,17 +364,19 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
     val entries = listOf(
         Triple("今日入库", formatQty(dashboard.todayInQuantity), "${dashboard.todayInOrders} 单") to Screen.Inbound,
         Triple("今日出库", formatQty(dashboard.todayOutQuantity), "${dashboard.todayOutOrders} 单") to Screen.Outbound,
-        Triple("待处理", "${dashboard.pendingInOrders + dashboard.pendingOutOrders}", "入${dashboard.pendingInOrders} · 出${dashboard.pendingOutOrders}") to Screen.OverviewOrders,
+        Triple("待处理", "${dashboard.pendingInOrders + dashboard.pendingOutOrders}", "入${dashboard.pendingInOrders} 出${dashboard.pendingOutOrders}") to Screen.OverviewOrders,
         Triple("库存告警", "${dashboard.alertCount}", "低库存") to Screen.OverviewAlerts
     )
-    val columns = if (LocalDensity.current.fontScale > 1.2f) 2 else 4
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val labelWidth = with(LocalDensity.current) { MaterialTheme.typography.bodyMedium.fontSize.toDp() * 4 + 8.dp }
+    val columns = if (LocalDensity.current.fontScale > 1.3f || maxWidth < labelWidth * 4) 2 else 4
     Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
-        Column(Modifier.fillMaxWidth().padding(4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             entries.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     row.forEach { (data, screen) ->
                         Column(Modifier.weight(1f).fillMaxHeight().clickable { onNavigate(screen) }
-                            .heightIn(min = 48.dp).padding(horizontal = 4.dp, vertical = 10.dp),
+                            .heightIn(min = 48.dp).padding(horizontal = 1.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(data.second, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
@@ -384,6 +391,7 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
                 }
             }
         }
+    }
     }
 }
 

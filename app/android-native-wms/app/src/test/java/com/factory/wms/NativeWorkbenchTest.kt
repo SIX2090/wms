@@ -166,6 +166,50 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
     }
 
+    @Test fun homeKeepsThreeColumnsAndReadableOverview() {
+        val data = DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0,
+            todayOutOrders = 2, todayOutQuantity = 860.0, pendingInOrders = 2,
+            pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name)
+        content { HomeWorkbench(data, false, listOf(warehouse), "1", {}, {}, {}, {}) }
+        val labels = listOf("入库", "出库", "查库存")
+        labels.forEach { compose.onNodeWithText(it).performScrollTo(); completeIdentityText(it) }
+        val bounds = labels.map { compose.onNodeWithText(it).getUnclippedBoundsInRoot() }
+        assertTrue("Primary entries must remain three columns", bounds[0].right <= bounds[1].left && bounds[1].right <= bounds[2].left)
+        assertTrue("Primary entries must share a row", bounds.map { it.top.value }.max() - bounds.map { it.top.value }.min() < 1f)
+        listOf("今日入库", "今日出库", "待处理", "库存告警").forEach {
+            compose.onNodeWithText(it).performScrollTo()
+            completeIdentityText(it)
+        }
+        if (fontScale <= 1f) {
+            val top = listOf("今日入库", "今日出库", "待处理", "库存告警").map {
+                compose.onNodeWithText(it).getUnclippedBoundsInRoot().top.value
+            }
+            assertTrue("Overview should retain four columns", top.max() - top.min() < 1f)
+        }
+        if (fontScale <= 1.3f) listOf("今日入库", "今日出库", "待处理", "库存告警").forEach {
+            assertEquals("Overview label must not split: $it", 1, completeText(it).lineCount)
+        }
+        compose.onNodeWithText("1,280").performScrollTo()
+        val quantity = completeText("1,280")
+        assertEquals("Overview quantity must not split across lines", 1, quantity.lineCount)
+        compose.onNodeWithText("WMS 仓库管理").performScrollTo()
+        capture("home-polished")
+    }
+
+    @Test fun profileFeedbackDescriptionsRemainReadable() {
+        val auth = AuthViewModel(app).also { models += it }
+        content { ProfileScreen(auth) {} }
+        val descriptions = compose.onAllNodesWithText("区分成功与失败", useUnmergedTree = true)
+        assertEquals(2, descriptions.fetchSemanticsNodes().size)
+        for (i in 0..1) {
+            val layouts = mutableListOf<TextLayoutResult>()
+            descriptions[i].performScrollTo().performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            assertFalse("Feedback description is clipped", layout.didOverflowHeight)
+            if (fontScale <= 1.3f) assertEquals("Feedback description wraps too early", 1, layout.lineCount)
+        }
+    }
+
     @Test fun reportShortcutRemainsCompleteAndReachableAfterScrolling() {
         val warehouses = listOf(warehouse)
         val data = DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0, todayOutOrders = 2,

@@ -1298,3 +1298,4 @@
 | BUG-2026-11-16-008 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-009 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-010 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-011 | bugs | entries-2026-11.md |

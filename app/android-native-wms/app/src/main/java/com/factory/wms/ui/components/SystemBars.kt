@@ -3,11 +3,13 @@ package com.factory.wms.ui.components
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
-import androidx.compose.foundation.isSystemInDarkTheme
+import android.view.Window
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowInsetsControllerCompat
+import java.util.WeakHashMap
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 状态栏图标对比度适配（AI-APP-UI-002）
@@ -22,24 +24,46 @@ import androidx.core.view.WindowInsetsControllerCompat
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 在组合期间设置状态栏图标明暗，退出组合时还原为进入前的值。
+ * 页面切换动画可能让新旧页面同时存在；移除旧页面时必须保留新页面的设置。
  *
  * @param darkIcons true = 深色图标（适合白色/浅色头部）；false = 浅色图标（适合深色渐变头部）
  */
 @Composable
 fun StatusBarIconEffect(darkIcons: Boolean) {
     val view = LocalView.current
-    val isDark = isSystemInDarkTheme()
-    DisposableEffect(view, darkIcons, isDark) {
+    val token = remember(view) { Any() }
+    DisposableEffect(view, token, darkIcons) {
         val activity = view.context.findActivity()
         val window = activity?.window
-        val controller = window?.let { WindowInsetsControllerCompat(it, view) }
-        val previous = controller?.isAppearanceLightStatusBars
-        controller?.isAppearanceLightStatusBars = darkIcons
+        if (window != null) StatusBarIconOwners.add(window, view, token, darkIcons)
         onDispose {
-            // 还原进入前的值；取不到时回落到主题默认值（浅色主题 → 深色图标）。
-            controller?.isAppearanceLightStatusBars = previous ?: !isDark
+            if (window != null) StatusBarIconOwners.remove(window, token)
         }
+    }
+}
+
+internal object StatusBarIconOwners {
+    private data class Owner(val token: Any, val darkIcons: Boolean)
+    private class State(val controller: WindowInsetsControllerCompat, val original: Boolean) {
+        val owners = mutableListOf<Owner>()
+    }
+    private val states = WeakHashMap<Window, State>()
+
+    fun add(window: Window, view: android.view.View, token: Any, darkIcons: Boolean) {
+        val state = states.getOrPut(window) {
+            val controller = WindowInsetsControllerCompat(window, view)
+            State(controller, controller.isAppearanceLightStatusBars)
+        }
+        state.owners.removeAll { it.token === token }
+        state.owners.add(Owner(token, darkIcons))
+        state.controller.isAppearanceLightStatusBars = darkIcons
+    }
+
+    fun remove(window: Window, token: Any) {
+        val state = states[window] ?: return
+        state.owners.removeAll { it.token === token }
+        state.controller.isAppearanceLightStatusBars = state.owners.lastOrNull()?.darkIcons ?: state.original
+        if (state.owners.isEmpty()) states.remove(window)
     }
 }
 

@@ -65,7 +65,7 @@ def test_home_groups_prioritize_primary_tasks():
 def test_secondary_inventory_actions_share_available_width():
     src = _read()
     grid = _extract_function(src, "private fun HomeTileGrid(")
-    assert 'if (largeFont) 2 else 3' in grid
+    assert 'val columns = 3' in grid
     assert 'cards.chunked(columns)' in grid
     assert 'Modifier.weight(1f)' in grid
     assert 'onNavigate(card.screen)' in grid

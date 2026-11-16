@@ -1053,7 +1053,7 @@ fun StockQueryScreen(
                         WmsEmptyState(
                             icon = Icons.Outlined.Search,
                             title = "输入或扫描物料编码",
-                            subtitle = "支持名称/规格/品牌关键词模糊联想",
+                            subtitle = "支持名称、规格、品牌搜索",
                             accentColor = CardOrange,
                             compact = true
                         )
