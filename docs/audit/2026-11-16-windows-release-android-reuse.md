@@ -29,3 +29,9 @@ check_ci_green.main 在目标无 Android 运行时，仅查询 android_source_sh
 全仓当前测试/脚本/工作流/原生源码检索仅此处残留56/3.9.32固定值；历史说明不机械改写。他人对同一注释“保留App名称WMS”的改动保留在工作区，本任务只按HEAD原文形成版本值投影，逆变换逐字节证明未覆盖其措辞。
 
 并行faba8e535bbdc3fb62c04336e30ff16b3b25af03仅有他人的生产部署文档及BUG013状态；本任务不操作生产，也不回退这些已提交内容。最终代码批扩为17个自有路径，私有整批回退基线保留faba的四份文档改动，只撤本任务代码/记录；版本锁所在整模块10项与既有回归重新执行。原生六输入未变化，后续目标只能按完整祖先、真实成功APK901及所有输入对象证明合法复用，不拿失败WMS旧绿验收新目标。
+
+## 最终软件验收补证（2026-11-16）
+
+纠正代码4d3bbedd21b7368060bc7a29807d5bd602e5cb4e已实际普通push并从远端main可达。新25锁通过、旧13真实业务失败/12对照，既有适用131项及43 subtest通过；完整17路径R8及47锁恢复、源码树证据与[扫码专项](2026-11-16-fullscreen-scanner.md)共同登记。首次266d整体WMS红灯及早期长路径/对象只读夹具失败均保留，不冒充软件通过或旧产品反证，原断言未删改。
+
+[WMS CI43842080487](https://github.com/SIX2090/wms/actions/runs/43842080487)、[WMS AI Verification43842080417](https://github.com/SIX2090/wms/actions/runs/43842080417)、[Android APK Build43838228216](https://github.com/SIX2090/wms/actions/runs/43838228216)、[Windows Portable Release43843017385](https://github.com/SIX2090/wms/actions/runs/43843017385)全部completed/success；WMS/AI/Windows精确本目标，Android按6路径/279对象完整祖先证明复用成功APK901，其祖先的WMS失败没有用来验收本目标。Windows实际完整CI门禁、下载wheel、打包及一次性安装运行时验证、绑定封包、发布和上传资产验证均通过，发布版本2026.11.82。历史失败#225/226/227及首次代码WMS红灯保留；本次纠正目标的软件与出包已验收。本次没有生产部署、服务操作或数据库/备份、HTTP、密码、真实单据操作；完成文档自身目标另验。

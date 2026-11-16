@@ -40,16 +40,20 @@
 
 ## MOB-SCANNER-FULLSCREEN-20261116-001
 
-- 日期：2026-11-16。状态：软件候选已实现，本地验证及精确CI按专项逐项验收，未部署或安装。
+- 日期：2026-11-16。状态：软件已交付；代码4d3bbedd21b7368060bc7a29807d5bd602e5cb4e实际push，三必需工作流及Windows出包精确success；未部署/安装。
 - 范围：用户要求恢复原生贴边扫码框并修H5全屏及普通未识别帧报错，BUG-2026-11-16-014/015；既有扫码能力修复，不新增AI能力、权限或库存流程。
 - 验证：真实Compose像素、真实vendored SDK及Chrome合成媒体流、原消费者及整批回退；真实设备待验。软件交付须本任务精确目标三个工作流通过。
 - 生效确认：未操作生产数据库、服务、HTTP、真实单据或设备；详见[专项](../../audit/2026-11-16-fullscreen-scanner.md)。
 
+- 完成补证：[WMS CI43842080487](https://github.com/SIX2090/wms/actions/runs/43842080487)、[WMS AI Verification43842080417](https://github.com/SIX2090/wms/actions/runs/43842080417)、[Android APK Build43838228216](https://github.com/SIX2090/wms/actions/runs/43838228216)、[Windows Portable Release43843017385](https://github.com/SIX2090/wms/actions/runs/43843017385)均success（Android合法祖先901复用）；完整17路径47回归及R8、原生748、隔离H5 58等证据见专项，首次红灯和纠正均保留，本次文档自身目标另验。
+
 ## CI-ANDROID-REUSE-FIX-20261116-001
 
-- 日期：2026-11-16。状态：用户追加Windows发布失败截图，本地修复及精确发布验收中。
+- 日期：2026-11-16。状态：软件已交付；代码4d3bbedd21b7368060bc7a29807d5bd602e5cb4e实际push，三必需工作流及Windows出包精确success；未部署/安装。
 - 范围：BUG-2026-11-16-016，既有CI门禁遗漏真实有效APK祖先构建；同次扫码发布批集成，不新增AI或业务能力，不放宽失败/等待、main、祖先/路径和历史对象保护。
 - 验证：真实临时Git对象与合成API回执、旧CLI失败/新通过、既有输出编码/发布绑定、整批R8；三必需工作流及Windows Portable Release按精确目标核验。
 - 生效确认：未部署或操作生产；详见[专项](../../audit/2026-11-16-windows-release-android-reuse.md)。
 
 - 同批CI纠正：266d6679首次WMS版本锁未同步而红，保留原断言仅更新57/3.9.33；软件交付以纠正后精确目标完整CI为准，原生源码不变，未部署/安装。
+
+- 完成补证：[WMS CI43842080487](https://github.com/SIX2090/wms/actions/runs/43842080487)、[WMS AI Verification43842080417](https://github.com/SIX2090/wms/actions/runs/43842080417)、[Android APK Build43838228216](https://github.com/SIX2090/wms/actions/runs/43838228216)、[Windows Portable Release43843017385](https://github.com/SIX2090/wms/actions/runs/43843017385)均success（Android合法祖先901复用）；完整17路径47回归及R8、原生748、隔离H5 58等证据见专项，首次红灯和纠正均保留，本次文档自身目标另验。
