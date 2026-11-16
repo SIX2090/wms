@@ -17,4 +17,4 @@ def test_material_unused_delete_runtime():
     assert result.returncode == 0, result.stdout + result.stderr
     report = json.loads(result.stdout)
     assert report['failed'] == 0
-    assert report['passed'] == 11
+    assert report['passed'] == 15

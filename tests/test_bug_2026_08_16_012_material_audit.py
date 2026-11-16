@@ -144,7 +144,7 @@ class TestMaterialAudit:
                                     category_id=1, unit_id=1, stock=0, price=5))
             db.session.commit()
             mid = Material.query.filter_by(code="M-DEL").first().id
-        resp = client.post("/material/delete", json={"ids": [mid]})
+        resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mid]})
         assert resp.get_json().get("status") == "success", resp.get_json()
         with app_module.app.app_context():
             audit = _latest_audit("delete_material")

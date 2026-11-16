@@ -66,7 +66,7 @@ def _new_material(code, name):
 def _delete(mat_id):
     client = app_module.app.test_client()
     _login(client)
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={"ids": [mat_id], "admin_password": "admin"})
     print(f"status_code={resp.status_code} body={resp.get_json()}")
     with app_module.app.app_context():
         still = db.session.get(Material, mat_id)

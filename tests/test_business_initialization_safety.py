@@ -21,7 +21,7 @@ def case(monkeypatch, tmp_path):
         db.session.remove()
         db.drop_all()
         db.create_all()
-        user = wms.User(username='init-test', role='admin', must_change_password=False,
+        user = wms.User(username='admin', role='admin', must_change_password=False,
                         password_hash=generate_password_hash('isolated-fixture'))
         db.session.add(user)
         db.session.add(wms.Material(code='INIT-QA', name='初始化隔离样本', stock=7))
@@ -201,7 +201,7 @@ def test_execute_initialization(case, master):
         assert wms.Material.query.one().stock == 0
     assert wms.StockTransaction.query.count() == 0
     assert wms.OperationLog.query.count() == 0
-    assert wms.User.query.one().username == 'init-test'
+    assert wms.User.query.one().username == 'admin'
     assert wms.OperationAudit.query.filter_by(operation='history').count() == 1
     done = wms.OperationAudit.query.filter_by(operation='init_business_data_done').one()
     assert json.loads(done.new_data)['backup'] == response.json['backup']

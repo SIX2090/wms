@@ -25,7 +25,7 @@
             <button type="button" class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" data-material-action="toolbarFindImage" disabled title="网上找图">
                 <i class="bi bi-image"></i> 找图
             </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="删除勾选的未使用物料；有库存或引用的自动保留">
+            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="仅 admin 账号可删除，每次须验证 admin 密码；有库存或引用的自动保留">
                 <i class="bi bi-trash"></i> 删除
             </button>
             <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
@@ -288,6 +288,18 @@
     </section>
 </div>
 
+<div class="modal fade" id="materialDeletePasswordModal" tabindex="-1" aria-labelledby="materialDeletePasswordTitle" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title" id="materialDeletePasswordTitle">验证 admin 密码</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="取消"></button></div>
+        <div class="modal-body">
+            <p>仅 admin 账号可以删除物料档案，每次删除均需重新验证密码。</p>
+            <label for="materialDeletePassword" class="form-label">admin 账号密码</label>
+            <input type="password" id="materialDeletePassword" class="form-control" autocomplete="off" required maxlength="1024">
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button type="button" class="btn btn-danger" id="materialDeletePasswordConfirm">验证并删除</button></div>
+    </div></div>
+</div>
+
 <div class="modal fade" id="materialDeleteResultModal" tabindex="-1" aria-labelledby="materialDeleteResultTitle" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title" id="materialDeleteResultTitle">物料清理结果</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
@@ -305,7 +317,9 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
         <div class="modal-header"><h5 class="modal-title" id="materialMergeTitle">人工合并物料档案</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button></div>
         <div class="modal-body">
-            <p class="alert alert-warning">合并会改写历史单据的物料指向、累加库存，并删除被合并档案。旧编码保留为别名。请先做好备份，由人工确认是否同一种物料。</p>
+            <p class="alert alert-warning">合并会改写历史单据的物料指向、累加库存，并删除被合并档案。旧编码保留为别名。仅 admin 账号可执行，须验证 admin 密码。请先做好备份，由人工确认是否同一种物料。</p>
+            <label for="materialMergePassword" class="form-label">admin 账号密码（每次合并重新输入）</label>
+            <input type="password" id="materialMergePassword" class="form-control mb-3" autocomplete="off" maxlength="1024">
             <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><strong id="mergeDirection"></strong><button type="button" class="btn btn-outline-secondary btn-sm" id="mergeSwapBtn" disabled>交换保留方向</button></div>
             <label class="form-label" for="mergeSearch">选择保留物料：按编码、名称、规格或品牌搜索（包含停用档案）</label>
             <div class="input-group mb-2"><input id="mergeSearch" class="form-control" placeholder="输入关键词后回车或点击搜索" autocomplete="off"><button id="mergeSearchBtn" type="button" class="btn btn-outline-primary">搜索</button></div>
@@ -1280,7 +1294,7 @@
         {"id": {{ sup.id|tojson }}, "name": {{ sup.name|tojson }}, "code": {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ]
-}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
+}, "canDelete": {{ (current_user.username == 'admin' and current_user.role == 'admin')|tojson }}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
 </script>
 <script src="{{ url_for('static', filename='js/pages/material-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

@@ -123,10 +123,14 @@
     }
     function execute() {
         if (state.busy || !state.preview || !state.preview.preview_token || !node('mergeHumanConfirmed').checked) return;
+        var password = node('materialMergePassword').value;
+        node('materialMergePassword').value = '';
+        if (!password) { error('请输入 admin 账号密码'); return; }
         var source = state.source, target = state.target;
         state.busy = true; sync(); error('');
         WMS.api.postRaw('/material/' + source.id + '/merge', {target_code: target.code,
-            keep_alias: true, confirm: true, identity_confirmed: true, preview_token: state.preview.preview_token}).then(function (response) {
+            keep_alias: true, confirm: true, identity_confirmed: true, preview_token: state.preview.preview_token,
+            admin_password: password}).then(function (response) {
                 if (!response || response.status !== 'success') throw new Error(response && response.msg || '合并失败');
                 showToast(response.msg || '合并成功', 'success');
                 window.location.reload();
@@ -135,6 +139,7 @@
                 invalidate();
                 error((reason.message || '请求异常') + '；请核对列表，重新选择并预览后再操作。');
             });
+        password = null;
     }
     function initialize() {
         if (state.initialized) return;
@@ -155,6 +160,7 @@
         });
         node('materialMergeModal').addEventListener('hide.bs.modal', function (event) {
             if (state.busy) { event.preventDefault(); return; }
+            node('materialMergePassword').value = '';
             state.searchSeq += 1; state.previewSeq += 1; state.preview = null;
         });
     }
@@ -162,6 +168,7 @@
         initialize();
         if (state.busy) return;
         state.source = source; state.target = target || null;
+        node('materialMergePassword').value = '';
         state.page = 1; state.pages = 0; state.searchSeq += 1;
         node('mergeSearch').value = '';
         invalidate();

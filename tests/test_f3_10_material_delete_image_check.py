@@ -80,7 +80,7 @@ def test_delete_material_with_image_blocked_with_clear_message(client):
         db.session.add(MaterialImage(material_id=mat_id, image="uploads/x.png"))
         db.session.commit()
 
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mat_id]})
     assert resp.status_code == 400, f"有图片应业务拒绝，实际 {resp.status_code}"
     data = resp.get_json()
     assert data["status"] == "error"
@@ -94,7 +94,7 @@ def test_delete_material_with_image_blocked_with_clear_message(client):
 def test_delete_material_without_image_still_works(client):
     """无图片无引用物料：删除正常成功（行为不回归）。"""
     mat_id = _mk_material("M-NOIMG")
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mat_id]})
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["status"] == "success", f"应删除成功，实际 {data}"

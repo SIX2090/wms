@@ -64,11 +64,12 @@ def _post_merge_with_preview(client, url, **kwargs):
     """Successful execution tests now obtain the required real HTTP receipt."""
     payload = kwargs.get('json')
     if isinstance(payload, dict) and payload.get('confirm') is True:
+        kwargs['json'] = dict(payload, admin_password='admin')
         response = client.post(url, json=dict(payload, confirm=False), headers=kwargs.get('headers', {}))
         if response.status_code == 200 and response.get_json().get('status') == 'preview':
             token = response.get_json()['data'].get('preview_token')
             assert token, 'The real preview must issue its bound confirmation receipt'
-            kwargs['json'] = dict(payload, preview_token=token)
+            kwargs['json'] = dict(payload, preview_token=token, admin_password='admin')
     return client.post(url, **kwargs)
 
 def _seed(code, name="模块前连接器40针", spec="6ES75921BM000XB0", brand=None, stock=0):

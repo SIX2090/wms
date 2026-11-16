@@ -90,7 +90,7 @@ def test_delete_material_succeeds_when_ai_document_item_table_missing(client):
         mat_id = mat.id
     _drop_ai_document_item_table()
 
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mat_id]})
     ctype = resp.headers.get("Content-Type", "")
     body = resp.get_data(as_text=True)
     assert "application/json" in ctype, f"必须返回 JSON，实际 Content-Type={ctype}，body={body[:80]!r}"
@@ -117,7 +117,7 @@ def test_delete_material_still_blocks_referenced_when_ai_table_missing(client):
         db.session.commit()
     _drop_ai_document_item_table()
 
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mat_id]})
     ctype = resp.headers.get("Content-Type", "")
     assert "application/json" in ctype, "必须返回 JSON"
     assert resp.status_code == 400, f"被引用物料应返回 400 业务拒绝，实际 {resp.status_code}"

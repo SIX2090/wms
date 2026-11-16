@@ -202,7 +202,7 @@ class TestMaterialRegister:
         _add_material(client, code="M001", name="轴承")
         with app_module.app.app_context():
             mid = Material.query.filter_by(code="M001").first().id
-        resp = client.post("/material/delete", json={"ids": [mid]})
+        resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [mid]})
         data = resp.get_json()
         assert data["status"] == "success", data
         with app_module.app.app_context():
@@ -239,7 +239,7 @@ class TestMaterialRegister:
             db.session.commit()
             po_id, so_id = m_po.id, m_so.id
         # 被采购订单引用：不删除，返回清晰错误，不抛数据库外键异常
-        resp = client.post("/material/delete", json={"ids": [po_id]})
+        resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [po_id]})
         data = resp.get_json()
         assert data["status"] == "error", data
         assert "数据库操作失败" not in data.get("msg", ""), data
@@ -247,7 +247,7 @@ class TestMaterialRegister:
             assert Material.query.get(po_id) is not None
             assert PurchaseOrderItem.query.filter_by(material_id=po_id).first() is not None
         # 被销售订单引用：同样拦截，明细保留
-        resp = client.post("/material/delete", json={"ids": [so_id]})
+        resp = client.post("/material/delete", json={'admin_password': 'admin', "ids": [so_id]})
         data = resp.get_json()
         assert data["status"] == "error", data
         assert "数据库操作失败" not in data.get("msg", ""), data

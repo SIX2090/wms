@@ -619,3 +619,4 @@ POST_SPLIT_BUGS['BUG-2026-11-16-009'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-16-010'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-16-011'] = 'fixed'  # Existing parent registration; CI and activation are separate.
 POST_SPLIT_BUGS['BUG-2026-11-16-012'] = 'fixed'  # Traceability guard repair; retain the original archive snapshot.
+POST_SPLIT_BUGS['BUG-2026-11-16-013'] = 'fixed'  # Per-request admin password for material removal.

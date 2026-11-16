@@ -6,8 +6,9 @@ import pytest
 
 @pytest.fixture
 def cleanup_case(bom_case):
-    from app import db, Material
+    from app import db, Material, User
     client, ids = bom_case
+    db.session.get(User, ids['user']).username = 'admin'
     materials = [Material(code='CLEAN-'+str(i), name='清理测试'+str(i),
                           unit_id=ids['unit'], stock=0) for i in range(4)]
     db.session.add_all(materials)
@@ -20,7 +21,7 @@ def test_delete_unused_materials(cleanup_case):
     client, ids = cleanup_case
     db.session.add(StockTransaction(material_id=ids[1], transaction_type='in', quantity=0))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': [ids[0], ids[1], ids[2]]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': [ids[0], ids[1], ids[2]]})
     assert response.status_code == 200
     data = response.json['data']
     assert (data['selected_count'], data['deleted_count'], data['skipped_count'], data['failed_count']) == (3, 2, 1, 0)
@@ -51,7 +52,7 @@ def test_nonzero_inventory_is_kept_even_with_zero_total(cleanup_case, quantity, 
     db.session.add(LocationInventory(material_id=ids[0], warehouse_id=other.id,
                                      location='库位B', quantity=-quantity))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 200
     assert response.json['data']['deleted_count'] == 1
     assert '库存' in response.json['data']['items'][0]['reason']
@@ -64,7 +65,7 @@ def test_unassigned_historical_inventory_is_never_discarded(cleanup_case):
     client, ids = cleanup_case
     db.session.add(LocationInventory(material_id=ids[0], warehouse_id=None, location='', quantity=3))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 200
     assert response.json['data']['skipped_count'] == 1
     assert db.session.get(Material, ids[0]) is not None
@@ -77,7 +78,7 @@ def test_legacy_orphan_total_balance_is_kept(cleanup_case, stock):
     client, ids = cleanup_case
     db.session.get(Material, ids[0]).stock = stock
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 200
     assert response.json['data']['deleted_count'] == 1
     assert '库存' in response.json['data']['items'][0]['reason']
@@ -89,7 +90,7 @@ def test_zero_auxiliary_inventory_is_removed_with_unused_archive(cleanup_case):
     client, ids = cleanup_case
     db.session.add(LocationInventory(material_id=ids[0], location='空辅助行', quantity=0))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': [str(ids[0]), ids[0]]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': [str(ids[0]), ids[0]]})
     assert response.status_code == 200
     assert response.json['data']['selected_count'] == 1
     assert response.json['data']['deleted_count'] == 1
@@ -107,7 +108,7 @@ def test_code_only_references_are_kept(cleanup_case):
     db.session.add(PurchaseRequestItem(purchase_request_id=document.id, material_id=None,
                                        material_code='CLEAN-1', quantity=1))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:3]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:3]})
     assert response.status_code == 200
     assert response.json['data']['skipped_count'] == 2
     assert response.json['data']['deleted_count'] == 1
@@ -119,7 +120,7 @@ def test_images_and_missing_ids_have_explicit_kept_results(cleanup_case):
     client, ids = cleanup_case
     db.session.add(MaterialImage(material_id=ids[0], image='uploads/synthetic.jpg'))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': [ids[0], 999999]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': [ids[0], 999999]})
     assert response.status_code == 400  # Preserve legacy all-blocked status.
     data = response.json['data']
     assert (data['deleted_count'], data['skipped_count']) == (0, 2)
@@ -133,7 +134,7 @@ def test_legacy_primary_image_is_kept_without_image_table_row(cleanup_case):
     db.session.get(Material, ids[0]).image = 'uploads/synthetic-legacy.jpg'
     db.session.commit()
     assert MaterialImage.query.filter_by(material_id=ids[0]).count() == 0
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 200
     assert response.json['data']['skipped_count'] == 1
     assert '存在物料图片' in response.json['data']['items'][0]['reason']
@@ -147,7 +148,7 @@ def test_single_delete_failure_does_not_rollback_previous_successes(cleanup_case
     db.session.commit()
     db.session.execute(db.text("CREATE TRIGGER cleanup_failure BEFORE DELETE ON material WHEN OLD.code='CLEAN-1' BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END"))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:3]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:3]})
     assert response.status_code == 200
     data = response.json['data']
     assert (data['deleted_count'], data['failed_count'], data['skipped_count']) == (2, 1, 0)
@@ -163,7 +164,7 @@ def test_missing_required_reference_table_fails_closed(cleanup_case):
     client, ids = cleanup_case
     db.session.execute(db.text('DROP TABLE stock_transaction'))
     db.session.commit()
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 503
     assert '未删除' in response.json['msg']
     assert all(db.session.get(Material, mid) is not None for mid in ids)
@@ -179,7 +180,7 @@ def test_unexpected_reference_query_error_fails_closed(cleanup_case, monkeypatch
             raise OperationalError('synthetic reference failure', {}, Exception('synthetic'))
         return original(statement, *args, **kwargs)
     monkeypatch.setattr(db.session, 'execute', execute)
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 503
     assert all(db.session.get(Material, mid) is not None for mid in ids)
 
@@ -197,7 +198,7 @@ def test_bad_input_never_deletes(cleanup_case, body):
 
 def test_form_encoded_legacy_call_still_works(cleanup_case):
     client, ids = cleanup_case
-    response = client.post('/material/delete', data={'ids': json.dumps([str(ids[0])])})
+    response = client.post('/material/delete', data={'admin_password': 'fixture-only', 'ids': json.dumps([str(ids[0])])})
     assert response.status_code == 200
     assert response.json['data']['deleted_count'] == 1
 
@@ -213,7 +214,7 @@ def test_new_reference_table_is_automatically_protected(cleanup_case):
         table.create(db.engine)
         db.session.execute(table.insert().values(material_id=ids[0]))
         db.session.commit()
-        response = client.post('/material/delete', json={'ids': ids[:2]})
+        response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
         assert response.status_code == 200
         assert response.json['data']['skipped_count'] == 1
         assert db.session.get(Material, ids[0]) is not None
@@ -230,7 +231,7 @@ def test_final_commit_failure_rolls_back_every_deletion(cleanup_case, monkeypatc
     def failed_commit():
         raise RuntimeError('synthetic final commit failure')
     monkeypatch.setattr(db.session, 'commit', failed_commit)
-    response = client.post('/material/delete', json={'ids': ids[:3]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:3]})
     assert response.status_code == 503
     assert '未删除' in response.json['msg']
     assert all(db.session.get(Material, mid) is not None for mid in ids)
@@ -241,7 +242,7 @@ def test_csrf_is_required_for_cleanup(cleanup_case, monkeypatch):
     from app import app, db, Material
     client, ids = cleanup_case
     monkeypatch.setitem(app.config, 'WTF_CSRF_ENABLED', True)
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 400
     assert all(db.session.get(Material, mid) is not None for mid in ids)
 
@@ -249,7 +250,7 @@ def test_csrf_is_required_for_cleanup(cleanup_case, monkeypatch):
 def test_unauthenticated_cleanup_is_rejected(cleanup_case):
     from app import app, db, Material
     _, ids = cleanup_case
-    response = app.test_client().post('/material/delete', json={'ids': ids[:2]})
+    response = app.test_client().post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code in (302, 401)
     assert all(db.session.get(Material, mid) is not None for mid in ids)
 
@@ -263,7 +264,7 @@ def test_sales_account_cannot_cleanup(cleanup_case):
     with client.session_transaction() as session:
         session['_user_id'] = str(user.id)
         session['_fresh'] = True
-    response = client.post('/material/delete', json={'ids': ids[:2]})
+    response = client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': ids[:2]})
     assert response.status_code == 403
     assert all(db.session.get(Material, mid) is not None for mid in ids)
 
@@ -271,6 +272,6 @@ def test_sales_account_cannot_cleanup(cleanup_case):
 def test_batch_limit_and_malformed_json_never_delete(cleanup_case):
     from app import db, Material
     client, ids = cleanup_case
-    assert client.post('/material/delete', json={'ids': [ids[0]] * 1001}).status_code == 400
+    assert client.post('/material/delete', json={'admin_password': 'fixture-only', 'ids': [ids[0]] * 1001}).status_code == 400
     assert client.post('/material/delete', data='{', content_type='application/json').status_code == 400
     assert all(db.session.get(Material, mid) is not None for mid in ids)

@@ -46,7 +46,7 @@ def main():
     client.post("/login", data={"username": "admin", "password": "admin", "csrf_token": token})
 
     print("=== POST /material/delete (JSON) ===")
-    resp = client.post("/material/delete", json={"ids": [mat_id]})
+    resp = client.post("/material/delete", json={"ids": [mat_id], "admin_password": "admin"})
     print(f"status_code={resp.status_code}")
     print(f"body={resp.get_json()}")
     with app_module.app.app_context():
@@ -55,7 +55,7 @@ def main():
 
     # try form data
     print("=== POST /material/delete (FORM) ===")
-    resp2 = client.post("/material/delete", data={"ids": repr([mat_id])})
+    resp2 = client.post("/material/delete", data={"ids": repr([mat_id]), "admin_password": "admin"})
     print(f"status_code={resp2.status_code}")
     print(f"body={resp2.get_json()}")
 

@@ -931,6 +931,7 @@ def register_material_routes(app):
             confirm: bool = Field(False, description='已看过预览并确认合并')
             identity_confirmed: bool = Field(False, description='人工判定两份档案属于同一物料')
             preview_token: str = Field('', max_length=4096, description='本次合并预览的确认凭证')
+            admin_password: str = Field('', max_length=1024, repr=False)
 
         source = db.session.get(Material, id)
         if not source:
@@ -939,7 +940,7 @@ def register_material_routes(app):
         try:
             req = MergeMaterialRequest.model_validate(payload)
         except Exception as exc:  # noqa: BLE001
-            return jsonify({'status': 'error', 'msg': f'参数校验失败：{exc}'}), 400
+            return jsonify({'status': 'error', 'msg': '参数校验失败，请核对合并参数'}), 400
         target = Material.query.filter_by(code=(req.target_code or '').strip()).first()
         if not target:
             return jsonify(
@@ -954,6 +955,10 @@ def register_material_routes(app):
             except ValueError as exc:
                 return jsonify({'status': 'error', 'msg': str(exc)}), 400
             return jsonify({'status': 'preview', 'msg': '请先确认合并影响', 'data': data})
+        from services.material_delete_authorization import authorize_material_removal
+        denied = authorize_material_removal(req.admin_password)
+        if denied:
+            return denied
         try:
             from app import _material_merge_check_pair
             from services.material_merge_preview import require_merge_preview, MergePreviewChanged
@@ -1047,7 +1052,7 @@ def register_material_routes(app):
             return jsonify({'status': 'error', 'msg': '修复失败'}), 500
 
     @app.route('/material/delete', methods=['POST'])
-    @require_role('warehouse')
+    @require_role('admin')
     @login_required
     def delete_material():
         import json
@@ -1058,6 +1063,7 @@ def register_material_routes(app):
 
         class DeleteMaterialsInput(BaseModel):
             ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(min_length=1, max_length=1000)
+            admin_password: str = Field('', max_length=1024, repr=False)
 
             @field_validator('ids', mode='before')
             @classmethod
@@ -1069,12 +1075,17 @@ def register_material_routes(app):
 
         try:
             payload = request.get_json(silent=True) if request.is_json else {
-                'ids': json.loads(request.form.get('ids', '[]'))}
-            ids = DeleteMaterialsInput.model_validate(payload).ids
+                'ids': json.loads(request.form.get('ids', '[]')),
+                'admin_password': request.form.get('admin_password', '')}
+            req = DeleteMaterialsInput.model_validate(payload)
         except (ValidationError, json.JSONDecodeError, TypeError, ValueError):
             return api_error('请选择要删除的物料，物料ID须为正整数（每次最多1000条）')
+        from services.material_delete_authorization import authorize_material_removal
+        denied = authorize_material_removal(req.admin_password)
+        if denied:
+            return denied
         try:
-            result, snapshots = delete_unused_materials(ids)
+            result, snapshots = delete_unused_materials(req.ids)
         except Exception:
             db.session.rollback()
             current_app.logger.exception('物料清理检查或提交失败，本次未删除任何物料')

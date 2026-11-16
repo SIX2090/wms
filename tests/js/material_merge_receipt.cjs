@@ -33,10 +33,13 @@ vm.runInNewContext(fs.readFileSync(script,'utf8'),{document,WMS,bootstrap:{Modal
   const checkbox=document.getElementById('mergeHumanConfirmed');checkbox.checked=true;checkbox.events.change();
   const button=document.getElementById('mergeExecuteBtn');
   assert.equal(button.disabled,mode==='no-receipt');
+  document.getElementById('materialMergePassword').value='synthetic-admin-password';
   button.events.click();await new Promise(setImmediate);
+  assert.equal(document.getElementById('materialMergePassword').value,mode==='no-receipt'?'synthetic-admin-password':'');
   if(mode==='no-receipt')assert.equal(calls.length,0);
   else {
     assert.equal(calls.length,1);
+    assert.equal(calls[0].payload.admin_password,'synthetic-admin-password');
     assert.equal(calls[0].payload.preview_token,mode==='late-preview'?'SIGNED-NEW-RECEIPT':'SIGNED-QA-RECEIPT');
     assert.equal(calls[0].payload.target_code,mode==='late-preview'?'QA-T2':'QA-T');
     assert.equal(document.getElementById('mergeHumanConfirmed').checked,false);

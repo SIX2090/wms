@@ -76,8 +76,9 @@ def delete_unused_materials(ids):
         elif not math.isfinite(float(material.stock or 0)) or float(material.stock or 0) != 0:
             item['reason'] = '存在库存总账余额'
         else:
-            snapshot = {'id': material.id, 'code': material.code, 'name': material.name,
-                        'spec': material.spec or '', 'price': material.price or 0}
+            snapshot = {column.name: (getattr(material, column.name).isoformat()
+                        if hasattr(getattr(material, column.name), 'isoformat')
+                        else getattr(material, column.name)) for column in Material.__table__.columns}
             try:
                 with db.session.begin_nested():
                     LocationInventory.query.filter_by(material_id=material_id).delete(synchronize_session=False)

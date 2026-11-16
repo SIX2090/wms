@@ -9,7 +9,7 @@
  *       .then(items => console.log(items))
  *       .catch(err => showToast(err.message, 'danger'));
  *
- *   WMS.api.post('/material/delete', { ids: [1, 2, 3] })
+ *   WMS.api.post('/material/delete', { ids: [1, 2, 3], admin_password: password })
  *       .then(res => showToast('删除成功', 'success'))
  *       .catch(err => showToast(err.message, 'danger'));
  *

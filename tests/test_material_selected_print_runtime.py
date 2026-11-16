@@ -45,7 +45,7 @@ const document={getElementById:id=>nodes[id],querySelectorAll:s=>{
  if(s==='.check-item:checked')return [...boxes,outsider].filter(b=>b.checked);
  throw Error('Unexpected selector '+s);
 }};
-const ctx=vm.createContext({materialPageData:{urls:{printBatch:'/label/batch_print'}},document,window:{open:(...args)=>opened.push(args)},
+const ctx=vm.createContext({materialPageData:{canDelete:true,urls:{printBatch:'/label/batch_print'}},document,window:{open:(...args)=>opened.push(args)},
  WMS:{api:{post:async(url,body)=>{posts.push({url,body});return {msg:'queued'}}}},
  showToast:(...args)=>toasts.push(args),__notify:(...args)=>toasts.push(args)});
 vm.runInContext(p.check_all+'\n'+p.toolbar+'\n'+p.printing,ctx);

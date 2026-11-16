@@ -31,7 +31,7 @@ def evidence(name, value):
 
 
 @pytest.fixture
-def lab(http_case, tmp_path):
+def lab(http_case, tmp_path, monkeypatch):
     clients, ids, _ = http_case
     dbpath = tmp_path / 'case.sqlite'
     with m.app.app_context():
@@ -42,6 +42,12 @@ def lab(http_case, tmp_path):
         engine = create_engine('sqlite:///' + str(dbpath), poolclass=NullPool,
             connect_args={'check_same_thread': False, 'timeout': 0.25})
         m.db.engines[None] = engine
+        admin = m.User.query.filter_by(role='admin').one()
+        admin.username = 'admin'
+        # This suite forbids generating usable credentials; keep its invalid hash.
+        from services import material_delete_authorization
+        monkeypatch.setattr(material_delete_authorization, 'check_password_hash',
+            lambda digest, password: digest == '!invalid-unusable-test-hash' and password == 'merge-fixture')
         for key in ('a', 'b'):
             wh = m.db.session.get(m.Warehouse, ids[key])
             wh.code = wh.name = 'QA32-' + key.upper()
@@ -108,7 +114,8 @@ def preview(c):
 
 def execute(c, ids, token):
     return c.post(f"/material/{ids['source']}/merge", json={'target_code': 'QA32-KEEP',
-        'identity_confirmed': True, 'confirm': True, 'keep_alias': True, 'preview_token': token})
+        'identity_confirmed': True, 'confirm': True, 'keep_alias': True, 'preview_token': token,
+        'admin_password': 'merge-fixture'})
 
 
 def state(engine):

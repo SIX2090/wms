@@ -293,8 +293,8 @@ def material_cycle():
         except Exception:
             eok = False; enote = r.text[:50]
         record('[物料] 编辑 POST(保存)', r.status_code, eok, enote)
-        # 删除：POST /material/delete 需 ids 列表 + X-CSRFToken 头
-        r = post('/material/delete', json={'ids': [int(mid)]},
+        # 仅合成环境：此脚本的默认admin测试账号每次删除仍须传密码；入口守卫保持。
+        r = post('/material/delete', json={'ids': [int(mid)], 'admin_password': 'admin'},
                  headers={'Content-Type': 'application/json', 'X-CSRFToken': tok})
         record('[物料] 删除 POST', r.status_code, r.status_code == 200, r.text[:60])
         # 删除后确认从 API 消失

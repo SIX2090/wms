@@ -226,6 +226,11 @@ def register_system_settings_routes(app):
             return jsonify({'status': 'error', 'msg': '参数校验失败，请填写管理员密码和确认短语'}), 400
         if req.confirm_phrase != INIT_CONFIRM_PHRASE:
             return jsonify({'status': 'error', 'msg': '确认短语不正确'}), 400
+        if req.include_master_data == '1':
+            from services.material_delete_authorization import authorize_material_removal
+            denied = authorize_material_removal(req.admin_password)
+            if denied:
+                return denied
         if not check_password_hash(current_user.password_hash, req.admin_password):
             return jsonify({'status': 'error', 'msg': '管理员密码不正确'}), 403
         if not req.preview_token:

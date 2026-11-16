@@ -203,7 +203,7 @@ function updateToolbarButtons() {
     const remotePrintButton = document.getElementById('toolbarRemotePrintBtn');
     remotePrintButton.disabled = !hasSelection || remotePrintButton.dataset?.runtimePaused === '1';
     document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
-    document.getElementById('toolbarDeleteBtn').disabled = !hasSelection || materialDeleteBusy;
+    document.getElementById('toolbarDeleteBtn').disabled = !materialPageData.canDelete || !hasSelection || materialDeleteBusy;
     document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
 }
 
@@ -295,6 +295,10 @@ function showMaterialDeleteResult(result) {
 
 async function toolbarDelete() {
     if (materialDeleteBusy) return;
+    if (!materialPageData.canDelete) {
+        showToast('仅 admin 账号可以删除物料档案', 'warning');
+        return;
+    }
     var ids = getSelectedMaterialIds();
     if (!ids.length) {
         showToast('请先勾选要清理的物料', 'warning');
@@ -305,17 +309,54 @@ async function toolbarDelete() {
     try {
         var confirmed = await showConfirm('确定清理已勾选的 ' + ids.length + ' 条物料吗？\n仅删除未使用、无库存且无引用的档案；已使用、有库存或图片的会自动保留。\n只处理本次勾选项，删除后不能在页面恢复。', {title: '删除未使用物料确认'});
         if (!confirmed) return;
+        var password = await requestMaterialDeletePassword();
+        if (password === null) return;
         // Selection was captured before confirmation; never expand it to other pages or filters.
-        var result = await WMS.api.post(materialPageData.urls.delete, {ids: ids});
+        var result = await WMS.api.post(materialPageData.urls.delete, {ids: ids, admin_password: password});
         showMaterialDeleteResult(result);
     } catch (err) {
         var result = err && err.data && err.data.data;
         if (result && Array.isArray(result.items)) showMaterialDeleteResult(result);
         else showToast((err && err.message) || '物料清理失败，请稍后重试', 'danger');
     } finally {
+        password = null;
         materialDeleteBusy = false;
         updateToolbarButtons();
     }
+}
+
+function requestMaterialDeletePassword() {
+    var element = document.getElementById('materialDeletePasswordModal');
+    var input = document.getElementById('materialDeletePassword');
+    var button = document.getElementById('materialDeletePasswordConfirm');
+    var modal = bootstrap.Modal.getOrCreateInstance(element);
+    input.value = '';
+    return new Promise(function(resolve) {
+        var password = null;
+        function submit() {
+            if (!input.reportValidity()) return;
+            password = input.value;
+            input.value = '';
+            modal.hide();
+        }
+        function enter(event) {
+            if (event.key === 'Enter' && !event.isComposing) {
+                event.preventDefault();
+                submit();
+            }
+        }
+        button.addEventListener('click', submit);
+        input.addEventListener('keydown', enter);
+        element.addEventListener('shown.bs.modal', function() { input.focus(); }, {once: true});
+        element.addEventListener('hidden.bs.modal', function() {
+            input.value = '';
+            button.removeEventListener('click', submit);
+            input.removeEventListener('keydown', enter);
+            resolve(password);
+            password = null;
+        }, {once: true});
+        modal.show();
+    });
 }
 
 // 2026-09-25：物料停用 / 启用。停用只挡「新建单据时能否选到」，历史单据、

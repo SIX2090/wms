@@ -7,6 +7,10 @@ from tests.test_round26_input_http import http_case
 def consent_case(http_case, monkeypatch):
     clients, ids, state = http_case
     with m.app.app_context():
+        from werkzeug.security import generate_password_hash
+        admin = m.User.query.filter_by(role='admin').one()
+        admin.username = 'admin'
+        admin.password_hash = generate_password_hash('merge-fixture')
         target = m.db.session.get(m.Material, ids['material'])
         source = m.Material(code='QA30-SOURCE', name=target.name, unit_id=target.unit_id, stock=0)
         other = m.Material(code='QA30-OTHER', name=target.name, unit_id=target.unit_id, stock=0)
@@ -28,7 +32,7 @@ def preview(c, ids, target='QA27-M', keep_alias=True):
 def execute(c, ids, token='', target='QA27-M', keep_alias=True):
     return c.post(f"/material/{ids['source']}/merge", json={
         'target_code':target, 'confirm':True, 'identity_confirmed':True,
-        'keep_alias':keep_alias, 'preview_token':token})
+        'keep_alias':keep_alias, 'preview_token':token, 'admin_password':'merge-fixture'})
 
 def test_execution_without_prior_preview_never_reaches_merge(consent_case):
     clients, ids, state, calls = consent_case
@@ -89,7 +93,8 @@ def test_issue_merge_preview(consent_case, monkeypatch):
     plan = preview(clients(), ids)
     token = plan['preview_token']
     before = state()
-    assert execute(clients('warehouse'), ids, token).status_code == 409
+    # Warehouse accounts are now rejected before the user-bound preview receipt.
+    assert execute(clients('warehouse'), ids, token).status_code == 403
     original_clock = TimestampSigner.get_timestamp
     monkeypatch.setattr(TimestampSigner, 'get_timestamp', lambda self: original_clock(self)+301)
     assert execute(clients(), ids, token).status_code == 409
