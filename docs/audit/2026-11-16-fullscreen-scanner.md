@@ -57,3 +57,17 @@ H5 原有 34 个 Node 控制在旧、新版均通过；新锁旧 3 项普通帧�
 验收来源[WMS CI43842080487](https://github.com/SIX2090/wms/actions/runs/43842080487)、[WMS AI Verification43842080417](https://github.com/SIX2090/wms/actions/runs/43842080417)、[Android APK Build43838228216](https://github.com/SIX2090/wms/actions/runs/43838228216)、[Windows Portable Release43843017385](https://github.com/SIX2090/wms/actions/runs/43843017385)均completed/success：WMS/AI/Windows为本精确目标，Android为成功祖先APK901（266d6679），六类构建输入不变、非浅完整祖先及279个本地对象逐项证明。当前目标因路径过滤没有独立Android运行，未用旧WMS结果替代本目标：首次源码祖先的WMS红灯保留，只复用其成功APK，本目标WMS/AI重新全量成功。WMS全部单测分片、四verify、规则、安全门禁、Linux隔离全应用冒烟、真实浏览器及聚合gate通过；AI全量分支和gate通过；Android901实际Release构建、绑定元数据、发布APK、单测及lint通过。Windows在真实CI联网验收新checker后完成打包/运行时验收/绑定发布，不是跳过打包的旧绿。Android57/3.9.33、Windows2026.11.82。
 
 软件与构建发布交付完成；本次未部署服务器或安装APK，未操作生产数据库/备份、HTTP、账号、真实单据或设备。H5生产需重启WMS服务生效；原生需人工更新已验收包，手机/微信相机、触控、安全区、系统回收与弱光对焦待设备确认。本次完成记录自身文档目标另验，不用代码CI冒充文档提交CI。
+
+## 生产部署补证（2026-11-16 19:44，北京时间）
+
+用户本次明确授权部署，并已明确允许原受保护启动流程访问现库结构；继续禁止迁移、初始化、回填、恢复、备份及测试单据。本次服务器已从813fb4ef完整程序切换至4d3bbedd21b7368060bc7a29807d5bd602e5cb4e，Windows2026.11.82。原WMS-Warehouse任务注册和监护策略未改、预算未重置；实际唯一8080监听PID14196，后台/UI来源均为目标4d3bbedd，任务Running、监护running/restarts1，安全配置指纹与旧版相同。生效证据是被动进程/父链及受保护运行身份，未向生产发送HTTP测试，正常业务仍待用户确认。
+
+新完整制品C:/wms_releases/20261116_fullscreen_scan_4d3bbedd，ID05bfefa581d595a8310e077ea65c2fb48ae266572d5847b3cb87ce4f588cdccc，7474个程序文件。沿用现役受保护解释器/依赖和4项已核覆盖层，应用/tools精确取自Git目标；物料候选图片警示保留现役更明确文案，3项静态文件与目标逐字节相同，不混入共享目录未提交视觉改动。不是直接解压官方Windows ZIP；新旧完整程序在切换后均按清单验证，旧7473、新7474全部匹配。仅创建与旧版相同的6个持久路径映射，没有复制或直接检查其内容。app.py/config/models/requirements与旧813相同，无迁移需求。
+
+最终实际封包在fresh Windows LPAC/WFP/Job隔离下7模块82通过、0失败/错误/跳过；34项实际运行时依赖相符，真实Flask覆盖层、H5导航/QA30/QA46/UI、vendored SDK普通空帧与QR、物料密码保护和HTTP静态字节hash均通过。自有夹具state目录前缀不符的首轮在导入app前被guard拒绝，改为既定前缀后重跑同7模块；该失败未算产品缺陷或旧版反证。最终nonce绑定、Job归零、双栈filters移除、profile删除及输入hash不变均核实。程序级整包回退演练candidate→old→candidate通过；未做生产程序回退或数据恢复。
+
+原受保护启动预检exit0/read_only_startup/schema_check通过，97次启动业务行读取被拒绝，未启动监听；12条缺外键既有警告与旧版逐条一致，未修库。随后沿原任务入口仅启动一次，新监听与封存制品相符。本次没有迁移/初始化/回填/恢复/备份、测试单据、密码变更、消息或打印；正常启动读取结构在用户明确许可范围内，不能表述为从未打开现库。
+
+原生正式签名APK901已随程序包提供，com.factory.wms.mobile，57/3.9.33，SHA256=7803d3a266776a7967dc3a437b36b8255ec4895d1a7b30e092ff15423949b795，与现役900签名相同。未安装手机，真实相机/微信/触控仍待设备验收。候选APK已发布，但2026-11-16本次核查稳定更新通道仍为56/3.9.32，App内检查更新不能据此声称已提供57；[3.9.33直接下载](https://github.com/SIX2090/wms/releases/download/android-apk-901-attempt-1/wms-mobile-scan.apk)可用。
+
+外置证据：scanner-deployment-20261116内candidate-build-proof、protected-preflight-result、schema-warning-comparison、code-rollback-rehearsal-latest、cutover-live-process、live-identity-verdict、final-live-observation及post-cutover-program-proof；实际封包82项详见packaged-release-4d3bbedd-20261116/FINAL_PACKAGED_ACCEPTANCE.json。本次只补部署文档，精确文档提交CI另验，不用代码CI替代。

@@ -47,6 +47,8 @@
 
 - 完成补证：[WMS CI43842080487](https://github.com/SIX2090/wms/actions/runs/43842080487)、[WMS AI Verification43842080417](https://github.com/SIX2090/wms/actions/runs/43842080417)、[Android APK Build43838228216](https://github.com/SIX2090/wms/actions/runs/43838228216)、[Windows Portable Release43843017385](https://github.com/SIX2090/wms/actions/runs/43843017385)均success（Android合法祖先901复用）；完整17路径47回归及R8、原生748、隔离H5 58等证据见专项，首次红灯和纠正均保留，本次文档自身目标另验。
 
+- 部署补证（2026-11-16 19:44北京时间）：用户另行授权沿受保护原任务切换，后台/UI4d3bbedd已在PID14196运行；新7474/旧7473程序文件完整，封包LPAC82项通过、整包回退恢复通过。仅正常启动读结构，无迁移/初始化/回填/恢复/备份/测试单据或生产HTTP。Android57/3.9.33包已发布但未安装，稳定通道仍56；历史“未部署”记录保留为当时事实。详见[部署补证](../../audit/2026-11-16-fullscreen-scanner.md)。
+
 ## CI-ANDROID-REUSE-FIX-20261116-001
 
 - 日期：2026-11-16。状态：软件已交付；代码4d3bbedd21b7368060bc7a29807d5bd602e5cb4e实际push，三必需工作流及Windows出包精确success；未部署/安装。
