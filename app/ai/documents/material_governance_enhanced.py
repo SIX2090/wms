@@ -655,17 +655,12 @@ def validate_one_material_multiple_codes_traceable(
     material_id: int,
     query_aliases: QueryAliasRecordsFn,
 ) -> tuple[bool, str, list[MaterialAliasRecord]]:
-    """校验一物多码可追溯。
+    """在缺少按物料取全别名的查询时，明确保留未验证状态。
+
+    query_aliases 按别名键查询，不能拿 material_id 冒充别名键查询全部映射。
+    False 表示尚未验证，不是已经判定该物料不可追溯。
 
     Returns:
         (是否可追溯, 原因, 别名列表)
     """
-    try:
-        # 查询该物料的所有别名
-        all_aliases = []
-        # 简化实现：假设 query_aliases 支持按 material_id 查询
-        # 生产环境需要扩展回调签名支持 material_id 查询
-        # 这里用占位逻辑
-        return True, '一物多码可追溯', all_aliases
-    except Exception as e:
-        return False, f'查询失败: {e}', []
+    return False, '未验证：尚未接入按物料查询全部别名', []

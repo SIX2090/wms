@@ -4,7 +4,7 @@
 1. 别名生命周期完整（申请/审核/启用/停用/冲突检查）
 2. 物料专属换算可追溯（创建/审批/生效/失效）
 3. 高风险规则不能被普通用户降低确认要求
-4. 一物多码可追溯
+4. 缺少按物料查询全部别名的接口时，不得把追溯判为通过
 """
 import os
 import sys
@@ -36,6 +36,7 @@ from ai.documents.material_governance_enhanced import (
     validate_alias_lifecycle,
     validate_conversion_approval,
     validate_high_risk_rule_cannot_downgrade,
+    validate_one_material_multiple_codes_traceable,
     # 数据结构
     MaterialAliasRecord,
     MaterialCustomConversion,
@@ -499,6 +500,24 @@ def test_high_risk_rule_regex_validation():
     print('  ✓ 高风险规则正则校验正确')
 
 
+def test_traceability_requires_material_query():
+    """测试9：未接入按物料取全别名的查询，不能误报追溯成功。"""
+    calls = []
+
+    def query_aliases(alias_key):
+        calls.append(alias_key)
+        raise AssertionError('按别名键查询不能替代按物料查询全部别名')
+
+    verified, reason, aliases = validate_one_material_multiple_codes_traceable(
+        material_id=100, query_aliases=query_aliases,
+    )
+    assert verified is False, '未取得全部映射时不能判定可追溯'
+    assert '未验证' in reason, '必须明确说明校验尚未完成'
+    assert aliases == [], '不能虚构别名记录'
+    assert calls == [], '不能改变现有按别名键查询的协议'
+    print('  ✓ 一物多码追溯仍未验证：尚未接入按物料查询全部别名')
+
+
 def main():
     """运行所有测试。"""
     print('=' * 60)
@@ -514,6 +533,7 @@ def main():
         test_alias_usage_tracking,
         test_conversion_factor_validation,
         test_high_risk_rule_regex_validation,
+        test_traceability_requires_material_query,
     ]
 
     failed = []
@@ -536,6 +556,7 @@ def main():
     else:
         print(f'通过: {len(tests)}/{len(tests)}')
         print('✓ AI-R07-F01 物料治理增强验证通过')
+        print('上述通过包含未验证保护，不表示一物多码追溯能力已接入。')
         sys.exit(0)
 
 
