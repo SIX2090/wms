@@ -85,3 +85,13 @@ R6核查全部BrowserMultiFormatReader/decodeFromVideoDevice/TRY_HARDER/start/st
 H5提速本地验收：新8项真实SDK/像素锁通过，旧模板同测试7项业务断言失败/1项兼容控制通过，0错误/跳过；全部6路径整批在私有纯源码副本回退（新回归锁保留），2837父树文件逐字节匹配，51项旧7失败/44对照通过，恢复2838候选文件后51通过且清单hash一致，共享Git未回退。真实Chrome原采流/像素解码/全屏/权限/迟到取消8项通过，0外部请求/pageErrors。fresh LPAC同套6模块基线80/候选80均通过，实际两URI/engine内存、PRAGMA空路径、primary/descendant隔离、Job0/双栈filter移除/profile删除均核实；新8锁独立运行，未混入共享视觉改动。严格AI台账及编码通过。
 
 真实Chrome内部Canvas补充基准：中心CODE128快扫3.1ms/旧强化7.6，CODE39 2.8/7.15，EAN13 2.6/6.7，EAN8 2.65/7.1；空帧27/633ms，QR13.85/4.9ms。顶部细CODE128快速0/8、强化8/8，新周期首次第4帧成功，覆盖保持；浏览器90度合成控制在旧强化及新周期均0/8，属于既有同形控制，不能宣称浏览器或手机旋转识别通过。Node可旋转像素源仅证明实际decoder强化旋转分支可达。真实手机速度、弱光及对焦仍待用户使用确认。外置证据h5-scan-speed-20261116与h5-speed-app-951cfd6b。新目标CI通过后才算本轮提速软件交付；本段不是新生产生效凭据。
+
+## H5提速精确CI与生产生效补证（2026-11-16 20:17，北京时间）
+
+代码d3e8d84ae4bf463382a13db70347bd211788a603已实际正常push（74925fe51..d3e8d84ae main -> main），远端可达。[WMS CI43862910256](https://github.com/SIX2090/wms/actions/runs/43862910256)与[WMS AI Verification43862910280](https://github.com/SIX2090/wms/actions/runs/43862910280)精确目标completed/success；全站三单测分片、四verify、规则、Linux隔离完整冒烟、浏览器及gate成功。目标无Android独立运行，合法复用成功祖先749的[Android902/43861369381](https://github.com/SIX2090/wms/actions/runs/43861369381)，非浅完整祖先、6输入不变及5743个完整Git对象逐项核实，不复用失败或运行中目标。Windows83自动发行[43864683575](https://github.com/SIX2090/wms/actions/runs/43864683575)单独记录，不以启动代替发行验收。
+
+用户本次扫码部署授权下，生产已沿原WMS-Warehouse任务加载d3e8d84a后台/UI，唯一8080监听PID16896，20:17:30被动确认，任务Running、监护running/restarts1。完整制品C:/wms_releases/20261116_h5_speed_d3e8d84a，IDff4b7b801112b7d0625dce2d0ba42ec5fd7aaae67fdf854be3bbf791ec45b9a7。旧4d3和新d3e各7474个程序文件在切换后逐个重核，配置指纹不变；仅7个声明文件变化，应用行为输入仅H5模板及version，4项既有覆盖内容逐字节不变。实际封包H5/version与fresh LPAC80及Chrome输入hash一致，正式APK改用已稳定发布902。未混入共享视觉改动。
+
+程序级完整回退演练7474→7474→7474通过。受保护预检exit0、schema/read_only_startup通过，97次启动业务行读取被拒、12条既有FK警告集合不变（顺序不作为结构差异），无迁移需求。首次切换在停止原任务后的祖先进程身份比较被拒，错误文案不足以证明真实PID复用；未强杀任何未知进程。随后只读复核4个旧PID均不存在、任务Ready、无8080监听、监护waiting/restarts1及动作hash未变，再从动作切换处继续原任务一次新启动，未重置监护预算。停止前回执20:14:45至新版被动确认20:17:30约165秒，包含真实短暂停服，不能写成零中断。
+
+本次仅用户已允许的正常受保护启动读取结构；未迁移、初始化、回填、恢复、备份、操作密码/真实单据、发生产HTTP测试或实际打印。H5全屏与提速均已由新程序加载，实际手机速度/微信相机待用户正常使用确认；3.9.33稳定通道已实取验证可发现，未替用户安装。证据h5-speed-deployment-20261116内exact-ci-acceptance、sealed-isolated-equivalence、protected-preflight-result、code-rollback-rehearsal-latest、cutover-verified-stop-continuation、live-identity-verdict及post-cutover-program-proof。此前“候选未部署”是各阶段当时状态，当前以本节及最终运行身份为准；此文档收口提交自身CI另验。
