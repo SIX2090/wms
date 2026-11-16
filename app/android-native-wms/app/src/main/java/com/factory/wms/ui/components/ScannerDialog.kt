@@ -310,35 +310,8 @@ fun ScannerDialog(
                     modifier = Modifier.fillMaxSize()
                 )
 
-                // Visual aiming frame; CameraX analysis still uses the entire preview.
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val width = size.width * 0.82f
-                    val height = minOf(size.height * 0.32f, 240.dp.toPx())
-                    val left = (size.width - width) / 2f
-                    val right = left + width
-                    val top = (size.height - height) / 2f
-                    val bottom = top + height
-                    val corner = minOf(32.dp.toPx(), width / 4f, height / 4f)
-                    val edges = listOf(
-                        Offset(left, top + corner) to Offset(left, top),
-                        Offset(left, top) to Offset(left + corner, top),
-                        Offset(right - corner, top) to Offset(right, top),
-                        Offset(right, top) to Offset(right, top + corner),
-                        Offset(left, bottom - corner) to Offset(left, bottom),
-                        Offset(left, bottom) to Offset(left + corner, bottom),
-                        Offset(right - corner, bottom) to Offset(right, bottom),
-                        Offset(right, bottom) to Offset(right, bottom - corner),
-                    )
-                    edges.forEach { (start, end) ->
-                        drawLine(Color.Black.copy(alpha = .75f), start, end, 6.dp.toPx())
-                        drawLine(Color.White, start, end, 3.dp.toPx())
-                    }
-                    val lineY = top + height * scanLineOffset
-                    drawLine(Color.Black.copy(alpha = .7f), Offset(left + 8.dp.toPx(), lineY),
-                        Offset(right - 8.dp.toPx(), lineY), 4.dp.toPx())
-                    drawLine(Color(0xFF3559D8), Offset(left + 8.dp.toPx(), lineY),
-                        Offset(right - 8.dp.toPx(), lineY), 2.dp.toPx())
-                }
+                ScannerFrameOverlay(scanLineOffset)
+
             } else if (cameraError != null) {
                 ScannerUnavailableContent(
                     onManualInput = onManualInput,
@@ -508,5 +481,51 @@ internal fun ScannerUnavailableContent(onManualInput: () -> Unit, onRetry: () ->
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)) { Text("手动输入") }
             Button(onClick = onRetry, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("重试") }
         }
+    }
+}
+
+/**
+ * Visual overlay only; CameraX continues to analyze the entire image.
+ * Regression: NativeScannerFullscreenFrameTest.allFourCornersRemainAtTheScreenEdges,
+ * scanningLineTraversesTheFullPreviewHeightAndWidth and originalBlueCornersLeaveOtherCameraPixelsUnmasked.
+ */
+@Composable
+internal fun ScannerFrameOverlay(scanLineOffset: Float) {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val scanBoxWidth = size.width
+        val scanBoxHeight = size.height
+        val scanBoxLeft = 0f
+        val scanBoxTop = 0f
+
+        val cornerLength = 48f
+        val strokeWidth = 5f
+        val cornerColor = Color(0xFF4361EE)
+        val inset = 24f
+
+        // Corner markers stay near the screen edges to delimit the fullscreen frame
+        val left = scanBoxLeft + inset
+        val top = scanBoxTop + inset
+        val right = scanBoxLeft + scanBoxWidth - inset
+        val bottom = scanBoxTop + scanBoxHeight - inset
+
+        drawLine(cornerColor, Offset(left, top + cornerLength), Offset(left, top), strokeWidth)
+        drawLine(cornerColor, Offset(left, top), Offset(left + cornerLength, top), strokeWidth)
+
+        drawLine(cornerColor, Offset(right - cornerLength, top), Offset(right, top), strokeWidth)
+        drawLine(cornerColor, Offset(right, top), Offset(right, top + cornerLength), strokeWidth)
+
+        drawLine(cornerColor, Offset(left, bottom - cornerLength), Offset(left, bottom), strokeWidth)
+        drawLine(cornerColor, Offset(left, bottom), Offset(left + cornerLength, bottom), strokeWidth)
+
+        drawLine(cornerColor, Offset(right - cornerLength, bottom), Offset(right, bottom), strokeWidth)
+        drawLine(cornerColor, Offset(right, bottom), Offset(right, bottom - cornerLength), strokeWidth)
+
+        val lineY = top + (bottom - top - 4f) * scanLineOffset
+        drawLine(
+            color = Color(0xFF4361EE).copy(alpha = 0.8f),
+            start = Offset(left + 8f, lineY),
+            end = Offset(right - 8f, lineY),
+            strokeWidth = 2f
+        )
     }
 }

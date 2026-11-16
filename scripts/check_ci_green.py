@@ -16,7 +16,7 @@ WMS 「CI 全绿门禁」检查器（AGENTS.md §三 硬性规则，2026-09-18 �
 
 失败/运行中/未核实仅阻止该目标交付或发布，不阻塞其他任务开发和推送。
 各工作流按目标 SHA 查询最新运行；后续提交不能改变本任务的验收目标。
-Android 没有目标运行时，查询最近修改 Android 输入的祖先提交并核实复用证明。
+Android 没有目标运行时，在最后修改输入至目标的祖先链中查找最近有运行的提交并核实复用证明。
 
 用法
 ----
@@ -198,7 +198,11 @@ def latest_run(workflow_file: str, token: str | None, target_sha: str) -> dict |
     )
     data = gh_get(path, token)
     runs = data.get("workflow_runs") or []
-    return runs[0] if runs else None
+    run = runs[0] if runs else None
+    if run is not None and (full_sha(run.get("head_sha")) != full_sha(target_sha)
+                            or run.get("head_branch") != BRANCH):
+        raise ValueError("未核实：工作流响应与所查询的main完整SHA不一致")
+    return run
 
 
 def full_sha(value: str) -> str:
@@ -244,6 +248,9 @@ def android_reuse_check(source_sha: str, target_sha: str) -> tuple[bool, str]:
             return subprocess.run(["git", "--no-replace-objects", *args], cwd=ROOT,
                                   capture_output=True, text=True, timeout=15,
                                   env={**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0"})
+        shallow = git("rev-parse", "--is-shallow-repository")
+        if shallow.returncode != 0 or shallow.stdout.strip() != "false":
+            return False, "未核实：Android复用证明要求完整非浅历史"
         for sha in (source_sha, target_sha):
             if git("cat-file", "-e", sha + "^{commit}").returncode != 0:
                 return False, "未核实：Android复用证明缺少本地提交对象，请先取得完整历史"
@@ -254,9 +261,62 @@ def android_reuse_check(source_sha: str, target_sha: str) -> tuple[bool, str]:
             return False, "未核实：目标的Android源码或构建工作流已变化，需该目标的新构建"
         if changed.returncode != 0:
             return False, "未核实：无法比较Android源码及构建工作流"
+        # Equal trees can make diff --quiet succeed without reading their blobs.
+        # Prove all six input trees/blobs actually exist, without lazy fetching.
+        objects = {source_sha, target_sha}
+        for sha in (source_sha, target_sha):
+            listing = git("ls-tree", "-r", "-t", sha, "--", *ANDROID_PATHS)
+            if listing.returncode != 0:
+                return False, "未核实：Android复用证明缺少输入树对象"
+            objects.update(full_sha(line.split()[2]) for line in listing.stdout.splitlines())
+        # Keep Git's LF-delimited protocol binary on Windows too.
+        checked = subprocess.run(
+            ["git", "--no-replace-objects", "cat-file", "--batch-check"], cwd=ROOT,
+            input=("\n".join(sorted(objects)) + "\n").encode("ascii"),
+            capture_output=True, timeout=15,
+            env={**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0"},
+        )
+        rows = checked.stdout.decode("ascii").splitlines()
+        if checked.returncode != 0 or len(rows) != len(objects) or any(len(row.split()) != 3 for row in rows):
+            return False, "未核实：Android复用证明缺少输入对象"
         return True, "success；旧Android运行是目标祖先，Android源码及构建工作流未变"
     except Exception as exc:
         return False, f"未核实：Android复用证明不可用（{type(exc).__name__}）"
+
+
+def latest_android_ancestor_run(token: str | None, target_sha: str) -> dict | None:
+    """test: tests/test_check_ci_green_android_reuse_20261116.py::test_main_uses_later_built_ancestor
+
+    Query exact main SHAs newest-first inside the target's own unchanged-input
+    history. A found failure/pending run is returned, never skipped for old green.
+    """
+    source_sha = android_source_sha(target_sha)
+    if source_sha == target_sha:
+        return None
+    ok, detail = android_reuse_check(source_sha, target_sha)
+    if not ok:
+        raise ValueError(detail)
+    history = subprocess.run(
+        ["git", "--no-replace-objects", "rev-list", "--ancestry-path", "--topo-order",
+         "--max-count=201", full_sha(target_sha), "^" + source_sha],
+        cwd=ROOT, capture_output=True, text=True, timeout=15,
+        env={**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_OPTIONAL_LOCKS": "0"},
+    )
+    if history.returncode != 0:
+        raise ValueError("未核实：无法枚举目标自身的Android祖先历史")
+    candidates = [full_sha(sha) for sha in history.stdout.splitlines() if sha != target_sha] + [source_sha]
+    if len(candidates) > 200:
+        raise ValueError("未核实：Android祖先查询超出200个提交的受控范围")
+    for candidate in candidates:
+        ok, detail = android_reuse_check(candidate, target_sha)
+        if not ok:
+            raise ValueError(detail)
+        run = latest_run(".github/workflows/android-build.yml", token, candidate)
+        if run is not None:
+            if full_sha(run.get("head_sha")) != candidate or run.get("head_branch") != BRANCH:
+                raise ValueError("未核实：Android候选响应与查询上下文不一致")
+            return run
+    return None
 
 
 def verify_target(run: dict | None, workflow: str, target_sha: str | None) -> tuple[str, str]:
@@ -330,9 +390,7 @@ def main() -> int:
         try:
             run = latest_run(wf, token, target_sha) if target_sha else None
             if run is None and target_sha and wf == ".github/workflows/android-build.yml":
-                source_sha = android_source_sha(target_sha)
-                if source_sha != target_sha:
-                    run = latest_run(wf, token, source_sha)
+                run = latest_android_ancestor_run(token, target_sha)
             state, detail = verify_target(run, wf, target_sha)
         except urllib.error.HTTPError as exc:
             # API错误表示本次未核实；不能把403限流/404配置错误当CI实际失败

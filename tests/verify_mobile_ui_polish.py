@@ -10,7 +10,7 @@
 验收：
 T1. custom.css 含精修特征：渐变 Tab / focus 光环 / 卡片阴影 / 按压 scale /
     fadeUp 动画 / 库存数字渐变文字。
-T2. mobile_scan.html 内联样式含精修特征：扫码框圆角+发光扫描线 / 待确认卡片
+T2. mobile_scan.html 内联样式含精修特征：贴边扫码提示框+发光扫描线 / 待确认卡片
     :has 类型色条 / 批量面板渐变按钮。
 T3. JS 钩子完整性：mobile_scan.html 仍含全部关键 class 与 id 锚点
     （scanStatus/materialCard/batchPanel/confirmList/loadMore 等）。
@@ -58,7 +58,8 @@ class TestMobileUiPolish:
         """T2：mobile_scan.html 内联样式含精修特征。"""
         html = _read(SCAN_TPL)
         features = {
-            "扫码框圆角": r"\.mobile-barcode-frame\s*\{[^}]*border-radius:\s*14px",
+            "扫码提示框贴边": r"\.mobile-barcode-frame\s*\{[^}]*inset:\s*8px",
+            "扫码提示框无中央边框": r"\.mobile-barcode-frame\s*\{[^}]*border:\s*0;[^}]*border-radius:\s*0",
             "扫描线发光": r"\.mobile-barcode-scan-line\s*\{[^}]*box-shadow:\s*0 0 14px 3px rgba\(96, 165, 250",
             "待确认卡片入库色条": r"\.mobile-confirm-card:has\(\.mobile-confirm-tag-in\)::before\s*\{[^}]*linear-gradient\(180deg, #22c55e",
             "待确认卡片出库色条": r"\.mobile-confirm-card:has\(\.mobile-confirm-tag-out\)::before\s*\{[^}]*linear-gradient\(180deg, #f97316",

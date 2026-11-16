@@ -310,6 +310,8 @@
 | P1 | ai | records-2026-10.md |
 | MOBILE-UPDATE-20261114-001 | ai | records-2026-11.md |
 | AI-APP-AUDIT-FIX-20261115-001 | ai | records-2026-11.md |
+| MOB-SCANNER-FULLSCREEN-20261116-001 | ai | records-2026-11.md |
+| CI-ANDROID-REUSE-FIX-20261116-001 | ai | records-2026-11.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |
@@ -885,6 +887,9 @@
 | BUG-2026-11-16-011 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-012 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-013 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-014 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-015 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-016 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |
