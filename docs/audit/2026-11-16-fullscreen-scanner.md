@@ -71,3 +71,17 @@ H5 原有 34 个 Node 控制在旧、新版均通过；新锁旧 3 项普通帧�
 原生正式签名APK901已随程序包提供，com.factory.wms.mobile，57/3.9.33，SHA256=7803d3a266776a7967dc3a437b36b8255ec4895d1a7b30e092ff15423949b795，与现役900签名相同。未安装手机，真实相机/微信/触控仍待设备验收。候选APK已发布，但2026-11-16本次核查稳定更新通道仍为56/3.9.32，App内检查更新不能据此声称已提供57；[3.9.33直接下载](https://github.com/SIX2090/wms/releases/download/android-apk-901-attempt-1/wms-mobile-scan.apk)可用。
 
 外置证据：scanner-deployment-20261116内candidate-build-proof、protected-preflight-result、schema-warning-comparison、code-rollback-rehearsal-latest、cutover-live-process、live-identity-verdict、final-live-observation及post-cutover-program-proof；实际封包82项详见packaged-release-4d3bbedd-20261116/FINAL_PACKAGED_ACCEPTANCE.json。本次只补部署文档，精确文档提交CI另验，不用代码CI替代。
+
+## 稳定更新及H5识别速度续修（2026-11-16）
+
+用户反馈App仍不能更新至3.9.33，复核发现901候选已有APK，但源266d首次WMS版本锁失败；纠正4d3虽满足Android祖先复用的软件交付规则，却未满足现有稳定发布器要求的同SHA三个工作流真实运行。没有放宽发布器：通过GitHub现有Run workflow手动启动main精确74925fe5186b75cd2758caaed934b0b038ecc0f6的Android902。Android43861369381、WMS43861032640、AI43861032743均success，Promotion43862037161成功，stable-v57-74925fe5及公共channel/update.json已指向57/3.9.33。902实际APK SHA256=76e336daf29b4997cf22b844d88eb8a102eb5156519ada21600e139cab048d9d，与901不同，不能混用下载摘要。未安装手机；原生蓝色贴边框需用户更新后确认。
+
+用户随后明确H5慢在对准条码后的识别，非打开相机或物料查询。本次只改共享H5的解码调度：保留全部9种格式，3帧使用快速提示，第4帧恢复原TRY_HARDER=true完整强化，下一周期相同；不裁取画面、不降低条码类型覆盖，不改相机/会话/错误分类/查询/提交。真实vendored SDK以TRY_HARDER键的存在决定1D读器顺序，因此快速提示删除该键，不能仅设false。默认500ms仅在成功后的下一帧等待，而本页成功即停；未命中间隔原为0，不能把调小500ms当首识别修复。
+
+修改前真实像素bench（Node v24.22.1、640×480、每模式9次）中心CODE128中位0.77ms快速/4.69ms原强化，CODE39 0.39/4.92，EAN13 0.08/4.08，EAN8 0.42/4.37；空帧25.06/523.67ms。QR快速约33ms、原强化约2～4ms，不能声称全部格式都更快；顶部12px细条4种1D在快速模式0/9、原强化9/9，因此不能直接永久关闭强化。此bench用于定位和方案取舍，不设置脆弱耗时阈值，不代表手机倍数或真机时延。
+
+R6核查全部BrowserMultiFormatReader/decodeFromVideoDevice/TRY_HARDER/start/stop、模板路径及通用Node/Jinja/AST消费者。仅此共享模板产品ZXing入口覆盖入库、出库、查询及盘点；QA30、QA46、frontend_audit_failure_runtime、insecure-origin及新SDK消费均纳入。新调度闭包放在原start函数内部，不增加提取器隐式全局。缺decode的既有替身仍可初始化，真实SDK通过实际hints setter及decoder验收。原生MLKit未改，未接入未知微信能力的BarcodeDetector或新增配置。Windows候选2026.11.83；生产仍为已部署4d3/82，本节提速代码尚未部署。
+
+H5提速本地验收：新8项真实SDK/像素锁通过，旧模板同测试7项业务断言失败/1项兼容控制通过，0错误/跳过；全部6路径整批在私有纯源码副本回退（新回归锁保留），2837父树文件逐字节匹配，51项旧7失败/44对照通过，恢复2838候选文件后51通过且清单hash一致，共享Git未回退。真实Chrome原采流/像素解码/全屏/权限/迟到取消8项通过，0外部请求/pageErrors。fresh LPAC同套6模块基线80/候选80均通过，实际两URI/engine内存、PRAGMA空路径、primary/descendant隔离、Job0/双栈filter移除/profile删除均核实；新8锁独立运行，未混入共享视觉改动。严格AI台账及编码通过。
+
+真实Chrome内部Canvas补充基准：中心CODE128快扫3.1ms/旧强化7.6，CODE39 2.8/7.15，EAN13 2.6/6.7，EAN8 2.65/7.1；空帧27/633ms，QR13.85/4.9ms。顶部细CODE128快速0/8、强化8/8，新周期首次第4帧成功，覆盖保持；浏览器90度合成控制在旧强化及新周期均0/8，属于既有同形控制，不能宣称浏览器或手机旋转识别通过。Node可旋转像素源仅证明实际decoder强化旋转分支可达。真实手机速度、弱光及对焦仍待用户使用确认。外置证据h5-scan-speed-20261116与h5-speed-app-951cfd6b。新目标CI通过后才算本轮提速软件交付；本段不是新生产生效凭据。

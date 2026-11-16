@@ -523,6 +523,18 @@
             hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
             zxingCodeReader = new ZXing.BrowserMultiFormatReader(hints);
+            if (typeof zxingCodeReader.decode === 'function') {
+                var decodeFrame = zxingCodeReader.decode;
+                var fastHints = new Map(hints);
+                // Key presence changes the bundled SDK's reader order: delete, not false.
+                fastHints.delete(ZXing.DecodeHintType.TRY_HARDER);
+                var decodedFrames = 0;
+                zxingCodeReader.decode = function(source) {
+                    // Retain the original full scan for off-centre or rotated labels.
+                    this.hints = (++decodedFrames % 4 === 0) ? hints : fastHints;
+                    return decodeFrame.call(this, source);
+                };
+            }
         } catch (error) {
             setStatus('扫码器初始化失败: ' + error.message, 'error');
             stopBarcodeScanner();
