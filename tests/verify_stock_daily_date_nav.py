@@ -14,6 +14,7 @@
 本文件只验证源码接线；真实 ViewModel/Retrofit 时序另由 Android 回归验收。
 """
 import sys
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent / "app" / "android-native-wms" / "app" / "src" / "main" / "java" / "com" / "factory" / "wms"
@@ -60,7 +61,7 @@ check("T3a 前一天/后一天箭头",
 check("T3b 回到今天按钮", "回到今天" in components and "viewModel.resetToday()" in screen)
 check("T3c 到达今天禁用后翻",
       "nextEnabled = uiState.date <" in screen
-      and "IconButton(onClick = onNext, enabled = nextEnabled)" in components)
+      and bool(re.search(r"IconButton\(\s*onClick\s*=\s*onNext\s*,\s*enabled\s*=\s*nextEnabled\s*[,)]", components)))
 check("T3d 历史日期数据截至显示（generatedAt 空时 --:--）", 'uiState.generatedAt ?: "--:--"' in screen)
 
 # T4 空态与 >0 口径

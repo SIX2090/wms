@@ -21,6 +21,7 @@ BUG-2026-10-04-002 把「项目仓」切换器收进 Hero 蓝底后，组件仍�
 
 # 2026-11-15 用户授权中性工作台：旧蓝底白字约束改为实际主题表面/前景，
 # 原标题不裁切、仓库可用和语音 FAB 避让的业务与布局要求继续保留。
+# 2026-11-16 用户确认恢复蓝色首页，检查两种字号布局的白色前景。
 from __future__ import annotations
 
 import re
@@ -57,11 +58,17 @@ def test_003_selector_has_content_color_param() -> None:
 
 
 def test_003_home_selector_uses_theme_foreground_on_surface() -> None:
-    # 用户授权取消蓝色 Hero；中性卡片内使用主题 primary，亮暗真实对比另测。
+    # 用户确认恢复蓝色 Hero；两种字号布局都必须明确使用高对比白色前景。
     src = _read(HOME)
-    assert 'Surface(color = CardBackground' in src
-    assert 'contentColor = MaterialTheme.colorScheme.primary' in src
-    assert 'contentColor = Color.White' not in src
+    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
+    assert '.background(Primary.readableOn(Color.White))' in hero
+    selectors = re.findall(r'WarehouseSelector\((.*?)\)', hero, re.S)
+    assert len(selectors) == 2
+    for selector in selectors:
+        assert 'contentColor = Color.White' in selector
+        assert 'selectedId = selectedWarehouseId' in selector
+        assert 'onSelect = onSelectWarehouse' in selector
+        assert 'allowAll = false' in selector
 
 
 def test_003_report_call_unaffected() -> None:

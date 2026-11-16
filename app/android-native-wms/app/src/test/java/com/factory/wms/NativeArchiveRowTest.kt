@@ -60,4 +60,19 @@ class NativeArchiveRowTest(private val scale: Float, private val dark: Boolean) 
         compose.onNodeWithText("图片数量未获取", useUnmergedTree = true).assertExists()
         compose.onAllNodesWithText("图片 0/5", useUnmergedTree = true).assertCountEquals(0)
     }
+    @Test fun longSpecificationWrapsWithoutEllipsisOrMissingText() {
+        val spec = "ZB-BVR-450/750V-1*25-ULTRA-LONG-SPECIFICATION"
+        val material = MaterialArchiveDto(1, "WL-000238", "不锈钢内六角螺栓", spec, "件", "紧固件", 0)
+        activity.get().setContent { CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
+            WmsTheme(darkTheme = dark) { MaterialArchiveRow(material) {} }
+        } }
+        val text = "规格：$spec"
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(text, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val layout = layouts.single()
+        assertTrue("Long specification must wrap", layout.lineCount >= 2)
+        assertEquals(text.length, layout.getLineEnd(layout.lineCount - 1, visibleEnd = true))
+        repeat(layout.lineCount) { assertFalse(layout.isLineEllipsized(it)) }
+    }
 }

@@ -1,6 +1,7 @@
 package com.factory.wms.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.ButtonDefaults
@@ -64,6 +65,7 @@ fun WarehouseSelector(
     Box(modifier = modifier) {
         TextButton(
             onClick = { expanded = true },
+            modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
             colors = if (contentColor != null) {
                 ButtonDefaults.textButtonColors(contentColor = contentColor)
             } else {

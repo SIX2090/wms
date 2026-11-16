@@ -29,6 +29,7 @@
 
 # 2026-11-15 用户授权中性工作台：旧蓝底白字约束改为实际主题表面/前景，
 # 原标题不裁切、仓库可用和语音 FAB 避让的业务与布局要求继续保留。
+# 2026-11-16 用户确认恢复蓝色首页，守卫回到蓝底白字并保留上述业务约束。
 from __future__ import annotations
 
 import re
@@ -61,12 +62,15 @@ def test_002_title_row_not_inside_floating_offset_column() -> None:
 
 
 def test_002_title_and_warehouse_use_theme_surface() -> None:
-    # 新版工作台取消深蓝 Hero，标题和仓库均使用主题实际表面，不再依赖固定 offset。
+    # 2026-11-16 用户确认恢复蓝色工作台：仍锁定标题、仓库、前景与无重叠。
     src = _read(HOME)
-    assert 'Text("仓库工作台"' in src
-    assert 'Text("当前仓库"' in src
-    assert 'Surface(color = CardBackground' in src
-    assert 'contentColor = MaterialTheme.colorScheme.primary' in src
+    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
+    assert 'Text("仓库工作台 · $today"' in hero
+    assert 'Text("今日概览"' in hero and 'Text("当前仓库"' in hero
+    assert '.background(Primary.readableOn(Color.White))' in hero
+    assert hero.count('WarehouseSelector(') == 2
+    assert hero.count('contentColor = Color.White') == 2
+    assert 'verticalScroll(rememberScrollState())' in hero
     assert 'Modifier.offset' not in src
 
 

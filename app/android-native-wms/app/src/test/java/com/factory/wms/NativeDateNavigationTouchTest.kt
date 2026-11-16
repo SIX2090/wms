@@ -49,4 +49,13 @@ class NativeDateNavigationTouchTest(private val scale: Float, private val dark: 
         previous.performClick(); following.performClick(); today.performClick()
         assertEquals(1, prev); assertEquals(1, next); assertEquals(1, reset)
     }
+    @Test fun nextDayIsDisabledAtToday() {
+        activity.get().setContent { CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
+            WmsTheme(darkTheme = dark) { WmsDateNavRow("2026-11-15", { prev++ }, { next++ },
+                nextEnabled = false, wrapInCard = false, onResetToday = { reset++ }) }
+        } }
+        val following = compose.onNode(hasClickAction() and hasAnyDescendant(hasContentDescription("后一天")), useUnmergedTree = true)
+        following.assertIsDisplayed().assertIsNotEnabled()
+        assertEquals(0, next)
+    }
 }

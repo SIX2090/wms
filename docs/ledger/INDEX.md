@@ -1288,3 +1288,13 @@
 | BUG-2026-09-22-006 | bugs | history-2026-08.md |
 | BUG-2026-09-29-001 | bugs | history-2026-08.md |
 | FEAT-2026-10-03-001 | bugs | history-2026-08.md |
+| BUG-2026-11-16-001 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-002 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-003 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-004 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-005 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-006 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-007 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-008 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-009 | bugs | entries-2026-11.md |
+| BUG-2026-11-16-010 | bugs | entries-2026-11.md |

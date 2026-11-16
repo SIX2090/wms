@@ -244,15 +244,26 @@ def check_mobile_archive_spec_wrap() -> tuple[bool, str]:
     （如 ZB-BVR-450/750V-1*25 只显示 ZB-BVR-450/7...），必须允许多行折行显示。"""
     path = "app/android-native-wms/app/src/main/java/com/factory/wms/ui/screens/MaterialArchiveScreens.kt"
     content = read_text(path)
-    m = re.search(r"规格: \$\{material\.spec\}(.{0,300})", content, re.S)
-    if not m:
-        return False, "物料档案列表行缺少规格字段渲染"
-    block = m.group(1)
-    if re.search(r"maxLines\s*=\s*1\b", block):
-        return False, "物料档案列表行规格仍为 maxLines = 1 单行截断，长规格显示不全"
-    if "maxLines = 2" not in block:
-        return False, "物料档案列表行规格应 maxLines = 2 折行显示"
-    return True, "手机 App 物料档案规格两行折行显示（BUG-2026-08-28-005 回归）"
+    return check_mobile_archive_spec_wrap_source(content)
+
+
+def check_mobile_archive_spec_wrap_source(content: str) -> tuple[bool, str]:
+    """只检查列表行的规格 Text；明确允许自动折行且不得裁切。"""
+    start = content.find("internal fun MaterialArchiveRow(")
+    end = content.find("\n}\n", start) if start >= 0 else -1
+    if start < 0 or end < 0:
+        return False, "未找到完整的物料档案列表行"
+    row = content[start:end]
+    spec_start = row.find("Text(material.spec?")
+    spec_end = row.find('\n            Text("单位：', spec_start) if spec_start >= 0 else -1
+    if spec_start < 0 or spec_end < 0:
+        return False, "物料档案列表行缺少独立规格字段"
+    spec = row[spec_start:spec_end]
+    if re.search(r"maxLines\s*=", spec) or not re.search(r"softWrap\s*=\s*true", spec):
+        return False, "物料档案列表行规格未允许完整多行折行"
+    if "TextOverflow.Ellipsis" in spec or "TextOverflow.Clip" in spec:
+        return False, "物料档案列表行规格可能被截断"
+    return True, "手机 App 物料档案规格允许多行且不截断（BUG-2026-08-28-005 回归）"
 
 
 def main() -> int:
