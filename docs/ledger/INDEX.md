@@ -203,6 +203,7 @@
 | AI-MOB-MEDIA-FIX-20261114-001 | ai | completions-2026-11.md |
 | AI-MOB-H5-UI-20261115-001 | ai | completions-2026-11.md |
 | AI-MOB-H5-UI-20261115-001-FIX-001 | ai | completions-2026-11.md |
+| AI-MG-TRACEABILITY-FIX-20261116-001 | ai | completions-2026-11.md |
 | SM-P6-FIX-02 | ai | records-2026-07.md |
 | AUDIT-FIX-2026-07-27 | ai | records-2026-07.md |
 | IO-AUDIT-2026-07-27 | ai | records-2026-07.md |
@@ -309,7 +310,6 @@
 | P1 | ai | records-2026-10.md |
 | MOBILE-UPDATE-20261114-001 | ai | records-2026-11.md |
 | AI-APP-AUDIT-FIX-20261115-001 | ai | records-2026-11.md |
-| AI-MG-TRACEABILITY-FIX-20261116-001 | ai | records-2026-11.md |
 | AI-SALES-F01-FIX-01 | ai | records-unknown.md |
 | SM-P6-FIX-01 | ai | records-unknown.md |
 | AI-SALES-F01-FIX-02 | ai | records-unknown.md |

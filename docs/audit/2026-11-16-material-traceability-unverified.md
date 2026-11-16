@@ -35,3 +35,15 @@ AST候选扫描后的19个同形校验器已独立逐体复核：budget_control�
 外置证据根：C:/Users/Administrator/.codex/visualizations/2026/11/15/01a1de80-0f3b-75d1-bcbd-a7f2c7e704aa/traceability-fail-closed-20261116。主要回执为baseline-input.json、baseline-utf8-summary.json、old-regression.xml、candidate.xml、owned-projected-texts.json、index-generation-proof.json，整批/CI结果执行后补证。新增BUG还消费历史状态统计回归锁：5510父提交的011与本批012均须显式登记到POST_SPLIT_BUGS，保留原315/141/19/1历史断言及原全部检查，不通过改变基线或跳过用例取绿。模块全量/相邻、规则、文档/编码/严格AI台账和精确目标三工作流分别验收；全站测试交目标CI，不在宿主重复全应用。
 
 生效确认：本轮不部署或重启，现役封存服务保持原状；生产数据库、备份、认证信息、HTTP及真实单据/设备均未操作。Git提交/推送/CI不等于生产生效。按物料查询全部别名的接口仍未接入，用户若以后需要完整追溯，应作为独立明确范围实施。
+
+## 最终软件验收补证（2026-11-16）
+
+代码b43e0ee76a63b244a1880906f280a36f16e72ecd已实际普通push：86fadbfb..b43e0ee7 main -> main；远端完整目标一致。本任务commit仅10个自有文件，既有5510为并行任务的已提交祖先，未把其未提交候选混入，也不声称5510本身有独立CI记录；本次精确完整目标统一验收。
+
+R8最终冻结2706个纯源码文件，在私有副本逆序回退9个非锁文件并保留新增锁，2704个基线源码逐文件相等。旧4失败/20对照通过、0初始化错误；恢复后24通过/0失败错误跳过，完整候选树SHA256=9980aacedc97f12917eef605e6c5faf37ac1221d063c3aea62934e23e95fcc2e。基础verify8/8、增强verify9/9，34个文档/台账相邻契约通过；staged规则0、A11全量0、全量规则棘轮无新增、严格AI台账和编码通过，原历史统计315/141/19/1保持。
+
+精确main目标[WMS CI43795685739](https://github.com/SIX2090/wms/actions/runs/43795685739)、[WMS AI Verification43795685718](https://github.com/SIX2090/wms/actions/runs/43795685718)、[Android APK Build43795685954](https://github.com/SIX2090/wms/actions/runs/43795685954)均completed/success。WMS全部全量单元分片、4verify、隔离冒烟、真实浏览器、规则/安全与gate通过；AI两个全量分支及gate通过；Android真实lint、单元和构建全过，未用旧绿或源码断言替代。
+
+另行核清前置额外台账脚本的15失败：来自共享候选中旧verify_ledger_required_material.py不带warehouse请求导致400（14条件失败加1TypeError）；脚本及相关API在远端86和5510无变化，不是15个新增产品断言失败。本任务未在宿主运行该应用脚本；冻结父树的台账源码闸门10/10另已通过，最终整个新目标以本次真实隔离CI为准。未修改业务仓库规则，也未绕过LPAC。
+
+代码及未验证保护交付完成；完整按物料枚举追溯仍未接入，本轮没有部署、服务操作、生产数据库/备份或HTTP访问、真实账号/单据/设备操作。完成台账及本段文档收口自身提交与CI另验，不将代码CI冒充文档目标CI。实际push、精确CI与源码/回退证明分别保存在code-push-output.log、code-ci-final.json、staged-scope-proof.json、batch-rollback-final-proof.json和task-delivery-receipt.json。
