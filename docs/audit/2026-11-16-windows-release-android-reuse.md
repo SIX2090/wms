@@ -21,3 +21,11 @@ check_ci_green.main 在目标无 Android 运行时，仅查询 android_source_sh
 初轮新helper在长私有工作路径下受到Git for Windows的MAXPATH影响：`source..target`组合参数触发failed to stat/Filename too long；改为可达集合等价的两个完整SHA参数`target ^source`，保留ancestry-path、拓扑顺序、201枚举上限及逐候选复核，已在原失败长路径实证恢复。正向回归先前5项失败、只读临时Git对象删除夹具问题均保留并排除出旧产品反证；最终新旧回归用短私有目录完整重跑，没有放宽断言。独立只读复核通过，最终checker SHA256为851369548b9607ede518bfec2d7dfe6e8b7db34fe57f96bec88ed679ee13dc07，新锁41748a6fc2793c364687c0cfc87479bbd70ece120ae185745f2a67f04f90a8f4。
 
 本项代码、专项回归、整批逆序恢复、实际 push、精确三工作流和 Windows Portable Release 结果在执行后补证；当前记录不预填未执行的成功。扫码子任务的真实 Compose、SDK、Chrome 和 LPAC 应用证据见[扫码专项](2026-11-16-fullscreen-scanner.md)。生效确认：待软件验收；没有生产部署、数据库/备份、HTTP、账号密码或真实单据操作。
+
+## CI纠正记录（2026-11-16，首次目标未验收）
+
+266d6679133c453071856976af6ba21c2c8a6833 的Android构建/单测/lint、AI、WMS四verify、规则、冒烟和浏览器通过；WMS单测分片1仅test_mobile_stock_ledger_page.py::test_T8_version_bumped失败，仍锁56/3.9.32，而本次实际编译57/3.9.33。首次目标整体未验收，不能报告交付。此次遗漏由本任务负责，仅同步原注释及两个精确版本值，保留全部模型/查询/导航/括号/changelog断言，不改成范围或删锁。
+
+全仓当前测试/脚本/工作流/原生源码检索仅此处残留56/3.9.32固定值；历史说明不机械改写。他人对同一注释“保留App名称WMS”的改动保留在工作区，本任务只按HEAD原文形成版本值投影，逆变换逐字节证明未覆盖其措辞。
+
+并行faba8e535bbdc3fb62c04336e30ff16b3b25af03仅有他人的生产部署文档及BUG013状态；本任务不操作生产，也不回退这些已提交内容。最终代码批扩为17个自有路径，私有整批回退基线保留faba的四份文档改动，只撤本任务代码/记录；版本锁所在整模块10项与既有回归重新执行。原生六输入未变化，后续目标只能按完整祖先、真实成功APK901及所有输入对象证明合法复用，不拿失败WMS旧绿验收新目标。
