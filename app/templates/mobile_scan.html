@@ -78,7 +78,9 @@
                         <span class="mobile-barcode-frame-corner tr"></span>
                         <span class="mobile-barcode-frame-corner bl"></span>
                         <span class="mobile-barcode-frame-corner br"></span>
-                        <div class="mobile-barcode-scan-line"></div>
+                        <div class="mobile-barcode-scan-track">
+                            <div class="mobile-barcode-scan-line"></div>
+                        </div>
                     </div>
                 </div>
                 <div class="mobile-barcode-hint" id="barcodeHint">全屏取景，画面内的条码可自动识别</div>
@@ -1581,6 +1583,13 @@
     border-width: 0 4px 4px 0;
     border-radius: 0;
 }
+.mobile-barcode-scan-track {
+    position: absolute;
+    inset: 0;
+    animation: scanLineMove 2s linear infinite;
+    will-change: transform;
+    pointer-events: none;
+}
 .mobile-barcode-scan-line {
     position: absolute;
     top: 0;
@@ -1590,11 +1599,10 @@
     border-radius: 3px;
     background: linear-gradient(90deg, transparent, #60a5fa, transparent);
     box-shadow: 0 0 14px 3px rgba(96, 165, 250, 0.55);
-    animation: scanLineMove 2s ease-in-out infinite;
 }
 @keyframes scanLineMove {
-    0%, 100% { top: 10%; }
-    50% { top: 85%; }
+    from { transform: translateY(0); }
+    to { transform: translateY(calc(100% - 3px)); }
 }
 .mobile-barcode-hint {
     position: absolute;
