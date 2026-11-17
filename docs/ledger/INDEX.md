@@ -890,6 +890,11 @@
 | BUG-2026-11-16-014 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-015 | bugs | entries-2026-11.md |
 | BUG-2026-11-16-016 | bugs | entries-2026-11.md |
+| BUG-2026-11-17-001 | bugs | entries-2026-11.md |
+| BUG-2026-11-17-002 | bugs | entries-2026-11.md |
+| BUG-2026-11-17-003 | bugs | entries-2026-11.md |
+| BUG-2026-11-17-004 | bugs | entries-2026-11.md |
+| BUG-2026-11-17-005 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

@@ -1948,7 +1948,10 @@ function applyBatchUpdate() {
             return;
         }
         const warehouseSelect = document.querySelector('[name="warehouse_id"]');
-        if (warehouseSelect) warehouseSelect.value = warehouseTarget.value;
+        if (warehouseSelect) {
+            warehouseSelect.value = warehouseTarget.value;
+            warehouseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
         document.getElementById('batchUpdateModal').remove();
         showToast('仓库已修改', 'success');
         return;

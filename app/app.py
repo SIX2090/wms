@@ -7716,6 +7716,8 @@ def parse_api_lines(payload):
         material = Material.query.filter_by(code=code).first()
         if not material:
             return None, f'物料不存在：{code}'
+        if material.status == 'inactive':
+            return None, f'物料 {code} 已停用，不能用于新单据'
         parsed.append((material, quantity, line))
     return parsed, None
 
@@ -27174,6 +27176,8 @@ def _find_or_create_material(code, name='', spec='', unit_name='', warnings=None
     if not code:
         return None
     material = Material.query.filter_by(code=code).first()
+    if material and material.status == 'inactive':
+        raise ValueError(f'物料 {code} 已停用，不能导入新单据')
     unit = _find_or_create_unit(unit_name)
     if not material:
         # 2026-09-25（判重收敛）：编码查不到时先按名称+规格复用已有物料，
@@ -27353,8 +27357,11 @@ def _render_generic_document_print(payload):
     payload.setdefault('total_amount', sum(row.get('amount', 0) or 0 for row in payload.get('rows', [])))
     return render_template('document_print.html', doc=payload)
 
-def _document_materials_json(warehouse=None, scoped=False):
-    materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
+def _document_materials_json(warehouse=None, scoped=False, include_inactive=True):
+    query = Material.query.options(joinedload(Material.unit))
+    if not include_inactive:
+        query = query.filter(material_selectable_filter(False))
+    materials = query.order_by(Material.code.asc()).all()
     stock_map = get_warehouse_stock_quantities(warehouse) if warehouse else None
     rows = [serialize_material_with_stock(material, warehouse, stock_map) if warehouse
             else serialize_material(material) for material in materials]
@@ -27623,7 +27630,7 @@ def _render_requisition_form(requisition=None):
             'location': requisition.location if requisition else prefill['location'],
             'remark': requisition.remark if requisition else prefill['remark'],
         },
-        materials=_document_materials_json(warehouse, scoped=True),
+        materials=_document_materials_json(warehouse, scoped=True, include_inactive=bool(requisition)),
         units=_document_units_json(),
         warehouses=get_active_warehouses(),
         default_warehouse=get_default_warehouse(),
@@ -30273,6 +30280,19 @@ def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_co
     return values
 
 
+def _ledger_out_order_labels(transactions):
+    """Batch-load actual outbound business types for web and native ledgers."""
+    ids = {t.reference_id for t in transactions
+           if t.reference_type == 'out_order' and t.reference_id}
+    if not ids:
+        return {}
+    rows = OutOrder.query.with_entities(OutOrder.id, OutOrder.business_type).filter(
+        OutOrder.id.in_(ids)).all()
+    labels = {'销售出库', '其他出库', '领料单', '采购退货出库'}
+    return {order_id: business_type if business_type in labels else '出库单'
+            for order_id, business_type in rows}
+
+
 def _ledger_source_warehouse_getters():
     """reference_type -> (model, getter(doc, txn)->仓库名)。
 
@@ -30767,6 +30787,7 @@ def _collect_ledger_rows(filters):
     # FEAT-2026-09-24-001：合同编号（明细行优先、单据头兜底），一次批量回查后
     # 在下方循环里按 txn.id 直接取用——不在循环内逐行查库。
     contract_no_map = _ledger_contract_no_map(transactions)
+    out_order_labels = _ledger_out_order_labels(transactions)
 
     # BUG-2026-09-24-001：单据日期 map——业务日期 = 单据日期优先、流水时间兜底。
     # 一次批量回查，下方循环按 txn.id 直接取用。
@@ -30834,7 +30855,9 @@ def _collect_ledger_rows(filters):
         )
         rows.append({
             'date': txn_date.isoformat() if txn_date else '',
-            'reference_type': (REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水')
+            'reference_type': ((out_order_labels.get(transaction.reference_id, '出库单')
+                                if transaction.reference_type == 'out_order' else
+                                REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水'))
                                + ('（反提交冲销）' if (transaction.transaction_type or '').startswith('revert_') else '')),
             'reference_no': reference_no,
             'reference_url': reference_url,

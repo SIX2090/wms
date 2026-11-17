@@ -543,7 +543,7 @@ printBtn.addEventListener('click', async () => {
     } catch (error) {
         renderTruncation(null);
         const el = document.getElementById('truncationAlert');
-        el.textContent = `打印失败：${error.message || '数据加载失败'}，请重试或改用导出 Excel`;
+        el.textContent = `打印失败：${reportErrorMessage(error, '数据加载失败')}，请重试或改用导出 Excel`;
         el.classList.remove('d-none');
     } finally {
         setLoading(false);
@@ -892,6 +892,14 @@ function renderPagination(total) {
     });
 }
 
+function reportErrorMessage(error, fallback) {
+    const message = error && error.message || '';
+    if (/^(Failed to fetch|NetworkError when attempting to fetch resource\.?|Load failed|Network request failed)$/i.test(message)) {
+        return '网络连接失败，请检查网络后重试';
+    }
+    return message || fallback;
+}
+
 async function loadData() {
     const requestId = ++reportRequestId;
     updateReportFilterSummary();
@@ -937,7 +945,7 @@ async function loadData() {
     } catch (error) {
         if (requestId !== reportRequestId) return;
         renderSummary(null);
-        tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">${escapeHtml(error.message || '报表查询失败')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td class="text-center text-danger py-5">${escapeHtml(reportErrorMessage(error, '报表查询失败'))}</td></tr>`;
         tableHeaderRow.innerHTML = '<th>错误</th>';
         paginationNav.innerHTML = '';
         pageTotal.textContent = '0';

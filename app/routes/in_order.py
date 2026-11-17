@@ -40,6 +40,7 @@ import json
 import math
 from uuid import uuid4
 
+from collections import Counter
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
@@ -1027,7 +1028,8 @@ def register_in_order_routes(app):
         if len(_preset_materials) < MATERIAL_INITIAL_CACHE_LIMIT:
             _extra = (
                 Material.query.options(joinedload(Material.unit))
-                .filter(~Material.id.in_(_preset_ids) if _preset_ids else db.true())
+                .filter(~Material.id.in_(_preset_ids) if _preset_ids else db.true(),
+                        db.or_(Material.status.is_(None), Material.status != 'inactive'))
                 .order_by(Material.code.asc())
                 .limit(MATERIAL_INITIAL_CACHE_LIMIT - len(_preset_materials))
                 .all()
@@ -1343,6 +1345,7 @@ def register_in_order_routes(app):
             # P1-5：销售退货来源聚合（len==1 时回填单头 source_sales_order_id/no）
             source_sales_order_ids = set()
             existing_affected_purchase_order_ids = set()
+            existing_material_counts = Counter(item.material_id for item in order.items) if order_id else Counter()
             if request.is_json and items_data and order.id:
                 for old_item in list(order.items):
                     if old_item.source_purchase_order_item:
@@ -1368,6 +1371,10 @@ def register_in_order_routes(app):
                     material = Material.query.filter_by(code=material_code).first()
                     if not material:
                         return fail(f'物料 {material_code} 不存在', 400)
+                    if material.status == 'inactive' and not existing_material_counts[material.id]:
+                        return fail(f'物料 {material_code} 已停用，不能新增明细', 400)
+                    if material.status == 'inactive':
+                        existing_material_counts[material.id] -= 1
                     try:
                         quantity = round_to_2_decimals(item_data.get('quantity', 0))
                     except (TypeError, ValueError):
@@ -1525,6 +1532,9 @@ def register_in_order_routes(app):
         if not material:
             return api_error(f'物料 {material_code} 不存在')
 
+        if material.status == 'inactive':
+            return api_error(f'物料 {material_code} 已停用，不能新增明细')
+
         try:
             quantity = round_to_2_decimals(request.form.get('quantity', 0))
         except (TypeError, ValueError):
@@ -1667,6 +1677,9 @@ def register_in_order_routes(app):
                 material = Material.query.filter_by(code=material_code).first()
                 if not material:
                     errors.append(f'第 {line_no} 行物料不存在：{material_code}')
+                    continue
+                if material.status == 'inactive':
+                    errors.append(f'第 {line_no} 行物料 {material_code} 已停用')
                     continue
 
                 default_price = material.price or 0
@@ -2447,6 +2460,9 @@ def register_in_order_routes(app):
                     material = Material.query.filter_by(code=material_code).first()
                     if not material:
                         return fail(f'物料 {material_code} 不存在')
+
+                    if material.status == 'inactive':
+                        return fail(f'物料 {material_code} 已停用，不能新增明细')
 
                     quantity = float(item_data['quantity'])
                     if not math.isfinite(quantity) or quantity <= 0:

@@ -522,6 +522,9 @@ def register_mobile_routes(app):
         if not material:
             return jsonify({'status': 'error', 'success': False, 'msg': f'物料不存在：{code}'}), 404
 
+        if mode in ('in', 'out') and material.status == 'inactive':
+            return jsonify({'status': 'error', 'success': False, 'msg': f'物料 {code} 已停用，不能用于新单据'}), 400
+
         if mode == 'query':
             query_warehouse = (data.get('warehouse') or data.get('warehouse_code') or '').strip()
             _q_wh, _q_wh_err = validate_inventory_warehouse(query_warehouse, warehouse_id=data.get('warehouse_id'))
@@ -995,6 +998,8 @@ def register_mobile_routes(app):
             material = Material.query.filter_by(code=code).first()
             if not material:
                 return jsonify({'status': 'error', 'success': False, 'msg': f'第 {idx} 行物料不存在：{code}'}), 404
+            if req.mode in ('in', 'out') and material.status == 'inactive':
+                return jsonify({'status': 'error', 'success': False, 'msg': f'第 {idx} 行物料 {code} 已停用'}), 400
             resolved.append((material, line))
 
         actor = current_user if current_user.is_authenticated else get_bearer_user()

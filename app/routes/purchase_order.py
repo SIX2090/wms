@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 
+from collections import Counter
 from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
@@ -417,6 +418,7 @@ def register_purchase_order_routes(app):
         from app import (Material, Supplier, generate_order_no, serialize_material_without_stock,
                          serialize_supplier)
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc(), Material.id.asc()).all()
+        materials = [m for m in materials if m.status != 'inactive']
         suppliers = Supplier.query.order_by(Supplier.code.asc(), Supplier.id.asc()).all()
         order_no = generate_order_no('PO')
         order_date = datetime.now().strftime('%Y-%m-%d')
@@ -610,6 +612,7 @@ def register_purchase_order_routes(app):
             order.contract_no = contract_no or None
             order.project_name = project_name or None
 
+            existing_material_counts = Counter(row.material_id for row in original_rows)
             order_total = 0
             financial_change = identified and set(filter(None, submitted_ids)) != set(original_by_id)
             for row_index, item_data in enumerate(valid_items):
@@ -627,6 +630,12 @@ def register_purchase_order_routes(app):
                 if not material:
                     db.session.rollback()
                     return api_error(f'物料 {material_code or material_id or ""} 不存在')
+
+                if material.status == 'inactive' and not existing_material_counts[material.id]:
+                    db.session.rollback()
+                    return api_error(f'物料 {material.code} 已停用，不能新增明细')
+                if material.status == 'inactive':
+                    existing_material_counts[material.id] -= 1
 
                 if old_line is not None and old_line.material_id != material.id:
                     db.session.rollback()

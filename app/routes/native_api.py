@@ -2759,7 +2759,7 @@ def register_native_api_routes(app):
                          round_to_2_decimals, resolve_request_warehouse,
                          _warehouse_scoped_txn_condition, _filter_txn_list_by_warehouse_scope,
                          _material_filter_clause, _report_check_row_limit,
-                         LEDGER_ROW_LIMIT, REFERENCE_TYPE_LABELS)
+                         LEDGER_ROW_LIMIT, REFERENCE_TYPE_LABELS, _ledger_out_order_labels)
 
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
@@ -2869,6 +2869,7 @@ def register_native_api_routes(app):
         page_rows = transactions[(page - 1) * page_size: page * page_size]
         total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
 
+        out_order_labels = _ledger_out_order_labels(page_rows)
         items = []
         for t in page_rows:
             m = t.material
@@ -2883,8 +2884,9 @@ def register_native_api_routes(app):
                 'spec': m.spec or '' if m else '',
                 'unit': m.unit.name if (m and m.unit) else '',
                 'transaction_type': t.transaction_type or '',
-                'transaction_type_label': REFERENCE_TYPE_LABELS.get(
-                    t.transaction_type, t.transaction_type or '库存流水'),
+                'transaction_type_label': (out_order_labels.get(t.reference_id, '出库单')
+                    if t.reference_type == 'out_order' else REFERENCE_TYPE_LABELS.get(
+                        t.transaction_type, t.transaction_type or '库存流水')),
                 'reference_type': t.reference_type or '',
                 'reference_id': t.reference_id,
                 'quantity': round_to_2_decimals(q),
@@ -3613,6 +3615,9 @@ def register_native_api_routes(app):
             for line in req.lines:
                 code = (line.material_code or '').strip()
                 material = Material.query.filter_by(code=code).first() if code else None
+                if material is not None and material.status == 'inactive':
+                    db.session.rollback()
+                    return api_json_error(f'物料 {code} 已停用，不能生成新草稿', 400)
                 if material is None:
                     material = _find_material_by_name_spec(line.name, line.spec)
                 if material is None:

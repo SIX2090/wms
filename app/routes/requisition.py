@@ -19,6 +19,7 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+from collections import Counter
 from flask import jsonify, render_template, request, send_file
 from flask_login import login_required
 
@@ -206,6 +207,7 @@ def register_requisition_routes(app):
             if not requisition.operator_id:
                 requisition.operator_id = current_user.id
             db.session.flush()
+            existing_material_counts = Counter(item.material_id for item in requisition.items) if order_id else Counter()
             ProductionRequisitionItem.query.filter_by(requisition_id=requisition.id).delete()
 
             for item_data in items_data:
@@ -213,6 +215,11 @@ def register_requisition_routes(app):
                 if not material:
                     db.session.rollback()
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
+                if material.status == 'inactive' and not existing_material_counts[material.id]:
+                    db.session.rollback()
+                    return api_error(f'物料 {material.code} 已停用，不能新增明细')
+                if material.status == 'inactive':
+                    existing_material_counts[material.id] -= 1
                 quantity = round_to_2_decimals(parse_float_value(item_data.get('quantity'), 0))
                 if quantity <= 0:
                     db.session.rollback()
@@ -381,6 +388,8 @@ def register_requisition_routes(app):
             material = Material.query.filter_by(code=material_code).first()
             if not material:
                 return api_error('物料编码不存在')
+            if material.status == 'inactive':
+                return api_error(f'物料 {material.code} 已停用，不能新增明细')
             if quantity <= 0:
                 return api_error('工单领料数量必须大于 0')
 
@@ -559,6 +568,9 @@ def register_requisition_routes(app):
                 material = Material.query.filter_by(code=material_code).first()
                 if not material:
                     errors.append(f'第 {line_no} 行物料不存在：{material_code}')
+                    continue
+                if material.status == 'inactive':
+                    errors.append(f'第 {line_no} 行物料 {material_code} 已停用')
                     continue
                 required = required_by_material.get(material.id, 0) + quantity
                 if not allow_negative_stock() and not is_stock_sufficient(warehouse_stock.get(material.id, 0), required):

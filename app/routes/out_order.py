@@ -26,6 +26,7 @@ from __future__ import annotations
 import io
 import json
 
+from collections import Counter
 from flask import abort, jsonify, render_template, request, send_file, url_for
 from flask_login import login_required
 
@@ -533,6 +534,8 @@ def register_out_order_routes(app):
                          validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
+        if not request.args.get('order_id', type=int):
+            materials = [m for m in materials if m.status != 'inactive']
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
         order_id = request.args.get('order_id', type=int)
@@ -804,6 +807,7 @@ def register_out_order_routes(app):
                 # SALES-AUDIT-005：编辑重建明细前，按 material_id 保留
                 # source_sales_order_item_id 映射，否则重建后丢失来源关联，
                 # sync_sales_order_shipment 无法按行级来源回写 shipped_quantity。
+                existing_material_counts = Counter(item.material_id for item in order.items) if order_id else Counter()
                 source_item_by_material = {}
                 for existing_item in list(order.items):
                     if getattr(existing_item, 'source_sales_order_item_id', None):
@@ -823,6 +827,12 @@ def register_out_order_routes(app):
                 if not material:
                     db.session.rollback()
                     return api_error(f'物料 {material_code} 不存在')
+
+                if material.status == 'inactive' and not existing_material_counts[material.id]:
+                    db.session.rollback()
+                    return api_error(f'物料 {material_code} 已停用，不能用于新单据')
+                if material.status == 'inactive':
+                    existing_material_counts[material.id] -= 1
 
                 quantity = round_to_2_decimals(parse_float_value(submitted_item.get('quantity'), 0))
                 if quantity <= 0:
@@ -949,6 +959,9 @@ def register_out_order_routes(app):
         material = Material.query.filter_by(code=material_code).first()
         if not material:
             return api_error(f'物料 {material_code} 不存在')
+
+        if material.status == 'inactive':
+            return api_error(f'物料 {material_code} 已停用，不能新增明细')
 
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
         if quantity <= 0:
@@ -1954,6 +1967,8 @@ def register_out_order_routes(app):
                 material = materials.get(parts[0])
                 if material is None:
                     raise ValueError(f'第{line_no}行物料不存在：{parts[0]}')
+                if material.status == 'inactive':
+                    raise ValueError(f'第{line_no}行物料 {material.code} 已停用')
                 raw_price = parts[2] if len(parts) == 3 and parts[2] else (material.price or 0)
                 try:
                     values = PasteRow.model_validate({'quantity': parts[1], 'price': raw_price})

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 
+from collections import Counter
 from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
@@ -200,6 +201,7 @@ def register_after_sale_out_routes(app):
                          serialize_customer, serialize_material_with_stock, serialize_unit)
         from sqlalchemy.orm import joinedload
         materials = Material.query.options(joinedload(Material.unit)).all()
+        materials = [m for m in materials if m.status != 'inactive']
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
         order_no = generate_order_no('ASO')
@@ -426,6 +428,7 @@ def register_after_sale_out_routes(app):
                     db.session.delete(existing_item)
             db.session.flush()
 
+            existing_material_counts = Counter(row.material_id for row in existing_items.values())
             total_amount = 0
             for row_no, item_data in enumerate(items_data):
                 material_code = (item_data.get('code') or item_data.get('material_code') or '').strip()
@@ -434,6 +437,11 @@ def register_after_sale_out_routes(app):
                     db.session.rollback()
                     return api_error(f'物料 {material_code} 不存在')
                 old_item = existing_items.get(line_ids[row_no]) if identified_edit else None
+                if material.status == 'inactive' and not existing_material_counts[material.id]:
+                    db.session.rollback()
+                    return api_error(f'物料 {material_code} 已停用，不能新增明细')
+                if material.status == 'inactive':
+                    existing_material_counts[material.id] -= 1
                 if old_item is not None and old_item.material_id != material.id:
                     db.session.rollback()
                     return api_error('原售后明细不能更换物料，请新增明细后移除原行')

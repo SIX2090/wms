@@ -17,7 +17,7 @@ def test_restore_all_supported_tabs(count):
 
 
 @pytest.mark.skipif(NODE is None, reason='Node.js required for actual page scripts')
-@pytest.mark.parametrize('failure', ['network', 'http', 'business', 'json'])
+@pytest.mark.parametrize('failure', ['network', 'http', 'business', 'json', 'fetch'])
 def test_report_failed_query_clears_previous_warehouse_summary(failure):
     result = subprocess.run([NODE, str(ROOT / 'tests/frontend_report_error_summary.cjs'), failure],
                             capture_output=True, text=True, encoding='utf-8', timeout=15)
