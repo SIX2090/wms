@@ -35,3 +35,17 @@ Fresh Windows LPAC/WFP/Job完整应用同套6模块，基线80/候选80通过，
 全量规则诊断基线381项既有违规（因此直接--full退出1，不是新缺陷）；候选全量仍381，--full --full-gate棘轮通过，无新增，未修改基线或削弱断言。严格AI台账44标记/144已完成映射及UTF-8编码通过。受影响完整应用基线80/候选80、纯源码69、实际浏览器3及既有8分开计数，不混称硬件验收。
 
 证据h5-camera-align-20261117/whole-batch-rollback-proof.json记录7路径、2锁、旧红/新绿和全部源hash恢复；batch-old.xml/batch-restored.xml与batch-old-pixels/batch-restored-pixels保留实际结果。当前本地验证完成；提交、实际push输出、精确目标三个工作流及后续生产状态在执行后补证，不预填通过。
+
+## 精确提交、CI与生产生效（2026-11-17 08:55，北京时间）
+
+实际普通push为0df4d8739..20c7de839 main -> main，精确代码目标20c7de839580a61127d7022cc5714daf16191367已从远端main可达。[WMS CI43987400440](https://github.com/SIX2090/wms/actions/runs/43987400440)及[WMS AI Verification43987400552](https://github.com/SIX2090/wms/actions/runs/43987400552)均completed/success；WMS全量实际16845 passed、207既有skipped、1653 subtests，各分片、verify、隔离完整冒烟、浏览器与gate成功。目标无独立Android运行，合法复用main成功祖先749的[Android902/43861369381](https://github.com/SIX2090/wms/actions/runs/43861369381)，最新attempt1仍success；6输入不变、两端228当前blob相同，完整非浅祖先2919 commits/2821 root trees/路径对象合并10797对象逐一无missing。未安装或发布新App版本。
+
+[Windows84/43988259074](https://github.com/SIX2090/wms/actions/runs/43988259074)已completed/success并实际发布[windows-v2026.11.84](https://github.com/SIX2090/wms/releases/tag/windows-v2026.11.84)，source20c、ZIP资产摘要933453efff14cb3f7e9033507ba5e0123cb6277aaf4dbb24ee688e182bf382bc；未下载大ZIP或运行其安装器。生产采用现役受保护Python3.11.9/34依赖、4项既有覆盖内容及精确Git20c app/tools/正式APK902组合封存，不冒称直接解压官方ZIP。
+
+沿用户此前同一扫码修复目标的部署授权完成受控切换：生产新根C:/wms_releases/20261117_h5_camera_20c7de83，制品ID21c6678583fb254bff4f2024ed607474f9f8e9d57aaca854c0d22fa732655c6b。后台/UI均已加载20c，唯一8080监听PID588，2026-11-17 08:55:49被动确认，原WMS-Warehouse任务Running、监护running/restarts1、配置指纹不变。新旧各7474程序文件切换后全部实际重核相符，6个持久映射与原路径一致，未复制其内容；未部署工作区尚未提交的原生视觉改动。
+
+程序整体回退7474→7474→7474本轮全部实读hash通过。为避免重复占用C盘，旧程序CAS池只读借用并本轮重hash14942次，仅新建6个程序blob/216040字节；未拿昨日通过代替本轮读回。受保护预检schema/read_only_startup通过，97次启动业务行读取被拒，12条既有FK警告集合不变，无迁移需求；只允许的正常启动读取结构，不声称现库从未打开。
+
+本轮启动编排修正上次退出期CIM空字段误判：主监听使用预打开句柄、最后复核固定PID/创建时间/路径/父链后结束；原Task停止后空字段/查询错只等待，四个原PID均成功查无实例且Task Ready、无监听、全任务XML/execute/args/workingDir及原action hash未变才切换。无祖先/未知PID结束命令，预算前后严格为1，原Task只启动一次。停止前记录08:53:57至新版被动确认08:55:49，切换窗口约112秒，包含正常停服，不写成零中断。
+
+未迁移、初始化、回填、恢复、备份、修改密码、操作真实单据或库存、发生产HTTP测试/微信消息、实际打印或安装APK。网页中的完整等比取景与按能力请求对焦已由本轮程序加载；真实手机、微信相机/光学对焦仍待用户正常使用确认。此前各候选阶段“未部署”为当时状态，当前以本节和实际监听/运行身份为准。外置证据h5-camera-deployment-20261117内exact-ci-acceptance、sealed-isolated-equivalence、code-rollback-rehearsal-latest、protected-preflight-result、schema-warning-comparison、cutover-stopped-instance-observations、live-identity-verdict、post-cutover-program-proof；软件CI及公开Windows84证据见h5-camera-align-20261117/code-ci-final.json。此记录自身文档目标另验。
