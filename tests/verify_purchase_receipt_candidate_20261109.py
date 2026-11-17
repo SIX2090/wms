@@ -15,6 +15,7 @@ def main():
     import hashlib
     import json
     import math
+    from collections import Counter
     from decimal import Decimal, ROUND_HALF_UP, localcontext
     from functools import wraps
     from pathlib import Path
@@ -75,6 +76,7 @@ def main():
         __tablename__ = 'synthetic_material'
         id = Column(Integer, primary_key=True)
         code = Column(String, unique=True)
+        status = Column(String, default='active')
     class Receipt(Base):
         __tablename__ = 'synthetic_receipt'
         __table_args__ = (UniqueConstraint('user_id', 'endpoint', 'request_key'),)
@@ -166,7 +168,7 @@ db.session.flush()
     synthetic_app = Flask('synthetic_candidate')
     user = types.SimpleNamespace(id=1, is_authenticated=True)
     warehouse = types.SimpleNamespace(name='合成仓')
-    env = {'request': request, 'g': g, 'jsonify': jsonify, 'json': json, 'hashlib': hashlib,
+    env = {'request': request, 'g': g, 'jsonify': jsonify, 'json': json, 'hashlib': hashlib, 'Counter': Counter,
            'math': math, 'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'localcontext': localcontext,
            'wraps': wraps, 'IntegrityError': IntegrityError, 'OperationalError': OperationalError,
            'db': types.SimpleNamespace(session=session), 'MobileApiRequest': Receipt, 'current_user': user,
