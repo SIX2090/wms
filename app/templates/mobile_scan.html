@@ -816,11 +816,13 @@
     function loadCheckOrders(wh) {
         if (!checkOrderSelect) return;
         var version = ++checkOrdersVersion;
-        if (!wh) { lastCheckWh = null; checkOrderSelect.innerHTML = ''; checkOrderSelect.disabled = true; return; }
+        if (!wh) { lastCheckWh = null; checkOrderSelect.innerHTML = ''; checkOrderSelect.disabled = true; refreshCheckProgress(); return; }
         if (lastCheckWh === wh) return; // 同仓库只拉一次
         lastCheckWh = wh;
+        checkOrderSelect.value = '';
         checkOrderSelect.innerHTML = '';
         checkOrderSelect.disabled = true;
+        refreshCheckProgress();
         if (checkOrderTip) checkOrderTip.classList.add('d-none');
         WMS.api.getRaw('/mobile/api/check_orders?warehouse=' + encodeURIComponent(wh))
 
@@ -829,7 +831,10 @@
                 checkOrderSelect.innerHTML = '';
                 var orders = (data && data.data && data.data.orders) || [];
                 if (!orders.length) {
-                    if (checkOrderTip) checkOrderTip.classList.remove('d-none');
+                    if (checkOrderTip) {
+                        checkOrderTip.textContent = '该仓库暂无进行中的盘点单，请先在电脑端「盘点管理」创建盘点单后再盘';
+                        checkOrderTip.classList.remove('d-none');
+                    }
                     checkOrderSelect.disabled = true;
                     return;
                 }
@@ -866,17 +871,18 @@
     var checkItemsList = document.getElementById('checkItemsList');
     var checkItemsToggle = document.getElementById('checkItemsToggle');
     var CHECK_LIST_MAX = 30;
+    var checkProgressVersion = 0;
 
     function renderCheckItems(items) {
         if (!checkItemsList) return;
         var pending = items.filter(function (it) { return !it.counted; });
         var html = '';
         pending.slice(0, CHECK_LIST_MAX).forEach(function (it) {
-            html += '<div class="check-item-row"><span class="check-item-code">' + esc(it.code) + '</span>'
-                + ' ' + esc(it.name)
-                + (it.spec ? ' · ' + esc(it.spec) : '')
-                + (it.brand ? ' · ' + esc(it.brand) : '')
-                + (it.area ? '（' + esc(it.area) + '）' : '')
+            html += '<div class="check-item-row"><span class="check-item-code">' + escapeHtml(it.code) + '</span>'
+                + ' ' + escapeHtml(it.name)
+                + (it.spec ? ' · ' + escapeHtml(it.spec) : '')
+                + (it.brand ? ' · ' + escapeHtml(it.brand) : '')
+                + (it.area ? '（' + escapeHtml(it.area) + '）' : '')
                 + '</div>';
         });
         if (!pending.length) {
@@ -889,14 +895,18 @@
 
     function refreshCheckProgress() {
         if (mode !== 'check' || !checkOrderSelect || !checkProgressBox) return;
+        var version = ++checkProgressVersion;
         var cid = checkOrderSelect.value;
-        if (!cid) {
-            checkProgressBox.classList.add('d-none');
-            return;
-        }
+        var warehouse = warehouseInput ? (warehouseInput.value || '').trim() : '';
+        checkProgressBox.classList.add('d-none');
+        checkProgressText.textContent = '';
+        if (checkItemsList) checkItemsList.innerHTML = '';
+        if (!cid) return;
         WMS.api.getRaw('/mobile/api/check_orders/' + encodeURIComponent(cid) + '/items')
 
             .then(function (data) {
+                if (version !== checkProgressVersion || cid !== checkOrderSelect.value
+                    || warehouse !== (warehouseInput ? (warehouseInput.value || '').trim() : '')) return;
                 var d = data && data.data;
                 if (!d) return;
                 var doneTip = (d.total > 0 && d.counted >= d.total) ? '，已全部盘完' : '';

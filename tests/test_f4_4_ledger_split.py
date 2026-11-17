@@ -628,3 +628,5 @@ POST_SPLIT_BUGS['BUG-2026-11-17-002'] = 'fixed'  # Refresh stock after batch war
 POST_SPLIT_BUGS['BUG-2026-11-17-003'] = 'fixed'  # Keep home alert warehouse scope.
 POST_SPLIT_BUGS['BUG-2026-11-17-004'] = 'fixed'  # Ledger labels follow actual outbound type.
 POST_SPLIT_BUGS['BUG-2026-11-17-005'] = 'fixed'  # Translate report network errors.
+POST_SPLIT_BUGS['BUG-2026-11-17-006'] = 'fixed'  # Use the shared escape function in stocktake rows.
+POST_SPLIT_BUGS['BUG-2026-11-17-007'] = 'fixed'  # Discard progress from obsolete stocktake contexts.
