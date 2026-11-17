@@ -83,6 +83,21 @@
 ## 交付与生效
 
 本批发行版本 `2026.11.86`；代码提交 `d39dc11d123c4a2dac3da54e1f5a77ac9387377a`。
-目标 SHA / 远端推送 / 三工作流验收：待记录。
+纠正代码/测试目标 `4d4481da41c0f9673818f7a782e88fb6007255ed` 已实际推送至 main，
+`git ls-remote origin refs/heads/main` 核验一致。该目标完整验收如下：
+
+- [WMS CI](https://github.com/SIX2090/wms/actions/runs/44012312710)：成功，三个
+  单测分片合计 16875 通过、207 跳过，另 1653 个子用例通过；四个 verify 分片、
+  lint、smoke、browser-material-entry 和 gate 均成功。跳过不计入通过数量。
+- [WMS AI Verification](https://github.com/SIX2090/wms/actions/runs/44012312750)：成功。
+- Android 因路径过滤无本目标构建；复用祖先
+  `266d6679133c453071856976af6ba21c2c8a6833` 的
+  [成功构建](https://github.com/SIX2090/wms/actions/runs/43838228216)。
+  `git merge-base --is-ancestor` 退出 0；该祖先到本目标的
+  `app/android-native-wms/` 和 `.github/workflows/android-build.yml` 差异为空，
+  `git diff --exit-code` 退出 0。本工作区其他未提交 Android 改动未纳入目标。
+- [性能基线](https://github.com/SIX2090/wms/actions/runs/44012312864)：成功。
+
+本记录后续纯文档提交按其自身精确目标验收，不改变上述代码验收目标。
 **生产需重启 WMS 服务生效**。本任务未进行生产部署或重启。
 生效确认：待用户按已验收发布版本现场核对，不把本地修复视为线上已生效。
