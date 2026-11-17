@@ -568,6 +568,23 @@
                     stopBarcodeStream(stream);
                     return Promise.resolve();
                 }
+                // Focus is optional: unsupported controls must not stop video or decoding.
+                try {
+                    var videoTracks = typeof stream.getVideoTracks === 'function' ? stream.getVideoTracks() : [];
+                    var cameraTrack = videoTracks[0];
+                    if (cameraTrack && cameraTrack.readyState !== 'ended' &&
+                            typeof cameraTrack.getCapabilities === 'function' &&
+                            typeof cameraTrack.applyConstraints === 'function') {
+                        var capabilities = cameraTrack.getCapabilities();
+                        if (capabilities && Array.isArray(capabilities.focusMode) &&
+                                capabilities.focusMode.indexOf('continuous') !== -1) {
+                            var focusRequest = cameraTrack.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+                            if (focusRequest && typeof focusRequest.catch === 'function') {
+                                focusRequest.catch(function() { /* Keep the camera's default focus on rejection. */ });
+                            }
+                        }
+                    }
+                } catch (ignored) { /* Camera capability support varies across browsers. */ }
                 return decodeFromStream.apply(reader, arguments);
             };
         }
@@ -1523,7 +1540,8 @@
     left: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
+    object-position: center;
 }
 .mobile-barcode-frame {
     position: absolute;
