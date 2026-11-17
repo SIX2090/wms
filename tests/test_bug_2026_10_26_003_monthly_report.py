@@ -1,4 +1,4 @@
-"""仓库月报：业务月份、仓库行集、连续结存及末月汇总。"""
+"""仓库月报：业务日期、仓库行集、连续结存及期间汇总。"""
 from datetime import date, datetime
 from urllib.parse import urlparse, parse_qs
 import io
@@ -73,7 +73,7 @@ def query(case, **changes):
     return response.get_json()
 
 
-def rows_for(data, code): return {r['month']: r for r in data['data'] if r['material_code'] == 'MONTH-' + code}
+def rows_for(data, code): return [r for r in data['data'] if r['material_code'] == 'MONTH-' + code]
 
 
 def test_warehouse_membership_and_empty_warehouse(monthly):
@@ -84,11 +84,15 @@ def test_warehouse_membership_and_empty_warehouse(monthly):
 
 
 def test_build_warehouse_monthly_report(monthly):
-    rows = rows_for(query(monthly), 'A')
-    assert [rows['2026-09'][k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [100,20,30,90]
-    assert [rows['2026-10'][k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [90,5,10,85]
-    assert rows['2026-09']['ending_quantity'] == rows['2026-10']['beginning_quantity']
-    assert rows['2026-10']['in_amount'] == 10
+    september = rows_for(query(monthly, start_month='2026-09', end_month='2026-09'), 'A')[0]
+    october = rows_for(query(monthly, start_month='2026-10', end_month='2026-10'), 'A')[0]
+    assert [september[k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [100,20,30,90]
+    assert [october[k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [90,5,10,85]
+    assert september['ending_quantity'] == october['beginning_quantity']
+    assert october['in_amount'] == 10
+    period = rows_for(query(monthly), 'A')
+    assert len(period) == 1
+    assert [period[0][k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [100,25,40,85]
 
 
 def test_period_summary_never_sums_monthly_balances_or_mixed_units(monthly):
@@ -98,8 +102,8 @@ def test_period_summary_never_sums_monthly_balances_or_mixed_units(monthly):
     assert [totals['米'][k] for k in ['beginning_quantity','in_quantity','out_quantity','ending_quantity']] == [10,0,1,9]
     for unit, total in totals.items():
         rows = [r for r in data['data'] if r['unit'] == unit]
-        assert total['beginning_quantity'] == sum(r['beginning_quantity'] for r in rows if r['month'] == '2026-09')
-        assert total['ending_quantity'] == sum(r['ending_quantity'] for r in rows if r['month'] == '2026-10')
+        assert total['beginning_quantity'] == sum(r['beginning_quantity'] for r in rows)
+        assert total['ending_quantity'] == sum(r['ending_quantity'] for r in rows)
         assert total['in_quantity'] == sum(r['in_quantity'] for r in rows)
         assert total['out_quantity'] == sum(r['out_quantity'] for r in rows)
 
@@ -112,9 +116,10 @@ def test_month_inputs_and_midmonth_dates_mean_whole_months(monthly):
 
 def test_zero_month_omitted_but_carry_forward_preserved(monthly):
     data = query(monthly)
-    assert set(rows_for(data, 'ZERO')) == {'2026-09'}
-    assert set(rows_for(data, 'CARRY')) == {'2026-09', '2026-10'}
-    assert all(r['ending_quantity'] == 9 for r in rows_for(data, 'CARRY').values())
+    assert len(rows_for(data, 'ZERO')) == 1
+    assert not rows_for(query(monthly, start_month='2026-10', end_month='2026-10'), 'ZERO')
+    assert len(rows_for(data, 'CARRY')) == 1
+    assert all(r['beginning_quantity'] == r['ending_quantity'] == 9 for r in rows_for(data, 'CARRY'))
     hidden = query(monthly, hide_zero='1')
     assert not rows_for(hidden, 'ZERO')
     assert hidden['summary']['unit_totals']  # totals use the visible full row set
@@ -124,7 +129,7 @@ def test_zero_actual_price_does_not_fall_back_to_current_price(monthly):
     with m.app.app_context():
         m.StockTransaction.query.filter_by(material_id=monthly['mats']['FREE']).update({'created_at':datetime(2026,10,13)})
         m.db.session.commit()
-    row = rows_for(query(monthly), 'FREE')['2026-10']
+    row = rows_for(query(monthly), 'FREE')[0]
     assert row['in_amount'] == 0
 
 
@@ -155,14 +160,14 @@ def test_export_and_template_print_use_full_rows(monthly):
         book = load_workbook(io.BytesIO(response.data),read_only=True)
         try: values=list(book.active.iter_rows(values_only=True))
         finally: book.close()
-        for row in expected: assert any(row['month'] in cells and row['material_code'] in cells for cells in values)
+        for row in expected: assert sum(row['material_code'] in cells for cells in values) == 1
 
 
 def test_monthly_link_matches_ledger(monthly):
-    row = rows_for(query(monthly), 'A')['2026-10']
+    row = rows_for(query(monthly), 'A')[0]
     args=parse_qs(urlparse(row['ledger_url']).query)
     assert args['material_id'] == [str(monthly['mats']['A'])]
-    assert args['start_date']==['2026-10-01'] and args['end_date']==['2026-10-31']
+    assert args['start_date']==['2026-09-01'] and args['end_date']==['2026-10-31']
     data=monthly['client'].get(row['ledger_url'].replace('/view/','/api/')).get_json()
     assert next(r for r in data['data'] if r['reference_type']=='本期合计')['balance_quantity']==85
 

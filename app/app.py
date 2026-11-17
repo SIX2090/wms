@@ -28600,15 +28600,15 @@ REPORT_DEFINITIONS = {
     },
     'warehouse_monthly': {
         'title': '仓库月报表',
-        'description': '按自然月和物料核对月初、本月收发及月末结存，数量按单位分别合计。',
+        'description': '按所选月份期间汇总，每种物料一行，核对期间期初、收发及期末结存。',
         'icon': 'bi-calendar3',
         'accent': 'primary',
         'summary_labels': {
-            'count': '月报行数',
-            'beginning_quantity': '首月期初',
+            'count': '物料数',
+            'beginning_quantity': '期初结存',
             'in_quantity': '期间入库',
             'out_quantity': '期间出库',
-            'ending_quantity': '末月结存',
+            'ending_quantity': '期末结存',
         },
         'summary_types': {
             'count': 'number',
@@ -29529,7 +29529,6 @@ def _ledger_columns():
 
 def _warehouse_monthly_columns():
     return [
-        {'field': 'month', 'title': '月份'},
         {'field': 'material_code', 'title': '物料编码', 'link_field': 'ledger_url'},
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},

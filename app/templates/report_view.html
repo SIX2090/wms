@@ -204,7 +204,7 @@
             <div class="col-md-3 d-flex align-items-end">
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="hideZero" name="hide_zero" value="1">
-                    <label class="form-check-label" for="hideZero">{{ '末月结存等于0不显示' if report_type == 'warehouse_monthly' else ('期末库存等于0不显示' if report_type == 'material_movement' else '库存等于0不显示') }}</label>
+                    <label class="form-check-label" for="hideZero">{{ '期末结存等于0不显示' if report_type == 'warehouse_monthly' else ('期末库存等于0不显示' if report_type == 'material_movement' else '库存等于0不显示') }}</label>
                 </div>
             </div>
             {% endif %}
@@ -228,8 +228,8 @@
 <div id="materialMovementCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>
 {% endif %}
 {% if report_type == 'warehouse_monthly' %}
-<div class="small text-muted mb-3">按完整自然月、单据业务日期统计已生效库存变动。首月期初＋期间入库－期间出库＝末月结存，各月结存不累加。数量按单位分别合计；点击物料编码联查当月台账。常规查询只显示本仓有期初或发生的物料，指定完整编码时可核对零记录。金额为参考估值，非财务成本。</div>
-<div id="monthlyReportCount" class="small text-muted mb-2" aria-live="polite">月报行数：0</div>
+<div class="small text-muted mb-3">按所选完整自然月期间、单据业务日期汇总已生效库存变动，每种物料一行。本年为年初至当前月。期初结存＋期间入库－期间出库＝期末结存。数量按单位分别合计；点击物料编码联查所选期间台账。常规查询只显示本仓有期初或发生的物料，指定完整编码时可核对零记录。金额为参考估值，非财务成本。</div>
+<div id="monthlyReportCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>
 {% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">
@@ -670,8 +670,8 @@ function renderSummary(summary) {
                 ? window.WMSMaterialMovement.formatUnitTotal(summary, key) : '—';
         });
         document.getElementById('monthlyReportCount').textContent = summary
-            ? `物料数：${summary.material_count || 0}；月报行数：${summary.count || 0}；月份：${summary.start_month} 至 ${summary.end_month}`
-            : '月报行数：—';
+            ? `物料数：${summary.material_count || 0}；统计期间：${summary.start_month} 至 ${summary.end_month}`
+            : '物料数：—';
         return;
     }
     if (typeof reportType !== 'undefined' && reportType === 'material_movement') {

@@ -25,11 +25,13 @@ if (scenario==='months') {
     const a=template.indexOf('function renderSummary('),b=template.indexOf('\nfunction renderTable(',a);
     ctx.reportType='warehouse_monthly';
     vm.runInContext(template.slice(a,b),ctx);
-    ctx.renderSummary({count:4,material_count:2,start_month:'2026-09',end_month:'2026-10',unit_totals:[
+    ctx.renderSummary({count:2,material_count:2,start_month:'2026-09',end_month:'2026-10',unit_totals:[
         {unit:'件',beginning_quantity:100,in_quantity:20,out_quantity:30,ending_quantity:90},
         {unit:'米',beginning_quantity:5,in_quantity:0,out_quantity:1,ending_quantity:4}]});
     assert.equal(nodes['summary-ending_quantity'].textContent,'90 件 / 4 米');
     assert(nodes.monthlyReportCount.textContent.includes('物料数：2'));
+    assert(nodes.monthlyReportCount.textContent.includes('统计期间：2026-09 至 2026-10'));
+    assert(!nodes.monthlyReportCount.textContent.includes('月报行数'));
     ctx.renderSummary(null);
     for(const key of ['beginning_quantity','in_quantity','out_quantity','ending_quantity']) assert.equal(nodes['summary-'+key].textContent,'—');
 } else throw Error(scenario);

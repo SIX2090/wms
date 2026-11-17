@@ -98,8 +98,10 @@ def _ledger_totals(wh, mat):
 def _monthly_row(wh, mat):
     _, rows, _ = _build_warehouse_monthly_report(_filters(wh, mat))
     month_str = date.today().strftime('%Y-%m')
-    hits = [r for r in rows if r['material_code'] == mat.code and r['month'] == month_str]
+    hits = [r for r in rows if r['material_code'] == mat.code]
     assert len(hits) == 1, f"月报应恰有 1 行（当月 {month_str}），实际 {len(hits)}"
+    assert 'month' not in hits[0]
+    assert 'start_date=' + month_str + '-01' in hits[0]['ledger_url']
     return hits[0]
 
 

@@ -630,3 +630,4 @@ POST_SPLIT_BUGS['BUG-2026-11-17-004'] = 'fixed'  # Ledger labels follow actual o
 POST_SPLIT_BUGS['BUG-2026-11-17-005'] = 'fixed'  # Translate report network errors.
 POST_SPLIT_BUGS['BUG-2026-11-17-006'] = 'fixed'  # Use the shared escape function in stocktake rows.
 POST_SPLIT_BUGS['BUG-2026-11-17-007'] = 'fixed'  # Discard progress from obsolete stocktake contexts.
+POST_SPLIT_BUGS['BUG-2026-11-17-008'] = 'fixed'  # Aggregate monthly report rows over the selected period.
