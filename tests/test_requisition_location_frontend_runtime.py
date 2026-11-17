@@ -91,12 +91,13 @@ const fields=Object.fromEntries(Object.entries(p.fields).map(([name,attrs])=>[na
 const rowValues={'.material-code':'M1','.unit-id':'1','.line-qty':'2','.line-price':'0','.line-usage':'用途','.line-remark':'备注','.row-num':''};
 const rows=Array.from({length:30},(_,index)=>{const nodes=Object.fromEntries(Object.entries(rowValues).map(([key,value])=>[key,new Field({value:index?'':value})]));return {querySelector:s=>nodes[s]||null};});
 const total={textContent:''},button={disabled:false};
+const tbody={rows,handlers:{},addEventListener(type,fn){this.handlers[type]=fn;}};
 const document={querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:fields[(s.match(/name="([^"]+)"/)||[])[1]]||null,
  querySelectorAll:s=>s==='#docTableBody tr'?rows:s==='.doc-header button, #forceCompleteBtn'?[button]:[],
- getElementById:id=>id==='docTableBody'?{rows}:id==='totalQty'?total:null,addEventListener:(type,fn)=>callbacks[type]=fn};
+ getElementById:id=>id==='docTableBody'?tbody:id==='totalQty'?total:null,addEventListener:(type,fn)=>callbacks[type]=fn};
 const ctx={document,FormData:class{},URLSearchParams,Event:class{constructor(type){this.type=type;}},showToast:(m,t)=>messages.push({m,t}),registerDetailRowActions(){},setTimeout:(fn,delay)=>timers.push({fn,delay}),location:{href:'/original'},fetch:(url,options)=>{if(url==='/warehouse/api/list')return Promise.resolve({ok:true,status:200,json:()=>Promise.resolve({warehouses:refresh})});sent.push({url,options,body:JSON.parse(options.body)});return new Promise((resolve,reject)=>pending.push({resolve,reject}));}};ctx.window=ctx;
 ctx.showDocumentCompletionIssue=(url,result)=>issues.push({url,result});
-vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.select_helper,ctx);vm.runInContext(p.cache,ctx);vm.runInContext(p.script,ctx);callbacks.DOMContentLoaded();
+vm.createContext(ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.select_helper,ctx);vm.runInContext(p.cache,ctx);vm.runInContext(p.code_paste,ctx);vm.runInContext(p.script,ctx);callbacks.DOMContentLoaded();
 const settle=async()=>{for(let i=0;i<4;i++)await new Promise(r=>setImmediate(r));};
 const finish=async(index,status='success')=>{pending[index].resolve({ok:true,status:200,json:()=>Promise.resolve({status,id:7,msg:'fixture'})});await settle();};
 const submit=()=>vm.runInContext('submitForm(true)',ctx);
@@ -148,7 +149,8 @@ def form_run(action,enabled=True,completed=False,location=LOCATION,role='product
     html=form(enabled,completed,role,location)
     script=re.search(r'<script>(.*?)</script>',html,re.S)
     assert script
-    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+script.group(1),helper=escape_helper(),select_helper=(ROOT/'app/static/js/select-refresh.js').read_text(encoding='utf-8'),cache=(ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8'),api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
+    code_paste = ROOT/'app/static/js/material-code-paste.js'
+    return node(FORM_PROGRAM,dict(action=action,location=location,fields=Markup(html).fields,script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+script.group(1),helper=escape_helper(),select_helper=(ROOT/'app/static/js/select-refresh.js').read_text(encoding='utf-8'),cache=(ROOT/'app/static/js/material-cache.js').read_text(encoding='utf-8'),code_paste=code_paste.read_text(encoding='utf-8') if code_paste.exists() else '',api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8')))
 
 
 @pytest.mark.parametrize('enabled',[False,True])

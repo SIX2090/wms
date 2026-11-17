@@ -241,6 +241,9 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                 <button type="button" class="btn btn-outline-secondary" onclick="refreshMaterials()"><i class="bi bi-arrow-clockwise"></i> 刷新物料</button>
             </div>
             <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；数量回车到单价，无单价时到下一行；单价回车到下一行。输入中文时回车仅确认汉字。</div>
+            {% if doc_type == 'requisition' and not readonly %}
+            <div class="text-muted small mb-2">可从 Excel / WPS 复制一列物料编码，在空白编码格直接粘贴，自动逐行带出物料；数量留空，请填写领料数量后保存。</div>
+            {% endif %}
             {% endif %}
 
             {# INV-BATCH-001-D：盘点批次进度与回查（PC 盘点单即批次） #}
@@ -362,6 +365,9 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
 <script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script src="{{ url_for('static', filename='js/decimal-input.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+{% if doc_type == 'requisition' %}
+<script src="{{ url_for('static', filename='js/material-code-paste.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+{% endif %}
 <script src="{{ url_for('static', filename='js/material-picker-keyboard.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>
 const docType = {{ doc_type|tojson }};
@@ -1120,6 +1126,12 @@ function refreshWarehouses() {
 document.addEventListener('click', function(e) { if (activeDropdown && !e.target.closest('.material-input')) hideDropdown(); });
 document.addEventListener('DOMContentLoaded', function() {
     WMS.materialCache.bindWarehouse(materials);
+    if (docType === 'requisition' && !readonly && documentRoleAllowed) WMS.bindMaterialCodePaste({
+        bodyId: 'docTableBody', materials,
+        enabled: () => !submitForm.pending && !submitForm.completed,
+        createRow: () => createRow(null), renumberRows, quantitySelector: '.line-qty',
+        fillRow: fillMaterialFields
+    });
     bindRequisitionLocationWarehouse();
     existingItems.forEach(item => createRow(item));
     while (document.getElementById('docTableBody').rows.length < Math.max(minRowCount, existingItems.length)) createRow(null);
