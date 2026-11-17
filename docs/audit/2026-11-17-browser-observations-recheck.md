@@ -64,7 +64,20 @@
   `wms.synthetic.b5f8a337c0004160891e5e4b25ae4378`，清理及运行绑定均通过。
   记录为 `observation-modules-baseline-output.txt`、
   `observation-modules-candidate-output.txt` 及同名 result.json，位于本轮隔离目录。
-- 发行版本 2026.11.87，静态规则检查 0 违规。精确推送目标及 CI：推送后记录。
+- 发行版本 2026.11.87，静态规则检查 0 违规。代码目标
+  `5775ac0b093128858f8165db853b81fb3b238cb1` 已实际推送 main，ls-remote 核验一致。
+  [WMS CI](https://github.com/SIX2090/wms/actions/runs/44028699266) 与
+  [WMS AI Verification](https://github.com/SIX2090/wms/actions/runs/44028699265)
+  均成功。四个 verify、静态、浏览器、smoke 先后通过；三个单测分片和最终汇总
+  随后通过。连接器末次查询遇到传输故障后，以公开 Actions 页面完整 SHA
+  提交链接和 Status=Success 再次核验；未使用其他 SHA 的绿灯替代。
+- Android 路径过滤未触发本目标构建；复用祖先
+  `266d6679133c453071856976af6ba21c2c8a6833` 的
+  [成功构建](https://github.com/SIX2090/wms/actions/runs/43838228216)。祖先判断退出0，
+  该祖先到目标的 `app/android-native-wms/` 与 `.github/workflows/android-build.yml`
+  差异为空、diff 退出0；工作区其他未提交 Android 改动没有纳入该目标。
+  公开页面的三个成功 SHA 回执保存在 `observations-ci-page-receipt.json`。
+- 后续纯文档提交按其自身目标验收，不改变上述代码、浏览器与246项回归结论。
 - 真机、摄像头/扫码枪、实体打印、真实断网、外部 AI/微信未实测。
 
 生产需重启 WMS 服务生效。本任务不部署、不重启生产服务；不以模拟网络失败
