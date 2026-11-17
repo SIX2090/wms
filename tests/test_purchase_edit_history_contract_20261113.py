@@ -1,6 +1,7 @@
 """Actual purchase save source on explicit fake ORM; no app/DB/network/children."""
 import ast
 import builtins
+from collections import Counter
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, localcontext
@@ -41,7 +42,7 @@ def extract(path, names):
 class PurchaseEditHistoryContract(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.env = dict(Decimal=Decimal, InvalidOperation=InvalidOperation, ROUND_HALF_UP=ROUND_HALF_UP,
+        cls.env = dict(Counter=Counter, Decimal=Decimal, InvalidOperation=InvalidOperation, ROUND_HALF_UP=ROUND_HALF_UP,
                        localcontext=localcontext, math=math, json=json,
                        jsonify=lambda data: data, api_error=lambda message, status=400: (
                            {'status': 'error', 'msg': message}, status),
@@ -110,8 +111,8 @@ class PurchaseEditHistoryContract(unittest.TestCase):
                     amount=amount, received_quantity=0, purchase_request_item_id=700, remark='old line')
         self.order = Order(id=1, order_no='PO-SYN-HISTORY', status='pending', items=[line],
                             total_amount=9.99, purchase_request_id=77)
-        self.materials = {3: SimpleNamespace(id=3, code='B-M', price=3.5),
-                          4: SimpleNamespace(id=4, code='NEW', price=5)}
+        self.materials = {3: SimpleNamespace(id=3, code='B-M', price=3.5, status='active'),
+                          4: SimpleNamespace(id=4, code='NEW', price=5, status='active')}
         material_model = SimpleNamespace(query=SimpleNamespace(filter_by=lambda **kwargs:
             SimpleNamespace(first=lambda: next((m for m in self.materials.values() if m.code == kwargs['code']), None))))
         supplier_model = object()

@@ -1,6 +1,7 @@
 """Actual save AST with explicit fake ORM; current non-NULL model declarations checked."""
 import ast
 import builtins
+from collections import Counter
 from copy import deepcopy
 from datetime import date,datetime
 from decimal import Decimal,ROUND_HALF_UP,localcontext
@@ -36,7 +37,7 @@ class AfterSaleHistoryContract(unittest.TestCase):
         for field in('quantity','price','amount'):
             declaration=next(n for n in model.body if isinstance(n,ast.Assign) and any(isinstance(t,ast.Name) and t.id==field for t in n.targets))
             assert any(k.arg=='nullable' and isinstance(k.value,ast.Constant) and k.value.value is False for k in declaration.value.keywords),field
-        cls.env=dict(date=date,datetime=datetime,Decimal=Decimal,ROUND_HALF_UP=ROUND_HALF_UP,localcontext=localcontext,json=json,math=math,
+        cls.env=dict(Counter=Counter,date=date,datetime=datetime,Decimal=Decimal,ROUND_HALF_UP=ROUND_HALF_UP,localcontext=localcontext,json=json,math=math,
             jsonify=lambda x:x,api_error=lambda message,status=400:({'status':'error','msg':message},status),
             log_operation=lambda *args:None,generate_order_no=lambda *args:'ASO-SYN-NEW',
             assert_warehouse_active=lambda *args,**kwargs:(True,''),location_management_enabled=lambda:False,
@@ -72,7 +73,7 @@ class AfterSaleHistoryContract(unittest.TestCase):
         line=Item(id=10,after_sale_out_order_id=1,material_id=3,quantity=quantity,price=price,amount=amount,
             contract_id=7,contract_no='SYN-C',project_name='合成工程',remark='old line')
         self.order.items=[line];self.item_model=Item
-        self.materials={3:NS(id=3,code='B-M',price=99),4:NS(id=4,code='NEW',price=5)}
+        self.materials={3:NS(id=3,code='B-M',price=99,status='active'),4:NS(id=4,code='NEW',price=5,status='active')}
         material_model=NS(query=NS(filter_by=lambda **kw:NS(first=lambda:next((m for m in self.materials.values() if m.code==kw['code']),None))))
         self.payload=dict(order_id=1,warehouse_id=5,reason='合成售后',remark='header changed only',
             items=[dict(line_id=10,code='B-M',quantity=str(quantity),price=str(price),remark='line note')])

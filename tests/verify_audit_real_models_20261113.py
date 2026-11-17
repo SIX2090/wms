@@ -13,6 +13,7 @@ import sys
 def main():
     import ast
     import builtins
+    from collections import Counter
     from datetime import date, datetime, timedelta
     from decimal import Decimal, ROUND_HALF_UP, localcontext
     import hashlib
@@ -57,7 +58,7 @@ def main():
     app.config.update(SECRET_KEY='synthetic-source-model-secret', SQLALCHEMY_DATABASE_URI='sqlite://',
                       SQLALCHEMY_ENGINE_OPTIONS={'creator': lambda: memory_connect(':memory:')})
     db = SQLAlchemy(app)
-    ns = dict(db=db, datetime=datetime, timedelta=timedelta, date=date, UserMixin=UserMixin,
+    ns = dict(db=db, Counter=Counter, datetime=datetime, timedelta=timedelta, date=date, UserMixin=UserMixin,
               Decimal=Decimal, ROUND_HALF_UP=ROUND_HALF_UP, localcontext=localcontext,
               hashlib=hashlib, json=json, math=math, func=func, cast=cast, String=String,
               current_app=current_app, URLSafeTimedSerializer=URLSafeTimedSerializer,

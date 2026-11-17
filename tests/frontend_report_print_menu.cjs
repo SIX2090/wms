@@ -27,7 +27,10 @@ const keyEnd = source.indexOf('\nloadPrintTemplates();', key);
 const standard = source.indexOf('const MAX_PRINT_ROWS = 10000;');
 const standardEnd = source.indexOf('\nfunction captureReportPrintContext(', standard);
 assert(first >= 0 && last > first && key >= 0 && keyEnd > key && standardEnd > standard);
-vm.runInContext(source.slice(first, last) + '\n' + source.slice(key, keyEnd) + '\n' + source.slice(standard, standardEnd), context);
+const errorStart = source.indexOf('function reportErrorMessage(');
+const errorEnd = source.indexOf('\nasync function loadData(', errorStart);
+assert(errorStart >= 0 && errorEnd > errorStart);
+vm.runInContext(source.slice(errorStart, errorEnd) + '\n' + source.slice(first, last) + '\n' + source.slice(key, keyEnd) + '\n' + source.slice(standard, standardEnd), context);
 (async () => {
   if (['outside', 'inside', 'management'].includes(scenario)) {
     const target = { inside: scenario !== 'outside', closest() { return scenario === 'management' ? {} : null; } };

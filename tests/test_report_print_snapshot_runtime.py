@@ -57,7 +57,9 @@ const context={console,URLSearchParams,Date,reportType,reportTitle:'实际报表
  window:{print(){prints++;renderSnapshots.push(area.innerHTML)}},setLoading(value){load.push(value)},renderTruncation(){},
  fetch(url){requests.push(new URL(url,'http://isolated.test'));return new Promise((resolve,reject)=>pending.push({resolve,reject}))}};
 vm.createContext(context);
-vm.runInContext(shared.slice(escapeStart,escapeEnd)+'\n'+src.slice(formatStart,formatEnd)+'\n'+src.slice(start,end),context);
+const errorStart=src.indexOf('function reportErrorMessage('),errorEnd=src.indexOf('\nasync function loadData(',errorStart);
+assert(errorStart>=0&&errorEnd>errorStart);
+vm.runInContext(shared.slice(escapeStart,escapeEnd)+'\n'+src.slice(formatStart,formatEnd)+'\n'+src.slice(errorStart,errorEnd)+'\n'+src.slice(start,end),context);
 function reply(index,overrides={},httpOK=true){
  pending[index].resolve({ok:httpOK,json:async()=>({status:'success',columns:[{field:'quantity',title:'数量',type:'number'}],
  data:[{quantity:7}],summary:{count:1,quantity:7,amount:14},summary_labels:{count:'本次记录',quantity:'本次数量',amount:'本次金额'},

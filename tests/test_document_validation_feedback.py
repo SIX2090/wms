@@ -30,7 +30,7 @@ def run(page, action, scenario):
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);
 let focused='',messages=[],alerts=0,calls=[],removed=false,calcs=0;
-function input(key,value){return {value,style:{},focus(){focused=key;},options:[]};}
+function input(key,value){return {value,style:{},focus(){focused=key;},dispatchEvent(event){assert.equal(event.type,'change');assert.equal(event.bubbles,true);},options:[]};}
 const fields={};Object.entries({date:'2026-10-21',customer:'Acme',department_id:'3',warehouse_id:'2',location:'A',order_id:'',order_no:'TEST',business_type:'领料单',picker:'Tester',remark:'Note'}).forEach(([k,v])=>fields[k]=input(k,v));
 const ids={sourceInOrderNo:input('source','IN-1'),sourceInOrderId:input('sourceId','7'),batchUpdateField:input('batchField','quantity'),batchUpdateValue:input('batchValue','5'),batchUpdateWarehouse:input('batchWarehouse','2'),batchUpdateModal:{remove(){removed=true;}}};
 const line={};Object.entries({'.material-code':'M1','.material-qty':'2','.material-price':'1','.line-contract-no':'C1','.line-project-name':'P1','.material-remark':'R1','.line-source-in-item-id':'9','.material-batch-no':'old','.material-expiry':'2026-12-01'}).forEach(([k,v])=>line[k]=input(k,v));
@@ -69,6 +69,7 @@ if(purchase)delete fields.picker;
 const initial=JSON.stringify(Object.fromEntries(Object.entries(line).map(([k,v])=>[k,v.value])));
 const document={querySelector:s=>{const m=s.match(/name="([^"]+)"/);return m?fields[m[1]]||null:s==='#materialTableBody .material-code'?line['.material-code']:null;},querySelectorAll:s=>s==='#materialTableBody tr'?rows:[],getElementById:id=>ids[id]||null};
 const ctx={document,isSaleOrder:sale,isPurchaseReturn:purchase,isOtherOut:other,purchaseReturnRequiresOrder:true,outOrderSubmitting:false,returnAddUrl:'/out_order/add',window:{location:{href:'original'}},showToast:(m,t)=>messages.push({m,t}),alert:()=>alerts++,confirm:()=>true,calcAmount:()=>calcs++,calcTotal:()=>calcs++,WMS:{api:{postRaw:(url,data)=>{calls.push({url,data});return Promise.resolve({status:'success',id:8});}}}};
+ctx.Event=class{constructor(type,options){this.type=type;Object.assign(this,options);}};
 ctx.window.WMS=ctx.WMS;ctx.window.showToast=ctx.showToast;vm.createContext(ctx);vm.runInContext(p.source,ctx);
 (async()=>{await ctx[p.action]();await new Promise(r=>setImmediate(r));
 assert.equal(alerts,0,'no blocking native alert');
