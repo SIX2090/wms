@@ -43,9 +43,11 @@ android {
         // 3.9.19(43): readable quantities, persistent input errors and scoped queue status.
         // 3.9.22(46): retain complete warehouse and party identities at large font sizes.
         // 3.9.25(49): current-workbench polish, complete labels and aligned action areas.
+        // 3.9.26(50): checkpoint of the reviewed workbench layout; visual approval remains pending.
         // 3.9.31(55): distinguish this verified mobile release for Android updates.
-        versionCode = 57
-        versionName = "3.9.33"
+        // 3.9.34(58): deep indigo palette, immersive home header, unified card elevation.
+        versionCode = 58
+        versionName = "3.9.34"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

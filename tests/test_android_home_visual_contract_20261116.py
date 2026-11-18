@@ -13,7 +13,8 @@ def test_home_guards_reject_invisible_title_and_selector_regressions():
     for old, new in (
         ('.background(Primary.readableOn(Color.White))', '.background(Color.White)'),
         ('contentColor = Color.White', 'contentColor = Color.Black'),
-        ('Text("今日概览"', 'Text("其他标题"'),
+        # 2026-11-18 沉浸式品牌头：标题文案锁由「今日概览」改为问候语渲染点。
+        ('Text(greeting', 'Text("其他标题"'),
     ):
         changed = source.replace(old, new)
         assert changed != source

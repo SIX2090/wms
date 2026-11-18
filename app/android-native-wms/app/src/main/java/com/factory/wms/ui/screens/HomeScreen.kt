@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalDensity
 import com.factory.wms.ui.components.WmsAdaptiveRecord
 import com.factory.wms.ui.components.WmsQuantityText
@@ -35,6 +36,7 @@ import com.factory.wms.ui.util.quantityDisplayText
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.home.HomeViewModel
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -199,6 +201,22 @@ fun HomeScreen(
     }
 }
 
+/**
+ * 时段问候语（2026-11-18 沉浸式品牌头）。
+ *
+ * 固定写「早上好」会让夜班人员 20 点看到「早上好」，因此按设备小时分档。
+ * 抽成纯函数是为了让守卫与 Robolectric 断言能锁定四条分支，而不依赖跑测试的钟点。
+ */
+internal fun greetingForHour(hour: Int): String = when (hour) {
+    in 5..10 -> "早上好"
+    in 11..12 -> "上午好"
+    in 13..17 -> "下午好"
+    else -> "晚上好"
+}
+
+/** 当前设备时段的问候语。 */
+internal fun currentGreeting(): String = greetingForHour(Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
+
 /** 与真实首页共用的无副作用视图；数据、仓库和导航仍由原 ViewModel 提供。 */
 @Composable
 internal fun HomeWorkbench(
@@ -218,43 +236,29 @@ internal fun HomeWorkbench(
             .replace("星期", "星\u2060期\u2060")
     }
     val largeFont = LocalDensity.current.fontScale > 1.6f
+    val greeting = remember { currentGreeting() }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Column(Modifier.fillMaxWidth().background(Primary.readableOn(Color.White))
-            .padding(horizontal = 16.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 20.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("WMS 仓库管理", style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("仓库工作台 · $today", style = MaterialTheme.typography.bodyMedium, color = Color.White)
-                }
-                IconButton(onClick = onLogout, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                    Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = Color.White)
-                }
-            }
-            if (!largeFont) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("今日概览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
-                        WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
-                            selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
-                            showDefaultWarehouse = false, allowAll = false, contentColor = Color.White,
-                            modifier = Modifier.background(Color.Black.copy(alpha = 0.12f), MaterialTheme.shapes.medium))
-                    }
-                }
-            } else {
-                Column(Modifier.fillMaxWidth()) {
-                    Text("今日概览", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
-                    Text("当前仓库", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                Box(Modifier.weight(1f)) {
                     WarehouseSelector(currentLabel = dashboard?.warehouse, warehouses = warehouses,
                         selectedId = selectedWarehouseId, onSelect = onSelectWarehouse,
                         showDefaultWarehouse = false, allowAll = false, contentColor = Color.White,
                         modifier = Modifier.background(Color.Black.copy(alpha = 0.12f), MaterialTheme.shapes.medium))
                 }
+                IconButton(onClick = onLogout, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                    Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = Color.White)
+                }
             }
+            Spacer(Modifier.height(14.dp))
+            Text(greeting, style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.height(6.dp))
+            Text("$today · 今天有 ${dashboard?.pendingInOrders ?: 0} 单入库待处理",
+                style = MaterialTheme.typography.bodyMedium, color = Color.White)
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             when {
                 dashboard != null -> TodayOverviewBar(dashboard, onNavigate)
@@ -277,11 +281,17 @@ private fun HomeTileGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit
         cards.chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { card ->
+                    val accent = card.gradient.first().readableOn(CardBackground)
+                    val chip = accent.copy(alpha = 0.10f).compositeOver(CardBackground)
                     Card(onClick = { onNavigate(card.screen) }, modifier = Modifier.weight(1f).fillMaxHeight().heightIn(min = 96.dp),
                         shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = CardBackground)) {
                         Column(Modifier.fillMaxSize().padding(horizontal = 4.dp, vertical = 10.dp), verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(28.dp))
+                            Surface(color = chip, shape = RoundedCornerShape(12.dp)) {
+                                Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+                                    Icon(card.icon, null, tint = accent.readableOn(chip), modifier = Modifier.size(24.dp))
+                                }
+                            }
                             Spacer(Modifier.height(8.dp))
                             Text(card.title, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
                                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, softWrap = true)
@@ -296,20 +306,23 @@ private fun HomeTileGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit
 
 @Composable
 private fun HomeSectionTitle(title: String) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.width(3.dp).height(14.dp).background(Primary, RoundedCornerShape(2.dp)))
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+    }
 }
 
 @Composable
 private fun HomePrimaryTask(card: FunctionCard, modifier: Modifier, onClick: () -> Unit) {
     val outbound = card.screen == Screen.Outbound
-    val fill = if (outbound) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.primaryContainer
-    val foreground = if (outbound) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onPrimaryContainer
-    Card(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium,
+    val fill = if (outbound) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary
+    val foreground = if (outbound) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onPrimary
+    Card(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(containerColor = fill)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(card.icon, null, tint = foreground, modifier = Modifier.size(22.dp))
+                Icon(card.icon, null, tint = foreground, modifier = Modifier.size(24.dp))
                 Text(card.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, color = foreground)
             }
@@ -323,22 +336,23 @@ private fun HomePrimaryTask(card: FunctionCard, modifier: Modifier, onClick: () 
 @Composable
 private fun HomeEntryGrid(cards: List<FunctionCard>, onNavigate: (Screen) -> Unit) {
     val columns = if (LocalDensity.current.fontScale > 1.3f) 1 else 2
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Surface(color = CardBackground, shape = MaterialTheme.shapes.large) {
+      Column {
         cards.chunked(columns).forEach { row ->
-            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
                 row.forEach { card -> FunctionCardItem(card, Modifier.weight(1f).fillMaxHeight()) { onNavigate(card.screen) } }
-                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
             }
         }
+      }
     }
 }
 
 @Composable
 private fun HomeEntryRow(card: FunctionCard, showSubtitle: Boolean = true, onClick: () -> Unit) {
-    Surface(onClick = onClick, color = CardBackground, shape = MaterialTheme.shapes.medium) {
+    Surface(onClick = onClick, color = CardBackground, shape = MaterialTheme.shapes.large) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(22.dp))
+            HomeModuleIcon(card)
             Column(Modifier.weight(1f)) {
                 Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
                 if (showSubtitle) Text(card.subtitle, style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
@@ -350,11 +364,24 @@ private fun HomeEntryRow(card: FunctionCard, showSubtitle: Boolean = true, onCli
 
 @Composable
 fun FunctionCardItem(card: FunctionCard, modifier: Modifier = Modifier, index: Int = 0, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier.heightIn(min = 80.dp), shape = MaterialTheme.shapes.medium,
+    Card(onClick = onClick, modifier = modifier.heightIn(min = 64.dp), shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = CardBackground)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(card.icon, null, tint = card.gradient.first().readableOn(CardBackground), modifier = Modifier.size(24.dp))
-            Text(card.title, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HomeModuleIcon(card)
+            Text(card.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        }
+    }
+}
+
+@Composable
+private fun HomeModuleIcon(card: FunctionCard) {
+    val background = CardBackground
+    val accent = card.gradient.first().readableOn(background)
+    val iconBackground = accent.copy(alpha = 0.08f).compositeOver(background)
+    Surface(color = iconBackground, shape = MaterialTheme.shapes.small) {
+        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+            Icon(card.icon, null, tint = accent.readableOn(iconBackground), modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -370,11 +397,16 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val labelWidth = with(LocalDensity.current) { MaterialTheme.typography.bodyMedium.fontSize.toDp() * 4 + 8.dp }
     val columns = if (LocalDensity.current.fontScale > 1.3f || maxWidth < labelWidth * 4) 2 else 4
-    Surface(color = CardBackground, shape = MaterialTheme.shapes.medium) {
+    Surface(color = CardBackground, shape = MaterialTheme.shapes.medium, shadowElevation = 1.dp) {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             entries.chunked(columns).forEach { row ->
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-                    row.forEach { (data, screen) ->
+                    row.forEachIndexed { index, entry ->
+                        val (data, screen) = entry
+                        if (index > 0) {
+                            Box(Modifier.fillMaxHeight().width(1.dp).padding(vertical = 12.dp)
+                                .background(DividerSoft))
+                        }
                         Column(Modifier.weight(1f).fillMaxHeight().clickable { onNavigate(screen) }
                             .heightIn(min = 48.dp).padding(horizontal = 1.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,

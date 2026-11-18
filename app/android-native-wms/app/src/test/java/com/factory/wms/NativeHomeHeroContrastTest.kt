@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.factory.wms.data.model.DashboardDto
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.screens.HomeWorkbench
+import com.factory.wms.ui.screens.currentGreeting
 import com.factory.wms.ui.theme.WmsTheme
 import com.factory.wms.ui.theme.contrastRatio
 import org.junit.*
@@ -50,7 +51,9 @@ class NativeHomeHeroContrastTest(private val scale: Float, private val dark: Boo
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         compose.runOnIdle { view.draw(Canvas(bitmap)) }
         val background = Color(bitmap.getPixel(2, 2))
-        for (label in listOf("今日概览", "当前仓库")) {
+        // 2026-11-18 沉浸式品牌头：Hero 首屏文案由「今日概览 / 当前仓库」改为时段问候语；
+        // 断言语义不变——Hero 深底上的文字必须完整不截断、与深底对比度 ≥4.5。
+        for (label in listOf(currentGreeting())) {
             val layouts = mutableListOf<TextLayoutResult>()
             val text = compose.onNodeWithText(label).assertIsDisplayed()
             text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }

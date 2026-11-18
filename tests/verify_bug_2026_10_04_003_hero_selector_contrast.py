@@ -58,12 +58,13 @@ def test_003_selector_has_content_color_param() -> None:
 
 
 def test_003_home_selector_uses_theme_foreground_on_surface() -> None:
-    # 用户确认恢复蓝色 Hero；两种字号布局都必须明确使用高对比白色前景。
+    # 2026-11-18 用户授权沉浸式品牌头：Hero 内只剩一个仓库切换器
+    # （旧版为「普通字号 / 大字号」两个分支各一份）。白色前景要求不放宽。
     src = _read(HOME)
     hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
     assert '.background(Primary.readableOn(Color.White))' in hero
     selectors = re.findall(r'WarehouseSelector\((.*?)\)', hero, re.S)
-    assert len(selectors) == 2
+    assert len(selectors) == 1, f"Hero 内应只有一个仓库切换器，实际 {len(selectors)}"
     for selector in selectors:
         assert 'contentColor = Color.White' in selector
         assert 'selectedId = selectedWarehouseId' in selector

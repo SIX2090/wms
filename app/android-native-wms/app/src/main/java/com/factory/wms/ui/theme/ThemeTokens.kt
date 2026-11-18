@@ -66,13 +66,13 @@ val BorderSoft: Color
     @ReadOnlyComposable
     get() = MaterialTheme.wmsColors.border
 
-/** 品牌主色 → colorScheme.primary（亮 4361EE / 暗 7B8FF7）。 */
+/** 品牌主色 → colorScheme.primary（亮 3F51B5 深靛蓝 / 暗 A5B4FC）。 */
 val Primary: Color
     @Composable
     @ReadOnlyComposable
     get() = MaterialTheme.colorScheme.primary
 
-/** 主色浅底 → colorScheme.primaryContainer（亮 E8ECFD / 暗 2D3FBF）。 */
+/** 主色浅底 → colorScheme.primaryContainer（亮 E8EAF6 / 暗 2E3A78）。 */
 val PrimaryContainer: Color
     @Composable
     @ReadOnlyComposable

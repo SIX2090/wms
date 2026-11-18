@@ -11,6 +11,7 @@ import com.factory.wms.data.model.DashboardDto
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.screens.HomeWorkbench
+import com.factory.wms.ui.screens.currentGreeting
 import com.factory.wms.ui.theme.WmsTheme
 import org.junit.*
 import org.junit.Assert.*
@@ -45,7 +46,8 @@ class NativeHomeBaselineTest {
         disposeComposeActivity(activity)
     }
     @Test fun baselineKeepsFourOverviewLinksAndThreePrimaryTiles() {
-        compose.onNodeWithText("WMS 仓库管理").assertIsDisplayed()
+        // 2026-11-18 沉浸式品牌头：品牌标题让位给时段问候语（暂无仓库名的人称后缀）。
+        compose.onNodeWithText(currentGreeting()).assertIsDisplayed()
         compose.onNodeWithText("一号仓").assertIsDisplayed()
         compose.onNodeWithText("126").assertIsDisplayed()
         compose.onNodeWithText("84").assertIsDisplayed()

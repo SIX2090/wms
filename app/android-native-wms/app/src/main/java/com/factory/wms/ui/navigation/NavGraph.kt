@@ -46,7 +46,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.NavHostController
@@ -558,7 +557,8 @@ internal fun WmsBottomBar(
                         selectedTextColor = selectedForeground,
                         unselectedIconColor = unselectedForeground,
                         unselectedTextColor = unselectedForeground,
-                        indicatorColor = Color.Transparent
+                        // 2026-11-17 视觉批次：选中态用主色淡底药丸，取代"仅靠图标填充+加粗"
+                        indicatorColor = selectedForeground.copy(alpha = 0.14f)
                     )
                 )
                 }

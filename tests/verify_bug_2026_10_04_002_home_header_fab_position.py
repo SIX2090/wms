@@ -14,9 +14,13 @@
 
 ## 修复约定（本测试锁死）
 
-1. HomeScreen 的「今日概览」标题行渲染在 Hero（蓝底）内——不得再出现在
+1. HomeScreen 的 Hero 标题区渲染在 Hero（主题主色底）内——不得再出现在
    半悬浮 offset Column 里；2026-10-30用户新要求将三态（成功/骨架/失败）
    卡片改为正常文档流，原标题可读及语音避让断言保留。
+   2026-11-18 用户授权改为沉浸式品牌头（时段问候语 + 单行仓库切换器 + 退出），
+   本守则由「锁死旧标题文案」改为「锁死业务意图」：无 offset、深底白字、
+   仓库切换器仍在 Hero 内且可点。旧文案锁（仓库工作台/今日概览/当前仓库）
+   随之退役，见 test_002_title_and_warehouse_use_theme_surface。
 2. VoiceAssistant 的 FAB modifier 必须含 `navigationBarsPadding()` 且
    底部 padding ≥ 80dp（M3 NavigationBar 高 80dp）。
 3. BUG-2026-10-04-002 必须登记台账（含「生效确认」字段，A13）。
@@ -30,6 +34,7 @@
 # 2026-11-15 用户授权中性工作台：旧蓝底白字约束改为实际主题表面/前景，
 # 原标题不裁切、仓库可用和语音 FAB 避让的业务与布局要求继续保留。
 # 2026-11-16 用户确认恢复蓝色首页，守卫回到蓝底白字并保留上述业务约束。
+# 2026-11-18 用户授权沉浸式品牌头，改写 4 条旧字符串锁（保留无 offset / 白字 / 可点）。
 from __future__ import annotations
 
 import re
@@ -62,16 +67,34 @@ def test_002_title_row_not_inside_floating_offset_column() -> None:
 
 
 def test_002_title_and_warehouse_use_theme_surface() -> None:
-    # 2026-11-16 用户确认恢复蓝色工作台：仍锁定标题、仓库、前景与无重叠。
+    # 2026-11-18 用户明确授权把首页 Hero 改为沉浸式品牌头（时段问候语 + 单行仓库切换器 + 退出），
+    # 并授权同步改写本节 4 条旧字符串锁。**业务意图一条不丢**：
+    #   ① 标题不得进入 offset 悬浮列（行高超预留就会被白底裁切）；
+    #   ② Hero 深底必须白字，且底色必须来自 Primary.readableOn(Color.White)；
+    #   ③ 仓库切换器必须仍在 Hero 内、仍带白色前景、仍可点（onSelect 未被丢弃）。
     src = _read(HOME)
     hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
-    assert 'Text("仓库工作台 · $today"' in hero
-    assert 'Text("今日概览"' in hero and 'Text("当前仓库"' in hero
-    assert '.background(Primary.readableOn(Color.White))' in hero
-    assert hero.count('WarehouseSelector(') == 2
-    assert hero.count('contentColor = Color.White') == 2
-    assert 'verticalScroll(rememberScrollState())' in hero
-    assert 'Modifier.offset' not in src
+    greeter = src.split('internal fun greetingForHour(', 1)[1].split('internal fun HomeWorkbench(', 1)[0]
+    # ① 时段问候语：四条分支齐全，避免夜班人员看到「早上好」
+    for branch in ('"早上好"', '"上午好"', '"下午好"', '"晚上好"'):
+        assert branch in greeter, f"问候语缺少 {branch} 分支"
+    assert "Text(greeting" in hero, "问候语未渲染到 Hero 内"
+    # ② 副标题保留日期与当日待处理单量（原「仓库工作台 · 日期」的信息不丢）
+    assert "$today · 今天有 " in hero, "副标题丢失日期"
+    assert "单入库待处理" in hero, "副标题丢失当日待处理单量"
+    # ③ Hero 底色与白字前景（BUG-002 的裁切/不可见根因）
+    assert ".background(Primary.readableOn(Color.White))" in hero
+    assert "color = Color.White" in hero, "Hero 内文字未显式使用白色前景"
+    # ④ 仓库切换器：Hero 内唯一、白字、可点
+    selectors = re.findall(r"WarehouseSelector\((.*?)\)", hero, re.S)
+    assert len(selectors) == 1, f"Hero 内应只有一个仓库切换器，实际 {len(selectors)}"
+    assert "contentColor = Color.White" in selectors[0], "仓库切换器缺少白色前景（对比度回退）"
+    assert "onSelect = onSelectWarehouse" in selectors[0], "仓库切换器失去切换回调"
+    assert "selectedId = selectedWarehouseId" in selectors[0], "仓库切换器失去当前选中态"
+    assert "allowAll = false" in selectors[0], "仓库切换器不应出现「全部仓库」"
+    # ⑤ 正常文档流：不得用负偏移把标题骑到深底与白底交界处
+    assert "verticalScroll(rememberScrollState())" in hero
+    assert "Modifier.offset" not in src
 
 
 def test_002_overview_states_have_no_floating_overlap() -> None:

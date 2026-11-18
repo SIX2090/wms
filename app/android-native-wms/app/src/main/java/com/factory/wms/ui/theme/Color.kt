@@ -2,18 +2,19 @@ package com.factory.wms.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── Primary ── Rich Indigo
+// ── Primary ── Deep Indigo（2026-11-17 用户评审定稿：由亮蓝改为深靛蓝）
+// 只在常量值上做迁移，令牌名与引用关系全部保持不变，避免波及 21 个页面。
 // AI-APP-FIX-301：会被亮/暗切换的令牌（Background/OnSurface/Success 族等）
 // 一律改为 internal Palette*，由 ThemeTokens.kt 的同名委托 getter 对外提供
 // （页面引用的令牌名不变，但取值跟随 colorScheme / 语义色扩展）。
-internal val PalettePrimary = Color(0xFF3559D8)
-val PrimaryLight = Color(0xFF7B8FF7)
-val PrimaryDark = Color(0xFF2D3FBF)
-internal val PalettePrimaryContainer = Color(0xFFEAF0FF)
+internal val PalettePrimary = Color(0xFF3F51B5)
+val PrimaryLight = Color(0xFFA5B4FC)
+val PrimaryDark = Color(0xFF283593)
+internal val PalettePrimaryContainer = Color(0xFFE8EAF6)
 val OnPrimary = Color.White
 // Darken translucent controls on white-text gradients; a white wash lowers contrast.
 internal val GradientControlScrim = Color.Black.copy(alpha = 0.12f)
-val OnPrimaryContainer = Color(0xFF213A87)
+val OnPrimaryContainer = Color(0xFF1A237E)
 
 // ── Secondary ── Warm Amber（模块/徽标点缀色，亮暗通用，不参与令牌映射）
 val Secondary = Color(0xFFF59E0B)
@@ -56,10 +57,10 @@ internal val PaletteInfo = Color(0xFF1D4ED8)
 internal val PaletteInfoContainer = Color(0xFFDBEAFE)
 
 // ── Card Gradients ── 模块渐变 accent（FIX-301：亮暗均保留，不映射）
-// 扫码入库 - Blue
-val CardBlue = Color(0xFF3559D8)
-val CardBlueLight = Color(0xFF7B8FF7)
-val CardBlueDark = Color(0xFF2D3FBF)
+// 扫码入库 - Indigo
+val CardBlue = Color(0xFF3F51B5)
+val CardBlueLight = Color(0xFF7986CB)
+val CardBlueDark = Color(0xFF283593)
 
 // 扫码出库 - Green
 val CardGreen = Color(0xFF059669)
@@ -100,10 +101,10 @@ val CardAmberDark = Color(0xFF92400E)
 internal val DarkSurface = Color(0xFF1B212B)
 internal val DarkSurfaceVariant = Color(0xFF29323F)
 internal val DarkBackground = Color(0xFF11151C)
-internal val DarkPrimaryContainer = Color(0xFF25345C)
+internal val DarkPrimaryContainer = Color(0xFF2E3A78)
 internal val DarkSecondaryContainer = Color(0xFF46331F)
 internal val DarkTertiaryContainer = Color(0xFF163E39)
-internal val DarkOnPrimary = Color(0xFF101F48)
+internal val DarkOnPrimary = Color(0xFF0E1546)
 internal val DarkOnSurface = Color(0xFFF4F4F5)
 internal val DarkOnSurfaceVariant = Color(0xFFA1A1AA)
 internal val DarkOnSurfaceSecondary = Color(0xFFA1A1AA)

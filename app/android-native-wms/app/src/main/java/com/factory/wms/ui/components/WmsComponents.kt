@@ -161,23 +161,21 @@ fun WmsGradientHeader(
     trailing: (@Composable () -> Unit)? = null,
     blueBackground: Boolean = false
 ) {
-    val background = if (blueBackground) Primary.readableOn(Color.White) else MaterialTheme.colorScheme.surface
-    val foreground = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurface
-    StatusBarIconEffect(darkIcons = background.luminance() > 0.5f)
-    Surface(color = background) {
+    val headerColor = if (blueBackground) Primary.readableOn(Color.White)
+        else accent.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface)
+    StatusBarIconEffect(darkIcons = headerColor.luminance() > 0.5f)
+    Surface(color = headerColor) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp)
             .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
                 IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = foreground)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurface)
                 }
             } else Spacer(Modifier.width(8.dp))
-            if (!blueBackground) Box(Modifier.width(3.dp).height(32.dp).clip(RoundedCornerShape(2.dp))
-                .background(accent.readableOn(background)))
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold, color = foreground)
+                    fontWeight = FontWeight.Bold, color = if (blueBackground) Color.White else accent.readableOn(headerColor))
                 if (!subtitle.isNullOrBlank()) {
                     Text(subtitle, style = MaterialTheme.typography.bodyMedium,
                         color = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -209,7 +207,8 @@ fun WmsCard(
     Card(
         modifier = modifier.then(clickModifier),
         shape = shape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        // 2026-11-17 视觉批次：由 0dp 改为 1dp 极浅投影，让卡片从页面底色上"浮"起来。
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
         Column(modifier = Modifier.padding(contentPadding)) {
@@ -338,7 +337,8 @@ fun WmsPrimaryButton(
             disabledContentColor = if (loading) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         ),
         elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 0.dp,
+            // 2026-11-17 视觉批次：主操作按钮加 1dp 极浅投影，按压时回到 0dp 形成"按下"手感。
+            defaultElevation = 1.dp,
             pressedElevation = 0.dp
         )
     ) {
@@ -595,7 +595,7 @@ internal fun formatCacheAge(cachedAtMillis: Long?): String? {
  * 统一加载骨架（AI-APP-UI-002）：呼吸微光占位块。
  *
  * 用法：按真实内容的形状拼若干 WmsShimmerBox，替代"数据没到就整块消失"的
- * 布局跳动（典型如首页「今日概览」：dashboard 为 null 时整块不渲染，
+ * 布局跳动（典型如首页概览块：dashboard 为 null 时整块不渲染，
  * 数据到达瞬间下方功能卡网格猛地下沉一截）。
  */
 @Composable

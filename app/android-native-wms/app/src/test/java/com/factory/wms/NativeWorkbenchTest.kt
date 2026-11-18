@@ -151,7 +151,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertFalse("Synthetic dashboard must be ready before measuring the view", vm.uiState.value.isLoading)
         content { HomeScreen(auth, vm, { clicked += it }, {}) }
-        compose.onNodeWithText("当前仓库").assertIsDisplayed()
+        compose.onNodeWithText(currentGreeting()).assertIsDisplayed()
         compose.onNodeWithText("合成一号仓").assertIsDisplayed()
         compose.onNodeWithText("常用操作").performScrollTo().assertIsDisplayed()
         capture("home")
@@ -192,7 +192,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.onNodeWithText("1,280").performScrollTo()
         val quantity = completeText("1,280")
         assertEquals("Overview quantity must not split across lines", 1, quantity.lineCount)
-        compose.onNodeWithText("WMS 仓库管理").performScrollTo()
+        compose.onNodeWithText(currentGreeting()).performScrollTo()
         capture("home-polished")
     }
 
