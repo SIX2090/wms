@@ -151,17 +151,22 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertFalse("Synthetic dashboard must be ready before measuring the view", vm.uiState.value.isLoading)
         content { HomeScreen(auth, vm, { clicked += it }, {}) }
-        compose.onNodeWithText(currentGreeting()).assertIsDisplayed()
+        compose.onNodeWithText("仓库工作台").assertIsDisplayed()
         compose.onNodeWithText("合成一号仓").assertIsDisplayed()
-        compose.onNodeWithText("常用操作").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("开始作业").performScrollTo().assertIsDisplayed()
         capture("home")
+        // 新首页低频入口默认收起：先展开两段，再逐项点击验证下钻。
+        for (section in listOf("查询与报表", "资料与工具")) {
+            compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
+                .performScrollTo().performClick()
+        }
         destinations.forEach { (label, _) ->
             compose.onNodeWithText(label).performScrollTo().performClick()
             completeText(label)
         }
         compose.runOnIdle { assertEquals(destinations.values.toList(), clicked) }
         capture("home-tools")
-        compose.onNodeWithText("待处理").performScrollTo().performClick()
+        compose.onNodeWithText("待处理单据").performScrollTo().performClick()
         compose.onNodeWithText("库存告警").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
     }
@@ -171,28 +176,20 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
             todayOutOrders = 2, todayOutQuantity = 860.0, pendingInOrders = 2,
             pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name)
         content { HomeWorkbench(data, false, listOf(warehouse), "1", {}, {}, {}, {}) }
-        val labels = listOf("入库", "出库", "查库存")
-        labels.forEach { compose.onNodeWithText(it).performScrollTo(); completeIdentityText(it) }
-        val bounds = labels.map { compose.onNodeWithText(it).getUnclippedBoundsInRoot() }
-        assertTrue("Primary entries must remain three columns", bounds[0].right <= bounds[1].left && bounds[1].right <= bounds[2].left)
-        assertTrue("Primary entries must share a row", bounds.map { it.top.value }.max() - bounds.map { it.top.value }.min() < 1f)
-        listOf("今日入库", "今日出库", "待处理", "库存告警").forEach {
+        // 新首页：入库/出库是双色主操作块，查库存在「开始作业」折叠段；入口均完整可达。
+        listOf("入库", "出库", "查库存").forEach {
             compose.onNodeWithText(it).performScrollTo()
             completeIdentityText(it)
         }
-        if (fontScale <= 1f) {
-            val top = listOf("今日入库", "今日出库", "待处理", "库存告警").map {
-                compose.onNodeWithText(it).getUnclippedBoundsInRoot().top.value
-            }
-            assertTrue("Overview should retain four columns", top.max() - top.min() < 1f)
-        }
-        if (fontScale <= 1.3f) listOf("今日入库", "今日出库", "待处理", "库存告警").forEach {
-            assertEquals("Overview label must not split: $it", 1, completeText(it).lineCount)
+        // 概览两张独立 tile + 今日两行：行内等宽数字存在且完整不截断。
+        listOf("待处理单据", "库存告警", "今日入库", "今日出库").forEach {
+            compose.onNodeWithText(it).performScrollTo()
+            completeIdentityText(it)
         }
         compose.onNodeWithText("1,280").performScrollTo()
         val quantity = completeText("1,280")
         assertEquals("Overview quantity must not split across lines", 1, quantity.lineCount)
-        compose.onNodeWithText(currentGreeting()).performScrollTo()
+        compose.onNodeWithText("仓库工作台").performScrollTo()
         capture("home-polished")
     }
 
@@ -217,8 +214,10 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         content { Box(Modifier.fillMaxWidth().height(704.dp)) {
             HomeWorkbench(data, false, warehouses, "1", {}, {}, {}, {})
         } }
+        // 「库存日报」位于默认收起的「查询与报表」段：先展开，再滚动断言完整可见。
+        compose.onNode(hasClickAction() and hasAnyDescendant(hasText("查询与报表")), useUnmergedTree = true)
+            .performScrollTo().performClick()
         val shortcut = compose.onNodeWithText("库存日报")
-        // 用户要求保留原首页三列布局，报表入口允许通过滚动完整访问。
         shortcut.performScrollTo().assertIsDisplayed()
         val full = shortcut.getUnclippedBoundsInRoot()
         val visible = shortcut.fetchSemanticsNode().boundsInRoot

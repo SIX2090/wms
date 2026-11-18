@@ -55,10 +55,9 @@ def _extract_function(source: str, signature: str) -> str:
 
 def test_home_groups_prioritize_primary_tasks():
     src = _read()
-    assert 'HomeSectionTitle("常用操作")' in src
-    assert 'HomeSectionTitle("更多功能")' in src
-    assert 'HomeTileGrid(cards.take(3), onNavigate, largeFont)' in src
-    assert 'HomeTileGrid(cards.drop(3), onNavigate, largeFont)' in src
+    # A1 对齐：入口收敛为三段折叠，默认只展开「开始作业」。
+    for title in ('开始作业', '查询与报表', '资料与工具'):
+        assert f'HomeCollapsibleSection("{title}"' in src
     # Fourteen actual navigation callbacks are exercised in NativeHomeBaselineTest.
 
 
@@ -82,6 +81,15 @@ def test_card_height_reduced():
     assert "heightIn(min = 96.dp)" in grid
     assert "height(104.dp)" not in grid, "固定高度会裁切放大字体"
     assert "height(168.dp)" not in grid, "仍残留 168.dp 高度"
+
+
+def test_existing_uncommitted_function_card_keeps_compact_minimum():
+    # Preserve the pre-existing worktree's 64dp card change while the visible
+    # home uses the user's approved three-column HomeTileGrid.
+    body = _extract_function(_read(), "fun FunctionCardItem(")
+    assert "heightIn(min = 64.dp)" in body
+    assert "height(104.dp)" not in body
+    assert "height(168.dp)" not in body
 
 
 def test_card_title_wraps_without_redundant_subtitle():
@@ -108,11 +116,12 @@ def test_overview_values_adapt_without_truncation():
 
 
 def test_overview_row_top_aligned():
-    body = _extract_function(_read(), "fun TodayOverviewBar(")
-    assert 'height(IntrinsicSize.Min)' in body
-    assert '.fillMaxHeight()' in body
-    assert 'verticalAlignment = Alignment.CenterVertically' not in body
-    assert 'Text(data.second' in body and 'Text(data.first' in body and 'Text(data.third' in body
+    # A1 对齐：概览改为独立 tile，标签与行内等宽数字纵向排列且完整不截断。
+    body = _extract_function(_read(), "private fun HomeMetricTile(")
+    assert 'WmsQuantityText(value, Modifier.fillMaxWidth()' in body
+    assert 'Text(label' in body
+    assert 'verticalArrangement = Arrangement.spacedBy(2.dp)' in body
+    assert 'heightIn(min = 48.dp)' in body
 
 
 def test_overview_alert_text_shortened():
@@ -130,14 +139,14 @@ def test_workbench_uses_shared_spacing_and_scroll():
     body = _extract_function(src, "internal fun HomeWorkbench(")
     assert '.verticalScroll(rememberScrollState())' in body
     assert '.padding(horizontal = 16.dp' in body
-    assert 'Primary.readableOn(Color.White)' in body
+    assert 'CardBackground' in body and 'color = OnSurface' in body
     assert 'Brush.verticalGradient' not in body
 
 
 def test_overview_states_remain_in_normal_flow():
     src = _read()
     assert "Modifier.offset" not in src
-    for state in ('dashboard != null -> TodayOverviewBar', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+    for state in ('dashboard != null ->', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
         assert state in src
 
 

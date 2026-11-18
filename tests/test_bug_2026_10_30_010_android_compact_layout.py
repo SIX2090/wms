@@ -97,8 +97,9 @@ def test_empty_submit_removed_and_search_copy_fits_one_line():
 def test_home_keeps_all_destinations_and_profile_shows_selectable_full_address():
     home = read("ui/screens/HomeScreen.kt")
     assert home.count("FunctionCard(") == 15
-    assert 'HomeSectionTitle("常用操作")' in home and 'HomeSectionTitle("更多功能")' in home
-    assert 'HomeTileGrid(cards.take(3)' in home and 'HomeTileGrid(cards.drop(3)' in home
+    # A1 对齐：入口改为三段折叠，默认只展开「开始作业」，后两段可展开。
+    for title in ('开始作业', '查询与报表', '资料与工具'):
+        assert f'HomeCollapsibleSection("{title}"' in home, f"缺少折叠分组「{title}」"
     assert '"当前服务器"' not in home
     profile = read("ui/screens/ProfileScreen.kt")
     server = profile.split('ProfileSectionCard("服务器信息")', 1)[1].split('// ── 扫码设置', 1)[0]

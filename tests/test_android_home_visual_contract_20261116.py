@@ -11,17 +11,17 @@ def test_home_guards_reject_invisible_title_and_selector_regressions():
     position.test_002_title_and_warehouse_use_theme_surface()
     contrast.test_003_home_selector_uses_theme_foreground_on_surface()
     for old, new in (
-        ('.background(Primary.readableOn(Color.White))', '.background(Color.White)'),
-        ('contentColor = Color.White', 'contentColor = Color.Black'),
-        # 2026-11-18 沉浸式品牌头：标题文案锁由「今日概览」改为问候语渲染点。
-        ('Text(greeting', 'Text("其他标题"'),
+        ('.background(CardBackground)', '.background(Color.White)'),
+        ('color = OnSurface', 'color = Color.Black'),
+        # A1 对齐：标题文案锁改为单行 appbar 的「仓库工作台」。
+        ('Text("仓库工作台"', 'Text("其他标题"'),
     ):
         changed = source.replace(old, new)
         assert changed != source
         with patch.object(position, '_read', return_value=changed), pytest.raises(AssertionError):
             position.test_002_title_and_warehouse_use_theme_surface()
     for old, new in (
-        ('contentColor = Color.White', 'contentColor = Color.Black'),
+        ('currentLabel = dashboard?.warehouse', 'currentLabel = null'),
         ('onSelect = onSelectWarehouse', 'onSelect = {}'),
         ('allowAll = false', 'allowAll = true'),
     ):

@@ -126,7 +126,7 @@ def test_surface_headers_use_matching_theme_foregrounds():
     assert "Color.Black.copy(alpha = 0.12f)" in read("ui/theme/Color.kt")
     home = function(read("ui/screens/HomeScreen.kt"), "HomeWorkbench")
     header = function(read("ui/components/WmsComponents.kt"), "WmsGradientHeader")
-    assert 'Primary.readableOn(Color.White)' in home and 'Color.White' in home
+    assert 'CardBackground' in home and 'color = OnSurface' in home
     assert 'if (blueBackground) Primary.readableOn(Color.White)' in header
     if 'Surface(color = headerColor)' in header:
         assert 'accent.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface)' in header

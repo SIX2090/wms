@@ -11,7 +11,6 @@ import com.factory.wms.data.model.DashboardDto
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.navigation.Screen
 import com.factory.wms.ui.screens.HomeWorkbench
-import com.factory.wms.ui.screens.currentGreeting
 import com.factory.wms.ui.theme.WmsTheme
 import org.junit.*
 import org.junit.Assert.*
@@ -46,18 +45,17 @@ class NativeHomeBaselineTest {
         disposeComposeActivity(activity)
     }
     @Test fun baselineKeepsFourOverviewLinksAndThreePrimaryTiles() {
-        // 2026-11-18 沉浸式品牌头：品牌标题让位给时段问候语（暂无仓库名的人称后缀）。
-        compose.onNodeWithText(currentGreeting()).assertIsDisplayed()
+        // 单行 appbar：标题为「仓库工作台」；概览行内等宽数字保持原值。
+        compose.onNodeWithText("仓库工作台").assertIsDisplayed()
         compose.onNodeWithText("一号仓").assertIsDisplayed()
         compose.onNodeWithText("126").assertIsDisplayed()
         compose.onNodeWithText("84").assertIsDisplayed()
         val tiles = listOf("入库", "出库", "查库存").map { compose.onNodeWithText(it) }
+        tiles.forEach { it.performScrollTo().assertIsDisplayed() }
         val bounds = tiles.map { it.getUnclippedBoundsInRoot() }
         assertTrue(bounds.all { it.right - it.left >= 48.dp && it.bottom - it.top >= 48.dp })
-        assertTrue(bounds.all { kotlin.math.abs((it.top - bounds[0].top).value) < 1f })
-        assertTrue(bounds[0].right <= bounds[1].left && bounds[1].right <= bounds[2].left)
         listOf("今日入库" to Screen.Inbound, "今日出库" to Screen.Outbound,
-            "待处理" to Screen.OverviewOrders, "库存告警" to Screen.OverviewAlerts).forEach { (label, _) ->
+            "待处理单据" to Screen.OverviewOrders, "库存告警" to Screen.OverviewAlerts).forEach { (label, _) ->
             compose.onNodeWithText(label).performScrollTo().performClick()
         }
         compose.runOnIdle { assertEquals(listOf(Screen.Inbound, Screen.Outbound, Screen.OverviewOrders, Screen.OverviewAlerts), clicked) }
@@ -69,6 +67,11 @@ class NativeHomeBaselineTest {
             "每日报表" to Screen.DailyReport, "库存日报" to Screen.StockDailyReport,
             "出入库明细" to Screen.InOutDetailReport, "库存台账" to Screen.StockLedgerReport,
             "盘点记录" to Screen.StocktakeRecord, "AI 助手" to Screen.AssistantChat)
+        // 三段折叠：后两段默认收起，先展开再逐项点击，14 个目的地仍全部可达。
+        for (section in listOf("查询与报表", "资料与工具")) {
+            compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
+                .performScrollTo().performClick()
+        }
         expected.forEach { (label, _) -> compose.onNodeWithText(label).performScrollTo().performClick() }
         compose.runOnIdle { assertEquals(expected.values.toList(), clicked) }
     }

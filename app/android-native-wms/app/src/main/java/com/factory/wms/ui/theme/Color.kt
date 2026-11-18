@@ -7,8 +7,8 @@ import androidx.compose.ui.graphics.Color
 // AI-APP-FIX-301：会被亮/暗切换的令牌（Background/OnSurface/Success 族等）
 // 一律改为 internal Palette*，由 ThemeTokens.kt 的同名委托 getter 对外提供
 // （页面引用的令牌名不变，但取值跟随 colorScheme / 语义色扩展）。
-internal val PalettePrimary = Color(0xFF3F51B5)
-val PrimaryLight = Color(0xFFA5B4FC)
+internal val PalettePrimary = Color(0xFF3559D8)
+val PrimaryLight = Color(0xFF7B8FF7)
 val PrimaryDark = Color(0xFF283593)
 internal val PalettePrimaryContainer = Color(0xFFE8EAF6)
 val OnPrimary = Color.White
@@ -58,7 +58,7 @@ internal val PaletteInfoContainer = Color(0xFFDBEAFE)
 
 // ── Card Gradients ── 模块渐变 accent（FIX-301：亮暗均保留，不映射）
 // 扫码入库 - Indigo
-val CardBlue = Color(0xFF3F51B5)
+val CardBlue = Color(0xFF3559D8)
 val CardBlueLight = Color(0xFF7986CB)
 val CardBlueDark = Color(0xFF283593)
 

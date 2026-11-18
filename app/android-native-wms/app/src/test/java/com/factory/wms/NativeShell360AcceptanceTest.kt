@@ -131,15 +131,18 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
         content(Screen.Home.route) { HomeWorkbench(data, false, list, "1", {}, {}, {}, {}) }
         checkTabs()
         if (scale <= 1.3f) {
-            val labels = listOf("今日入库", "今日出库", "待处理", "库存告警")
-            val rects = labels.map { compose.onNodeWithText(it).getUnclippedBoundsInRoot() }
-            val top = rects.map { it.top.value }
-            assertTrue(
-                "360dp overview should show four columns at ordinary font sizes; " +
-                    "tops=$top; rects=${rects.joinToString(" ")}; scale=$scale; dark=$dark; " +
-                    "fontScale=$diagFontScale; labelDp=$diagLabelDp; labelWidthDp=${diagLabelDp * 4 + 4}; " +
-                    "needDp=${(diagLabelDp * 4 + 4) * 4}",
-                top.max() - top.min() < 1f)
+            // 新首页概览改为行内等宽数字 + 两张 tile：数字完整不截断、三段折叠标题默认可见。
+            listOf("开始作业", "查询与报表", "资料与工具", "待处理单据", "库存告警").forEach {
+                compose.onNodeWithText(it).performScrollTo().assertIsDisplayed()
+            }
+            // diagFontScale/diagLabelDp 保留：诊断字段可在后续布局回归中继续引用。
+            for (value in listOf("126", "84")) {
+                val layouts = mutableListOf<TextLayoutResult>()
+                compose.onNodeWithText(value, useUnmergedTree = true).performScrollTo()
+                    .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+                assertFalse("Today quantity must not be clipped: $value; scale=$scale; dark=$dark; fontScale=$diagFontScale; labelDp=$diagLabelDp",
+                    layouts.single().hasVisualOverflow)
+            }
         }
         capture("home")
     }

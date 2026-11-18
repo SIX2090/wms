@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.factory.wms.data.model.DashboardDto
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.screens.HomeWorkbench
-import com.factory.wms.ui.screens.currentGreeting
+import com.factory.wms.ui.theme.CardBackground
 import com.factory.wms.ui.theme.WmsTheme
 import com.factory.wms.ui.theme.contrastRatio
 import org.junit.*
@@ -37,12 +37,17 @@ class NativeHomeHeroContrastTest(private val scale: Float, private val dark: Boo
     companion object { @JvmStatic @Parameters fun cases() = listOf(1f, 2f).flatMap { s -> listOf(false, true).map { d -> arrayOf<Any>(s, d) } } }
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ActivityController<ComponentActivity>
+    // CardBackground 是 @Composable @ReadOnlyComposable getter，须在组合作用域内取真实 appbar 表面色。
+    private var appBarSurface: Color = Color.Unspecified
     @Before fun before() {
         val wh = WarehouseDto(1, "WH1", "一号仓")
         val data = DashboardDto(warehouse = "一号仓", warehouseId = 1)
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity.get().setContent { CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
-            WmsTheme(darkTheme = dark) { HomeWorkbench(data, false, listOf(wh), "1", {}, {}, {}, {}) }
+            WmsTheme(darkTheme = dark) {
+                appBarSurface = CardBackground
+                HomeWorkbench(data, false, listOf(wh), "1", {}, {}, {}, {})
+            }
         } }
     }
     @After fun after() { disposeComposeActivity(activity) }
@@ -50,17 +55,17 @@ class NativeHomeHeroContrastTest(private val scale: Float, private val dark: Boo
         val view = activity.get().window.decorView
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         compose.runOnIdle { view.draw(Canvas(bitmap)) }
-        val background = Color(bitmap.getPixel(2, 2))
-        // 2026-11-18 沉浸式品牌头：Hero 首屏文案由「今日概览 / 当前仓库」改为时段问候语；
-        // 断言语义不变——Hero 深底上的文字必须完整不截断、与深底对比度 ≥4.5。
-        for (label in listOf(currentGreeting())) {
+        // 单行 appbar：背景取自主题 CardBackground（亮/暗），不再是深蓝 Hero 底。
+        val background = appBarSurface
+        // 断言语义不变——appbar 标题必须完整不截断，且与主题表面对比度 ≥4.5。
+        for (label in listOf("仓库工作台")) {
             val layouts = mutableListOf<TextLayoutResult>()
             val text = compose.onNodeWithText(label).assertIsDisplayed()
             text.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             val layout = layouts.single()
             assertEquals(label.length, layout.getLineEnd(layout.lineCount - 1, visibleEnd = true))
             repeat(layout.lineCount) { assertFalse(layout.isLineEllipsized(it)) }
-            assertTrue("$label must contrast with its blue background", contrastRatio(layout.layoutInput.style.color, background) >= 4.5f)
+            assertTrue("$label must contrast with its appbar surface", contrastRatio(layout.layoutInput.style.color, background) >= 4.5f)
         }
         val selector = compose.onNode(hasClickAction() and hasAnyDescendant(hasText("一号仓")), useUnmergedTree = true).assertIsDisplayed()
         val bounds = selector.getUnclippedBoundsInRoot()

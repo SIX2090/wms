@@ -58,15 +58,16 @@ def test_003_selector_has_content_color_param() -> None:
 
 
 def test_003_home_selector_uses_theme_foreground_on_surface() -> None:
-    # 2026-11-18 用户授权沉浸式品牌头：Hero 内只剩一个仓库切换器
-    # （旧版为「普通字号 / 大字号」两个分支各一份）。白色前景要求不放宽。
+    # A1 对齐：顶栏上下文条内只有一个仓库切换器，表面改为主题 CardBackground。
+    # 旧「contentColor = Color.White」锁已随深蓝 Hero 退役；仓库上下文、选中态、
+    # 切换回调与「不出现全部仓库」四条契约继续锁死（选择器可点语义不丢）。
     src = _read(HOME)
-    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
-    assert '.background(Primary.readableOn(Color.White))' in hero
+    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeCollapsibleSection("开始作业"', 1)[0]
+    assert '.background(CardBackground)' in hero
     selectors = re.findall(r'WarehouseSelector\((.*?)\)', hero, re.S)
-    assert len(selectors) == 1, f"Hero 内应只有一个仓库切换器，实际 {len(selectors)}"
+    assert len(selectors) == 1, f"顶栏上下文条内应只有一个仓库切换器，实际 {len(selectors)}"
     for selector in selectors:
-        assert 'contentColor = Color.White' in selector
+        assert 'currentLabel = dashboard?.warehouse' in selector
         assert 'selectedId = selectedWarehouseId' in selector
         assert 'onSelect = onSelectWarehouse' in selector
         assert 'allowAll = false' in selector

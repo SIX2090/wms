@@ -67,32 +67,33 @@ def test_002_title_row_not_inside_floating_offset_column() -> None:
 
 
 def test_002_title_and_warehouse_use_theme_surface() -> None:
-    # 2026-11-18 用户明确授权把首页 Hero 改为沉浸式品牌头（时段问候语 + 单行仓库切换器 + 退出），
-    # 并授权同步改写本节 4 条旧字符串锁。**业务意图一条不丢**：
-    #   ① 标题不得进入 offset 悬浮列（行高超预留就会被白底裁切）；
-    #   ② Hero 深底必须白字，且底色必须来自 Primary.readableOn(Color.White)；
-    #   ③ 仓库切换器必须仍在 Hero 内、仍带白色前景、仍可点（onSelect 未被丢弃）。
+    # A1 对齐：沉浸式 Hero 改为单行 appbar（仓库工作台 + 仓库上下文条 + 退出）。
+    # 业务意图一条不丢：无 offset 悬浮、appbar 前景/表面取自主题、白字由双色块 onPrimary 承担、
+    # 仓库切换器仍在顶栏下方且可点。
     src = _read(HOME)
-    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeSectionTitle("常用操作")', 1)[0]
+    hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeCollapsibleSection("开始作业"', 1)[0]
     greeter = src.split('internal fun greetingForHour(', 1)[1].split('internal fun HomeWorkbench(', 1)[0]
-    # ① 时段问候语：四条分支齐全，避免夜班人员看到「早上好」
+    # ① 时段问候语纯函数四分支仍保留（用户禁止删除旧函数）
     for branch in ('"早上好"', '"上午好"', '"下午好"', '"晚上好"'):
         assert branch in greeter, f"问候语缺少 {branch} 分支"
-    assert "Text(greeting" in hero, "问候语未渲染到 Hero 内"
-    # ② 副标题保留日期与当日待处理单量（原「仓库工作台 · 日期」的信息不丢）
-    assert "$today · 今天有 " in hero, "副标题丢失日期"
-    assert "单入库待处理" in hero, "副标题丢失当日待处理单量"
-    # ③ Hero 底色与白字前景（BUG-002 的裁切/不可见根因）
-    assert ".background(Primary.readableOn(Color.White))" in hero
-    assert "color = Color.White" in hero, "Hero 内文字未显式使用白色前景"
-    # ④ 仓库切换器：Hero 内唯一、白字、可点
+    # ② appbar 标题：单行顶栏直接渲染「仓库工作台」
+    assert 'Text("仓库工作台"' in hero, "appbar 标题未渲染「仓库工作台」"
+    # ③ appbar 表面/前景取自主题（无深蓝 Hero 底、无 offset 悬浮）
+    assert ".background(CardBackground)" in hero, "appbar 未使用主题 CardBackground 表面"
+    assert "color = OnSurface" in hero, "appbar 文字未使用主题 OnSurface 前景"
+    # ④ 双色主操作块白字：foreground 走 onPrimary / onTertiary（Color.White 由主题提供）
+    primary_task = src.split('private fun HomePrimaryTask(', 1)[1].split('@Composable', 1)[0]
+    assert "colorScheme.onPrimary" in primary_task, "入库主操作块失去白色前景"
+    assert "colorScheme.onTertiary" in primary_task, "出库主操作块失去白色前景"
+    # ⑤ 仓库切换器：顶栏上下文条内唯一、契约参数齐全、可点
     selectors = re.findall(r"WarehouseSelector\((.*?)\)", hero, re.S)
-    assert len(selectors) == 1, f"Hero 内应只有一个仓库切换器，实际 {len(selectors)}"
-    assert "contentColor = Color.White" in selectors[0], "仓库切换器缺少白色前景（对比度回退）"
+    assert len(selectors) == 1, f"顶栏上下文条内应只有一个仓库切换器，实际 {len(selectors)}"
+    assert "currentLabel = dashboard?.warehouse" in selectors[0], "仓库切换器失去当前仓库标签"
     assert "onSelect = onSelectWarehouse" in selectors[0], "仓库切换器失去切换回调"
     assert "selectedId = selectedWarehouseId" in selectors[0], "仓库切换器失去当前选中态"
+    assert "showDefaultWarehouse = false" in selectors[0], "仓库切换器不应显示默认仓库"
     assert "allowAll = false" in selectors[0], "仓库切换器不应出现「全部仓库」"
-    # ⑤ 正常文档流：不得用负偏移把标题骑到深底与白底交界处
+    # ⑥ 正常文档流：不得用负偏移把标题骑到深底与白底交界处
     assert "verticalScroll(rememberScrollState())" in hero
     assert "Modifier.offset" not in src
 
@@ -100,7 +101,7 @@ def test_002_title_and_warehouse_use_theme_surface() -> None:
 def test_002_overview_states_have_no_floating_overlap() -> None:
     src = _read(HOME)
     assert "Modifier.offset" not in src
-    for state in ('dashboard != null -> TodayOverviewBar', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+    for state in ('dashboard != null ->', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
         assert state in src
 
 
