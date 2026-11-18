@@ -13,6 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalDensity
@@ -403,11 +405,19 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                     row.forEachIndexed { index, entry ->
                         val (data, screen) = entry
-                        if (index > 0) {
-                            Box(Modifier.fillMaxHeight().width(1.dp).padding(vertical = 12.dp)
-                                .background(DividerSoft))
-                        }
-                        Column(Modifier.weight(1f).fillMaxHeight().clickable { onNavigate(screen) }
+                        // 2026-11-18 修正：分隔线改为绘制而非占位。
+                        // 原先用 fillMaxHeight 的 1dp Box 参与布局，与 Row(height(IntrinsicSize.Min))
+                        // 组合会扰乱行高的 intrinsic 测量，四格顶部不再对齐（曾使
+                        // NativeShell360AcceptanceTest「四列同行」断言失败）。绘制不占宽度、不参与测量。
+                        Column(Modifier.weight(1f).fillMaxHeight()
+                            .drawBehind {
+                                if (index < row.lastIndex) {
+                                    val x = size.width - 0.5.dp.toPx()
+                                    drawLine(DividerSoft, Offset(x, 12.dp.toPx()),
+                                        Offset(x, size.height - 12.dp.toPx()), 1.dp.toPx())
+                                }
+                            }
+                            .clickable { onNavigate(screen) }
                             .heightIn(min = 48.dp).padding(horizontal = 1.dp, vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp)) {
