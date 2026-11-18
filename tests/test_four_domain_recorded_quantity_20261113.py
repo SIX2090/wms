@@ -15,7 +15,11 @@ EXTRA_SETUP = r'''
 from flask_login import LoginManager, login_user, current_user as actual_login_user
 login_manager=LoginManager(app)
 login_manager.user_loader(lambda ident: db.session.get(ns['User'],int(ident)))
-ns.update(current_user=actual_login_user,request=actual_request)
+from collections import defaultdict
+from decimal import Decimal
+ns.update(current_user=actual_login_user, request=actual_request, defaultdict=defaultdict, Decimal=Decimal)
+for name in ('subcontract_receipt_balances', 'refresh_subcontract_receipts'):
+    extract('app/services/subcontract_receipts.py', name)
 for filename,names in [('requisition.py',('revert_requisition',)),
                        ('after_sale_out.py',('revert_after_sale_out_order',)),
                        ('subcontract.py',('revert_subcontract_issue','revert_subcontract_receive'))]:

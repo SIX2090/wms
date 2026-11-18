@@ -632,3 +632,7 @@ POST_SPLIT_BUGS['BUG-2026-11-17-006'] = 'fixed'  # Use the shared escape functio
 POST_SPLIT_BUGS['BUG-2026-11-17-007'] = 'fixed'  # Discard progress from obsolete stocktake contexts.
 POST_SPLIT_BUGS['BUG-2026-11-17-008'] = 'fixed'  # Aggregate monthly report rows over the selected period.
 POST_SPLIT_BUGS['BUG-2026-11-18-001'] = 'fixed'  # Explain disabled-material import rejection.
+POST_SPLIT_BUGS['BUG-2026-11-18-002'] = 'fixed'  # Require linked sales to ship from the source order.
+POST_SPLIT_BUGS['BUG-2026-11-18-003'] = 'fixed'  # Preserve distinct source lines for the same SKU.
+POST_SPLIT_BUGS['BUG-2026-11-18-004'] = 'fixed'  # Use posted receipts for each subcontract product.
+POST_SPLIT_BUGS['BUG-2026-11-18-005'] = 'fixed'  # Resolve warehouse before reserving purchase quantities.

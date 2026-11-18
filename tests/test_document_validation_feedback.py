@@ -34,7 +34,7 @@ function input(key,value){return {value,style:{},focus(){focused=key;},dispatchE
 const fields={};Object.entries({date:'2026-10-21',customer:'Acme',department_id:'3',warehouse_id:'2',location:'A',order_id:'',order_no:'TEST',business_type:'领料单',picker:'Tester',remark:'Note'}).forEach(([k,v])=>fields[k]=input(k,v));
 const ids={sourceInOrderNo:input('source','IN-1'),sourceInOrderId:input('sourceId','7'),batchUpdateField:input('batchField','quantity'),batchUpdateValue:input('batchValue','5'),batchUpdateWarehouse:input('batchWarehouse','2'),batchUpdateModal:{remove(){removed=true;}}};
 const line={};Object.entries({'.material-code':'M1','.material-qty':'2','.material-price':'1','.line-contract-no':'C1','.line-project-name':'P1','.material-remark':'R1','.line-source-in-item-id':'9','.material-batch-no':'old','.material-expiry':'2026-12-01'}).forEach(([k,v])=>line[k]=input(k,v));
-const row={querySelector:s=>line[s]||null};let rows=[row];
+const row={dataset:{},querySelector:s=>line[s]||null};let rows=[row];
 let sale=false,purchase=false,other=false;
 const expected={date:'date',customer:'customer',supplier:'customer',department:'department_id',source:'source',quantity:'.material-qty',empty:'.material-code',warehouse:'warehouse_id',location:'location',batchWarehouse:'batchWarehouse',batchField:'batchField',batchEmpty:'batchValue',batchNaN:'batchValue',batchQuantity:'batchValue',batchPrice:'batchValue',batchPrecision:'batchValue',batchLength:'batchValue',batchFormula:'batchValue',batchExpiry:'batchValue'};
 switch(p.scenario){

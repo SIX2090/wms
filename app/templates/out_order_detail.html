@@ -153,7 +153,11 @@
             {% if current_user.role in ['admin', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
                 {% if order.business_type == '销售出库' and (source_sales_orders or order.source_sales_order_id or '来源销售订单' in (order.purpose or '') or order.purpose == '选单生成销售出库') %}
-                {% for source in source_sales_orders %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_detail', id=source.id) }}">从销售订单 {{ source.order_no }} 下推</a>{% else %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_list') }}">查看来源销售订单</a>{% endfor %}
+                {% for source in source_sales_orders %}
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_detail', id=source.id) }}" target="_blank" rel="noopener">从销售订单 {{ source.order_no }} 下推</a>
+                {% else %}
+                <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_list') }}">查看来源销售订单</a>
+                {% endfor %}
                 {% else %}
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
