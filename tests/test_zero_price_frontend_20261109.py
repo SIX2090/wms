@@ -62,8 +62,12 @@ else{context.bindMaterialInput(jqRoot);assert.equal(typeof handler,'function');h
 const missing=p.initial===null||p.initial===undefined||p.initial==='';
 const expected=p.force||missing?p.material:Number(p.initial);
 const actual=p.kind==='opening'?context.rows[0].price:price.value;
-assert.notEqual(actual,'','A valid zero price must be displayed explicitly');
-assert.equal(Number(actual),expected,'An explicit price cannot be replaced by a material default');
+if(p.kind==='receive' && missing){
+ assert.equal(actual,'','A missing processing fee must stay blank regardless of material reference price');
+}else{
+ assert.notEqual(actual,'','A valid zero price must be displayed explicitly');
+ assert.equal(Number(actual),expected,'An explicit price cannot be replaced by a material default');
+}
 assert.equal(Number(quantity.value),7,'Price fill must not change the document quantity');
 assert.equal(context.rows[0].quantity,7);
 if(p.kind==='opening'){assert.equal(renders,1);assert.equal(drafts,1);assert.equal(context.rows[0].line_id,7);}

@@ -38,7 +38,12 @@ const missing=p.initial===null||p.initial==='';
 let expected=missing?p.material:Number(p.initial);
 if(p.kind==='after_select')context.selectMaterial(row,material.code);
 else if(p.kind==='po_fill')context.fillMaterial(row,material);
-else if(p.kind==='receive_modal')context.receiveProbe(material);
+else if(p.kind==='receive_modal'){
+ context.receiveProbe(material);
+ // Unit processing fee is entered independently of the material reference price.
+ assert.equal(price.value,missing?'':String(p.initial),'Selecting a product must preserve the entered processing fee');
+ expected=missing?'':Number(p.initial);
+}
 else if(p.kind==='after_fill'){context.fillRowData(row,{material_code:material.code,quantity:7,price:p.initial});expected=missing?'':Number(p.initial);}
 else{
  // addNewRow is also the saved-row renderer. Make that existing assertion's
@@ -54,7 +59,7 @@ else{
   expected=missing?p.material:Number(p.initial);
  }
 }
-if(expected==='')assert.equal(price.value,'','Absent saved price stays absent');
+if(expected==='')assert.equal(price.value,'','An absent price stays absent');
 else{assert.notEqual(price.value,'','An explicit zero must stay visible');assert.equal(Number(price.value),expected,'Real fill must preserve an explicit price');}
 assert.equal(Number(qty.value),7,'Price actions cannot change quantity');
 '''
