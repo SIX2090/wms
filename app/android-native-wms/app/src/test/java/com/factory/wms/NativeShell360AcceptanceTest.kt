@@ -137,8 +137,8 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
             assertTrue(
                 "360dp overview should show four columns at ordinary font sizes; " +
                     "tops=$top; rects=${rects.joinToString(" ")}; scale=$scale; dark=$dark; " +
-                    "fontScale=$diagFontScale; labelDp=$diagLabelDp; labelWidthDp=${diagLabelDp * 4 + 8}; " +
-                    "needDp=${(diagLabelDp * 4 + 8) * 4}",
+                    "fontScale=$diagFontScale; labelDp=$diagLabelDp; labelWidthDp=${diagLabelDp * 4 + 4}; " +
+                    "needDp=${(diagLabelDp * 4 + 4) * 4}",
                 top.max() - top.min() < 1f)
         }
         capture("home")

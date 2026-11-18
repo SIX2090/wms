@@ -400,7 +400,12 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
         Triple("库存告警", "${dashboard.alertCount}", "低库存") to Screen.OverviewAlerts
     )
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-    val labelWidth = with(LocalDensity.current) { MaterialTheme.typography.bodyMedium.fontSize.toDp() * 4 + 8.dp }
+    // 2026-11-18 修正：每格宽度估算的间距增量由 8dp 收敛为 4dp。
+    // API 31 起字体缩放是非线性的：14sp 在 1.3 倍下实测 18.8dp（线性只有 18.2dp）。
+    // 原「4 字 + 8dp」把四列门槛抬到 83.2*4 = 332.8dp，超过 360dp 屏的 328dp 可用宽，
+    // 于是 1.3 倍字体被误降成两列（NativeShell360AcceptanceTest 要求此时仍四列）。
+    // 收敛后门槛 79.2*4 = 316.8dp；四列每格 82dp，减内边距后 80dp，仍宽于标签 75.2dp，不会换行。
+    val labelWidth = with(LocalDensity.current) { MaterialTheme.typography.bodyMedium.fontSize.toDp() * 4 + 4.dp }
     val columns = if (LocalDensity.current.fontScale > 1.3f || maxWidth < labelWidth * 4) 2 else 4
     Surface(color = CardBackground, shape = MaterialTheme.shapes.medium, shadowElevation = 1.dp) {
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
