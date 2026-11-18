@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.R
 import com.factory.wms.data.model.MaterialDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.ui.components.PendingSyncBanner
@@ -512,7 +515,7 @@ fun ScanScreenBase(
                         contentAlignment = Alignment.Center
                     ) {
                         WmsEmptyState(
-                            icon = Icons.Outlined.QrCodeScanner,
+                            icon = ImageVector.vectorResource(R.drawable.wms_scan),
                             title = "开始添加物料",
                             subtitle = "扫码或手工录入，添加后核对数量",
                             accentColor = gradient,
@@ -531,9 +534,9 @@ fun ScanScreenBase(
             Surface(
                 modifier = Modifier
                     .fillMaxWidth(),
-                shadowElevation = 2.dp,
+                border = androidx.compose.foundation.BorderStroke(1.dp, BorderSoft),
                 color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -563,7 +566,7 @@ fun ScanScreenBase(
                                 onClick = { if (viewModel.uiState.value.quantityDrafts.isEmpty()) onSubmitClick() },
                                 modifier = Modifier.weight(0.62f),
                                 icon = Icons.Outlined.CheckCircle,
-                                color = submitColor,
+                                color = MaterialTheme.colorScheme.tertiary,
                                 loading = isLoading,
                                 enabled = scanLines.isNotEmpty() && quantityDrafts.isEmpty()
                             )
@@ -628,43 +631,31 @@ fun ScanScreenBase(
                         modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        val startScan = {
+                            continuousScanCount = 0
+                            lastScannedCode = null
+                            showCameraScanner = true
+                        }
+                        val scanIcon = ImageVector.vectorResource(R.drawable.wms_scan)
                         if (scanLines.isEmpty()) {
-                        WmsPrimaryButton(
-                            text = "扫码添加",
-                            onClick = {
-                                // 每次打开相机都从 0 起算本轮的"已扫 N 件"，
-                                // 否则上一轮的计数会串到本轮，与清单对不上。
-                                continuousScanCount = 0
-                                lastScannedCode = null
-                                showCameraScanner = true
-                            },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                            icon = Icons.Outlined.QrCodeScanner,
-                            color = submitColor,
-                            enabled = quantityDrafts.isEmpty()
-                        )
+                            WmsPrimaryButton(
+                                text = "扫码添加", onClick = startScan,
+                                modifier = Modifier.weight(1f).fillMaxHeight(), icon = scanIcon,
+                                color = MaterialTheme.colorScheme.tertiary, enabled = quantityDrafts.isEmpty()
+                            )
                         } else {
-                        WmsOutlinedActionButton(
-                            text = "扫码添加",
-                            onClick = {
-                                // 每次打开相机都从 0 起算本轮的"已扫 N 件"，
-                                // 否则上一轮的计数会串到本轮，与清单对不上。
-                                continuousScanCount = 0
-                                lastScannedCode = null
-                                showCameraScanner = true
-                            },
-                            modifier = Modifier.weight(1f).fillMaxHeight(),
-                            icon = Icons.Outlined.QrCodeScanner,
-                            color = submitColor,
-                            enabled = quantityDrafts.isEmpty()
-                        )
+                            WmsOutlinedActionButton(
+                                text = "扫码添加", onClick = startScan,
+                                modifier = Modifier.weight(1f).fillMaxHeight(), icon = scanIcon,
+                                color = MaterialTheme.colorScheme.tertiary, enabled = quantityDrafts.isEmpty()
+                            )
                         }
                         WmsOutlinedActionButton(
                             text = "手动添加",
                             onClick = onShowScanner,
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             icon = Icons.Outlined.Edit,
-                            color = submitColor,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             enabled = quantityDrafts.isEmpty()
                         )
                     }

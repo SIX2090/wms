@@ -33,8 +33,9 @@ fun WmsMaterialIdentity(code: String, name: String?, brand: String?, spec: Strin
 }
 
 @Composable
-fun WmsQuantityText(value: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Text(quantityDisplayText(value), modifier = modifier, fontSize = 20.sp,
+fun WmsQuantityText(value: String, modifier: Modifier = Modifier, color: Color = MaterialTheme.colorScheme.onSurface,
+    fontSize: androidx.compose.ui.unit.TextUnit = 20.sp) {
+    Text(quantityDisplayText(value), modifier = modifier, fontSize = fontSize,
         fontWeight = FontWeight.SemiBold, softWrap = true, color = color,
         style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"))
 }

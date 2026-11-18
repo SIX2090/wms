@@ -55,20 +55,20 @@ def _extract_function(source: str, signature: str) -> str:
 
 def test_home_groups_prioritize_primary_tasks():
     src = _read()
-    # A1 对齐：入口收敛为三段折叠，默认只展开「开始作业」。
+    # 工作台的三个业务分组初次进入都展开。
     for title in ('开始作业', '查询与报表', '资料与工具'):
-        assert f'HomeCollapsibleSection("{title}"' in src
+        assert f'HomeCollapsibleSection("{title}", true)' in src
     # Fourteen actual navigation callbacks are exercised in NativeHomeBaselineTest.
 
 
-def test_secondary_inventory_actions_share_available_width():
+def test_inventory_actions_share_available_width():
     src = _read()
     grid = _extract_function(src, "private fun HomeTileGrid(")
-    assert 'val columns = 3' in grid
+    assert 'largeFont -> 2' in grid and 'else -> 4' in grid
     assert 'cards.chunked(columns)' in grid
     assert 'Modifier.weight(1f)' in grid
     assert 'onNavigate(card.screen)' in grid
-    assert 'heightIn(min = 96.dp)' in grid
+    assert 'heightIn(min = 76.dp)' in grid
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +78,7 @@ def test_secondary_inventory_actions_share_available_width():
 def test_card_height_reduced():
     src = _read()
     grid = _extract_function(src, "private fun HomeTileGrid(")
-    assert "heightIn(min = 96.dp)" in grid
+    assert "heightIn(min = 76.dp)" in grid
     assert "height(104.dp)" not in grid, "固定高度会裁切放大字体"
     assert "height(168.dp)" not in grid, "仍残留 168.dp 高度"
 
@@ -109,8 +109,8 @@ def test_card_title_wraps_without_redundant_subtitle():
 def test_overview_values_adapt_without_truncation():
     src = _read()
     body = _extract_function(src, "private fun TodayMovementCell(")
-    assert "WmsAdaptiveRecord(value" in body
-    assert "WmsQuantityText(value, Modifier.fillMaxWidth())" in body
+    assert "Column(modifier.clickable(onClick = onClick)" in body
+    assert "WmsQuantityText(value, Modifier.fillMaxWidth(), color = OnPrimary, fontSize = 30.sp)" in body
     assert "maxLines" not in body and "TextOverflow.Ellipsis" not in body
     assert 'Text(label' in body and 'Text(sub' in body
 
@@ -138,15 +138,15 @@ def test_workbench_uses_shared_spacing_and_scroll():
     src = _read()
     body = _extract_function(src, "internal fun HomeWorkbench(")
     assert '.verticalScroll(rememberScrollState())' in body
-    assert '.padding(horizontal = 16.dp' in body
-    assert 'CardBackground' in body and 'color = OnSurface' in body
+    assert '.padding(horizontal = 12.dp' in body
+    assert 'WmsIdentityPanel(' in body and 'color = OnPrimary' in body
     assert 'Brush.verticalGradient' not in body
 
 
 def test_overview_states_remain_in_normal_flow():
     src = _read()
     assert "Modifier.offset" not in src
-    for state in ('dashboard != null ->', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+    for state in ('if (dashboard != null)', 'if (dashboard == null)', 'if (isLoading) DashboardOverviewSkeleton() else DashboardOverviewError(onRetry = onRetry)'):
         assert state in src
 
 

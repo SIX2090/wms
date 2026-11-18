@@ -18,6 +18,8 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.factory.wms.R
 import com.factory.wms.data.model.CheckOrderDto
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.WarehouseDto
@@ -920,10 +923,10 @@ fun StockQueryScreen(
                         onClick = { showScannerDialog = true },
                         modifier = Modifier.size(48.dp),
                         colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = CardOrange
+                            contentColor = MaterialTheme.colorScheme.tertiary
                         )
                     ) {
-                        Icon(Icons.Outlined.QrCodeScanner, "扫码", modifier = Modifier.size(24.dp))
+                        Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码", modifier = Modifier.size(24.dp))
                     }
                     FilledIconButton(
                         onClick = {
@@ -936,10 +939,11 @@ fun StockQueryScreen(
                         modifier = Modifier.size(48.dp),
                         shape = RoundedCornerShape(12.dp),
                         colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = CardOrange
+                            containerColor = MaterialTheme.colorScheme.tertiary,
+                            contentColor = MaterialTheme.colorScheme.onTertiary
                         )
                     ) {
-                        Icon(Icons.Outlined.Search, "查询", tint = Color.White, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Outlined.Search, "查询", modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -1405,9 +1409,12 @@ private fun StockListSection(
                 onClick = onSubmit,
                 modifier = Modifier.size(48.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardOrange)
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary
+                )
             ) {
-                Icon(Icons.Outlined.Search, "查询", tint = Color.White, modifier = Modifier.size(22.dp))
+                Icon(Icons.Outlined.Search, "查询", modifier = Modifier.size(22.dp))
             }
         }
     }

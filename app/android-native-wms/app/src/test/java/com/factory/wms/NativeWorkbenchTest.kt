@@ -8,7 +8,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Warehouse
-import androidx.compose.material.icons.outlined.QrCodeScanner
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
@@ -155,8 +156,13 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.onNodeWithText("合成一号仓").assertIsDisplayed()
         compose.onNodeWithText("开始作业").performScrollTo().assertIsDisplayed()
         capture("home")
-        // 新首页低频入口默认收起：先展开两段，再逐项点击验证下钻。
+        // 验证分组能收起、展开，且每个入口仍能下钻。
         for (section in listOf("查询与报表", "资料与工具")) {
+            val sample = if (section == "查询与报表") "每日报表" else "期初库存"
+            compose.onNodeWithText(sample).assertExists()
+            compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
+                .performScrollTo().performClick()
+            compose.onNodeWithText(sample).assertDoesNotExist()
             compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
                 .performScrollTo().performClick()
         }
@@ -171,16 +177,19 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         compose.runOnIdle { assertEquals(listOf(Screen.OverviewOrders, Screen.OverviewAlerts), clicked.takeLast(2)) }
     }
 
-    @Test fun homeKeepsThreeColumnsAndReadableOverview() {
+    @Test fun homeKeepsAdaptiveActionGridAndReadableOverview() {
         val data = DashboardDto(todayInOrders = 3, todayInQuantity = 1280.0,
             todayOutOrders = 2, todayOutQuantity = 860.0, pendingInOrders = 2,
             pendingOutOrders = 1, alertCount = 4, warehouse = warehouse.name)
         content { HomeWorkbench(data, false, listOf(warehouse), "1", {}, {}, {}, {}) }
-        // 新首页：入库/出库是双色主操作块，查库存在「开始作业」折叠段；入口均完整可达。
-        listOf("入库", "出库", "查库存").forEach {
-            compose.onNodeWithText(it).performScrollTo()
-            completeIdentityText(it)
+        val tiles = listOf("入库", "出库", "查库存", "盘点").map { label ->
+            val tile = compose.onNode(hasText(label) and hasClickAction()).performScrollTo()
+            completeIdentityText(label)
+            tile.getUnclippedBoundsInRoot().also { bounds ->
+                assertTrue(bounds.right - bounds.left >= 48.dp && bounds.bottom - bounds.top >= 48.dp)
+            }
         }
+        assertEquals(if (fontScale > 1.3f) 2 else 4, tiles.map { it.left }.distinct().size)
         // 概览两张独立 tile + 今日两行：行内等宽数字存在且完整不截断。
         listOf("待处理单据", "库存告警", "今日入库", "今日出库").forEach {
             compose.onNodeWithText(it).performScrollTo()
@@ -217,9 +226,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
         content { Box(Modifier.fillMaxWidth().height(704.dp)) {
             HomeWorkbench(data, false, warehouses, "1", {}, {}, {}, {})
         } }
-        // 「库存日报」位于默认收起的「查询与报表」段：先展开，再滚动断言完整可见。
-        compose.onNode(hasClickAction() and hasAnyDescendant(hasText("查询与报表")), useUnmergedTree = true)
-            .performScrollTo().performClick()
+        // 查询与报表默认展开。
         val shortcut = compose.onNodeWithText("库存日报")
         shortcut.performScrollTo().assertIsDisplayed()
         val full = shortcut.getUnclippedBoundsInRoot()
@@ -230,7 +237,7 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
 
     @Test fun pairedActionsKeepWholeLabelsAtOrdinaryFontSizes() {
         content { Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            WmsPrimaryButton("扫码添加", {}, Modifier.weight(1f), Icons.Outlined.QrCodeScanner)
+            WmsPrimaryButton("扫码添加", {}, Modifier.weight(1f), ImageVector.vectorResource(R.drawable.wms_scan))
             WmsOutlinedActionButton("手动添加", {}, Modifier.weight(1f), Icons.Outlined.Edit)
         } }
         for (text in listOf("扫码添加", "手动添加")) {

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.compose.runtime.saveable.rememberSaveable
 import com.factory.wms.ui.components.StatusBarIconEffect
+import com.factory.wms.ui.components.WmsCard
 import com.factory.wms.ui.components.WmsGradientHeader
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.ai.AssistantChatMessage
@@ -619,45 +620,16 @@ fun AssistantChatScreen(
 /** 空态引导：列出高频问法，降低首次使用门槛。 */
 @Composable
 private fun AssistantEmptyHint() {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text("你好，我是仓库 AI 助手 🤖", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            "可以直接问我：",
-            fontSize = 14.sp,
-            color = OnSurfaceSecondary
-        )
-        Spacer(Modifier.height(12.dp))
-        listOf(
-            "A001 还有多少库存",
-            "今天概况",
-            "查 IN26050001",
-            "低库存报告",
-            "帮我巡检仓库"
-        ).forEach { hint ->
-            Surface(
-                shape = RoundedCornerShape(18.dp),
-                color = CardBackground,
-                tonalElevation = 1.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-            ) {
-                Text(
-                    hint,
-                    modifier = Modifier
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    fontSize = 14.sp,
-                    color = Primary,
-                    fontWeight = FontWeight.Medium
-                )
+    WmsCard(modifier = Modifier.fillMaxWidth()) {
+        Text("可以直接问我", style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold, color = OnSurface)
+        Spacer(Modifier.height(8.dp))
+        listOf("A001 还有多少库存", "今天概况", "查 IN26050001", "低库存报告", "帮我巡检仓库")
+            .forEachIndexed { index, hint ->
+                if (index > 0) HorizontalDivider(color = DividerSoft)
+                Text(hint, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
             }
-        }
     }
 }
 

@@ -69,7 +69,7 @@ class CompactLayoutTest {
         val title = "出入库明细"
         content(fontScale = 1.6f) {
             FunctionCardItem(
-                FunctionCard(title, "按仓查流水", Icons.Outlined.Description,
+                FunctionCard(title, "按仓查流水", R.drawable.wms_in_out_detail_report,
                     listOf(Color.Blue, Color.Blue), Screen.InOutDetailReport),
                 modifier = Modifier.width(96.dp).testTag("card"),
                 onClick = { clicked = true }

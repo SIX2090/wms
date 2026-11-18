@@ -1,6 +1,7 @@
 package com.factory.wms.ui.screens
 
 import androidx.activity.compose.BackHandler
+import com.factory.wms.R
 import com.factory.wms.ui.components.WmsMaterialIdentity
 import com.factory.wms.ui.components.WmsQuantityText
 import androidx.compose.foundation.background
@@ -20,6 +21,8 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1230,7 +1233,7 @@ private fun EntrySection(
                         contentAlignment = Alignment.Center
                     ) {
                         WmsEmptyState(
-                            icon = Icons.Outlined.QrCodeScanner,
+                            icon = ImageVector.vectorResource(R.drawable.wms_scan),
                             title = "暂无期初物料",
                             subtitle = "点击下方按钮扫码或手动添加",
                             accentColor = CardCyan
@@ -1277,7 +1280,7 @@ private fun EntrySection(
                         text = "扫码添加",
                         onClick = onScan,
                         modifier = Modifier.weight(1f),
-                        icon = Icons.Outlined.QrCodeScanner,
+                        icon = ImageVector.vectorResource(R.drawable.wms_scan),
                         color = CardCyan
                     )
                     WmsOutlinedActionButton(

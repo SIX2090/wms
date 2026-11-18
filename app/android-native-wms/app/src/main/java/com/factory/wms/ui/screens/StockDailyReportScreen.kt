@@ -1,5 +1,6 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.components.WmsCard
 import com.factory.wms.ui.theme.readableOn
 import androidx.compose.ui.graphics.compositeOver
 import com.factory.wms.data.model.StockDailySummary
@@ -290,18 +291,10 @@ private fun StockDailySummaryCell(label: String, value: String, modifier: Modifi
 
 @Composable
 internal fun StockDailyItemRow(item: StockDailyItem) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
+    WmsCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             WmsAdaptiveRecord(

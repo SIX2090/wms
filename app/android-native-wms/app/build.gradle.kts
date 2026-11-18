@@ -52,8 +52,8 @@ android {
         // 3.9.38(62): also report fontScale and bodyMedium label width in that assertion.
         // 3.9.39(63): tighten overview column threshold so 1.3x font keeps four columns.
         // 3.9.40(64): align home with design A1 - compact appbar, summary tiles, collapsible sections, neutral icon chips, A1 indigo palette.
-        versionCode = 64
-        versionName = "3.9.40"
+        versionCode = 65
+        versionName = "3.9.41"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

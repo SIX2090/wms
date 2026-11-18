@@ -15,16 +15,16 @@ MANUAL_LABEL = 'text = "手动添加"'
 
 def test_scan_button_opens_camera_directly():
     source = SCREENS.read_text(encoding='utf-8')
-    # text 是 WmsOutlinedActionButton 的第一个参数，onClick 在其后——
-    # 取「扫码添加」到「手动添加」之间的按钮体
-    camera_button = source.split(CAMERA_LABEL, 1)[1].split(MANUAL_LABEL, 1)[0]
-    assert 'showCameraScanner = true' in camera_button
-    assert 'onShowScanner' not in camera_button
+    camera_action = source.split('val startScan = {', 1)[1].split('}', 1)[0]
+    buttons = source.split('val scanIcon = ', 1)[1].split(MANUAL_LABEL, 1)[0]
+    assert 'continuousScanCount = 0' in camera_action and 'lastScannedCode = null' in camera_action
+    assert 'showCameraScanner = true' in camera_action and 'onShowScanner' not in camera_action
+    assert buttons.count(CAMERA_LABEL + ', onClick = startScan') == 2
+    assert 'onShowScanner' not in buttons
 
 
 def test_manual_entry_remains_separate_from_camera_entry():
     source = SCREENS.read_text(encoding='utf-8')
-    camera_button = source.split(CAMERA_LABEL, 1)[1].split(MANUAL_LABEL, 1)[0]
-    manual_button = source.split(MANUAL_LABEL, 1)[1][:600]
-    assert 'showCameraScanner = true' in camera_button
-    assert 'onShowScanner' in manual_button
+    manual_button = source.split(MANUAL_LABEL, 1)[1].split(')', 1)[0]
+    assert 'onClick = onShowScanner' in manual_button
+    assert 'startScan' not in manual_button

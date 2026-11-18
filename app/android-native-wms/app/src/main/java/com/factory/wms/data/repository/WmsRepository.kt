@@ -499,7 +499,7 @@ class WmsRepository(
                 Result.failure(Exception(errorMsg ?: "登录失败 (${response.code()})"))
             }
         } catch (e: Exception) {
-            Result.failure(Exception("网络连接失败: ${e.message}"))
+            Result.failure(networkFailure(e, "网络连接失败"))
         }
     }
 
@@ -1358,7 +1358,7 @@ class WmsRepository(
         } catch (e: BusinessException) {
             Result.failure(e)
         } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+            Result.failure(networkFailure(e, "网络错误"))
         }
         }
     }
@@ -1474,8 +1474,18 @@ class WmsRepository(
         } catch (e: BusinessException) {
             Result.failure(e)
         } catch (e: Exception) {
-            Result.failure(Exception("网络错误: ${e.message}"))
+            Result.failure(networkFailure(e, "网络错误"))
         }
+    }
+
+    private fun networkFailure(error: Exception, label: String): Exception {
+        val message = when (error) {
+            is java.net.UnknownHostException -> "无法找到服务器，请检查网络和服务器地址"
+            is java.net.ConnectException -> "无法连接服务器，请检查网络后重试"
+            is java.net.SocketTimeoutException -> "等待服务器响应超时，请检查网络"
+            else -> "$label: ${error.message}"
+        }
+        return Exception(message, error)
     }
 
     private inline fun <reified T> handleResponse(response: Response<ApiEnvelope<T>>): Result<T> {

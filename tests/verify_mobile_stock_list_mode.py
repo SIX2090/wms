@@ -126,7 +126,8 @@ def test_t8_scan_mode_no_regression():
     # 原扫码模式核心逻辑保留（BUG-2026-09-10-002 精确编码未命中回退模糊）
     assert "queryMaterialByKeyword" in screen
     assert "showScannerDialog" in screen
-    assert "Icons.Outlined.QrCodeScanner" in screen
+    assert "onClick = { showScannerDialog = true }" in screen
+    assert 'Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码"' in screen
 
 
 def test_t9_models_parse_pagination_envelope():

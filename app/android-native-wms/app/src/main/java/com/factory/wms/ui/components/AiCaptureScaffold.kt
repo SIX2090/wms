@@ -23,9 +23,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -46,7 +46,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.factory.wms.ui.theme.Background
-import com.factory.wms.ui.theme.CardBackground
 
 /**
  * AI 拍照识别三页（识别单据/识物/识物盘点）的公共采集脚手架（AI-APP-FIX-405）。
@@ -129,11 +128,9 @@ fun AiCaptureScaffold(
             contextContent?.invoke()
             if (selectedImageUri != null) {
                 // 图片预览卡（右上角圆形清除按钮）
-                Card(
+                WmsCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         AsyncImage(
@@ -172,16 +169,15 @@ fun AiCaptureScaffold(
                     onCamera = { launchCamera() },
                     onPick = { imagePicker.launch("image/*") },
                     cameraLabel = "重新拍照",
-                    albumLabel = "从相册选择"
+                    albumLabel = "从相册选择",
+                    hasImage = true
                 )
                 Spacer(modifier = Modifier.height(16.dp))
             } else {
                 // 虚线空态卡（AI-APP-FIX-405：WmsEmptyState dashedBorder）
-                Card(
+                WmsCard(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     WmsEmptyState(
                         icon = emptyIcon,
@@ -189,9 +185,7 @@ fun AiCaptureScaffold(
                         subtitle = emptySubtitle,
                         accentColor = accent,
                         dashedBorder = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp)
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
 
@@ -217,19 +211,20 @@ fun ImageSourcePicker(
     onPick: () -> Unit,
     modifier: Modifier = Modifier,
     cameraLabel: String = "拍照",
-    albumLabel: String = "选择图片"
+    albumLabel: String = "选择图片",
+    hasImage: Boolean = false
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        WmsOutlinedActionButton(
-            text = cameraLabel,
-            onClick = onCamera,
-            modifier = Modifier.weight(1f),
-            icon = Icons.Outlined.CameraAlt,
-            color = accent
-        )
+        if (hasImage) {
+            WmsOutlinedActionButton(text = cameraLabel, onClick = onCamera, modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.CameraAlt, color = accent)
+        } else {
+            WmsPrimaryButton(text = cameraLabel, onClick = onCamera, modifier = Modifier.weight(1f),
+                icon = Icons.Outlined.CameraAlt, color = MaterialTheme.colorScheme.tertiary)
+        }
         WmsOutlinedActionButton(
             text = albumLabel,
             onClick = onPick,

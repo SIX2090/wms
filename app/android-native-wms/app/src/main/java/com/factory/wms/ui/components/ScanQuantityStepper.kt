@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.ScanLine
 import com.factory.wms.data.model.QuantityDraft
 import com.factory.wms.ui.util.toQtyOrNull
+import com.factory.wms.ui.theme.CardBackground
+import com.factory.wms.ui.theme.BorderSoft
 import com.factory.wms.util.formatQuantity
 import java.math.BigDecimal
 
@@ -103,8 +105,8 @@ internal fun ScanQuantityStepper(
                 Icon(Icons.Outlined.Remove, null, tint = if (enabled && target(-1) != null) accent else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f))
             }
             Surface(modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, if (draft?.error?.isNotEmpty() == true) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline)) {
+                shape = MaterialTheme.shapes.small, color = CardBackground,
+                border = BorderStroke(1.dp, if (draft?.error?.isNotEmpty() == true) MaterialTheme.colorScheme.error else BorderSoft)) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.heightIn(min = 48.dp)) {
                     BasicTextField(value = value, onValueChange = ::apply, enabled = enabled,
                         singleLine = true,

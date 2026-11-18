@@ -58,16 +58,15 @@ def test_003_selector_has_content_color_param() -> None:
 
 
 def test_003_home_selector_uses_theme_foreground_on_surface() -> None:
-    # A1 对齐：顶栏上下文条内只有一个仓库切换器，表面改为主题 CardBackground。
-    # 旧「contentColor = Color.White」锁已随深蓝 Hero 退役；仓库上下文、选中态、
-    # 切换回调与「不出现全部仓库」四条契约继续锁死（选择器可点语义不丢）。
+    # 固定深色工作台要求仓库名与箭头共用显式的亮色前景。
     src = _read(HOME)
     hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeCollapsibleSection("开始作业"', 1)[0]
-    assert '.background(CardBackground)' in hero
+    assert 'WmsIdentityPanel(' in hero
     selectors = re.findall(r'WarehouseSelector\((.*?)\)', hero, re.S)
     assert len(selectors) == 1, f"顶栏上下文条内应只有一个仓库切换器，实际 {len(selectors)}"
     for selector in selectors:
         assert 'currentLabel = dashboard?.warehouse' in selector
+        assert 'contentColor = OnPrimary' in selector
         assert 'selectedId = selectedWarehouseId' in selector
         assert 'onSelect = onSelectWarehouse' in selector
         assert 'allowAll = false' in selector

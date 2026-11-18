@@ -67,8 +67,13 @@ class NativeHomeBaselineTest {
             "每日报表" to Screen.DailyReport, "库存日报" to Screen.StockDailyReport,
             "出入库明细" to Screen.InOutDetailReport, "库存台账" to Screen.StockLedgerReport,
             "盘点记录" to Screen.StocktakeRecord, "AI 助手" to Screen.AssistantChat)
-        // 三段折叠：后两段默认收起，先展开再逐项点击，14 个目的地仍全部可达。
+        // 验证折叠与重新展开后，14 个目的地仍全部可达。
         for (section in listOf("查询与报表", "资料与工具")) {
+            val sample = if (section == "查询与报表") "每日报表" else "期初库存"
+            compose.onNodeWithText(sample).assertExists()
+            compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
+                .performScrollTo().performClick()
+            compose.onNodeWithText(sample).assertDoesNotExist()
             compose.onNode(hasClickAction() and hasAnyDescendant(hasText(section)), useUnmergedTree = true)
                 .performScrollTo().performClick()
         }

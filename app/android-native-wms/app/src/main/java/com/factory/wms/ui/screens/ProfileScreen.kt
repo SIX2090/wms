@@ -21,7 +21,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.BuildConfig
 import com.factory.wms.ui.components.StatusBarIconEffect
+import com.factory.wms.ui.components.WmsIdentityPanel
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.util.ScanFeedback
@@ -71,19 +71,9 @@ fun ProfileScreen(
             // ── Header ──
             // Scaffold 已预留状态栏安全区，图标颜色跟随实际背景明暗。
             StatusBarIconEffect(darkIcons = !isSystemInDarkTheme())
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Primary, PrimaryDark)
-                        )
-                    )
-            ) {
+            WmsIdentityPanel(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // 头像（白色描边圆环 + 首字母）
@@ -117,12 +107,12 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.height(6.dp))
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = Color.White.copy(alpha = 0.16f)
+                            color = GradientControlScrim
                         ) {
                             Text(
                                 "角色 · ${uiState.role.ifBlank { "操作员" }}",
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -312,8 +302,9 @@ private fun ProfileSectionCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        shape = RoundedCornerShape(18.dp),
+            .padding(horizontal = 16.dp),
+        shape = MaterialTheme.shapes.large,
+        border = androidx.compose.foundation.BorderStroke(1.dp, BorderSoft),
         colors = CardDefaults.cardColors(containerColor = CardBackground),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {

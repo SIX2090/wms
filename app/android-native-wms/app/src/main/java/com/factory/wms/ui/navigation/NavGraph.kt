@@ -525,7 +525,7 @@ internal fun WmsBottomBar(
                 constraints = labelConstraints).size.height
         }.maxOrNull() ?: 0
         val labelHeight = with(density) { labelHeightPx.toDp() }
-        val navigationBackground = MaterialTheme.colorScheme.primaryContainer
+        val navigationBackground = MaterialTheme.colorScheme.surface
         val selectedForeground = Primary.readableOn(navigationBackground)
         val unselectedForeground = MaterialTheme.colorScheme.onSurfaceVariant.readableOn(navigationBackground)
         NavigationBar(

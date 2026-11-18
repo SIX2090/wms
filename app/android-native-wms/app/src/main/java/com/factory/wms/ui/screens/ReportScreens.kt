@@ -1,5 +1,6 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.components.WmsCard
 import com.factory.wms.ui.theme.readableOn
 import androidx.compose.ui.graphics.compositeOver
 import com.factory.wms.data.model.DailyReportSummary
@@ -28,6 +29,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
@@ -136,6 +138,10 @@ fun DailyReportScreen(
                         ReportType.values().forEach { type ->
                             FilterChip(selected = uiState.reportType == type,
                                 onClick = { viewModel.selectType(type) }, label = { Text(type.label) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onTertiaryContainer
+                                ),
                                 modifier = Modifier.weight(1f).heightIn(min = WmsDimens.TouchTargetMin))
                         }
                     }
@@ -207,7 +213,7 @@ private fun SummaryCell(label: String, value: String, modifier: Modifier = Modif
             softWrap = true,
             textAlign = TextAlign.Center,
             fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
+            fontSize = 22.sp,
             style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
             color = Primary.readableOn(Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background))
         )
@@ -224,15 +230,8 @@ internal fun DailyReportItemRow(
     item: DailyReportItem,
     isPurchase: Boolean
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+    WmsCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -312,7 +311,7 @@ internal fun DailyReportSummaryContent(summary: DailyReportSummary) {
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val quantity = formatQty(summary.quantity)
-    val valueStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+    val valueStyle = MaterialTheme.typography.titleMedium.copy(fontSize = 22.sp, fontWeight = FontWeight.Bold, fontFeatureSettings = "tnum")
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val measured = measurer.measure(quantity, style = valueStyle, softWrap = false).size.width
         val inline = density.fontScale <= 1.3f && measured < with(density) { ((maxWidth - 48.dp) / 3).toPx() }

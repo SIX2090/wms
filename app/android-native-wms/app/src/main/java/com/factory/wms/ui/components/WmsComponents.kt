@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -54,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import com.factory.wms.ui.theme.WmsDimens
 import androidx.compose.ui.platform.LocalDensity
 import com.factory.wms.ui.theme.Background
+import com.factory.wms.ui.theme.BorderSoft
 import com.factory.wms.ui.theme.CardBackground
 import com.factory.wms.ui.theme.DividerSoft
 import com.factory.wms.ui.theme.Error
@@ -67,6 +69,7 @@ import com.factory.wms.ui.theme.SurfaceVariant
 import com.factory.wms.ui.theme.Warning
 import com.factory.wms.ui.theme.WarningContainer
 import com.factory.wms.ui.theme.wmsColors
+import com.factory.wms.ui.theme.PrimaryDark
 import com.factory.wms.ui.theme.readableOn
 import com.factory.wms.ui.theme.GradientControlScrim
 import java.text.SimpleDateFormat
@@ -118,7 +121,8 @@ fun WmsTopBar(
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (onBack != null) {
-                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    colors = IconButtonDefaults.iconButtonColors(containerColor = SurfaceVariant)) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "返回",
@@ -128,6 +132,7 @@ fun WmsTopBar(
             } else {
                 Spacer(modifier = Modifier.width(12.dp))
             }
+            Spacer(Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     title,
@@ -161,18 +166,20 @@ fun WmsGradientHeader(
     trailing: (@Composable () -> Unit)? = null,
     blueBackground: Boolean = false
 ) {
-    val headerColor = if (blueBackground) Primary.readableOn(Color.White)
+    val headerColor = if (blueBackground) PrimaryDark
         else accent.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface)
     StatusBarIconEffect(darkIcons = headerColor.luminance() > 0.5f)
     Surface(color = headerColor) {
         Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp)
             .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (onBack != null) {
-                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                IconButton(onClick = onBack, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = if (blueBackground) GradientControlScrim else CardBackground)) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回", tint = if (blueBackground) Color.White else MaterialTheme.colorScheme.onSurface)
                 }
             } else Spacer(Modifier.width(8.dp))
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold, color = if (blueBackground) Color.White else accent.readableOn(headerColor))
@@ -207,6 +214,7 @@ fun WmsCard(
     Card(
         modifier = modifier.then(clickModifier),
         shape = shape,
+        border = BorderStroke(1.dp, BorderSoft),
         // 2026-11-17 视觉批次：由 0dp 改为 1dp 极浅投影，让卡片从页面底色上"浮"起来。
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(containerColor = containerColor)
@@ -230,13 +238,13 @@ fun WmsEmptyState(
     compact: Boolean = false
 ) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = modifier.padding(horizontal = 20.dp, vertical = if (compact) 12.dp else 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         if (dashedBorder) {
             Box(
                 modifier = Modifier
-                    .size(100.dp)
+                    .size(72.dp)
                     .clip(RoundedCornerShape(24.dp))
                     .dashedBorderStroke(2.dp, accentColor.copy(alpha = 0.3f), 24.dp)
                     .background(accentColor.copy(alpha = 0.04f)),
@@ -245,32 +253,21 @@ fun WmsEmptyState(
                 Icon(
                     icon,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = accentColor.copy(alpha = 0.6f)
+                    modifier = Modifier.size(36.dp),
+                    tint = accentColor.readableOn(CardBackground)
                 )
             }
         } else {
             Box(
                 modifier = Modifier
-                    .size(if (compact) 48.dp else 96.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.05f)),
+                    .size(if (compact) 44.dp else 64.dp)
+                    .clip(MaterialTheme.shapes.large)
+                    .background(accentColor.copy(alpha = 0.09f)),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (compact) 40.dp else 72.dp)
-                        .clip(CircleShape)
-                        .background(accentColor.copy(alpha = 0.08f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(if (compact) 24.dp else 34.dp),
-                        tint = accentColor.copy(alpha = 0.55f)
-                    )
-                }
+                Icon(icon, contentDescription = null,
+                    modifier = Modifier.size(if (compact) 24.dp else 32.dp),
+                    tint = accentColor.readableOn(CardBackground))
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -319,7 +316,8 @@ fun WmsPrimaryButton(
     haptic: Boolean = true
 ) {
     val haptics = LocalHapticFeedback.current
-    val buttonColor = color.readableOn(Color.White)
+    val foreground = if (color == MaterialTheme.colorScheme.tertiary) MaterialTheme.colorScheme.onTertiary else Color.White
+    val buttonColor = color.readableOn(foreground)
     Button(
         onClick = {
             if (haptic) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -331,10 +329,10 @@ fun WmsPrimaryButton(
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = buttonColor,
-            contentColor = Color.White,
+            contentColor = foreground,
             // 忙碌时禁用重复点击，但进度和文字仍须清楚；普通禁用态继续弱化。
             disabledContainerColor = if (loading) buttonColor else color.copy(alpha = 0.35f),
-            disabledContentColor = if (loading) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            disabledContentColor = if (loading) foreground else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
         ),
         elevation = ButtonDefaults.buttonElevation(
             // 2026-11-17 视觉批次：主操作按钮加 1dp 极浅投影，按压时回到 0dp 形成"按下"手感。
@@ -345,12 +343,12 @@ fun WmsPrimaryButton(
         if (loading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
-                color = Color.White,
+                color = foreground,
                 strokeWidth = 2.dp
             )
             Spacer(modifier = Modifier.width(8.dp))
         } else if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(19.dp))
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
             Spacer(modifier = Modifier.width(7.dp))
         }
         Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
@@ -380,7 +378,7 @@ fun WmsOutlinedActionButton(
         )
     ) {
         if (icon != null) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = textColor)
+            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = textColor)
             Spacer(modifier = Modifier.width(6.dp))
         }
         Text(text, color = textColor, fontWeight = FontWeight.Medium, fontSize = 14.sp, textAlign = TextAlign.Center)
@@ -455,7 +453,7 @@ fun WmsSectionHeader(
         }
         Text(
             title,
-            style = MaterialTheme.typography.titleSmall,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
             color = OnSurface,
             modifier = Modifier.weight(1f)
@@ -749,7 +747,7 @@ fun WmsDateNavRow(
                     Icon(Icons.Filled.ChevronLeft, if (label != null) "${label}前一天" else "前一天")
                 }
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(date, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                    Text(date, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.SemiBold,
                         modifier = if (onDateSelected != null) Modifier.heightIn(min = 48.dp)
                             .clickable { showPicker = true }.wrapContentHeight() else Modifier)
                     val sub = subtitle ?: label?.let { "${it}日期" }
@@ -774,7 +772,8 @@ fun WmsDateNavRow(
             modifier = modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            shape = RoundedCornerShape(14.dp),
+            shape = MaterialTheme.shapes.large,
+            border = BorderStroke(1.dp, BorderSoft),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),

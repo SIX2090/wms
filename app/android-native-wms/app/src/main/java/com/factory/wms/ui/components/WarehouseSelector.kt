@@ -18,8 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.WarehouseDto
 
 /**
@@ -49,7 +49,8 @@ fun WarehouseSelector(
     allowAll: Boolean = true,
     showDefaultWarehouse: Boolean = true,
     modifier: Modifier = Modifier,
-    contentColor: Color? = null
+    contentColor: Color? = null,
+    labelStyle: TextStyle = MaterialTheme.typography.labelLarge
 ) {
     var expanded by remember { mutableStateOf(false) }
     // 当前选中仓库（无回传标签时取名称兜底，避免去掉"默认仓库"后显示成空/错名称）
@@ -72,7 +73,7 @@ fun WarehouseSelector(
                 ButtonDefaults.textButtonColors()
             }
         ) {
-            Text(label, fontSize = 14.sp)
+            Text(label, style = labelStyle)
             Icon(
                 Icons.Filled.ArrowDropDown,
                 "切换仓库",

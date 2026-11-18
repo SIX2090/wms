@@ -258,10 +258,10 @@ def test_screen_routes_carry_warehouse_params():
 def test_home_screen_wires_both_entries():
     src = _p("ui/screens/HomeScreen.kt")
     # A1 对齐：下钻入口由 TodayOverviewBar 的四列格改为 HomeWorkbench 内两张独立 tile。
-    overview = src[src.index("internal fun HomeWorkbench("):src.index("// 三段折叠入口")]
+    overview = src[src.index("internal fun HomeWorkbench("):src.index('HomeCollapsibleSection("开始作业"')]
     assert 'HomeMetricTile(' in overview, "概览不再使用独立 tile"
     assert '"待处理单据"' in overview and 'onNavigate(Screen.OverviewOrders)' in overview
-    assert '(dashboard?.pendingInOrders ?: 0) + (dashboard?.pendingOutOrders ?: 0)' in overview
+    assert 'dashboard.pendingInOrders + dashboard.pendingOutOrders' in overview
     assert '"库存告警"' in overview and 'onNavigate(Screen.OverviewAlerts)' in overview
     assert 'dashboard?.alertCount ?: 0' in overview
     assert 'Screen.StockQuery' not in overview and 'screen = null' not in overview

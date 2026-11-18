@@ -36,7 +36,7 @@ class NativeBottomNavigationContrastTest(private val dark: Boolean) {
     @Before fun before() {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity.get().setContent { WmsTheme(darkTheme = dark) {
-            background = MaterialTheme.colorScheme.primaryContainer
+            background = MaterialTheme.colorScheme.surface
             WmsBottomBar(Screen.Home.route, bottomTabs(), {})
         } }
     }

@@ -67,9 +67,7 @@ def test_002_title_row_not_inside_floating_offset_column() -> None:
 
 
 def test_002_title_and_warehouse_use_theme_surface() -> None:
-    # A1 对齐：沉浸式 Hero 改为单行 appbar（仓库工作台 + 仓库上下文条 + 退出）。
-    # 业务意图一条不丢：无 offset 悬浮、appbar 前景/表面取自主题、白字由双色块 onPrimary 承担、
-    # 仓库切换器仍在顶栏下方且可点。
+    # 深色表面承载标题、仓库与指标。检查色彩搭配、仓库选择和正常布局流。
     src = _read(HOME)
     hero = src.split('internal fun HomeWorkbench(', 1)[1].split('HomeCollapsibleSection("开始作业"', 1)[0]
     greeter = src.split('internal fun greetingForHour(', 1)[1].split('internal fun HomeWorkbench(', 1)[0]
@@ -78,13 +76,10 @@ def test_002_title_and_warehouse_use_theme_surface() -> None:
         assert branch in greeter, f"问候语缺少 {branch} 分支"
     # ② appbar 标题：单行顶栏直接渲染「仓库工作台」
     assert 'Text("仓库工作台"' in hero, "appbar 标题未渲染「仓库工作台」"
-    # ③ appbar 表面/前景取自主题（无深蓝 Hero 底、无 offset 悬浮）
-    assert ".background(CardBackground)" in hero, "appbar 未使用主题 CardBackground 表面"
-    assert "color = OnSurface" in hero, "appbar 文字未使用主题 OnSurface 前景"
-    # ④ 双色主操作块白字：foreground 走 onPrimary / onTertiary（Color.White 由主题提供）
-    primary_task = src.split('private fun HomePrimaryTask(', 1)[1].split('@Composable', 1)[0]
-    assert "colorScheme.onPrimary" in primary_task, "入库主操作块失去白色前景"
-    assert "colorScheme.onTertiary" in primary_task, "出库主操作块失去白色前景"
+    assert "WmsIdentityPanel(" in hero, "顶栏缺少固定深色表面"
+    title = hero.split('Text("仓库工作台"', 1)[1].split("Row(", 1)[0]
+    assert "color = OnPrimary" in title, "深色顶栏须使用亮色标题"
+    assert "HomeTileGrid(cards.take(4)" in src, "常用入口应直接展示四项作业"
     # ⑤ 仓库切换器：顶栏上下文条内唯一、契约参数齐全、可点
     selectors = re.findall(r"WarehouseSelector\((.*?)\)", hero, re.S)
     assert len(selectors) == 1, f"顶栏上下文条内应只有一个仓库切换器，实际 {len(selectors)}"
@@ -101,7 +96,7 @@ def test_002_title_and_warehouse_use_theme_surface() -> None:
 def test_002_overview_states_have_no_floating_overlap() -> None:
     src = _read(HOME)
     assert "Modifier.offset" not in src
-    for state in ('dashboard != null ->', 'isLoading -> DashboardOverviewSkeleton', 'else -> DashboardOverviewError'):
+    for state in ('if (dashboard != null)', 'if (dashboard == null)', 'if (isLoading) DashboardOverviewSkeleton() else DashboardOverviewError(onRetry = onRetry)'):
         assert state in src
 
 

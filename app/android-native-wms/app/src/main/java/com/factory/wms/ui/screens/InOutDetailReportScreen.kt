@@ -1,5 +1,6 @@
 package com.factory.wms.ui.screens
 
+import com.factory.wms.ui.components.WmsCard
 import com.factory.wms.ui.theme.readableOn
 import androidx.compose.ui.graphics.compositeOver
 import com.factory.wms.data.model.InOutDetailSummary
@@ -362,18 +363,10 @@ private fun InOutSummaryCell(
 
 @Composable
 internal fun InOutDetailItemRow(item: InOutDetailItem) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
+    WmsCard(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // 带符号数量：入库 +绿 / 出库 -红（direction 与服务端口径一致）

@@ -20,6 +20,7 @@ import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 import com.factory.wms.BuildConfig
 import com.factory.wms.ui.components.StatusBarIconEffect
+import com.factory.wms.ui.components.WmsIdentityPanel
 import com.factory.wms.ui.components.WmsPrimaryButton
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
@@ -62,15 +63,15 @@ internal fun LoginForm(initialBaseUrl: String, isLoading: Boolean, modifier: Mod
         if (loginEnabled) onLogin(username, password, baseUrl)
     }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).imePadding()
-        .padding(horizontal = 24.dp, vertical = 32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(Icons.Outlined.Warehouse, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
-            Text("WMS", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("仓库工作台", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            Text("登录后开始仓库作业", style = MaterialTheme.typography.bodyLarge, color = OnSurfaceVariant)
-            Text("入库 · 出库 · 盘点 · 识物", style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
+        .padding(horizontal = 16.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        WmsIdentityPanel(Modifier.widthIn(max = 480.dp)) {
+            Text("WMS", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = OnPrimary)
+            Text("仓库工作台", style = MaterialTheme.typography.headlineLarge, color = OnPrimary)
+            Text("入库 · 出库 · 盘点 · 识物", style = MaterialTheme.typography.bodyMedium, color = OnPrimary)
         }
-        Surface(color = CardBackground, shape = MaterialTheme.shapes.large) {
+        Surface(modifier = Modifier.widthIn(max = 480.dp), color = CardBackground,
+            border = androidx.compose.foundation.BorderStroke(1.dp, BorderSoft), shape = MaterialTheme.shapes.large) {
             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("登录工作台", style = MaterialTheme.typography.titleLarge)
                 OutlinedTextField(username, { username = it }, label = { Text("用户名") },
