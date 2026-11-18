@@ -186,8 +186,11 @@ class NativeWorkbenchTest(private val fontScale: Float, private val dark: Boolea
             compose.onNodeWithText(it).performScrollTo()
             completeIdentityText(it)
         }
-        compose.onNodeWithText("1,280").performScrollTo()
-        val quantity = completeText("1,280")
+        // WmsQuantityText 内部经 quantityDisplayText 在千分位逗号后插入 \u200B（便于长数字换行），
+        // 故语义树里的真实文本不是 "1,280"，必须走同一个格式化函数取期望值。
+        val quantityText = com.factory.wms.ui.util.quantityDisplayText("1,280")
+        compose.onNodeWithText(quantityText).performScrollTo()
+        val quantity = completeText(quantityText)
         assertEquals("Overview quantity must not split across lines", 1, quantity.lineCount)
         compose.onNodeWithText("仓库工作台").performScrollTo()
         capture("home-polished")
