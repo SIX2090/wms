@@ -149,3 +149,53 @@
   改动会连带 `NativeScannerFullscreenFrameTest:116` 的像素断言；`WmsGradientHeader` 的「accent 5% 淡底 +
   粗体标题」暗色标题对比度余量仅 4.500112，是否保留待定；H5 后台 `app/static/css/mobile-app.css`
   属独立设计系统，本轮未纳入。
+
+### 第五次：真机反馈后按 A1 完全对齐（2026-11-18，提交 `24d0cc507`）
+
+- 触发：用户装上 `3.9.39` 后回传真机截图，指出「效果与设计稿区别很大」。逐项对照后确认是**方向性偏差**，
+  不是细节：上一轮把 A 阶段做成「深靛蓝换色 + 自加的 220dp 沉浸式渐变头」，而设计稿 §3 首页规格的
+  核心（三段折叠、等宽大数字、去 8 色渐变）一项未做。用 AskUserQuestion 确认口径后，用户选
+  **完全对齐 A1** 且**走完门禁就发**。
+- 逐项差距（设计稿 → 上一轮真机）：44px 普通 appbar「仓库工作台/退出」→ 220dp 渐变头 + 问候语；
+  三段折叠默认收起低频段 → 常用操作/更多功能全平铺；待办/告警两张 20sp 等宽 tile → 四列概览小数字
+  （副标题还挤成两行）；入库/出库 58dp 主色/Teal 色块 → 3 列小图标卡；中性 8% alpha 图标底 →
+  8 色彩底；`#3559D8 / #7B8FF7` → 深靛蓝 `#3F51B5 / #A5B4FC`。
+- 已落地改动（17 文件，258+/128−）：`HomeScreen.kt` 重写 `HomeWorkbench` 为 56dp appbar + 仓库上下文条 +
+  双 tile + 双色块 + `rememberSaveable` 三段折叠 + 行内等宽数字；新增 `HomeMetricTile` / `HomeCollapsibleSection`；
+  `HomeModuleIcon` 去彩底；`Color.kt` 只回退 3 个常量（`PalettePrimary`/`PrimaryLight`/`CardBlue`），
+  container 与 on 系列保持现值（设计稿未给 hex，不臆造）。用户禁止删除的
+  `HomePrimaryTask`/`HomeEntryGrid`/`HomeEntryRow`/`FunctionCardItem`/`TodayMovementCell` 与
+  `greetingForHour`/`currentGreeting` 全部原样保留，仅不再被调用。
+- 断言同步：4 个 Kotlin 测试改问候语/四列/「常用操作」断言（对比度测试的背景基准由 `bitmap.getPixel(2,2)`
+  改为组合作用域取的 `CardBackground`），8 个 Python 守卫改文案与结构锚点（保留 `verify_bug_002`
+  的「无 offset、白字、选择器可点」业务意图）。版本 Android `64/3.9.40`、WMS `2026.11.97`。
+- 验证口径：本机 61 条静态断言全通过（含 pytest shim 跑的元守卫）；离线 AST/正则校验 appbar、
+  三段折叠、去彩底、5 个禁删函数、Compose 令牌无越界、花括号配平均 OK。
+  真实 Kotlin 编译与 Robolectric 渲染只能靠 CI，本地无 JDK 无法替代。
+- 生产通道现状（前置事实）：Android APK 从 push 到用户可下载是**全自动**的——`build` job 出包并发布
+  候选 → 三工作流全绿后 `android-update-promote.yml` 提升不可变稳定记录 → `publish-channel` 切固定频道。
+  #905 那版 APK 虽发布为候选但从未 promote，手机拿不到。本轮按用户选择走完门禁后即进入该通道。
+
+#### 第五次批次的 CI 失败与修复（#911 → #912）
+
+- `24d0cc507` 推送后 Android APK Build **#911 unit-test 失败**：`build` 与 `lint` job 均 success，
+  故**不是编译问题**。按既定路径从 nightly.link 拉 `test-release-unit-test-report.zip` 读 JUnit XML：
+  8 个失败用例全部是 `NativeWorkbenchTest.homeKeepsThreeColumnsAndReadableOverview` 第 189 行，
+  `onNodeWithText("1,280")` 找不到节点。
+- 真因：新首页今日行复用 `TodayMovementCell` → `WmsQuantityText` → `quantityDisplayText(value)`，
+  后者把 `,` 替换为 `,\u200B`（逗号后零宽空格，供长数字换行）。所以语义树里的真实文本是
+  `1,\u200B280`，断言按裸 `1,280` 精确匹配必然落空。**是断言没跟上组件实现，不是布局回归。**
+- 修复 `12241b62a`：断言改用 `quantityDisplayText("1,280")` 生成期望值（同一测试文件 322 行
+  早已用同法匹配报表数量）。推送时被 pre-push 版本门禁拦下——本批次改了 `app/`，
+  `app/version.py` 必须递增到远端尚无标签的版本；按规则递增到 `2026.11.98`（`497b95f91`），
+  **未使用 `WMS_SKIP_RELEASE_VERSION_GATE=1` 绕过**。
+- 终态门禁（`497b95f914815d1ecd73b0f42f601888055282f4`）：**Android APK Build #912 success /
+  WMS CI #2250 success / WMS AI Verification #2544 success**，WMS Perf Baseline #1104 success。
+- 生产频道验收：`android-mobile-stable-v64-497b95f91…`（标题「Android 稳定版 3.9.40」）已建，
+  固定频道 `android-mobile-stable-channel/update.json` 已切到该 tag（首次直读命中 CDN 旧缓存仍显示 v63，
+  加 `Cache-Control: no-cache` + query 后确认为 v64）。v64 元数据：`versionCode 64 / versionName 3.9.40`、
+  `commitSha 497b95f9…`、`sha256 7c2bb4e1…`、`url` 指向 `android-apk-912-attempt-1`，
+  `verificationRuns` 三条与上述三个 success run 一一对应。
+- 本轮新增教训：**Kotlin 测试断言里凡匹配数量文本，一律走 `quantityDisplayText(formatQty(...))`，
+  不要写裸字符串**；`WmsQuantityText` / `WmsAdaptiveRecord` 链路都会插入 `\u200B`。
+  CI 红先读 JUnit XML 定位到具体行，再核对断言期望值与组件实际渲染文本，比重猜布局快得多。
