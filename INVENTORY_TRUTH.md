@@ -112,10 +112,10 @@
 
 | 函数 | 位置 | 作用 | 同步库位账？ |
 |---|---|---|---|
-| `deduct_stock_atomic` | `app/app.py:5118` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
-| `add_stock` | `app/app.py:5186` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8772` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
-| `add_stock_transaction` | `app/app.py:5459` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
+| `deduct_stock_atomic` | `app/app.py:5119` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
+| `add_stock` | `app/app.py:5187` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
+| `_apply_opening_stock_balance` | `app/app.py:8773` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `add_stock_transaction` | `app/app.py:5460` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
 `app/services/warehouse_stock_service.py` 的三个入口，按语义选：
@@ -135,9 +135,9 @@ BUG-2026-09-20-008 型静默账实分裂的温床，`tests/test_p1_7_convergence
 
 | 函数 | 位置 | 作用 |
 |---|---|---|
-| `add_location_inventory_atomic` | `app/app.py:5316` | 原子增加库位数量（自动建账） |
-| `deduct_location_inventory_atomic` | `app/app.py:5401` | 原子扣减库位数量 |
-| `update_location_inventory` | `app/app.py:5254` | 分发器：按 delta 正负调用上面两个 |
+| `add_location_inventory_atomic` | `app/app.py:5317` | 原子增加库位数量（自动建账） |
+| `deduct_location_inventory_atomic` | `app/app.py:5402` | 原子扣减库位数量 |
+| `update_location_inventory` | `app/app.py:5255` | 分发器：按 delta 正负调用上面两个 |
 
 > 📌 **行号会漂移**：本文件里的 `app/app.py:NNNN` 只是定位提示，
 > 以**函数名**为准。`tests/test_inventory_truth_line_refs.py` 会自动校验本文件的
@@ -326,7 +326,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 这两处是当前系统里**唯一**允许口径切换的地方，改动前必须理解其条件：
 
-**(a) 单仓库短路**（`app/app.py:5748`，`get_warehouse_stock_quantities` 内）
+**(a) 单仓库短路**（`app/app.py:5749`，`get_warehouse_stock_quantities` 内）
 
 ```python
 if Warehouse.query.count() == 1:
@@ -336,7 +336,7 @@ if Warehouse.query.count() == 1:
 > ⚠️ **这是定时炸弹**：一旦系统新增第二个仓库，所有历史 NULL-location 流水的归属语义**瞬间改变**。
 > 新增仓库前必须先在测试库验证该分支退出后的库存数值是否连续。
 
-**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:5959`）
+**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:5960`）
 
 仅当"该物料**全部**流水都无法归属"时，才允许回退全局 `material.stock` 口径；
 只要存在**任意一条**可归属流水，就必须保持仓库级严格校验。
