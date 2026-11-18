@@ -390,6 +390,9 @@ private fun HomeModuleIcon(card: FunctionCard) {
 
 @Composable
 fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
+    // DividerSoft 是 @Composable @ReadOnlyComposable getter，必须在组合作用域内取值；
+    // drawBehind 的 lambda 是 DrawScope 而非 @Composable，不能直接调用它。
+    val dividerColor = DividerSoft
     val entries = listOf(
         Triple("今日入库", formatQty(dashboard.todayInQuantity), "${dashboard.todayInOrders} 单") to Screen.Inbound,
         Triple("今日出库", formatQty(dashboard.todayOutQuantity), "${dashboard.todayOutOrders} 单") to Screen.Outbound,
@@ -413,7 +416,7 @@ fun TodayOverviewBar(dashboard: DashboardDto, onNavigate: (Screen) -> Unit) {
                             .drawBehind {
                                 if (index < row.lastIndex) {
                                     val x = size.width - 0.5.dp.toPx()
-                                    drawLine(DividerSoft, Offset(x, 12.dp.toPx()),
+                                    drawLine(dividerColor, Offset(x, 12.dp.toPx()),
                                         Offset(x, size.height - 12.dp.toPx()), 1.dp.toPx())
                                 }
                             }
