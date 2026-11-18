@@ -42,6 +42,10 @@ class SalesProgressMoneyContract(unittest.TestCase):
                 deny()
             return original_import(name, *args, **kwargs)
 
+        return_guard = ModuleType('services.document_return_guard')
+        helper = function('app/services/document_return_guard.py', 'is_detached_sales_copy')
+        exec(compile(ast.Module(body=[helper], type_ignores=[]), '<actual-detached-sales-copy-check>', 'exec'),
+             return_guard.__dict__)
         sqlalchemy = ModuleType('sqlalchemy')
         sqlalchemy.inspect = lambda *args, **kwargs: None
         for guard in (patch.object(builtins, '__import__', side_effect=guarded_import),
@@ -51,7 +55,7 @@ class SalesProgressMoneyContract(unittest.TestCase):
                       patch.object(socket.socket, 'connect_ex', deny),
                       patch.object(socket, 'getaddrinfo', deny),
                       patch.object(subprocess, 'Popen', deny),
-                      patch.dict(sys.modules, {'sqlalchemy': sqlalchemy})):
+                      patch.dict(sys.modules, {'sqlalchemy': sqlalchemy, 'services.document_return_guard': return_guard})):
             guard.start()
             self.addCleanup(guard.stop)
         self.inspect_module = sqlalchemy

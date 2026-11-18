@@ -31,6 +31,15 @@ def completed_sales_return_check(inbound):
     return True, ''
 
 
+def is_detached_sales_copy(outbound):
+    """旧复制件有复制备注且只有文字销售来源；普通独立销售出库不受影响。"""
+    remark = getattr(outbound, 'remark', '') or ''
+    purpose = getattr(outbound, 'purpose', '') or ''
+    return (not outbound.source_sales_order_id and not any(row.source_sales_order_item_id for row in outbound.items)
+            and remark.startswith('由出库单 ') and '复制生成' in remark
+            and ('来源销售订单' in purpose or purpose == '选单生成销售出库' or '已剥离销售订单来源' in remark))
+
+
 def sales_outbound_revert_check(outbound):
     from app import (SalesOrder, SalesOrderItem, db, _sales_returned_quantity_by_source_item,
                      round_to_2_decimals, STOCK_COMPARE_EPSILON)
@@ -39,6 +48,24 @@ def sales_outbound_revert_check(outbound):
         match = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
         if match:
             source = SalesOrder.query.filter_by(order_no=match.group(1)).first()
+    if is_detached_sales_copy(outbound) and not source and '来源销售订单' in (outbound.purpose or ''):
+        return False, '历史复制单指向的销售订单无法核对，请先核对原订单'
+    if source and is_detached_sales_copy(outbound):
+        from app import OutOrder, OutOrderItem
+        # 旧进度有订货量封顶。其他已完成、明确关联的出库已能证明全部已发时，
+        # 只回冲复制件库存；剩余历史进度无法证明时交人工核对。
+        for material_id in {item.material_id for item in outbound.items}:
+            rows = [item for item in source.items if item.material_id == material_id]
+            if len(rows) != 1:
+                return False, '历史复制单的销售来源行不明确，请先核对原订单的发货记录'
+            row = rows[0]
+            proven = db.session.query(db.func.sum(OutOrderItem.quantity)).join(OutOrder).filter(
+                OutOrder.status == 'completed', OutOrder.id != outbound.id,
+                OutOrderItem.material_id == material_id, OutOrderItem.source_sales_order_item_id == row.id,
+            ).scalar() or 0
+            if proven + STOCK_COMPARE_EPSILON < (row.shipped_quantity or 0):
+                return False, '历史复制单缺少足以核对已发数量的来源记录，请先核对原订单'
+        return True, ''
     by_material = {}
     if source:
         for row in source.items:

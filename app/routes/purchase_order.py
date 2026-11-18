@@ -703,7 +703,7 @@ def register_purchase_order_routes(app):
     def purchase_order_detail(id):
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
-                         build_purchase_order_execution, get_active_warehouses,
+                         build_purchase_order_execution, get_active_warehouses, get_default_warehouse,
                          get_recent_operation_logs, purchase_order_status_label)
         order = PurchaseOrder.query.options(
             joinedload(PurchaseOrder.supplier),
@@ -727,7 +727,7 @@ def register_purchase_order_routes(app):
             'purchase_order_detail.html',
             order=order,
             related_in_orders=related_in_orders,
-            warehouses=warehouses,
+            warehouses=warehouses, default_warehouse=get_default_warehouse(),
             status_label=purchase_order_status_label,
             item_execution=item_execution,
             operation_logs=get_recent_operation_logs('purchase_order', id),
@@ -1014,6 +1014,12 @@ def register_purchase_order_routes(app):
 
         payload = request.get_json(silent=True) or request.form
         warehouse = (payload.get('warehouse') or '').strip()
+        if payload.get('warehouse_id') or payload.get('warehouse_code'):
+            from app import resolve_request_warehouse
+            selected, error = resolve_request_warehouse(payload)
+            if error:
+                return api_error(error)
+            warehouse = selected.name
         remark = (payload.get('remark') or '').strip()
         submitted_items = payload.get('items') if isinstance(payload, dict) else None
 

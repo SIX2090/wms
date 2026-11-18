@@ -25,7 +25,7 @@ extract('app/utils.py','is_stock_sufficient')
 for name in ('three_ledger_guard_enabled','three_ledger_guard_strict','verify_material_three_ledgers',
              'guard_three_ledgers','apply_stock_delta'):
     extract('app/services/warehouse_stock_service.py',name)
-for name in ('sales_outbound_revert_check','purchase_inbound_revert_check'):
+for name in ('is_detached_sales_copy','sales_outbound_revert_check','purchase_inbound_revert_check'):
     extract('app/services/document_return_guard.py',name)
 extract('app/services/warehouse_identity.py','resolve_warehouse_text')
 for name in ('revert_in_order','batch_revert_in_order'):

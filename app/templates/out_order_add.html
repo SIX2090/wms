@@ -980,6 +980,7 @@ function copyValuesToRow(source, target) {
         const output = target.querySelector('.' + cls);
         if (input && output) output.value = input.value;
     });
+    target.dataset.salesSourceId = source.dataset.salesSourceId || '';
     calcAmount(target);
 }
 
@@ -1261,7 +1262,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             largeQtyCount++;
         }
         
-        items.push({ code, quantity: qty, price: price || 0, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim(), ...(isPurchaseReturn && row.querySelector('.line-source-in-item-id')?.value ? { source_in_order_item_id: row.querySelector('.line-source-in-item-id').value } : {}) });
+        items.push({ code, quantity: qty, price: price || 0,
+            ...(isSaleOrder && row.dataset.salesSourceId ? {source_sales_order_item_id: row.dataset.salesSourceId} : {}), contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim(), ...(isPurchaseReturn && row.querySelector('.line-source-in-item-id')?.value ? { source_in_order_item_id: row.querySelector('.line-source-in-item-id').value } : {}) });
     }
     
     if (emptyQtyCount > 0) {
@@ -1380,6 +1382,7 @@ document.addEventListener('DOMContentLoaded', function() {
     editItems.forEach((item) => {
         addNewRow();
         const row = document.querySelector('#materialTableBody tr:last-child');
+        row.dataset.salesSourceId = item.source_sales_order_item_id || '';
         row.querySelector('.material-code').value = item.material_code;
         handleMaterialCodeInput(row);
         row.querySelector('.material-qty').value = item.quantity;

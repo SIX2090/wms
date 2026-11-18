@@ -152,12 +152,16 @@
             </div>
             {% if current_user.role in ['admin', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                {% if order.business_type == '销售出库' and (source_sales_orders or order.source_sales_order_id or '来源销售订单' in (order.purpose or '') or order.purpose == '选单生成销售出库') %}
+                {% for source in source_sales_orders %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_detail', id=source.id) }}">从销售订单 {{ source.order_no }} 下推</a>{% else %}<a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_list') }}">查看来源销售订单</a>{% endfor %}
+                {% else %}
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
                 </button>
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('out_order_add_page') }}?{% if order.business_type == '其他出库' %}type=other_out&{% elif order.business_type == '销售出库' %}type=sale&{% elif order.business_type == '采购退货出库' %}type=purchase_return&{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&department_id={{ order.department_id or '' }}&customer={{ (order.customer or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&picker={{ (order.picker or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&business_type={{ (order.business_type or '')|urlencode }}&source_in_order_id={{ order.source_in_order_id or '' }}&source_in_order_no={{ (order.source_in_order_no or '')|urlencode }}">
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
+                {% endif %}
                 {% if order.status == 'pending' %}
                 <a class="btn btn-sm btn-outline-primary" href="/out_order/add?order_id={{ order.id }}">
                     <i class="bi bi-pencil-square"></i> 编辑明细

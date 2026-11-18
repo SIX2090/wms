@@ -194,7 +194,7 @@ def register_out_order_routes(app):
     @login_required
     @web_document_command_idempotent
     def copy_out_order(id):
-        """复制领料/出库单为新草稿（不带销售来源关联，避免半关联脏数据）。"""
+        """复制独立出库单；关联销售订单的后续发货从订单下推。"""
         from datetime import date
         from app import (OutOrder, OutOrderItem, api_error, generate_order_no,
                          log_operation, recalculate_order_total,
@@ -205,6 +205,9 @@ def register_out_order_routes(app):
             joinedload(OutOrder.items).joinedload(OutOrderItem.material),
             joinedload(OutOrder.department),
         ).get_or_404(id)
+        if (source.source_sales_order_id or any(row.source_sales_order_item_id for row in source.items)
+                or (source.business_type == '销售出库' and ('来源销售订单' in (source.purpose or '') or source.purpose == '选单生成销售出库'))):
+            return api_error('请从原销售订单下推剩余发货数量', 409)
         if not source.items:
             return api_error('原出库单没有明细，不能复制')
 
@@ -220,8 +223,6 @@ def register_out_order_routes(app):
             remark_parts = [f'由出库单 {source.order_no} 复制生成']
             if source.remark:
                 remark_parts.append(f'原备注：{source.remark}')
-            if source.source_sales_order_id:
-                remark_parts.append('已剥离销售订单来源，可按普通草稿继续编辑')
             new_order = OutOrder(
                 order_no=generate_order_no(prefix),
                 date=date.today(),
@@ -608,6 +609,7 @@ def register_out_order_routes(app):
                                  # P1-7：行级来源采购入库明细，编辑草稿时必须回填，
                                  # 否则重建明细后丢失来源关联，防超退闸形同虚设。
                                  'source_in_order_item_id': item.source_in_order_item_id,
+                                 'source_sales_order_item_id': item.source_sales_order_item_id,
                                  'quantity': item.quantity,
                                  'price': item.price,
                                  'contract_no': item.contract_no or '',
@@ -756,6 +758,10 @@ def register_out_order_routes(app):
                     target_document_id=order.id, status='active'
                 ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first():
                     return jsonify({'status': 'error', 'msg': '下推生成的目标草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
+                if order.business_type == '销售出库' and business_type != order.business_type and (
+                        order.source_sales_order_id or any(row.source_sales_order_item_id for row in order.items)
+                        or '来源销售订单' in (order.purpose or '') or order.purpose == '选单生成销售出库'):
+                    return api_error('有关联销售订单的出库单不能更改业务类型', 409)
                 if business_type == '销售出库' and order.source_sales_order_id:
                     source_order = db.session.get(SalesOrder, order.source_sales_order_id)
                     if source_order and source_order.warehouse_id and source_order.warehouse_id != sales_warehouse.id:
@@ -809,9 +815,8 @@ def register_out_order_routes(app):
                 # sync_sales_order_shipment 无法按行级来源回写 shipped_quantity。
                 existing_material_counts = Counter(item.material_id for item in order.items) if order_id else Counter()
                 source_item_by_material = {}
-                for existing_item in list(order.items):
-                    if getattr(existing_item, 'source_sales_order_item_id', None):
-                        source_item_by_material[existing_item.material_id] = existing_item.source_sales_order_item_id
+                for existing_item in order.items:
+                    source_item_by_material.setdefault(existing_item.material_id, set()).add(existing_item.source_sales_order_item_id)
                 for existing_item in list(order.items):
                     db.session.delete(existing_item)
                 db.session.flush()
@@ -841,11 +846,20 @@ def register_out_order_routes(app):
 
                 price = round_to_2_decimals(parse_float_value(submitted_item.get('price'), material.price or 0))
                 # SALES-AUDIT-005：优先用前端回传的来源，其次按 material_id 恢复
-                preserved_source_id = (
-                    int(submitted_item['source_sales_order_item_id'])
-                    if submitted_item.get('source_sales_order_item_id')
-                    else source_item_by_material.get(material.id)
-                )
+                candidates = source_item_by_material.get(material.id, set())
+                preserved_source_id = submitted_item.get('source_sales_order_item_id')
+                if preserved_source_id and business_type != '销售出库':
+                    db.session.rollback()
+                    return api_error('只有销售出库可以关联销售订单明细')
+                if (order.purpose == '选单生成销售出库' and not order.source_sales_order_id and preserved_source_id
+                        and str(preserved_source_id) not in {str(sid) for sid in candidates if sid}):
+                    db.session.rollback()
+                    return api_error('销售来源不属于原选单明细，请从销售订单下推', 409)
+                if not preserved_source_id and len(candidates) > 1:
+                    db.session.rollback()
+                    return api_error('同一物料有多条销售来源，请重新打开出库单并核对明细', 409)
+                if not preserved_source_id:
+                    preserved_source_id = next(iter(candidates), None)
                 # P1-7 采购退货出库：来源采购入库行（可选关联，有则防超退）。
                 # 优先行级 source_in_order_item_id；头级给了来源入库单但行级未指明时，
                 # 按物料在该单内唯一匹配自动链接。

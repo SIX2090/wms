@@ -69,7 +69,8 @@ def test_source_limit_sums_rows(flow_case, mode, quantities, allowed):
     with w.app.app_context():
         _, sid = source_case(ids, mode)
         field = 'source_in_order_item_id' if mode == 'purchase_return' else 'source_sales_order_item_id'
-        doc = SimpleNamespace(items=[SimpleNamespace(quantity=q, **{field:sid}) for q in quantities])
+        doc = SimpleNamespace(source_sales_order_id=None, purpose='', items=[
+            SimpleNamespace(material_id=ids['mat'], quantity=q, **{field:sid}) for q in quantities])
         fn = {'sale':w.sales_outbound_remaining_check, 'sales_return':w.sales_return_remaining_check,
               'purchase_return':w.purchase_return_remaining_check}[mode]
         assert fn(doc)[0] is allowed
@@ -88,7 +89,8 @@ def test_same_material_different_source_lines_remain_independent(flow_case, mode
         w.db.session.add(line)
         w.db.session.commit()
         field = 'source_in_order_item_id' if mode == 'purchase_return' else 'source_sales_order_item_id'
-        doc = SimpleNamespace(items=[SimpleNamespace(quantity=6, **{field:source}) for source in [sid, line.id]])
+        doc = SimpleNamespace(source_sales_order_id=None, purpose='', items=[
+            SimpleNamespace(material_id=ids['mat'], quantity=6, **{field:source}) for source in [sid, line.id]])
         fn = {'sale':w.sales_outbound_remaining_check, 'sales_return':w.sales_return_remaining_check,
               'purchase_return':w.purchase_return_remaining_check}[mode]
         assert fn(doc)[0] is True

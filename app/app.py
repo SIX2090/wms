@@ -8295,22 +8295,9 @@ def api_subcontract_quick_receive():
         db.session.rollback()
         return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
 
-    # Update order status
-    # 注意：上面 db.session.add(receive_item) 后，SQLAlchemy 默认 autoflush 会在下次查询前
-    # 把 receive_item 刷入数据库，因此下面的 sum 查询已包含本次 quantity，不能再 + quantity，
-    # 否则 received_qty 会被双倍计算，可能把未完成订单误判为 completed
-    order_items = SubcontractItem.query.filter_by(subcontract_order_id=order_id).all()
-    total_qty = sum(item.quantity for item in order_items)
-    received_qty = sum(item.quantity for item in
-                      SubcontractReceiveItem.query.join(SubcontractReceive)
-                      .filter(SubcontractReceive.subcontract_order_id == order_id).all())
-
-    if received_qty >= total_qty:
-        order.status = 'completed'
-    elif received_qty > 0:
-        order.status = 'partial' if order.status != 'processing' else 'processing'
-
+    from services.subcontract_receipts import refresh_subcontract_receipts
     try:
+        refresh_subcontract_receipts(order.id)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
@@ -11880,6 +11867,10 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
     if order.status == 'closed':
         return None, '该采购单已关闭，不能继续入库'
 
+    warehouse_obj, warehouse_error = validate_inventory_warehouse(warehouse) if warehouse else (get_default_warehouse(), None)
+    if not warehouse_obj:
+        return None, warehouse_error or '请选择入库仓库'
+    warehouse = warehouse_obj.name
     submitted_qty_by_id = submitted_qty_by_id if isinstance(submitted_qty_by_id, dict) else {}
     receivable_items = []
     for item in order.items:
@@ -31571,7 +31562,7 @@ def _build_subcontract_report(filters):
         ]
         receive_items = [
             item
-            for receive in (order.receive_orders or [])
+            for receive in (order.receive_orders or []) if receive.status == 'completed'
             for item in (receive.items or [])
             if _material_matches(item.material, material_keyword)
         ]
@@ -32770,7 +32761,7 @@ def _sql_paged_subcontract_report(filters):
      .outerjoin(Material, SubcontractReceiveItem.material_id == Material.id)
     if kw_clause is not None:
         receive_agg = receive_agg.filter(kw_clause)
-    receive_agg = receive_agg.group_by(SubcontractReceive.subcontract_order_id).subquery('sc_receive')
+    receive_agg = receive_agg.filter(SubcontractReceive.status == 'completed').group_by(SubcontractReceive.subcontract_order_id).subquery('sc_receive')
 
     main = db.session.query(
         SubcontractOrder.id,
@@ -36329,6 +36320,9 @@ def recalculate_sales_order(order, *, recalculate_amounts=True):
             order.status = 'confirmed'
 
 def sync_sales_order_shipment(outbound, quantity_sign=1):
+    from services.document_return_guard import is_detached_sales_copy
+    if quantity_sign < 0 and is_detached_sales_copy(outbound):
+        return None  # 反提交前已核对：其他已完成出库单能证明现有已发数。
     # 优先使用外键关联，兜底 purpose 字符串解析
     order = None
     if outbound.source_sales_order_id:
@@ -36379,45 +36373,53 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
     return order or next(iter(affected_orders.values()), None)
 
 def sales_outbound_remaining_check(outbound):
-    """SALES-AUDIT-006：完成出库单前校验每条明细数量不超过来源销售订单行未发货数量。
-
-    返回 (ok, error_msg)：
-    - ok=True：所有有来源的明细数量都在 remaining 范围内。
-    - ok=False：存在超量明细，error_msg 描述第一条违规。
-    无来源的明细（source_sales_order_item_id 为空）跳过校验。
-    """
-    from sqlalchemy.orm import selectinload
+    """按真实销售来源行合计；老单仅在物料唯一对应时恢复来源。"""
     if not outbound or not outbound.items:
         return True, ''
-    source_item_ids = [
-        item.source_sales_order_item_id
-        for item in outbound.items
-        if getattr(item, 'source_sales_order_item_id', None)
-    ]
-    if not source_item_ids:
+    from services.document_return_guard import is_detached_sales_copy
+    if is_detached_sales_copy(outbound):
+        return False, '历史销售复制草稿请从原销售订单重新下推'
+    header_id = outbound.source_sales_order_id
+    if not header_id:
+        legacy = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
+        if legacy:
+            order = SalesOrder.query.filter_by(order_no=legacy.group(1)).first()
+            if not order:
+                return False, '无法核对历史销售来源，请从销售订单下推'
+            header_id = order.id
+    ids = {row.source_sales_order_item_id for row in outbound.items if row.source_sales_order_item_id}
+    if not header_id and outbound.purpose == '选单生成销售出库' and any(not row.source_sales_order_item_id for row in outbound.items):
+        return False, '选单生成的销售出库缺少来源明细，请从原销售订单下推'
+    if not ids and not header_id:
         return True, ''
-    sales_items = {
-        si.id: si
-        for si in SalesOrderItem.query.options(
-            selectinload(SalesOrderItem.sales_order)
-        ).filter(SalesOrderItem.id.in_(source_item_ids)).all()
-    }
+    condition = SalesOrderItem.id.in_(ids)
+    if header_id:
+        condition = db.or_(condition, SalesOrderItem.sales_order_id == header_id)
+    sources = {row.id: row for row in SalesOrderItem.query.filter(condition).all()}
+    by_material = {}
+    for row in sources.values():
+        if row.sales_order_id == header_id:
+            by_material.setdefault(row.material_id, []).append(row.id)
     requested = {}
     for item in outbound.items:
-        sid = getattr(item, 'source_sales_order_item_id', None)
+        sid = item.source_sales_order_item_id
+        if not sid and header_id:
+            candidates = by_material.get(item.material_id, [])
+            if len(candidates) != 1:
+                return False, '无法唯一确定销售订单明细，请从原销售订单下推'
+            sid = candidates[0]
         if sid:
+            source = sources.get(sid)
+            if not source or source.material_id != item.material_id or (header_id and source.sales_order_id != header_id):
+                return False, '销售订单明细与当前物料或订单不匹配'
             requested[sid] = round_to_2_decimals(requested.get(sid, 0) + (item.quantity or 0))
-    for sid, requested_quantity in requested.items():
-        si = sales_items.get(sid)
-        if not si:
-            continue
-        remaining = round_to_2_decimals((si.quantity or 0) - (si.shipped_quantity or 0))
-        outbound_qty = requested_quantity
-        if outbound_qty - remaining > STOCK_COMPARE_EPSILON:
-            so_no = si.sales_order.order_no if si.sales_order else f'item#{sid}'
-            return False, f'出库数量 {outbound_qty} 超过销售订单 {so_no} 的未发货数量 {remaining:.2f}'
+    for sid, quantity in requested.items():
+        source = sources[sid]
+        remaining = round_to_2_decimals((source.quantity or 0) - (source.shipped_quantity or 0))
+        if quantity - remaining > STOCK_COMPARE_EPSILON:
+            number = source.sales_order.order_no if source.sales_order else f'item#{sid}'
+            return False, f'出库数量 {quantity} 超过销售订单 {number} 的未发货数量 {remaining:.2f}'
     return True, ''
-
 
 def _sales_returned_quantity_by_source_item(source_item_ids):
     """P1-5：按来源销售订单行聚合已完成销售退货入库量。

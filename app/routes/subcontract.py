@@ -27,6 +27,7 @@ from flask_login import login_required
 
 from db import db
 from services.import_validation import InactiveMaterialImportError
+from services.subcontract_receipts import refresh_subcontract_receipts, subcontract_receipt_balances
 from services.web_document_idempotency import (web_document_idempotent,
                                                    web_document_command_idempotent, stage_document_response)
 from utils import require_role
@@ -166,14 +167,23 @@ def register_subcontract_routes(app):
     @app.route('/subcontract/progress')
     @login_required
     def subcontract_progress_page():
-        from sqlalchemy.orm import joinedload
-        from app import Material, SubcontractOrder, Unit
-        orders = SubcontractOrder.query.order_by(SubcontractOrder.created_at.desc()).all()
-        materials = Material.query.options(joinedload(Material.unit)).all()
-        units = Unit.query.all()
-        # 构造 progress_data 供模板使用
-        progress_data = [{'order': o} for o in orders]
-        return render_template('subcontract_progress.html', orders=orders, materials=materials, units=units, progress_data=progress_data)
+        from sqlalchemy.orm import joinedload, selectinload
+        from app import SubcontractOrder, SubcontractItem, SubcontractReceive
+        orders = SubcontractOrder.query.options(
+            joinedload(SubcontractOrder.supplier), selectinload(SubcontractOrder.issue_orders),
+            selectinload(SubcontractOrder.items).joinedload(SubcontractItem.material),
+            selectinload(SubcontractOrder.receive_orders).selectinload(SubcontractReceive.items),
+        ).order_by(SubcontractOrder.created_at.desc()).all()
+        progress_data = []
+        for order in orders:
+            balances = subcontract_receipt_balances(order)
+            materials = {row.material_id: row.material for row in order.items}
+            progress_data.append({
+                'order': order, 'issue_count': sum(row.status == 'completed' for row in order.issue_orders),
+                'receive_count': sum(row.status == 'completed' for row in order.receive_orders),
+                'products': [(materials[mid], planned, received) for mid, (planned, received) in balances.items()],
+            })
+        return render_template('subcontract_progress.html', progress_data=progress_data)
 
     @app.route('/subcontract/<int:id>')
     @login_required
@@ -584,14 +594,7 @@ def register_subcontract_routes(app):
                 db.session.rollback()
                 return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
 
-            total_required = sum((item.quantity or 0) for item in order.items)
-            # BUG-2026-08-30-007：receive 已 flush()，order.receive_orders 此刻首次
-            # lazy-load 已包含新收货单，不能再 + quantity（否则双计数导致提前完结）
-            total_received = sum((item.quantity or 0) for receive_order in order.receive_orders for item in receive_order.items)
-            if total_required and total_received >= total_required:
-                order.status = 'completed'
-            elif order.status == 'pending':
-                order.status = 'processing'
+            refresh_subcontract_receipts(order.id)
             db.session.commit()
             log_operation('委外收货', f'委外收货单：{receive_no}', 'subcontract_receive', receive.id)
             return jsonify({'status': 'success', 'msg': '收货成功'})
@@ -882,7 +885,7 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_update_subcontract_status():
-        from app import SubcontractOrder, api_error
+        from app import SubcontractOrder, SubcontractProgress, api_error
         data = request.get_json(silent=True)
         if isinstance(data, dict):
             ids = data.get('ids', [])
@@ -903,6 +906,7 @@ def register_subcontract_routes(app):
         for oid in ids:
             order = db.session.get(SubcontractOrder, oid)
             if order:
+                SubcontractProgress.query.filter_by(subcontract_order_id=oid, process_type='auto_receipt_close').delete()
                 order.status = status
                 updated += 1
         try:
@@ -1119,6 +1123,8 @@ def register_subcontract_routes(app):
         if order.status != 'completed':
             return api_error('只有已完结的委外单可以反完结')
         try:
+            from app import SubcontractProgress
+            SubcontractProgress.query.filter_by(subcontract_order_id=id, process_type='auto_receipt_close').delete()
             order.status = 'processing' if any(issue.status == 'completed' for issue in order.issue_orders) or any(receive.status == 'completed' for receive in order.receive_orders) else 'pending'
             db.session.commit()
             log_operation('反完结委外单', f'委外单：{order.order_no}', 'subcontract', id)
@@ -2195,6 +2201,7 @@ def register_subcontract_routes(app):
             receive.status = 'completed'
             receive.total_quantity = total_quantity
             receive.total_scrap = total_scrap
+            refresh_subcontract_receipts(receive.subcontract_order_id)
             try:
                 db.session.commit()
             except Exception as e:
@@ -2253,6 +2260,7 @@ def register_subcontract_routes(app):
                             db.session.rollback()
                             return api_error(error_msg or '库存回退失败')
             receive.status = 'pending'
+            refresh_subcontract_receipts(receive.subcontract_order_id)
             db.session.commit()
             log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
             return jsonify({'status': 'success', 'msg': '反提交成功，库存已回退'})

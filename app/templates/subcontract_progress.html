@@ -57,32 +57,13 @@
                             </td>
                             <td>{{ item.order.deadline or '-' }}</td>
                             <td>
-                                <div class="progress" style="height: 20px;">
-                                    {% set issue_pct = (item.issue_count / 1 * 100)|round|int if item.issue_count > 0 else 0 %}
-                                    {% if item.issue_completed > 0 %}
-                                    <div class="progress-bar bg-success" role="progressbar" style="width: 100%;">
-                                        {{ item.issue_count }}次
-                                    </div>
-                                    {% else %}
-                                    <div class="progress-bar bg-secondary" role="progressbar" style="width: 100%;">
-                                        未发料
-                                    </div>
-                                    {% endif %}
-                                </div>
+                                已发料 {{ item.issue_count }} 单
                             </td>
                             <td>
-                                <div class="progress" style="height: 20px;">
-                                    {% set receive_pct = (item.receive_count / 1 * 100)|round|int if item.receive_count > 0 else 0 %}
-                                    {% if item.receive_count > 0 %}
-                                    <div class="progress-bar bg-success" role="progressbar" style="width: 100%;">
-                                        {{ item.receive_count }}次
-                                    </div>
-                                    {% else %}
-                                    <div class="progress-bar bg-secondary" role="progressbar" style="width: 100%;">
-                                        未入库
-                                    </div>
-                                    {% endif %}
-                                </div>
+                                已收货 {{ item.receive_count }} 单
+                                {% for material, planned, received in item.products %}
+                                <div>{{ material.code if material else '未知物料' }}：实收 {{ received|float|round(2) }} / 计划 {{ planned|float|round(2) }}</div>
+                                {% endfor %}
                             </td>
                             <td>{{ item.order.total_amount or 0 }}</td>
                             <td>
@@ -124,7 +105,7 @@
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">发料单总数</div>
+                            <div class="text-xs font-weight-bold text-warning text-uppercase mb-1">已完成发料单数</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">{{ progress_data|sum(attribute='issue_count') }}</div>
                         </div>
                         <div class="col-auto">
@@ -140,7 +121,7 @@
                 <div class="card-body">
                     <div class="row no-gutters align-items-center">
                         <div class="col mr-2">
-                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">入库单总数</div>
+                            <div class="text-xs font-weight-bold text-success text-uppercase mb-1">已完成收货单数</div>
                             <div class="h5 mb-0 font-weight-bold text-gray-800">{{ progress_data|sum(attribute='receive_count') }}</div>
                         </div>
                         <div class="col-auto">
