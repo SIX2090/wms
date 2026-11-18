@@ -95,7 +95,7 @@
 
 生产部署、服务重启和真实手机安装均未执行。真实设备最大字体、非线性字体缩放、输入法、TalkBack、触控/手套、户外光线与使用者审美确认仍需设备及人工验收。Robolectric 的 2 倍字体不宣称等于每台手机的最大系统字体。
 
-### 第三次：深靛蓝体系与沉浸式品牌头（2026-11-18，未提交）
+### 第三次：深靛蓝体系与沉浸式品牌头（2026-11-18，已提交 66fcfd6f5）
 
 - 用户要求「开始动代码修改手机app页面，不能动生产数据库」，并明确授权改写 `verify_bug_2026_10_04_002` 的旧文案锁。本轮只改 Compose 侧与对应契约，生产库、业务 HTTP、账号、服务与安装全程不操作。
 - 主色体系由 Rich Indigo（`#3559D8 / #2D3FBF / #EAF0FF`）迁到深靛蓝（`#3F51B5 / #283593 / #E8EAF6`），暗色 primary `#7B8FF7 → #A5B4FC`、DarkPrimaryContainer `#25345C → #2E3A78`、DarkOnPrimary `#101F48 → #0E1546`。**只改常量值，令牌名与引用关系不动**，因此 21 个路由一次换色而不产生结构风险。
@@ -104,4 +104,48 @@
 - 全局：底部导航选中态由透明改为主色 14% 药丸；`WmsCard` 与 `WmsPrimaryButton` 投影 0 → 1dp（按压回 0dp）。
 - 契约同步（用户授权）：`verify_bug_2026_10_04_002` 的 4 条旧文案锁改为锁业务意图（无 offset / 深底白字 / 问候语四档 / 仓库切换器唯一且可点）；`verify_bug_2026_10_04_003` 的 `len(selectors) == 2` 改为 1；`test_android_home_visual_contract_20261116` 的变异项改为 `Text(greeting`。Kotlin 侧 `NativeHomeBaselineTest`、`NativeHomeHeroContrastTest`、`NativeWorkbenchTest` 三处旧文案断言改为 `currentGreeting()`。
 - 验证口径：本地无 JDK/Android SDK，无法编译；`pytest` 被 `scripts/verify_db_guard.py` 在导入期阻断（预期行为，不绕过）。改用测试模块直调，安卓相关静态断言 222 条全通过；`002` 5/5、`003` 4/4；四条反向变异全部被守卫捕获。**Kotlin 单测与真机效果仍待 CI 与设备验收**，本文件不据此宣称审美达标。
-- 已知未处理项见本轮交付说明：扫码框角标仍为旧蓝 `#4361EE`（改动会连带 `NativeScannerFullscreenFrameTest` 的像素断言）、`versionCode 57` 与 `app/version.py 2026.11.89` 未递增、H5 后台（`app/static/css/mobile-app.css`）属独立设计系统未改动。
+- 已知未处理项见本轮交付说明：扫码框角标仍为旧蓝 `#4361EE`（改动会连带 `NativeScannerFullscreenFrameTest` 的像素断言）、H5 后台（`app/static/css/mobile-app.css`）属独立设计系统未改动。版本号已按 pre-push 门禁递增为 Android `58/3.9.34` 与 WMS `2026.11.91`（提交 `7add2d3ad`），此项不再是遗留。
+
+### 第四次：Android APK Build #905 失败定位与修复（2026-11-18，终态提交 `b74d7293d`）
+
+- 现象：推送 `7add2d3ad` 后 WMS CI 与 WMS AI Verification 均通过，**Android APK Build #905 失败**，失败 job 为 `unit-test`（step 8，exit code 1）。`#904`（定时运行）为成功，且 `git log 35ef33b57..8f61ee998 -- app/android-native-wms/` 为空——**该区间 Android 工程零改动**，故确认是本轮引入的确定性失败。
+- 定位手段（唯一有效的一条）：GitHub 匿名 API 对 job 日志返回 403（需 admin 权限），`/commit/<sha>/checks/<id>/logs/<step>` 匿名 404，本机 git-credential-manager 路径已失效；最终通过 **`nightly.link` 匿名转发下载 workflow 失败时自动上传的 `test-release-unit-test-report` artifact**，直接读 JUnit XML 得到确切失败点。
+- 失败点：748 个 Robolectric 用例中**仅 2 个**，均在 `NativeShell360AcceptanceTest`：
+
+  ```
+  NativeShell360AcceptanceTest.kt:130
+  AssertionError: 360dp overview should show four columns at ordinary font sizes
+  （仅 scale=1.3 组合触发；报告里的方法名会错位，inbound 那条的堆栈其实指向 home 方法）
+  ```
+
+- **真因（API 31 非线性字体缩放）**：把实测值写进断言消息后拿到铁证——
+
+  ```
+  fontScale=1.3  labelDp=18.8  labelWidthDp=83.2  needDp=332.8  vs  可用 328
+  tops=[210,210,320,320]  每格 164dp（=328/2，两列两行）
+  ```
+
+  `TodayOverviewBar` 用「4 字 × 单字宽 + 8dp 间距」估算每格宽度。API 31 起字体缩放是**非线性**的：
+  14sp 在 1.3 倍下实测 **18.8dp**（线性换算只有 18.2dp）。于是门槛被抬到 `83.2 × 4 = 332.8dp`，
+  超过 360dp 屏减去左右 16dp 后的 **328dp** 可用宽 4.8dp，`columns` 判定降级为 2，四格分成两行。
+- 修复：间距增量 `8.dp → 4.dp`，门槛降至 `79.2 × 4 = 316.8dp < 328`。四列每格 82dp，减内边距 2dp
+  得 80dp，仍宽于标签 `4 × 18.8 = 75.2dp`，不会换行。`height(IntrinsicSize.Min)`、`.fillMaxHeight()`、
+  三行 Text 契约与四格点击下钻全部保留；`test_android_home_3col_compact.py::test_overview_row_top_aligned`、
+  `verify_android_home_overview_drilldown.py` 等 44 条静态断言复核通过。
+- 两次错误假设（均已证伪，勿重走）：① 「1dp 竖分隔线的 `fillMaxHeight` 扰乱 intrinsic 测量」——
+  改成 `drawBehind` 绘制后 #907 仍失败在同一断言；② 「`DividerSoft` 是 `@Composable` getter 导致
+  编译失败」——这只解释了 #906 的 build/lint/unit-test 三红（40 秒即失败），修好编译后布局仍红。
+- 版本：Android 经 `59/3.9.35`（编译失败）、`60/3.9.36`、`61/3.9.37`、`62/3.9.38`（诊断）到
+  **`63/3.9.39`**；WMS 同步到 **`2026.11.96`**；`tests/test_mobile_stock_ledger_page.py` 的 T8 基线同步。
+- 反向教训：本轮先按「颜色对比度」逐个手算 `NativeReadabilityTest`、`NativeHeaderContrastTest`、
+  `NativeBottomNavigationContrastTest`，全部证伪（`#3F51B5` 对白 6.87:1；暗色两处压线值
+  4.500112 / 4.500009 在 float32 下均 ≥ 4.5f）。**CI 红应第一时间取 JUnit 报告，不要先猜；
+  断言消息里不带数值时，先把待测量写进去，一次 CI 比三轮推理便宜。**
+- 终态门禁（`b74d7293d6b8fe045198e72ea4b0c9dae3a5a92d` 精确 SHA 逐条核对）：
+  **WMS CI #2247 success / WMS AI Verification #2541 success / Android APK Build #910 success**，
+  另 WMS Perf Baseline #1101、Android Stable Update Promotion #175、Windows Portable Release #259 均 success。
+  至此「推送」指令的验收闭环完成：三工作流全绿后方可宣称本次原生界面改动已交付。
+- 遗留（需用户拍板，本轮不动）：扫码框角标 `ScannerDialog.kt:451/502/525` 仍为旧亮蓝 `#4361EE`，
+  改动会连带 `NativeScannerFullscreenFrameTest:116` 的像素断言；`WmsGradientHeader` 的「accent 5% 淡底 +
+  粗体标题」暗色标题对比度余量仅 4.500112，是否保留待定；H5 后台 `app/static/css/mobile-app.css`
+  属独立设计系统，本轮未纳入。
