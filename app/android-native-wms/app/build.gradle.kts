@@ -49,8 +49,9 @@ android {
         // 3.9.35(59): overview separators drawn instead of occupying layout (keeps four columns aligned).
         // 3.9.36(60): read DividerSoft in composition scope for drawBehind (fixes Kotlin compile error).
         // 3.9.37(61): add measured rectangles to the four-column overview assertion for CI diagnosis.
-        versionCode = 61
-        versionName = "3.9.37"
+        // 3.9.38(62): also report fontScale and bodyMedium label width in that assertion.
+        versionCode = 62
+        versionName = "3.9.38"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

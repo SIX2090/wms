@@ -54,6 +54,9 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ActivityController<ComponentActivity>
     private var vm: ScanViewModel? = null
+    // 诊断用：记录概览块四列判定所依赖的两个真实输入（见 #130 断言消息）。
+    private var diagFontScale = 0f
+    private var diagLabelDp = 0f
     @Before fun before() {
         RetrofitClient.setSession("http://127.0.0.1:9/", null, null)
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
@@ -63,6 +66,10 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
         activity.get().setContent {
             CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
                 WmsTheme(darkTheme = dark) {
+                    diagFontScale = LocalDensity.current.fontScale
+                    diagLabelDp = with(LocalDensity.current) {
+                        MaterialTheme.typography.bodyMedium.fontSize.toDp().value
+                    }
                     Scaffold(containerColor = Background,
                         bottomBar = { Box(Modifier.testTag("bottom-nav")) { WmsBottomBar(route, bottomTabs(), {}) } }
                     ) { padding ->
@@ -129,7 +136,9 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
             val top = rects.map { it.top.value }
             assertTrue(
                 "360dp overview should show four columns at ordinary font sizes; " +
-                    "tops=$top; rects=${rects.joinToString(" ")}; scale=$scale; dark=$dark",
+                    "tops=$top; rects=${rects.joinToString(" ")}; scale=$scale; dark=$dark; " +
+                    "fontScale=$diagFontScale; labelDp=$diagLabelDp; labelWidthDp=${diagLabelDp * 4 + 8}; " +
+                    "needDp=${(diagLabelDp * 4 + 8) * 4}",
                 top.max() - top.min() < 1f)
         }
         capture("home")
