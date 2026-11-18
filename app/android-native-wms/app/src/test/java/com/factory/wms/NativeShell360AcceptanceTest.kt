@@ -124,10 +124,13 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
         content(Screen.Home.route) { HomeWorkbench(data, false, list, "1", {}, {}, {}, {}) }
         checkTabs()
         if (scale <= 1.3f) {
-            val top = listOf("今日入库", "今日出库", "待处理", "库存告警").map {
-                compose.onNodeWithText(it).getUnclippedBoundsInRoot().top.value
-            }
-            assertTrue("360dp overview should show four columns at ordinary font sizes", top.max() - top.min() < 1f)
+            val labels = listOf("今日入库", "今日出库", "待处理", "库存告警")
+            val rects = labels.map { compose.onNodeWithText(it).getUnclippedBoundsInRoot() }
+            val top = rects.map { it.top.value }
+            assertTrue(
+                "360dp overview should show four columns at ordinary font sizes; " +
+                    "tops=$top; rects=${rects.joinToString(" ")}; scale=$scale; dark=$dark",
+                top.max() - top.min() < 1f)
         }
         capture("home")
     }
