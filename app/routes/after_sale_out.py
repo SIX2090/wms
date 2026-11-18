@@ -25,6 +25,7 @@ from flask import g, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.import_validation import InactiveMaterialImportError
 from services.web_document_idempotency import (web_document_idempotent,
                                                    web_document_command_idempotent, stage_document_response)
 from utils import require_role
@@ -996,6 +997,9 @@ def register_after_sale_out_routes(app):
                 item_count += 1
             db.session.commit()
             return _import_result('售后出库单', order_count, item_count, skip, skip_details, notes=warnings)
+        except InactiveMaterialImportError as exc:
+            db.session.rollback()
+            return api_error(str(exc))
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'售后出库导入失败: {e}')

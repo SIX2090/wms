@@ -23,6 +23,7 @@ import re
 import sqlite3
 import requests
 from ai.safe_http import post as safe_ai_post, UnsafeRedirect
+from services.import_validation import InactiveMaterialImportError
 import ipaddress
 import socket
 import base64
@@ -27177,7 +27178,7 @@ def _find_or_create_material(code, name='', spec='', unit_name='', warnings=None
         return None
     material = Material.query.filter_by(code=code).first()
     if material and material.status == 'inactive':
-        raise ValueError(f'物料 {code} 已停用，不能导入新单据')
+        raise InactiveMaterialImportError(f'物料 {code} 已停用，不能导入新单据')
     unit = _find_or_create_unit(unit_name)
     if not material:
         # 2026-09-25（判重收敛）：编码查不到时先按名称+规格复用已有物料，

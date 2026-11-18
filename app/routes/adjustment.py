@@ -29,6 +29,7 @@ from flask import jsonify, render_template, request
 from flask_login import login_required
 
 from db import db
+from services.import_validation import InactiveMaterialImportError
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
 
@@ -880,6 +881,9 @@ def register_adjustment_routes(app):
                 item_count += 1
             db.session.commit()
             return _import_result('库存调整单', order_count, item_count, skip, skip_details, notes=warnings)
+        except InactiveMaterialImportError as exc:
+            db.session.rollback()
+            return api_error(str(exc))
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'库存调整导入失败: {e}')
