@@ -510,8 +510,8 @@
                         <input class="form-control" id="receiveQty" type="number" step="0.01" placeholder="请输入收货数量">
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label fw-medium">单价</label>
-                        <input class="form-control" id="receivePrice" type="number" step="0.01" placeholder="请输入单价">
+                        <label class="form-label fw-medium">单位加工费</label>
+                        <input class="form-control" id="receivePrice" type="number" step="0.01" placeholder="请输入单位加工费">
                     </div>
                     {% if location_management_enabled %}
                     <div class="col-md-6">
@@ -687,11 +687,9 @@ document.addEventListener('DOMContentLoaded', function() {
     if (openSearchBtn && issueSearch) {
         openSearchBtn.addEventListener('click', function() { issueSearch.show(); });
     }
-    // 收货：回填名称/单价
+    // 收货：加工费由操作员填写。
     const receiveSearch = bindScMaterialInput('receiveCode', 'receiveCodeDropdown', function(m) {
         document.getElementById('receiveName').value = m.name || '';
-        const priceInput = document.getElementById('receivePrice');
-        if (priceInput && priceInput.value === '') priceInput.value = m.price ?? '';
     });
     const openReceiveSearchBtn = document.getElementById('openReceiveSearchBtn');
     if (openReceiveSearchBtn && receiveSearch) {

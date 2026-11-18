@@ -636,3 +636,5 @@ POST_SPLIT_BUGS['BUG-2026-11-18-002'] = 'fixed'  # Require linked sales to ship 
 POST_SPLIT_BUGS['BUG-2026-11-18-003'] = 'fixed'  # Preserve distinct source lines for the same SKU.
 POST_SPLIT_BUGS['BUG-2026-11-18-004'] = 'fixed'  # Use posted receipts for each subcontract product.
 POST_SPLIT_BUGS['BUG-2026-11-18-005'] = 'fixed'  # Resolve warehouse before reserving purchase quantities.
+POST_SPLIT_BUGS['BUG-2026-11-18-006'] = 'fixed'  # Block disabled products at subcontract receipt entry and posting.
+POST_SPLIT_BUGS['BUG-2026-11-18-007'] = 'fixed'  # Separate processing fees from reference stock valuation.

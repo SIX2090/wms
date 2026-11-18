@@ -354,7 +354,7 @@ def register_report_routes(app):
         from app import (_build_report_filters, _collect_report_export_rows,
                          _get_report_definition, _serialize_excel_value, ExcelPrintTemplate, Warehouse,
                          price_dimension_enabled)
-        from doc_print_excel import report_target_code
+        from doc_print_excel import _legacy_receipt_price_template, report_target_code
         from print_fill import template_file_abspath
         from services.report_print_preview import build_report_print_preview
 
@@ -389,7 +389,7 @@ def register_report_routes(app):
             else:
                 # Do not let a stale default prevent the in-memory built-in template.
                 template = query.filter_by(is_default=True).first()
-            if template is not None:
+            if template is not None and not _legacy_receipt_price_template(report_target_code(report_type), template):
                 candidate = template_file_abspath(template.excel_template_path, app.static_folder)
                 root = Path(app.static_folder).resolve()
                 candidate = Path(candidate).resolve() if candidate else None

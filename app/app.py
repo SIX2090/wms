@@ -8250,13 +8250,12 @@ def api_subcontract_quick_receive():
     if not warehouse:
         return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
 
-    material = db.session.get(Material, material_id)
-    if not material:
-        return api_error('成品物料不存在，请刷新后重试')
-
-    # Create receive order
-    # 显式设置 status='completed'，与 quick_receive_subcontract 对齐
+    # 编号与收货同事务；取得写锁后读取当前物料状态。
     receive_no = generate_order_no('SR')
+    material = Material.query.filter_by(id=material_id).populate_existing().with_for_update().first()
+    if not material or material.status == 'inactive':
+        db.session.rollback()
+        return api_error(f'物料 {material.code} 已停用，不能收货' if material else '成品物料不存在，请刷新后重试')
     receive = SubcontractReceive(
         receive_no=receive_no,
         subcontract_order_id=order_id,
@@ -8268,12 +8267,14 @@ def api_subcontract_quick_receive():
     db.session.add(receive)
     db.session.flush()
 
-    # Add receive detail
+    price = round_to_2_decimals(parse_float_value(data.get('price'), 0))
     receive_item = SubcontractReceiveItem(
         receive_id=receive.id,
         material_id=material_id,
         quantity=quantity,
-        scrap_quantity=scrap_qty
+        scrap_quantity=scrap_qty,
+        price=price,
+        amount=round_money_product(quantity, price),
     )
     db.session.add(receive_item)
 
@@ -29532,6 +29533,8 @@ def _warehouse_monthly_columns():
         {'field': 'price', 'title': '单价', 'type': 'money'},
         {'field': 'in_amount', 'title': '入库金额', 'type': 'money'},
         {'field': 'out_amount', 'title': '出库金额', 'type': 'money'},
+        {'field': 'subcontract_in_estimate_amount', 'title': '其中：委外收货参考估值', 'type': 'money'},
+        {'field': 'subcontract_out_estimate_amount', 'title': '其中：委外收货冲回参考估值', 'type': 'money'},
         {'field': 'inventory_amount', 'title': '库存金额', 'type': 'money'},
         {'field': 'document_count', 'title': '单据数量'},
         {'field': 'transaction_count', 'title': '流水数量'},

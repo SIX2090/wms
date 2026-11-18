@@ -140,7 +140,7 @@ def _blank_source_path(target_type, target_code, static_folder):
     from doc_print_excel import (DOC_EXCEL_PRINT_TYPES,
                                  LABEL_EXCEL_PRINT_TYPES,
                                  TABLE_EXCEL_PRINT_TYPES,
-                                 _builtin_template_abspath,
+                                 _builtin_filename, _builtin_template_abspath,
                                  generate_report_builtin_template)
     if target_code in DOC_EXCEL_PRINT_TYPES \
             or target_code in TABLE_EXCEL_PRINT_TYPES \
@@ -149,7 +149,7 @@ def _blank_source_path(target_type, target_code, static_folder):
     if target_type == 'report' and target_code.startswith('report_'):
         report_type = target_code[len('report_'):]
         candidate = os.path.join(static_folder, 'uploads', 'print_templates',
-                                 f'builtin_report_{report_type}_default.xlsx')
+                                 _builtin_filename(target_code))
         if os.path.exists(candidate):
             return candidate
         meta = _report_columns_for_blank(report_type)

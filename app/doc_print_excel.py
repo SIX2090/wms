@@ -175,7 +175,7 @@ DOC_EXCEL_PRINT_TYPES = {
         'columns': [('物料编码', 'material.code', 12), ('物料名称', 'material.name', 20),
                     ('规格', 'material.spec', 14), ('单位', 'unit.name', 6),
                     ('数量', 'quantity', 8), ('报废', 'scrap_quantity', 8),
-                    ('单价', 'price', 10), ('金额', 'amount', 10), ('备注', 'remark', 12)],
+                    ('单位加工费', 'price', 14), ('加工费金额', 'amount', 14), ('备注', 'remark', 12)],
         'totals': ('quantity',),
     },
     'after_sale_out': {
@@ -489,12 +489,23 @@ def generate_builtin_template(target_code):
     return output
 
 
+def _builtin_filename(target_code):
+    # 保留既存文件；这两种系统模板的字段含义或布局已变更。
+    suffix = 'fee_v2' if target_code in ('subcontract_receive', 'report_warehouse_monthly') else 'default'
+    return f'builtin_{target_code}_{suffix}.xlsx'
+
+
+def _legacy_receipt_price_template(target_code, template):
+    return (target_code in ('subcontract_receive', 'report_warehouse_monthly') and template is not None
+            and template.excel_template_path == f'/static/uploads/print_templates/builtin_{target_code}_default.xlsx')
+
+
 def _builtin_template_abspath(static_folder, target_code):
     """返回内置模板文件绝对路径；不存在则按注册表生成（幂等）。"""
     rel_dir = os.path.join('uploads', 'print_templates')
     abs_dir = os.path.join(static_folder, rel_dir)
     os.makedirs(abs_dir, exist_ok=True)
-    path = os.path.join(abs_dir, f'builtin_{target_code}_default.xlsx')
+    path = os.path.join(abs_dir, _builtin_filename(target_code))
     if not os.path.exists(path):
         content = generate_builtin_template(target_code)
         if content is None:
@@ -663,7 +674,7 @@ def resolve_excel_template(target_type, target_code, template_id=None):
 def _template_path_or_builtin(template, static_folder, target_code):
     """模板记录的文件路径；记录缺失/文件丢失时回退内置模板文件。"""
     from print_fill import template_file_abspath
-    if template and template.excel_template_path:
+    if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
         path = template_file_abspath(template.excel_template_path, static_folder)
         if path and os.path.exists(path):
             return path
@@ -881,7 +892,7 @@ def _report_builtin_abspath(static_folder, report_type, title, columns):
         return None
     abs_dir = os.path.join(static_folder, 'uploads', 'print_templates')
     os.makedirs(abs_dir, exist_ok=True)
-    path = os.path.join(abs_dir, f'builtin_report_{report_type}_default.xlsx')
+    path = os.path.join(abs_dir, _builtin_filename(report_target_code(report_type)))
     if not os.path.exists(path):
         content = generate_report_builtin_template(title, columns)
         if content is None:
@@ -908,7 +919,7 @@ def render_report_excel_print(report_type, title, columns, rows,
     target_code = report_target_code(report_type)
     template = resolve_excel_template('report', target_code, template_id)
     path = None
-    if template and template.excel_template_path:
+    if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
         candidate = template_file_abspath(template.excel_template_path,
                                           static_folder)
         if candidate and os.path.exists(candidate):

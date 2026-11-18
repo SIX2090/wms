@@ -59,7 +59,8 @@ def build_warehouse_monthly_report(filters):
     opening = defaultdict(Decimal)
     def _new_bucket():
         return dict(in_quantity=Decimal(0), out_quantity=Decimal(0), in_amount=Decimal(0),
-                    out_amount=Decimal(0), transaction_count=0, document_keys=set())
+                    out_amount=Decimal(0), subcontract_in_estimate_amount=Decimal(0),
+                    subcontract_out_estimate_amount=Decimal(0), transaction_count=0, document_keys=set())
     buckets = defaultdict(_new_bucket)
     last_id = 0
     cutoff = m._month_end(end)
@@ -83,7 +84,10 @@ def build_warehouse_monthly_report(filters):
             direction = 'in' if qty >= 0 else 'out'
             bucket[direction + '_quantity'] += abs(qty)
             price = prices.get(txn.id, materials[txn.material_id].price or 0)
-            bucket[direction + '_amount'] += abs(qty) * Decimal(str(price))
+            amount = abs(qty) * Decimal(str(price))
+            bucket[direction + '_amount'] += amount
+            if txn.reference_type == 'subcontract_receive':
+                bucket[f'subcontract_{direction}_estimate_amount'] += amount
             bucket['transaction_count'] += 1
             bucket['document_keys'].add((txn.reference_type, txn.reference_id) if txn.reference_type and txn.reference_id else ('stock_transaction', txn.id))
     totals = defaultdict(lambda: {field: Decimal(0) for field in FIELDS})
@@ -107,9 +111,10 @@ def build_warehouse_monthly_report(filters):
                    price=float(material.price or 0),
                    inventory_amount=round(float(balance * Decimal(str(material.price or 0))), 2),
                    document_count=len(bucket['document_keys']), transaction_count=bucket['transaction_count'],
-                   remark='出入库金额按来源单据实际单价；无单据价及期末金额按当前单价参考估值，非成本核算',
+                   remark='出入库金额按来源单据实际单价；委外收货及其冲回按物料当前参考价估值，加工费单列在收货单；无单据价及期末金额按当前单价参考估值，非成本核算',
                    ledger_url='/report/view/ledger?' + urlencode(params))
-        row.update({key: float(bucket[key]) for key in ('in_quantity','out_quantity','in_amount','out_amount')})
+        row.update({key: float(bucket[key]) for key in ('in_quantity', 'out_quantity', 'in_amount', 'out_amount',
+                                                     'subcontract_in_estimate_amount', 'subcontract_out_estimate_amount')})
         rows.append(row)
         totals[unit]['beginning_quantity'] += beginning
         totals[unit]['ending_quantity'] += balance

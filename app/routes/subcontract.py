@@ -194,7 +194,7 @@ def register_subcontract_routes(app):
                          SubcontractReceiveItem, Supplier, Unit,
                          get_recent_operation_logs, get_warehouse_stock_quantities,
                          serialize_material_with_stock, validate_inventory_warehouse,
-                         get_active_warehouses)
+                         get_active_warehouses, material_selectable_filter)
         # F2.16：详情页预加载，消除 order.items / issue_orders / receive_orders
         # 三重懒加载 N+1（对齐同文件 print_subcontract 的 .options 写法）。
         order = SubcontractOrder.query.options(
@@ -207,7 +207,7 @@ def register_subcontract_routes(app):
             selectinload(SubcontractOrder.receive_orders).joinedload(SubcontractReceive.operator),
             selectinload(SubcontractOrder.receive_orders).joinedload(SubcontractReceive.items).joinedload(SubcontractReceiveItem.material).joinedload(Material.unit),
         ).get_or_404(id)
-        materials = Material.query.options(joinedload(Material.unit)).all()
+        materials = Material.query.filter(material_selectable_filter()).options(joinedload(Material.unit)).all()
         units = Unit.query.all()
         suppliers = Supplier.query.order_by(Supplier.name.asc()).all()
         # BUG-2026-10-17-015-F07：委外详情页库存按委外单仓库口径展示。
@@ -542,10 +542,6 @@ def register_subcontract_routes(app):
         if not wh_ok:
             return api_error(wh_err)
 
-        material = Material.query.filter_by(code=material_code).first()
-        if not material:
-            return api_error('产品编码不存在')
-
         # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
         location = (request.form.get('location') or '').strip()
         if location_management_enabled() and not location:
@@ -557,6 +553,10 @@ def register_subcontract_routes(app):
                 SubcontractOrder, id, ('pending', 'processing', 'completed'))
             if not ok:
                 return api_error('委外单状态已变化或已被删除，请刷新后重试')
+            material = Material.query.filter_by(code=material_code).populate_existing().with_for_update().first()
+            if not material or material.status == 'inactive':
+                db.session.rollback()
+                return api_error(f'物料 {material_code} 已停用，不能收货' if material else '产品编码不存在')
             receive_no = generate_order_no('SR')
             receive = SubcontractReceive(
                 receive_no=receive_no,
@@ -1975,6 +1975,9 @@ def register_subcontract_routes(app):
                     material = Material.query.filter_by(code=material_code).first()
                 if not material:
                     continue
+                if material.status == 'inactive':
+                    db.session.rollback()
+                    return api_error(f'物料 {material.code} 已停用，不能收货')
                 unit_id = unit_ids[idx] if idx < len(unit_ids) else ''
                 db.session.add(SubcontractReceiveItem(
                     receive_id=receive.id,
@@ -2013,7 +2016,7 @@ def register_subcontract_routes(app):
         receive = SubcontractReceive.query.get_or_404(id)
         rows = [
             '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" data-detail-sort>',
-            '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">收货数量</th><th class="text-end">报废数量</th><th>单位</th><th class="text-end">单价</th><th class="text-end">金额</th></tr></thead><tbody>'
+            '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">收货数量</th><th class="text-end">报废数量</th><th>单位</th><th class="text-end">单位加工费</th><th class="text-end">加工费金额</th></tr></thead><tbody>'
         ]
         for item in receive.items:
             rows.append(
@@ -2081,8 +2084,8 @@ def register_subcontract_routes(app):
                 ('unit', '单位', 'center'),
                 ('quantity', '收货数量', 'right'),
                 ('scrap_quantity', '报废数量', 'right'),
-                ('price', '单价', 'right money'),
-                ('amount', '金额', 'right money'),
+                ('price', '单位加工费', 'right money'),
+                ('amount', '加工费金额', 'right money'),
                 ('remark', '备注', ''),
             ],
             'rows': rows,
@@ -2100,7 +2103,7 @@ def register_subcontract_routes(app):
     def add_subcontract_receive_item(id):
         """添加委外收货明细"""
         from app import (Material, SubcontractReceive, SubcontractReceiveItem,
-                         api_error, parse_float_value)
+                         api_error, parse_float_value, round_to_2_decimals)
         receive = SubcontractReceive.query.get_or_404(id)
         if receive.status != 'pending':
             return api_error('只有待收货状态可以添加明细')
@@ -2115,16 +2118,20 @@ def register_subcontract_routes(app):
             if quantity <= 0:
                 return api_error('收货数量必须大于0')
             
-            material = Material.query.filter_by(code=material_code).first()
-            if not material:
-                return api_error(f'物料 {material_code} 不存在')
-            
+            material = Material.query.filter_by(code=material_code).populate_existing().with_for_update().first()
+            if not material or material.status == 'inactive':
+                db.session.rollback()
+                return api_error(f'物料 {material_code} 已停用，不能收货' if material else f'物料 {material_code} 不存在')
+
+            price = round_to_2_decimals(parse_float_value(request.form.get('price'), 0))
             item = SubcontractReceiveItem(
                 receive_id=id,
                 material_id=material.id,
                 quantity=quantity,
                 scrap_quantity=scrap_quantity,
-                unit_id=material.unit_id
+                unit_id=material.unit_id,
+                price=price,
+                amount=round_money_product(quantity, price),
             )
             db.session.add(item)
             try:
@@ -2180,23 +2187,25 @@ def register_subcontract_routes(app):
             total_quantity = 0
             total_scrap = 0
             for item in receive.items:
-                if item.material:
-                    # P2-3 收敛：与 quick_receive_subcontract 对称，经单点入口
-                    # （库位同步由入口内部完成，库位键与存量逐字一致）。
-                    ok, err = apply_stock_delta(
-                        item.material, item.quantity or 0,
-                        transaction_type='subcontract_receive',
-                        reference_type='subcontract_receive',
-                        reference_id=receive.id,
-                        remark=f'完成委外收货 {receive.receive_no}',
-                        warehouse=receive.warehouse,
-                        location=receive.location,
-                    )
-                    if not ok:
-                        db.session.rollback()
-                        return api_error(err or '库存增加失败')
-                    total_quantity += item.quantity or 0
-                    total_scrap += item.scrap_quantity or 0
+                if not item.material or item.material.status == 'inactive':
+                    db.session.rollback()
+                    return api_error(f'物料 {item.material.code} 已停用，不能收货' if item.material else '收货物料不存在')
+                # P2-3 收敛：与 quick_receive_subcontract 对称，经单点入口
+                # （库位同步由入口内部完成，库位键与存量逐字一致）。
+                ok, err = apply_stock_delta(
+                    item.material, item.quantity or 0,
+                    transaction_type='subcontract_receive',
+                    reference_type='subcontract_receive',
+                    reference_id=receive.id,
+                    remark=f'完成委外收货 {receive.receive_no}',
+                    warehouse=receive.warehouse,
+                    location=receive.location,
+                )
+                if not ok:
+                    db.session.rollback()
+                    return api_error(err or '库存增加失败')
+                total_quantity += item.quantity or 0
+                total_scrap += item.scrap_quantity or 0
 
             receive.status = 'completed'
             receive.total_quantity = total_quantity
@@ -2413,7 +2422,7 @@ def register_subcontract_routes(app):
         return _workbook_response(
             'subcontract_receives.xlsx',
             '委外入库',
-            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单价', '金额', '状态', '备注', '仓库'],
+            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单位加工费', '加工费金额', '状态', '备注', '仓库'],
             rows,
         )
 
@@ -2451,7 +2460,7 @@ def register_subcontract_routes(app):
             'unit': ['单位'],
             'quantity': ['收货数量', '入库数量', '数量'],
             'scrap_quantity': ['报废数量', '报废'],
-            'price': ['单价', '价格'],
+            'price': ['单位加工费', '加工单价', '单价', '价格'],
             'remark': ['备注'],
             'warehouse': ['仓库', '仓库名称', '仓库编码'],
         }
@@ -2516,7 +2525,7 @@ def register_subcontract_routes(app):
                     warnings=warnings,
                 )
                 scrap_quantity = _get_excel_number(row, col_map, 'scrap_quantity', 0)
-                price = _get_excel_number(row, col_map, 'price', material.price or 0)
+                price = _get_excel_number(row, col_map, 'price', 0)
                 amount = round_money_product(quantity, price)
                 receive.total_quantity = (receive.total_quantity or 0) + quantity
                 receive.total_scrap = (receive.total_scrap or 0) + scrap_quantity

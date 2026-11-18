@@ -208,7 +208,7 @@
                                     <th>收货数量</th>
                                     <th>报废数量</th>
                                     <th>单位</th>
-                                    <th>单价</th>
+                                    <th>单位加工费</th>
                                     <th>备注</th>
                                     <th>操作</th>
                                 </tr>
@@ -375,10 +375,6 @@ function bindMaterialInput(input) {
             $row.find('.material-input').val(selected.code);
             if (selected.unit && selected.unit.id) {
                 $row.find('[name="unit_id"]').val(selected.unit.id);
-            }
-            if (selected.price !== undefined && selected.price !== null && selected.price !== ''
-                && Number.isFinite(Number(selected.price)) && $row.find('[name="price"]').val() === '') {
-                $row.find('[name="price"]').val(selected.price);
             }
         } else {
             $row.find('.material-id').val('');
