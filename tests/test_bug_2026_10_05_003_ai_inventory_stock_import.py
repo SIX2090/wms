@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -125,3 +126,35 @@ class TestAIInventoryTools:
             r4 = stock_value_analysis()
             assert r4["total_value"] == 200.0
             assert r4["material_count"] == 1
+
+    def test_idle_uses_outbound_dates_and_counts_before_limiting_details(self):
+        from app.ai.tools.inventory import inventory_health
+        from app import StockTransaction
+        with app_module.app.app_context():
+            fresh, _ = _seed()
+            now = datetime.now()
+            idle = [Material(code=code, name=code, stock=5, price=1,
+                             created_at=now - timedelta(days=100)) for code in ("OLD1", "OLD2", "SOLD")]
+            fresh.stock = 5
+            db.session.add_all(idle)
+            db.session.flush()
+            for m in [fresh, *idle]:
+                db.session.add(StockTransaction(material_id=m.id, quantity=5,
+                                                warehouse_id=1, transaction_type="in", created_at=now))
+            db.session.add(StockTransaction(material_id=idle[-1].id, quantity=-1,
+                                            warehouse_id=1, transaction_type="after_sale_out", created_at=now))
+            idle[-1].stock = 4
+            db.session.commit()
+            report = inventory_health(days=90, limit=1)
+            assert report["slow_moving_count"] == 2
+            assert len(report["materials"]) == 1
+            deep = app_module._ai_stage4_slow_moving_report(days=90)
+            assert all(m.code in deep for m in idle[:2])
+            assert fresh.code not in deep and idle[-1].code not in deep
+            from types import SimpleNamespace
+            from ai.patrol_scheduler import _evaluate_rule
+            model_names = ("Material", "PurchaseOrder", "InOrder", "OutOrder", "TransferOrder",
+                           "InventoryCheck", "AdjustmentOrder", "StockTransaction")
+            alerts = _evaluate_rule(SimpleNamespace(rule_type="slow_moving", threshold_days=90), db,
+                                    {name: getattr(app_module, name) for name in model_names})
+            assert set(alerts[0]["data_context"]["material_ids"]) == {m.id for m in idle[:2]}

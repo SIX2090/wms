@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, timedelta
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -148,6 +148,28 @@ def stock_transactions(material_id: int, limit: int = 8) -> list[dict[str, Any]]
     return results
 
 
+def all_warehouse_activity(days):
+    """按物料返回启用仓合计库存、窗口内出库次数和呆滞判定。日期边界与经营分析一致。"""
+    from sqlalchemy import case, func
+    from app import (Material, StockTransaction, _outbound_txn_condition, db,
+                     get_all_warehouses_stock_quantities)
+
+    boundary = date.today() - timedelta(days=days)
+    movements = (db.session.query(
+        StockTransaction.material_id, func.max(StockTransaction.created_at),
+        func.sum(case((func.date(StockTransaction.created_at) > boundary, 1), else_=0)))
+        .filter(_outbound_txn_condition())
+        .group_by(StockTransaction.material_id))
+    activity = {mid: (latest, count) for mid, latest, count in movements}
+    stocks = get_all_warehouses_stock_quantities()
+    for material in Material.query.order_by(Material.id).yield_per(500):
+        latest, count = activity.get(material.id, (None, 0))
+        since = latest or material.created_at
+        qty = stocks.get(material.id, 0)
+        idle = qty > 0 and since is not None and since.date() <= boundary
+        yield material, qty, count, idle
+
+
 def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
     """库存健康分析。
 
@@ -158,10 +180,8 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
     Returns:
         包含 health_score / low_stock_count / negative_stock_count / slow_moving_count / materials 的字典
     """
-    from app import (db, Material, StockTransaction,
-                     get_all_warehouses_stock_quantities)
-
     result = {
+        'days': days,
         'health_score': 100,
         'low_stock_count': 0,
         'negative_stock_count': 0,
@@ -170,15 +190,7 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
     }
 
     try:
-        materials = Material.query.limit(limit).all()
-        cutoff_date = datetime.now() - timedelta(days=days)
-
-        # BUG-2026-10-05-003：健康度判定改全仓汇总（Σ②库位账）口径（A11/R2）。
-        all_wh_stock = get_all_warehouses_stock_quantities()
-
-        for m in materials:
-            # 获取当前库存：全仓仓库级口径（A11），低库存/负库存判定不回退总账
-            qty = all_wh_stock.get(m.id, 0)
+        for m, qty, recent_out, idle in all_warehouse_activity(days):
 
             # 检查负库存
             if qty < 0:
@@ -193,19 +205,12 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
                 result['low_stock_count'] += 1
                 result['health_score'] -= 2
 
-            # 检查滞销（最近N天无出库记录）
-            recent_out = StockTransaction.query.filter(
-                StockTransaction.material_id == m.id,
-                StockTransaction.transaction_type == 'out',
-                StockTransaction.created_at >= cutoff_date,
-            ).count()
-
-            if recent_out == 0 and qty > 0:
+            if idle:
                 result['slow_moving_count'] += 1
                 result['health_score'] -= 1
 
             # 记录异常物料
-            if qty < 0 or alert_status in ('low', 'danger') or (recent_out == 0 and qty > 0):
+            if len(result['materials']) < limit and (qty < 0 or alert_status in ('low', 'danger') or idle):
                 result['materials'].append({
                     'id': m.id,
                     'code': m.code,
@@ -216,7 +221,7 @@ def inventory_health(days: int = 30, limit: int = 200) -> dict[str, Any]:
                     'issues': [
                         'negative_stock' if qty < 0 else None,
                         alert_status if alert_status in ('low', 'danger') else None,
-                        'slow_moving' if recent_out == 0 and qty > 0 else None,
+                        'slow_moving' if idle else None,
                     ]
                 })
 

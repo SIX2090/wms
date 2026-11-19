@@ -166,17 +166,9 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
             })
 
     elif rule.rule_type == RULE_TYPE_SLOW_MOVING:
+        from ai.tools.inventory import all_warehouse_activity
         threshold_days = rule.threshold_days or 90
-        cutoff_date = datetime.now() - timedelta(days=threshold_days)
-        StockTransaction = models['StockTransaction']
-        slow_materials = (
-            db.session.query(Material)
-            .outerjoin(StockTransaction, (StockTransaction.material_id == Material.id) & (StockTransaction.created_at >= cutoff_date))
-            .group_by(Material.id)
-            .having(func.count(StockTransaction.id) == 0)
-            .filter(Material.stock > 0)
-            .all()
-        )
+        slow_materials = [material for material, _, _, idle in all_warehouse_activity(threshold_days) if idle]
         if slow_materials:
             alerts.append({
                 'title': f'发现 {len(slow_materials)} 项呆滞物料（{threshold_days}天无出库）',

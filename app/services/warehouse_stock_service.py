@@ -1187,3 +1187,57 @@ def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
             if not loc_ok:
                 return False, loc_err or '库位库存更新失败'
     return True, ''
+
+
+def inventory_reconciliation_summary():
+    """一次只读查询核对同一快照，汇总全部差异，列出前十个定位线索。"""
+    from itertools import groupby
+    from operator import itemgetter
+    from sqlalchemy import func, literal, select, union_all
+    from app import LocationInventory, Material, StockTransaction, db, location_management_enabled
+
+    use_bins = location_management_enabled()
+    totals = select(Material.id, literal('stock'), literal(None), Material.stock, literal(0), Material.code)
+    movements = select(StockTransaction.material_id, literal('txn'), StockTransaction.warehouse_id,
+                       func.sum(StockTransaction.quantity), func.count(), literal(None)).group_by(
+                           StockTransaction.material_id, StockTransaction.warehouse_id)
+    parts = [totals, movements]
+    if use_bins:
+        parts.append(select(LocationInventory.material_id, literal('bin'), LocationInventory.warehouse_id,
+                            func.sum(LocationInventory.quantity), func.count(), literal(None)).group_by(
+                                LocationInventory.material_id, LocationInventory.warehouse_id))
+    data = union_all(*parts).subquery()
+    rows = db.session.execute(select(data).order_by(data.c.id))
+    global_diff = bin_diff = warehouse_diff = unassigned = 0
+    examples = []
+    for mid, group in groupby(rows, key=itemgetter(0)):
+        code, stock, ledger, bins = str(mid), 0, {}, {}
+        for _, kind, wid, quantity, count, material_code in group:
+            if kind == 'stock':
+                code, stock = material_code or str(mid), quantity or 0
+            elif kind == 'txn':
+                ledger[wid] = quantity or 0
+                if wid is None:
+                    unassigned += count
+            else:
+                bins[wid] = quantity or 0
+        if abs(stock - sum(ledger.values())) > LEDGER_EPS:
+            global_diff += 1
+            if len(examples) < 10:
+                examples.append(f'{code} 总账 {stock:g} / 流水 {sum(ledger.values()):g}')
+        if use_bins:
+            if abs(stock - sum(bins.values())) > LEDGER_EPS:
+                bin_diff += 1
+                if len(examples) < 10:
+                    examples.append(f'{code} 总账 {stock:g} / 库位 {sum(bins.values()):g}')
+            for wid in sorted((ledger.keys() | bins.keys()) - {None}):
+                if abs(ledger.get(wid, 0) - bins.get(wid, 0)) > LEDGER_EPS:
+                    warehouse_diff += 1
+                    if len(examples) < 10:
+                        examples.append(f'{code} 仓库ID {wid} 流水 {ledger.get(wid, 0):g} / 库位 {bins.get(wid, 0):g}')
+    status = '发现差异' if global_diff or bin_diff or warehouse_diff else '数量相符'
+    scope = f'总账与库位差异 {bin_diff}，仓库分布差异 {warehouse_diff}' if use_bins else '库位核对关闭'
+    summary = f'总账与流水差异 {global_diff}，{scope}。仓库外键为空的流水 {unassigned} 条。'
+    if examples:
+        summary += ' 差异示例：' + '；'.join(examples)
+    return '全仓账簿核对 · ' + status, summary

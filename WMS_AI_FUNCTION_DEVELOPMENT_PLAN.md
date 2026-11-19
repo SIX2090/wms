@@ -1947,3 +1947,5 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 2026-11-04 AI-DEPLOY-F01-FIX-06：进行中，既有启动更新备份子修复，关联BUG-2026-11-04-110/111。已查重FIX-01～05及备份门禁、源码与安装/更新消费点，修正特殊路径和失败发布，不新增模型、工具、路由、开关、迁移或业务权限。完整CI及交付回执前不标已完成，见[IMP-03记录](docs/audit/2026-11-04-imp03-release-and-recovery.md)。生产与人工确认边界不变。
 
 AI-MOB-MEDIA-FIX-20261114-001代码完成记录：纠正SHA `50b9c6ff6b7e3d76c3468c4139bae41a9c33f85b`、WMS CI43609529331/AI43609529291 success、Android成功祖先43574253341/0d1f7989及对象/输入证明完整，详见 docs/ledger/ai/completions-2026-11.md；首次d2264350失败和R8整批回退均保留，不冒充首次交付成功。指定包运行/其他数据库/生产生效未验，文档收口另验自身CI。
+
+2026-11-19 既有库存分析子修复 AI-C01-FIX-IDLE-20261119-001。深度分析、健康检查与旧巡检统一出库范围、观察起点和明细上限，沿用原工具和权限。隔离回归通过，待精确目标 CI 验收。详见 11 月 BUG 台账 BUG-2026-11-19-004。

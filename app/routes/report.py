@@ -226,11 +226,18 @@ def register_report_routes(app):
             flash('价格维度未启用，采购价格分析已下线；如需启用请把系统设置 price_dimension_enabled 设为 1。', 'warning')
             return redirect(url_for('report_dashboard'))
         suppliers = Supplier.query.all()
+        reconciliation = None
+        from flask_login import current_user
+        if report_type == 'warehouse_monthly' and current_user.role in ('admin', 'warehouse'):
+            from app import Notification
+            reconciliation = Notification.query.filter_by(type='inventory_reconciliation').order_by(
+                Notification.created_at.desc(), Notification.id.desc()).first()
         # BUG-2026-08-02-014：报表筛选器加仓库下拉框，传 warehouses / default_warehouse 给模板
         return render_template(
             'report_view.html',
             report_type=report_type,
             title=definition['title'],
+            reconciliation=reconciliation,
             suppliers=suppliers,
             warehouses=get_active_warehouses(),
             default_warehouse=get_default_warehouse(),

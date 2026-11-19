@@ -123,3 +123,46 @@ def test_t3_switch_flipped_back_off_stops_notifications():
     assert _low_stock_notification_count() == 1, (
         "开关关闭后通知数不应增长"
     )
+
+
+def test_check_inventory_ledgers():
+    from app import LocationInventory, Notification, StockTransaction, Warehouse
+    _reset("0")
+    with app_module.app.app_context():
+        m = Material.query.one()
+        wh = Warehouse(code="AUD", name="核对仓", status="active")
+        db.session.add(wh)
+        db.session.flush()
+        db.session.add_all([
+            StockTransaction(material_id=m.id, transaction_type="in", quantity=2, warehouse_id=wh.id),
+            StockTransaction(material_id=m.id, transaction_type="in", quantity=1),
+            LocationInventory(material_id=m.id, warehouse_id=wh.id, location="A", quantity=1),
+        ])
+        db.session.commit()
+        manager = NotificationManager()
+        manager.check_inventory_ledgers()
+        notice = Notification.query.filter_by(type="inventory_reconciliation").one()
+        assert "总账与流水差异 1" in notice.content and "库位核对关闭" in notice.content
+        assert "仓库外键为空的流水 1" in notice.content and m.code in notice.content
+        app_module.set_system_setting("location_management_enabled", "1")
+        db.session.commit()
+        manager.check_inventory_ledgers()
+        notice = Notification.query.filter_by(type="inventory_reconciliation").one()
+        assert "仓库分布差异 1" in notice.content and "总账与库位差异 1" in notice.content
+        assert m.stock == 2 and StockTransaction.query.count() == 2
+        client = app_module.app.test_client()
+        with client.session_transaction() as session:
+            session["_user_id"] = str(User.query.one().id)
+        page = client.get("/report/view/warehouse_monthly")
+        assert page.status_code == 200 and notice.content in page.get_data(as_text=True)
+
+
+def test_inventory_reconciliation_summary():
+    from services.warehouse_stock_service import inventory_reconciliation_summary
+    _reset("0")
+    with app_module.app.app_context():
+        Material.query.one().stock = 0
+        db.session.flush()
+        title, content = inventory_reconciliation_summary()
+        assert "数量相符" in title and "总账与流水差异 0" in content
+        assert "仓库外键为空的流水 0" in content

@@ -11384,26 +11384,23 @@ def _ai_stage4_days_of_supply_report(days=30, limit=12):
         )
     return '\n'.join(lines)
 
-def _ai_stage4_slow_moving_report(days=90, limit=12):
-    cutoff = datetime.now() - timedelta(days=max(1, int(days or 90)))
-    recent_out_material_ids = db.session.query(StockTransaction.material_id).filter(
-        StockTransaction.transaction_type.in_(('out', 'transfer_out', 'adjustment_out')),
-        StockTransaction.created_at >= cutoff,
-    ).distinct()
-    rows = Material.query.options(joinedload(Material.unit)).filter(
-        Material.stock > 0,
-        ~Material.id.in_(recent_out_material_ids),
-    ).order_by((Material.stock * Material.price).desc(), Material.stock.desc()).limit(limit).all()
+def _ai_stage4_slow_moving_report(days=None, limit=12):
+    from heapq import nlargest
+    from ai.tools.inventory import all_warehouse_activity
+
+    days = max(1, int(days or get_system_setting_int('stock_idle_days', 90)))
+    candidates = ((m, qty) for m, qty, _, idle in all_warehouse_activity(days) if idle)
+    rows = nlargest(limit, candidates, key=lambda row: (row[1] * (row[0].price or 0), row[1], -row[0].id))
     if not rows:
         return f'最近{days}天没有发现有库存且无出库的滞销物料。'
     lines = [f'**滞销/呆滞库存分析（最近{days}天无出库）**']
-    lines.append('| 物料 | 当前库存 | 库存金额 | 建议动作 |')
+    lines.append('| 物料 | 启用仓合计库存 | 当前参考价估值 | 建议动作 |')
     lines.append('|---|---:|---:|---|')
-    for material in rows:
+    for material, qty in rows:
         unit_name = material.unit.name if material.unit else ''
-        value = round_money_product(material.stock or 0, material.price or 0)
+        value = round_money_product(qty, material.price or 0)
         lines.append(
-            f'| {material.code} {material.name} | {normalize_stock_quantity(material.stock or 0)}{unit_name} | '
+            f'| {material.code} {material.name} | {normalize_stock_quantity(qty)}{unit_name} | '
             f'{value:,.2f} | 复核需求、替代料、报废或降库存上限 |'
         )
     return '\n'.join(lines)
@@ -11520,7 +11517,7 @@ def _ai_stage4_deep_analysis_response(message, context=None, force=False):
             reports.append(_ai_stage4_days_of_supply_report(days=30))
             source_scope.append('最近30天消耗和当前库存')
         if any(word in compact for word in ('滞销', '呆滞', '慢动销', '长期未出库', 'slow_moving')):
-            reports.append(_ai_stage4_slow_moving_report(days=90))
+            reports.append(_ai_stage4_slow_moving_report())
             source_scope.append('最近90天出库流水和当前库存')
         if any(word in compact for word in ('缺料', '缺货', '短缺', '补货缺口', 'shortage')):
             reports.append(_ai_stage4_shortage_report())
@@ -11532,7 +11529,7 @@ def _ai_stage4_deep_analysis_response(message, context=None, force=False):
         if not reports:
             reports.extend([
                 _ai_stage4_days_of_supply_report(days=30),
-                _ai_stage4_slow_moving_report(days=90),
+                _ai_stage4_slow_moving_report(),
                 _ai_stage4_shortage_report(),
                 _ai_stage4_stocktake_variance_report(days=90),
             ])

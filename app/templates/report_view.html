@@ -230,6 +230,9 @@
 {% if report_type == 'warehouse_monthly' %}
 <div class="small text-muted mb-3">按所选完整自然月期间、单据业务日期汇总已生效库存变动，每种物料一行。本年为年初至当前月。期初结存＋期间入库－期间出库＝期末结存。数量按单位分别合计；点击物料编码联查所选期间台账。常规查询只显示本仓有期初或发生的物料，指定完整编码时可核对零记录。委外收货及冲回金额按物料当前参考价估值，已分别计入入库、出库金额。收货单另记加工费。</div>
 <div id="monthlyReportCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>
+{% if current_user.role in ('admin', 'warehouse') %}
+<div class="small mb-3">{% if reconciliation %}<strong>{{ reconciliation.title }}</strong>（{{ reconciliation.created_at.strftime('%Y-%m-%d %H:%M') }}） {{ reconciliation.content }}{% else %}全仓账簿核对尚无巡检记录。{% endif %}</div>
+{% endif %}
 {% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">

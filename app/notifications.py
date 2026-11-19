@@ -268,6 +268,28 @@ class NotificationManager:
         return notifications
 
 
+    def check_inventory_ledgers(self):
+        """记录当日全仓账簿核对结果。同日重跑更新同一条站内通知。"""
+        from app import Notification, db
+        from services.warehouse_stock_service import inventory_reconciliation_summary
+
+        title, content = inventory_reconciliation_summary()
+        now = datetime.now()
+        key = {'type': 'inventory_reconciliation', 'target_id': int(now.strftime('%Y%m%d'))}
+        try:
+            existing = Notification.query.filter_by(**key).update({
+                Notification.title: title, Notification.content: content,
+                Notification.is_read: db.case((Notification.content != content, False), else_=Notification.is_read),
+                Notification.created_at: now,
+            }, synchronize_session=False)
+            if not existing:
+                db.session.add(Notification(**key, title=title, content=content, created_at=now))
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+
+
 # 全局通知管理器实例
 notification_manager = NotificationManager()
 
@@ -290,6 +312,7 @@ def init_notification_scheduler(app, db, Material, User):
             logging.getLogger(__name__).info('执行每日库存检查...')
             notification_manager.check_low_stock(db, Material, User)
             notification_manager.check_expiring_materials(db, Material, User)
+            notification_manager.check_inventory_ledgers()
 
     scheduler.add_job(
         daily_stock_check,
