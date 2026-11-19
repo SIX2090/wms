@@ -2110,6 +2110,7 @@ def register_in_order_routes(app):
                          update_purchase_order_status, validate_purchase_in_order_source)
         # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口，替代裸调
         # add_stock / deduct_stock_atomic + update_location_inventory 双写。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         from flask_login import current_user
         # 预加载 items + material，消除 _check_in_order_anomalies 中的 N+1 查询
@@ -2155,6 +2156,7 @@ def register_in_order_routes(app):
             if not ok:
                 return api_error('该入库单已提交，不能重复操作')
             order = locked
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             if not order.items:
                 db.session.rollback()
                 return api_error('请至少添加一条入库明细')
@@ -2233,6 +2235,7 @@ def register_in_order_routes(app):
                 )
                 db.session.add(auto_requisition)
                 db.session.flush()
+                requisition_checkpoint = stock_document_audit_checkpoint(auto_requisition, created=True)
                 # P2-3 收敛：use_location 判定下沉到 apply_stock_delta 内部。
                 for source_item in order.items:
                     price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
@@ -2267,7 +2270,15 @@ def register_in_order_routes(app):
                         request_id=request_id, created_by=current_user.id,
                     ))
                 recalculate_order_total(auto_requisition)
+                stage_stock_document_snapshot(
+                    auto_requisition, deleting=False, operation='complete_out_order',
+                    checkpoint=requisition_checkpoint, reason='采购入库自动完成领料',
+                )
             try:
+                stage_stock_document_snapshot(
+                    order, deleting=False, operation='complete_in_order',
+                    checkpoint=audit_checkpoint, reason='完成入库单',
+                )
                 db.session.commit()
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
                 if share_now_config:
@@ -2777,9 +2788,10 @@ def register_in_order_routes(app):
                          _source_has_active_push, allow_negative_stock, api_error,
                          get_warehouse_stock_quantities,
                          is_stock_sufficient,
-                         log_audit, log_operation, normalize_stock_quantity, recalculate_order_total,
+                         log_operation, normalize_stock_quantity, recalculate_order_total,
                          update_purchase_order_status)
         # P2-3 收敛：反提交经同一入口，delta 取负与 complete 严格对称。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         order = InOrder.query.get_or_404(id)
         if _source_has_active_push(id):
@@ -2798,6 +2810,7 @@ def register_in_order_routes(app):
             if not ok:
                 return api_error('该入库单已反提交，不能重复操作')
             order = locked
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             from services.document_return_guard import purchase_inbound_revert_check
             valid, message = purchase_inbound_revert_check(order)
             if not valid:
@@ -2901,15 +2914,12 @@ def register_in_order_routes(app):
             recalculate_order_total(order)
             for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
                 update_purchase_order_status(purchase_order)
+            stage_stock_document_snapshot(
+                order, deleting=False, operation='revert_in_order',
+                checkpoint=audit_checkpoint, reason='反提交入库单',
+            )
             db.session.commit()
             log_operation('反提交入库单', f'入库单：{order.order_no}', 'in_order', id)
-            # BUG-2026-08-16-012：反提交入库单写结构化审计
-            log_audit(
-                'revert_in_order', 'in_order', id,
-                target_name=order.order_no,
-                old_data={'status': 'completed'},
-                new_data={'status': 'pending'},
-            )
             return jsonify({'status': 'success', 'msg': '操作完成'})
         except Exception as e:
             db.session.rollback()
@@ -3168,6 +3178,7 @@ def register_in_order_routes(app):
                          validate_purchase_in_order_source,
                          validate_purchase_receive_quantity)
         # P2-3 收敛：批量完成与 complete_in_order 共用同一写入入口。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -3289,6 +3300,7 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 continue
             try:
+                audit_checkpoint = stock_document_audit_checkpoint(order)
                 for item in order.items:
                     if item.material:
                         # P2-3 收敛：与 complete_in_order 同一入口，单张失败经
@@ -3316,6 +3328,10 @@ def register_in_order_routes(app):
                 for po in affected_pos:
                     update_purchase_order_status(po)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
+                stage_stock_document_snapshot(
+                    order, deleting=False, operation='complete_in_order',
+                    checkpoint=audit_checkpoint, reason='批量完成入库单',
+                )
                 db.session.commit()
                 completed += 1
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
@@ -3377,6 +3393,7 @@ def register_in_order_routes(app):
                          normalize_stock_quantity, recalculate_order_total,
                          update_purchase_order_status)
         # P2-3 收敛：批量反审与 revert_in_order 共用同一写入入口。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
@@ -3427,6 +3444,7 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 continue
             try:
+                audit_checkpoint = stock_document_audit_checkpoint(order)
                 recorded_result = _reverse_recorded_order_stock(order)
             except Exception:
                 db.session.rollback()
@@ -3514,6 +3532,10 @@ def register_in_order_routes(app):
                 for po in affected_pos:
                     update_purchase_order_status(po)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
+                stage_stock_document_snapshot(
+                    order, deleting=False, operation='revert_in_order',
+                    checkpoint=audit_checkpoint, reason='批量反提交入库单',
+                )
                 db.session.commit()
                 reverted += 1
             except Exception as e:

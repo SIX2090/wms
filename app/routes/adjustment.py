@@ -448,6 +448,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, _acquire_order_write_lock, api_error,
                          location_management_enabled, log_operation)
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'pending':
@@ -463,6 +464,7 @@ def register_adjustment_routes(app):
             if not ok:
                 return api_error('该调整单已提交，不能重复操作')
             adjustment = locked
+            audit_checkpoint = stock_document_audit_checkpoint(adjustment, reference_type='adjustment')
             from app import assert_warehouse_active
             warehouse_ok, warehouse_message = assert_warehouse_active(adjustment.warehouse, allow_empty=False)
             if not warehouse_ok:
@@ -518,6 +520,11 @@ def register_adjustment_routes(app):
                         return api_error(err)
 
             adjustment.status = 'completed'
+            stage_stock_document_snapshot(
+                adjustment, deleting=False, operation='complete_adjustment',
+                checkpoint=audit_checkpoint, reason='完成库存调整',
+                reference_type='adjustment', target_name=adjustment.adjustment_no,
+            )
             db.session.commit()
             log_operation('完成库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
             return jsonify({'status': 'success', 'msg': '库存调整已完成'})
@@ -534,6 +541,7 @@ def register_adjustment_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, _acquire_order_write_lock, api_error,
                          log_operation)
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_adjustment_stock
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'completed':
@@ -544,6 +552,7 @@ def register_adjustment_routes(app):
             if not ok:
                 return api_error('该调整单已反提交，不能重复操作')
             adjustment = locked
+            audit_checkpoint = stock_document_audit_checkpoint(adjustment, reference_type='adjustment')
             # BUG-2026-08-02-010 修复：反提交时对称回退库位库存（与 complete 方向相反）。
             # P2-3 收敛后库位同步由 apply_stock_delta 内部按 location_management_enabled()
             # 自动判定，本函数不再直接使用 use_location。
@@ -585,6 +594,11 @@ def register_adjustment_routes(app):
                             db.session.rollback()
                             return api_error(err)
             adjustment.status = 'pending'
+            stage_stock_document_snapshot(
+                adjustment, deleting=False, operation='revert_adjustment',
+                checkpoint=audit_checkpoint, reason='反提交库存调整',
+                reference_type='adjustment', target_name=adjustment.adjustment_no,
+            )
             db.session.commit()
             log_operation('反提交库存调整', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
             return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复'})

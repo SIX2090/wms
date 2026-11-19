@@ -64,7 +64,7 @@ def main():
               current_app=current_app, URLSafeTimedSerializer=URLSafeTimedSerializer,
               BadSignature=BadSignature, app=app, jsonify=jsonify, sa_update=update,
               STOCK_COMPARE_EPSILON=1e-6,
-              current_user=types.SimpleNamespace(is_authenticated=True, id=1),
+              current_user=types.SimpleNamespace(is_authenticated=True, id=1, username='synthetic'),
               request=types.SimpleNamespace(remote_addr='synthetic', headers={}),
               get_request_ip=lambda: 'synthetic', api_error=lambda message: ({'status': 'error', 'msg': message}, 400))
     for filename in ('core.py', 'master_data.py', 'documents.py', 'inventory.py'):
@@ -89,7 +89,8 @@ def main():
             if hasattr(child, 'body') and isinstance(child.body, list):
                 child.body = [part for part in child.body if not isinstance(part, ast.ImportFrom)
                               or part.module not in ('app', 'db', 'models.master_data', 'models.inventory',
-                                                     'services.warehouse_stock_service', 'services.warehouse_identity')]
+                                                     'services.warehouse_stock_service', 'services.warehouse_identity',
+                                                     'services.document_stock_audit')]
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
                      'source-function:' + filename + ':' + name, 'exec'), ns)
 
@@ -97,6 +98,9 @@ def main():
         extract('app/utils.py', name)
     for name in ('warehouse_aliases', 'legacy_warehouse_location_owners'):
         extract('app/services/warehouse_identity.py', name)
+    for name in ('stage_order_audit', 'snapshot_audit_row', 'stock_document_audit_checkpoint',
+                 'stage_stock_document_snapshot'):
+        extract('app/services/document_stock_audit.py', name)
     for name in ('_recorded_quantity_matches', '_reverse_recorded_opening_stock'):
         extract('app/services/warehouse_stock_service.py', name)
     if any(isinstance(node, ast.FunctionDef) and node.name == '_purchase_reservation_error'

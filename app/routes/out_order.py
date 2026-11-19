@@ -1161,6 +1161,7 @@ def register_out_order_routes(app):
                          sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
         # P2-3 收敛：库存三账（总账+流水+库位账）写入唯一入口。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
@@ -1199,6 +1200,7 @@ def register_out_order_routes(app):
             if not ok:
                 return api_error('该领料单已提交，不能重复操作')
             order = locked
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             if not order.items:
                 db.session.rollback()
                 return api_error('请至少添加一条领料明细')
@@ -1267,6 +1269,10 @@ def register_out_order_routes(app):
             order.status = 'completed'
             sync_sales_order_shipment(order, quantity_sign=1)
             recalculate_order_total(order)
+            stage_stock_document_snapshot(
+                order, deleting=False, operation='complete_out_order',
+                checkpoint=audit_checkpoint, reason='完成出库单',
+            )
             db.session.commit()
             log_operation(f'完成{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
             app.logger.info(f'领料单完成：{order.order_no}')
@@ -1283,9 +1289,10 @@ def register_out_order_routes(app):
     def revert_out_order(id):
         from app import (OutOrder, _acquire_order_write_lock,
                          api_error,
-                         log_audit, log_operation, recalculate_order_total,
+                         log_operation, recalculate_order_total,
                          sync_sales_order_shipment)
         # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
@@ -1298,6 +1305,7 @@ def register_out_order_routes(app):
             if not ok:
                 return api_error('该领料单已反提交，不能重复操作')
             order = locked
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             from services.document_return_guard import sales_outbound_revert_check
             valid, message = sales_outbound_revert_check(order)
             if not valid:
@@ -1326,15 +1334,12 @@ def register_out_order_routes(app):
             order.status = 'pending'
             sync_sales_order_shipment(order, quantity_sign=-1)
             recalculate_order_total(order)
+            stage_stock_document_snapshot(
+                order, deleting=False, operation='revert_out_order',
+                checkpoint=audit_checkpoint, reason='反提交出库单',
+            )
             db.session.commit()
             log_operation(f'反提交{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
-            # BUG-2026-08-16-012：反提交领料单写结构化审计
-            log_audit(
-                'revert_out_order', 'out_order', id,
-                target_name=order.order_no,
-                old_data={'status': 'completed'},
-                new_data={'status': 'pending'},
-            )
             return jsonify({'status': 'success', 'msg': '操作完成'})
         except Exception as e:
             db.session.rollback()
@@ -1470,6 +1475,7 @@ def register_out_order_routes(app):
                          sync_sales_order_shipment,
                          validate_sales_outbound_warehouse)
         # P2-3 收敛：批量完成与 complete_out_order 共用同一写入入口。
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         from sqlalchemy.orm import joinedload, selectinload
         payload = request.get_json(silent=True) or {}
@@ -1567,6 +1573,7 @@ def register_out_order_routes(app):
                 db.session.rollback()
                 continue
             try:
+                audit_checkpoint = stock_document_audit_checkpoint(order)
                 for item in order.items:
                     # P2-3 收敛：与单据版 complete_out_order 同一入口（原子扣减
                     # 与库位同步由入口内部完成，单张失败经 ValueError 只回滚本单）。
@@ -1584,6 +1591,10 @@ def register_out_order_routes(app):
                 sync_sales_order_shipment(order, quantity_sign=1)
                 recalculate_order_total(order)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
+                stage_stock_document_snapshot(
+                    order, deleting=False, operation='complete_out_order',
+                    checkpoint=audit_checkpoint, reason='批量完成出库单',
+                )
                 db.session.commit()
                 completed += 1
             except Exception as e:

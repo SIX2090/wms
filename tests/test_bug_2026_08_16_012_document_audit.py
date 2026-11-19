@@ -143,7 +143,11 @@ class TestDocumentAudit:
             assert audit is not None, "反提交入库单未写结构化审计"
             assert audit.target_name == order_no
             assert json.loads(audit.old_data) == {"status": "completed"}
-            assert json.loads(audit.new_data) == {"status": "pending"}
+            latest = json.loads(audit.new_data)
+            assert latest["status"] == "pending"
+            assert latest["order_no"] == order_no
+            assert len(latest["movements"]) == 1
+            assert latest["movements"][0]["quantity"] == -10
 
     def test_delete_in_order_audits(self, client):
         with app_module.app.test_request_context():
