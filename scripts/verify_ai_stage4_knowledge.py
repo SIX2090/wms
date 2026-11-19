@@ -87,9 +87,23 @@ def main() -> int:
             price=3,
         )
         wms_app.db.session.add_all([material_a, material_b])
+        warehouse = wms_app.Warehouse.query.filter_by(code='STAGE4-WH').first()
+        if warehouse is None:
+            warehouse = wms_app.Warehouse(code='STAGE4-WH', name='Stage4 Warehouse', status='active')
+            wms_app.db.session.add(warehouse)
+        material_b.created_at = wms_app.datetime.now() - wms_app.timedelta(days=120)
         wms_app.db.session.flush()
+        wms_app.db.session.add_all([
+            wms_app.StockTransaction(material_id=material_a.id, warehouse_id=warehouse.id,
+                                     transaction_type='in', quantity=50,
+                                     created_at=wms_app.datetime.now() - wms_app.timedelta(days=15)),
+            wms_app.StockTransaction(material_id=material_b.id, warehouse_id=warehouse.id,
+                                     transaction_type='in', quantity=80,
+                                     created_at=wms_app.datetime.now() - wms_app.timedelta(days=100)),
+        ])
         wms_app.db.session.add(wms_app.StockTransaction(
             material_id=material_a.id,
+            warehouse_id=warehouse.id,
             transaction_type='out',
             quantity=-30,
             created_at=wms_app.datetime.now() - wms_app.timedelta(days=5),
@@ -170,6 +184,7 @@ def main() -> int:
     deep_data = deep.get_json()
     assert deep_data['status'] == 'success'
     deep_reply = deep_data['reply']
+    assert 'STAGE4-B Stage4 Slow' in deep_reply
     assert '\u9884\u8ba1\u53ef\u7528\u5929\u6570\u5206\u6790' in deep_reply
     assert '\u6ede\u9500/\u5446\u6ede\u5e93\u5b58\u5206\u6790' in deep_reply
     assert '\u7f3a\u6599/\u8865\u8d27\u7f3a\u53e3\u5206\u6790' in deep_reply
