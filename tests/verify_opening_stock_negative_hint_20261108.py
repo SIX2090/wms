@@ -50,7 +50,7 @@ def main():
     platform.machine = lambda: 'synthetic'
     builtins.__import__ = guarded_import
     sys.path.append(sysconfig.get_paths()['purelib'])
-    from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, and_, case, create_engine, func, or_, text, update
+    from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, and_, case, create_engine, func, or_, select, text, update
     from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, relationship
 
     root = Path(__file__).resolve().parents[1]
@@ -152,7 +152,7 @@ def main():
 
             self.ns = {'db': db, 'Material': Material, 'Warehouse': Warehouse,
                        'StockTransaction': StockTransaction, 'LocationInventory': LocationInventory,
-                       'func': func, 'case': case, 'sa_update': update, 'STOCK_COMPARE_EPSILON': 1e-6,
+                       'func': func, 'case': case, 'sa_update': update, 'select': select, 'STOCK_COMPARE_EPSILON': 1e-6,
                        'location_management_enabled': lambda: self.location_enabled,
                        'allow_negative_location_stock': lambda: self.negative_location_allowed,
                        'resolve_inventory_warehouse_id': lambda warehouse: warehouse.id if warehouse else None,
@@ -168,6 +168,7 @@ def main():
             # Keep its ambiguity checks; never import application models here.
             aliases.body = [node for node in aliases.body if not isinstance(node, ast.ImportFrom)]
             nodes = [function(utils, 'round_to_2_decimals'), function(utils, 'normalize_stock_quantity'), aliases,
+                     function(identity, 'legacy_warehouse_location_owners'),
                      function(source, 'get_warehouse_stock_quantities'),
                      function(source, '_warehouse_location_filter_values'),
                      function(source, '_ledger_source_warehouse_map'),
@@ -186,7 +187,8 @@ def main():
                 for child in ast.walk(node):
                     if hasattr(child, 'body') and isinstance(child.body, list):
                         child.body = [part for part in child.body if not isinstance(part, ast.ImportFrom)
-                                      or part.module not in ('app', 'services.warehouse_stock_service')]
+                                      or part.module not in ('app', 'models.master_data', 'models.inventory',
+                                                             'services.warehouse_stock_service', 'services.warehouse_identity')]
             exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),
                          '<synthetic-opening-source>', 'exec'), self.ns)
 

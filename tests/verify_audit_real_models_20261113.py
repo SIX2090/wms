@@ -51,7 +51,7 @@ def main():
     from flask_login import UserMixin
     from flask_sqlalchemy import SQLAlchemy
     from itsdangerous import BadSignature, URLSafeTimedSerializer
-    from sqlalchemy import String, cast, event, func, text, update
+    from sqlalchemy import String, cast, event, func, select, text, update
 
     root = Path(__file__).resolve().parents[1]
     app = Flask('source-model-audit')
@@ -60,7 +60,7 @@ def main():
     db = SQLAlchemy(app)
     ns = dict(db=db, Counter=Counter, datetime=datetime, timedelta=timedelta, date=date, UserMixin=UserMixin,
               Decimal=Decimal, ROUND_HALF_UP=ROUND_HALF_UP, localcontext=localcontext,
-              hashlib=hashlib, json=json, math=math, func=func, cast=cast, String=String,
+              hashlib=hashlib, json=json, math=math, func=func, cast=cast, String=String, select=select,
               current_app=current_app, URLSafeTimedSerializer=URLSafeTimedSerializer,
               BadSignature=BadSignature, app=app, jsonify=jsonify, sa_update=update,
               STOCK_COMPARE_EPSILON=1e-6,
@@ -88,13 +88,15 @@ def main():
         for child in ast.walk(node):
             if hasattr(child, 'body') and isinstance(child.body, list):
                 child.body = [part for part in child.body if not isinstance(part, ast.ImportFrom)
-                              or part.module not in ('app', 'db', 'models.master_data', 'services.warehouse_stock_service')]
+                              or part.module not in ('app', 'db', 'models.master_data', 'models.inventory',
+                                                     'services.warehouse_stock_service', 'services.warehouse_identity')]
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node], type_ignores=[])),
                      'source-function:' + filename + ':' + name, 'exec'), ns)
 
     for name in ('round_to_2_decimals', 'round_money_product', 'normalize_stock_quantity', 'recalculate_order_total'):
         extract('app/utils.py', name)
-    extract('app/services/warehouse_identity.py', 'warehouse_aliases')
+    for name in ('warehouse_aliases', 'legacy_warehouse_location_owners'):
+        extract('app/services/warehouse_identity.py', name)
     for name in ('_recorded_quantity_matches', '_reverse_recorded_opening_stock'):
         extract('app/services/warehouse_stock_service.py', name)
     if any(isinstance(node, ast.FunctionDef) and node.name == '_purchase_reservation_error'
