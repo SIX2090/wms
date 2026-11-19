@@ -141,6 +141,7 @@ class TestBug20260805002CompleteInOrderImports:
             assert order.status == "completed"
             # 编辑已完成明细数量 25 -> 30（+5）
             resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
+                "reason": "复点实收数量为 30",
                 "items": [{"id": item.id, "quantity": 30, "price": 10}],
                 "deleted_items": [],
             })

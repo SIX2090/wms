@@ -48,6 +48,7 @@ def _reset_db():
 
 
 def _seed():
+    from services.warehouse_stock_service import apply_opening_balance
     from werkzeug.security import generate_password_hash
     unit = Unit(name="个", code="PCS")
     cat = MaterialCategory(name="默认分类", code="CAT-DEFAULT")
@@ -65,6 +66,10 @@ def _seed():
         stock=100, price=10, min_stock=0, max_stock=9999, reorder_point=0,
     )
     db.session.add_all([unit, cat, sup, wh, user, mat])
+    db.session.flush()
+    with app_module.app.test_request_context('/'):
+        ok, error = apply_opening_balance(mat, mat.stock, warehouse=wh.name)
+    assert ok, error
     db.session.commit()
     return {"mat": mat, "wh": wh, "user": user}
 
@@ -116,6 +121,7 @@ class TestBug20260804003UpdateCompletedLock:
             order, item = _make_completed_in_order(seeds["mat"], qty=50)
             # 修改明细数量从 50 增加到 80（qty_diff=+30）
             resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
+                "reason": "复点实收数量为 80",
                 "items": [{"id": item.id, "quantity": 80, "price": 10}],
                 "deleted_items": [],
             })
@@ -138,6 +144,7 @@ class TestBug20260804003UpdateCompletedLock:
             db.session.commit()
             # 尝试修改已完成明细
             resp = document_post(client, f"/in_order/{order.id}/update_completed", json={
+                "reason": "复点实收数量为 80",
                 "items": [{"id": item.id, "quantity": 80, "price": 10}],
                 "deleted_items": [],
             })
