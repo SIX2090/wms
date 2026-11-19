@@ -10,19 +10,19 @@
 检查项（每条都对应一个具体的错法）：
 
   C1 路由函数存在且区间可定位（防止改名后断言静默失效）
-  C2 ``log_audit`` / ``log_operation`` 在该函数的 from app import 列表里
-  C3 函数体内出现 ``log_audit('update_completed_in_order', 'in_order', ...)``
-  C4 log_audit 位置在**主 commit 之后**（前移会把半成品业务写提前落库）
-  C5 old 快照 ``before_items`` 出现在删除循环之前（事后取只能拿到新值）
-  C6 审计块被 try/except 包住，且异常分支只记日志不 return 失败
-     （业务已提交，回传失败会造成"说没存、实际已改"）
-  C7 reason 有 200 长度截断（String(200)，换库会 DataError 被吞 → 静默丢审计）
+  C2 使用随业务事务登记的审计写法，同时保留操作日志
+  C3 审计操作名和目标单据正确
+  C4 成功路径只能提交一次，关键审计先于提交，普通日志随后写入
+  C5 old 快照必须早于删除循环
+  C6 审计登记函数只加入会话；提交异常回滚并返回错误
+  C7 数量增删改必须提供原因，落库前截断至 200 字
   C8 函数体内仍有 ``db.session.commit()``（防止断言区间错位后误判通过）
 
 退出码：0 全过；1 有失败项。
 """
 from __future__ import annotations
 
+import ast
 import io
 import re
 import sys
@@ -62,19 +62,11 @@ def main():
     )
     print(f"C1 函数体定位：{len(body)} 字符（已剔除注释行）")
 
-    # C2 导入
-    if not re.search(r"log_audit,\s*log_operation|log_operation,\s*log_audit", body):
-        failures += _failure("C2 函数内未从 app 导入 log_audit / log_operation")
-    else:
-        print("C2 审计函数已导入")
-
-    # C3 审计调用（要求 op 字符串紧跟在调用上，避免注释/参数表残留造成假通过）
-    audit_call = re.search(
-        r"log_audit\(\s*\n?\s*'%s',\s*'in_order'" % AUDIT_OP, body)
+    if "from services.document_stock_audit import stage_order_audit" not in body or "log_operation" not in body:
+        failures += _failure("C2 缺少事务审计或操作日志")
+    audit_call = re.search(r"stage_order_audit\(\s*'%s',\s*order," % AUDIT_OP, body)
     if not audit_call:
-        failures += _failure(f"C3 未调用 log_audit('{AUDIT_OP}', 'in_order', ...)")
-    else:
-        print("C3 审计调用存在")
+        failures += _failure("C3 未对目标单据登记改数审计")
 
     # C8 先确认区间内有 commit，否则下面的位置比较没有意义
     commits = [m.start() for m in re.finditer(r"db\.session\.commit\(\)", body)]
@@ -84,12 +76,9 @@ def main():
         return 1
     print(f"C8 区间内 commit 数：{len(commits)}")
 
-    # C4 顺序
     audit_pos = audit_call.start() if audit_call else -1
-    if audit_pos < 0 or audit_pos < commits[0]:
-        failures += _failure("C4 log_audit 位于首个 commit 之前（会提前落库/谎报成功）")
-    else:
-        print("C4 log_audit 在 commit 之后")
+    if len(commits) != 1 or not (0 <= audit_pos < commits[0] < body.find("log_operation(")):
+        failures += _failure("C4 关键审计、唯一业务提交和普通日志顺序不正确")
 
     # C5 快照位置
     snap_pos = body.find("before_items")
@@ -103,22 +92,18 @@ def main():
     else:
         print("C5 old 快照在写入之前")
 
-    # C6 审计块容错
+    source = (ROOT / 'app/services/document_stock_audit.py').read_text(encoding='utf-8')
+    stage = next(node for node in ast.parse(source).body
+                 if isinstance(node, ast.FunctionDef) and node.name == 'stage_order_audit')
+    calls = {ast.unparse(node.func) for node in ast.walk(stage) if isinstance(node, ast.Call)}
+    if ('db.session.add' not in calls or 'db.session.commit' in calls or
+            any(isinstance(node, ast.Try) for node in ast.walk(stage))):
+        failures += _failure("C6 审计登记须加入外层会话，写入异常须向外传播")
     tail = body[commits[0]:]
-    if "except Exception as e:" not in tail:
-        failures += _failure("C6 审计块缺少 except 兜底")
-    elif "审计写入失败" not in tail:
-        failures += _failure("C6 审计失败分支未按“只记日志”处理")
-    elif re.search(r"except Exception as e:\s*\n\s*[^\n]*\n\s*[^\n]*return ", tail):
-        failures += _failure("C6 审计块异常分支出现 return（会把已提交的业务报成失败）")
-    else:
-        print("C6 审计失败不回传为保存失败")
-
-    # C7 截断
-    if "[:200]" not in body:
-        failures += _failure("C7 reason 未做 200 长度截断")
-    else:
-        print("C7 reason 已截断到 200")
+    if not re.search(r"except Exception:\s+db.session.rollback\(\).*?return .*?, 500", tail, re.S):
+        failures += _failure("C6 提交失败必须回滚并返回错误")
+    if "[:200]" not in body or "if quantity_changed and not audit_reason:" not in body:
+        failures += _failure("C7 数量变更缺少原因门禁或长度上限")
 
     print("\n结果：" + ("通过" if failures == 0 else f"失败 {failures} 项"))
     return 0 if failures == 0 else 1
