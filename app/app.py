@@ -5475,7 +5475,8 @@ def deduct_location_inventory_atomic(material_id, location, quantity, material_c
         return False, f'物料 {code} 在 {location} 库存不足或并发冲突'
     return True, ''
 
-def add_stock_transaction(material, quantity, transaction_type, reference_type=None, reference_id=None, location=None, remark=None, warehouse=None):
+def add_stock_transaction(material, quantity, transaction_type, reference_type=None, reference_id=None,
+                          location=None, remark=None, warehouse=None, *, operator_id=None):
     """Record a stock movement without changing total material stock."""
     if not material or not transaction_type:
         return
@@ -5490,7 +5491,7 @@ def add_stock_transaction(material, quantity, transaction_type, reference_type=N
         warehouse_id=resolve_inventory_warehouse_id(warehouse),
         reference_type=reference_type or '',
         reference_id=reference_id or 0,
-        operator_id=current_user.id if current_user.is_authenticated else None,
+        operator_id=operator_id if operator_id is not None else (current_user.id if current_user.is_authenticated else None),
         remark=remark or ''
     ))
 
@@ -8776,7 +8777,8 @@ def _parse_opening_stock_date(raw):
             pass
     return date.today()
 
-def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark, warehouse=None, doc_date=None, location='', doc_id=None):
+def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new_amount, remark,
+                                 warehouse=None, doc_date=None, location='', doc_id=None, *, operator_id=None):
     """按差额把期初数量落到总账（ARCH-OS-DOC-01：opening 现在是单据明细行）。
 
     差额算法本身与改造前完全一致（old = 该行旧值，delta = new - old，
@@ -8796,6 +8798,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
     if opening is not None and location != (opening.location or '').strip():
         raise ValueError('期初库存编辑不能更换库位，请通过库存调拨调整库位')
 
+    actor_id = operator_id if operator_id is not None else (current_user.id if current_user.is_authenticated else None)
     if opening is None:
         opening = OpeningStock(
             doc_id=doc_id,
@@ -8807,7 +8810,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             price=new_price,
             amount=new_amount,
             remark=remark,
-            operator_id=current_user.id if current_user.is_authenticated else None,
+            operator_id=actor_id,
         )
         db.session.add(opening)
         db.session.flush()
@@ -8821,7 +8824,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
         opening.remark = remark
         opening.date = doc_date
         opening.location = location
-        opening.operator_id = current_user.id if current_user.is_authenticated else None
+        opening.operator_id = actor_id
         opening.updated_at = datetime.now()
         db.session.flush()
 
@@ -8875,6 +8878,7 @@ def _apply_opening_stock_balance(opening, material, new_quantity, new_price, new
             reference_id=opening.id,
             remark=remark or '期初库存调整',
             sync_location=bool(warehouse),
+            operator_id=operator_id,
         )
         if not ok_open:
             raise ValueError(msg_open)
@@ -27995,7 +27999,7 @@ def _create_adjustment_drafts_from_check_scan(check):
     return drafts, None
 
 
-def _void_check_scan(check_id, operator_id=None):
+def _void_check_scan(check_id, *, actor):
     """作废扫码盘点单（INV-REVERT-001 / BUG-2026-09-02-003）。
 
     扫码盘点单创建即 completed 且此前无任何回退路径：扫错物料/数量/仓库
@@ -28010,15 +28014,14 @@ def _void_check_scan(check_id, operator_id=None):
     - 任一关联调整单已提交（completed，库存已真实变动）则拒绝作废，
       提示先反提交调整单，防止"账已调、单作废"的账实脱钩。
 
-    operator_id：Bearer Token 请求（Android）的作废操作人。此时
-    current_user 未认证，log_operation 会静默跳过，故补写一条
-    OperationLog 保证审计完整（作废是审计敏感操作）。
+    actor 为执行作废的已认证用户。审计和批次回退随作废一起提交。
 
     返回 (check, deleted_draft_nos, error, error_code)：
     - 成功：check 为作废后的单据，deleted_draft_nos 为已删除草稿号；
-    - 失败：error 为中文提示，error_code ∈ not_found / invalid_status /
-      adjustment_completed，调用方据此映射 HTTP 状态码。
+    - 失败：error 为中文提示，error_code 由调用方映射 HTTP 状态码。
     """
+    from services.document_stock_audit import snapshot_audit_row, stage_order_audit
+
     locked, ok = _acquire_order_write_lock(
         InventoryCheckScan, check_id, 'completed',
         selectinload(InventoryCheckScan.items))
@@ -28039,8 +28042,13 @@ def _void_check_scan(check_id, operator_id=None):
         ), 'adjustment_completed'
 
     deleted_draft_nos = []
+    old_drafts = []
+    old_batch_rows = []
+    restored_batch_rows = []
     for order in linked_adjustments:
         if order.status == 'pending':
+            old_drafts.append({**snapshot_audit_row(order),
+                               'items': [snapshot_audit_row(item) for item in order.items]})
             for item in list(order.items):
                 db.session.delete(item)
             db.session.delete(order)
@@ -28084,39 +28092,47 @@ def _void_check_scan(check_id, operator_id=None):
                 # 只重置不删除，撤销后留下孤儿未盘行）。
                 _is_scan_created = str(row.reason or '').startswith('手机扫码盘点')
                 if _is_scan_created and row.counted_by is not None and row.counted_by == scan_operator:
+                    old_batch_rows.append(snapshot_audit_row(row))
                     db.session.delete(row)
                 elif not _is_scan_created and row.counted_by == scan_operator and row.counted_at is not None:
+                    old_batch_rows.append(snapshot_audit_row(row))
                     row.actual_stock = normalize_stock_quantity(row.system_stock)
                     row.difference = 0.0
                     row.counted_by = None
                     row.counted_at = None
+                    restored_batch_rows.append(snapshot_audit_row(row))
             # 批次被本 CS 清空时撤销首次冻结时点，批次回到初始"待冻结"空态
             if InventoryCheckItem.query.filter_by(
                     inventory_check_id=batch.id).count() == 0:
                 batch.frozen_at = None
 
+    old = {'status': check.status, 'batch_id': check.check_id,
+           'batch_items': old_batch_rows, 'adjustments': old_drafts}
     check.status = 'void'
-    db.session.commit()
-
     content = (
         f'扫码盘点单：{check.check_no}，作废并删除未提交调整草稿：'
         f'{"、".join(deleted_draft_nos) if deleted_draft_nos else "无"}'
     )
-    log_operation('作废扫码盘点', content, 'inventory_check_scan', check.id)
-    if operator_id is not None and not (current_user and current_user.is_authenticated):
-        # Bearer 请求补写审计日志（log_operation 只认 Web 会话的 current_user）
-        try:
-            db.session.add(OperationLog(
-                user_id=operator_id,
-                operation_type='作废扫码盘点',
-                operation_content=content,
-                target_type='inventory_check_scan',
-                target_id=check.id,
-                ip_address=get_request_ip() if request else None,
-            ))
-            db.session.commit()
-        except Exception:
-            db.session.rollback()
+    try:
+        stage_order_audit(
+            'void_check_scan', check, old=old,
+            new={'status': check.status, 'batch_id': check.check_id, 'batch_items': restored_batch_rows,
+                 'deleted_adjustment_nos': deleted_draft_nos},
+            actor=actor, target_name=check.check_no, reason='作废扫码盘点',
+        )
+        db.session.add(OperationLog(
+            user_id=actor.id,
+            operation_type='作废扫码盘点',
+            operation_content=content,
+            target_type='inventory_check_scan',
+            target_id=check.id,
+            ip_address=get_request_ip(),
+        ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('扫码盘点作废及审计保存失败')
+        return None, None, '扫码盘点作废失败，请稍后重试', 'save_failed'
     return check, deleted_draft_nos, None, None
 
 

@@ -482,6 +482,7 @@ def register_mobile_routes(app):
             selectinload,
             _create_adjustment_drafts_from_check_scan,
         )
+        from services.document_stock_audit import stage_stock_document_snapshot
         from services.warehouse_stock_service import apply_stock_delta
         from pydantic import BaseModel, Field, field_validator
         from routes.print_queue import enqueue_auto_print_job
@@ -600,7 +601,7 @@ def register_mobile_routes(app):
                     material, quantity, transaction_type='in',
                     reference_type='in_order', reference_id=order.id,
                     remark=f'手机扫码入库 {order.order_no}',
-                    warehouse=warehouse, location=location)
+                    warehouse=warehouse, location=location, operator_id=actor.id)
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存增加失败'}), 500
@@ -616,6 +617,7 @@ def register_mobile_routes(app):
                     'msg': f'入库成功：{order.order_no}',
                     'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
                 }
+                stage_stock_document_snapshot(order, deleting=False, actor=actor, operation='h5_inbound')
                 stage_document_response(response)
                 db.session.commit()
                 log_operation('手机扫码入库', f'入库单：{order.order_no}', 'in_order', order.id)
@@ -695,7 +697,7 @@ def register_mobile_routes(app):
                     material, -quantity, transaction_type='out',
                     reference_type='out_order', reference_id=order.id,
                     remark=f'手机扫码出库 {order.order_no}',
-                    warehouse=warehouse, location=location)
+                    warehouse=warehouse, location=location, operator_id=actor.id)
                 if not ok:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error_msg or '库存扣减失败'}), 400
@@ -711,6 +713,7 @@ def register_mobile_routes(app):
                     'msg': f'出库成功：{order.order_no}',
                     'data': {'order_no': order.order_no, 'material': mobile_material_payload(material, warehouse=warehouse)},
                 }
+                stage_stock_document_snapshot(order, deleting=False, actor=actor, operation='h5_outbound')
                 stage_document_response(response)
                 db.session.commit()
                 log_operation('手机扫码出库', f'领料单：{order.order_no}', 'out_order', order.id)
@@ -837,10 +840,9 @@ def register_mobile_routes(app):
         from app import (_void_check_scan, current_user, get_bearer_user,
                           jsonify)
         actor = current_user if current_user.is_authenticated else get_bearer_user()
-        check, deleted_nos, error, error_code = _void_check_scan(
-            check_id, operator_id=actor.id if actor else None)
+        check, deleted_nos, error, error_code = _void_check_scan(check_id, actor=actor)
         if error:
-            status_code = 404 if error_code == 'not_found' else 400
+            status_code = {'not_found': 404, 'save_failed': 500}.get(error_code, 400)
             return jsonify({'status': 'error', 'success': False, 'msg': error}), status_code
         msg = f'已作废扫码盘点单：{check.check_no}'
         if deleted_nos:
@@ -1082,11 +1084,12 @@ def register_mobile_routes(app):
         from pydantic import BaseModel, Field
         from sqlalchemy.orm import selectinload
         from flask import current_app
-        from app import (InOrder, InOrderItem, OutOrder, OutOrderItem,
+        from app import (InOrder, InOrderItem, OutOrder, OutOrderItem, StockTransaction,
                          current_user, db, get_bearer_user,
                          jsonify, normalize_stock_quantity,
                          request,
                          _acquire_order_write_lock)
+        from services.document_stock_audit import stage_stock_document_snapshot
         from services.warehouse_stock_service import apply_stock_delta
 
         class ConfirmRequest(BaseModel):
@@ -1118,6 +1121,9 @@ def register_mobile_routes(app):
                     if not valid:
                         db.session.rollback()
                         return jsonify({'status': 'error', 'success': False, 'msg': message}), 400
+                last_movement_id = db.session.query(db.func.max(StockTransaction.id)).filter(
+                    StockTransaction.reference_type == 'in_order', StockTransaction.reference_id == order.id,
+                ).scalar() or 0
                 for item in order.items:
                     if item.material:
                         # P2-3：三账单点收敛；库位键沿用单据的
@@ -1129,7 +1135,7 @@ def register_mobile_routes(app):
                             reference_id=order.id,
                             remark=f'手机确认入库 {order.order_no}',
                             warehouse=order.warehouse,
-                            location=order.location or order.warehouse)
+                            location=order.location or order.warehouse, operator_id=actor.id)
                         if not ok:
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存增加失败'}), 500
@@ -1145,6 +1151,9 @@ def register_mobile_routes(app):
                 order = locked
                 if not order.items:
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
+                last_movement_id = db.session.query(db.func.max(StockTransaction.id)).filter(
+                    StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == order.id,
+                ).scalar() or 0
                 for item in order.items:
                     if item.material:
                         # P2-3：三账单点收敛（delta 取负走原子条件扣减）。
@@ -1154,13 +1163,17 @@ def register_mobile_routes(app):
                             reference_id=order.id,
                             remark=f'手机确认出库 {order.order_no}',
                             warehouse=order.warehouse,
-                            location=order.location or order.warehouse)
+                            location=order.location or order.warehouse, operator_id=actor.id)
                         if not ok:
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
                 order.status = 'completed'
                 enqueue_auto_print_job('out_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_out')
                 order_no = order.order_no
+            stage_stock_document_snapshot(
+                order, deleting=False, actor=actor, operation='h5_confirm_' + order.__tablename__,
+                previous_status='pending', after_movement_id=last_movement_id,
+            )
             response = {'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': {'order_no': order_no}}
             stage_document_response(response)
             db.session.commit()

@@ -1130,7 +1130,7 @@ def apply_transfer_pair(material, quantity, *, from_warehouse=None, to_warehouse
 
 def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
                           txn_location=None, reference_type='opening_stock',
-                          reference_id=None, remark='', sync_location=True):
+                          reference_id=None, remark='', sync_location=True, operator_id=None):
     """建账专用库存入口：只写 ③流水 + ②库位账，**①总账不动**。
 
     与另两个入口的语义边界（P1-7③，2026-09-25）：
@@ -1178,6 +1178,7 @@ def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
         location=(txn_location or _stock_location_from_warehouse(warehouse) or None),
         warehouse=warehouse,
         remark=remark or '',
+        operator_id=operator_id,
     )
 
     # ②库位账同步：仅在开启库位管理时写；qty 同号（正加负减），

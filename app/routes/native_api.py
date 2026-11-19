@@ -1531,10 +1531,10 @@ def register_native_api_routes(app):
         check = InventoryCheckScan.query.filter_by(check_no=req.check_no).first()
         if not check:
             return api_json_error(f'扫码盘点单不存在：{req.check_no}', 404)
-        voided, deleted_nos, error, error_code = _void_check_scan(
-            check.id, operator_id=user.id)
+        voided, deleted_nos, error, error_code = _void_check_scan(check.id, actor=user)
         if error:
-            return api_json_error(error, 404 if error_code == 'not_found' else 400)
+            status_code = {'not_found': 404, 'save_failed': 500}.get(error_code, 400)
+            return api_json_error(error, status_code)
         msg = f'已作废扫码盘点单：{voided.check_no}'
         if deleted_nos:
             msg += f'，同步删除未提交调整草稿：{"、".join(deleted_nos)}'
@@ -3323,6 +3323,7 @@ def register_native_api_routes(app):
                          _opening_stock_preserve_validated_line,
                          api_json_error, api_json_success, normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals)
+        from services.document_stock_audit import snapshot_audit_row, stage_order_audit
         if line_id >= 2**63:
             return api_json_error('期初库存记录标识超出范围', 400)
         payload = request.get_json(silent=True) or {}
@@ -3403,12 +3404,17 @@ def register_native_api_routes(app):
                 '_raw_price': raw_price_for_compare, 'quantity': quantity, 'price': price, 'amount': amount,
             }, guarded=True)
             quantity, price, amount = checked['quantity'], checked['price'], checked['amount']
+            old = snapshot_audit_row(opening)
             opening, delta = _apply_opening_stock_balance(
                 opening, material, quantity, price, amount, remark,
-                opening.warehouse, opening.date,
+                opening.warehouse, opening.date, operator_id=actor_id,
             )
-            opening.operator_id = user.id
-            db.session.flush()
+            stage_order_audit(
+                'native_opening_edit', opening, old=old,
+                new={**snapshot_audit_row(opening), 'stock_delta': delta}, actor=user,
+                target_name=opening.doc.doc_no if opening.doc else f'期初明细 #{opening.id}',
+                reason='移动端编辑期初库存',
+            )
             response_data = {
                 'id': opening.id,
                 'material_code': material.code or '',
@@ -3445,6 +3451,7 @@ def register_native_api_routes(app):
                          api_json_error, api_json_success, generate_order_no,
                          normalize_stock_quantity,
                          parse_float_value, round_to_2_decimals)
+        from services.document_stock_audit import snapshot_audit_row, stage_order_audit
         payload = request.get_json(silent=True) or {}
         lines = payload.get('lines') if isinstance(payload, dict) else None
         if not isinstance(lines, list) or not lines:
@@ -3504,11 +3511,16 @@ def register_native_api_routes(app):
 
                 opening, compat_doc, effective_date = _resolve_legacy_opening(
                     material, warehouse, payload.get('date'), generate_order_no)
-                opening, _delta = _apply_opening_stock_balance(
+                old = snapshot_audit_row(opening) if opening is not None else None
+                opening, delta = _apply_opening_stock_balance(
                     opening, material, quantity, price, amount, remark, warehouse, effective_date,
-                    doc_id=compat_doc.id,
+                    doc_id=compat_doc.id, operator_id=user.id,
                 )
-                opening.operator_id = user.id
+                stage_order_audit(
+                    'native_opening_save', opening, old=old,
+                    new={**snapshot_audit_row(opening), 'stock_delta': delta}, actor=user,
+                    target_name=compat_doc.doc_no, reason='移动端保存期初库存',
+                )
                 saved.append({'material_code': code, 'quantity': quantity, 'price': price})
             db.session.flush()
             response = api_json_success({'count': len(saved), 'lines': saved}, f'期初库存已保存，共 {len(saved)} 行')
