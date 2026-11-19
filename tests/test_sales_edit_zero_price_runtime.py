@@ -85,7 +85,8 @@ const ctx={body,defaultTaxRate:0.13,activeDropdown:null,
     formFields:['customer_id'],SALES_RECENT_KEY:'recent',SALES_TEMPLATE_KEY:'templates',
     escAttr:v=>String(v),handleKeydown(){},showDropdown(){},
     localStorage:{getItem:k=>storage[k]??null},navigator:{clipboard:{readText:()=>Promise.resolve(p.clipboard)}},
-    document:{createElement:()=>makeRow(),querySelector:()=>({value:'2'}),
+    document:{documentElement:{dataset:{batchManagement:'on'}},
+        createElement:()=>makeRow(),querySelector:()=>({value:'2'}),
         getElementById:id=>{
             if(id==='copyRowBtn'||id==='pasteBtn'||id==='recentBtn'||id==='templateSelect')
                 return buttons[id]??=(Object.assign(element(),{addEventListener:(event,fn)=>handlers[id]=fn}));
