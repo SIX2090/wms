@@ -1948,4 +1948,4 @@ set AI_LEDGER_ENFORCE=strict && .\scripts\python.cmd scripts\verify_ai_ledger_co
 
 AI-MOB-MEDIA-FIX-20261114-001代码完成记录：纠正SHA `50b9c6ff6b7e3d76c3468c4139bae41a9c33f85b`、WMS CI43609529331/AI43609529291 success、Android成功祖先43574253341/0d1f7989及对象/输入证明完整，详见 docs/ledger/ai/completions-2026-11.md；首次d2264350失败和R8整批回退均保留，不冒充首次交付成功。指定包运行/其他数据库/生产生效未验，文档收口另验自身CI。
 
-2026-11-19 既有库存分析子修复 AI-C01-FIX-IDLE-20261119-001。深度分析、健康检查与旧巡检统一出库范围、观察起点和明细上限，沿用原工具和权限。隔离回归通过，待精确目标 CI 验收。详见 11 月 BUG 台账 BUG-2026-11-19-004。
+2026-11-19 既有库存分析子修复 AI-C01-FIX-IDLE-20261119-001。深度分析、健康检查与旧巡检统一出库范围、观察起点和明细上限，沿用原工具和权限。代码提交 `6c665c6b455075f4becf7b2f30bd4c66536922b8` 已通过隔离回归和目标 CI，生产待部署。验收记录见[本月 AI 完成台账](docs/ledger/ai/completions-2026-11.md)，关联 BUG-2026-11-19-004。
