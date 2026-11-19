@@ -152,3 +152,38 @@ class TestLedgerLocationFilter:
             assert len(rows_a) == 1, f"仓库A 月报应有1物料行，实际 {len(rows_a)}"
             assert rows_a[0]['transaction_count'] == 2, f"流水数应为2，实际 {rows_a[0]['transaction_count']}"
             assert abs(rows_a[0]['in_quantity'] - 10) < 1e-6
+
+    def test_legacy_warehouse_location_owners(self):
+        from app import backfill_stock_txn_warehouse_id, get_warehouse_stock_quantities
+
+        with app_module.app.test_request_context():
+            _reset_db()
+            mat = _seed(loc_on=False)
+            wh_a, wh_b = db.session.get(Warehouse, 1), db.session.get(Warehouse, 2)
+            db.session.add_all([
+                LocationInventory(material_id=mat.id, warehouse_id=wh_a.id, location='共用位', quantity=0),
+                LocationInventory(material_id=mat.id, warehouse_id=wh_b.id, location='共用位', quantity=0),
+                LocationInventory(material_id=mat.id, warehouse_id=wh_a.id, location=wh_b.code, quantity=0),
+                LocationInventory(material_id=mat.id, warehouse_id=wh_a.id, location=wh_b.name, quantity=0),
+                LocationInventory(material_id=mat.id, warehouse_id=wh_a.id, location='A-01', quantity=0),
+            ])
+            shared = StockTransaction(material_id=mat.id, transaction_type='in', location='共用位', quantity=6)
+            conflicting = StockTransaction(material_id=mat.id, transaction_type='in', location=wh_b.code, quantity=4)
+            unique = StockTransaction(material_id=mat.id, transaction_type='in', location='A-01', quantity=3)
+            precise = StockTransaction(material_id=mat.id, transaction_type='in', location='共用位',
+                                       warehouse_id=wh_b.id, quantity=2)
+            db.session.add_all([shared, conflicting, unique, precise])
+            mat.stock = 15
+            db.session.commit()
+
+            for warehouse, quantity in [(wh_a, 3), (wh_b, 2)]:
+                assert get_warehouse_stock_quantities(warehouse).get(mat.id) == quantity
+                filters = _filters(warehouse, mat)
+                assert len(_flow_rows(filters)) == 1
+                _, rows, _ = _build_warehouse_monthly_report(filters)
+                assert len(rows) == 1 and rows[0]['in_quantity'] == quantity
+
+            assert backfill_stock_txn_warehouse_id() == 1
+            assert shared.warehouse_id is None and conflicting.warehouse_id is None
+            assert unique.warehouse_id == wh_a.id and precise.warehouse_id == wh_b.id
+            assert mat.stock == 15

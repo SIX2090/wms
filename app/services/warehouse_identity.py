@@ -55,3 +55,20 @@ def warehouse_aliases(warehouse):
         db.or_(Warehouse.name.in_(aliases), Warehouse.code.in_(aliases))).all()
     return [alias for alias in aliases if not any(
         row.id != warehouse.id and alias in (row.name, row.code) for row in rows)]
+
+
+def legacy_warehouse_location_owners():
+    """Select unambiguous owners of historical text stored in stock_transaction.location."""
+    from sqlalchemy import func, union_all
+    from models.inventory import LocationInventory
+    from models.master_data import Warehouse
+
+    claims = union_all(
+        select(func.trim(Warehouse.name).label('value'), Warehouse.id.label('warehouse_id')),
+        select(func.trim(Warehouse.code), Warehouse.id),
+        select(func.trim(LocationInventory.location), LocationInventory.warehouse_id)
+        .where(LocationInventory.warehouse_id.is_not(None)).distinct(),
+    ).subquery()
+    return (select(claims.c.value, func.min(claims.c.warehouse_id).label('warehouse_id'))
+            .where(claims.c.value != '').group_by(claims.c.value)
+            .having(func.min(claims.c.warehouse_id) == func.max(claims.c.warehouse_id)))

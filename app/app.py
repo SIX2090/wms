@@ -30280,43 +30280,17 @@ def _warehouse_document_match_clause(column, warehouse=None,
 
 
 def _warehouse_location_filter_values(warehouse_id, warehouse_name, warehouse_code):
-    """库存台账/月报按仓库过滤时，匹配 StockTransaction.location 的全部取值。
-
-    BUG-2026-08-27-001：StockTransaction.location 字段历史上同时承载两类值——
-    ① 仓库名/编码（in_order/out_order/期初等走 add_stock/deduct_stock_atomic，
-    按 AGENTS.md 仓库必填约定写仓库名）；
-    ② 库位（transfer/subcontract/mobile 等走 add_stock_transaction 直接写库位）。
-    库存台账是唯一依赖该字段按仓库过滤的报表，仅匹配仓库名/编码会漏掉库位型流水，
-    导致开启库位管理时按仓库查不到调拨/委外等变动（AGENTS.md：仓库≠库位，但台账
-    需按仓库聚合全部变动）。
-
-    因此返回：仓库名、仓库编码、以及该仓库名下所有库位名，使库位型流水正确归到
-    所属仓库。LocationInventory 仅在开启库位管理时有行，故关闭时只匹配仓库名/编码，
-    行为与既有逻辑一致、不破坏历史数据（仓库名/编码已能覆盖关库位管理的全部流水）。
-    """
-    values = []
-    for v in (warehouse_name, warehouse_code):
-        v = (v or '').strip()
-        if v and v not in values:
-            values.append(v)
-    if warehouse_id:
-        try:
-            wid = int(warehouse_id)
-        except (TypeError, ValueError):
-            wid = None
-        if wid:
-            warehouse = db.session.get(Warehouse, wid)
-            if warehouse:
-                aliases = warehouse_aliases(warehouse)
-                values = [value for value in values if value in aliases]
-            rows = db.session.query(LocationInventory.location).filter(
-                LocationInventory.warehouse_id == wid
-            ).distinct().all()
-            for (loc,) in rows:
-                loc = (loc or '').strip()
-                if loc and loc not in values:
-                    values.append(loc)
-    return values
+    """已选仓库下，仅用有唯一归属的旧名称、编码和库位匹配无外键流水。"""
+    from services.warehouse_identity import legacy_warehouse_location_owners
+    try:
+        wid = int(warehouse_id)
+    except (TypeError, ValueError):
+        wid = None
+    if wid:
+        owners = legacy_warehouse_location_owners().subquery()
+        values = db.session.execute(select(owners.c.value).where(owners.c.warehouse_id == wid)).scalars()
+        return list(values)
+    return list(dict.fromkeys(value.strip() for value in (warehouse_name, warehouse_code) if value and value.strip()))
 
 
 def _ledger_out_order_labels(transactions):
@@ -30570,9 +30544,8 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
     warehouse_id 外键后归属成为精确匹配；本函数负责历史数据回填。
 
     回填规则（与台账/月报仓库口径同源）：
-    1. location 唯一匹配仓库名/编码 → 该仓库（歧义不填）；
-    2. location 是库位名且该库位唯一归属某仓库（LocationInventory.warehouse_id）
-       → 该仓库（跨仓同名库位歧义不填）；
+    1. location 同时作为库位、仓库名或编码核对。所有匹配都指向同一仓库时才归属；
+    2. 跨仓同名库位或库位与其他仓库名/编码冲突时保留 NULL；
     3. location 为空 → 按来源单据仓库推断（复用 _ledger_source_warehouse_map，
        调拨按数量正负归 to/from 仓库）；
     4. 无法唯一确定 → 保留 NULL，不猜（AGENTS.md：不自动归入任意默认仓库）。
@@ -30592,24 +30565,8 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
                     name_map[key] = None  # 歧义
             else:
                 name_map[key] = w.id
-    # 库位名 → warehouse_id（唯一归属才生效；跨仓同名库位置 None）
-    loc_map = {}
-    loc_rows = db.session.query(
-        LocationInventory.location,
-        LocationInventory.warehouse_id,
-    ).filter(
-        LocationInventory.warehouse_id.isnot(None),
-        db.func.trim(db.func.coalesce(LocationInventory.location, '')) != '',
-    ).distinct().all()
-    for loc, wid in loc_rows:
-        key = (loc or '').strip()
-        if not key:
-            continue
-        if key in loc_map:
-            if loc_map[key] != wid:
-                loc_map[key] = None  # 跨仓同名库位歧义
-        else:
-            loc_map[key] = wid
+    from services.warehouse_identity import legacy_warehouse_location_owners
+    loc_map = dict(db.session.execute(legacy_warehouse_location_owners()).all())
 
     total = 0
     last_id = 0
@@ -30629,9 +30586,7 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
             wid = None
             key = (t.location or '').strip()
             if key:
-                wid = name_map.get(key)
-                if wid is None:
-                    wid = loc_map.get(key)
+                wid = loc_map.get(key)
             else:
                 wh_name = src_wh_names.get(t.id)
                 if wh_name:
@@ -30679,7 +30634,7 @@ def _warehouse_scoped_txn_condition(filters):
     返回 (loc_names, condition, warehouse_id)：
     - 未选仓库或单仓库：([], None, None)——不按仓库过滤。单仓库时全部流水必属该仓库
       （含历史空 location 流水，BUG-2026-08-27-002 口径）。
-    - 多仓库：loc_names = 仓库名/编码 + 该仓库名下全部库位名（BUG-2026-08-27-001），
+    - 多仓库：loc_names 为归属唯一的仓库名、编码或库位名，
       warehouse_id = 所选仓库主键。C-2026-08-27（治本）：condition 优先走
       warehouse_id 外键精确命中（B 步骤后新流水与已回填历史行），未回填行
       （warehouse_id IS NULL）退回 location 字符串兜底，并放行空 location 流水
@@ -30693,12 +30648,11 @@ def _warehouse_scoped_txn_condition(filters):
         return [], None, None
     if Warehouse.query.count() == 1:
         return [], None, None
-    loc_names = _warehouse_location_filter_values(
-        filters.get('warehouse_id'), filters.get('warehouse'), filters.get('warehouse_code'))
-    if not loc_names:
-        return [], None, None
     wid = resolve_inventory_warehouse_id(
         filters.get('warehouse_id') or filters.get('warehouse') or filters.get('warehouse_code'))
+    loc_names = _warehouse_location_filter_values(wid, filters.get('warehouse'), filters.get('warehouse_code'))
+    if not loc_names and wid is None:
+        return [], None, None
     if wid is not None:
         # C-2026-08-27：外键精确命中优先；未回填行退回 location 字符串兜底。
         condition = db.or_(
@@ -37119,8 +37073,6 @@ def _wh_stock_guards(material_id, warehouse, qty):
     loc_names = _warehouse_location_filter_values(
         warehouse_obj.id, (warehouse_obj.name or '').strip(),
         (warehouse_obj.code or '').strip())
-    if not loc_names:
-        return []
     agg = (db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0))
            .filter(
                StockTransaction.material_id == material_id,
