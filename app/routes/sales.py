@@ -150,12 +150,13 @@ def register_sales_routes(app):
     @login_required
     def download_sales_order_template():
         from datetime import date
-        from app import _workbook_response
+        from app import _workbook_response, get_system_setting_bool
+        batch_enabled = get_system_setting_bool('batch_management_enabled')
         return _workbook_response(
             'sales_order_import_template.xlsx',
             '销售订单导入',
-            ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '业务员', '项目号', '币别', '结算方式', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', '批次号', '序列号', '备注'],
-            [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', '张三', 'PRJ-001', 'CNY', '月结30天', 'A001', '示例物料', '', '', 1, 100, 0.13, '', '', '导入后为草稿']],
+            ['销售订单号', '订单日期', '客户名称', '交货日期', '发货仓库', '业务员', '项目号', '币别', '结算方式', '物料编码', '物料名称', '规格', '单位', '数量', '含税单价', '税率', *(['批次号'] if batch_enabled else []), '序列号', '备注'],
+            [['SO240001', date.today().isoformat(), '示例客户', date.today().isoformat(), '', '张三', 'PRJ-001', 'CNY', '月结30天', 'A001', '示例物料', '', '', 1, 100, 0.13, *([''] if batch_enabled else []), '', '导入后为草稿']],
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -163,6 +164,7 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def import_sales_orders():
+        from app import resolve_document_batch_no
         from datetime import date
         from flask_login import current_user
         from app import (Employee, Material, SalesOrder, SalesOrderItem,
@@ -222,6 +224,11 @@ def register_sales_routes(app):
                     skip_details.append(f'第 {row_idx} 行：客户、物料编码或数量无效')
                     continue
                 known_material = Material.query.filter_by(code=material_code).first()
+                _, batch_error = resolve_document_batch_no(_get_excel_cell(row, col_map, 'batch_no'))
+                if batch_error:
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：{batch_error}')
+                    continue
                 if known_material and (known_material.status or 'active') != 'active':
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：物料 {material_code} 已停用，不能新增销售明细')
@@ -567,6 +574,7 @@ def register_sales_routes(app):
     @login_required
     @web_document_idempotent
     def sales_order_add():
+        from app import resolve_document_batch_no
         from datetime import date, datetime
         from flask_login import current_user
         from app import (Customer, Employee, Material, SalesOrder, SalesOrderItem,
@@ -627,6 +635,10 @@ def register_sales_routes(app):
                 tax_rate = parse_float_value(data.get('tax_rate'), 0.13)
                 if tax_rate < 0:
                     tax_rate = 0
+                batch_no, batch_error = resolve_document_batch_no(data.get('batch_no'))
+                if batch_error:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': batch_error}), 400
                 db.session.add(SalesOrderItem(
                     sales_order_id=order.id,
                     material_id=material.id,
@@ -634,7 +646,7 @@ def register_sales_routes(app):
                     price=price,
                     amount=round_money_product(quantity, price),
                     tax_rate=tax_rate,
-                    batch_no=(data.get('batch_no') or '').strip() or None,
+                    batch_no=batch_no,
                     serial_no=(data.get('serial_no') or '').strip() or None,
                     remark=(data.get('remark') or '').strip() or None,
                     contract_id=int(data.get('contract_id')) if data.get('contract_id') else None,
@@ -728,6 +740,7 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def sales_order_edit(id):
+        from app import resolve_document_batch_no
         from datetime import date, datetime
         from app import (Customer, Employee, InOrder, InOrderItem, Material, OutOrder, OutOrderItem,
                          SalesOrder, SalesOrderItem, STOCK_COMPARE_EPSILON,
@@ -797,6 +810,8 @@ def register_sales_routes(app):
             order.project_name = (payload.get('project_name') or '').strip() or None
             # 新页面使用已签名单据中的行ID；旧无ID请求仍是明确整单替换，不猜物料匹配。
             historical_material_rows = Counter(item.material_id for item in original_rows)
+            legacy_batches = Counter((item.material_id, item.batch_no) for item in original_rows
+                                     if not identified and item.batch_no)
             if not identified:
                 SalesOrderItem.query.filter_by(sales_order_id=order.id).delete()
                 db.session.flush()
@@ -861,7 +876,21 @@ def register_sales_routes(app):
                     for field, value in values.items():
                         if row_financial_change or getattr(line, field) is None:
                             setattr(line, field, value)
-                line.batch_no = (data.get('batch_no') or '').strip() or None
+                previous_batch = old_line.batch_no if same_material else None
+                if not identified and legacy_batches:
+                    batch_key = (material.id, data.get('batch_no'))
+                    if legacy_batches[batch_key] > 0:
+                        previous_batch = batch_key[1]
+                        legacy_batches[batch_key] -= 1
+                    elif not data.get('batch_no') and any(mid == material.id and count for (mid, _), count in legacy_batches.items()):
+                        from app import get_system_setting_bool
+                        if not get_system_setting_bool('batch_management_enabled'):
+                            db.session.rollback()
+                            return jsonify({'status': 'error', 'msg': '原销售明细有批次号，请刷新后再保存'}), 409
+                line.batch_no, batch_error = resolve_document_batch_no(data.get('batch_no', previous_batch), previous_batch)
+                if batch_error:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'msg': batch_error}), 400
                 line.serial_no = (data.get('serial_no') or '').strip() or None
                 line.remark = (data.get('remark') or '').strip() or None
                 if 'contract_id' in data or old_line is None:
@@ -1104,6 +1133,7 @@ def register_sales_routes(app):
     @app.route('/sales/<int:id>/print')
     @login_required
     def print_sales_order(id):
+        from app import get_system_setting_bool
         from sqlalchemy.orm import joinedload, selectinload
         from app import (Material, SalesOrder, SalesOrderItem, _fmt_date, _material_row_common,
                          _operator_name, _render_generic_document_print,
@@ -1164,7 +1194,7 @@ def register_sales_routes(app):
                 ('untaxed_amount', '未税金额', 'right money'),
                 ('tax_amount', '税额', 'right money'),
                 ('tax_included_amount', '含税金额', 'right money'),
-                ('batch_no', '批次号', ''),
+                *([('batch_no', '批次号', '')] if get_system_setting_bool('batch_management_enabled') else []),
                 ('serial_no', '序列号', ''),
                 ('contract_no', '合同编号', ''),
                 ('project_name', '工程名称', ''),
@@ -1449,6 +1479,7 @@ def register_sales_routes(app):
     @login_required
     @web_document_command_idempotent
     def copy_sales_order(id):
+        from app import get_system_setting_bool
         from datetime import date
         from flask_login import current_user
         from app import (SalesOrder, SalesOrderItem, generate_sales_order_no,
@@ -1480,7 +1511,7 @@ def register_sales_routes(app):
                     quantity=item.quantity,
                     price=item.price,
                     tax_rate=item.tax_rate,
-                    batch_no=item.batch_no,
+                    batch_no=item.batch_no if get_system_setting_bool('batch_management_enabled') else None,
                     serial_no=item.serial_no,
                     remark=item.remark,
                 )

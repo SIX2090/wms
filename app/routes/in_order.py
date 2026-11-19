@@ -103,11 +103,17 @@ def _parse_item_batch_no(value):
     错误提示（不静默截断，防止脏数据入库后对不上源头单据）。
     """
     batch_no = (value or '').strip()
-    if not batch_no:
-        return None, None
     if len(batch_no) > 50:
         return None, '批次号不能超过 50 个字符'
-    return batch_no, None
+    return batch_no or None, None
+
+
+def _resolve_item_batch_no(value, previous=None):
+    number, error = _parse_item_batch_no(value)
+    if error or (not number and not previous):
+        return number, error
+    from app import resolve_document_batch_no
+    return resolve_document_batch_no(number, previous)
 
 
 def _parse_item_expiry_date(value):
@@ -1095,6 +1101,7 @@ def register_in_order_routes(app):
                              order_no=order_no,
                              order_date=order.date.strftime('%Y-%m-%d') if order and order.date else order_date,
                              edit_items=[{
+                                 'line_id': item.id,
                                  'material_code': item.material.code,
                                  'source_purchase_order_item_id': item.source_purchase_order_item_id,
                                  'quantity': item.quantity,
@@ -1346,6 +1353,8 @@ def register_in_order_routes(app):
             source_sales_order_ids = set()
             existing_affected_purchase_order_ids = set()
             existing_material_counts = Counter(item.material_id for item in order.items) if order_id else Counter()
+            original_batches = {str(row.id): (row.material_id, row.batch_no)
+                                for row in order.items if row.batch_no} if order_id else {}
             if request.is_json and items_data and order.id:
                 for old_item in list(order.items):
                     if old_item.source_purchase_order_item:
@@ -1438,7 +1447,19 @@ def register_in_order_routes(app):
                     # 判重会把「编号/名称/规格相同但合同号不同」的明细合并成一行，
                     # 破坏合同归属与金额溯源。原按物料判重并合并的逻辑已删除。
                     # P0 批次/有效期捕获：行级批次号与有效期（可选）。
-                    batch_no, batch_err = _parse_item_batch_no(item_data.get('batch_no'))
+                    line_id = str(item_data.get('line_id') or '')
+                    if not line_id and original_batches:
+                        # 旧页面未传行 ID，但已回传原批号。只复用当前单同物料的匹配行。
+                        old_key = (material.id, item_data.get('batch_no'))
+                        line_id = next((key for key, pair in original_batches.items() if pair == old_key), '')
+                        if not line_id and not item_data.get('batch_no') and 'line_id' not in item_data:
+                            from app import get_system_setting_bool
+                            if any(mid == material.id for mid, _ in original_batches.values()) and not get_system_setting_bool('batch_management_enabled'):
+                                return fail('原入库明细有批次号，请刷新后再保存', 409)
+                    old_material, old_batch = original_batches.pop(line_id, (None, None))
+                    batch_no, batch_err = _resolve_item_batch_no(
+                        item_data.get('batch_no', old_batch if old_material == material.id else None),
+                        old_batch if old_material == material.id else None)
                     if batch_err:
                         return fail(f'物料 {material.code} 的{batch_err}')
                     expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
@@ -1583,7 +1604,7 @@ def register_in_order_routes(app):
         )
 
         # P0 批次/有效期捕获：追加明细行同样接收行级批次号与有效期。
-        batch_no, batch_err = _parse_item_batch_no(request.form.get('batch_no'))
+        batch_no, batch_err = _resolve_item_batch_no(request.form.get('batch_no'))
         if batch_err:
             return api_error(batch_err)
         expiry_date, expiry_err = _parse_item_expiry_date(request.form.get('expiry_date'))
@@ -1691,7 +1712,7 @@ def register_in_order_routes(app):
                 # 需要逐行合同时用行内新增或添加弹窗。
                 # P0 批次/有效期捕获：CSV 第 4/5 列支持批次号与有效期
                 # （批次号是简短标识不含逗号，无歧义；格式非法整行报错跳过）。
-                batch_no, batch_err = _parse_item_batch_no(parts[3] if len(parts) > 3 else None)
+                batch_no, batch_err = _resolve_item_batch_no(parts[3] if len(parts) > 3 else None)
                 if batch_err:
                     errors.append(f'第 {line_no} 行{batch_err}')
                     continue
@@ -1916,6 +1937,7 @@ def register_in_order_routes(app):
     @web_document_command_idempotent
     def copy_in_order(id):
         """Copy an inbound order into a new draft inbound order."""
+        from app import get_system_setting_bool
         from datetime import date
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
@@ -1995,7 +2017,7 @@ def register_in_order_routes(app):
                     price=price,
                     amount=round_money_product(quantity, price),
                     box_no=item.box_no,
-                    batch_no=getattr(item, 'batch_no', None),
+                    batch_no=item.batch_no if get_system_setting_bool('batch_management_enabled') else None,
                     expiry_date=getattr(item, 'expiry_date', None),
                     remark=item.remark,
                     contract_id=item.contract_id,
@@ -2492,7 +2514,7 @@ def register_in_order_routes(app):
                         source_purchase_order_item=source_item if source_purchase_order_item_id else None,
                     )
                     # P0 批次/有效期捕获：编辑保存新增行接收行级批次号与有效期。
-                    batch_no, batch_err = _parse_item_batch_no(item_data.get('batch_no'))
+                    batch_no, batch_err = _resolve_item_batch_no(item_data.get('batch_no'))
                     if batch_err:
                         return fail(f'物料 {material_code} 的{batch_err}')
                     expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
@@ -2617,7 +2639,7 @@ def register_in_order_routes(app):
                         # P0 批次/有效期捕获：已有行支持按需更新批次/有效期
                         # （字段在 item_data 里才更新，兼容逐字段编辑的调用方）。
                         if 'batch_no' in item_data:
-                            _b_no, _b_err = _parse_item_batch_no(item_data.get('batch_no'))
+                            _b_no, _b_err = _resolve_item_batch_no(item_data.get('batch_no'), item.batch_no)
                             if _b_err:
                                 return fail(_b_err)
                             item.batch_no = _b_no

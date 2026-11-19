@@ -171,7 +171,7 @@
             <th class="text-end resizable-th" data-col="colNetAmount">未税金额<div class="resize-handle"></div></th>
             <th class="text-end resizable-th" data-col="colTax">税额<div class="resize-handle"></div></th>
             <th class="text-end resizable-th" data-col="colAmount">含税金额<div class="resize-handle"></div></th>
-            <th class="resizable-th" data-col="colBatch">批次号<div class="resize-handle"></div></th>
+            {% if batch_management_enabled %}<th class="resizable-th" data-col="colBatch">批次号<div class="resize-handle"></div></th>{% endif %}
             <th class="resizable-th" data-col="colSerial">序列号<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colContractNo">合同编号<div class="resize-handle"></div></th>
             <th class="resizable-th" data-col="colProjectName">工程名称<div class="resize-handle"></div></th>
@@ -194,7 +194,7 @@
             <td class="text-end">{{ '%.2f'|format(item.untaxed_amount or 0) }}</td>
             <td class="text-end">{{ '%.2f'|format(item.tax_amount or 0) }}</td>
             <td class="text-end">{{ '%.2f'|format(item.tax_included_amount or item.amount or 0) }}</td>
-            <td>{{ item.batch_no or '-' }}</td>
+            {% if batch_management_enabled %}<td>{{ item.batch_no or '-' }}</td>{% endif %}
             <td>{{ item.serial_no or '-' }}</td>
             <td>{{ item.contract_no or order.contract_no or '-' }}</td>
             <td>{{ item.project_name or order.project_name or '-' }}</td>
@@ -207,7 +207,7 @@
             <td class="text-end"><strong>{{ '%.2f'|format(order.untaxed_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.tax_amount or 0) }}</strong></td>
             <td class="text-end"><strong>{{ '%.2f'|format(order.total_amount or 0) }}</strong></td>
-            <td colspan="{% if order.status=='confirmed' and order.shipment_status != 'shipped' %}6{% else %}5{% endif %}"></td>
+            <td colspan="{{ 4 + (1 if batch_management_enabled else 0) + (1 if order.status == 'confirmed' and order.shipment_status != 'shipped' else 0) }}"></td>
           </tr>
         </tbody>
       </table>

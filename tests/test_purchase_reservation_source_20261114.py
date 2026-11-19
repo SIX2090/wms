@@ -14,6 +14,7 @@ ns['purchase_receipt_strict_order']=lambda:True
 ns['purchase_over_receive_control_mode']=lambda:'forbid'
 ns['purchase_order_to_in_order_enabled']=lambda:True
 ns['prefer_default_warehouse']=lambda:False
+ns.setdefault('get_system_setting_bool',lambda key: {'batch_management_enabled':False}[key])
 ns['generate_order_no']=lambda prefix:prefix+'-SYN-'+str(ns['InOrder'].query.count()+1)
 if any(isinstance(node,ast.FunctionDef) and node.name=='_purchase_reservation_error'
        for node in ast.parse((root/'app/app.py').read_text(encoding='utf-8-sig')).body):

@@ -269,7 +269,7 @@
                                     {% if row.name %}<span class="ai-ocr-tag">品名 {{ row.name }}</span>{% endif %}
                                     {% if row.spec %}<span class="ai-ocr-tag">规格 {{ row.spec }}</span>{% endif %}
                                     {% if row.unit %}<span class="ai-ocr-tag">单位 {{ row.unit }}</span>{% endif %}
-                                    {% if row.batch_no %}<span class="ai-ocr-tag">批号 {{ row.batch_no }}</span>{% endif %}
+                                    {% if batch_management_enabled and row.batch_no %}<span class="ai-ocr-tag">批号 {{ row.batch_no }}</span>{% endif %}
                                     {% if row.barcode %}<span class="ai-ocr-tag">条码 {{ row.barcode }}</span>{% endif %}
                                     {% if row.box_count and row.pcs_per_box %}<span class="ai-ocr-tag">包装 {{ row.box_count }} × {{ row.pcs_per_box }}</span>{% endif %}
                                     {% if row.confidence %}<span class="ai-ocr-tag">置信度 {{ row.confidence }}</span>{% endif %}

@@ -336,6 +336,7 @@ def register_batch_import_routes(app):
     @require_role('warehouse', 'purchase')
     @login_required
     def import_in_order():
+        from app import resolve_document_batch_no
         from app import (
             InOrder,
             InOrderItem,
@@ -466,10 +467,12 @@ def register_batch_import_routes(app):
                 from routes.in_order import _parse_item_expiry_date
                 expiry_raw = row[col_map['expiry_date']] if 'expiry_date' in col_map and col_map['expiry_date'] < len(row) else None
                 _, expiry_error = _parse_item_expiry_date(expiry_raw)
+                _, batch_error = resolve_document_batch_no(get_val('batch_no'))
                 row_kind = current_order.business_type if current_order and current_order.order_no == order_no else (get_val('business_type') or '采购入库')
                 row_error = ('物料编码不能为空' if not get_val('material_code') else
                              '数量必须大于 0' if get_num('quantity') <= 0 else
                              '批次号超过50个字符' if len(get_val('batch_no')) > 50 else
+                             batch_error if batch_error else
                              '客供料只能用于其他入库' if get_val('customer_supplied').lower() in ('是','yes','y','true','1') and row_kind != '其他入库' else expiry_error)
                 if row_error:
                     skip += 1

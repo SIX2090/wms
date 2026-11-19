@@ -59,7 +59,8 @@ class SalesEditHistoryContract(unittest.TestCase):
                        STOCK_COMPARE_EPSILON=1e-6, jsonify=lambda value: value,
                        log_operation=lambda *args: None, _sales_stock_shortage_warnings=lambda *args, **kwargs: [])
         nodes = functions('app/utils.py', ('parse_float_value', 'round_to_2_decimals', 'round_money_product'))
-        nodes += functions('app/app.py', ('recalculate_sales_order',))
+        cls.env['get_system_setting_bool'] = lambda key: key == 'batch_management_enabled'
+        nodes += functions('app/app.py', ('recalculate_sales_order', 'resolve_document_batch_no'))
         nodes += functions('app/routes/sales.py', ('_sales_edit_line_id', '_sales_edit_number_unchanged',
                            '_sales_edit_financial_values', 'sales_order_edit'))
         exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])),

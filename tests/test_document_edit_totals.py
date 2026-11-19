@@ -30,6 +30,7 @@ def test_recalculate_order_total(case, model_name, item_name, parent_key):
 def test_recalculate_sales_order(case):
     clients, ids = case
     with w.app.app_context():
+        w.set_system_setting('batch_management_enabled', '1')
         customer = w.Customer(code='CACHE-C', name='合成缓存客户')
         w.db.session.add(customer); w.db.session.commit(); cid = customer.id
     data = dict(customer_id=cid, warehouse_id=ids['a'], date=date.today().isoformat(),

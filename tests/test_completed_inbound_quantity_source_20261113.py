@@ -15,7 +15,7 @@ for name in ('api_error','get_default_warehouse','resolve_item_contract'):
     extract('app/app.py',name)
 extract('app/services/document_stock_audit.py','stage_order_audit')
 extract('app/services/document_stock_audit.py','stage_stock_document_snapshot')
-for name in ('_parse_item_batch_no','_parse_item_expiry_date','update_completed_in_order'):
+for name in ('_parse_item_batch_no','_resolve_item_batch_no','_parse_item_expiry_date','update_completed_in_order'):
     extract('app/routes/in_order.py',name)
 '''
 

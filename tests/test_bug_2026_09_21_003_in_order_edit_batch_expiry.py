@@ -111,6 +111,51 @@ def _extract_edit_items(html: str):
     return json.loads(m.group(1))
 
 
+def test_resolve_document_batch_no():
+    with app_module.app.app_context():
+        _reset_db()
+        value, error = app_module.resolve_document_batch_no("NEW", "OLD")
+        assert value is None and "批次管理已停用" in error
+        assert app_module.resolve_document_batch_no("", "OLD") == ("OLD", None)
+
+
+def test_admin_can_toggle_batch_entry_without_losing_history_or_changing_stock():
+    with app_module.app.app_context():
+        oid = _make_draft_with_batch()
+        client = _make_client()
+        settings = client.get("/system_settings").get_data(as_text=True)
+        assert 'name="batch_management_enabled"' in settings and '启用批次管理' in settings
+
+        def edit_page():
+            return client.get(f"/in_order/add?order_id={oid}").get_data(as_text=True)
+
+        def save_line(batch=None):
+            original = _extract_edit_items(edit_page())[0]
+            line = dict(line_id=original["line_id"], code=original["material_code"], quantity=4,
+                        price=5.5, expiry_date=original["expiry_date"])
+            if batch is not None:
+                line["batch_no"] = batch
+            return document_post(client, "/in_order/add", json={
+                "order_id": oid, "order_no": "IN-EDIT-001", "business_type": "其他入库",
+                "warehouse": "仓库A", "items": [line]})
+
+        assert 'data-batch-management="off"' in edit_page()
+        assert save_line("NEW").status_code == 400
+        assert save_line().get_json()["status"] == "success"
+        assert _extract_edit_items(edit_page())[0]["batch_no"] == "B20260921"
+        result = client.post("/system_settings/save", data={"batch_management_enabled": "1"})
+        assert result.get_json()["status"] == "success"
+        assert 'data-batch-management="on"' in edit_page()
+        assert save_line("NEW").get_json()["status"] == "success"
+        assert client.post("/system_settings/save", data={}).get_json()["status"] == "success"
+        assert 'data-batch-management="off"' in edit_page()
+        assert save_line().get_json()["status"] == "success"
+        db.session.expire_all()
+        saved = InOrderItem.query.filter_by(in_order_id=oid).one()
+        assert (saved.quantity, saved.batch_no, saved.expiry_date) == (4, "NEW", date(2027, 1, 31))
+        assert Material.query.filter_by(code="M001").one().stock == 0
+
+
 def test_T1_edit_items_payload_carries_batch_and_expiry():
     """编辑页下发的 edit_items 必须携带批次号/有效期（缺失=再保存即清空）。"""
     with app_module.app.app_context():

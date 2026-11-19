@@ -190,7 +190,8 @@
                 '<div class="text-end"><button type="button" class="btn btn-secondary" data-paste-cancel>取消</button> ' +
                 '<button type="button" class="btn btn-primary" data-paste-apply>确认导入</button></div></div>';
             const startSelect = modal.querySelector('select');
-            fields.forEach(field => startSelect.add(new Option(field[2], field[0])));
+            const pasteFields = fields.filter(field => field[0] !== 'batch_no' || document.documentElement?.dataset?.batchManagement !== 'off');
+            pasteFields.forEach(field => startSelect.add(new Option(field[2], field[0])));
             startSelect.value = 'box_no';
             const area = modal.querySelector('textarea');
             area.placeholder = ['PA03-1F-LP02', '配电柜', '800*675*2345', '台', '1'].join('\t');
@@ -199,7 +200,7 @@
                 const selectedRow = anchor?.closest('tr');
                 const row = selectedRow && body.contains(selectedRow) ? selectedRow :
                     (Array.from(body.rows).find(candidate => !used(candidate)) || options.addRow());
-                const keys = fields.map(field => field[0]);
+                const keys = pasteFields.map(field => field[0]);
                 if (paste(area.value, row, startSelect.value, keys)) modal.remove();
             });
             document.body.appendChild(modal);

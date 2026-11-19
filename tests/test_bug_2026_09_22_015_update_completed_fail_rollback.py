@@ -292,6 +292,8 @@ class TestBug20260922015FailRollsBack:
         with app_module.app.app_context():
             _reset_db()
             _seed()
+            app_module.set_system_setting("batch_management_enabled", "1")
+            db.session.commit()
             client = _make_client()
             mat = Material.query.filter_by(code="M001").one()
             order, rows = _make_completed_in_order(mat, qty=50)

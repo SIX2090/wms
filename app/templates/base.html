@@ -1,7 +1,7 @@
 {% set h5_app = current_user.is_authenticated and request.args.get('embedded') != '1' and (request.endpoint in ('mobile_home', 'mobile_profile', 'mobile_scan', 'mobile_material_detail', 'mobile_connect') or request.args.get('mobile') == '1') -%}
 {% set inline_shell_actions = not (strict_material_scripts|default(false) or (request.endpoint == 'add_material' and request.args.get('embedded') == '1')) -%}
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-batch-management="{{ 'on' if batch_management_enabled else 'off' }}">
 <head>
     <meta charset="UTF-8">
     <meta name="wms-external-operations" content="{{ 'paused' if runtime_external_paused else 'available' }}">
@@ -328,6 +328,10 @@
     <link href="{{ url_for('static', filename='css/shell.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/pages/shell-navigation.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if h5_app %}<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-app.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}">{% endif %}
+    <style>
+        html[data-batch-management="off"] [data-column-key="batch_no"],
+        html[data-batch-management="off"] [data-column-key="colBatchNo"] { display: none !important; }
+    </style>
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 8 小时），避免长会话过期 -->
     <script>

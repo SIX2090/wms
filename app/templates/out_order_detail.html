@@ -1713,7 +1713,7 @@ document.addEventListener('DOMContentLoaded', function() {
             {label: '数量', field: 'quantity', required: true, example: '100'},
             {label: '单价', field: 'price', example: '10.50'},
             {label: '金额', field: 'amount', example: '1050.00'},
-            {label: '批次号', field: 'batch', example: 'B20260426'},
+            {% if batch_management_enabled %}{label: '批次号', field: 'batch', example: 'B20260426'},{% endif %}
             {label: '备注', field: 'remark', example: '备注信息'}
         ]
     });

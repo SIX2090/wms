@@ -4343,6 +4343,7 @@ function getRecentVisits() {
         var keyword = modal.querySelector('[data-fs-search]').value.trim().toLowerCase();
         tbody.innerHTML = '';
         controller.state.order.forEach(function(key, index) {
+            if ((key === 'batch_no' || key === 'colBatchNo') && document.documentElement?.dataset?.batchManagement === 'off') return;
             var column = controller.columns.find(function(c) { return c.key === key; });
             if (!column) return;
             var label = controller.state.labels[key] || column.defaultLabel;

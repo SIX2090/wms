@@ -52,6 +52,7 @@ def _reset_db():
 
 
 def _seed():
+    app_module.set_system_setting("batch_management_enabled", "1")
     from werkzeug.security import generate_password_hash
     wh = Warehouse(code="WHA", name="仓库A", is_default=True, status="active")
     user = User(

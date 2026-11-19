@@ -903,7 +903,7 @@ function exportDetailRows() {
 }
 
 function showImportTemplateHint() {
-    showToast('粘贴导入支持：物料编码、数量、单价、批次号、有效期（从 Excel / WPS 复制后粘贴）', 'info', 3600);
+    showToast('粘贴导入支持：物料编码、数量、单价、{% if batch_management_enabled %}批次号、{% endif %}有效期（从 Excel / WPS 复制后粘贴）', 'info', 3600);
 }
 
 function clearInOrderValidation() {
@@ -1045,6 +1045,9 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             item.spec = (row.querySelector('.material-spec')?.value || '').trim();
             item.unit = (row.querySelector('.material-unit')?.value || '').trim();
         }
+        if (row.dataset.lineId || document.querySelector('[name="order_id"]')?.value) {
+            item.line_id = row.dataset.lineId || null;
+        }
         const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
         if (sourceItemId) item.source_purchase_order_item_id = sourceItemId;
         items.push(item);
@@ -1148,6 +1151,7 @@ document.addEventListener('DOMContentLoaded', function() {
         addNewRow();
         const row = document.querySelector('#materialTableBody tr:last-child');
         row.querySelector('.material-code').value = item.material_code;
+        row.dataset.lineId = item.line_id || '';
         if (item.source_purchase_order_item_id) {
             row.dataset.sourcePurchaseOrderItemId = item.source_purchase_order_item_id;
         }
@@ -1421,8 +1425,8 @@ function showPasteModal() {
     modal.innerHTML = `
         <div style="background:white;border-radius:8px;padding:24px;width:600px;max-width:90%;max-height:80vh;display:flex;flex-direction:column;">
             <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">Excel / WPS 粘贴导入</h5>
-            <p style="color:#666;font-size:13px;margin:0 0 8px 0;">在 Excel / WPS 中选中单元格区域复制，粘贴到下方即可（列顺序：<b>物料编码　数量　单价　批次号　有效期</b>，后三列可留空）：</p>
-            <p style="color:#999;font-size:12px;margin:0 0 12px 0;">有效期兼容 2026-09-01、2026/9/1、2026.9.1、2026年9月1日，以及带时间的「2026/9/1 0:00」；批次号与有效期留空则该行不记录。</p>
+            <p style="color:#666;font-size:13px;margin:0 0 8px 0;">在 Excel / WPS 中选中单元格区域复制，粘贴到下方即可（列顺序：<b>物料编码　数量　单价　{% if batch_management_enabled %}批次号　{% endif %}有效期</b>，单价及后续列可留空）：</p>
+            <p style="color:#999;font-size:12px;margin:0 0 12px 0;">有效期兼容 2026-09-01、2026/9/1、2026.9.1、2026年9月1日，以及带时间的「2026/9/1 0:00」。</p>
             <textarea id="pasteArea" style="flex:1;min-height:200px;border:1px solid #d9d9d9;border-radius:4px;padding:12px;font-size:13px;font-family:monospace;resize:vertical;"></textarea>
             <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
                 <button type="button" class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">取消</button>
@@ -1495,8 +1499,10 @@ async function parsePastedData() {
             if (price !== null && (!decimal.test(parts[2]) || !Number.isFinite(price) || price < 0)) {
                 reject(line, idx, '单价必须不小于0，最多两位小数'); return;
             }
-            const batchNo = parts[3] || '';
-            const expiry = normalizeExpiry(parts[4] || '');
+            const batchEnabled = document.documentElement?.dataset?.batchManagement !== 'off';
+            if (!batchEnabled && parts.length > 4) { reject(line, idx, '当前列为物料编码、数量、单价、有效期'); return; }
+            const batchNo = batchEnabled ? (parts[3] || '') : '';
+            const expiry = normalizeExpiry(parts[batchEnabled ? 4 : 3] || '');
             if (batchNo.length > 50) { reject(line, idx, '批次号超过50字符'); return; }
             if (expiry === null) { reject(line, idx, '有效期格式不正确'); return; }
             parsed.push({line, idx, code, qty, price, batchNo, expiry});
@@ -2004,7 +2010,7 @@ function batchUpdateField() {
                 <select id="batchUpdateField" class="form-control">
                     <option value="price">单价</option>
                     <option value="quantity">数量</option>
-                    <option value="batch_no">批次号</option>
+                    {% if batch_management_enabled %}<option value="batch_no">批次号</option>{% endif %}
                     <option value="expiry_date">有效期</option>
                     <option value="warehouse">仓库（整单）</option>
                 </select>

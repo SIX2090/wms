@@ -673,7 +673,7 @@
     });
 
     document.getElementById('columnSettingsBtn').addEventListener('click', function() {
-        var keys = ['batch_no', 'serial_no', 'remark'];
+        var keys = document.documentElement?.dataset?.batchManagement === 'off' ? ['serial_no', 'remark'] : ['batch_no', 'serial_no', 'remark'];
         var labels = { batch_no: '批次号', serial_no: '序列号', remark: '备注' };
         var hidden = {};
         try { hidden = JSON.parse(localStorage.getItem(SALES_COLUMN_KEY) || '{}'); } catch (e) { hidden = {}; }

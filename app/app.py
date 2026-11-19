@@ -4063,6 +4063,13 @@ SYSTEM_SETTING_GROUPS = [
                 'remark': '库存低于最低或高于最高时的控制方式。建议先用提示，稳定后再改为禁止。',
             },
             {
+                'key': 'batch_management_enabled',
+                'label': '启用批次管理',
+                'type': 'bool',
+                'default': '0',
+                'remark': '开启后可在入库单和销售订单录入、查看批次号。关闭后保留历史批次号。库存仍按物料和仓库统计。',
+            },
+            {
                 'key': 'location_management_enabled',
                 'label': '启用库位管理',
                 'type': 'bool',
@@ -4627,6 +4634,16 @@ def set_system_setting(key, value):
         cache[key] = setting.value
     return setting
 
+def resolve_document_batch_no(value, previous=None):
+    """停用时保留原行批号，拒绝新增或改写批号。"""
+    number = (value or '').strip() or None
+    if number == previous or get_system_setting_bool('batch_management_enabled'):
+        return number, None
+    if not number:
+        return previous, None
+    return None, '批次管理已停用，请清空批次号或先在系统设置中启用'
+
+
 def location_management_enabled():
     return get_system_setting('location_management_enabled', '0') == '1'
 
@@ -4775,6 +4792,7 @@ def inject_query_helpers():
         'other_order_navigation': _other_order_navigation,
         'inventory_alert_enabled': inventory_alert_enabled(),
         'location_management_enabled': location_management_enabled(),
+        'batch_management_enabled': get_system_setting_bool('batch_management_enabled'),
         'price_dimension_enabled': price_dimension_enabled(),
         'material_code_editable': material_code_editable(),
         # WMS-AI-DEGRADE-001：AI 浮窗「本地规则模式」标识（大模型未配置/不可用时为 False）
