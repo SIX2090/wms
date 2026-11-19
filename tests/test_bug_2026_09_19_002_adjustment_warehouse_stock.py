@@ -75,11 +75,11 @@ def client():
     yield c
 
 
-def _post_loss_order(client, warehouse="主仓"):
+def _post_loss_order(client, warehouse="主仓", reason="测试报损"):
     payload = {
         "adjustment_type": "loss",
         "warehouse": warehouse,
-        "items": [{"material_id": 1, "code": "M-ADJ", "quantity": 5, "reason": "测试报损"}],
+        "items": [{"material_id": 1, "code": "M-ADJ", "quantity": 5, "reason": reason}],
     }
     resp = client.post("/adjustment/add", json=payload)
     # api_error 返回 400，成功返回 200 且 status=success
@@ -121,30 +121,22 @@ def test_loss_allowed_when_stock_unattributed(client):
 
 
 @pytest.mark.parametrize("source", ["manual", "import", None])
-def test_manual_loss_needs_a_reason_before_posting(client, source):
+@pytest.mark.parametrize("reason", ["", "包装破损"])
+def test_loss_can_post_with_optional_reason(client, source, reason):
     with app_module.app.app_context():
         db.session.add(StockTransaction(material_id=1, transaction_type="in",
                                         quantity=10, warehouse_id=1))
         db.session.commit()
-    draft = _post_loss_order(client)
+    draft = _post_loss_order(client, reason=reason)
     assert draft["status"] == "success", draft
     with app_module.app.app_context():
         order = AdjustmentOrder.query.filter_by(adjustment_no=draft["adjustment_no"]).one()
         order.source_type = source
-        order.items[0].reason = "  "
-        order.remark = "单头说明"
         ident = order.id
-        db.session.commit()
-    response = client.post(f"/adjustment/{ident}/complete")
-    assert response.status_code == 400 and "原因" in response.json["msg"]
-    with app_module.app.app_context():
-        order = db.session.get(AdjustmentOrder, ident)
-        assert order.status == "pending"
-        assert db.session.get(Material, 1).stock == 10
-        assert StockTransaction.query.filter_by(reference_type="adjustment", reference_id=ident).count() == 0
-        order.items[0].reason = "包装破损"
         db.session.commit()
     assert client.post(f"/adjustment/{ident}/complete").json["status"] == "success"
     with app_module.app.app_context():
+        assert db.session.get(AdjustmentOrder, ident).status == "completed"
+        assert db.session.get(Material, 1).stock == 5
         txn = StockTransaction.query.filter_by(reference_type="adjustment", reference_id=ident).one()
-        assert txn.remark == "包装破损" and txn.quantity == -5
+        assert (txn.remark or "") == reason and txn.quantity == -5 and txn.warehouse_id == 1

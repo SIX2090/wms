@@ -216,7 +216,7 @@ def test_adjustment_old_template_uses_default_and_explicit_code_overrides_it(imp
     client, ids = import_state
     response = post_file(client, [{'单据编号': 'ADJ-OLD'}], url='/adjustment/import', base_headers=ADJUSTMENT_HEADERS)
     assert response.status_code == 200 and response.json['count'] == 1
-    response = post_file(client, [{'单据编号': 'ADJ-EXPLICIT', '仓库编码': 'AI-B', '调整类型': '盘亏', '原因': '包装破损'}], ['仓库编码'],
+    response = post_file(client, [{'单据编号': 'ADJ-EXPLICIT', '仓库编码': 'AI-B', '调整类型': '盘亏'}], ['仓库编码'],
                          url='/adjustment/import', base_headers=ADJUSTMENT_HEADERS)
     assert response.status_code == 200 and response.json['count'] == 1
     with w.app.app_context():
