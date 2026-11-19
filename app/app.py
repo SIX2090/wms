@@ -29328,7 +29328,7 @@ def _report_export_truncation(report_type, written):
         g._report_truncated_total = 0  # 读后即清，防同一上下文二次查询串值
     except RuntimeError:
         pass  # 非请求上下文（脚本直跑）只按行数判定
-    truncated = truncated_total > written
+    truncated = bool(truncated_total)  # 输出另含期初与合计行，不能用输出行数判断流水是否取全。
     return truncated, (truncated_total if truncated else written)
 
 
@@ -29374,7 +29374,7 @@ def _build_report_excel_download(report_type, filters):
         worksheet.append([])
         worksheet.append([
             f'⚠ 导出截断提示：当前筛选结果共 {raw_total} 行，超出单次导出上限，'
-            f'本文件仅含前 {written} 行；请缩小筛选范围（如按日期分段）后'
+            f'本文件仅含部分结果，共输出 {written} 行（含报表合计等展示行）；请缩小筛选范围（如按日期分段）后'
             f'分批导出，避免缺行对账。'])
 
     output = io.BytesIO()
@@ -32919,8 +32919,8 @@ def _build_report_payload(report_type, filters):
         'all_rows': rows,
         'summary': summary,
         'total': total,
-        'truncated': truncated_total > total,
-        'raw_total': truncated_total if truncated_total > total else total,
+        'truncated': bool(truncated_total),
+        'raw_total': truncated_total or total,
         'total_pages': max(1, -(-total // page_size)),
         'summary_labels': definition['summary_labels'],
         'summary_types': definition['summary_types'],

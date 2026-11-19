@@ -226,22 +226,19 @@ class NotificationManager:
     def check_expiring_materials(self, db, Material, User):
         """检查即将过期物料"""
         from app import Notification
-        from datetime import timedelta
-        
-        # 获取即将过期（30天内）的物料
-        soon_expire_date = date.today() + timedelta(days=30)
-        expiring_materials = Material.query.filter(
-            Material.expiry_date <= soon_expire_date,
-            Material.expiry_date >= date.today()
-        ).all()
+        today = date.today()
+        today_start = datetime.combine(today, datetime.min.time())
+        expiring_materials = Material.query.filter(Material.expiry_date >= today).yield_per(500)
         
         notifications = []
         
         for material in expiring_materials:
-            days_remaining = (material.expiry_date - date.today()).days
+            days_remaining = (material.expiry_date - today).days
+            alert_days = material.alert_days if material.alert_days is not None else 30
+            if days_remaining > alert_days:
+                continue
             
             # 检查今天是否已经发送过通知（created_at 是 DateTime，需与 datetime 比较）
-            today_start = datetime.combine(date.today(), datetime.min.time())
             existing = Notification.query.filter(
                 Notification.type == 'expiring',
                 Notification.target_id == material.id,

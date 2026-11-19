@@ -524,6 +524,9 @@ printBtn.addEventListener('click', async () => {
             if (!resp.ok || result.status !== 'success') {
                 throw new Error(result.msg || '打印数据加载失败');
             }
+            if (result.truncated) {
+                throw new Error('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据');
+            }
             if (page === 1) {
                 columns = result.columns || columns;
                 printContext.summary = result.summary || {};
@@ -832,8 +835,8 @@ function applyReportFieldSettings() {
 // 警告条 + 分页总数文案双通道告知「汇总按截断数据统计」
 function renderTruncation(result) {
     const el = document.getElementById('truncationAlert');
-    if (result && result.truncated && result.raw_total > result.total) {
-        el.textContent = `查询结果共 ${Number(result.raw_total).toLocaleString('zh-CN')} 条，超过单次处理上限，仅显示前 ${Number(result.total).toLocaleString('zh-CN')} 条，上方汇总数据也按前 ${Number(result.total).toLocaleString('zh-CN')} 条统计。请缩小日期、仓库或物料范围后重新查询。`;
+    if (result && result.truncated) {
+        el.textContent = `原始记录共 ${Number(result.raw_total).toLocaleString('zh-CN')} 条，已超过单次处理上限。当前仅显示部分数据，上方汇总数据也按前面已读取的记录统计。请缩小日期、仓库或物料范围后重新查询。`;
         el.classList.remove('d-none');
     } else {
         el.textContent = '';

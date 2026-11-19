@@ -118,3 +118,33 @@ def test_loss_allowed_when_stock_unattributed(client):
     with app_module.app.app_context():
         order = AdjustmentOrder.query.filter_by(adjustment_no=data.get("adjustment_no")).first()
         assert order is not None and order.status == "pending"
+
+
+@pytest.mark.parametrize("source", ["manual", "import", None])
+def test_manual_loss_needs_a_reason_before_posting(client, source):
+    with app_module.app.app_context():
+        db.session.add(StockTransaction(material_id=1, transaction_type="in",
+                                        quantity=10, warehouse_id=1))
+        db.session.commit()
+    draft = _post_loss_order(client)
+    assert draft["status"] == "success", draft
+    with app_module.app.app_context():
+        order = AdjustmentOrder.query.filter_by(adjustment_no=draft["adjustment_no"]).one()
+        order.source_type = source
+        order.items[0].reason = "  "
+        order.remark = "单头说明"
+        ident = order.id
+        db.session.commit()
+    response = client.post(f"/adjustment/{ident}/complete")
+    assert response.status_code == 400 and "原因" in response.json["msg"]
+    with app_module.app.app_context():
+        order = db.session.get(AdjustmentOrder, ident)
+        assert order.status == "pending"
+        assert db.session.get(Material, 1).stock == 10
+        assert StockTransaction.query.filter_by(reference_type="adjustment", reference_id=ident).count() == 0
+        order.items[0].reason = "包装破损"
+        db.session.commit()
+    assert client.post(f"/adjustment/{ident}/complete").json["status"] == "success"
+    with app_module.app.app_context():
+        txn = StockTransaction.query.filter_by(reference_type="adjustment", reference_id=ident).one()
+        assert txn.remark == "包装破损" and txn.quantity == -5

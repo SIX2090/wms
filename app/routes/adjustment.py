@@ -471,6 +471,12 @@ def register_adjustment_routes(app):
             if not adjustment.items:
                 db.session.rollback()
                 return api_error('调整单没有明细，无法完成')
+            if adjustment.source_type not in ('check', 'check_scan'):
+                for item in adjustment.items:
+                    if item.material_id and (item.quantity or 0) < 0 and not (item.reason or '').strip():
+                        code = item.material.code if item.material else item.material_id
+                        db.session.rollback()
+                        return api_error(f'物料 {code} 请填写报损原因后再完成')
             # BUG-2026-08-02-010 修复：开启库位管理时同步库位库存，避免总库存与库位库存之和产生偏差。
             # P1-1 已为 AdjustmentOrder 加 warehouse 字段，loc_key 优先 adjustment.warehouse
             # （单据级仓库），无则回退 item.location（行级库位）。

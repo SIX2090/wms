@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from datetime import date, timedelta
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "app"
@@ -74,6 +75,25 @@ def test_t1_switch_off_sends_no_notification():
     assert _low_stock_notification_count() == 0, (
         "开关关闭时数据库不应出现 low_stock 通知"
     )
+
+
+def test_expiry_notifications_use_material_window_and_deduplicate():
+    _reset("1")
+    with app_module.app.app_context():
+        examples = [('LONG', 45, 60), ('SHORT', 20, 7), ('EDGE', 7, 7),
+                    ('TODAY', 0, 7), ('PAST', -1, 60), ('DEFAULT', 30, 30)]
+        materials = {code: Material(code=code, name=code, alert_days=window,
+                                    expiry_date=date.today() + timedelta(days=days))
+                     for code, days, window in examples}
+        db.session.add_all(materials.values())
+        db.session.flush()
+        materials['DEFAULT'].alert_days = None
+        db.session.commit()
+        manager = NotificationManager()
+        alerts = manager.check_expiring_materials(db, Material, User)
+        assert {n.target_id for n in alerts} == {
+            materials[key].id for key in ('LONG', 'EDGE', 'TODAY', 'DEFAULT')}
+        assert manager.check_expiring_materials(db, Material, User) == []
 
 
 def test_t2_switch_on_sends_notification():

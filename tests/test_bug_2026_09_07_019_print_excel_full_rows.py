@@ -166,6 +166,24 @@ class TestBug20260907019:
         # 12 条流水截断为 10 + 单物料 1 条「本期合计」行（无 start_date 无期初行）
         assert len(data_rows) == 11, f"台账导出应为 10 流水 + 1 合计行，实际 {len(data_rows)}"
 
+    def test_ledger_truncation_survives_a_subtotal_replacing_the_missing_row(self, monkeypatch):
+        with app_module.app.app_context():
+            for _ in range(3):
+                db.session.add(StockTransaction(material_id=self.m_id, transaction_type='in',
+                                                quantity=1, warehouse_id=self.wh_id))
+            db.session.commit()
+        monkeypatch.setattr(app_module, 'LEDGER_ROW_LIMIT', 2)
+        client = self._client()
+        with app_module.app.app_context():
+            code = db.session.get(Material, self.m_id).code
+        params = {'warehouse_id': self.wh_id, 'material_code': code}
+        data = client.get('/report/api/ledger', query_string=params).get_json()
+        assert data['truncated'] is True and data['raw_total'] == 3
+        assert client.get('/report/ledger/print_excel', query_string=params).status_code == 400
+        assert client.get('/report/ledger/print_preview', query_string=params).status_code == 400
+        exported = client.get('/report/api/ledger', query_string=dict(params, export='excel'))
+        assert any('导出截断提示' in row[0] for row in _xlsx_rows(exported.data))
+
     def test_T4_page_path_unaffected_by_export_limit(self):
         """页面分页不受导出上限影响：REPORT_ROW_LIMIT=10 时 page=2 仍返回 5 行。"""
         old = app_module.REPORT_ROW_LIMIT

@@ -112,6 +112,18 @@ def test_inventory_report_print_excel_e2e():
             target_type='report', target_code='report_inventory').count() == 1
 
 
+def test_truncated_ledger_never_generates_a_print_file(monkeypatch):
+    client = _client()
+    monkeypatch.setattr(m, '_collect_report_export_rows',
+                        lambda *args: ([{'field': 'code', 'title': '编码'}],
+                                       [{'code': 'M-001'}], True, 2))
+    response = client.get('/report/ledger/print_excel?material_code=M-001')
+    assert response.status_code == 400
+    assert '缩小筛选范围' in response.get_json()['msg']
+    with m.app.app_context():
+        assert not m.ExcelPrintTemplate.query.filter_by(target_code='report_ledger').count()
+
+
 def test_doc_print_templates_report_json():
     client = _client()
     client.get('/report/inventory/print_excel')  # 触发自动登记

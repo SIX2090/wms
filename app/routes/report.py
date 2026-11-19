@@ -322,16 +322,14 @@ def register_report_routes(app):
             # export 参数，前端显式 delete；019 曾强制置位走 payload，020 起直接
             # 用分批收集：SQL 分页报表循环取批全量、内存路径报表全量构建），
             # 与页面分页彻底无关。
-            columns, all_rows, truncated, raw_total = \
+            columns, all_rows, truncated, _ = \
                 _collect_report_export_rows(report_type, filters)
         except ValueError as exc:
             app.logger.error(f'report_print_excel ValueError({report_type}): {exc}',
                              exc_info=True)
             return api_error('报表数据生成失败，请检查查询条件', 400)
         if truncated:
-            app.logger.warning(
-                '[REPORT] print_excel %s 筛选结果 %s 行超出单次处理上限，模板打印仅含前 %s 行',
-                report_type, raw_total, len(all_rows))
+            return api_error('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据', 400)
         result = render_report_excel_print(
             report_type, definition['title'], columns,
             all_rows,
