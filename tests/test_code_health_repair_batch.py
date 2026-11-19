@@ -1,4 +1,6 @@
 """Runtime regressions for report BUG-1/2/3/4; synthetic data only."""
+from datetime import datetime, timedelta
+
 import pytest
 from sqlalchemy import event
 import app as w
@@ -150,14 +152,24 @@ def test_mobile_stocktake_replays_and_preserves_inventory(mobile_case):
 
 def test_mobile_bearer_replay_and_csrf_boundary(mobile_case, monkeypatch):
     client, body = mobile_case
-    from types import SimpleNamespace
+    token = 'synthetic-health-bearer'
     with w.app.app_context():
-        uid = w.User.query.one().id
-    monkeypatch.setattr(w, 'get_bearer_user', lambda: SimpleNamespace(id=uid, role='warehouse'))
+        actor = w.User(username='health-mobile', role='warehouse', password_hash='unused',
+                       must_change_password=False)
+        w.db.session.add(actor)
+        w.db.session.flush()
+        uid = actor.id
+        w.db.session.add(w.ApiToken(user_id=uid, token=w.hash_access_token(token),
+                                   expires_at=datetime.now() + timedelta(days=1), last_used_at=datetime.now()))
+        w.db.session.commit()
     bearer = w.app.test_client()
-    one = bearer.post('/mobile/api/scan_submit', json=body)
-    two = bearer.post('/mobile/api/scan_submit', json=body)
+    headers = {'Authorization': 'Bearer ' + token}
+    one = bearer.post('/mobile/api/scan_submit', json=body, headers=headers)
+    two = bearer.post('/mobile/api/scan_submit', json=body, headers=headers)
     assert one.status_code == two.status_code == 200
     assert one.json == two.json
+    with w.app.app_context():
+        audit = w.OperationAudit.query.filter_by(operation='h5_inbound').one()
+        assert audit.user_id == uid and audit.username == 'health-mobile'
     monkeypatch.setitem(w.app.config, 'WTF_CSRF_ENABLED', True)
     assert client.post('/mobile/api/scan_submit', json=body).status_code == 400
