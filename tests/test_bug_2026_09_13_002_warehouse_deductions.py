@@ -162,7 +162,8 @@ def test_warehouse_deduction_routes(scene, kind, available):
         wms.db.session.add(order)
         wms.db.session.flush()
         wms.db.session.add(wms.AdjustmentOrderItem(
-            adjustment_order_id=order.id, material_id=material.id, quantity=10 if reverting else -10))
+            adjustment_order_id=order.id, material_id=material.id,
+            quantity=10 if reverting else -10, reason=None if reverting else "盘库发现破损"))
         endpoint = f"/adjustment/{order.id}/{'revert' if reverting else 'complete'}"
     original_status = order.status
     wms.db.session.commit()
