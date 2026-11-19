@@ -159,6 +159,31 @@ class TestDocumentAudit:
             assert audit is not None, "删除入库单未写结构化审计"
             assert json.loads(audit.old_data).get("order_no") == order_no
 
+    @pytest.mark.parametrize("kind", ["in_order", "out_order"])
+    @pytest.mark.parametrize("batch", [False, True])
+    def test_stage_stock_document_snapshot(self, client, kind, batch):
+        from app import StockTransaction
+        with app_module.app.app_context():
+            factory = _make_completed_in_order if kind == "in_order" else _make_completed_out_order
+            order = factory("TRACE", 10)
+            order.status = "pending"
+            ident = order.id
+            qty = 10 if kind == "in_order" else -10
+            for name, amount in [("original", qty), ("reversal", -qty)]:
+                db.session.add(StockTransaction(material_id=1, quantity=amount, warehouse_id=1,
+                                                transaction_type=name, reference_type=kind, reference_id=ident))
+            db.session.commit()
+        url = f"/{kind}/batch_delete" if batch else f"/{kind}/{ident}/delete"
+        response = client.post(url, json={"ids": [ident]})
+        assert response.json["status"] == "success", response.json
+        with app_module.app.app_context():
+            audit = _latest_audit(f"delete_{kind}")
+            assert audit is not None
+            snapshot = json.loads(audit.old_data)
+            assert snapshot["items"][0]["quantity"] == 10
+            assert [r["quantity"] for r in snapshot["movements"]] == [qty, -qty]
+            assert all(r["warehouse_id"] == 1 for r in snapshot["movements"])
+
     def test_revert_out_order_audits(self, client):
         with app_module.app.test_request_context():
             mat = Material.query.filter_by(code="M001").first()

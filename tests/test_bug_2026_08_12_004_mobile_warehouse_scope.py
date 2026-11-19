@@ -366,6 +366,29 @@ class TestMobileWarehouseWriteScope:
             from app import InOrder
             order = InOrder.query.filter_by(order_no=response.get_json()["data"]["order_no"]).one()
             assert order.warehouse == "仓库A"
+            from app import OperationAudit, StockTransaction
+            audit = OperationAudit.query.filter_by(operation='native_inbound', target_id=order.id).one()
+            movement = StockTransaction.query.filter_by(reference_type='in_order', reference_id=order.id).one()
+            assert audit.user_id == movement.operator_id == order.operator_id
+            assert audit.username == 'admin'
+
+    def test_native_outbound_audit_and_replay(self):
+        client = self._setup(with_default=True, location_enabled=False)
+        headers = self._bearer_headers(client)
+        payload = {"lines": [{"material_code": "M001", "quantity": 1}]}
+        assert client.post("/api/inbound", json=payload, headers=headers).status_code == 200
+        headers["X-Idempotency-Key"] = "audit-outbound-replay"
+        first = client.post("/api/outbound", json=payload, headers=headers)
+        assert first.status_code == 200, first.json
+        replay = client.post("/api/outbound", json=payload, headers=headers)
+        assert replay.status_code == 200 and replay.json["data"]["id"] == first.json["data"]["id"]
+        with app_module.app.app_context():
+            from app import OperationAudit, OutOrder, StockTransaction
+            ident = first.json["data"]["id"]
+            order = db.session.get(OutOrder, ident)
+            audit = OperationAudit.query.filter_by(operation="native_outbound", target_id=ident).one()
+            movement = StockTransaction.query.filter_by(reference_type="out_order", reference_id=ident).one()
+            assert movement.operator_id == audit.user_id == order.operator_id
 
     def test_outbound_rejects_inactive_warehouse(self):
         client = self._setup(with_default=False, location_enabled=False)

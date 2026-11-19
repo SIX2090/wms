@@ -69,7 +69,7 @@ def _assert_stock(material,expected,location_on,b):
 
 
 def _post(client,order,payload):
-    return document_post(client,f'/in_order/{order.id}/update_completed',json=payload)
+    return document_post(client,f'/in_order/{order.id}/update_completed',json={'reason': '核对收货数量', **payload})
 
 
 @pytest.mark.parametrize('location_on',[False,True])

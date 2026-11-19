@@ -150,6 +150,7 @@ def test_bug_b_reduce_qty_with_legacy_unattributed_stock(scene):
     # 改小数量（减库存 10）：仓库级聚合为 0，但全局有 50 → 应回退全局口径放行
     resp = document_post(client,f"/in_order/{order_id}/update_completed", json={
         "items": [{"id": item_ids[0], "quantity": 40, "price": 10}],
+        "reason": "复核实收数量",
     })
     data = resp.get_json()
     assert data.get("status") == "success", data
@@ -172,6 +173,7 @@ def test_bug_b_symmetry_delete_also_passes(scene):
 
     resp = document_post(client,f"/in_order/{order_id}/update_completed", json={
         "items": [], "deleted_items": [item_ids[0]],
+        "reason": "重复收货行",
     })
     data = resp.get_json()
     assert data.get("status") == "success", data
@@ -200,6 +202,7 @@ def test_bug_c_per_row_recompute(scene):
             {"id": item_ids[0], "quantity": 140, "price": 10},
             {"id": item_ids[1], "quantity": 70, "price": 10},
         ],
+        "reason": "按实收调整两行",
     })
     data = resp.get_json()
     assert data.get("status") == "success", data

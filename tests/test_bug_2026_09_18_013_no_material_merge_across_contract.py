@@ -427,6 +427,7 @@ def test_T16_completed_in_order_new_item_resolves_contract():
         db.session.commit()
     c = _login()
     resp = document_post(c,f"/in_order/{oid}/update_completed", json={
+        "reason": "补登合同收货",
         "items": [{"id": None, "is_new": True, "code": code, "material_code": code,
                    "quantity": 2, "price": 10, "contract_no": "DONE-CT"}],
     })

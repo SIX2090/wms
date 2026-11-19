@@ -391,7 +391,7 @@ def main():
     for node in ast.walk(original):
         if (isinstance(node,ast.Tuple) and all(isinstance(v,ast.Constant) for v in node.elts)
                 and 'services.warehouse_stock_service' in [v.value for v in node.elts]):
-            node.elts.extend(ast.Constant(value=name) for name in ('services.document_return_guard','services.warehouse_identity'))
+            node.elts.extend(ast.Constant(value=name) for name in ('services.document_return_guard','services.warehouse_identity', 'services.document_stock_audit'))
     suite=next(n for n in original.body if isinstance(n,ast.ClassDef) and n.name=='RealModelBoundaries')
     suite.body=[n for n in suite.body if not(isinstance(n,ast.FunctionDef) and n.name.startswith('test_'))]
     original.body[original.body.index(suite):original.body.index(suite)]=ast.parse(order['SETUP']+completed['SETUP']+SETUP).body

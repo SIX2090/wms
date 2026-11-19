@@ -735,7 +735,7 @@ def guard_three_ledgers(material) -> bool:
 
 
 def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
-                      reference_id=None, remark='', warehouse=None, location=None):
+                      reference_id=None, remark='', warehouse=None, location=None, operator_id=None):
     """库存三账（①总账 + ③流水 + ②库位账）写入唯一入口。
 
     参数：
@@ -756,6 +756,7 @@ def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
     if not material:
         return False, '物料不存在'
     delta = delta or 0
+    actor = {'operator_id': operator_id} if operator_id is not None else {}
     if delta > 0:
         ok, err = add_stock(
             material, delta,
@@ -764,6 +765,7 @@ def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
             reference_id=reference_id,
             remark=remark,
             warehouse=warehouse,
+            **actor,
         )
         if not ok:
             return False, err or '库存增加失败'
@@ -775,6 +777,7 @@ def apply_stock_delta(material, delta, *, transaction_type, reference_type=None,
             reference_id=reference_id,
             remark=remark,
             warehouse=warehouse,
+            **actor,
         )
         if not ok:
             return False, err

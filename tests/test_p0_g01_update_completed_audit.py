@@ -1,38 +1,5 @@
 # -*- coding: utf-8 -*-
-"""P0 闸门 G-01 回归：已完成入库单「改数」必须留痕。
-
-体检缺口（`output/仓库业务流程与单据设计方案_20261111.md` §14.2 G-01）：
-
-    ``POST /in_order/<id>/update_completed`` 允许对**已完成**的入库单
-    改数量 / 改单价 / 删行 / 加行，并同步改库存与金额，但整个函数体内
-    **没有任何 log_audit / log_operation**——而同文件的 delete / revert
-    两个路由都有。后果：改完账面自洽（库存、金额、采购已收量都跟着变了），
-    肉眼查不出；事后无法回答"谁把 800 改成了 80"。
-
-修复要点（三条，缺一条就等于没修）：
-
-  1. **old 值必须在任何写入之前快照**。函数是"边写边校验"的：删除分支会
-     ``db.session.delete(item)``、改量分支会就地改写 ``item.quantity``。
-     改完再取只能拿到新值，审计会变成"新值 == 新值"的自证为空。
-  2. **必须在业务 commit 之后写**。``log_audit`` / ``log_operation`` 内部
-     各自 ``db.session.commit()``；写在主 commit 之前会把半成品业务状态
-     提前提交，破坏"要么全成、要么全不成"。
-  3. **审计自身失败不得回传为"保存失败"**。业务已经提交，若此时报错，
-     用户会以为没存、实际已改（与 BUG-2026-09-22-015 同一类认知错位）。
-
-测试策略：
-
-  T1 改量       → 审计行存在、operation/target 正确、changed 里 old/new 都是真值
-  T2 删行       → new_data.removed 含该行的原数量（不是删除后的空值）
-  T3 加行       → new_data.added 含新行
-  T4 不传 reason → 仍然 200（不改变接口契约），reason 落固定文案
-  T5 超长 reason → 落库截断到 200（换库时会 DataError，被 log_audit 吞掉）
-  T6 无实际变更 → 不写审计（否则"点一次保存一条"，审计表失去可读性）
-  T7 库存失败   → 不写审计（证明顺序正确：没提交就不该有成功痕迹）
-  T8 结构断言   → 源码里 log_audit 必须出现在该函数的 db.session.commit() 之后
-
-修复前 T1~T3、T8 必红（失败信息即"缺口复现"证据）。
-"""
+"""已完成入库单的改数、增删行、原因必填及库存和审计同事务回归。"""
 from __future__ import annotations
 
 import json
@@ -64,7 +31,6 @@ from app import (  # noqa: E402
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
-ROUTE_SRC = APP_DIR / "routes" / "in_order.py"
 AUDIT_OP = "update_completed_in_order"
 
 
@@ -233,8 +199,8 @@ class TestP0G01UpdateCompletedAudit:
             assert len(added) == 1, f"应记录 1 行新增，实际 {added}"
             assert added[0]["qty"] == 15.0
 
-    def test_T4_missing_reason_defaults_without_rejecting(self):
-        """不传 reason 不得 400（不改变既有接口契约），落固定文案。"""
+    def test_T4_quantity_change_requires_reason(self):
+        """没有原因不得更改已过账数量。"""
         with app_module.app.app_context():
             _reset_db()
             seeds = _seed()
@@ -246,10 +212,10 @@ class TestP0G01UpdateCompletedAudit:
                 "items": [{"id": item_id, "quantity": 60, "price": 10}],
                 "deleted_items": [],
             })
-            assert resp.status_code == 200, resp.get_data(as_text=True)
-            audits = _audits(order_id)
-            assert len(audits) == 1
-            assert audits[0].reason and "未填写原因" in audits[0].reason
+            assert resp.status_code == 400, resp.get_data(as_text=True)
+            assert "原因" in resp.get_json()["msg"]
+            assert _audits(order_id) == []
+            assert db.session.get(InOrderItem, item_id).quantity == 50
 
     def test_T5_reason_truncated_to_column_length(self):
         """reason 是 String(200)；超长必须截断，否则换库会静默丢审计。"""
@@ -306,15 +272,25 @@ class TestP0G01UpdateCompletedAudit:
             assert resp.status_code == 400, resp.get_data(as_text=True)
             assert _audits(order_id) == [], "业务未提交就不应有审计"
 
-    def test_T8_audit_call_after_commit(self):
-        """结构断言：log_audit 必须在该函数的 commit 之后（防将来被前移）。"""
-        src = ROUTE_SRC.read_text(encoding="utf-8")
-        start = src.index("def update_completed_in_order(id):")
-        end = src.index("def delete_in_order(id):")
-        body = src[start:end]
-        commit_at = body.index("db.session.commit()")
-        audit_at = body.index(f"'{AUDIT_OP}', 'in_order'")
-        assert audit_at > commit_at, (
-            "log_audit 必须写在主 commit 之后：log_audit 内部自行 commit，"
-            "前移会把半成品业务写提前落库"
-        )
+    def test_stage_order_audit(self):
+        from sqlalchemy import event
+        from app import OperationAudit
+        def refuse_insert(*args):
+            raise RuntimeError("synthetic audit failure")
+        with app_module.app.app_context():
+            _reset_db()
+            seeds = _seed()
+            client = _make_client()
+            order, rows = _make_completed_in_order(seeds["mat"], qty=50)
+            order_id, item_id, mat_id = order.id, rows[0].id, seeds["mat"].id
+            before = db.session.get(Material, mat_id).stock
+            event.listen(OperationAudit, "before_insert", refuse_insert)
+            try:
+                response = document_post(client, f"/in_order/{order_id}/update_completed", json={
+                    "items": [{"id": item_id, "quantity": 60, "price": 10}], "reason": "复核数量"})
+            finally:
+                event.remove(OperationAudit, "before_insert", refuse_insert)
+            assert response.status_code >= 400
+            assert db.session.get(Material, mat_id).stock == before
+            assert db.session.get(InOrderItem, item_id).quantity == 50
+            assert _audits(order_id) == []

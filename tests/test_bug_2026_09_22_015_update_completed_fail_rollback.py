@@ -300,6 +300,7 @@ class TestBug20260922015FailRollsBack:
             stock_before = _db_stock(mat_id)
 
             resp = document_post(client,f"/in_order/{order.id}/update_completed", json={
+                "reason": "核实收货数量",
                 "items": [{
                     "id": item_id,
                     "quantity": 80,

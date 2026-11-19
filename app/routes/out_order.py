@@ -1347,7 +1347,7 @@ def register_out_order_routes(app):
     def delete_out_order(id):
         from app import (OutOrder, StockTransaction, _acquire_order_write_lock,
                          _release_document_push_lines, api_error,
-                         log_audit, log_operation)
+                         log_operation)
         from sqlalchemy.orm import selectinload
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -1361,6 +1361,8 @@ def register_out_order_routes(app):
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该领料单状态已变更；已完成单请先反提交后再删除'}), 409
             order = locked
+            from services.document_stock_audit import stage_stock_document_snapshot
+            stage_stock_document_snapshot(order, deleting=True)
 
             _release_document_push_lines(
                 'sales_out' if order.business_type == '销售出库' else ('other_out' if order.business_type == '其他出库' else 'requisition'),
@@ -1377,13 +1379,6 @@ def register_out_order_routes(app):
             db.session.delete(order)
             db.session.commit()
             log_operation(f'删除{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', id)
-            # BUG-2026-08-16-012：删除领料单写结构化审计
-            log_audit(
-                'delete_out_order', 'out_order', id,
-                target_name=order.order_no,
-                old_data={'order_no': order.order_no, 'warehouse': order.warehouse or ''},
-                reason='草稿删除',
-            )
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
@@ -1427,6 +1422,8 @@ def register_out_order_routes(app):
                     db.session.rollback()
                     continue
                 order = locked
+                from services.document_stock_audit import stage_stock_document_snapshot
+                stage_stock_document_snapshot(order, deleting=True)
                 _release_document_push_lines(
                     'sales_out' if order.business_type == '销售出库' else ('other_out' if order.business_type == '其他出库' else 'requisition'),
                     order.id, f'目标草稿 {order.order_no} 已批量删除'

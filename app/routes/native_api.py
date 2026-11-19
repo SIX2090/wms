@@ -1150,7 +1150,7 @@ def register_native_api_routes(app):
                     material, quantity, transaction_type='in',
                     reference_type='in_order', reference_id=order.id,
                     remark=f'Android入库 {order.order_no}',
-                    warehouse=order.warehouse, location=document_location)
+                    warehouse=order.warehouse, location=document_location, operator_id=user.id)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg or '库存增加失败', 500)
@@ -1160,6 +1160,8 @@ def register_native_api_routes(app):
                                    created_by=user.id, source_event='scan_inbound')
             db.session.flush()
             response = api_json_success({'id': order.id, 'order_no': order.order_no}, '入库提交成功')
+            from services.document_stock_audit import stage_stock_document_snapshot
+            stage_stock_document_snapshot(order, deleting=False, actor=user)
             stage_document_response(response.get_json())
             db.session.commit()
             return response
@@ -1333,7 +1335,7 @@ def register_native_api_routes(app):
                     material, -quantity, transaction_type='out',
                     reference_type='out_order', reference_id=order.id,
                     remark=f'Android出库 {order.order_no}',
-                    warehouse=order.warehouse, location=location)
+                    warehouse=order.warehouse, location=location, operator_id=user.id)
                 if not ok:
                     db.session.rollback()
                     return api_json_error(msg)
@@ -1343,6 +1345,8 @@ def register_native_api_routes(app):
                                    created_by=user.id, source_event='scan_outbound')
             db.session.flush()
             response = api_json_success({'id': order.id, 'order_no': order.order_no}, '出库提交成功')
+            from services.document_stock_audit import stage_stock_document_snapshot
+            stage_stock_document_snapshot(order, deleting=False, actor=user)
             stage_document_response(response.get_json())
             db.session.commit()
             return response

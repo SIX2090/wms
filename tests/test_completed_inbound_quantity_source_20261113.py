@@ -13,13 +13,15 @@ def synthetic_user_loader(user_id):
     return db.session.get(ns['User'],int(user_id))
 for name in ('api_error','get_default_warehouse','resolve_item_contract'):
     extract('app/app.py',name)
+extract('app/services/document_stock_audit.py','stage_order_audit')
+extract('app/services/document_stock_audit.py','stage_stock_document_snapshot')
 for name in ('_parse_item_batch_no','_parse_item_expiry_date','update_completed_in_order'):
     extract('app/routes/in_order.py',name)
 '''
 
 HELPERS=r'''
 def completed_call(self,order,payload):
-    with app.test_request_context('/synthetic-inbound-completed',method='POST',json=payload):
+    with app.test_request_context('/synthetic-inbound-completed',method='POST',json={'reason':'合成收货复核', **payload}):
         login_user(self.user)
         with patch.dict(ns,request=actual_request,current_user=real_current_user):
             self.assertTrue(real_current_user.is_authenticated)
@@ -373,7 +375,7 @@ def main():
     for node in ast.walk(original):
         if (isinstance(node,ast.Tuple) and all(isinstance(value,ast.Constant) for value in node.elts)
                 and 'services.warehouse_stock_service' in [value.value for value in node.elts]):
-            node.elts.extend(ast.Constant(value=name) for name in ('services.document_return_guard','services.warehouse_identity'))
+            node.elts.extend(ast.Constant(value=name) for name in ('services.document_return_guard','services.warehouse_identity','services.document_stock_audit'))
     suite=next(node for node in original.body if isinstance(node,ast.ClassDef) and node.name=='RealModelBoundaries')
     suite.body=[node for node in suite.body if not(isinstance(node,ast.FunctionDef) and node.name.startswith('test_'))]
     original.body[original.body.index(suite):original.body.index(suite)]=ast.parse(constants['SETUP']+SETUP).body

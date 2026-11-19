@@ -5116,7 +5116,7 @@ def _stock_location_from_warehouse(warehouse):
     return txt or None
 
 
-def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
+def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None, *, operator_id=None):
     """原子扣减库存：用条件 UPDATE 保证并发安全。
     返回 (是否成功, 错误信息, material 对象)。
     仅容忍 STOCK_COMPARE_EPSILON 内的浮点尾差；条件 UPDATE 仍原子校验，并发冲突下 rowcount==0，
@@ -5179,12 +5179,12 @@ def deduct_stock_atomic(material_id, quantity, transaction_type=None, reference_
             warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
-            operator_id=current_user.id if current_user.is_authenticated else None,
+            operator_id=operator_id if operator_id is not None else (current_user.id if current_user.is_authenticated else None),
             remark=remark or ''
         ))
     return True, '', mat
 
-def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None):
+def add_stock(material, quantity, transaction_type=None, reference_type=None, reference_id=None, remark=None, warehouse=None, *, operator_id=None):
     """增加库存，返回(是否成功, 错误信息)。
 
     BUG-2026-08-16-006：新增 warehouse 参数，写流水时把仓库名写入
@@ -5218,7 +5218,7 @@ def add_stock(material, quantity, transaction_type=None, reference_type=None, re
             warehouse_id=warehouse_id,
             reference_type=reference_type or '',
             reference_id=reference_id or 0,
-            operator_id=current_user.id if current_user.is_authenticated else None,
+            operator_id=operator_id if operator_id is not None else (current_user.id if current_user.is_authenticated else None),
             remark=remark or ''
         )
         db.session.add(transaction)

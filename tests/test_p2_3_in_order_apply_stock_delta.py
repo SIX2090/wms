@@ -243,6 +243,7 @@ def test_update_completed_in_order_delta_three_ledgers(client):
 
     # 10 → 15（delta +5）
     body = document_post(client,f"/in_order/{order_id}/update_completed", json={
+        "reason": "实收数量复核",
         "items": [{"id": item_id, "quantity": 15, "price": 1}],
     }).get_json()
     assert body["status"] == "success", body
@@ -253,6 +254,7 @@ def test_update_completed_in_order_delta_three_ledgers(client):
 
     # 15 → 12（delta -3）
     body = document_post(client,f"/in_order/{order_id}/update_completed", json={
+        "reason": "实收数量复核",
         "items": [{"id": item_id, "quantity": 12, "price": 1}],
     }).get_json()
     assert body["status"] == "success", body
@@ -274,6 +276,7 @@ def test_delete_completed_in_order_item_three_ledgers(client):
         item_id = InOrderItem.query.filter_by(in_order_id=order_id).one().id
 
     body = document_post(client,f"/in_order/{order_id}/update_completed", json={
+        "reason": "实收数量复核",
         "deleted_items": [item_id], "items": [],
     }).get_json()
     assert body["status"] == "success", body
