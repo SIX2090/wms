@@ -3229,3 +3229,6 @@ body.cb-form-actionbar .wms-entry-header.page-header {
    嵌入模式（body.embedded-page / window.self!==window.top / ?embedded=1）下不隐藏。 */
 body:not(.embedded-page) #cbGlobalActionBar { display: none !important; }
 body:not(.embedded-page) .cb-actionbar-toolbar { display: none !important; }
+
+html[data-batch-management="off"] [data-column-key="batch_no"],
+html[data-batch-management="off"] [data-column-key="colBatchNo"] { display: none !important; }

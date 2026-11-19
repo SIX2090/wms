@@ -1028,7 +1028,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         // F3.17：批次号/有效期前端校验与后端 _parse_item_batch_no /
         // _parse_item_expiry_date 同口径（粘贴导入/草稿回填可绕过
         // maxlength 与 date 控件约束，提交前必须兜底）。
-        const batchNoVal = (row.querySelector('.material-batch-no')?.value || '').trim();
+        const batchNoVal = document.documentElement?.dataset?.batchManagement === 'on'
+            ? (row.querySelector('.material-batch-no')?.value || '').trim() : '';
         if (batchNoVal.length > 50) {
             errors.push({ rowIndex, selector: '.material-batch-no', message: '第 ' + (rowIndex + 1) + ' 行批次号不能超过 50 个字符。' });
             markRowError(row, '.material-batch-no');
@@ -1039,7 +1040,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             markRowError(row, '.material-expiry');
         }
 
-        const item = { code, box_no: (row.querySelector('.material-box-no')?.value || '').trim(), quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: (row.querySelector('.material-batch-no')?.value || '').trim(), expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
+        const item = { code, box_no: (row.querySelector('.material-box-no')?.value || '').trim(), quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: batchNoVal, expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
         if (isProductIn && row.querySelector('.material-name')) {
             item.name = productName;
             item.spec = (row.querySelector('.material-spec')?.value || '').trim();

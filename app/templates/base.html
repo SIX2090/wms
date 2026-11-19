@@ -328,10 +328,6 @@
     <link href="{{ url_for('static', filename='css/shell.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='js/pages/shell-navigation.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if h5_app %}<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-app.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}">{% endif %}
-    <style>
-        html[data-batch-management="off"] [data-column-key="batch_no"],
-        html[data-batch-management="off"] [data-column-key="colBatchNo"] { display: none !important; }
-    </style>
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 8 小时），避免长会话过期 -->
     <script>

@@ -65,6 +65,7 @@ def main():
         id = Column(Integer, primary_key=True)
         in_order_id = Column(Integer, ForeignKey('synthetic_order.id'))
         material_id = Column(Integer)
+        batch_no = Column(String(50))
         quantity = Column(Float)
         price = Column(Float)
         amount = Column(Float)
@@ -184,9 +185,10 @@ db.session.flush()
            'update_purchase_order_status': lambda *_: None, 'validate_purchase_receive_quantity': lambda *_: (True, ''),
            'validate_sales_return_quantity': lambda *_: (True, ''), 'sales_return_remaining_check': lambda *_: (True, ''),
            '_product_header_project': lambda _business, _contract, project: project,
-           '_parse_item_batch_no': lambda value: (value, ''), '_parse_item_expiry_date': lambda _value: (None, ''),
+           '_parse_item_expiry_date': lambda _value: (None, ''),
            'resolve_product_receipt_materials': lambda items: items}
-    code = ast.fix_missing_locations(ast.Module(body=[find(utils_tree, 'round_to_2_decimals'),
+    code = ast.fix_missing_locations(ast.Module(body=[find(route_tree, '_parse_item_batch_no'),
+                                find(route_tree, '_resolve_item_batch_no'), find(utils_tree, 'round_to_2_decimals'),
                                 find(utils_tree, 'round_money_product'), find(service_tree, '_document_idempotent'),
                                 find(service_tree, 'stage_document_response'), route], type_ignores=[]))
     exec(compile(code, '<copied-wms-route>', 'exec'), env)

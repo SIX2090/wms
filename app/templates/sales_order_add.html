@@ -426,7 +426,7 @@
                 quantity: row.querySelector('.qty').value,
                 price: row.querySelector('.price').value,
                 tax_rate: row.querySelector('.tax-rate').value,
-                batch_no: row.querySelector('.batch-no').value,
+                batch_no: document.documentElement?.dataset?.batchManagement === 'on' ? row.querySelector('.batch-no').value : '',
                 serial_no: row.querySelector('.serial-no').value,
                 contract_no: row.querySelector('.line-contract-no').value.trim(),
                 project_name: row.querySelector('.line-project-name').value.trim(),

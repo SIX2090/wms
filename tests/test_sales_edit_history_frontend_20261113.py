@@ -63,6 +63,7 @@ const ctx={body,defaultTaxRate:.13,activeDropdown:null,materials:[material],
    return totals[id]??=element();}},window:{},
  WMS:{api:{postRaw:async(url,payload)=>{assert.equal(url,'/synthetic-capture-only');
   captured.push(JSON.parse(JSON.stringify(payload)));return {status:'error',msg:'synthetic capture complete'};}}}};
+ctx.document.documentElement={dataset:{batchManagement:p.batchManagement||'off'}};
 vm.createContext(ctx);vm.runInContext(p.money,ctx,{timeout:1000});vm.runInContext(p.script,ctx,{timeout:1000});
 (async()=>{
  let row;
@@ -88,6 +89,7 @@ vm.createContext(ctx);vm.runInContext(p.money,ctx,{timeout:1000});vm.runInContex
   assert.equal(copy.dataset.salesLineId,'','copied row cannot inherit source identity');
   assert.equal(copy._salesSnapshot,null,'copied row cannot inherit saved financial snapshot');
   const values=ctx.collect().items;assert.equal(values[0].line_id,'10');assert.equal(values[1].line_id,null);
+  assert.ok(values.every(item=>item.batch_no===(p.batchManagement==='on'?'B':'')));
   return;}
  await ctx.save();assert.equal(captured.length,1);
  const sent=captured[0].items[0];assert.equal(sent.line_id,'10');
@@ -118,9 +120,9 @@ class SalesEditHistoryFrontend(unittest.TestCase):
         cls.script += '\n' + source[start:end]
         cls.money = (ROOT / 'app/static/js/money.js').read_text(encoding='utf-8-sig')
 
-    def check(self, case):
+    def check(self, case, batch_management='off'):
         result = subprocess.run([self.node, '-e', PROGRAM], input=json.dumps({
-            'script': self.script, 'money': self.money, 'case': case}),
+            'script': self.script, 'money': self.money, 'case': case, 'batchManagement': batch_management}),
             encoding='utf-8', capture_output=True, timeout=15)
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -138,6 +140,7 @@ class SalesEditHistoryFrontend(unittest.TestCase):
 
     def test_copy_strips_identity_and_recorded_money_snapshot(self):
         self.check('copy')
+        self.check('copy', batch_management='on')
 
     def test_new_zero_quantity_is_rejected_before_save(self):
         self.check('new-zero')
