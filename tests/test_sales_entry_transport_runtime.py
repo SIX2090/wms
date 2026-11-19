@@ -43,7 +43,8 @@ const editing=p.action.startsWith('edit');
 const row={dataset:{salesLineId:p.action==='edit'?'17':''},querySelector:s=>{if(s==='.material-code')collectRound++;if(mode==='collect_error'&&(p.action!=='add'||collectRound>1))throw Error('fixture collection failure');return {value:lines[s]};}};
 const buttons={saveBtn:{disabled:false,addEventListener:(e,fn)=>handlers.saveBtn=fn},saveNewBtn:{disabled:editing,addEventListener:(e,fn)=>handlers.saveNewBtn=fn}};
 const status={textContent:''};const body={querySelectorAll:()=>[row]};
-const ctx={Headers,FormData,body,editUrl:'/sales/7/edit',document:{getElementById:id=>id==='entryStatus'?status:buttons[id],querySelector:s=>s.includes('meta')?{content:'fixture-csrf'}:{value:mode==='validation'&&s.includes('customer_id')?'':fields[s.match(/name="([^"]+)"/)?.[1]]},querySelectorAll:()=>Object.values(buttons)},
+const ctx={Headers,FormData,body,editUrl:'/sales/7/edit',document:{documentElement:{dataset:{batchManagement:'on'}},
+ getElementById:id=>id==='entryStatus'?status:buttons[id],querySelector:s=>s.includes('meta')?{content:'fixture-csrf'}:{value:mode==='validation'&&s.includes('customer_id')?'':fields[s.match(/name="([^"]+)"/)?.[1]]},querySelectorAll:()=>Object.values(buttons)},
  showValidation:m=>messages.push(...m),rememberRecent:code=>recent.push(code),showToast:(m,t)=>messages.push({m,t}),confirm:()=>false,
  location:{get href(){return href;},set href(value){href=value;}},setTimeout:(fn,delay)=>timers.push({fn,delay}),
  fetch:(u,o)=>{sent.push({u,o});return new Promise((resolve,reject)=>resolveRequest=()=>{

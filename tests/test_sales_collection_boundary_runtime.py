@@ -71,7 +71,7 @@ const ctx={Headers,FormData,body,defaultTaxRate:0.13,activeDropdown:null,salesSa
     prompt(){promptCount++;return p.scenario==='template_cancel'?null:'Fixture template';},confirm:()=>false,setTimeout(){},
     localStorage:{getItem:k=>storage[k]??null,setItem:(k,v)=>{writes.push({k,v});storage[k]=v;}},
     location:{get href(){return href;},set href(v){href=v;}},
-    document:{createElement:()=>makeRow(),
+    document:{documentElement:{dataset:{batchManagement:'on'}},createElement:()=>makeRow(),
         querySelector:s=>s.includes('meta')?{content:'fixture-csrf'}:{value:headers[s.match(/name="([^"]+)"/)?.[1]]??''},
         querySelectorAll:()=>[buttons.saveBtn,buttons.saveNewBtn].filter(Boolean),
         getElementById:id=>{
