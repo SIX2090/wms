@@ -802,7 +802,6 @@ def register_purchase_order_routes(app):
     def create_in_order_from_purchase_order_selection():
         from datetime import date
         from flask_login import current_user
-        from sqlalchemy.orm import joinedload
         from app import (_purchase_reservation_error, InOrder, InOrderItem, PurchaseOrder, PurchaseOrderItem, api_error,
                          assert_warehouse_active, generate_order_no, get_default_warehouse,
                          log_operation,
@@ -849,10 +848,8 @@ def register_purchase_order_routes(app):
         if not selected_qty_by_item_id:
             return api_error('请选择大于 0 的转换数量')
 
-        source_items = PurchaseOrderItem.query.options(
-            joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
-            joinedload(PurchaseOrderItem.material),
-        ).filter(PurchaseOrderItem.id.in_(selected_qty_by_item_id.keys())).all()
+        from app import _locked_purchase_push_items
+        source_items = _locked_purchase_push_items(PurchaseOrderItem.id.in_(selected_qty_by_item_id.keys()))
         if len(source_items) != len(selected_qty_by_item_id):
             return api_error('部分采购单明细不存在，请刷新后重试')
 

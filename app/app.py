@@ -11855,11 +11855,25 @@ def _ai_purchase_order_from_context_or_message(message, context=None):
             return order
     return None
 
+def _locked_purchase_push_items(condition):
+    """在读取待占用余量前锁定来源行，锁随本次下推事务释放。"""
+    from sqlalchemy.orm import selectinload
+    query = PurchaseOrderItem.query.filter(condition)
+    if db.engine.dialect.name == 'sqlite':
+        # SQLite 的 SELECT FOR UPDATE 无效。保持原值的 UPDATE 取得写锁，也保留已写入的幂等凭据。
+        query.update({PurchaseOrderItem.received_quantity: PurchaseOrderItem.received_quantity},
+                     synchronize_session=False)
+    return (query.options(selectinload(PurchaseOrderItem.purchase_order).selectinload(PurchaseOrder.supplier),
+                          selectinload(PurchaseOrderItem.material))
+            .order_by(PurchaseOrderItem.id).populate_existing().with_for_update().all())
+
+
 def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', submitted_qty_by_id=None):
     from flask import g, has_request_context
     _web_command_receipt = has_request_context() and getattr(g, 'web_document_receipt', None)
     if not purchase_order_to_in_order_enabled():
         return None, '系统已关闭采购订单下推入库单'
+    source_items = _locked_purchase_push_items(PurchaseOrderItem.purchase_order_id == order.id)
     if order.status == 'completed':
         return None, '该采购单已全部入库'
     if order.status == 'closed':
@@ -11871,7 +11885,7 @@ def _create_in_order_from_purchase_order_core(order, warehouse='', remark='', su
     warehouse = warehouse_obj.name
     submitted_qty_by_id = submitted_qty_by_id if isinstance(submitted_qty_by_id, dict) else {}
     receivable_items = []
-    for item in order.items:
+    for item in source_items:
         remain_qty = round_to_2_decimals((item.quantity or 0) - (item.received_quantity or 0))
         if remain_qty <= 0:
             continue

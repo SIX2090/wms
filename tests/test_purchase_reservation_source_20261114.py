@@ -20,7 +20,7 @@ if any(isinstance(node,ast.FunctionDef) and node.name=='_purchase_reservation_er
     extract('app/app.py','_purchase_reservation_error')
 for name in ('is_purchase_in_order','should_block_purchase_over_receive','validate_purchase_receive_quantity',
              'is_warehouse_active','assert_warehouse_active','resolve_active_inventory_warehouse',
-             'validate_inventory_warehouse','is_future_date','_create_in_order_from_purchase_order_core'):
+             'validate_inventory_warehouse','is_future_date','_locked_purchase_push_items','_create_in_order_from_purchase_order_core'):
     extract('app/app.py',name)
 extract('app/utils.py','parse_float_value')
 extract('app/services/web_document_idempotency.py','stage_document_response')
