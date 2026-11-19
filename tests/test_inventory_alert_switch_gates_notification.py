@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 from datetime import date, timedelta
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
@@ -166,3 +168,50 @@ def test_inventory_reconciliation_summary():
         title, content = inventory_reconciliation_summary()
         assert "数量相符" in title and "总账与流水差异 0" in content
         assert "仓库外键为空的流水 0" in content
+
+
+@pytest.mark.parametrize('kind, quantity, attribution', [
+    ('in_order', 10, 'wrong'),
+    ('out_order', -10, 'wrong'),
+    ('in_order', 0.01, 'wrong'),
+    ('in_order', 10, 'correct'),
+    ('in_order', 10, 'unassigned'),
+])
+def test__warehouse_source_ledger_differences(kind, quantity, attribution):
+    from app import InOrder, OutOrder, StockTransaction, Warehouse
+    from services.warehouse_stock_service import inventory_reconciliation_summary
+
+    _reset('0')
+    with app_module.app.app_context():
+        app_module.set_system_setting('location_management_enabled', '0')
+        material = Material.query.one()
+        first = Warehouse(code='SRC-A', name='来源仓', status='active')
+        second = Warehouse(code='SRC-B', name='其他仓', status='active')
+        db.session.add_all([first, second])
+        db.session.flush()
+        model = InOrder if kind == 'in_order' else OutOrder
+        order = model(order_no='SOURCE-ONE', warehouse=first.code, status='completed')
+        db.session.add(order)
+        db.session.flush()
+        # A previous receipt in the other warehouse has already been reversed.
+        active_warehouse_id = {'wrong': second.id, 'correct': first.id, 'unassigned': None}[attribution]
+        for change, warehouse_id in [(5, second.id), (-5, second.id), (quantity, active_warehouse_id)]:
+            db.session.add(StockTransaction(material_id=material.id, transaction_type='in', quantity=change,
+                                            warehouse_id=warehouse_id, reference_type=kind, reference_id=order.id))
+        material.stock = quantity
+        db.session.commit()
+
+        title, content = inventory_reconciliation_summary()
+
+        assert '总账与流水差异 0' in content and '库位核对关闭' in content
+        assert StockTransaction.query.count() == 3
+        if attribution == 'unassigned':
+            assert '仓库归属待核' in title
+            assert '仓库外键为空的流水 1 条' in content
+        elif attribution == 'wrong':
+            assert '发现差异' in title
+            assert '流水与来源单据仓库不一致 1 组' in content
+            assert f'流水仓库ID {second.id}' in content and f'单据仓库ID {first.id}' in content
+        else:
+            assert '数量相符' in title
+            assert '流水与来源单据仓库不一致 0 组' in content

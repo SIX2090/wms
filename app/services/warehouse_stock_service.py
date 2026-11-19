@@ -1193,6 +1193,44 @@ def apply_opening_balance(material, quantity, *, warehouse=None, location=None,
     return True, ''
 
 
+def _warehouse_source_ledger_differences():
+    """Locate nonzero movements in a different warehouse from their current single-warehouse source."""
+    from sqlalchemy import String, cast, func, literal, select, union_all
+    from models.documents import (AdjustmentOrder, AfterSaleOutOrder, InOrder, OutOrder,
+                                 ProductionRequisition, SubcontractIssue, SubcontractReceive)
+    from models.inventory import StockTransaction
+    from models.master_data import Warehouse
+    from utils import STOCK_COMPARE_EPSILON
+
+    # Name and code share a namespace. A historical conflict is insufficient evidence.
+    alias_rows = union_all(select(Warehouse.name.label('alias'), Warehouse.id),
+                           select(Warehouse.code, Warehouse.id)).subquery()
+    aliases = (select(alias_rows.c.alias, func.min(alias_rows.c.id).label('warehouse_id'))
+               .where(alias_rows.c.alias != '').group_by(alias_rows.c.alias)
+               .having(func.min(alias_rows.c.id) == func.max(alias_rows.c.id)).cte())
+    sources = {
+        'in_order': InOrder, 'out_order': OutOrder, 'adjustment': AdjustmentOrder,
+        'after_sale_out_order': AfterSaleOutOrder, 'requisition': ProductionRequisition,
+        'subcontract_issue': SubcontractIssue, 'subcontract_receive': SubcontractReceive,
+    }
+    movements = (select(StockTransaction.material_id, StockTransaction.reference_type,
+                        StockTransaction.reference_id, StockTransaction.warehouse_id,
+                        func.sum(StockTransaction.quantity).label('quantity'))
+                 .where(StockTransaction.reference_type.in_(sources),
+                        StockTransaction.warehouse_id.is_not(None))
+                 .group_by(StockTransaction.material_id, StockTransaction.reference_type,
+                           StockTransaction.reference_id, StockTransaction.warehouse_id)
+                 .having(func.abs(func.sum(StockTransaction.quantity)) > STOCK_COMPARE_EPSILON).cte())
+    return [
+        select(movements.c.material_id, literal(kind), movements.c.warehouse_id, movements.c.quantity,
+               movements.c.reference_id, cast(aliases.c.warehouse_id, String))
+        .select_from(movements).join(model, model.id == movements.c.reference_id)
+        .join(aliases, aliases.c.alias == func.trim(model.warehouse))
+        .where(movements.c.reference_type == kind, movements.c.warehouse_id != aliases.c.warehouse_id)
+        for kind, model in sources.items()
+    ]
+
+
 def inventory_reconciliation_summary():
     """一次只读查询核对同一快照，汇总全部差异，列出前十个定位线索。"""
     from itertools import groupby
@@ -1205,17 +1243,17 @@ def inventory_reconciliation_summary():
     movements = select(StockTransaction.material_id, literal('txn'), StockTransaction.warehouse_id,
                        func.sum(StockTransaction.quantity), func.count(), literal(None)).group_by(
                            StockTransaction.material_id, StockTransaction.warehouse_id)
-    parts = [totals, movements]
+    parts = [totals, movements, *_warehouse_source_ledger_differences()]
     if use_bins:
         parts.append(select(LocationInventory.material_id, literal('bin'), LocationInventory.warehouse_id,
                             func.sum(LocationInventory.quantity), func.count(), literal(None)).group_by(
                                 LocationInventory.material_id, LocationInventory.warehouse_id))
     data = union_all(*parts).subquery()
     rows = db.session.execute(select(data).order_by(data.c.id))
-    global_diff = bin_diff = warehouse_diff = unassigned = 0
+    global_diff = bin_diff = warehouse_diff = source_diff = unassigned = 0
     examples = []
     for mid, group in groupby(rows, key=itemgetter(0)):
-        code, stock, ledger, bins = str(mid), 0, {}, {}
+        code, stock, ledger, bins, source_examples = str(mid), 0, {}, {}, []
         for _, kind, wid, quantity, count, material_code in group:
             if kind == 'stock':
                 code, stock = material_code or str(mid), quantity or 0
@@ -1223,8 +1261,13 @@ def inventory_reconciliation_summary():
                 ledger[wid] = quantity or 0
                 if wid is None:
                     unassigned += count
-            else:
+            elif kind == 'bin':
                 bins[wid] = quantity or 0
+            else:
+                source_diff += 1
+                if len(examples) + len(source_examples) < 10:
+                    source_examples.append(f'{kind} #{count} 流水仓库ID {wid} 净额 {quantity:g} / 单据仓库ID {material_code}')
+        examples.extend(f'{code} {value}' for value in source_examples)
         if abs(stock - sum(ledger.values())) > LEDGER_EPS:
             global_diff += 1
             if len(examples) < 10:
@@ -1239,9 +1282,15 @@ def inventory_reconciliation_summary():
                     warehouse_diff += 1
                     if len(examples) < 10:
                         examples.append(f'{code} 仓库ID {wid} 流水 {ledger.get(wid, 0):g} / 库位 {bins.get(wid, 0):g}')
-    status = '发现差异' if global_diff or bin_diff or warehouse_diff else '数量相符'
+    if global_diff or bin_diff or warehouse_diff or source_diff:
+        status = '发现差异'
+    elif unassigned:
+        status = '数量相符，仓库归属待核'
+    else:
+        status = '数量相符'
     scope = f'总账与库位差异 {bin_diff}，仓库分布差异 {warehouse_diff}' if use_bins else '库位核对关闭'
-    summary = f'总账与流水差异 {global_diff}，{scope}。仓库外键为空的流水 {unassigned} 条。'
+    summary = (f'总账与流水差异 {global_diff}，{scope}。流水与来源单据仓库不一致 {source_diff} 组。'
+               f'仓库外键为空的流水 {unassigned} 条。')
     if examples:
         summary += ' 差异示例：' + '；'.join(examples)
     return '全仓账簿核对 · ' + status, summary
