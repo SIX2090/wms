@@ -46,6 +46,10 @@ const ctx={document:doc,FormData,URLSearchParams,console,scrollY:0,escapeHtml:es
  setTimeout(f){const id=++timerId;timers.set(id,f);return id;},clearTimeout:id=>timers.delete(id),
  fetch:(url,options)=>new Promise((resolve,reject)=>pending.push({url,options,resolve,reject}))};ctx.window=ctx;
 vm.createContext(ctx);vm.runInContext(p.api,ctx);ctx.WMS.positionDropdown=function(anchor,m){assert(anchor===input||anchor===other);assert(m===dropdown||body.includes(m));m.positioned=true;};vm.runInContext(p.code,ctx);
+if(p.mode==='receipt-tail'){
+ ctx.WMS.purchaseReceiptContracts=[
+  {contract_no:'HD261103',project_name:'工程 A'}, {contract_no:'HD261203',project_name:'工程 B'}];
+}
 if(p.page==='contract'){ctx.WMS.ContractAutocomplete.bind(input);ctx.WMS.ContractAutocomplete.bind(other);}
 const tick=()=>new Promise(r=>setImmediate(r));
 function fire(node,name,extra={}){node.handlers[name]?.call(node,{key:'',target:node,preventDefault(){this.prevented=true},stopPropagation(){},...extra});}
@@ -64,6 +68,16 @@ function reply(index,name,kind='ok'){
 }
 function choose(){const item=menu().children[0];assert(item);let prevented=false;fire(item,'mousedown',{preventDefault(){prevented=true}});if(p.page==='picker')fire(item,'click');return prevented;}
 (async()=>{
+ if(p.mode==='receipt-tail'){
+  input.value='1103';fire(input,'input');assert(contains('HD261103'));
+  fire(input,'blur');assert.equal(input.value,'HD261103');assert.equal(projectMate.value,'工程 A');
+  input.value='03';fire(input,'input');assert.equal(projectMate.value,'');fire(input,'blur');
+  assert.equal(input.value,'03');assert.equal(projectMate.value,'');
+  input.value='1203';fire(input,'input');fire(input,'keydown',{key:'Enter'});
+  assert.equal(input.value,'HD261203');assert.equal(projectMate.value,'工程 B');
+  input.value='NEW';fire(input,'input');projectMate.value='新工程';fire(input,'blur');
+  assert.equal(projectMate.value,'新工程');assert.equal(pending.length,0);return;
+ }
  fire(input,'focus');assert.equal(pending.length,1);
  if(p.mode==='success'){reply(0,'MATCH');await tick();assert(contains('MATCH'));assert.equal(pending[0].options.credentials,'same-origin');assert.equal(pending[0].options.headers['X-Requested-With'],'XMLHttpRequest');return;}
  if(['http','html','business','shape','bad-item','network','null'].includes(p.mode)){
@@ -116,7 +130,7 @@ CASES = [(page, mode) for page in ['contract', 'project', 'picker'] for mode in 
     'success', 'http', 'html', 'business', 'shape', 'bad-item', 'network', 'null', 'empty',
     'late-success', 'late-error', 'late-http', 'late-shape', 'debounce', 'cancel-timer', 'clear', 'escape',
     'blur', 'outside', 'detach', 'silent-change', 'mousedown', 'keyboard', 'choose-late',
-]] + [('contract', 'cache-stale'), ('project', 'cache-stale'),
+]] + [('contract', 'receipt-tail'), ('contract', 'cache-stale'), ('project', 'cache-stale'),
       ('contract', 'cross-row'), ('contract', 'old-blur-timer'), ('picker', 'empty-button')]
 
 

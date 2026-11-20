@@ -4668,6 +4668,9 @@ function getRecentVisits() {
         if (!inputs) return;
         if (inputs.contractNo) inputs.contractNo.value = contractNo;
         if (inputs.projectName) inputs.projectName.value = projectName;
+        if (global.WMS.purchaseReceiptContracts && inputs.contractNo) {
+            inputs.contractNo.dataset.archiveProject = projectName;
+        }
     }
 
     function moveActive(direction) {
@@ -4702,6 +4705,23 @@ function getRecentVisits() {
 
         var lastKeyword = '';
         var lastResults = null;
+        var archive = global.WMS.purchaseReceiptContracts;
+        var fields = archive && findRowInputs(input);
+        var isReceiptNumber = fields && fields.contractNo === input;
+
+        function completeReceiptNumber() {
+            if (!isReceiptNumber) return false;
+            var number = input.value.trim();
+            if (!number) return false;
+            var match = archive.find(function(c) { return c.contract_no === number; });
+            if (!match && /^\d+$/.test(number)) {
+                var matches = archive.filter(function(c) { return c.contract_no.endsWith(number); });
+                if (matches.length === 1) match = matches[0];
+            }
+            if (!match) return false;
+            applySelection(input, match.contract_no, match.project_name);
+            return true;
+        }
 
         function isCurrent(value, version) {
             return version === searchVersion && currentInput === input &&
@@ -4734,6 +4754,14 @@ function getRecentVisits() {
             var version = searchVersion;
             var value = input.value.trim();
             if (!value) return;
+            if (archive) {
+                var keyword = value.toLowerCase();
+                var matches = archive.filter(function(c) {
+                    return c.contract_no.toLowerCase().includes(keyword) || c.project_name.toLowerCase().includes(keyword);
+                });
+                renderDropdown(input, matches);
+                return;
+            }
             if (value === lastKeyword && lastResults) {
                 renderDropdown(input, lastResults);
                 return;
@@ -4742,17 +4770,34 @@ function getRecentVisits() {
             else triggerSearch(value, version);
         }
 
-        input.addEventListener('input', function() { search(true); });
+        input.addEventListener('input', function() {
+            if (isReceiptNumber && input.dataset.archiveProject === fields.projectName.value) {
+                fields.projectName.value = '';
+                delete input.dataset.archiveProject;
+            }
+            search(true);
+        });
 
         // 聚焦时也触发搜索：让用户点击/聚焦合同编号或工程名称单元格时能看到匹配项
         // （即使已有值，也搜索该值展示对应的合同档案供快速选择/校对）
         input.addEventListener('focus', function() {
+            if (isReceiptNumber && archive.some(function(c) {
+                return c.contract_no === input.value && c.project_name === fields.projectName.value;
+            })) input.dataset.archiveProject = fields.projectName.value;
             search(false);
         });
 
         input.addEventListener('keydown', function(event) {
             if (currentInput !== input) return;
+            if (event.isComposing || event.keyCode === 229) return;
             if (event.key === 'Escape') { closeDropdown(); return; }
+            if (event.key === 'Enter' && isReceiptNumber &&
+                (!currentDropdown || !currentDropdown.querySelector('.' + ITEM_CLASS + '.active')) &&
+                completeReceiptNumber()) {
+                event.preventDefault();
+                closeDropdown();
+                return;
+            }
             if (!currentDropdown) return;
             if (event.key === 'ArrowDown') {
                 event.preventDefault();
@@ -4767,6 +4812,7 @@ function getRecentVisits() {
         });
 
         input.addEventListener('blur', function() {
+            completeReceiptNumber();
             // Candidate mousedown prevents blur; leaving the field cancels immediately.
             if (currentInput === input) closeDropdown();
         });

@@ -160,6 +160,39 @@ def _product_header_project(business_type, contract_no, project_name):
     return contract.project_name if contract else project_name
 
 
+def resolve_purchase_receipt_contract(number, project, contract_id=None):
+    """Resolve an entered receipt line in the document's existing write transaction."""
+    from app import Contract
+
+    if not isinstance(number or '', str) or not isinstance(project or '', str):
+        raise ValueError('合同编号和工程名称必须是文本')
+    number, project = (number or '').strip(), (project or '').strip()
+    if len(number) > 50 or len(project) > 200:
+        raise ValueError('合同编号最多 50 个字符，工程名称最多 200 个字符')
+    if not number:
+        contract = db.session.get(Contract, contract_id) if contract_id else None
+        if not contract:
+            if project or contract_id:
+                raise ValueError('请填写合同编号')
+            return None, None, None
+    else:
+        contract = Contract.query.filter_by(contract_no=number).first()
+        if not contract and number.isascii() and number.isdigit():
+            matches = Contract.query.filter(Contract.contract_no.endswith(number)).limit(2).all()
+            if len(matches) > 1:
+                raise ValueError(f'尾号 {number} 匹配多个合同，请选择或填写完整合同编号')
+            contract = next(iter(matches), None)
+        if not contract:
+            if not project:
+                raise ValueError(f'合同 {number} 尚未建档，请填写工程名称')
+            contract = Contract(contract_no=number, project_name=project, status='active')
+            db.session.add(contract)
+            db.session.flush()
+    if project and project != contract.project_name:
+        raise ValueError(f'合同 {contract.contract_no} 的档案工程名称为“{contract.project_name}”，请核对')
+    return contract.id, contract.contract_no, contract.project_name
+
+
 def _in_order_print_title(order):
     """Use the saved business type consistently across built-in print outputs."""
     return (getattr(order, 'business_type', None) or '采购入库') + '单'
@@ -1001,7 +1034,7 @@ def register_in_order_routes(app):
     def in_order_add_page():
         from datetime import date, datetime
         from sqlalchemy.orm import joinedload
-        from app import (Customer, Material, Supplier, Unit, generate_order_no,
+        from app import (Contract, Customer, Material, Supplier, Unit, generate_order_no,
                          get_active_warehouses, get_default_warehouse,
                          get_warehouse_stock_quantities, location_management_enabled,
                          serialize_customer, serialize_material_with_stock, serialize_supplier,
@@ -1063,6 +1096,9 @@ def register_in_order_routes(app):
         stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         order_date = datetime.now().strftime('%Y-%m-%d')
         return render_template('in_order_add.html',
+                             receipt_contracts=[dict(row._mapping) for row in db.session.query(
+                                 Contract.contract_no, Contract.project_name, Contract.remark
+                             ).order_by(Contract.contract_no)] if business_type == '采购入库' else None,
                              materials=[serialize_material_with_stock(material, stock_warehouse, stock_map)
                                         for material in materials],
                              units=[serialize_unit(unit) for unit in units],
@@ -1373,7 +1409,7 @@ def register_in_order_routes(app):
 
             # Process items if provided (JSON mode)
             if items_data:
-                for item_data in items_data:
+                for index, item_data in enumerate(items_data, 1):
                     material_code = (item_data.get('code') or '').strip()
                     if not material_code:
                         return fail('请选择物料后再保存', 400)
@@ -1465,6 +1501,16 @@ def register_in_order_routes(app):
                     expiry_date, expiry_err = _parse_item_expiry_date(item_data.get('expiry_date'))
                     if expiry_err:
                         return fail(f'物料 {material.code} 的{expiry_err}')
+                    if business_type == '采购入库':
+                        try:
+                            line_contract = resolve_purchase_receipt_contract(
+                                item_data.get('contract_no'), item_data.get('project_name'), item_data.get('contract_id'))
+                        except ValueError as exc:
+                            return fail(f'第 {index} 行：{exc}')
+                    else:
+                        line_contract = (int(item_data['contract_id']) if item_data.get('contract_id') else None,
+                                         (item_data.get('contract_no') or '').strip() or None,
+                                         (item_data.get('project_name') or '').strip() or None)
                     item = InOrderItem(
                         in_order_id=order.id,
                         material_id=material.id,
@@ -1477,9 +1523,7 @@ def register_in_order_routes(app):
                         box_no=(item_data.get('box_no') or '').strip() or None,
                         expiry_date=expiry_date,
                         remark=(item_data.get('remark') or '').strip() or None,
-                        contract_id=int(item_data.get('contract_id')) if item_data.get('contract_id') else None,
-                        contract_no=(item_data.get('contract_no') or '').strip() or None,
-                        project_name=(item_data.get('project_name') or '').strip() or None,
+                        contract_id=line_contract[0], contract_no=line_contract[1], project_name=line_contract[2],
                         is_customer_supplied=is_customer_supplied,
                     )
                     db.session.add(item)
@@ -1612,6 +1656,14 @@ def register_in_order_routes(app):
             return api_error(expiry_err)
 
         try:
+            if is_purchase_in_order(order) and any(request.form.get(key, '').strip()
+                                                   for key in ('contract_no', 'project_name', 'contract_id')):
+                try:
+                    contract_id, contract_no, project_name = resolve_purchase_receipt_contract(
+                        request.form.get('contract_no'), request.form.get('project_name'), request.form.get('contract_id'))
+                except ValueError as exc:
+                    db.session.rollback()
+                    return api_error(str(exc))
             item = InOrderItem(
                 in_order_id=id,
                 material_id=material.id,
