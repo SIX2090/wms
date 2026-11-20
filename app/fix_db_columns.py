@@ -78,6 +78,10 @@ _INVENTORY_CHECK_MIGRATIONS = (
     ('inventory_check_scan_item', 'PRAGMA table_info(inventory_check_scan_item)', (
         ('area',
          "ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+        ('batch_item_id',
+         'ALTER TABLE inventory_check_scan_item ADD COLUMN batch_item_id INTEGER REFERENCES inventory_check_item(id) ON DELETE SET NULL'),
+        ('created_batch_item',
+         'ALTER TABLE inventory_check_scan_item ADD COLUMN created_batch_item BOOLEAN'),
     )),
 )
 

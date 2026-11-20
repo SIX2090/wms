@@ -1996,6 +1996,12 @@ def auto_migrate_database():
             if _icsi_cols and 'area' not in _icsi_cols:
                 cursor.execute("ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''")
                 modified = True
+            if _icsi_cols and 'batch_item_id' not in _icsi_cols:
+                cursor.execute('ALTER TABLE inventory_check_scan_item ADD COLUMN batch_item_id INTEGER REFERENCES inventory_check_item(id) ON DELETE SET NULL')
+                modified = True
+            if _icsi_cols and 'created_batch_item' not in _icsi_cols:
+                cursor.execute('ALTER TABLE inventory_check_scan_item ADD COLUMN created_batch_item BOOLEAN')
+                modified = True
 
         # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
         if _table_exists('production_requisition'):
@@ -2664,6 +2670,10 @@ def ensure_inventory_check_columns(db_path: str | None = None):
             ('inventory_check_scan_item', 'PRAGMA table_info(inventory_check_scan_item)', (
                 ('area',
                  "ALTER TABLE inventory_check_scan_item ADD COLUMN area VARCHAR(100) DEFAULT ''"),
+                ('batch_item_id',
+                 'ALTER TABLE inventory_check_scan_item ADD COLUMN batch_item_id INTEGER REFERENCES inventory_check_item(id) ON DELETE SET NULL'),
+                ('created_batch_item',
+                 'ALTER TABLE inventory_check_scan_item ADD COLUMN created_batch_item BOOLEAN'),
             )),
         )
         added_cols = []
@@ -27798,58 +27808,41 @@ def _create_adjustment_drafts_from_check(check):
     if existing:
         return None, '该盘点单已生成库存调整单，请勿重复生成'
 
-    # 盘点支持"物料+区域"分行：同一物料跨多区域的差异按净额合并为一条，
-    # 防止分区盘点把同一物料的差异重复叠加/重复调整。
-    _net = {}
-    for item in check.items:
-        if not item.material_id:
-            continue
-        system_stock = normalize_stock_quantity(item.system_stock or 0)
-        actual_stock = normalize_stock_quantity(item.actual_stock or 0)
-        diff = normalize_stock_quantity(actual_stock - system_stock)
-        if abs(diff) <= STOCK_COMPARE_EPSILON and not (item.area or '').strip():
-            continue
-        entry = _net.get(item.material_id)
-        if entry is None:
-            entry = {
-                'diff': 0.0, 'areas': set(), 'items': [], 'has_area': False, 'item': item}
-            _net[item.material_id] = entry
-        entry['diff'] += diff
-        entry['areas'].add((item.area or '').strip() or '未分区')
-        entry['items'].append(item)
-        if (item.area or '').strip():
-            entry['has_area'] = True
-    if location_management_enabled():
-        missing_locations = [
-            entry['item'].material.code if entry['item'].material else str(material_id)
-            for material_id, entry in _net.items()
-            if abs(entry['diff']) > STOCK_COMPARE_EPSILON
-            and not any((item.area or '').strip() for item in entry['items'])
-        ]
-        if missing_locations:
-            return None, '启用库位管理后，盘点差异行必须填写库位/区域：' + '、'.join(missing_locations[:10])
-        split_locations = [
-            entry['item'].material.code if entry['item'].material else str(material_id)
-            for material_id, entry in _net.items()
-            if len({(item.area or '').strip() for item in entry['items']}) > 1
-        ]
-        if split_locations:
-            return None, '启用库位管理时，同一物料不能跨多个区域合并生成调整，请按单一库位分别盘点：' + '、'.join(split_locations[:10])
+    # 每行是一份实盘记录。同一物料只使用首次冻结的仓库账面。
+    by_material = {}
+    for item in sorted(check.items, key=lambda row: row.id):
+        if item.material_id:
+            by_material.setdefault(item.material_id, []).append(item)
+    locations = location_management_enabled()
     grouped = {'surplus': [], 'loss': []}
-    for _material_id, _entry in _net.items():
-        if _entry['has_area']:
-            # 分区盘点：区域行各记各的实盘，行级 diff 只作参考；过账净额 =
-            # 该物料各区域实盘合计 − 仓库账面（账面只计一次，防多区重复扣减）。
-            _book = normalize_stock_quantity(_entry['items'][0].system_stock or 0)
-            _total_actual = round_to_2_decimals(sum(
-                normalize_stock_quantity(it.actual_stock or 0) for it in _entry['items']))
-            _net_diff = round_to_2_decimals(_total_actual - _book)
-        else:
-            _net_diff = round_to_2_decimals(_entry['diff'])
-        if abs(_net_diff) <= STOCK_COMPARE_EPSILON:
+    for material_id, rows in by_material.items():
+        first = rows[0]
+        counted = []
+        for row in rows:
+            # 分类建单、复制及空白数量会预填账面。未盘的占位行不算一份实物。
+            # 兼容历史有实盘差异的手工行及原先按区域登记的明细。
+            if (row.counted_at or row.counted_by or row.actual_stock != row.system_stock
+                    or (row.area or '').strip()):
+                counted.append(row)
+        if not counted:
             continue
-        _direction = 'surplus' if _net_diff > 0 else 'loss'
-        grouped[_direction].append((_entry['item'], abs(_net_diff), _material_id, _entry['areas']))
+        areas = {(row.area or '').strip() for row in counted}
+        book = normalize_stock_quantity(first.system_stock or 0)
+        total = round_to_2_decimals(sum(normalize_stock_quantity(row.actual_stock or 0) for row in counted))
+        net = round_to_2_decimals(total - book)
+        code = first.material.code if first.material else str(material_id)
+        if locations and len(areas) > 1:
+            return None, '启用库位管理时，同一物料不能跨多个区域合并生成调整，请按单一库位分别盘点：' + code
+        if abs(net) <= STOCK_COMPARE_EPSILON:
+            continue
+        if locations and not any(areas):
+            return None, '启用库位管理后，盘点差异行必须填写库位/区域：' + code
+        item = counted[0]
+        if len(counted) > 1:
+            reason = f'盘点差异：{len(counted)} 行实盘合计 {total}，账面 {book}，净调整 {net}'
+        else:
+            reason = item.reason or f'盘点差异：账面 {book}，实盘 {total}'
+        grouped['surplus' if net > 0 else 'loss'].append((item, abs(net), reason))
 
     drafts = []
     for adjustment_type, rows in grouped.items():
@@ -27869,18 +27862,11 @@ def _create_adjustment_drafts_from_check(check):
         )
         db.session.add(order)
         db.session.flush()
-        for item, qty, material_id, areas in rows:
+        for item, qty, reason in rows:
             signed_qty = qty if adjustment_type == 'surplus' else -qty
-            if len(areas) > 1:
-                reason = f'盘点差异（{len(areas)} 个区域），净调整 {signed_qty}'
-            else:
-                reason = item.reason or (
-                    '盘点差异：账面 %s，实盘 %s' % (
-                        normalize_stock_quantity(item.system_stock or 0),
-                        normalize_stock_quantity(item.actual_stock or 0)))
             db.session.add(AdjustmentOrderItem(
                 adjustment_order_id=order.id,
-                material_id=material_id,
+                material_id=item.material_id,
                 quantity=signed_qty,
                 unit_id=item.material.unit_id if item.material else None,
                 location=(item.area or '').strip() or None,
@@ -28068,8 +28054,9 @@ def _void_check_scan(check_id, *, actor):
     #   counted_by/counted_at=NULL）；
     # - counted_by 已被他人（PC 行级确认/他人扫码）改写的行一律不动。
     if check.check_id is not None:
-        batch = db.session.get(InventoryCheck, check.check_id)
-        if batch is not None and batch.status == 'completed':
+        # SQLite 已在本事务持有写锁。再次 BEGIN 会回滚刚才的草稿删除。
+        batch = InventoryCheck.query.filter_by(id=check.check_id).with_for_update().populate_existing().first()
+        if batch is not None and batch.status != 'pending':
             db.session.rollback()
             return None, None, (
                 f'该扫码盘点已并入批次 {batch.check_no} 且批次已完成，不能作废；'
@@ -28078,23 +28065,37 @@ def _void_check_scan(check_id, *, actor):
         if batch is not None:
             batch_rows = InventoryCheckItem.query.filter_by(
                 inventory_check_id=batch.id).all()
-            row_map = {(row.material_id, row.area or ''): row for row in batch_rows}
+            by_id = {row.id: row for row in batch_rows}
+            bound_ids = {row_id for (row_id,) in db.session.query(InventoryCheckScanItem.batch_item_id)
+                         .join(InventoryCheckItem, InventoryCheckItem.id == InventoryCheckScanItem.batch_item_id)
+                         .filter(InventoryCheckItem.inventory_check_id == batch.id)}
             scan_operator = check.operator_id
             for scan_item in check.items:
                 if not scan_item.material_id:
                     continue
-                row = row_map.get((scan_item.material_id, (scan_item.area or '').strip()))
+                if scan_item.created_batch_item is not None:
+                    row = by_id.get(scan_item.batch_item_id)
+                    scan_created = scan_item.created_batch_item
+                else:
+                    # 旧扫码没有行引用。多条候选时不能推断该撤销哪张盘点纸。
+                    candidates = [r for r in batch_rows if r.material_id == scan_item.material_id
+                                  and (r.area or '').strip() == (scan_item.area or '').strip()
+                                  and r.counted_by == scan_operator and r.id not in bound_ids]
+                    if len(candidates) > 1:
+                        db.session.rollback()
+                        return None, None, '历史扫码对应多条盘点明细，请在电脑端核对后更正', 'ambiguous_batch_item'
+                    row = candidates[0] if candidates else None
+                    scan_created = row is not None and str(row.reason or '').startswith('手机扫码盘点')
                 if row is None:
                     continue
                 # FEATURE-2026-09-05-004：手机端可填行级差异原因，扫码新建行
                 # reason 形如「手机扫码盘点：破损2件」——此处改用前缀判定识别
                 # 本 CS 新建行（原精确相等判定会因带了原因而误判为 PC 预置行、
                 # 只重置不删除，撤销后留下孤儿未盘行）。
-                _is_scan_created = str(row.reason or '').startswith('手机扫码盘点')
-                if _is_scan_created and row.counted_by is not None and row.counted_by == scan_operator:
+                if scan_created and row.counted_by is not None and row.counted_by == scan_operator:
                     old_batch_rows.append(snapshot_audit_row(row))
                     db.session.delete(row)
-                elif not _is_scan_created and row.counted_by == scan_operator and row.counted_at is not None:
+                elif not scan_created and row.counted_by == scan_operator and row.counted_at is not None:
                     old_batch_rows.append(snapshot_audit_row(row))
                     row.actual_stock = normalize_stock_quantity(row.system_stock)
                     row.difference = 0.0
@@ -28180,43 +28181,39 @@ def _list_pending_check_orders(warehouse=None):
     return result
 
 
-def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None, reason=''):
-    """把扫码盘点单明细写入批次（行级 upsert，INV-BATCH-001-C）。
-
-    批次明细处理规则：
-    - 已有同物料行且已盘（counted_at 非空）→ 拒绝：两人重复盘同一
-      物料时后者不得悄悄覆盖前者，提示到 PC 端更正（判责清晰）；
-    - 已有同物料行未盘 → 更新实盘与行级归属，system_stock 保留
-      （该行首次录入时点的账面基准不变）；
-    - 无行 → 插入新行，system_stock 取扫码时点仓库级账面（即时口径）。
-
-    口径说明（实物守恒推导）：调整量 = 实盘 − Δ(t0→ti) − F =
-    实盘 − 该行盘点时点账面。PC 表格行用冻结口径（P2-B，停机语义），
-    扫码行用即时口径（不停机语义，与独立扫码盘点同口径自洽），批次
-    complete 统一按 actual − system_stock 生成调整单，各行基准自洽。
-
-    调用方须已持有批次写锁（_acquire_order_write_lock）并负责 commit；
-    本函数不写库提交。返回 None 成功，否则返回中文错误消息。
-    """
+def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=None, reason='', allow_supplement=False):
+    """在调用方持有的批次写锁内记录每份实盘，返回校验错误或 None。"""
     now = datetime.now()
-    # 行键 = (物料, 区域)：同一物料分处多区时按区各占一行；未填区域（area=''）
-    # 保持旧单行语义。同区重复扫仍拒绝（防止两人同区互覆），不同区视为补充。
-    existing = {(item.material_id, item.area or ''): item for item in batch.items}
+    existing = {}
+    waiting = {}
+    frozen = {}
+    for item in sorted(batch.items, key=lambda row: row.id):
+        frozen.setdefault(item.material_id, item.system_stock)
+        key = (item.material_id, (item.area or '').strip())
+        existing[key] = item
+        if (item.counted_at is None and item.counted_by is None
+                and (not allow_supplement or item.actual_stock == item.system_stock)):
+            waiting.setdefault(key, []).append(item)
+    allow_supplement = allow_supplement and not location_management_enabled()
     for scan_item in check_scan.items:
         if not scan_item.material_id:
             continue
         area = (scan_item.area or '').strip()
-        row = existing.get((scan_item.material_id, area))
+        key = (scan_item.material_id, area)
+        slots = waiting.get(key)
+        row = slots.pop(0) if slots else None
+        previous = existing.get(key)
+        if row is None and previous is not None and (area or not allow_supplement):
+            who = previous.counted_by_user.username if previous.counted_by_user else '他人'
+            when = previous.counted_at.strftime('%m-%d %H:%M') if previous.counted_at else '此前'
+            code = scan_item.material.code if scan_item.material else str(scan_item.material_id)
+            area_tip = f'（区域 {area}）' if area else ''
+            return (
+                f'物料 {code}{area_tip} 已由 {who} 于 {when} 盘点（批次 {batch.check_no}），'
+                '如需修改请到 PC 端盘点单中更正'
+            )
+        scan_item.created_batch_item = row is None
         if row is not None:
-            if row.counted_at is not None:
-                who = row.counted_by_user.username if row.counted_by_user else '他人'
-                when = row.counted_at.strftime('%m-%d %H:%M')
-                code = scan_item.material.code if scan_item.material else str(scan_item.material_id)
-                area_tip = f'（区域 {area}）' if area else ''
-                return (
-                    f'物料 {code}{area_tip} 已由 {who} 于 {when} 盘点（批次 {batch.check_no}），'
-                    '如需修改请到 PC 端盘点单中更正'
-                )
             row.actual_stock = normalize_stock_quantity(scan_item.actual_stock or 0)
             row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
             row.counted_by = operator_id
@@ -28226,12 +28223,13 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
             if reason:
                 row.reason = reason
         else:
-            system_stock = normalize_stock_quantity(
-                warehouse_stock_map.get(scan_item.material_id) or 0)
+            system_stock = normalize_stock_quantity(warehouse_stock_map.get(scan_item.material_id) or 0)
+            if not area:
+                system_stock = frozen.setdefault(scan_item.material_id, system_stock)
             actual = normalize_stock_quantity(scan_item.actual_stock or 0)
             # 新建行保留「手机扫码盘点」哨兵前缀（_void_check_scan 据此识别本
             # 次扫码新建行并在撤销时整行删除），行级原因以「：」形式追加
-            db.session.add(InventoryCheckItem(
+            row = InventoryCheckItem(
                 inventory_check_id=batch.id,
                 material_id=scan_item.material_id,
                 area=area,
@@ -28241,7 +28239,10 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
                 reason=('手机扫码盘点：' + reason if reason else '手机扫码盘点'),
                 counted_by=operator_id,
                 counted_at=now,
-            ))
+            )
+            db.session.add(row)
+        scan_item.batch_item = row
+        existing[(scan_item.material_id, area)] = row
     # 空批次（建单后未存明细）直接开扫时，以首次写入时点为冻结时点
     if batch.frozen_at is None:
         batch.frozen_at = now

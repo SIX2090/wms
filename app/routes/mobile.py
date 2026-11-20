@@ -442,7 +442,7 @@ def register_mobile_routes(app):
     @_web_or_api_role_required('warehouse')
     @mobile_document_idempotent
     def mobile_scan_submit():
-        from flask import current_app
+        from flask import current_app, g
         from app import (
             Department,
             InOrder,
@@ -633,7 +633,6 @@ def register_mobile_routes(app):
                 # 取写锁（与 routes/sales.py 同式）；取锁后下方
                 # get_warehouse_stock_quantities 重新读取，看到的是最新库存，两个
                 # 并发请求不会都通过校验把同一仓扣成负数。取锁前无未提交写入，rollback 安全。
-                from flask import g
                 if db.engine.dialect.name == 'sqlite' and not getattr(g, 'web_document_receipt', None):
                     db.session.rollback()
                     db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
@@ -790,7 +789,7 @@ def register_mobile_routes(app):
                 # 明细 upsert 进所选批次，不独立生成草稿
                 error = _apply_scan_to_batch(
                     batch, check, warehouse_stock_map, operator_id=actor.id,
-                    reason=reason)
+                    reason=reason, allow_supplement=bool(getattr(g, 'web_document_receipt', None)))
                 if error:
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': error}), 400

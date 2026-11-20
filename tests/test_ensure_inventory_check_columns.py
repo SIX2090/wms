@@ -62,6 +62,8 @@ _EXPECTED = (
     ("inventory_check_item", "area"),
     ("inventory_check_scan", "check_id"),
     ("inventory_check_scan_item", "area"),
+    ("inventory_check_scan_item", "batch_item_id"),
+    ("inventory_check_scan_item", "created_batch_item"),
 )
 
 

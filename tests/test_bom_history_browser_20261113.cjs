@@ -120,9 +120,25 @@ for (const type of ['transfer', 'requisition']) test(type + ' shared formatting 
     const c = setup(type); assert.equal(c.fields['.line-price'].value, '1.23');
     const p = c.context.collectItems(); assert.equal(p.items[0].price, 1.23); assert.equal(p.items[0].line_id, undefined);
 });
-test('check shared counted/uncounted payload stays unchanged', () => {
+test('count entry stays blank until typed and preserves an explicit zero', () => {
     const c = setup('check'); const p = c.context.collectItems();
-    assert.equal(p.items[0].actual_stock, null); assert.equal(p.items[0].line_id, undefined);
+    assert.equal(p.items[0].actual_stock, null); assert.equal(p.items[0].line_id, null);
+    c.rows.length = 0;
+    const row = c.context.createRow(null), actual = row.fields['.actual-stock'];
+    c.context.fillMaterialFields(row, {...c.material, stock: 0});
+    for (const name of ['.actual-stock', '.system-stock', '.material-stock', '.line-diff'])
+        assert.equal(row.fields[name].value, '');
+    c.context.fillMaterialFields(row, {...c.material, stock: 24});
+    assert.equal(row.fields['.system-stock'].value, '24.00');
+    actual.fire('blur');
+    assert.equal(c.context.collectItems().items[0].actual_stock, null);
+    actual.value = '0'; actual.fire('input'); actual.fire('blur');
+    c.context.fillMaterialFields(row, {...c.material, stock: 24});
+    assert.equal(c.context.collectItems().items[0].actual_stock, 0);
+    assert.equal(row.fields['.line-diff'].value, '-24.00');
+    actual.value = ''; actual.fire('input');
+    assert.equal(row.fields['.line-diff'].value, '');
+    assert.equal(c.context.collectItems().items[0].actual_stock, null);
 });
 (async () => {
     try {

@@ -349,6 +349,10 @@ class InventoryCheckScanItem(db.Model):
     difference = db.Column(db.Float, nullable=False, default=0)
     # 盘点区域（area）：与批次行（material_id, area）同键，扫码留痕可回溯到区。
     area = db.Column(db.String(100), nullable=False, default='')
+    # 精确关联本次扫码写入的盘点明细。旧扫码两列均为空。
+    batch_item_id = db.Column(db.Integer, db.ForeignKey('inventory_check_item.id', ondelete='SET NULL'))
+    created_batch_item = db.Column(db.Boolean)
+    batch_item = db.relationship('InventoryCheckItem', foreign_keys=[batch_item_id])
 
     created_at = db.Column(db.DateTime, default=datetime.now)
 

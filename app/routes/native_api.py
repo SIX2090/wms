@@ -1476,7 +1476,8 @@ def register_native_api_routes(app):
                 ))
             # INV-BATCH-001-E：明细 upsert 进所选批次，不独立生成草稿
             error = _apply_scan_to_batch(
-                batch, check, warehouse_stock_map, operator_id=user.id)
+                batch, check, warehouse_stock_map, operator_id=user.id,
+                allow_supplement=db.session().info.get('native_request') is not None)
             if error:
                 db.session.rollback()
                 return api_json_error(error, 400)

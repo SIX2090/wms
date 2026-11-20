@@ -451,7 +451,7 @@ def register_check_routes(app):
         from datetime import date, datetime
         from flask_login import current_user
         from sqlalchemy.orm import selectinload
-        from app import (InventoryCheck, InventoryCheckItem,
+        from app import (InventoryCheck, InventoryCheckItem, InventoryCheckScanItem,
                          _acquire_order_write_lock, _clean_int,
                          _material_from_payload, _parse_form_date, api_error,
                          generate_order_no, get_default_warehouse,
@@ -537,31 +537,64 @@ def register_check_routes(app):
             # - 新增行取当前仓库级账面（视为该行首次录入时点的基准）；
             # - 提交集之外的旧行删除（全量提交语义与旧版一致）；
             # - 首次写入明细时设置 frozen_at，一经设置不再变更。
-            existing_items = {(item.material_id, (item.area or '').strip()): item for item in check.items}
-            if len(existing_items) != len(check.items):
-                db.session.rollback()
-                return api_error('盘点单存在重复物料和区域，请先删除重复明细')
+            existing_items = {item.id: item for item in check.items}
+            legacy_rows = {}
+            frozen_by_material = {}
+            for item in sorted(check.items, key=lambda row: row.id):
+                legacy_rows.setdefault((item.material_id, (item.area or '').strip()), []).append(item)
+                frozen_by_material.setdefault(item.material_id, item.system_stock)
+            claimed_ids = set()
+            retained_ids = set()
+            saved_rows = []
             submitted_keys = set()
+            locations = location_management_enabled()
             for item_data in items_data:
                 material = _material_from_payload(item_data)
                 if not material:
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
                 area = (item_data.get('area') or item_data.get('location') or '').strip()
-                if location_management_enabled() and not area:
+                if locations and not area:
                     db.session.rollback()
                     return api_error(f'库位管理已启用，物料 {material.code} 请填写库位/区域')
                 row_key = (material.id, area)
-                if row_key in submitted_keys:
+                if area and row_key in submitted_keys:
                     db.session.rollback()
                     return api_error(f'物料 {material.code} 在区域 {area or "未分区"} 重复，请合并后保存')
                 submitted_keys.add(row_key)
                 raw_actual = item_data.get('actual_stock')
                 has_actual = raw_actual is not None and str(raw_actual).strip() != ''
-                row = existing_items.get(row_key)
+                row = None
+                if item_data.get('line_id') is not None:
+                    row = existing_items.get(_clean_int(item_data['line_id']))
+                    if row is None or row.id in claimed_ids:
+                        db.session.rollback()
+                        return api_error('盘点明细已变化或行号重复，请刷新后重试', 409)
+                elif 'line_id' not in item_data and legacy_rows.get(row_key):
+                    candidates = legacy_rows[row_key]
+                    if len(candidates) != 1:
+                        db.session.rollback()
+                        return api_error('同物料存在多条盘点明细，请刷新后按原行编辑', 409)
+                    if candidates[0].id not in claimed_ids:
+                        row = candidates[0]
+                if row is not None:
+                    claimed_ids.add(row.id)
+                    if row.material_id != material.id:
+                        row = None
                 if row is not None:
                     # 已有行：冻结账面保留，只更新实盘/原因/差异
-                    if has_actual:
-                        row.actual_stock = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock))
+                    retained_ids.add(row.id)
+                    actual = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock)) if has_actual else row.actual_stock
+                    cleared = 'line_id' in item_data and not has_actual and bool(
+                        row.counted_at or row.counted_by or row.actual_stock != row.system_stock)
+                    changed = has_actual and (row.counted_at is None or actual != row.actual_stock)
+                    if (row.area or '') != area or changed or cleared:
+                        InventoryCheckScanItem.query.filter_by(batch_item_id=row.id).update({'batch_item_id': None})
+                    row.area = area
+                    if cleared:
+                        row.actual_stock = row.system_stock
+                        row.counted_by = row.counted_at = None
+                    elif changed:
+                        row.actual_stock = actual
                         row.counted_by = current_user.id
                         row.counted_at = datetime.now()
                     row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
@@ -569,8 +602,10 @@ def register_check_routes(app):
                 else:
                     # 新增行：账面取当前仓库级（该行首次录入时点）
                     system_stock = round_to_2_decimals(warehouse_stock_map.get(material.id, 0) or 0)
+                    if not area:
+                        system_stock = frozen_by_material.setdefault(material.id, system_stock)
                     actual_stock = round_to_2_decimals(parse_float_value(raw_actual, system_stock)) if has_actual else system_stock
-                    db.session.add(InventoryCheckItem(
+                    row = InventoryCheckItem(
                         inventory_check_id=check.id,
                         material_id=material.id,
                         area=area,
@@ -580,20 +615,24 @@ def register_check_routes(app):
                         counted_at=datetime.now() if has_actual else None,
                         difference=round_to_2_decimals(actual_stock - system_stock),
                         reason=(item_data.get('reason') or item_data.get('remark') or '').strip()
-                    ))
+                    )
+                    db.session.add(row)
+                saved_rows.append(row)
             # 删除提交集之外的旧行
-            for row_key, row in existing_items.items():
-                if row_key not in submitted_keys:
+            for row_id, row in existing_items.items():
+                if row_id not in retained_ids:
                     db.session.delete(row)
             # 首次写入明细即冻结账面基准
             if check.frozen_at is None:
                 check.frozen_at = datetime.now()
 
             db.session.flush()
-            stage_document_response({'status': 'success', 'msg': '保存成功', 'id': check.id, 'order_no': check.check_no})
+            response = {'status': 'success', 'msg': '保存成功', 'id': check.id,
+                        'order_no': check.check_no, 'line_ids': [row.id for row in saved_rows]}
+            stage_document_response(response)
             db.session.commit()
             log_operation('保存盘点单', f'盘点单：{check.check_no}', 'check', check.id)
-            return jsonify({'status': 'success', 'msg': '保存成功', 'id': check.id, 'order_no': check.check_no})
+            return jsonify(response)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'保存盘点单表格失败: {e}')
@@ -939,11 +978,13 @@ def register_check_routes(app):
                 InventoryCheckItem.inventory_check_id == id,
                 InventoryCheckItem.material_id == material_id,
                 db.func.coalesce(InventoryCheckItem.area, '') == area,
-            ).first()
-            if existing_item:
+            ).order_by(InventoryCheckItem.id).first()
+            if area and existing_item:
                 db.session.rollback()
                 return api_error('该物料在此区域已存在，请修改现有明细')
             system_stock = get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0
+            if not area and existing_item:
+                system_stock = existing_item.system_stock
             check.warehouse = wh_obj.name
             if check.frozen_at is None:
                 check.frozen_at = datetime.now()
@@ -967,7 +1008,7 @@ def register_check_routes(app):
         """更新盘点明细的实际库存"""
         from datetime import datetime
         from flask_login import current_user
-        from app import (InventoryCheck, InventoryCheckItem,
+        from app import (InventoryCheck, InventoryCheckItem, InventoryCheckScanItem,
                          _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
@@ -989,6 +1030,7 @@ def register_check_routes(app):
             locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending')
             if not ok:
                 return api_error('该盘点单状态已变更，请刷新后重试')
+            InventoryCheckScanItem.query.filter_by(batch_item_id=item.id).update({'batch_item_id': None})
             item.actual_stock = actual_stock
             item.difference = actual_stock - item.system_stock
             # INV-BATCH-001-B：行级盘点归属（多人协作批次下谁改的、何时改的）
@@ -1373,12 +1415,13 @@ def register_check_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：库位管理已启用，请填写库位/区域')
                     continue
-                if InventoryCheckItem.query.filter_by(
+                if area and InventoryCheckItem.query.filter_by(
                     inventory_check_id=check.id, material_id=material.id, area=area
                 ).first():
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料 {material.code} 与区域 {area or "未分区"} 重复')
                     continue
+                entered_actual = bool(_get_excel_cell(row, col_map, 'actual_stock'))
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check.id,
                     material_id=material.id,
@@ -1386,6 +1429,8 @@ def register_check_routes(app):
                     system_stock=system_stock,
                     actual_stock=actual_stock,
                     difference=round_to_2_decimals(actual_stock - system_stock),
+                    counted_by=current_user.id if entered_actual else None,
+                    counted_at=datetime.now() if entered_actual else None,
                     reason=_get_excel_cell(row, col_map, 'reason'),
                 ))
                 item_count += 1

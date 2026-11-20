@@ -288,6 +288,34 @@ def test_t4_duplicate_scan_rejected():
     assert InventoryCheckScan.query.count() == 1, "被拒绝的扫码不得落 CS 单"
 
 
+def test_independent_mobile_counts_replay_and_void_only_the_selected_contribution():
+    admin, wh, _, material, _ = _seed_scene()
+    batch = _seed_batch(admin, wh.name, "CK-PALLETS", [(material, 60, 60)])
+    from werkzeug.security import generate_password_hash
+    second = app_module.User(username="counter2", password_hash=generate_password_hash("counter2"),
+                             role="warehouse", must_change_password=False)
+    db.session.add(second)
+    db.session.commit()
+    client = _make_client()
+    first_headers = {**_bearer(client), "X-Idempotency-Key": "pallet-one"}
+    token = client.post("/api/login", json={"username": "counter2", "password": "counter2"}).get_json()
+    second_headers = {"Authorization": f"Bearer {token['data']['token']}", "X-Idempotency-Key": "pallet-two"}
+    first = _post_scan_submit(client, first_headers, material.code, wh.name, 40, batch.id)
+    assert first.status_code == 200, first.get_json()
+    lines = [{"material_code": material.code, "actual_stock": 24}]
+    for _ in range(2):
+        result = _post_stocktake(client, second_headers, wh.name, lines, batch.id)
+        assert result.status_code == 200, result.get_json()
+    db.session.expire_all()
+    assert sorted((r.counted_by, r.actual_stock) for r in batch.items) == [(admin.id, 40), (second.id, 24)]
+    assert app_module.InventoryCheckScan.query.count() == 2
+    void = client.post("/api/stocktake/void", headers=first_headers,
+                       json={"check_no": first.get_json()["data"]["check_no"]})
+    assert void.status_code == 200, void.get_json()
+    db.session.expire_all()
+    assert sorted((r.counted_by or 0, r.actual_stock) for r in batch.items) == [(0, 60), (second.id, 24)]
+
+
 def test_t5_scan_row_uses_current_book_at_scan_time():
     """T5: 批次冻结后期间出库 → 新行账面取扫码时点当前值（即时口径）。
 

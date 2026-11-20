@@ -289,7 +289,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                 <div class="text-muted small mt-1">… 共 {{ batch_meta.scan_count }} 次扫码提交，仅展示最近 {{ batch_meta.scans|length }} 条</div>
                 {% endif %}
                 {% endif %}
-                <div class="text-muted small mt-1">多人协作批次：手机扫码盘点的明细行自动挂入本批次，差异 = 实盘 − 冻结账面，不受盘点期间出入库影响；「盘点人 / 时间」列可回查每行由谁在何时盘点。</div>
+                <div class="text-muted small mt-1">手机扫码数量计入本单。{% if not location_management_enabled %}同一物料可按卡板或盘点纸分行录入。生成库存调整单时，实盘数量合计后只减一次冻结账面。{% endif %}「盘点人 / 时间」列记录每行的盘点人和时间。</div>
             </div>
             {% endif %}
 
@@ -413,6 +413,7 @@ function unitOptions(selectedId) {
     return html;
 }
 function fillMaterialFields(row, material) {
+    const sameMaterial = String(row.dataset.materialId) === String(material.id);
     row.dataset.materialId = material.id || '';
     row.querySelector('.material-code').value = material.code || '';
     row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = material.brand || '');
@@ -422,7 +423,7 @@ function fillMaterialFields(row, material) {
     const unitSelect = row.querySelector('.unit-id');
     if (unitSelect && getMaterialUnitId(material)) unitSelect.value = getMaterialUnitId(material);
     const stockInput = row.querySelector('.material-stock');
-    if (stockInput) stockInput.value = formatQty(material.stock);
+    if (stockInput) stockInput.value = docType === 'check' && !Number(material.stock) ? '' : formatQty(material.stock);
     const priceInput = row.querySelector('.line-price');
     if (priceInput && priceInput.value === '') {
         priceInput.value = formatQty(material.price);
@@ -432,9 +433,14 @@ function fillMaterialFields(row, material) {
         usageInput.value = material.purpose;
     }
     if (docType === 'check') {
-        row.querySelector('.system-stock').value = formatQty(material.stock);
-        if (!row.querySelector('.actual-stock').value) row.querySelector('.actual-stock').value = formatQty(material.stock);
-        updateCheckDiff(row);
+        if (!sameMaterial) {
+            row.dataset.systemStockFrozen = 'false';
+            row.querySelector('.actual-stock').value = '';
+            row.dataset.counted = 'false';
+        }
+        if (row.dataset.systemStockFrozen !== 'true') {
+            row.querySelector('.system-stock').value = stockInput.value;
+        }
     }
     calcRow(row);
 }
@@ -445,6 +451,12 @@ function clearMaterialFields(row) {
     row.querySelector('.material-spec').value = '';
     row.querySelector('.material-unit').value = '';
     row.querySelector('.material-stock') && (row.querySelector('.material-stock').value = '');
+    if (docType === 'check') {
+        row.querySelector('.system-stock').value = '';
+        row.querySelector('.actual-stock').value = '';
+        row.dataset.counted = 'false';
+        calcRow(row);
+    }
 }
 function rowCells(item) {
     const readonlyAttr = readonly ? 'readonly' : '';
@@ -513,6 +525,7 @@ function createRow(item) {
     const row = tbody.insertRow();
     row.dataset.materialId = item && item.material_id ? item.material_id : '';
     row.dataset.systemStockFrozen = item && docType === 'check' ? 'true' : 'false';
+    if (docType === 'check' && item && item.id) row.dataset.checkLineId = item.id;
     if (docType === 'bom' && item && item.line_id) {
         const complete = [item.quantity, item.recorded_unit_cost, item.recorded_total_cost].every(
             value => value !== null && value !== undefined && Number.isFinite(Number(value)));
@@ -532,11 +545,13 @@ function createRow(item) {
         row.querySelector('.material-spec').value = item.spec || '';
         row.querySelector('.material-unit').value = item.unit || '';
         row.querySelector('.unit-id').value = item.unit_id || '';
-        row.querySelector('.material-stock') && (row.querySelector('.material-stock').value = formatQty(item.stock));
+        row.querySelector('.material-stock') && (row.querySelector('.material-stock').value =
+            docType === 'check' && !Number(item.stock) ? '' : formatQty(item.stock));
         if (docType === 'check') {
-            row.querySelector('.system-stock').value = formatQty(item.system_stock);
-            row.querySelector('.actual-stock').value = formatQty(item.actual_stock);
-            row.dataset.counted = item.counted_at || item.counted_by_name ? 'true' : 'false';
+            row.querySelector('.system-stock').value = Number(item.system_stock) ? formatQty(item.system_stock) : '';
+            const counted = Boolean(item.counted_at || item.counted_by_name || Number(item.difference));
+            row.querySelector('.actual-stock').value = counted ? formatQty(item.actual_stock) : '';
+            row.dataset.counted = String(counted);
             row.querySelector('.line-area').value = item.area || '';
             row.querySelector('.line-reason').value = item.reason || '';
             // INV-BATCH-001-D：行级盘点归属回查（盘点人 / 时间）
@@ -595,7 +610,7 @@ function bindRowEvents(row) {
     });
     row.querySelectorAll('.line-qty,.line-price,.actual-stock,.system-stock').forEach(function(input) {
         input.addEventListener('input', function() {
-            if (this.classList.contains('actual-stock')) row.dataset.counted = 'true';
+            if (this.classList.contains('actual-stock')) row.dataset.counted = String(this.value !== '');
             calcRow(row);
         });
         input.addEventListener('blur', function() {
@@ -681,8 +696,8 @@ function calcRow(row) {
 }
 function updateCheckDiff(row) {
     const system = parseFloat(row.querySelector('.system-stock')?.value) || 0;
-    const actual = parseFloat(row.querySelector('.actual-stock')?.value) || 0;
-    row.querySelector('.line-diff').value = formatQty(actual - system);
+    const actual = parseFloat(row.querySelector('.actual-stock')?.value);
+    row.querySelector('.line-diff').value = Number.isFinite(actual) ? formatQty(actual - system) : '';
 }
 function calcTotal() {
     let total = 0;
@@ -751,12 +766,14 @@ function collectItems() {
                 return;
             }
             items.push({
+                line_id: row.dataset.checkLineId || null,
                 material_id: material.id,
                 code: material.code,
                 unit_id: unitId,
                 area: area,
                 system_stock: parseFloat(row.querySelector('.system-stock').value) || 0,
-                actual_stock: row.dataset.counted === 'true' ? (parseFloat(row.querySelector('.actual-stock').value) || 0) : null,
+                actual_stock: row.dataset.counted === 'true' && row.querySelector('.actual-stock').value !== ''
+                    ? Number(row.querySelector('.actual-stock').value) : null,
                 reason: row.querySelector('.line-reason').value.trim()
             });
             return;
@@ -817,6 +834,8 @@ function submitForm(completeAfterSave) {
     const result = collectItems();
     if (result.invalidRows.length) { showToast(result.invalidRows[0], 'danger', 3600); return; }
     if (!result.items.length) { showToast('请至少填写一条明细', 'warning'); return; }
+    const savedRows = docType === 'check' ? Array.from(document.querySelectorAll('#docTableBody tr'))
+        .filter(row => row.querySelector('.material-code').value.trim()) : [];
     const data = {
         order_id: document.querySelector('[name="order_id"]').value,
         order_no: document.querySelector('[name="order_no"]').value,
@@ -828,6 +847,9 @@ function submitForm(completeAfterSave) {
     return WMS.api.postRaw(saveUrl, data)
         .then(res => {
             if (!res || res.status !== 'success') throw new Error((res && res.msg) || '保存失败');
+            if (docType === 'check' && Array.isArray(res.line_ids)) {
+                savedRows.forEach((row, index) => { row.dataset.checkLineId = res.line_ids[index]; });
+            }
             document.querySelector('[name="order_id"]').value = res.id;
             if (res.order_no) document.querySelector('[name="order_no"]').value = res.order_no;
             if (!completeAfterSave || !completeUrl) {

@@ -69,14 +69,15 @@
                     var row = input.closest('tr');
                     if (!row || !material) return;
                     var stock = row.querySelector('.material-stock');
-                    if (stock) stock.value = Number(material.stock || 0).toFixed(2);
+                    var system = row.querySelector('.system-stock');
+                    var displayStock = system && !Number(material.stock) ? '' : Number(material.stock || 0).toFixed(2);
+                    if (stock) stock.value = displayStock;
                     if (row.dataset && row.dataset.systemStockFrozen !== 'true') {
-                        var system = row.querySelector('.system-stock');
-                        if (system) system.value = Number(material.stock || 0).toFixed(2);
+                        if (system) system.value = displayStock;
                         var actual = row.querySelector('.actual-stock');
-                        if (actual && row.dataset.counted !== 'true') actual.value = Number(material.stock || 0).toFixed(2);
+                        if (actual && row.dataset.counted !== 'true') actual.value = '';
                         var difference = row.querySelector('.line-diff');
-                        if (difference && actual && system) difference.value = (Number(actual.value) - Number(system.value)).toFixed(2);
+                        if (difference && actual && system) difference.value = actual.value === '' ? '' : (Number(actual.value) - Number(system.value)).toFixed(2);
                     }
                 });
             } catch (error) {

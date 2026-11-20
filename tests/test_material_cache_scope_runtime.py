@@ -24,7 +24,8 @@ const result=stock=>({status:'success',materials:[{id:1,code:'M1',name:'料',sto
  assert(calls[0].includes('warehouse='+encodeURIComponent('仓库 A')));assert(calls[1].includes('warehouse='+encodeURIComponent('仓库 B')));
  assert.equal(target[0].stock,4);assert.equal(frozen.fields['.material-stock'].value,'4.00');
  assert.equal(frozen.fields['.system-stock'].value,'6');assert.equal(frozen.fields['.actual-stock'].value,'5');
- assert.equal(fresh.fields['.system-stock'].value,'4.00');assert.equal(fresh.fields['.actual-stock'].value,'4.00');
+ assert.equal(fresh.fields['.system-stock'].value,'4.00');assert.equal(fresh.fields['.actual-stock'].value,'');
+ assert.equal(fresh.fields['.line-diff'].value,'');
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
     result = subprocess.run([shutil.which('node'), '-e', program, str(asset)],

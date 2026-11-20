@@ -188,7 +188,7 @@ _CHECK_EXPECTED = (
     ('inventory_check', ('frozen_at',)),
     ('inventory_check_item', ('counted_by', 'counted_at', 'area')),
     ('inventory_check_scan', ('check_id',)),
-    ('inventory_check_scan_item', ('area',)),
+    ('inventory_check_scan_item', ('area', 'batch_item_id', 'created_batch_item')),
 )
 
 
