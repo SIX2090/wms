@@ -11,6 +11,8 @@ from tests.test_web_stock_posting_audit import fail_audit, posting_actors
 @pytest.mark.parametrize('kind, role, model, line_model, number_key, parent_key', [
     ('requisition', 'production', wms.ProductionRequisition, wms.ProductionRequisitionItem,
      'req_no', 'requisition_id'),
+    ('after_sale_out', 'warehouse', wms.AfterSaleOutOrder, wms.AfterSaleOutOrderItem,
+     'order_no', 'after_sale_out_order_id'),
 ])
 def test_standalone_outbound_audit_commits_with_inventory(posting_actors, action, kind, role, model,
                                                          line_model, number_key, parent_key):
@@ -24,8 +26,9 @@ def test_standalone_outbound_audit_commits_with_inventory(posting_actors, action
         wms.db.session.flush()
         order_id = order.id
         material = wms.db.session.get(wms.Material, ids['mats'][0])
+        fields = {'unit_id': material.unit_id} if kind == 'requisition' else {'price': 1, 'amount': 3}
         wms.db.session.add(line_model(**{parent_key: order_id}, material_id=material.id,
-                                      quantity=3, unit_id=material.unit_id))
+                                      quantity=3, **fields))
         wms.db.session.commit()
     if action == 'revert':
         prepared = creator.post(f'/{kind}/{order_id}/complete')
@@ -48,7 +51,10 @@ def test_standalone_outbound_audit_commits_with_inventory(posting_actors, action
     with wms.app.app_context():
         saved = wms.db.session.get(model, order_id)
         assert saved.operator_id == ids['user']
-        audit = wms.OperationAudit.query.filter_by(operation=operation, target_type=kind, target_id=order_id).one()
+        target_type = model.__tablename__ if kind == 'after_sale_out' else kind
+        audit = wms.OperationAudit.query.filter_by(
+            operation=operation, target_type=target_type, target_id=order_id,
+        ).one()
         audit_id = audit.id
         assert audit.user_id == ids['poster'] and audit.username == 'web-stock-poster'
         assert audit.target_name == number

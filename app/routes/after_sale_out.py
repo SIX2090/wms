@@ -500,6 +500,7 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def complete_after_sale_out_order(id):
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from app import (AfterSaleOutOrder, Warehouse, _acquire_order_write_lock, allow_negative_stock,
                          api_error, assert_warehouse_active,
                          get_default_warehouse, get_warehouse_stock_quantities,
@@ -575,6 +576,7 @@ def register_after_sale_out_routes(app):
                     if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
                         return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             for item in order.items:
                 material = db.session.get(Material, item.material_id)
                 if material:
@@ -595,6 +597,10 @@ def register_after_sale_out_routes(app):
 
             order.status = 'completed'
             try:
+                stage_stock_document_snapshot(
+                    order, deleting=False, operation='complete_after_sale_out',
+                    checkpoint=audit_checkpoint, reason='完成售后出库',
+                )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -611,6 +617,7 @@ def register_after_sale_out_routes(app):
     @require_role('warehouse')
     @login_required
     def revert_after_sale_out_order(id):
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from app import (AfterSaleOutOrder, _acquire_order_write_lock, api_error,
                          log_operation)
         # P2-3 收敛：反提交经同一入口，delta 取正与 complete 严格对称。
@@ -628,6 +635,7 @@ def register_after_sale_out_routes(app):
                 return jsonify({'status': 'error', 'msg': '该售后出库单状态已变化，不能重复反提交'}), 409
             order = locked
 
+            audit_checkpoint = stock_document_audit_checkpoint(order)
             recorded_result = _reverse_recorded_order_stock(order)
             if recorded_result is not None and not recorded_result[0]:
                 db.session.rollback()
@@ -652,6 +660,10 @@ def register_after_sale_out_routes(app):
                             return api_error(err or '库存恢复失败')
 
             order.status = 'pending'
+            stage_stock_document_snapshot(
+                order, deleting=False, operation='revert_after_sale_out',
+                checkpoint=audit_checkpoint, reason='反提交售后出库',
+            )
             db.session.commit()
             log_operation('售后出库反提交', f'售后出库单：{order.order_no}', 'after_sale_out_order', order.id)
             return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复'})
