@@ -10,6 +10,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.MaterialDto
@@ -55,6 +56,15 @@ class NativeStockQueryFocusLayoutTest(private val scale: Float, private val dark
         } }
     }
     @After fun after() { closeWmsTestViewModels(listOf(scan)); disposeComposeActivity(activity); RetrofitClient.setSession("", null) }
+
+    @Test fun scanIconIsEasyToSee() {
+        val icon = compose.onNodeWithContentDescription("扫码", useUnmergedTree = true)
+        icon.assertIsDisplayed()
+        val bounds = icon.getUnclippedBoundsInRoot()
+        Assert.assertEquals(32.dp, bounds.right - bounds.left)
+        Assert.assertEquals(32.dp, bounds.bottom - bounds.top)
+    }
+
     @Test fun currentStockAndStatusRemainReadable() {
         val layouts = mutableListOf<TextLayoutResult>()
         compose.onNodeWithText("123456", useUnmergedTree = true).performScrollTo()

@@ -926,7 +926,7 @@ fun StockQueryScreen(
                             contentColor = MaterialTheme.colorScheme.tertiary
                         )
                     ) {
-                        Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码", modifier = Modifier.size(24.dp))
+                        Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码", modifier = Modifier.size(32.dp))
                     }
                     FilledIconButton(
                         onClick = {
