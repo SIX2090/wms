@@ -654,3 +654,4 @@ POST_SPLIT_BUGS['BUG-2026-11-20-006'] = 'fixed'  # Accept native print confirmat
 POST_SPLIT_BUGS['BUG-2026-11-20-007'] = 'fixed'  # Restore the selected material archive.
 POST_SPLIT_BUGS['BUG-2026-11-20-008'] = 'fixed'  # Page against the current opening-stock list.
 POST_SPLIT_BUGS['BUG-2026-11-20-009'] = 'fixed'  # Sum pallet counts and distinguish blank from zero.
+POST_SPLIT_BUGS['BUG-2026-11-20-010'] = 'fixed'  # Keep one completion action per stock document.

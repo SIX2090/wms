@@ -240,13 +240,8 @@
         <div class="d-flex gap-2 flex-wrap">
             {% if not readonly %}
             <button data-document-action="submitAdjustment" type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)">
-                <i class="bi bi-save"></i> 保存
+                <i class="bi bi-save"></i> 保存草稿
             </button>
-            <button data-document-action="submitAdjustment" type="button" class="btn btn-success btn-sm" onclick="submitForm(true)">
-                <i class="bi bi-check-circle"></i> 保存并完成
-            </button>
-            {% endif %}
-            {% if adjustment and adjustment.status == 'pending' %}
             <button data-document-action="completeAdjustment" type="button" class="btn btn-success btn-sm" onclick="completeAdjustment()">
                 <i class="bi bi-check-circle"></i> 完成调整
             </button>

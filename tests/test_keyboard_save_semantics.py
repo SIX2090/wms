@@ -90,6 +90,28 @@ console.log(JSON.stringify({clicks,calls,messages,prevented}));
     return json.loads(result.stdout)
 
 
+@pytest.mark.parametrize('existing', [False, True])
+@pytest.mark.parametrize('doc,label,finish', [
+    ('check', '完成盘点', 'completeDocument()'),
+    ('transfer', '完成调拨', 'completeDocument()'),
+    ('adjustment', '完成调整', 'completeAdjustment()'),
+])
+def test_stock_document_has_one_draft_and_one_completion(existing, doc, label, finish):
+    if doc == 'adjustment':
+        record = SimpleNamespace(id=7, status='pending') if existing else None
+        html = _header('adjustment_add.html', adjustment=record, readonly=False,
+                       current_user=SimpleNamespace(role='warehouse'),
+                       document_print_menu=lambda *_: '')
+    else:
+        html = _header('document_table_form.html', doc_type=doc, can_save=True,
+                       complete_url='/complete', can_complete=existing, complete_label=label,
+                       order_id=7 if existing else '', document_print_menu=lambda *_: '')
+    buttons = BeautifulSoup(html, 'html.parser').select('button[onclick]')
+    assert [(btn.get_text(strip=True), btn['onclick']) for btn in buttons] == [
+        ('保存草稿', 'submitForm(false)'), (label, finish),
+    ]
+
+
 @pytest.mark.parametrize('filename,context,expected', [
     ('purchase_order_add.html', {}, [False]),
     ('purchase_request_add.html', {}, []),

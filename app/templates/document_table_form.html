@@ -61,18 +61,15 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% endif %}
         </h2>
         <div class="d-flex gap-2 flex-wrap">
-            {% if can_save %}
-            {% if doc_type == 'requisition' and complete_url %}
+            {% if doc_type == 'requisition' and can_save and complete_url %}
             <button type="button" class="btn btn-success btn-sm" data-wms-save-complete="requisition" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成领料</button>
             {% else %}
-            <button type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)"><i class="bi bi-save"></i> 保存</button>
-            {% if complete_url %}
-            <button type="button" class="btn btn-success btn-sm" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成</button>
+            {% if can_save %}
+            <button type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)"><i class="bi bi-save"></i> {{ '保存草稿' if doc_type in ['check', 'transfer'] else '保存' }}</button>
             {% endif %}
-            {% endif %}
-            {% endif %}
-            {% if can_complete and not (doc_type == 'requisition' and can_save and complete_url) %}
+            {% if can_complete or (can_save and complete_url and not order_id) %}
             <button type="button" class="btn btn-success btn-sm" onclick="completeDocument()"><i class="bi bi-check-circle"></i> {{ complete_label }}</button>
+            {% endif %}
             {% endif %}
             {% if can_revert %}
             <button type="button" class="btn btn-warning btn-sm" onclick="revertDocument()"><i class="bi bi-arrow-counterclockwise"></i> {{ revert_label or '反提交' }}</button>
@@ -963,7 +960,10 @@ function showCompleteConfirm(payload, actionUrl, orderId) {
 }
 function completeDocument() {
     if (readonly || !documentRoleAllowed || submitForm.pending || submitForm.completed) return;
-    if (!confirm('确认完成该单据？')) return;
+    const message = docType === 'check'
+        ? '确认保存实盘数量并完成本次盘点？有差异时会生成库存调整草稿，完成调整单后才会更新库存。'
+        : '确认完成该单据？';
+    if (!confirm(message)) return;
     submitForm(true);
 }
 function revertDocument() {

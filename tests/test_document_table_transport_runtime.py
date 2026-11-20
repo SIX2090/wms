@@ -98,7 +98,8 @@ function mutex(){const count=calls.length,confirmed=confirms;invoke('submitForm(
 function protocol(index,kind){const call=calls[index];assert.equal(call.options.method,'POST');assert.equal(call.options.credentials,'same-origin');assert.equal(call.options.headers['X-CSRFToken'],'fixture-token');if(kind==='revert'){assert.equal(call.body,undefined);assert.equal(call.url,'/'+p.doc+'/7/revert');}else {assert.equal(call.options.headers['Content-Type'],'application/json');if(kind==='complete'){assert.deepEqual(call.body,{force:false});assert.equal(call.url,'/'+p.doc+'/7/complete');}else if(kind==='force'){assert.deepEqual(call.body,p.doc==='check'?{force:true,confirmation_token:'synthetic-risk-token'}:{force:true});assert.equal(call.url,'/'+p.doc+'/7/complete');}else {assert.equal(call.url,'/'+p.doc+'/save_table');assert.equal(call.body.order_id,'7');assert.equal(call.body.order_no,'FIXTURE-7');assert.equal(call.body.date,'2026-10-22');assert.equal(call.body.items[0].material_id,11);if(p.doc==='check'){assert.equal(call.body.items[0].actual_stock,3);assert.equal(call.body.header.warehouse_id,'1');}else{assert.equal(call.body.items[0].quantity,2);assert.equal(call.body.items[0].price,0);}if(p.doc==='requisition'){assert.equal(call.body.header.picker,'张三');assert.equal(call.body.header.production_order,'工单 & 1');}}}}
 (async()=>{
  if(p.mode==='denied'){invoke('submitForm(true)');invoke("runComplete('/bad',true,7)");invoke('completeDocument()');invoke('revertDocument()');await settle();assert.equal(calls.length,0);assert.equal(confirms,0);process.stdout.write('{}');return;}
- const initial=p.mode==='save'?'submitForm(false)':p.mode==='revert'?'revertDocument()':'submitForm(true)';
+ const finishAction=p.doc==='requisition'?'submitForm(true)':'completeDocument()';
+ const initial=p.mode==='save'?'submitForm(false)':p.mode==='revert'?'revertDocument()':finishAction;
  assert(p.actions.includes(initial),initial+' must have a real rendered button');invoke(initial);
  if(p.scenario==='cancel'){assert.equal(calls.length,0);assert.equal(confirms,1);process.stdout.write('{}');return;}
  assert.equal(calls.length,1);mutex();assert(buttons.every(b=>b.disabled));protocol(0,p.mode==='revert'?'revert':'save');
@@ -158,6 +159,10 @@ def test_remaining_shared_document_success_paths(doc,mode):
 
 def test_risk_confirmation_cancel_never_forces_or_navigates():
     execute('check','risk-cancel')
+
+
+def test_cancel_check_completion_keeps_unsaved_edits():
+    execute('check','complete','cancel')
 
 
 def test_revert_confirmation_cancel_never_requests():
