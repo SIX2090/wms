@@ -1,6 +1,8 @@
 package com.factory.wms
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.CompositionLocalProvider
@@ -61,9 +63,38 @@ class NativeStockQueryFocusLayoutTest(private val scale: Float, private val dark
         val icon = compose.onNodeWithContentDescription("扫码", useUnmergedTree = true)
         icon.assertIsDisplayed()
         val bounds = icon.getUnclippedBoundsInRoot()
-        Assert.assertEquals(32.dp, bounds.right - bounds.left)
-        Assert.assertEquals(32.dp, bounds.bottom - bounds.top)
+        Assert.assertEquals(36.dp, bounds.right - bounds.left)
+        Assert.assertEquals(36.dp, bounds.bottom - bounds.top)
     }
+
+    @Test fun scanAndSearchHaveMatchingVisibleButtonsAndLeaveRoomToType() {
+        val scanButton = actionButton("扫码")
+        val searchButton = actionButton("查询")
+        val scanBounds = scanButton.assertIsDisplayed().getUnclippedBoundsInRoot()
+        val searchBounds = searchButton.assertIsDisplayed().getUnclippedBoundsInRoot()
+        for (bounds in listOf(scanBounds, searchBounds)) {
+            Assert.assertEquals(48.dp, bounds.right - bounds.left)
+            Assert.assertEquals(48.dp, bounds.bottom - bounds.top)
+        }
+        Assert.assertEquals(searchBounds.top, scanBounds.top)
+        val view = activity.get().window.decorView
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        compose.runOnIdle { view.draw(Canvas(bitmap)) }
+        // 圆角范围内的上沿中心只绘制按钮底色。
+        val y = scanBounds.top.value.toInt() + 4
+        val scanFill = bitmap.getPixel(scanBounds.left.value.toInt() + 24, y)
+        val searchFill = bitmap.getPixel(searchBounds.left.value.toInt() + 24, y)
+        Assert.assertEquals("The visible button fills should match", searchFill, scanFill)
+        Assert.assertNotEquals(searchFill, bitmap.getPixel(searchBounds.left.value.toInt() - 1, y))
+        Assert.assertTrue(searchBounds.left - scanBounds.right >= 6.dp)
+        val input = compose.onNode(hasSetTextAction()).assertIsDisplayed().getUnclippedBoundsInRoot()
+        Assert.assertTrue(input.right - input.left >= 160.dp)
+    }
+
+    private fun actionButton(label: String) = compose.onNode(
+        hasClickAction() and hasAnyDescendant(hasContentDescription(label)),
+        useUnmergedTree = true
+    )
 
     @Test fun currentStockAndStatusRemainReadable() {
         val layouts = mutableListOf<TextLayoutResult>()

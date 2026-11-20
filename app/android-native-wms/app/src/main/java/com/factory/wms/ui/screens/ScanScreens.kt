@@ -919,15 +919,20 @@ fun StockQueryScreen(
                             unfocusedBorderColor = Color.Transparent
                         )
                     )
-                    IconButton(
+                    val actionShape = RoundedCornerShape(12.dp)
+                    val actionColors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.tertiary,
+                        contentColor = MaterialTheme.colorScheme.onTertiary
+                    )
+                    FilledIconButton(
                         onClick = { showScannerDialog = true },
-                        modifier = Modifier.size(48.dp),
-                        colors = IconButtonDefaults.iconButtonColors(
-                            contentColor = MaterialTheme.colorScheme.tertiary
-                        )
+                        modifier = Modifier.size(WmsDimens.TouchTargetMin),
+                        shape = actionShape,
+                        colors = actionColors
                     ) {
-                        Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码", modifier = Modifier.size(32.dp))
+                        Icon(ImageVector.vectorResource(R.drawable.wms_scan), "扫码", modifier = Modifier.size(36.dp))
                     }
+                    Spacer(Modifier.width(6.dp))
                     FilledIconButton(
                         onClick = {
                             if (manualCode.isNotBlank()) {
@@ -936,12 +941,9 @@ fun StockQueryScreen(
                                 viewModel.queryMaterialByKeyword(manualCode.trim())
                             }
                         },
-                        modifier = Modifier.size(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiary,
-                            contentColor = MaterialTheme.colorScheme.onTertiary
-                        )
+                        modifier = Modifier.size(WmsDimens.TouchTargetMin),
+                        shape = actionShape,
+                        colors = actionColors
                     ) {
                         Icon(Icons.Outlined.Search, "查询", modifier = Modifier.size(22.dp))
                     }

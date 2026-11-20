@@ -53,8 +53,9 @@ android {
         // 3.9.39(63): tighten overview column threshold so 1.3x font keeps four columns.
         // 3.9.40(64): align home with design A1 - compact appbar, summary tiles, collapsible sections, neutral icon chips, A1 indigo palette.
         // 3.9.42(66): enlarge the stock query scan icon and scroll report filters with the records.
-        versionCode = 66
-        versionName = "3.9.42"
+        // 3.9.43(67): match the stock query scan and search buttons.
+        versionCode = 67
+        versionName = "3.9.43"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 
