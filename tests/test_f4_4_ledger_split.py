@@ -645,3 +645,5 @@ POST_SPLIT_BUGS['BUG-2026-11-19-004'] = 'fixed'  # Align idle stock analysis.
 POST_SPLIT_BUGS['BUG-2026-11-19-005'] = 'fixed'  # Check the stock ledgers daily.
 POST_SPLIT_BUGS['BUG-2026-11-19-006'] = 'fixed'  # Commit document audit with inventory changes.
 POST_SPLIT_BUGS['BUG-2026-11-19-007'] = 'fixed'  # Recheck purchase quantities under the write lock.
+POST_SPLIT_BUGS['BUG-2026-11-20-001'] = 'fixed'  # Enlarge the stock query scan icon.
+POST_SPLIT_BUGS['BUG-2026-11-20-002'] = 'fixed'  # Scroll report filters with the records.
