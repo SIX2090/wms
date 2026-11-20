@@ -604,6 +604,7 @@ def register_requisition_routes(app):
     def complete_requisition(id):
         from sqlalchemy.orm import selectinload
         # P1-7②（2026-09-25）：库存写入改经 apply_stock_delta 单点入口
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta
         from app import (ProductionRequisition, _acquire_order_write_lock,
                          api_error, get_default_warehouse,
@@ -657,6 +658,7 @@ def register_requisition_routes(app):
                     except ValueError as error:
                         db.session.rollback()
                         return api_error(str(error))
+            audit_checkpoint = stock_document_audit_checkpoint(requisition, reference_type='requisition')
             for item in requisition.items:
                 qty = item.quantity or 0
                 if item.material and qty <= 0:
@@ -675,6 +677,10 @@ def register_requisition_routes(app):
                     return api_error(error_msg or f'物料 {item.material.code} 库存不足')
             requisition.status = 'completed'
             try:
+                stage_stock_document_snapshot(
+                    requisition, deleting=False, operation='complete_requisition', checkpoint=audit_checkpoint,
+                    reference_type='requisition', target_name=requisition.req_no, reason='完成工单领料',
+                )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -695,6 +701,7 @@ def register_requisition_routes(app):
         """工单领料单撤销"""
         from sqlalchemy.orm import selectinload
         # P1-7②（2026-09-25）：库存写入改经 apply_stock_delta 单点入口
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_stock_delta, _reverse_recorded_order_stock
         from app import (ProductionRequisition, _acquire_order_write_lock,
                          api_error, log_operation)
@@ -708,6 +715,7 @@ def register_requisition_routes(app):
             if not ok:
                 return api_error('该工单领料单已撤销，不能重复操作')
             requisition = locked
+            audit_checkpoint = stock_document_audit_checkpoint(requisition, reference_type='requisition')
             # 恢复库存（走 add_stock 写流水+归一化，与 complete_requisition 对称）
             recorded_result = _reverse_recorded_order_stock(requisition)
             if recorded_result is not None and not recorded_result[0]:
@@ -732,6 +740,10 @@ def register_requisition_routes(app):
 
             requisition.status = 'pending'
             try:
+                stage_stock_document_snapshot(
+                    requisition, deleting=False, operation='revert_requisition', checkpoint=audit_checkpoint,
+                    reference_type='requisition', target_name=requisition.req_no, reason='撤销工单领料',
+                )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()

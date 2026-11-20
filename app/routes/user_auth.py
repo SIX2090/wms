@@ -33,7 +33,7 @@ from db import db
 from utils import require_role, ASSIGNABLE_ROLES
 
 
-STOCK_AUDIT_TARGETS = {'in_order', 'out_order', 'adjustment', 'transfer', 'check'}
+STOCK_AUDIT_TARGETS = {'in_order', 'out_order', 'adjustment', 'transfer', 'check', 'requisition'}
 
 
 def stock_audit_detail(audit):
