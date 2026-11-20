@@ -90,6 +90,12 @@ def main():
     class PurchaseOrder(Base):
         __tablename__ = 'synthetic_purchase_order'
         id = Column(Integer, primary_key=True)
+    class Contract(Base):
+        __tablename__ = 'synthetic_contract'
+        id = Column(Integer, primary_key=True)
+        contract_no = Column(String(50), unique=True, nullable=False)
+        project_name = Column(String(200), nullable=False)
+        status = Column(String)
     engine = create_engine('sqlite://', creator=lambda: memory_connect(':memory:'))
     session = scoped_session(sessionmaker(bind=engine))
     Base.query = session.query_property()
@@ -174,7 +180,7 @@ db.session.flush()
            'wraps': wraps, 'IntegrityError': IntegrityError, 'OperationalError': OperationalError,
            'db': types.SimpleNamespace(session=session), 'MobileApiRequest': Receipt, 'current_user': user,
            'app': synthetic_app, 'InOrder': Order, 'InOrderItem': Item, 'Material': Material,
-           'PurchaseOrder': PurchaseOrder, 'allocate': allocate,
+           'PurchaseOrder': PurchaseOrder, 'Contract': Contract, 'allocate': allocate,
            'Customer': object, 'PurchaseOrderItem': object, 'SalesOrder': object, 'SalesOrderItem': object,
            'api_error': lambda message, code=400: (jsonify(status='error', msg=message), code),
            'assert_warehouse_active': lambda *_args, **_kwargs: (True, ''),
@@ -188,6 +194,7 @@ db.session.flush()
            '_parse_item_expiry_date': lambda _value: (None, ''),
            'resolve_product_receipt_materials': lambda items: items}
     code = ast.fix_missing_locations(ast.Module(body=[find(route_tree, '_parse_item_batch_no'),
+                                RemoveImports().visit(find(route_tree, 'resolve_purchase_receipt_contract')),
                                 find(route_tree, '_resolve_item_batch_no'), find(utils_tree, 'round_to_2_decimals'),
                                 find(utils_tree, 'round_money_product'), find(service_tree, '_document_idempotent'),
                                 find(service_tree, 'stage_document_response'), route], type_ignores=[]))
@@ -202,6 +209,7 @@ db.session.flush()
         def setUp(self):
             session.remove()
             session.execute(text('DELETE FROM synthetic_item'))
+            session.execute(text('DELETE FROM synthetic_contract'))
             session.execute(text('DELETE FROM synthetic_order'))
             session.execute(text('DELETE FROM synthetic_receipt'))
             session.execute(text('DELETE FROM synthetic_counter'))
@@ -213,6 +221,7 @@ db.session.flush()
         def post(self, key, body=None):
             return self.client.post('/in_order/add', json=body or self.body, headers={'X-Idempotency-Key': key})
         def test_lost_response_same_key_and_changed_payload(self):
+            self.body['items'][0].update(contract_no='HD261103', project_name='合成工程')
             first = self.post('k1')
             self.assertEqual(first.status_code, 200, first.get_json())
             replay = self.post('k1')
@@ -221,6 +230,7 @@ db.session.flush()
             self.assertEqual(changed.status_code, 409)
             self.assertEqual(session.query(Order).count(), 1)
             self.assertEqual(session.query(Item).count(), 1)
+            self.assertEqual(session.query(Contract).one().contract_no, 'HD261103')
         def test_same_preview_separate_keys_and_edit_by_id(self):
             a, b = self.post('a'), self.post('b')
             self.assertEqual((a.status_code, b.status_code), (200, 200))

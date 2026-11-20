@@ -26,7 +26,8 @@ for name in ('is_purchase_in_order','should_block_purchase_over_receive','valida
 extract('app/utils.py','parse_float_value')
 extract('app/services/web_document_idempotency.py','stage_document_response')
 for name in ('delete_in_order_item','in_order_item_delete_alias','delete_in_order','batch_delete_in_order',
-             'update_in_order_item','add_in_order_item','copy_in_order','add_in_order','_product_header_project'):
+             'update_in_order_item','add_in_order_item','copy_in_order','add_in_order','_product_header_project',
+             'resolve_purchase_receipt_contract'):
     extract('app/routes/in_order.py',name)
 for name in ('_aggregate_submitted_qty_by_item_id','create_in_order_from_purchase_order_selection'):
     extract('app/routes/purchase_order.py',name)
