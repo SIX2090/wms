@@ -7,6 +7,7 @@ from flask_login import login_required
 from werkzeug.exceptions import HTTPException
 
 from routes.doc_print_excel import _DOC_ROUTE_MODELS
+from routes.purchase_order import purchase_order_read_required
 
 _DOCUMENTS={code:(prefix,model,f'doc_print_excel_{code}')
             for code,(prefix,model) in _DOC_ROUTE_MODELS.items()}
@@ -108,5 +109,8 @@ def register_document_print_routes(app):
     """Register selection and filled-workbook preview for every existing Excel print type."""
     for code,(prefix,_,_) in _DOCUMENTS.items():
         for preview,download,suffix in ((False,False,'print_options'),(True,False,'print_preview'),(True,True,'print_file')):
+            view = login_required(_make_document_print_view(app, code, preview, download))
+            if code == 'purchase_order':
+                view = purchase_order_read_required(view)
             app.add_url_rule(f'/{prefix}/<int:id>/{suffix}',endpoint=f'document_{code}_{suffix}',
-                             view_func=login_required(_make_document_print_view(app,code,preview,download)),methods=['GET'])
+                             view_func=view,methods=['GET'])

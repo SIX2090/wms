@@ -29,6 +29,7 @@ from doc_print_excel import (
     TABLE_EXCEL_PRINT_TYPES,
     render_doc_excel_print,
 )
+from routes.purchase_order import purchase_order_read_required
 
 # target_code → (URL 前缀, app 模块中的模型名)
 _DOC_ROUTE_MODELS = {
@@ -85,6 +86,8 @@ def register_doc_print_excel_routes(app):
     for target_code, (prefix, model_name) in _DOC_ROUTE_MODELS.items():
         view = login_required(_make_doc_print_excel_view(
             app, target_code, model_name))
+        if target_code == 'purchase_order':
+            view = purchase_order_read_required(view)
         app.add_url_rule(
             f'/{prefix}/<int:id>/print_excel',
             endpoint=f'doc_print_excel_{target_code}',

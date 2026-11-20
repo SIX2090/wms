@@ -42,6 +42,9 @@ from utils import require_role
 from utils import round_money_product
 
 
+purchase_order_read_required = require_role('warehouse', 'purchase')
+
+
 def _aggregate_submitted_qty_by_item_id(rows, id_keys=('item_id', 'id'), skip_non_positive=False):
     """把「明细行列表」聚合为 {采购明细id: 累计数量}（同一 id 出现多次则累加）。
 
@@ -100,7 +103,7 @@ def _purchase_edit_line_id(value):
 # no-test:reason=路由注册辅助函数，能力由 purchase_order_* 各路由测试覆盖
 def register_purchase_order_routes(app):
     @app.route('/purchase_order')
-    @require_role('warehouse', 'purchase')
+    @purchase_order_read_required
     @login_required
     def purchase_order_list():
         from datetime import date
@@ -233,6 +236,7 @@ def register_purchase_order_routes(app):
         )
 
     @app.route('/purchase_order/export')
+    @purchase_order_read_required
     @login_required
     def export_purchase_order():
         from sqlalchemy.orm import joinedload
@@ -415,6 +419,7 @@ def register_purchase_order_routes(app):
             return api_error(f'采购单导入失败，请稍后重试或联系管理员')
 
     @app.route('/purchase_order/add')
+    @purchase_order_read_required
     @login_required
     def purchase_order_add_page():
         from datetime import datetime
@@ -439,6 +444,7 @@ def register_purchase_order_routes(app):
         )
 
     @app.route('/purchase_order/<int:id>/edit')
+    @purchase_order_read_required
     @login_required
     def purchase_order_edit_page(id):
         from datetime import datetime
@@ -699,6 +705,7 @@ def register_purchase_order_routes(app):
             return api_error('保存失败，请稍后重试')
 
     @app.route('/purchase_order/<int:id>')
+    @purchase_order_read_required
     @login_required
     def purchase_order_detail(id):
         from sqlalchemy.orm import joinedload
@@ -734,6 +741,7 @@ def register_purchase_order_routes(app):
         )
 
     @app.route('/purchase_order/<int:id>/print')
+    @purchase_order_read_required
     @login_required
     def print_purchase_order(id):
         from sqlalchemy.orm import joinedload, selectinload

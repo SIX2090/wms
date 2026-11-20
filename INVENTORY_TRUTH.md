@@ -311,7 +311,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30539`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:30540`）幂等回填历史行。
 - **兼容读取**：优先使用 `warehouse_id`。对外键为空的流水，旧文本同时按仓库名、编码和库位名核对，只有全部匹配都指向同一仓库时才纳入该仓。兼容读取和回填共用这条判据。空位置仍按可核实的来源单据解析。
 
 ### 3.2 铁律：不猜
@@ -474,8 +474,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:30539`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30539`，符合 §3.2）——
+> （`app/app.py:30540`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:30540`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

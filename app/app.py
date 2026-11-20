@@ -101,7 +101,7 @@ from routes.bom import register_bom_routes
 # 盘点（check）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.check import register_check_routes
 # 采购订单（purchase_order）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
-from routes.purchase_order import register_purchase_order_routes
+from routes.purchase_order import purchase_order_read_required, register_purchase_order_routes
 # 采购申请（purchase_request）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
 from routes.purchase_request import register_purchase_request_routes
 # 库存调整（adjustment）域路由注册函数（register-on-app 模式，endpoint 名不变，避免 url_for 改动）。
@@ -28349,6 +28349,7 @@ def api_ai_out_order_anomaly_analysis(id):
 
 
 @app.route('/api/purchase_order/todo_summary')
+@purchase_order_read_required
 @login_required
 def api_purchase_order_todo_summary():
     summary = build_purchase_order_todo_summary()
@@ -28377,7 +28378,7 @@ def api_purchase_order_todo_summary():
     })
 
 @app.route('/api/purchase_order/selectable')
-@require_role('warehouse', 'purchase')
+@purchase_order_read_required
 @login_required
 def api_purchase_order_selectable():
     purchase_order_id = request.args.get('purchase_order_id', type=int) or 0

@@ -648,3 +648,4 @@ POST_SPLIT_BUGS['BUG-2026-11-19-007'] = 'fixed'  # Recheck purchase quantities u
 POST_SPLIT_BUGS['BUG-2026-11-20-001'] = 'fixed'  # Enlarge the stock query scan icon.
 POST_SPLIT_BUGS['BUG-2026-11-20-002'] = 'fixed'  # Scroll report filters with the records.
 POST_SPLIT_BUGS['BUG-2026-11-20-003'] = 'fixed'  # Android stock, photo and loading regressions.
+POST_SPLIT_BUGS['BUG-2026-11-20-004'] = 'fixed'  # Apply purchase order read roles to each document channel.
