@@ -215,3 +215,72 @@ def test__warehouse_source_ledger_differences(kind, quantity, attribution):
         else:
             assert '数量相符' in title
             assert '流水与来源单据仓库不一致 0 组' in content
+
+
+@pytest.mark.parametrize('reuse_old_name', [False, True])
+def test_daily_reconciliation_identifies_legacy_warehouse_rename(reuse_old_name):
+    from app import InOrder, Notification, StockTransaction, Warehouse
+
+    _reset('0')
+    with app_module.app.app_context():
+        material = Material.query.one()
+        first = Warehouse(code='RENAME-A', name='旧材料仓', status='active')
+        second = Warehouse(code='RENAME-B', name='另一仓', status='active')
+        order = InOrder(order_no='SYN-RENAME-001', warehouse=first.name, status='completed')
+        db.session.add_all([first, second, order])
+        db.session.flush()
+        first_id, second_id = first.id, second.id
+        user_id = User.query.one().id
+        for text, quantity, source_id in [
+            (first.name, 9, order.id), (first.code, 3, order.id),
+            ('早已冲回的位置', 5, order.id), ('早已冲回的位置', -5, order.id),
+            ('无来源的旧位置', 2, None),
+        ]:
+            db.session.add(StockTransaction(
+                material_id=material.id, transaction_type='in' if quantity > 0 else 'revert_in',
+                quantity=quantity, location=text, reference_type='in_order' if source_id else None,
+                reference_id=source_id,
+            ))
+        material.stock = 14
+        app_module.set_system_setting('location_management_enabled', '0')
+        db.session.commit()
+
+    client = app_module.app.test_client()
+    with client.session_transaction() as session:
+        session['_user_id'] = str(user_id)
+        session['_fresh'] = True
+    response = client.post(f'/warehouse/{first_id}/edit',
+                           data={'name': '新材料仓', 'code': 'RENAME-A', 'status': 'active'})
+    assert response.status_code == 200 and response.json['status'] == 'success'
+    if reuse_old_name:
+        response = client.post(f'/warehouse/{second_id}/edit',
+                               data={'name': '旧材料仓', 'code': 'RENAME-B', 'status': 'active'})
+        assert response.status_code == 200 and response.json['status'] == 'success'
+
+    with app_module.app.app_context():
+        order = InOrder.query.one()
+        assert order.warehouse == '新材料仓'
+        before = [(t.id, t.location, t.warehouse_id, t.quantity)
+                  for t in StockTransaction.query.order_by(StockTransaction.id)]
+        manager = NotificationManager()
+        manager.check_inventory_ledgers()
+        manager.check_inventory_ledgers()
+        notice = Notification.query.filter_by(type='inventory_reconciliation').one()
+        assert '数量相符，仓库归属待核' in notice.title
+        assert '总账与流水差异 0' in notice.content
+        assert '流水与来源单据仓库不一致 0 组' in notice.content
+        assert '仓库外键为空的流水 5 条' in notice.content
+        assert f'旧位置无法唯一归仓 {int(not reuse_old_name)} 组' in notice.content
+        assert f'旧位置与来源单据仓库冲突 {int(reuse_old_name)} 组' in notice.content
+        assert 'SYN-RENAME-001' in notice.content and '旧材料仓' in notice.content
+        assert f'单据仓库ID {first_id}' in notice.content
+        if reuse_old_name:
+            assert f'旧位置匹配仓库ID {second_id}' in notice.content
+        assert '早已冲回的位置' not in notice.content and '无来源的旧位置' not in notice.content
+        assert [(t.id, t.location, t.warehouse_id, t.quantity)
+                for t in StockTransaction.query.order_by(StockTransaction.id)] == before
+        assert Material.query.one().stock == 14
+        content = notice.content
+
+    page = client.get('/report/view/warehouse_monthly')
+    assert page.status_code == 200 and content in page.get_data(as_text=True)
