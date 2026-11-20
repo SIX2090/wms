@@ -1,6 +1,7 @@
 package com.factory.wms.ui.components
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.ClipData
 import android.content.Context
@@ -23,6 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.IOException
 
 /**
  * 拍照入口（含权限申请与全尺寸回传，AI-APP-FIX-101）。
@@ -68,12 +70,17 @@ internal fun rememberCameraLauncherWithPermission(
     fun startCapture() {
         if (pendingCapture != null) return
         cameraDir.mkdirs()
-        val file = File.createTempFile("cap_", ".jpg", cameraDir)
+        val file = try {
+            File.createTempFile("cap_", ".jpg", cameraDir)
+        } catch (_: IOException) {
+            coroutineScope.launch { snackbarHostState.showSnackbar("无法创建照片文件，请检查手机存储空间") }
+            return
+        }
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
         pendingCapture = file.name
         try {
             cameraLauncher.launch(uri)
-        } catch (_: android.content.ActivityNotFoundException) {
+        } catch (_: ActivityNotFoundException) {
             pendingCapture = null
             file.delete()
             coroutineScope.launch { snackbarHostState.showSnackbar("找不到可用的相机应用") }
