@@ -532,9 +532,7 @@
                             <a class="flyout-link" href="/other_in_order/add"><i class="bi bi-box-arrow-in-down"></i> 其他入库单</a>
                             <a class="flyout-link" href="/other_out_order/add"><i class="bi bi-box-arrow-up"></i> 其他出库单</a>
                             <a class="flyout-link" href="/transfer"><i class="bi bi-arrow-left-right"></i> 库存调拨</a>
-                            {% if location_management_enabled %}
                             <a class="flyout-link" href="/adjustment"><i class="bi bi-sliders"></i> 库存调整</a>
-                            {% endif %}
                             <a class="flyout-link" href="/check"><i class="bi bi-clipboard-check"></i> 库存盘点</a>
                             <a class="flyout-link" href="/requisition"><i class="bi bi-file-earmark-text"></i> 工单领料</a>
                             <a class="flyout-link" href="/subcontract"><i class="bi bi-truck"></i> 委外管理</a>
@@ -746,13 +744,11 @@
                     <i class="bi bi-arrow-left-right"></i> 库存调拨
                 </a>
             </li>
-            {% if location_management_enabled %}
             <li class="nav-item">
                 <a class="nav-link" href="/adjustment">
                     <i class="bi bi-sliders"></i> 库存调整
                 </a>
             </li>
-            {% endif %}
             <li class="nav-item">
                 <a class="nav-link" href="/check">
                     <i class="bi bi-clipboard-check"></i> 库存盘点

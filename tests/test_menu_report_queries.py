@@ -62,7 +62,8 @@ def test_forms_existing_reports_and_master_data_still_have_entries(role, locatio
             '/report/view/summary', '/report/view/check', '/report/view/ledger',
             '/report/view/warehouse_monthly', '/report/view/requisition', '/report/view/subcontract',
             '/sales/outflow_report', '/sales/report', '/purchase_report'}.issubset(paths)
-    assert ('/adjustment' in paths) is locations
+    assert links.count('/adjustment') == 2  # 库存管理菜单和旧版导航各有一个入口
+    assert ('/ai/location_recommendation' in paths) is locations
     assert ('/sales/price_analysis' in paths) is prices
     if role == 'admin':
         assert {'/material', '/contract', '/opening_stock', '/category', '/unit', '/warehouse',
@@ -78,6 +79,7 @@ def test_finance_and_viewer_keep_report_queries_without_form_or_admin_access():
     assert not any(path.endswith('/add') for path in finance)
     for role in ['finance', 'viewer', 'purchase', 'sales', 'production', 'user']:
         paths = {urlsplit(link).path for link in shell(role).links}
+        assert '/adjustment' not in paths
         assert '/system_settings' not in paths and '/user' not in paths
     assert '/report' in {urlsplit(link).path for link in shell('viewer').links}
     production = {urlsplit(link).path for link in shell('production').links}
