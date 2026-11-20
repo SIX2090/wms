@@ -22,6 +22,8 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import json
+
 from flask import flash, jsonify, redirect, render_template, request, session, url_for
 from flask_login import login_required
 
@@ -29,6 +31,44 @@ from db import db
 # AI-WMS-FINANCE-ROLE：ASSIGNABLE_ROLES 是可分配角色的唯一来源，
 # 避免「新增角色只改一处白名单」导致建号 / 列表筛选 / 编辑三处行为不一致。
 from utils import require_role, ASSIGNABLE_ROLES
+
+
+STOCK_AUDIT_TARGETS = {'in_order', 'out_order', 'adjustment', 'transfer'}
+
+
+def stock_audit_detail(audit):
+    """Present only the stock fields recorded in this audit, including legacy snapshots."""
+    from app import Material, Warehouse
+
+    snapshots = []
+    material_ids = set()
+    warehouse_ids = set()
+    for label, raw in (('变更前', audit.old_data), ('变更后', audit.new_data)):
+        try:
+            data = json.loads(raw) if raw else None
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        items = data.get('items')
+        if isinstance(items, dict):
+            items = list(items.values())  # 已完成入库单编辑按原明细 ID 保存。
+        movements = data.get('movements')
+        items = [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
+        movements = [row for row in movements if isinstance(row, dict)] if isinstance(movements, list) else []
+        if not (data.get('status') or data.get('warehouse') or items or movements):
+            continue
+        snapshots.append(dict(label=label, status=data.get('status'), warehouse=data.get('warehouse'),
+                              items=items, movements=movements))
+        material_ids.update(row['material_id'] for row in items + movements
+                            if type(row.get('material_id')) is int and 0 < row['material_id'] < 2**63)
+        warehouse_ids.update(row['warehouse_id'] for row in movements
+                             if type(row.get('warehouse_id')) is int and 0 < row['warehouse_id'] < 2**63)
+    materials = {row.id: row for row in Material.query.with_entities(Material.id, Material.code, Material.name)
+                 .filter(Material.id.in_(material_ids))} if material_ids else {}
+    warehouses = dict(Warehouse.query.with_entities(Warehouse.id, Warehouse.name)
+                      .filter(Warehouse.id.in_(warehouse_ids)).all()) if warehouse_ids else {}
+    return {'snapshots': snapshots, 'materials': materials, 'warehouses': warehouses}
 
 
 # no-test:reason=路由注册辅助函数，能力由 user_auth_* 各路由测试覆盖
@@ -474,9 +514,17 @@ def register_user_auth_routes(app):
                     'status': 'success',
                 })
         if source != 'operation_log':
-            for audit in audit_query.order_by(OperationAudit.operation_time.desc()).limit(max_fetch).all():
+            audit_summaries = audit_query.with_entities(
+                OperationAudit.id, OperationAudit.operation_time, OperationAudit.username,
+                OperationAudit.operation, OperationAudit.target_type, OperationAudit.target_id,
+                OperationAudit.target_name, OperationAudit.reason, OperationAudit.ip_address,
+                OperationAudit.status, db.or_(OperationAudit.old_data != '', OperationAudit.new_data != '')
+                .label('has_snapshot'),
+            )
+            for audit in audit_summaries.order_by(OperationAudit.operation_time.desc()).limit(max_fetch):
                 details = audit.reason or audit.target_name or ''
-                if audit.old_data or audit.new_data:
+                has_stock_detail = audit.has_snapshot and audit.target_type in STOCK_AUDIT_TARGETS
+                if audit.has_snapshot and not has_stock_detail:
                     details = (details + '；' if details else '') + '包含变更前后数据'
                 rows.append({
                     'source': '变更审计',
@@ -485,6 +533,8 @@ def register_user_auth_routes(app):
                     'operation': audit.operation or '-',
                     'target_type': audit.target_type or '-',
                     'target_id': audit.target_id,
+                    'target_name': audit.target_name,
+                    'detail_id': audit.id if has_stock_detail else None,
                     'content': details,
                     'ip_address': audit.ip_address or '-',
                     'status': audit.status or '-',
@@ -495,6 +545,14 @@ def register_user_auth_routes(app):
         pages = (total + per_page - 1) // per_page if total else 0
         start = (page - 1) * per_page
         audit_rows = rows[start:start + per_page]
+        detail_id = request.args.get('audit_detail', type=int)
+        if detail_id:
+            for row in audit_rows:
+                if row.get('detail_id') == detail_id:
+                    detail_record = db.session.get(OperationAudit, detail_id)
+                    if detail_record is not None:
+                        row['stock_detail'] = stock_audit_detail(detail_record)
+                    break
 
         risk_log_count = OperationLog.query.filter(
             OperationLog.created_at >= start_dt,

@@ -1,0 +1,60 @@
+{% macro material_description(material_id) -%}
+    {% set material = detail.materials.get(material_id) if material_id is integer else none %}
+    {% if material %}{{ material.code }} {{ material.name }}
+    {% elif material_id %}物料 #{{ material_id }}
+    {% else %}未记录{% endif %}
+{%- endmacro %}
+{% set status_labels = {'pending': '草稿', 'completed': '已完成', 'cancelled': '已取消'} %}
+{% for snapshot in detail.snapshots %}
+    <section{% if not loop.first %} class="mt-3"{% endif %}>
+        <h6>{{ snapshot.label }}</h6>
+        {% if snapshot.status or snapshot.warehouse %}
+        <ul class="list-inline mb-2">
+            {% if snapshot.status %}
+            <li class="list-inline-item"><strong>状态</strong> {{ status_labels.get(snapshot.status, snapshot.status) if snapshot.status is string else '未记录' }}</li>
+            {% endif %}
+            {% if snapshot.warehouse %}
+            <li class="list-inline-item"><strong>单据仓库</strong> {{ snapshot.warehouse }}</li>
+            {% endif %}
+        </ul>
+        {% endif %}
+        {% if snapshot['items'] %}
+        <table class="table table-sm mb-2">
+            <caption class="caption-top pt-0">单据明细</caption>
+            <thead><tr><th>物料</th><th class="text-end">数量</th></tr></thead>
+            <tbody>
+                {% for item in snapshot['items'] %}
+                <tr>
+                    <td>{{ material_description(item.material_id) }}</td>
+                    <td class="text-end">{{ item.get('quantity', item.get('qty'))|quantity or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+        {% if snapshot.movements %}
+        <table class="table table-sm mb-0">
+            <caption class="caption-top pt-0">{{ '变更前保存的库存流水' if snapshot.label == '变更前' else '本次库存流水' }}</caption>
+            <thead><tr><th>物料</th><th>流水仓库</th><th>位置记录</th><th class="text-end">库存增减</th></tr></thead>
+            <tbody>
+                {% for movement in snapshot.movements %}
+                {% set quantity = movement.get('quantity')|quantity %}
+                {% set warehouse_id = movement.get('warehouse_id') %}
+                <tr>
+                    <td>{{ material_description(movement.material_id) }}</td>
+                    <td>
+                        {% if warehouse_id is integer %}
+                        {{ detail.warehouses.get(warehouse_id) or '仓库' }} #{{ warehouse_id }}
+                        {% else %}未记录{% endif %}
+                    </td>
+                    <td>{{ movement.get('location') or '—' }}</td>
+                    <td class="text-end">{% if quantity and quantity != '0' and not quantity.startswith('-') %}+{% endif %}{{ quantity or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </section>
+{% else %}
+    <span class="text-muted">这条审计记录没有可展示的库存明细。</span>
+{% endfor %}
