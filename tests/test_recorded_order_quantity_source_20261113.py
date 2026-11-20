@@ -10,7 +10,9 @@ SETUP = r'''
 from flask import g, has_request_context, request as actual_request
 from sqlalchemy import case
 import re
-ns.update(g=g,has_request_context=has_request_context,re=re,case=case,LEDGER_EPS=0.01)
+import runpy
+ledger_precision=runpy.run_path(str(root/'app/services/inventory_reconciliation_precision.py'))
+ns.update(g=g,has_request_context=has_request_context,re=re,case=case,LEDGER_EPS=ledger_precision['LEDGER_EPS'])
 ns['current_user'].username='synthetic'
 for name in ('resolve_inventory_warehouse_id','add_stock_transaction'):
     extract('app/app.py',name)

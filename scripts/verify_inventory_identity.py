@@ -84,8 +84,9 @@ def _require_loaded_synthetic_app():
             _test_guard['validate_owned_test_file'](url.database)
     return cached
 
-# 浮点容差：金额/数量经 round_to_2_decimals 后允许 0.01 级误差
-DEFAULT_TOLERANCE = 0.01
+_precision = runpy.run_path(str(APP_DIR / "services" / "inventory_reconciliation_precision.py"))
+DEFAULT_TOLERANCE = _precision["LEDGER_EPS"]
+LEDGER_QUANTITY_DECIMALS = _precision["LEDGER_QUANTITY_DECIMALS"]
 
 
 # ---------------------------------------------------------------------------
@@ -216,9 +217,9 @@ def find_warehouse_mismatches(rows, wh_rows, tolerance=DEFAULT_TOLERANCE):
                     "code": code,
                     "warehouse_id": wid,
                     "dimension": "wh_location_vs_txn",
-                    "locations": round(slot["locations"], 2),
-                    "txns": round(slot["txns"], 2),
-                    "delta": round(slot["locations"] - slot["txns"], 2),
+                    "locations": round(slot["locations"], LEDGER_QUANTITY_DECIMALS),
+                    "txns": round(slot["txns"], LEDGER_QUANTITY_DECIMALS),
+                    "delta": round(slot["locations"] - slot["txns"], LEDGER_QUANTITY_DECIMALS),
                 })
     return findings
 
@@ -237,18 +238,18 @@ def find_mismatches(rows, tolerance=DEFAULT_TOLERANCE):
                 "material_id": mid,
                 "code": row["code"],
                 "dimension": "ledger_vs_location",
-                "ledger": round(row["ledger"], 2),
-                "other": round(row["locations"], 2),
-                "delta": round(row["ledger"] - row["locations"], 2),
+                "ledger": round(row["ledger"], LEDGER_QUANTITY_DECIMALS),
+                "other": round(row["locations"], LEDGER_QUANTITY_DECIMALS),
+                "delta": round(row["ledger"] - row["locations"], LEDGER_QUANTITY_DECIMALS),
             })
         if abs(row["ledger"] - row["txns"]) > tolerance:
             findings.append({
                 "material_id": mid,
                 "code": row["code"],
                 "dimension": "ledger_vs_txn",
-                "ledger": round(row["ledger"], 2),
-                "other": round(row["txns"], 2),
-                "delta": round(row["ledger"] - row["txns"], 2),
+                "ledger": round(row["ledger"], LEDGER_QUANTITY_DECIMALS),
+                "other": round(row["txns"], LEDGER_QUANTITY_DECIMALS),
+                "delta": round(row["ledger"] - row["txns"], LEDGER_QUANTITY_DECIMALS),
             })
     return findings
 
@@ -377,8 +378,8 @@ def summarize(rows, findings, wh_findings=None, wh_rows=None,
         unattributed = [
             {"material_id": mid,
              "code": rows.get(mid, {}).get("code", ""),
-             "locations": round(wr["unattributed_locations"], 2),
-             "txns": round(wr["unattributed_txns"], 2)}
+             "locations": round(wr["unattributed_locations"], LEDGER_QUANTITY_DECIMALS),
+             "txns": round(wr["unattributed_txns"], LEDGER_QUANTITY_DECIMALS)}
             for mid, wr in sorted(wh_rows.items(), key=lambda kv: str(kv[0]))
             if wr["unattributed_locations"] or wr["unattributed_txns"]
         ]

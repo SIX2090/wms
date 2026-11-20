@@ -116,8 +116,9 @@ def register_system_settings_routes(app):
                             'status': 'error',
                             'msg': (f'拒绝开启库位管理：库位账与流水账存在 {len(mismatches)} 处'
                                     f'（含更多）不一致，开启后会导致库存查询/出库大面积失效。'
-                                    f'请先执行 scripts/backfill_location_inventory.py 回填并对齐'
-                                    f'库位账（建议先 --dry-run 核对）后重试。示例：{sample}'),
+                                    f'请核对并对齐库位账后重试。'
+                                    f'scripts/backfill_location_inventory.py --dry-run 可辅助核对较大差异，'
+                                    f'小额差异请以本次检查为准。示例：{sample}'),
                         }), 400
                 setting = set_system_setting(key, value)
                 setting.remark = definition.get('remark', '')

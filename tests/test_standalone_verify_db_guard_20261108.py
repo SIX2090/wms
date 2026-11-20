@@ -220,7 +220,10 @@ def test_inventory_identity_retains_calculation_and_original_sqlite_logic():
                for node in ast.walk(original))
     pure = ast.fix_missing_locations(ast.Module(
         body=[functions['build_identity_rows'], functions['find_mismatches']], type_ignores=[]))
-    namespace = {'DEFAULT_TOLERANCE': 0.01}
+    import runpy
+    precision = runpy.run_path(str(SCRIPTS.parent / 'app/services/inventory_reconciliation_precision.py'))
+    namespace = {'DEFAULT_TOLERANCE': precision['LEDGER_EPS'],
+                 'LEDGER_QUANTITY_DECIMALS': precision['LEDGER_QUANTITY_DECIMALS']}
     exec(compile(pure, '<synthetic-identity-calculation>', 'exec'), namespace)
     rows = namespace['build_identity_rows']([(1, 'SYNTHETIC', 5)], [(1, 5)], [(1, 3)])
     findings = namespace['find_mismatches'](rows)

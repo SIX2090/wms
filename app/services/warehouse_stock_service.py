@@ -17,6 +17,8 @@
 
 from __future__ import annotations
 
+from services.inventory_reconciliation_precision import LEDGER_EPS, LEDGER_QUANTITY_DECIMALS
+
 # P2b（2026-09-25）：三账恒等式运行时校验。
 #   为什么不做数据库级约束（CHECK/触发器）：
 #     - CHECK 不能跨表、不能写子查询聚合，而恒等式是跨表聚合，根本表达不出来；
@@ -24,11 +26,10 @@ from __future__ import annotations
 #       库存问题、存量脏数据未知——一上线就会把整库写入锁死。
 #   故降级为：入口内可开关的运行时断言（测试默认开、生产默认关）+ 既有
 #   scripts/verify_inventory_identity.py 的 CI 全库恒等式判据。
-LEDGER_EPS = 0.01
 
 
 def _recorded_quantity_matches(actual, expected, *operands):
-    """Float 表示误差边界；绝不沿用普通三账检查的 0.01 容差。"""
+    """历史原量回冲仅容许二进制浮点表示误差。"""
     import math
 
     values = (actual, expected, *operands)
@@ -620,19 +621,18 @@ def verify_material_three_ledgers(material) -> tuple[bool, dict]:
     注意：读的是**当前 session/库里的真实值**，不是 ORM 实例的缓存值
     （入口内部 expire 过 Material.stock，直接读实例会拿到旧值）。
     """
+    from math import fsum
     from app import (LocationInventory, Material, StockTransaction,
                      location_management_enabled, db)
 
     mid = getattr(material, 'id', material)
     mat = db.session.get(Material, mid)
     one = float(mat.stock or 0) if mat else 0.0
-    three = float(sum((r.quantity or 0)
-                      for r in StockTransaction.query.filter_by(material_id=mid).all()))
+    three = fsum(r.quantity or 0 for r in StockTransaction.query.filter_by(material_id=mid).all())
     location_on = location_management_enabled()
     two = None
     if location_on:
-        two = float(sum((r.quantity or 0)
-                        for r in LocationInventory.query.filter_by(material_id=mid).all()))
+        two = fsum(r.quantity or 0 for r in LocationInventory.query.filter_by(material_id=mid).all())
     ok = abs(one - three) <= LEDGER_EPS
     if location_on and two is not None:
         ok = ok and abs(one - two) <= LEDGER_EPS
@@ -691,8 +691,9 @@ def find_location_ledger_mismatches(tolerance=LEDGER_EPS, limit=20):
             findings.append({
                 "dimension": "wh_location_vs_txn", "material_id": mid,
                 "code": codes.get(mid, ""), "warehouse_id": wid,
-                "location": round(loc_q, 2), "txn": round(txn_q, 2),
-                "delta": round(loc_q - txn_q, 2)})
+                "location": round(loc_q, LEDGER_QUANTITY_DECIMALS),
+                "txn": round(txn_q, LEDGER_QUANTITY_DECIMALS),
+                "delta": round(loc_q - txn_q, LEDGER_QUANTITY_DECIMALS)})
     # 物料级 ①≠Σ②：仅对存在库位账行的物料判
     loc_total_by_mid = {}
     for (mid, _wid), q in loc_by_key.items():
@@ -703,8 +704,9 @@ def find_location_ledger_mismatches(tolerance=LEDGER_EPS, limit=20):
             findings.append({
                 "dimension": "ledger_vs_location", "material_id": mid,
                 "code": codes.get(mid, ""), "warehouse_id": None,
-                "location": round(loc_total, 2), "txn": round(one, 2),
-                "delta": round(one - loc_total, 2)})
+                "location": round(loc_total, LEDGER_QUANTITY_DECIMALS),
+                "txn": round(one, LEDGER_QUANTITY_DECIMALS),
+                "delta": round(one - loc_total, LEDGER_QUANTITY_DECIMALS)})
     return findings[:limit]
 
 
@@ -1234,6 +1236,7 @@ def _warehouse_source_ledger_differences():
 def inventory_reconciliation_summary():
     """一次只读查询核对同一快照，汇总全部差异，列出前十个定位线索。"""
     from itertools import groupby
+    from math import fsum
     from operator import itemgetter
     from sqlalchemy import func, literal, select, union_all
     from app import LocationInventory, Material, StockTransaction, db, location_management_enabled
@@ -1252,6 +1255,7 @@ def inventory_reconciliation_summary():
     rows = db.session.execute(select(data).order_by(data.c.id))
     global_diff = bin_diff = warehouse_diff = source_diff = unassigned = 0
     examples = []
+    prec = LEDGER_QUANTITY_DECIMALS
     for mid, group in groupby(rows, key=itemgetter(0)):
         code, stock, ledger, bins, source_examples = str(mid), 0, {}, {}, []
         for _, kind, wid, quantity, count, material_code in group:
@@ -1268,20 +1272,23 @@ def inventory_reconciliation_summary():
                 if len(examples) + len(source_examples) < 10:
                     source_examples.append(f'{kind} #{count} 流水仓库ID {wid} 净额 {quantity:g} / 单据仓库ID {material_code}')
         examples.extend(f'{code} {value}' for value in source_examples)
-        if abs(stock - sum(ledger.values())) > LEDGER_EPS:
+        txn_total = fsum(ledger.values())
+        if abs(stock - txn_total) > LEDGER_EPS:
             global_diff += 1
             if len(examples) < 10:
-                examples.append(f'{code} 总账 {stock:g} / 流水 {sum(ledger.values()):g}')
+                examples.append(f'{code} 总账 {stock:.{prec}f} / 流水 {txn_total:.{prec}f}')
         if use_bins:
-            if abs(stock - sum(bins.values())) > LEDGER_EPS:
+            bin_total = fsum(bins.values())
+            if abs(stock - bin_total) > LEDGER_EPS:
                 bin_diff += 1
                 if len(examples) < 10:
-                    examples.append(f'{code} 总账 {stock:g} / 库位 {sum(bins.values()):g}')
+                    examples.append(f'{code} 总账 {stock:.{prec}f} / 库位 {bin_total:.{prec}f}')
             for wid in sorted((ledger.keys() | bins.keys()) - {None}):
-                if abs(ledger.get(wid, 0) - bins.get(wid, 0)) > LEDGER_EPS:
+                txn_qty, bin_qty = ledger.get(wid, 0), bins.get(wid, 0)
+                if abs(txn_qty - bin_qty) > LEDGER_EPS:
                     warehouse_diff += 1
                     if len(examples) < 10:
-                        examples.append(f'{code} 仓库ID {wid} 流水 {ledger.get(wid, 0):g} / 库位 {bins.get(wid, 0):g}')
+                        examples.append(f'{code} 仓库ID {wid} 流水 {txn_qty:.{prec}f} / 库位 {bin_qty:.{prec}f}')
     if global_diff or bin_diff or warehouse_diff or source_diff:
         status = '发现差异'
     elif unassigned:
