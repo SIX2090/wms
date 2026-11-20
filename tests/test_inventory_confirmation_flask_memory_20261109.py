@@ -100,6 +100,7 @@ def main():
         warehouse = db.Column(db.String)
         date = db.Column(db.Date)
         frozen_at = db.Column(db.DateTime)
+        created_at = db.Column(db.DateTime)
         remark = db.Column(db.String)
         operator_id = db.Column(db.Integer)
 
@@ -189,6 +190,11 @@ def main():
     assert len(input_nodes) == 1
     funcs = [('app/utils.py', 'round_to_2_decimals'), ('app/utils.py', 'normalize_stock_quantity'),
              ('app/app.py', '_acquire_order_write_lock'), ('app/app.py', '_create_adjustment_drafts_from_check'),
+             ('app/app.py', '_warehouse_document_match_clause'),
+             ('app/services/warehouse_identity.py', 'warehouse_aliases'),
+             ('app/services/stocktake.py', 'grouped_stocktake_counts'),
+             ('app/services/stocktake.py', 'stocktake_quantities'),
+             ('app/services/stocktake.py', 'overlapping_stocktake_adjustment'),
              ('app/routes/check.py', '_resolve_check_warehouse'), ('app/routes/check.py', '_check_uncounted_alerts'),
              ('app/routes/check.py', '_check_complete_snapshot'), ('app/routes/check.py', '_issue_check_confirmation'),
              ('app/routes/check.py', '_accept_check_confirmation'), ('app/request_input.py', 'json_object_body'),
@@ -207,12 +213,16 @@ def main():
            'datetime': datetime.datetime, 'date': datetime.date, 'Decimal': Decimal,
            'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math, 'hashlib': hashlib, 'json': json,
            'URLSafeTimedSerializer': URLSafeTimedSerializer, 'BadSignature': BadSignature,
-           'STOCK_COMPARE_EPSILON': 1e-6, 'location_management_enabled': lambda: settings['location'],
+           'STOCK_COMPARE_EPSILON': 1e-6, 'STOCKTAKE_SOURCES': ('check', 'check_scan'),
+           'location_management_enabled': lambda: settings['location'],
            'assert_warehouse_active': lambda *_args, **_kwargs: (True, ''),
            'generate_order_no': lambda *_args: 'ADJ-SYNTHETIC',
            'api_error': lambda msg: jsonify(status='error', msg=msg), 'log_operation': lambda *_args: None}
-    nodes = [input_nodes[0], *[function(path, name) for path, name in funcs]]
+    nodes = [input_nodes[0], function('app/models/documents.py', 'has_actual_count'),
+             *[function(path, name) for path, name in funcs]]
     exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), '<synthetic-real-sources>', 'exec'), env)
+    InventoryCheckItem.has_actual_count = property(env['has_actual_count'])
+    env['validate_inventory_warehouse'] = lambda name: (env['_resolve_check_warehouse'](name), None)
     guard_tree = ast.parse((root / 'app/services/document_edit_guard.py').read_text(encoding='utf-8-sig'))
     guard_nodes = [node for node in guard_tree.body if isinstance(node, (ast.Assign, ast.FunctionDef))]
     env.update(abort=abort, make_response=make_response, URLSafeSerializer=URLSafeSerializer,
@@ -284,6 +294,7 @@ def main():
     with app.app_context():
         db.create_all()
         db.session.add_all([Warehouse(id=1, name='合成仓', code='SYN', status='active'),
+                            Warehouse(id=2, name='第二合成仓', code='SYN2', status='active'),
                             Material(id=1, code='SYN-M', name='合成物料', unit_id=1),
                             InventoryCheck(id=1, check_no='CK-SYN', status='pending', warehouse='合成仓',
                                            date=datetime.date(2020, 1, 1), frozen_at=datetime.datetime(2020, 1, 1, 10),
@@ -291,7 +302,7 @@ def main():
                             InventoryCheckItem(id=1, inventory_check_id=1, material_id=1, system_stock=2,
                                                actual_stock=3, difference=1, area='', reason='合成',
                                                counted_by=None, counted_at=None),
-                            InventoryCheck(id=2, check_no='CK-SYN-2', status='pending', warehouse='合成仓',
+                            InventoryCheck(id=2, check_no='CK-SYN-2', status='pending', warehouse='第二合成仓',
                                            date=datetime.date(2020, 1, 1), frozen_at=datetime.datetime(2020, 1, 1, 10),
                                            operator_id=1),
                             InventoryCheckItem(id=2, inventory_check_id=2, material_id=1, system_stock=2,
@@ -400,13 +411,13 @@ def main():
             settings['inspect_lock'] = False
             old_confirmation = first.get_json()['confirmation_token']
             rival = memory_connect(uri, uri=True, timeout=.1)
-            rival.execute("INSERT INTO stock_transaction (material_id,warehouse_id,quantity,created_at,transaction_type,reference_type,reference_id) VALUES (1,1,5,'2020-01-01 10:03:00','in','in_order',2)")
+            rival.execute("INSERT INTO stock_transaction (material_id,warehouse_id,quantity,created_at,transaction_type,reference_type,reference_id) VALUES (1,2,5,'2020-01-01 10:03:00','in','in_order',2)")
             rival.commit()
             rival.close()
             changed = client.post(path, json={'force': True, 'confirmation_token': old_confirmation}, headers=headers)
             self.assertEqual(changed.get_json()['status'], 'confirm')
             confirmed = client.post(path, json={'force': True, 'confirmation_token': changed.get_json()['confirmation_token']}, headers=headers)
-            self.assertEqual(confirmed.get_json()['status'], 'success')
+            self.assertEqual(confirmed.get_json()['status'], 'success', confirmed.get_json())
             self.assertTrue(confirmed.headers.get('X-WMS-Document-Revision'))
             self.assertEqual(client.post(path, json={'force': True, 'confirmation_token': changed.get_json()['confirmation_token']}, headers=headers).status_code, 409)
             headers['X-WMS-Document-Revision'] = confirmed.headers['X-WMS-Document-Revision']

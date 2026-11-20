@@ -37,7 +37,8 @@ def stocktake_report_totals(base):
     """SQL quantities for all matching rows, before paging."""
     item = InventoryCheckItem
     first = aliased(item)
-    has_actual = item.has_actual_count
+    has_actual = db.or_(item.counted_by.is_not(None), item.counted_at.is_not(None),
+                        item.actual_stock != item.system_stock)
     per_material = base.with_entities(
         db.func.min(item.id).label('first_id'),
         db.func.sum(db.case((has_actual, db.func.round(item.actual_stock, 2)), else_=0)).label('actual'),

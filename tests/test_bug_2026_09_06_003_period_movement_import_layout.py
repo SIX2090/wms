@@ -38,6 +38,7 @@ TESTS_DIR = ROOT / "tests"
 
 CHILD = r"""
 import os, sys, json
+sys.path.insert(0, os.getcwd())
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["WMS_DATABASE_URI"] = "sqlite:///:memory:"
 os.environ.setdefault("WMS_BOOTSTRAP_PASSWORD", "admin")
@@ -83,6 +84,8 @@ assert body.get("status") == "success", body
 print("T2_OK")
 
 # T3 场景：期间流水命中动销校验仍生效
+withdraw = c.post(f"/check/{cid}/revert").get_json()
+assert withdraw["status"] == "success", withdraw
 cid2 = c.post("/check/add", data={"warehouse": "A仓", "scope": "all"}).get_json()["id"]
 chk = m.db.session.get(InventoryCheck, cid2)
 m.db.session.add(StockTransaction(material_id=mat.id, transaction_type="out", quantity=-3.0,

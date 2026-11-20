@@ -102,10 +102,11 @@ def test_export_headers_and_counted_columns():
 
     rows = _export_rows(client, check.id)
     header = list(rows[0])
-    # T1：12 列、含新列、无旧「备注」
+    # 保留盘点归属列，追加仓库和区域供 Excel 回导。
     assert "差异原因" in header and "盘点人" in header and "盘点时间" in header
     assert "备注" not in header
-    assert len(header) == 12
+    assert header[-2:] == ["仓库", "区域"]
+    assert len(header) == 14
 
     idx_reason = header.index("差异原因")
     idx_who = header.index("盘点人")
@@ -123,3 +124,5 @@ def test_export_headers_and_counted_columns():
     m2 = by_code["M002"]
     assert (m2[idx_who] or "") == ""
     assert (m2[idx_when] or "") == ""
+    assert m2[header.index("实际库存")] is None
+    assert m2[header.index("仓库")] == "A仓"
