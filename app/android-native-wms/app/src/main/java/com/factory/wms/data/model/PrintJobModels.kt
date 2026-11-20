@@ -18,11 +18,3 @@ data class PrintJobRequest(
     @SerializedName("target_ids") val targetIds: String? = null,
     val copies: Int = 1
 )
-
-/**
- * 创建打印任务响应（后端 /print_queue/jobs 返回）。
- */
-data class PrintJobResult(
-    @SerializedName("job_id") val jobId: Int? = null,
-    @SerializedName("msg") val msg: String? = null
-)

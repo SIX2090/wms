@@ -1467,7 +1467,7 @@ class WmsRepository(
     // ── 远程打印队列 ──
 
     /** 创建打印任务（入库/出库单据、物料档案、物料标签）。 */
-    suspend fun createPrintJob(request: PrintJobRequest): Result<PrintJobResult> {
+    suspend fun createPrintJob(request: PrintJobRequest): Result<Unit> {
         return safeCall {
             api.createPrintJob(request)
         }
@@ -1515,7 +1515,7 @@ class WmsRepository(
                 if (data != null) {
                     Result.success(data)
                 } else if (T::class == Unit::class) {
-                    // 仅删除类接口（ApiEnvelope<Unit>）允许 success 无 data 时回填 Unit。
+                    // 仅显式声明无需 data 的接口（ApiEnvelope<Unit>）允许回填 Unit。
                     // BUG-2026-08-11-006：其他类型绝不能 `Unit as T`——reified 泛型会真实 checkcast，
                     // 抛 "kotlin.Unit cannot be cast to X"，把服务端漏发 data 的问题变成晦涩崩溃。
                     @Suppress("UNCHECKED_CAST")

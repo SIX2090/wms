@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -14,12 +15,15 @@ import androidx.test.core.app.ApplicationProvider
 import com.factory.wms.data.model.InOutDetailItem
 import com.factory.wms.data.model.InOutDetailSummary
 import com.factory.wms.data.model.MaterialDto
+import com.factory.wms.data.model.OpeningStockDto
 import com.factory.wms.data.model.StockLedgerItem
 import com.factory.wms.data.model.StockLedgerSummary
 import com.factory.wms.data.model.WarehouseDto
 import com.factory.wms.ui.screens.InOutDetailReportScreen
+import com.factory.wms.ui.screens.BuiltItemsSection
 import com.factory.wms.ui.screens.StockLedgerReportScreen
 import com.factory.wms.ui.theme.WmsTheme
+import com.factory.wms.ui.viewmodel.opening.OpeningStockUiState
 import com.factory.wms.ui.viewmodel.report.InOutDetailReportUiState
 import com.factory.wms.ui.viewmodel.report.InOutDetailReportViewModel
 import com.factory.wms.ui.viewmodel.report.StockLedgerReportUiState
@@ -29,6 +33,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
@@ -53,6 +58,31 @@ class NativeReportScrollTest {
     @After fun tearDown() {
         if (::viewModel.isInitialized) closeWmsTestViewModels(listOf(viewModel))
         disposeComposeActivity(activity)
+    }
+
+    @Test fun openingStockLoadsEachPageOnlyAtTheCurrentListEnd() {
+        val items = (1..36).map { id ->
+            OpeningStockDto(id, "TEST-$id", "物料 $id", null, "件", 1, "一号仓",
+                null, 1.0, null, null)
+        }
+        val state = mutableStateOf(OpeningStockUiState(
+            builtFirstLoad = false, builtItems = items.take(12),
+            builtPage = 1, builtTotalPages = 3, builtTotal = 36
+        ))
+        val requestedPages = mutableListOf<Int>()
+        content {
+            BuiltItemsSection(state.value, "", {}, onLoadMore = {
+                val nextPage = state.value.builtPage + 1
+                requestedPages.add(nextPage)
+                state.value = state.value.copy(builtItems = items.take(nextPage * 12), builtPage = nextPage)
+            }, onRetry = {}, onItemClick = {})
+        }
+        val list = compose.onNode(hasScrollToIndexAction())
+        compose.runOnIdle { assertEquals(emptyList<Int>(), requestedPages) }
+        list.performScrollToIndex(11)
+        compose.runOnIdle { assertEquals(listOf(2), requestedPages) }
+        list.performScrollToIndex(23)
+        compose.runOnIdle { assertEquals(listOf(2, 3), requestedPages) }
     }
 
     @Test fun inOutReportFiltersScrollAwayWithTheRecords() {

@@ -57,7 +57,6 @@ import androidx.navigation.navArgument
 import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.ui.components.GlobalQueueStatus
-import com.factory.wms.data.model.MaterialArchiveDto
 import com.factory.wms.ui.components.VoiceAssistantOverlay
 import com.factory.wms.ui.screens.*
 import com.factory.wms.ui.theme.Primary
@@ -157,12 +156,8 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
     //   - 语音悬浮层、AI 双页面共用等跨路由共享场景，key 相同 → 实例相同，语义不变。
     val authViewModel: AuthViewModel = viewModel()
 
-    // 物料档案详情：选中的物料通过共享状态传递（避免 route 参数序列化 DTO）
-    var selectedMaterialArchive by remember { mutableStateOf<MaterialArchiveDto?>(null) }
-
     // AI-VOICE-OUT-F01：语音建单草稿预填出库页。
-    // 用共享状态而非 route 参数，与 selectedMaterialArchive 同一套跨屏传值惯例
-    // （出库页消费后立即清空，避免重复累加）。
+    // 出库页消费后立即清空，避免重复累加。
     var voicePrefillLines by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
     var voiceDraftOrderNo by remember { mutableStateOf<String?>(null) }
     // AI-APP-FIX-507：识物结果"查该物料库存"CTA 预填查库存页
@@ -171,7 +166,8 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
 
     val authState by authViewModel.uiState.collectAsState()
 
-    val startDestination = if (authState.isLoggedIn) Screen.Home.route else Screen.Login.route
+    // 会话异步恢复时保留 NavHost 的启动目的地，避免重建已恢复的返回栈。
+    val startDestination = remember { if (authState.isLoggedIn) Screen.Home.route else Screen.Login.route }
 
     // 当前目标路由，用于决定是否显示底部 Tab
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -363,22 +359,24 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
                         viewModel = materialArchiveViewModel,
                         onBack = { navController.popBackStack() },
                         onOpenDetail = { material ->
-                            selectedMaterialArchive = material
-                            navController.navigate(Screen.MaterialArchiveDetail.route)
+                            material.id?.takeIf { it > 0 }?.let { id ->
+                                navController.navigate("${Screen.MaterialArchiveDetail.route}/$id")
+                            }
                         }
                     )
                 }
 
-                composable(Screen.MaterialArchiveDetail.route) {
+                composable(
+                    route = "${Screen.MaterialArchiveDetail.route}/{materialId}",
+                    arguments = listOf(navArgument("materialId") { type = NavType.IntType })
+                ) { entry ->
                     val materialArchiveViewModel: MaterialArchiveViewModel = viewModel()
-                    val material = selectedMaterialArchive
-                    if (material != null) {
-                        MaterialArchiveDetailScreen(
-                            material = material,
-                            viewModel = materialArchiveViewModel,
-                            onBack = { navController.popBackStack() }
-                        )
-                    }
+                    MaterialArchiveDetailRoute(
+                        materialId = entry.arguments?.getInt("materialId") ?: 0,
+                        isLoggedIn = authState.isLoggedIn,
+                        viewModel = materialArchiveViewModel,
+                        onBack = { navController.popBackStack() }
+                    )
                 }
 
                 composable(

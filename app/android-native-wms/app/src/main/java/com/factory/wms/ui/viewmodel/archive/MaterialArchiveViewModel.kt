@@ -99,7 +99,10 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
         val owner = RetrofitClient.sessionSnapshot()
         detailJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null, imagesError = null)
-            val result = repository.getMaterialArchiveImages(materialId)
+            val result = repository.getMaterialArchiveImages(materialId).mapCatching { data ->
+                check(data.material?.id == materialId) { "未能获取当前物料的档案" }
+                data
+            }
             currentCoroutineContext().ensureActive()
             if (version != detailVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             _uiState.value = _uiState.value.copy(isLoading = false)

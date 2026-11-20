@@ -17,6 +17,8 @@ import com.factory.wms.data.model.*
 import com.factory.wms.data.repository.WmsRepository
 import com.factory.wms.ui.viewmodel.scan.ScanViewModel
 import com.factory.wms.ui.viewmodel.scan.ScanUiState
+import com.factory.wms.ui.viewmodel.scan.SubmittedPrintInfo
+import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
 import com.factory.wms.ui.viewmodel.opening.OpeningStockViewModel
 import com.factory.wms.ui.viewmodel.report.*
 import com.factory.wms.ui.viewmodel.list.*
@@ -44,6 +46,48 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [31], application = Application::class)
 class NativeAuditRegressionTest {
+    @Test fun flatPrintReceiptIsAcceptedByAllThreeNativeEntries() {
+        val scan = keep(ScanViewModel(application))
+        val archive = keep(MaterialArchiveViewModel(application))
+        repeat(3) { index ->
+            server.enqueue(MockResponse().setHeader("Content-Type", "application/json")
+                .setBody("""{"status":"success","msg":"已加入打印队列","job_id":${index + 1}}"""))
+        }
+        val jobTypes = listOf("in_order", "out_order", "material_archive")
+        jobTypes.take(2).forEachIndexed { index, jobType ->
+            seed(scan, ScanUiState(submittedPrint = SubmittedPrintInfo(jobType, index + 1, null)))
+            scan.printSubmittedOrder()
+            pumpUntil("$jobType receipt") {
+                scan.uiState.value.success != null || scan.uiState.value.error != null
+            }
+            assertNull(scan.uiState.value.error)
+            assertTrue(scan.uiState.value.success.orEmpty().contains("已加入打印队列"))
+        }
+        archive.printMaterial(3)
+        pumpUntil("material archive receipt") {
+            archive.uiState.value.success != null || archive.uiState.value.error != null
+        }
+        assertNull(archive.uiState.value.error)
+        assertTrue(archive.uiState.value.success.orEmpty().contains("已加入打印队列"))
+        assertEquals(3, server.requestCount)
+        jobTypes.forEachIndexed { index, jobType ->
+            val request = checkNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+            assertEquals("POST", request.method)
+            assertEquals("/print_queue/jobs", request.path)
+            val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+            assertEquals(jobType, body["job_type"].asString)
+            assertEquals(index + 1, body["target_id"].asInt)
+        }
+
+        server.enqueue(MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json")
+            .setBody("""{"status":"error","msg":"物料不存在"}"""))
+        archive.clearSuccess()
+        archive.printMaterial(99)
+        pumpUntil("print rejection") { archive.uiState.value.error != null }
+        assertEquals("物料不存在", archive.uiState.value.error)
+        assertNull(archive.uiState.value.success)
+    }
+
     private val main = StandardTestDispatcher()
     private lateinit var application: Application
     private lateinit var repo: WmsRepository

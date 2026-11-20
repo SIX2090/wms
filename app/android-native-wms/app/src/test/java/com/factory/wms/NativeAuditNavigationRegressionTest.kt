@@ -2,6 +2,7 @@ package com.factory.wms
 
 import android.app.Application
 import android.content.Context
+import android.os.Bundle
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -11,6 +12,9 @@ import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.test.*
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -49,6 +53,8 @@ class NativeAuditNavigationRegressionTest {
     private val main=StandardTestDispatcher()
     private lateinit var stores:NativeAuditLocalStores
     @get:Rule val compose=createEmptyComposeRule()
+    private val graphInstance = mutableIntStateOf(0)
+    private var savedNavigation: Bundle? = null
     private lateinit var activity:ActivityController<ComponentActivity>
     private lateinit var server:MockWebServer
     private lateinit var nav:NavHostController
@@ -58,11 +64,19 @@ class NativeAuditNavigationRegressionTest {
         DataStoreTestReset.resetWmsSettingsDataStore()
         server=MockWebServer()
         server.dispatcher=object:Dispatcher(){override fun dispatch(request:RecordedRequest):MockResponse {
+            if (request.requestUrl?.encodedPath == "/mobile/api/material_archive/404/images") {
+                return MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json")
+                    .setBody("""{"status":"error","msg":"物料不存在"}""")
+            }
             val data=when {
                 request.path!!.startsWith("/api/warehouses") -> """{"items":[{"id":1,"code":"A","name":"Warehouse A","is_default":true}]}"""
                 request.path!!.startsWith("/api/stocktake/check_orders") -> """{"orders":[{"id":11,"check_no":"CHECK-A","warehouse":"Warehouse A"}]}"""
                 request.path!!.startsWith("/api/mobile/location/options") -> """{"enabled":false,"items":[],"page":1,"total_pages":1}"""
                 request.path!!.startsWith("/api/material/info") -> """{"id":1,"code":"M001","name":"Recognized M001","spec":"S"}"""
+                request.requestUrl?.encodedPath == "/mobile/api/material_archive/search" ->
+                    """{"items":[{"id":17,"code":"ARCH-17","name":"档案查询记录"}],"total":1}"""
+                request.requestUrl?.encodedPath == "/mobile/api/material_archive/17/images" ->
+                    """{"material":{"id":17,"code":"ARCH-17","name":"档案详情记录"},"images":[]}"""
                 else -> "{}"
             }
             return MockResponse().setHeader("Content-Type","application/json").setBody("""{"status":"success","data":$data}""")
@@ -77,8 +91,12 @@ class NativeAuditNavigationRegressionTest {
         state<AuthUiState>(auth).value=AuthUiState(isLoggedIn=true,username="nav-auditor",role="warehouse",baseUrl=server.url("/").toString())
         RetrofitClient.setSession(server.url("/").toString(),"synthetic-nav-token",91)
         activity.get().setContent {
-            val controller=rememberNavController();SideEffect{nav=controller}
-            WmsTheme(darkTheme=false){ AppNavGraph(controller) }
+            key(graphInstance.intValue) {
+                val controller = rememberNavController()
+                remember(controller) { controller.restoreState(savedNavigation) }
+                SideEffect { nav = controller }
+                WmsTheme(darkTheme = false) { AppNavGraph(controller) }
+            }
         }
         compose.waitForIdle()
     }
@@ -90,6 +108,40 @@ class NativeAuditNavigationRegressionTest {
     }
     @Suppress("UNCHECKED_CAST")
     private fun <T> state(model:Any):MutableStateFlow<T> = model.javaClass.getDeclaredField("_uiState").apply{isAccessible=true}.get(model) as MutableStateFlow<T>
+
+    private fun waitForText(text: String) {
+        compose.waitUntil(10000) {
+            main.scheduler.runCurrent()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test fun archiveDetailRestoresSelectedIdAndReportsDeletedMaterial() {
+        compose.runOnIdle { nav.navigate(Screen.MaterialArchive.route) }
+        waitForText("档案查询记录")
+        compose.onNode(hasClickAction() and hasText("档案查询记录")).performClick()
+        waitForText("档案详情记录")
+        compose.runOnIdle { assertEquals(17, nav.currentBackStackEntry?.arguments?.getInt("materialId")) }
+
+        val auth = ViewModelProvider(activity.get())[AuthViewModel::class.java]
+        val signedIn = auth.uiState.value
+        compose.runOnIdle {
+            savedNavigation = checkNotNull(nav.saveState())
+            state<AuthUiState>(auth).value = AuthUiState()
+            graphInstance.intValue++
+        }
+        compose.runOnIdle { state<AuthUiState>(auth).value = signedIn }
+        waitForText("档案详情记录")
+        compose.runOnIdle { assertEquals(17, nav.currentBackStackEntry?.arguments?.getInt("materialId")) }
+
+        compose.runOnIdle { nav.navigate("${Screen.MaterialArchiveDetail.route}/404") }
+        waitForText("物料不存在")
+        compose.onNodeWithText("物料档案加载失败").assertIsDisplayed()
+        compose.onNodeWithText("重试").assertHasClickAction()
+        compose.runOnIdle { assertTrue(nav.popBackStack()) }
+        waitForText("档案详情记录")
+    }
     @Test fun recognitionReturnsLineToOriginalStocktakeWithWarehouseCheckAndArea() {
         compose.runOnIdle{nav.navigate(Screen.Stocktake.route)}
         compose.waitUntil(10000){

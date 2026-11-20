@@ -1306,7 +1306,7 @@ private fun EntrySection(
  * 因此翻到第 3 页时顶部数字不会缩水。
  */
 @Composable
-private fun BuiltItemsSection(
+internal fun BuiltItemsSection(
     state: com.factory.wms.ui.viewmodel.opening.OpeningStockUiState,
     keyword: String,
     onKeywordChange: (String) -> Unit,
@@ -1420,10 +1420,11 @@ private fun BuiltItemsSection(
             else -> {
                 val listState = rememberLazyListState()
                 // 滑到末尾自动加载下一页（与查库存/概览列表同策略）
-                val shouldLoadMore by remember {
+                val itemCount = state.builtItems.size
+                val shouldLoadMore by remember(itemCount) {
                     derivedStateOf {
                         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-                        last >= state.builtItems.size - 2
+                        last >= itemCount - 2
                     }
                 }
                 LaunchedEffect(shouldLoadMore, state.builtPage, state.builtTotalPages) {

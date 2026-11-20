@@ -376,10 +376,11 @@ interface WmsApiService {
 
     // ── 远程打印队列（提交入库/出库后"打印单据"、物料档案"打印"） ──
 
+    // 和网页共用的接口，job_id 在顶层。客户端只需确认入队成功。
     @POST("print_queue/jobs")
     suspend fun createPrintJob(
         @Body request: PrintJobRequest
-    ): Response<ApiEnvelope<PrintJobResult>>
+    ): Response<ApiEnvelope<Unit>>
 
     /**
      * AI-MOB-CRASH-01：崩溃上报。服务端不强制鉴权（崩溃可能发生在登录前 /

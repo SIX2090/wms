@@ -308,9 +308,50 @@ internal fun MaterialArchiveRow(
     }
 }
 
-/**
- * 物料档案图片管理屏：展示物料信息 + 图片网格，拍照/相册上传，删除图片。
- */
+@Composable
+internal fun MaterialArchiveDetailRoute(
+    materialId: Int,
+    isLoggedIn: Boolean,
+    viewModel: MaterialArchiveViewModel,
+    onBack: () -> Unit
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    LaunchedEffect(materialId, isLoggedIn) {
+        if (isLoggedIn && materialId > 0) viewModel.loadImages(materialId)
+    }
+
+    val material = uiState.imagesData?.material?.takeIf { isLoggedIn && it.id == materialId }
+    if (material != null) {
+        MaterialArchiveDetailScreen(material, viewModel, onBack)
+        return
+    }
+
+    val error = when {
+        !isLoggedIn -> "登录后可查看物料档案"
+        materialId <= 0 -> "物料编号无效，请返回列表重新选择"
+        else -> uiState.imagesError
+    }
+    Scaffold(
+        containerColor = Background,
+        topBar = { WmsTopBar(title = "物料档案图片", onBack = onBack) }
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+            if (error == null) {
+                CircularProgressIndicator(color = Primary)
+            } else {
+                WmsErrorState(
+                    title = "物料档案加载失败",
+                    subtitle = error,
+                    onRetry = if (isLoggedIn && materialId > 0) {
+                        { viewModel.loadImages(materialId) }
+                    } else null
+                )
+            }
+        }
+    }
+}
+
+/** 物料档案图片管理屏：展示物料信息和图片，支持上传和删除。 */
 @Composable
 fun MaterialArchiveDetailScreen(
     material: MaterialArchiveDto,
@@ -325,11 +366,6 @@ fun MaterialArchiveDetailScreen(
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     var previewImageIndex by remember { mutableIntStateOf(0) }
     var previewImageTotal by remember { mutableIntStateOf(0) }
-
-    // 进入页面即加载该物料的档案图片
-    LaunchedEffect(material.id) {
-        material.id?.let { viewModel.loadImages(it) }
-    }
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {

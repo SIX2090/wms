@@ -649,3 +649,7 @@ POST_SPLIT_BUGS['BUG-2026-11-20-001'] = 'fixed'  # Enlarge the stock query scan 
 POST_SPLIT_BUGS['BUG-2026-11-20-002'] = 'fixed'  # Scroll report filters with the records.
 POST_SPLIT_BUGS['BUG-2026-11-20-003'] = 'fixed'  # Android stock, photo and loading regressions.
 POST_SPLIT_BUGS['BUG-2026-11-20-004'] = 'fixed'  # Apply purchase order read roles to each document channel.
+POST_SPLIT_BUGS['BUG-2026-11-20-005'] = 'fixed'  # Keep stock adjustment visible without location management.
+POST_SPLIT_BUGS['BUG-2026-11-20-006'] = 'fixed'  # Accept native print confirmations.
+POST_SPLIT_BUGS['BUG-2026-11-20-007'] = 'fixed'  # Restore the selected material archive.
+POST_SPLIT_BUGS['BUG-2026-11-20-008'] = 'fixed'  # Page against the current opening-stock list.
