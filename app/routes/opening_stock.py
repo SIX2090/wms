@@ -4,6 +4,7 @@
 from flask import abort, g
 from flask_login import login_required
 
+from services.document_stock_audit import stage_order_audit
 from utils import require_role
 
 # G-16（2026-11-11 体检缺口）：一键清空全部期初库存是**全库级不可逆**动作，
@@ -13,6 +14,18 @@ from utils import require_role
 # 需要为 OpeningStockDoc 另写快照指纹函数并改前端状态机，成本高一个数量级，
 # 而防误触强度与"手输短语"等价。
 OPENING_STOCK_PURGE_PHRASE = '清空全部期初库存'
+OPENING_STOCK_AUDIT_SAMPLE_SIZE = 50
+
+
+def _opening_stock_deleted_lines_audit(lines):
+    """Capture a bounded sample and the full line count before deleting stock records."""
+    return {
+        'line_count': len(lines),
+        'items_truncated': max(0, len(lines) - OPENING_STOCK_AUDIT_SAMPLE_SIZE),
+        'items': [{'id': line.id, 'doc_id': line.doc_id, 'material_id': line.material_id,
+                   'warehouse_id': line.warehouse_id, 'quantity': line.quantity}
+                  for line in lines[:OPENING_STOCK_AUDIT_SAMPLE_SIZE]],
+    }
 
 
 # no-test:reason=路由注册辅助函数，能力由 opening_stock_* 各路由测试覆盖
@@ -767,6 +780,7 @@ def register_opening_stock_routes(app):
 
         try:
             lines = list(doc.lines)
+            audit_before = _opening_stock_deleted_lines_audit(lines)
             ok, msg_rev, reversed_count = _opening_stock_reverse_all_lines(doc)
             if not ok:
                 db.session.rollback()
@@ -774,6 +788,10 @@ def register_opening_stock_routes(app):
 
             hints = _opening_stock_negative_hint(lines)
             doc_no = doc.doc_no
+            stage_order_audit(
+                'delete_opening_stock_doc', doc, target_type='opening_stock', target_name=doc_no,
+                old=audit_before, new={'reversed_lines': reversed_count, 'deleted_docs': 1}, reason='删除期初库存单据',
+            )
             db.session.delete(doc)
             db.session.commit()
             log_operation('删除期初库存单据', f'单据 {doc_no}：回冲 {reversed_count} 行',
@@ -872,6 +890,11 @@ def register_opening_stock_routes(app):
                 reversed_count += 1
 
             hints = _opening_stock_negative_hint(lines)
+            stage_order_audit(
+                'delete_opening_stock_lines', doc, target_type='opening_stock', target_name=doc.doc_no,
+                old=_opening_stock_deleted_lines_audit(lines), new={'reversed_lines': reversed_count},
+                reason='删除期初库存明细',
+            )
             for line in lines:
                 db.session.delete(line)
             db.session.commit()
@@ -937,7 +960,6 @@ def register_opening_stock_routes(app):
             app,
             db,
             jsonify,
-            log_audit,
             log_operation,
             request,
         )
@@ -967,7 +989,8 @@ def register_opening_stock_routes(app):
             }), 400
 
         try:
-            lines = OpeningStock.query.with_for_update().all()
+            lines = OpeningStock.query.order_by(OpeningStock.id).with_for_update().all()
+            audit_before = _opening_stock_deleted_lines_audit(lines)
             reversed_count = 0
             for line in lines:
                 ok, msg_rev = _reverse_opening_stock_line(line, reason='期初库存全量删除回冲')
@@ -980,39 +1003,25 @@ def register_opening_stock_routes(app):
             # 先删全部明细行（解除对单据头的引用），再删全部单据头。
             for line in lines:
                 db.session.delete(line)
-            docs = OpeningStockDoc.query.all()
+            docs = OpeningStockDoc.query.order_by(OpeningStockDoc.id).all()
             deleted_docs = len(docs)
-            # G-16（2026-11-11）：审计快照必须在 commit 之前。commit 后 ORM 对象
-            # 全部过期，被删对象的属性再访问会触发重新查询并失败；而且这里要记的
-            # 是"删掉了什么"，不是"还剩下什么"。
-            # 只留单号/仓库/行数，明细行内容不落审计——期初单可达上万行，
-            # 全量存 Text 会把审计表撑爆且无人阅读。
-            audit_docs = [{
-                'id': d.id,
-                'doc_no': d.doc_no or '',
-                'warehouse_id': d.warehouse_id,
-            } for d in docs]
+            audit_before.update(
+                doc_count=deleted_docs,
+                docs=[{'id': doc.id, 'doc_no': doc.doc_no or '', 'warehouse_id': doc.warehouse_id}
+                      for doc in docs[:OPENING_STOCK_AUDIT_SAMPLE_SIZE]],
+                docs_truncated=max(0, deleted_docs - OPENING_STOCK_AUDIT_SAMPLE_SIZE),
+            )
+            stage_order_audit(
+                'purge_opening_stock', None, target_type='opening_stock', target_name='全部期初库存',
+                old=audit_before, new={'deleted_docs': deleted_docs, 'reversed_lines': reversed_count},
+                reason='一键清空（确认短语校验通过）',
+            )
             for doc in docs:
                 db.session.delete(doc)
             db.session.commit()
             log_operation('删除全部期初库存',
                           f'回冲 {reversed_count} 行，删除 {deleted_docs} 张单据',
                           'opening_stock', None)
-            # G-16：全库级不可逆动作必须留结构化痕迹（原来只有一条自由文本
-            # operation_log，查不出"删了哪几张单、多少行"）。
-            # target_id 传 None：本操作跨多张单据，没有单一目标（列可空）。
-            log_audit(
-                'purge_opening_stock', 'opening_stock', None,
-                target_name='全部期初库存',
-                old_data={
-                    'doc_count': deleted_docs,
-                    'line_count': reversed_count,
-                    'docs': audit_docs[:50],
-                    'docs_truncated': max(0, len(audit_docs) - 50),
-                },
-                new_data={'deleted_docs': deleted_docs, 'reversed_lines': reversed_count},
-                reason='一键清空（确认短语校验通过）',
-            )
             msg = f'已删除全部期初库存：回冲 {reversed_count} 行明细，删除 {deleted_docs} 张单据'
             if hints:
                 # 用户确认：照常删除，仅提示；用分号拼接避免消息过长刷屏

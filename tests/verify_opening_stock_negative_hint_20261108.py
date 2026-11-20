@@ -58,6 +58,7 @@ def main():
     if f"OPENING_STOCK_PURGE_PHRASE = '{PURGE_PHRASE}'" not in backend:
         raise AssertionError('后端确认短语已变更，请同步本合成夹具的 PURGE_PHRASE')
     source = ast.parse((root / 'app/app.py').read_text(encoding='utf-8-sig'))
+    opening_routes = ast.parse(backend)
     utils = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
     identity = ast.parse((root / 'app/services/warehouse_identity.py').read_text(encoding='utf-8-sig'))
     stock_service = ast.parse((root / 'app/services/warehouse_stock_service.py').read_text(encoding='utf-8-sig'))
@@ -148,6 +149,7 @@ def main():
             OpeningStockDoc.query = self.session.query(OpeningStockDoc)
             self.location_enabled = False
             self.negative_location_allowed = False
+            self.staged_audits = []
             db = types.SimpleNamespace(session=self.session, and_=and_, or_=or_)
 
             self.ns = {'db': db, 'Material': Material, 'Warehouse': Warehouse,
@@ -160,14 +162,19 @@ def main():
                            'synthetic_movement': (SourceDocument, lambda doc, _txn: doc.warehouse.name)},
                        'Decimal': Decimal, 'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math,
                        'datetime': datetime,
-                       # G-16 新增的两个外部名字：常量与审计函数（合成环境无 app）。
                        'OPENING_STOCK_PURGE_PHRASE': PURGE_PHRASE,
-                       'log_audit': lambda *_args, **_kwargs: None}
+                       'stage_order_audit': lambda operation, _doc, **kwargs: self.staged_audits.append(
+                           (operation, kwargs['new']['reversed_lines']))}
+            self.ns['OPENING_STOCK_AUDIT_SAMPLE_SIZE'] = next(
+                ast.literal_eval(node.value) for node in opening_routes.body if isinstance(node, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id == 'OPENING_STOCK_AUDIT_SAMPLE_SIZE'
+                        for target in node.targets))
             aliases = function(identity, 'warehouse_aliases')
             # Bind the real alias query to this fixture's synthetic models/session.
             # Keep its ambiguity checks; never import application models here.
             aliases.body = [node for node in aliases.body if not isinstance(node, ast.ImportFrom)]
             nodes = [function(utils, 'round_to_2_decimals'), function(utils, 'normalize_stock_quantity'), aliases,
+                     function(opening_routes, '_opening_stock_deleted_lines_audit'),
                      function(identity, 'legacy_warehouse_location_owners'),
                      function(source, 'get_warehouse_stock_quantities'),
                      function(source, '_warehouse_location_filter_values'),
@@ -530,6 +537,8 @@ def main():
             result = self.ns[name]() if name == 'delete_all_opening_stock' else self.ns[name](1)
             self.assertEqual(result['status'], 'success')
             self.assertIn('无法', result['msg'])
+            self.assertEqual(len(self.staged_audits), 1)
+            self.assertEqual(self.staged_audits[0][1], 1)
             self.assertEqual(self.session.query(OpeningStock).count(), 0)
             self.assertEqual(self.session.get(Material, 1).stock, 4)
             self.assertEqual(self.session.query(StockTransaction).count(), 2)
@@ -583,6 +592,8 @@ def main():
             self.assertEqual(result['status'], 'success')
             self.assertIn('归属未知', result['msg'])
             self.assertIn('另有 1 条提示', result['msg'])
+            self.assertEqual(len(self.staged_audits), 1)
+            self.assertEqual(self.staged_audits[0][1], 4)
             self.assertEqual(self.session.query(OpeningStock).count(), 0)
             self.assertEqual(self.session.query(StockTransaction).count(), 3)
 

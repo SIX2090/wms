@@ -11,7 +11,8 @@ def stage_order_audit(operation, order, *, old=None, new=None, reason=None, acto
 
     user = current_user if actor is None else actor
     db.session.add(OperationAudit(
-        operation=operation, target_type=target_type or order.__tablename__, target_id=order.id,
+        operation=operation, target_type=target_type or order.__tablename__,
+        target_id=order.id if order is not None else None,
         target_name=target_name if target_name is not None else order.order_no,
         user_id=user.id, username=user.username,
         ip_address=get_request_ip(), user_agent=request.headers.get('User-Agent', '')[:500],

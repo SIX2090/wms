@@ -37,6 +37,7 @@ STOCK_AUDIT_TARGETS = {
     'in_order', 'out_order', 'adjustment', 'transfer', 'check', 'requisition', 'after_sale_out_order',
     'subcontract_issue', 'subcontract_receive',
 }
+OPENING_STOCK_DELETE_AUDITS = {'delete_opening_stock_doc', 'delete_opening_stock_lines', 'purge_opening_stock'}
 
 
 def stock_audit_detail(audit):
@@ -58,19 +59,24 @@ def stock_audit_detail(audit):
             items = list(items.values())  # 已完成入库单编辑按原明细 ID 保存。
         movements = data.get('movements')
         adjustments = data.get('adjustments')
+        docs = data.get('docs')
         items = [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
         movements = [row for row in movements if isinstance(row, dict)] if isinstance(movements, list) else []
         adjustments = [row for row in adjustments if isinstance(row, dict)] if isinstance(adjustments, list) else []
-        if not (data.get('status') or data.get('warehouse') or items or movements or adjustments):
+        docs = [row for row in docs if isinstance(row, dict)] if isinstance(docs, list) else []
+        counts = {key: data[key] for key in ('line_count', 'items_truncated', 'docs_truncated',
+                                           'deleted_docs', 'reversed_lines')
+                  if type(data.get(key)) is int and data[key] >= 0} if audit.target_type == 'opening_stock' else {}
+        if not (data.get('status') or data.get('warehouse') or items or movements or adjustments or counts):
             continue
         snapshots.append(dict(label=label, status=data.get('status'), warehouse=data.get('warehouse'),
                               items=items, movements=movements, adjustments=adjustments,
-                              moves_inventory=data.get('moves_inventory')))
+                              moves_inventory=data.get('moves_inventory'), counts=counts, docs=docs))
         adjustment_items = [line for draft in adjustments if isinstance(draft.get('items'), list)
                             for line in draft['items'] if isinstance(line, dict)]
         material_ids.update(row['material_id'] for row in items + movements + adjustment_items
                             if type(row.get('material_id')) is int and 0 < row['material_id'] < 2**63)
-        warehouse_ids.update(row['warehouse_id'] for row in movements
+        warehouse_ids.update(row['warehouse_id'] for row in items + movements + docs
                              if type(row.get('warehouse_id')) is int and 0 < row['warehouse_id'] < 2**63)
     materials = {row.id: row for row in Material.query.with_entities(Material.id, Material.code, Material.name)
                  .filter(Material.id.in_(material_ids))} if material_ids else {}
@@ -531,7 +537,10 @@ def register_user_auth_routes(app):
             )
             for audit in audit_summaries.order_by(OperationAudit.operation_time.desc()).limit(max_fetch):
                 details = audit.reason or audit.target_name or ''
-                has_stock_detail = audit.has_snapshot and audit.target_type in STOCK_AUDIT_TARGETS
+                has_stock_detail = audit.has_snapshot and (
+                    audit.target_type in STOCK_AUDIT_TARGETS or
+                    (audit.target_type == 'opening_stock' and audit.operation in OPENING_STOCK_DELETE_AUDITS)
+                )
                 if audit.has_snapshot and not has_stock_detail:
                     details = (details + '；' if details else '') + '包含变更前后数据'
                 rows.append({

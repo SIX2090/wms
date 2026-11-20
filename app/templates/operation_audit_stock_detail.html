@@ -4,6 +4,10 @@
     {% elif material_id %}物料 #{{ material_id }}
     {% else %}未记录{% endif %}
 {%- endmacro %}
+{% macro warehouse_description(warehouse_id) -%}
+    {% if warehouse_id is integer %}{{ detail.warehouses.get(warehouse_id) or '仓库' }} #{{ warehouse_id }}
+    {% else %}未记录{% endif %}
+{%- endmacro %}
 {% set status_labels = {'pending': '草稿', 'completed': '已完成', 'cancelled': '已取消'} %}
 {% for snapshot in detail.snapshots %}
     <section{% if not loop.first %} class="mt-3"{% endif %}>
@@ -21,6 +25,30 @@
         {% if snapshot.moves_inventory is sameas false %}
         <p class="text-muted mb-2">本次盘点操作未改动库存。</p>
         {% endif %}
+        {% if snapshot.counts %}
+        <ul class="list-inline mb-2">
+            {% if 'line_count' in snapshot.counts %}
+            <li class="list-inline-item">影响 {{ snapshot.counts.line_count }} 行</li>
+            {% endif %}
+            {% if 'reversed_lines' in snapshot.counts %}
+            <li class="list-inline-item">已回冲 {{ snapshot.counts.reversed_lines }} 行</li>
+            {% endif %}
+            {% if 'deleted_docs' in snapshot.counts %}
+            <li class="list-inline-item">已删除 {{ snapshot.counts.deleted_docs }} 张单据</li>
+            {% endif %}
+        </ul>
+        {% endif %}
+        {% if snapshot.docs %}
+        <h6>删除前保存的单号</h6>
+        <ul class="mb-2">
+            {% for doc in snapshot.docs %}
+            <li>{{ doc.get('doc_no') or '—' }} · {{ warehouse_description(doc.get('warehouse_id')) }}</li>
+            {% endfor %}
+            {% if snapshot.counts.docs_truncated %}
+            <li>另有 {{ snapshot.counts.docs_truncated }} 张单据仅计入总数。</li>
+            {% endif %}
+        </ul>
+        {% endif %}
         {% if snapshot['items'] %}
         <table class="table table-sm mb-2">
             <caption class="caption-top pt-0">单据明细</caption>
@@ -28,6 +56,7 @@
                 {% if row.target_type == 'check' %}
                     <th>区域</th><th>盘点人</th><th class="text-end">账面</th><th class="text-end">实盘</th><th class="text-end">行差异</th>
                 {% else %}
+                    {% if row.target_type == 'opening_stock' %}<th>仓库</th>{% endif %}
                     <th class="text-end">数量</th>
                 {% endif %}
             </tr></thead>
@@ -45,12 +74,16 @@
                     <td class="text-end">{{ item.get('actual_stock')|quantity or '—' }}</td>
                     <td class="text-end">{{ item.get('difference')|quantity or '—' }}</td>
                     {% else %}
+                    {% if row.target_type == 'opening_stock' %}<td>{{ warehouse_description(item.get('warehouse_id')) }}</td>{% endif %}
                     <td class="text-end">{{ item.get('quantity', item.get('qty'))|quantity or '—' }}</td>
                     {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% if snapshot.counts.items_truncated %}
+        <p class="text-muted mb-2">另有 {{ snapshot.counts.items_truncated }} 行仅计入总数。</p>
+        {% endif %}
         {% endif %}
         {% if snapshot.adjustments %}
         <h6>{{ '撤回的调整草稿' if snapshot.label == '变更前' else '生成的调整草稿' }}</h6>
@@ -77,14 +110,9 @@
             <tbody>
                 {% for movement in snapshot.movements %}
                 {% set quantity = movement.get('quantity')|quantity %}
-                {% set warehouse_id = movement.get('warehouse_id') %}
                 <tr>
                     <td>{{ material_description(movement.material_id) }}</td>
-                    <td>
-                        {% if warehouse_id is integer %}
-                        {{ detail.warehouses.get(warehouse_id) or '仓库' }} #{{ warehouse_id }}
-                        {% else %}未记录{% endif %}
-                    </td>
+                    <td>{{ warehouse_description(movement.get('warehouse_id')) }}</td>
                     <td>{{ movement.get('location') or '—' }}</td>
                     <td class="text-end">{% if quantity and quantity != '0' and not quantity.startswith('-') %}+{% endif %}{{ quantity or '—' }}</td>
                 </tr>

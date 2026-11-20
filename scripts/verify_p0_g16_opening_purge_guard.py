@@ -10,8 +10,8 @@
   C1 ``OPENING_STOCK_PURGE_PHRASE`` 常量存在且取值正确
   C2 路由内做 confirm_phrase 比对，且失败分支返回 400（不是"警告后继续"）
   C3 短语校验发生在**任何删除/回冲之前**（顺序错=校验形同虚设）
-  C4 ``log_audit('purge_opening_stock', ...)`` 在 commit 之后
-  C5 单据快照在 commit 之前（commit 后 ORM 对象过期，取不到被删对象）
+  C4 ``stage_order_audit('purge_opening_stock', ...)`` 在唯一的 commit 之前
+  C5 删除快照在写入审计之前，明细快照早于回冲
   C6 前端内置短语、提交 confirm_phrase、按钮可置灰
 
 退出码：0 全过；1 有失败项。
@@ -97,25 +97,24 @@ def main():
 
     # C4/C5 顺序
     commits = [m.start() for m in re.finditer(r"db\.session\.commit\(\)", body)]
-    if not commits:
-        failures += _fail("C4 区间内找不到 db.session.commit()")
+    if len(commits) != 1:
+        failures += _fail("C4 全量回冲与审计必须只有一次提交")
         print("\n结果：失败")
         return 1
-    audit_pos = body.find(f"'{OP}'")
-    if audit_pos < 0:
-        failures += _fail(f"C4 未调用 log_audit('{OP}', ...)")
-    elif audit_pos < commits[0]:
-        failures += _fail("C4 审计写在 commit 之前（业务回滚时会谎报成功）")
+    audit = re.search(rf"stage_order_audit\(\s*'{OP}'\s*,", body)
+    if not audit:
+        failures += _fail(f"C4 未调用 stage_order_audit('{OP}', ...)")
+    elif audit.start() > commits[0]:
+        failures += _fail("C4 库存与审计分开提交")
     else:
-        print("C4 审计在 commit 之后")
+        print("C4 审计在唯一业务提交之前入队")
 
-    snap_pos = body.find("audit_docs")
-    if snap_pos < 0:
-        failures += _fail("C5 找不到 audit_docs 快照")
-    elif snap_pos > commits[0]:
-        failures += _fail("C5 快照在 commit 之后（被删对象属性已过期）")
+    snap_pos = body.find("audit_before = _opening_stock_deleted_lines_audit(lines)")
+    docs_pos = body.find("audit_before.update(")
+    if not (risky and audit and 0 <= snap_pos < min(risky) <= docs_pos < audit.start()):
+        failures += _fail("C5 明细、单据快照与回冲顺序不正确")
     else:
-        print("C5 单据快照在 commit 之前")
+        print("C5 删除前捕获明细和单据快照")
 
     # C6 前端
     html = FRONTEND.read_text(encoding="utf-8")
