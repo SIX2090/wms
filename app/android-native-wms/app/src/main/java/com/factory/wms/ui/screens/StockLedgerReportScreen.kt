@@ -60,7 +60,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.MaterialDto
@@ -115,15 +114,18 @@ fun StockLedgerReportScreen(
         }
     }
     // 滚动接近底部（倒数第 3 行进入可视区）自动翻页
-    val shouldLoadMore by remember {
+    val recordCount = uiState.items.size
+    val shouldLoadMore by remember(recordCount) {
         derivedStateOf {
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            // 筛选项占第 0 项，明细从第 1 项开始。
+            recordCount > 0 && lastVisible >= maxOf(1, recordCount - 2)
         }
     }
-    LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) viewModel.loadMore()
+    LaunchedEffect(shouldLoadMore, recordCount, uiState.hasMore, uiState.isLoading) {
+        if (shouldLoadMore && uiState.hasMore && uiState.queried && !uiState.isLoading) {
+            viewModel.loadMore()
+        }
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -137,259 +139,245 @@ fun StockLedgerReportScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
+        WmsPullToRefreshBox(
+            isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            // ── 仓库选择（必填，只列真实仓库；与出入库明细/库存日报同模式）──
-            WarehouseSelector(
-                currentLabel = null,
-                warehouses = uiState.warehouses,
-                selectedId = uiState.selectedWarehouseId,
-                onSelect = { viewModel.selectWarehouse(it) },
-                showDefaultWarehouse = false,
-                allowAll = false,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-            )
-            // ── 物料选择卡（台账按单一物料查询，AI-OS-LD-001 口径）──
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .clickable { showMaterialPicker = true },
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        val m = uiState.selectedMaterial
-                        if (m == null) {
-                            Text(
-                                "点击选择物料",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                color = Primary
-                            )
-                            Text(
-                                "库存台账按单一物料查询",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        } else {
-                            Text(
-                                "${m.name.orEmpty()}（${m.code.orEmpty()}）",
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 15.sp,
-                                softWrap = true
-                            )
-                            val sub = listOfNotNull(
-                                m.spec?.takeIf { it.isNotBlank() },
-                                uiState.material?.warehouseStock?.let {
-                                    "本仓结存 " + formatQty(it)
+                item(key = "filters") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // ── 仓库选择（必填，只列真实仓库；与出入库明细/库存日报同模式）──
+                        WarehouseSelector(
+                            currentLabel = null,
+                            warehouses = uiState.warehouses,
+                            selectedId = uiState.selectedWarehouseId,
+                            onSelect = { viewModel.selectWarehouse(it) },
+                            showDefaultWarehouse = false,
+                            allowAll = false,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        )
+                        // ── 物料选择卡（台账按单一物料查询，AI-OS-LD-001 口径）──
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clickable { showMaterialPicker = true },
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    val m = uiState.selectedMaterial
+                                    if (m == null) {
+                                        Text(
+                                            "点击选择物料",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp,
+                                            color = Primary
+                                        )
+                                        Text(
+                                            "库存台账按单一物料查询",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    } else {
+                                        Text(
+                                            "${m.name.orEmpty()}（${m.code.orEmpty()}）",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 15.sp,
+                                            softWrap = true
+                                        )
+                                        val sub = listOfNotNull(
+                                            m.spec?.takeIf { it.isNotBlank() },
+                                            uiState.material?.warehouseStock?.let {
+                                                "本仓结存 " + formatQty(it)
+                                            }
+                                        ).joinToString(" · ")
+                                        if (sub.isNotBlank()) {
+                                            Text(
+                                                sub,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                softWrap = true
+                                            )
+                                        }
+                                    }
                                 }
-                            ).joinToString(" · ")
-                            if (sub.isNotBlank()) {
+                                if (uiState.selectedMaterial != null) {
+                                    TextButton(onClick = { viewModel.clearMaterial() }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                        Text("换物料", fontSize = 14.sp)
+                                    }
+                                } else {
+                                    Icon(Icons.Outlined.Search, "选择物料", tint = Primary)
+                                }
+                            }
+                        }
+                        // ── 日期范围（默认全部流水；开始空白=全部，结束空白=今天）──
+                        val todayStr = remember { InOutDetailDateLogic.today() }
+                        val context = LocalContext.current
+                        // AI-MOB-LDG-F02：除「±1 天翻」外，点日期文本弹系统日期选择器自由选某天。
+                        // 用系统 android.app.DatePickerDialog（日历视图），不改动 OpeningStock 自绘选择器；
+                        // 选定后经 ViewModel.setStartDate/setEndDate 钳制生效（防 start>end / end>今天 400）。
+                        val openLedgerDatePicker: (Boolean) -> Unit = { isStart ->
+                            val current = if (isStart) uiState.startDate.ifBlank { todayStr } else uiState.endDate.ifBlank { todayStr }
+                            val cal = Calendar.getInstance()
+                            try {
+                                val p = current.split("-")
+                                if (p.size == 3) cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt())
+                            } catch (_: Exception) { }
+                            android.app.DatePickerDialog(
+                                context,
+                                { _, y, m, d ->
+                                    val picked = "%04d-%02d-%02d".format(y, m + 1, d)
+                                    if (isStart) viewModel.setStartDate(picked) else viewModel.setEndDate(picked)
+                                },
+                                cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
+                            ).show()
+                        }
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                                LedgerDateNavRow(
+                                    label = "开始",
+                                    date = StockLedgerRangeLogic.displayStart(uiState.startDate),
+                                    onPrev = { viewModel.shiftStartDay(-1) },
+                                    onNext = { viewModel.shiftStartDay(1) },
+                                    nextEnabled = uiState.startDate.isNotBlank() &&
+                                        uiState.startDate < StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
+                                    onDateClick = { openLedgerDatePicker(true) },
+                                    trailing = {
+                                        TextButton(onClick = { viewModel.resetAllDates() }, modifier = Modifier.heightIn(min = 48.dp)) {
+                                            Text("全部流水", fontSize = 14.sp)
+                                        }
+                                    }
+                                )
+                                LedgerDateNavRow(
+                                    label = "结束",
+                                    date = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
+                                    onPrev = { viewModel.shiftEndDay(-1) },
+                                    onNext = { viewModel.shiftEndDay(1) },
+                                    // 结束日期后翻不能越过今天
+                                    nextEnabled = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr) < todayStr,
+                                    onDateClick = { openLedgerDatePicker(false) }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // ── 汇总卡（期初/入/出/期末，基于过滤后全集，不随分页缩小，R1）──
+                        uiState.summary?.let { summary ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                LedgerSummaryContent(summary)
+                            }
+                            if (uiState.truncated) {
                                 Text(
-                                    sub,
+                                    "流水过多，结果已被服务端截断，请缩小日期范围",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp, vertical = 4.dp),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    softWrap = true
+                                    color = Warning
                                 )
                             }
                         }
                     }
-                    if (uiState.selectedMaterial != null) {
-                        TextButton(onClick = { viewModel.clearMaterial() }, modifier = Modifier.heightIn(min = 48.dp)) {
-                            Text("换物料", fontSize = 14.sp)
-                        }
-                    } else {
-                        Icon(Icons.Outlined.Search, "选择物料", tint = Primary)
-                    }
                 }
-            }
-            // ── 日期范围（默认全部流水；开始空白=全部，结束空白=今天）──
-            val todayStr = remember { InOutDetailDateLogic.today() }
-            val context = LocalContext.current
-            // AI-MOB-LDG-F02：除「±1 天翻」外，点日期文本弹系统日期选择器自由选某天。
-            // 用系统 android.app.DatePickerDialog（日历视图），不改动 OpeningStock 自绘选择器；
-            // 选定后经 ViewModel.setStartDate/setEndDate 钳制生效（防 start>end / end>今天 400）。
-            val openLedgerDatePicker: (Boolean) -> Unit = { isStart ->
-                val current = if (isStart) uiState.startDate.ifBlank { todayStr } else uiState.endDate.ifBlank { todayStr }
-                val cal = Calendar.getInstance()
-                try {
-                    val p = current.split("-")
-                    if (p.size == 3) cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt())
-                } catch (_: Exception) { }
-                android.app.DatePickerDialog(
-                    context,
-                    { _, y, m, d ->
-                        val picked = "%04d-%02d-%02d".format(y, m + 1, d)
-                        if (isStart) viewModel.setStartDate(picked) else viewModel.setEndDate(picked)
-                    },
-                    cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)
-                ).show()
-            }
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                    LedgerDateNavRow(
-                        label = "开始",
-                        date = StockLedgerRangeLogic.displayStart(uiState.startDate),
-                        onPrev = { viewModel.shiftStartDay(-1) },
-                        onNext = { viewModel.shiftStartDay(1) },
-                        nextEnabled = uiState.startDate.isNotBlank() &&
-                            uiState.startDate < StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
-                        onDateClick = { openLedgerDatePicker(true) },
-                        trailing = {
-                            TextButton(onClick = { viewModel.resetAllDates() }, modifier = Modifier.heightIn(min = 48.dp)) {
-                                Text("全部流水", fontSize = 14.sp)
-                            }
-                        }
-                    )
-                    LedgerDateNavRow(
-                        label = "结束",
-                        date = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr),
-                        onPrev = { viewModel.shiftEndDay(-1) },
-                        onNext = { viewModel.shiftEndDay(1) },
-                        // 结束日期后翻不能越过今天
-                        nextEnabled = StockLedgerRangeLogic.displayEnd(uiState.endDate, todayStr) < todayStr,
-                        onDateClick = { openLedgerDatePicker(false) }
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            // ── 汇总卡（期初/入/出/期末，基于过滤后全集，不随分页缩小，R1）──
-            uiState.summary?.let { summary ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    LedgerSummaryContent(summary)
-                }
-                if (uiState.truncated) {
-                    Text(
-                        "流水过多，结果已被服务端截断，请缩小日期范围",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Warning
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-            // ── 明细列表 / 加载 / 空态 / 错误态 ──
-            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
-            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
-            WmsPullToRefreshBox(
-                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
-                onRefresh = { viewModel.refresh() },
-                modifier = Modifier.fillMaxSize()
-            ) {
                 when {
-                    uiState.selectedMaterial == null && !uiState.isLoading -> {
+                    uiState.selectedMaterial == null && !uiState.isLoading -> item {
                         // 引导空态：台账按单一物料查询，先选物料
                         WmsEmptyState(
                             icon = Icons.Outlined.MenuBook,
                             title = "请先选择物料",
                             subtitle = "点击上方卡片搜索并选择物料，查看它的库存流水账",
-                            modifier = Modifier.align(Alignment.Center)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                     // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表
-                    uiState.isLoading && uiState.items.isEmpty() -> {
-                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                    uiState.isLoading && uiState.items.isEmpty() -> item {
+                        WmsListSkeleton(modifier = Modifier.fillMaxWidth())
                     }
-                    // AI-APP-FIX-201：首屏查询失败 → 全屏错误态 + 重试，
-                    // 不再静默落入"尚未查询"的空白等待（注意必须排在 !queried 分支前）
-                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                    // 首屏查询失败时在筛选区下方显示重试入口。
+                    uiState.loadError != null && uiState.items.isEmpty() -> item {
                         WmsErrorState(
                             title = "加载失败",
                             subtitle = uiState.loadError ?: "请检查网络后重试",
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.fillMaxWidth(),
                             onRetry = { viewModel.refresh() }
                         )
                     }
-                    uiState.isLoading -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-                    uiState.queried && uiState.items.isEmpty() -> {
+                    uiState.queried && uiState.items.isEmpty() -> item {
                         WmsEmptyState(
                             icon = Icons.Outlined.MenuBook,
                             title = "该范围内无库存流水",
                             subtitle = "可换个仓库/物料，或点「全部流水」扩大范围",
-                            modifier = Modifier.align(Alignment.Center)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    !uiState.queried -> {
-                        // 尚未查询（仓库列表未就绪）：不显示误导性空态，安静等待
-                    }
-                    else -> {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // 流水行无服务端 id（marker 行已剔除），用索引键保证稳定
-                            itemsIndexed(
-                                uiState.items,
-                                key = { index, item -> "${item.date}_${item.referenceNo}_$index" }
-                            ) { _, item ->
+                    uiState.queried -> {
+                        itemsIndexed(
+                            uiState.items,
+                            key = { index, item -> "${item.date}_${item.referenceNo}_$index" }
+                        ) { _, item ->
+                            Box(Modifier.padding(horizontal = 16.dp)) {
                                 StockLedgerItemRow(item)
                             }
-                            if (uiState.isLoadingMore) {
-                                item {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.width(24.dp).height(24.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    }
-                                }
-                            } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
-                                item {
-                                    Text(
-                                        "已加载全部 ${uiState.items.size} 条",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
+                        }
+                        if (uiState.isLoadingMore) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.width(24.dp).height(24.dp),
+                                        strokeWidth = 2.dp
                                     )
                                 }
+                            }
+                        } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "已加载全部 ${uiState.items.size} 条",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }

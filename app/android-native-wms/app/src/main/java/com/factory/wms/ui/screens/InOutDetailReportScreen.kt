@@ -41,7 +41,6 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -52,7 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.factory.wms.data.model.InOutDetailItem
@@ -108,15 +106,18 @@ fun InOutDetailReportScreen(
         }
     }
     // 滚动接近底部（倒数第 3 行进入可视区）自动翻页
-    val shouldLoadMore by remember {
+    val recordCount = uiState.items.size
+    val shouldLoadMore by remember(recordCount) {
         derivedStateOf {
-            val info = listState.layoutInfo
-            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            // 筛选项占第 0 项，明细从第 1 项开始。
+            recordCount > 0 && lastVisible >= maxOf(1, recordCount - 2)
         }
     }
-    LaunchedEffect(shouldLoadMore) {
-        if (shouldLoadMore) viewModel.loadMore()
+    LaunchedEffect(shouldLoadMore, recordCount, uiState.hasMore, uiState.isLoading) {
+        if (shouldLoadMore && uiState.hasMore && uiState.queried && !uiState.isLoading) {
+            viewModel.loadMore()
+        }
     }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -130,149 +131,143 @@ fun InOutDetailReportScreen(
             )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
+        WmsPullToRefreshBox(
+            isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
+            onRefresh = { viewModel.refresh() },
+            modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            // ── 日期范围导航（开始/结束各自前后翻；钳制逻辑在 ViewModel，
-            //    开始不越过结束、结束不超过今天——服务端 400 前置钳制）──
-            val todayStr = remember { InOutDetailDateLogic.today() }
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 2.dp)
-                ) {
-                    // AI-APP-FIX-402：开始/结束两行共用 WmsDateNavRow（wrapInCard=false），
-                    // 日期可点弹 DatePicker 直接跳日；钳制逻辑在 ViewModel
-                    WmsDateNavRow(
-                        label = "开始",
-                        date = uiState.startDate,
-                        onPrev = { viewModel.shiftStartDay(-1) },
-                        onNext = { viewModel.shiftStartDay(1) },
-                        // 开始日期后翻不能越过结束日期
-                        nextEnabled = uiState.startDate < uiState.endDate,
-                        wrapInCard = false,
-                        onDateSelected = { viewModel.setStartDate(it) }
-                    )
-                    WmsDateNavRow(
-                        label = "结束",
-                        date = uiState.endDate,
-                        onPrev = { viewModel.shiftEndDay(-1) },
-                        onNext = { viewModel.shiftEndDay(1) },
-                        // 结束日期后翻不能越过今天
-                        nextEnabled = uiState.endDate < todayStr,
-                        wrapInCard = false,
-                        onResetToday = { viewModel.resetToday() },
-                        onDateSelected = { viewModel.setEndDate(it) }
-                    )
-                }
-            }
-            // ── 仓库选择（必填，只列真实仓库；与每日报表/库存日报同模式）──
-            WarehouseSelector(
-                currentLabel = null,
-                warehouses = uiState.warehouses,
-                selectedId = uiState.selectedWarehouseId,
-                onSelect = { viewModel.selectWarehouse(it) },
-                showDefaultWarehouse = false,
-                allowAll = false,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            // ── 方向过滤（全部/入库/出库，与每日报表类型切换同模式）──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                InOutDirection.values().forEach { dir ->
-                    FilterChip(
-                        selected = uiState.direction == dir,
-                        onClick = { viewModel.selectDirection(dir) },
-                        label = { Text(dir.label) },
-                        modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            // ── 搜索行（编码/名称/规格模糊；点搜索才发请求）──
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedTextField(
-                    value = uiState.keyword,
-                    onValueChange = { viewModel.updateKeyword(it) },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("搜索编码 / 名称 / 规格") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                IconButton(onClick = { viewModel.refresh() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                    Icon(Icons.Outlined.Search, "搜索", tint = Primary)
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            // ── 汇总卡（基于过滤后全集，不随分页缩小，R1）──
-            uiState.summary?.let { summary ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-                ) {
-                    InOutSummaryContent(summary)
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-            }
-            // ── 明细列表 / 加载 / 空态 / 错误态 ──
-            // AI-APP-FIX-505：下拉刷新统一（各状态分支都可下拉重查；
-            // 仅"带数据刷新"亮指示器，首屏仍走骨架屏）
-            WmsPullToRefreshBox(
-                isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
-                onRefresh = { viewModel.refresh() },
-                modifier = Modifier.fillMaxSize()
-            ) {
-                when {
-                    // AI-APP-FIX-202：首屏（列表为空）转圈 → 骨架列表；
-                    // 带数据刷新保留旧列表 + 居中转圈，不闪骨架。
-                    uiState.isLoading && uiState.items.isEmpty() -> {
-                        WmsListSkeleton(modifier = Modifier.align(Alignment.TopCenter))
+                item(key = "filters") {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // ── 日期范围导航（开始/结束各自前后翻；钳制逻辑在 ViewModel，
+                        //    开始不越过结束、结束不超过今天——服务端 400 前置钳制）──
+                        val todayStr = remember { InOutDetailDateLogic.today() }
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            ) {
+                                // AI-APP-FIX-402：开始/结束两行共用 WmsDateNavRow（wrapInCard=false），
+                                // 日期可点弹 DatePicker 直接跳日；钳制逻辑在 ViewModel
+                                WmsDateNavRow(
+                                    label = "开始",
+                                    date = uiState.startDate,
+                                    onPrev = { viewModel.shiftStartDay(-1) },
+                                    onNext = { viewModel.shiftStartDay(1) },
+                                    // 开始日期后翻不能越过结束日期
+                                    nextEnabled = uiState.startDate < uiState.endDate,
+                                    wrapInCard = false,
+                                    onDateSelected = { viewModel.setStartDate(it) }
+                                )
+                                WmsDateNavRow(
+                                    label = "结束",
+                                    date = uiState.endDate,
+                                    onPrev = { viewModel.shiftEndDay(-1) },
+                                    onNext = { viewModel.shiftEndDay(1) },
+                                    // 结束日期后翻不能越过今天
+                                    nextEnabled = uiState.endDate < todayStr,
+                                    wrapInCard = false,
+                                    onResetToday = { viewModel.resetToday() },
+                                    onDateSelected = { viewModel.setEndDate(it) }
+                                )
+                            }
+                        }
+                        // ── 仓库选择（必填，只列真实仓库；与每日报表/库存日报同模式）──
+                        WarehouseSelector(
+                            currentLabel = null,
+                            warehouses = uiState.warehouses,
+                            selectedId = uiState.selectedWarehouseId,
+                            onSelect = { viewModel.selectWarehouse(it) },
+                            showDefaultWarehouse = false,
+                            allowAll = false,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // ── 方向过滤（全部/入库/出库，与每日报表类型切换同模式）──
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            InOutDirection.values().forEach { dir ->
+                                FilterChip(
+                                    selected = uiState.direction == dir,
+                                    onClick = { viewModel.selectDirection(dir) },
+                                    label = { Text(dir.label) },
+                                    modifier = Modifier.weight(1f).height(WmsDimens.TouchTargetMin)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // ── 搜索行（编码/名称/规格模糊；点搜索才发请求）──
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = uiState.keyword,
+                                onValueChange = { viewModel.updateKeyword(it) },
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("搜索编码 / 名称 / 规格") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            IconButton(onClick = { viewModel.refresh() }, modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                                Icon(Icons.Outlined.Search, "搜索", tint = Primary)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        // ── 汇总卡（基于过滤后全集，不随分页缩小，R1）──
+                        uiState.summary?.let { summary ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Primary.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                InOutSummaryContent(summary)
+                            }
+                        }
                     }
-                    // AI-APP-FIX-201：首屏加载失败 → 全屏错误态 + 重试，
-                    // 不再落入下方"该范围内无出入库流水"的误导性空态
-                    uiState.loadError != null && uiState.items.isEmpty() -> {
+                }
+                when {
+                    // 首屏显示骨架，带数据刷新时保留明细。
+                    uiState.isLoading && uiState.items.isEmpty() -> item {
+                        WmsListSkeleton(modifier = Modifier.fillMaxWidth())
+                    }
+                    // 首屏加载失败时在筛选区下方显示重试入口。
+                    uiState.loadError != null && uiState.items.isEmpty() -> item {
                         WmsErrorState(
                             title = "加载失败",
                             subtitle = uiState.loadError ?: "请检查网络后重试",
-                            modifier = Modifier.align(Alignment.Center),
+                            modifier = Modifier.fillMaxWidth(),
                             onRetry = { viewModel.refresh() }
                         )
                     }
-                    uiState.isLoading -> {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-                    uiState.queried && uiState.items.isEmpty() -> {
+                    uiState.queried && uiState.items.isEmpty() -> item {
                         // 区分「该范围内无流水」与「被关键词/方向滤掉」两种空态
                         val filtered = uiState.keyword.isNotBlank() ||
                             uiState.direction != InOutDirection.ALL
@@ -284,48 +279,40 @@ fun InOutDetailReportScreen(
                             } else {
                                 "可换个仓库，或翻日期扩大范围"
                             },
-                            modifier = Modifier.align(Alignment.Center)
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
-                    !uiState.queried -> {
-                        // 尚未查询（仓库列表未就绪）：不显示误导性空态，安静等待
-                    }
-                    else -> {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            items(uiState.items, key = { it.id }) { item ->
+                    uiState.queried -> {
+                        items(uiState.items, key = { it.id }) { item ->
+                            Box(Modifier.padding(horizontal = 16.dp)) {
                                 InOutDetailItemRow(item)
                             }
-                            if (uiState.isLoadingMore) {
-                                item {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.width(24.dp).height(24.dp),
-                                            strokeWidth = 2.dp
-                                        )
-                                    }
-                                }
-                            } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
-                                item {
-                                    Text(
-                                        "已加载全部 ${uiState.items.size} 条",
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(vertical = 8.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center
+                        }
+                        if (uiState.isLoadingMore) {
+                            item {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.width(24.dp).height(24.dp),
+                                        strokeWidth = 2.dp
                                     )
                                 }
+                            }
+                        } else if (!uiState.hasMore && uiState.items.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "已加载全部 ${uiState.items.size} 条",
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
                             }
                         }
                     }
