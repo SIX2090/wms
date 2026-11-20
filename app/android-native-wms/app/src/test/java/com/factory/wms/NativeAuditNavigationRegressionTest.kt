@@ -74,7 +74,7 @@ class NativeAuditNavigationRegressionTest {
                 request.path!!.startsWith("/api/mobile/location/options") -> """{"enabled":false,"items":[],"page":1,"total_pages":1}"""
                 request.path!!.startsWith("/api/material/info") -> """{"id":1,"code":"M001","name":"Recognized M001","spec":"S"}"""
                 request.requestUrl?.encodedPath == "/mobile/api/material_archive/search" ->
-                    """{"items":[{"id":17,"code":"ARCH-17","name":"档案查询记录"}],"total":1}"""
+                    """[{"id":17,"code":"ARCH-17","name":"档案查询记录"}]"""
                 request.requestUrl?.encodedPath == "/mobile/api/material_archive/17/images" ->
                     """{"material":{"id":17,"code":"ARCH-17","name":"档案详情记录"},"images":[]}"""
                 else -> "{}"
@@ -93,9 +93,11 @@ class NativeAuditNavigationRegressionTest {
         activity.get().setContent {
             key(graphInstance.intValue) {
                 val controller = rememberNavController()
-                remember(controller) { controller.restoreState(savedNavigation) }
-                SideEffect { nav = controller }
-                WmsTheme(darkTheme = false) { AppNavGraph(controller) }
+                val restoredController = remember(controller) {
+                    controller.apply { restoreState(savedNavigation) }
+                }
+                SideEffect { nav = restoredController }
+                WmsTheme(darkTheme = false) { AppNavGraph(restoredController) }
             }
         }
         compose.waitForIdle()
