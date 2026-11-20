@@ -37,7 +37,7 @@ def stock_document_audit_checkpoint(order, *, reference_type=None, created=False
 
 def stage_stock_document_snapshot(order, *, deleting, actor=None, operation=None,
                                   previous_status=None, after_movement_id=None, checkpoint=None,
-                                  reference_type=None, target_name=None, reason=None):
+                                  reference_type=None, target_name=None, reason=None, warehouse=None):
     from app import StockTransaction
 
     kind = reference_type or order.__tablename__
@@ -49,7 +49,7 @@ def stage_stock_document_snapshot(order, *, deleting, actor=None, operation=None
     if after_movement_id is not None:
         movements = movements.filter(StockTransaction.id > after_movement_id)
     snapshot = {
-        'order_no': name, 'warehouse': order.warehouse, 'status': order.status,
+        'order_no': name, 'warehouse': order.warehouse if warehouse is None else warehouse, 'status': order.status,
         'operator_id': order.operator_id,
         'business_type': getattr(order, 'business_type', getattr(order, 'adjustment_type', None)),
         'items': [snapshot_audit_row(item) for item in sorted(order.items, key=lambda item: item.id)],

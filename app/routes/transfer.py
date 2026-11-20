@@ -464,6 +464,7 @@ def register_transfer_routes(app):
     @login_required
     def complete_transfer(id):
         # P1-7（2026-09-25）：库存写入改经 apply_transfer_pair 单点入口
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_transfer_pair, _check_recorded_transfer_completion
         from app import (TransferOrder, Warehouse, _acquire_order_write_lock, api_error, assert_warehouse_active, get_warehouse_stock_quantities, location_management_enabled, log_operation, normalize_stock_quantity)
         from sqlalchemy.orm import selectinload
@@ -541,6 +542,7 @@ def register_transfer_routes(app):
                             available = src_stock.get(item.material_id, 0)
                             db.session.rollback()
                             return api_error(f'调出仓库 {transfer.from_warehouse} 库存不足：{mat_code}（需要 {required[item.material_id]}，可用 {available:.2f}）')
+            audit_checkpoint = stock_document_audit_checkpoint(transfer, reference_type='transfer')
             for item in transfer.items:
                 if not item.material_id:
                     continue
@@ -561,6 +563,11 @@ def register_transfer_routes(app):
                     return api_error(err)
 
             transfer.status = 'completed'
+            stage_stock_document_snapshot(
+                transfer, deleting=False, operation='complete_transfer', checkpoint=audit_checkpoint,
+                reference_type='transfer', target_name=transfer.transfer_no, reason='完成调拨',
+                warehouse=f'{transfer.from_warehouse} → {transfer.to_warehouse}',
+            )
             db.session.commit()
             log_operation('完成调拨', f'调拨单：{transfer.transfer_no}', 'transfer', id)
             return jsonify({'status': 'success', 'msg': '调拨完成'})
@@ -575,8 +582,9 @@ def register_transfer_routes(app):
     @login_required
     def revert_transfer(id):
         # P1-7（2026-09-25）：库存写入改经 apply_transfer_pair 单点入口
+        from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
         from services.warehouse_stock_service import apply_transfer_pair, _reverse_recorded_transfer_stock
-        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, api_error, get_warehouse_stock_quantities, location_management_enabled, log_audit, log_operation, normalize_stock_quantity, resolve_inventory_warehouse_id)
+        from app import (TransferOrder, Warehouse, _acquire_order_write_lock, api_error, get_warehouse_stock_quantities, location_management_enabled, log_operation, normalize_stock_quantity, resolve_inventory_warehouse_id)
         from sqlalchemy.orm import selectinload
         from flask import jsonify
         """反提交调拨单"""
@@ -590,6 +598,7 @@ def register_transfer_routes(app):
             if not ok:
                 return api_error('该调拨单已反提交，不能重复操作')
             transfer = locked
+            audit_checkpoint = stock_document_audit_checkpoint(transfer, reference_type='transfer')
             recorded = _reverse_recorded_transfer_stock(transfer)
             if recorded is not None:
                 if not recorded[0]:
@@ -632,15 +641,13 @@ def register_transfer_routes(app):
                             return api_error(err)
 
             transfer.status = 'pending'
+            stage_stock_document_snapshot(
+                transfer, deleting=False, operation='revert_transfer', checkpoint=audit_checkpoint,
+                reference_type='transfer', target_name=transfer.transfer_no, reason='反提交调拨',
+                warehouse=f'{transfer.from_warehouse} → {transfer.to_warehouse}',
+            )
             db.session.commit()
             log_operation('反提交调拨', f'调拨单：{transfer.transfer_no}', 'transfer', id)
-            # BUG-2026-08-16-012：反提交调拨写结构化审计
-            log_audit(
-                'revert_transfer', 'transfer', id,
-                target_name=transfer.transfer_no,
-                old_data={'status': 'completed'},
-                new_data={'status': 'pending'},
-            )
             return jsonify({'status': 'success', 'msg': '反提交成功'})
         except Exception as e:
             db.session.rollback()
