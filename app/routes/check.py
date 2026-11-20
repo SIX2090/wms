@@ -330,6 +330,34 @@ def _accept_check_confirmation(token, check_id, user_id, fingerprint):
     return payload == {'check_id': check_id, 'user_id': str(user_id), 'snapshot': fingerprint}
 
 
+def _stage_inventory_check_audit(check, operation, previous_status, *, created=(), removed=()):
+    """Save the count and any generated or withdrawn adjustments in the caller's transaction."""
+    from services.document_stock_audit import stage_order_audit
+
+    old = {'status': previous_status}
+    new = {
+        'status': check.status,
+        'warehouse': check.warehouse,
+        'items': [{
+            'material_id': item.material_id, 'system_stock': item.system_stock,
+            'actual_stock': item.actual_stock, 'difference': item.difference,
+            'area': item.area, 'counted_by': item.counted_by, 'counted_at': item.counted_at,
+        } for item in check.items],
+        'moves_inventory': False,
+    }
+    for drafts, snapshot in ((created, new), (removed, old)):
+        if drafts:
+            snapshot['adjustments'] = [{
+                'id': draft.id, 'number': draft.adjustment_no, 'warehouse': draft.warehouse,
+                'items': [{'material_id': line.material_id, 'quantity': line.quantity,
+                           'location': line.location} for line in draft.items],
+            } for draft in drafts]
+    stage_order_audit(
+        operation, check, old=old, new=new, target_type='check', target_name=check.check_no,
+        reason='盘点完成' if operation == 'complete_check' else '反提交盘点',
+    )
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -802,6 +830,7 @@ def register_check_routes(app):
                 return jsonify({'status': 'error', 'msg': error}), 400
 
             check.status = 'completed'
+            _stage_inventory_check_audit(check, 'complete_check', 'pending', created=drafts)
             db.session.commit()
             draft_nos = ', '.join(order.adjustment_no for order in drafts)
             if drafts:
@@ -848,12 +877,13 @@ def register_check_routes(app):
             # 查询并回退库存的分支永不执行。盘点库存变动真实路径是：盘点单生成
             # 未提交调整单草稿 → 人工完成调整单作用于库存。故反提交只需删除未提交的
             # 调整草稿即可恢复，删除该死代码避免误导后续维护者以为存在独立库存回退。
-            for order in linked_adjustments:
-                if order.status == 'pending':
-                    for item in list(order.items):
-                        db.session.delete(item)
-                    db.session.delete(order)
+            drafts = [order for order in linked_adjustments if order.status == 'pending']
             check.status = 'pending'
+            _stage_inventory_check_audit(check, 'revert_check', 'completed', removed=drafts)
+            for order in drafts:
+                for item in list(order.items):
+                    db.session.delete(item)
+                db.session.delete(order)
             db.session.commit()
             log_operation('反提交盘点', f'盘点单：{check.check_no}', 'check', id)
             return jsonify({'status': 'success', 'msg': '反提交成功，已删除未提交的库存调整草稿'})

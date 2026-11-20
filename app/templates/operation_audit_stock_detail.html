@@ -18,19 +18,57 @@
             {% endif %}
         </ul>
         {% endif %}
+        {% if snapshot.moves_inventory is sameas false %}
+        <p class="text-muted mb-2">本次盘点操作未改动库存。</p>
+        {% endif %}
         {% if snapshot['items'] %}
         <table class="table table-sm mb-2">
             <caption class="caption-top pt-0">单据明细</caption>
-            <thead><tr><th>物料</th><th class="text-end">数量</th></tr></thead>
+            <thead><tr><th>物料</th>
+                {% if row.target_type == 'check' %}
+                    <th>区域</th><th>盘点人</th><th class="text-end">账面</th><th class="text-end">实盘</th><th class="text-end">行差异</th>
+                {% else %}
+                    <th class="text-end">数量</th>
+                {% endif %}
+            </tr></thead>
             <tbody>
                 {% for item in snapshot['items'] %}
                 <tr>
                     <td>{{ material_description(item.material_id) }}</td>
+                    {% if row.target_type == 'check' %}
+                    <td>{{ item.get('area') or '—' }}</td>
+                    <td>
+                        {% if item.get('counted_by') %}#{{ item.counted_by }}{% else %}未记录{% endif %}
+                        {% if item.get('counted_at') %}<div class="text-muted">{{ item.counted_at }}</div>{% endif %}
+                    </td>
+                    <td class="text-end">{{ item.get('system_stock')|quantity or '—' }}</td>
+                    <td class="text-end">{{ item.get('actual_stock')|quantity or '—' }}</td>
+                    <td class="text-end">{{ item.get('difference')|quantity or '—' }}</td>
+                    {% else %}
                     <td class="text-end">{{ item.get('quantity', item.get('qty'))|quantity or '—' }}</td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+        {% endif %}
+        {% if snapshot.adjustments %}
+        <h6>{{ '撤回的调整草稿' if snapshot.label == '变更前' else '生成的调整草稿' }}</h6>
+        <ul class="mb-2">
+            {% for draft in snapshot.adjustments %}
+            <li>
+                {{ draft.get('number') or '—' }} {{ draft.get('warehouse') or '' }}
+                {% if draft.get('items') is sequence %}
+                <ul>
+                    {% for line in draft['items'] if line is mapping %}
+                    <li>{{ material_description(line.material_id) }} {{ line.get('location') or '' }}
+                        <strong>{{ line.get('quantity')|quantity or '—' }}</strong></li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
         {% endif %}
         {% if snapshot.movements %}
         <table class="table table-sm mb-0">

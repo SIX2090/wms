@@ -33,7 +33,7 @@ from db import db
 from utils import require_role, ASSIGNABLE_ROLES
 
 
-STOCK_AUDIT_TARGETS = {'in_order', 'out_order', 'adjustment', 'transfer'}
+STOCK_AUDIT_TARGETS = {'in_order', 'out_order', 'adjustment', 'transfer', 'check'}
 
 
 def stock_audit_detail(audit):
@@ -54,13 +54,18 @@ def stock_audit_detail(audit):
         if isinstance(items, dict):
             items = list(items.values())  # 已完成入库单编辑按原明细 ID 保存。
         movements = data.get('movements')
+        adjustments = data.get('adjustments')
         items = [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
         movements = [row for row in movements if isinstance(row, dict)] if isinstance(movements, list) else []
-        if not (data.get('status') or data.get('warehouse') or items or movements):
+        adjustments = [row for row in adjustments if isinstance(row, dict)] if isinstance(adjustments, list) else []
+        if not (data.get('status') or data.get('warehouse') or items or movements or adjustments):
             continue
         snapshots.append(dict(label=label, status=data.get('status'), warehouse=data.get('warehouse'),
-                              items=items, movements=movements))
-        material_ids.update(row['material_id'] for row in items + movements
+                              items=items, movements=movements, adjustments=adjustments,
+                              moves_inventory=data.get('moves_inventory')))
+        adjustment_items = [line for draft in adjustments if isinstance(draft.get('items'), list)
+                            for line in draft['items'] if isinstance(line, dict)]
+        material_ids.update(row['material_id'] for row in items + movements + adjustment_items
                             if type(row.get('material_id')) is int and 0 < row['material_id'] < 2**63)
         warehouse_ids.update(row['warehouse_id'] for row in movements
                              if type(row.get('warehouse_id')) is int and 0 < row['warehouse_id'] < 2**63)

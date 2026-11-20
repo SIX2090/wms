@@ -141,7 +141,7 @@ def main():
                                      system_stock=10, actual_stock=8 if counted else 10,
                                      difference=-2 if counted else 0,
                                      counted_at=datetime.datetime(2020, 1, 1, 10, 2) if counted else None,
-                                     counted_by=1 if counted else None)
+                                     counted_by=1 if counted else None, area='')
         return types.SimpleNamespace(id=1, status='pending', items=[item], warehouse='合成仓',
                                      frozen_at=datetime.datetime(2020, 1, 1, 10, 0), check_no='CK-SYNTH')
 
@@ -173,6 +173,8 @@ def main():
             'assert_warehouse_active': lambda *_args, **_kwargs: (state.get('warehouse_exists', True), '仓库不存在'),
             'api_error': lambda message: {'status': 'error', 'msg': message},
             'log_operation': lambda *_args: None, 'CheckCompleteInput': Input,
+            'stage_order_audit': lambda operation, _check, **kwargs: state.setdefault('audits', []).append(
+                (operation, kwargs['old']['status'], kwargs['new']['status'])),
             'json_object_body': lambda: {'force': state.get('force', False),
                                         'confirmation_token': state.get('confirmation_token')},
             'jsonify': lambda value: value, 'db': types.SimpleNamespace(session=session),
@@ -184,7 +186,7 @@ def main():
             'URLSafeTimedSerializer': URLSafeTimedSerializer, 'BadSignature': BadSignature,
             'app': types.SimpleNamespace(logger=types.SimpleNamespace(error=lambda *_args: None)),
         }
-        load_functions(env, '_issue_check_confirmation', '_accept_check_confirmation')
+        load_functions(env, '_issue_check_confirmation', '_accept_check_confirmation', '_stage_inventory_check_audit')
         return env
 
     class InventoryConfirmationRisk(unittest.TestCase):
@@ -505,10 +507,12 @@ def main():
             self.assertIn('流水', first['msg'])
             self.assertTrue(first.get('confirmation_token'))
             self.assertEqual(session.commits, 0)
+            self.assertEqual(state.get('audits', []), [])
             state.update(force=True, confirmation_token=first['confirmation_token'])
             second = env['complete_check'](1)
             self.assertEqual(second['status'], 'success')
             self.assertEqual(session.commits, 1)
+            self.assertEqual(state['audits'], [('complete_check', 'pending', 'completed')])
 
         def test_changed_snapshot_requires_another_confirmation(self):
             check = make_check(False)

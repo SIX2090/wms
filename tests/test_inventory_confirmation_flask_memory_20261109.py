@@ -74,6 +74,7 @@ def main():
     class User(UserMixin):
         def __init__(self, user_id):
             self.id = user_id
+            self.username = f'counter-{user_id}'
             self.role = {'1': 'warehouse', '2': 'warehouse', '3': 'admin',
                          '4': 'finance', '5': 'sales'}[user_id]
     @login.user_loader
@@ -146,6 +147,22 @@ def main():
         unit_id = db.Column(db.Integer)
         location = db.Column(db.String)
         reason = db.Column(db.String)
+        adjustment_order = db.relationship(AdjustmentOrder, backref='items')
+
+    class OperationAudit(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        operation = db.Column(db.String)
+        target_type = db.Column(db.String)
+        target_id = db.Column(db.Integer)
+        target_name = db.Column(db.String)
+        user_id = db.Column(db.Integer)
+        username = db.Column(db.String)
+        ip_address = db.Column(db.String)
+        user_agent = db.Column(db.String)
+        status = db.Column(db.String)
+        reason = db.Column(db.String)
+        old_data = db.Column(db.Text)
+        new_data = db.Column(db.Text)
 
     fake_app.InventoryCheck = InventoryCheck
 
@@ -175,6 +192,8 @@ def main():
              ('app/routes/check.py', '_resolve_check_warehouse'), ('app/routes/check.py', '_check_uncounted_alerts'),
              ('app/routes/check.py', '_check_complete_snapshot'), ('app/routes/check.py', '_issue_check_confirmation'),
              ('app/routes/check.py', '_accept_check_confirmation'), ('app/request_input.py', 'json_object_body'),
+             ('app/routes/check.py', '_stage_inventory_check_audit'),
+             ('app/services/document_stock_audit.py', 'stage_order_audit'),
              ('app/routes/check.py', 'complete_check')]
     settings = {'location': False, 'inspect_lock': False, 'locked_out': False}
     env = {'app': app, 'db': db, 'g': g, 'has_request_context': has_request_context,
@@ -183,6 +202,7 @@ def main():
            'Warehouse': Warehouse, 'Material': Material, 'InventoryCheck': InventoryCheck,
            'InventoryCheckItem': InventoryCheckItem, 'StockTransaction': StockTransaction,
            'AdjustmentOrder': AdjustmentOrder, 'AdjustmentOrderItem': AdjustmentOrderItem,
+           'OperationAudit': OperationAudit, 'get_request_ip': lambda: '127.0.0.1',
            'selectinload': selectinload, 'cast': cast, 'String': String,
            'datetime': datetime.datetime, 'date': datetime.date, 'Decimal': Decimal,
            'ROUND_HALF_UP': ROUND_HALF_UP, 'math': math, 'hashlib': hashlib, 'json': json,
@@ -330,6 +350,9 @@ def main():
                 self.assertEqual(len(drafts), 1)
                 self.assertEqual(drafts[0].status, 'pending')
                 self.assertEqual(AdjustmentOrderItem.query.count(), 1)
+                audit = OperationAudit.query.filter_by(operation='complete_check', target_id=1).one()
+                self.assertEqual(audit.username, 'counter-1')
+                self.assertEqual(json.loads(audit.new_data)['adjustments'][0]['number'], drafts[0].adjustment_no)
 
         def test_document_guard_revision_lock_and_confirmation(self):
             client = app.test_client()
