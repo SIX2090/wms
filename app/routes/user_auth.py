@@ -35,6 +35,7 @@ from utils import require_role, ASSIGNABLE_ROLES
 
 STOCK_AUDIT_TARGETS = {
     'in_order', 'out_order', 'adjustment', 'transfer', 'check', 'requisition', 'after_sale_out_order',
+    'subcontract_issue', 'subcontract_receive',
 }
 
 

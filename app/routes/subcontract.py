@@ -26,6 +26,7 @@ from flask import jsonify, render_template, request, url_for
 from flask_login import login_required
 
 from db import db
+from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
 from services.import_validation import InactiveMaterialImportError
 from services.subcontract_receipts import refresh_subcontract_receipts, subcontract_receipt_balances
 from services.web_document_idempotency import (web_document_idempotent,
@@ -481,6 +482,7 @@ def register_subcontract_routes(app):
             )
             db.session.add(issue)
             db.session.flush()
+            audit_checkpoint = stock_document_audit_checkpoint(issue, created=True)
             db.session.add(SubcontractIssueItem(
                 issue_id=issue.id,
                 material_id=material.id,
@@ -503,6 +505,10 @@ def register_subcontract_routes(app):
                 return api_error(error_msg or '库存扣减失败')
             if order.status == 'pending':
                 order.status = 'processing'
+            stage_stock_document_snapshot(
+                issue, deleting=False, operation='complete_subcontract_issue', checkpoint=audit_checkpoint,
+                target_name=issue.issue_no, reason='快速委外发料',
+            )
             db.session.commit()
             log_operation('委外发料', f'委外发料单：{issue_no}', 'subcontract_issue', issue.id)
             return jsonify({'status': 'success', 'msg': '发料成功'})
@@ -571,6 +577,7 @@ def register_subcontract_routes(app):
             )
             db.session.add(receive)
             db.session.flush()
+            audit_checkpoint = stock_document_audit_checkpoint(receive, created=True)
             db.session.add(SubcontractReceiveItem(
                 receive_id=receive.id,
                 material_id=material.id,
@@ -595,6 +602,10 @@ def register_subcontract_routes(app):
                 return jsonify({'status': 'error', 'msg': msg or '库存增加失败'}), 500
 
             refresh_subcontract_receipts(order.id)
+            stage_stock_document_snapshot(
+                receive, deleting=False, operation='complete_subcontract_receive', checkpoint=audit_checkpoint,
+                target_name=receive.receive_no, reason='快速委外收货',
+            )
             db.session.commit()
             log_operation('委外收货', f'委外收货单：{receive_no}', 'subcontract_receive', receive.id)
             return jsonify({'status': 'success', 'msg': '收货成功'})
@@ -1495,6 +1506,7 @@ def register_subcontract_routes(app):
             # 扣减库存（P2-3 收敛：经单点入口，原子扣减与库位同步由入口内部完成，
             # 并发超卖与失败仍标记 completed 的防护语义保留；
             # 库位键 issue.location or issue.warehouse 与 BUG-2026-08-16-001 逐字一致）
+            audit_checkpoint = stock_document_audit_checkpoint(issue)
             for item in issue.items:
                 if item.material:
                     ok, error_msg = apply_stock_delta(
@@ -1511,6 +1523,10 @@ def register_subcontract_routes(app):
 
             issue.status = 'completed'
             try:
+                stage_stock_document_snapshot(
+                    issue, deleting=False, operation='complete_subcontract_issue', checkpoint=audit_checkpoint,
+                    target_name=issue.issue_no, reason='完成委外发料',
+                )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -1545,6 +1561,7 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外发料单已反提交，不能重复操作')
             issue = locked
+            audit_checkpoint = stock_document_audit_checkpoint(issue)
             recorded_result = _reverse_recorded_order_stock(issue)
             if recorded_result is not None and not recorded_result[0]:
                 db.session.rollback()
@@ -1567,6 +1584,10 @@ def register_subcontract_routes(app):
                             db.session.rollback()
                             return api_error(err or '库存恢复失败')
             issue.status = 'pending'
+            stage_stock_document_snapshot(
+                issue, deleting=False, operation='revert_subcontract_issue', checkpoint=audit_checkpoint,
+                target_name=issue.issue_no, reason='反提交委外发料',
+            )
             db.session.commit()
             log_operation('反提交委外发料', f'发料单：{issue.issue_no}', 'subcontract_issue', id)
             return jsonify({'status': 'success', 'msg': '反提交成功，库存已恢复'})
@@ -2184,6 +2205,7 @@ def register_subcontract_routes(app):
                 db.session.rollback()
                 return api_error('收货单没有明细，无法完成')
             # 增加库存
+            audit_checkpoint = stock_document_audit_checkpoint(receive)
             total_quantity = 0
             total_scrap = 0
             for item in receive.items:
@@ -2212,6 +2234,10 @@ def register_subcontract_routes(app):
             receive.total_scrap = total_scrap
             refresh_subcontract_receipts(receive.subcontract_order_id)
             try:
+                stage_stock_document_snapshot(
+                    receive, deleting=False, operation='complete_subcontract_receive', checkpoint=audit_checkpoint,
+                    target_name=receive.receive_no, reason='完成委外收货',
+                )
                 db.session.commit()
             except Exception as e:
                 db.session.rollback()
@@ -2246,6 +2272,7 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外收货单已反提交，不能重复操作')
             receive = locked
+            audit_checkpoint = stock_document_audit_checkpoint(receive)
             recorded_result = _reverse_recorded_order_stock(receive)
             if recorded_result is not None and not recorded_result[0]:
                 db.session.rollback()
@@ -2270,6 +2297,10 @@ def register_subcontract_routes(app):
                             return api_error(error_msg or '库存回退失败')
             receive.status = 'pending'
             refresh_subcontract_receipts(receive.subcontract_order_id)
+            stage_stock_document_snapshot(
+                receive, deleting=False, operation='revert_subcontract_receive', checkpoint=audit_checkpoint,
+                target_name=receive.receive_no, reason='反提交委外收货',
+            )
             db.session.commit()
             log_operation('反提交委外收货', f'收货单：{receive.receive_no}', 'subcontract_receive', id)
             return jsonify({'status': 'success', 'msg': '反提交成功，库存已回退'})
