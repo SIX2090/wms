@@ -41,6 +41,7 @@ data class OpeningStockUiState(
     // （与查库存同口径：名称/规格/品牌都能搜）
     val materialSuggestions: List<MaterialDto> = emptyList(),
     val materialSuggestionsLoading: Boolean = false,
+    val truncatedMaterialTotal: Int? = null,
 
     // ---- P1-C 已建账列表 ----
     /** 当前仓库已建账的明细（分页加载，滚动追加） */
@@ -104,6 +105,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         if (normalizedKeyword.isBlank()) {
             _uiState.value = _uiState.value.copy(
                 materialSuggestions = emptyList(),
+                truncatedMaterialTotal = null,
                 materialSuggestionsLoading = false
             )
             return
@@ -112,11 +114,12 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         materialSearchJob = viewModelScope.launch {
             delay(180)
             _uiState.value = _uiState.value.copy(materialSuggestionsLoading = true)
-            repository.searchMaterial(normalizedKeyword).fold(
-                onSuccess = { materials ->
+            repository.searchMaterialMatches(normalizedKeyword).fold(
+                onSuccess = { matches ->
                     if (searchSequence == materialSearchSequence) {
                         _uiState.value = _uiState.value.copy(
-                            materialSuggestions = materials,
+                            materialSuggestions = matches.items,
+                            truncatedMaterialTotal = matches.total.takeIf { matches.truncated },
                             materialSuggestionsLoading = false
                         )
                     }
@@ -125,6 +128,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                     if (searchSequence == materialSearchSequence) {
                         _uiState.value = _uiState.value.copy(
                             materialSuggestions = emptyList(),
+                            truncatedMaterialTotal = null,
                             materialSuggestionsLoading = false
                         )
                     }
@@ -138,6 +142,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
         materialSearchJob?.cancel()
         _uiState.value = _uiState.value.copy(
             materialSuggestions = emptyList(),
+            truncatedMaterialTotal = null,
             materialSuggestionsLoading = false
         )
     }
@@ -413,7 +418,7 @@ class OpeningStockViewModel(application: Application) : AndroidViewModel(applica
                         builtFirstLoad = false,
                         builtLoadingMore = false,
                         builtError = if (reset && listEmpty) (e.message ?: "加载失败") else _uiState.value.builtError,
-                        error = if (reset && !listEmpty) (e.message ?: "加载失败") else _uiState.value.error
+                        error = if (!reset || !listEmpty) e.message ?: "加载失败" else null
                     )
                 }
             )

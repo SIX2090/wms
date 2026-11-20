@@ -122,6 +122,7 @@ fun ScanScreenBase(
     onDismissPrint: (() -> Unit)? = null,
     materialSuggestions: List<MaterialDto> = emptyList(),
     materialSuggestionsLoading: Boolean = false,
+    truncatedMaterialTotal: Int? = null,
     onMaterialSuggestionSelected: (MaterialDto) -> Unit = {},
     // ── AI-MOB-OFFLINE-01：离线待同步状态（由各页从 ScanViewModel.uiState 透传）──
     /** 待自动补传条数 */
@@ -595,6 +596,9 @@ fun ScanScreenBase(
                                 .heightIn(max = 200.dp)
                                 .verticalScroll(rememberScrollState())
                         ) {
+                            truncatedMaterialTotal?.let { total ->
+                                MaterialSearchLimitHint(total, minOf(materialSuggestions.size, 5))
+                            }
                             materialSuggestions.take(5).forEach { material ->
                                 TextButton(
                                     onClick = { onMaterialSuggestionSelected(material) },
@@ -719,6 +723,9 @@ fun ScanScreenBase(
                                         .heightIn(max = 220.dp)
                                         .verticalScroll(rememberScrollState())
                                 ) {
+                                    truncatedMaterialTotal?.let { total ->
+                                        MaterialSearchLimitHint(total, materialSuggestions.size)
+                                    }
                                     materialSuggestions.forEachIndexed { index, material ->
                                         val specBrand = listOfNotNull(
                                             material.spec?.takeIf { it.isNotBlank() }
@@ -906,4 +913,13 @@ fun ScanScreenBase(
             }
         )
     }
+}
+
+@Composable
+internal fun MaterialSearchLimitHint(total: Int, visible: Int) {
+    Text(
+        "共匹配 ${total} 项，当前显示 ${visible} 项。可缩小搜索范围。",
+        modifier = Modifier.padding(12.dp),
+        style = MaterialTheme.typography.bodySmall
+    )
 }

@@ -82,6 +82,7 @@ data class StockLedgerReportUiState(
     val error: String? = null,
     /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
     val loadError: String? = null,
+    val warehouseError: String? = null,
     val warehouses: List<WarehouseDto> = emptyList(),
     /** 当前查询仓库：只提供真实仓库（仓库必填，AGENTS.md §二），仅使用系统默认仓库 */
     val selectedWarehouseId: String? = null,
@@ -91,6 +92,7 @@ data class StockLedgerReportUiState(
     val materialKeyword: String = "",
     val materialSuggestions: List<MaterialDto> = emptyList(),
     val materialSearching: Boolean = false,
+    val truncatedMaterialTotal: Int? = null,
     /** 日期范围（yyyy-MM-dd）：start 空串=全部流水（默认），end 空串=今天 */
     val startDate: String = "",
     val endDate: String = "",
@@ -114,6 +116,7 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
     private val _uiState = MutableStateFlow(StockLedgerReportUiState())
     val uiState: StateFlow<StockLedgerReportUiState> = _uiState.asStateFlow()
 
+    private var warehouseJob: Job? = null
     private var pageJob: Job? = null
     private var materialSearchJob: Job? = null
     private var materialSearchVersion = 0L
@@ -131,25 +134,33 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
         // 期即被创建，可能尚未登录）；加载统一由 Screen LaunchedEffect 触发。
     }
 
-    /** 进入页面时加载可选仓库；已加载过则不重复请求。失败静默（不阻断后续查询）。 */
+    /** 加载可选仓库。恢复网络后可由页面重试。 */
     fun loadWarehouses() {
-        if (_uiState.value.warehouses.isNotEmpty()) return
-        viewModelScope.launch {
+        if (_uiState.value.warehouses.isNotEmpty() || warehouseJob?.isActive == true) return
+        warehouseJob = viewModelScope.launch {
             repository.ensureSession()
-            repository.getWarehouses().fold(
+            val owner = RetrofitClient.sessionSnapshot()
+            val response = repository.getWarehouses()
+            currentCoroutineContext().ensureActive()
+            if (owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { list ->
                     cancelMaterialSearch()
                     val current = _uiState.value.selectedWarehouseId
-                    // 仅使用系统默认仓库真实仓库（与每日报表/库存日报/出入库明细同模式）
-                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
-                        list.singleOrNull { it.isDefault }?.id?.toString()
-                    } else current
+                    val nextSelected = current?.takeIf { it.isNotBlank() }
+                        ?: list.singleOrNull { it.isDefault }?.id?.toString()
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
-                        selectedWarehouseId = nextSelected
+                        selectedWarehouseId = nextSelected,
+                        warehouseError = null
                     )
+                    if (nextSelected != current) refresh()
                 },
-                onFailure = { /* 静默：仓库列表失败不阻断已选仓查询 */ }
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(
+                        warehouseError = "仓库加载失败：" + (error.message ?: "请检查网络")
+                    )
+                }
             )
         }
     }
@@ -166,7 +177,7 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
     private fun cancelMaterialSearch() {
         materialSearchJob?.cancel()
         materialSearchVersion++
-        _uiState.value = _uiState.value.copy(materialSuggestions = emptyList(), materialSearching = false)
+        _uiState.value = _uiState.value.copy(materialSuggestions = emptyList(), materialSearching = false, truncatedMaterialTotal = null)
     }
 
     private fun materialSearchQuery(): List<Any?> {
@@ -194,15 +205,16 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
         val warehouseCode = query[2] as String?
         materialSearchJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(materialSearching = true, error = null)
-            val response = repository.searchMaterial(keyword, warehouseCode)
+            val response = repository.searchMaterialMatches(keyword, warehouseCode)
             currentCoroutineContext().ensureActive()
             if (version != materialSearchVersion || query != materialSearchQuery() ||
                 owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             response.fold(
-                onSuccess = { list ->
+                onSuccess = { matches ->
                     _uiState.value = _uiState.value.copy(
                         materialSearching = false,
-                        materialSuggestions = list
+                        materialSuggestions = matches.items,
+                        truncatedMaterialTotal = matches.total.takeIf { matches.truncated }
                     )
                 },
                 onFailure = { e ->
@@ -293,6 +305,11 @@ class StockLedgerReportViewModel(application: Application) : AndroidViewModel(ap
         val s = _uiState.value
         if (s.startDate.isBlank() && s.endDate.isBlank()) return
         _uiState.value = s.copy(startDate = "", endDate = "")
+        refresh()
+    }
+
+    fun refreshWithWarehouses() {
+        loadWarehouses()
         refresh()
     }
 

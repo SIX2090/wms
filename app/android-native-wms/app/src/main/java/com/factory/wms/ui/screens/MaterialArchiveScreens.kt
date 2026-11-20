@@ -200,7 +200,8 @@ fun MaterialArchiveSearchScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        "共 ${uiState.materials.size} 个匹配物料",
+                        uiState.truncatedTotal?.let { "共匹配 ${it} 个，当前显示 ${uiState.materials.size} 个" }
+                            ?: "共 ${uiState.materials.size} 个匹配物料",
                         style = MaterialTheme.typography.bodySmall,
                         color = OnSurfaceVariant
                     )

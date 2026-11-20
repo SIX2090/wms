@@ -2,9 +2,10 @@ package com.factory.wms.ui.components
 
 import android.Manifest
 import android.content.Intent
+import android.content.ClipData
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -14,7 +15,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -40,44 +41,43 @@ internal fun rememberCameraLauncherWithPermission(
 ): () -> Unit {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    // 待写入的输出文件：launch 前预建，结果回调里按成功/取消决定回传或删除。
-    var pendingCapture by remember { mutableStateOf<Pair<Uri, File>?>(null) }
+    // 外部相机打开期间 Android 可能重建页面，保存输出文件名供结果回调恢复。
+    var pendingCapture by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraDir = File(context.cacheDir, "camera")
 
     val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
+        contract = object : ActivityResultContracts.TakePicture() {
+            override fun createIntent(context: Context, input: Uri): Intent =
+                super.createIntent(context, input).apply {
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                    clipData = ClipData.newRawUri("camera output", input)
+                }
+        }
     ) { success ->
-        val pending = pendingCapture
+        val file = pendingCapture?.let { File(cameraDir, it) }
         pendingCapture = null
-        if (success && pending != null) {
-            onImageCaptured(pending.first)
-        } else {
-            // 取消或拍摄失败：删除预建的空文件，避免缓存目录积累 0 字节垃圾。
-            pending?.second?.delete()
+        if (file != null) {
+            if (success) {
+                onImageCaptured(FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file))
+            } else {
+                file.delete()
+            }
         }
     }
 
-    // 预建输出文件并向所有可处理拍照的应用显式授予写权限——TakePicture 契约生成的
-    // intent 不附带 grant flag，不授权时部分 OEM 相机写不回 EXTRA_OUTPUT（空文件/失败回调）。
     fun startCapture() {
-        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
-        val file = File(dir, "cap_${System.currentTimeMillis()}.jpg")
-        val uri = FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file
-        )
-        val captureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-        context.packageManager
-            .queryIntentActivities(captureIntent, PackageManager.MATCH_DEFAULT_ONLY)
-            .forEach { info ->
-                context.grantUriPermission(
-                    info.activityInfo.packageName,
-                    uri,
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-        pendingCapture = uri to file
-        cameraLauncher.launch(uri)
+        if (pendingCapture != null) return
+        cameraDir.mkdirs()
+        val file = File.createTempFile("cap_", ".jpg", cameraDir)
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        pendingCapture = file.name
+        try {
+            cameraLauncher.launch(uri)
+        } catch (_: android.content.ActivityNotFoundException) {
+            pendingCapture = null
+            file.delete()
+            coroutineScope.launch { snackbarHostState.showSnackbar("找不到可用的相机应用") }
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(

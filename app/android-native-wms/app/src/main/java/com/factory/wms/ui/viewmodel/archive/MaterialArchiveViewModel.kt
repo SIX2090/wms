@@ -26,6 +26,7 @@ data class MaterialArchiveUiState(
     // 搜索列表
     val keyword: String = "",
     val materials: List<MaterialArchiveDto> = emptyList(),
+    val truncatedTotal: Int? = null,
     // 图片管理
     val imagesData: MaterialArchiveImagesData? = null,
     val images: List<MaterialArchiveImageDto> = emptyList(),
@@ -73,8 +74,11 @@ class MaterialArchiveViewModel(application: Application) : AndroidViewModel(appl
             if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             _uiState.value = _uiState.value.copy(isLoading = false)
             result.fold(
-                onSuccess = { materials ->
-                    _uiState.value = _uiState.value.copy(materials = materials)
+                onSuccess = { matches ->
+                    _uiState.value = _uiState.value.copy(
+                        materials = matches.items,
+                        truncatedTotal = matches.total.takeIf { matches.truncated }
+                    )
                 },
                 onFailure = { e ->
                     // AI-APP-FIX-201：首屏失败（列表还空着）→ 全屏错误态；

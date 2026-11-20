@@ -64,7 +64,7 @@ def test_add_scan_line_enriches_material_details():
     assert "private fun enrichScanLineMaterial(" in SCAN_VM
     assert "enrichScanLineMaterial(line.material_code)" in SCAN_VM
     assert "repository.getMaterialInfo(" in SCAN_VM
-    assert "repository.searchMaterial(" in SCAN_VM
+    assert "repository.searchMaterialMatches(" in SCAN_VM
     assert "material_name = it.name" in SCAN_VM
     assert "material_spec = it.spec" in SCAN_VM
     assert "material_brand = it.brand" in SCAN_VM

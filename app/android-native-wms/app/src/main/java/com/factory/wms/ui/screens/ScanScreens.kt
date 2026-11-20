@@ -130,6 +130,7 @@ fun InboundScreen(
         onManualQtyChange = { manualQty = it },
         materialSuggestions = uiState.materialSuggestions,
         materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        truncatedMaterialTotal = uiState.truncatedMaterialTotal,
         onMaterialSuggestionSelected = { material ->
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()
@@ -448,6 +449,7 @@ fun OutboundScreen(
         onManualQtyChange = { manualQty = it },
         materialSuggestions = uiState.materialSuggestions,
         materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        truncatedMaterialTotal = uiState.truncatedMaterialTotal,
         onMaterialSuggestionSelected = { material ->
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()
@@ -781,26 +783,14 @@ fun StockQueryScreen(
         }
     }
 
-    LaunchedEffect(uiState.scannedCode) {
-        if (uiState.scannedCode.isNotEmpty()) {
-            viewModel.searchMaterialByCode(uiState.scannedCode)
-        }
-    }
-
-    // AI-APP-FIX-507：识物结果 CTA 跳入——按预填编码直接查询并回显到搜索框
-    LaunchedEffect(prefillCode) {
+    LaunchedEffect(prefillCode, uiState.selectedWarehouse?.code) {
         if (!prefillCode.isNullOrBlank()) {
             listMode = false
             manualCode = prefillCode
-            viewModel.clearMaterialSuggestions()
-            viewModel.searchMaterialByCode(prefillCode)
-            onPrefillConsumed()
-        }
-    }
-
-    LaunchedEffect(showScannerDialog) {
-        if (!showScannerDialog) {
-            viewModel.clearScannedCode()
+            if (!uiState.selectedWarehouse?.code.isNullOrBlank()) {
+                viewModel.searchMaterialByCode(prefillCode)
+                onPrefillConsumed()
+            }
         }
     }
 
@@ -898,9 +888,7 @@ fun StockQueryScreen(
                         value = manualCode,
                         onValueChange = {
                             manualCode = it
-                            // 输入即按 名称/规格/品牌 模糊联想候选，并清掉上一次的查询结果卡片
-                            if (uiState.scannedMaterial != null) viewModel.clearScannedMaterial()
-                            viewModel.searchMaterialSuggestions(it)
+                            viewModel.onStockQueryKeywordChange(it)
                         },
                         placeholder = { Text("名称 / 编码 / 规格", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         singleLine = true,
@@ -980,6 +968,11 @@ fun StockQueryScreen(
                             .heightIn(max = 360.dp)
                     ) {
                         val visibleSuggestions = uiState.materialSuggestions
+                        uiState.truncatedMaterialTotal?.let { total ->
+                            item(key = "truncated") {
+                                MaterialSearchLimitHint(total, visibleSuggestions.size)
+                            }
+                        }
                         itemsIndexed(
                             visibleSuggestions,
                             key = { _, material -> material.code ?: material.hashCode().toString() }
@@ -993,14 +986,7 @@ fun StockQueryScreen(
                                     .fillMaxWidth()
                                     .clickable {
                                         manualCode = material.code.orEmpty()
-                                        if (uiState.selectedWarehouse != null) {
-                                            // 已选仓库：按该仓口径实时查询仓库级账面库存
-                                            viewModel.clearMaterialSuggestions()
-                                            viewModel.searchMaterialByCode(material.code.orEmpty())
-                                        } else {
-                                            // 未选仓库：候选即为全局口径，直接展示（无需二次请求）
-                                            viewModel.selectMaterialSuggestion(material)
-                                        }
+                                        viewModel.searchMaterialByCode(material.code.orEmpty())
                                     }
                                     .padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
@@ -1047,7 +1033,15 @@ fun StockQueryScreen(
                         .fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (manualCode.isNotBlank()) {
+                    if (uiState.selectedWarehouse?.code.isNullOrBlank()) {
+                        WmsEmptyState(
+                            icon = Icons.Outlined.Warehouse,
+                            title = if (uiState.warehousesLoading) "正在加载查询仓库" else "请选择查询仓库",
+                            subtitle = "选仓后可输入关键词或扫描条码",
+                            accentColor = CardOrange,
+                            compact = true
+                        )
+                    } else if (manualCode.isNotBlank()) {
                         WmsEmptyState(
                             icon = Icons.Outlined.Search,
                             title = "未找到包含「$manualCode」的物料",
@@ -1336,8 +1330,11 @@ fun StockQueryScreen(
             onSelect = { warehouse ->
                 viewModel.selectWarehouse(warehouse)
                 showWarehouseDialog = false
-                // 已有查询结果时，按新选仓库口径刷新该物料的仓库级账面库存
-                uiState.scannedMaterial?.code?.let { viewModel.searchMaterialByCode(it) }
+                if (!listMode && uiState.selectedWarehouse?.code != warehouse.code) {
+                    val code = uiState.scannedMaterial?.code
+                    if (code != null) viewModel.searchMaterialByCode(code)
+                    else viewModel.onStockQueryKeywordChange(manualCode)
+                }
             },
             onRetry = { viewModel.loadWarehouses() },
             accentColor = CardOrange
@@ -1822,6 +1819,7 @@ fun StocktakeScreen(
         onManualQtyChange = { manualQty = it },
         materialSuggestions = uiState.materialSuggestions,
         materialSuggestionsLoading = uiState.materialSuggestionsLoading,
+        truncatedMaterialTotal = uiState.truncatedMaterialTotal,
         onMaterialSuggestionSelected = { material ->
             manualCode = material.code.orEmpty()
             viewModel.clearMaterialSuggestions()

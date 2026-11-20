@@ -91,8 +91,7 @@ def test_all_four_callers_wire_keyword_search():
     opening = _read(SRC / "ui" / "screens" / "OpeningStockScreen.kt")
 
     # ScanScreens.kt：三处 ScanScreenBase 调用（入库/出库/盘点），每处都要有联想接线。
-    # 注意本文件还有第 4 处 searchMaterialSuggestions 调用属于「查库存」页自己的
-    # 搜索框（该页是联想功能的对标基线，非本次改造对象），故用调用点而非全文计数。
+    # 查库存使用独立入口废弃旧查询，再触发同一联想逻辑。
     base_calls = scan.count("ScanScreenBase(")
     assert base_calls == 3, f"ScanScreenBase 调用点应为 3 处，实测 {base_calls}"
     assert scan.count("materialSuggestions = uiState.materialSuggestions") == base_calls, (
@@ -107,9 +106,11 @@ def test_all_four_callers_wire_keyword_search():
         "三处调用点都要在关闭弹窗时清空候选"
     )
     # 查库存页 + 入库/出库/盘点共 4 处输入联想入口
-    assert scan.count("viewModel.searchMaterialSuggestions(it)") == 4, (
-        "输入联想入口应为 4 处（查库存页 + 入库/出库/盘点弹窗）"
+    assert scan.count("viewModel.searchMaterialSuggestions(it)") == base_calls, (
+        "入库、出库及盘点弹窗均须接入物料联想"
     )
+
+    assert "viewModel.onStockQueryKeywordChange(it)" in scan
 
     # 期初库存：输入变化触发联想 + 候选渲染 + 点选回填 + 关闭清空
     assert "viewModel.searchMaterialSuggestions(it)" in opening, "期初库存未接线联想"
@@ -132,8 +133,9 @@ def test_opening_viewmodel_has_suggestion_state_and_debounce():
     assert "delay(180)" in src, "缺少防抖"
     assert "materialSearchSequence" in src, "缺少竞态序号"
     assert "materialSearchJob?.cancel()" in src, "缺少旧请求取消"
-    # 复用查库存同一个 repository 方法，口径一致
-    assert "repository.searchMaterial(normalizedKeyword)" in src
+    # 消费共用的搜索结果及截断元数据。
+    assert "repository.searchMaterialMatches(normalizedKeyword)" in src
+    assert "truncatedMaterialTotal = matches.total.takeIf { matches.truncated }" in src
 
 
 def test_version_bumped():

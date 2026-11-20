@@ -177,11 +177,10 @@ def test_repository_methods_use_safe_call():
     for fn in ("suspend fun getAlertList(", "suspend fun getInOrderList(", "suspend fun getOutOrderList("):
         assert fn in src, f"Repository 缺少 {fn}"
 
-    for api_call in ("api.getAlertList(", "api.getInOrderList(", "api.getOutOrderList("):
-        # 每个调用点前面必须是 safeCall {
-        idx = src.index(api_call)
-        window = src[max(0, idx - 120):idx]
-        assert "safeCall" in window, f"{api_call} 未走 safeCall"
+    for method in ("getAlertList", "getInOrderList", "getOutOrderList"):
+        start = src.index(f"suspend fun {method}(")
+        api_call = src.index(f"api.{method}(", start)
+        assert "safeCall" in src[start:api_call], f"api.{method} 未走 safeCall"
 
     # 空串状态要归一成 null，避免 ?status= 被后端当无效值
     assert 'status?.takeIf { it.isNotBlank() }' in src, "status 空串未归一为 null"
@@ -219,7 +218,7 @@ def test_viewmodel_supports_three_kinds_and_paging():
     assert 'loadError = if (reset && listEmpty) (message ?: "加载失败") else s.loadError' in src, (
         "首屏失败应落 loadError 渲染全屏错误态"
     )
-    assert 'error = if (reset && !listEmpty) (message ?: "加载失败") else s.error' in src, (
+    assert 'error = if (!reset || !listEmpty) message ?: "加载失败" else null' in src, (
         "带数据的刷新/翻页失败只弹 Snackbar，不清空已有列表"
     )
     failed_body = src[src.index("private fun onLoadFailed("):]

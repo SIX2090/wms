@@ -166,7 +166,7 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
                     error = null,
                     notice = if (data.items.isEmpty() && data.total == 0) {
                         // AI-CI-GREEN-005-F04：告警是两级口径，都落在「库存 <= 安全库存」
-                        "本仓暂无低于安全库存的物料"
+                        data.notice ?: "本仓暂无低于安全库存的物料"
                     } else null
                 )
             },
@@ -217,7 +217,7 @@ class OrderListViewModel(application: Application) : AndroidViewModel(applicatio
             // AI-APP-FIX-201：首屏失败（列表还空着）落 loadError 渲染全屏错误态；
             // 带着数据的刷新/翻页失败才弹 Snackbar，不清空已有数据。
             loadError = if (reset && listEmpty) (message ?: "加载失败") else s.loadError,
-            error = if (reset && !listEmpty) (message ?: "加载失败") else s.error
+            error = if (!reset || !listEmpty) message ?: "加载失败" else null
         )
     }
 

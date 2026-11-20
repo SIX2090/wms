@@ -78,10 +78,10 @@ data class ScanUiState(
     val success: String? = null,
     // Material scan result
     val scannedMaterial: MaterialDto? = null,
-    val scannedCode: String = "",
     // Scan list for batch operations
     val materialSuggestions: List<MaterialDto> = emptyList(),
     val materialSuggestionsLoading: Boolean = false,
+    val truncatedMaterialTotal: Int? = null,
     val scanLines: List<ScanLine> = emptyList(),
     val quantityDrafts: Map<String, QuantityDraft> = emptyMap(),
     val totalQuantity: Double = 0.0,
@@ -214,7 +214,8 @@ class ScanViewModel(
     private var materialSearchJob: Job? = null
     private var employeeRequestVersion = 0L
     private var checkOrderRequestVersion = 0L
-    private var materialInfoVersion = 0L
+    private var stockQueryJob: Job? = null
+    private var locationOptionsJob: Job? = null
     private var contractSearchSequence = 0
     private var contractSearchJob: Job? = null
     // AI-MOB-STOCK-F03（清单 P2-2）：查库存列表的防抖查询此前没有可取消的 Job。
@@ -412,9 +413,14 @@ class ScanViewModel(
     fun loadLocationOptions() {
         if (editDraftOperation == null) return
         val code = _uiState.value.selectedWarehouse?.code ?: return
-        viewModelScope.launch {
+        locationOptionsJob?.cancel()
+        val owner = RetrofitClient.sessionSnapshot()
+        locationOptionsJob = viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(locationError = null)
             val result = repository.getLocationOptions(code)
-            if (_uiState.value.selectedWarehouse?.code != code) return@launch
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (_uiState.value.selectedWarehouse?.code != code ||
+                owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             result.fold(onSuccess = { options ->
                 val state = _uiState.value
                 _uiState.value = state.copy(locationEnabled = options.enabled,
@@ -499,46 +505,35 @@ class ScanViewModel(
     }
 
     fun clearScannedMaterial() {
-        _uiState.value = _uiState.value.copy(scannedMaterial = null, scannedCode = "")
+        stockQueryJob?.cancel()
+        _uiState.value = _uiState.value.copy(scannedMaterial = null, isLoading = false, error = null)
     }
 
-    fun clearScannedCode() {
-        _uiState.value = _uiState.value.copy(scannedCode = "")
+    fun onStockQueryKeywordChange(keyword: String) {
+        clearScannedMaterial()
+        searchMaterialSuggestions(keyword, requireWarehouse = true)
     }
 
-    fun searchMaterialSuggestions(keyword: String) {
+    fun searchMaterialSuggestions(keyword: String, requireWarehouse: Boolean = false) {
         val normalizedKeyword = keyword.trim()
-        val searchSequence = ++materialSearchSequence
-        materialSearchJob?.cancel()
-        if (normalizedKeyword.isBlank()) {
-            _uiState.value = _uiState.value.copy(
-                materialSuggestions = emptyList(),
-                materialSuggestionsLoading = false
-            )
-            return
-        }
+        val warehouse = _uiState.value.selectedWarehouse?.code
+        clearMaterialSuggestions()
+        if (normalizedKeyword.isEmpty() || (requireWarehouse && warehouse.isNullOrBlank())) return
 
+        val searchSequence = materialSearchSequence
+        val owner = RetrofitClient.sessionSnapshot()
         materialSearchJob = viewModelScope.launch {
             delay(180)
             _uiState.value = _uiState.value.copy(materialSuggestionsLoading = true)
-            // BUG-2026-09-03-004：搜索建议带当前仓库，返回仓库级账面库存
-            repository.searchMaterial(normalizedKeyword, _uiState.value.selectedWarehouse?.code).fold(
-                onSuccess = { materials ->
-                    if (searchSequence == materialSearchSequence) {
-                        _uiState.value = _uiState.value.copy(
-                            materialSuggestions = materials,
-                            materialSuggestionsLoading = false
-                        )
-                    }
-                },
-                onFailure = {
-                    if (searchSequence == materialSearchSequence) {
-                        _uiState.value = _uiState.value.copy(
-                            materialSuggestions = emptyList(),
-                            materialSuggestionsLoading = false
-                        )
-                    }
-                }
+            val result = repository.searchMaterialMatches(normalizedKeyword, warehouse)
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (searchSequence != materialSearchSequence ||
+                owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            val matches = result.getOrNull()
+            _uiState.value = _uiState.value.copy(
+                materialSuggestions = matches?.items.orEmpty(),
+                truncatedMaterialTotal = matches?.takeIf { it.truncated }?.total,
+                materialSuggestionsLoading = false
             )
         }
     }
@@ -548,6 +543,7 @@ class ScanViewModel(
         materialSearchJob?.cancel()
         _uiState.value = _uiState.value.copy(
             materialSuggestions = emptyList(),
+            truncatedMaterialTotal = null,
             materialSuggestionsLoading = false
         )
     }
@@ -823,6 +819,7 @@ class ScanViewModel(
                         warehouses = warehouses,
                         selectedWarehouse = first ?: _uiState.value.selectedWarehouse
                     )
+                    if (first?.code != selected?.code) clearMaterialSuggestions()
                     // INV-BATCH-001-E：选择配置默认仓库后即拉取该仓进行中盘点单
                     if (first?.code != null) loadPendingCheckOrders()
                     loadLocationOptions()
@@ -1008,6 +1005,9 @@ class ScanViewModel(
     }
 
     fun selectWarehouse(warehouse: WarehouseDto) {
+        if (_uiState.value.selectedWarehouse?.code != warehouse.code && stockQueryJob?.isActive == true) {
+            clearScannedMaterial()
+        }
         if (draftEditingBlocked() || !canChangeQuantityContext(_uiState.value.selectedWarehouse?.code != warehouse.code)) return
         if (stocktakeSourceWarehouse != null && _uiState.value.scanLines.isNotEmpty() && stocktakeSourceWarehouse != warehouse.code) {
             _uiState.value = _uiState.value.copy(error = "恢复的清单属于原仓库，请先核对或清空后重新盘点")
@@ -1019,12 +1019,15 @@ class ScanViewModel(
             selectedLocation = if (changed) "" else _uiState.value.selectedLocation,
             locationEnabled = if (changed) null else _uiState.value.locationEnabled,
             locationOptions = if (changed) emptyList() else _uiState.value.locationOptions,
+            locationError = if (changed) null else _uiState.value.locationError,
+            scannedMaterial = if (changed) null else _uiState.value.scannedMaterial,
             scanLines = if (changed && editDraftOperation != null)
                 _uiState.value.scanLines.map { it.copy(location_code = null) } else _uiState.value.scanLines,
             checkOrders = if (changed) emptyList() else _uiState.value.checkOrders,
             selectedCheckOrder = if (changed) null else _uiState.value.selectedCheckOrder
         )
         if (changed) {
+            clearMaterialSuggestions()
             loadLocationOptions()
             _onWarehouseChanged?.invoke(warehouse)
             loadPendingCheckOrders()
@@ -1271,122 +1274,47 @@ class ScanViewModel(
         )
     }
 
-    /**
-     * 按编码查物料（查库存扫码/候选点选/换仓刷新共用）。
-     *
-     * AI-APP-FIX-503：[onResult] 在请求结束后回报命中与否（命中=true），
-     * 供扫码反馈音等"结果驱动"的场景使用——调用方不必再发一次
-     * materialExists 重复请求来判定成败。
-     */
     fun searchMaterialByCode(code: String, onResult: (Boolean) -> Unit = {}) {
-        val version = ++materialInfoVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        val warehouse = _uiState.value.selectedWarehouse?.code
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val whCode = _uiState.value.selectedWarehouse?.code
-            val result = repository.getMaterialInfo(code, whCode)
-            result.fold(
-                onSuccess = { material ->
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        scannedMaterial = material,
-                        scannedCode = code
-                    )
-                    onResult(true)
-                },
-                onFailure = { e ->
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message,
-                        scannedMaterial = null,
-                        scannedCode = code
-                    )
-                    onResult(false)
-                }
-            )
-        }
+        runStockQuery(code, allowFuzzy = false, onResult = onResult)
     }
 
-    /**
-     * 查库存「查询」按钮/键盘搜索键统一入口（BUG-2026-09-10-002）。
-     * 先按物料编码精确查询；未命中时回退名称/规格/品牌模糊搜索并列出全部候选，
-     * 不再只弹「物料不存在」。模糊也无命中时清空结果交由页面空态提示
-     * 「未找到包含「kw」的物料」，不写 error（避免 toast 与空态双重提示）。
-     * 不触碰 scannedCode，避免触发 LaunchedEffect(scannedCode) 重复查询。
-     */
     fun queryMaterialByKeyword(keyword: String) {
-        val normalized = keyword.trim()
-        if (normalized.isEmpty()) return
-        val version = ++materialInfoVersion
-        val owner = RetrofitClient.sessionSnapshot()
-        val warehouse = _uiState.value.selectedWarehouse?.code
-        viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val whCode = _uiState.value.selectedWarehouse?.code
-            repository.getMaterialInfo(normalized, whCode).fold(
-                onSuccess = { material ->
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        scannedMaterial = material,
-                        materialSuggestions = emptyList(),
-                        materialSuggestionsLoading = false
-                    )
-                },
-                onFailure = {
-                    // 精确编码未命中：回退模糊搜索，列出包含关键词的全部物料
-                    repository.searchMaterial(normalized, whCode).fold(
-                        onSuccess = { materials ->
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-
-                            _uiState.value = _uiState.value.copy(
-                                isLoading = false,
-                                scannedMaterial = null,
-                                materialSuggestions = materials,
-                                materialSuggestionsLoading = false
-                            )
-                        },
-                        onFailure = { e ->
-                    kotlinx.coroutines.currentCoroutineContext().ensureActive()
-                    if (version != materialInfoVersion || warehouse != _uiState.value.selectedWarehouse?.code || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
-
-                            _uiState.value = _uiState.value.copy(
-                                isLoading = false,
-                                scannedMaterial = null,
-                                materialSuggestions = emptyList(),
-                                materialSuggestionsLoading = false,
-                                error = e.message
-                            )
-                        }
-                    )
-                }
-            )
-        }
+        runStockQuery(keyword, allowFuzzy = true)
     }
 
-    /**
-     * 查库存：点选模糊联想候选后直接展示该物料。
-     * 候选来自后端 api/material/search 实时查询，与 api/material/info 返回同一 payload，
-     * 字段一致，无需二次请求；同时不触碰 scannedCode，避免触发 LaunchedEffect(scannedCode) 重复查询。
-     */
-    fun selectMaterialSuggestion(material: MaterialDto) {
+    /** 查库存只走当前仓。更换输入或仓库会取消上一条查询及其反馈。 */
+    private fun runStockQuery(keyword: String, allowFuzzy: Boolean, onResult: (Boolean) -> Unit = {}) {
+        val code = keyword.trim()
+        if (code.isEmpty()) return
+        clearScannedMaterial()
         clearMaterialSuggestions()
-        _uiState.value = _uiState.value.copy(
-            isLoading = false,
-            error = null,
-            scannedMaterial = material,
-            scannedCode = ""
-        )
+        val warehouse = _uiState.value.selectedWarehouse?.code?.takeIf { it.isNotBlank() }
+        if (warehouse == null) {
+            _uiState.value = _uiState.value.copy(error = "请先选择仓库后再查询库存")
+            onResult(false)
+            return
+        }
+        val owner = RetrofitClient.sessionSnapshot()
+        _uiState.value = _uiState.value.copy(isLoading = true)
+        stockQueryJob = viewModelScope.launch {
+            val exact = repository.getMaterialInfo(code, warehouse)
+            val fuzzy = if (exact.isFailure && allowFuzzy) repository.searchMaterialMatches(code, warehouse) else null
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            if (warehouse != _uiState.value.selectedWarehouse?.code ||
+                owner.generation != RetrofitClient.sessionSnapshot().generation) {
+                _uiState.value = _uiState.value.copy(isLoading = false)
+                return@launch
+            }
+            val matches = fuzzy?.getOrNull()
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                scannedMaterial = exact.getOrNull(),
+                materialSuggestions = matches?.items.orEmpty(),
+                truncatedMaterialTotal = matches?.takeIf { it.truncated }?.total,
+                error = (fuzzy ?: exact).exceptionOrNull()?.message
+            )
+            onResult(exact.isSuccess)
+        }
     }
 
     fun submitInbound(businessType: String = "采购入库") {

@@ -37,10 +37,12 @@ def test_search_button_and_ime_use_keyword_query_with_fuzzy_fallback():
     assert "fun queryMaterialByKeyword(keyword: String)" in vm_src
     fallback = vm_src.index("fun queryMaterialByKeyword(keyword: String)")
     tail = vm_src[fallback:]
-    assert "repository.getMaterialInfo(normalized, whCode)" in tail
-    assert "repository.searchMaterial(normalized, whCode)" in tail
-    # 回退结果写入候选列表（交由页面展示全部命中物料）
-    assert "materialSuggestions = materials" in tail
+    assert "runStockQuery(keyword, allowFuzzy = true)" in tail
+    assert "val exact = repository.getMaterialInfo(code, warehouse)" in tail
+    assert "if (exact.isFailure && allowFuzzy) repository.searchMaterialMatches(code, warehouse)" in tail
+    # 回退结果写入候选列表，同时保留服务器截断信息。
+    assert "materialSuggestions = matches?.items.orEmpty()" in tail
+    assert "truncatedMaterialTotal = matches?.takeIf { it.truncated }?.total" in tail
 
 
 def test_suggestion_list_shows_all_matches_scrollable():

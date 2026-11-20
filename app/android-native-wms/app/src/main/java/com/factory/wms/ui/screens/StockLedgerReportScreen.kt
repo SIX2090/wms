@@ -141,7 +141,7 @@ fun StockLedgerReportScreen(
     ) { padding ->
         WmsPullToRefreshBox(
             isRefreshing = uiState.isLoading && uiState.items.isNotEmpty(),
-            onRefresh = { viewModel.refresh() },
+            onRefresh = { viewModel.refreshWithWarehouses() },
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             LazyColumn(
@@ -328,12 +328,12 @@ fun StockLedgerReportScreen(
                         WmsListSkeleton(modifier = Modifier.fillMaxWidth())
                     }
                     // 首屏查询失败时在筛选区下方显示重试入口。
-                    uiState.loadError != null && uiState.items.isEmpty() -> item {
+                    uiState.warehouseError != null || (uiState.loadError != null && uiState.items.isEmpty()) -> item {
                         WmsErrorState(
                             title = "加载失败",
-                            subtitle = uiState.loadError ?: "请检查网络后重试",
+                            subtitle = uiState.warehouseError ?: uiState.loadError ?: "请检查网络后重试",
                             modifier = Modifier.fillMaxWidth(),
-                            onRetry = { viewModel.refresh() }
+                            onRetry = { viewModel.refreshWithWarehouses() }
                         )
                     }
                     uiState.queried && uiState.items.isEmpty() -> item {
@@ -438,6 +438,9 @@ fun StockLedgerReportScreen(
                                     .fillMaxWidth()
                                     .heightIn(max = 360.dp)
                             ) {
+                                uiState.truncatedMaterialTotal?.let { total ->
+                                    item { MaterialSearchLimitHint(total, uiState.materialSuggestions.size) }
+                                }
                                 items(
                                     uiState.materialSuggestions,
                                     key = { it.id ?: it.code.hashCode() }

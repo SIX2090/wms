@@ -504,8 +504,11 @@ class WmsRepository(
     }
 
     suspend fun searchMaterial(keyword: String, warehouseCode: String? = null): Result<List<MaterialDto>> {
-        return safeCall { api.searchMaterial(keyword, warehouseCode) }
+        return searchMaterialMatches(keyword, warehouseCode).map { it.items }
     }
+
+    internal suspend fun searchMaterialMatches(keyword: String, warehouseCode: String? = null) =
+        materialMatches { api.searchMaterial(keyword, warehouseCode) }
 
     /**
      * AI-MOB-STOCK-F01：库存列表查询（分页，复用既有 `/api/mobile/stock/query`）。
@@ -551,9 +554,13 @@ class WmsRepository(
         page: Int = 1,
         pageSize: Int = 20
     ): Result<AlertListData> {
-        return safeCall {
+        var notice: String? = null
+        return safeCall(onSuccessEnvelope = { envelope ->
+            notice = (envelope.message ?: envelope.msg)?.let { ApiEnvelope.sanitizeMessage(it) }
+                ?.takeIf { it.isNotBlank() && it != "操作成功" }
+        }) {
             api.getAlertList(warehouseId = warehouseId, page = page, pageSize = pageSize)
-        }
+        }.map { it.copy(notice = notice) }
     }
 
     /**
@@ -1425,8 +1432,18 @@ class WmsRepository(
 
     // ── 物料档案（多图） ──
 
-    suspend fun searchMaterialArchive(keyword: String): Result<List<MaterialArchiveDto>> {
-        return safeCall { api.searchMaterialArchive(keyword) }
+    internal suspend fun searchMaterialArchive(keyword: String) =
+        materialMatches { api.searchMaterialArchive(keyword) }
+
+    private suspend inline fun <reified T> materialMatches(
+        block: () -> Response<ApiEnvelope<List<T>>>
+    ): Result<MaterialMatches<T>> {
+        var total: Int? = null
+        var truncated = false
+        return safeCall(onSuccessEnvelope = { envelope ->
+            total = envelope.total
+            truncated = envelope.truncated == true
+        }, block = block).map { MaterialMatches(it, total, truncated) }
     }
 
     suspend fun getMaterialArchiveImages(id: Int): Result<MaterialArchiveImagesData> {
@@ -1465,10 +1482,12 @@ class WmsRepository(
     // T 必须 reified：内部要调用同为 `inline fun <reified T>` 的 handleResponse，
     // 非 reified 的 T 会报 "Cannot use 'T' as reified type parameter"（Release 编译失败）。
     private suspend inline fun <reified T> safeCall(
+        onSuccessEnvelope: (ApiEnvelope<T>) -> Unit = {},
         block: () -> Response<ApiEnvelope<T>>
     ): Result<T> {
         return try {
-            handleResponse(block())
+            val response = block()
+            handleResponse(response).onSuccess { response.body()?.let(onSuccessEnvelope) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: BusinessException) {

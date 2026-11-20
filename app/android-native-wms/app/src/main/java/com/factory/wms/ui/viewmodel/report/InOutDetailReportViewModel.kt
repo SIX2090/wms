@@ -79,6 +79,7 @@ data class InOutDetailReportUiState(
     val error: String? = null,
     /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
     val loadError: String? = null,
+    val warehouseError: String? = null,
     /** 日期范围（yyyy-MM-dd），默认都是今天 */
     val startDate: String = "",
     val endDate: String = "",
@@ -107,6 +108,7 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
     private val _uiState = MutableStateFlow(InOutDetailReportUiState())
     val uiState: StateFlow<InOutDetailReportUiState> = _uiState.asStateFlow()
 
+    private var warehouseJob: Job? = null
     private var pageJob: Job? = null
     private var queryVersion = 0L
     private var displayedQuery: List<Any?>? = null
@@ -124,25 +126,32 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
         _uiState.value = _uiState.value.copy(startDate = today, endDate = today)
     }
 
-    /** 进入页面时加载可选仓库；已加载过则不重复请求。失败静默（不阻断查询）。 */
+    /** 加载可选仓库。恢复网络后可由页面重试。 */
     fun loadWarehouses() {
-        if (_uiState.value.warehouses.isNotEmpty()) return
-        viewModelScope.launch {
+        if (_uiState.value.warehouses.isNotEmpty() || warehouseJob?.isActive == true) return
+        warehouseJob = viewModelScope.launch {
             repository.ensureSession()
-            repository.getWarehouses().fold(
+            val owner = RetrofitClient.sessionSnapshot()
+            val response = repository.getWarehouses()
+            currentCoroutineContext().ensureActive()
+            if (owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { list ->
                     val current = _uiState.value.selectedWarehouseId
-                    // 使用系统配置的默认仓库（与每日报表/库存日报同模式），并立即查询
-                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
-                        list.singleOrNull { it.isDefault }?.id?.toString()
-                    } else current
+                    val nextSelected = current?.takeIf { it.isNotBlank() }
+                        ?: list.singleOrNull { it.isDefault }?.id?.toString()
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
-                        selectedWarehouseId = nextSelected
+                        selectedWarehouseId = nextSelected,
+                        warehouseError = null
                     )
                     if (nextSelected != current) refresh()
                 },
-                onFailure = { /* 静默：仓库列表失败不阻断按已选仓查询 */ }
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(
+                        warehouseError = "仓库加载失败：" + (error.message ?: "请检查网络")
+                    )
+                }
             )
         }
     }
@@ -216,6 +225,11 @@ class InOutDetailReportViewModel(application: Application) : AndroidViewModel(ap
         if (next > todayStr) next = todayStr
         if (next < s.startDate || next == s.endDate) return
         _uiState.value = s.copy(endDate = next)
+        refresh()
+    }
+
+    fun refreshWithWarehouses() {
+        loadWarehouses()
         refresh()
     }
 

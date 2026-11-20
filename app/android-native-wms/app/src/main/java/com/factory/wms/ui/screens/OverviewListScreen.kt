@@ -220,7 +220,7 @@ private fun AlertList(
 ) {
     val listState = rememberLazyListState()
     // 滑到末尾自动加载下一页（与查库存列表同策略）
-    val shouldLoadMore by remember {
+    val shouldLoadMore by remember(state.alerts.size) {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             last >= state.alerts.size - 2
@@ -241,10 +241,8 @@ private fun AlertList(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             WmsEmptyState(
                 icon = Icons.Outlined.WarningAmber,
-                title = "本仓暂无库存告警",
-                // AI-CI-GREEN-005-F04：告警口径是两级（low/danger），两档都落在
-                // 「库存 <= 安全库存」内，所以列表为空 ⟺ 所有物料都在安全库存之上。
-                subtitle = state.notice ?: "所有物料都在安全库存之上",
+                title = state.notice ?: "本仓暂无库存告警",
+                subtitle = "",
                 accentColor = accent
             )
         }
@@ -319,7 +317,7 @@ private fun OrderList(
     LaunchedEffect(state.kind, state.statusFilter) {
         listState.scrollToItem(0)
     }
-    val shouldLoadMore by remember {
+    val shouldLoadMore by remember(state.orders.size) {
         derivedStateOf {
             val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
             last >= state.orders.size - 2

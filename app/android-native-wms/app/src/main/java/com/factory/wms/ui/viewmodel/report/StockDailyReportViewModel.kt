@@ -60,6 +60,7 @@ data class StockDailyReportUiState(
     val error: String? = null,
     /** AI-APP-FIX-201：首屏（列表为空时）查询失败的持久错误（全屏错误态 + 重试） */
     val loadError: String? = null,
+    val warehouseError: String? = null,
     /** 当前查询日期（yyyy-MM-dd）。AI-MOB-RPT-F03：可翻日期，历史日期为当天收市结存 */
     val date: String = "",
     /** 日期是否处于「今天模式」：true 时每次刷新自动跟随系统当天（跨天不重启也生效） */
@@ -90,6 +91,7 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
     val uiState: StateFlow<StockDailyReportUiState> = _uiState.asStateFlow()
 
     private val pager = StockDailyPager()
+    private var warehouseJob: Job? = null
     private var pageJob: Job? = null
     private var queryVersion = 0L
     private var displayedQuery: List<Any?>? = null
@@ -106,25 +108,32 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
         _uiState.value = _uiState.value.copy(date = apiDateFormat.format(Date()))
     }
 
-    /** 进入页面时加载可选仓库；已加载过则不重复请求。失败静默（不阻断查询）。 */
+    /** 加载可选仓库。恢复网络后可由页面重试。 */
     fun loadWarehouses() {
-        if (_uiState.value.warehouses.isNotEmpty()) return
-        viewModelScope.launch {
+        if (_uiState.value.warehouses.isNotEmpty() || warehouseJob?.isActive == true) return
+        warehouseJob = viewModelScope.launch {
             repository.ensureSession()
-            repository.getWarehouses().fold(
+            val owner = RetrofitClient.sessionSnapshot()
+            val response = repository.getWarehouses()
+            currentCoroutineContext().ensureActive()
+            if (owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
+            response.fold(
                 onSuccess = { list ->
                     val current = _uiState.value.selectedWarehouseId
-                    // 使用系统配置的默认仓库（与每日报表页同模式），并立即查询
-                    val nextSelected = if (current.isNullOrBlank() && list.isNotEmpty()) {
-                        list.singleOrNull { it.isDefault }?.id?.toString()
-                    } else current
+                    val nextSelected = current?.takeIf { it.isNotBlank() }
+                        ?: list.singleOrNull { it.isDefault }?.id?.toString()
                     _uiState.value = _uiState.value.copy(
                         warehouses = list,
-                        selectedWarehouseId = nextSelected
+                        selectedWarehouseId = nextSelected,
+                        warehouseError = null
                     )
                     if (nextSelected != current) refresh()
                 },
-                onFailure = { /* 静默：仓库列表失败不阻断按已选仓查询 */ }
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(
+                        warehouseError = "仓库加载失败：" + (error.message ?: "请检查网络")
+                    )
+                }
             )
         }
     }
@@ -145,6 +154,11 @@ class StockDailyReportViewModel(application: Application) : AndroidViewModel(app
         _uiState.value = _uiState.value.copy(keyword = keyword, isLoading = false,
             isLoadingMore = false, generatedAt = null, summary = null, items = emptyList(),
             error = null, loadError = null, queried = false, hasMore = false)
+    }
+
+    fun refreshWithWarehouses() {
+        loadWarehouses()
+        refresh()
     }
 
     /** 点搜索 / 换仓 / 下拉刷新：从第 1 页重新拉 */

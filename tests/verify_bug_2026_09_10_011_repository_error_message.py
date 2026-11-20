@@ -77,11 +77,15 @@ def test_t4_no_legacy_wrapping_left():
 
 def test_t5_key_apis_use_safe_call():
     src = _src()
-    for fn in ("getDashboard", "getDailyReport", "searchMaterial",
+    for fn in ("getDashboard", "getDailyReport",
                "getOpeningStock", "createPrintJob"):
         body = src[src.index(f"suspend fun {fn}("):]
         body = body[:body.index("suspend fun", 10)] if "suspend fun" in body[10:] else body
         assert "safeCall" in body, f"{fn} 应走 safeCall 以保留服务端 msg"
+    assert "return searchMaterialMatches(keyword, warehouseCode).map { it.items }" in src
+    assert "materialMatches { api.searchMaterial(keyword, warehouseCode) }" in src
+    matches = src[src.index("fun <reified T> materialMatches("):]
+    assert "return safeCall(onSuccessEnvelope" in matches.split("suspend fun", 1)[0]
 
 
 def test_t6_cascade_catch_passes_business_exception():

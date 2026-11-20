@@ -43,7 +43,8 @@ data class AlertListData(
     val total: Int = 0,
     val page: Int = 1,
     @SerializedName("page_size") val pageSize: Int = 20,
-    @SerializedName("total_pages") val totalPages: Int = 0
+    @SerializedName("total_pages") val totalPages: Int = 0,
+    val notice: String? = null
 )
 
 /** 单据列表项（GET /api/mobile/in_order/list 与 out_order/list 同结构）。 */

@@ -7,7 +7,9 @@ data class ApiEnvelope<T>(
     @SerializedName("success") val success: Boolean?,
     @SerializedName("msg") val msg: String?,
     @SerializedName("message") val message: String?,
-    @SerializedName("data") val data: T?
+    @SerializedName("data") val data: T?,
+    val total: Int? = null,
+    val truncated: Boolean? = null
 ) {
     fun isOk(): Boolean = success == true || status == "success"
 
@@ -57,3 +59,8 @@ data class ApiEnvelope<T>(
         }
     }
 }
+internal data class MaterialMatches<T>(
+    val items: List<T>,
+    val total: Int?,
+    val truncated: Boolean
+)

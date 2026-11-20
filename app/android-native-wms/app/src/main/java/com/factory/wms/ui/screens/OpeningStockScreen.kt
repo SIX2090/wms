@@ -446,6 +446,9 @@ fun OpeningStockScreen(
                                         .heightIn(max = 220.dp)
                                         .verticalScroll(rememberScrollState())
                                 ) {
+                                    uiState.truncatedMaterialTotal?.let { total ->
+                                        MaterialSearchLimitHint(total, uiState.materialSuggestions.size)
+                                    }
                                     uiState.materialSuggestions.forEachIndexed { index, material ->
                                         val specBrand = listOfNotNull(
                                             material.spec?.takeIf { it.isNotBlank() }
