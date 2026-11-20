@@ -73,8 +73,8 @@
                 <td>{{ item.material.spec if item.material else '' }}</td>
                 <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
                 <td class="text-end">{{ "%.2f"|format(item.system_stock or 0) }}</td>
-                <td class="text-end">{{ "%.2f"|format(item.actual_stock or 0) }}</td>
-                <td class="text-end">{{ "%.2f"|format(item.difference or 0) }}</td>
+                <td class="text-end">{% if item.has_actual_count %}{{ "%.2f"|format(item.actual_stock) }}{% endif %}</td>
+                <td class="text-end">{% if item.has_actual_count %}{{ "%.2f"|format(item.difference) }}{% endif %}</td>
             </tr>
             {% else %}
             <tr>

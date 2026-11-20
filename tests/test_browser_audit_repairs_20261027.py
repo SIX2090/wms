@@ -90,7 +90,7 @@ def test_contract_batch_import_uses_working_import_dialog(bom_case):
 def test_check_report_names_absolute_difference(bom_case):
     client, _ = bom_case
     _, context = _context(client, '/report/view/check?embedded=1')
-    assert context['summary_labels']['amount'] == '绝对差异合计'
+    assert context['summary_labels']['amount'] == '各物料净差异绝对值合计'
 
 
 def test_material_selection_header_has_readable_label(bom_case):

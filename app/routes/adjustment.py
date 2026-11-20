@@ -30,8 +30,17 @@ from flask_login import login_required
 
 from db import db
 from services.import_validation import InactiveMaterialImportError
+from services.stocktake import STOCKTAKE_SOURCES, stocktake_adjustment_history, validate_stocktake_adjustment
 from services.web_document_idempotency import web_document_idempotent, stage_document_response
 from utils import require_role
+
+
+def _adjustment_delete_error(adjustment):
+    if adjustment.source_type in STOCKTAKE_SOURCES:
+        return '盘点生成的调整单请在来源盘点单反提交后撤回'
+    if stocktake_adjustment_history(adjustment.id):
+        return '曾经过账的调整单须保留原单与库存流水'
+    return None
 
 
 # no-test:reason=路由注册辅助函数，能力由 adjustment_* 各路由测试覆盖
@@ -96,7 +105,13 @@ def register_adjustment_routes(app):
             'adjustment_type': adjustment_type,
             'warehouse_id': warehouse.id if warehouse else '',
         }
-        return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
+        from app import StockTransaction
+        posted_ids = {row.reference_id for row in db.session.query(StockTransaction.reference_id).filter(
+            StockTransaction.reference_type == 'adjustment',
+            StockTransaction.reference_id.in_([order.id for order in adjustments])).distinct()}
+        deletable_ids = {order.id for order in adjustments if order.status == 'pending'
+                         and order.source_type not in STOCKTAKE_SOURCES and order.id not in posted_ids}
+        return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(), deletable_ids=deletable_ids)
 
     @app.route('/adjustment/add', methods=['GET'])
     @login_required
@@ -157,7 +172,8 @@ def register_adjustment_routes(app):
         units_json = [{'id': u.id, 'name': u.name} for u in units]
         # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库
         warehouses = get_active_warehouses()
-        readonly = adjustment.status != 'pending'
+        source_locked = adjustment.source_type in STOCKTAKE_SOURCES
+        readonly = adjustment.status != 'pending' or source_locked
 
         return render_template('adjustment_add.html',
                              adjustment=adjustment,
@@ -172,6 +188,8 @@ def register_adjustment_routes(app):
                              default_warehouse=get_default_warehouse(),
                              existing_items=[_serialize_adjustment_item_for_form(item, adj_stock_map) for item in adjustment.items],
                              readonly=readonly,
+                             source_locked=source_locked,
+                             delete_blocked=readonly or stocktake_adjustment_history(adjustment.id),
                              location_management_enabled=location_management_enabled(),
                              page_title=('查看库存调整单' if readonly else '编辑库存调整单'))
 
@@ -324,6 +342,8 @@ def register_adjustment_routes(app):
                     return api_error('库存调整单不存在，请刷新后重试')
                 if adjustment.status != 'pending':
                     return api_error('只有草稿状态的调整单可以修改')
+                if adjustment.source_type in STOCKTAKE_SOURCES:
+                    return api_error('盘点生成的调整单请在来源盘点单更正后重新生成')
                 adjustment_no = adjustment.adjustment_no
                 same_no_order = AdjustmentOrder.query.filter(
                     AdjustmentOrder.adjustment_no == adjustment_no,
@@ -473,6 +493,12 @@ def register_adjustment_routes(app):
             if not adjustment.items:
                 db.session.rollback()
                 return api_error('调整单没有明细，无法完成')
+            from app import validate_inventory_warehouse
+            warehouse, error = validate_inventory_warehouse(adjustment.warehouse)
+            error = error or validate_stocktake_adjustment(adjustment, warehouse)
+            if error:
+                db.session.rollback()
+                return api_error(error)
             # BUG-2026-08-02-010 修复：开启库位管理时同步库位库存，避免总库存与库位库存之和产生偏差。
             # P1-1 已为 AdjustmentOrder 加 warehouse 字段，loc_key 优先 adjustment.warehouse
             # （单据级仓库），无则回退 item.location（行级库位）。
@@ -612,8 +638,9 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_adjustment(id):
-        from app import (AdjustmentOrder, AdjustmentOrderItem, StockTransaction,
+        from app import (AdjustmentOrder, AdjustmentOrderItem,
                          _acquire_order_write_lock, api_error, log_operation)
+        from services.document_stock_audit import stage_stock_document_snapshot
         adjustment = AdjustmentOrder.query.get_or_404(id)
         if adjustment.status != 'pending':
             return api_error('只有草稿状态的调整单可以删除')
@@ -624,17 +651,17 @@ def register_adjustment_routes(app):
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该调整单状态已变更；已完成单请先反提交后再删除'}), 409
             adjustment = locked
-
+            error = _adjustment_delete_error(adjustment)
+            if error:
+                db.session.rollback()
+                return api_error(error)
+            number = adjustment.adjustment_no
+            stage_stock_document_snapshot(adjustment, deleting=True, operation='delete_adjustment',
+                                          reason='删除库存调整草稿', reference_type='adjustment', target_name=number)
             AdjustmentOrderItem.query.filter_by(adjustment_order_id=id).delete()
-            # BUG-2026-09-10-001：已反提交的单据可物理删除；同步清理完成与反提交
-            # 产生的库存流水，避免库存台账保留指向已删除调整单的悬挂引用
-            # （与 delete_in_order 对齐）。
-            StockTransaction.query.filter_by(
-                reference_type='adjustment', reference_id=adjustment.id
-            ).delete(synchronize_session=False)
             db.session.delete(adjustment)
             db.session.commit()
-            log_operation('删除库存调整单', f'调整单：{adjustment.adjustment_no}', 'adjustment', id)
+            log_operation('删除库存调整单', f'调整单：{number}', 'adjustment', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
@@ -646,8 +673,9 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_adjustment():
-        from app import (AdjustmentOrder, AdjustmentOrderItem, StockTransaction,
+        from app import (AdjustmentOrder, AdjustmentOrderItem,
                          _acquire_order_write_lock, api_error, log_operation)
+        from services.document_stock_audit import stage_stock_document_snapshot
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
         ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
@@ -658,6 +686,10 @@ def register_adjustment_routes(app):
         blocked = [adjustment.adjustment_no for adjustment in adjustments if adjustment.status != 'pending']
         if blocked:
             return api_error('只能删除草稿调整单：' + '、'.join(blocked))
+        for order in adjustments:
+            error = _adjustment_delete_error(order)
+            if error:
+                return api_error(f'{order.adjustment_no}：{error}')
 
         deleted_count = 0
         skipped = []
@@ -674,11 +706,15 @@ def register_adjustment_routes(app):
                     continue
                 adjustment = locked
                 adjustment_no = adjustment.adjustment_no
+                error = _adjustment_delete_error(adjustment)
+                if error:
+                    skipped.append(f'{adjustment_no}({error})')
+                    db.session.rollback()
+                    continue
+                stage_stock_document_snapshot(adjustment, deleting=True, operation='delete_adjustment',
+                                              reason='批量删除库存调整草稿', reference_type='adjustment',
+                                              target_name=adjustment_no)
                 AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment_id).delete()
-                # BUG-2026-09-10-001：同步清理该调整单完成/反提交产生的库存流水
-                StockTransaction.query.filter_by(
-                    reference_type='adjustment', reference_id=adjustment.id
-                ).delete(synchronize_session=False)
                 db.session.delete(adjustment)
                 db.session.commit()
                 deleted_count += 1

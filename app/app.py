@@ -11503,26 +11503,27 @@ def _ai_stage4_supplier_performance_report(days=90, limit=12):
     return '\n'.join(lines)
 
 def _ai_stage4_stocktake_variance_report(days=90, limit=12):
+    from services.stocktake import stocktake_report_totals
+
     cutoff = date.today() - timedelta(days=max(1, int(days or 90)))
-    rows = InventoryCheckItem.query.options(
+    base = InventoryCheckItem.query.join(InventoryCheck).filter(InventoryCheck.date >= cutoff)
+    totals = stocktake_report_totals(base).subquery()
+    rows = db.session.query(InventoryCheckItem, totals.c.book, totals.c.actual, totals.c.net).join(
+        totals, InventoryCheckItem.id == totals.c.first_id).filter(totals.c.net != 0).options(
         joinedload(InventoryCheckItem.material),
         joinedload(InventoryCheckItem.inventory_check),
-    ).join(InventoryCheck, InventoryCheckItem.inventory_check_id == InventoryCheck.id).filter(
-        InventoryCheck.date >= cutoff,
-        InventoryCheckItem.difference != 0,
-    ).order_by(func.abs(InventoryCheckItem.difference).desc()).limit(limit).all()
+    ).order_by(func.abs(totals.c.net).desc()).limit(limit).all()
     if not rows:
         return f'最近{days}天没有盘点差异记录。'
     lines = [f'**盘点差异分析（最近{days}天）**']
     lines.append('| 盘点单 | 物料 | 系统数 | 实盘数 | 差异 | 原因 |')
     lines.append('|---|---|---:|---:|---:|---|')
-    for item in rows:
+    for item, book, actual, net in rows:
         material = item.material
         check = item.inventory_check
         lines.append(
             f'| {check.check_no if check else "-"} | {material.code if material else item.material_id} {material.name if material else ""} | '
-            f'{normalize_stock_quantity(item.system_stock or 0)} | {normalize_stock_quantity(item.actual_stock or 0)} | '
-            f'{normalize_stock_quantity(item.difference or 0)} | {item.reason or "-"} |'
+            f'{book} | {actual} | {net} | {item.reason or "-"} |'
         )
     return '\n'.join(lines)
 
@@ -27804,32 +27805,21 @@ def check_legacy_page():
 
 def _create_adjustment_drafts_from_check(check):
     """Create pending adjustment draft(s) from inventory check differences."""
-    existing = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).all()
+    from services.stocktake import grouped_stocktake_counts, overlapping_stocktake_adjustment, stocktake_quantities
+
+    existing = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).filter(
+        AdjustmentOrder.status != 'cancelled').first()
     if existing:
         return None, '该盘点单已生成库存调整单，请勿重复生成'
 
-    # 每行是一份实盘记录。同一物料只使用首次冻结的仓库账面。
-    by_material = {}
-    for item in sorted(check.items, key=lambda row: row.id):
-        if item.material_id:
-            by_material.setdefault(item.material_id, []).append(item)
+    by_material = grouped_stocktake_counts(check)
     locations = location_management_enabled()
     grouped = {'surplus': [], 'loss': []}
-    for material_id, rows in by_material.items():
-        first = rows[0]
-        counted = []
-        for row in rows:
-            # 分类建单、复制及空白数量会预填账面。未盘的占位行不算一份实物。
-            # 兼容历史有实盘差异的手工行及原先按区域登记的明细。
-            if (row.counted_at or row.counted_by or row.actual_stock != row.system_stock
-                    or (row.area or '').strip()):
-                counted.append(row)
+    for material_id, (first, counted) in by_material.items():
         if not counted:
             continue
         areas = {(row.area or '').strip() for row in counted}
-        book = normalize_stock_quantity(first.system_stock or 0)
-        total = round_to_2_decimals(sum(normalize_stock_quantity(row.actual_stock or 0) for row in counted))
-        net = round_to_2_decimals(total - book)
+        book, total, net = stocktake_quantities(first, counted)
         code = first.material.code if first.material else str(material_id)
         if locations and len(areas) > 1:
             return None, '启用库位管理时，同一物料不能跨多个区域合并生成调整，请按单一库位分别盘点：' + code
@@ -27845,6 +27835,12 @@ def _create_adjustment_drafts_from_check(check):
         grouped['surplus' if net > 0 else 'loss'].append((item, abs(net), reason))
 
     drafts = []
+    materials_to_adjust = {item.material_id for rows in grouped.values() for item, _, _ in rows}
+    if materials_to_adjust:
+        warehouse, _ = validate_inventory_warehouse(check.warehouse)
+        conflict = overlapping_stocktake_adjustment(check, materials_to_adjust, warehouse)
+        if conflict:
+            return None, f'同仓物料已有盘点差异关联 {conflict.adjustment_no}，请核对后重新盘点'
     for adjustment_type, rows in grouped.items():
         if not rows:
             continue
@@ -28007,6 +28003,7 @@ def _void_check_scan(check_id, *, actor):
     - 失败：error 为中文提示，error_code 由调用方映射 HTTP 状态码。
     """
     from services.document_stock_audit import snapshot_audit_row, stage_order_audit
+    from services.stocktake import stocktake_adjustment_history
 
     locked, ok = _acquire_order_write_lock(
         InventoryCheckScan, check_id, 'completed',
@@ -28035,10 +28032,13 @@ def _void_check_scan(check_id, *, actor):
         if order.status == 'pending':
             old_drafts.append({**snapshot_audit_row(order),
                                'items': [snapshot_audit_row(item) for item in order.items]})
-            for item in list(order.items):
-                db.session.delete(item)
-            db.session.delete(order)
-            deleted_draft_nos.append(order.adjustment_no)
+            if stocktake_adjustment_history(order.id):
+                order.status = 'cancelled'
+            else:
+                for item in list(order.items):
+                    db.session.delete(item)
+                db.session.delete(order)
+                deleted_draft_nos.append(order.adjustment_no)
 
     # INV-BATCH-001-E / BUG-2026-09-04-005：挂批次的扫码盘点作废需回退批次行。
     # 强制挂批次后 CS 的差异已直接 upsert 进批次 InventoryCheckItem，若只作废
@@ -28600,7 +28600,7 @@ REPORT_DEFINITIONS = {
         'summary_labels': {
             'count': '记录数',
             'quantity': '实盘数量',
-            'amount': '绝对差异合计',
+            'amount': '各物料净差异绝对值合计',
         },
         'summary_types': {
             'count': 'number',
@@ -30196,8 +30196,8 @@ def _check_row(item):
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
         'system_stock': _safe_float(item.system_stock),
-        'actual_stock': _safe_float(item.actual_stock),
-        'difference': _safe_float(item.difference),
+        'actual_stock': _safe_float(item.actual_stock) if item.has_actual_count else None,
+        'difference': _safe_float(item.difference) if item.has_actual_count else None,
         'status': check_order.status or '',
         'operator': check_order.operator.username if check_order.operator else '',
         'reason': item.reason or '',
@@ -31362,13 +31362,8 @@ def _build_summary_report(filters):
     return _summary_columns(), rows, summary
 
 def _build_check_report(filters):
-    rows = _collect_check_rows(filters)
-    summary = {
-        'count': len(rows),
-        'quantity': sum(row['actual_stock'] for row in rows),
-        'amount': sum(abs(row['difference']) for row in rows),
-    }
-    return _check_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_check_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 def _build_ledger_report(filters):
     # 库存台账必须按单一物料查询，未指定物料时返回空数据并给出提示
@@ -31874,21 +31869,23 @@ _PURCHASE_EXECUTION_SORT_MAP = {
 
 def _sql_paged_check_report(filters):
     """盘点明细 SQL 分页 builder（BUG-2026-09-07-011）：返回 (columns, rows, summary, total)。"""
+    from services.stocktake import stocktake_report_totals
+
     columns = _check_columns()
     # AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
     base = _filtered_check_query(filters)
     total = base.count()
-    agg = base.with_entities(
-        func.count(InventoryCheckItem.id),
-        func.coalesce(func.sum(InventoryCheckItem.actual_stock), 0),
-        func.coalesce(func.sum(func.abs(InventoryCheckItem.difference)), 0),
-    ).first()
+    per_material = stocktake_report_totals(base).subquery()
+    agg = db.session.query(
+        func.coalesce(func.sum(per_material.c.actual), 0),
+        func.coalesce(func.sum(func.abs(per_material.c.net)), 0),
+    ).select_from(per_material).one()
     summary = {
-        'count': int(agg[0] or 0),
-        'quantity': _safe_float(agg[1]),
-        'amount': _safe_float(agg[2]),
+        'count': total,
+        'quantity': _safe_float(agg[0]),
+        'amount': _safe_float(agg[1]),
     }
     query = _sql_order_by(
         base, _CHECK_SORT_MAP,

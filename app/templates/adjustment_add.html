@@ -242,6 +242,8 @@
             <button data-document-action="submitAdjustment" type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)">
                 <i class="bi bi-save"></i> 保存草稿
             </button>
+            {% endif %}
+            {% if not readonly or (source_locked and adjustment.status == 'pending' and current_user.role in ['admin', 'warehouse']) %}
             <button data-document-action="completeAdjustment" type="button" class="btn btn-success btn-sm" onclick="completeAdjustment()">
                 <i class="bi bi-check-circle"></i> 完成调整
             </button>
@@ -259,7 +261,10 @@
     </div>
 
     <div class="adjust-body">
-        <form id="adjustmentForm" class="adjust-form {{ 'readonly-mask' if readonly else '' }}">
+        {% if source_locked and adjustment.status == 'pending' %}
+        <p class="text-muted small">调整明细来自盘点单。需要更正时，请在来源盘点单反提交后重新生成。</p>
+        {% endif %}
+        <form id="adjustmentForm" class="adjust-form {{ 'readonly-mask' if readonly else '' }}"{% if delete_blocked %} data-wms-no-delete{% endif %}>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id }}">
             <input type="hidden" name="adjustment_no" value="{{ adjustment_no }}">
@@ -743,6 +748,13 @@ function completeAdjustment() {
     if (submitForm.savedId) return Promise.resolve();
     return WMS.runDocumentAction('completeAdjustment', function() {
         if (!confirm('确认完成该库存调整单？完成后会立即变更库存。')) return;
+        if (readonly) {
+            const detailUrl = '/adjustment/' + document.querySelector('[name="order_id"]').value;
+            return WMS.api.postRaw(detailUrl + '/complete', {}).then(function(res) {
+                if (res && res.status === 'success') window.location.reload();
+                else showDocumentCompletionIssue(detailUrl, res);
+            }).catch(function(err) { showDocumentCompletionIssue(detailUrl, err); });
+        }
         return submitForm(true);
     }).finally(function() {
         if (submitForm.keepSavedLocked) submitForm.keepSavedLocked();

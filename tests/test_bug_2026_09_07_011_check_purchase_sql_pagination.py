@@ -96,7 +96,7 @@ class TestBug20260907011:
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check_a.id, material_id=mat.id,
                     system_stock=10.0, actual_stock=10.0 + diff,
-                    difference=float(diff)))
+                    difference=float(diff), counted_by=user.id))
             # B 仓盘点单：1 行（R2 隔离验证）
             check_b = InventoryCheck(check_no="PD-B", date=date.today(),
                                      warehouse="仓库B", status="completed",
@@ -177,8 +177,8 @@ class TestBug20260907011:
             assert s1['count'] == 13
             # quantity = sum(actual_stock) = sum(10+diff), diff 从 -6..6 对称 → 13*10
             assert s1['quantity'] == 130.0, f"实盘数量全集求和错误: {s1['quantity']}"
-            # amount = sum(|difference|) = 2*(1+..+6) = 42
-            assert s1['amount'] == 42.0, f"差异绝对值全集求和错误: {s1['amount']}"
+            # 13 行属于同单同一物料，实盘合计 130 只扣一次账面 10。
+            assert s1['amount'] == 120.0, f"物料净差异绝对值错误: {s1['amount']}"
             _, rows, summary, total = app_module._sql_paged_check_report(_filters())
             assert total == 0 and rows == [], "无仓库必须返回空"
             assert summary == {'count': 0, 'quantity': 0, 'amount': 0}

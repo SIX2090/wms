@@ -896,6 +896,7 @@ def register_check_routes(app):
         from sqlalchemy.orm import selectinload
         from app import (AdjustmentOrder, InventoryCheck,
                          _acquire_order_write_lock, api_error, log_operation)
+        from services.stocktake import stocktake_adjustment_history
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'completed':
             return api_error('只有已完成的盘点单可以反提交')
@@ -920,12 +921,15 @@ def register_check_routes(app):
             check.status = 'pending'
             _stage_inventory_check_audit(check, 'revert_check', 'completed', removed=drafts)
             for order in drafts:
-                for item in list(order.items):
-                    db.session.delete(item)
-                db.session.delete(order)
+                if stocktake_adjustment_history(order.id):
+                    order.status = 'cancelled'
+                else:
+                    for item in list(order.items):
+                        db.session.delete(item)
+                    db.session.delete(order)
             db.session.commit()
             log_operation('反提交盘点', f'盘点单：{check.check_no}', 'check', id)
-            return jsonify({'status': 'success', 'msg': '反提交成功，已删除未提交的库存调整草稿'})
+            return jsonify({'status': 'success', 'msg': '反提交成功，已撤回关联调整草稿，过账历史已保留'})
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'盘点反提交失败: {e}')
@@ -1122,7 +1126,7 @@ def register_check_routes(app):
     @login_required
     def delete_check(id):
         """删除盘点单"""
-        from app import (InventoryCheck, InventoryCheckItem,
+        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckItem,
                          _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
@@ -1134,7 +1138,9 @@ def register_check_routes(app):
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该盘点单状态已变更；已完成单请先反提交后再删除'}), 409
             check = locked
-
+            if AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).first():
+                db.session.rollback()
+                return api_error('存在关联调整记录，须保留来源盘点单')
             # 删除明细
             InventoryCheckItem.query.filter_by(inventory_check_id=id).delete()
             db.session.delete(check)
@@ -1152,7 +1158,7 @@ def register_check_routes(app):
     @login_required
     def batch_delete_check():
         """批量删除盘点单"""
-        from app import (InventoryCheck, InventoryCheckItem,
+        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckItem,
                          _acquire_order_write_lock, api_error, log_operation)
         try:
             data = request.get_json(silent=True) or {}
@@ -1178,6 +1184,10 @@ def register_check_routes(app):
                         continue
                     check = locked
                     check_no = check.check_no
+                    if AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).first():
+                        skipped.append(f'{check_no}(存在关联调整记录)')
+                        db.session.rollback()
+                        continue
                     InventoryCheckItem.query.filter_by(inventory_check_id=check_id).delete()
                     db.session.delete(check)
                     db.session.commit()
@@ -1278,18 +1288,19 @@ def register_check_routes(app):
                         material.spec if material else '',
                         material.unit.name if material and material.unit else '',
                         item.system_stock or 0,
-                        item.actual_stock or 0,
-                        item.difference or 0,
+                        item.actual_stock if item.has_actual_count else None,
+                        item.difference if item.has_actual_count else None,
                         item.reason or '',
                         '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')),
                         check.remark or '',
+                        item.area or '',
                     ])
             else:
-                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', check.warehouse or '', '', '', '', '', 0, 0, 0, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or ''])
+                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', check.warehouse or '', '', '', '', '', 0, None, None, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or '', ''])
         return _workbook_response(
             'inventory_checks.xlsx',
             '库存盘点',
-            ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注'],
+            ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注', '区域'],
             rows,
         )
 
@@ -1457,7 +1468,7 @@ def register_check_routes(app):
         # BUG-2026-09-05-006：补「盘点人/盘点时间」两列——页面早有行级盘点归属
         # 回查（INV-BATCH-001-D），导出却没有，Excel 里无法筛漏盘行；末列表头
         # 由「备注」正名为「差异原因」（写入的一直是 item.reason，且与导入别名对齐）。
-        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '盘点人', '盘点时间'])
+        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '盘点人', '盘点时间', '仓库', '区域'])
         if check.items:
             for item in check.items:
                 ws.append([
@@ -1468,11 +1479,13 @@ def register_check_routes(app):
                     item.material.spec if item.material else '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.system_stock or 0,
-                    item.actual_stock or 0,
-                    item.difference or 0,
+                    item.actual_stock if item.has_actual_count else None,
+                    item.difference if item.has_actual_count else None,
                     item.reason or '',
                     item.counted_by_user.username if getattr(item, 'counted_by_user', None) else '',
-                    item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else ''
+                    item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else '',
+                    check.warehouse or '',
+                    item.area or '',
                 ])
         output = io.BytesIO()
         wb.save(output)

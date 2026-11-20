@@ -103,7 +103,7 @@
                     {% set first_item = adjustment.items[0] if adjustment.items else none %}
                     {% set total_quantity = adjustment.items|sum(attribute='quantity', start=0) %}
                     <tr data-id="{{ adjustment.id }}">
-                        <td class="text-center"><input type="checkbox" class="check-item" value="{{ adjustment.id }}" {% if adjustment.status != 'pending' %}disabled title="只能删除草稿单据"{% endif %}></td>
+                        <td class="text-center"><input type="checkbox" class="check-item" value="{{ adjustment.id }}" {% if adjustment.id not in deletable_ids %}disabled title="该单据须保留或从来源盘点单撤回"{% endif %}></td>
                         <td><a href="{{ url_for('adjustment_detail', id=adjustment.id) }}" target="_blank" rel="noopener">{{ adjustment.adjustment_no }}</a></td>
                         <td>{{ adjustment.date }}</td>
                         <td>
@@ -131,6 +131,8 @@
                             <span class="badge bg-warning">草稿</span>
                             {% elif adjustment.status == 'completed' %}
                             <span class="badge bg-success">已完成</span>
+                            {% elif adjustment.status == 'cancelled' %}
+                            <span class="badge bg-secondary">已撤回</span>
                             {% else %}
                             <span class="badge bg-secondary">{{ adjustment.status or '未知' }}</span>
                             {% endif %}
@@ -144,9 +146,11 @@
                             <button class="btn btn-sm btn-outline-success completeBtn" data-id="{{ adjustment.id }}" title="完成">
                                 <i class="bi bi-check-circle"></i>
                             </button>
+                            {% if adjustment.id in deletable_ids %}
                             <button class="btn btn-sm btn-outline-danger delBtn" data-id="{{ adjustment.id }}" title="删除">
                                 <i class="bi bi-trash"></i>
                             </button>
+                            {% endif %}
                             {% elif adjustment.status == 'completed' %}
                             <button class="btn btn-sm btn-outline-warning revertBtn" data-id="{{ adjustment.id }}" title="反提交">
                                 <i class="bi bi-arrow-counterclockwise"></i>

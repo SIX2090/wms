@@ -10,6 +10,7 @@ from db import db
 from datetime import datetime
 from datetime import date
 from sqlalchemy import event, inspect
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Session
 
 __all__ = [
@@ -313,6 +314,11 @@ class InventoryCheckItem(db.Model):
     inventory_check = db.relationship('InventoryCheck', backref='items')  # Related check order
     material = db.relationship('Material', backref='inventory_check_items')  # Related material
     counted_by_user = db.relationship('User', foreign_keys=[counted_by])  # 盘点人（单向，无 backref）
+
+    @hybrid_property
+    def has_actual_count(self):
+        return ((self.counted_by != None) | (self.counted_at != None)  # noqa: E711 - shared SQL and instance expression
+                | (self.actual_stock != self.system_stock))
 
 
 class InventoryCheckScan(db.Model):

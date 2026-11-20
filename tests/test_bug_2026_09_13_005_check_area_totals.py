@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 
 import app as wms
@@ -15,7 +17,8 @@ def test_check_area_totals_include_zero_difference_rows(scene, actuals, expected
     for index, actual in enumerate(actuals):
         wms.db.session.add(wms.InventoryCheckItem(
             inventory_check_id=check.id, material_id=material.id, system_stock=100,
-            actual_stock=actual, difference=actual - 100, area=f"Zone {index}"))
+            actual_stock=actual, difference=actual - 100, area=f"Zone {index}",
+            counted_at=datetime.now() if actual == 100 and len(actuals) > 1 else None))
     wms.db.session.commit()
     warning = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
     assert warning["status"] == "confirm" and warning["code"] == "check_risks", warning
@@ -40,7 +43,8 @@ def test_zero_difference_area_still_participates_in_location_guard(scene):
     for area, actual in (("Location 1", 100), ("Location 2", 2)):
         wms.db.session.add(wms.InventoryCheckItem(
             inventory_check_id=check.id, material_id=material.id, system_stock=100,
-            actual_stock=actual, difference=actual - 100, area=area))
+            actual_stock=actual, difference=actual - 100, area=area,
+            counted_at=datetime.now() if actual == 100 else None))
     wms.db.session.commit()
     warning = client.post(f"/check/{check.id}/complete", json={"force": True}).get_json()
     assert warning["status"] == "confirm" and warning["code"] == "check_risks", warning

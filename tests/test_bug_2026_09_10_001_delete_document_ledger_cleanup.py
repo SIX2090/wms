@@ -293,30 +293,30 @@ def _seed_adjustment(material, warehouse, user, adjustment_no):
     return adjustment.id
 
 
-def test_delete_adjustment_cleans_transactions(client):
+def test_delete_adjustment_retains_posted_document_and_transactions(client):
     with app_module.app.app_context():
         material, warehouse, user = _ids()
         adjustment_id = _seed_adjustment(material, warehouse, user, "ADJ-DEL-001")
 
     resp = client.post(f"/adjustment/{adjustment_id}/delete")
-    assert resp.get_json()["status"] == "success", resp.get_json()
+    assert resp.get_json()["status"] == "error", resp.get_json()
     with app_module.app.app_context():
-        assert db.session.get(AdjustmentOrder, adjustment_id) is None
+        assert db.session.get(AdjustmentOrder, adjustment_id) is not None
         assert StockTransaction.query.filter_by(
-            reference_type="adjustment", reference_id=adjustment_id).count() == 0
+            reference_type="adjustment", reference_id=adjustment_id).count() == 2
 
 
-def test_batch_delete_adjustment_cleans_transactions(client):
+def test_batch_delete_adjustment_retains_posted_document_and_transactions(client):
     with app_module.app.app_context():
         material, warehouse, user = _ids()
         adjustment_id = _seed_adjustment(material, warehouse, user, "ADJ-DEL-B001")
 
     resp = client.post("/adjustment/batch_delete", json={"ids": [adjustment_id]})
-    assert resp.get_json()["status"] == "success", resp.get_json()
+    assert resp.get_json()["status"] == "error", resp.get_json()
     with app_module.app.app_context():
-        assert db.session.get(AdjustmentOrder, adjustment_id) is None
+        assert db.session.get(AdjustmentOrder, adjustment_id) is not None
         assert StockTransaction.query.filter_by(
-            reference_type="adjustment", reference_id=adjustment_id).count() == 0
+            reference_type="adjustment", reference_id=adjustment_id).count() == 2
 
 
 # ---------------------------------------------------------------------------

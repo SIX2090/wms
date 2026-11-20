@@ -57,7 +57,8 @@ def stage_stock_document_snapshot(order, *, deleting, actor=None, operation=None
         'movements': [snapshot_audit_row(row) for row in movements.order_by(StockTransaction.id)],
     }
     if deleting:
-        stage_order_audit('delete_' + kind, order, old=snapshot, reason='草稿删除', actor=actor)
+        stage_order_audit(operation or 'delete_' + kind, order, old=snapshot, reason=reason or '草稿删除',
+                          actor=actor, target_name=name, target_type=kind)
     else:
         operation = operation or ('native_inbound' if kind == 'in_order' else 'native_outbound')
         stage_order_audit(operation, order, old=old, new=snapshot, reason=reason or '移动端完成',
