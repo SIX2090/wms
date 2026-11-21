@@ -45,7 +45,7 @@ def register_transfer_routes(app):
         per_page = request.args.get('per_page', default=20, type=int)
         if per_page not in (20, 50, 100, 200):
             per_page = 20
-        allowed_sorts = {'transfer_no', 'date', 'from_location', 'to_location', 'status', 'created_at'}
+        allowed_sorts = {'transfer_no', 'date', 'from_location', 'to_location', 'from_warehouse', 'to_warehouse', 'status', 'created_at'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
         query = TransferOrder.query.options(
@@ -58,6 +58,8 @@ def register_transfer_routes(app):
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
             conditions = [
                 TransferOrder.transfer_no.like(search_like),
+                TransferOrder.from_warehouse.like(search_like),
+                TransferOrder.to_warehouse.like(search_like),
                 TransferOrder.from_location.like(search_like),
                 TransferOrder.to_location.like(search_like),
                 TransferOrder.remark.like(search_like),
@@ -119,11 +121,12 @@ def register_transfer_routes(app):
         # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则）。
         # 优先读 from_warehouse/to_warehouse（新字段），未提供时回退 from_location/to_location
         # （历史兼容：旧前端把仓库名存到 from_location/to_location）。
-        from_warehouse = (header.get('from_warehouse') or from_location or '').strip()
-        to_warehouse = (header.get('to_warehouse') or to_location or '').strip()
+        bins_required = location_management_enabled()
+        from_warehouse = (header.get('from_warehouse', '' if bins_required else from_location) or '').strip()
+        to_warehouse = (header.get('to_warehouse', '' if bins_required else to_location) or '').strip()
 
         # 未开启库位管理时，from_location/to_location 与仓库相同；
-        # 开启库位管理时，from_location/to_location 作为库位字段（可为空，由前端控制）。
+        # 开启库位管理时，from_location/to_location 作为库位字段（两端均须填写）。
         if not from_warehouse:
             return api_error('请选择调出仓库')
         if not to_warehouse:
@@ -139,12 +142,12 @@ def register_transfer_routes(app):
         from_warehouse = from_wh_obj.name
         to_warehouse = to_wh_obj.name
         # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
-        if location_management_enabled():
+        if bins_required:
             if not from_location:
                 return api_error('库位管理已启用，请选择调出库位')
             if not to_location:
                 return api_error('库位管理已启用，请选择调入库位')
-        if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
+        if from_warehouse == to_warehouse and (not bins_required or not from_location or from_location == to_location):
             return api_error('调出仓库和调入仓库不能相同')
         if not items_data:
             return api_error('请至少填写一条调拨明细')
@@ -238,11 +241,12 @@ def register_transfer_routes(app):
             # BUG-2026-08-02-013：仓库必填（AGENTS.md 规则）。
             # 优先读 from_warehouse/to_warehouse（新字段），未提供时回退 from_location/to_location
             # （历史兼容：旧前端把仓库名存到 from_location/to_location）。
-            from_warehouse = (request.form.get('from_warehouse') or from_location or '').strip()
-            to_warehouse = (request.form.get('to_warehouse') or to_location or '').strip()
+            bins_required = location_management_enabled()
+            from_warehouse = (request.form.get('from_warehouse', '' if bins_required else from_location) or '').strip()
+            to_warehouse = (request.form.get('to_warehouse', '' if bins_required else to_location) or '').strip()
 
             # 未开启库位管理时，from_location/to_location 与仓库相同；
-            # 开启库位管理时，from_location/to_location 作为库位字段（可为空，由前端控制）。
+            # 开启库位管理时，from_location/to_location 作为库位字段（两端均须填写）。
             if not from_warehouse:
                 return api_error('请选择调出仓库')
             if not to_warehouse:
@@ -257,12 +261,12 @@ def register_transfer_routes(app):
             from_warehouse = from_wh_obj.name
             to_warehouse = to_wh_obj.name
             # P1-BUGFIX: 开启库位管理时 from_location/to_location 必填（AGENTS.md 规则二）
-            if location_management_enabled():
+            if bins_required:
                 if not from_location:
                     return api_error('库位管理已启用，请选择调出库位')
                 if not to_location:
                     return api_error('库位管理已启用，请选择调入库位')
-            if from_warehouse == to_warehouse and (not from_location or from_location == to_location):
+            if from_warehouse == to_warehouse and (not bins_required or not from_location or from_location == to_location):
                 return api_error('调出仓库和调入仓库不能相同')
 
             transfer_no = generate_order_no('TF')
@@ -503,6 +507,10 @@ def register_transfer_routes(app):
             if not transfer.items:
                 db.session.rollback()
                 return api_error('调拨单没有明细，无法完成')
+            if transfer.from_warehouse == transfer.to_warehouse and (
+                    not location_management_enabled() or transfer.from_location == transfer.to_location):
+                db.session.rollback()
+                return api_error('调出和调入仓库、库位不能相同')
             history_ok, history_error = _check_recorded_transfer_completion(transfer)
             if not history_ok:
                 db.session.rollback()
@@ -846,6 +854,8 @@ def register_transfer_routes(app):
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
             conditions = [
                 TransferOrder.transfer_no.like(search_like),
+                TransferOrder.from_warehouse.like(search_like),
+                TransferOrder.to_warehouse.like(search_like),
                 TransferOrder.from_location.like(search_like),
                 TransferOrder.to_location.like(search_like),
                 TransferOrder.remark.like(search_like),
@@ -868,8 +878,8 @@ def register_transfer_routes(app):
                     rows.append([
                         order.transfer_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
-                        order.from_location or '',
-                        order.to_location or '',
+                        order.from_warehouse or '',
+                        order.to_warehouse or '',
                         material.code if material else '',
                         material.name if material else '',
                         material.spec if material else '',
@@ -878,14 +888,14 @@ def register_transfer_routes(app):
                         item.price or 0,
                         item.amount or 0,
                         '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
-                        order.remark or '',
+                        order.remark or '', order.from_location or '', order.to_location or '',
                     ])
             else:
-                rows.append([order.transfer_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.from_location or '', order.to_location or '', '', '', '', '', 0, 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
+                rows.append([order.transfer_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.from_warehouse or '', order.to_warehouse or '', '', '', '', '', 0, 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or '', order.from_location or '', order.to_location or ''])
         return _workbook_response(
             'transfer_orders.xlsx',
             '库存调拨',
-            ['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注'],
+            ['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '状态', '备注', '调出库位', '调入库位'],
             rows,
         )
 
@@ -976,7 +986,7 @@ def register_transfer_routes(app):
                 to_location = _get_excel_cell(row, col_map, 'to_location')
                 if locations_required and (not from_location or not to_location):
                     return api_error(f'第{row_idx}行：库位管理已开启，请填写调出库位和调入库位')
-                if names[0] == names[1] and (not from_location or from_location == to_location):
+                if names[0] == names[1] and (not locations_required or not from_location or from_location == to_location):
                     return api_error(f'第{row_idx}行：调出和调入仓库、库位不能相同')
                 place = (*names, from_location or names[0], to_location or names[1])
                 if explicit_no and explicit_no in order_places and order_places[explicit_no] != place:
@@ -1132,20 +1142,20 @@ def register_transfer_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '调拨单'
-        ws.append(['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '备注'])
+        ws.append(['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '调出库位', '调入库位'])
         if order.items:
             for item in order.items:
                 ws.append([
                     order.transfer_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
-                    order.from_location or '',
-                    order.to_location or '',
+                    order.from_warehouse or '',
+                    order.to_warehouse or '',
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    order.remark or ''
+                    order.remark or '', order.from_location or '', order.to_location or ''
                 ])
         output = io.BytesIO()
         wb.save(output)

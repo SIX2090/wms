@@ -53,7 +53,7 @@ class Select {
  dispatchEvent(event){this.events.push(event);if(this.handlers[event.type])this.handlers[event.type](event);}
 }
 const first=new Select(byName?'仓库A':'1'),second=new Select('仓库B'),location={value:'原库位'};
-const fields={warehouse_id:first,department_id:first,from_location:first,to_location:second,location};
+const fields={warehouse_id:first,department_id:first,from_warehouse:first,to_warehouse:second,location};
 const document={querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:fields[(s.match(/name="([^"]+)"/)||[])[1]]||null};
 const ctx={document,FormData,Headers,WeakMap,Event:class{constructor(type,options){this.type=type;this.bubbles=!!options?.bubbles;}},readonly:false,docType:p.kind,
  notifyMaterialRefresh:(m,t,s)=>{if(!s)messages.push({m,t});},showToast:(m,t)=>messages.push({m,t}),

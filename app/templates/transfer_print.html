@@ -55,8 +55,10 @@
     <div class="meta">
         <div><span class="label">单据编号：</span>{{ transfer.transfer_no }}</div>
         <div><span class="label">日期：</span>{{ transfer.date }}</div>
-        <div><span class="label">调出仓库：</span>{{ transfer.from_location }}</div>
-        <div><span class="label">调入仓库：</span>{{ transfer.to_location }}</div>
+        <div><span class="label">调出仓库：</span>{{ transfer.from_warehouse }}</div>
+        {% if transfer.from_location and transfer.from_location != transfer.from_warehouse %}<div><span class="label">调出库位：</span>{{ transfer.from_location }}</div>{% endif %}
+        <div><span class="label">调入仓库：</span>{{ transfer.to_warehouse }}</div>
+        {% if transfer.to_location and transfer.to_location != transfer.to_warehouse %}<div><span class="label">调入库位：</span>{{ transfer.to_location }}</div>{% endif %}
         <div><span class="label">状态：</span>{{ '草稿' if transfer.status == 'pending' else ('已完成' if transfer.status == 'completed' else transfer.status) }}</div>
         <div><span class="label">操作人：</span>{{ transfer.operator.username if transfer.operator else '-' }}</div>
         <div><span class="label">创建时间：</span>{{ transfer.created_at.strftime('%Y-%m-%d %H:%M') if transfer.created_at else '-' }}</div>

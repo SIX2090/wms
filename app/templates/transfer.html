@@ -77,8 +77,8 @@
                     </th>
                     <th data-sortable="transfer_no" class="sortable-header">调拨单号 {% if sort_by=='transfer_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="from_location" class="sortable-header">调出仓库 {% if sort_by=='from_location' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    <th data-sortable="to_location" class="sortable-header">调入仓库 {% if sort_by=='to_location' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="from_warehouse" class="sortable-header">调出仓库 {% if sort_by=='from_warehouse' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-sortable="to_warehouse" class="sortable-header">调入仓库 {% if sort_by=='to_warehouse' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th>备注</th>
                     <th>操作人</th>
                     <th data-sortable="status" class="sortable-header">状态 {% if sort_by=='status' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -91,8 +91,8 @@
                     <td><input type="checkbox" class="itemCheck check-item" value="{{ transfer.id }}"></td>
                     <td><a href="{{ url_for('transfer_detail', id=transfer.id) }}" target="_blank" rel="noopener">{{ transfer.transfer_no }}</a></td>
                     <td>{{ transfer.date }}</td>
-                    <td>{{ transfer.from_location or '-' }}</td>
-                    <td>{{ transfer.to_location or '-' }}</td>
+                    <td>{{ transfer.from_warehouse or '-' }}{% if transfer.from_location and transfer.from_location != transfer.from_warehouse %}<small class="d-block text-muted">库位 {{ transfer.from_location }}</small>{% endif %}</td>
+                    <td>{{ transfer.to_warehouse or '-' }}{% if transfer.to_location and transfer.to_location != transfer.to_warehouse %}<small class="d-block text-muted">库位 {{ transfer.to_location }}</small>{% endif %}</td>
                     <td>{{ transfer.remark or '' }}</td>
                     <td>{{ transfer.operator.username if transfer.operator else '-' }}</td>
                     <td>

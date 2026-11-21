@@ -48,14 +48,14 @@
     }
 
     function warehouseFromForm() {
-        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_location"]');
+        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_warehouse"], select[name="from_location"]');
         if (!field || !field.value) return '';
         var option = field.selectedOptions && field.selectedOptions[0];
         return option ? option.textContent.trim() : field.value;
     }
 
     function bindWarehouse(target) {
-        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_location"]');
+        var field = document.querySelector('[name="warehouse_id"], [name="warehouse"], [name="from_warehouse"], select[name="from_location"]');
         if (!field || !field.addEventListener || field.dataset && field.dataset.stockScopeBound) return;
         if (field.dataset) field.dataset.stockScopeBound = 'true';
         field.addEventListener('change', async function() {

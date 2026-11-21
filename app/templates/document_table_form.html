@@ -113,25 +113,39 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">调出仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="from_location" {% if readonly %}disabled{% endif %} required>
+                        <select class="form-select" name="from_warehouse" {% if readonly %}disabled{% endif %} required>
                             <option value="">请选择调出仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if header.from_location == warehouse.name or (not header.from_location and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.name }}" {% if header.from_warehouse == warehouse.name or (not order_id and not header.from_warehouse and default_warehouse and default_warehouse.name == warehouse.name) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
+                            {% if header.from_warehouse and header.from_warehouse not in warehouses|map(attribute='name')|list %}
+                            <option selected value="{{ header.from_warehouse }}">{{ header.from_warehouse }}</option>
+                            {% endif %}
                         </select>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">调入仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="to_location" {% if readonly %}disabled{% endif %} required>
+                        <select class="form-select" name="to_warehouse" {% if readonly %}disabled{% endif %} required>
                             <option value="">请选择调入仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.name }}" {% if header.to_location == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.name }}" {% if header.to_warehouse == warehouse.name %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
+                            {% if header.to_warehouse and header.to_warehouse not in warehouses|map(attribute='name')|list %}
+                            <option selected value="{{ header.to_warehouse }}">{{ header.to_warehouse }}</option>
+                            {% endif %}
                         </select>
                     </div>
                 </div>
+                {% if location_management_enabled %}
+                {% for key, label in [('from_location', '调出库位'), ('to_location', '调入库位')] %}
+                <div class="col-md-3 mb-2">
+                    <label class="form-label" for="transfer-{{ key }}">{{ label }} <span class="text-danger">*</span></label>
+                    <input id="transfer-{{ key }}" class="form-control" name="{{ key }}" maxlength="100" value="{{ header[key] or '' }}" required {% if readonly %}readonly{% endif %}>
+                </div>
+                {% endfor %}
+                {% endif %}
                 {% elif doc_type == 'bom' %}
                 <div class="col-md-3">
                     <div class="mb-2">
@@ -860,7 +874,8 @@ function collectItems() {
 }
 function collectHeader() {
     const get = name => document.querySelector('[name="' + name + '"]')?.value || '';
-    if (docType === 'transfer') return {from_location:get('from_location'), to_location:get('to_location'), remark:get('remark')};
+    if (docType === 'transfer') return {from_warehouse:get('from_warehouse'), to_warehouse:get('to_warehouse'),
+        from_location:get('from_location'), to_location:get('to_location'), remark:get('remark')};
     if (docType === 'bom') return {product_code:get('product_code'), product_name:get('product_name'), version:get('version'), status:get('status'), remark:get('remark')};
     // BUG-2026-08-05-008：工单领料单表头带仓库字段
     // P1-6（2026-09-25）：warehouse → warehouse_id，后端按 ID 优先解析
@@ -1205,9 +1220,9 @@ function refreshWarehouses() {
     // Transfer uses warehouse names; check/requisition use IDs. Keep both contracts.
     if (readonly || !['transfer', 'check', 'requisition'].includes(docType)) return;
     const targets = docType === 'transfer'
-        ? ['from_location', 'to_location'].map(function(name) {
+        ? ['from_warehouse', 'to_warehouse'].map(function(name) {
             return {select: document.querySelector('[name="' + name + '"]'), valueKey: 'name',
-                placeholder: name === 'from_location' ? '请选择调出仓库' : '请选择调入仓库'};
+                placeholder: name === 'from_warehouse' ? '请选择调出仓库' : '请选择调入仓库'};
         })
         : [{select: document.querySelector('[name="warehouse_id"]'), placeholder: '请选择仓库'}];
     return WMS.selectOptions.refresh({url: '/warehouse/api/list', itemsKey: 'warehouses', targets: targets})
