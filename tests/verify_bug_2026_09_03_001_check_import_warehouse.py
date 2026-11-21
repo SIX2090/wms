@@ -11,16 +11,15 @@
    导入单据以行值为准；同一单据内多行仓库必须一致，否则跳行并提示。
 2. Excel 未提供仓库列时自动带入系统默认仓库；无默认仓库则跳行并提示
    （整文件可被跳过，导入结果返回 warnings）。
-3. 明细未提供"系统库存"列/单元格时，账面取该单据仓库的仓库级库存
-   （get_warehouse_stock_quantities），不再用全局 Material.stock；
-   Excel 显式提供账面值时以文件为准。
+3. 账面取该单据创建时冻结的仓库库存（get_warehouse_stock_quantities）。
+   Excel 账面仅供核对，和仓库账面不一致时返回提示。
 
 覆盖：
 T1. 带仓库列导入 → 单 warehouse=A仓、账面取 A 仓库存 10、差异 −2，
     且 complete_check 可正常完结（生成调整草稿）
 T2. 无仓库列 + 有默认仓库 → 自动带入默认仓库，完结成功
 T3. 无仓库列 + 无默认仓库 → 单据被跳过，warnings 提示缺仓库
-T4. Excel 显式给系统库存 999 → 以文件为准（不覆盖为仓库级）
+T4. Excel 账面 999、实盘 12、仓库账面 10 → 差异为盘盈 2
 T5. 同一单据内仓库不一致 → 冲突行跳过并提示，其余行正常
 T6. 仓库列写编码（WA）→ 解析为仓库名 A仓
 """
@@ -213,20 +212,32 @@ def test_t3_no_warehouse_and_no_default_rejected_with_warning():
     assert "仓库" in (body.get("warnings") or ""), body
 
 
-def test_t4_explicit_book_stock_wins():
-    """T4：Excel 显式填写系统库存时以文件为准，不做仓库级覆盖。"""
+@pytest.mark.parametrize("file_stock", [0, 999])
+def test_t4_explicit_book_stock_cannot_override_warehouse(file_stock):
     _scene()
     client = app_module.app.test_client()
     _login_web(client)
-    rows = [['CK26090304', '2026-09-03', 'A仓', 'M001', '', '', '', 999, 8, '']]
+    rows = [['CK26090304', '2026-09-03', 'A仓', 'M001', '', '', '', file_stock, 12, '']]
     r = _post_import(client, _xlsx(rows))
-    assert r.get_json()["status"] == "success", r.get_json()
+    body = r.get_json()
+    assert body["status"] == "success", body
+    assert "第2行：A仓的物料 M001 使用仓库账面 10.00" in body["warnings"]
+    assert f"Excel 填写 {file_stock}" in body["warnings"]
 
-    from app import InventoryCheckItem
+    from app import AdjustmentOrder, InventoryCheck, InventoryCheckItem
     with app_module.app.app_context():
-        item = InventoryCheckItem.query.first()
-        assert item.system_stock == 999, "显式账面值必须保留（文件优先）"
-        assert item.difference == 8 - 999
+        check = InventoryCheck.query.filter_by(check_no="CK26090304").one()
+        item = InventoryCheckItem.query.filter_by(inventory_check_id=check.id).one()
+        assert check.frozen_at is not None
+        assert item.system_stock == 10
+        assert item.difference == 2
+        check_id = check.id
+    complete = client.post(f"/check/{check_id}/complete")
+    assert complete.get_json()["status"] == "success", complete.get_json()
+    with app_module.app.app_context():
+        draft = AdjustmentOrder.query.filter_by(source_type="check", source_id=check_id).one()
+        assert draft.adjustment_type == "surplus"
+        assert [line.quantity for line in draft.items] == [2]
 
 
 def test_t5_conflicting_warehouse_rows_skipped():

@@ -1304,7 +1304,7 @@ def register_check_routes(app):
                          _order_no_from_row, _parse_excel_date, _read_import_sheet,
                          api_error, get_default_warehouse,
                          get_warehouse_stock_quantities, normalize_stock_quantity,
-                         location_management_enabled, round_to_2_decimals, validate_excel_extension,
+                         location_management_enabled, parse_float_value, round_to_2_decimals, validate_excel_extension,
                          validate_excel_size, validate_inventory_warehouse)
         file = request.files.get('file')
         if not file:
@@ -1392,6 +1392,7 @@ def register_check_routes(app):
                     checks_by_no[order_no] = check
                     order_count += 1
                     _wh_obj, _wh_err = validate_inventory_warehouse(warehouse)
+                    check.frozen_at = datetime.now()
                     checks_wh_stock[order_no] = get_warehouse_stock_quantities(_wh_obj) if _wh_obj else {}
                 elif row_warehouse_name and row_warehouse_name != check.warehouse:
                     # 同一盘点单内多行必须归属同一仓库，避免一单多仓串账
@@ -1405,10 +1406,7 @@ def register_check_routes(app):
                     _get_excel_cell(row, col_map, 'unit'),
                     warnings=warnings,
                 )
-                # BUG-2026-09-03-001：账面缺省取该单据仓库的仓库级库存（此前用全局
-                # Material.stock，多仓库下会算错差异）；Excel 显式填写账面时以文件为准。
-                book_stock = normalize_stock_quantity((checks_wh_stock.get(order_no) or {}).get(material.id) or 0)
-                system_stock = _get_excel_number(row, col_map, 'system_stock', book_stock)
+                system_stock = normalize_stock_quantity(checks_wh_stock[order_no].get(material.id, 0))
                 actual_stock = _get_excel_number(row, col_map, 'actual_stock', system_stock)
                 area = (_get_excel_cell(row, col_map, 'area') or '').strip()
                 if location_management_enabled() and not area:
@@ -1421,6 +1419,12 @@ def register_check_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料 {material.code} 与区域 {area or "未分区"} 重复')
                     continue
+                file_stock = _get_excel_cell(row, col_map, 'system_stock')
+                if file_stock and parse_float_value(file_stock, None) != system_stock:
+                    warnings.append(
+                        f'第{row_idx}行：{check.warehouse}的物料 {material.code} '
+                        f'使用仓库账面 {system_stock:.2f}（Excel 填写 {file_stock[:40]}）'
+                    )
                 entered_actual = bool(_get_excel_cell(row, col_map, 'actual_stock'))
                 db.session.add(InventoryCheckItem(
                     inventory_check_id=check.id,

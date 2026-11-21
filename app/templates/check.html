@@ -443,6 +443,11 @@ async function submitDocumentImport(formId, fileId) {
         .then(res => {
             if (res.status === 'success') {
                 refreshing = true;
+                if (res.warnings) {
+                    return showConfirm(`${res.msg || '导入成功'}\n${res.warnings}`, {
+                        title: '盘点导入结果', okText: '知道了', cancelText: '关闭'
+                    }).then(() => location.reload());
+                }
                 showToast(res.msg || '导入成功', 'success', 3600);
                 setTimeout(function(){ location.reload(); }, 900);
             } else {
