@@ -222,7 +222,8 @@ def _resolve_path(obj, parts):
 class _Filler:
     """对单个工作表执行占位符填充与明细行扩展。"""
 
-    def __init__(self, order, items, date_str, *, order_fields=None, item_fields=None):
+    def __init__(self, order, items, date_str, *, order_fields=None, item_fields=None, total_quantity=None):
+        self.total_quantity = total_quantity
         self.order_fields = order_fields if order_fields is not None else (
             order.fields if isinstance(order, _PrintFields) else _field_paths('order'))
         self.item_fields = item_fields if item_fields is not None else _field_paths('item')
@@ -238,6 +239,8 @@ class _Filler:
         if _IMG_PLACEHOLDER_RE.match(token):
             return _KEEP  # 图片占位符由 _embed 阶段单独处理
         if token == 'total_quantity':
+            if self.total_quantity is not None:
+                return self.total_quantity
             return _fmt(sum(_num(_resolve_path(i, ['quantity'])) for i in self.items))
         if token == 'total_amount':
             return _fmt(_resolve_path(self.order, ['total_amount']))

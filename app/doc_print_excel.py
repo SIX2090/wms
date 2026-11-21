@@ -897,25 +897,93 @@ def generate_report_builtin_template(title, columns):
     return output
 
 
+def _report_print_quantity(rows):
+    """明细模板的数量合计沿用报表行的单位，单单位仍是 Excel 数值。"""
+    from decimal import Decimal
+    totals = {}
+    for row in rows:
+        unit = row.get('unit') or '未设单位'
+        totals[unit] = totals.get(unit, Decimal(0)) + Decimal(str(row.get('quantity') or 0))
+    if len(totals) <= 1:
+        return float(next(iter(totals.values()), 0))
+    return ' / '.join(f'{format(totals[u].normalize(), "f")} {u}' for u in sorted(totals))
+
+
+def _dynamic_report_template(report_type, template):
+    target = report_target_code(report_type)
+    if report_type in ('in_detail', 'out_detail'):
+        prefix = f'/static/uploads/print_templates/builtin_{target}_'
+        return template.excel_template_path in {prefix + suffix + '.xlsx' for suffix in
+                                                ('default', 'detail_v2_price', 'detail_v2_quantity')}
+    return _legacy_receipt_price_template(target, template)
+
+
+def resolve_report_print_layout(report_type, raw_id, static_folder):
+    from pathlib import Path
+    from app import ExcelPrintTemplate
+    from print_fill import template_file_abspath
+    query = ExcelPrintTemplate.query.filter_by(
+        target_type='report', target_code=report_target_code(report_type),
+        template_type='excel')
+    raw_id = (raw_id or '').strip()
+    template = None
+    template_path = None
+    if raw_id:
+        if not raw_id.isdecimal() or len(raw_id) > 18 or int(raw_id) <= 0:
+            raise ValueError('所选打印模板无效，请重新选择')
+        template = query.filter_by(id=int(raw_id)).first()
+        if template is None:
+            raise ValueError('所选模板不存在或不属于当前报表，请重新选择')
+    else:
+        # Do not let a stale default prevent the in-memory built-in template.
+        template = query.filter_by(is_default=True).first()
+    if template is not None and not _dynamic_report_template(report_type, template):
+        candidate = template_file_abspath(template.excel_template_path, static_folder)
+        root = Path(static_folder).resolve()
+        candidate = Path(candidate).resolve() if candidate else None
+        if candidate and candidate.is_relative_to(root) and candidate.is_file():
+            template_path = candidate
+        elif raw_id:
+            raise ValueError('所选打印模板文件不存在或不可用，请修复或重新选择模板')
+        else:
+            template = None
+    return template, str(template_path) if template_path else None
+
+
 def _report_builtin_abspath(static_folder, report_type, title, columns):
     """报表动态内置模板文件绝对路径；不存在则按 columns 生成（幂等）。"""
     if not static_folder:
         return None
     abs_dir = os.path.join(static_folder, 'uploads', 'print_templates')
     os.makedirs(abs_dir, exist_ok=True)
-    path = os.path.join(abs_dir, _builtin_filename(report_target_code(report_type)))
+    target = report_target_code(report_type)
+    filename = _builtin_filename(target)
+    if report_type in ('in_detail', 'out_detail'):
+        variant = 'price' if any(col['field'] == 'price' for col in columns) else 'quantity'
+        filename = f'builtin_{target}_detail_v2_{variant}.xlsx'
+    path = os.path.join(abs_dir, filename)
     if not os.path.exists(path):
         content = generate_report_builtin_template(title, columns)
         if content is None:
             return None
-        with open(path, 'wb') as f:
-            f.write(content.read())
+        import tempfile
+        with tempfile.NamedTemporaryFile(dir=abs_dir, suffix='.xlsx', delete=False) as pending:
+            temp_path = pending.name
+        try:
+            with open(temp_path, 'wb') as output:
+                output.write(content.getbuffer())
+            # 同一版式的并发首次打印只发布完整工作簿。
+            if not os.path.exists(path):
+                os.replace(temp_path, path)
+        finally:
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
     return path
 
 
 def render_report_excel_print(report_type, title, columns, rows,
                               template_id=None, static_folder=None,
-                              date_str=None):
+                              date_str=None, resolved_layout=None):
     """按模板填充报表 Excel（target_code=report_<报表类型>）。
 
     rows: dict 行列表（键与 columns 的 field 对齐；引擎支持 dict 取值）。
@@ -928,13 +996,16 @@ def render_report_excel_print(report_type, title, columns, rows,
     from print_display import _field_paths
     item_fields = _field_paths('item', columns=[column['field'] for column in columns or []])
     target_code = report_target_code(report_type)
-    template = resolve_excel_template('report', target_code, template_id)
-    path = None
-    if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
-        candidate = template_file_abspath(template.excel_template_path,
-                                          static_folder)
-        if candidate and os.path.exists(candidate):
-            path = candidate
+    if resolved_layout is not None:
+        _, path = resolved_layout
+    else:
+        template = resolve_excel_template('report', target_code, template_id)
+        path = None
+        if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
+            candidate = template_file_abspath(template.excel_template_path,
+                                              static_folder)
+            if candidate and os.path.exists(candidate):
+                path = candidate
     if path is None:
         path = _report_builtin_abspath(static_folder, report_type, title,
                                        columns)
@@ -942,11 +1013,14 @@ def render_report_excel_print(report_type, title, columns, rows,
         return None
     order = SimpleNamespace(
         title=title or '报表', operator=SimpleNamespace(username=''),
-        total_amount=0)
+        total_amount=sum(float(row.get('amount') or 0) for row in rows)
+        if any(col['field'] == 'amount' for col in columns) else '')
     wb = load_workbook(path)
+    total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail') else None
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),
-                date_str or datetime.now().strftime('%Y-%m-%d'), item_fields=item_fields).fill(ws)
+                date_str or datetime.now().strftime('%Y-%m-%d'), item_fields=item_fields,
+                total_quantity=total_qty).fill(ws)
         from services.excel_print_layout import fit_print_rows
         fit_print_rows(ws)
     output = io.BytesIO()

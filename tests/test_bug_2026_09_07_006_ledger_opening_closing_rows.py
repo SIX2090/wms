@@ -120,8 +120,8 @@ class TestBug20260907006:
             assert all(r['reference_type'] != '期初结存' for r in rows)
             last = rows[-1]
             assert last['reference_type'] == '本期合计'
-            assert last['opening_quantity'] == 0
-            assert last['in_quantity'] == 160
+            assert last['opening_quantity'] == 100
+            assert last['in_quantity'] == 60
             assert last['out_quantity'] == 30
             assert last['balance_quantity'] == 130
 
@@ -136,11 +136,13 @@ class TestBug20260907006:
     def test_T4_multi_material_marker_rows_grouped(self):
         """多物料：M001/M002 各有期初行与合计行，且位置在各自组内最前/最后。"""
         with app_module.app.app_context():
-            rows, _ = self._ledger(
-                material_code='M00',  # 模糊命中 M001 与 M002
-                start_date=date(2026, 9, 1), end_date=date(2026, 9, 30))
-            m1_rows = [r for r in rows if r['material_id'] == self.m1]
-            m2_rows = [r for r in rows if r['material_id'] == self.m2]
+            dates = dict(start_date=date(2026, 9, 1), end_date=date(2026, 9, 30))
+            prefix_rows, _ = self._ledger(material_code='M00', **dates)
+            assert prefix_rows == []
+            m1_rows, _ = self._ledger(material_code='M001', **dates)
+            m2_rows, _ = self._ledger(material_code='M002', **dates)
+            assert {r['material_id'] for r in m1_rows} == {self.m1}
+            assert {r['material_id'] for r in m2_rows} == {self.m2}
             assert m1_rows and m2_rows, "两个物料都应有行"
             assert m1_rows[0]['reference_type'] == '期初结存'
             assert m1_rows[-1]['reference_type'] == '本期合计'

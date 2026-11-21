@@ -162,7 +162,7 @@
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
                 {# 统一走全局 quick-select（data-ks）：键盘导航 + 拼音/首字母匹配，大数据量远程搜索 #}
-                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="编码 / 名称 / 规格 / 拼音"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code">
+                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code">
                 {% if report_type == 'ledger' %}<div class="form-text">库存台账需按单一物料查询，请先选择物料。</div>{% endif %}
             </div>
             {% endif %}
@@ -186,9 +186,15 @@
             <div class="col-md-3">
                 <label for="status" class="form-label">状态</label>
                 <select id="status" name="status" class="form-select">
+                    {% if report_type in ('in_detail', 'out_detail') %}
+                    <option value="completed" selected>已完成</option>
+                    <option value="pending">待处理</option>
+                    <option value="all">全部（含草稿）</option>
+                    {% else %}
                     <option value="">全部</option>
                     <option value="pending">待处理</option>
                     <option value="completed">已完成</option>
+                    {% endif %}
                     {# BUG-2026-09-23-002：采购订单执行统计表的单据状态还有 partial/closed，
                        后端筛选本就支持（PurchaseOrder.status == filters['status']），
                        补齐选项才能按「部分入库/已关闭」过滤；仅该报表追加，避免污染入出库/盘点报表 #}
@@ -322,7 +328,7 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if report_type in ('material_movement', 'warehouse_monthly') %}
+{% if report_type in ('material_movement', 'warehouse_monthly', 'in_detail', 'out_detail') %}
 <script src="{{ url_for('static', filename='js/material-movement-report.js') }}?v={{ STATIC_VERSION }}"></script>
 {% endif %}
 {% if report_type == 'warehouse_monthly' %}
@@ -388,6 +394,7 @@ pageSizeSelect.addEventListener('change', () => {
 });
 
 exportBtn.addEventListener('click', () => {
+    if (!validReportDates()) { loadData(); return; }
     if (!filterForm.reportValidity()) return;
     const params = buildParams(true);
     window.open(`/report/api/${encodeURIComponent(reportType)}?${params.toString()}`, '_blank');
@@ -452,6 +459,7 @@ async function loadPrintTemplates() {
 }
 
 function openReportTemplateOutput(mode) {
+    if (!validReportDates()) { loadData(); return; }
     if (!printTemplatesReady || !['preview', 'download'].includes(mode)) return;
     const status = document.getElementById('reportPrintStatus');
     const warehouse = filterForm.querySelector('#warehouse_id');
@@ -500,6 +508,7 @@ loadPrintTemplates();
 const MAX_PRINT_ROWS = 10000;
 
 printBtn.addEventListener('click', async () => {
+    if (!validReportDates()) { loadData(); return; }
     const warehouseSel = filterForm.querySelector('#warehouse_id');
     if (warehouseSel && !warehouseSel.value) {
         renderTruncation(null);
@@ -582,7 +591,7 @@ function renderPrintArea(columns, rows, truncated, printContext) {
     const metaParts = printContext.metaParts;
     const summaryText = Object.keys(printContext.summaryLabels).map(key => {
         const label = printContext.summaryLabels[key] || key;
-        const value = Array.isArray(printContext.summary.unit_totals) && key !== 'count'
+        const value = Array.isArray(printContext.summary.unit_totals) && (key === 'quantity' || (key !== 'count' && !['in_detail', 'out_detail'].includes(reportType)))
             ? window.WMSMaterialMovement.formatUnitTotal(printContext.summary, key)
             : formatValue(printContext.summary[key] || 0, printContext.summaryTypes[key]);
         return `${label} ${value}`;
@@ -662,7 +671,7 @@ function formatValue(value, type) {
         return `¥${Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     if (type === 'number') {
-        return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
+        return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 4 });
     }
     return String(value);
 }
@@ -695,7 +704,9 @@ function renderSummary(summary) {
         return;
     }
     document.getElementById('summaryCount').textContent = formatValue(summary.count || 0, summaryTypes.count);
-    document.getElementById('summaryQuantity').textContent = formatValue(summary.quantity || 0, summaryTypes.quantity);
+    document.getElementById('summaryQuantity').textContent = Array.isArray(summary.unit_totals)
+        ? window.WMSMaterialMovement.formatUnitTotal(summary, 'quantity')
+        : formatValue(summary.quantity || 0, summaryTypes.quantity);
     document.getElementById('summaryAmount').textContent = formatValue(summary.amount || 0, summaryTypes.amount);
 }
 
@@ -906,14 +917,28 @@ function reportErrorMessage(error, fallback) {
     return message || fallback;
 }
 
-async function loadData() {
-    const requestId = ++reportRequestId;
-    updateReportFilterSummary();
+function validReportDates() {
     const startDate = filterForm.querySelector('#start_date');
     const endDate = filterForm.querySelector('#end_date');
     const invalidRange = !!(startDate && endDate && startDate.value && endDate.value && startDate.value > endDate.value);
-    document.getElementById('dateRangeError').hidden = !invalidRange;
-    if (invalidRange) {
+    const alert = document.getElementById('dateRangeError');
+    if (alert) alert.hidden = !invalidRange;
+    return !invalidRange;
+}
+
+function clearInvalidReport() {
+    tableHeaderRow.innerHTML = '<th>提示</th>';
+    tableBody.innerHTML = '<tr><td>请调整日期范围后重新查询</td></tr>';
+    renderSummary(null);
+    renderPagination(0);
+    renderTruncation(null);
+}
+
+async function loadData() {
+    const requestId = ++reportRequestId;
+    updateReportFilterSummary();
+    if (!validReportDates()) {
+        clearInvalidReport();
         setLoading(false);
         return;
     }

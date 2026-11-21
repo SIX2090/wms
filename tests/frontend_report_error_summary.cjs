@@ -6,7 +6,7 @@ src='async '+src;
 const nodes={summaryCount:{textContent:''},summaryQuantity:{textContent:''},summaryAmount:{textContent:''},dateRangeError:{hidden:true}};
 const fields={start_date:{value:''},end_date:{value:''},warehouse_id:{value:'1'}};
 const ctx={console,URLSearchParams,reportType:'inventory',reportRequestId:0,summaryTypes:{},document:{getElementById:id=>nodes[id]},filterForm:{querySelector:selector=>fields[selector.slice(1)]},tableBody:{innerHTML:''},tableHeaderRow:{innerHTML:''},paginationNav:{innerHTML:''},pageTotal:{textContent:''},updateReportFilterSummary(){},syncReportFilterUrl(){},setLoading(){},buildParams(){return new URLSearchParams()},renderTable(){},renderPagination(n){ctx.pageTotal.textContent=String(n)},renderTruncation(){},escapeHtml:s=>s,fetch:async()=>({ok:true,json:async()=>({status:'success',summary:{count:2,quantity:100,amount:200},total:2})})};
-vm.createContext(ctx);vm.runInContext((template.includes('function reportErrorMessage(') ? extract('reportErrorMessage')+'\n' : '')+extract('formatValue')+'\n'+extract('renderSummary')+'\n'+src,ctx);
+vm.createContext(ctx);vm.runInContext((template.includes('function reportErrorMessage(') ? extract('reportErrorMessage')+'\n' : '')+extract('validReportDates')+'\n'+extract('formatValue')+'\n'+extract('renderSummary')+'\n'+src,ctx);
 (async()=>{
  await vm.runInContext('loadData()',ctx);
  const before={count:nodes.summaryCount.textContent,quantity:nodes.summaryQuantity.textContent,amount:nodes.summaryAmount.textContent};

@@ -225,6 +225,15 @@ def register_report_routes(app):
         if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
             flash('价格维度未启用，采购价格分析已下线；如需启用请把系统设置 price_dimension_enabled 设为 1。', 'warning')
             return redirect(url_for('report_dashboard'))
+        if report_type == 'ledger' and request.args.get('material_id', type=int) and not request.args.get('material_code'):
+            from app import Material
+            mid = request.args.get('material_id', type=int)
+            material = db.session.get(Material, mid) if 0 < mid <= 2**63 - 1 else None
+            if material:
+                params = request.args.to_dict()
+                params['material_code'] = material.code
+                params.pop('report_type', None)
+                return redirect(url_for('report_view', report_type=report_type, **params))
         suppliers = Supplier.query.all()
         reconciliation = None
         from flask_login import current_user
@@ -250,7 +259,7 @@ def register_report_routes(app):
     @app.route('/report/api/<report_type>')
     @login_required
     def report_api_query(report_type=None):
-        from app import (_build_report_excel_download, _build_report_filters,
+        from app import (ReportFilterError, _build_report_excel_download, _build_report_filters,
                          _build_report_payload, _get_report_definition, api_error)
         report_type = report_type or (request.args.get('report_type') or '').strip()
         definition = _get_report_definition(report_type)
@@ -261,7 +270,7 @@ def register_report_routes(app):
             return jsonify({'status': 'error', 'msg': '价格维度未启用，采购价格分析已下线'}), 400
 
         try:
-            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'))
+            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'), report_type=report_type)
             # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
@@ -273,6 +282,8 @@ def register_report_routes(app):
                 # 仍截断并在文件内提示（019 引入，随迁移保留）。
                 return _build_report_excel_download(report_type, filters)
             payload = _build_report_payload(report_type, filters)
+        except ReportFilterError as exc:
+            return api_error(str(exc), 400)
         except ValueError as exc:
             # BUG-2026-08-16-019：业务异常详细记录，不把内部细节返回客户端
             app.logger.error(f'report_api_query ValueError({report_type}): {exc}', exc_info=True)
@@ -312,14 +323,14 @@ def register_report_routes(app):
           excel_print_template（幂等），之后可在模板中心在线编辑/设默认；
         - 无用户模板时 render_report_excel_print 回退动态内置模板。
         """
-        from app import (_build_report_filters, _collect_report_export_rows,
-                         _get_report_definition, api_error)
-        from doc_print_excel import render_report_excel_print, report_target_code
+        from app import (ReportFilterError, _build_report_filters, _collect_report_export_rows,
+                         _get_report_definition, _serialize_excel_value, api_error, price_dimension_enabled)
+        from doc_print_excel import render_report_excel_print, resolve_report_print_layout
         definition = _get_report_definition(report_type)
         if definition is None:
             return api_error('Unsupported report type', 400)
         try:
-            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'))
+            filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'), report_type=report_type)
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
             if not filters.get('warehouse_id'):
                 return api_error('请选择仓库', 400)
@@ -331,17 +342,27 @@ def register_report_routes(app):
             # 与页面分页彻底无关。
             columns, all_rows, truncated, _ = \
                 _collect_report_export_rows(report_type, filters)
+        except ReportFilterError as exc:
+            return api_error(str(exc), 400)
         except ValueError as exc:
             app.logger.error(f'report_print_excel ValueError({report_type}): {exc}',
                              exc_info=True)
             return api_error('报表数据生成失败，请检查查询条件', 400)
         if truncated:
             return api_error('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据', 400)
+        if report_type in ('in_detail', 'out_detail'):
+            from services.report_print_preview import visible_report_data
+            columns, all_rows = visible_report_data(columns, all_rows, price_dimension_enabled())
+            all_rows = [dict(row, status=_serialize_excel_value({'field': 'status', 'type': 'status'}, row))
+                        for row in all_rows]
+        try:
+            layout = resolve_report_print_layout(report_type, request.args.get('template_id'), app.static_folder)
+        except ValueError as exc:
+            return api_error(str(exc), 400)
         result = render_report_excel_print(
             report_type, definition['title'], columns,
             all_rows,
-            template_id=request.args.get('template_id', type=int),
-            static_folder=app.static_folder)
+            resolved_layout=layout, static_folder=app.static_folder)
         if result is None:
             return api_error('报表模板生成失败', 500)
         output, filename, template_path = result
@@ -355,12 +376,10 @@ def register_report_routes(app):
     @login_required
     def report_print_preview(report_type):
         """Preview current full report data using the selected Excel template, without writes."""
-        from pathlib import Path
         from app import (_build_report_filters, _collect_report_export_rows,
-                         _get_report_definition, _serialize_excel_value, ExcelPrintTemplate, Warehouse,
+                         _get_report_definition, _serialize_excel_value, Warehouse,
                          price_dimension_enabled)
-        from doc_print_excel import _legacy_receipt_price_template, report_target_code
-        from print_fill import template_file_abspath
+        from doc_print_excel import resolve_report_print_layout
         from services.report_print_preview import build_report_print_preview
 
         definition = _get_report_definition(report_type)
@@ -372,38 +391,14 @@ def register_report_routes(app):
             include_prices = price_dimension_enabled()
             if report_type == 'purchase_price_analysis' and not include_prices:
                 raise ValueError('价格维度未启用，采购价格分析已下线')
-            filters = _build_report_filters()
+            filters = _build_report_filters(report_type=report_type)
             if not filters.get('warehouse_id'):
                 raise ValueError('请选择仓库')
             if db.session.get(Warehouse, filters['warehouse_id']) is None:
                 raise ValueError('所选仓库不存在，请重新选择')
             if report_type == 'ledger' and not (filters.get('material_code') or filters.get('material_id')):
                 raise ValueError('请先选择物料再打印库存台账')
-            query = ExcelPrintTemplate.query.filter_by(
-                target_type='report', target_code=report_target_code(report_type),
-                template_type='excel')
-            raw_id = (request.args.get('template_id') or '').strip()
-            template = None
-            template_path = None
-            if raw_id:
-                if not raw_id.isdecimal() or len(raw_id) > 18 or int(raw_id) <= 0:
-                    raise ValueError('所选打印模板无效，请重新选择')
-                template = query.filter_by(id=int(raw_id)).first()
-                if template is None:
-                    raise ValueError('所选模板不存在或不属于当前报表，请重新选择')
-            else:
-                # Do not let a stale default prevent the in-memory built-in template.
-                template = query.filter_by(is_default=True).first()
-            if template is not None and not _legacy_receipt_price_template(report_target_code(report_type), template):
-                candidate = template_file_abspath(template.excel_template_path, app.static_folder)
-                root = Path(app.static_folder).resolve()
-                candidate = Path(candidate).resolve() if candidate else None
-                if candidate and candidate.is_relative_to(root) and candidate.is_file():
-                    template_path = candidate
-                elif raw_id:
-                    raise ValueError('所选打印模板文件不存在或不可用，请修复或重新选择模板')
-                else:
-                    template = None
+            template, template_path = resolve_report_print_layout(report_type, request.args.get('template_id'), app.static_folder)
             columns, rows, truncated, raw_total = _collect_report_export_rows(report_type, filters)
             if truncated:
                 raise ValueError('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据')
@@ -416,7 +411,7 @@ def register_report_routes(app):
             elif filters.get('start_date') or filters.get('end_date'):
                 scope.append(f"日期：{filters.get('start_date') or '不限'} 至 {filters.get('end_date') or '不限'}")
             context.update(print_scope=' · '.join(scope), sheets=build_report_print_preview(title, columns, rows,
-                template_path=template_path, include_prices=include_prices),
+                template_path=template_path, include_prices=include_prices, report_type=report_type),
                 total=len(rows), template_name=template.name if template else '系统内置模板')
         except ValueError as exc:
             context['error'] = str(exc)

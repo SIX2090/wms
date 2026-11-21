@@ -153,7 +153,7 @@ def main():
             cls = ns['_ledger_source_warehouse_getters']()[kind][0]
             names = dict(in_order='order_no', out_order='order_no', after_sale_out_order='order_no',
                 requisition='req_no', sales='order_no', adjustment='adjustment_no', check='check_no',
-                subcontract='order_no')
+                subcontract='order_no', subcontract_issue='issue_no', subcontract_receive='receive_no')
             if kind == 'opening_stock':
                 row = cls(material_id=self.material.id, warehouse_id=warehouse.id, quantity=0)
             elif kind == 'transfer':
@@ -169,16 +169,17 @@ def main():
             db.session.flush()
             return row
 
-        def test_all_ten_historical_source_models_resolve_without_cross_warehouse_leak(self):
+        def test_all_historical_source_models_resolve_without_cross_warehouse_leak(self):
             kinds = ns['_ledger_source_warehouse_getters']()
             self.assertEqual(set(kinds), {'in_order', 'out_order', 'after_sale_out_order', 'requisition',
-                'sales', 'adjustment', 'check', 'subcontract', 'opening_stock', 'transfer'})
+                'sales', 'adjustment', 'check', 'subcontract', 'subcontract_issue', 'subcontract_receive', 'opening_stock', 'transfer'})
             for kind in kinds:
                 with self.subTest(kind=kind):
                     if kind == 'transfer':
                         src = self.make_source(kind, self.a)
                         outgoing = self.txn(None, -3, kind, src.id)
                         incoming = self.txn(None, 3, kind, src.id)
+                        outgoing.remark, incoming.remark = '调拨到 乙仓', '来自 甲仓'
                         self.assertEqual(ns['_ledger_source_warehouse_map']([outgoing, incoming]),
                                          {outgoing.id: self.a.name, incoming.id: self.b.name})
                     else:
@@ -191,8 +192,8 @@ def main():
             db.session.commit()
             a = ns['get_warehouse_stock_quantities'](self.a)
             b = ns['get_warehouse_stock_quantities'](self.b)
-            self.assertEqual(a[self.material.id], -30)
-            self.assertEqual(b[self.material.id], 66)
+            self.assertEqual(a[self.material.id], -36)
+            self.assertEqual(b[self.material.id], 80)
 
         def test_warning_uses_each_warehouse_balance_with_real_source_models(self):
             a_doc = self.make_source('out_order', self.a)

@@ -2946,12 +2946,13 @@ def register_native_api_routes(app):
         R5 边界天然满足：只读 GET，不建单、不扣库存。
         """
         from datetime import date as _date, datetime as _dt
-        from flask import g
         from sqlalchemy import func
         from app import (MOBILE_API_PAGE_SIZE_DEFAULT, MOBILE_API_PAGE_SIZE_MAX,
                          Material, api_json_error, api_json_success,
-                         round_to_2_decimals, resolve_request_warehouse,
-                         get_warehouse_stock_quantities, _collect_ledger_rows)
+                         resolve_request_warehouse,
+                         get_warehouse_stock_quantities, _collect_ledger_rows, _begin_report_read, ReportFilterError)
+
+        _begin_report_read()
 
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
@@ -2997,7 +2998,10 @@ def register_native_api_routes(app):
                    'material_id': material.id,
                    'start_date': start_date,
                    'end_date': end_date}
-        rows = _collect_ledger_rows(filters)
+        try:
+            rows = _collect_ledger_rows(filters)
+        except ReportFilterError as exc:
+            return api_json_error(str(exc), 400)
 
         # marker 行（期初结存/本期合计）转 summary，不下发给手机端列表
         opening_balance = 0.0
@@ -3031,9 +3035,9 @@ def register_native_api_routes(app):
                 'date': row.get('date') or '',
                 'reference_type': row.get('reference_type') or '',
                 'reference_no': row.get('reference_no') or '',
-                'in_quantity': round_to_2_decimals(row.get('in_quantity') or 0),
-                'out_quantity': round_to_2_decimals(row.get('out_quantity') or 0),
-                'balance_quantity': round_to_2_decimals(row.get('balance_quantity') or 0),
+                'in_quantity': round(row.get('in_quantity') or 0, 4),
+                'out_quantity': round(row.get('out_quantity') or 0, 4),
+                'balance_quantity': round(row.get('balance_quantity') or 0, 4),
                 'operator': row.get('operator') or '',
                 'location': row.get('location') or '',
                 'remark': row.get('remark') or '',
@@ -3051,16 +3055,16 @@ def register_native_api_routes(app):
                 'name': material.name or '',
                 'spec': material.spec or '',
                 'unit': material.unit.name if material.unit else '',
-                'warehouse_stock': round_to_2_decimals(warehouse_stock),
+                'warehouse_stock': round(warehouse_stock, 4),
             },
             'start_date': start_date.isoformat() if start_date else '',
             'end_date': end_date.isoformat(),
             'summary': {
                 'count': total,
-                'opening_balance': round_to_2_decimals(opening_balance),
-                'total_in_quantity': round_to_2_decimals(total_in),
-                'total_out_quantity': round_to_2_decimals(total_out),
-                'ending_balance': round_to_2_decimals(ending_balance),
+                'opening_balance': round(opening_balance, 4),
+                'total_in_quantity': round(total_in, 4),
+                'total_out_quantity': round(total_out, 4),
+                'ending_balance': round(ending_balance, 4),
             },
             'items': items,
             'total': total,
@@ -3068,11 +3072,6 @@ def register_native_api_routes(app):
             'page_size': page_size,
             'total_pages': total_pages,
         }
-        # 5 万行截断标记透传（与 Web 报表同一告警通道，BUG-2026-09-07-003）
-        truncated_total = getattr(g, '_report_truncated_total', 0) or 0
-        if truncated_total:
-            data['truncated'] = True
-            data['truncated_total'] = truncated_total
         return api_json_success(data)
 
     @app.route('/api/mobile/profile')

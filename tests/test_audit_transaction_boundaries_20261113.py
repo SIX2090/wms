@@ -132,7 +132,8 @@ def _source(scene, kind, warehouse, suffix):
     getters = w._ledger_source_warehouse_getters()
     model = getters[kind][0]
     names = dict(in_order='order_no', out_order='order_no', after_sale_out_order='order_no',
-        requisition='req_no', sales='order_no', adjustment='adjustment_no', check='check_no', subcontract='order_no')
+        requisition='req_no', sales='order_no', adjustment='adjustment_no', check='check_no', subcontract='order_no',
+        subcontract_issue='issue_no', subcontract_receive='receive_no')
     if kind == 'opening_stock':
         row = model(material_id=scene['material'].id, warehouse_id=warehouse.id, quantity=0)
     elif kind == 'transfer':
@@ -151,16 +152,16 @@ def _source(scene, kind, warehouse, suffix):
 
 
 @pytest.mark.parametrize('kind', ['in_order', 'out_order', 'after_sale_out_order', 'requisition',
-    'sales', 'adjustment', 'check', 'subcontract', 'opening_stock', 'transfer'])
+    'sales', 'adjustment', 'check', 'subcontract', 'subcontract_issue', 'subcontract_receive', 'opening_stock', 'transfer'])
 def test_opening_hint_real_historical_sources_use_own_warehouse(audit_scene, kind):
     a, b, material = (audit_scene[key] for key in ('a', 'b', 'material'))
     src_a = _source(audit_scene, kind, a, 'A')
     src_b = src_a if kind == 'transfer' else _source(audit_scene, kind, b, 'B')
     w.db.session.add_all([
         w.StockTransaction(material_id=material.id, transaction_type='out', quantity=-3, location='',
-                           reference_type=kind, reference_id=src_a.id),
+                           reference_type=kind, reference_id=src_a.id, remark='调拨到 乙仓' if kind == 'transfer' else ''),
         w.StockTransaction(material_id=material.id, transaction_type='in', quantity=7, location='',
-                           reference_type=kind, reference_id=src_b.id),
+                           reference_type=kind, reference_id=src_b.id, remark='来自 甲仓' if kind == 'transfer' else ''),
     ])
     material.stock = 4
     line = w.OpeningStock(material_id=material.id, warehouse_id=a.id, quantity=0)

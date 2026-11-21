@@ -100,17 +100,17 @@ const reportType='inventory',tableBody={innerHTML:''},tableHeaderRow={innerHTML:
 let rendered=[],masks=[],pending=[];
 function updateReportFilterSummary(){} function syncReportFilterUrl(){}
 function buildParams(){return new URLSearchParams();}
-function setLoading(v){masks.push(v);} function renderSummary(v){rendered.push(v.count);}
+function setLoading(v){masks.push(v);} function renderSummary(v){rendered.push(v && v.count);}
 function renderTable(){} function renderPagination(){} function renderTruncation(){} function escapeHtml(s){return s;}
 function fetch(){return new Promise(resolve=>pending.push(resolve));}
-eval(extract('loadData'));
+eval(extract('validReportDates')); eval(extract('clearInvalidReport')); eval(extract('loadData'));
 (async()=>{
  const older=loadData(),newer=loadData();
  pending[1]({ok:true,json:async()=>({status:'success',summary:{count:1}})}); await newer;
  pending[0]({ok:true,json:async()=>({status:'success',summary:{count:1268}})}); await older;
  assert.deepEqual(rendered,[1]); assert.deepEqual(masks,[true,true,false]);
  fields.start_date.value='2026-10-20'; fields.end_date.value='2026-10-01';
- await loadData(); assert.equal(extra.dateRangeError.hidden,false); assert.equal(pending.length,2);
+ await loadData(); assert.equal(extra.dateRangeError.hidden,false); assert.equal(rendered.at(-1),null); assert.match(tableBody.innerHTML,/调整日期/); assert.equal(pending.length,2);
  fields.start_date.value=''; fields.end_date.value=''; fields.warehouse_id.value='';
  await loadData(); assert.match(tableBody.innerHTML,/请先选择仓库/); assert.equal(pending.length,2);
 })().catch(e=>{console.error(e);process.exit(1);});

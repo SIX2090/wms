@@ -136,8 +136,8 @@ class TestBug20260907019:
         joined = '\n'.join(cell for row in rows for cell in row)
         assert '导出截断' not in joined, "未超限时不应出现截断提示行"
 
-    def test_T3_memory_path_ledger_export_truncation_row(self):
-        """演进后：内存路径台账仍受 LEDGER_ROW_LIMIT 截断，文件内提示行保留。
+    def test_T3_ledger_export_rejects_partial_balance(self):
+        """超过期间明细上限时禁止输出不完整的结存。
 
         台账业务规则：必须按单一物料查询（未指定 material_code 直接返回空）。
         """
@@ -155,16 +155,9 @@ class TestBug20260907019:
                 f"&material_code=M001")
         finally:
             app_module.LEDGER_ROW_LIMIT = old
-        assert r.status_code == 200
-        rows = _xlsx_rows(r.data)
-        warning_rows = [row for row in rows if '导出截断提示' in row[0]]
-        assert len(warning_rows) == 1, "内存路径截断时文件尾必须有且仅有一条提示行"
-        text = warning_rows[0][0]
-        assert '12' in text, f"提示行应含真实流水数 12，实际：{text}"
-        assert '11' in text, f"提示行应含已导出行数 11，实际：{text}"
-        data_rows = [row for row in rows[1:] if '导出截断提示' not in row[0]]
-        # 12 条流水截断为 10 + 单物料 1 条「本期合计」行（无 start_date 无期初行）
-        assert len(data_rows) == 11, f"台账导出应为 10 流水 + 1 合计行，实际 {len(data_rows)}"
+        assert r.status_code == 400
+        assert '超过' in r.get_json()['msg']
+        assert 'spreadsheetml' not in r.mimetype
 
     def test_ledger_truncation_survives_a_subtotal_replacing_the_missing_row(self, monkeypatch):
         with app_module.app.app_context():
@@ -177,12 +170,12 @@ class TestBug20260907019:
         with app_module.app.app_context():
             code = db.session.get(Material, self.m_id).code
         params = {'warehouse_id': self.wh_id, 'material_code': code}
-        data = client.get('/report/api/ledger', query_string=params).get_json()
-        assert data['truncated'] is True and data['raw_total'] == 3
+        response = client.get('/report/api/ledger', query_string=params)
+        assert response.status_code == 400 and '超过' in response.get_json()['msg']
         assert client.get('/report/ledger/print_excel', query_string=params).status_code == 400
         assert client.get('/report/ledger/print_preview', query_string=params).status_code == 400
         exported = client.get('/report/api/ledger', query_string=dict(params, export='excel'))
-        assert any('导出截断提示' in row[0] for row in _xlsx_rows(exported.data))
+        assert exported.status_code == 400 and '超过' in exported.get_json()['msg']
 
     def test_T4_page_path_unaffected_by_export_limit(self):
         """页面分页不受导出上限影响：REPORT_ROW_LIMIT=10 时 page=2 仍返回 5 行。"""

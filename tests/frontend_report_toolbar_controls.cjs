@@ -38,7 +38,8 @@ const context = {
 };
 context.window.showToast = context.showToast;
 vm.createContext(context);
-vm.runInContext(source.slice(begin, end), context);
+const dateGuard = source.slice(source.indexOf('function validReportDates('), source.indexOf('function clearInvalidReport('));
+vm.runInContext(dateGuard + source.slice(begin, end), context);
 assert.equal(documentHandlers.click.length, 1, 'outside-click handler registered');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const good = [

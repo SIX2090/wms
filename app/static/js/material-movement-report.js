@@ -4,7 +4,7 @@
     function formatUnitTotal(summary, key) {
         const totals = summary && Array.isArray(summary.unit_totals) ? summary.unit_totals : [];
         return totals.length ? totals.map(item =>
-            Number(item[key] || 0).toLocaleString('zh-CN', { maximumFractionDigits: 2 }) + ' ' + (item.unit || '未设单位')
+            Number(item[key] || 0).toLocaleString('zh-CN', { maximumFractionDigits: 4 }) + ' ' + (item.unit || '未设单位')
         ).join(' / ') : '0';
     }
     window.WMSMaterialMovement = { formatUnitTotal };

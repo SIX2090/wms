@@ -665,3 +665,4 @@ POST_SPLIT_BUGS['BUG-2026-11-21-005'] = 'fixed'  # Align issue entry, reversal a
 POST_SPLIT_BUGS['BUG-2026-11-21-006'] = 'fixed'  # Freeze warehouse balance for imported stocktakes.
 POST_SPLIT_BUGS['BUG-2026-11-21-007'] = 'fixed'  # Enforce one adjustment direction per imported order.
 POST_SPLIT_BUGS['BUG-2026-11-21-020'] = 'fixed'  # Register the existing catalog audit entry.
+POST_SPLIT_BUGS['BUG-2026-11-21-021'] = 'fixed'  # Reconcile ledger and detail report quantities and outputs.

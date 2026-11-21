@@ -29151,9 +29151,33 @@ OUT_NON_REQUISITION_BUSINESS_TYPES = (
 )
 
 
-def _build_report_filters(require_existing_warehouse=True):
+class ReportFilterError(ValueError):
+    """可直接显示给操作员的报表查询条件错误。"""
+
+def _begin_report_read():
+    # sqlite3 的 SELECT 默认不启动事务，汇总、逐批明细与来源单须读取同一快照。
+    connection = db.session.connection()
+    if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN')
+
+
+def _build_report_filters(require_existing_warehouse=True, report_type=None):
+    if report_type in ('in_detail', 'out_detail', 'ledger'):
+        _begin_report_read()
     # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
-    warehouse_id = _parse_positive_int(request.args.get('warehouse_id'), 0)
+    raw_warehouse = (request.args.get('warehouse_id') or '').strip()
+    warehouse_id = _parse_positive_int(raw_warehouse, 0)
+    if raw_warehouse and (not raw_warehouse.isdecimal() or not 0 < warehouse_id <= 2**63 - 1):
+        raise ReportFilterError('仓库参数无效，请重新选择仓库')
+    start_date = _parse_date_arg('start_date')
+    end_date = _parse_date_arg('end_date')
+    if start_date and end_date and start_date > end_date:
+        raise ReportFilterError('结束日期不能早于开始日期')
+    status = (request.args.get('status') or '').strip()
+    if report_type in ('in_detail', 'out_detail'):
+        if status not in ('', 'all', 'pending', 'completed'):
+            raise ReportFilterError('单据状态无效，请重新选择状态')
+        status = '' if status == 'all' else (status or 'completed')
     warehouse_name = ''
     warehouse_code = ''
     if not warehouse_id:
@@ -29164,9 +29188,14 @@ def _build_report_filters(require_existing_warehouse=True):
             warehouse_code = default_wh.code or ''
     else:
         wh = Warehouse.query.get(warehouse_id)
-        if require_existing_warehouse and wh is None: raise ValueError('仓库不存在或已删除')
+        if require_existing_warehouse and wh is None:
+            raise ReportFilterError('仓库不存在或已删除')
         warehouse_name = wh.name if wh else None
         warehouse_code = (wh.code or '') if wh else None
+    raw_material = (request.args.get('material_id') or '').strip()
+    material_id = _parse_positive_int(raw_material, 0)
+    if report_type == 'ledger' and raw_material and (not raw_material.isdecimal() or not 0 < material_id <= 2**63 - 1):
+        raise ReportFilterError('物料参数无效，请重新选择物料')
     raw_business_type = (request.args.get('business_type') or '').strip()
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
     # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，
@@ -29180,8 +29209,8 @@ def _build_report_filters(require_existing_warehouse=True):
     return {
         'start_month': (request.args.get('start_month') or '').strip(),
         'end_month': (request.args.get('end_month') or '').strip(),
-        'start_date': _parse_date_arg('start_date'),
-        'end_date': _parse_date_arg('end_date'),
+        'start_date': start_date,
+        'end_date': end_date,
         'warehouse_id': warehouse_id,
         'warehouse': warehouse_name,
         'warehouse_code': warehouse_code,
@@ -29189,11 +29218,11 @@ def _build_report_filters(require_existing_warehouse=True):
         'contract_no': (request.args.get('contract_no') or '').strip(),
         'project_name': (request.args.get('project_name') or '').strip(),
         'material_code': (request.args.get('material_code') or '').strip(),
-        'material_id': _parse_positive_int(request.args.get('material_id'), 0),
+        'material_id': material_id,
         'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
         'supplier': (request.args.get('supplier') or '').strip(),
         'customer': (request.args.get('customer') or '').strip(),
-        'status': (request.args.get('status') or '').strip(),
+        'status': status,
         'sort_field': (request.args.get('sort_field') or '').strip(),
         'sort_order': 'desc' if (request.args.get('sort_order') or '').lower() == 'desc' else 'asc',
         'page': _parse_positive_int(request.args.get('page'), 1),
@@ -29227,6 +29256,16 @@ def _document_warehouse_scope(model, filters):
     （不得改成 filter(True) 之类的等价写法，以免语义漂移）。
     """
     from services.warehouse_scope import document_warehouse_filter
+    if filters.get('warehouse_id'):
+        warehouse = db.session.execute(
+            select(Warehouse.id, Warehouse.name, Warehouse.code)
+            .where(Warehouse.id == filters['warehouse_id'])).one_or_none()
+        if warehouse is None:
+            return db.false()
+        aliases = warehouse_aliases(warehouse)
+        if set(aliases) != {v.strip() for v in (warehouse.name, warehouse.code) if v and v.strip()}:
+            raise ReportFilterError('仓库名称与其他仓库编码重名，历史单据归属待核，请先核对仓库档案')
+        return model.warehouse.in_(aliases)
     return document_warehouse_filter(
         model, filters.get('warehouse'), filters.get('warehouse_code'))
 
@@ -29305,9 +29344,10 @@ def _report_detail_url(endpoint, doc_id):
     except Exception:
         return ''
 
-def _report_reference_info(reference_type, reference_id, fallback_no='', opening_lines=None, warehouse_id=None, material_id=None, source_remark=None):
+def _report_reference_info(reference_type, reference_id, fallback_no='', opening_lines=None, warehouse_id=None, material_id=None, source_remark=None, documents=None):
     if reference_type == 'material_initial':
-        material = db.session.get(Material, reference_id) if reference_id else None
+        material = (documents.get(('material_initial', reference_id)) if documents is not None else
+                    db.session.get(Material, reference_id) if reference_id else None)
         label = f'物料初始库存 {material.code}' if material and (not material_id or material.id == material_id) else '物料初始库存'
         return label, ''
     if reference_type == 'opening_stock':
@@ -29327,7 +29367,8 @@ def _report_reference_info(reference_type, reference_id, fallback_no='', opening
     if not config or not reference_id:
         return fallback_no, ''
 
-    doc = db.session.get(config['model'], reference_id)
+    doc = (documents.get((reference_type, reference_id)) if documents is not None
+           else db.session.get(config['model'], reference_id))
     if not doc:
         return fallback_no, ''
 
@@ -29350,7 +29391,7 @@ def _iter_report_export_batches(report_type, filters):
       批间行序由 builder 内排序（含表头 sort_field 的全量排序回退）保证连续，
       退出条件 page*batch >= total，多批拼接 = 筛选全集、无重复无遗漏。
     - 内存路径报表（台账/月报）：单次全量构建——结存/期末倒推是运行期值，
-      无法切片分批，仍受各自 LIMIT（LEDGER_ROW_LIMIT 等）截断，截断信息由
+      台账超出期间明细上限时直接报错。其他构建器若发生截断，截断信息由
       调用方读 flask.g（_report_truncated_total）并在文件内提示。
     """
     sql_builder = SQL_PAGED_REPORT_BUILDERS.get(report_type)
@@ -29505,7 +29546,8 @@ def _in_detail_columns():
         {'field': 'status', 'title': '状态', 'type': 'status'},
         {'field': 'operator', 'title': '操作人'},
         {'field': 'purpose', 'title': '用途'},
-        {'field': 'remark', 'title': '备注'},
+        {'field': 'remark', 'title': '单据备注'},
+        {'field': 'item_remark', 'title': '明细备注'},
     ]
 
 def _out_detail_columns():
@@ -29525,7 +29567,8 @@ def _out_detail_columns():
         {'field': 'status', 'title': '状态', 'type': 'status'},
         {'field': 'operator', 'title': '操作人'},
         {'field': 'purpose', 'title': '用途'},
-        {'field': 'remark', 'title': '备注'},
+        {'field': 'remark', 'title': '单据备注'},
+        {'field': 'item_remark', 'title': '明细备注'},
     ]
 
 def _summary_columns():
@@ -29987,6 +30030,7 @@ def _in_detail_row(item):
         'operator': order.operator.username if order.operator else '',
         'purpose': order.purpose or '',
         'remark': order.remark or '',
+        'item_remark': item.remark or '',
     }
 
 
@@ -30090,6 +30134,7 @@ def _out_detail_row(item):
         'operator': order.operator.username if order.operator else '',
         'purpose': order.purpose or '',
         'remark': order.remark or '',
+        'item_remark': item.remark or '',
     }
 
 
@@ -30333,7 +30378,13 @@ def _ledger_source_warehouse_getters():
 
     def _transfer_wh(doc, txn):
         # 调拨出（数量为负）归 from_warehouse，调拨入（数量为正）归 to_warehouse
-        return ((doc.from_warehouse or '') if (txn.quantity or 0) < 0 else (doc.to_warehouse or '')).strip()
+        quantity = txn.quantity or 0
+        remark = (getattr(txn, 'remark', '') or '').strip()
+        if remark.startswith('反提交调拨') or remark == '历史原数量反提交调拨':
+            quantity = -quantity
+        elif not ((quantity < 0 and remark.startswith('调拨到')) or (quantity > 0 and remark.startswith('来自'))):
+            return ''
+        return ((doc.from_warehouse or '') if quantity < 0 else (doc.to_warehouse or '')).strip()
 
     return {
         'in_order': (InOrder, _wh),
@@ -30344,22 +30395,27 @@ def _ledger_source_warehouse_getters():
         'adjustment': (AdjustmentOrder, _wh),
         'check': (InventoryCheck, _wh),
         'subcontract': (SubcontractOrder, _wh),
+        'subcontract_issue': (SubcontractIssue, _wh),
+        'subcontract_receive': (SubcontractReceive, _wh),
         'opening_stock': (OpeningStock, _opening_wh),
         'transfer': (TransferOrder, _transfer_wh),
     }
 
 
-def _ledger_source_warehouse_map(transactions):
+def _ledger_source_warehouse_map(transactions, *, verify_transfer_scope=None, end_date=None):
     """对 location 为空的流水，按来源单据解析仓库名，返回 {txn_id: 仓库名}（BUG-2026-08-27-003）。"""
     result = {}
     by_type = {}
     for t in transactions:
-        if (t.location or '').strip():
+        if getattr(t, 'warehouse_id', None) is not None or (t.location or '').strip():
             continue
         if (t.reference_type == 'opening_stock' and t.reference_id == t.material_id
                 and getattr(t, 'remark', None) == '新增物料初始库存'):
             continue
         if not t.reference_type or not t.reference_id:
+            if (verify_transfer_scope is not None and t.reference_type == 'transfer'
+                    and (not end_date or (t.created_at or datetime.min).date() <= end_date)):
+                raise ReportFilterError(f'调拨流水 {t.id} 缺少来源单据，仓库归属待核')
             continue
         by_type.setdefault(t.reference_type, []).append(t)
     if not by_type:
@@ -30373,13 +30429,36 @@ def _ledger_source_warehouse_map(transactions):
         ids = list({t.reference_id for t in txns})
         docs = model.query.filter(model.id.in_(ids)).all()
         doc_map = {d.id: d for d in docs}
+        # 对无方向备注的旧单，只有已完成且仅有一对等量反向流水才能确定原调拨方向。
+        simple_transfers = set()
+        if ref_type == 'transfer':
+            unmarked = {t.reference_id for t in txns if not (getattr(t, 'remark', '') or '').strip()
+                        and t.reference_id in doc_map and doc_map[t.reference_id].status == 'completed'}
+            if unmarked:
+                transaction = StockTransaction
+                pairs = db.session.query(transaction.reference_id, transaction.material_id).filter(
+                    transaction.reference_type == 'transfer', transaction.reference_id.in_(unmarked)
+                ).group_by(transaction.reference_id, transaction.material_id).having(
+                    func.count(transaction.id) == 2, func.min(transaction.quantity) < 0,
+                    func.min(transaction.quantity) == -func.max(transaction.quantity)).all()
+                simple_transfers.update(tuple(pair) for pair in pairs)
         for t in txns:
             doc = doc_map.get(t.reference_id)
             if doc is None:
+                if (verify_transfer_scope is not None and ref_type == 'transfer'
+                        and (not end_date or (t.created_at or datetime.min).date() <= end_date)):
+                    raise ReportFilterError(f'调拨流水 {t.id} 的来源单据不存在，仓库归属待核')
                 continue
             if ref_type == 'opening_stock' and getattr(doc, 'material_id', None) != t.material_id:
                 continue
             wh = getter(doc, t)
+            if ref_type == 'transfer' and not wh:
+                if (t.reference_id, t.material_id) in simple_transfers and not (t.remark or '').strip():
+                    wh = doc.from_warehouse if t.quantity < 0 else doc.to_warehouse
+                elif (verify_transfer_scope is not None
+                      and verify_transfer_scope.intersection((doc.from_warehouse, doc.to_warehouse))
+                      and (not end_date or (doc.date or (t.created_at or datetime.min).date()) <= end_date)):
+                    raise ReportFilterError(f'调拨单 {doc.transfer_no} 的历史流水归属待核，无法计算该仓结存')
             if wh:
                 result[t.id] = wh
     return result
@@ -30405,15 +30484,7 @@ def _ledger_contract_no_getters():
 def _ledger_contract_no_map(transactions):
     """流水 -> 合同编号，返回 {txn_id: 合同编号}（FEAT-2026-09-24-001）。
 
-    取值口径**明细行优先、单据头兜底**——与入库/出库单自带的 Excel 导出完全一致
-    （in_order.py:177、out_order.py:137 均为 ``item.contract_no or order.contract_no``），
-    避免同一单据在页面与导出里出现两个不同答案。
-    匹配键为 (单据 id, material_id)：流水是按物料记账的，同单同物料若有多行明细
-    （如分批、不同单价），取**首个非空**行合同号，不拼接——拼接会产生页面无法
-    对齐的伪值（「A,B」不是任何一张真实合同）。
-    批量查询而非逐行回查：台账单次上限 LEDGER_ROW_LIMIT=50000 行，逐行查询会带来
-    数万次 SQL。按 reference_type 分组 + `id.in_(...)` 一次取回，与
-    _ledger_source_warehouse_map 同款范式。
+    流水只关联单据和物料；同物料有多个行合同时保留歧义，禁止择一归属。
     """
     result = {}
     by_type = {}
@@ -30433,19 +30504,14 @@ def _ledger_contract_no_map(transactions):
         doc_map = {}
         for d in doc_model.query.filter(doc_model.id.in_(ids)).all():
             doc_map[d.id] = (d.contract_no or '').strip()
-        # 明细行：按 (单据, 物料) 建索引，首个非空行值胜出
         item_map = {}
-        for it in item_model.query.filter(
-                getattr(item_model, fk_field).in_(ids)).all():
-            key = (getattr(it, fk_field), it.material_id)
-            val = (it.contract_no or '').strip()
-            if not val:
-                continue
-            if key not in item_map:
-                item_map[key] = val
+        for it in item_model.query.filter(getattr(item_model, fk_field).in_(ids)).all():
+            order_id = getattr(it, fk_field)
+            number = (it.contract_no if it.contract_no is not None else doc_map.get(order_id, '')).strip()
+            item_map.setdefault((order_id, it.material_id), set()).add(number)
         for t in txns:
-            row_no = item_map.get((t.reference_id, t.material_id), '')
-            result[t.id] = row_no or doc_map.get(t.reference_id, '')
+            values = item_map.get((t.reference_id, t.material_id), {doc_map.get(t.reference_id, '')})
+            result[t.id] = next(iter(values)) if len(values) == 1 else '多合同／归属待核（见原单明细）'
     return result
 
 
@@ -30687,7 +30753,7 @@ def _warehouse_scoped_txn_condition(filters):
     return loc_names, condition, wid
 
 
-def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=None):
+def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=None, *, verify_transfer_scope=None, end_date=None):
     """按仓库口径过滤流水列表（台账/月报/库存汇总共用）。
 
     判定优先级（C-2026-08-27 治本）：
@@ -30699,7 +30765,7 @@ def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=No
     """
     if not loc_names and warehouse_id is None:
         return transactions
-    _src_wh = _ledger_source_warehouse_map(transactions)
+    _src_wh = _ledger_source_warehouse_map(transactions, verify_transfer_scope=verify_transfer_scope, end_date=end_date)
     _loc_set = {n for n in loc_names if n}
     return [
         t for t in transactions
@@ -30766,136 +30832,113 @@ def _collect_ledger_rows(filters):
     loc_names, warehouse_condition, wid = _warehouse_scoped_txn_condition(filters)
     if warehouse_condition is not None:
         query = query.filter(warehouse_condition)
-    # BUG-2026-09-24-001：end_date 不再在 SQL 层按 created_at 过滤——业务日期是
-    # **单据日期**（来源单据是多态的，SQL 无法跨 11 张表 join），必须取回后在
-    # Python 侧按业务日期过滤。否则「单据日期 ≤ end_date 但流水时间 > end_date」
-    # 的单据会在 SQL 层被误剔除（补录/迁移常见）。见下方循环内 `txn_date > end_date`。
-    # AI-MOB-LDG-F01：material_id 精确过滤（移动端单一物料台账，相似编码不串）；
-    # 未传 material_id 时退回原 material_code 关键词多 token 匹配（Web 台账路径不变）。
     if filters.get('material_id'):
         query = query.filter(StockTransaction.material_id == filters['material_id'])
-    else:
-        material_clause = _material_filter_clause(filters.get('material_code'))
-        if material_clause is not None:
-            query = query.join(StockTransaction.material).filter(material_clause)
+    elif filters.get('material_code'):
+        query = query.join(StockTransaction.material).filter(Material.code == filters['material_code'])
 
-    # WMS-AUDIT-2026-08-29 (2): 超限不再静默截断，先计数并告警，便于事后排查。
-    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
-    query = query.order_by(StockTransaction.material_id.asc(), StockTransaction.created_at.asc(), StockTransaction.id.asc())
-    transactions = _report_check_row_limit(query, LEDGER_ROW_LIMIT, '库存台账流水').all()
-
-    # BUG-2026-08-27-003：空 location 流水仅当来源单据仓库与所选仓库一致时保留；
-    # location 非空的流水已被上方 SQL 过滤（必属所选仓库），直接保留。
-    # C-2026-08-27：warehouse_id 精确命中的行（含空 location 新数据）直接保留。
-    transactions = _filter_txn_list_by_warehouse_scope(transactions, loc_names, wid)
-
-    # FEAT-2026-09-24-001：合同编号（明细行优先、单据头兜底），一次批量回查后
-    # 在下方循环里按 txn.id 直接取用——不在循环内逐行查库。
-    contract_no_map = _ledger_contract_no_map(transactions)
-    out_order_labels = _ledger_out_order_labels(transactions)
-
-    # BUG-2026-09-24-001：单据日期 map——业务日期 = 单据日期优先、流水时间兜底。
-    # 一次批量回查，下方循环按 txn.id 直接取用。
-    doc_date_map = _ledger_document_date_map(transactions)
-    opening_ids = {t.reference_id for t in transactions
-                   if t.reference_type == 'opening_stock' and t.reference_id}
-    opening_lines = {line.id: line for line in OpeningStock.query.filter(
-        OpeningStock.id.in_(opening_ids)).all()} if opening_ids else {}
-
-    def _txn_biz_date(t):
-        """流水业务日期：单据日期优先，无单据退回 created_at 日期。"""
-        d = doc_date_map.get(t.id)
-        return d if d is not None else (t.created_at or datetime.min).date()
-
-    # BUG-2026-09-24-001：结存是**按业务时间顺序逐笔累加**的运行期值——若累加顺序
-    # 仍是 SQL 的 created_at 顺序，而展示排序改成单据日期，则「单据日期早但流水时间
-    # 晚」的补录单会累加错位、结存列与日期列自相矛盾。故在累加前先按业务日期升序
-    # 重排（同日期内按流水时间/流水 id 稳定次级排序）。
-    transactions = sorted(
-        transactions,
-        key=lambda t: (_txn_biz_date(t), t.created_at or datetime.min, t.id))
-
+    # 先取全历史以建立期初。显示上限只作用于按业务日期和实际归属筛出的期间明细。
+    from decimal import Decimal
     rows = []
-    balances = {}
     opening_balances = {}
-    period_in = {}
-    period_out = {}
+    period_opening = {}
     material_map = {}
     start_date = filters.get('start_date')
     end_date = filters.get('end_date')
-    for transaction in transactions:
-        material = transaction.material
-        if not material:
-            continue
-
-        material_id = transaction.material_id
-        txn_datetime = transaction.created_at or datetime.min
-        # BUG-2026-09-24-001：业务日期 = 单据日期优先、流水时间兜底。
-        txn_date = _txn_biz_date(transaction)
-        if end_date and txn_date > end_date:
-            # 单据日期晚于结束日期：不属于查询窗口，不累加、不显示、不进合计，
-            # 结存口径与日期列口径一致（原 SQL 按 created_at 过滤会把「单据日期
-            # 早、流水时间晚」的补录单误剔除，也把「单据日期晚、流水时间早」的
-            # 单误纳入）。
-            continue
-
-        material_map[material_id] = material
-        quantity = _safe_float(transaction.quantity)
-        before_balance = balances.get(material_id, 0.0)
-        after_balance = before_balance + quantity
-        balances[material_id] = after_balance
-
-        if start_date and txn_date < start_date:
-            # BUG-2026-09-07-006：start_date 前累计即该物料期初结存
-            opening_balances[material_id] = after_balance
-            continue
-
-        is_opening = (transaction.transaction_type or '').lower() in {'opening', 'opening_stock'}
-        reference_no, reference_url = _report_reference_info(
-            transaction.reference_type,
-            transaction.reference_id,
-            f"{transaction.reference_type or 'txn'}-{transaction.reference_id or transaction.id}",
-            opening_lines=opening_lines, warehouse_id=wid, material_id=material_id,
-            source_remark=transaction.remark,
-        )
-        rows.append({
-            'date': txn_date.isoformat() if txn_date else '',
-            'reference_type': ((out_order_labels.get(transaction.reference_id, '出库单')
-                                if transaction.reference_type == 'out_order' else
-                                REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水'))
-                               + ('（反提交冲销）' if (transaction.transaction_type or '').startswith('revert_') else '')),
-            'reference_no': reference_no,
-            'reference_url': reference_url,
-            # FEAT-2026-09-24-001：来源单据的合同编号；无合同单据（调拨/盘点/调整/
-            # 委外/期初等）为空串，页面留空而非显示 "-"，避免与「未填」混淆。
-            'contract_no': contract_no_map.get(transaction.id, ''),
-            'opening_quantity': quantity if is_opening else 0.0,
-            'in_quantity': quantity if quantity > 0 and not is_opening else 0.0,
-            'out_quantity': abs(quantity) if quantity < 0 and not is_opening else 0.0,
-            'balance_quantity': after_balance,
-            'material_id': material_id,
-            'material_code': material.code or '',
-            'material_name': material.name or '',
-            'spec': material.spec or '',
-            'quantity': _safe_float(transaction.quantity),
-            'amount': _safe_float(transaction.quantity) * _safe_float(material.price),
-            'operator': transaction.operator.username if transaction.operator else '',
-            'location': transaction.location or '',
-            'remark': transaction.remark or '',
-            # WMS-AUDIT-2026-08-29 (1): 仅用于排序的临时字段，返回前移除
-            '_ts': txn_datetime,
-            '_txn_id': transaction.id or 0,
-        })
-        if quantity >= 0:
-            period_in[material_id] = period_in.get(material_id, 0.0) + quantity
+    last_id = 0
+    while True:
+        batch = query.filter(StockTransaction.id > last_id).order_by(StockTransaction.id).limit(500).all()
+        if not batch:
+            break
+        last_id = batch[-1].id
+        batch = _filter_txn_list_by_warehouse_scope(
+            batch, loc_names, wid, verify_transfer_scope=set(loc_names) | {filters.get('warehouse'), filters.get('warehouse_code')},
+            end_date=end_date)
+        dates = _ledger_document_date_map(batch)
+        period = []
+        for transaction in batch:
+            txn_date = dates.get(transaction.id) or (transaction.created_at or datetime.min).date()
+            if not transaction.material or (end_date and txn_date > end_date):
+                continue
+            mid = transaction.material_id
+            material_map[mid] = transaction.material
+            if start_date and txn_date < start_date:
+                opening_balances[mid] = opening_balances.get(mid, Decimal(0)) + Decimal(str(transaction.quantity))
+            else:
+                period.append((transaction, txn_date))
+        if len(rows) + len(period) > LEDGER_ROW_LIMIT:
+            raise ReportFilterError('期间台账流水超过显示上限，请缩小业务日期范围')
+        transactions = [t for t, day in period]
+        contract_no_map = _ledger_contract_no_map(transactions)
+        out_order_labels = _ledger_out_order_labels(transactions)
+        documents = {}
+        groups = {}
+        for t in transactions:
+            groups.setdefault(t.reference_type, set()).add(t.reference_id)
+        for kind, ids in groups.items():
+            config = REPORT_REFERENCE_LINKS.get(kind)
+            if config:
+                model = config['model']
+                documents.update(((kind, doc.id), doc) for doc in model.query.filter(model.id.in_(ids)).all())
+        opening_ids = groups.get('opening_stock', set())
+        opening_lines = {line.id: line for line in OpeningStock.query.options(joinedload(OpeningStock.doc))
+                         .filter(OpeningStock.id.in_(opening_ids)).all()} if opening_ids else {}
+        for transaction, txn_date in period:
+            material = transaction.material
+            material_id = transaction.material_id
+            if transaction.reference_type == 'material_initial':
+                documents[('material_initial', material_id)] = material
+            quantity = _safe_float(transaction.quantity)
+            is_opening = (transaction.transaction_type or '').lower() in {'opening', 'opening_stock'}
+            reference_no, reference_url = _report_reference_info(
+                transaction.reference_type, transaction.reference_id,
+                f"{transaction.reference_type or 'txn'}-{transaction.reference_id or transaction.id}",
+                opening_lines=opening_lines, warehouse_id=wid, material_id=material_id,
+                source_remark=transaction.remark, documents=documents)
+            rows.append({
+                'date': txn_date.isoformat() if txn_date else '',
+                'reference_type': ((out_order_labels.get(transaction.reference_id, '出库单')
+                                    if transaction.reference_type == 'out_order' else
+                                    REFERENCE_TYPE_LABELS.get(transaction.reference_type, transaction.reference_type or '库存流水'))
+                                   + ('（反提交冲销）' if (transaction.transaction_type or '').startswith('revert_') else '')),
+                'reference_no': reference_no,
+                'reference_url': reference_url,
+                # FEAT-2026-09-24-001：来源单据的合同编号；无合同单据（调拨/盘点/调整/
+                # 委外/期初等）为空串，页面留空而非显示 "-"，避免与「未填」混淆。
+                'contract_no': contract_no_map.get(transaction.id, ''),
+                'opening_quantity': quantity if is_opening else 0.0,
+                'in_quantity': quantity if quantity > 0 and not is_opening else 0.0,
+                'out_quantity': abs(quantity) if quantity < 0 and not is_opening else 0.0,
+                'balance_quantity': 0,
+                'material_id': material_id,
+                'material_code': material.code or '',
+                'material_name': material.name or '',
+                'spec': material.spec or '',
+                'quantity': _safe_float(transaction.quantity),
+                'amount': _safe_float(transaction.quantity) * _safe_float(material.price),
+                'operator': transaction.operator.username if transaction.operator else '',
+                'location': transaction.location or '',
+                'remark': transaction.remark or '',
+                # WMS-AUDIT-2026-08-29 (1): 仅用于排序的临时字段，返回前移除
+                '_ts': transaction.created_at or datetime.min,
+                '_txn_id': transaction.id or 0,
+            })
+    rows.sort(key=lambda row: (row['date'], row['material_code'], row['_ts'], row['_txn_id']))
+    balances = dict(opening_balances)
+    period_in = {}
+    period_out = {}
+    for row in rows:
+        mid = row['material_id']
+        quantity = Decimal(str(row['quantity']))
+        balances[mid] = balances.get(mid, Decimal(0)) + quantity
+        row['balance_quantity'] = float(balances[mid])
+        if row['opening_quantity']:
+            period_opening[mid] = period_opening.get(mid, Decimal(0)) + quantity
+        elif quantity >= 0:
+            period_in[mid] = period_in.get(mid, Decimal(0)) + quantity
         else:
-            period_out[material_id] = period_out.get(material_id, 0.0) + abs(quantity)
+            period_out[mid] = period_out.get(mid, Decimal(0)) - quantity
 
-    # BUG-2026-09-07-006：期初/合计行——此前台账只有流水行，按日期范围查询时
-    # 看不到「期初结存」与「本期入/出合计、期末结存」，对账只能手算。
-    # 期初行 date=start_date+最小时间排同物料最前；合计行 date=end_date+最大时间
-    # 排同物料最后（默认按日期排序时位置天然正确）。两行带 material_id，
-    # 期末结存继续由 _build_ledger_report 的 ending_balances 正确取值。
     def _ledger_marker_row(mid, marker_date, ref_label, opening, in_qty, out_qty, balance, remark, ts, txn_id):
         material = material_map[mid]
         return {
@@ -30925,7 +30968,7 @@ def _collect_ledger_rows(filters):
     opening_rows = []
     closing_rows = []
     for mid in material_map:
-        opening = opening_balances.get(mid, 0.0)
+        opening = float(opening_balances.get(mid, 0))
         if start_date:
             opening_rows.append(_ledger_marker_row(
                 mid, start_date, '期初结存', opening, 0.0, 0.0, opening,
@@ -30933,21 +30976,13 @@ def _collect_ledger_rows(filters):
                 datetime.combine(start_date, time.min), -2))
         closing_date = end_date or date.today()
         closing_rows.append(_ledger_marker_row(
-            mid, closing_date, '本期合计', opening,
-            round_to_2_decimals(period_in.get(mid, 0.0)),
-            round_to_2_decimals(period_out.get(mid, 0.0)),
-            balances.get(mid, 0.0),
+            mid, closing_date, '本期合计', float(opening_balances.get(mid, 0) + period_opening.get(mid, 0)),
+            float(period_in.get(mid, 0)),
+            float(period_out.get(mid, 0)),
+            float(balances.get(mid, 0)),
             '期初 + 本期入库 − 本期出库 = 期末结存',
             datetime.combine(closing_date, time.max), -1))
     rows = opening_rows + rows + closing_rows
-
-    # WMS-AUDIT-2026-08-29 (1): 原按 (日期, 物料代码, 单号) 排序，单据号字典序
-    # 不等于发生时间顺序，同一天同一物料多笔时，翻到该物料最后一行看到的
-    # balance_quantity 并非最终结存（实测 6 个物料受影响，如 201033 实际结存
-    # 0 但页面末行显示 800）。改为按真实发生时间排序，再移除临时字段，
-    # 保证返回结构与改动前完全一致。
-    rows.sort(key=lambda row: (row['date'], row['material_code'],
-                               row['_ts'], row['_txn_id']))
     for row in rows:
         row.pop('_ts', None)
         row.pop('_txn_id', None)
@@ -30991,11 +31026,7 @@ def _purchase_order_item_query(filters):
     # 没有数据」。与仓库内其余报表一致改为 名称 OR 编码 双匹配（R6 同根因
     # 收敛；同型修复见 BUG-2026-08-17-002 / BUG-2026-08-18-004）。
     if filters.get('warehouse'):
-        match_clause = _warehouse_document_match_clause(
-            InOrder.warehouse,
-            warehouse_name=filters.get('warehouse'),
-            warehouse_code=filters.get('warehouse_code'),
-        )
+        match_clause = _document_warehouse_scope(InOrder, filters)
         query = query.outerjoin(
             InOrderItem,
             InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
@@ -31082,8 +31113,7 @@ def _purchase_completed_receipts_subquery(filters=None, order_ids=None):
     receipts = union_all(select(linked.c.item_id, linked.c.warehouse, linked.c.received_quantity), allocated).subquery()
     query = select(receipts.c.item_id, func.round(func.sum(receipts.c.received_quantity), 2).label('received_quantity'))
     if filters is not None:
-        query = query.where(_warehouse_document_match_clause(
-            receipts.c.warehouse, warehouse_name=filters.get('warehouse'), warehouse_code=filters.get('warehouse_code')))
+        query = query.where(_document_warehouse_scope(receipts.c, filters))
     return query.group_by(receipts.c.item_id).subquery()
 
 
@@ -31309,22 +31339,12 @@ def _build_inventory_report(filters):
     return _inventory_columns(), rows, summary
 
 def _build_in_detail_report(filters):
-    rows = _collect_in_detail_rows(filters)
-    summary = {
-        'count': len(rows),
-        'quantity': sum(row['quantity'] for row in rows),
-        'amount': sum(row['amount'] for row in rows),
-    }
-    return _in_detail_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_in_detail_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 def _build_out_detail_report(filters):
-    rows = _collect_out_detail_rows(filters)
-    summary = {
-        'count': len(rows),
-        'quantity': sum(row['quantity'] for row in rows),
-        'amount': sum(row['amount'] for row in rows),
-    }
-    return _out_detail_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_out_detail_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 def _build_summary_report(filters):
     daily = {}
@@ -31377,17 +31397,22 @@ def _build_check_report(filters):
 
 def _build_ledger_report(filters):
     # 库存台账必须按单一物料查询，未指定物料时返回空数据并给出提示
-    if not (filters.get('material_code') or '').strip():
-        empty_summary = {'count': 0, 'quantity': 0, 'amount': 0}
-        return _ledger_columns(), [], empty_summary
+    mid = filters.get('material_id')
+    code = (filters.get('material_code') or '').strip()
+    if not mid and not code:
+        return _ledger_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
+    if mid:
+        material = db.session.get(Material, mid)
+        if material is None:
+            raise ReportFilterError('所选物料不存在，请重新选择物料')
+        if code and material.code != code:
+            raise ReportFilterError('所选物料与编码不一致，请重新选择物料')
     rows = _collect_ledger_rows(filters)
-    ending_balances = {}
-    for row in rows:
-        ending_balances[row.get('material_id')] = row['balance_quantity']
+    closing = next((r for r in rows if r['reference_type'] == '本期合计'), {})
     summary = {
-        'count': len(rows),
-        'quantity': sum(row['in_quantity'] + row['out_quantity'] for row in rows),
-        'amount': sum(ending_balances.values()),
+        'count': sum(r['reference_type'] not in ('期初结存', '本期合计') for r in rows),
+        'quantity': round(closing.get('in_quantity', 0) + closing.get('out_quantity', 0), 4),
+        'amount': closing.get('balance_quantity', 0),
     }
     return _ledger_columns(), rows, summary
 
@@ -31725,6 +31750,7 @@ _IN_DETAIL_SORT_MAP = {
     'operator': User.username,
     'purpose': InOrder.purpose,
     'remark': InOrder.remark,
+    'item_remark': InOrderItem.remark,
 }
 
 _OUT_DETAIL_SORT_MAP = {
@@ -31732,7 +31758,7 @@ _OUT_DETAIL_SORT_MAP = {
     'order_no': OutOrder.order_no,
     # BUG-2026-09-22-013：业务类型列可排序，与 _IN_DETAIL_SORT_MAP 对齐
     'business_type': OutOrder.business_type,
-    'customer': Department.name,
+    'customer': func.coalesce(func.nullif(Department.name, ''), func.nullif(OutOrder.customer, ''), OutOrder.purpose, ''),
     'material_code': Material.code,
     'material_name': Material.name,
     'spec': Material.spec,
@@ -31744,6 +31770,7 @@ _OUT_DETAIL_SORT_MAP = {
     'operator': User.username,
     'purpose': OutOrder.purpose,
     'remark': OutOrder.remark,
+    'item_remark': OutOrderItem.remark,
 }
 
 
@@ -31757,6 +31784,14 @@ def _sql_order_by(query, sort_map, sort_field, sort_order, default_order, tiebre
     return query.order_by(sort_col.asc(), tiebreaker_col.asc())
 
 
+def _detail_unit_summary(base, item):
+    groups = base.with_entities(Unit.name, func.count(item.id), func.sum(item.quantity),
+                                func.sum(item.amount)).group_by(Unit.id, Unit.name).order_by(Unit.name, Unit.id).all()
+    totals = [{'unit': unit or '未设单位', 'quantity': _safe_float(qty)} for unit, _, qty, _ in groups]
+    return {'count': sum(count for _, count, _, _ in groups),
+            'quantity': totals[0]['quantity'] if len(totals) == 1 else (None if totals else 0),
+            'unit_totals': totals, 'amount': sum(_safe_float(amount) for _, _, _, amount in groups)}
+
 def _sql_paged_in_detail_report(filters):
     """入库明细 SQL 分页 builder：返回 (columns, rows, summary, total)。"""
     columns = _in_detail_columns()
@@ -31764,17 +31799,8 @@ def _sql_paged_in_detail_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
     base = _filtered_in_detail_query(filters)
-    total = base.count()
-    agg = base.with_entities(
-        func.count(InOrderItem.id),
-        func.coalesce(func.sum(InOrderItem.quantity), 0),
-        func.coalesce(func.sum(InOrderItem.amount), 0),
-    ).first()
-    summary = {
-        'count': int(agg[0] or 0),
-        'quantity': _safe_float(agg[1]),
-        'amount': _safe_float(agg[2]),
-    }
+    summary = _detail_unit_summary(base, InOrderItem)
+    total = summary['count']
     query = _sql_order_by(
         base, _IN_DETAIL_SORT_MAP,
         filters.get('sort_field'), filters.get('sort_order'),
@@ -31807,17 +31833,8 @@ def _sql_paged_out_detail_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
     base = _filtered_out_detail_query(filters)
-    total = base.count()
-    agg = base.with_entities(
-        func.count(OutOrderItem.id),
-        func.coalesce(func.sum(OutOrderItem.quantity), 0),
-        func.coalesce(func.sum(OutOrderItem.amount), 0),
-    ).first()
-    summary = {
-        'count': int(agg[0] or 0),
-        'quantity': _safe_float(agg[1]),
-        'amount': _safe_float(agg[2]),
-    }
+    summary = _detail_unit_summary(base, OutOrderItem)
+    total = summary['count']
     query = _sql_order_by(
         base, _OUT_DETAIL_SORT_MAP,
         filters.get('sort_field'), filters.get('sort_order'),

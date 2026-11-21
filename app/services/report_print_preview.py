@@ -199,7 +199,7 @@ def _fill_sheet(sheet, filler):
     fit_print_rows(sheet)
 
 
-def build_report_print_preview(title, columns, rows, template_path=None, include_prices=True):
+def build_report_print_preview(title, columns, rows, template_path=None, include_prices=True, report_type=None):
     """Fill an existing workbook entirely in memory; return escaped-template render data."""
     if len(rows) > MAX_PREVIEW_ROWS:
         raise ValueError('当前结果超过浏览器打印上限（5000 行），请缩小筛选范围后打印')
@@ -231,6 +231,8 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
         order = SimpleNamespace(title=title, operator=SimpleNamespace(username=''),
             total_amount=sum(float(row.get('amount') or 0) for row in rows) if include_prices else '')
         items = [SimpleNamespace(**{'quantity': row.get('quantity', 0), **row}) for row in rows]
+        from doc_print_excel import _report_print_quantity
+        total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail') else None
         sheets = []
         for index, sheet in enumerate(workbook.worksheets):
             if sheet.sheet_state != 'visible':
@@ -277,7 +279,8 @@ def build_report_print_preview(title, columns, rows, template_path=None, include
                         raise ValueError('此模板含条码或二维码图片，浏览器暂不能完整呈现，请使用 Excel 模板文件打印')
                     if not include_prices and isinstance(cell.value, str):
                         cell.value = re.sub(r'\{(?:item|order)\.[^{}]*(?:price|amount|value|cost)[^{}]*\}|\{total_amount\}', '', cell.value, flags=re.I)
-            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat(), item_fields=item_fields))
+            _fill_sheet(sheet, _Filler(order, items, date.today().isoformat(), item_fields=item_fields,
+                                       total_quantity=total_qty))
             if sheet.max_row * sheet.max_column > MAX_PREVIEW_CELLS:
                 raise ValueError('打印内容过大，请缩小筛选范围后打印')
             # Print area is part of the selected template, never silently print excluded cells.
