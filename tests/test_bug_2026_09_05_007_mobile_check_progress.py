@@ -129,6 +129,35 @@ def test_t1_orders_list_has_counted_count():
     assert o["counted_count"] == 1
 
 
+def test_partial_pallet_counts_are_pending_and_mobile_matches_completed_rows():
+    check, materials = _seed_scene()
+    from app import InventoryCheckItem
+    row = InventoryCheckItem(inventory_check_id=check.id, material_id=materials['M001'].id,
+                             system_stock=10, actual_stock=10, difference=0)
+    db.session.add(row)
+    db.session.commit()
+    check_id, row_id, actor = check.id, row.id, check.operator_id
+    client = _client()
+    detail = client.get(f'/check/{check_id}').get_data(as_text=True)
+    assert '已盘 0 个物料' in detail
+    assert '未盘 3 个物料' in detail
+    mobile = client.get(f'/mobile/api/check_orders/{check_id}/items').json['data']
+    assert (mobile['counted'], mobile['total']) == (1, 4)
+
+    row = db.session.get(InventoryCheckItem, row_id)
+    row.actual_stock, row.difference, row.counted_by = 0, -10, actor
+    db.session.commit()
+    detail = client.get(f'/check/{check_id}').get_data(as_text=True)
+    assert '已盘 1 个物料' in detail
+    assert '未盘 2 个物料' in detail
+    mobile = client.get(f'/mobile/api/check_orders/{check_id}/items').json['data']
+    assert (mobile['counted'], mobile['total']) == (2, 4)
+    recorded_zero = next(item for item in mobile['items'] if item['actual_stock'] == 0)
+    assert recorded_zero['counted'] and recorded_zero['counted_at'] == ''
+    orders = client.get('/api/stocktake/check_orders?warehouse=A仓', headers=_bearer(client)).json['data']['orders']
+    assert (orders[0]['item_count'], orders[0]['counted_count']) == (4, 2)
+
+
 # T2 ───────────────────────────────────────────────────────────────
 def test_t2_items_progress_and_blind_count():
     check, _m = _seed_scene()

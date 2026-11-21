@@ -27465,7 +27465,7 @@ def _build_check_batch_meta(check):
     展示批次进度：
     - 冻结账面时点（frozen_at：首笔明细写入时设置，此后差异 = 实盘 − 冻结账面，
       不随期间出入库漂移）；
-    - 已盘物料数（按物料去重）与有差异行数；
+    - 已盘物料数（该物料各行均已盘）与差异统计；
     - 挂入的扫码盘点单（InventoryCheckScan.check_id == check.id）留痕列表，
       含单号/日期/盘点人/时间/条数。
     仅当 check 为既有单据时返回 dict；新建空单返回 None（不展示批次区块）。
@@ -27474,8 +27474,8 @@ def _build_check_batch_meta(check):
         return None
     active_rows = [it for it in (check.items or []) if it.material_id]
     distinct_materials = len({it.material_id for it in active_rows})
-    counted_materials = {it.material_id for it in active_rows
-                         if getattr(it, 'counted_at', None) or getattr(it, 'counted_by', None)}
+    uncounted_materials = {it.material_id for it in active_rows
+                           if not it.has_actual_count}
     from services.stocktake import stocktake_display_values
     displayed = stocktake_display_values(active_rows)
     diff_material_count = sum(abs(row['difference'] or 0) > STOCK_COMPARE_EPSILON for row in displayed.values())
@@ -27508,8 +27508,8 @@ def _build_check_batch_meta(check):
         'frozen_at': check.frozen_at.strftime('%Y-%m-%d %H:%M') if getattr(check, 'frozen_at', None) else '',
         'row_count': len(active_rows),
         'material_count': distinct_materials,
-        'counted_count': len(counted_materials),
-        'uncounted_count': distinct_materials - len(counted_materials),
+        'counted_count': distinct_materials - len(uncounted_materials),
+        'uncounted_count': len(uncounted_materials),
         'diff_material_count': diff_material_count,
         'scan_count': scan_count,
         'scans': scans,
@@ -28183,10 +28183,10 @@ def _list_pending_check_orders(warehouse=None):
             'remark': order.remark or '',
             'frozen_at': order.frozen_at.isoformat() if order.frozen_at else '',
             'item_count': len(order.items),
-            # FEATURE-2026-09-05-003：已盘行数（counted_at 非空），供 H5/Android
+            # FEATURE-2026-09-05-003：已盘行数沿用实盘判定，供 H5/Android
             # 选单下拉里直接展示「已盘 X/Y」进度
             'counted_count': sum(1 for it in order.items
-                                 if getattr(it, 'counted_at', None) is not None),
+                                 if it.material_id and it.has_actual_count),
         })
     return result
 

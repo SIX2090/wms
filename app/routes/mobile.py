@@ -894,7 +894,7 @@ def register_mobile_routes(app):
         for it in check.items:
             if not it.material_id:
                 continue
-            done = getattr(it, 'counted_at', None) is not None
+            done = it.has_actual_count
             if done:
                 counted += 1
             m = it.material
@@ -909,7 +909,7 @@ def register_mobile_routes(app):
                 'actual_stock': (float(it.actual_stock or 0) if done else None),
                 'counted_by': (it.counted_by_user.username
                                if getattr(it, 'counted_by_user', None) else ''),
-                'counted_at': it.counted_at.strftime('%m-%d %H:%M') if done else '',
+                'counted_at': it.counted_at.strftime('%m-%d %H:%M') if it.counted_at else '',
             })
         # 未盘在前（按编码序），已盘在后
         items.sort(key=lambda x: (x['counted'], x['code'], x['area']))
