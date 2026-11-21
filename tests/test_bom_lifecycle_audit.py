@@ -3,6 +3,7 @@ import io
 import re
 
 import pytest
+from bs4 import BeautifulSoup
 from openpyxl import Workbook
 from app import app, db, BOM, BOMItem, Material, ProductionRequisition, Warehouse, User, Unit
 from tests.document_revision_client import document_post
@@ -222,7 +223,7 @@ def test_warehouse_bom_detail_is_readonly_and_has_no_fake_save(bom_case):
     user.role = 'warehouse'
     db.session.commit()
     html = client.get(f"/bom/{ids['bom']}?embedded=1").get_data(as_text=True)
-    assert '<form id="docForm" class="doc-form readonly-mask">' in html
+    assert BeautifulSoup(html, 'html.parser').select_one('form#docForm.doc-form.readonly-mask')
     assert 'wms-no-global-actionbar' in html
     assert 'onclick="submitForm(false)"' not in html
     assert '查看BOM' in html
