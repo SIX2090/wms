@@ -42,7 +42,13 @@ const payload=(index)=>{const call=calls[index];assert.equal(call.url,'/in_order
   if(p.field==='selection')control.checked=original;else control.value=original;
   const third=click();await finish(2,'network',third);assert.equal(calls[2].body.request_id,a,'A to B to A must reuse A request');
  }else if(p.action==='filter-only'){
-  const first=click();await finish(0,'network',first);nodes.lineSearch.value='B';nodes.lineSearch.fire('input');const next=click();assert.equal(calls[1].body.request_id,calls[0].body.request_id);await finish(1,'network',next);
+  const first=click();await finish(0,'network',first);
+  checks[0].row.dataset.search='a';checks[1].row.dataset.search='b';
+  nodes.lineSearch.value='B';nodes.lineSearch.fire('input');
+  const next=click();assert.deepEqual(calls[1].body.items,[calls[0].body.items[1]]);
+  assert.notEqual(calls[1].body.request_id,calls[0].body.request_id);await finish(1,'network',next);
+  nodes.lineSearch.value='';nodes.lineSearch.fire('input');
+  const again=click();assert.equal(calls[2].body.request_id,calls[0].body.request_id);await finish(2,'network',again);
  }else if(p.action==='empty'){
   checks.forEach(c=>c.checked=false);await click();assert.equal(calls.length,0);assert.equal(nodes.createDraft.disabled,false);assert(messages.some(m=>m.type==='warning'));checks[0].checked=true;const next=click();await finish(0,'success',next);
  }else if(['uuid-error','build-error'].includes(p.action)){
@@ -88,7 +94,7 @@ def test_changed_payload_gets_new_id_and_returning_to_original_reuses_original_i
     run('changed-content', field=field)
 
 
-def test_filter_only_changes_do_not_rotate_request_id():
+def test_filtered_submission_only_sends_visible_selection_and_reuses_original_key_on_return():
     run('filter-only')
 
 

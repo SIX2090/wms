@@ -172,9 +172,19 @@
                     <i class="bi bi-trash"></i> 删除
                 </button>
                 {% elif order.status == 'completed' %}
-                <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})">
+                {% set blocking_pushes = push_history|selectattr('link_status', 'equalto', 'active')|list %}
+                <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})"{% if blocking_pushes %} disabled{% endif %}>
                     <i class="bi bi-arrow-return-left"></i> 反提交
                 </button>
+                {% if blocking_pushes %}
+                <div class="align-self-center small">反提交前请处理
+                    {% for trace in blocking_pushes %}
+                    {% if trace.url %}<a href="{{ trace.url }}">{{ trace.target_no }}</a>{% else %}{{ trace.target_no }}{% endif %}
+                    （{{ '已完成' if trace.status == 'completed' else '草稿' if trace.status == 'pending' else '待核对' }}）{% if not loop.last %}、{% endif %}
+                    {% endfor %}
+                    <a href="#inboundPushHistory">查看处理说明</a>
+                </div>
+                {% endif %}
                 {% if can_push %}
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" data-bs-toggle="dropdown">
@@ -222,7 +232,7 @@
 
     {% if push_history %}
     <div class="order-info-card">
-        <div class="card-header-custom"><i class="bi bi-diagram-3"></i> 下推记录</div>
+        <div class="card-header-custom" id="inboundPushHistory"><i class="bi bi-diagram-3"></i> 下推记录</div>
         <div class="card-body-custom p-0"><div class="table-responsive">
             <table class="table table-sm table-hover mb-0">
                 <thead class="table-light"><tr><th>目标类型</th><th>目标单号</th><th>数量</th><th>状态</th><th>创建人</th><th>创建时间</th></tr></thead>
@@ -230,7 +240,7 @@
                     <td>{{ trace.target_label }}</td>
                     <td>{% if trace.url %}<a href="{{ trace.url }}">{{ trace.target_no }}</a>{% else %}{{ trace.target_no }}{% endif %}</td>
                     <td>{{ '%g'|format(trace.quantity) }}</td>
-                    <td>{% if trace.link_status == 'released' %}已释放{% elif trace.status == 'pending' %}草稿{% elif trace.status == 'completed' %}已完成{% else %}未知{% endif %}</td>
+                    <td>{% if trace.link_status == 'released' %}已释放{% elif trace.status == 'pending' %}草稿（删除该草稿后可解除占用）{% elif trace.status == 'completed' %}已完成（如需撤销，先反提交下游单，再删除其草稿）{% else %}关联有效，目标单待核对{% endif %}</td>
                     <td>{{ trace.creator.username if trace.creator else '-' }}</td>
                     <td>{{ trace.created_at.strftime('%Y-%m-%d %H:%M') if trace.created_at else '-' }}</td>
                 </tr>{% endfor %}</tbody>
@@ -1408,7 +1418,7 @@ function saveHeader() {
 // ==================== 完成入库 ====================
 function completeOrder(id, force) {
     return WMS.runDocumentAction('completeOrder', function() {
-        var confirmation = force ? Promise.resolve(true) : showConfirm('确认完成入库？入库后库存将增加。', {title: '完成入库'});
+        var confirmation = force ? Promise.resolve(true) : showConfirm({{ ('确认完成入库并按本单数量同时完成领料出库？' if order.auto_push_requisition else '确认完成入库？入库后库存将增加。')|tojson }}, {title: '完成入库'});
         return confirmation.then(function(confirmed) {
             if (!confirmed) return;
             var url = '/in_order/' + id + '/complete';
@@ -1472,7 +1482,7 @@ function forceCompleteOrder() {
 
 // ==================== 反提交 ====================
 function revertOrder(id) {
-    showConfirm('确认反提交？反提交后库存将减少。', {title: '反提交入库单'}).then(function(confirmed) {
+    showConfirm({{ ('反提交会回退本单入库库存，单据转为草稿。关联采购数量仍由这张草稿占用，删除草稿才会释放。' if has_purchase_reservation else '反提交会回退本单入库库存，单据转为草稿。')|tojson }}, {title: '反提交入库单'}).then(function(confirmed) {
         if (!confirmed) return;
         WMS.api.postRaw('/in_order/' + id + '/revert')
         .then(res => {

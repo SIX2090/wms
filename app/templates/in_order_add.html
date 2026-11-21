@@ -114,8 +114,8 @@
                 <div class="col-md-3">
                     <div class="mb-2 pt-4">
                         <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="auto_push_requisition" id="autoPushRequisition" value="1">
-                            <label class="form-check-label" for="autoPushRequisition">自动下推领料单</label>
+                            <input class="form-check-input" type="checkbox" name="auto_push_requisition" id="autoPushRequisition" value="1"{% if prefill and prefill.auto_push_requisition %} checked{% endif %}>
+                            <label class="form-check-label" for="autoPushRequisition">入库时同时完成领料出库</label>
                         </div>
                     </div>
                 </div>
@@ -1123,7 +1123,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         return WMS.api.postRaw(`/in_order/${data.id}/complete`, {})
             .then(completeRes => {
                 if (completeRes && completeRes.status === 'success') {
-                    showToast('完成入库成功，库存已更新', 'success');
+                    showToast(completeRes.auto_requisition_id ? completeRes.msg : '完成入库成功，库存已更新', 'success');
                     if (typeof clearDraft === 'function') clearDraft();
                     window.location.href = businessType === '采购入库' ? '/in_order/add' :
                         (saveAndNew ? returnAddUrl : `/in_order/${data.id}`);

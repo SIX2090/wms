@@ -26727,16 +26727,20 @@ def _push_target_url(target_type, target_id):
     return url_for('after_sale_out_detail', id=target_id)
 
 def _in_order_push_history(order):
-    rows = DocumentPushLine.query.filter_by(source_document_id=order.id).filter(
+    rows = DocumentPushLine.query.filter_by(source_document_id=order.id, source_document_no=order.order_no).filter(
         DocumentPushLine.source_document_type.in_(('purchase_in_order', 'other_in_order', 'product_in_order'))
     ).order_by(DocumentPushLine.created_at.desc(), DocumentPushLine.id.desc()).all()
     grouped = {}
     for row in rows:
-        key = (row.target_document_type, row.target_document_id)
+        key = (row.target_document_type, row.target_document_id, row.target_document_no,
+               row.created_by, row.request_id, row.status)
         if key not in grouped:
-            target = (db.session.get(OutOrder, row.target_document_id)
-                      if row.target_document_type in ('requisition', 'other_out', 'sales_out')
-                      else db.session.get(AfterSaleOutOrder, row.target_document_id))
+            target = None
+            if row.status == 'active':
+                model = OutOrder if row.target_document_type in ('requisition', 'other_out', 'sales_out') else AfterSaleOutOrder
+                target = db.session.get(model, row.target_document_id)
+                if target and target.order_no != row.target_document_no:
+                    target = None
             grouped[key] = {
                 'target_type': row.target_document_type,
                 'target_label': ('销售出库单' if row.target_document_type == 'sales_out' else INBOUND_PUSH_TARGETS.get(row.target_document_type, {}).get('label', row.target_document_type)),

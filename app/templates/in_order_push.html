@@ -62,7 +62,7 @@
     </div>
 
     <div class="d-flex gap-2 mb-2">
-        <button type="button" class="btn btn-sm btn-outline-primary" id="selectAll">全选可下推</button>
+        <button type="button" class="btn btn-sm btn-outline-primary" id="selectAll">全选当前可见行</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="clearAll">取消全选</button>
     </div>
 
@@ -78,7 +78,7 @@
             <tbody>
                 {% for line in lines %}
                 <tr data-search="{{ ((line.item.material.code if line.item.material else '') ~ ' ' ~ (line.item.material.name if line.item.material else '') ~ ' ' ~ (line.item.contract_no or '') ~ ' ' ~ (line.item.project_name or ''))|lower }}">
-                    <td><input class="form-check-input line-check" type="checkbox" data-item-id="{{ line.item.id }}" {% if line.available_quantity > 0 %}checked{% else %}disabled{% endif %}></td>
+                    <td><input class="form-check-input line-check" type="checkbox" data-item-id="{{ line.item.id }}" {% if line.available_quantity <= 0 %}disabled{% endif %}></td>
                     <td>{{ line.item.material.code if line.item.material else '-' }}</td>
                     <td>{{ line.item.material.name if line.item.material else '-' }}</td>
                     <td>{{ line.item.material.spec if line.item.material else '-' }}</td>
@@ -96,7 +96,7 @@
     </div>
 
     <div class="d-flex justify-content-end mt-3">
-        <button type="button" class="btn btn-primary" id="createDraft" {% if not order.warehouse %}disabled{% endif %}><i class="bi bi-file-earmark-plus"></i> 创建目标草稿</button>
+        <button type="button" class="btn btn-primary" id="createDraft" {% if not order.warehouse %}disabled{% endif %}><i class="bi bi-file-earmark-plus"></i> 将当前可见的勾选行生成草稿</button>
     </div>
 </div>
 {% endblock %}
@@ -151,7 +151,9 @@
         submitting = true;
         this.disabled = true;
         try {
-            const items = Array.from(document.querySelectorAll('.line-check:checked')).map(check => ({
+            const visibleChecks = Array.from(document.querySelectorAll('.line-check:checked'))
+                .filter(check => !check.closest('tr').hidden);
+            const items = visibleChecks.map(check => ({
                 source_item_id: Number(check.dataset.itemId),
                 quantity: check.closest('tr').querySelector('.line-quantity').value
             }));

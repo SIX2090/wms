@@ -654,7 +654,8 @@ def register_in_order_routes(app):
             order.status == 'pending' and order.id in get_reverted_in_order_ids([order.id])
         )
         has_purchase_reservation = (
-            is_reverted_draft and order.id in get_in_order_purchase_reservation_ids([order.id])
+            (is_reverted_draft or order.status == 'completed')
+            and order.id in get_in_order_purchase_reservation_ids([order.id])
         )
         return render_template(
             'in_order_detail.html',
@@ -1121,6 +1122,7 @@ def register_in_order_routes(app):
                              source_purchase_order_id=source_purchase_order_id,
                              source_sales_order_id=source_sales_order_id,
                              prefill={
+                                 'auto_push_requisition': order.auto_push_requisition if order else False,
                                  'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
                                  'location': order.location if order else (request.args.get('location') or '').strip(),
                                  'purpose': order.purpose if order else (request.args.get('purpose') or '').strip(),

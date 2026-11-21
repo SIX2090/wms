@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from jinja2 import Template
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,7 @@ def test_completion_navigation(page, kind, status):
         action = f'const completeRes = response; {callback}'
     else:
         function = source.split('function completeOrder(id, force) {', 1)[1].split('\nfunction showAnomalyWarning', 1)[0]
-        function = function.replace("{{ (order.business_type or '采购入库')|tojson }}", json.dumps(kind))
+        function = Template(function).render(order={'business_type': kind, 'auto_push_requisition': False})
         action = 'function completeOrder(id, force) {' + function + '\ncompleteOrder(7, false);'
     helper = (ROOT / 'app/static/js/document-action.js').read_text(encoding='utf-8')
     script = '''
