@@ -24,12 +24,14 @@ const fields={'.material-code':{value:'M1',style:{}},'.unit-id':{value:'1'},
 '.line-qty':{value:'3',style:{}},'.line-price':{value:'0'},
 '.material-name':{value:''},'.material-spec':{value:''},'.material-unit':{value:''},'.line-usage':{value:''},'.line-remark':{value:''}};
 const row={dataset:{},querySelector:s=>fields[s]||null};
-const document={querySelectorAll:()=>[row]};
+const readonly=false;
+const blankRow={dataset:{},querySelector:()=>({value:''})};
+const document={querySelectorAll:()=>[row],getElementById:()=>({lastElementChild:blankRow})};
 function findMaterialByCode(){return material;}
 function getMaterialUnitId(){return 1;} function getMaterialUnit(){return '个';}
 function formatQty(v){return Number(v||0).toFixed(2);} function calcRow(){}
 const window={};eval(fs.readFileSync(require('node:path').join(require('node:path').dirname(JSON.parse(process.argv[1])),'../static/js/decimal-input.js'),'utf8'));const WMS=window.WMS;
-eval(extract('bomRecordedFieldUnchanged')+'\n'+extract('collectItems')+'\n'+extract('fillMaterialFields'));
+eval(extract('ensureIssueEntryRow')+'\n'+extract('bomRecordedFieldUnchanged')+'\n'+extract('collectItems')+'\n'+extract('fillMaterialFields'));
 assert.equal(collectItems().items[0].price,0);
 fillMaterialFields(row,material);assert.equal(fields['.line-price'].value,'0');
 fields['.line-price'].value='';fillMaterialFields(row,material);

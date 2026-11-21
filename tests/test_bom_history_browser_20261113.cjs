@@ -36,7 +36,7 @@ function setup(docType = 'bom') {
         return {dataset: {}, fields, querySelector: s => fields[s] || null,
             querySelectorAll: s => s.startsWith('.line-qty,') ? [fields['.line-qty'], fields['.line-price'], fields['.actual-stock'], fields['.system-stock']] : []};
     }
-    const table = {insertRow: () => {const r = row(); rows.push(r); return r;}, insertBefore() {}, rows};
+    const table = {insertRow: () => {const r = row(); rows.push(r); return r;}, insertBefore() {}, get lastElementChild(){return rows.at(-1);}, rows};
     const context = {docType, readonly: false, hasCountedByCol: false, checkLocationRequired: false,
         document: {getElementById: () => table, querySelectorAll: () => rows},
         rowCells: () => '', findMaterialByCode: code => code === 'B-M' ? material : null,
@@ -44,7 +44,7 @@ function setup(docType = 'bom') {
         WMS: {MaterialPicker: {bindEntryRow() {}}}};
     context.window = context; vm.createContext(context);
     for (const rel of ['app/static/js/decimal-input.js', 'app/static/js/money.js']) vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), context);
-    vm.runInContext(['formatQty', 'getMaterialUnit', 'fillMaterialFields', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'updateCheckDiff', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
+    vm.runInContext(['formatQty', 'getMaterialUnit', 'ensureIssueEntryRow', 'fillMaterialFields', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'updateCheckDiff', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
     const data = {line_id: 10, material_id: 3, code: 'B-M', unit_id: 1, quantity: 3.33,
         price: 1.2345, recorded_unit_cost: 1.2345, total_cost: 4.11, recorded_total_cost: 4.11};
     const r = context.createRow(data);

@@ -42,7 +42,8 @@ const inputNode={value:'B-M'};
 const jqRow={find(selector){const node=selector==='.material-input'?inputNode:field(selector);return{val(value){if(arguments.length){node.value=value;return this;}return node.value;}};}};
 const jqInput={val:()=>inputNode.value,closest:()=>jqRow};
 const jqRoot={find(selector){assert.equal(selector,'.material-input');return{on(event,callback){assert.equal(event,'input');handler=callback;}};}};
-const context={document:{querySelector:field,getElementById:field},materialCache:new Map([[1,material]]),
+const context={isSaleOrder:false,isOtherOut:false,isPurchaseReturn:false,
+ document:{querySelector:field,getElementById:id=>id==='materialTableBody'?{lastElementChild:{querySelector:()=>({value:''})}}:field(id)},materialCache:new Map([[1,material]]),
  rows:[{line_id:7,material_id:1,quantity:7,price:p.initial,warehouse_id:3}],
  closeMaterialMenu(){},renderRows(){renders++;},scheduleDraftSave(){drafts++;},
  formatStock:value=>Number(value).toFixed(2),getMaterialUnit:()=> '件',fillPurposeFromMaterial(){},
@@ -83,7 +84,9 @@ def test_zero_price_survives_each_actual_consumer_and_blank_still_defaults(kind,
     text = (ROOT / relative).read_text(encoding='utf-8-sig')
     functions = re.findall(r'^function ' + re.escape(name) + r'\b[\s\S]*?^}', text, re.M)
     assert len(functions) == 1, (relative, name)
-    payload = dict(kind=kind, initial=initial, material=material, force=force, source=functions[0])
+    if kind == 'out_add':
+        functions.append(text[text.index('function ensureIssueEntryRow('):text.index('function clearMaterialFields(')])
+    payload = dict(kind=kind, initial=initial, material=material, force=force, source='\n'.join(functions))
     node = shutil.which('node')
     assert node
     result = subprocess.run([node, '--disable-proto=throw', '-e', PROGRAM], input=json.dumps(payload),

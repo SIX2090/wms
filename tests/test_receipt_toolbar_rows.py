@@ -18,8 +18,11 @@ def test_row_menu_copy_preserves_all_fields_and_inserts_next_to_source(price, ca
         pytest.skip('Node.js required')
     source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
     helpers = 'function copyValuesToRow' + source.split('function copyValuesToRow', 1)[1].split('function insertRowBefore', 1)[0]
+    if page == 'out':
+        helpers = source[source.index('function ensureIssueEntryRow('):source.index('function clearMaterialFields(')] + helpers
     script = r'''
 const assert=require('node:assert/strict');
+const isSaleOrder=false,isOtherOut=false,isPurchaseReturn=false;
 let focused=null;
 function makeRow() {
     const values={};
@@ -38,7 +41,7 @@ src.querySelector('.material-code').value='AUD001';
 src.querySelector('.material-price').value=PRICE;
 src.querySelector('.line-customer-supplied').checked=true;
 src.dataset={sourcePurchaseOrderItemId:'9',sourcePurchaseOrderNo:'PO9'};
-const document={querySelectorAll(){return rows;},querySelector(){return rows.at(-1);}};
+const document={getElementById(){return {lastElementChild:rows.at(-1)};},querySelectorAll(){return rows;},querySelector(){return rows.at(-1);}};
 function addNewRow(){const r=makeRow();rows.push(r);return r;}
 function insertRowBefore(next){const r=makeRow();rows.splice(rows.indexOf(next),0,r);return r;}
 function findEmptyRow(){return rows.find(r=>!r.querySelector('.material-code').value);}

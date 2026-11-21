@@ -14,6 +14,8 @@ def page_handlers(template):
     text = (ROOT / 'app/templates' / template).read_text(encoding='utf-8')
     names = ['fillMaterialFields', 'selectMaterial', 'handleKeydown',
              'focusNextEditable', 'setupScanAutoFill']
+    if template == 'out_order_add.html':
+        names.append('ensureIssueEntryRow')
     parts = []
     if 'const materialSearchState =' in text:
         parts.append(re.search(r'const materialSearchState = [^\n]+', text).group())
@@ -43,9 +45,9 @@ const dropdown={style:{display:p.mode==='closed'?'none':'block'},
  querySelector(){return candidate}};
 const row={isConnected:true,querySelector(s){return s==='.material-dropdown'?dropdown:fields[s]||null}};
 input.closest=()=>row;input.classList={contains:c=>c==='material-code'};
-const context={row,materials:[{id:1,code:'M001',name:'轴承',price:99,stock:10},
+const context={row,isSaleOrder:false,isOtherOut:false,isPurchaseReturn:false,materials:[{id:1,code:'M001',name:'轴承',price:99,stock:10},
  {id:2,code:'M002',name:'螺栓',price:77,stock:20}],activeDropdown:dropdown,
- document:{addEventListener(n,f){(documentEvents[n]||=[]).push(f)},querySelector(){return null},
+ document:{getElementById(){return {lastElementChild:{querySelector:()=>({value:''})}};},addEventListener(n,f){(documentEvents[n]||=[]).push(f)},querySelector(){return null},
   querySelectorAll(){return [input,fields['.material-qty'],price]}},
  getMaterialUnit:()=>'',formatStock:String,fillPurposeFromMaterial(){},
  calcAmount(){calculated++},calcTotal(){},clearTimeout(){},

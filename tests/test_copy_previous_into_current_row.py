@@ -15,11 +15,14 @@ def test_copy_previous_fills_selected_row_without_insertion(page,case):
     if not node:pytest.skip('Node.js required')
     source=(ROOT/f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
     helpers='function copyValuesToRow'+source.split('function copyValuesToRow',1)[1].split('function insertRowBefore',1)[0]
+    if page == 'out':
+        helpers = source[source.index('function ensureIssueEntryRow('):source.index('function clearMaterialFields(')] + helpers
     tracker=source[source.index('let currentMaterialRow = null;'):source.index('function copyValuesToRow')] if 'let currentMaterialRow = null;' in source else ''
     script=r'''
 const assert=require('node:assert/strict');let focused=null,toasts=[];const events={};
 function makeRow(){const fields={};return {dataset:{},querySelector(s){return fields[s] ||= {value:'',checked:false,focus(){focused=this;},select(){}};}};}
-const rows=[makeRow(),makeRow(),makeRow(),makeRow()];
+const isSaleOrder=false,isOtherOut=false,isPurchaseReturn=false;
+const rows=[makeRow(),makeRow(),makeRow(),makeRow(),makeRow()];
 rows.forEach((r,i)=>Object.defineProperty(r,'previousElementSibling',{get(){return rows[i-1]||null;}}));
 const src=rows[0],dst=rows[1],unrelated=rows[3];
 const fields=['material-code','material-brand','material-name','material-spec','material-unit','material-stock',
@@ -30,7 +33,7 @@ src.querySelector('.material-code').value='PREVIOUS';src.querySelector('.materia
 src.querySelector('.line-customer-supplied').checked=true;
 src.dataset={sourcePurchaseOrderItemId:'9',sourcePurchaseOrderNo:'PO9'};
 unrelated.querySelector('.material-code').value='LAST-FILLED';
-const document={getElementById(){return {contains(row){return rows.includes(row);}};},
+const document={getElementById(){return {lastElementChild:rows.at(-1),contains(row){return rows.includes(row);}};},
  addEventListener(name,fn){events[name]=fn;},querySelectorAll(){return rows;},querySelector(){return rows.at(-1);}};
 function showToast(message){toasts.push(message);}
 function calcAmount(){}
