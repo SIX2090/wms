@@ -118,6 +118,7 @@ class TestAutoPushRequisition:
             assert order.auto_push_requisition is True
             assert requisition.status == "completed"
             assert requisition.business_type == "领料单"
+            assert requisition.department_id is None
             assert requisition.warehouse == order.warehouse
             assert requisition.purpose == "自动下推领料单"
             assert len(requisition.items) == 1

@@ -537,7 +537,7 @@ textarea.form-control {
                         <input type="hidden" name="department_id" value="">
                         {% else %}
                         <select class="form-select" name="department_id">
-                            <option value="">请选择</option>
+                            <option value="">选填</option>
                             {% for dept in departments %}
                             <option value="{{ dept.id }}" {% if prefill and prefill.department_id|string == dept.id|string %}selected{% endif %}>{{ dept.name }}</option>
                             {% endfor %}
@@ -1226,10 +1226,6 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             if (customerInput) customerInput.focus();
             return;
         }
-    } else if (!isOtherOut && !departmentId) {
-            showToast('请选择部门', 'danger');
-            document.querySelector('[name="department_id"]').focus();
-            return;
     }
 
     // P1-7 采购退货出库：开关开启时必须关联来源采购入库单。
@@ -1699,7 +1695,7 @@ function refreshDepartments(options) {
     if (!select || select.tagName !== 'SELECT') return;
     return WMS.selectOptions.refresh({
         url: '/department/api/list', itemsKey: 'departments',
-        targets: [{select: select, placeholder: '请选择'}]
+        targets: [{select: select, placeholder: '选填'}]
     }).then(function(updated) {
         if (updated) notifyMaterialRefresh('部门列表已更新', 'success', silent);
     }).catch(function(err) { notifyMaterialRefresh('部门刷新失败：' + err.message, 'danger', silent); });

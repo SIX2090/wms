@@ -31,7 +31,7 @@ def function(source,name):
 PROGRAM=r'''
 const assert=require('node:assert/strict'),vm=require('node:vm'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
 const calls=[],pending=[],messages=[],issues=[];let bar;
-const fields=Object.fromEntries(Object.entries({date:'2026-10-20',department_id:'3',picker:'fixture picker',warehouse_id:'2',business_type:p.kind==='normal'?'领料单':p.kind==='sale'?'销售出库':p.kind==='other'?'其他出库':'采购退货出库',order_id:'',order_no:'OUT-OLD-FIXTURE',remark:'old remarks',customer:'fixture customer'}).map(([name,value])=>[name,{value,focus(){}}]));
+const fields=Object.fromEntries(Object.entries({date:'2026-10-20',department_id:p.embedded?'':'3',picker:'fixture picker',warehouse_id:'2',business_type:p.kind==='normal'?'领料单':p.kind==='sale'?'销售出库':p.kind==='other'?'其他出库':'采购退货出库',order_id:'',order_no:'OUT-OLD-FIXTURE',remark:'old remarks',customer:'fixture customer'}).map(([name,value])=>[name,{value,focus(){}}]));
 const row={dataset:p.kind==='sale'?{salesSourceId:'73'}:{},querySelector:s=>{const data={'.material-code':'M-OLD','.material-qty':'2.5','.material-price':'0','.line-contract-no':'old contract','.line-project-name':'old project','.material-remark':'old line'};return s in data?{value:data[s],style:{}}:null;}};
 function node(tag,attrs={}){return{tag,attrs,disabled:false,children:[],getAttribute:k=>attrs[k]??null,setAttribute(k,v){attrs[k]=v;},classList:{add(){},contains(){return false;}},appendChild(child){this.children.push(child);},addEventListener(type,fn){this[type]=fn;},click(){if(this.clickHandler)this.clickHandler();}};}
 const buttons=p.buttons.map(attrs=>node('button',attrs));const primary=buttons.find(n=>n.attrs['data-wms-save-complete']);
@@ -50,7 +50,7 @@ function response(stage){const outcome=p.scenario;const status=outcome==='comple
  else if(p.kind==='normal'){assert(primary);click=()=>primary.click();}
  else if(p.kind==='other')click=()=>ctx.submitForm(false,false);
  else click=()=>buttons.find(n=>n.attrs.onclick==='submitForm()').click();
- const original=ctx.location.href;click();await settle();click();assert.equal(calls.length,1,'double click does not duplicate the save');assert.equal(calls[0].url,'/out_order/add');assert.equal(calls[0].body.items[0].quantity,2.5);assert.equal(calls[0].body.items[0].price,0);assert.equal(calls[0].body.items[0].source_sales_order_item_id,p.kind==='sale'?'73':undefined);assert.equal(calls[0].body.date,'2026-10-20');assert.equal(calls[0].body.order_no,'OUT-OLD-FIXTURE');assert.equal(calls[0].options.headers['X-CSRFToken'],'fixture-token');
+ const original=ctx.location.href;click();await settle();click();assert.equal(calls.length,1,'double click does not duplicate the save');assert.equal(calls[0].url,'/out_order/add');assert.equal(calls[0].body.items[0].quantity,2.5);assert.equal(calls[0].body.items[0].price,0);assert.equal(calls[0].body.items[0].source_sales_order_item_id,p.kind==='sale'?'73':undefined);assert.equal(calls[0].body.department_id,p.embedded?'':'3');assert.equal(calls[0].body.date,'2026-10-20');assert.equal(calls[0].body.order_no,'OUT-OLD-FIXTURE');assert.equal(calls[0].options.headers['X-CSRFToken'],'fixture-token');
  pending[0].resolve(response('save'));await settle();
  if(p.scenario==='save_error'){assert.equal(calls.length,1);assert.equal(ctx.location.href,original);assert(!buttons.some(n=>n.disabled));return;}
  if(p.kind!=='normal'){assert.equal(calls.length,1);assert.equal(new URL(ctx.location.href,ctx.location.origin).pathname,'/out_order/7');return;}

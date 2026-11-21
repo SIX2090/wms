@@ -38,6 +38,43 @@ from utils import get_default_print_template, print_token_or_login_required, req
 from utils import round_money_product
 
 
+def _out_order_departments(order):
+    from app import Department
+
+    eligible = Department.status.in_(('active', '启用'))
+    if order and order.department_id:
+        eligible = db.or_(eligible, Department.id == order.department_id)
+    return Department.query.filter(eligible).order_by(Department.code, Department.id).all()
+
+
+def _issue_department_id(value, order=None):
+    from app import Department
+
+    raw = str(value if value is not None else '').strip()
+    if raw.lower() in ('', 'null', 'none'):
+        return None, None
+    if raw.isascii() and raw.isdecimal() and len(raw) <= 18:
+        department = db.session.get(Department, int(raw))
+        if department and (department.status in ('active', '启用') or
+                           (order and department.id == order.department_id)):
+            return department.id, None
+    return None, '领料部门不存在或已停用，请重新选择或留空'
+
+
+def _out_order_detail_ordering(sort_by, sort_order):
+    from app import Department, OutOrder, OutOrderItem
+
+    if sort_by == 'total_amount':
+        column = db.func.coalesce(OutOrderItem.amount, OutOrder.total_amount)
+    elif sort_by == 'customer':
+        department = db.select(Department.name).where(
+            Department.id == OutOrder.department_id).correlate(OutOrder).scalar_subquery()
+        column = db.func.coalesce(db.func.nullif(OutOrder.customer, ''), department, '')
+    else:
+        column = getattr(OutOrder, sort_by)
+    return column.asc() if sort_order == 'asc' else column.desc(), OutOrder.id.desc(), OutOrderItem.id.asc()
+
+
 def _active_outbound_allocations(order):
     from app import DocumentPushLine
     return DocumentPushLine.query.filter_by(target_document_id=order.id, status='active').filter(
@@ -326,13 +363,6 @@ def register_out_order_routes(app):
         allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
-        # BUG-2026-09-23-004（A-2，R6 同根因收敛）：与 in_order_list 一致——本页按明细行
-        # outerjoin(OutOrderItem) 展开，模板「金额」列渲染 item.amount，但排序键此前打到
-        # 单据头 OutOrder.total_amount，导致点「金额 ⇅」时可见列无序。改为与展示同口径。
-        if sort_by == 'total_amount':
-            sort_col = db.func.coalesce(OutOrderItem.amount, OutOrder.total_amount)
-        else:
-            sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
         # 按单据左连接明细展示，待完成但没有明细的单据也能查到。
         query = db.session.query(OutOrder, OutOrderItem).outerjoin(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).options(
             joinedload(OutOrder.department),
@@ -377,10 +407,7 @@ def register_out_order_routes(app):
             query = query.filter(db.or_(OutOrder.business_type == '领料单', OutOrder.business_type.is_(None)))
         else:
             query = query.filter(OutOrder.business_type == explicit_bt)
-        if sort_order == 'asc':
-            query = query.order_by(sort_col.asc())
-        else:
-            query = query.order_by(sort_col.desc())
+        query = query.order_by(*_out_order_detail_ordering(sort_by, sort_order))
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         items = [
             type('OutOrderListRow', (), {
@@ -421,7 +448,7 @@ def register_out_order_routes(app):
     @login_required
     def out_order_detail(id):
         from datetime import date
-        from app import (Department, Material, OutOrder,
+        from app import (Material, OutOrder,
                          OutOrderItem, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
@@ -438,7 +465,7 @@ def register_out_order_routes(app):
                 source_order = item.source_sales_order_item.sales_order
                 source_sales_orders[source_order.id] = source_order
         push_source = _active_outbound_allocations(order).first()
-        return render_template('out_order_detail.html', order=order, box_numbers=get_out_order_box_numbers(order), warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
+        return render_template('out_order_detail.html', order=order, box_numbers=get_out_order_box_numbers(order), warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=_out_order_departments(order), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/<int:id>/update', methods=['POST'])
@@ -490,7 +517,12 @@ def register_out_order_routes(app):
 
         order.date = order_date
         department_id = str(data.get('department_id') or '').strip()
-        if department_id in ('', 'None', 'null'):
+        if order.business_type in (None, '', '领料单', '生产出库'):
+            resolved_id, error = _issue_department_id(department_id, order)
+            if error:
+                return api_error(error)
+            order.department_id = resolved_id
+        elif department_id in ('', 'None', 'null'):
             order.department_id = None
         else:
             try:
@@ -550,7 +582,7 @@ def register_out_order_routes(app):
     @login_required
     def out_order_add_page():
         from datetime import date, datetime
-        from app import (Customer, Department, Material, OutOrder, OutOrderItem, Unit,
+        from app import (Customer, Material, OutOrder, OutOrderItem, Unit,
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          location_management_enabled, purchase_return_requires_order,
@@ -579,7 +611,7 @@ def register_out_order_routes(app):
         # 但额外关联来源采购入库单（原单退货），并受开关 purchase_return_requires_order 约束。
         # 镜像 P1-5（in_order.py 的 is_sales_return）。
         is_purchase_return = order.business_type == '采购退货出库' if order else order_type in ('purchase_return', 'return_out')
-        departments = Department.query.filter(Department.status.in_(('active', '启用'))).all()
+        departments = _out_order_departments(order)
         warehouses = get_active_warehouses()
         order_no = order.order_no if order else generate_order_no(
             'OO' if is_other_out else ('SO' if is_sale_order else ('PR' if is_purchase_return else 'OUT')))
@@ -729,7 +761,7 @@ def register_out_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
 
             # 转换department_id
-            if department_id:
+            if department_id and business_type != '领料单':
                 try:
                     department_id = int(department_id) if department_id else None
                 except (TypeError, ValueError):
@@ -806,6 +838,10 @@ def register_out_order_routes(app):
                         status='pending',
                         operator_id=current_user.id
                     )
+            if business_type == '领料单':
+                department_id, error = _issue_department_id(department_id, order)
+                if error:
+                    return api_error(error)
             db.session.add(order)
             db.session.flush()
 
@@ -1869,8 +1905,7 @@ def register_out_order_routes(app):
             return api_error(warehouse_error, 400)
         query = query.filter(
             _warehouse_document_match_clause(OutOrder.warehouse, warehouse))
-        sort_col = getattr(OutOrder, sort_by, OutOrder.created_at)
-        query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), OutOrder.id.desc())
+        query = query.order_by(*_out_order_detail_ordering(sort_by, sort_order))
         rows = query.all()
         for order, item in rows:
             if item is not None:
@@ -1879,13 +1914,13 @@ def register_out_order_routes(app):
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or (order.department.name if order.department else '') or '',
                     order.picker or '',
-                    order.business_type or order.purpose or '',
+                    order.purpose or '',
                     order.warehouse or '',
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
-                    item.contract_no or '',
-                    item.project_name or '',
+                    item.contract_no or order.contract_no or '',
+                    item.project_name or order.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
                     item.price or 0,
@@ -1898,11 +1933,11 @@ def register_out_order_routes(app):
                 ws.append([
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
-                    (order.department.name if order.department else '') or order.customer or '',
+                    order.customer or (order.department.name if order.department else '') or '',
                     order.picker or '',
-                    order.business_type or order.purpose or '',
+                    order.purpose or '',
                     order.warehouse or '',
-                    '', '', '', '', '', 0, 0, 0,
+                    '', '', '', order.contract_no or '', order.project_name or '', '', None, None, None,
                     '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
                 ])
@@ -1926,15 +1961,15 @@ def register_out_order_routes(app):
                 ws.append([
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
-                    (order.department.name if order.department else '') or order.customer or '',
+                    order.customer or (order.department.name if order.department else '') or '',
                     order.picker or '',
-                    order.business_type or order.purpose or '',
+                    order.purpose or '',
                     order.warehouse or '',
                     item.material.code if item.material else '',
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
-                    item.contract_no or '',
-                    item.project_name or '',
+                    item.contract_no or order.contract_no or '',
+                    item.project_name or order.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
                     item.price or 0,

@@ -628,7 +628,7 @@ MAT003,20,10.00"></textarea>
                             <input type="hidden" name="department_id" value="">
                             {% else %}
                             <select class="form-select" name="department_id">
-                                <option value="">请选择</option>
+                                <option value="">选填</option>
                                 {% for dept in departments %}
                                 <option value="{{ dept.id }}" {% if order.department_id == dept.id %}selected{% endif %}>{{ dept.name }}</option>
                                 {% endfor %}
