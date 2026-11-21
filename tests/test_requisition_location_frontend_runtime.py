@@ -89,9 +89,9 @@ let callbacks={},sent=[],pending=[],messages=[],issues=[],timers=[],focused=0,re
 class Field {constructor(attrs={}){this.value=attrs.value||'';this.disabled='disabled' in attrs;this.readOnly='readonly' in attrs;this.handlers={};this.style={};this.textContent='';}addEventListener(type,handler){this.handlers[type]=handler;}dispatchEvent(event){if(this.handlers[event.type])this.handlers[event.type].call(this,event);}focus(){focused++;}set innerHTML(html){const options=[...html.matchAll(/<option value="([^"]*)"([^>]*)>/g)];this.value=(options.find(x=>x[2].includes('selected'))||options[0]||['',''])[1];}}
 const fields=Object.fromEntries(Object.entries(p.fields).map(([name,attrs])=>[name,new Field(attrs)]));
 const rowValues={'.material-code':'M1','.unit-id':'1','.line-qty':'2','.line-price':'0','.line-usage':'用途','.line-remark':'备注','.row-num':''};
-const rows=Array.from({length:30},(_,index)=>{const nodes=Object.fromEntries(Object.entries(rowValues).map(([key,value])=>[key,new Field({value:index?'':value})]));return {querySelector:s=>nodes[s]||null};});
+const rows=Array.from({length:2},(_,index)=>{const nodes=Object.fromEntries(Object.entries(rowValues).map(([key,value])=>[key,new Field({value:index?'':value})]));return {dataset:{materialId:index?'':'1'},querySelector:s=>nodes[s]||null};});
 const total={textContent:''},button={disabled:false};
-const tbody={rows,handlers:{},addEventListener(type,fn){this.handlers[type]=fn;}};
+const tbody={rows,get lastElementChild(){return rows.at(-1);},handlers:{},addEventListener(type,fn){this.handlers[type]=fn;}};
 const document={querySelector:s=>s.startsWith('meta')?{content:'fixture-token'}:fields[(s.match(/name="([^"]+)"/)||[])[1]]||null,
  querySelectorAll:s=>s==='#docTableBody tr'?rows:s==='.doc-header button, #forceCompleteBtn'?[button]:[],
  getElementById:id=>id==='docTableBody'?tbody:id==='totalQty'?total:null,addEventListener:(type,fn)=>callbacks[type]=fn};

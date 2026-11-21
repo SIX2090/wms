@@ -121,7 +121,7 @@ const expected=[
 ['after-sale-out-completeOrder','completeOrder','7'],
 ['after-sale-out-deleteOrder','deleteOrder','7'],
 ['after-sale-out-revertOrder','revertOrder','7']];
-function click(action,id='7',disabled=false){const button={disabled,getAttribute(k){return k==='data-document-list-action'?action:id;}};events.click({target:{closest(){return button;}},preventDefault(){prevented++;}});}
+function click(action,id='7',disabled=false,reviewUrl=null){const button={disabled,getAttribute(k){return {'data-document-list-action':action,'data-order-id':id,'data-review-url':reviewUrl}[k]??null;}};events.click({target:{closest(){return button;}},preventDefault(){prevented++;}});}
 for(const [action,...args] of expected){click(action);assert.deepEqual(calls.at(-1).slice(0,args.length),args,action);}
 assert.equal(calls.length,17);assert.equal(prevented,17);
 for(const [action] of expected.filter(e=>['copyInOrder','singleOutOrderAction','completeOrder','deleteOrder','revertOrder'].includes(e[1])))click(action,'7/complete');
@@ -137,6 +137,8 @@ click('out-order-complete');assert.equal(calls.at(-1)[2],'确认完成该'+label
 click('out-order-delete');assert.equal(calls.at(-1)[2],'确认删除该'+label+'？');
 click('out-order-revert');assert.equal(calls.at(-1)[2],'确认反提交该'+label+'？反提交后库存将恢复。');
 }
+ctx.reviewIssueRevert=(button,id)=>calls.push(['reviewIssueRevert',id,button.getAttribute('data-review-url')]);
+click('out-order-revert','8',false,'/out_order/8');assert.deepEqual(calls.at(-1),['reviewIssueRevert','8','/out_order/8']);
 events.DOMContentLoaded();assert.equal(visible.id,'dateFieldDisplay');assert.equal(label.htmlFor,visible.id);assert.equal(visible['aria-label'],'开始日期');
 '''
     result = subprocess.run([node, '-e', program], input=json.dumps(dict(script=script)),

@@ -168,7 +168,8 @@
                             <i class="bi bi-trash"></i>
                         </button>
                         {% elif item.out_order.status == 'completed' and current_user.role in ['admin', 'warehouse'] %}
-                        <button type="button" class="btn btn-sm btn-outline-warning" title="反提交" data-document-list-action="out-order-revert" data-order-id="{{ item.out_order.id }}">
+                        {% set is_issue = item.out_order.business_type not in ['销售出库', '其他出库', '采购退货出库'] %}
+                        <button type="button" class="btn btn-sm btn-outline-warning" title="{{ '撤销领料' if is_issue else '反提交' }}" data-document-list-action="out-order-revert" data-order-id="{{ item.out_order.id }}"{% if is_issue %} data-review-url="{{ url_for('out_order_detail', id=item.out_order.id) }}"{% endif %}>
                             <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
                         {% endif %}

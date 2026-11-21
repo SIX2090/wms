@@ -1,0 +1,9 @@
+{% macro summary(number, warehouse, lines, linked=false) -%}
+撤销 {{ number }} 后，以下物料将退回「{{ warehouse or '原仓库未记录' }}」，单据转为草稿。
+{% for line in lines -%}
+{% set material = line.material if line.material is defined else line -%}
+{% set unit = line.unit if line.unit else material.unit -%}
+{{ material.code or '编码未记录' }} · {{ material.name or '名称未记录' }}　{{ line.quantity }} {{ unit.name if unit.name is defined else unit or '' }}
+{% endfor -%}
+{% if linked %}本草稿仍占用来源入库单的下推数量，删除草稿才会释放。{% endif %}
+{%- endmacro %}

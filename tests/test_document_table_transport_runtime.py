@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from jinja2 import DictLoader, Environment
+from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
 ROOT = Path(__file__).resolve().parents[1]
 ROLES = ['admin', 'warehouse', 'production', 'purchase', 'sales', 'viewer', 'finance', 'user']
@@ -27,7 +27,7 @@ class Controls(HTMLParser):
 def render(doc, role='admin', completed=False):
     source = (ROOT / 'app/templates/document_table_form.html').read_text(encoding='utf-8')
     base = '<body class="{% block body_class %}{% endblock %}">{% block content %}{% endblock %}{% block extra_js %}{% endblock %}</body>'
-    env = Environment(loader=DictLoader({'_document_print_menu.html': (ROOT/'app/templates/_document_print_menu.html').read_text(encoding='utf-8'), 'base.html': base, 'page': source}), autoescape=True)
+    env = Environment(loader=ChoiceLoader([DictLoader({'base.html': base, 'page': source}), FileSystemLoader(ROOT/'app/templates')]), autoescape=True)
     status = ('inactive' if completed else 'active') if doc == 'bom' else ('completed' if completed else 'pending')
     return env.get_template('page').render(current_user=SimpleNamespace(role=role), doc_type=doc,
         readonly=(completed and doc != 'bom') or (doc == 'bom' and role not in ('admin', 'production')),

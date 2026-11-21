@@ -30,7 +30,10 @@ def test_work_order_single_button(existing):
     declarations=source.split('{% block title %}',1)[0].split('\n',1)[1]
     env=Environment(loader=FileSystemLoader(ROOT/'app/templates'))
     rendered=env.from_string(declarations+header).render(current_user=SimpleNamespace(role='production'),readonly=False,doc_type='requisition',can_save=True,can_complete=existing,complete_url='/complete/0')
-    assert rendered.count('保存并完成领料') == 1
+    from bs4 import BeautifulSoup
+    buttons = BeautifulSoup(rendered, 'html.parser').select('button[data-wms-save-complete="requisition"]')
+    assert len(buttons) == 1 and buttons[0].get_text(strip=True) == '保存'
+    assert buttons[0]['data-wms-save-complete-label'] == '保存'
     assert 'submitForm(false)' not in rendered
     assert 'completeDocument()' not in rendered
     assert 'data-wms-save-complete="requisition"' in rendered

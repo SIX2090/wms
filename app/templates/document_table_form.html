@@ -62,7 +62,8 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
         </h2>
         <div class="d-flex gap-2 flex-wrap">
             {% if doc_type == 'requisition' and can_save and complete_url %}
-            <button type="button" class="btn btn-success btn-sm" data-wms-save-complete="requisition" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存并完成领料</button>
+            <button type="button" class="btn btn-success btn-sm" data-wms-save-complete="requisition" data-wms-save-complete-label="保存" onclick="submitForm(true)"><i class="bi bi-check-circle"></i> 保存</button>
+            <span data-wms-save-note class="small text-muted align-self-center">保存后即完成领料，扣减所选仓库库存。</span>
             {% else %}
             {% if can_save %}
             <button type="button" class="btn btn-primary btn-sm" data-wms-save onclick="submitForm(false)"><i class="bi bi-save"></i> {{ '保存草稿' if doc_type in ['check', 'transfer'] else '保存' }}</button>
@@ -72,7 +73,12 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% endif %}
             {% endif %}
             {% if can_revert %}
+            {% if doc_type == 'requisition' %}
+            {% from '_issue_revert.html' import summary %}
+            <button type="button" class="btn btn-warning btn-sm" id="issueRevert" data-summary="{{ summary(order_no, header.warehouse, existing_items) }}" onclick="revertDocument()"><i class="bi bi-arrow-counterclockwise"></i> 撤销领料</button>
+            {% else %}
             <button type="button" class="btn btn-warning btn-sm" onclick="revertDocument()"><i class="bi bi-arrow-counterclockwise"></i> {{ revert_label or '反提交' }}</button>
+            {% endif %}
             {% endif %}
             {% if order_id and doc_type in ['bom', 'requisition', 'transfer', 'check'] %}
             {{ document_print_menu(doc_type, order_id) }}
@@ -381,7 +387,12 @@ const checkLocationRequired = {{ (doc_type == 'check' and location_management_en
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const existingItems = {{ existing_items|tojson }};
-const minRowCount = 30;
+const minRowCount = docType === 'requisition' ? 0 : 30;
+function ensureIssueEntryRow() {
+    if (docType !== 'requisition' || readonly) return;
+    const last = document.getElementById('docTableBody').lastElementChild;
+    if (!last || last.dataset.materialId || last.querySelector('.material-code').value.trim()) createRow(null);
+}
 let activeDropdown = null;
 
 function formatQty(value) {
@@ -440,6 +451,7 @@ function fillMaterialFields(row, material) {
         }
     }
     calcRow(row);
+    ensureIssueEntryRow();
 }
 function clearMaterialFields(row) {
     row.dataset.materialId = '';
@@ -636,6 +648,7 @@ function deleteRow(btn) {
     const tbody = document.getElementById('docTableBody');
     btn.closest('tr').remove();
     while (tbody.rows.length < minRowCount) createRow(null);
+    ensureIssueEntryRow();
     renumberRows();
     calcTotal();
 }
@@ -672,6 +685,7 @@ function copyRowAfter(row) {
         target.querySelector('.line-remark') && (target.querySelector('.line-remark').value = row.querySelector('.line-remark')?.value || '');
         calcRow(target);
     }
+    ensureIssueEntryRow();
     target.querySelector('.line-qty, .actual-stock, .material-code')?.focus();
     renumberRows();
 }
@@ -968,20 +982,27 @@ function completeDocument() {
 }
 function revertDocument() {
     if (!documentRoleAllowed || !revertUrl || submitForm.pending || submitForm.completed) return;
-    if (!confirm('确认反提交该单据？反提交后库存将恢复。')) return;
     if (!beginDocumentAction()) return;
-    return WMS.api.postRaw(revertUrl)
-    .then(res => {
-        if (res && res.status === 'success') {
-            submitForm.completed = true;
-            showToast(res.msg || '反提交成功', 'success');
-            setTimeout(function(){ location.reload(); }, 650);
-        } else {
-            showToast((res && res.msg) || '反提交失败', 'danger', 4200);
-        }
-    })
-    .catch(err => showToast('反提交失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 4200))
-    .finally(endDocumentAction);
+    const summary = document.getElementById('issueRevert')?.dataset.summary;
+    function applyDecision(confirmed) {
+        if (!confirmed) { endDocumentAction(); return; }
+        return WMS.api.postRaw(revertUrl)
+            .then(res => {
+                if (res && res.status === 'success') {
+                    submitForm.completed = true;
+                    showToast(res.msg || (summary ? '撤销领料成功' : '反提交成功'), 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
+                } else {
+                    showToast((res && res.msg) || '反提交失败', 'danger', 4200);
+                }
+            })
+            .catch(err => showToast('反提交失败：' + ((err && err.message) || '请求失败，请稍后重试'), 'danger', 4200))
+            .finally(endDocumentAction);
+    }
+    if (summary && typeof showConfirm === 'function') {
+        return showConfirm(summary, {title: '撤销领料', okText: '撤销领料'}).then(applyDecision);
+    }
+    return applyDecision(confirm(summary || '确认反提交该单据？反提交后库存将恢复。'));
 }
 function showPasteModal() {
     if (document.getElementById('pasteModal')) return;
@@ -1156,6 +1177,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     bindRequisitionLocationWarehouse();
     existingItems.forEach(item => createRow(item));
+    ensureIssueEntryRow();
     while (document.getElementById('docTableBody').rows.length < Math.max(minRowCount, existingItems.length)) createRow(null);
     renumberRows();
     calcTotal();

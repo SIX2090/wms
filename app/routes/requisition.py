@@ -47,7 +47,10 @@ def register_requisition_routes(app):
         query = ProductionRequisition.query.options(
             joinedload(ProductionRequisition.operator),
             joinedload(ProductionRequisition.bom),
-            selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.material)
+            selectinload(ProductionRequisition.items).options(
+                joinedload(ProductionRequisitionItem.material).joinedload(Material.unit),
+                joinedload(ProductionRequisitionItem.unit),
+            )
         )
         query = _apply_status_date_filters(query, ProductionRequisition, status_filter, date_start, date_end)
         if search:

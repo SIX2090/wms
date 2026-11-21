@@ -660,3 +660,4 @@ POST_SPLIT_BUGS['BUG-2026-11-21-001'] = 'fixed'  # Require all stocktake rows to
 POST_SPLIT_BUGS['BUG-2026-11-21-002'] = 'fixed'  # Require a quantity in native stocktake submissions.
 POST_SPLIT_BUGS['BUG-2026-11-21-003'] = 'fixed'  # Preserve receipt push selections and reversal history.
 POST_SPLIT_BUGS['BUG-2026-11-21-004'] = 'fixed'  # Keep issue documents aligned with their source, warehouse and unit.
+POST_SPLIT_BUGS['BUG-2026-11-21-005'] = 'fixed'  # Align issue entry, reversal and editable lines on both forms.

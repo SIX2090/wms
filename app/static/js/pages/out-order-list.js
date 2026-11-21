@@ -151,10 +151,28 @@ function batchOutOrderAction(url, emptyMessage, confirmMessage) {
     });
 }
 
-function singleOutOrderAction(url, confirmMessage) {
-    showConfirm(confirmMessage, {title: '处理' + outOrderBusinessLabel()}).then(function(confirmed) {
+async function reviewIssueRevert(button, id) {
+    if (button.disabled) return;
+    button.disabled = true;
+    try {
+        // A list row represents one material. Review all lines of the current document.
+        const response = await fetch(button.dataset.reviewUrl, {credentials: 'same-origin', cache: 'no-store'});
+        if (!response.ok) throw new Error('无法读取单据，请刷新列表后重试');
+        const detail = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const message = detail.getElementById('issueRevert')?.dataset.summary;
+        if (!message) throw new Error('当前单据不可撤销，请刷新列表核对状态');
+        await singleOutOrderAction('/out_order/' + id + '/revert', message, {title: '撤销领料', okText: '撤销领料'});
+    } catch (error) {
+        showToast(error.message || '读取领料单失败', 'danger', 5000);
+    } finally {
+        button.disabled = false;
+    }
+}
+
+function singleOutOrderAction(url, confirmMessage, options) {
+    return showConfirm(confirmMessage, options || {title: '处理' + outOrderBusinessLabel()}).then(function(confirmed) {
         if (!confirmed) return;
-        WMS.api.postRaw(url)
+        return WMS.api.postRaw(url)
         .then(function(data) {
             if (data.status === 'success') {
                 showToast(data.msg || '操作成功', 'success');

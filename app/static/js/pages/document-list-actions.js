@@ -17,7 +17,12 @@
         "out-order-choose-import": function(node) { document.getElementById('outOrderImportFile').click(); },
         "out-order-complete": function(node) { var id = orderId(node); if (id) singleOutOrderAction('/out_order/' + id + '/complete', '确认完成该' + outOrderBusinessLabel() + '？完成后会扣减库存。'); },
         "out-order-delete": function(node) { var id = orderId(node); if (id) singleOutOrderAction('/out_order/' + id + '/delete', '确认删除该' + outOrderBusinessLabel() + '？'); },
-        "out-order-revert": function(node) { var id = orderId(node); if (id) singleOutOrderAction('/out_order/' + id + '/revert', '确认反提交该' + outOrderBusinessLabel() + '？反提交后库存将恢复。'); },
+        "out-order-revert": function(node) {
+            var id = orderId(node);
+            if (!id) return;
+            if (node.getAttribute('data-review-url')) return reviewIssueRevert(node, id);
+            singleOutOrderAction('/out_order/' + id + '/revert', '确认反提交该' + outOrderBusinessLabel() + '？反提交后库存将恢复。');
+        },
         "after-sale-out-choose-import": function(node) { document.getElementById('afterSaleOutImportFile').click(); },
         "after-sale-out-print": function(node) { printAfterSaleOutList(); },
         "after-sale-out-completeOrder": function(node) { var id = orderId(node); if (id) completeOrder(id); },

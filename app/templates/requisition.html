@@ -133,7 +133,7 @@
                         {% for requisition in requisitions %}
                         <tr>
                             <td class="text-center">
-                                <input type="checkbox" class="itemCheck check-item" value="{{ requisition.id }}" {% if requisition.status != 'pending' %}disabled title="已完成单据请先反提交"{% endif %}>
+                                <input type="checkbox" class="itemCheck check-item" value="{{ requisition.id }}" {% if requisition.status != 'pending' %}disabled title="已完成单据请先撤销领料"{% endif %}>
                             </td>
                             <td class="text-center">{{ loop.index }}</td>
                             <td>
@@ -184,8 +184,9 @@
                                         <i class="bi bi-trash"></i><span class="d-none d-xl-inline">删除</span>
                                     </button>
                                     {% elif requisition.status == 'completed' %}
-                                    <button class="btn btn-outline-warning revert-btn" data-id="{{ requisition.id }}" title="反提交">
-                                        <i class="bi bi-arrow-counterclockwise"></i><span class="d-none d-xl-inline">反提交</span>
+                                    {% from '_issue_revert.html' import summary %}
+                                    <button data-summary="{{ summary(requisition.req_no, requisition.warehouse, requisition.items) }}" class="btn btn-outline-warning revert-btn" data-id="{{ requisition.id }}" title="撤销领料">
+                                        <i class="bi bi-arrow-counterclockwise"></i><span class="d-none d-xl-inline">撤销领料</span>
                                     </button>
                                     {% endif %}
                                 </div>
@@ -411,7 +412,7 @@ document.querySelectorAll('.complete-btn').forEach(function(button) {
 document.querySelectorAll('.revert-btn').forEach(function(button) {
     button.addEventListener('click', function() {
         const id = this.dataset.id;
-        showConfirm('确认反提交？反提交后库存将恢复。', {title: '反提交工单领料单'}).then(function(confirmed) {
+        showConfirm(this.dataset.summary, {title: '撤销领料', okText: '撤销领料'}).then(function(confirmed) {
             if (!confirmed) return;
             WMS.api.postRaw(urlWithId(requisitionUrls.revert, id))
             .then(data => {

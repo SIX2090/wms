@@ -456,6 +456,7 @@ textarea.form-control {
         <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" data-wms-save-complete-label="保存" onclick="submitForm(false, true)">
             <i class="bi bi-check-circle"></i> 保存
         </button>
+            <span data-wms-save-note class="small text-muted align-self-center">保存后即完成领料，扣减所选仓库库存。</span>
         {% else %}
         <button type="button" class="btn btn-primary" data-wms-save onclick="submitForm()">
             <i class="bi bi-save"></i> 保存
@@ -709,6 +710,13 @@ function fillMaterialFields(row, material, options = {}) {
         const price = parseFloat(material.price);
         priceInput.value = Number.isFinite(price) ? price.toFixed(2) : '0.00';
     }
+    ensureIssueEntryRow();
+}
+
+function ensureIssueEntryRow() {
+    if (isSaleOrder || isOtherOut || isPurchaseReturn) return;
+    const last = document.getElementById('materialTableBody').lastElementChild;
+    if (!last || last.querySelector('.material-code').value.trim()) addNewRow();
 }
 
 function clearMaterialFields(row) {
@@ -959,6 +967,7 @@ function calcTotal() {
 
 function deleteRow(btn) {
     btn.closest('tr').remove();
+    ensureIssueEntryRow();
     renumberRows();
     calcTotal();
 }
@@ -982,6 +991,7 @@ function copyValuesToRow(source, target) {
     });
     target.dataset.salesSourceId = source.dataset.salesSourceId || '';
     calcAmount(target);
+    ensureIssueEntryRow();
 }
 
 function copyPreviousRow() {
@@ -1380,8 +1390,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     const editItems = {{ edit_items | tojson }};
     editItems.forEach((item) => {
-        addNewRow();
-        const row = document.querySelector('#materialTableBody tr:last-child');
+        const row = findEmptyRow() || addNewRow();
         row.dataset.salesSourceId = item.source_sales_order_item_id || '';
         row.querySelector('.material-code').value = item.material_code;
         handleMaterialCodeInput(row);
@@ -1397,7 +1406,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         calcAmount(row);
     });
-    if (!editItems.length) {
+    if (!isSaleOrder && !isOtherOut && !isPurchaseReturn) {
+        ensureIssueEntryRow();
+    } else if (!editItems.length) {
         for (var i = 0; i < 30; i++) { addNewRow(); }
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {

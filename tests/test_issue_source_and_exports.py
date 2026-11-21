@@ -29,6 +29,9 @@ def test_pushed_issue_edit_complete_revert_and_release():
         line = wms.db.session.get(wms.OutOrder, issue).items[0].id
     detail = BeautifulSoup(client.get(f'/out_order/{issue}').data, 'html.parser')
     assert not detail.select_one(f'a[href="/out_order/add?order_id={issue}"]')
+    assert detail.select_one('[data-document-action="completeOrder"]').get_text(strip=True) == '完成领料出库'
+    assert detail.select_one('.dropdown-menu button[onclick^="deleteOrder"]')
+    assert detail.select_one('[data-bs-target="#editHeaderModal"]').get_text(strip=True) == '编辑基本信息'
     assert client.get(f'/out_order/add?order_id={issue}').location.endswith(f'/out_order/{issue}')
     for path, data in [
         ('/out_order/item/update', {'id': line, 'quantity': 4}),
@@ -39,7 +42,9 @@ def test_pushed_issue_edit_complete_revert_and_release():
     assert document_post(client, f'/out_order/{issue}/batch_add_items',
                          json={'content': 'AUTO_MAT\t1'}).status_code == 409
     accepted(client.post(f'/out_order/{issue}/complete?force=1'))
-    assert '删除草稿才会释放' in client.get(f'/out_order/{issue}').get_data(as_text=True)
+    undo = BeautifulSoup(client.get(f'/out_order/{issue}').data, 'html.parser').select_one('#issueRevert')
+    assert undo.get_text(strip=True) == '撤销领料'
+    assert all(text in undo['data-summary'] for text in ('自动领料仓', 'AUTO_MAT', '2.0 个', '删除草稿才会释放'))
     with wms.app.app_context():
         assert wms.Material.query.filter_by(code='AUTO_MAT').one().stock == 3
     accepted(client.post(f'/out_order/{issue}/revert'))
@@ -64,6 +69,12 @@ def test_exports_show_posted_quantity_and_picker_through_reversal(scene):
     for action, expected in [(None, 0), ('complete', 5), ('revert', 0)]:
         if action:
             accepted(client.post(f'/requisition/{issue}/{action}'))
+        if action == 'complete':
+            detail = BeautifulSoup(client.get(f'/requisition/{issue}').data, 'html.parser')
+            listing = BeautifulSoup(client.get('/requisition').data, 'html.parser')
+            message = detail.select_one('#issueRevert')['data-summary']
+            assert listing.select_one('.revert-btn')['data-summary'] == message
+            assert all(text in message for text in ('U1仓A', 'U1-M', '5.0 个', '草稿'))
         for path in ['/requisition/export', f'/requisition/{issue}/export']:
             rows = list(load_workbook(io.BytesIO(client.get(path).data)).active.values)
             row = dict(zip(rows[0], rows[1]))

@@ -3771,6 +3771,9 @@ function insertGlobalActionBar() {
         if (item.key === 'save' && !isFormPage()) btn.classList.add('disabled');
         if (item.key === 'delete' && !module.deleteUrl && !module.detailDeleteUrl) btn.classList.add('disabled');
         bar.appendChild(btn);
+        if (primarySave && primarySave.nextElementSibling && primarySave.nextElementSibling.hasAttribute('data-wms-save-note')) {
+            bar.appendChild(primarySave.nextElementSibling);
+        }
     });
     var navGroup = createDocumentNavigationGroup(module, isListPage);
     if (navGroup) {

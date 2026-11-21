@@ -119,6 +119,7 @@
 {% endblock %}
 
 {% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
+{% set is_issue = out_document_label == '领料单' %}
 {% block content %}
 {% set box_numbers = box_numbers|default({}) %}
 {% if order.business_type == '其他出库' %}{% set nav_mode = 'out' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
@@ -160,9 +161,11 @@
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_list') }}">查看来源销售订单</a>
                 {% endfor %}
                 {% else %}
+                {% if not is_issue %}
                 <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
                     <i class="bi bi-files"></i> 复制单据
                 </button>
+                {% endif %}
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('out_order_add_page') }}?{% if order.business_type == '其他出库' %}type=other_out&{% elif order.business_type == '销售出库' %}type=sale&{% elif order.business_type == '采购退货出库' %}type=purchase_return&{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&department_id={{ order.department_id or '' }}&customer={{ (order.customer or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&picker={{ (order.picker or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&business_type={{ (order.business_type or '')|urlencode }}&source_in_order_id={{ order.source_in_order_id or '' }}&source_in_order_no={{ (order.source_in_order_no or '')|urlencode }}">
                     <i class="bi bi-plus-square"></i> 再建一张
                 </a>
@@ -174,26 +177,56 @@
                 </a>
                 {% endif %}
                 <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
-                    <i class="bi bi-pencil-square"></i> 编辑单据
+                    <i class="bi bi-pencil-square"></i> {{ '编辑基本信息' if is_issue else '编辑单据' }}
                 </button>
-                <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
-                    <i class="bi bi-check-circle"></i> 完成出库
+                <button data-document-action="completeOrder" class="btn btn-sm {{ 'btn-success' if is_issue else 'btn-outline-success' }}" onclick="completeOrder({{ order.id }})">
+                    <i class="bi bi-check-circle"></i> {{ '完成领料出库' if is_issue else '完成出库' }}
                 </button>
+                {% if not is_issue %}
                 <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})">
                     <i class="bi bi-trash"></i> 删除
                 </button>
+                {% endif %}
                 {% elif order.status == 'completed' %}
+                {% if is_issue %}
+                {% from '_issue_revert.html' import summary %}
+                <button class="btn btn-sm btn-outline-warning" id="issueRevert" data-summary="{{ summary(order.order_no, order.warehouse, order.items, push_source) }}" onclick="revertOrder({{ order.id }})"><i class="bi bi-arrow-return-left"></i> 撤销领料</button>
+                {% else %}
                 <button class="btn btn-sm btn-outline-warning" onclick="revertOrder({{ order.id }})">
                     <i class="bi bi-arrow-return-left"></i> 反提交
                 </button>
                 {% endif %}
+                {% endif %}
                 {{ document_print_menu('out_order', order.id) }}
+                {% if is_issue %}
+                <div class="dropdown">
+                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">更多</button>
+                    <div class="dropdown-menu dropdown-menu-end">
+                        <button class="dropdown-item" onclick="copyOrder({{ order.id }})">
+                            <i class="bi bi-files"></i> 复制单据
+                        </button>
+                        <button class="dropdown-item" onclick="sendToPrintStation('out_order', {{ order.id }})" title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送到已启动的桌面打印工作站' }}" {% if runtime_external_paused %}disabled{% endif %}>
+                            <i class="bi bi-printer-fill"></i> 发送打印{{ '（暂停）' if runtime_external_paused else '' }}
+                        </button>
+                        <button class="dropdown-item" onclick="showAiAnomalyAnalysis()">
+                            <i class="bi bi-robot"></i> AI异常分析
+                        </button>
+                        {% if order.status == 'pending' %}
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item text-danger" onclick="deleteOrder({{ order.id }})">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
                 <button class="btn btn-sm btn-outline-primary" onclick="sendToPrintStation('out_order', {{ order.id }})" title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送到已启动的桌面打印工作站' }}" {% if runtime_external_paused %}disabled{% endif %}>
                     <i class="bi bi-printer-fill"></i> 发送打印{{ '（暂停）' if runtime_external_paused else '' }}
                 </button>
                 <button class="btn btn-sm btn-outline-info" onclick="showAiAnomalyAnalysis()">
                     <i class="bi bi-robot"></i> AI异常分析
                 </button>
+                {% endif %}
                 <a href="/out_order?business_type={{ (order.business_type or '领料单')|urlencode }}{% if request.args.get('embedded') == '1' %}&amp;embedded=1{% endif %}" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
@@ -574,7 +607,7 @@ MAT003,20,10.00"></textarea>
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5><i class="bi bi-pencil-square"></i> 编辑单据信息</h5>
+                <h5><i class="bi bi-pencil-square"></i> {{ '编辑基本信息' if is_issue else '编辑单据信息' }}</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
@@ -1377,7 +1410,7 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
 // ==================== 完成出库 ====================
 function completeOrder(id, force) {
     return WMS.runDocumentAction('completeOrder', function() {
-        var confirmation = force ? Promise.resolve(true) : _showConfirm('确认完成出库？完成后库存将减少。', {title: '完成出库'});
+        var confirmation = force ? Promise.resolve(true) : _showConfirm('确认{{ '完成领料出库' if is_issue else '完成出库' }}？完成后库存将减少。', {title: '{{ '完成领料出库' if is_issue else '完成出库' }}'});
         return confirmation.then(function(confirmed) {
             if (!confirmed) return;
             var url = '/out_order/' + id + '/complete';
@@ -1435,7 +1468,8 @@ function forceCompleteOrder() {
 
 // ==================== 反提交 ====================
 function revertOrder(id) {
-    _showConfirm('反提交后，已出库数量退回原仓，本单转为草稿。{% if push_source %}本草稿仍占用来源入库单的下推数量，删除草稿才会释放。{% endif %}', {title: '反提交{{ out_document_label }}'}).then(function(confirmed) {
+    const summary = document.getElementById('issueRevert')?.dataset?.summary;
+    _showConfirm(summary || '反提交后，已出库数量退回原仓，本单转为草稿。{% if push_source %}本草稿仍占用来源入库单的下推数量，删除草稿才会释放。{% endif %}', {title: summary ? '撤销领料' : '反提交{{ out_document_label }}', okText: summary ? '撤销领料' : '确认'}).then(function(confirmed) {
         if (!confirmed) return;
         return WMS.api.postRaw('/out_order/' + id + '/revert')
         .then(function(res) {
