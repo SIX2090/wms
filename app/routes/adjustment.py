@@ -845,8 +845,15 @@ def register_adjustment_routes(app):
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（调整类型、物料编码、数量）。检测到的表头：{", ".join(header_row)}')
             # Check every new draft before any master data or document is written.
-            row_warehouses = {}
+            type_aliases = {
+                '盘盈': 'surplus', '盘盈增加库存': 'surplus', 'surplus': 'surplus',
+                'profit': 'surplus', 'in': 'surplus', 'plus': 'surplus',
+                '盘亏': 'loss', '盘亏减少库存': 'loss', 'loss': 'loss',
+                'out': 'loss', 'minus': 'loss',
+            }
+            row_headers = {}
             order_warehouses = {}
+            order_types = {}
             warehouses = {}
             existing_orders = {}
             locations_required = location_management_enabled()
@@ -860,6 +867,10 @@ def register_adjustment_routes(app):
                         existing_orders[explicit_no] = AdjustmentOrder.query.filter_by(adjustment_no=explicit_no).first() is not None
                     if existing_orders[explicit_no]:
                         continue
+                raw_type = _get_excel_cell(row, col_map, 'adjustment_type')
+                adjustment_type = type_aliases.get(raw_type.lower())
+                if adjustment_type is None:
+                    return api_error(f'第{row_idx}行：调整类型无效，请填写盘盈或盘亏')
                 warehouse_value = _get_excel_cell(row, col_map, 'warehouse')
                 if warehouse_value not in warehouses:
                     warehouse, error = resolve_request_warehouse({'warehouse': warehouse_value})
@@ -872,8 +883,10 @@ def register_adjustment_routes(app):
                 if explicit_no and explicit_no in order_warehouses and order_warehouses[explicit_no] != warehouse_name:
                     return api_error(f'第{row_idx}行：同一库存调整单的仓库必须一致')
                 if explicit_no:
+                    if order_types.setdefault(explicit_no, adjustment_type) != adjustment_type:
+                        return api_error(f'第{row_idx}行：库存调整单 {explicit_no} 不能混用盘盈和盘亏，请按方向拆单')
                     order_warehouses[explicit_no] = warehouse_name
-                row_warehouses[row_idx] = warehouse_name
+                row_headers[row_idx] = (warehouse_name, adjustment_type)
             orders_by_no = {}
             order_count = 0
             item_count = 0
@@ -883,11 +896,6 @@ def register_adjustment_routes(app):
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 material_code = _get_excel_cell(row, col_map, 'material_code')
                 quantity = _get_excel_number(row, col_map, 'quantity')
-                raw_type = _get_excel_cell(row, col_map, 'adjustment_type')
-                if '亏' in raw_type or raw_type.lower() in ('loss', 'out', 'minus'):
-                    adjustment_type = 'loss'
-                else:
-                    adjustment_type = 'surplus'
                 if not material_code or quantity <= 0:
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料编码为空或数量不正确')
@@ -899,11 +907,12 @@ def register_adjustment_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：调整单号 {order_no} 已存在')
                         continue
+                    warehouse_name, adjustment_type = row_headers[row_idx]
                     order = AdjustmentOrder(
                         adjustment_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         adjustment_type=adjustment_type,
-                        warehouse=row_warehouses[row_idx],
+                        warehouse=warehouse_name,
                         source_type='import',
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',

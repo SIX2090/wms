@@ -260,6 +260,42 @@ def test_adjustment_invalid_place_prevents_all_document_and_master_writes(import
     assert snapshot(ids) == before
 
 
+@pytest.mark.parametrize('second_type, message', [
+    ('盘亏', '不能混用盘盈和盘亏'), ('减少', '调整类型无效'), ('', '调整类型无效'),
+])
+def test_adjustment_invalid_direction_prevents_all_writes(import_state, second_type, message):
+    client, ids = import_state
+    before = snapshot(ids)
+    rows = [
+        {'单据编号': 'ADJ-DIR', '物料编码': 'MUST-NOT-CREATE', '物料名称': '独立合成物料'},
+        {'单据编号': 'ADJ-DIR', '调整类型': second_type, '数量': 3},
+    ]
+    response = post_file(client, rows, url='/adjustment/import', base_headers=ADJUSTMENT_HEADERS)
+    assert response.status_code == 400
+    assert '第3行' in response.json['msg'] and message in response.json['msg']
+    assert snapshot(ids) == before
+
+
+def test_adjustments_in_different_documents_keep_each_direction(import_state):
+    client, ids = import_state
+    rows = [
+        {'单据编号': 'ADJ-PLUS', '调整类型': '盘盈增加库存', '数量': 2},
+        {'单据编号': 'ADJ-MINUS', '调整类型': 'LOSS', '数量': 3},
+    ]
+    response = post_file(client, rows, url='/adjustment/import', base_headers=ADJUSTMENT_HEADERS)
+    assert response.status_code == 200 and response.json['count'] == 2
+    with w.app.app_context():
+        orders = {order.adjustment_no: order for order in w.AdjustmentOrder.query.all()}
+        assert orders['ADJ-PLUS'].adjustment_type == 'surplus' and orders['ADJ-PLUS'].items[0].quantity == 2
+        assert orders['ADJ-MINUS'].adjustment_type == 'loss' and orders['ADJ-MINUS'].items[0].quantity == -3
+        order_ids = [orders[no].id for no in ('ADJ-PLUS', 'ADJ-MINUS')]
+    assert snapshot(ids)['quantities'] == [10, 20]
+    for order_id in order_ids:
+        complete = client.post(f'/adjustment/{order_id}/complete', json={})
+        assert complete.status_code == 200 and complete.json['status'] == 'success'
+    assert snapshot(ids)['quantities'] == [9, 20]
+
+
 def test_adjustment_one_warehouse_can_keep_different_item_locations(import_state):
     client, ids = import_state
     with w.app.app_context():
