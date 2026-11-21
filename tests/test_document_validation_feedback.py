@@ -36,12 +36,12 @@ const ids={sourceInOrderNo:input('source','IN-1'),sourceInOrderId:input('sourceI
 const line={};Object.entries({'.material-code':'M1','.material-qty':'2','.material-price':'1','.line-contract-no':'C1','.line-project-name':'P1','.material-remark':'R1','.line-source-in-item-id':'9','.material-batch-no':'old','.material-expiry':'2026-12-01'}).forEach(([k,v])=>line[k]=input(k,v));
 const row={dataset:{},querySelector:s=>line[s]||null};let rows=[row];
 let sale=false,purchase=false,other=false;
-const expected={date:'date',customer:'customer',supplier:'customer',department:'department_id',source:'source',quantity:'.material-qty',empty:'.material-code',warehouse:'warehouse_id',location:'location',batchWarehouse:'batchWarehouse',batchField:'batchField',batchEmpty:'batchValue',batchNaN:'batchValue',batchQuantity:'batchValue',batchPrice:'batchValue',batchPrecision:'batchValue',batchLength:'batchValue',batchFormula:'batchValue',batchExpiry:'batchValue'};
+const expected={date:'date',customer:'customer',supplier:'customer',source:'source',quantity:'.material-qty',empty:'.material-code',warehouse:'warehouse_id',location:'location',batchWarehouse:'batchWarehouse',batchField:'batchField',batchEmpty:'batchValue',batchNaN:'batchValue',batchQuantity:'batchValue',batchPrice:'batchValue',batchPrecision:'batchValue',batchLength:'batchValue',batchFormula:'batchValue',batchExpiry:'batchValue'};
 switch(p.scenario){
 case 'date':fields.date.value='';break;
 case 'customer':sale=true;fields.customer.value='';break;
 case 'supplier':purchase=true;fields.customer.value='';break;
-case 'department':fields.department_id.value='';break;
+case 'validBlankDepartment':fields.department_id.value='';break;
 case 'source':purchase=true;ids.sourceInOrderNo.value='';ids.sourceInOrderId.value='';break;
 case 'quantity':line['.material-qty'].value='0';break;
 case 'empty':line['.material-code'].value='';break;
@@ -83,6 +83,7 @@ if(expected[p.scenario]){
  else {assert.equal(line[p.scenario==='validPrice'?'.material-price':'.material-qty'].value,p.scenario==='validPrice'?'0.00':'5.00');assert.equal(calcs,2);}
 }else {
  assert.equal(calls.length,1);assert.equal(calls[0].url,'/out_order/add');const d=calls[0].data;
+ assert.equal(d.department_id,['validBlankDepartment','validOther'].includes(p.scenario)?'':'3');
  assert.equal(d.warehouse_id,'2');assert.equal(d.date,'2026-10-21');assert.equal(d.customer,'Acme');assert.equal(d.items.length,1);assert.equal(d.items[0].quantity,2);assert.equal(d.items[0].price,1);assert.equal(d.items[0].contract_no,'C1');assert.equal(d.items[0].project_name,'P1');assert.equal(d.items[0].remark,'R1');
  if(purchase){assert.equal(d.picker,'');assert.equal(d.source_in_order_id,'7');assert.equal(d.items[0].source_in_order_item_id,'9');}
  else assert.equal(d.picker,'Tester');
@@ -94,7 +95,7 @@ if(expected[p.scenario]){
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize('scenario', ['date', 'customer', 'supplier', 'department', 'source', 'quantity', 'empty', 'warehouse', 'location', 'valid', 'validPurchase', 'validSale', 'validOther', 'validNoLocation'])
+@pytest.mark.parametrize('scenario', ['date', 'customer', 'supplier', 'validBlankDepartment', 'source', 'quantity', 'empty', 'warehouse', 'location', 'valid', 'validPurchase', 'validSale', 'validOther', 'validNoLocation'])
 def test_outbound_validation_and_original_payload(scenario):
     run('out', 'submitForm', scenario)
 
