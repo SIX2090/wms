@@ -8,24 +8,33 @@ from types import SimpleNamespace as NS
 from jinja2 import Environment
 import pytest
 
-from tests.test_detail_row_column_context_runtime import TableParser
+from tests.test_detail_row_column_context_runtime import render_detail_table
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def render(page, business, status, empty=False):
+def render(page, business, status, empty=False, push_source=None):
     material = NS(code='400001', name='成品', brand='品牌', spec='规格', unit=NS(name='台'))
     item = NS(id=1, material_id=1, material=material, quantity=2, price=5, amount=10,
               contract_no='行合同', project_name='行工程', remark='备注')
     order = NS(id=1, business_type=business, status=status, items=[] if empty else [item],
                contract_no='表头合同', project_name='表头工程', total_amount=0 if empty else 10)
     source = (ROOT / f'app/templates/{page}_detail.html').read_text(encoding='utf-8')
-    start = source.rindex('<table', 0, source.index('id="itemTable"'))
     env = Environment(autoescape=True)
     env.filters['quantity'] = lambda value: str(value)
-    html = env.from_string(source[start:source.index('</table>', start)+8]).render(
-        order=order, warehouse_stock={1:2}, url_for=lambda *args, **kwargs: '/fixture')
-    return TableParser(html)
+    return render_detail_table(env, source, order=order, push_source=push_source,
+                               warehouse_stock={1:2}, url_for=lambda *args, **kwargs: '/fixture')
+
+
+@pytest.mark.parametrize('status,source,editable', [
+    ('pending', None, True), ('pending', NS(source_document_no='IN-1'), False),
+    ('completed', None, False), ('completed', NS(source_document_no='IN-1'), False),
+])
+def test_issue_detail_shows_edit_columns_only_for_editable_drafts(status, source, editable):
+    table = render('out_order', '领料单', status, push_source=source)
+    keys = [cell['attrs']['data-column-key'] for cell in table.headers]
+    assert ('selection' in keys) == editable
+    assert ('actions' in keys) == editable
 
 
 @pytest.mark.parametrize('page,business', [('out_order','领料单'),('out_order','销售出库'),

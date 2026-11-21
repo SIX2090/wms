@@ -47,6 +47,16 @@ def function(source, name):
     return source[start:source.index('\n}', start) + 2]
 
 
+def render_detail_table(env, source, **context):
+    start = source.rindex('<table', 0, source.index('id="itemTable"'))
+    end = source.index('</table>', start) + len('</table>')
+    # The table inherits assignments made before the page's first block.
+    preamble = source.partition('{% block ')[0]
+    assignments = re.findall(r'^\s*({% set [^\n]+?%})\s*$', preamble, re.MULTILINE)
+    template = env.from_string('\n'.join([*assignments, source[start:end]]))
+    return TableParser(template.render(**context))
+
+
 @pytest.mark.parametrize('page,business,customer', [
     ('in', '采购入库', False), ('in', '产品入库', False),
     ('in', '其他入库', False), ('in', '其他入库', True),
@@ -70,9 +80,7 @@ def test_detail_row_actions_keep_column_and_payload_meaning(page, business, cust
     order = SimpleNamespace(id=7, status='pending', business_type=business, items=[item], contract_no='HEAD', project_name='表头工程')
     env = Environment(autoescape=True)
     context = dict(order=order, warehouse_stock={11: 99}, purchase_order_execution={}, url_for=lambda *a, **kw: '/fixture')
-    table_start = source.rindex('<table', 0, source.index('id="itemTable"'))
-    table_end = source.index('</table>', table_start) + len('</table>')
-    table = TableParser(env.from_string(source[table_start:table_end]).render(**context))
+    table = render_detail_table(env, source, push_source=None, **context)
     functions = '\n'.join(function(source, name) for name in [
         'addInlineMaterialRow', 'copyDetailMaterialRow', 'calcInlineRowAmount',
         'renumberDetailRows', 'saveInlineMaterialRow',
