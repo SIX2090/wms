@@ -537,9 +537,9 @@ def register_in_order_routes(app):
             item_level=True,
         )
         if sort_order == 'asc':
-            query = query.order_by(sort_col.asc())
+            query = query.order_by(sort_col.asc(), InOrder.id, InOrderItem.id)
         else:
-            query = query.order_by(sort_col.desc())
+            query = query.order_by(sort_col.desc(), InOrder.id, InOrderItem.id)
         pagination = query.paginate(page=page, per_page=per_page, error_out=False)
         items = [
             type('InOrderListRow', (), {
@@ -619,7 +619,7 @@ def register_in_order_routes(app):
         from datetime import date
         from sqlalchemy.orm import joinedload
         from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrderItem, SalesOrderItem,
-                         Supplier, _in_order_push_history, _in_order_push_source_type,
+                         Supplier, _in_order_push_history, _in_order_push_source_type, _in_order_push_quantities,
                          build_purchase_order_execution, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
@@ -664,6 +664,8 @@ def register_in_order_routes(app):
             has_purchase_reservation=has_purchase_reservation,
             suppliers=suppliers,
             push_history=_in_order_push_history(order),
+            product_allocations=(_in_order_push_quantities(order)
+                                 if order.business_type == '产品入库' and order.status == 'completed' else {}),
             can_push=order.status == 'completed' and _in_order_push_source_type(order) is not None,
             customers=customers,
             warehouses=warehouses,
@@ -2373,9 +2375,9 @@ def register_in_order_routes(app):
     def update_completed_in_order(id):
         """Update a completed inbound order and adjust stock differences."""
         from sqlalchemy.orm import selectinload
-        from app import (InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
+        from app import (DocumentPushLine, InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
                          STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock,
-                         _material_stock_unattributed,
+                         _active_in_order_push_lines, _material_stock_unattributed,
                          allow_negative_stock, api_error,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient,
@@ -2465,6 +2467,10 @@ def register_in_order_routes(app):
             }
             # 在删行触发ORM autoflush前解析真实主键，数字/字符串别名也不能
             # 把同一行同时放进删除和修改；不据客户端原始ID猜行归属。
+            active_pushes = _active_in_order_push_lines(order.id)
+            if deleted_items and active_pushes.filter(
+                    DocumentPushLine.source_item_id.in_(deleted_items)).first():
+                return fail('该明细已关联出库，请先处理关联出库单后再删除入库行', 409)
             modified_item_ids = set()
             for item_data in items_data:
                 if not item_data.get('is_new') and item_data.get('id'):
@@ -2640,8 +2646,8 @@ def register_in_order_routes(app):
                             # Keep the original line and reservation instead of rounding
                             # a tiny delta to zero inside the inventory write service.
                             new_qty = old_qty
-                        new_price = float(item_data.get('price', 0))
                         old_price = float(item.price or 0)
+                        new_price = float(item_data.get('price', old_price))
 
                         qty_diff = new_qty - old_qty
                         if qty_diff < 0:
@@ -2756,6 +2762,9 @@ def register_in_order_routes(app):
                          'removed': removed_rows, 'changed': changed_rows, 'reason': reason},
                     reason=reason,
                 )
+            message = '保存成功'
+            if quantity_changed and order.business_type == '产品入库' and active_pushes.first():
+                message = '入库已更正，请核对关联销售出库单的物料与数量。'
             try:
                 db.session.commit()
             except Exception:
@@ -2764,7 +2773,7 @@ def register_in_order_routes(app):
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
             if changed:
                 log_operation('修改已完成入库单', f'入库单：{order.order_no}', 'in_order', id)
-            return jsonify({'status': 'success', 'msg': '保存成功'})
+            return jsonify({'status': 'success', 'msg': message})
         except Exception as e:
             db.session.rollback()
             app.logger.exception(f'更新入库单失败: {e}')

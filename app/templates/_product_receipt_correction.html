@@ -1,0 +1,92 @@
+<div class="modal fade" id="productCorrection" tabindex="-1" aria-labelledby="productCorrectionTitle" aria-hidden="true">
+    <div class="modal-dialog"><div class="modal-content">
+        <div class="modal-header">
+            <h5 class="modal-title" id="productCorrectionTitle">更正产品入库明细</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+        </div>
+        <form id="productCorrectionForm" method="post" action="{{ url_for('update_completed_in_order', id=order.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-body d-grid gap-3">
+                <p class="mb-0">保存后将按差额调整{{ order.warehouse }}的库存。
+                    {% if product_allocations %}关联销售出库单保留原明细，请核对实际发货数量。{% endif %}</p>
+                <label class="form-label">更正方式
+                    <select class="form-select" name="operation">
+                        <option value="quantity">修改已有行数量</option>
+                        <option value="add">补录一行</option>
+                        <option value="delete">删除多录行</option>
+                    </select>
+                </label>
+                <label class="form-label" data-existing>原入库明细
+                    <select class="form-select" name="line" required>
+                        <option value="">请选择明细</option>
+                        {% for line in order.items %}
+                        <option value="{{ line.id }}" data-quantity="{{ line.quantity }}" data-linked="{{ 'true' if line.id in product_allocations else 'false' }}">
+                            第 {{ loop.index }} 行 · {{ line.material.code }} {{ line.material.name }} · 箱体 {{ line.box_no or '—' }} · 入库 {{ line.quantity|float }}{% if line.id in product_allocations %} · 已转出库 {{ product_allocations[line.id] }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </label>
+                <fieldset data-new hidden disabled>
+                    <label>物料编码<input class="form-control" name="code" maxlength="50" required></label>
+                    <label>箱体编号<input class="form-control" name="box_no" maxlength="100"></label>
+                    <label>单价<input class="form-control" name="price" type="number" min="0" step="0.01" value="0" required></label>
+                </fieldset>
+                <label data-qty>更正后数量<input class="form-control" name="quantity" type="number" min="0.01" step="0.01" required></label>
+                <label>更正原因<input class="form-control" name="reason" required maxlength="200"></label>
+                <p class="text-danger mb-0" role="alert" data-feedback></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="submit" class="btn btn-primary">保存更正</button>
+            </div>
+        </form>
+    </div></div>
+</div>
+<script>
+(() => {
+    const form = document.getElementById('productCorrectionForm');
+    const fields = form.elements;
+    const feedback = form.querySelector('[data-feedback]');
+    const save = form.querySelector('[type=submit]');
+    function updateFields() {
+        const adding = fields.operation.value === 'add';
+        const deleting = fields.operation.value === 'delete';
+        const selected = fields.line.selectedOptions[0];
+        form.querySelector('[data-existing]').hidden = fields.line.disabled = adding;
+        const newFields = form.querySelector('[data-new]');
+        newFields.hidden = newFields.disabled = !adding;
+        form.querySelector('[data-qty]').hidden = fields.quantity.disabled = deleting;
+        fields.quantity.value = adding ? '' : selected?.dataset.quantity || '';
+        const blocked = deleting && selected?.dataset.linked === 'true';
+        feedback.textContent = blocked ? '这行已关联销售出库。请先处理下游单据，再删除入库行。' : '';
+        save.disabled = blocked;
+    }
+    fields.operation.addEventListener('change', updateFields);
+    fields.line.addEventListener('change', updateFields);
+    form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (save.disabled) return;
+        const reason = fields.reason.value.trim();
+        if (!reason) { feedback.textContent = '请填写更正原因。'; return; }
+        const payload = {reason};
+        if (fields.operation.value === 'delete') {
+            payload.deleted_items = [Number(fields.line.value)];
+        } else if (fields.operation.value === 'add') {
+            payload.items = [{is_new: true, code: fields.code.value.trim(), box_no: fields.box_no.value.trim(),
+                              quantity: fields.quantity.value, price: fields.price.value}];
+        } else {
+            payload.items = [{id: Number(fields.line.value), quantity: fields.quantity.value}];
+        }
+        save.disabled = true;
+        feedback.textContent = '';
+        try {
+            const result = await WMS.api.postRaw(form.getAttribute('action'), payload);
+            if (result.status !== 'success') throw new Error(result.msg || '保存失败');
+            window.location.reload();
+        } catch (error) {
+            feedback.textContent = error.message || '保存失败，请核对单据后重试。';
+            save.disabled = false;
+        }
+    });
+})();
+</script>

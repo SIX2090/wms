@@ -133,7 +133,7 @@ def register_export_routes(app):
     @login_required
     def export_in_order():
         from openpyxl import Workbook
-        from sqlalchemy.orm import joinedload, selectinload
+        from sqlalchemy.orm import joinedload
         from app import (
             InOrder,
             InOrderItem,
@@ -159,13 +159,13 @@ def register_export_routes(app):
             business_type_filter = ''
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()
-        allowed_sorts = {'order_no', 'date', 'supplier_id', 'purpose', 'status', 'created_at', 'total_amount'}
+        allowed_sorts = {'order_no', 'date', 'supplier_id', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
-        query = db.session.query(InOrder).outerjoin(InOrderItem, InOrderItem.in_order_id == InOrder.id).options(
+        query = db.session.query(InOrder, InOrderItem).outerjoin(InOrderItem, InOrderItem.in_order_id == InOrder.id).options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.customer),
-            selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+            joinedload(InOrderItem.material).joinedload(Material.unit),
         )
         query = _apply_status_date_filters(query, InOrder, status_filter, date_start, date_end)
         query = _apply_in_order_search(query, search)
@@ -181,7 +181,7 @@ def register_export_routes(app):
         query = _apply_header_or_item_contract_filters(
             query, InOrder, InOrderItem, 'in_order_id',
             contract_no_filter=contract_no_filter,
-            project_name_filter=project_name_filter,
+            project_name_filter=project_name_filter, item_level=True,
         )
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse_error and request.args.get('warehouse_id'):
@@ -193,45 +193,26 @@ def register_export_routes(app):
                 _warehouse_document_match_clause(InOrder.warehouse, warehouse))
         else:
             query = query.filter(db.false())
-        sort_col = getattr(InOrder, sort_by, InOrder.created_at)
-        query = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(), InOrder.id.desc()).distinct()
-        orders = query.all()
-        for order in orders:
-            if order.items:
-                for item in order.items:
-                    ws.append([
-                        order.order_no,
-                        order.date.strftime('%Y-%m-%d') if order.date else '',
-                        order.business_type or '采购入库',
-                        order.purpose or '',
-                        order.supplier.name if order.supplier else '',
-                        order.customer.name if order.customer else '',
-                        order.warehouse or '',
-                        order.location or '',
-                        item.material.code if item.material else '',
-                        item.material.name if item.material else '',
-                        item.material.spec if item.material else '',
-                        item.material.unit.name if item.material and item.material.unit else '',
-                        item.quantity or 0,
-                        item.price or 0,
-                        item.amount or 0,
-                        '是' if item.is_customer_supplied else '否',
-                        item.contract_no or order.contract_no or '',
-                        item.project_name or order.project_name or '',
-                        '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
-                        order.remark or ''
-                    ])
-            else:
-                ws.append([
-                    order.order_no,
-                    order.date.strftime('%Y-%m-%d') if order.date else '',
-                    order.purpose or '',
-                    order.supplier.name if order.supplier else '',
-                    order.warehouse or '',
-                    '', '', '', '', 0, 0, 0,
-                    '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
-                    order.remark or ''
-                ])
+        sort_col = (db.func.coalesce(InOrderItem.amount, InOrder.total_amount)
+                    if sort_by == 'total_amount' else getattr(InOrder, sort_by))
+        rows = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc(),
+                              InOrder.id, InOrderItem.id)
+        for order, item in rows:
+            material = item.material if item else None
+            ws.append([
+                order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '',
+                order.business_type or '采购入库', order.purpose or '',
+                order.supplier.name if order.supplier else '', order.customer.name if order.customer else '',
+                order.warehouse or '', order.location or '',
+                material.code if material else '', material.name if material else '',
+                material.spec if material else '', material.unit.name if material and material.unit else '',
+                item.quantity if item else None, item.price if item else None, item.amount if item else None,
+                ('是' if item.is_customer_supplied else '否') if item else '',
+                (item.contract_no if item else None) or order.contract_no or '',
+                (item.project_name if item else None) or order.project_name or '',
+                {'pending': '未审核/待完成', 'completed': '已完成'}.get(order.status, order.status or ''),
+                order.remark or ''
+            ])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

@@ -667,3 +667,4 @@ POST_SPLIT_BUGS['BUG-2026-11-21-007'] = 'fixed'  # Enforce one adjustment direct
 POST_SPLIT_BUGS['BUG-2026-11-21-008'] = 'fixed'  # Count a material only after all its lines are counted.
 POST_SPLIT_BUGS['BUG-2026-11-21-020'] = 'fixed'  # Register the existing catalog audit entry.
 POST_SPLIT_BUGS['BUG-2026-11-21-021'] = 'fixed'  # Reconcile ledger and detail report quantities and outputs.
+POST_SPLIT_BUGS['BUG-2026-11-21-022'] = 'fixed'  # Product receipt corrections and filtered export.
