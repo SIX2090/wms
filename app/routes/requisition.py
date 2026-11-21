@@ -905,16 +905,17 @@ def register_requisition_routes(app):
                         material.spec if material else '',
                         unit.name if unit else '',
                         item.quantity or 0,
-                        item.issued_quantity or 0,
+                        item.quantity if order.status == 'completed' else 0,
                         '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                         item.remark or order.remark or '',
+                        order.picker or '',
                     ])
             else:
-                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.warehouse or '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
+                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.warehouse or '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or '', order.picker or ''])
         return _workbook_response(
             'requisitions.xlsx',
             '工单领料',
-            ['单据编号', '日期', '仓库', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注'],
+            ['单据编号', '日期', '仓库', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注', '领料人'],
             rows,
         )
 
@@ -950,6 +951,7 @@ def register_requisition_routes(app):
             'warehouse_id': ['仓库ID', 'warehouse_id'],
             'location': ['库位', '库位名称'],
             'production_order': ['工单', '生产令'],
+            'picker': ['领料人'],
             'purpose': ['用途'],
             'bom_no': ['BOM编号', 'bom'],
             'material_code': ['物料编码', '材料编码'],
@@ -1012,6 +1014,7 @@ def register_requisition_routes(app):
                         req_no=order_no,
                         date=_parse_excel_date(_get_excel_cell(row, col_map, 'date')),
                         production_order=_get_excel_cell(row, col_map, 'production_order'),
+                        picker=_get_excel_cell(row, col_map, 'picker'),
                         purpose=_get_excel_cell(row, col_map, 'purpose'),
                         bom_id=bom.id if bom else None,
                         warehouse=warehouse.name,
@@ -1024,13 +1027,18 @@ def register_requisition_routes(app):
                     db.session.flush()
                     orders_by_no[order_no] = order
                     order_count += 1
+                imported_unit = _get_excel_cell(row, col_map, 'unit').strip()
                 material = _find_or_create_material(
                     material_code,
                     _get_excel_cell(row, col_map, 'material_name'),
                     _get_excel_cell(row, col_map, 'spec'),
-                    _get_excel_cell(row, col_map, 'unit'),
+                    imported_unit,
                     warnings=warnings,
                 )
+                if imported_unit and (not material.unit or imported_unit not in (material.unit.code, material.unit.name)):
+                    expected = material.unit.name if material.unit else '未配置'
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行物料 {material_code} 的导入单位「{imported_unit}」与库存单位「{expected}」不一致，本次导入未保存')
                 db.session.add(ProductionRequisitionItem(
                     requisition_id=order.id,
                     material_id=material.id,
@@ -1059,7 +1067,7 @@ def register_requisition_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '工单领料单'
-        ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注'])
+        ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '领料人'])
         if order.items:
             for item in order.items:
                 ws.append([
@@ -1073,7 +1081,8 @@ def register_requisition_routes(app):
                     item.material.spec if item.material else '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    item.remark or ''
+                    item.remark or '',
+                    order.picker or '',
                 ])
         output = io.BytesIO()
         wb.save(output)

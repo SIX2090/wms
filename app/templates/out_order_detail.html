@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
+{% set editable_lines = order.status == 'pending' and not push_source %}
 {% import '_list_macros.html' as ui %}
 {% block title %}{{ out_document_label }}详情 - {{ order.order_no }}{% endblock %}
 
@@ -123,7 +124,7 @@
 {% if order.business_type == '其他出库' %}{% set nav_mode = 'out' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
 {% if push_source %}
 <div class="alert alert-info d-flex justify-content-between align-items-center flex-wrap gap-2">
-    <span><i class="bi bi-diagram-3"></i> 来源入库单：{{ push_source.source_document_no }}（下推生成草稿）</span>
+    <span><i class="bi bi-diagram-3"></i> 来源入库单：{{ push_source.source_document_no }}{% if order.status == 'pending' %}（修改物料或数量须删除草稿后从来源单重新下推）{% endif %}</span>
     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('in_order_detail', id=push_source.source_document_id) }}" target="_blank" rel="noopener">查看来源单</a>
 </div>
 {% endif %}
@@ -167,9 +168,11 @@
                 </a>
                 {% endif %}
                 {% if order.status == 'pending' %}
+                {% if editable_lines %}
                 <a class="btn btn-sm btn-outline-primary" href="/out_order/add?order_id={{ order.id }}">
                     <i class="bi bi-pencil-square"></i> 编辑明细
                 </a>
+                {% endif %}
                 <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
                     <i class="bi bi-pencil-square"></i> 编辑单据
                 </button>
@@ -282,7 +285,7 @@
     {% endif %}
 
     <!-- 工具栏 -->
-    {% if order.status == 'pending' %}
+    {% if editable_lines %}
     <div class="order-toolbar">
         <div class="btn-group">
             <button class="toolbar-btn" type="button" onclick="addInlineMaterialRow()">
@@ -358,7 +361,7 @@
                 <thead>
                     <tr>
                         <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="row_no" data-default-label="序">序<div class="resize-handle"></div></th>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <th width="40" data-col="chk" data-column-key="selection" data-default-label="选择"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
                         {% if box_numbers %}<th data-column-key="box_no" data-default-label="箱体编号">箱体编号</th>{% endif %}
@@ -375,7 +378,7 @@
                         <th class="text-end resizable-th" data-col="colAmount" data-column-key="amount" data-default-label="金额">金额<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colRemark" data-column-key="remark" data-default-label="备注">备注<div class="resize-handle"></div></th>
                         <th class="text-center" width="80" data-col="label" data-column-key="label" data-default-label="标签">标签</th>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <th class="text-center" width="120" data-col="action" data-column-key="actions" data-default-label="操作">操作</th>
                         {% endif %}
                     </tr>
@@ -384,7 +387,7 @@
                     {% for item in order.items %}
                     <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}">
                         <td data-column-key="row_no" class="text-center"><span class="row-num">{{ loop.index }}</span></td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <td data-column-key="selection"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
                         {% if box_numbers %}<td data-column-key="box_no">{{ box_numbers.get(item.id, '') or '-' }}</td>{% endif %}
@@ -399,7 +402,7 @@
                         <td data-column-key="quantity" class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
                         <td data-column-key="price" class="text-end editable-cell" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
                         <td data-column-key="amount" class="text-end fw-bold text-danger">¥{{ "%.2f"|format(item.amount) }}</td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <td data-column-key="remark" class="editable-cell" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
                         {% else %}
                         <td data-column-key="remark">{{ item.remark or '' }}</td>
@@ -409,7 +412,7 @@
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <td data-column-key="actions" class="text-center">
                             <button class="toolbar-btn toolbar-btn-icon toolbar-btn-danger" data-id="{{ item.id }}" title="删除">
                                 <i class="bi bi-trash"></i>
@@ -419,7 +422,7 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ (16 if order.status == 'pending' else 14) + (1 if box_numbers else 0) }}" class="empty-state">
+                        <td colspan="{{ (16 if editable_lines else 14) + (1 if box_numbers else 0) }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
                             <p>暂无明细，请添加物料</p>
                         </td>
@@ -429,7 +432,7 @@
                 <tfoot>
                     <tr class="total-row">
                         <td data-column-key="row_no">合计：</td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <td data-column-key="selection"></td>
                         {% endif %}
                         {% if box_numbers %}<td data-column-key="box_no"></td>{% endif %}
@@ -446,7 +449,7 @@
                         <td data-column-key="amount" class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="remark"></td>
                         <td data-column-key="label"></td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_lines %}
                         <td data-column-key="actions"></td>
                         {% endif %}
                     </tr>
@@ -1137,7 +1140,7 @@ document.addEventListener('DOMContentLoaded', function() {
     registerDetailRowActions({
         tableSelector: '#itemTable',
         rowSelector: '#itemTable tbody tr',
-        editable: function() { return {{ (order.status == 'pending')|tojson }}; },
+        editable: function() { return {{ (order.status == 'pending' and not push_source)|tojson }}; },
         add: function() { addInlineMaterialRow(); },
         insert: function(row) { addInlineMaterialRow(row); },
         copy: function(row) { copyDetailMaterialRow(row); },
@@ -1432,7 +1435,7 @@ function forceCompleteOrder() {
 
 // ==================== 反提交 ====================
 function revertOrder(id) {
-    _showConfirm('确认反提交？反提交后库存将恢复。', {title: '反提交{{ out_document_label }}'}).then(function(confirmed) {
+    _showConfirm('反提交后，已出库数量退回原仓，本单转为草稿。{% if push_source %}本草稿仍占用来源入库单的下推数量，删除草稿才会释放。{% endif %}', {title: '反提交{{ out_document_label }}'}).then(function(confirmed) {
         if (!confirmed) return;
         return WMS.api.postRaw('/out_order/' + id + '/revert')
         .then(function(res) {
@@ -1693,7 +1696,7 @@ document.querySelectorAll('.toolbar-btn-danger[data-id]').forEach(function(btn) 
 });
 </script>
 
-{% if order.status == 'pending' %}
+{% if editable_lines %}
 <script src="{{ url_for('static', filename='js/excel-table.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script src="{{ url_for('static', filename='js/excel-import-export.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 <script>

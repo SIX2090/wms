@@ -788,6 +788,10 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
         execution = build_purchase_order_execution(order)
         print_items = [_project(item, item_fields, {'received_quantity': execution.get(item.id, {}).get('completed_quantity', 0)})
                        for item in (print_items or [])]
+    if target_code == 'requisition':
+        print_items = [_project(item, item_fields, {
+            'issued_quantity': item.quantity if order.status == 'completed' else 0
+        }) for item in (print_items or [])]
     if target_code == 'check':
         print_items = [_project(item, item_fields, {'actual_stock': None, 'difference': None})
                        if not getattr(item, 'has_actual_count', True) else item

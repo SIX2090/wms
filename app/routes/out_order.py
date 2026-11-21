@@ -27,7 +27,7 @@ import io
 import json
 
 from collections import Counter
-from flask import abort, jsonify, render_template, request, send_file, url_for
+from flask import abort, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -38,14 +38,39 @@ from utils import get_default_print_template, print_token_or_login_required, req
 from utils import round_money_product
 
 
+def _active_outbound_allocations(order):
+    from app import DocumentPushLine
+    return DocumentPushLine.query.filter_by(target_document_id=order.id, status='active').filter(
+        DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out')))
+
+
+_PUSH_EDIT_MESSAGE = '下推单据的物料和数量由来源入库单确定。需要更改时，请删除这张草稿，再从来源入库单重新下推。'
+
+
 def _out_order_stock_error(order):
-    from app import (allow_negative_stock, get_warehouse_stock_quantities,
+    from app import (DocumentPushLine, InOrderItem, allow_negative_stock, get_warehouse_stock_quantities,
                      is_stock_sufficient, normalize_stock_quantity,
                      validate_inventory_warehouse)
 
     warehouse, error = validate_inventory_warehouse(order.warehouse)
     if error:
         return error
+    links = (_active_outbound_allocations(order)
+             .outerjoin(InOrderItem, InOrderItem.id == DocumentPushLine.source_item_id)
+             .add_entity(InOrderItem).all())
+    if links:
+        items = {item.id: item for item in order.items}
+        if set(items) != {link.target_item_id for link, _ in links}:
+            return _PUSH_EDIT_MESSAGE
+        allocated = Counter()
+        for link, source in links:
+            if (not source or source.in_order_id != link.source_document_id
+                    or source.material_id != items[link.target_item_id].material_id):
+                return _PUSH_EDIT_MESSAGE
+            allocated[link.target_item_id] += link.pushed_quantity
+        if any(normalize_stock_quantity(item.quantity) != normalize_stock_quantity(allocated[item.id])
+               for item in items.values()):
+            return _PUSH_EDIT_MESSAGE
     requirements = {}
     for item in order.items:
         if not item.material_id or item.material is None:
@@ -396,7 +421,7 @@ def register_out_order_routes(app):
     @login_required
     def out_order_detail(id):
         from datetime import date
-        from app import (Department, DocumentPushLine, Material, OutOrder,
+        from app import (Department, Material, OutOrder,
                          OutOrderItem, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
@@ -412,9 +437,7 @@ def register_out_order_routes(app):
             if item.source_sales_order_item and item.source_sales_order_item.sales_order:
                 source_order = item.source_sales_order_item.sales_order
                 source_sales_orders[source_order.id] = source_order
-        push_source = DocumentPushLine.query.filter_by(
-            target_document_id=order.id, status='active'
-        ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first()
+        push_source = _active_outbound_allocations(order).first()
         return render_template('out_order_detail.html', order=order, box_numbers=get_out_order_box_numbers(order), warehouse_stock=warehouse_stock, source_sales_orders=list(source_sales_orders.values()), push_source=push_source, operation_logs=get_recent_operation_logs('out_order', id), departments=Department.query.filter(Department.status.in_(('active', '启用'))).order_by(Department.code.asc(), Department.id.asc()).all(), warehouses=get_active_warehouses(), default_warehouse=None if order.business_type == '销售出库' else get_default_warehouse(), location_management_enabled=location_management_enabled(), today=date.today())
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -547,6 +570,8 @@ def register_out_order_routes(app):
             ).get_or_404(order_id)
             if order.status != 'pending':
                 abort(409, '只有反提交后的草稿领料单可以编辑')
+            if _active_outbound_allocations(order).first():
+                return redirect(url_for('out_order_detail', id=order.id))
         order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
         is_sale_order = order.business_type == '销售出库' if order else order_type in ('sale', 'sales')
         is_other_out = order.business_type == '其他出库' if order else order_type in ('other', 'other_out')
@@ -561,8 +586,11 @@ def register_out_order_routes(app):
         order_date = order.date.strftime('%Y-%m-%d') if order and order.date else datetime.now().strftime('%Y-%m-%d')
         # BUG-2026-10-17-015-F07：单据页库存按单据仓库口径；新增页用默认仓。
         stock_warehouse = get_default_warehouse()
-        if order is not None and (order.warehouse or '').strip():
-            stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
+        prefill_warehouse = (order.warehouse if order else request.args.get('warehouse')) or ''
+        if prefill_warehouse.strip():
+            stock_warehouse, _wh_err = validate_inventory_warehouse(prefill_warehouse.strip())
+            if stock_warehouse:
+                prefill_warehouse = stock_warehouse.name
         stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         return render_template('out_order_add.html',
                              materials=[serialize_material_with_stock(material, stock_warehouse, stock_map)
@@ -586,7 +614,7 @@ def register_out_order_routes(app):
                              return_list_url='/other_out_order' if is_other_out else '/out_order',
                              return_add_url='/other_out_order/add' if is_other_out else ('/out_order/add?type=purchase_return' if is_purchase_return else '/out_order/add'),
                              prefill={
-                                 'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
+                                 'warehouse': prefill_warehouse,
                                  'location': order.location if order else (request.args.get('location') or '').strip(),
                                  'purpose': order.purpose if order else (request.args.get('purpose') or '').strip(),
                                  'contract_id': str(order.contract_id or '') if order else (request.args.get('contract_id') or '').strip(),
@@ -625,7 +653,7 @@ def register_out_order_routes(app):
     @web_document_idempotent
     def add_out_order():
         from datetime import date
-        from app import (DocumentPushLine, InOrder, InOrderItem, Material,
+        from app import (InOrder, InOrderItem, Material,
                          OutOrder, OutOrderItem, SalesOrder, api_error,
                          generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
@@ -754,10 +782,8 @@ def register_out_order_routes(app):
                 order_no = order.order_no
                 if order.status != 'pending':
                     return api_error('已完成的领料单不能修改')
-                if DocumentPushLine.query.filter_by(
-                    target_document_id=order.id, status='active'
-                ).filter(DocumentPushLine.target_document_type.in_(('requisition', 'other_out', 'sales_out'))).first():
-                    return jsonify({'status': 'error', 'msg': '下推生成的目标草稿必须从来源单重新选择明细，不能通过普通编辑接口重建明细。'}), 409
+                if _active_outbound_allocations(order).first():
+                    return api_error(_PUSH_EDIT_MESSAGE, 409)
                 if order.business_type == '销售出库' and business_type != order.business_type and (
                         order.source_sales_order_id or any(row.source_sales_order_item_id for row in order.items)
                         or '来源销售订单' in (order.purpose or '') or order.purpose == '选单生成销售出库'):
@@ -958,6 +984,8 @@ def register_out_order_routes(app):
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以添加明细')
+        if _active_outbound_allocations(order).first():
+            return api_error(_PUSH_EDIT_MESSAGE, 409)
         # BUG-2026-09-22-007：采购退货出库单的明细必须带「来源采购入库行」，
         # 本接口是单行裸加（只收物料+数量，无 source_in_order_item_id），
         # 加出来的行**无来源 → 防超退闸整行跳过 → 可无限退货**，直接击穿
@@ -1028,6 +1056,8 @@ def register_out_order_routes(app):
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以删除明细')
+        if _active_outbound_allocations(order).first():
+            return api_error(_PUSH_EDIT_MESSAGE, 409)
 
         item = OutOrderItem.query.get_or_404(item_id)
         if item.out_order_id != id:
@@ -1058,6 +1088,8 @@ def register_out_order_routes(app):
         order = item.out_order
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以修改明细')
+        if _active_outbound_allocations(order).first():
+            return api_error(_PUSH_EDIT_MESSAGE, 409)
 
         material_code = (request.form.get('code') or '').strip()
         if material_code:
@@ -1922,7 +1954,7 @@ def register_out_order_routes(app):
         import math
         from pydantic import BaseModel, Field, ValidationError, field_validator
         from app import (Material, OutOrder, OutOrderItem, _acquire_order_write_lock,
-                         get_default_warehouse, location_management_enabled,
+                         api_error, get_default_warehouse, location_management_enabled,
                          log_operation, recalculate_order_total,
                          resolve_item_contract, round_to_2_decimals,
                          validate_inventory_warehouse)
@@ -1958,6 +1990,9 @@ def register_out_order_routes(app):
             if (order.business_type == '采购退货出库' or order.source_in_order_id
                     or any(item.source_in_order_item_id for item in order.items)):
                 raise ValueError('采购退货出库单的明细必须关联来源采购入库行，请使用编辑页维护退货明细')
+            if _active_outbound_allocations(order).first():
+                db.session.rollback()
+                return api_error(_PUSH_EDIT_MESSAGE, 409)
             if (order.business_type == '销售出库' or order.source_sales_order_id
                     or any(item.source_sales_order_item_id for item in order.items)):
                 raise ValueError('销售来源出库明细必须保留来源销售订单行，请使用整单编辑页维护明细')

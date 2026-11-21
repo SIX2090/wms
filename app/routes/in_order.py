@@ -1092,8 +1092,11 @@ def register_in_order_routes(app):
         default_warehouse = get_default_warehouse()
         # BUG-2026-10-17-015-F07：单据页库存按单据仓库口径；新增页用默认仓。
         stock_warehouse = default_warehouse
-        if order is not None and (order.warehouse or '').strip():
-            stock_warehouse, _wh_err = validate_inventory_warehouse(order.warehouse)
+        prefill_warehouse = (order.warehouse if order else request.args.get('warehouse')) or ''
+        if prefill_warehouse.strip():
+            stock_warehouse, _wh_err = validate_inventory_warehouse(prefill_warehouse.strip())
+            if stock_warehouse:
+                prefill_warehouse = stock_warehouse.name
         stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
         order_date = datetime.now().strftime('%Y-%m-%d')
         return render_template('in_order_add.html',
@@ -1123,7 +1126,7 @@ def register_in_order_routes(app):
                              source_sales_order_id=source_sales_order_id,
                              prefill={
                                  'auto_push_requisition': order.auto_push_requisition if order else False,
-                                 'warehouse': order.warehouse if order else (request.args.get('warehouse') or '').strip(),
+                                 'warehouse': prefill_warehouse,
                                  'location': order.location if order else (request.args.get('location') or '').strip(),
                                  'purpose': order.purpose if order else (request.args.get('purpose') or '').strip(),
                                  'contract_id': str(order.contract_id or '') if order else (request.args.get('contract_id') or '').strip(),
