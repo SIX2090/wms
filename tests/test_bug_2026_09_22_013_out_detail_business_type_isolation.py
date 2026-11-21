@@ -79,7 +79,7 @@ def _seed():
                    unit_id=unit.id, stock=0, price=10)
     db.session.add(mat)
     db.session.commit()
-    _IDS.update(wh=wh.name, mat=mat.id, dept=dept.id)
+    _IDS.update(wh=wh.name, warehouse_id=wh.id, mat=mat.id, dept=dept.id)
 
 
 def _make_out_order(order_no, business_type, qty=4.0):
@@ -109,7 +109,7 @@ def _client():
 
 
 def _query(client, report_type="out_detail", **params):
-    query = {"warehouse_id": "", "date_start": TODAY, "date_end": TODAY}
+    query = {"warehouse_id": _IDS["warehouse_id"], "start_date": TODAY, "end_date": TODAY}
     query.update(params)
     resp = client.get(f"/report/api/{report_type}", query_string=query)
     assert resp.status_code == 200, resp.get_data(as_text=True)
