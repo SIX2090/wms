@@ -318,9 +318,9 @@ def test_nonfinite_excel_stocktake_row_is_skipped_before_creating_document(guard
         before = _business_snapshot()
     response = client.post('/check/import', headers=headers,
         data={'file': (stream, 'synthetic-stocktake.xlsx')})
-    assert response.status_code == 200, response.get_data(as_text=True)
+    assert response.status_code == 400, response.get_data(as_text=True)
     body = response.get_json()
-    assert body['status'] == 'success'
+    assert body['status'] == 'error'
     assert body['count'] == 0 and body['item_count'] == 0
     assert '有限' in body['warnings'] and '跳过 1 行' in body['msg']
     with w.app.app_context():

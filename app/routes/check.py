@@ -1446,7 +1446,9 @@ def register_check_routes(app):
                 item_count += 1
             if not item_count:
                 db.session.rollback()
-                return api_error('没有有效盘点明细。' + '；'.join(skip_details[:10]))
+                message = f'没有有效盘点明细，跳过 {skip} 行。' + '；'.join(skip_details[:10])
+                return _import_result('库存盘点单', 0, 0, skip, skip_details,
+                                      extra={'status': 'error', 'msg': message}), 400
             db.session.commit()
             return _import_result('库存盘点单', order_count, item_count, skip, skip_details, notes=warnings)
         except InactiveMaterialImportError as exc:

@@ -56,7 +56,8 @@ def test_rejected_location_import_leaves_no_document_or_material(scene):
     book.save(data)
     data.seek(0)
     response = client.post('/check/import', data={'file': (data, 'count.xlsx')}).json
-    assert response['status'] == 'error' and '第2行' in response['msg']
+    assert response['status'] == 'error' and response['count'] == response['item_count'] == 0
+    assert '没有有效盘点明细' in response['msg'] and '第2行' in response['warnings']
     assert not wms.InventoryCheck.query.count()
     assert not wms.Material.query.filter_by(code='NOT-CREATED').count()
 

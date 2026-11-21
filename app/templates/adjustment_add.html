@@ -261,7 +261,7 @@
     </div>
 
     <div class="adjust-body">
-        {% if source_check %}<p>来源盘点单 <a href="{{ url_for('check_detail', id=source_check.id) }}">{{ source_check.check_no }}</a></p>{% endif %}
+        {% if source_check %}<p>来源盘点单 <a target="_blank" rel="noopener" href="{{ url_for('check_detail', id=source_check.id) }}">{{ source_check.check_no }}</a></p>{% endif %}
         {% if source_scan %}<p>来源扫码单 {{ source_scan.check_no }}</p>{% endif %}
         {% if source_locked and adjustment.status == 'pending' %}
         <p class="text-muted small">调整明细来自盘点。需要更正时，请先撤销来源盘点的完成状态。</p>
