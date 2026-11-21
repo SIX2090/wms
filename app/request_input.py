@@ -53,7 +53,7 @@ class StockDocumentItemInput(BaseModel):
     source_in_order_item_id: int | None = None
     quantity: float | None = None
     price: float | None = None
-    actual_stock: float | None = None
+    actual_stock: float | None = Field(None, ge=0)
     estimated_price: float | None = None
     scrap_quantity: float | None = None
     code: StrictStr | None = Field(None, max_length=50)
@@ -193,11 +193,14 @@ def validate_document_json_input():
             return jsonify(status='error', msg='调整单参数格式不正确，请检查文本、编号和明细数量'), 400
         field = '请求内容'
         if hasattr(error, 'errors'):
-            location = error.errors(include_input=False)[0]['loc']
+            detail = error.errors(include_input=False)[0]
+            location = detail['loc']
             if location:
                 field = STOCK_FIELD_LABELS.get(location[-1], '请求内容')
                 if len(location) > 1 and location[0] == 'items' and isinstance(location[1], int):
                     field = f'第{location[1]+1}行{field}'
+                if location[-1] == 'actual_stock' and detail['type'] == 'greater_than_equal':
+                    return jsonify(status='error', code='INVALID_DOCUMENT_INPUT', msg=f'{field}不能为负数'), 400
         return jsonify(status='error', code='INVALID_DOCUMENT_INPUT',
                        msg=f'字段 {field} 格式或长度不正确，请检查后重试'), 400
     return None

@@ -816,6 +816,9 @@ def register_check_routes(app):
             if not finite_actual:
                 db.session.rollback()
                 return api_error('盘点实盘数必须是有限数字，请先修正明细')
+            if any(item.has_actual_count and float(item.actual_stock) < 0 for item in check.items):
+                db.session.rollback()
+                return api_error('实盘数量不能为负数，请先修正盘点明细')
             snapshot, risks = _check_complete_snapshot(check, locked_wh.id)
             if risks['uncounted']:
                 db.session.rollback()
@@ -1016,11 +1019,14 @@ def register_check_routes(app):
             return api_error('盘点明细不属于当前盘点单')
 
         try:
-            actual_stock = float(request.form.get('actual_stock', item.actual_stock))
+            raw_actual = request.form.get('actual_stock')
+            if raw_actual is None:
+                return jsonify({'status': 'success', 'msg': '实盘数量未修改'})
+            actual_stock = float(raw_actual) if raw_actual.strip() else None
         except (ValueError, TypeError):
             return api_error('实际库存必须是数字')
-        if not math.isfinite(actual_stock):
-            return api_error('实际库存必须是有限数字')
+        if actual_stock is not None and (not math.isfinite(actual_stock) or actual_stock < 0):
+            return api_error('实际库存必须是有限数字且不能为负数')
 
         try:
             # INV-BATCH-001-B：单据写锁，防多人并发改行互相覆盖/改到已提交单
@@ -1028,11 +1034,11 @@ def register_check_routes(app):
             if not ok:
                 return api_error('该盘点单状态已变更，请刷新后重试')
             InventoryCheckScanItem.query.filter_by(batch_item_id=item.id).update({'batch_item_id': None})
-            item.actual_stock = actual_stock
-            item.difference = actual_stock - item.system_stock
+            item.actual_stock = actual_stock if actual_stock is not None else item.system_stock
+            item.difference = item.actual_stock - item.system_stock
             # INV-BATCH-001-B：行级盘点归属（多人协作批次下谁改的、何时改的）
-            item.counted_by = current_user.id
-            item.counted_at = datetime.now()
+            item.counted_by = current_user.id if actual_stock is not None else None
+            item.counted_at = datetime.now() if actual_stock is not None else None
             db.session.commit()
             
             log_operation('更新盘点明细', f'盘点单：{check.check_no}，物料：{item.material.code if item.material else ""}', 'check', id)
@@ -1360,7 +1366,7 @@ def register_check_routes(app):
                     StockDocumentItemInput.model_validate({'actual_stock': _get_excel_cell(row, col_map, 'actual_stock')})
                 except (ValueError, TypeError):
                     skip += 1
-                    skip_details.append(f'第{row_idx}行：实际库存必须是有限数字')
+                    skip_details.append(f'第{row_idx}行：实际库存必须是有限数字且不能为负数')
                     continue
                 # BUG-2026-09-03-001：行仓库解析（Excel 未提供该列时为空，交由默认仓库回退）
                 row_warehouse_raw = (_get_excel_cell(row, col_map, 'warehouse') or '').strip()

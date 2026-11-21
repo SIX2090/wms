@@ -116,3 +116,26 @@ def test_read_only_account_can_trace_documents_without_edit_controls(scene):
             else:
                 linked = f'/adjustment/{adjustment_id}' if path.startswith('/check/') else f'/check/{key}'
                 assert any(element.get('href') == linked for element in controls.elements)
+
+
+def test_negative_actuals_and_legacy_line_updates(scene):
+    from tests.test_bug_2026_09_13_004_check_row_identity import _save
+
+    client, _, warehouse, material = scene
+    assert _save(client, warehouse, material, [{'actual_stock': -1}])['status'] == 'error'
+    assert wms.InventoryCheck.query.count() == 0
+    key = _count(client, warehouse, material, [{'actual_stock': None}])
+    line = wms.db.session.get(wms.InventoryCheck, key).items[0]
+    endpoint = f'/check/{key}/item/{line.id}'
+    response = document_post(client, endpoint, data={'actual_stock': '-0.001'})
+    assert response.status_code == 400 and '负数' in response.json['msg']
+    assert not line.has_actual_count
+    assert document_post(client, endpoint, data={'actual_stock': '0'}).json['status'] == 'success'
+    assert line.has_actual_count and line.actual_stock == 0
+    assert document_post(client, endpoint, data={'actual_stock': ''}).json['status'] == 'success'
+    assert not line.has_actual_count and line.actual_stock == line.system_stock
+    line.actual_stock = -1
+    wms.db.session.commit()
+    assert '负数' in _complete(client, key)['msg']
+    assert not wms.AdjustmentOrder.query.count()
+    assert material.stock == 100

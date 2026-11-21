@@ -732,7 +732,7 @@ def register_mobile_routes(app):
                 try:
                     StockDocumentItemInput.model_validate({'actual_stock': actual_raw})
                 except (ValueError, TypeError):
-                    return jsonify({'status': 'error', 'success': False, 'msg': '实际库存必须是有限数字'}), 400
+                    return jsonify({'status': 'error', 'success': False, 'msg': '实际库存必须是有限数字且不能为负数'}), 400
                 actual_stock = round_to_2_decimals(parse_float_value(actual_raw, 0))
                 # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
                 warehouse_stock_map = get_warehouse_stock_quantities(warehouse)

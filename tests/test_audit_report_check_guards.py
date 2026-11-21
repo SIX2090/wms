@@ -135,7 +135,7 @@ def _business_snapshot():
         for row in model.query.order_by(model.id).all()] for model in models}
 
 
-@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309', 'bad'])
+@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309', 'bad', '-2'])
 def test_nonfinite_check_form_is_rejected_without_counting(guarded_case, invalid):
     client, ids, headers = guarded_case
     with w.app.app_context():
@@ -151,7 +151,7 @@ def test_nonfinite_check_form_is_rejected_without_counting(guarded_case, invalid
         assert _business_snapshot() == before
 
 
-@pytest.mark.parametrize('value', ['0', '6.25', '-2'])
+@pytest.mark.parametrize('value', ['0', '6.25'])
 def test_finite_check_form_preserves_existing_values(guarded_case, value):
     client, ids, headers = guarded_case
     with w.app.app_context():
@@ -173,7 +173,7 @@ def test_finite_check_form_preserves_existing_values(guarded_case, value):
 
 
 @pytest.mark.parametrize('channel', ['json', 'mobile', 'native'])
-@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309'])
+@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309', '-2', -1, '-0.001'])
 def test_nonfinite_stocktake_consumers_do_not_create_facts(guarded_case, channel, invalid):
     client, ids, headers = guarded_case
     with w.app.app_context():
@@ -208,7 +208,7 @@ def test_nonfinite_stocktake_consumers_do_not_create_facts(guarded_case, channel
 
 
 @pytest.mark.parametrize('channel', ['mobile', 'native'])
-@pytest.mark.parametrize('value', ['0', '6.25', '-2', None, ''])
+@pytest.mark.parametrize('value', ['0', '6.25', None, ''])
 def test_stocktake_consumers_keep_finite_and_missing_value_contract(guarded_case, channel, value):
     client, ids, headers = guarded_case
     with w.app.app_context():
@@ -247,20 +247,22 @@ def test_stocktake_consumers_keep_finite_and_missing_value_contract(guarded_case
         assert w.AdjustmentOrder.query.count() == 0
 
 
-def test_check_form_omitted_value_keeps_old_value_and_empty_text_stays_invalid(guarded_case):
+def test_check_form_omitted_value_preserves_count_and_empty_text_clears_it(guarded_case):
     client, ids, headers = guarded_case
     with w.app.app_context():
         check_id, line_id = _check_document(ids)
         before = _business_snapshot()
     path = f'/check/{check_id}/item/{line_id}'
-    rejected = document_post(client, path, headers=headers, data={'actual_stock': ''})
-    assert rejected.status_code == 400 and '数字' in rejected.get_json()['msg']
-    with w.app.app_context():
-        assert _business_snapshot() == before
     saved = document_post(client, path, headers=headers, data={})
     assert saved.status_code == 200 and saved.get_json()['status'] == 'success'
     with w.app.app_context():
-        assert w.db.session.get(w.InventoryCheckItem, line_id).actual_stock == 8
+        assert _business_snapshot() == before
+    cleared = document_post(client, path, headers=headers, data={'actual_stock': ''})
+    assert cleared.status_code == 200 and cleared.json['status'] == 'success'
+    with w.app.app_context():
+        line = w.db.session.get(w.InventoryCheckItem, line_id)
+        assert line.actual_stock == line.system_stock and line.difference == 0
+        assert line.counted_by is None and line.counted_at is None
 
 
 def test_finite_uncounted_check_preserves_signed_confirmation_and_no_adjustment(guarded_case):
@@ -305,7 +307,7 @@ def test_legacy_nonfinite_actual_cannot_be_confirmed_into_adjustment_drafts(guar
         assert _business_snapshot() == before
 
 
-@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309'])
+@pytest.mark.parametrize('invalid', ['Infinity', '-Infinity', 'NaN', '1e309', '-2', -1, '-0.001'])
 def test_nonfinite_excel_stocktake_row_is_skipped_before_creating_document(guarded_case, invalid):
     from openpyxl import Workbook
     client, _, headers = guarded_case

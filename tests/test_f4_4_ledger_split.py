@@ -656,6 +656,7 @@ POST_SPLIT_BUGS['BUG-2026-11-20-008'] = 'fixed'  # Page against the current open
 POST_SPLIT_BUGS['BUG-2026-11-20-009'] = 'fixed'  # Sum pallet counts and distinguish blank from zero.
 POST_SPLIT_BUGS['BUG-2026-11-20-010'] = 'fixed'  # Keep one completion action per stock document.
 POST_SPLIT_BUGS['BUG-2026-11-20-011'] = 'fixed'  # Preserve stocktake linkage, counts and posting history.
+POST_SPLIT_BUGS['BUG-2026-11-21-031'] = 'fixed'  # Reject negative physical counts at all entry points.
 POST_SPLIT_BUGS['BUG-2026-11-21-030'] = 'fixed'  # Show one net variance across pallet lines.
 POST_SPLIT_BUGS['BUG-2026-11-21-001'] = 'fixed'  # Require all stocktake rows to have an actual count.
 POST_SPLIT_BUGS['BUG-2026-11-21-002'] = 'fixed'  # Require a quantity in native stocktake submissions.
