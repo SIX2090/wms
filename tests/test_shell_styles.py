@@ -19,8 +19,13 @@ def test_shell_loads_versioned_styles_in_original_cascade_position():
 def test_shell_styles_preserve_every_rule_and_order():
     css = (ROOT / 'app/static/css/shell.css').read_text(encoding='utf-8')
     normalized = re.sub(r'\s+', '', re.sub(r'/\*.*?\*/', '', css, flags=re.S))
-    # Snapshot from the original base.html style block, excluding comments/spacing.
-    assert hashlib.sha256(normalized.encode()).hexdigest() == '04b9a0c0f13a44ec6336fa374a107c1f56a03596c709a60aad0291d9fe4bad23'
+    # Multiline document confirmations must keep the actions reachable on long orders.
+    selector = '.cb-confirm-body{'
+    confirmation_rules = 'white-space:pre-line;max-height:55vh;overflow-y:auto;'
+    assert normalized.count(selector + confirmation_rules) == 1
+    # Preserve the complete original shell snapshot and cascade around that addition.
+    original = normalized.replace(selector + confirmation_rules, selector, 1)
+    assert hashlib.sha256(original.encode()).hexdigest() == '04b9a0c0f13a44ec6336fa374a107c1f56a03596c709a60aad0291d9fe4bad23'
     assert '{{' not in css and '{%' not in css
     assert 'url(' not in css  # No relative resource paths to change meaning after extraction.
 
