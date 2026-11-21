@@ -152,16 +152,19 @@ def test_selection_fetch_failure_is_json_and_explicit_retry_binds_synthetic_imag
     assert len(calls)==2
     for fetched,options in calls:
         assert fetched==GOOD and options['allow_redirects'] is False and options['stream'] is True
-    after=snapshot();assert {t for t in before if before[t]!=after[t]} <= {'material','operation_log'}
+    after=snapshot();assert {t for t in before if before[t]!=after[t]} == {'material','material_image','operation_log'}
+    assert len(after['material_image']) == len(before['material_image']) + 1
     assert len(after['operation_log'])==len(before['operation_log'])+1
     with m.app.app_context():
         material=m.db.session.get(m.Material,ids['material'])
+        gallery = m.MaterialImage.query.filter_by(material_id=material.id).order_by(m.MaterialImage.sort_order, m.MaterialImage.id).first()
+        assert gallery.image == material.image
         assert material.image==success.json['image'] and material.stock==30
         path=(Path(m.app.static_folder)/material.image).resolve()
         assert Path(m.app.static_folder).resolve() in path.parents and path.is_file()
         with Image.open(path) as picture:assert picture.format=='JPEG' and picture.size==(32,32)
     save('select-'+name,{'http':[502,200],'failed_fetch_calls':1,'manual_retry_fetch_calls':1,
-        'failure_all_rows_unchanged':True,'success_changed_tables':['material','operation_log'],
+        'failure_all_rows_unchanged':True,'success_changed_tables':['material','material_image','operation_log'],
         'only_synthetic_png_to_local_jpeg':True,'stock_config_credentials_unchanged':True})
 
 
