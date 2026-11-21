@@ -94,19 +94,19 @@ def test_prior_history_is_complete_even_above_detail_limit(reports, monkeypatch)
 
 @pytest.mark.parametrize(('kind', 'quantity'), [('in_detail', 10), ('out_detail', 3)])
 def test_posted_by_default_all_units_and_row_remarks(reports, kind, quantity):
-    client, _ = reports
+    client, ids = reports
     url = '/report/api/' + kind
-    posted = client.get(url).get_json()
+    posted = client.get(url, query_string={'warehouse_id': ids['warehouse_id']}).get_json()
     assert posted['summary']['quantity'] == quantity
     assert {r['status'] for r in posted['data']} == {'completed'}
     assert all((r['remark'], r['item_remark']) == ('单头', '行备注') for r in posted['data'])
-    all_rows = client.get(url, query_string={'status': 'all', 'sort_field': 'customer'}).get_json()
+    all_rows = client.get(url, query_string={'warehouse_id': ids['warehouse_id'], 'status': 'all', 'sort_field': 'customer'}).get_json()
     assert all_rows['summary']['quantity'] is None
     assert {r['unit']: r['quantity'] for r in all_rows['summary']['unit_totals']} == {'件': quantity, '米': 4}
     if kind == 'out_detail':
         assert [r['customer'] for r in all_rows['data']] == ['A', 'Z']
     for params in [{'warehouse_id': 'abc'}, {'warehouse_id': '+1'}, {'warehouse_id': -1},
-                   {'start_date': '2026-10-01', 'end_date': '2026-09-01'}]:
+                   {'warehouse_id': ids['warehouse_id'], 'start_date': '2026-10-01', 'end_date': '2026-09-01'}]:
         for endpoint in (url, '/report/' + kind + '/print_excel', '/report/' + kind + '/print_preview'):
             assert client.get(endpoint, query_string=params).status_code == 400
 
@@ -187,12 +187,12 @@ def test_source_numbers_loaded_in_batches(reports):
 
 @pytest.mark.parametrize('kind', ['in_detail', 'out_detail'])
 def test_print_preview_and_template_download_use_same_status_and_prices(reports, kind):
-    client, _ = reports
+    client, ids = reports
     for enabled in (False, True):
         with m.app.app_context():
             m.set_system_setting('price_dimension_enabled', '1' if enabled else '0')
             m.db.session.commit()
-        args = {'status': 'all'}
+        args = {'warehouse_id': ids['warehouse_id'], 'status': 'all'}
         preview = client.get('/report/'+kind+'/print_preview', query_string=args)
         download = client.get('/report/'+kind+'/print_excel', query_string=args)
         assert preview.status_code == download.status_code == 200
@@ -205,7 +205,7 @@ def test_print_preview_and_template_download_use_same_status_and_prices(reports,
 
 @pytest.mark.parametrize(('kind', 'pieces'), [('in_detail', 10), ('out_detail', 3)])
 def test_resolve_report_print_layout(reports, tmp_path, monkeypatch, kind, pieces):
-    client, _ = reports
+    client, ids = reports
     monkeypatch.setattr(m.app, 'static_folder', str(tmp_path))
     template_path = tmp_path / 'uploads' / 'print_templates' / 'custom.xlsx'
     template_path.parent.mkdir(parents=True)
@@ -220,7 +220,7 @@ def test_resolve_report_print_layout(reports, tmp_path, monkeypatch, kind, piece
         m.db.session.add(template)
         m.db.session.commit()
         tid = template.id
-    args = {'status': 'all', 'template_id': tid}
+    args = {'warehouse_id': ids['warehouse_id'], 'status': 'all', 'template_id': tid}
     for enabled in (False, True):
         with m.app.app_context():
             m.set_system_setting('price_dimension_enabled', '1' if enabled else '0')
@@ -236,7 +236,7 @@ def test_resolve_report_print_layout(reports, tmp_path, monkeypatch, kind, piece
             assert f'>{(pieces + 4) * 2}</td>' in preview.get_data(as_text=True)
     for wrong in ('abc', 999999):
         for kind_of_output in ('print_preview', 'print_excel'):
-            assert client.get(f'/report/{kind}/{kind_of_output}', query_string={'template_id': wrong}).status_code == 400
+            assert client.get(f'/report/{kind}/{kind_of_output}', query_string={'warehouse_id': ids['warehouse_id'], 'template_id': wrong}).status_code == 400
 
 def test_fractional_ledger_movements_match_stored_quantities(reports):
     client, ids = reports
@@ -247,3 +247,15 @@ def test_fractional_ledger_movements_match_stored_quantities(reports):
     data = client.get('/report/api/ledger', query_string=ids).get_json()
     assert data['summary'] == {'count': 4, 'quantity': 13.0001, 'amount': 7.0001}
     assert data['data'][-1]['in_quantity'] == 10.0001
+
+
+@pytest.mark.parametrize('kind', ['in_detail', 'out_detail', 'ledger'])
+def test_default_warehouse_must_be_submitted_by_caller(reports, kind):
+    client, _ = reports
+    for path, options in ((f'/report/api/{kind}', {}), (f'/report/api/{kind}', {'export': 'excel'}),
+                          (f'/report/{kind}/print_excel', {}), (f'/report/{kind}/print_preview', {})):
+        for params in ({}, {'warehouse_id': ''}, {'warehouse_id': '  '}):
+            response = client.get(path, query_string={'material_code': 'M01', **options, **params})
+            assert response.status_code == 400
+            error = response.get_json()['msg'] if response.is_json else response.get_data(as_text=True)
+            assert '请选择仓库' in error

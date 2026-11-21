@@ -5687,12 +5687,12 @@ def get_default_warehouse():
         return None
     return Warehouse.query.filter_by(status='active', is_default=True).first()
 
-def resolve_request_warehouse(params):
+def resolve_request_warehouse(params, *, allow_default=True):
     """解析请求中的仓库参数，返回 (warehouse, error)。
 
     BUG-2026-08-12-004：移动端读取接口统一仓库解析规则（AGENTS.md 仓库必填）。
     - warehouse_id / warehouse_code / warehouse(name) 显式提供时必须存在且 active；
-    - 未提供时回退 get_default_warehouse()；
+    - 未提供时由 allow_default 决定是否带入默认仓；
     - 无显式仓库且无默认仓库时返回 (None, '请选择仓库')。
     params 为 request.args 或任意带 .get 的映射。
     """
@@ -5706,7 +5706,10 @@ def resolve_request_warehouse(params):
 
     if raw_id:
         try:
-            warehouse = db.session.get(Warehouse, int(raw_id))
+            warehouse_id = int(raw_id)
+            if not 0 < warehouse_id <= 2**63 - 1 or (not allow_default and not raw_id.isdecimal()):
+                return None, '仓库参数无效，请重新选择仓库'
+            warehouse = db.session.get(Warehouse, warehouse_id)
         except (TypeError, ValueError):
             warehouse = None
         if not warehouse:
@@ -5727,7 +5730,8 @@ def resolve_request_warehouse(params):
         if (warehouse.status or 'active') != 'active':
             return None, f'仓库 [{warehouse.name}] 已停用'
         return warehouse, None
-
+    if not allow_default:
+        return None, '请选择仓库'
     default_wh = get_default_warehouse()
     if default_wh:
         return default_wh, None
@@ -29164,8 +29168,9 @@ def _begin_report_read():
 def _build_report_filters(require_existing_warehouse=True, report_type=None):
     if report_type in ('in_detail', 'out_detail', 'ledger'):
         _begin_report_read()
-    # BUG-2026-08-02-014：报表仓库必填筛选，未指定时带入默认仓库
     raw_warehouse = (request.args.get('warehouse_id') or '').strip()
+    if report_type in ('in_detail', 'out_detail', 'ledger') and not raw_warehouse:
+        raise ReportFilterError('请选择仓库')
     warehouse_id = _parse_positive_int(raw_warehouse, 0)
     if raw_warehouse and (not raw_warehouse.isdecimal() or not 0 < warehouse_id <= 2**63 - 1):
         raise ReportFilterError('仓库参数无效，请重新选择仓库')

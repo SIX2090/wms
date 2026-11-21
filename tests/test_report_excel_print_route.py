@@ -117,7 +117,10 @@ def test_truncated_ledger_never_generates_a_print_file(monkeypatch):
     monkeypatch.setattr(m, '_collect_report_export_rows',
                         lambda *args: ([{'field': 'code', 'title': '编码'}],
                                        [{'code': 'M-001'}], True, 2))
-    response = client.get('/report/ledger/print_excel?material_code=M-001')
+    with m.app.app_context():
+        warehouse_id = m.Warehouse.query.filter_by(code='WH001').one().id
+    response = client.get('/report/ledger/print_excel', query_string={
+        'material_code': 'M-001', 'warehouse_id': warehouse_id})
     assert response.status_code == 400
     assert '缩小筛选范围' in response.get_json()['msg']
     with m.app.app_context():
