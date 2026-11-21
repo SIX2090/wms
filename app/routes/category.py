@@ -19,7 +19,7 @@ from collections import defaultdict, deque
 
 from master_import import MasterImportError, master_import_rows
 
-from flask import current_app, jsonify, redirect, render_template, request, send_file, url_for
+from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -69,7 +69,10 @@ def register_category_routes(app):
         from app import MaterialCategory, api_error
         code = (request.form.get('code') or '').strip()
         name = (request.form.get('name') or '').strip()
-        parent_id = request.form.get('parent_id', type=int) or None
+        raw_parent = (request.form.get('parent_id') or '').strip()
+        parent_id = request.form.get('parent_id', type=int) if raw_parent else None
+        if raw_parent and (parent_id is None or parent_id <= 0):
+            return api_error('上级分类无效，请重新选择')
         if not code:
             return api_error('请输入分类编码')
         if not name:
@@ -110,7 +113,10 @@ def register_category_routes(app):
             return api_error('分类不存在')
         code = (request.form.get('code') or '').strip()
         name = (request.form.get('name') or '').strip()
-        parent_id = request.form.get('parent_id', type=int) or None
+        raw_parent = (request.form.get('parent_id') or '').strip()
+        parent_id = request.form.get('parent_id', type=int) if raw_parent else None
+        if raw_parent and (parent_id is None or parent_id <= 0):
+            return api_error('上级分类无效，请重新选择')
         if not code:
             return api_error('请输入分类编码')
         if not name:
@@ -141,6 +147,8 @@ def register_category_routes(app):
             db.session.rollback()
             current_app.logger.error(f'编辑分类失败: {e}')
             return jsonify({'status': 'error', 'msg': '编辑失败'}), 500
+        from routes.options_api import invalidate_options_pool
+        invalidate_options_pool('category')
         return jsonify({'status': 'success', 'msg': '分类编辑成功'})
 
     @app.route('/category/delete', methods=['POST'])
@@ -215,6 +223,11 @@ def register_category_routes(app):
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
         query = _apply_simple_search(MaterialCategory.query, MaterialCategory, search, ['code', 'name'])
         query, _ = _apply_master_order(query, MaterialCategory, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
+        from app import export_max_rows
+        max_rows = export_max_rows()
+        if query.count() > max_rows:
+            flash(f'分类导出超过 {max_rows} 行，请缩小筛选范围', 'warning')
+            return redirect(url_for('category_list', search=search, sort=sort_by, order=sort_order))
         matching_ids = {category.id for category in query.all()}
         tree_query, _ = _apply_master_order(MaterialCategory.query, MaterialCategory, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
         rows = build_category_tree_rows(tree_query.all(), preserve_order=True)
@@ -250,6 +263,10 @@ def register_category_routes(app):
             from openpyxl import load_workbook
             wb = load_workbook(file)
             ws = wb.active
+            from app import import_max_rows
+            max_rows = import_max_rows()
+            if (ws.max_row or 1) - 1 > max_rows:
+                return api_error(f'分类导入超过 {max_rows} 行，请拆分文件')
             count = 0
             skip = 0
             rows = master_import_rows(ws, ('分类编码', '分类名称'))

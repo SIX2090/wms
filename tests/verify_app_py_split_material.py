@@ -187,12 +187,14 @@ class TestMaterialRegister:
         with app_module.app.app_context():
             m1 = Material.query.filter_by(code="M001").first().id
             m2 = Material.query.filter_by(code="M002").first().id
-        resp = client.post(f"/material/edit/{m1}", data={"code": "M001", "name": "深沟球轴承", "spec": "6204"})
+        revision = client.get(f"/material/{m1}").get_json()["material"]["edit_revision"]
+        resp = client.post(f"/material/edit/{m1}", data={"edit_revision": revision, "code": "M001", "name": "深沟球轴承", "spec": "6204"})
         assert resp.get_json()["status"] == "success", resp.get_json()
         with app_module.app.app_context():
             assert Material.query.get(m1).name == "深沟球轴承"
         # 编码改为另一物料已占用的编码
-        r = client.post(f"/material/edit/{m1}", data={"code": "M002", "name": "深沟球轴承"})
+        revision = client.get(f"/material/{m1}").get_json()["material"]["edit_revision"]
+        r = client.post(f"/material/edit/{m1}", data={"edit_revision": revision, "code": "M002", "name": "深沟球轴承"})
         assert r.get_json()["status"] == "error"
 
     def test_delete_material(self):

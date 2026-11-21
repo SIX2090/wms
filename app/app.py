@@ -7303,8 +7303,8 @@ def initialize_database():
     _wechat_share_default_config()
     # 修复已有物料的空分类/单位
     try:
-        default_unit = Unit.query.filter_by(name='个').first() or Unit.query.first()
-        default_cat = MaterialCategory.query.filter_by(name='默认分类').first() or MaterialCategory.query.first()
+        default_unit = Unit.query.filter_by(name='个').first()
+        default_cat = MaterialCategory.query.filter_by(name='默认分类').first()
         if default_unit:
             cnt = Material.query.filter(db.or_(Material.unit_id.is_(None), Material.unit_id == 0)).update(
                 {Material.unit_id: default_unit.id}, synchronize_session=False)
@@ -10102,7 +10102,7 @@ def ensure_material_category_tree_defaults():
         ('100', '配件/耗材'),
         ('200', '组件配件'),
         ('300', '整机设备'),
-        ('400', '用品工具'),
+        ('400', '设备成品'),
     ]
     root_by_code = {}
     changed = False

@@ -32,7 +32,7 @@ def mod3_master_data():
 
         # M2. 编辑物料改阈值，dashboard 告警同步
         tok = csrf_from(c, f"/material/{mat.id}")
-        r = c.post(f"/material/edit/{mat.id}", data={
+        r = c.post(f"/material/edit/{mat.id}", data={"edit_revision": c.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"],
             "csrf_token": tok, "code": "M001", "name": "铜排",
             "category_id": "1", "unit_id": "1", "price": "10",
             "min_stock": "25", "reorder_point": "30",
@@ -47,7 +47,7 @@ def mod3_master_data():
 
         # M3. 停用物料：历史库存仍可见
         tok = csrf_from(c, f"/material/{mat.id}")
-        r = c.post(f"/material/edit/{mat.id}", data={
+        r = c.post(f"/material/edit/{mat.id}", data={"edit_revision": c.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"],
             "csrf_token": tok, "code": "M001", "name": "铜排",
             "category_id": "1", "unit_id": "1", "price": "10",
             "min_stock": "25", "reorder_point": "30", "status": "inactive",

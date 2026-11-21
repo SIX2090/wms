@@ -281,7 +281,7 @@ def material_cycle():
     record('[物料] API 命中新物料', 200, bool(mid), f'id={mid}')
     if mid:
         # 编辑：POST /material/edit/<id>（模态保存，返回 JSON，需表单 csrf_token）
-        r = post(f'/material/edit/{mid}', data={'name': name, 'code': code,
+        r = post(f'/material/edit/{mid}', data={'edit_revision': get(f'/material/{mid}').json()['material']['edit_revision'], 'name': name, 'code': code,
                  'specification': '测试改', 'unit': '个', 'price': '1',
                  'category_id': '', 'warehouse_id': '', 'safety_stock': '0',
                  'csrf_token': tok},

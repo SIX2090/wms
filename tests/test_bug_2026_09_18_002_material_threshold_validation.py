@@ -123,7 +123,8 @@ def test_edit_rejects_explicit_safety_below_min():
     """T4：编辑把 最低库存提到 80 而安全库存仍 50（显式 <min）→ 400 且原值不变。"""
     client = _login_client()
     mid = _seed_material("T-EDIT-REJ", min_stock=10, reorder_point=50)
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "T-EDIT-REJ", "name": "编辑拒绝",
         "min_stock": "80", "reorder_point": "50",
     })
@@ -138,7 +139,8 @@ def test_edit_blank_safety_auto_bumps_to_min():
     """T5：编辑只设最低库存(50)、安全库存留 0 → 成功且 reorder_point 自动提到 50。"""
     client = _login_client()
     mid = _seed_material("T-EDIT-BUMP", min_stock=0, reorder_point=0)
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "T-EDIT-BUMP", "name": "编辑提升",
         "min_stock": "50", "reorder_point": "0",
     })

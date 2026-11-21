@@ -88,7 +88,8 @@ class _ExplodingQuery:
 
 
 def _edit_material(client, mat, new_name):
-    return client.post(f"/material/edit/{mat.id}", data={
+    revision = client.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"]
+    return client.post(f"/material/edit/{mat.id}", data={"edit_revision": revision,
         "code": mat.code,
         "name": new_name,
         "spec": mat.spec or "",

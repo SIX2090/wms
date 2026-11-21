@@ -15,9 +15,12 @@
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import math
 from datetime import datetime
+from pathlib import Path
 
 from flask import current_app, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
@@ -41,6 +44,15 @@ def _resolve_alert_thresholds(min_stock, reorder_point):
             return reorder_point, '安全库存不能低于最低库存'
         reorder_point = min_stock
     return reorder_point, None
+
+
+def _material_edit_revision(material):
+    """Fingerprint fields replaced by the archive editor, independent of stock movements."""
+    fields = ('id', 'code', 'name', 'status', 'category_id', 'unit_id', 'supplier_id',
+              'brand', 'spec', 'purpose', 'min_stock', 'max_stock', 'reorder_point',
+              'expiry_date', 'alert_days', 'price', 'remark')
+    values = [getattr(material, field) for field in fields]
+    return hashlib.sha256(json.dumps(values, default=str).encode()).hexdigest()
 
 
 # no-test:reason=路由注册辅助函数，能力由 material_* 各路由测试覆盖
@@ -283,7 +295,9 @@ def register_material_routes(app):
         # POST
         # BUG-2026-07-29-002/009: name/code/spec/brand/purpose/remark 走 sanitize_text_input
         # 去除 < > 与 NUL 字节，防止存储型 XSS 与 NUL 静默吞掉；截断到列宽上限。
-        code = sanitize_text_input(request.form.get('code', ''), max_len=50)
+        if len((request.form.get('code') or '').strip()) > 50:
+            return api_error('物料编码不能超过 50 个字符')
+        code = sanitize_text_input(request.form.get('code', '').strip(), max_len=50)
         if not code:
             return api_error('请输入物料编码')
 
@@ -439,6 +453,7 @@ def register_material_routes(app):
             'status': 'success',
             'material': {
                 'id': material.id,
+                'edit_revision': _material_edit_revision(material),
                 'code': material.code,
                 'name': material.name,
                 'category_id': material.category_id,
@@ -497,9 +512,24 @@ def register_material_routes(app):
         if error:
             return jsonify({'status': 'error', 'msg': error}), 400
 
-        material.image = image_path
+        from app import MaterialImage, _acquire_order_write_lock
+        from routes.mobile import MAX_MATERIAL_IMAGES
+        from utils import sync_material_primary_image
+        saved = False
         try:
+            material, locked = _acquire_order_write_lock(Material, id, ('active', 'inactive', None, ''))
+            if not locked:
+                return jsonify(status='error', msg='物料正在更新，请稍后重试'), 409
+            images = MaterialImage.query.filter_by(material_id=id).order_by(MaterialImage.sort_order, MaterialImage.id).all()
+            if len(images) >= MAX_MATERIAL_IMAGES:
+                return jsonify(status='error', msg=f'每个物料最多保存 {MAX_MATERIAL_IMAGES} 张图片，请先移除一张'), 400
+            for order, image in enumerate(images, start=1):
+                image.sort_order = order
+            db.session.add(MaterialImage(material_id=id, image=image_path, sort_order=0))
+            db.session.flush()
+            sync_material_primary_image(material)
             db.session.commit()
+            saved = True
             log_operation('网上找图绑定物料图片', f'{material.code} {material.name}', 'material', material.id)
             return jsonify({
                 'status': 'success',
@@ -511,6 +541,17 @@ def register_material_routes(app):
             db.session.rollback()
             current_app.logger.error('Material image bind failed: %s', exc)
             return jsonify({'status': 'error', 'msg': '保存物料图片失败'}), 500
+        finally:
+            if not saved:
+                # The downloader creates a fresh UUID file for this request.
+                root = (Path(current_app.static_folder) / 'uploads/material_images').resolve()
+                target = (Path(current_app.static_folder) / image_path).resolve()
+                if target.parent == root:
+                    try:
+                        target.unlink(missing_ok=True)
+                    except OSError:
+                        current_app.logger.warning('未能清理本次未绑定的物料图片')
+
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/material/<int:id>/copy', methods=['POST'])
@@ -592,6 +633,12 @@ def register_material_routes(app):
         if not material:
             return api_error('物料不存在')
 
+        from app import _acquire_order_write_lock
+        material, locked = _acquire_order_write_lock(Material, id, ('active', 'inactive', None, ''))
+        if not locked or request.form.get('edit_revision') != _material_edit_revision(material):
+            db.session.rollback()
+            return api_error('档案版本已变化或缺失，请保留输入并重新打开物料后核对', 409)
+
         new_code = (request.form.get('code') or '').strip()
         new_name = (request.form.get('name') or '').strip()
         if not new_code:
@@ -626,8 +673,8 @@ def register_material_routes(app):
             return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
         # 停用状态（2026-09-25）：与 Warehouse/Department/Contract 同口径，只允许
-        # active/inactive；缺省按启用处理，避免不带该字段的老表单把物料改坏。
-        new_status = (request.form.get('status') or '').strip() or 'active'
+        # active/inactive；普通编辑表单不提交状态时保留当前值。
+        new_status = (request.form.get('status') or material.status or 'active').strip()
         if new_status not in ('active', 'inactive'):
             return jsonify({'status': 'error', 'msg': '物料状态只能是启用或停用'}), 400
 
@@ -1030,15 +1077,27 @@ def register_material_routes(app):
                 db.or_(Material.unit_id.is_(None), Material.unit_id == 0,
                        Material.category_id.is_(None), Material.category_id == 0)
             ).all()
-            default_unit = Unit.query.filter_by(name='个').first() or Unit.query.first()
-            default_cat = MaterialCategory.query.filter_by(name='默认分类').first() or MaterialCategory.query.first()
+            payload = request.get_json(silent=True) if request.is_json else request.form
+            if not isinstance(payload, dict):
+                return jsonify(status='error', msg='请选择有效的单位和分类'), 400
+            # Older callers omit both keys and use only the named defaults.
+            targets = {}
+            for key, model, name in [('unit_id', Unit, '个'), ('category_id', MaterialCategory, '默认分类')]:
+                if key not in payload:
+                    targets[key] = model.query.filter_by(name=name).first()
+                else:
+                    value = str(payload[key])
+                    targets[key] = db.session.get(model, int(value)) if value.isascii() and value.isdigit() and len(value) <= 18 else None
+                    if value and targets[key] is None:
+                        return jsonify(status='error', msg='所选资料无效，请刷新核对'), 400
+            default_unit, default_cat = targets['unit_id'], targets['category_id']
             missing = []
             if not default_unit and any(not m.unit_id for m in materials):
-                missing.append('计量单位')
+                missing.append('计量单位“个”')
             if not default_cat and any(not m.category_id for m in materials):
-                missing.append('物料分类')
+                missing.append('物料分类“默认分类”')
             if missing:
-                return jsonify({'status': 'error', 'msg': '无法修复：缺少' + '、'.join(missing) + '，请先在基础资料中新增后重试；尚未修改物料'}), 400
+                return jsonify({'status': 'error', 'msg': '无法修复：请为缺失字段选择有效资料（' + '、'.join(missing) + '），尚未修改物料'}), 400
             for m in materials:
                 if not m.unit_id or m.unit_id == 0:
                     m.unit_id = default_unit.id if default_unit else None
@@ -1153,13 +1212,16 @@ def register_material_routes(app):
         stock_filter = (request.args.get('stock_filter') or '').strip()
         if not inventory_alert_enabled() and stock_filter in {'low', 'normal'}:
             stock_filter = ''
-        sort_by = request.args.get('sort', 'created_at')
-        sort_order = request.args.get('order', 'desc')
+        status_filter = (request.args.get('status') or 'active').strip()
+        if status_filter not in ('active', 'inactive', 'all'):
+            status_filter = 'active'
+        sort_by = request.args.get('sort', 'code')
+        sort_order = request.args.get('order', 'asc')
         allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
         if sort_by not in allowed_sorts:
-            sort_by = 'created_at'
+            sort_by = 'code'
         if sort_order not in ('asc', 'desc'):
-            sort_order = 'desc'
+            sort_order = 'asc'
         # BUG-2026-09-05-004：导出此前完全不读 category_id——分类树筛选后
         # 点导出（app.js buildCurrentFilteredUrl 会把 category_id 拼进 URL）
         # 得到的却是全量物料，页面与导出结果不一致（BUG-2026-08-29-003 同根因
@@ -1190,13 +1252,15 @@ def register_material_routes(app):
             query = query.filter(Material.category_id.in_(category_descendants.get(category_id, [category_id])))
         if stock_filter == 'low':
             query = query.filter(_material_low_stock_filter())
+        if status_filter != 'all':
+            query = query.filter(Material.status == status_filter)
         sort_column = getattr(Material, sort_by, Material.created_at)
         query = query.order_by(sort_column.asc() if sort_order == 'asc' else sort_column.desc())
         max_rows = export_max_rows()
         total_rows = query.count()
         if total_rows > max_rows:
             flash(f'当前筛选结果 {total_rows} 条，超过系统参数设置的导出上限 {max_rows} 条，请缩小筛选范围后再导出。', 'warning')
-            return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, sort=sort_by, order=sort_order))
+            return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, status=status_filter, sort=sort_by, order=sort_order))
         for m in query.all():
             row = [m.code, m.name, m.brand or '', m.spec or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
             if inventory_alert_enabled():
@@ -1252,30 +1316,29 @@ def register_material_routes(app):
             wb = load_workbook(file)
             ws = wb.active
             header_row = [str(cell).strip() if cell else '' for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+            aliases = {
+                'code': ('物料编码', '物料代码', '存货编码', '商品编码', '材料编码', '编码', '代码'),
+                'name': ('物料名称', '物料名字', '存货名称', '商品名称', '名称', '名字'),
+                'brand': ('品牌', '物料品牌', 'brand'), 'spec': ('规格', '规格型号', '物料规格', '型号规格'),
+                'unit': ('单位', '计量单位', '库存单位', '单位名称', '单位编码', '单位代码', '计量单位名称', '计量单位编码'),
+                'category': ('分类', '类别', '物料分类', '分类名称', '分类编码', '分类代码', '类别名称', '类别编码', '物料分类编码', '物料分类名称'),
+                'supplier': ('供应商', '供应商名称', '供应商编码', '供应商代码'),
+                'price': ('单价', '参考单价', '参考价', '参考价格', '价格'),
+                'safety_stock': ('安全库存', '再订购点', '再订货点'),
+                'min_stock': ('最低库存', '最小库存'),
+            }
+            fields = {label: field for field, labels in aliases.items() for label in labels}
             col_map = {}
-            for idx, h in enumerate(header_row):
-                if not h:
-                    continue
-                if '编码' in h or '代码' in h:
-                    col_map['code'] = idx
-                elif '名称' in h or '名字' in h:
-                    col_map['name'] = idx
-                elif '品牌' in h or h.lower() == 'brand':
-                    col_map['brand'] = idx
-                elif h == '规格' or '规格' in h:
-                    col_map['spec'] = idx
-                elif h == '单位' or '单位' in h:
-                    col_map['unit'] = idx
-                elif h == '分类' or '类别' in h or '分类' in h:
-                    col_map['category'] = idx
-                elif '供应商' in h:
-                    col_map['supplier'] = idx
-                elif '单价' in h or '价格' in h:
-                    col_map['price'] = idx
-                elif '安全库存' in h or '再订购点' in h or '再订货点' in h:
-                    col_map['safety_stock'] = idx
-                elif '最低库存' in h or '最小库存' in h:
-                    col_map['min_stock'] = idx
+            for idx, label in enumerate(header_row):
+                field = fields.get(label.lower())
+                if field:
+                    if field in col_map:
+                        msg = f'重复表头：{label} 与 {header_row[col_map[field]]} 映射到同一字段'
+                        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                            return api_error(msg)
+                        flash(msg, 'danger')
+                        return redirect(url_for('material_list'))
+                    col_map[field] = idx
             if 'code' not in col_map or 'name' not in col_map:
                 if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
                     return api_error(f'Excel表头缺少必要列（物料编码、物料名称）。检测到的表头：{", ".join(header_row)}')
@@ -1330,51 +1393,6 @@ def register_material_routes(app):
                     continue
                 spec = sanitize_text_input(raw_spec, max_len=100)
                 brand = sanitize_text_input(raw_brand, max_len=100)
-                unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
-                unit = None
-                if unit_name:
-                    unit = Unit.query.filter_by(name=unit_name).first()
-                    if not unit:
-                        unit = Unit.query.filter_by(code=unit_name).first()
-                    if not unit:
-                        unit = Unit.query.filter(db.func.lower(Unit.name) == db.func.lower(unit_name)).first()
-                    if not unit:
-                        unit = Unit.query.filter(db.func.lower(Unit.code) == db.func.lower(unit_name)).first()
-                if unit_name and not unit:
-                    unit = Unit(code=unit_name, name=unit_name)
-                    db.session.add(unit)
-                    db.session.flush()
-                    warnings.append(f'自动创建单位：{unit_name}')
-                cat_name = str(row[col_map['category']]).strip() if 'category' in col_map and len(row) > col_map['category'] and row[col_map['category']] else ''
-                category = None
-                if cat_name:
-                    category = MaterialCategory.query.filter_by(name=cat_name).first()
-                    if not category:
-                        category = MaterialCategory.query.filter_by(code=cat_name).first()
-                    if not category:
-                        category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.name) == db.func.lower(cat_name)).first()
-                    if not category:
-                        category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.code) == db.func.lower(cat_name)).first()
-                if cat_name and not category:
-                    category = MaterialCategory(code=cat_name, name=cat_name)
-                    db.session.add(category)
-                    db.session.flush()
-                    warnings.append(f'自动创建分类：{cat_name}')
-                sup_name = str(row[col_map['supplier']]).strip() if 'supplier' in col_map and len(row) > col_map['supplier'] and row[col_map['supplier']] else ''
-                supplier = None
-                if sup_name:
-                    supplier = Supplier.query.filter_by(name=sup_name).first()
-                    if not supplier:
-                        supplier = Supplier.query.filter_by(code=sup_name).first()
-                    if not supplier:
-                        supplier = Supplier.query.filter(db.func.lower(Supplier.name) == db.func.lower(sup_name)).first()
-                    if not supplier:
-                        supplier = Supplier.query.filter(db.func.lower(Supplier.code) == db.func.lower(sup_name)).first()
-                if sup_name and not supplier:
-                    supplier = Supplier(code=sup_name, name=sup_name)
-                    db.session.add(supplier)
-                    db.session.flush()
-                    warnings.append(f'自动创建供应商：{sup_name}')
                 # BUG-2026-08-04-008: 价格校验与 add_material 一致（0 至 MAX_REASONABLE_PRICE）。
                 # 注意 parse_bounded_number 内部 parse_float_value 会把负数静默转 0，
                 # 因此先显式检查原始值是否为负，负数行跳过并告知用户。
@@ -1382,7 +1400,7 @@ def register_material_routes(app):
                 try:
                     _price_check = float(raw_price)
                 except (ValueError, TypeError):
-                    _price_check = 0
+                    _price_check = math.nan
                 if _price_check < 0 or _price_check > MAX_REASONABLE_PRICE or not math.isfinite(_price_check):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
@@ -1420,6 +1438,57 @@ def register_material_routes(app):
                         safety_stock_val = min_stock_val
                     if safety_stock_val < min_stock_val:
                         safety_stock_val = min_stock_val
+                unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
+                unit = None
+                if unit_name:
+                    by_code = header_row[col_map['unit']].endswith(('编码', '代码'))
+                    if by_code:
+                        unit = Unit.query.filter_by(code=unit_name).first()
+                    else:
+                        unit = Unit.query.filter_by(name=unit_name).first() or Unit.query.filter_by(code=unit_name).first()
+                        if not unit:
+                            unit = Unit.query.filter(db.func.lower(Unit.name) == db.func.lower(unit_name)).first()
+                    if not unit:
+                        unit = Unit.query.filter(db.func.lower(Unit.code) == db.func.lower(unit_name)).first()
+                if unit_name and not unit:
+                    unit = Unit(code=unit_name, name=unit_name)
+                    db.session.add(unit)
+                    db.session.flush()
+                    warnings.append(f'自动创建单位：{unit_name}')
+                cat_name = str(row[col_map['category']]).strip() if 'category' in col_map and len(row) > col_map['category'] and row[col_map['category']] else ''
+                category = None
+                if cat_name:
+                    by_code = header_row[col_map['category']].endswith(('编码', '代码'))
+                    if by_code:
+                        category = MaterialCategory.query.filter_by(code=cat_name).first()
+                    else:
+                        category = MaterialCategory.query.filter_by(name=cat_name).first() or MaterialCategory.query.filter_by(code=cat_name).first()
+                        if not category:
+                            category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.name) == db.func.lower(cat_name)).first()
+                    if not category:
+                        category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.code) == db.func.lower(cat_name)).first()
+                if cat_name and not category:
+                    category = MaterialCategory(code=cat_name, name=cat_name)
+                    db.session.add(category)
+                    db.session.flush()
+                    warnings.append(f'自动创建分类：{cat_name}')
+                sup_name = str(row[col_map['supplier']]).strip() if 'supplier' in col_map and len(row) > col_map['supplier'] and row[col_map['supplier']] else ''
+                supplier = None
+                if sup_name:
+                    by_code = header_row[col_map['supplier']].endswith(('编码', '代码'))
+                    if by_code:
+                        supplier = Supplier.query.filter_by(code=sup_name).first()
+                    else:
+                        supplier = Supplier.query.filter_by(name=sup_name).first() or Supplier.query.filter_by(code=sup_name).first()
+                        if not supplier:
+                            supplier = Supplier.query.filter(db.func.lower(Supplier.name) == db.func.lower(sup_name)).first()
+                    if not supplier:
+                        supplier = Supplier.query.filter(db.func.lower(Supplier.code) == db.func.lower(sup_name)).first()
+                if sup_name and not supplier:
+                    supplier = Supplier(code=sup_name, name=sup_name)
+                    db.session.add(supplier)
+                    db.session.flush()
+                    warnings.append(f'自动创建供应商：{sup_name}')
                 material = Material(
                     code=code,
                     name=name,

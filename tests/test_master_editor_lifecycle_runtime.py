@@ -126,7 +126,7 @@ class Modal{constructor(n){this.node=n;n.instance=this;}show(){this.node.dispatc
 class FormData{constructor(owner){this.owner=owner;this.rows=Array.from(owner?.elements||[]).filter(n=>n.name&&!n.disabled).map(n=>[n.name,n.value]);}get(k){return this.rows.find(([key])=>key===k)?.[1]??null;}append(k,v){this.rows.push([k,v]);}}
 const ctx={document,FormData,Headers,Promise,setTimeout:fn=>timers.push(fn),clearTimeout(){},bootstrap:{Modal},showToast:(m,t)=>messages.push({m,t}),
  setQuickSelectValue:(id,v)=>{if(nodes[id])nodes[id].value=v;},setInputValueIfExists:(id,v)=>{if(nodes[id])nodes[id].value=v;},setWmsDateInputValue:(n,v)=>{if(n)n.value=v;},
- commitQuickSelects(){},notifyMasterDataChanged(){},confirm:()=>true,location:{reload(){}},loadEditMaterialImages(){},
+ commitQuickSelects(){return true;},notifyMasterDataChanged(){},confirm:()=>true,location:{reload(){}},loadEditMaterialImages(){},
  fetch:(url,options={})=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))};ctx.window=ctx;
 vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext(p.helper,ctx);vm.runInContext(p.edit,ctx);vm.runInContext('var save = '+p.save+';',ctx);if(p.images)vm.runInContext(p.images,ctx);
 const edit=ctx['edit'+p.kind[0].toUpperCase()+p.kind.slice(1)],tick=()=>new Promise(r=>setImmediate(r));

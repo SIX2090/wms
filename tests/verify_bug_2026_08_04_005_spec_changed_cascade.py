@@ -101,7 +101,8 @@ class TestBug20260804005SpecChangedCascade:
 
             client = app_module.app.test_client()
             _login(client)
-            resp = client.post(f"/material/edit/{mat.id}", data={
+            revision = client.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"]
+            resp = client.post(f"/material/edit/{mat.id}", data={"edit_revision": revision,
                 "code": "M001",
                 "name": "轴承",
                 "spec": "新规格",
@@ -132,7 +133,8 @@ class TestBug20260804005SpecChangedCascade:
 
             client = app_module.app.test_client()
             _login(client)
-            resp = client.post(f"/material/edit/{mat.id}", data={
+            revision = client.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"]
+            resp = client.post(f"/material/edit/{mat.id}", data={"edit_revision": revision,
                 "code": "M002",
                 "name": "螺母",
                 "spec": "M10",
@@ -172,7 +174,8 @@ class TestBug20260804005SpecChangedCascade:
             client = app_module.app.test_client()
             _login(client)
             # 只改备注，不改规格
-            resp = client.post(f"/material/edit/{mat.id}", data={
+            revision = client.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"]
+            resp = client.post(f"/material/edit/{mat.id}", data={"edit_revision": revision,
                 "code": "M003",
                 "name": "螺栓",
                 "spec": "M8x20",
@@ -214,7 +217,8 @@ class TestBug20260804005SpecChangedCascade:
 
             client = app_module.app.test_client()
             _login(client)
-            resp = client.post(f"/material/edit/{mat.id}", data={
+            revision = client.get(f"/material/{mat.id}").get_json()["material"]["edit_revision"]
+            resp = client.post(f"/material/edit/{mat.id}", data={"edit_revision": revision,
                 "code": "M004",
                 "name": "新名称",
                 "spec": "规格A",

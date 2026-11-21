@@ -122,7 +122,8 @@ class TestMaterialAudit:
                                     category_id=1, unit_id=1, stock=0, price=8))
             db.session.commit()
             mid = Material.query.filter_by(code="M-EDIT").first().id
-        resp = client.post(f"/material/edit/{mid}", data={
+        revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+        resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
             "code": "M-EDIT", "name": "编辑料", "spec": "S", "brand": "",
             "price": "99.9", "stock": "0", "min_stock": "0", "max_stock": "0",
             "alert_days": "30", "purpose": "", "remark": "",

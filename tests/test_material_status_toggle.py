@@ -252,7 +252,9 @@ def test_edit_material_can_set_status():
     client = _client()
     mid = _seed("E-1", name="继电器", spec="PF113A", brand="欧姆龙")
 
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "E-1", "name": "继电器", "spec": "PF113A",
         "brand": "欧姆龙", "status": "inactive",
     }, headers=AJAX_HEADERS)
@@ -260,7 +262,9 @@ def test_edit_material_can_set_status():
     with app_module.app.app_context():
         assert Material.query.get(mid).status == "inactive"
 
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "E-1", "name": "继电器", "spec": "PF113A",
         "brand": "欧姆龙", "status": "已删除",
     }, headers=AJAX_HEADERS)

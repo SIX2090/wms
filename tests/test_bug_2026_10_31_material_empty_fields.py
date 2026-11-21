@@ -56,6 +56,14 @@ def test_missing_registry_rejects_entire_repair_without_partial_changes(material
 def test_available_registries_repair_and_repeat_is_idempotent(material_client,preferred,empty):
     material=seed_material(preferred=preferred,empty=empty); before=stock_snapshot()
     response=material_client.post('/material/fix_empty_fields',json={})
+    if not preferred:
+        assert response.status_code == 400 and response.json['status'] == 'error'
+        wms.db.session.expire_all()
+        assert material.unit_id == empty and material.category_id == empty
+        assert stock_snapshot() == before
+        response = material_client.post('/material/fix_empty_fields', json={
+            'unit_id': wms.Unit.query.one().id, 'category_id': wms.MaterialCategory.query.one().id,
+        })
     assert response.status_code==200 and '已修复 1 条' in response.get_json()['msg']
     wms.db.session.expire_all()
     assert material.unit_id==wms.Unit.query.one().id

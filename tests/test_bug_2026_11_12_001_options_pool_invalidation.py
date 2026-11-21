@@ -195,7 +195,9 @@ def test_t4_edited_spec_searchable_immediately():
     mat_id = mat.id
     _warm_pool(client)
 
-    resp = client.post(f"/material/edit/{mat_id}", data={
+    revision = client.get(f"/material/{mat_id}").get_json()["material"]["edit_revision"]
+
+    resp = client.post(f"/material/edit/{mat_id}", data={"edit_revision": revision,
         "code": "500001", "name": "可编辑品", "spec": "20平方", "brand": "",
     })
     assert resp.status_code == 200, "编辑请求本身失败: %s" % resp.status_code

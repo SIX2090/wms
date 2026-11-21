@@ -24,16 +24,6 @@ function quickSelectLabel(item) {
     return item ? (item.name || item.code || '') : '';
 }
 
-function findQuickSelectItem(type, value) {
-    const normalized = normalizeQuickText(value);
-    if (!normalized) return null;
-    return (quickSelectData[type] || []).find(function(item) {
-        return normalizeQuickText(item.name) === normalized ||
-               normalizeQuickText(item.code) === normalized ||
-               String(item.id) === String(value);
-    }) || null;
-}
-
 function filterQuickSelectItems(type, keyword) {
     const normalized = normalizeQuickText(keyword);
     const items = quickSelectData[type] || [];
@@ -85,30 +75,32 @@ function commitQuickSelectInput(root) {
     const hidden = document.getElementById(root.dataset.hiddenId);
     const input = root.querySelector('.quick-select-input');
     const type = quickSelectTypeByHiddenId[root.dataset.hiddenId];
-    if (!hidden || !input || !type) return;
-    const value = input.value.trim();
+    if (!hidden || !input || !type) return true;
+    const value = normalizeQuickText(input.value);
     if (!value) {
         hidden.value = '';
-        return;
+        return true;
     }
-    const item = findQuickSelectItem(type, value) || filterQuickSelectItems(type, value)[0] || null;
-    if (item) {
-        hidden.value = item.id;
-        input.value = quickSelectLabel(item);
-    } else {
-        hidden.value = '';
-    }
+    const matches = (quickSelectData[type] || []).filter(item =>
+        normalizeQuickText(item.name) === value || normalizeQuickText(item.code) === value);
+    const selected = matches.find(item => String(item.id) === hidden.value);
+    const item = selected || (matches.length === 1 ? matches[0] : null);
+    hidden.value = item ? item.id : '';
+    if (item) input.value = quickSelectLabel(item);
+    return Boolean(item);
 }
 
 function commitQuickSelects(form) {
-    if (!form) return;
-    form.querySelectorAll('.quick-select').forEach(function(root) {
-        commitQuickSelectInput(root);
+    for (const root of form.querySelectorAll('.quick-select')) {
+        if (!commitQuickSelectInput(root)) {
+            root.querySelector('.quick-select-input').focus();
+            showToast('请从候选中明确选择分类、单位或供应商，或清空该字段', 'warning');
+            return false;
+        }
         root.classList.remove('open');
-    });
+    }
+    return true;
 }
-
-
 
 function initQuickSelects() {
     document.querySelectorAll('.quick-select').forEach(function(root) {
@@ -132,7 +124,7 @@ function initQuickSelects() {
             }
             if (event.key === 'Enter') {
                 event.preventDefault();
-                const active = menu.querySelector('.quick-select-item.active') || menu.querySelector('.quick-select-item');
+                const active = menu.querySelector('.quick-select-item.active');
                 if (active) setQuickSelectValue(root.dataset.hiddenId, active.dataset.id);
                 else commitQuickSelectInput(root);
                 root.classList.remove('open');
@@ -627,7 +619,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            commitQuickSelects(this);
+            if (!commitQuickSelects(this)) return;
             var formData = new FormData(this);
             WMS.api.postRaw(materialPageData.urls.add, formData)
             .then(function(res) {
@@ -653,6 +645,7 @@ document.addEventListener('DOMContentLoaded', function() {
     window.editMaterial = function(id) {
         return loadWmsMasterEditor('material', id, function(mat) {
             document.getElementById('edit_id').value = mat.id;
+            document.getElementById('edit_revision').value = mat.edit_revision;
             document.getElementById('edit_code').value = mat.code;
             document.getElementById('edit_code').setAttribute('data-original', mat.code);
             document.getElementById('edit_name').value = mat.name;
@@ -942,8 +935,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 修复空分类/单位
     window.fixEmptyFields = function() {
-        if (!confirm('将把所有空分类设为"默认分类"，空单位设为"个"，确定修复吗？')) return;
-        WMS.api.postRaw(materialPageData.urls.fix, {})
+        const category_id = document.getElementById('repairCategory').value;
+        const unit_id = document.getElementById('repairUnit').value;
+        WMS.api.postRaw(materialPageData.urls.fix, {category_id, unit_id})
         .then(function(res) {
             showToast(res.msg || '修复完成', res.status === 'success' ? 'success' : 'danger');
             if (res.status === 'success') location.reload();
@@ -962,7 +956,7 @@ document.addEventListener('DOMContentLoaded', function() {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
             if (isWmsMasterEditPending()) return;
-            commitQuickSelects(this);
+            if (!commitQuickSelects(this)) return;
             var formData = new FormData(this);
             var id = document.getElementById('edit_id').value;
             var originalCode = document.getElementById('edit_code').getAttribute('data-original');

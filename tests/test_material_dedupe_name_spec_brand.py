@@ -273,13 +273,17 @@ def test_edit_rejects_same_name_spec_brand():
     other = _seed("EDIT-1", "塑壳断路器", "JKM1-1250M/3300 1250A", "正泰")
     mid = _seed("EDIT-2", "塑壳断路器待改", "SPEC-A", None)
 
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "EDIT-2", "name": "塑壳断路器",
         "spec": "JKM1-1250M/3300 1250A", "brand": "正泰",
     }, headers=AJAX_HEADERS)
     assert resp.status_code == 400, "与 EDIT-1 撞车必须拒绝"
 
-    resp = client.post(f"/material/edit/{mid}", data={
+    revision = client.get(f"/material/{mid}").get_json()["material"]["edit_revision"]
+
+    resp = client.post(f"/material/edit/{mid}", data={"edit_revision": revision,
         "code": "EDIT-2", "name": "塑壳断路器待改", "spec": "SPEC-A", "brand": "",
     }, headers=AJAX_HEADERS)
     assert resp.status_code == 200, "保存自己的原值不得被自身判重挡住"
