@@ -9,7 +9,7 @@ BUG-2026-08-02-014 回归测试：报表仓库必填筛选
 具体断言：
   T1. report_view 页面渲染：应包含 warehouse 下拉框且有 required
   T2. report_view 页面默认预选 default_warehouse
-  T3. report_api 不传 warehouse_id 时，自动带入默认仓库
+  T3. 页面预选默认仓后须提交该 ID，接口遗漏仓库时返回 400
   T4. 无默认仓库 + 无 warehouse_id 参数时，接口显式报错 400「请选择仓库」
   T5-A. in_detail 按 warehouse_id 过滤
   T5-B. out_detail 按 warehouse_id 过滤
@@ -133,7 +133,7 @@ class TestBug20260802014:
             assert f'value="{seeds["wh_a"].id}" selected' in text, "默认仓库 WHA 未预选"
 
     # -------------------------------------------------------------- T3
-    def test_T3_report_api_auto_use_default_wh(self):
+    def test_T3_report_api_requires_selected_default_wh(self):
         with app_module.app.app_context():
             _reset_db()
             seeds = _seed_common(app_module.app)
@@ -154,8 +154,10 @@ class TestBug20260802014:
             db.session.commit()
 
             client = _make_client(app_module.app)
-            # 不传 warehouse_id -> 自动带默认（wh_a），应该查到
-            resp = client.get("/report/api/in_detail", query_string={"page": 1, "page_size": 20})
+            missing = client.get("/report/api/in_detail")
+            assert missing.status_code == 400 and missing.get_json()["msg"] == "请选择仓库"
+            resp = client.get("/report/api/in_detail", query_string={
+                "warehouse_id": seeds["wh_a"].id, "page": 1, "page_size": 20})
             assert resp.status_code == 200
             data = resp.get_json()
             assert data["status"] == "success"

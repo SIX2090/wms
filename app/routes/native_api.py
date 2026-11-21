@@ -2932,7 +2932,7 @@ def register_native_api_routes(app):
         期初结存、逐笔入/出、行级结存、期末结存，只读、无任何写操作。
 
         口径（与电脑端库存台账 _build_ledger_report 同源）：
-        - 仓库必填（resolve_request_warehouse，缺省回退默认仓；AGENTS.md §二）；
+        - 仓库必填，客户端可预选默认仓后显式传入；
         - 物料必填且按编码**精确匹配**（单一物料口径，AI-OS-LD-001；模糊找料由
           /api/material/search 前置完成后传入确切编码，相似编码不串）；
         - 流水收集复用 _collect_ledger_rows（仓库隔离 + 空 location 归属 +
@@ -2954,7 +2954,7 @@ def register_native_api_routes(app):
 
         _begin_report_read()
 
-        warehouse, wh_err = resolve_request_warehouse(request.args)
+        warehouse, wh_err = resolve_request_warehouse(request.args, allow_default=False)
         if wh_err:
             return api_json_error(wh_err, 400)
 

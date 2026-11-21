@@ -92,12 +92,14 @@ def test_existing_inactive_report_warehouse_remains_queryable(guarded_case):
     assert response.get_json()['total'] == 1
 
 
-def test_report_default_and_missing_default_keep_existing_contract(guarded_case):
+def test_default_warehouse_must_be_selected_before_request(guarded_case):
     client, ids, _ = guarded_case
     with w.app.app_context():
         _report_documents(ids)
     response = client.get('/report/api/in_detail')
-    assert response.status_code == 200 and response.get_json()['total'] == 1
+    assert response.status_code == 400 and response.get_json()['msg'] == '请选择仓库'
+    selected = client.get('/report/api/in_detail', query_string={'warehouse_id': ids['wh']})
+    assert selected.status_code == 200 and selected.get_json()['total'] == 1
     with w.app.app_context():
         w.Warehouse.query.update({'is_default': False})
         w.db.session.commit()

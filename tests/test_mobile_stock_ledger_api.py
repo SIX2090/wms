@@ -16,7 +16,7 @@ L7. 指定 start_date：期初=开始日期前累计，items 只含范围内流�
 L8. 双仓隔离（R2）：A 仓流水不出现在 B 仓台账。
 L9. summary 与分页解耦 + 分页元数据完整（R1）。
 L10. 日期非法 / 倒置 / 未来 → 400。
-L11. 仓库缺省回退默认仓（AGENTS.md §二），响应 warehouse 信息正确。
+L11. 仓库缺省被拒绝，指定默认仓后返回其信息。
 L12. material.warehouse_stock 为仓库级口径（不回退全局 material.stock，A11）。
 L13. 历史空 location 流水按来源归属计入（warehouse_id=NULL + location=仓库名，R2 兼容）。
 """
@@ -129,10 +129,10 @@ class TestMobileStockLedgerApi:
         assert r.status_code == 401
 
     def test_L3_material_code_required(self):
-        self._setup(with_default_warehouse=True)
+        wh_a, _, _, _ = self._setup(with_default_warehouse=True)
         client = _make_client()
         _login(client)
-        r = _get(client)
+        r = _get(client, warehouse_id=wh_a)
         assert r.status_code == 400
         assert 'material_code' in (r.get_json().get('msg') or '')
 
@@ -144,10 +144,10 @@ class TestMobileStockLedgerApi:
         client = _make_client()
         _login(client)
         # 不存在的物料 → 400
-        r = _get(client, material_code="NOPE")
+        r = _get(client, warehouse_id=wh_a, material_code="NOPE")
         assert r.status_code == 400
         # 精确匹配：M001 的台账不得混入 M0012 的流水（相似编码不串）
-        r = _get(client, material_code="M001")
+        r = _get(client, warehouse_id=wh_a, material_code="M001")
         assert r.status_code == 200
         data = r.get_json()['data']
         assert data['material']['code'] == 'M001'
@@ -163,7 +163,7 @@ class TestMobileStockLedgerApi:
             _seed_txn(m1, wh_a, -3, created_at=base + _td(days=2), txn_type="out")
         client = _make_client()
         _login(client)
-        r = _get(client, material_code="M001")
+        r = _get(client, warehouse_id=wh_a, material_code="M001")
         assert r.status_code == 200
         data = r.get_json()['data']
         s = data['summary']
@@ -186,7 +186,7 @@ class TestMobileStockLedgerApi:
             _seed_txn(m1, wh_a, 10)
         client = _make_client()
         _login(client)
-        r = _get(client, material_code="M001")
+        r = _get(client, warehouse_id=wh_a, material_code="M001")
         labels = [it['reference_type'] for it in r.get_json()['data']['items']]
         assert '期初结存' not in labels
         assert '本期合计' not in labels
@@ -200,7 +200,7 @@ class TestMobileStockLedgerApi:
         client = _make_client()
         _login(client)
         start = (_dt.now() - _td(days=2)).date().isoformat()
-        r = _get(client, material_code="M001", start_date=start)
+        r = _get(client, warehouse_id=wh_a, material_code="M001", start_date=start)
         assert r.status_code == 200
         data = r.get_json()['data']
         s = data['summary']
@@ -232,7 +232,7 @@ class TestMobileStockLedgerApi:
                 _seed_txn(m1, wh_a, 2, created_at=_dt.now() - _td(days=5 - i))
         client = _make_client()
         _login(client)
-        r = _get(client, material_code="M001", page=2, page_size=2)
+        r = _get(client, warehouse_id=wh_a, material_code="M001", page=2, page_size=2)
         assert r.status_code == 200
         data = r.get_json()['data']
         # summary 基于全集（R1）
@@ -246,26 +246,29 @@ class TestMobileStockLedgerApi:
         assert len(data['items']) == 2
 
     def test_L10_date_validation(self):
-        self._setup(with_default_warehouse=True)
+        wh_a, _, _, _ = self._setup(with_default_warehouse=True)
         client = _make_client()
         _login(client)
-        r = _get(client, material_code="M001", start_date="2026/01/01")
+        r = _get(client, warehouse_id=wh_a, material_code="M001", start_date="2026/01/01")
         assert r.status_code == 400
         yesterday = (_dt.now() - _td(days=1)).date().isoformat()
-        r = _get(client, material_code="M001", start_date=yesterday,
+        r = _get(client, warehouse_id=wh_a, material_code="M001", start_date=yesterday,
                  end_date=(_dt.now() - _td(days=2)).date().isoformat())
         assert r.status_code == 400
         future = (_dt.now() + _td(days=1)).date().isoformat()
-        r = _get(client, material_code="M001", end_date=future)
+        r = _get(client, warehouse_id=wh_a, material_code="M001", end_date=future)
         assert r.status_code == 400
 
-    def test_L11_default_warehouse_fallback(self):
+    def test_L11_warehouse_required_even_with_default(self):
         wh_a, wh_b, m1, m2 = self._setup(with_default_warehouse=True)
         with app_module.app.app_context():
             _seed_txn(m1, wh_a, 8)
         client = _make_client()
         _login(client)
-        r = _get(client, material_code="M001")
+        for missing in ({}, {'warehouse_id': ''}, {'warehouse_id': '  '}):
+            rejected = _get(client, material_code="M001", **missing)
+            assert rejected.status_code == 400 and '请选择仓库' in rejected.get_json()['msg']
+        r = _get(client, warehouse_id=wh_a, material_code="M001")
         assert r.status_code == 200
         data = r.get_json()['data']
         assert data['warehouse']['id'] == wh_a

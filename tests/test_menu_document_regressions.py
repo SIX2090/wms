@@ -89,7 +89,9 @@ def test_sales_return_report_filter_can_restore_the_requested_type(menu_document
     page=soup(c.get('/report/view/in_detail',query_string={'business_type':'销售退货入库'}))
     options={o.get('value') for o in page.select('#business_type option')}
     assert set(IN_TYPES)|{''} == options
-    data=c.get('/report/api/in_detail',query_string={'warehouse_id':ids['warehouses'][0],'business_type':'销售退货入库'}).json
+    params={'warehouse_id':ids['warehouses'][0],'business_type':'销售退货入库'}
+    assert c.get('/report/api/in_detail',query_string=params).json['total']==0
+    data=c.get('/report/api/in_detail',query_string={**params,'status':'pending'}).json
     assert data['total']==1 and {r['business_type'] for r in data['data']}=={'销售退货入库'}
 
 
