@@ -316,6 +316,25 @@ def test_independent_mobile_counts_replay_and_void_only_the_selected_contributio
     assert sorted((r.counted_by or 0, r.actual_stock) for r in batch.items) == [(0, 60), (second.id, 24)]
 
 
+def test_native_stocktake_requires_actual_quantity_and_accepts_zero():
+    admin, wh, _, material, _ = _seed_scene()
+    batch = _seed_batch(admin, wh.name, 'CK-EXPLICIT-COUNT', [(material, 60, 60)])
+    client = _make_client()
+    headers = _bearer(client)
+    for missing_quantity in ({}, {'actual_stock': None}, {'actual_stock': ''}, {'actual_stock': '  '}):
+        response = _post_stocktake(client, headers, wh.name,
+                                   [{'material_code': material.code, **missing_quantity}], check_id=batch.id)
+        assert response.status_code == 400, response.get_json()
+        assert '请输入实盘数量' in (response.json.get('msg') or response.json.get('message'))
+        assert app_module.InventoryCheckScan.query.count() == 0
+        assert _batch_item(batch, material.id).counted_at is None
+    response = _post_stocktake(client, headers, wh.name,
+                               [{'material_code': material.code, 'actual_stock': 0}], check_id=batch.id)
+    assert response.status_code == 200, response.get_json()
+    row = _batch_item(batch, material.id)
+    assert row.counted_at is not None and row.actual_stock == 0 and row.difference == -60
+
+
 def test_t5_scan_row_uses_current_book_at_scan_time():
     """T5: 批次冻结后期间出库 → 新行账面取扫码时点当前值（即时口径）。
 

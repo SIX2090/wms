@@ -657,3 +657,4 @@ POST_SPLIT_BUGS['BUG-2026-11-20-009'] = 'fixed'  # Sum pallet counts and disting
 POST_SPLIT_BUGS['BUG-2026-11-20-010'] = 'fixed'  # Keep one completion action per stock document.
 POST_SPLIT_BUGS['BUG-2026-11-20-011'] = 'fixed'  # Preserve stocktake linkage, counts and posting history.
 POST_SPLIT_BUGS['BUG-2026-11-21-001'] = 'fixed'  # Require all stocktake rows to have an actual count.
+POST_SPLIT_BUGS['BUG-2026-11-21-002'] = 'fixed'  # Require a quantity in native stocktake submissions.
