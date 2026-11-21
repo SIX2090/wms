@@ -227,7 +227,13 @@ def test_stocktake_consumers_keep_finite_and_missing_value_contract(guarded_case
             headers={'Authorization': 'Bearer ' + token}, json={
                 'warehouse': '审计仓A', 'check_id': check_id,
                 'lines': [{'material_code': 'M1', 'actual_stock': value}]})
-        expected = stock_before if value in (None, '') or float(value) < 0 else float(value)
+        if value in (None, ''):
+            assert response.status_code == 400 and '请输入实盘数量' in response.json['message']
+            with w.app.app_context():
+                assert w.db.session.get(w.InventoryCheckItem, line_id).counted_at is None
+                assert w.InventoryCheckScan.query.count() == 0
+            return
+        expected = stock_before if float(value) < 0 else float(value)
     assert response.status_code == 200, (channel, response.get_data(as_text=True))
     body = response.get_json()
     assert body.get('status') == 'success' or body.get('success') is True, body
