@@ -10,7 +10,7 @@
 1. Excel 可选"仓库"列（仓库名或编码均可）：提供时校验存在且 active，
    导入单据以行值为准；同一单据内多行仓库必须一致，否则跳行并提示。
 2. Excel 未提供仓库列时自动带入系统默认仓库；无默认仓库则跳行并提示
-   （整文件可被跳过，导入结果返回 warnings）。
+   （整文件无有效行时返回错误，有效行与跳过行并存时返回 warnings）。
 3. 账面取该单据创建时冻结的仓库库存（get_warehouse_stock_quantities）。
    Excel 账面仅供核对，和仓库账面不一致时返回提示。
 
@@ -18,7 +18,7 @@
 T1. 带仓库列导入 → 单 warehouse=A仓、账面取 A 仓库存 10、差异 −2，
     且 complete_check 可正常完结（生成调整草稿）
 T2. 无仓库列 + 有默认仓库 → 自动带入默认仓库，完结成功
-T3. 无仓库列 + 无默认仓库 → 单据被跳过，warnings 提示缺仓库
+T3. 无仓库列 + 无默认仓库 → 整份拒绝，错误提示缺仓库，未写入单据和明细
 T4. Excel 账面 999、实盘 12、仓库账面 10 → 差异为盘盈 2
 T5. 同一单据内仓库不一致 → 冲突行跳过并提示，其余行正常
 T6. 仓库列写编码（WA）→ 解析为仓库名 A仓
@@ -207,9 +207,11 @@ def test_t3_no_warehouse_and_no_default_rejected_with_warning():
     rows = [['CK26090303', '2026-09-03', 'M001', '', '', '', None, 8, '']]
     r = _post_import(client, _xlsx(rows, header=header_no_wh))
     body = r.get_json()
-    assert body["status"] == "success", body
-    assert body["count"] == 0, "无仓库且无默认仓库时不应导入任何单据"
-    assert "仓库" in (body.get("warnings") or ""), body
+    assert r.status_code == 400 and body["status"] == "error", body
+    assert "第2行：盘点单 CK26090303 未指定仓库且系统无默认仓库" in body["msg"], body
+    with app_module.app.app_context():
+        assert app_module.InventoryCheck.query.count() == 0
+        assert app_module.InventoryCheckItem.query.count() == 0
 
 
 @pytest.mark.parametrize("file_stock", [0, 999])
