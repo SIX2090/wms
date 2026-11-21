@@ -225,14 +225,14 @@ def test_native_scan_after_review_requires_new_confirmation_and_only_creates_dra
     w.db.session.add(check)
     w.db.session.flush()
     w.db.session.add(w.InventoryCheckItem(inventory_check_id=check.id, material_id=material.id,
-        system_stock=10, actual_stock=10, difference=0))
+        system_stock=10, actual_stock=0, difference=-10, counted_at=datetime.now()))
     w.db.session.add(w.StockTransaction(material_id=material.id, warehouse_id=a.id, quantity=10,
         transaction_type='in', created_at=datetime.now() - timedelta(hours=1)))
     w.db.session.commit()
     check_id, material_id = check.id, material.id
     path = f'/check/{check_id}/complete'
     reviewed = document_post(scene['client'], path, json={}).get_json()
-    assert reviewed['status'] == 'confirm' and reviewed['risks']['uncounted'] == 1
+    assert reviewed['status'] == 'confirm' and reviewed['risks']['incomplete_count'] == 1
     login = scene['client'].post('/api/login', json={
         'username': 'audit-synthetic', 'password': 'synthetic-fixture-only'})
     assert login.status_code == 200, login.get_json()

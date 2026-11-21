@@ -162,8 +162,8 @@ def test_t1_all_counted_completes_without_confirm():
     assert "无库存差异" in (body.get("msg") or ""), body
 
 
-def test_t2_uncounted_rows_return_confirm():
-    """T2: 存在未盘行 → check_risks，风险数量和 samples 正确且不落库存调整。"""
+def test_t2_uncounted_rows_are_blocked():
+    """T2: 存在未盘行 → check_uncounted，风险数量和 samples 正确且不落库存调整。"""
     wh, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -172,10 +172,10 @@ def test_t2_uncounted_rows_return_confirm():
     _count_as_counted(client, cid, items[0].id, 58)
 
     r = document_post(client,f"/check/{cid}/complete", json={})
-    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.status_code == 400, r.get_data(as_text=True)
     body = r.get_json()
-    assert body.get("status") == "confirm", body
-    assert body.get("code") == "check_risks", body
+    assert body.get("status") == "error", body
+    assert body.get("code") == "check_uncounted", body
     assert "共 2 行，其中 1 行未盘" in body.get("msg", ""), body
     assert body["risks"]["uncounted"] == 1 and body["risks"]["total"] == 2, body
     samples = body.get("samples") or []
@@ -186,8 +186,8 @@ def test_t2_uncounted_rows_return_confirm():
     assert AdjustmentOrder.query.filter_by(source_type="check").count() == 0
 
 
-def test_t3_force_requires_token_and_generates_draft():
-    """T3: 裸 force 不放行，持风险令牌确认后仅已盘行生成调整草稿。"""
+def test_t3_uncounted_blocks_even_with_force_until_recorded():
+    """T3: 补齐未盘数量后才生成调整草稿。"""
     wh, m1, m2 = _seed_scene()
     client = _make_client()
     _login_web(client)
@@ -195,16 +195,13 @@ def test_t3_force_requires_token_and_generates_draft():
     items = _items_of(cid)
     _count_as_counted(client, cid, items[0].id, 58)
 
-    warning = document_post(client,f"/check/{cid}/complete", json={"force": True})
-    assert warning.status_code == 200
-    alert = warning.get_json()
-    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
-    assert "1 行未盘" in alert.get("msg", ""), alert
-    assert alert.get("confirmation_token"), alert
-    r = document_post(client,f"/check/{cid}/complete", json={"force": True, "confirmation_token": alert["confirmation_token"]})
-    assert r.status_code == 200, r.get_data(as_text=True)
-    body = r.get_json()
-    assert body.get("status") == "success", body
+    for body in ({}, {"force": True}, {"force": True, "confirmation_token": "old-token"}):
+        rejected = document_post(client, f"/check/{cid}/complete", json=body)
+        assert rejected.status_code == 400 and rejected.json["code"] == "check_uncounted"
+        assert "confirmation_token" not in rejected.json
+    _count_as_counted(client, cid, items[1].id, 30)
+    done = document_post(client, f"/check/{cid}/complete", json={})
+    assert done.status_code == 200 and done.json["status"] == "success", done.json
     from app import InventoryCheck
     assert InventoryCheck.query.get(cid).status == "completed"
 
@@ -227,12 +224,9 @@ def test_t4_uncounted_row_never_generates_adjustment():
 
     warning = document_post(client,f"/check/{cid}/complete", json={"force": True})
     alert = warning.get_json()
-    assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
+    assert alert.get("status") == "error" and alert.get("code") == "check_uncounted", alert
     assert "2 行未盘" in alert.get("msg", ""), alert
-    assert alert.get("confirmation_token"), alert
-    r = document_post(client,f"/check/{cid}/complete", json={"force": True, "confirmation_token": alert["confirmation_token"]})
-    body = r.get_json()
-    assert body.get("status") == "success", body
+    assert "confirmation_token" not in alert
     from app import AdjustmentOrder
     assert AdjustmentOrder.query.filter_by(source_type="check").count() == 0
 
@@ -245,13 +239,13 @@ def test_t5_legacy_call_without_body_still_confirms():
     cid = _new_check(client, ["M001"])
 
     r = document_post(client,f"/check/{cid}/complete")
-    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.status_code == 400, r.get_data(as_text=True)
     body = r.get_json()
-    assert body.get("status") == "confirm", body
-    assert body.get("code") == "check_risks", body
+    assert body.get("status") == "error", body
+    assert body.get("code") == "check_uncounted", body
     assert "1 行未盘" in body.get("msg", ""), body
     assert body["risks"]["uncounted"] == 1 and body["risks"]["total"] == 1, body
-    assert body.get("confirmation_token"), body
+    assert "confirmation_token" not in body
 
 
 def test_t6_uncounted_helper_counts_accurately():

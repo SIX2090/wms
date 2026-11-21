@@ -266,25 +266,15 @@ def test_finite_uncounted_check_preserves_signed_confirmation_and_no_adjustment(
         w.db.session.commit()
         before = _business_snapshot()
     path = f'/check/{check_id}/complete'
-    first = document_post(client, path, headers=headers, json={})
-    assert first.status_code == 200 and first.get_json()['status'] == 'confirm'
-    assert first.get_json()['risks']['uncounted'] == 1
-    token = first.get_json()['confirmation_token']
-    assert token
-    unsigned = document_post(client, path, headers=headers, json={'force': True})
-    assert unsigned.status_code == 200 and unsigned.get_json()['status'] == 'confirm'
+    for body in ({}, {'force': True}, {'force': True, 'confirmation_token': 'obsolete'}):
+        response = document_post(client, path, headers=headers, json=body)
+        assert response.status_code == 400 and response.json['code'] == 'check_uncounted'
+        assert response.json['risks']['uncounted'] == 1
+        assert 'confirmation_token' not in response.json
     with w.app.app_context():
         assert _business_snapshot() == before
-    completed = document_post(client, path, headers=headers,
-        json={'force': True, 'confirmation_token': token})
-    assert completed.status_code == 200 and completed.get_json()['status'] == 'success'
-    with w.app.app_context():
-        after = _business_snapshot()
-        assert w.db.session.get(w.InventoryCheck, check_id).status == 'completed'
+        assert w.db.session.get(w.InventoryCheck, check_id).status == 'pending'
         assert w.AdjustmentOrder.query.count() == 0
-        assert after['InventoryCheckItem'] == before['InventoryCheckItem']
-        for name in ('Material', 'StockTransaction', 'LocationInventory'):
-            assert after[name] == before[name]
 
 
 @pytest.mark.parametrize('invalid', ['Infinity', '-Infinity'])

@@ -237,35 +237,24 @@ def test_t5_uncounted_rows_no_adjustment_counted_row_adjusts():
     r = _post_add_check(client, category_id=cat_wire.id)
     check = db.session.get(InventoryCheck, r.get_json()["id"])
 
-    # 5a：全部未盘 → 完成盘点：成功、无调整草稿（BUG-2026-09-06-001
-    # 修复后纯 PC 录入需 force=1 显式确认；手机补盘行写 counted_at 后
-    # 无需 force，本测试 5b 步骤验证该路径）
-    warning = client.post(f"/check/{check.id}/complete", json={"force": 1})
-    assert warning.get_json().get("status") == "confirm" and warning.get_json().get("code") == "check_risks"
-    assert "2 行未盘" in warning.get_json().get("msg", "")
-    r_done = client.post(f"/check/{check.id}/complete", json={"force": 1, "confirmation_token": warning.get_json()["confirmation_token"]})
-    assert r_done.status_code == 200, r_done.get_data(as_text=True)
-    assert "无库存差异" in r_done.get_json()["msg"]
+    blocked = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    assert blocked.status_code == 400 and blocked.json["code"] == "check_uncounted"
+    assert "2 行未盘" in blocked.json["msg"]
     assert AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).count() == 0
 
-    # 5b：反提交回 pending，手机扫码盘 m1（实盘 7，账面 10）→ 完成只调 m1
-    # （m2 未盘，新设计下应弹 confirm；本步用 force=1 模拟用户确认放过）
-    r_revert = client.post(f"/check/{check.id}/revert")
-    assert r_revert.status_code == 200, r_revert.get_data(as_text=True)
     h = _bearer(client)
     r_scan = client.post("/mobile/api/scan_submit", headers=h, json={
         "mode": "check", "code": m1.code, "warehouse": "A仓",
         "actual_stock": 7, "check_id": check.id,
     })
     assert r_scan.status_code == 200, r_scan.get_data(as_text=True)
-    # 不带 force 应弹 confirm（仅 m2 未盘）
-    r_confirm = client.post(f"/check/{check.id}/complete")
-    assert r_confirm.get_json().get("status") == "confirm"
-    assert r_confirm.get_json().get("code") == "check_risks"
-    assert "1 行未盘" in r_confirm.get_json().get("msg", "")
-    rejected = client.post(f"/check/{check.id}/complete", json={"force": 1})
-    assert rejected.get_json().get("status") == "confirm"
-    r_done2 = client.post(f"/check/{check.id}/complete", json={"force": 1, "confirmation_token": rejected.get_json()["confirmation_token"]})
+    blocked = client.post(f"/check/{check.id}/complete", json={"force": 1})
+    assert blocked.status_code == 400 and "1 行未盘" in blocked.json["msg"]
+    item = next(row for row in check.items if row.material_id == m2.id)
+    from tests.document_revision_client import document_post
+    updated = document_post(client, f"/check/{check.id}/item/{item.id}", data={"actual_stock": item.system_stock})
+    assert updated.json["status"] == "success", updated.json
+    r_done2 = client.post(f"/check/{check.id}/complete")
     assert r_done2.status_code == 200, r_done2.get_data(as_text=True)
     adjs = AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).all()
     assert len(adjs) == 1

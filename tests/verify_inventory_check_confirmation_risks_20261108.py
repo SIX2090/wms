@@ -137,7 +137,11 @@ def main():
             return types.SimpleNamespace(force=body['force'], confirmation_token=body.get('confirmation_token'))
 
     def make_check(counted):
-        item = types.SimpleNamespace(material_id=1, material=types.SimpleNamespace(code='SYNTH', name='合成物料'),
+        class Item(types.SimpleNamespace):
+            @property
+            def has_actual_count(self):
+                return self.counted_by is not None or self.counted_at is not None or self.actual_stock != self.system_stock
+        item = Item(material_id=1, material=types.SimpleNamespace(code='SYNTH', name='合成物料'),
                                      system_stock=10, actual_stock=8 if counted else 10,
                                      difference=-2 if counted else 0,
                                      counted_at=datetime.datetime(2020, 1, 1, 10, 2) if counted else None,
@@ -163,7 +167,7 @@ def main():
                      'unknown_warehouse_count': 0, 'unknown_time_count': 0,
                      'invalid_quantity_count': 0, 'unknown_freeze': current.frozen_at is None,
                      'has_risk': bool(uncounted or found or current.frozen_at is None)}
-            return f'{current.id}:{uncounted}:{count}:{state.get("snapshot_version", 0)}', risks
+            return f'{current.id}:{uncounted}:{count}:{current.frozen_at}:{state.get("snapshot_version", 0)}', risks
 
         env = {
             'math': math,
@@ -218,10 +222,10 @@ def main():
             env = route_env(check, state, session, movement)
             load_functions(env, '_check_uncounted_alerts', 'complete_check')
             first = env['complete_check'](1)
-            self.assertEqual(first['status'], 'confirm')
+            self.assertEqual(first[0]['code'], 'check_uncounted')
             state['force'] = True  # 模拟旧客户端确认未盘，无其他风险凭据。
             second = env['complete_check'](1)
-            self.assertNotEqual(second['status'], 'success', '单次 force 不能跳过尚未告知的动销')
+            self.assertEqual(second[0]['code'], 'check_uncounted')
             self.assertEqual(session.commits, 0)
 
         def test_movement_appearing_during_lock_requires_new_confirmation(self):
@@ -501,13 +505,16 @@ def main():
             env = route_env(check, state, session,
                             lambda _check: (True, 1, [{'code': 'SYNTH', 'name': '合成物料', 'net': 0}]))
             load_functions(env, '_check_uncounted_alerts', 'complete_check')
-            first = env['complete_check'](1)
-            self.assertEqual(first['status'], 'confirm')
+            first, status = env['complete_check'](1)
+            self.assertEqual((status, first['code']), (400, 'check_uncounted'))
             self.assertIn('未盘', first['msg'])
-            self.assertIn('流水', first['msg'])
-            self.assertTrue(first.get('confirmation_token'))
+            self.assertNotIn('confirmation_token', first)
             self.assertEqual(session.commits, 0)
             self.assertEqual(state.get('audits', []), [])
+            check.items[0].counted_by = 1
+            first = env['complete_check'](1)
+            self.assertEqual(first['status'], 'confirm')
+            self.assertIn('流水', first['msg'])
             state.update(force=True, confirmation_token=first['confirmation_token'])
             second = env['complete_check'](1)
             self.assertEqual(second['status'], 'success')
@@ -515,7 +522,8 @@ def main():
             self.assertEqual(state['audits'], [('complete_check', 'pending', 'completed')])
 
         def test_changed_snapshot_requires_another_confirmation(self):
-            check = make_check(False)
+            check = make_check(True)
+            check.frozen_at = None
             state, session = {}, SessionStub()
             env = route_env(check, state, session, lambda _check: (False, 0, []))
             load_functions(env, '_check_uncounted_alerts', 'complete_check')
@@ -528,7 +536,8 @@ def main():
             self.assertEqual(session.commits, 0)
 
         def test_confirmation_for_another_user_is_not_accepted(self):
-            check = make_check(False)
+            check = make_check(True)
+            check.frozen_at = None
             state, session = {}, SessionStub()
             env = route_env(check, state, session, lambda _check: (False, 0, []))
             load_functions(env, '_check_uncounted_alerts', 'complete_check')
@@ -540,12 +549,13 @@ def main():
             self.assertEqual(session.commits, 0)
 
         def test_disappearing_risk_still_requires_new_confirmation(self):
-            check = make_check(False)
+            check = make_check(True)
+            check.frozen_at = None
             state, session = {}, SessionStub()
             env = route_env(check, state, session, lambda _check: (False, 0, []))
             load_functions(env, '_check_uncounted_alerts', 'complete_check')
             first = env['complete_check'](1)
-            check.items[0].counted_by = 1
+            check.frozen_at = datetime.datetime(2020, 1, 1)
             state.update(force=True, confirmation_token=first['confirmation_token'])
             second = env['complete_check'](1)
             self.assertEqual(second['status'], 'confirm')
@@ -584,7 +594,7 @@ def main():
             check.items[0].counted_by = None
             _, risks = env['_check_complete_snapshot'](check, 1)
             self.assertEqual(risks['incomplete_count'], 0)
-            self.assertEqual(risks['uncounted'], 1)
+            self.assertEqual(risks['uncounted'], 0)
 
         def test_movement_sum_overflow_never_reported_as_zero(self):
             check = make_check(True)

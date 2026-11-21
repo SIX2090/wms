@@ -66,26 +66,9 @@ def _expand_check_category_ids(root_id):
 
 # no-test:reason=纯统计辅助，能力由 test_bug_2026_09_06_001 覆盖
 def _check_uncounted_alerts(check):
-    """统计盘点单的未盘明细行（BUG-2026-09-06-001）。
-
-    未盘判定：行级归属 ``counted_at`` 或 ``counted_by`` 至少其一为空。分
-    类建单（FEATURE-2026-09-05-001）预生成的待盘行 actual_stock = system_stock
-    、difference = 0，与"盘了没有差异"在系统里完全同形，完成盘点时既不生
-    成调整也不提示——一单 500 行只盘 50 行同样能直接完成，事后无法与真实
-    无差异区分。
-
-    已盘信号源是 INV-BATCH-001-A 引入的行级归属字段：手机扫码盘点与
-    /check/<id>/item/<item_id> 路由都会写 ``counted_by`` + ``counted_at``。
-    PC 表格纯录入不写这两个字段，本判定会把它视为未盘——这正是漏盘拦截的
-    预期行为：纯 PC 盘点单弹出确认后用户主动 force=1 放行（账面 0 无实物
-    等合法未盘场景仍可完成），分类建单 + 手机补盘的混合模式则自然漏出。
-
-    返回 (未盘行数, 有效行数, 前 10 条样例[{code, name}])。
-    """
+    """按明细行核对是否有实盘记录，显式录入零也算已盘。"""
     rows = [it for it in (check.items or []) if it.material_id]
-    uncounted = [it for it in rows
-                 if not (getattr(it, 'counted_at', None)
-                         or getattr(it, 'counted_by', None))]
+    uncounted = [it for it in rows if not it.has_actual_count]
     if not uncounted:
         return 0, len(rows), []
     samples = []
@@ -830,13 +813,19 @@ def register_check_routes(app):
                 db.session.rollback()
                 return api_error('盘点实盘数必须是有限数字，请先修正明细')
             snapshot, risks = _check_complete_snapshot(check, locked_wh.id)
+            if risks['uncounted']:
+                db.session.rollback()
+                return jsonify({
+                    'status': 'error', 'code': 'check_uncounted',
+                    'msg': f"共 {risks['total']} 行，其中 {risks['uncounted']} 行未盘。请补齐实盘数量后再完成盘点",
+                    'samples': risks['uncounted_samples'],
+                    'risks': {'uncounted': risks['uncounted'], 'total': risks['total']},
+                }), 400
             user_id = current_user.get_id()
             confirmed = force and _accept_check_confirmation(
                 confirmation_token, check.id, user_id, snapshot)
             if (risks['has_risk'] or confirmation_token is not None) and not confirmed:
                 messages = []
-                if risks['uncounted']:
-                    messages.append(f"共 {risks['total']} 行，其中 {risks['uncounted']} 行未盘；未盘行不会产生差异")
                 if risks['incomplete_count']:
                     messages.append(f"{risks['incomplete_count']} 行盘点人或盘点时间缺失，归属信息不完整")
                 if risks['movement_count']:

@@ -53,10 +53,13 @@ def test_blank_and_explicit_zero_remain_distinct_after_save(scene):
     wms.db.session.expire_all()
     assert lines[0].counted_at is None and lines[0].actual_stock == lines[0].system_stock
     assert lines[1].counted_at and lines[1].actual_stock == 0
-    warning = document_post(client, f"/check/{saved['id']}/complete", json={}).get_json()
-    assert warning["status"] == "confirm", warning
-    result = document_post(client, f"/check/{saved['id']}/complete", json={
-        "force": True, "confirmation_token": warning["confirmation_token"]}).get_json()
+    rejected = document_post(client, f"/check/{saved['id']}/complete", json={
+        "force": True, "confirmation_token": "obsolete"}).get_json()
+    assert rejected["code"] == "check_uncounted", rejected
+    assert wms.AdjustmentOrderItem.query.count() == 0
+    kept[0]["actual_stock"] = 0
+    assert _save(client, warehouse, material, kept, saved["id"])["status"] == "success"
+    result = document_post(client, f"/check/{saved['id']}/complete", json={}).get_json()
     assert result["status"] == "success", result
     assert wms.AdjustmentOrderItem.query.one().quantity == -100
 

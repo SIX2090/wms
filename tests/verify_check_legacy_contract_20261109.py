@@ -37,28 +37,29 @@ class Integration(unittest.TestCase):
 
     def post(self, ident, payload):
         response = self.client.post(f'/synthetic/check/{ident}/complete', json=payload, headers=self.headers)
-        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertIn(response.status_code, (200, 400), response.get_json())
+        if response.status_code == 400:
+            self.assertEqual(response.json["code"], "check_uncounted")
         return response.get_json()
 
-    def test_uncounted_warning_force_and_exact_loss_draft(self):
+    def test_uncounted_blocks_force_until_all_quantities_recorded(self):
         plain = self.client.post('/synthetic/check/10/complete', headers=self.headers)
-        self.assertEqual(plain.status_code, 200)
-        self.assertEqual((plain.json['status'], plain.json['code']), ('confirm', 'check_risks'))
+        self.assertEqual(plain.status_code, 400)
+        self.assertEqual((plain.json['status'], plain.json['code']), ('error', 'check_uncounted'))
         self.assertIn('共 2 行，其中 1 行未盘', plain.json['msg'])
-        before = self.post(10, {})
-        self.assertEqual((before['status'], before['code']), ('confirm', 'check_risks'))
-        self.assertIn('共 2 行，其中 1 行未盘', before['msg'])
-        self.assertEqual([item['code'] for item in before['samples']], ['M002'])
+        self.assertEqual([item['code'] for item in plain.json['samples']], ['M002'])
+        for payload in ({'force': True}, {'force': True, 'confirmation_token': 'obsolete'}):
+            blocked = self.post(10, payload)
+            self.assertEqual(blocked['code'], 'check_uncounted')
+            self.assertNotIn('confirmation_token', blocked)
         with app.app_context():
             self.assertEqual(db.session.get(InventoryCheck, 10).status, 'pending')
             self.assertEqual(AdjustmentOrder.query.filter_by(source_id=10).count(), 0)
-        old_force = self.post(10, {'force': True})
-        self.assertEqual((old_force['status'], old_force['code']), ('confirm', 'check_risks'))
-        self.assertIn('凭据缺失', old_force['msg'])
-        with app.app_context():
-            self.assertEqual(db.session.get(InventoryCheck, 10).status, 'pending')
-            self.assertEqual(AdjustmentOrder.query.filter_by(source_id=10).count(), 0)
-        done = self.post(10, {'force': True, 'confirmation_token': old_force['confirmation_token']})
+            item = db.session.get(InventoryCheckItem, 11)
+            item.counted_by = 1
+            item.counted_at = datetime.datetime(2020, 1, 1, 10, 1)
+            db.session.commit()
+        done = self.post(10, {})
         self.assertEqual(done['status'], 'success')
         with app.app_context():
             self.assertEqual(db.session.get(InventoryCheck, 10).status, 'completed')
@@ -103,16 +104,21 @@ class Integration(unittest.TestCase):
             db.session.add(StockTransaction(material_id=10, warehouse_id=1, quantity=-10,
                            created_at=datetime.datetime(2020, 1, 1, 10, 2), transaction_type='out'))
             db.session.commit()
-        warning = self.post(10, {'force': True})
-        self.assertEqual((warning['status'], warning['code']), ('confirm', 'check_risks'))
-        self.assertIn('1 行未盘', warning['msg'])
-        self.assertIn('本仓 1 个物料发生出入库流水', warning['msg'])
-        samples = warning['samples']
-        self.assertTrue(any(row['code'] == 'M002' for row in samples))
-        self.assertTrue(any(row['code'] == 'M001' and row.get('net') == -10 for row in samples))
+        blocked = self.post(10, {'force': True})
+        self.assertEqual(blocked['code'], 'check_uncounted')
+        self.assertIn('1 行未盘', blocked['msg'])
+        self.assertEqual([row['code'] for row in blocked['samples']], ['M002'])
         with app.app_context():
             self.assertEqual(db.session.get(InventoryCheck, 10).status, 'pending')
             self.assertEqual(AdjustmentOrder.query.filter_by(source_id=10).count(), 0)
+            item = db.session.get(InventoryCheckItem, 11)
+            item.counted_by = 1
+            item.counted_at = datetime.datetime(2020, 1, 1, 10, 1)
+            db.session.commit()
+        warning = self.post(10, {})
+        self.assertEqual((warning['status'], warning['code']), ('confirm', 'check_risks'))
+        self.assertIn('本仓 1 个物料发生出入库流水', warning['msg'])
+        self.assertTrue(any(row['code'] == 'M001' and row.get('net') == -10 for row in warning['samples']))
         done = self.post(10, {'force': True, 'confirmation_token': warning['confirmation_token']})
         self.assertEqual(done['status'], 'success')
         with app.app_context():
@@ -130,7 +136,7 @@ class Integration(unittest.TestCase):
             db.session.commit()
         warning = self.post(10, {'force': True})
         self.assertEqual((warning['status'], warning['code']), ('confirm', 'check_risks'))
-        self.assertIn('1 行未盘', warning['msg'])
+        self.assertEqual(warning['risks']['uncounted'], 0)
         self.assertIn('本仓 1 个物料发生出入库流水', warning['msg'])
         done = self.post(10, {'force': True, 'confirmation_token': warning['confirmation_token']})
         self.assertEqual(done['status'], 'success')
@@ -147,10 +153,7 @@ class Integration(unittest.TestCase):
             second.actual_stock, second.difference = 29, -1
             second.counted_by, second.counted_at = 1, datetime.datetime(2020, 1, 1, 10, 1)
             db.session.commit()
-        warning = self.post(10, {'force': True})
-        self.assertEqual(warning['status'], 'confirm')
-        self.assertIn('1 行未盘', warning['msg'])
-        self.assertEqual(self.post(10, {'force': True, 'confirmation_token': warning['confirmation_token']})['status'], 'success')
+        self.assertEqual(self.post(10, {})['status'], 'success')
         with app.app_context():
             draft = AdjustmentOrder.query.filter_by(source_type='check', source_id=10).one()
             lines = AdjustmentOrderItem.query.filter_by(adjustment_order_id=draft.id).all()
@@ -213,11 +216,10 @@ class Integration(unittest.TestCase):
                 item.actual_stock = item.system_stock
                 item.difference = 0
             db.session.commit()
-        warning = self.post(10, {'force': True})
-        self.assertEqual((warning['status'], warning['code']), ('confirm', 'check_risks'))
-        self.assertIn('2 行未盘', warning['msg'])
-        self.assertEqual(self.post(10, {'force': True, 'confirmation_token': warning['confirmation_token']})['status'],
-                         'success')
+        blocked = self.post(10, {'force': True})
+        self.assertEqual((blocked['status'], blocked['code']), ('error', 'check_uncounted'))
+        self.assertIn('2 行未盘', blocked['msg'])
+        self.assertNotIn('confirmation_token', blocked)
         with app.app_context():
             self.assertEqual(AdjustmentOrder.query.filter_by(source_id=10).count(), 0)
 
@@ -230,11 +232,7 @@ class Integration(unittest.TestCase):
             first.counted_by = second.counted_by = None
             first.counted_at = second.counted_at = None
             db.session.commit()
-        warning = self.post(10, {'force': True})
-        self.assertEqual(warning['status'], 'confirm')
-        self.assertIn('2 行未盘', warning['msg'])
-        self.assertEqual(self.post(10, {'force': True, 'confirmation_token': warning['confirmation_token']})['status'],
-                         'success')
+        self.assertEqual(self.post(10, {})['status'], 'success')
         with app.app_context():
             order = AdjustmentOrder.query.filter_by(source_id=10).one()
             item = AdjustmentOrderItem.query.filter_by(adjustment_order_id=order.id).one()
@@ -246,6 +244,7 @@ class Integration(unittest.TestCase):
             first = db.session.get(InventoryCheckItem, 10)
             second = db.session.get(InventoryCheckItem, 11)
             first.system_stock, first.actual_stock, first.area = 100, 100, 'Location 1'
+            first.counted_at = None  # Partial attribution still requires a confirmation.
             second.material_id, second.system_stock, second.actual_stock, second.area = 10, 100, 2, 'Location 2'
             db.session.commit()
         settings['location'] = True

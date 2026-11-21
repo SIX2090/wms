@@ -301,13 +301,13 @@ def main():
                                            operator_id=1),
                             InventoryCheckItem(id=1, inventory_check_id=1, material_id=1, system_stock=2,
                                                actual_stock=3, difference=1, area='', reason='合成',
-                                               counted_by=None, counted_at=None),
+                                               counted_by=1, counted_at=None),
                             InventoryCheck(id=2, check_no='CK-SYN-2', status='pending', warehouse='第二合成仓',
                                            date=datetime.date(2020, 1, 1), frozen_at=datetime.datetime(2020, 1, 1, 10),
                                            operator_id=1),
                             InventoryCheckItem(id=2, inventory_check_id=2, material_id=1, system_stock=2,
                                                actual_stock=3, difference=1, area='', reason='合成',
-                                               counted_by=None, counted_at=None)])
+                                               counted_by=1, counted_at=None)])
         db.session.commit()
         assert db.session.connection().exec_driver_sql('PRAGMA database_list').fetchone()[2] == ''
         db.session.rollback()

@@ -127,7 +127,12 @@ def test_stocktake_report_totals(scene, rows, quantity, variance):
     download = client.get(f'/check/{check}/export')
     cells = list(load_workbook(BytesIO(download.data), read_only=True).active.values)
     assert [row[cells[0].index('实际库存')] for row in cells[1:]] == [row['actual_stock'] for row in rows]
-    assert _complete(client, check, confirm=rows[-1]['actual_stock'] is None)['status'] == 'success'
+    if rows[-1]['actual_stock'] is None:
+        assert _complete(client, check)['code'] == 'check_uncounted'
+        assert w.AdjustmentOrder.query.count() == 0
+        return
+    assert _complete(client, check)['status'] == 'success'
+
     assert w.AdjustmentOrder.query.one().items[0].quantity == variance
 
 

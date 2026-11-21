@@ -222,11 +222,13 @@ def test_t3_force_requires_movement_and_uncounted_token():
     db.session.commit()
     _write_txn(m1, wh_a, -10, "out")  # 期间动销
 
-    warning = document_post(client,f"/check/{cid}/complete", json={"force": 1})
-    assert warning.status_code == 200
+    blocked = document_post(client, f"/check/{cid}/complete", json={"force": 1})
+    assert blocked.status_code == 400 and blocked.json["code"] == "check_uncounted"
+    _count_as_counted(client, cid, items[1].id, 30)
+    warning = document_post(client, f"/check/{cid}/complete", json={"force": 1})
+    assert warning.status_code == 200, warning.get_data(as_text=True)
     alert = warning.get_json()
     assert alert.get("status") == "confirm" and alert.get("code") == "check_risks", alert
-    assert "1 行未盘" in alert.get("msg", ""), alert
     assert "本仓 1 个物料发生出入库流水" in alert.get("msg", ""), alert
     assert alert.get("confirmation_token"), alert
     r = document_post(client,f"/check/{cid}/complete", json={"force": 1, "confirmation_token": alert["confirmation_token"]})
