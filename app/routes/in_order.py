@@ -50,6 +50,15 @@ from utils import format_quantity, print_token_or_login_required, require_role
 from utils import round_money_product
 
 
+def _supplied_receipt_error(order):
+    if any(row.is_customer_supplied for row in order.items):
+        if order.business_type != '其他入库':
+            return '含客供料的单据只能使用其他入库类型'
+        if not order.customer_id:
+            return '含客供料的其他入库单必须选择客户'
+    return None
+
+
 def get_reverted_in_order_ids(order_ids):
     """P2（2026-10-03）：批量判定哪些入库单"曾完成后被反提交"。
 
@@ -978,6 +987,10 @@ def register_in_order_routes(app):
         if business_type in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
             order.business_type = business_type
 
+        ownership_error = _supplied_receipt_error(order)
+        if ownership_error:
+            db.session.rollback()
+            return api_error(ownership_error)
         order.date = order_date
         order.purpose = (data.get('purpose') or '').strip()
         # 合同编号/工程名称：入库单（含反提交后的草稿）允许修改
@@ -1118,8 +1131,8 @@ def register_in_order_routes(app):
                              is_sales_return=is_sales_return,
                              business_type=business_type,
                              default_purpose=order.purpose if order else ('客户退货' if is_sales_return else ('客供料入库' if is_other_in else ('生产完工入库' if is_product_in else '采购到货入库'))),
-                             page_title='新增销售退货入库单' if is_sales_return else ('新增产品入库单' if is_product_in else ('新增其他入库单' if is_other_in else '新增采购入库单')),
-                             supplier_required=not is_product_in,
+                             page_title=('编辑' if order else '新增') + business_type + '单',
+                             supplier_required=not (is_product_in or is_other_in),
                              party_field='customer_id' if (is_other_in or is_sales_return) else 'supplier_id',
                              party_label='退货客户' if is_sales_return else ('客户' if is_other_in else ('生产来源' if is_product_in else '供应商')),
                              return_list_url='/other_in_order' if is_other_in else '/in_order',
@@ -1145,6 +1158,7 @@ def register_in_order_routes(app):
                              order_date=order.date.strftime('%Y-%m-%d') if order and order.date else order_date,
                              edit_items=[{
                                  'line_id': item.id,
+                                 'is_customer_supplied': bool(item.is_customer_supplied),
                                  'material_code': item.material.code,
                                  'source_purchase_order_item_id': item.source_purchase_order_item_id,
                                  'quantity': item.quantity,
@@ -1273,8 +1287,6 @@ def register_in_order_routes(app):
             # 仓库必填逻辑已统一在上方处理。
             if business_type == '采购入库' and not supplier_id:
                 return fail('采购入库单必须选择供应商', 400)
-            if business_type == '其他入库' and not customer_id:
-                return fail('其他入库单必须选择客户', 400)
             if business_type == '销售退货入库' and not customer_id:
                 return fail('销售退货入库单必须选择退货客户', 400)
             # 表单可附带 items_json 字符串（与 JSON 路径结构相同）
@@ -1390,6 +1402,10 @@ def register_in_order_routes(app):
                     db.session.rollback()
                     return fail(str(exc))
 
+            if order_id and not items_data:
+                ownership_error = _supplied_receipt_error(order)
+                if ownership_error:
+                    return fail(ownership_error)
             source_item_updates = []
             source_purchase_order_ids = set()
             # P1-5：销售退货来源聚合（len==1 时回填单头 source_sales_order_id/no）
@@ -2219,6 +2235,10 @@ def register_in_order_routes(app):
             if not order.items:
                 db.session.rollback()
                 return api_error('请至少添加一条入库明细')
+            ownership_error = _supplied_receipt_error(order)
+            if ownership_error:
+                db.session.rollback()
+                return api_error(ownership_error)
             # 加锁后再做仓库赋值与必填校验，避免锁前修改被 rollback 丢弃。
             # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
             if not order.warehouse:
@@ -3295,6 +3315,11 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 continue
             order = locked
+            ownership_error = _supplied_receipt_error(order)
+            if ownership_error:
+                skipped.append(f'{order.order_no}({ownership_error})')
+                db.session.rollback()
+                continue
             # BUG-2026-08-16-005 修复：批量完成补齐与单据版 complete_in_order
             # 一致的业务校验，防止批量入口绕过单据完成门禁。
             # ① 未来日期拒绝（BUG-DATE-2026-07-27-001 同款规则）

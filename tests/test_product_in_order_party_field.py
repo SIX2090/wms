@@ -35,7 +35,8 @@ def test_other_receipt_party_pickers_remain(receipt_case, path, label):
     assert response.status_code == 200
     assert 'id="supplierSearch"' in response.text
     assert f'搜索{label}...' in response.text
-    assert 'const supplierRequired = true;' in response.text
+    required = 'false' if path == '/other_in_order/add' else 'true'
+    assert f'const supplierRequired = {required};' in response.text
 
 
 def test_product_edit_keeps_historical_supplier_and_items(receipt_case):
