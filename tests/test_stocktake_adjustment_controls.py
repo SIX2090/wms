@@ -41,7 +41,7 @@ def test_adjustment_delete_error(scene):
         'items': [{'material_id': material.id, 'quantity': 15}],
     }).json
     assert response['status'] == 'error'
-    assert '完成调整' in client.get(f'/adjustment/{order.id}').get_data(as_text=True)
+    assert '确认调整库存' in client.get(f'/adjustment/{order.id}').get_data(as_text=True)
     for path, data in [(f'/adjustment/{order.id}/delete', {}), ('/adjustment/batch_delete', {'ids': [order.id]})]:
         assert document_post(client, path, json=data).json['status'] == 'error'
     assert document_post(client, f'/check/{check}/revert', json={}).json['status'] == 'success'

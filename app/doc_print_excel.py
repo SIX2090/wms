@@ -78,7 +78,7 @@ DOC_EXCEL_PRINT_TYPES = {
         'columns': [('物料编码', 'material.code', 12), ('品牌', 'material.brand', 10),
                     ('物料名称', 'material.name', 20), ('规格', 'material.spec', 14),
                     ('单位', 'material.unit.name', 6), ('账面库存', 'system_stock', 10),
-                    ('实盘库存', 'actual_stock', 10), ('差异', 'difference', 8),
+                    ('本行实盘', 'actual_stock', 10), ('物料实盘合计', 'count_total', 12), ('物料净差异', 'difference', 10),
                     ('差异原因', 'reason', 16)],
         'totals': (),
     },
@@ -782,6 +782,8 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
     overrides = {}
     if target_code == 'opening_stock':
         overrides['total_amount'] = sum(line.amount or 0 for line in order.lines)
+    if target_code == 'adjustment' and order.status == 'cancelled':
+        overrides['status'] = '已撤回'
     print_order = _project(order, order_fields, overrides)
     if target_code == 'purchase_order':
         from app import build_purchase_order_execution
@@ -793,9 +795,10 @@ def render_doc_excel_print(target_code, order, items=None, template_id=None,
             'issued_quantity': item.quantity if order.status == 'completed' else 0
         }) for item in (print_items or [])]
     if target_code == 'check':
-        print_items = [_project(item, item_fields, {'actual_stock': None, 'difference': None})
-                       if not getattr(item, 'has_actual_count', True) else item
-                       for item in (print_items or [])]
+        from services.stocktake import stocktake_display_values
+        print_items = list(print_items or [])
+        values = stocktake_display_values(print_items)
+        print_items = [_project(item, item_fields, values[item.id]) for item in print_items]
     if target_code == 'purchase_request':
         output = render_purchase_request_excel(path, print_order, print_items, date_str)
     else:

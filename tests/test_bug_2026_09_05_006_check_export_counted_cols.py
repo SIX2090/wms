@@ -105,8 +105,8 @@ def test_export_headers_and_counted_columns():
     # 保留盘点归属列，追加仓库和区域供 Excel 回导。
     assert "差异原因" in header and "盘点人" in header and "盘点时间" in header
     assert "备注" not in header
-    assert header[-2:] == ["仓库", "区域"]
-    assert len(header) == 14
+    assert header[-3:] == ["仓库", "区域", "物料实盘合计"]
+    assert len(header) == 15
 
     idx_reason = header.index("差异原因")
     idx_who = header.index("盘点人")

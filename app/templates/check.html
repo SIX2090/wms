@@ -4,6 +4,7 @@
 {% block title %}库存盘点{% endblock %}
 
 {% block content %}
+{% set can_edit = current_user.role in ['admin', 'warehouse'] %}
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-clipboard-check"></i> 库存盘点</h2>
@@ -79,7 +80,7 @@
             <thead>
                 <tr>
                     <th width="56" class="text-center">
-                        选择<br><input type="checkbox" id="selectAll" title="全选当前页">
+                        选择<br><input type="checkbox" id="selectAll" {% if not can_edit %}disabled{% endif %} title="全选当前页">
                     </th>
                     <th data-sortable="check_no" class="sortable-header">盘点单号 {% if sort_by=='check_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
@@ -92,7 +93,7 @@
             <tbody>
                 {% for check in checks %}
                 <tr data-id="{{ check.id }}">
-                    <td><input type="checkbox" class="itemCheck check-item" value="{{ check.id }}"></td>
+                    <td><input type="checkbox" class="itemCheck check-item" value="{{ check.id }}" {% if not can_edit or check.id not in deletable_ids %}disabled{% endif %}></td>
                     <td><a href="{{ url_for('check_detail', id=check.id) }}" target="_blank" rel="noopener">{{ check.check_no }}</a></td>
                     <td>{{ check.date }}</td>
                     <td>{{ check.remark or '' }}</td>
@@ -107,21 +108,25 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if check.status == 'pending' else '查看' }}" target="_blank" rel="noopener">
+                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('check_detail', id=check.id) }}" title="{{ '编辑' if can_edit and check.status == 'pending' else '查看' }}" target="_blank" rel="noopener">
                             <i class="bi bi-pencil"></i>
                         </a>
                         {{ document_print_menu('check', check.id, icon_only=true) }}
+                        {% if can_edit %}
                         <button class="btn btn-sm btn-outline-success copyBtn" data-id="{{ check.id }}" title="复制">
                             <i class="bi bi-clipboard"></i>
                         </button>
                         {% if check.status == 'completed' %}
-                        <button class="btn btn-sm btn-outline-warning revertBtn" data-id="{{ check.id }}" title="反提交">
+                        <button class="btn btn-sm btn-outline-warning revertBtn" data-id="{{ check.id }}" title="撤销盘点完成">
                             <i class="bi bi-arrow-counterclockwise"></i>
                         </button>
                         {% endif %}
+                        {% if check.id in deletable_ids %}
                         <button class="btn btn-sm btn-outline-danger delBtn" data-id="{{ check.id }}" title="删除">
                             <i class="bi bi-trash"></i>
                         </button>
+                        {% endif %}
+                        {% endif %}
                     </td>
                 </tr>
                 {% else %}
@@ -239,7 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
         selectAll.addEventListener('click', function() {
             const itemChecks = document.querySelectorAll('.itemCheck');
             itemChecks.forEach(function(item) {
-                item.checked = selectAll.checked;
+                if (!item.disabled) item.checked = selectAll.checked;
             });
         });
     }
@@ -272,7 +277,7 @@ document.addEventListener('DOMContentLoaded', function() {
     revertBtns.forEach(function(btn) {
         btn.addEventListener('click', async function() {
             let id = this.getAttribute('data-id');
-            const confirmed = await showConfirm('确认反提交该盘点单？未提交的库存调整草稿会一并删除。', { title: '反提交盘点单' });
+            const confirmed = await showConfirm('重新开放盘点录入？未过账的关联草稿会撤回，有过账历史的调整会保留。已入账的调整须先撤销库存调整。', { title: '撤销盘点完成' });
             if(!confirmed) return;
 
             WMS.api.postRaw('/check/'+id+'/revert')

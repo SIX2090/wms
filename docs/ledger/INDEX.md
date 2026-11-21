@@ -925,6 +925,7 @@
 | BUG-2026-11-20-009 | bugs | entries-2026-11.md |
 | BUG-2026-11-20-010 | bugs | entries-2026-11.md |
 | BUG-2026-11-20-011 | bugs | entries-2026-11.md |
+| BUG-2026-11-21-030 | bugs | entries-2026-11.md |
 | BUG-2026-11-21-001 | bugs | entries-2026-11.md |
 | BUG-2026-11-21-002 | bugs | entries-2026-11.md |
 | BUG-2026-11-21-003 | bugs | entries-2026-11.md |

@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 from flask import jsonify, render_template, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from db import db
 from services.import_validation import InactiveMaterialImportError
@@ -79,7 +79,7 @@ def register_adjustment_routes(app):
             query = query.filter(AdjustmentOrder.adjustment_type == adjustment_type)
         if search:
             search_like = f'%{search}%'
-            status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
+            status_from_search = 'cancelled' if search == '已撤回' else _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
             conditions = [
                 AdjustmentOrder.adjustment_no.like(search_like),
                 AdjustmentOrder.remark.like(search_like),
@@ -143,7 +143,7 @@ def register_adjustment_routes(app):
                              warehouses=warehouses,
                              default_warehouse=get_default_warehouse(),
                              existing_items=[],
-                             readonly=False,
+                             readonly=current_user.role not in ('admin', 'warehouse'),
                              location_management_enabled=location_management_enabled(),
                              page_title='新增库存调整单')
 
@@ -173,7 +173,16 @@ def register_adjustment_routes(app):
         # BUG-2026-08-02-015：调整单仓库必填，仅列出启用仓库并预选默认仓库
         warehouses = get_active_warehouses()
         source_locked = adjustment.source_type in STOCKTAKE_SOURCES
-        readonly = adjustment.status != 'pending' or source_locked
+        from app import InventoryCheck, InventoryCheckScan
+        source_check = None
+        source_scan = None
+        if adjustment.source_id and adjustment.source_type == 'check':
+            source_check = db.session.get(InventoryCheck, adjustment.source_id)
+        elif adjustment.source_id and adjustment.source_type == 'check_scan':
+            source_scan = db.session.get(InventoryCheckScan, adjustment.source_id)
+            if source_scan and source_scan.check_id:
+                source_check = db.session.get(InventoryCheck, source_scan.check_id)
+        readonly = adjustment.status != 'pending' or source_locked or current_user.role not in ('admin', 'warehouse')
 
         return render_template('adjustment_add.html',
                              adjustment=adjustment,
@@ -188,7 +197,7 @@ def register_adjustment_routes(app):
                              default_warehouse=get_default_warehouse(),
                              existing_items=[_serialize_adjustment_item_for_form(item, adj_stock_map) for item in adjustment.items],
                              readonly=readonly,
-                             source_locked=source_locked,
+                             source_locked=source_locked, source_check=source_check, source_scan=source_scan,
                              delete_blocked=readonly or stocktake_adjustment_history(adjustment.id),
                              location_management_enabled=location_management_enabled(),
                              page_title=('查看库存调整单' if readonly else '编辑库存调整单'))
@@ -225,8 +234,9 @@ def register_adjustment_routes(app):
             'number': adjustment.adjustment_no,
             'date_label': '调整日期',
             'date': _fmt_date(adjustment.date),
-            'status': adjustment.status,
+            'status': '已撤回' if adjustment.status == 'cancelled' else adjustment.status,
             'info': [
+                ('仓库', adjustment.warehouse),
                 ('调整类型', type_label),
                 ('来源类型', adjustment.source_type or 'manual'),
                 ('制单人', _operator_name(adjustment)),
@@ -758,7 +768,7 @@ def register_adjustment_routes(app):
             query = query.filter(AdjustmentOrder.adjustment_type == adjustment_type_filter)
         if search:
             search_like = f'%{search}%'
-            status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
+            status_from_search = 'cancelled' if search == '已撤回' else _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
             conditions = [
                 AdjustmentOrder.adjustment_no.like(search_like),
                 AdjustmentOrder.remark.like(search_like),
@@ -793,11 +803,11 @@ def register_adjustment_routes(app):
                         abs(item.quantity or 0),
                         item.location or '',
                         item.reason or '',
-                        '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
+                        '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else ('已撤回' if order.status == 'cancelled' else order.status or '')),
                         order.remark or '',
                     ])
             else:
-                rows.append([order.adjustment_no, order.date.strftime('%Y-%m-%d') if order.date else '', order_type, order.warehouse or '', '', '', '', '', 0, '', '', '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or ''])
+                rows.append([order.adjustment_no, order.date.strftime('%Y-%m-%d') if order.date else '', order_type, order.warehouse or '', '', '', '', '', 0, '', '', '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else ('已撤回' if order.status == 'cancelled' else order.status or '')), order.remark or ''])
         return _workbook_response(
             'adjustment_orders.xlsx',
             '库存调整',

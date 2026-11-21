@@ -391,6 +391,10 @@ def register_check_routes(app):
         sort_col = getattr(InventoryCheck, sort_by, InventoryCheck.created_at)
         pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
         checks = pagination.items
+        from app import AdjustmentOrder
+        retained = {row.source_id for row in db.session.query(AdjustmentOrder.source_id).filter(
+            AdjustmentOrder.source_type == 'check', AdjustmentOrder.source_id.in_([c.id for c in checks])).distinct()}
+        deletable_ids = {c.id for c in checks if c.status == 'pending' and c.id not in retained}
         filters = {
             'status': status_filter,
             'search': search,
@@ -400,7 +404,7 @@ def register_check_routes(app):
         }
         return render_template(
             'check.html',
-            checks=checks,
+            checks=checks, deletable_ids=deletable_ids,
             pagination=pagination,
             filters=filters,
             sort_by=sort_by,
@@ -1264,7 +1268,9 @@ def register_check_routes(app):
             ).filter(db.or_(*conditions)).distinct()
         sort_col = getattr(InventoryCheck, sort_by, InventoryCheck.created_at)
         checks = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).all()
+        from services.stocktake import stocktake_display_values
         for check in checks:
+            values = stocktake_display_values(check.items)
             if check.items:
                 for item in check.items:
                     material = item.material
@@ -1276,20 +1282,20 @@ def register_check_routes(app):
                         material.name if material else '',
                         material.spec if material else '',
                         material.unit.name if material and material.unit else '',
-                        item.system_stock or 0,
-                        item.actual_stock if item.has_actual_count else None,
-                        item.difference if item.has_actual_count else None,
+                        values[item.id]['system_stock'],
+                        values[item.id]['actual_stock'],
+                        values[item.id]['difference'],
                         item.reason or '',
                         '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')),
                         check.remark or '',
-                        item.area or '',
+                        item.area or '', values[item.id]['count_total'],
                     ])
             else:
-                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', check.warehouse or '', '', '', '', '', 0, None, None, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or '', ''])
+                rows.append([check.check_no, check.date.strftime('%Y-%m-%d') if check.date else '', check.warehouse or '', '', '', '', '', 0, None, None, '', '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else (check.status or '')), check.remark or '', '', None])
         return _workbook_response(
             'inventory_checks.xlsx',
             '库存盘点',
-            ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注', '区域'],
+            ['单据编号', '日期', '仓库', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '状态', '备注', '区域', '物料实盘合计'],
             rows,
         )
 
@@ -1366,6 +1372,11 @@ def register_check_routes(app):
                         skip_details.append(f'第{row_idx}行：仓库无效「{row_warehouse_raw}」({wh_err})，跳过')
                         continue
                     row_warehouse_name = wh_obj.name
+                area = (_get_excel_cell(row, col_map, 'area') or '').strip()
+                if location_management_enabled() and not area:
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：库位管理已启用，请填写库位/区域')
+                    continue
                 order_no = _order_no_from_row(row, col_map, 'order_no', 'CK')
                 check = checks_by_no.get(order_no)
                 if not check:
@@ -1408,11 +1419,6 @@ def register_check_routes(app):
                 )
                 system_stock = normalize_stock_quantity(checks_wh_stock[order_no].get(material.id, 0))
                 actual_stock = _get_excel_number(row, col_map, 'actual_stock', system_stock)
-                area = (_get_excel_cell(row, col_map, 'area') or '').strip()
-                if location_management_enabled() and not area:
-                    skip += 1
-                    skip_details.append(f'第{row_idx}行：库位管理已启用，请填写库位/区域')
-                    continue
                 if area and InventoryCheckItem.query.filter_by(
                     inventory_check_id=check.id, material_id=material.id, area=area
                 ).first():
@@ -1438,6 +1444,9 @@ def register_check_routes(app):
                     reason=_get_excel_cell(row, col_map, 'reason'),
                 ))
                 item_count += 1
+            if not item_count:
+                db.session.rollback()
+                return api_error('没有有效盘点明细。' + '；'.join(skip_details[:10]))
             db.session.commit()
             return _import_result('库存盘点单', order_count, item_count, skip, skip_details, notes=warnings)
         except InactiveMaterialImportError as exc:
@@ -1451,6 +1460,7 @@ def register_check_routes(app):
     @app.route('/check/<int:id>/export')
     @login_required
     def export_single_check(id):
+        from services.stocktake import stocktake_display_values
         import io
         from openpyxl import Workbook
         from app import InventoryCheck
@@ -1461,7 +1471,8 @@ def register_check_routes(app):
         # BUG-2026-09-05-006：补「盘点人/盘点时间」两列——页面早有行级盘点归属
         # 回查（INV-BATCH-001-D），导出却没有，Excel 里无法筛漏盘行；末列表头
         # 由「备注」正名为「差异原因」（写入的一直是 item.reason，且与导入别名对齐）。
-        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '盘点人', '盘点时间', '仓库', '区域'])
+        ws.append(['单据编号', '日期', '物料编码', '物料名称', '规格', '单位', '系统库存', '实际库存', '差异数量', '差异原因', '盘点人', '盘点时间', '仓库', '区域', '物料实盘合计'])
+        values = stocktake_display_values(check.items)
         if check.items:
             for item in check.items:
                 ws.append([
@@ -1471,14 +1482,14 @@ def register_check_routes(app):
                     item.material.name if item.material else '',
                     item.material.spec if item.material else '',
                     item.material.unit.name if item.material and item.material.unit else '',
-                    item.system_stock or 0,
-                    item.actual_stock if item.has_actual_count else None,
-                    item.difference if item.has_actual_count else None,
+                    values[item.id]['system_stock'],
+                    values[item.id]['actual_stock'],
+                    values[item.id]['difference'],
                     item.reason or '',
                     item.counted_by_user.username if getattr(item, 'counted_by_user', None) else '',
                     item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else '',
                     check.warehouse or '',
-                    item.area or '',
+                    item.area or '', values[item.id]['count_total'],
                 ])
         output = io.BytesIO()
         wb.save(output)
@@ -1488,10 +1499,11 @@ def register_check_routes(app):
     @app.route('/check/<int:id>/print')
     @login_required
     def print_single_check(id):
+        from services.stocktake import stocktake_display_values
         from sqlalchemy.orm import joinedload
         from app import InventoryCheck, InventoryCheckItem, Material
         check = InventoryCheck.query.options(
             joinedload(InventoryCheck.items).joinedload(InventoryCheckItem.material).joinedload(Material.unit),
             joinedload(InventoryCheck.operator)
         ).get_or_404(id)
-        return render_template('check_print.html', check=check)
+        return render_template('check_print.html', check=check, values=stocktake_display_values(check.items))

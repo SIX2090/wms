@@ -36,7 +36,7 @@ def test_completion_busy_state(page, name, scenario):
     source = page_source(ROOT / ('app/templates/'+page+'.html'))
     helper = ROOT / 'app/static/js/document-action.js'
     payload = dict(function=re.sub(r'\{\{.*?\}\}', '0', _function(source, name)),
-        submit=_function(source, 'submitForm') if page == 'adjustment_add' else '',
+        submit='\n'.join(_function(source, fn) for fn in ('adjustmentConfirmation', 'submitForm')) if page == 'adjustment_add' else '',
         helper=helper.read_text(encoding='utf-8') if helper.exists() else '',
         bound=('data-document-action="purchaseRequestDetail"' in source if page == 'purchase_request_detail' else 'data-document-action="'+name+'"' in source),
         page_helpers=('\n'.join(_function(source,key) for key in ('runPurchaseRequestAction','waitForPurchaseRequestNavigation')) if page == 'purchase_request_detail' else ''),
@@ -47,9 +47,10 @@ const assert=require('node:assert/strict'),vm=require('node:vm');
 const p=JSON.parse(process.argv[1]);let requests=[],releases=[],confirms=0,errors=[],timers=[];
 const button=(disabled=false)=>({disabled,attrs:{},getAttribute(k){return this.attrs[k]??null;},setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}});
 const buttons=[button(),button(),button(true)];
-const fields={date:{value:'2026-10-21'},warehouse_id:{value:'2'},order_id:{value:''},
-  adjustment_no:{value:'AD-7'},adjustment_type:{value:'increase'},remark:{value:''}};
-const document={querySelectorAll:selector=>!p.bound?[]:(p.adjustment?(selector.includes('submitAdjustment')?[buttons[1]]:[buttons[0],buttons[2]]):buttons),
+const fields={date:{value:'2026-10-21'},warehouse_id:{value:'2',selectedOptions:[{textContent:'W'}]},order_id:{value:''},
+  adjustment_no:{value:'AD-7'},adjustment_type:{value:'surplus'},remark:{value:''}};
+const line={querySelector:s=>({value:({'.material-code':'M','.material-name':'Bolt','.adjust-qty':'2','.material-unit':'pcs'})[s]})};
+const document={querySelectorAll:selector=>selector==='#adjustmentTableBody tr'?[line]:!p.bound?[]:(p.adjustment?(selector.includes('submitAdjustment')?[buttons[1]]:[buttons[0],buttons[2]]):buttons),
  querySelector:selector=>{const name=selector.match(/\[name="([^"]+)"\]/);return name?fields[name[1]]:buttons[1];}};
 function confirm(){confirms++;return p.scenario!=='cancel';}
 function request(url,raw){const data={status:p.scenario==='warning'?'warning':'success',anomalies:[],id:7};requests.push(url);

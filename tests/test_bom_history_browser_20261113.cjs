@@ -32,7 +32,7 @@ function setup(docType = 'bom') {
     }
     function row() {
         const fields = {};
-        for (const s of ['.material-code', '.material-brand', '.material-name', '.material-spec', '.material-unit', '.unit-id', '.material-stock', '.line-qty', '.line-price', '.line-amount', '.line-usage', '.line-remark', '.system-stock', '.actual-stock', '.line-area', '.line-reason', '.line-diff']) fields[s] = input(s);
+        for (const s of ['.material-code', '.material-brand', '.material-name', '.material-spec', '.material-unit', '.unit-id', '.material-stock', '.line-qty', '.line-price', '.line-amount', '.line-usage', '.line-remark', '.system-stock', '.actual-stock', '.line-area', '.line-reason', '.line-diff', '.count-total']) fields[s] = input(s);
         return {dataset: {}, fields, querySelector: s => fields[s] || null,
             querySelectorAll: s => s.startsWith('.line-qty,') ? [fields['.line-qty'], fields['.line-price'], fields['.actual-stock'], fields['.system-stock']] : []};
     }
@@ -40,11 +40,11 @@ function setup(docType = 'bom') {
     const context = {docType, readonly: false, hasCountedByCol: false, checkLocationRequired: false,
         document: {getElementById: () => table, querySelectorAll: () => rows},
         rowCells: () => '', findMaterialByCode: code => code === 'B-M' ? material : null,
-        getMaterialUnitId: () => 1, calcTotal() {}, renumberRows() {}, materials: [material],
+        getMaterialUnitId: () => 1, renumberRows() {}, materials: [material],
         WMS: {MaterialPicker: {bindEntryRow() {}}}};
     context.window = context; vm.createContext(context);
     for (const rel of ['app/static/js/decimal-input.js', 'app/static/js/money.js']) vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), context);
-    vm.runInContext(['formatQty', 'getMaterialUnit', 'ensureIssueEntryRow', 'fillMaterialFields', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'updateCheckDiff', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
+    vm.runInContext(['formatQty', 'getMaterialUnit', 'ensureIssueEntryRow', 'fillMaterialFields', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'calcTotal', 'updateCheckTotals', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
     const data = {line_id: 10, material_id: 3, code: 'B-M', unit_id: 1, quantity: 3.33,
         price: 1.2345, recorded_unit_cost: 1.2345, total_cost: 4.11, recorded_total_cost: 4.11};
     const r = context.createRow(data);
@@ -136,6 +136,10 @@ test('count entry stays blank until typed and preserves an explicit zero', () =>
     c.context.fillMaterialFields(row, {...c.material, stock: 24});
     assert.equal(c.context.collectItems().items[0].actual_stock, 0);
     assert.equal(row.fields['.line-diff'].value, '-24.00');
+    actual.value = '-0.001'; actual.fire('input'); actual.fire('blur');
+    const invalid = c.context.collectItems();
+    assert.equal(invalid.items.length, 0);
+    assert.match(invalid.invalidRows[0], /第 1 行实盘数量须为非负数/);
     actual.value = ''; actual.fire('input');
     assert.equal(row.fields['.line-diff'].value, '');
     assert.equal(c.context.collectItems().items[0].actual_stock, null);

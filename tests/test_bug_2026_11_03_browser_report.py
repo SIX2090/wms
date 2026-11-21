@@ -74,7 +74,7 @@ def test_health_redline_without_outbound_history_is_not_healthy(case, stock, min
 
 def test_batch_count_uses_counted_metadata_including_zero(case):
     with wms.app.app_context():
-        rows = [SimpleNamespace(material_id=i, difference=0, counted_at=None, counted_by=None)
+        rows = [wms.InventoryCheckItem(id=i, material_id=i, system_stock=0, actual_stock=0)
                 for i in range(1, 36)]
         rows[0].counted_at = datetime.now()
         rows[1].counted_by = case[1][0]

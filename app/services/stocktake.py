@@ -33,6 +33,27 @@ def stocktake_quantities(first, counted):
     return book, total, round_to_2_decimals(total - book)
 
 
+def stocktake_display_values(items):
+    """Present the first frozen book and the net count once per material."""
+    groups = {}
+    for item in sorted(items, key=lambda row: row.id):
+        groups.setdefault(item.material_id, []).append(item)
+    result = {}
+    for rows in groups.values():
+        first = rows[0]
+        counted = [item for item in rows if item.has_actual_count]
+        book, actual, difference = stocktake_quantities(first, counted)
+        complete = len(counted) == len(rows)
+        for item in rows:
+            result[item.id] = {
+                'system_stock': book if item is first else None,
+                'actual_stock': item.actual_stock if item.has_actual_count else None,
+                'count_total': actual if item is first and complete else None,
+                'difference': difference if item is first and complete else None,
+            }
+    return result
+
+
 def stocktake_report_totals(base):
     """SQL quantities for all matching rows, before paging."""
     item = InventoryCheckItem

@@ -88,7 +88,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
     </div>
 
     <div class="doc-body">
-        <form id="docForm" class="doc-form {{ 'readonly-mask' if readonly else '' }}">
+        <form {% if doc_type == 'check' and (readonly or linked_adjustments) %}data-wms-no-delete{% endif %} id="docForm" class="doc-form {{ 'readonly-mask' if readonly else '' }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id }}">
             <input type="hidden" name="order_no" value="{{ order_no }}">
@@ -249,6 +249,14 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
             {% endif %}
             {% endif %}
 
+            {% if doc_type == 'check' and linked_adjustments %}
+            <div class="mb-2">关联调整单
+                {% for adjustment in linked_adjustments %}
+                <a class="me-2" href="{{ url_for('adjustment_detail', id=adjustment.id) }}">{{ adjustment.adjustment_no }}</a>
+                <span class="me-3">{{ '盘盈' if adjustment.adjustment_type == 'surplus' else '盘亏' }} · {{ {'pending':'待入账','completed':'已入账','cancelled':'已撤回'}.get(adjustment.status, adjustment.status) }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
             {# INV-BATCH-001-D：盘点批次进度与回查（PC 盘点单即批次） #}
             {% if doc_type == 'check' and batch_meta %}
             <div class="alert alert-light border mb-3">
@@ -262,7 +270,7 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                     <span class="badge bg-primary">已盘 {{ batch_meta.counted_count }} 个物料</span>
                     <span class="badge bg-light text-dark">总计 {{ batch_meta.material_count }} 个物料</span>
                     <span class="badge bg-secondary">未盘 {{ batch_meta.uncounted_count }} 个物料</span>
-                    {% if batch_meta.diff_row_count %}<span class="badge bg-warning text-dark">有差异 {{ batch_meta.diff_row_count }} 行</span>{% endif %}
+                    <span id="checkDiffCount" class="badge bg-warning text-dark" {% if not batch_meta.diff_material_count %}hidden{% endif %}>有差异 {{ batch_meta.diff_material_count }} 个物料</span>
                     <span class="badge bg-light text-dark border">扫码提交 {{ batch_meta.scan_count }} 次</span>
                 </div>
                 {% if batch_meta.scans is defined %}
@@ -310,9 +318,10 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                             <th style="width:95px;" data-column-key="stock">当前库存<span class="col-resize"></span></th>
                             {% endif %}
                             {% if doc_type == 'check' %}
-                            <th style="width:100px;" data-column-key="system_stock">系统库存<span class="col-resize"></span></th>
-                            <th style="width:100px;" data-column-key="actual_stock">实际库存<span class="col-resize"></span></th>
-                            <th style="width:100px;" data-column-key="diff">差异<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="system_stock">冻结账面<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="actual_stock">本行实盘<span class="col-resize"></span></th>
+                            <th style="width:100px;" data-column-key="count_total">物料实盘合计<span class="col-resize"></span></th>
+                            <th data-column-key="diff">物料净差异<span class="col-resize"></span></th>
                             <th style="width:140px;" data-column-key="area">库位 / 区域<span class="col-resize"></span></th>
                             <th style="width:180px;" data-column-key="reason">差异原因<span class="col-resize"></span></th>
                             {% if order_id %}<th style="width:150px;" data-column-key="counted_by">盘点人 / 时间<span class="col-resize"></span></th>{% endif %}
@@ -387,7 +396,7 @@ const checkLocationRequired = {{ (doc_type == 'check' and location_management_en
 const materials = {{ materials|tojson }};
 const units = {{ units|tojson }};
 const existingItems = {{ existing_items|tojson }};
-const minRowCount = docType === 'requisition' ? 0 : 30;
+const minRowCount = ['check', 'requisition'].includes(docType) ? 0 : 30;
 function ensureIssueEntryRow() {
     if (docType !== 'requisition' || readonly) return;
     const last = document.getElementById('docTableBody').lastElementChild;
@@ -489,7 +498,8 @@ function rowCells(item) {
     if (docType === 'check') {
         html += `
             <td class="num-col" data-column-key="system_stock"><input type="number" class="system-stock" step="0.01" readonly title="建单时冻结的账面数量，由系统维护"></td>
-            <td class="num-col" data-column-key="actual_stock"><input type="number" class="actual-stock" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="actual_stock"><input type="number" class="actual-stock" min="0" step="0.01" ${readonlyAttr}></td>
+            <td class="num-col" data-column-key="count_total"><input class="count-total" readonly></td>
             <td class="num-col" data-column-key="diff"><input type="text" class="line-diff" readonly></td>
             <td data-column-key="area"><input type="text" class="line-area" maxlength="100" ${checkLocationRequired ? 'required' : ''} ${readonlyAttr}></td>
             <td data-column-key="reason"><input type="text" class="line-reason" ${readonlyAttr}></td>
@@ -568,7 +578,6 @@ function createRow(item) {
                 row.querySelector('.line-counter').value =
                     item.counted_by_name ? (item.counted_by_name + (item.counted_at ? ' / ' + item.counted_at : '')) : '';
             }
-            updateCheckDiff(row);
         } else {
             const recorded = row._bomOriginal;
             row.querySelector('.line-qty').value = recorded && recorded.known ? String(recorded.quantity) : (item.quantity ? formatQty(item.quantity) : '');
@@ -623,6 +632,7 @@ function bindRowEvents(row) {
             calcRow(row);
         });
         input.addEventListener('blur', function() {
+            if (this.classList.contains('actual-stock') && (this.validity?.badInput || Number(this.value) < 0)) return;
             if (!bomRecordedFieldUnchanged(row, this)) {
                 WMS.normalizeDecimalInput(this, this.classList.contains('line-price') ? '单价' : '数量');
                 if (this.value) this.value = formatQty(this.value);
@@ -677,7 +687,6 @@ function copyRowAfter(row) {
         target.dataset.counted = row.dataset.counted || 'false';
         target.querySelector('.line-area').value = row.querySelector('.line-area').value;
         target.querySelector('.line-reason').value = row.querySelector('.line-reason').value;
-        updateCheckDiff(target);
     } else {
         target.querySelector('.line-qty') && (target.querySelector('.line-qty').value = row.querySelector('.line-qty')?.value || '');
         target.querySelector('.line-price') && (target.querySelector('.line-price').value = row.querySelector('.line-price')?.value || '');
@@ -693,9 +702,7 @@ function renumberRows() {
     document.querySelectorAll('#docTableBody tr').forEach(function(row, index) { row.querySelector('.row-num').textContent = index + 1; });
 }
 function calcRow(row) {
-    if (docType === 'check') {
-        updateCheckDiff(row);
-    } else {
+    if (docType !== 'check') {
         const qty = parseFloat(row.querySelector('.line-qty')?.value) || 0;
         const price = parseFloat(row.querySelector('.line-price')?.value) || 0;
         const recorded = docType === 'bom' && row._bomOriginal && row._bomOriginal.known &&
@@ -705,12 +712,48 @@ function calcRow(row) {
     }
     calcTotal();
 }
-function updateCheckDiff(row) {
-    const system = parseFloat(row.querySelector('.system-stock')?.value) || 0;
-    const actual = parseFloat(row.querySelector('.actual-stock')?.value);
-    row.querySelector('.line-diff').value = Number.isFinite(actual) ? formatQty(actual - system) : '';
+function updateCheckTotals(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+        row.querySelector('.line-diff').value = '';
+        row.querySelector('.count-total').value = '';
+        row.querySelector('.system-stock').style.visibility = '';
+        const code = row.querySelector('.material-code').value.trim().toLowerCase();
+        if (!code) continue;
+        if (!groups.has(code)) groups.set(code, []);
+        groups.get(code).push(row);
+    }
+    let differences = 0;
+    for (const group of groups.values()) {
+        // Keep the original frozen row authoritative when the operator sorts the table.
+        const rank = row => Number(row.dataset.checkLineId) || Infinity;
+        const first = group.reduce((a, b) => rank(a) <= rank(b) ? a : b);
+        let cents = 0;
+        let complete = true;
+        for (const row of group) {
+            if (row !== first) row.querySelector('.system-stock').style.visibility = 'hidden';
+            const value = row.querySelector('.actual-stock').value;
+            if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0) complete = false;
+            else cents += Math.round(Number(value) * 100);
+        }
+        if (!complete) continue;
+        const net = cents - Math.round(Number(first.querySelector('.system-stock').value) * 100);
+        first.querySelector('.count-total').value = formatQty(cents / 100);
+        first.querySelector('.line-diff').value = formatQty(net / 100);
+        if (net) differences++;
+    }
+    const badge = document.getElementById('checkDiffCount');
+    if (badge) {
+        badge.hidden = differences === 0;
+        badge.textContent = '有差异 ' + differences + ' 个物料';
+    }
 }
 function calcTotal() {
+    if (docType === 'check') {
+        const tbody = document.getElementById('docTableBody');
+        updateCheckTotals(tbody.rows);
+        if (!readonly && (!tbody.lastElementChild || tbody.lastElementChild.querySelector('.material-code').value.trim())) createRow(null);
+    }
     let total = 0;
     document.querySelectorAll('#docTableBody tr').forEach(function(row) {
         if (!row.querySelector('.material-code').value.trim()) return;
@@ -767,7 +810,16 @@ function collectItems() {
         }
         codeInput.style.borderColor = '';
         if (!bomRecordedFieldUnchanged(row, row.querySelector('.line-qty'))) WMS.normalizeDecimalInput(row.querySelector('.line-qty'));
-        WMS.normalizeDecimalInput(row.querySelector('.actual-stock'));
+        const actual = row.querySelector('.actual-stock');
+        if (actual && (actual.validity?.badInput || !Number.isFinite(Number(actual.value)) || Number(actual.value) < 0)) {
+            actual.style.borderColor = '#ff4d4f';
+            invalidRows.push('第 ' + (index + 1) + ' 行实盘数量须为非负数');
+            return;
+        }
+        if (actual) {
+            actual.style.borderColor = '';
+            WMS.normalizeDecimalInput(actual);
+        }
         if (!bomRecordedFieldUnchanged(row, row.querySelector('.line-price'))) WMS.normalizeDecimalInput(row.querySelector('.line-price'), '单价');
         const unitId = row.querySelector('.unit-id').value || getMaterialUnitId(material);
         if (docType === 'check') {
@@ -1002,7 +1054,7 @@ function revertDocument() {
     if (summary && typeof showConfirm === 'function') {
         return showConfirm(summary, {title: '撤销领料', okText: '撤销领料'}).then(applyDecision);
     }
-    return applyDecision(confirm(summary || '确认反提交该单据？反提交后库存将恢复。'));
+    return applyDecision(confirm(summary || (docType === 'check' ? '撤销盘点完成并重新开放录入？关联调整草稿会撤回，过账历史保留。已入账的调整须先撤销库存调整。' : '确认反提交该单据？反提交后库存将恢复。')));
 }
 function showPasteModal() {
     if (document.getElementById('pasteModal')) return;
@@ -1078,8 +1130,7 @@ async function parsePastedData() {
                 row.querySelector('.actual-stock').value = formatQty(entry.qty);
                 row.dataset.counted = 'true';
                 row.querySelector('.line-reason').value = entry.parts[2] || '';
-                updateCheckDiff(row);
-            } else {
+                } else {
                 row.querySelector('.line-qty').value = formatQty(entry.qty);
                 const remark = row.querySelector('.line-remark');
                 const usage = row.querySelector('.line-usage');

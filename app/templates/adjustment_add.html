@@ -232,8 +232,8 @@
             <i class="bi bi-sliders"></i>
             {{ page_title or '库存调整单' }}
             {% if adjustment %}
-            <span class="badge {{ 'bg-warning text-dark' if adjustment.status == 'pending' else 'bg-success' }}">
-                {{ '草稿' if adjustment.status == 'pending' else '已完成' if adjustment.status == 'completed' else adjustment.status }}
+            <span class="badge {{ 'bg-warning text-dark' if adjustment.status == 'pending' else 'bg-success' if adjustment.status == 'completed' else 'bg-secondary' }}">
+                {{ '草稿' if adjustment.status == 'pending' else '已完成' if adjustment.status == 'completed' else '已撤回' if adjustment.status == 'cancelled' else adjustment.status }}
             </span>
             {% endif %}
         </h2>
@@ -245,11 +245,11 @@
             {% endif %}
             {% if not readonly or (source_locked and adjustment.status == 'pending' and current_user.role in ['admin', 'warehouse']) %}
             <button data-document-action="completeAdjustment" type="button" class="btn btn-success btn-sm" onclick="completeAdjustment()">
-                <i class="bi bi-check-circle"></i> 完成调整
+                <i class="bi bi-check-circle"></i> 确认调整库存
             </button>
             {% endif %}
             {% if adjustment and adjustment.status == 'completed' and current_user.role in ['admin', 'warehouse'] %}
-            <button type="button" class="btn btn-outline-warning btn-sm" data-document-action="revertAdjustment" onclick="revertAdjustment()">反提交</button>
+            <button type="button" class="btn btn-outline-warning btn-sm" data-document-action="revertAdjustment" onclick="revertAdjustment()">撤销库存调整</button>
             {% endif %}
             {% if adjustment %}
             {{ document_print_menu('adjustment', adjustment.id) }}
@@ -261,8 +261,10 @@
     </div>
 
     <div class="adjust-body">
+        {% if source_check %}<p>来源盘点单 <a href="{{ url_for('check_detail', id=source_check.id) }}">{{ source_check.check_no }}</a></p>{% endif %}
+        {% if source_scan %}<p>来源扫码单 {{ source_scan.check_no }}</p>{% endif %}
         {% if source_locked and adjustment.status == 'pending' %}
-        <p class="text-muted small">调整明细来自盘点单。需要更正时，请在来源盘点单反提交后重新生成。</p>
+        <p class="text-muted small">调整明细来自盘点。需要更正时，请先撤销来源盘点的完成状态。</p>
         {% endif %}
         <form id="adjustmentForm" class="adjust-form {{ 'readonly-mask' if readonly else '' }}"{% if delete_blocked %} data-wms-no-delete{% endif %}>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -373,7 +375,11 @@
 const materials = {{ materials|tojson }};
 const existingItems = {{ existing_items|tojson }};
 const readonly = {{ readonly|tojson }};
-const minRowCount = 30;
+function ensureAdjustmentEntryRow() {
+    if (readonly) return;
+    const last = document.getElementById('adjustmentTableBody').lastElementChild;
+    if (!last || last.querySelector('.material-code').value.trim()) createRow(null);
+}
 let activeDropdown = null;
 
 function formatQty(value) {
@@ -399,6 +405,7 @@ function fillMaterialFields(row, material) {
     row.querySelector('.material-spec').value = material.spec || '';
     row.querySelector('.material-unit').value = getMaterialUnit(material);
     row.querySelector('.material-stock').value = formatQty(material.stock);
+    ensureAdjustmentEntryRow();
 }
 
 function clearMaterialFields(row) {
@@ -506,9 +513,7 @@ function insertRowBefore(btn) {
 function deleteRow(btn) {
     const tbody = document.getElementById('adjustmentTableBody');
     btn.closest('tr').remove();
-    while (tbody.rows.length < minRowCount) {
-        createRow(null);
-    }
+    ensureAdjustmentEntryRow();
     renumberRows();
     calcTotal();
 }
@@ -544,6 +549,7 @@ function renumberRows() {
 
 
 function calcTotal() {
+    ensureAdjustmentEntryRow();
     let total = 0;
     document.querySelectorAll('#adjustmentTableBody tr').forEach(function(row) {
         const code = row.querySelector('.material-code').value.trim();
@@ -744,10 +750,24 @@ function submitForm(completeAfterSave) {
     }).finally(submitForm.keepSavedLocked);
 }
 
+function adjustmentConfirmation(undo) {
+    const warehouse = document.querySelector('[name="warehouse_id"]').selectedOptions[0]?.textContent.trim() || '';
+    const increase = (document.querySelector('[name="adjustment_type"]').value === 'surplus') !== undo;
+    const lines = [document.querySelector('[name="adjustment_no"]').value + ' · ' + warehouse];
+    document.querySelectorAll('#adjustmentTableBody tr').forEach(row => {
+        const code = row.querySelector('.material-code').value.trim();
+        if (!code) return;
+        const quantity = row.querySelector('.adjust-qty').value;
+        const unit = row.querySelector('.material-unit').value;
+        lines.push(code + ' ' + row.querySelector('.material-name').value + ' · ' + (increase ? '增加 ' : '减少 ') + quantity + ' ' + unit);
+    });
+    return lines.join('\n');
+}
+
 function completeAdjustment() {
     if (submitForm.savedId) return Promise.resolve();
     return WMS.runDocumentAction('completeAdjustment', function() {
-        if (!confirm('确认完成该库存调整单？完成后会立即变更库存。')) return;
+        if (!confirm('确认按以下明细调整库存？\n' + adjustmentConfirmation(false))) return;
         if (readonly) {
             const detailUrl = '/adjustment/' + document.querySelector('[name="order_id"]').value;
             return WMS.api.postRaw(detailUrl + '/complete', {}).then(function(res) {
@@ -887,7 +907,7 @@ document.addEventListener('click', function(e) {
 });
 
 async function revertAdjustment() {
-    if (!(await showConfirm('确认反提交？将按原仓库回退本单库存调整。'))) return;
+    if (!(await showConfirm(adjustmentConfirmation(true), {title:'撤销库存调整', okText:'确认冲回'}))) return;
     try {
         await WMS.api.post('/adjustment/' + {{ order_id|tojson }} + '/revert', {});
         location.reload();
@@ -899,10 +919,7 @@ document.addEventListener('DOMContentLoaded', function() {
     existingItems.forEach(function(item) {
         createRow(item);
     });
-    const targetRows = Math.max(minRowCount, existingItems.length);
-    while (document.getElementById('adjustmentTableBody').rows.length < targetRows) {
-        createRow(null);
-    }
+    ensureAdjustmentEntryRow();
     renumberRows();
     calcTotal();
     if (!readonly) {

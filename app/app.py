@@ -27476,7 +27476,9 @@ def _build_check_batch_meta(check):
     distinct_materials = len({it.material_id for it in active_rows})
     counted_materials = {it.material_id for it in active_rows
                          if getattr(it, 'counted_at', None) or getattr(it, 'counted_by', None)}
-    diff_rows = [it for it in active_rows if abs(it.difference or 0) > STOCK_COMPARE_EPSILON]
+    from services.stocktake import stocktake_display_values
+    displayed = stocktake_display_values(active_rows)
+    diff_material_count = sum(abs(row['difference'] or 0) > STOCK_COMPARE_EPSILON for row in displayed.values())
 
     try:
         all_scans = (InventoryCheckScan.query
@@ -27508,13 +27510,16 @@ def _build_check_batch_meta(check):
         'material_count': distinct_materials,
         'counted_count': len(counted_materials),
         'uncounted_count': distinct_materials - len(counted_materials),
-        'diff_row_count': len(diff_rows),
+        'diff_material_count': diff_material_count,
         'scan_count': scan_count,
         'scans': scans,
     }
 
 
 def _render_check_form(check=None):
+    can_edit = current_user.role in ('admin', 'warehouse')
+    linked = (AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id)
+              .order_by(AdjustmentOrder.id).all()) if check else []
     warehouse = validate_inventory_warehouse(check.warehouse)[0] if check and check.warehouse else get_default_warehouse()
     materials = _document_materials_json(warehouse, scoped=True)
     warehouse_stock = {material['id']: material['stock'] for material in materials}
@@ -27528,7 +27533,8 @@ def _render_check_form(check=None):
         save_url=url_for('save_check_table'),
         complete_url=url_for('complete_check', id=check.id if check else 0),
         detail_url='/check',
-        readonly=bool(check and check.status != 'pending'),
+        linked_adjustments=linked,
+        readonly=not can_edit or bool(check and check.status != 'pending'),
         status=check.status if check else 'pending',
         order_id=check.id if check else '',
         order_no=check.check_no if check else generate_order_no('CK'),
@@ -27559,11 +27565,11 @@ def _render_check_form(check=None):
         ],
         # INV-BATCH-001-D：批次进度与回查元数据（新建空单为 None，模板不渲染区块）
         batch_meta=_build_check_batch_meta(check),
-        can_complete=bool(check and check.status == 'pending'),
-        can_revert=bool(check and check.status == 'completed'),
-        can_save=not bool(check and check.status != 'pending'),
+        can_complete=can_edit and bool(check and check.status == 'pending'),
+        can_revert=can_edit and bool(check and check.status == 'completed'),
+        can_save=can_edit and not bool(check and check.status != 'pending'),
         complete_label='完成盘点',
-        revert_label='反提交',
+        revert_label='撤销盘点完成',
         revert_url=url_for('revert_check', id=check.id if check else 0),
     )
 

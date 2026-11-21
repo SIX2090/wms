@@ -45,6 +45,7 @@
 <body>
     <h1>库存盘点单</h1>
     <div class="meta">
+        <div><span class="label">仓库：</span>{{ check.warehouse }}</div>
         <div><span class="label">盘点单号：</span>{{ check.check_no }}</div>
         <div><span class="label">日期：</span>{{ check.date }}</div>
         <div><span class="label">状态：</span>{{ '草稿' if check.status == 'pending' else ('已完成' if check.status == 'completed' else check.status) }}</div>
@@ -59,26 +60,29 @@
                 <th>物料名称</th>
                 <th>规格</th>
                 <th>单位</th>
-                <th class="text-end">系统库存</th>
-                <th class="text-end">实际库存</th>
-                <th class="text-end">差异</th>
+                <th class="text-end">冻结账面</th>
+                <th class="text-end">本行实盘</th>
+                <th class="text-end">物料实盘合计</th>
+                <th class="text-end">物料净差异</th>
             </tr>
         </thead>
         <tbody>
             {% for item in check.items %}
+            {% set amounts = values[item.id] %}
             <tr>
                 <td>{{ loop.index }}</td>
                 <td>{{ item.material.code if item.material else '' }}</td>
                 <td>{{ item.material.name if item.material else '' }}</td>
                 <td>{{ item.material.spec if item.material else '' }}</td>
                 <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
-                <td class="text-end">{{ "%.2f"|format(item.system_stock or 0) }}</td>
+                <td class="text-end">{% if amounts.system_stock is not none %}{{ "%.2f"|format(amounts.system_stock) }}{% endif %}</td>
                 <td class="text-end">{% if item.has_actual_count %}{{ "%.2f"|format(item.actual_stock) }}{% endif %}</td>
-                <td class="text-end">{% if item.has_actual_count %}{{ "%.2f"|format(item.difference) }}{% endif %}</td>
+                <td class="text-end">{% if amounts.count_total is not none %}{{ "%.2f"|format(amounts.count_total) }}{% endif %}</td>
+                <td class="text-end">{% if amounts.difference is not none %}{{ "%.2f"|format(amounts.difference) }}{% endif %}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="8" style="text-align:center;color:#6b7280;">暂无明细</td>
+                <td colspan="9" style="text-align:center;color:#6b7280;">暂无明细</td>
             </tr>
             {% endfor %}
         </tbody>

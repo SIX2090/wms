@@ -94,7 +94,7 @@ console.log(JSON.stringify({clicks,calls,messages,prevented}));
 @pytest.mark.parametrize('doc,label,finish', [
     ('check', '完成盘点', 'completeDocument()'),
     ('transfer', '完成调拨', 'completeDocument()'),
-    ('adjustment', '完成调整', 'completeAdjustment()'),
+    ('adjustment', '确认调整库存', 'completeAdjustment()'),
 ])
 def test_stock_document_has_one_draft_and_one_completion(existing, doc, label, finish):
     if doc == 'adjustment':
