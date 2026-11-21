@@ -46,7 +46,7 @@
         <div class="info-item"><span class="info-label">日　　期：</span>{{ order.date }}</div>
     </div>
     <div class="info-row">
-        <div class="info-item"><span class="info-label">{{ '客户' if order.business_type == '销售出库' else ('供应商' if order.business_type == '采购退货出库' else '领料部门') }}：</span>{{ (order.customer or '-') if order.business_type in ['销售出库', '采购退货出库'] else (order.department.name if order.department else (order.customer or '-')) }}</div>
+        <div class="info-item"><span class="info-label">{{ {'销售出库': '客户', '采购退货出库': '供应商', '其他出库': '客户/领用单位'}.get(order.business_type, '领料部门') }}：</span>{{ (order.customer or '-') if order.business_type in ['销售出库', '采购退货出库', '其他出库'] else (order.department.name if order.department else (order.customer or '-')) }}</div>
         <div class="info-item"><span class="info-label">{{ '经办人' if order.business_type == '销售出库' else '领料人' }}：</span>{{ order.picker or '-' }}</div>
     </div>
     <div class="info-row">

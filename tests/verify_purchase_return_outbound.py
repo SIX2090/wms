@@ -715,7 +715,7 @@ def test_t14_edit_draft_preserves_source_link():
 
     # 打开编辑页：来源单号与行级来源都应回填到页面（供前端原样回传）
     html = client.get(f"/out_order/add?order_id={order_id}").get_data(as_text=True)
-    assert "新增采购退货出库单" in html, "编辑页也必须处于采购退货模式"
+    assert "编辑采购退货出库单" in html, "编辑页也必须处于采购退货模式"
     assert "IN-PRET-" in html, "来源采购入库单号必须回填"
     assert str(seed_data["ii_id"]) in html, "行级来源采购入库明细必须回填到 edit_items"
 

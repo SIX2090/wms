@@ -940,6 +940,7 @@
 | BUG-2026-11-21-022 | bugs | entries-2026-11.md |
 | BUG-2026-11-21-023 | bugs | entries-2026-11.md |
 | BUG-2026-11-21-024 | bugs | entries-2026-11.md |
+| BUG-2026-11-21-025 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

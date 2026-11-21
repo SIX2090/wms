@@ -89,7 +89,7 @@
     <div class="doc">
         <div class="doc-title">{{ print_title }}</div>
         <div class="doc-header">
-            <span>{{ '客户' if order.business_type == '销售出库' else ('供应商' if order.business_type == '采购退货出库' else '领料部门') }}：{{ (order.customer or '') if order.business_type in ['销售出库', '采购退货出库'] else (order.department.name if order.department else (order.customer or '')) }}</span>
+            <span>{{ {'销售出库': '客户', '采购退货出库': '供应商', '其他出库': '客户/领用单位'}.get(order.business_type, '领料部门') }}：{{ (order.customer or '') if order.business_type in ['销售出库', '采购退货出库', '其他出库'] else (order.department.name if order.department else (order.customer or '')) }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
         <table class="doc-table">

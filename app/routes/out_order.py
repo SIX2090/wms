@@ -125,9 +125,14 @@ def _out_order_stock_error(order):
     return None
 
 
-def _out_order_print_title(order):
+def _out_order_title(business_type):
     return {'销售出库': '销售出库单', '其他出库': '其他出库单',
-            '采购退货出库': '采购退货出库单'}.get(getattr(order, 'business_type', None), '领料单')
+            '采购退货出库': '采购退货出库单'}.get(business_type, '领料单')
+
+
+def _out_order_party_label(business_type):
+    return {'其他出库': '客户/领用单位', '采购退货出库': '供应商',
+            '销售出库': '客户'}.get(business_type, '领料部门')
 
 
 def _build_out_order_excel(order, box_numbers=None):
@@ -143,7 +148,7 @@ def _build_out_order_excel(order, box_numbers=None):
 
     wb = Workbook()
     ws = wb.active
-    ws.title = _out_order_print_title(order)
+    ws.title = _out_order_title(getattr(order, 'business_type', None))
     box_numbers = box_numbers or {}
     business_type = getattr(order, 'business_type', None)
     offset = 1 if box_numbers else 0
@@ -163,7 +168,7 @@ def _build_out_order_excel(order, box_numbers=None):
         ws.column_dimensions[get_column_letter(idx)].width = width
 
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last_column)
-    ws['A1'] = _out_order_print_title(order)
+    ws['A1'] = _out_order_title(getattr(order, 'business_type', None))
     ws['A1'].font = title_font
     ws['A1'].alignment = center
     ws.row_dimensions[1].height = 26
@@ -178,8 +183,8 @@ def _build_out_order_excel(order, box_numbers=None):
     contract_no = getattr(order, 'contract_no', None) or ''
 
     ws.merge_cells('A2:E2')
-    party_label = '客户' if business_type == '销售出库' else ('供应商' if business_type == '采购退货出库' else '领料部门')
-    party = (getattr(order, 'customer', None) or '') if business_type in ('销售出库', '采购退货出库') else department
+    party_label = _out_order_party_label(business_type)
+    party = (getattr(order, 'customer', None) or '') if business_type in ('销售出库', '采购退货出库', '其他出库') else department
     ws['A2'] = f'{party_label}：{party}'
     ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=last_column)
     ws['F2'] = f'日期：{date_str}'
@@ -624,6 +629,7 @@ def register_out_order_routes(app):
             if stock_warehouse:
                 prefill_warehouse = stock_warehouse.name
         stock_map = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
+        entry_type = '其他出库' if is_other_out else ('销售出库' if is_sale_order else ('采购退货出库' if is_purchase_return else '领料单'))
         return render_template('out_order_add.html',
                              materials=[serialize_material_with_stock(material, stock_warehouse, stock_map)
                                         for material in materials],
@@ -637,10 +643,10 @@ def register_out_order_routes(app):
                              is_other_out=is_other_out,
                              is_purchase_return=is_purchase_return,
                              purchase_return_requires_order=purchase_return_requires_order(),
-                             default_business_type='其他出库' if is_other_out else ('销售出库' if is_sale_order else ('采购退货出库' if is_purchase_return else '领料单')),
+                             default_business_type=entry_type,
                              # BUG-MENU-2026-07-29-A1: ?type=sale 是"销售出库"业务（单号前缀 SO），
                              # 原本 page_title="新增销售单"会让用户误以为是新建销售订单，改为"新增销售出库单"
-                             page_title='新增其他出库单' if is_other_out else ('新增销售出库单' if is_sale_order else ('新增采购退货出库单' if is_purchase_return else '新增领料单')),
+                             page_title=('编辑' if order else '新增') + _out_order_title(entry_type),
                              party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else ('退货供应商' if is_purchase_return else '领料部门')),
                              party_required=not is_other_out,
                              return_list_url='/other_out_order' if is_other_out else '/out_order',
@@ -1750,7 +1756,7 @@ def register_out_order_routes(app):
                     )
                 except PrintFieldError as error:
                     return api_error(str(error), 400)
-                filename = f'{template.name or _out_order_print_title(order)}_{order.order_no or id}.xlsx'
+                filename = f'{template.name or _out_order_title(order.business_type)}_{order.order_no or id}.xlsx'
                 return send_file(
                     output,
                     download_name=filename,
@@ -1758,7 +1764,7 @@ def register_out_order_routes(app):
                     mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 )
         output = _build_out_order_excel(order, box_numbers)
-        filename = f'{_out_order_print_title(order)}_{order.order_no or id}.xlsx'
+        filename = f'{_out_order_title(order.business_type)}_{order.order_no or id}.xlsx'
         return send_file(
             output,
             download_name=filename,
@@ -1853,8 +1859,6 @@ def register_out_order_routes(app):
         from sqlalchemy.orm import joinedload
         wb = Workbook()
         ws = wb.active
-        ws.title = '领料单'
-        ws.append(['单据编号', '日期', '领料部门', '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '状态', '备注'])
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
@@ -1894,6 +1898,8 @@ def register_out_order_routes(app):
             (request.args.get('type') or '').strip().lower(), export_bt)
         if export_bt not in ('领料单', '其他出库', '销售出库', '采购退货出库'):
             export_bt = ''
+        ws.title = _out_order_title(export_bt)
+        ws.append(['单据编号', '日期', _out_order_party_label(export_bt), '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '状态', '备注'])
         if export_bt:
             query = query.filter(OutOrder.business_type == export_bt)
         else:
@@ -1954,8 +1960,8 @@ def register_out_order_routes(app):
         order = OutOrder.query.get_or_404(id)
         wb = Workbook()
         ws = wb.active
-        ws.title = '领料单'
-        ws.append(['单据编号', '日期', '领料部门', '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '备注'])
+        ws.title = _out_order_title(order.business_type)
+        ws.append(['单据编号', '日期', _out_order_party_label(order.business_type), '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '备注'])
         if order.items:
             for item in order.items:
                 ws.append([
