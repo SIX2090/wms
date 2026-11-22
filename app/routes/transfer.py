@@ -481,23 +481,6 @@ def register_transfer_routes(app):
         if not transfer.items:
             return api_error('调拨单没有明细，无法完成')
 
-        # BUG-2026-08-16-021：完成前复核仓库 active 状态，防止草稿保存后仓库被停用
-        # F2.11（审计 §8.2）：空仓库必须直接拒绝。原实现 `if from_warehouse:` 在仓库为空
-        # 时整段跳过校验，导致 apply_transfer_pair 以空仓库写出一对**无仓库归属**的
-        # transfer_out/transfer_in 流水（多仓库下既不计入任何仓，又污染台账归属）。
-        from_warehouse = (transfer.from_warehouse or '').strip()
-        to_warehouse = (transfer.to_warehouse or '').strip()
-        if not from_warehouse:
-            return api_error('调拨单缺少调出仓库，无法完成')
-        if not to_warehouse:
-            return api_error('调拨单缺少调入仓库，无法完成')
-        wh_ok, wh_err = assert_warehouse_active(from_warehouse, allow_empty=False)
-        if not wh_ok:
-            return api_error(f'调出{wh_err}')
-        wh_ok, wh_err = assert_warehouse_active(to_warehouse, allow_empty=False)
-        if not wh_ok:
-            return api_error(f'调入{wh_err}')
-
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复扣库位库存
             locked, ok = _acquire_order_write_lock(TransferOrder, id, 'pending', selectinload(TransferOrder.items))
@@ -507,6 +490,23 @@ def register_transfer_routes(app):
             if not transfer.items:
                 db.session.rollback()
                 return api_error('调拨单没有明细，无法完成')
+            # 使用本次过账写锁内的仓库状态，包含另一账号刚提交的停用。
+            from_warehouse = (transfer.from_warehouse or '').strip()
+            to_warehouse = (transfer.to_warehouse or '').strip()
+            if not from_warehouse:
+                db.session.rollback()
+                return api_error('调拨单缺少调出仓库，无法完成')
+            if not to_warehouse:
+                db.session.rollback()
+                return api_error('调拨单缺少调入仓库，无法完成')
+            wh_ok, wh_err = assert_warehouse_active(from_warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(f'调出{wh_err}')
+            wh_ok, wh_err = assert_warehouse_active(to_warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(f'调入{wh_err}')
             if transfer.from_warehouse == transfer.to_warehouse and (
                     not location_management_enabled() or transfer.from_location == transfer.to_location):
                 db.session.rollback()

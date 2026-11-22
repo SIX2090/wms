@@ -518,12 +518,6 @@ def register_after_sale_out_routes(app):
             if not order.items:
                 return api_error('请至少添加一条售后出库明细')
 
-            # BUG-2026-08-16-021：完成前复核仓库 active，防止草稿保存后仓库被停用
-            if (order.warehouse or '').strip():
-                wh_ok, wh_err = assert_warehouse_active(order.warehouse, allow_empty=False)
-                if not wh_ok:
-                    return api_error(wh_err or '仓库已停用，请先切换有效仓库')
-
             locked, ok = _acquire_order_write_lock(
                 AfterSaleOutOrder, id, 'pending', selectinload(AfterSaleOutOrder.items)
             )
@@ -538,7 +532,13 @@ def register_after_sale_out_routes(app):
                 if default_wh:
                     order.warehouse = default_wh.name
             if not order.warehouse:
+                db.session.rollback()
                 return api_error('请选择仓库')
+
+            wh_ok, wh_err = assert_warehouse_active(order.warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(wh_err or '仓库已停用，请先切换有效仓库')
 
             # P1-BUGFIX: 库位管理启用时 location 必填（AGENTS.md 规则二）
             if location_management_enabled() and not (order.location or '').strip():

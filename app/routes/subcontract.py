@@ -2231,19 +2231,19 @@ def register_subcontract_routes(app):
         if not receive.items:
             return api_error('收货单没有明细，无法完成')
 
-        # P0-BUGFIX: 完成前校验仓库必填（AGENTS.md 规则一）
-        if not getattr(receive, 'warehouse', ''):
-            return api_error('收货单未指定仓库，无法完成')
-        wh_ok, wh_err = assert_warehouse_active(receive.warehouse, allow_empty=False)
-        if not wh_ok:
-            return api_error(wh_err)
-
         try:
             # 加写锁并重新读取状态，避免多 worker 并发重复入库
             locked, ok = _acquire_order_write_lock(SubcontractReceive, id, 'pending', selectinload(SubcontractReceive.items))
             if not ok:
                 return api_error('该委外收货单已提交，不能重复操作')
             receive = locked
+            if not getattr(receive, 'warehouse', ''):
+                db.session.rollback()
+                return api_error('收货单未指定仓库，无法完成')
+            wh_ok, wh_err = assert_warehouse_active(receive.warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(wh_err)
             location_error = _complete_subcontract_location(receive)
             if location_error:
                 db.session.rollback()
