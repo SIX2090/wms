@@ -128,6 +128,8 @@
 >
 > 2026-11-21 现场确认。其他入库单仅在明细含客供料时必须选择客户，全为自有料时客户选填。
 
+> 2026-11-22 现场确认。启用库位管理后，委外发料、收货的历史空库位草稿须由经办人补录实际库位后完成。按补录库位过账，反提交按原过账库位回退。
+
 #### 2. 改代码前必须知道的十条现状事实（体检已核实，别再当新发现上报）
 
 1. **库存写入只走 3 个入口**：`apply_stock_delta`（总账增减）、`apply_transfer_pair`（调拨成对）、`apply_opening_balance`（期初建账），定义在 `app/services/warehouse_stock_service.py`。任何新增库存路径必须复用它们，禁止新增裸 SQL 改 `material.stock` / `location_inventory`。
