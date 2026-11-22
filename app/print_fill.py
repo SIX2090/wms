@@ -403,8 +403,10 @@ class _Filler:
                     cell.value = self._replace_cell(
                         orig, lambda t, item=item: self.item_value(t, item)
                     )
-                    if isinstance(orig, str) and '{item.box_no}' in orig:
-                        cell.data_type = 's'  # Cabinet identifiers are text, including leading '='.
+                    # Text supplied by a detail field stays literal. Keep formulas authored in the template.
+                    if (isinstance(orig, str) and not orig.startswith('=') and '{item.' in orig
+                            and isinstance(cell.value, str)):
+                        cell.data_type = 's'
                 source = ws.cell(template_row, c)
                 cell._style = copy(source._style)
 

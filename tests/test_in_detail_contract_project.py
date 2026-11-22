@@ -11,6 +11,7 @@ import app as wms
 @pytest.fixture
 def report_case(client):
     with wms.app.app_context():
+        wms.set_system_setting('price_dimension_enabled', '1')
         orders = wms.InOrder.query.order_by(wms.InOrder.order_no).all()
         for order in orders:
             order.contract_no = 'HEADER'

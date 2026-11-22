@@ -309,3 +309,102 @@ def test_daily_summary_separates_date_and_unit(reports):
     rows = list(load_workbook(BytesIO(resp.data)).active.values)
     col = rows[0].index('单位')
     assert {row[col] for row in rows[1:]} == {'件', '米'}
+
+
+def test_inbound_detail_price_switch_across_outputs(reports):
+    client, ids = reports
+    scope = {'warehouse_id': ids['warehouse_id']}
+    for enabled in (True, False):
+        with m.app.app_context():
+            m.set_system_setting('price_dimension_enabled', '1' if enabled else '0')
+            m.db.session.commit()
+        for query in (scope, {**scope, 'web_print': 1}):
+            data = client.get('/report/api/in_detail', query_string=query).get_json()
+            fields = {c['field'] for c in data['columns']}
+            assert data['total'] == 2 and data['summary']['quantity'] == 10
+            for key in ('amount', 'price'):
+                assert (key in fields) is enabled
+                assert all((key in row) is enabled for row in data['data'])
+            for key in ('summary_labels', 'summary_types', 'summary'):
+                assert ('amount' in data[key]) is enabled
+            if enabled:
+                assert data['summary']['amount'] == 20
+        book = client.get('/report/api/in_detail', query_string={**scope, 'export': 'excel'})
+        headers, *rows = list(load_workbook(BytesIO(book.data)).active.values)
+        assert len(rows) == 2
+        assert ('单价' in headers) is enabled and ('金额' in headers) is enabled
+        if enabled:
+            assert sum(row[headers.index('金额')] for row in rows) == 20
+
+
+def test_inbound_detail_selected_ids_and_literal_keywords(reports):
+    client, ids = reports
+    scope = {'warehouse_id': ids['warehouse_id'], 'status': 'all'}
+    with m.app.app_context():
+        supplier = m.Supplier(code='S_1', name='供方')
+        customer = m.Customer(code='C%', name='客户')
+        m.db.session.add_all([supplier, customer])
+        draft = m.InOrder.query.filter_by(order_no='IN2').one()
+        draft.supplier, draft.customer = supplier, customer
+        draft.items[0].contract_no = '工程_10%'
+        m.db.session.commit()
+        sid, cid = supplier.id, customer.id
+        # 空字符串和 NULL 都按历史采购入库显示。
+        receipt = m.InOrder.query.filter_by(order_no='IN1').one()
+        for value in ('', None):
+            m.db.session.execute(m.InOrder.__table__.update().where(m.InOrder.id == receipt.id).values(business_type=value))
+            m.db.session.commit()
+            found = client.get('/report/api/in_detail', query_string={**scope, 'business_type': '采购入库'}).get_json()
+            assert [r['business_type'] for r in found['data']] == ['采购入库', '采购入库']
+    def rows(**kwargs):
+        response = client.get('/report/api/in_detail', query_string={**scope, **kwargs})
+        assert response.status_code == 200
+        return sorted(row['order_no'] for row in response.get_json()['data'])
+    assert rows(material_code='M01') == ['IN1', 'IN1', 'IN2']
+    assert rows(material_code='M01', material_id=ids['material_id']) == ['IN1', 'IN1']
+    for query in ({'customer_id': cid}, {'supplier_id': sid}, {'supplier': '_'}, {'customer': '%'}, {'contract_no': '_'}):
+        assert rows(**query) == ['IN2']
+    assert rows(material_code='%') == [] and rows(project_name='_') == []
+    assert rows(page='9'*25) == []
+    assert rows(page=2, page_size=1, web_print=1) == ['IN1', 'IN1', 'IN2']
+
+
+def test_inbound_web_print_reads_beyond_first_500_lines(reports):
+    client, ids = reports
+    with m.app.app_context():
+        order = m.InOrder.query.filter_by(order_no='IN1').one()
+        m.db.session.execute(m.InOrderItem.__table__.insert(), [
+            dict(in_order_id=order.id, material_id=ids['material_id'], quantity=1, price=2, amount=2,
+                 remark=f'批内行-{n}') for n in range(501)])
+        m.db.session.commit()
+    scope = {'warehouse_id': ids['warehouse_id'], 'page_size': 500}
+    first = client.get('/report/api/in_detail', query_string=scope).get_json()
+    printed = client.get('/report/api/in_detail', query_string={**scope, 'web_print': '1'}).get_json()
+    assert len(first['data']) == 500 and first['total_pages'] == 2
+    assert len(printed['data']) == printed['total'] == 503
+    assert printed['total_pages'] == 1 and printed['summary']['quantity'] == 511
+    assert {r['item_remark'] for r in printed['data']} == {'行备注'} | {f'批内行-{n}' for n in range(501)}
+
+
+@pytest.mark.parametrize('name', ['customer_id', 'supplier_id', 'material_id'])
+def test_selection_id(reports, name):
+    client, ids = reports
+    for invalid in ('0', '1.2', '9' * 25):
+        args = {'warehouse_id': ids['warehouse_id'], name: invalid}
+        for path in ('/report/api/in_detail', '/report/in_detail/print_excel', '/report/in_detail/print_preview'):
+            assert client.get(path, query_string=args).status_code == 400
+
+
+def test_inbound_detail_excel_preserves_literal_remarks(reports):
+    client, ids = reports
+    with m.app.app_context():
+        items = m.InOrder.query.filter_by(order_no='IN1').one().items
+        items[0].remark, items[1].remark = '=A1', '#N/A'
+        m.db.session.commit()
+    args = {'warehouse_id': ids['warehouse_id']}
+    for path, extra in [('/report/api/in_detail', {'export': 'excel'}), ('/report/in_detail/print_excel', {})]:
+        book = client.get(path, query_string={**args, **extra})
+        assert book.status_code == 200
+        cells = [cell for row in load_workbook(BytesIO(book.data)).active for cell in row]
+        remarks = [(cell.value, cell.data_type) for cell in cells if cell.value in ('=A1', '#N/A')]
+        assert sorted(remarks) == [('#N/A', 's'), ('=A1', 's')]

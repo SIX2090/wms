@@ -211,7 +211,7 @@ def register_report_routes(app):
     @app.route('/report/view/<report_type>')
     @login_required
     def report_view(report_type):
-        from app import (Supplier, _get_report_definition, get_active_warehouses,
+        from app import (Warehouse, _get_report_definition, get_active_warehouses,
                          get_default_warehouse, price_dimension_enabled)
         if report_type == 'summary' and request.args.get('summary_view') != 'daily':
             report_type = 'material_movement'
@@ -231,7 +231,8 @@ def register_report_routes(app):
                 params['material_code'] = material.code
                 params.pop('report_type', None)
                 return redirect(url_for('report_view', report_type=report_type, **params))
-        suppliers = Supplier.query.all()
+        warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
+                      if report_type == 'in_detail' else get_active_warehouses())
         reconciliation = None
         from flask_login import current_user
         if report_type == 'warehouse_monthly' and current_user.role in ('admin', 'warehouse'):
@@ -244,8 +245,7 @@ def register_report_routes(app):
             report_type=report_type,
             title=definition['title'],
             reconciliation=reconciliation,
-            suppliers=suppliers,
-            warehouses=get_active_warehouses(),
+            warehouses=warehouses,
             default_warehouse=get_default_warehouse(),
             summary_labels=definition['summary_labels'],
             summary_types=definition['summary_types'],

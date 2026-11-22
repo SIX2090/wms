@@ -26840,17 +26840,16 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
 
     def _condition(header_col, item_col, value):
         """按粒度构造单个筛选条件（合同编号 / 工程名称 各调一次）。"""
-        like = f'%{value}%'
         if item_level:
             # 明细级：本行命中 OR（本行无标记 AND 表头命中）
-            return db.or_(item_col.like(like),
-                          db.and_(item_col.is_(None), header_col.like(like)))
+            return db.or_(item_col.contains(value, autoescape=True),
+                          db.and_(item_col.is_(None), header_col.contains(value, autoescape=True)))
         # 单据级：表头命中 OR EXISTS(任一明细命中)
         item_exists = db.session.query(item_model.id).filter(
             fk_col == header_model.id,
-            item_col.like(like),
+            item_col.contains(value, autoescape=True),
         ).correlate(header_model).exists()
-        return db.or_(header_col.like(like), item_exists)
+        return db.or_(header_col.contains(value, autoescape=True), item_exists)
 
     if contract_no_filter:
         query = query.filter(_condition(header_model.contract_no,
@@ -28557,7 +28556,7 @@ REPORT_DEFINITIONS = {
         'icon': 'bi-box-arrow-in-down',
         'accent': 'success',
         'summary_labels': {
-            'count': '记录数',
+            'count': '明细行数',
             'quantity': '入库数量',
             'amount': '入库金额',
         },
@@ -29207,10 +29206,21 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
             raise ReportFilterError('仓库不存在或已删除')
         warehouse_name = wh.name if wh else None
         warehouse_code = (wh.code or '') if wh else None
-    raw_material = (request.args.get('material_id') or '').strip()
-    material_id = _parse_positive_int(raw_material, 0)
-    if report_type == 'ledger' and raw_material and (not raw_material.isdecimal() or not 0 < material_id <= 2**63 - 1):
-        raise ReportFilterError('物料参数无效，请重新选择物料')
+    def selection_id(name, label):
+        raw = (request.args.get(name) or '').strip()
+        value = _parse_positive_int(raw, 0)
+        if raw and (not raw.isdecimal() or not 0 < value <= 2**63 - 1):
+            raise ReportFilterError(f'{label}参数无效，请重新选择{label}')
+        return value
+
+    material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'ledger')
+                   else _parse_positive_int(request.args.get('material_id'), 0))
+    inbound_detail = report_type == 'in_detail'
+    include_prices = not inbound_detail or price_dimension_enabled()
+    print_snapshot = inbound_detail and request.args.get('web_print') == '1'
+    sort_field = (request.args.get('sort_field') or '').strip()
+    if not include_prices and sort_field in ('amount', 'price'):
+        sort_field = ''
     raw_business_type = (request.args.get('business_type') or '').strip()
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
     # 手机端"产品入库"、网页端"其他入库"永远查不出来。改为可选筛选，
@@ -29234,14 +29244,17 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
         'project_name': (request.args.get('project_name') or '').strip(),
         'material_code': (request.args.get('material_code') or '').strip(),
         'material_id': material_id,
-        'supplier_id': _parse_positive_int(request.args.get('supplier_id'), 0),
+        'supplier_id': (selection_id('supplier_id', '供应商') if inbound_detail else
+                        _parse_positive_int(request.args.get('supplier_id'), 0)),
+        'customer_id': selection_id('customer_id', '客户') if inbound_detail else 0,
+        'include_prices': include_prices,
         'supplier': (request.args.get('supplier') or '').strip(),
         'customer': (request.args.get('customer') or '').strip(),
         'status': status,
-        'sort_field': (request.args.get('sort_field') or '').strip(),
+        'sort_field': sort_field,
         'sort_order': 'desc' if (request.args.get('sort_order') or '').lower() == 'desc' else 'asc',
-        'page': _parse_positive_int(request.args.get('page'), 1),
-        'page_size': min(_parse_positive_int(request.args.get('page_size'), 20), 500),
+        'page': 1 if print_snapshot else _parse_positive_int(request.args.get('page'), 1),
+        'page_size': 10000 if print_snapshot else min(_parse_positive_int(request.args.get('page_size'), 20), 500),
         'hide_zero': request.args.get('hide_zero', '').lower() in ('1', 'true', 'on'),
         'export': (request.args.get('export') or '').strip().lower(),
     }
@@ -29252,11 +29265,10 @@ def _keyword_tokens(keyword):
 def _material_filter_clause(keyword):
     clauses = []
     for token in _keyword_tokens(keyword):
-        pattern = f'%{token}%'
         clauses.append(db.or_(
-            Material.code.ilike(pattern),
-            Material.name.ilike(pattern),
-            Material.spec.ilike(pattern),
+            Material.code.icontains(token, autoescape=True),
+            Material.name.icontains(token, autoescape=True),
+            Material.spec.icontains(token, autoescape=True),
         ))
     return db.and_(*clauses) if clauses else None
 
@@ -29287,10 +29299,9 @@ def _document_warehouse_scope(model, filters):
 def _supplier_filter_clause(keyword):
     clauses = []
     for token in _keyword_tokens(keyword):
-        pattern = f'%{token}%'
         clauses.append(db.or_(
-            Supplier.code.ilike(pattern),
-            Supplier.name.ilike(pattern),
+            Supplier.code.icontains(token, autoescape=True),
+            Supplier.name.icontains(token, autoescape=True),
         ))
     return db.and_(*clauses) if clauses else None
 
@@ -29465,6 +29476,7 @@ def _build_report_excel_download(report_type, filters):
     追加提示行（BUG-2026-09-07-019 引入的文件级提示，随本函数迁移）。
     """
     from openpyxl import Workbook
+    from openpyxl.cell import WriteOnlyCell
 
     definition = _get_report_definition(report_type)
     workbook = Workbook(write_only=True)
@@ -29476,7 +29488,14 @@ def _build_report_excel_download(report_type, filters):
             columns = batch_columns
             worksheet.append([column['title'] for column in columns])
         for row in rows:
-            worksheet.append([_serialize_excel_value(column, row) for column in columns])
+            cells = []
+            for column in columns:
+                value = _serialize_excel_value(column, row)
+                cell = WriteOnlyCell(worksheet, value=value)
+                if isinstance(value, str):
+                    cell.data_type = 's'
+                cells.append(cell)
+            worksheet.append(cells)
         written += len(rows)
     if columns is None:
         raise ValueError('unsupported report type')
@@ -30068,7 +30087,9 @@ def _filtered_in_detail_query(filters):
     # 网页端"其他入库"在入库明细报表里永远查不出来。改为可选筛选，
     # business_type 为空表示全部入库类型。
     business_type = (filters.get('business_type') or '').strip()
-    if business_type:
+    if business_type == '采购入库':
+        query = query.filter(db.or_(InOrder.business_type.is_(None), InOrder.business_type.in_(('', business_type))))
+    elif business_type:
         query = query.filter(InOrder.business_type == business_type)
     # BUG-2026-08-02-014：入库明细按仓库过滤；兼容历史数据仓库名/编号不统一
     # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
@@ -30086,11 +30107,15 @@ def _filtered_in_detail_query(filters):
     if supplier_clause is not None:
         query = query.filter(supplier_clause)
     customer = (filters.get('customer') or '').strip()
+    if filters.get('customer_id'):
+        query = query.filter(InOrder.customer_id == filters['customer_id'])
     if customer:
         query = query.filter(db.or_(Customer.name.icontains(customer, autoescape=True),
                                     Customer.code.icontains(customer, autoescape=True)))
     if filters['status']:
         query = query.filter(InOrder.status == filters['status'])
+    if filters.get('material_id'):
+        query = query.filter(InOrderItem.material_id == filters['material_id'])
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
@@ -31568,7 +31593,7 @@ REPORT_BUILDERS = {
 _IN_DETAIL_SORT_MAP = {
     'date': InOrder.date,
     'order_no': InOrder.order_no,
-    'business_type': InOrder.business_type,
+    'business_type': func.coalesce(func.nullif(InOrder.business_type, ''), '采购入库'),
     'contract_no': func.coalesce(InOrderItem.contract_no, InOrder.contract_no, ''),
     'project_name': func.coalesce(InOrderItem.project_name, InOrder.project_name, ''),
     'supplier': Supplier.name,
@@ -31654,12 +31679,17 @@ def _sql_paged_in_detail_report(filters):
     else:
         page = max(int(filters.get('page') or 1), 1)
         page_size = max(int(filters.get('page_size') or 20), 1)
-        items = query.offset((page - 1) * page_size).limit(page_size).all()
+        offset = (page - 1) * page_size
+        items = query.offset(offset).limit(page_size).all() if offset < total else []
     rows = []
     for item in items:
         row = _in_detail_row(item)
         if row is not None:
             rows.append(row)
+    if not filters.get('include_prices', True):
+        from services.report_print_preview import visible_report_data
+        columns, rows = visible_report_data(columns, rows, include_prices=False)
+        summary.pop('amount', None)
     return columns, rows, summary, total
 
 
@@ -32720,6 +32750,10 @@ def _build_report_payload(report_type, filters):
     definition = _get_report_definition(report_type, filters.get('business_type'))
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
+
+    if report_type == 'in_detail' and not filters.get('include_prices', True):
+        definition = dict(definition, **{key: {k: v for k, v in definition[key].items() if k != 'amount'}
+                                        for key in ('summary_labels', 'summary_types')})
 
     # BUG-2026-09-07-004：已下沉 SQL 的报表走分页路径——rows 即当页数据，
     # total 为筛选后真实总数，summary 由 SQL 聚合（与分页解耦）。

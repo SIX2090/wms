@@ -54,6 +54,12 @@ class FormData {entries(){return Object.values(fields).filter(f=>f.name&&(f.type
 
 def test_reset_clears_flatpickr_and_preserves_selected_warehouse():
     run_js(r'''
+const reportType = 'in_detail';
+fields.detail_material_id = {value: '42'};
+fields.material_code.dataset = {ksId:'#detail_material_id'};
+filterForm.querySelectorAll = selector => {
+ assert.equal(selector, 'input[data-ks-id]'); return [fields.material_code];
+};
 eval(extract('setReportDate')+'\n'+extract('resetReportFilters'));
 let clearCount=0;
 for(const id of ['start_date','end_date']) fields[id]._flatpickr={clear(){clearCount++;},setDate(){}};
@@ -61,6 +67,7 @@ resetReportFilters();
 assert.equal(fields.warehouse_id.value,'2');
 assert.equal(fields.start_date.value,''); assert.equal(fields.end_date.value,'');
 assert.equal(clearCount,2); assert.equal(fields.material_code.value,'');
+assert.equal(fields.detail_material_id.value,'');
 ''')
 
 

@@ -87,6 +87,8 @@ def test_existing_inactive_report_warehouse_remains_queryable(guarded_case):
         _report_documents(ids)
         w.db.session.get(w.Warehouse, ids['other']).status = 'inactive'
         w.db.session.commit()
+    page = client.get('/report/view/in_detail').get_data(as_text=True)
+    assert '（已停用）</option>' in page
     response = client.get(f'/report/api/in_detail?warehouse_id={ids["other"]}')
     assert response.status_code == 200, response.get_data(as_text=True)
     assert response.get_json()['total'] == 1

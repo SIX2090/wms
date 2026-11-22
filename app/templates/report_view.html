@@ -7,7 +7,9 @@
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
             <h2 class="mb-1"><i class="bi bi-graph-up"></i> <span id="reportHeading">{{ title }}</span></h2>
-            {% if report_type == 'subcontract' %}
+            {% if report_type == 'in_detail' %}
+            <div class="text-muted">按入库单日期查询，默认显示已完成单据。物料、供应商和客户可输入关键词，也可选中档案精确查询。</div>
+            {% elif report_type == 'subcontract' %}
             <div class="text-muted">按委外订单的仓库和日期查询，只累计已完成的发料和收货。</div>
             {% elif report_type == 'check' %}
             <div class="text-muted">同一物料的卡板全部盘齐后显示净差异，账面数量只列一次。</div>
@@ -117,7 +119,7 @@
                 <select id="warehouse_id" name="warehouse_id" class="form-select" required>
                     <option value="">请选择仓库</option>
                     {% for w in warehouses %}
-                    <option value="{{ w.id }}" {% if default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}</option>
+                    <option value="{{ w.id }}" {% if default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}{% if report_type == 'in_detail' and w.status != 'active' %}（已停用）{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -168,7 +170,8 @@
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
                 {# 统一走全局 quick-select（data-ks）：键盘导航 + 拼音/首字母匹配，大数据量远程搜索 #}
-                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code">
+                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code"{% if report_type == 'in_detail' %} data-ks-id="#detail_material_id"{% endif %}>
+                {% if report_type == 'in_detail' %}<input type="hidden" id="detail_material_id" name="material_id">{% endif %}
                 {% if report_type == 'ledger' %}<div class="form-text">库存台账需按单一物料查询，请先选择物料。</div>{% endif %}
             </div>
             {% endif %}
@@ -176,7 +179,8 @@
             {% if filters_config.supplier %}
             <div class="col-md-3">
                 <label for="supplier" class="form-label">供应商</label>
-                <input id="supplier" name="supplier" type="text" class="form-control" placeholder="输入供应商编码或名称" autocomplete="off" data-ks="supplier" data-ks-put="code">
+                <input id="supplier" name="supplier" type="text" class="form-control" placeholder="输入供应商编码或名称" autocomplete="off" data-ks="supplier" data-ks-put="code"{% if report_type == 'in_detail' %} data-ks-id="#detail_supplier_id"{% endif %}>
+                {% if report_type == 'in_detail' %}<input type="hidden" id="detail_supplier_id" name="supplier_id">{% endif %}
             </div>
             {% endif %}
 
@@ -184,7 +188,8 @@
             <div class="col-md-3">
                 <label for="customer" class="form-label">{{ '客户' if report_type == 'in_detail' else '客户 / 部门' }}</label>
                 {# 选中回填名称（后端按名称文本模糊匹配）；也允许直接手输部门名 #}
-                <input id="customer" name="customer" type="text" class="form-control" placeholder="{{ '客户编码或名称' if report_type == 'in_detail' else '客户名称或领用部门' }}" autocomplete="off" data-ks="customer" data-ks-put="name">
+                <input id="customer" name="customer" type="text" class="form-control" placeholder="{{ '客户编码或名称' if report_type == 'in_detail' else '客户名称或领用部门' }}" autocomplete="off" data-ks="customer" data-ks-put="name"{% if report_type == 'in_detail' %} data-ks-id="#detail_customer_id"{% endif %}>
+                {% if report_type == 'in_detail' %}<input type="hidden" id="detail_customer_id" name="customer_id">{% endif %}
             </div>
             {% endif %}
 
@@ -276,7 +281,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4">
+    <div class="col-md-4" id="reportAmountCard"{% if report_type == 'in_detail' and not price_dimension_enabled %} hidden{% endif %}>
         <div class="card border-0 shadow-sm summary-card">
             <div class="card-body">
                 <div class="summary-label">{{ summary_labels.amount }}</div>
@@ -535,6 +540,7 @@ printBtn.addEventListener('click', async () => {
         let truncated = false;
         const printContext = captureReportPrintContext();
         const params = printContext.params;
+        if (reportType === 'in_detail') params.set('web_print', '1');
         do {
             params.set('page', String(page));
             params.set('page_size', '500');
@@ -550,14 +556,14 @@ printBtn.addEventListener('click', async () => {
                 columns = result.columns || columns;
                 printContext.title = result.title;
                 printContext.summary = result.summary || {};
-                printContext.summaryLabels = Object.assign({}, summaryLabels, result.summary_labels || {});
+                printContext.summaryLabels = result.summary_labels || summaryLabels;
                 printContext.summaryTypes = Object.assign({}, summaryTypes, result.summary_types || {});
             }
             allRows.push(...(result.data || []));
             totalPages = result.total_pages || 1;
             page += 1;
             if (allRows.length >= MAX_PRINT_ROWS) {
-                truncated = true;
+                truncated = page <= totalPages;
                 break;
             }
         } while (page <= totalPages);
@@ -580,6 +586,7 @@ function captureReportPrintContext() {
     for (const [key, value] of formData.entries()) {
         if (!String(value).trim() || key === 'csrf_token') continue;
         const field = filterForm.querySelector(`[name="${key}"]`);
+        if (field && field.id.startsWith('detail_') && field.type === 'hidden') continue;
         let label = key;
         if (field) {
             const labelEl = filterForm.querySelector(`label[for="${field.id}"]`);
@@ -980,6 +987,14 @@ async function loadData() {
         if (!response.ok || result.status !== 'success') {
             throw new Error(result.msg || '报表查询失败');
         }
+        if (reportType === 'in_detail') {
+            const lastPage = result.total_pages || 1;
+            if (currentPage > lastPage) {
+                currentPage = lastPage;
+                return loadData();
+            }
+            document.getElementById('reportAmountCard').hidden = !Object.hasOwn(result.summary || {}, 'amount');
+        }
         if (result.title) {
             const heading = document.getElementById('reportHeading');
             if (heading) heading.textContent = result.title;
@@ -1034,6 +1049,9 @@ function resetReportFilters() {
     const warehouse = filterForm.querySelector('#warehouse_id');
     const selectedWarehouse = warehouse ? warehouse.value : '';
     filterForm.reset();
+    if (reportType === 'in_detail') filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
+        filterForm.querySelector(input.dataset.ksId).value = '';
+    });
     ['start_date', 'end_date'].forEach(id => setReportDate(document.getElementById(id), ''));
     if (warehouse) warehouse.value = selectedWarehouse;
 }
@@ -1128,6 +1146,14 @@ if (reportType === 'ledger') {
             linkedMaterialId.value = '';
         }));
     }
+}
+
+if (reportType === 'in_detail') {
+    filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
+        input.addEventListener('input', () => {
+            filterForm.querySelector(input.dataset.ksId).value = '';
+        });
+    });
 }
 
 restoreReportFilters();

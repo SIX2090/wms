@@ -71,6 +71,7 @@ function assertRequest(index,warehouse='2'){
  assert.equal(requests[index].searchParams.get('warehouse_id'),warehouse);
  assert.equal(requests[index].searchParams.get('page_size'),'500');
  if(reportType==='in_detail'){
+  assert.equal(requests[index].searchParams.get('web_print'),'1');
   assert.equal(requests[index].searchParams.get('contract_no'),'C-001');
   assert.equal(requests[index].searchParams.get('project_name'),'一号工程');
  }
@@ -113,6 +114,7 @@ function assertCurrentSummary(quantity=7){
       summary_labels:{quantity:'<b>本次数量</b>'}});
  else if(scenario==='money_type')reply(0,{summary_types:{count:'number',quantity:'money',amount:'number'}});
  else if(scenario==='two_pages'||scenario==='later_failure')reply(0,{data:[{quantity:3}],total_pages:2,summary:{count:2,quantity:7,amount:14}});
+ else if(scenario==='exact_cap')reply(0,{data:Array.from({length:10000},()=>({quantity:1})),total_pages:1,summary:{count:10000,quantity:10000,amount:0}});
  else if(scenario==='cap')reply(0,{data:Array.from({length:500},()=>({quantity:1})),total_pages:25,summary:{count:12500,quantity:12500,amount:25000}});
  else reply(0);
  if(scenario==='two_pages'||scenario==='later_failure'){
@@ -140,6 +142,9 @@ function assertCurrentSummary(quantity=7){
  }else if(scenario==='two_pages'){
   assert.match(area.innerHTML,/本次记录 2/);assert.match(area.innerHTML,/本次数量 7/);assert.equal(area.innerHTML.includes('900'),false);
   assert.match(area.innerHTML,/<td>3<\/td>/);assert.match(area.innerHTML,/<td>4<\/td>/);assert.match(area.innerHTML,/乙仓/);assert.equal(screenReads,0);
+ }else if(scenario==='exact_cap'){
+  assert.equal(requests.length,1);assert.equal((area.innerHTML.match(/<td>1<\/td>/g)||[]).length,10000);
+  assert.doesNotMatch(area.innerHTML,/超过打印上限|含未打印行/);
  }else if(scenario==='cap'){
   assert.equal(requests.length,20);assert.equal((area.innerHTML.match(/<td>1<\/td>/g)||[]).length,10000);
   assert.match(area.innerHTML,/完整数据请导出 Excel/);assert.match(area.innerHTML,/本次数量 12,500/);assert.match(area.innerHTML,/含未打印行/);assert.equal(screenReads,0);
@@ -181,3 +186,7 @@ def test_print_snapshot_and_response_summary_boundaries(scenario):
                                     'failure_network', 'failure_parse', 'failure_html', 'later_failure'])
 def test_print_failures_and_loading_recovery(scenario):
     run_scenario(scenario)
+
+
+def test_exact_inbound_print_limit_is_a_complete_snapshot():
+    run_scenario('exact_cap', 'in_detail')
