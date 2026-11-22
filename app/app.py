@@ -8087,17 +8087,26 @@ def api_subcontract_quick_issue():
     if not order:
         return api_error('委外单不存在，请刷新后重试')
 
+    # BUG-2026-10-17-013-F02：加写锁后复核状态，并把"同一委外单+同一明细 10 秒内"
+    # 的重复提交视为重放（返回已创建发料单），避免网络重试重复扣料（审计 §5.4）。
+    locked, lock_ok = _acquire_order_write_lock(
+        SubcontractOrder, order_id, ('pending', 'processing', 'completed'))
+    if not lock_ok or locked is None:
+        return api_error('委外单状态已变化或已被删除，请刷新后重试')
+    order = locked
     # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
     warehouse = getattr(order, 'warehouse', '') or ''
     if not warehouse:
+        db.session.rollback()
         return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
 
     # P0-1 / BUG-2026-08-16-009 同根因：发料预校验改仓库级口径，与扣减端
     # deduct_stock_atomic（BUG-2026-09-19-001）严格对齐——否则多仓库下
     # A 仓库存会掩护 B 仓发料：预校验按全局放行、扣减在 B 仓打负账面。
-    wh_obj = resolve_warehouse_text(warehouse, strict=True)
-    if not wh_obj:
-        return api_error('委外单仓库无效，请编辑委外单选择有效仓库')
+    wh_obj, wh_error = validate_inventory_warehouse(warehouse)
+    if wh_error:
+        db.session.rollback()
+        return api_error(f'委外单仓库无效：{wh_error}')
     warehouse_stock = get_warehouse_stock_quantities(wh_obj)
 
     validated_items = []
@@ -8128,15 +8137,9 @@ def api_subcontract_quick_issue():
         validated_items.append((material, quantity))
 
     if not validated_items:
+        db.session.rollback()
         return api_error('发料明细无效，请检查数量后重试')
 
-    # BUG-2026-10-17-013-F02：加写锁后复核状态，并把"同一委外单+同一明细 10 秒内"
-    # 的重复提交视为重放（返回已创建发料单），避免网络重试重复扣料（审计 §5.4）。
-    locked, lock_ok = _acquire_order_write_lock(
-        SubcontractOrder, order_id, ('pending', 'processing', 'completed'))
-    if not lock_ok or locked is None:
-        return api_error('委外单状态已变化或已被删除，请刷新后重试')
-    order = locked
     signature = tuple(sorted((material.id, round(quantity, 4)) for material, quantity in validated_items))
     now = datetime.now()
     recent_issues = (SubcontractIssue.query
@@ -8242,10 +8245,20 @@ def api_subcontract_quick_receive():
     if not order:
         return api_error('委外单不存在，请刷新后重试')
 
+    order, lock_ok = _acquire_order_write_lock(
+        SubcontractOrder, order_id, ('pending', 'processing', 'completed'))
+    if not lock_ok:
+        return api_error('委外单状态已变化或已被删除，请刷新后重试')
     # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
     warehouse = getattr(order, 'warehouse', '') or ''
     if not warehouse:
+        db.session.rollback()
         return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+
+    wh_ok, wh_error = assert_warehouse_active(warehouse, allow_empty=False)
+    if not wh_ok:
+        db.session.rollback()
+        return api_error(wh_error)
 
     # 编号与收货同事务；取得写锁后读取当前物料状态。
     receive_no = generate_order_no('SR')

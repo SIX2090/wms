@@ -463,37 +463,43 @@ def register_subcontract_routes(app):
         if quantity <= 0:
             return api_error('发料数量必须大于 0')
 
-        # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
-        warehouse = getattr(order, 'warehouse', '') or ''
-        if not warehouse:
-            return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
-        wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
-        if not wh_ok:
-            return api_error(wh_err)
-
-        material = Material.query.filter_by(code=material_code).first()
-        if not material:
-            return api_error('物料编码不存在')
-        warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
-        if warehouse_err:
-            return api_error(warehouse_err)
-        current_stock = normalize_stock_quantity(
-            get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0) or 0
-        )
-        if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-            return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
-
-        # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
-        location = (request.form.get('location') or '').strip()
-        if location_management_enabled() and not location:
-            return api_error('请输入库位')
-
         try:
             # BUG-2026-08-16-020：加写锁后复核状态，防止并发发料/收货竞态改主单状态
             order, ok = _acquire_order_write_lock(
                 SubcontractOrder, id, ('pending', 'processing', 'completed'))
             if not ok:
                 return api_error('委外单状态已变化或已被删除，请刷新后重试')
+
+            # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+            warehouse = getattr(order, 'warehouse', '') or ''
+            if not warehouse:
+                db.session.rollback()
+                return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+            wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(wh_err)
+
+            material = Material.query.filter_by(code=material_code).first()
+            if not material:
+                db.session.rollback()
+                return api_error('物料编码不存在')
+            warehouse_obj, warehouse_err = validate_inventory_warehouse(warehouse)
+            if warehouse_err:
+                db.session.rollback()
+                return api_error(warehouse_err)
+            current_stock = normalize_stock_quantity(
+                get_warehouse_stock_quantities(warehouse_obj).get(material.id, 0) or 0
+            )
+            if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                db.session.rollback()
+                return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
+
+            # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
+            if location_management_enabled() and not location:
+                db.session.rollback()
+                return api_error('请输入库位')
             issue_no = generate_order_no('SF')
             issue = SubcontractIssue(
                 issue_no=issue_no,
@@ -564,25 +570,28 @@ def register_subcontract_routes(app):
         if quantity <= 0:
             return api_error('收货数量必须大于 0')
 
-        # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
-        warehouse = getattr(order, 'warehouse', '') or ''
-        if not warehouse:
-            return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
-        wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
-        if not wh_ok:
-            return api_error(wh_err)
-
-        # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
-        location = (request.form.get('location') or '').strip()
-        if location_management_enabled() and not location:
-            return api_error('请输入库位')
-
         try:
             # BUG-2026-08-16-020：加写锁后复核状态，防止并发发料/收货竞态改主单状态
             order, ok = _acquire_order_write_lock(
                 SubcontractOrder, id, ('pending', 'processing', 'completed'))
             if not ok:
                 return api_error('委外单状态已变化或已被删除，请刷新后重试')
+
+            # P0-BUGFIX: 仓库必填，从父委外单继承（AGENTS.md 规则一）
+            warehouse = getattr(order, 'warehouse', '') or ''
+            if not warehouse:
+                db.session.rollback()
+                return api_error('委外单未指定仓库，请先编辑委外单补充仓库')
+            wh_ok, wh_err = assert_warehouse_active(warehouse, allow_empty=False)
+            if not wh_ok:
+                db.session.rollback()
+                return api_error(wh_err)
+
+            # BUG-2026-08-16-001：开启库位管理时库位必填（AGENTS.md 规则二）
+            location = (request.form.get('location') or '').strip()
+            if location_management_enabled() and not location:
+                db.session.rollback()
+                return api_error('请输入库位')
             material = Material.query.filter_by(code=material_code).populate_existing().with_for_update().first()
             if not material or material.status == 'inactive':
                 db.session.rollback()
