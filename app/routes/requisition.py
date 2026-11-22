@@ -912,13 +912,14 @@ def register_requisition_routes(app):
                         '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                         item.remark or order.remark or '',
                         order.picker or '',
+                        order.location or '',
                     ])
             else:
-                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.warehouse or '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or '', order.picker or ''])
+                rows.append([order.req_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.warehouse or '', order.production_order or '', order.purpose or '', order.bom.bom_no if order.bom else '', '', '', '', '', 0, 0, '草稿' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')), order.remark or '', order.picker or '', order.location or ''])
         return _workbook_response(
             'requisitions.xlsx',
             '工单领料',
-            ['单据编号', '日期', '仓库', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注', '领料人'],
+            ['单据编号', '日期', '仓库', '工单', '用途', 'BOM编号', '物料编码', '物料名称', '规格', '单位', '数量', '已领数量', '状态', '备注', '领料人', '库位'],
             rows,
         )
 
@@ -1070,7 +1071,7 @@ def register_requisition_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '工单领料单'
-        ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '领料人'])
+        ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '领料人', '库位'])
         if order.items:
             for item in order.items:
                 ws.append([
@@ -1086,6 +1087,7 @@ def register_requisition_routes(app):
                     item.quantity or 0,
                     item.remark or '',
                     order.picker or '',
+                    order.location or '',
                 ])
         output = io.BytesIO()
         wb.save(output)

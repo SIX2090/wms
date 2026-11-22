@@ -94,14 +94,14 @@ DOC_EXCEL_PRINT_TYPES = {
         'totals': ('quantity',),
     },
     'requisition': {
-        'label': '领料申请单',
-        'header': [('申请单号', 'req_no'), ('日期', 'date'), ('生产工单', 'production_order'),
-                   ('用途', 'purpose'), ('领料人', 'picker'), ('仓库', 'warehouse'),
+        'label': '工单领料单',
+        'header': [('领料单号', 'req_no'), ('日期', 'date'), ('生产工单', 'production_order'),
+                   ('用途', 'purpose'), ('领料人', 'picker'), ('仓库', 'warehouse'), ('库位', 'location'),
                    ('状态', 'status'), ('操作人', 'operator.username')],
         'columns': [('物料编码', 'material.code', 12), ('品牌', 'material.brand', 10),
                     ('物料名称', 'material.name', 20), ('规格', 'material.spec', 14),
                     ('单位', 'unit.name', 6), ('申请数量', 'quantity', 10),
-                    ('已发数量', 'issued_quantity', 10), ('备注', 'remark', 14)],
+                    ('已领数量', 'issued_quantity', 10), ('备注', 'remark', 14)],
         'totals': ('quantity',),
     },
     'purchase_order': {
@@ -490,13 +490,15 @@ def generate_builtin_template(target_code):
 
 
 def _builtin_filename(target_code):
-    # 保留既存文件；这两种系统模板的字段含义或布局已变更。
+    # 变更布局的系统模板使用独立文件名。
     suffix = 'fee_v2' if target_code in ('subcontract_receive', 'report_warehouse_monthly') else 'default'
+    if target_code == 'requisition':
+        suffix = 'location_v2'
     return f'builtin_{target_code}_{suffix}.xlsx'
 
 
-def _legacy_receipt_price_template(target_code, template):
-    return (target_code in ('subcontract_receive', 'report_warehouse_monthly') and template is not None
+def _legacy_builtin_template(target_code, template):
+    return (target_code in ('subcontract_receive', 'report_warehouse_monthly', 'requisition') and template is not None
             and template.excel_template_path == f'/static/uploads/print_templates/builtin_{target_code}_default.xlsx')
 
 
@@ -674,7 +676,7 @@ def resolve_excel_template(target_type, target_code, template_id=None):
 def _template_path_or_builtin(template, static_folder, target_code):
     """模板记录的文件路径；记录缺失/文件丢失时回退内置模板文件。"""
     from print_fill import template_file_abspath
-    if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
+    if template and template.excel_template_path and not _legacy_builtin_template(target_code, template):
         path = template_file_abspath(template.excel_template_path, static_folder)
         if path and os.path.exists(path):
             return path
@@ -915,7 +917,7 @@ def _dynamic_report_template(report_type, template):
         prefix = f'/static/uploads/print_templates/builtin_{target}_'
         return template.excel_template_path in {prefix + suffix + '.xlsx' for suffix in
                                                 ('default', 'detail_v2_price', 'detail_v2_quantity')}
-    return _legacy_receipt_price_template(target, template)
+    return _legacy_builtin_template(target, template)
 
 
 def resolve_report_print_layout(report_type, raw_id, static_folder):
@@ -1001,7 +1003,7 @@ def render_report_excel_print(report_type, title, columns, rows,
     else:
         template = resolve_excel_template('report', target_code, template_id)
         path = None
-        if template and template.excel_template_path and not _legacy_receipt_price_template(target_code, template):
+        if template and template.excel_template_path and not _legacy_builtin_template(target_code, template):
             candidate = template_file_abspath(template.excel_template_path,
                                               static_folder)
             if candidate and os.path.exists(candidate):

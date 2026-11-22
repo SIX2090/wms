@@ -675,3 +675,4 @@ POST_SPLIT_BUGS['BUG-2026-11-21-025'] = 'fixed'  # Identify the recipient on oth
 POST_SPLIT_BUGS['BUG-2026-11-21-026'] = 'fixed'  # Keep transfer warehouses separate from bins.
 POST_SPLIT_BUGS['BUG-2026-11-22-001'] = 'fixed'  # Preserve partially entered adjustment rows.
 POST_SPLIT_BUGS['BUG-2026-11-22-002'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-22-003'] = 'fixed'

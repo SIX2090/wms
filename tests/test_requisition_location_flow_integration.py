@@ -206,3 +206,27 @@ def test_disabled_real_header_preserves_legacy_location_and_empty_compatibility(
         assert total == sum(row[2] for row in transactions) == 145
         assert wms.get_warehouse_stock_quantities(wms.db.session.get(wms.Warehouse,a))[mid] == 65
         assert len(transactions)==len(before[2])+1
+
+
+def test_saved_bin_in_work_order_exports_and_prints(scene):
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    client, warehouse_id, _, material_id, unit_id = scene
+    location = 'B-Rack-17'
+    header = header_from_page(client, '/requisition/add', {'warehouse_id': str(warehouse_id), 'location': location})
+    key = accepted(save(client, material_id, unit_id, header))['id']
+    for path in ('/requisition/export', f'/requisition/{key}/export'):
+        response = client.get(path)
+        assert response.status_code == 200
+        sheet = load_workbook(BytesIO(response.data), read_only=True).active
+        labels, values = list(sheet.values)
+        assert values[labels.index('库位')] == location
+        assert values[labels.index('仓库')] == wms.db.session.get(wms.Warehouse, warehouse_id).name
+    assert location in client.get(f'/requisition/{key}/print').get_data(as_text=True)
+    response = client.get(f'/requisition/{key}/print_excel')
+    assert response.status_code == 200
+    sheet = load_workbook(BytesIO(response.data), read_only=True).active
+    cells = [str(value) for row in sheet.values for value in row if value is not None]
+    assert '工单领料单' in cells
+    assert any(location in value for value in cells)
