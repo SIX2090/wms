@@ -144,44 +144,41 @@ def register_report_routes(app):
     @app.route('/report/dashboard')
     @login_required
     def report_dashboard():
-        from app import (build_report_dashboard_context, get_active_warehouses,
-                         get_default_warehouse, resolve_request_warehouse)
+        from app import (ReportFilterError, build_report_dashboard_context, get_active_warehouses,
+                         resolve_request_warehouse)
         warehouses = get_active_warehouses()
-        warehouse, warehouse_error = resolve_request_warehouse(request.args)
-        if warehouse is None:
-            return render_template(
-                'report_dashboard.html',
-                stats=None,
-                chart_data=None,
-                warehouses=warehouses,
-                selected_warehouse_id=None,
-            )
-        stats, chart_data = build_report_dashboard_context(warehouse)
+        warehouse, error = resolve_request_warehouse(request.args)
+        stats = chart_data = None
+        if warehouse:
+            try:
+                stats, chart_data = build_report_dashboard_context(warehouse)
+            except ReportFilterError as exc:
+                error = str(exc)
         return render_template(
-            'report_dashboard.html',
-            stats=stats,
-            chart_data=chart_data,
-            warehouses=warehouses,
-            selected_warehouse_id=warehouse.id,
+            'report_dashboard.html', stats=stats, chart_data=chart_data,
+            warehouses=warehouses, warehouse_error=error,
+            selected_warehouse_id=warehouse.id if warehouse else None,
         )
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/report/dashboard/ai_insights', methods=['POST'])
     @login_required
     def report_dashboard_ai_insights():
-        from app import (_ai_call_llm_chat, _ai_llm_configured, api_error,
+        from app import (ReportFilterError, _ai_call_llm_chat, _ai_llm_configured, api_error,
                          build_report_dashboard_context, resolve_request_warehouse)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse is None:
             return api_error(warehouse_error or '请选择仓库', 400)
         if not _ai_llm_configured():
             return api_error('请先在系统设置中配置大模型API')
-        stats, chart_data = build_report_dashboard_context(warehouse)
-        
-        # 计算环比增长率
-        in_amount_mom = ((stats['month_in_amount'] - stats['last_month_in_amount']) / stats['last_month_in_amount'] * 100) if stats['last_month_in_amount'] > 0 else 0
-        out_amount_mom = ((stats['month_out_amount'] - stats['last_month_out_amount']) / stats['last_month_out_amount'] * 100) if stats['last_month_out_amount'] > 0 else 0
-        
+        try:
+            stats, chart_data = build_report_dashboard_context(warehouse)
+        except ReportFilterError as exc:
+            return api_error(str(exc), 400)
+
+        def _format_rate(rate):
+            return '无法计算' if rate is None else f'{rate:+.1f}%'
+
         prompt = f"""你是仓库管理系统的数据分析师，请基于以下仪表盘数据生成简洁的业务洞察：
 
 【核心指标】
@@ -191,10 +188,10 @@ def register_report_routes(app):
 - 库存金额：{stats['stock_value']:.2f} 元
 
 【环比分析】
-- 入库金额环比：{in_amount_mom:+.1f}%（上月 {stats['last_month_in_amount']:.2f} 元）
-- 领料金额环比：{out_amount_mom:+.1f}%（上月 {stats['last_month_out_amount']:.2f} 元）
+- 入库金额环比：{_format_rate(stats['in_amount_mom'])}（上月 {stats['last_month_in_amount']:.2f} 元）
+- 领料金额环比：{_format_rate(stats['out_amount_mom'])}（上月 {stats['last_month_out_amount']:.2f} 元）
 
-【趋势数据】近10天出入库数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
+【趋势数据】近10天入库与普通领料数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
 
 请生成4-6条有价值的业务洞察，包括：
 1. 环比分析（本月vs上月，增长/下降原因分析）

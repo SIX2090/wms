@@ -11276,7 +11276,7 @@ def _ai_report_mom_insights():
         InOrder.date < next_month_start
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', _ordinary_requisition_clause(),
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
@@ -11286,7 +11286,7 @@ def _ai_report_mom_insights():
         InOrder.date < next_month_start
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', _ordinary_requisition_clause(),
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start
     ).scalar() or 0
@@ -11298,7 +11298,7 @@ def _ai_report_mom_insights():
         InOrder.date < month_start
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', _ordinary_requisition_clause(),
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start
     ).scalar() or 0
@@ -11308,7 +11308,7 @@ def _ai_report_mom_insights():
         InOrder.date < month_start
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', _ordinary_requisition_clause(),
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start
     ).scalar() or 0
@@ -28892,8 +28892,10 @@ def _shift_month_start(month_start, offset):
 def build_report_dashboard_context(warehouse):
     # AI_FIX_TASK: AI-BROWSER-AUDIT-FIX-20261031-003
     """构建指定仓库的数据仪表盘统计与图表数据。"""
-    warehouse_name = (warehouse.name or '').strip()
-    warehouse_code = (warehouse.code or '').strip()
+    filters = {'warehouse_id': warehouse.id}
+    _wh_cond = _document_warehouse_scope(InOrder, filters)
+    _wh_cond_out = _document_warehouse_scope(OutOrder, filters)
+    ordinary_issue = _ordinary_requisition_clause()
     warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
     stocked_material_ids = [
         material_id for material_id, quantity in warehouse_stock_map.items()
@@ -28908,25 +28910,25 @@ def build_report_dashboard_context(warehouse):
         InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
-        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
+        _wh_cond,
     ).scalar() or 0
     month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
-        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
+        _wh_cond_out,
     ).scalar() or 0
     month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.status == 'completed',
         InOrder.date >= month_start,
         InOrder.date < next_month_start,
-        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
+        _wh_cond,
     ).scalar() or 0
     month_out_count = db.session.query(func.count(OutOrder.id)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= month_start,
         OutOrder.date < next_month_start,
-        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
+        _wh_cond_out,
     ).scalar() or 0
     
     # 上月数据用于环比分析
@@ -28935,25 +28937,25 @@ def build_report_dashboard_context(warehouse):
         InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
-        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
+        _wh_cond,
     ).scalar() or 0
     last_month_out_amount = db.session.query(func.coalesce(func.sum(OutOrder.total_amount), 0)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
-        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
+        _wh_cond_out,
     ).scalar() or 0
     last_month_in_count = db.session.query(func.count(InOrder.id)).filter(
         InOrder.status == 'completed',
         InOrder.date >= last_month_start,
         InOrder.date < month_start,
-        db.or_(InOrder.warehouse == warehouse_name, InOrder.warehouse == warehouse_code),
+        _wh_cond,
     ).scalar() or 0
     last_month_out_count = db.session.query(func.count(OutOrder.id)).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= last_month_start,
         OutOrder.date < month_start,
-        db.or_(OutOrder.warehouse == warehouse_name, OutOrder.warehouse == warehouse_code),
+        _wh_cond_out,
     ).scalar() or 0
 
     # 计算环比增长率
@@ -28994,12 +28996,6 @@ def build_report_dashboard_context(warehouse):
     }
 
     trend_start = today - timedelta(days=9)
-    # BUG-2026-08-30-003：趋势/月度图此前只匹配仓库名，仓库存编号的历史单据
-    # 在图表里缺失，与上方统计卡（名称/编号任一匹配）口径不一致；统一 OR 匹配。
-    _wh_cond = db.or_(InOrder.warehouse == warehouse_name,
-                      InOrder.warehouse == warehouse_code)
-    _wh_cond_out = db.or_(OutOrder.warehouse == warehouse_name,
-                          OutOrder.warehouse == warehouse_code)
     in_trend_rows = db.session.query(
         InOrder.date,
         func.coalesce(func.sum(InOrderItem.quantity), 0)
@@ -29013,7 +29009,7 @@ def build_report_dashboard_context(warehouse):
         OutOrder.date,
         func.coalesce(func.sum(OutOrderItem.quantity), 0)
     ).join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= trend_start,
         OutOrder.date <= today,
         _wh_cond_out,
@@ -29065,7 +29061,7 @@ def build_report_dashboard_context(warehouse):
         _wh_cond,
     ).all()
     out_amount_rows = db.session.query(OutOrder.date, OutOrder.total_amount).filter(
-        OutOrder.status == 'completed',
+        OutOrder.status == 'completed', ordinary_issue,
         OutOrder.date >= monthly_start,
         OutOrder.date < next_month_start,
         _wh_cond_out,
@@ -29160,6 +29156,12 @@ OUT_NON_REQUISITION_BUSINESS_TYPES = (
 
 class ReportFilterError(ValueError):
     """可直接显示给操作员的报表查询条件错误。"""
+
+def _ordinary_requisition_clause():
+    # 普通领料含早期无类型、英文类型、生产出库及手机扫码领料记录。
+    return db.or_(OutOrder.business_type.is_(None), OutOrder.business_type.in_(
+        ('领料单', '', 'requisition', '生产出库', OUT_LEGACY_SCAN_BUSINESS_TYPE)))
+
 
 def _begin_report_read():
     # sqlite3 的 SELECT 默认不启动事务，汇总、逐批明细与来源单须读取同一快照。

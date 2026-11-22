@@ -40,8 +40,19 @@ def dashboard_rows(monkeypatch):
         for index, (kind, warehouse, when, status, qty) in enumerate(specs):
             model, item_model, foreign_key = (wms.InOrder, wms.InOrderItem, 'in_order_id') if kind == 'in' else (wms.OutOrder, wms.OutOrderItem, 'out_order_id')
             order = model(order_no=f'QA19-{index}', date=when, warehouse=warehouse, status=status, total_amount=qty * 2)
+            if kind == 'out' and warehouse == a.name:
+                order.business_type = '领料单'
             wms.db.session.add(order); wms.db.session.flush()
             wms.db.session.add(item_model(**{foreign_key: order.id}, material_id=material.id, quantity=qty, price=2, amount=qty * 2))
+        for index, kind in enumerate(('销售出库', '其他出库', '采购退货出库', '未知类型')):
+            for when in (today, previous):
+                order = wms.OutOrder(order_no=f'EX-{index}-{when}', date=when, warehouse=a.name,
+                                     business_type=kind, status='completed', total_amount=700)
+                wms.db.session.add(order)
+                wms.db.session.flush()
+                wms.db.session.add(wms.OutOrderItem(out_order_id=order.id, material_id=material.id,
+                                                    quantity=70, price=10, amount=700))
+        wms.db.session.add(wms.ProductionRequisition(req_no='WORK-01', warehouse=a.name, status='completed'))
         wms.db.session.commit()
         yield a, b
         wms.db.session.remove(); wms.db.drop_all()
@@ -74,6 +85,35 @@ def test_ai_mom_same_completed_facts(dashboard_rows):
     assert '| 入库金额 | ¥44.00 | ¥6.00 |' in reply
     assert '| 入库单数 | 4 | 1 |' in reply
     assert '| 领料金额 | ¥6.00 | ¥2.00 |' in reply
+
+
+def test_dashboard_warehouse_collision_and_zero_baseline(dashboard_rows, monkeypatch):
+    from flask_login import login_user
+    a, b = dashboard_rows
+    user = wms.User(username='dashboard-reader', password_hash='unused', role='warehouse')
+    wms.db.session.add(user)
+    wms.db.session.commit()
+    monkeypatch.setattr(wms, '_ai_llm_configured', lambda: True)
+    prompts = []
+    def capture(prompt):
+        prompts.append(prompt)
+        return '模拟分析'
+    monkeypatch.setattr(wms, '_ai_call_llm_chat', capture)
+    with wms.app.test_request_context(f'/report/dashboard/ai_insights?warehouse_id={b.id}'):
+        login_user(user)
+        result = wms.app.make_response(wms.app.view_functions['report_dashboard_ai_insights']())
+        assert result.status_code == 200
+        assert '领料金额环比：无法计算' in prompts[0]
+    # Simulate records created before the warehouse namespace guard.
+    wms.db.session.execute(wms.Warehouse.__table__.update().where(wms.Warehouse.id == b.id).values(code=a.name))
+    wms.db.session.commit()
+    for endpoint in ('report_dashboard', 'report_dashboard_ai_insights'):
+        with wms.app.test_request_context(f'/report/dashboard?warehouse_id={a.id}'):
+            login_user(user)
+            response = wms.app.make_response(wms.app.view_functions[endpoint]())
+            content = response.get_json()['msg'] if response.is_json else response.get_data(as_text=True)
+            assert '归属待核' in content
+    assert len(prompts) == 1
 
 
 @pytest.mark.parametrize('case', ['restore-format', 'restore-user-text', 'restore-once', 'ask-reopen', 'late-list', 'late-detail', 'clear-late-detail', 'unsafe-history'])
