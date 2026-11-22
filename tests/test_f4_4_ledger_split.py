@@ -673,3 +673,4 @@ POST_SPLIT_BUGS['BUG-2026-11-21-023'] = 'fixed'  # Align issue detail ordering a
 POST_SPLIT_BUGS['BUG-2026-11-21-024'] = 'fixed'  # Preserve customer ownership during other receipt edits.
 POST_SPLIT_BUGS['BUG-2026-11-21-025'] = 'fixed'  # Identify the recipient on other outbound outputs.
 POST_SPLIT_BUGS['BUG-2026-11-21-026'] = 'fixed'  # Keep transfer warehouses separate from bins.
+POST_SPLIT_BUGS['BUG-2026-11-22-001'] = 'fixed'  # Preserve partially entered adjustment rows.

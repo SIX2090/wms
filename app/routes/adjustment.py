@@ -303,7 +303,9 @@ def register_adjustment_routes(app):
             items_data = []
             material_id = request.form.get('material_id')
             quantity = request.form.get('quantity')
-            if material_id and quantity:
+            if any((request.form.get(key) or '').strip() for key in ('material_id', 'quantity', 'location', 'reason')):
+                if not (material_id or '').strip():
+                    return api_error('第 1 行缺少物料，请补全或清空该行')
                 items_data.append({
                     'material_id': material_id,
                     'quantity': quantity,
@@ -319,6 +321,10 @@ def register_adjustment_routes(app):
                 items_data = [AdjustmentItemInput.model_validate(item).model_dump() for item in items_data]
             except (ValueError, TypeError):
                 return api_error('调整明细格式不正确，请检查物料和有限的正数数量')
+
+            for line_no, item in enumerate(items_data, 1):
+                if not item.get('material_id') and not (item.get('code') or item.get('material_code') or '').strip():
+                    return api_error(f'第 {line_no} 行缺少物料，请补全或清空该行')
 
         if order_id and order_id not in ('None', '', 'null'):
             try:

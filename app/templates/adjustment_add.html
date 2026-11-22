@@ -615,6 +615,13 @@ function hideDropdown() {
 
 
 
+function adjustmentRowHasDetails(row) {
+    return ['.adjust-qty', '.adjust-location', '.adjust-reason'].some(selector => {
+        const field = row.querySelector(selector);
+        return field.value.trim() !== '' || field.validity?.badInput;
+    });
+}
+
 function collectItems() {
     const items = [];
     let invalidRows = [];
@@ -625,8 +632,10 @@ function collectItems() {
         if (code) WMS.normalizeDecimalInput(qtyInput);
         const qty = parseFloat(qtyInput.value);
         if (!code) {
-            codeInput.style.borderColor = '';
+            const entered = adjustmentRowHasDetails(row);
+            codeInput.style.borderColor = entered ? '#ff4d4f' : '';
             qtyInput.style.borderColor = '';
+            if (entered) invalidRows.push('第 ' + (index + 1) + ' 行缺少物料，请补全或清空该行');
             return;
         }
 
@@ -889,7 +898,7 @@ async function parsePastedData() {
 function findEmptyRow() {
     const rows = document.querySelectorAll('#adjustmentTableBody tr');
     for (const row of rows) {
-        if (!row.querySelector('.material-code').value.trim()) return row;
+        if (!row.querySelector('.material-code').value.trim() && !adjustmentRowHasDetails(row)) return row;
     }
     return null;
 }
