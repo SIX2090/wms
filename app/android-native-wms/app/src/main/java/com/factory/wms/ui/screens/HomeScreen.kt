@@ -93,7 +93,7 @@ listOf(
             ),
             FunctionCard(
                 title = "期初库存",
-                subtitle = "选日期仓库 · 扫码建账",
+                subtitle = "按仓库查看期初库存",
                 icon = R.drawable.wms_opening_stock,
                 gradient = listOf(CardCyan, CardCyanDark),
                 screen = Screen.OpeningStock

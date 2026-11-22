@@ -23,6 +23,7 @@
   {% endif %}
   <h2 class="h5-section-title">查询与报表</h2>
   <div class="h5-function-grid">
+    {% if current_user.role == 'finance' %}{{ card('期初库存明细', '按仓库查询已建账物料', 'bi-wallet2', url_for('opening_stock_list', mobile='1'), 'cyan') }}{% endif %}
     {{ card('库存台账', '期初出入结存', 'bi-journal-text', url_for('report_view', report_type='ledger', mobile='1'), 'cyan') }}
     {{ card('报表中心', '库存 / 出入库报表', 'bi-bar-chart', url_for('report', mobile='1'), 'green') }}
   </div>

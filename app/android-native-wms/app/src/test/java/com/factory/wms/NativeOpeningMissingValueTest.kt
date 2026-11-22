@@ -49,6 +49,19 @@ class NativeOpeningMissingValueTest {
         compose.onNodeWithText("0 件").assertIsDisplayed()
         compose.onAllNodesWithText("数量未获取").assertCountEquals(0)
     }
+    @Test fun readOnlyRoleCanSelectWarehouseWithoutEntryOrEditActions() {
+        vm.startEditing(item(2.0, 5.0))
+        activity.get().setContent { WmsTheme { OpeningStockScreen(vm, canEdit = false) {} } }
+        compose.onNodeWithText("选择仓库").performClick()
+        compose.onNode(isDialog()).assertExists()
+        compose.onAllNodesWithText("保存").assertCountEquals(0)
+        compose.onAllNodesWithText("扫码录入").assertCountEquals(0)
+    }
+    @Test fun readOnlyRowShowsQuantityWithoutEditAction() {
+        activity.get().setContent { WmsTheme { BuiltItemCard(item(2.0, 5.0), onClick = null) } }
+        compose.onNodeWithText("2 件").assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("编辑").assertCountEquals(0)
+    }
     @Test fun missingOriginalCannotBeSubmittedEvenViaViewModel() {
         vm.startEditing(item(null, null))
         vm.submitEdit(1.0, 1.0)
@@ -58,7 +71,7 @@ class NativeOpeningMissingValueTest {
     }
     @Test fun dialogExplainsUnavailableValuesAndDisablesSave() {
         vm.startEditing(item(null, null))
-        activity.get().setContent { WmsTheme { OpeningStockScreen(vm) {} } }
+        activity.get().setContent { WmsTheme { OpeningStockScreen(vm, canEdit = true) {} } }
         compose.onNodeWithText("原数量或单价未获取，请刷新后重试").assertIsDisplayed()
         compose.onNodeWithText("保存").assertIsNotEnabled()
     }

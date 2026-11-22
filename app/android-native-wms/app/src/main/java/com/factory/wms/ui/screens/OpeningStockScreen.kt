@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun OpeningStockScreen(
     viewModel: OpeningStockViewModel,
+    canEdit: Boolean,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -82,7 +83,7 @@ fun OpeningStockScreen(
     var editLineConflict by remember { mutableStateOf(false) }
     var editQty by remember { mutableStateOf("") }
     // P1-C：已建账列表 / 编辑弹窗状态
-    var tab by remember { mutableStateOf(OpeningStockTab.ENTRY) }
+    var tab by remember(canEdit) { mutableStateOf(if (canEdit) OpeningStockTab.ENTRY else OpeningStockTab.BUILT) }
     var builtKeyword by remember { mutableStateOf("") }
     var editBuiltQty by remember { mutableStateOf("") }
     var editBuiltPrice by remember { mutableStateOf("") }
@@ -140,7 +141,7 @@ fun OpeningStockScreen(
                 title = "期初库存",
                 subtitle = when (tab) {
                     OpeningStockTab.ENTRY -> "选择日期+仓库，扫码录入初始化库存"
-                    OpeningStockTab.BUILT -> "查看并修改本仓已建账明细"
+                    OpeningStockTab.BUILT -> if (canEdit) "查看并修改本仓已建账明细" else "按仓库查询已建账明细"
                 },
                 accent = CardCyan,
                 onBack = { requestBack() }
@@ -154,7 +155,7 @@ fun OpeningStockScreen(
         ) {
             // P1-C：建账 / 已建账 两个视角。此前手机端只有"建账"，
             // 建完看不到自己建了什么、建错了改不了，只能回 PC 端翻单据。
-            OpeningStockTabs(
+            if (canEdit) OpeningStockTabs(
                 current = tab,
                 entryCount = uiState.lines.size,
                 builtCount = uiState.builtTotal,
@@ -166,6 +167,11 @@ fun OpeningStockScreen(
                 }
             )
 
+            if (!canEdit) {
+                TextButton(onClick = { showWarehouseDialog = true }) {
+                    Text(uiState.selectedWarehouse?.name ?: "选择仓库")
+                }
+            }
             if (tab == OpeningStockTab.BUILT) {
                 BuiltItemsSection(
                     state = uiState,
@@ -176,7 +182,7 @@ fun OpeningStockScreen(
                     },
                     onLoadMore = { viewModel.loadMoreBuiltItems() },
                     onRetry = { viewModel.loadBuiltItems(reset = true) },
-                    onItemClick = { viewModel.startEditing(it) }
+                    onItemClick = if (canEdit) viewModel::startEditing else null
                 )
             } else {
                 EntrySection(
@@ -237,7 +243,7 @@ fun OpeningStockScreen(
     }
 
     // P1-C：已建账明细编辑弹窗——改数量/单价，服务端按差额调账
-    uiState.editingItem?.let { item ->
+    if (canEdit) uiState.editingItem?.let { item ->
         AlertDialog(
             onDismissRequest = { viewModel.cancelEditing() },
             shape = RoundedCornerShape(20.dp),
@@ -1312,7 +1318,7 @@ internal fun BuiltItemsSection(
     onKeywordChange: (String) -> Unit,
     onLoadMore: () -> Unit,
     onRetry: () -> Unit,
-    onItemClick: (OpeningStockDto) -> Unit
+    onItemClick: ((OpeningStockDto) -> Unit)?
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         // 概览卡：本仓建了多少条、合计多少
@@ -1344,7 +1350,7 @@ internal fun BuiltItemsSection(
                     )
                 }
                 // 提示用户"点一行就能改"——不然用户不知道列表可点
-                Text(
+                if (onItemClick != null) Text(
                     "点击行可修改",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
@@ -1410,6 +1416,8 @@ internal fun BuiltItemsSection(
                     title = if (keyword.isNotBlank()) "没找到匹配的建账记录" else "本仓还没有期初建账",
                     subtitle = if (keyword.isNotBlank()) {
                         "换个编码 / 名称 / 规格关键字试试"
+                    } else if (onItemClick == null) {
+                        "可选择其他仓库查询"
                     } else {
                         "切到「建账」扫码录入，建完会出现在这里"
                     },
@@ -1444,7 +1452,7 @@ internal fun BuiltItemsSection(
                         state.builtItems,
                         key = { it.id ?: it.materialCode ?: it.hashCode() }
                     ) { item ->
-                        BuiltItemCard(item = item, onClick = { onItemClick(item) })
+                        BuiltItemCard(item = item, onClick = onItemClick?.let { edit -> { edit(item) } })
                     }
                     item { BuiltListFooter(state) }
                 }
@@ -1454,9 +1462,9 @@ internal fun BuiltItemsSection(
 }
 
 @Composable
-internal fun BuiltItemCard(item: OpeningStockDto, onClick: () -> Unit) {
+internal fun BuiltItemCard(item: OpeningStockDto, onClick: (() -> Unit)?) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)),
         shape = RoundedCornerShape(14.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(containerColor = CardBackground)
@@ -1481,7 +1489,7 @@ internal fun BuiltItemCard(item: OpeningStockDto, onClick: () -> Unit) {
                     listOf(formatQuantity(q), item.unit.orEmpty()).filter { it.isNotBlank() }.joinToString(" ")
                 } ?: "数量未获取"
                 WmsQuantityText(quantity, Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurface)
-                Icon(Icons.Outlined.ChevronRight, "编辑", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
+                if (onClick != null) Icon(Icons.Outlined.ChevronRight, "编辑", tint = OnSurfaceSecondary, modifier = Modifier.size(20.dp))
             }
         }
     }

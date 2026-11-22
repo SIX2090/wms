@@ -305,6 +305,7 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
                     val openingStockViewModel: OpeningStockViewModel = viewModel()
                     OpeningStockScreen(
                         viewModel = openingStockViewModel,
+                        canEdit = authState.role in setOf("admin", "warehouse"),
                         onBack = { navController.popBackStack() }
                     )
                 }

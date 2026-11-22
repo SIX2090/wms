@@ -54,7 +54,7 @@ class NativeOpeningSuggestionTest(private val dark: Boolean, private val scale: 
         @Suppress("DEPRECATION")
         resources.updateConfiguration(scaled, resources.displayMetrics)
         activity.get().setContent { CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
-            WmsTheme(darkTheme = dark) { OpeningStockScreen(vm) {} }
+            WmsTheme(darkTheme = dark) { OpeningStockScreen(vm, canEdit = true) {} }
         } }
     }
     @After fun after() {

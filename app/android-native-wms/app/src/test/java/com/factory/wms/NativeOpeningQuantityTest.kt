@@ -44,7 +44,7 @@ class NativeOpeningQuantityTest {
         state.value = OpeningStockUiState(warehouses = listOf(warehouse), selectedWarehouse = warehouse,
             lines = listOf(OpeningStockLine("WL-1", 5.5, .35, materialName = "合成螺栓", materialSpec = "M8×30", materialUnit = "件")))
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
-        activity.get().setContent { WmsTheme(darkTheme = false) { OpeningStockScreen(vm) { returned = true } } }
+        activity.get().setContent { WmsTheme(darkTheme = false) { OpeningStockScreen(vm, canEdit = true) { returned = true } } }
     }
     @After fun after() { closeWmsTestViewModels(listOf(vm)); RetrofitClient.setToken(null); RetrofitClient.setBaseUrl(""); disposeComposeActivity(activity) }
     private fun control(label: String): SemanticsNodeInteraction {

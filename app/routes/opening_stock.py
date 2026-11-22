@@ -5,7 +5,7 @@ from flask import abort, g
 from flask_login import login_required
 
 from services.document_stock_audit import stage_order_audit
-from utils import require_role
+from utils import is_read_only_role, require_role
 
 # G-16（2026-11-11 体检缺口）：一键清空全部期初库存是**全库级不可逆**动作，
 # 原保护只有前端连点两次 confirm + 服务端 confirm=true，等于"手滑两下就清库"。
@@ -26,6 +26,26 @@ def _opening_stock_deleted_lines_audit(lines):
                    'warehouse_id': line.warehouse_id, 'quantity': line.quantity}
                   for line in lines[:OPENING_STOCK_AUDIT_SAMPLE_SIZE]],
     }
+
+
+def opening_stock_lines_query(warehouse_id, keyword):
+    """电脑与手机共用按仓库、物料筛选的期初明细，包含未归单的历史行。"""
+    from app import Material, OpeningStock, db, joinedload
+    query = OpeningStock.query.options(
+        joinedload(OpeningStock.material).joinedload(Material.unit),
+        joinedload(OpeningStock.warehouse),
+    ).filter(OpeningStock.warehouse_id == warehouse_id)
+    if keyword:
+        like = f'%{keyword}%'
+        query = query.join(Material, OpeningStock.material_id == Material.id).filter(
+            db.or_(
+                Material.code.like(like),
+                Material.name.like(like),
+                Material.spec.like(like),
+            )
+        )
+
+    return query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc())
 
 
 # no-test:reason=路由注册辅助函数，能力由 opening_stock_* 各路由测试覆盖
@@ -55,6 +75,19 @@ def register_opening_stock_routes(app):
         per_page = per_page if per_page in [10, 20, 50, 100, 200] else 20
         search = (request.args.get('search') or '').strip()
         warehouse_id = request.args.get('warehouse_id', type=int)
+
+        if is_read_only_role():
+            from app import resolve_request_warehouse
+            warehouse, error = resolve_request_warehouse(request.args)
+            pagination = None
+            if warehouse:
+                pagination = opening_stock_lines_query(warehouse.id, search).paginate(
+                    page=page, per_page=per_page, error_out=False)
+            return render_template(
+                'opening_stock_read.html', doc=None, warehouse=warehouse, error=error,
+                warehouses=get_active_warehouses(), search=search, pagination=pagination,
+                lines=pagination.items if pagination else [],
+            )
 
         query = OpeningStockDoc.query
         if search:
@@ -183,6 +216,9 @@ def register_opening_stock_routes(app):
         ).filter_by(id=id).first()
         if not doc:
             abort(404)
+
+        if is_read_only_role():
+            return render_template('opening_stock_read.html', doc=doc, lines=doc.lines)
 
         # 明细回填：字段名与前端 rows / collectItems() 保持一致，
         # 否则打开单据后明细会显示为空白行。

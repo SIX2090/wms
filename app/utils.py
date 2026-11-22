@@ -798,6 +798,12 @@ def read_only_path_denied(path=None):
     path = request.path if path is None else path
     if not path:
         return False
+    if (path == request.path and request.method in {'GET', 'HEAD'} and request.endpoint in {
+        'opening_stock_list', 'opening_stock_doc_detail', 'document_opening_stock_print_options',
+        'document_opening_stock_print_preview', 'document_opening_stock_print_file',
+        'doc_print_excel_opening_stock',
+    }):
+        return False
     for prefix in READ_ONLY_DENIED_PREFIXES:
         if path == prefix:
             return True

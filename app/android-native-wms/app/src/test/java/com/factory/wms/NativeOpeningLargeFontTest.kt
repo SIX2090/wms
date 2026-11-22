@@ -49,7 +49,7 @@ class NativeOpeningLargeFontTest(private val dark: Boolean) {
             lines = listOf(OpeningStockLine("WL-000238", 100.0, .35, materialName = "不锈钢内六角螺栓", materialSpec = "M8×30", materialUnit = "件")))
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
         activity.get().setContent { CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
-            WmsTheme(darkTheme = dark) { OpeningStockScreen(vm) {} }
+            WmsTheme(darkTheme = dark) { OpeningStockScreen(vm, canEdit = true) {} }
         } }
     }
     @After fun after() { closeWmsTestViewModels(listOf(vm)); RetrofitClient.setToken(null); RetrofitClient.setBaseUrl(""); disposeComposeActivity(activity) }

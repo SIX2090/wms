@@ -3235,10 +3235,10 @@ def register_native_api_routes(app):
         数量合计），二者基于**过滤前**的仓库全集计算，与分页彻底解耦（R1），
         供 App 顶部展示"本仓已建账 N 项 / 合计 Q"。
         """
-        from sqlalchemy.orm import joinedload
+        from routes.opening_stock import opening_stock_lines_query
         from flask_login import current_user
         from services.document_edit_guard import opening_line_revision
-        from app import (Material, OpeningStock, _mobile_paginate, api_json_error,
+        from app import (OpeningStock, _mobile_paginate, api_json_error,
                          api_json_success, MOBILE_API_PAGE_SIZE_DEFAULT,
                          get_bearer_user,
                          normalize_stock_quantity, resolve_request_warehouse,
@@ -3262,21 +3262,7 @@ def register_native_api_routes(app):
             db.func.coalesce(db.func.sum(OpeningStock.quantity), 0)
         ).scalar()
 
-        query = OpeningStock.query.options(
-            joinedload(OpeningStock.material),
-            joinedload(OpeningStock.warehouse),
-        ).filter(OpeningStock.warehouse_id == warehouse.id)
-        if keyword:
-            like = f'%{keyword}%'
-            query = query.join(Material, OpeningStock.material_id == Material.id).filter(
-                db.or_(
-                    Material.code.like(like),
-                    Material.name.like(like),
-                    Material.spec.like(like),
-                )
-            )
-
-        query = query.order_by(OpeningStock.created_at.desc(), OpeningStock.id.desc())
+        query = opening_stock_lines_query(warehouse.id, keyword)
         page_data = _mobile_paginate(query, page, page_size)
         actor = current_user if current_user.is_authenticated else get_bearer_user()
         return api_json_success({

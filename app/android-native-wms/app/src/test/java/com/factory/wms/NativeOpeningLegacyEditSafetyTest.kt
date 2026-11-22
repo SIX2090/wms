@@ -44,7 +44,7 @@ class NativeOpeningLegacyEditSafetyTest {
         activity = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
     }
     @After fun after() { closeWmsTestViewModels(listOf(vm)); RetrofitClient.setToken(null); RetrofitClient.setBaseUrl(""); disposeComposeActivity(activity) }
-    private fun show() { activity.get().setContent { WmsTheme { OpeningStockScreen(vm) {} } } }
+    private fun show() { activity.get().setContent { WmsTheme { OpeningStockScreen(vm, canEdit = true) {} } } }
     private fun openCard() {
         compose.onAllNodes(hasScrollAction()).onFirst().performScrollToNode(hasText("不锈钢内六角螺栓"))
         compose.onNode(hasClickAction() and hasAnyDescendant(hasText("不锈钢内六角螺栓")), useUnmergedTree = true).performScrollTo().performClick()
